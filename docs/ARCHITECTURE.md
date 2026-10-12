@@ -1,0 +1,138 @@
+# Genio architecture
+
+Genio is an Electron reimplementation of [companion](https://github.com/example-org/companion)
+for game development. Companion is an "agent distro" that runs inside a terminal
+harness and drives tmux; Genio turns the same operating model into a desktop app.
+Vocabulary is gaming, not nautical: see [VOCABULARY.md](VOCABULARY.md).
+
+- **One companion.** The Player talks only to Genio. Genio is a Claude Agent SDK
+  session running in the main process with an in-process MCP toolbelt
+  (`mcp__genio__*`). It never edits worlds (projects) itself.
+- **A visible Squad.** Each unit is an autonomous coding-agent CLI (Claude Code,
+  Codex, Gemini, OpenCode, Cursor, Grok, Aider, custom) running in a real PTY
+  (node-pty) inside its own git worktree. The GUI shows every terminal live
+  (xterm.js); the Player can watch or type into any of them.
+- **Scripts own mechanics, agents own judgment.** Deploying, worktrees, status
+  parsing, overwatch, merge guards, despawn guards, Gauntlet steps and quest
+  transitions are deterministic TypeScript. Genio decides what to do, writes
+  briefs, and talks to the Player.
+- **A restart is a non-event.** Everything lives under the Base directory
+  (`~/.genio`, or `GENIO_HOME`). On restart, units whose process died are marked
+  `detached` and can be respawned with conversation resume.
+
+## Concept map (companion → Genio)
+
+| companion | Genio module | UI |
+|---|---|---|
+| main agent session | `wksp.ts` Agent SDK session (main base) | COMMS |
+| teammate in a tmux window | `crew.ts` task + `terminals.ts` PTY | SQUAD |
+| ship / scout task | `kind: 'ship' \| 'scout'` | BUILD / RECON mission |
+| treehouse worktree | `git worktree add` under `worktrees/<world>/<id>` | — |
+| `state/<id>.status` verbs | same grammar, parsed by `status.ts` | timeline |
+| `ag-send` steering inbox | `state/<id>.inbox/NNN.msg` + typed doorbell | PING |
+| `fm-control` interrupt/exit/relaunch | `crew.control()` | INTERRUPT / RECALL / RESPAWN |
+| `fm-watch` wakes | `supervisor.ts` (overwatch) + durable `wakes.ts` | KILLFEED |
+| backlog + holds | `backlog.ts` | QUEST LOG |
+| keyed decisions / captain holds | `decisions.ts` + held quests | YOUR MOVE |
+| project registry, modes, +yolo | `projects.ts` | WORLDS |
+| no-mistakes pipeline | `gauntlet.ts` | GAUNTLET |
+| `fm-pr-merge` / `fm-merge-local` / `fm-teardown` | `crew.merge()` / `crew.cleanup()` | MERGE / DESPAWN |
+| `/bearings` | `statusreport.ts` | STATUS (/status) |
+| `/ahoy` | recap + one-at-a-time choices | RECAP (/recap) |
+| `/afk`, `/quiet`, away daemon, wedge alarm | `away.ts` + the Bot session | presence ONLINE / DND / AFK |
+| `/stow` | `memory.ts` + save prompt | LORE (/save) |
+| `/updatecompanion` | `update.ts` | SYSTEMS (/patch) |
+| subsidiarys | `allies.ts`, `wksps/<name>/` bases | ALLIES |
+| dispatch profiles | `settings.dispatchRules` | SYSTEMS |
+| harness adapters | `settings.harnesses` | SYSTEMS |
+| captain inbox | `inbox.ts` + token-protected local HTTP intake | MAIL |
+| fleet ledger | `ledger.ts` | Replay log |
+| process-event sources | `settings.eventSources` | SYSTEMS › Triggers |
+| calm mode | `settings.calm` | Clean HUD |
+| seatbelt / subagent guard | `canUseTool` policy in `wksp.ts` | permission prompt |
+| voice relay | text-to-speech of Genio replies | toggle |
+
+Game-dev additions: engine detection (Godot, Unity, Unreal, Bevy, LÖVE,
+GameMaker, Defold, MonoGame, web), engine-aware command presets, a **PLAYTEST**
+button that launches the game from any unit's worktree before merging, XP,
+levels, achievements, sound effects and a HUD visual language.
+
+## Process layout
+
+```
+src/shared/types.ts   data model (single source of truth)
+src/shared/api.ts     renderer → main API (ipcRenderer.invoke('genio:<method>'))
+src/main/services.ts  service interfaces
+src/main/ctx.ts       composition root + factory contract
+src/main/*.ts         one module per service
+src/preload/index.ts  exposes window.genio = { api, on, onTerminalData }
+src/renderer/src/     React UI
+```
+
+Main → renderer push events go through `bus.publish(GenioEvent)`; `index.ts`
+forwards them on channel `genio:event`. Terminal output is batched separately on
+`genio:term-data`.
+
+## Status protocol (companion grammar)
+
+Units append one line per actionable event to their status file:
+
+```
+<verb> [key=<slug>] [at=<epoch>]: <one short line>
+```
+
+Verbs: `working`, `needs-decision`, `blocked`, `paused` (optional `until <ISO>`),
+`done`, `failed`, `note`, `resolved`, `player-held`. `needs-decision`/`blocked`
+open a keyed choice (key `default` when absent); `resolved`/`player-held` with
+the same key close it. Player-relevant: `done`, `needs-decision`, `blocked`,
+`failed`, plus legacy free text `PR ready|checks green|ready in branch|merged`.
+A Build `done:` naming `PR <https url>` registers the PR.
+
+## Overwatch (zero-token supervision)
+
+`supervisor.ts` polls every `pollSeconds` (15s) per base:
+
+- **signal** — new status lines, coalesced for `signalGraceSeconds` (30s);
+  surfaced when player-relevant, or when a turn ended (Claude Stop hook writes
+  `state/<id>.turn-ended`) without a declared status.
+- **stale** — lagging unit: no PTY output for `staleSeconds` (240s) outside a
+  declared wait; `paused` resurfaces every `pausedResurfaceHours` or at its
+  `until`; a dead process raises one `exited` event; an unread ping past
+  `inboxGraceSeconds` re-rings up to `inboxRingMax`, then escalates.
+- **check** — PR polls every `prPollMinutes` (merged / checks red / green), Mail,
+  triggers, ally reports, Gauntlet results.
+- **tick** (heartbeat) — base `heartbeatBaseMinutes` (10), doubling per quiet
+  streak to `heartbeatMaxMinutes` (120); surfaces only with something to act on.
+
+Actionable events go to the durable queue (`state/wakes.jsonl`). Genio gets one
+turn per drain (queued events, UNREAD STATUS, OPEN CHOICES); the queue is acked
+only after that turn completes, so a crash re-presents them.
+
+Presence: in **DND** routine events go to a separate *Bot* session instead of
+Comms; in **AFK** everything goes to the Bot, player-relevant outcomes are
+captured to the away log, pushed to notifiers (desktop / webhook) and replayed
+as a "welcome back" brief. Unseen AFK escalations older than `alarmMinutes`
+fire the alarm.
+
+## Delivery modes and merge authority
+
+- **Hardcore** (`no-mistakes`): the unit commits and declares `done:`; Genio runs
+  the **Gauntlet**: rebase check → world lint/build/test commands → AI review of
+  the diff against the Player's intent → findings go back to the unit (up to
+  `validationMaxRounds`) → push → PR (gh) → CI wait. Ask-user findings become
+  Your Move choices.
+- **Standard** (`direct-PR`): the unit pushes and opens a non-draft PR, then
+  `done: PR <url>`.
+- **Offline** (`local-only`): the unit leaves a clean fast-forward branch:
+  `done: ready in branch <b>`.
+- **Auto-loot** (`yolo`, per world, granted by the Player) lets Genio merge
+  green, in-scope work itself. Never merge red, pending or draft work.
+  Destructive things always escalate.
+
+Despawn refuses unlanded work: uncommitted changes, or commits that are not
+reachable from any remote-tracking branch, not in base, and not in a merged PR.
+Forcing requires the Player's explicit word.
+
+## Base layout
+
+See `src/main/home.ts`.

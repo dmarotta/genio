@@ -1,0 +1,946 @@
+/**
+ * The Squad: unit lifecycle for one base (companion fm-spawn, ag-send,
+ * fm-control, fm-teardown, fm-pr-merge, fm-merge-local, fm-promote,
+ * fm-crew-state, fm-fleet-view).
+ */
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import type { DeliveryMode, StatusEvent, Task, TaskState, TerminalInfo } from '@shared/types'
+import type { OpResult, SpawnRequest, TaskFile } from '@shared/api'
+import type { AppCtx, CrewService } from './services'
+import type { Home } from './home'
+import { bus } from './bus'
+import * as git from './git'
+import { appendProgressNote, doorbellLine, engineHints, kickoffPrompt, renderBrief } from './brief'
+import { buildArgs, CLAUDE_BYPASS_DIALOG } from './harness'
+import { foldOpenDecisions, formatStatusLine, parseStatusLine, parseStatusLog } from './status'
+import { createGauntlet } from './gauntlet'
+import { modeLabel } from '@shared/vocab'
+import { defaultShell } from './terminals'
+import {
+  appendLine, ensureDir, exists, fwd, nowIso, readJson, readText, rid, slugify, stripAnsi, truncate, writeJson, writeText
+} from './util'
+
+/** States with an expected live process. */
+const ACTIVE: TaskState[] = ['spawning', 'working', 'paused', 'blocked', 'needs-decision', 'stale', 'validating']
+/** States that end a mission's work (process may still be around). */
+const FINISHED: TaskState[] = ['ready', 'merged', 'done', 'failed', 'cleaned']
+
+const TRAILER_FILTER = /^(Co-Authored-By:.*(Claude|Anthropic|OpenAI|GPT|Codex|Gemini|Copilot|Cursor|Grok|Aider|noreply@anthropic\.com).*|.*Generated with \[?Claude Code.*|.*🤖 Generated with.*)$/i
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms))
+}
+
+export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService {
+  let tasks: Task[] = readJson<Task[]>(home.tasksFile, [])
+  const gauntlet = createGauntlet(getCtx, home)
+  const inboxDir = (id: string): string => path.join(home.state, `${id}.inbox`)
+  const turnEndedFile = (id: string): string => path.join(home.state, `${id}.turn-ended`)
+  const bypassWarned = new Set<string>()
+
+  const persist = (): void => writeJson(home.tasksFile, tasks)
+  const hc = () => getCtx().home(home.name)
+  const safe = (fn: () => void): void => {
+    try {
+      fn()
+    } catch {
+      /* optional collaborators never break the engine */
+    }
+  }
+  const ledger = (event: Parameters<AppCtx['ledger']['record']>[0]['event'], t: Task, data?: Record<string, unknown>): void =>
+    safe(() => getCtx().ledger.record({ event, task: t.id, project: t.project, home: home.name, data }))
+
+  const withLive = (t: Task): Task => {
+    if (!t.terminalId) return t
+    const at = getCtx().terminals.lastOutputAt(t.terminalId)
+    return at ? { ...t, lastOutputAt: new Date(at).toISOString() } : t
+  }
+
+  const get = (id: string): Task | undefined => tasks.find((t) => t.id === id)
+  const must = (id: string): Task => {
+    const t = get(id)
+    if (!t) throw new Error(`Unknown unit: ${id}`)
+    return t
+  }
+
+  const update = (id: string, patch: Partial<Task>): Task | undefined => {
+    const i = tasks.findIndex((t) => t.id === id)
+    if (i < 0) return undefined
+    const prev = tasks[i]
+    const next: Task = { ...prev, ...patch, updatedAt: nowIso() }
+    tasks[i] = next
+    persist()
+    bus.publish({ type: 'task', task: withLive(next) })
+    if (patch.state && patch.state !== prev.state) {
+      ledger('task.status', next, { state: patch.state, reason: patch.stateReason })
+    }
+    return next
+  }
+
+  const terminalAlive = (t: Task): boolean => Boolean(t.terminalId && getCtx().terminals.get(t.terminalId)?.alive)
+
+  const uniqueId = (title: string): string => {
+    for (;;) {
+      const id = `${slugify(title, 40)}-${rid(2)}`.replace(/[^A-Za-z0-9._-]/g, '-').replace(/^\.+/, '').slice(0, 64)
+      if (!get(id) && !exists(home.taskDir(id))) return id
+    }
+  }
+
+  /** Per-task git hooks dir that chains the world's own hooks and strips AI trailers. */
+  const writeHooks = async (t: Task, repo: string): Promise<Record<string, string>> => {
+    if (!getCtx().settings.get().stripAiTrailers) return {}
+    const dir = path.join(home.state, `${t.id}.git-hooks`)
+    ensureDir(dir)
+    const configured = (await git.git(repo, ['config', '--get', 'core.hooksPath'])).stdout.trim()
+    const original = configured
+      ? path.resolve(repo, configured)
+      : path.resolve(repo, (await git.git(repo, ['rev-parse', '--git-path', 'hooks'])).stdout.trim() || '.git/hooks')
+    const orig = fwd(original)
+    const names = ['pre-commit', 'prepare-commit-msg', 'post-commit', 'pre-push', 'post-checkout', 'post-merge', 'pre-rebase']
+    for (const n of names) {
+      writeText(path.join(dir, n), `#!/bin/sh\n[ -x "${orig}/${n}" ] && exec "${orig}/${n}" "$@"\nexit 0\n`)
+    }
+    const filter = TRAILER_FILTER.source.replace(/'/g, "'\\''")
+    writeText(
+      path.join(dir, 'commit-msg'),
+      `#!/bin/sh\nif [ -x "${orig}/commit-msg" ]; then "${orig}/commit-msg" "$@" || exit $?; fi\n` +
+        `tmp="$1.genio"\ngrep -Eiv '${filter}' "$1" > "$tmp" || true\nmv "$tmp" "$1"\nexit 0\n`
+    )
+    for (const n of [...names, 'commit-msg']) {
+      try {
+        fs.chmodSync(path.join(dir, n), 0o755)
+      } catch {
+        /* windows */
+      }
+    }
+    return { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: fwd(dir) }
+  }
+
+  const writeClaudeSettings = (t: Task): string => {
+    const p = path.join(home.state, `${t.id}.claude-settings.json`)
+    const marker = fwd(turnEndedFile(t.id))
+    const command = `node -e "require('fs').writeFileSync('${marker}', String(Date.now()))"`
+    writeJson(p, { hooks: { Stop: [{ hooks: [{ type: 'command', command }] }] } })
+    return p
+  }
+
+  /**
+   * Pre-accept Claude Code's folder-trust prompt for a unit worktree, the way
+   * companion's fm-claude-trust.sh does: set hasTrustDialogAccepted for the path
+   * in ~/.claude.json (keys use forward slashes). Read-modify-write, atomic.
+   */
+  const setClaudeTrust = (dirs: string[], trusted: boolean): void => {
+    const cfg = path.join(os.homedir(), '.claude.json')
+    try {
+      const raw = readText(cfg)
+      if (!raw.trim()) return
+      const data = JSON.parse(raw) as { projects?: Record<string, Record<string, unknown>> }
+      data.projects ??= {}
+      let changed = false
+      for (const d of dirs) {
+        const key = fwd(path.resolve(d))
+        if (trusted) {
+          const cur = data.projects[key] ?? {}
+          if (cur.hasTrustDialogAccepted !== true) {
+            data.projects[key] = { ...cur, hasTrustDialogAccepted: true }
+            changed = true
+          }
+        } else if (data.projects[key]) {
+          // despawned worktree: drop the entry so ~/.claude.json does not accumulate dead paths
+          delete data.projects[key]
+          changed = true
+        }
+      }
+      if (changed) writeText(cfg, JSON.stringify(data, null, 2))
+    } catch {
+      /* fall back to the on-screen answer in watchConsent */
+    }
+  }
+
+  /** Watch early output: answer trust dialogs, flag the bypass dialog. */
+  const watchConsent = (t: Task, terminalId: string, trust: string[], response: string, isClaude: boolean): void => {
+    const terms = getCtx().terminals
+    // TUIs position text with cursor moves, so stripped output often loses its
+    // spaces: match on whitespace-free, lower-cased text.
+    const squash = (x: string): string => x.replace(/\s+/g, '').toLowerCase()
+    const patterns = trust.map(squash).filter(Boolean)
+    let tail = ''
+    let answered = 0
+    let lastAnswer = 0
+    const off = terms.onData(terminalId, (d) => {
+      tail = (tail + squash(stripAnsi(d))).slice(-4000)
+      if (isClaude && CLAUDE_BYPASS_DIALOG.test(tail) && !bypassWarned.has(t.id)) {
+        bypassWarned.add(t.id)
+        safe(() =>
+          hc().decisions.openForTask(
+            t.id,
+            'bypass-consent',
+            `Claude Code needs a one-time acceptance of its bypass-permissions mode before unit ${t.id} can work. Open the unit's terminal in SQUAD and accept it, or switch the Claude permission mode to "auto" in SYSTEMS and respawn.`,
+            'system',
+            { project: t.project, options: ['I accepted it in the terminal', 'Switch to auto mode'] }
+          )
+        )
+        return
+      }
+      if (answered < 3 && Date.now() - lastAnswer > 2000 && patterns.some((p) => tail.includes(p))) {
+        answered++
+        lastAnswer = Date.now()
+        // Newer Claude Code pre-selects "No, exit": move to the "Yes" option first.
+        const noFirst = /[❯>]no,?exit/.test(tail) && tail.indexOf('no,exit') < tail.lastIndexOf('yes')
+        tail = ''
+        setTimeout(() => {
+          if (noFirst) {
+            terms.write(terminalId, '[B')
+            setTimeout(() => terms.write(terminalId, response), 250)
+          } else {
+            terms.write(terminalId, response)
+          }
+        }, 300)
+      }
+    })
+    setTimeout(off, 90_000)
+  }
+
+  const launch = async (t: Task, opts: { resume: boolean; prompt: string }): Promise<TerminalInfo> => {
+    const ctx = getCtx()
+    const s = ctx.settings.get()
+    const adapter = ctx.settings.harness(t.harness)
+    if (!adapter) throw new Error(`Unknown unit runtime "${t.harness}". Pick one in SYSTEMS › Runtimes.`)
+    if (!adapter.enabled) throw new Error(`Unit runtime "${adapter.name}" is disabled.`)
+    const project = ctx.projects.get(t.project)
+    const isClaude = adapter.id === 'claude'
+    if (isClaude) setClaudeTrust([t.worktree], true)
+    const settingsPath = isClaude ? writeClaudeSettings(t) : undefined
+    const args = buildArgs(adapter, { model: t.model, effort: t.effort, prompt: opts.prompt, cwd: t.worktree, settings: settingsPath, resume: opts.resume }, s)
+    const hookEnv = project ? await writeHooks(t, project.path) : {}
+    const env: Record<string, string> = {
+      ...(adapter.env ?? {}),
+      ...hookEnv,
+      GENIO_TASK_ID: t.id,
+      GENIO_STATUS_FILE: fwd(home.statusFile(t.id)),
+      GENIO_TASK_INBOX: fwd(inboxDir(t.id)),
+      GENIO_BRIEF: fwd(t.briefPath)
+    }
+    const term = ctx.terminals.create({ kind: 'worker', title: t.id, cwd: t.worktree, file: adapter.command, args, env, taskId: t.id })
+    if (!term.alive) throw new Error(`Could not start ${adapter.name} (${adapter.command}). Is it installed? Check SYSTEMS.`)
+    watchConsent(t, term.id, adapter.trustPatterns, adapter.trustResponse, isClaude)
+    ctx.terminals.onExit(term.id, (code) => {
+      const cur = get(t.id)
+      if (!cur || cur.terminalId !== term.id) return
+      if (ACTIVE.includes(cur.state)) {
+        update(t.id, { state: 'exited', stateReason: `unit process exited (code ${code}) without a final status` })
+      }
+    })
+    if (adapter.promptDelivery === 'type') {
+      // wait for the TUI to settle, then type the kickoff
+      void (async () => {
+        const start = Date.now()
+        while (Date.now() - start < 20_000) {
+          await sleep(1000)
+          const last = ctx.terminals.lastOutputAt(term.id) ?? 0
+          if (last && Date.now() - last > 2500) break
+        }
+        await ctx.terminals.submit(term.id, opts.prompt, adapter.submitKey)
+      })()
+    }
+    return term
+  }
+
+  const resolveKeysFor = (id: string): string[] => [...foldOpenDecisions(svc.statusEvents(id)).keys()]
+
+  const nextSeq = (id: string): number => {
+    const dir = inboxDir(id)
+    let max = 0
+    for (const d of [dir, path.join(dir, 'handled')]) {
+      try {
+        for (const f of fs.readdirSync(d)) {
+          const m = f.match(/^(\d+)\.msg$/)
+          if (m) max = Math.max(max, parseInt(m[1], 10))
+        }
+      } catch {
+        /* missing dir */
+      }
+    }
+    return max + 1
+  }
+
+  const applyStatus = (t: Task, e: StatusEvent): void => {
+    const ctx = getCtx()
+    const decisions = hc().decisions
+    const cur = get(t.id) ?? t
+    const late = FINISHED.includes(cur.state) && cur.state !== 'failed'
+    switch (e.kind) {
+      case 'working':
+        if (!late && cur.state !== 'validating') update(t.id, { state: 'working', stateReason: e.text })
+        break
+      case 'needs-decision':
+      case 'blocked':
+        safe(() =>
+          decisions.openForTask(t.id, e.key ?? 'default', e.text || (e.kind === 'blocked' ? 'The unit is blocked.' : 'The unit needs a choice.'), 'unit', {
+            project: t.project,
+            context: e.kind === 'blocked' ? 'blocked' : undefined
+          })
+        )
+        update(t.id, { state: e.kind, stateReason: e.text })
+        break
+      case 'paused':
+        if (!late) update(t.id, { state: 'paused', stateReason: e.fields.until ? `${e.text} (until ${e.fields.until})` : e.text })
+        break
+      case 'resolved':
+      case 'player-held': {
+        safe(() => decisions.resolveKey(t.id, e.key ?? 'default', e.text))
+        const stillOpen = resolveKeysFor(t.id)
+        if (!stillOpen.length && (cur.state === 'needs-decision' || cur.state === 'blocked')) {
+          update(t.id, { state: e.kind === 'player-held' ? 'paused' : 'working', stateReason: e.text })
+        }
+        break
+      }
+      case 'done': {
+        if (t.kind === 'scout') {
+          update(t.id, { state: 'done', stateReason: e.text })
+          safe(() => ctx.stats.award('scout', t.id))
+          safe(() => ctx.notifier.sfx('ready'))
+          break
+        }
+        if (e.fields.pr) {
+          void svc.registerPr(t.id, e.fields.pr)
+          break
+        }
+        const mode: DeliveryMode = t.mode ?? 'no-mistakes'
+        if (mode === 'local-only') {
+          update(t.id, { state: 'ready', stateReason: e.text })
+          ledger('task.pr_ready', t, { branch: e.fields.branch ?? t.branch })
+          safe(() => ctx.stats.award('ship', t.id))
+          safe(() => ctx.notifier.sfx('ready'))
+        } else if (mode === 'no-mistakes') {
+          update(t.id, { state: 'validating', stateReason: 'Gauntlet starting' })
+          void gauntlet.run(t.id).catch(() => undefined)
+        } else {
+          void (async () => {
+            const url = await ctx.forge.findPrForBranch(t.worktree, t.branch).catch(() => undefined)
+            if (url) await svc.registerPr(t.id, url)
+            else update(t.id, { state: 'blocked', stateReason: 'declared done without a PR url; ask the unit for the full PR link' })
+          })()
+        }
+        break
+      }
+      case 'failed':
+        update(t.id, { state: 'failed', stateReason: e.text })
+        safe(() => ctx.notifier.sfx('error'))
+        break
+      case 'unknown':
+        if (e.fields.pr) void svc.registerPr(t.id, e.fields.pr)
+        break
+      default:
+        break
+    }
+  }
+
+  const playCommandFor = (engine: string, run?: string): string | undefined => {
+    if (run) return run
+    if (engine === 'godot') return 'godot --path .'
+    if (engine === 'love2d') return 'love .'
+    if (engine === 'bevy') return 'cargo run'
+    if (engine === 'monogame') return 'dotnet run'
+    return undefined
+  }
+
+  const svc: CrewService = {
+    list: () => tasks.map(withLive),
+    get: (id) => {
+      const t = get(id)
+      return t ? withLive(t) : undefined
+    },
+    update,
+
+    async spawn(req: SpawnRequest): Promise<Task> {
+      const ctx = getCtx()
+      const s = ctx.settings.get()
+      const project = ctx.projects.get(req.project)
+      if (!project) throw new Error(`Unknown world "${req.project}". Add it in WORLDS first.`)
+      if (!exists(project.path)) throw new Error(`The clone of ${project.name} is missing at ${project.path}.`)
+      if (!req.title?.trim()) throw new Error('A mission needs a title.')
+      if (!req.intent?.trim()) throw new Error("A mission needs the player's intent.")
+      if (/^\s*(player|captain)\b[,:]/i.test(req.intent)) throw new Error("The intent must be the player's words without a speaker label or direct address.")
+
+      const posture = ctx.projects.resolvePosture(project.name, { mode: req.mode, yolo: req.yolo })
+      if (req.kind === 'ship' && posture.mode !== 'local-only' && !(await git.hasRemote(project.path))) {
+        throw new Error(`${project.name} has no remote, so ${modeLabel(posture.mode)} mode cannot open a PR. Use Offline mode for this world.`)
+      }
+
+      // capacity across every base
+      if (project.capacity && project.capacity > 0) {
+        let used = 0
+        for (const h of ctx.homes.values()) used += h.crew.capacityUsed(project.name)
+        if (used >= project.capacity) {
+          throw new Error(`deferred: ${project.name} is at capacity (${used}/${project.capacity} units). The quest stays queued.`)
+        }
+      }
+
+      // quest log gate
+      const backlog = hc().backlog
+      let backlogId = req.backlogId
+      if (backlogId) {
+        const b = backlog.get(backlogId)
+        if (!b) throw new Error(`Quest ${backlogId} does not exist in this base.`)
+        if (b.hold) throw new Error(`Quest ${backlogId} is waiting on the player (${b.hold.reason}).`)
+        if (b.state === 'done' || b.state === 'dropped') throw new Error(`Quest ${backlogId} is already ${b.state}.`)
+        if (b.state === 'in-flight' && b.taskId && get(b.taskId) && get(b.taskId)!.state !== 'cleaned') {
+          throw new Error(`Quest ${backlogId} is already in flight as ${b.taskId}.`)
+        }
+      } else {
+        const b = backlog.add({
+          title: req.title,
+          project: project.name,
+          kind: req.kind,
+          notes: req.intent,
+          mode: req.kind === 'ship' ? posture.mode : undefined,
+          yolo: req.kind === 'ship' ? posture.yolo : undefined
+        })
+        backlogId = b.id
+      }
+
+      const id = uniqueId(req.title)
+      const branch = `${posture.branchPrefix}${id}`
+      const baseBranch = req.baseBranch?.trim() || project.defaultBranch
+      const wt = home.worktreeFor(project.name, id)
+      const add = await git.addWorktree(project.path, wt, branch, baseBranch)
+      if (add.code !== 0) throw new Error(`Could not create the isolated worktree: ${add.stderr.trim()}`)
+      const iso = await git.assertIsolated(project.path, wt)
+      if (!iso.ok) {
+        await git.removeWorktree(project.path, wt, true)
+        throw new Error(`Isolation check failed (${iso.reason}); the mission was stopped.`)
+      }
+
+      ensureDir(home.taskDir(id))
+      ensureDir(path.join(inboxDir(id), 'handled'))
+      if (!exists(home.statusFile(id))) writeText(home.statusFile(id), '')
+      const reportPath = req.kind === 'scout' ? home.reportFile(id) : undefined
+      const briefPath = home.briefFile(id)
+      writeText(
+        briefPath,
+        renderBrief({
+          taskId: id,
+          kind: req.kind,
+          project: project.name,
+          worktree: wt,
+          branch,
+          baseBranch,
+          mode: req.kind === 'ship' ? posture.mode : undefined,
+          yolo: posture.yolo,
+          intent: req.intent,
+          spec: req.spec,
+          statusFile: home.statusFile(id),
+          inboxDir: inboxDir(id),
+          taskDataDir: home.taskDir(id),
+          reportPath,
+          engine: project.engine,
+          engineHints: engineHints(project.engine),
+          briefInclude: s.briefInclude
+        })
+      )
+
+      const harness = req.harness || s.defaultHarness || 'claude'
+      const now = nowIso()
+      const task: Task = {
+        id,
+        kind: req.kind,
+        title: req.title.trim(),
+        project: project.name,
+        wksp: home.name,
+        backlogId,
+        mode: req.kind === 'ship' ? posture.mode : undefined,
+        yolo: req.kind === 'ship' ? posture.yolo : undefined,
+        branchPrefix: posture.branchPrefix,
+        baseBranch,
+        branch,
+        worktree: wt,
+        briefPath,
+        reportPath,
+        harness,
+        model: req.model || s.defaultWorkerModel || undefined,
+        effort: req.effort || s.defaultWorkerEffort || undefined,
+        state: 'spawning',
+        stateReason: posture.warning,
+        createdAt: now,
+        updatedAt: now,
+        inbox: { seq: 0, acked: 0, rings: 0 },
+        statusOffset: 0,
+        relaunches: 0
+      }
+      tasks.push(task)
+      persist()
+      bus.publish({ type: 'task', task })
+      try {
+        const term = await launch(task, { resume: false, prompt: kickoffPrompt(briefPath) })
+        update(id, { terminalId: term.id, state: 'working', stateReason: posture.warning ?? 'deployed' })
+      } catch (e) {
+        update(id, { state: 'failed', stateReason: (e as Error).message })
+        throw e
+      }
+      safe(() => backlog.markInFlight(backlogId!, id))
+      ledger('task.dispatched', task, { kind: task.kind, project: task.project, harness, model: task.model ?? 'default', mode: task.mode, yolo: task.yolo })
+      safe(() => ctx.stats.award('spawn', id))
+      safe(() => ctx.notifier.sfx('spawn'))
+      return get(id)!
+    },
+
+    async send(id, text, resolveKeys = []): Promise<OpResult> {
+      const t = get(id)
+      if (!t) return { ok: false, message: `Unknown unit: ${id}` }
+      if (t.state === 'cleaned') return { ok: false, message: `${id} was despawned.` }
+      if (!text.trim()) return { ok: false, message: 'Nothing to send.' }
+      const open = new Set(resolveKeysFor(id))
+      const openDecisionKeys = new Set(hc().decisions.list(false).filter((d) => d.taskId === id).map((d) => d.key))
+      for (const k of resolveKeys) {
+        if (!open.has(k) && !openDecisionKeys.has(k)) return { ok: false, message: `No open choice with key "${k}" on ${id}.` }
+      }
+      const dir = inboxDir(id)
+      ensureDir(path.join(dir, 'handled'))
+      const seq = nextSeq(id)
+      const file = path.join(dir, `${String(seq).padStart(3, '0')}.msg`)
+      writeText(file, `schema=genio-task-inbox.v1\nat=${nowIso()}\n--\n${text.trim()}\n`)
+      for (const k of resolveKeys) {
+        svc.appendStatus(id, formatStatusLine('resolved', `answered: ${truncate(text.replace(/\s+/g, ' '), 200)}`, { key: k }))
+        safe(() => hc().decisions.resolveKey(id, k, text))
+      }
+      update(id, { inbox: { ...t.inbox, seq, rings: 0, lastRingAt: nowIso() } })
+      safe(() => getCtx().notifier.sfx('send'))
+      const rang = await svc.ring(id)
+      return {
+        ok: true,
+        message: rang ? `Pinged ${id} (message ${seq}).` : `Saved ping ${seq} for ${id}; the unit is not running, so it will read it after a respawn.`
+      }
+    },
+
+    unreadInbox(id) {
+      const dir = inboxDir(id)
+      const out: { seq: number; ageSec: number }[] = []
+      try {
+        for (const f of fs.readdirSync(dir)) {
+          const m = f.match(/^(\d+)\.msg$/)
+          if (!m) continue
+          const full = path.join(dir, f)
+          const at = readText(full).match(/^at=(.+)$/m)?.[1]
+          const ts = at ? Date.parse(at) : fs.statSync(full).mtimeMs
+          out.push({ seq: parseInt(m[1], 10), ageSec: Math.max(0, (Date.now() - (Number.isFinite(ts) ? ts : Date.now())) / 1000) })
+        }
+      } catch {
+        /* no inbox */
+      }
+      return out.sort((a, b) => a.seq - b.seq)
+    },
+
+    async ring(id) {
+      const t = get(id)
+      if (!t || !terminalAlive(t)) return false
+      const adapter = getCtx().settings.harness(t.harness)
+      await getCtx().terminals.submit(t.terminalId!, doorbellLine(inboxDir(id)), adapter?.submitKey ?? '\r')
+      const cur = get(id)!
+      update(id, { inbox: { ...cur.inbox, lastRingAt: nowIso(), rings: cur.inbox.rings + 1 } })
+      return true
+    },
+
+    async control(id, action, note): Promise<OpResult> {
+      const t = get(id)
+      if (!t) return { ok: false, message: `Unknown unit: ${id}` }
+      const ctx = getCtx()
+      const adapter = ctx.settings.harness(t.harness)
+      const terms = ctx.terminals
+      if (action === 'interrupt') {
+        if (!terminalAlive(t)) return { ok: false, message: `${id} is not running.` }
+        terms.write(t.terminalId!, adapter?.interrupt ?? '\x1b')
+        return { ok: true, message: `Interrupted ${id}.` }
+      }
+      const recall = async (): Promise<void> => {
+        if (!terminalAlive(t)) return
+        const tid = t.terminalId!
+        await terms.submit(tid, adapter?.exitSequence ?? '/exit', adapter?.submitKey ?? '\r')
+        for (let i = 0; i < 20 && terms.get(tid)?.alive; i++) await sleep(500)
+        if (terms.get(tid)?.alive) terms.kill(tid)
+      }
+      if (action === 'exit') {
+        const was = t.state
+        await recall()
+        if (ACTIVE.includes(was)) update(id, { state: 'exited', stateReason: 'recalled' })
+        return { ok: true, message: `Recalled ${id}.` }
+      }
+      // respawn
+      if (t.state === 'cleaned') return { ok: false, message: `${id} was despawned; deploy a new mission instead.` }
+      if (!exists(t.worktree)) return { ok: false, message: `The worktree for ${id} is gone; cannot respawn.` }
+      const max = ctx.settings.get().maxRelaunches
+      appendProgressNote(t.briefPath, note ?? '')
+      await recall()
+      const prompt = `Genio respawned you. Re-read your brief at ${fwd(t.briefPath)} (see the latest Progress note), check your ping inbox, then continue.`
+      try {
+        const term = await launch(t, { resume: true, prompt })
+        if (t.terminalId && t.terminalId !== term.id) terms.kill(t.terminalId)
+        const keepState = t.state === 'ready' || t.state === 'merged' || t.state === 'done'
+        update(id, {
+          terminalId: term.id,
+          state: keepState ? t.state : 'working',
+          stateReason: 'respawned',
+          relaunches: t.relaunches + 1
+        })
+        ledger('task.relaunched', t, { relaunches: t.relaunches + 1 })
+        return {
+          ok: true,
+          message: `Respawned ${id}.${t.relaunches + 1 > max ? ` Warning: ${t.relaunches + 1} respawns (limit ${max}); it may be stuck in a loop.` : ''}`
+        }
+      } catch (e) {
+        update(id, { state: 'failed', stateReason: (e as Error).message })
+        return { ok: false, message: (e as Error).message }
+      }
+    },
+
+    async cleanup(id, force = false): Promise<OpResult> {
+      const t = get(id)
+      if (!t) return { ok: false, message: `Unknown unit: ${id}` }
+      if (t.state === 'cleaned') return { ok: true, message: `${id} is already despawned.` }
+      const ctx = getCtx()
+      const project = ctx.projects.get(t.project)
+      const repo = project?.path ?? (exists(t.worktree) ? await git.repoTop(t.worktree) : '')
+      const openChoices = hc().decisions.list(false).filter((d) => d.taskId === id)
+      let via = 'forced'
+      if (t.kind === 'scout') {
+        const reportOk = exists(t.reportPath ?? home.reportFile(id))
+        const reasons: string[] = []
+        if (!reportOk) reasons.push('the recon report has not been written')
+        if (openChoices.length) reasons.push(`${openChoices.length} open choice(s) from this recon are unanswered`)
+        if (reasons.length && !force) return { ok: false, message: `Refusing to despawn ${id}: ${reasons.join('; ')}.` }
+        via = 'recon scratch'
+      } else if (repo) {
+        const verdict = await git.landedVerdict(repo, t.worktree, t.branch, t.baseBranch, t.pr?.state === 'MERGED')
+        if (!verdict.landed && !force) {
+          return { ok: false, message: `Refusing to despawn ${id}: unlanded work (${verdict.reasons.join('; ')}). Only the player can authorise discarding it.` }
+        }
+        via = verdict.landed ? `landed (${verdict.via})` : 'forced by the player'
+      } else if (!force) {
+        return { ok: false, message: `Cannot verify ${id}'s work: its world is not registered. Force only with the player's word.` }
+      }
+      if (t.terminalId) ctx.terminals.kill(t.terminalId)
+      if (repo && exists(t.worktree)) {
+        let r = await git.removeWorktree(repo, t.worktree, t.kind === 'scout' || force)
+        if (r.code !== 0) r = await git.removeWorktree(repo, t.worktree, true)
+        if (r.code !== 0 && exists(t.worktree)) return { ok: false, message: `Could not remove the worktree: ${r.stderr.trim()}` }
+      }
+      if (t.harness === 'claude') setClaudeTrust([t.worktree], false)
+      if (repo && (await git.branchExists(repo, t.branch))) {
+        await git.deleteBranch(repo, t.branch, t.kind === 'scout' || force)
+      }
+      update(id, { state: 'cleaned', cleanedAt: nowIso(), terminalId: undefined, stateReason: `despawned: ${via}` })
+      if (t.backlogId) safe(() => hc().backlog.markDone(t.backlogId!, t.pr?.url ?? t.stateReason ?? via))
+      ledger('task.cleaned_up', t, { via })
+      safe(() => ctx.stats.award('cleanup', id))
+      return { ok: true, message: `Despawned ${id} (${via}).` }
+    },
+
+    async merge(id): Promise<OpResult> {
+      const t = get(id)
+      if (!t) return { ok: false, message: `Unknown unit: ${id}` }
+      if (t.kind !== 'ship') return { ok: false, message: 'Recon missions have nothing to merge.' }
+      const ctx = getCtx()
+      const project = ctx.projects.get(t.project)
+      if (!project) return { ok: false, message: `World ${t.project} is not registered.` }
+      let result: OpResult
+      let mergeVia: 'pr' | 'local'
+      if (t.pr?.url) {
+        mergeVia = 'pr'
+        result = await ctx.forge.merge(t.pr.url, exists(t.worktree) ? t.worktree : project.path)
+      } else if (t.mode === 'local-only') {
+        if (t.state !== 'ready') return { ok: false, message: `${id} has not reported a ready branch yet.` }
+        mergeVia = 'local'
+        const r = await git.mergeLocalFastForward(project.path, t.branch, t.baseBranch)
+        result = r.code === 0 ? { ok: true, message: `Landed ${t.branch} into local ${t.baseBranch}.` } : { ok: false, message: r.stderr.trim() || 'fast-forward merge failed' }
+      } else {
+        return { ok: false, message: `${id} has no registered PR to merge yet.` }
+      }
+      if (!result.ok) return result
+      update(id, { state: 'merged', landedAt: nowIso(), pr: t.pr ? { ...t.pr, state: 'MERGED', checkedAt: nowIso() } : undefined })
+      ledger('task.merged', t, { via: mergeVia, pr: t.pr?.url })
+      safe(() => ctx.stats.award('merge', id))
+      safe(() => ctx.notifier.sfx('merge'))
+      if (mergeVia === 'pr') await ctx.projects.sync(project.name).catch(() => undefined)
+      const c = await svc.cleanup(id)
+      return { ok: true, message: `${result.message} ${c.ok ? c.message : `Despawn deferred: ${c.message}`}`.trim() }
+    },
+
+    async promote(id, intent): Promise<Task> {
+      const t = must(id)
+      if (t.kind !== 'scout') throw new Error(`${id} is not a Recon mission.`)
+      if (!exists(t.worktree)) throw new Error(`The worktree for ${id} is gone.`)
+      const ctx = getCtx()
+      const project = ctx.projects.get(t.project)
+      if (!project) throw new Error(`World ${t.project} is not registered.`)
+      const posture = ctx.projects.resolvePosture(project.name)
+      const report = readText(t.reportPath ?? home.reportFile(id))
+      const oldBrief = readText(t.briefPath)
+      writeText(path.join(home.taskDir(id), 'brief-recon.md'), oldBrief)
+      const priorIntent = oldBrief.match(/## Player's intent\s+([\s\S]*?)\n## /)?.[1]?.trim() ?? t.title
+      // make sure the worktree sits on the build branch
+      const onBranch = await git.currentBranch(t.worktree)
+      if (onBranch !== t.branch) {
+        const co = (await git.branchExists(project.path, t.branch))
+          ? await git.git(t.worktree, ['checkout', t.branch])
+          : await git.git(t.worktree, ['checkout', '-b', t.branch])
+        if (co.code !== 0) throw new Error(`Could not switch the worktree to ${t.branch}: ${co.stderr.trim()}`)
+      }
+      writeText(
+        t.briefPath,
+        renderBrief({
+          taskId: id,
+          kind: 'ship',
+          project: project.name,
+          worktree: t.worktree,
+          branch: t.branch,
+          baseBranch: t.baseBranch,
+          mode: posture.mode,
+          yolo: posture.yolo,
+          intent: intent?.trim() || priorIntent,
+          spec: 'Implement the recommendations of the recon report below. Stay within the intent.',
+          statusFile: home.statusFile(id),
+          inboxDir: inboxDir(id),
+          taskDataDir: home.taskDir(id),
+          engine: project.engine,
+          briefInclude: ctx.settings.get().briefInclude,
+          carriedReport: report || '(the recon report was empty)'
+        })
+      )
+      update(id, { kind: 'ship', mode: posture.mode, yolo: posture.yolo, promotedFrom: id, state: 'working', stateReason: 'upgraded to Build' })
+      if (t.backlogId) safe(() => hc().backlog.update(t.backlogId!, { kind: 'ship', mode: posture.mode, yolo: posture.yolo }))
+      const r = await svc.control(id, 'relaunch', 'Upgraded from Recon to Build: the brief now has a Build definition of done. Implement it.')
+      if (!r.ok) throw new Error(r.message)
+      return get(id)!
+    },
+
+    validate: (id) => gauntlet.run(id),
+
+    async readFile(id, which: TaskFile): Promise<string> {
+      const t = must(id)
+      switch (which) {
+        case 'brief':
+          return readText(t.briefPath, '(no brief)')
+        case 'report':
+          return readText(t.reportPath ?? home.reportFile(id), '(no report yet)')
+        case 'status':
+          return readText(home.statusFile(id), '')
+        case 'validation':
+          return readText(home.validationLog(id), '(the Gauntlet has not run)')
+        case 'inbox': {
+          const dir = inboxDir(id)
+          const parts: string[] = []
+          for (const [sub, label] of [['', 'PENDING'], ['handled', 'READ']] as const) {
+            try {
+              for (const f of fs.readdirSync(path.join(dir, sub)).filter((x) => x.endsWith('.msg')).sort()) {
+                parts.push(`--- ${label} ${f} ---\n${readText(path.join(dir, sub, f)).split('\n--\n').slice(1).join('\n--\n').trim()}`)
+              }
+            } catch {
+              /* none */
+            }
+          }
+          return parts.join('\n\n') || '(no pings)'
+        }
+        case 'diff': {
+          if (!exists(t.worktree)) return '(worktree removed)'
+          const project = getCtx().projects.get(t.project)
+          const ref = project ? await git.baseRef(project.path, t.baseBranch) : t.baseBranch
+          return (await git.diff(t.worktree, ref)) || '(no changes)'
+        }
+        case 'log':
+          return t.terminalId ? getCtx().terminals.tail(t.terminalId, 400) || '(no output yet)' : '(unit terminal not running)'
+        default:
+          return ''
+      }
+    },
+
+    async crewState(id): Promise<string> {
+      const t = get(id)
+      if (!t) return `state: unknown · source: none · no such unit ${id}`
+      const detailParts = [t.stateReason, t.pr?.url, ...resolveKeysFor(id).map((k) => `open choice: ${k}`)].filter(Boolean)
+      const detail = detailParts.join(' · ') || t.state
+      if (gauntlet.running(id) || t.validation?.state === 'running') return `state: working · source: gauntlet · round ${t.validation?.round ?? 1}`
+      const alive = terminalAlive(t)
+      const last = t.terminalId ? getCtx().terminals.lastOutputAt(t.terminalId) : undefined
+      const evs = svc.statusEvents(id).filter((e) => e.kind !== 'note' && e.kind !== 'unknown')
+      const lastEv = evs[evs.length - 1]
+      const map: Record<string, string> = {
+        working: 'working',
+        'needs-decision': 'parked',
+        blocked: 'blocked',
+        paused: 'paused',
+        done: 'done',
+        failed: 'failed',
+        resolved: 'working',
+        'player-held': 'paused'
+      }
+      if (t.state === 'ready' || t.state === 'merged' || t.state === 'done') return `state: done · source: status-log · ${detail}`
+      if (alive && last && Date.now() - last < 15_000 && (!lastEv || ['working', 'resolved'].includes(lastEv.kind))) {
+        return `state: working · source: terminal · ${detail}`
+      }
+      if (lastEv) return `state: ${map[lastEv.kind] ?? 'unknown'} · source: status-log · ${detail}`
+      if (alive) return `state: working · source: terminal · ${detail}`
+      return `state: unknown · source: none · ${detail}`
+    },
+
+    async fleetView(): Promise<string> {
+      const lines: string[] = []
+      const live = tasks.filter((t) => t.state !== 'cleaned')
+      lines.push(`## In Progress (base: ${home.name})`)
+      if (!live.length) lines.push('(no units deployed)')
+      else {
+        lines.push('| ID | Current | Kind | World | Mode | Terminal | Artifact | Worktree |')
+        lines.push('|---|---|---|---|---|---|---|---|')
+        for (const t of live) {
+          const cs = (await svc.crewState(t.id)).replace(/\|/g, '/')
+          const term = t.terminalId ? (terminalAlive(t) ? 'present' : 'exited') : 'absent'
+          const art = t.pr?.url ?? (t.kind === 'scout' && exists(t.reportPath ?? '') ? fwd(t.reportPath!) : t.state === 'ready' ? t.branch : '-')
+          lines.push(
+            `| ${t.id} | ${t.state} — ${cs} | ${t.kind === 'ship' ? 'build' : 'recon'} | ${t.project} | ${t.mode ?? '-'}${t.yolo ? '+autoloot' : ''} | ${term} | ${art} | ${exists(t.worktree) ? fwd(t.worktree) : '(absent)'} |`
+          )
+        }
+      }
+      const backlog = hc().backlog
+      const queued = backlog.list().filter((b) => b.state === 'queued' || b.state === 'held' || b.state === 'blocked')
+      lines.push('', '## Quest Log (queued)')
+      if (!queued.length) lines.push('(nothing queued)')
+      else {
+        lines.push('| ID | Title | World | Kind | Blocked by | Hold |')
+        lines.push('|---|---|---|---|---|---|')
+        for (const b of queued) {
+          lines.push(`| ${b.id} | ${b.title} | ${b.project ?? '-'} | ${b.kind} | ${b.dependsOn.join(', ') || '-'} | ${b.hold ? `${backlog.bucket(b)}: ${b.hold.reason}${b.hold.until ? ` until ${b.hold.until}` : ''}` : '-'} |`)
+        }
+      }
+      const done = tasks.filter((t) => t.state === 'cleaned').slice(-10)
+      lines.push('', '## Recently done')
+      if (!done.length) lines.push('(none)')
+      else for (const t of done) lines.push(`- ${t.id} — ${t.title} (${t.project}) ${t.pr?.url ?? t.stateReason ?? ''}`)
+      return lines.join('\n')
+    },
+
+    async playtest(target): Promise<TerminalInfo | null> {
+      const ctx = getCtx()
+      const t = target.taskId ? get(target.taskId) : undefined
+      const projectName = t?.project ?? target.project
+      if (!projectName) throw new Error('Pick a world or a unit to playtest.')
+      const project = ctx.projects.get(projectName)
+      if (!project) throw new Error(`Unknown world: ${projectName}`)
+      const cwd = t && exists(t.worktree) ? t.worktree : project.path
+      const cmd = playCommandFor(project.engine, project.commands.run)
+      if (!cmd) throw new Error(`No run command for ${project.name}. Set one in WORLDS › Commands.`)
+      const sh = defaultShell(ctx.settings.get().shell)
+      const base = path.basename(sh.file).toLowerCase()
+      let args: string[]
+      if (base.includes('pwsh') || base.includes('powershell')) args = ['-NoLogo', '-NoExit', '-Command', cmd]
+      else if (base.startsWith('cmd')) args = ['/k', cmd]
+      else args = ['-lc', `${cmd}; exec ${sh.file}`]
+      return ctx.terminals.create({ kind: 'playtest', title: `playtest · ${t ? t.id : project.name}`, cwd, file: sh.file, args, taskId: t?.id })
+    },
+
+    async registerPr(id, url): Promise<OpResult> {
+      const t = get(id)
+      if (!t) return { ok: false, message: `Unknown unit: ${id}` }
+      if (!/^https:\/\//.test(url)) return { ok: false, message: 'PR links must be full https:// URLs.' }
+      const ctx = getCtx()
+      const v = await ctx.forge.view(url, exists(t.worktree) ? t.worktree : undefined).catch(() => undefined)
+      if (v?.ok && v.isDraft) {
+        update(id, { state: 'paused', stateReason: `PR is a draft: ${url}` })
+        return { ok: false, message: `Refusing a draft PR: ${url}` }
+      }
+      const pr = {
+        url,
+        number: parseInt(url.match(/\/(\d+)$/)?.[1] ?? '', 10) || undefined,
+        state: v?.state,
+        checks: v?.checks,
+        mergeable: v?.mergeable,
+        reviewDecision: v?.reviewDecision,
+        checkedAt: nowIso()
+      }
+      const merged = v?.state === 'MERGED'
+      update(id, { pr, state: merged ? 'merged' : 'ready', stateReason: merged ? 'PR merged' : 'PR open, waiting on merge authority' })
+      ledger('task.pr_ready', t, { pr: url })
+      if (!t.pr) {
+        safe(() => ctx.stats.award('ship', id))
+        safe(() => ctx.notifier.sfx('ready'))
+      }
+      return { ok: true, message: `Registered ${url}` }
+    },
+
+    appendStatus(id, line) {
+      appendLine(home.statusFile(id), line.replace(/\r?\n/g, ' '))
+    },
+
+    readNewStatus(id): StatusEvent[] {
+      const t = get(id)
+      if (!t) return []
+      const file = home.statusFile(id)
+      let size = 0
+      try {
+        size = fs.statSync(file).size
+      } catch {
+        return []
+      }
+      let offset = t.statusOffset ?? 0
+      if (size < offset) offset = 0 // truncated/rewritten
+      if (size === offset) return []
+      let buf: Buffer
+      try {
+        const fd = fs.openSync(file, 'r')
+        buf = Buffer.alloc(size - offset)
+        fs.readSync(fd, buf, 0, buf.length, offset)
+        fs.closeSync(fd)
+      } catch {
+        return []
+      }
+      const lastNl = buf.lastIndexOf(0x0a)
+      if (lastNl < 0) return [] // wait for a complete line
+      const chunk = buf.subarray(0, lastNl + 1).toString('utf8')
+      update(id, { statusOffset: offset + lastNl + 1, lastStatusAt: nowIso() })
+      const events = chunk
+        .split(/\r?\n/)
+        .filter((l) => l.trim())
+        .map((l) => parseStatusLine(l, id))
+      for (const e of events) {
+        try {
+          applyStatus(t, e)
+        } catch {
+          /* one bad line never stops overwatch */
+        }
+        ledger('task.status', t, { state: e.kind, key: e.key, text: truncate(e.text, 2000) })
+        bus.publish({ type: 'status', event: e })
+      }
+      return events
+    },
+
+    statusEvents: (id) => parseStatusLog(readText(home.statusFile(id)), id),
+    openDecisionKeys: (id) => resolveKeysFor(id),
+
+    async reconcileOnStart() {
+      const ctx = getCtx()
+      for (const t of [...tasks]) {
+        if (t.state === 'cleaned') continue
+        const alive = t.terminalId ? ctx.terminals.get(t.terminalId)?.alive : false
+        if (alive) continue
+        const patch: Partial<Task> = { terminalId: undefined }
+        if (!exists(t.worktree)) {
+          if (!FINISHED.includes(t.state)) {
+            patch.state = 'failed'
+            patch.stateReason = 'worktree missing after restart'
+          }
+        } else if (ACTIVE.includes(t.state) || t.state === 'exited') {
+          patch.state = 'detached'
+          patch.stateReason = 'Genio restarted; respawn to resume'
+        }
+        if (t.validation?.state === 'running') patch.validation = { ...t.validation, state: 'cancelled', endedAt: nowIso() }
+        update(t.id, patch)
+      }
+    },
+
+    capacityUsed(project) {
+      return tasks.filter((t) => t.project === project && !t.pr && !['cleaned', 'done', 'merged', 'failed'].includes(t.state)).length
+    }
+  }
+
+  return svc
+}

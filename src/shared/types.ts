@@ -1,0 +1,558 @@
+// Shared data model for Genio main process and renderer.
+// Concepts mirror companion (see docs/VOCABULARY.md): the Player talks to one
+// companion (Genio) which deploys a Squad of units, each in an isolated git
+// worktree, supervised to completion.
+
+export type TaskKind = 'ship' | 'scout'
+
+/** How a Build mission lands: no-mistakes=Hardcore (Gauntlet then PR), direct-PR=Standard, local-only=Offline. */
+export type DeliveryMode = 'no-mistakes' | 'direct-PR' | 'local-only'
+/** Registry posture (Hardcore / Standard / Offline). `no-mistakes-prod-only` resolves per task at intake:
+ *  product-facing/mixed/uncertain work -> no-mistakes, internal tooling -> direct-PR. */
+export type ProjectMode = DeliveryMode | 'no-mistakes-prod-only'
+export type Forge = 'github' | 'gitlab' | 'none'
+export type Engine =
+  | 'godot' | 'unity' | 'unreal' | 'bevy' | 'web' | 'love2d' | 'gamemaker' | 'defold' | 'monogame' | 'other'
+
+export interface ProjectCommands {
+  setup?: string
+  build?: string
+  test?: string
+  lint?: string
+  /** Launches the game for a playtest from any checkout. */
+  run?: string
+}
+
+export interface Project {
+  name: string
+  path: string
+  remote?: string
+  defaultBranch: string
+  mode: ProjectMode
+  yolo: boolean
+  branchPrefix: string
+  forge: Forge
+  /** Max concurrent units for this world. 0/undefined = unbounded. */
+  capacity?: number
+  engine: Engine
+  commands: ProjectCommands
+  description?: string
+  /** true when Genio cloned/created it under its home `projects/`. */
+  managed: boolean
+  addedAt: string
+}
+
+export type TaskState =
+  | 'spawning'
+  | 'working'
+  | 'paused'          // declared wait on something external; not Genio action
+  | 'blocked'         // needs Genio action
+  | 'needs-decision'  // keyed choice open for the player
+  | 'validating'      // no-mistakes pipeline running
+  | 'ready'           // PR open / local branch ready, waiting on merge authority
+  | 'merged'          // landed, awaiting cleanup
+  | 'done'            // scout report delivered / finished
+  | 'failed'
+  | 'exited'          // agent process ended without a terminal status
+  | 'stale'           // lagging: no output/status for too long
+  | 'detached'        // app restarted; worktree exists, no live process
+  | 'cleaned'         // despawned: worktree removed, record kept for history
+
+export interface PrInfo {
+  url: string
+  number?: number
+  state?: 'OPEN' | 'MERGED' | 'CLOSED'
+  checks?: 'pending' | 'passing' | 'failing' | 'none'
+  mergeable?: string
+  reviewDecision?: string
+  checkedAt?: string
+}
+
+export interface ValidationStep {
+  name: string
+  command?: string
+  state: 'pending' | 'running' | 'passed' | 'failed' | 'skipped'
+  output?: string
+  startedAt?: string
+  endedAt?: string
+}
+
+export interface ValidationRun {
+  id: string
+  state: 'running' | 'passed' | 'failed' | 'findings' | 'cancelled'
+  steps: ValidationStep[]
+  findings?: string
+  round: number
+  startedAt: string
+  endedAt?: string
+}
+
+export interface Task {
+  id: string
+  kind: TaskKind
+  title: string
+  project: string
+  /** Base that owns the task: 'main' or an ally name. */
+  wksp: string
+  backlogId?: string
+  mode?: DeliveryMode
+  yolo?: boolean
+  branchPrefix: string
+  baseBranch: string
+  branch: string
+  worktree: string
+  briefPath: string
+  reportPath?: string
+  harness: string
+  model?: string
+  effort?: string
+  profile?: string
+  state: TaskState
+  stateReason?: string
+  createdAt: string
+  updatedAt: string
+  lastOutputAt?: string
+  lastStatusAt?: string
+  terminalId?: string
+  pid?: number
+  pr?: PrInfo
+  validation?: ValidationRun
+  promotedFrom?: string
+  promotedTo?: string
+  inbox: { seq: number; acked: number; lastRingAt?: string; rings: number }
+  /** Unread status lines Genio has not processed yet. */
+  statusOffset: number
+  landedAt?: string
+  cleanedAt?: string
+  relaunches: number
+  /** Unit-reported session id so a respawn can resume the conversation. */
+  sessionHint?: string
+}
+
+/** companion status verbs: `<verb> [key=k] [at=epoch]: note` appended to state/<id>.status */
+export type StatusKind =
+  | 'working' | 'needs-decision' | 'blocked' | 'paused' | 'done' | 'failed' | 'note' | 'resolved' | 'player-held'
+  | 'unknown'
+
+export interface StatusEvent {
+  taskId: string
+  ts: string
+  raw: string
+  kind: StatusKind
+  key?: string
+  /** epoch seconds from [at=...]; undefined when missing/malformed (never inferred) */
+  at?: number
+  text: string
+  /** parsed extras: pr=<url>, until=<iso> for paused, branch=... */
+  fields: Record<string, string>
+  playerRelevant: boolean
+}
+
+export type BacklogState = 'queued' | 'in-flight' | 'held' | 'blocked' | 'done' | 'dropped'
+export type Priority = 'low' | 'normal' | 'high' | 'critical'
+
+export interface PlayerHold {
+  reason: string
+  since: string
+  until?: string
+}
+
+export type BacklogKind = TaskKind | 'choice' | 'program'
+
+export interface BacklogItem {
+  id: string
+  title: string
+  project?: string
+  kind: BacklogKind
+  notes: string
+  state: BacklogState
+  priority: Priority
+  dependsOn: string[]
+  notBefore?: string
+  hold?: PlayerHold
+  /** the player's exact recorded answer, when a held item was answered */
+  answer?: string
+  /** origin of a player choice, e.g. a recon id whose report raised it */
+  origin?: string
+  taskId?: string
+  mode?: DeliveryMode
+  yolo?: boolean
+  tags: string[]
+  createdAt: string
+  updatedAt: string
+  doneAt?: string
+  outcome?: string
+}
+
+export type DecisionSource = 'unit' | 'genio' | 'validation' | 'ally' | 'system'
+
+export interface Decision {
+  id: string
+  key: string
+  wksp: string
+  taskId?: string
+  backlogId?: string
+  project?: string
+  question: string
+  context?: string
+  options: string[]
+  recommendation?: string
+  source: DecisionSource
+  urgency: 'normal' | 'urgent'
+  createdAt: string
+  resolvedAt?: string
+  answer?: string
+  /** Deferred until this ISO date (player said "later"). */
+  until?: string
+}
+
+export type WakeKind = 'signal' | 'stale' | 'check' | 'heartbeat'
+
+export interface Wake {
+  seq: number
+  ts: string
+  wksp: string
+  kind: WakeKind
+  taskId?: string
+  reason: string
+  lines: string[]
+  /** routine events may be absorbed by the Bot in dnd/afk */
+  routine: boolean
+  ackedAt?: string
+}
+
+export type ChatRole = 'player' | 'genio' | 'system' | 'wake' | 'error'
+
+export interface ToolTrace {
+  id: string
+  name: string
+  input: string
+  result?: string
+  isError?: boolean
+}
+
+export interface ChatMessage {
+  id: string
+  wksp: string
+  role: ChatRole
+  text: string
+  ts: string
+  tools?: ToolTrace[]
+  /** for streaming: the message is still being written */
+  partial?: boolean
+  costUsd?: number
+}
+
+export type WkspActivity = 'offline' | 'starting' | 'idle' | 'thinking' | 'tool' | 'error'
+
+export interface WkspInfo {
+  name: string // 'main' or ally name
+  displayName: string
+  scope?: string
+  charter?: string
+  model?: string
+  effort?: string
+  activity: WkspActivity
+  activityDetail?: string
+  sessionId?: string
+  costUsd: number
+  turns: number
+  queued: number
+  lastError?: string
+}
+
+/** An Ally (companion ally): an allied Genio with its own base and charter. */
+export interface Ally {
+  name: string
+  scope: string
+  charter: string
+  projects: string[]
+  model?: string
+  effort?: string
+  home: string
+  createdAt: string
+  retiredAt?: string
+}
+
+/** player presence: online, dnd (routine events off-screen), afk (the Bot plays) */
+export type AwayMode = 'online' | 'dnd' | 'afk'
+
+export interface AwayState {
+  mode: AwayMode
+  since?: string
+  /** escalations captured while away, replayed on return */
+  held: AwayEntry[]
+  returnSummaryPending: boolean
+}
+
+export interface AwayEntry {
+  ts: string
+  wksp: string
+  text: string
+  severity: 'info' | 'decision' | 'failure' | 'ready'
+  delivered: boolean
+}
+
+/** Mail: notes the player sends from elsewhere (companion captain inbox) */
+export interface InboxNote {
+  id: string
+  ts: string
+  from: string
+  text: string
+  ackedAt?: string
+  reply?: string
+  repliedAt?: string
+}
+
+/** Opt-in fleet ledger (companion docs/fleet-ledger.md), at-least-once delivery. */
+export interface LedgerRecord {
+  v: 1
+  ts: string
+  home: string
+  event:
+    | 'task.dispatched' | 'task.status' | 'task.pr_ready' | 'task.merged' | 'task.cleaned_up' | 'task.relaunched'
+    | 'decision.opened' | 'decision.resolved' | 'backlog.added' | 'backlog.state'
+    | 'project.added' | 'project.removed' | 'presence.changed' | 'achievement'
+  task?: string
+  project?: string
+  data?: Record<string, unknown>
+}
+
+export interface HarnessAdapter {
+  id: string
+  name: string
+  /** executable name or absolute path */
+  command: string
+  /** argument template; tokens: {model} {effort} {prompt} {session} */
+  args: string[]
+  modelArgs?: string[]
+  effortArgs?: string[]
+  /** args used when resuming a previous conversation in the same worktree */
+  resumeArgs?: string[]
+  /** how the kickoff prompt is delivered */
+  promptDelivery: 'arg' | 'type'
+  /** extra environment for the unit process */
+  env?: Record<string, string>
+  /** keystrokes */
+  interrupt: string
+  exitSequence: string
+  /** substrings in terminal output that mean a trust/consent dialog is waiting */
+  trustPatterns: string[]
+  trustResponse: string
+  submitKey: string
+  verified: boolean
+  role: 'any' | 'worker'
+  models: string[]
+  builtin: boolean
+  enabled: boolean
+}
+
+export interface DispatchRule {
+  id: string
+  /** matched case-insensitively against title+brief; empty = always */
+  match: string
+  kind?: TaskKind | 'any'
+  project?: string
+  /** ordered candidates; first available wins unless spendPriority says otherwise */
+  candidates: { harness: string; model?: string; effort?: string; spendPriority: number }[]
+}
+
+export interface EventSource {
+  id: string
+  name: string
+  command: string
+  cwd?: string
+  intervalSec: number
+  /** wake when: exit code non-zero, or output changes */
+  trigger: 'nonzero' | 'change' | 'match'
+  pattern?: string
+  enabled: boolean
+  lastOutput?: string
+  lastRunAt?: string
+}
+
+export interface Settings {
+  /** how Genio addresses the player */
+  gamertag: string
+  wkspModel: string
+  wkspEffort: string
+  /** model for the Bot that handles events while the player is DND/AFK */
+  botModel: string
+  defaultHarness: string
+  defaultWorkerModel: string
+  defaultWorkerEffort: string
+  /** claude unit permission posture: bypass = --dangerously-skip-permissions (companion default) */
+  claudePermissionMode: 'bypass' | 'auto' | 'acceptEdits'
+  /** blank = use the Agent SDK's bundled Claude Code */
+  claudePath: string
+  shell: string
+  pollSeconds: number
+  /** idle seconds before a non-declared, non-busy unit counts as lagging */
+  staleSeconds: number
+  staleEscalations: number
+  pausedResurfaceHours: number
+  heartbeatBaseMinutes: number
+  heartbeatMaxMinutes: number
+  prPollMinutes: number
+  signalGraceSeconds: number
+  inboxGraceSeconds: number
+  inboxRingMax: number
+  maxRelaunches: number
+  /** reviewer model for the Gauntlet (no-mistakes validation pipeline) */
+  reviewModel: string
+  validationMaxRounds: number
+  autoDispatchQueued: boolean
+  sound: boolean
+  soundVolume: number
+  fx: boolean
+  /** Clean HUD: hide tool chatter in Comms */
+  calm: boolean
+  voice: boolean
+  desktopNotifications: boolean
+  webhookUrl: string
+  webhookKind: 'discord' | 'slack' | 'generic'
+  /** an AFK escalation unseen longer than this fires the alarm */
+  alarmMinutes: number
+  /** 'off' | 'auto' (desktop + sound) | 'command:<cmd>' (summary passed as $1/stdin) */
+  alarm: string
+  /** away digest batching window */
+  awayBatchSeconds: number
+  inboxServer: boolean
+  inboxPort: number
+  inboxToken: string
+  ledger: boolean
+  /** startup memory budget in estimated tokens (companion default 7500) */
+  memoryBudgetTokens: number
+  /** extra text appended to every unit brief (companion config/brief-include.md) */
+  briefInclude: string
+  /** strip AI co-author trailers from unit commits */
+  stripAiTrailers: boolean
+  harnesses: HarnessAdapter[]
+  dispatchRules: DispatchRule[]
+  eventSources: EventSource[]
+  firstRunDone: boolean
+}
+
+export interface ToolStatus {
+  name: string
+  found: boolean
+  version?: string
+  path?: string
+  required: boolean
+  purpose: string
+  install?: string
+}
+
+export interface StatusLine {
+  text: string
+  taskId?: string
+  backlogId?: string
+  decisionId?: string
+  url?: string
+  tone?: 'neon' | 'volt' | 'amber' | 'alert' | 'violet'
+}
+
+/** /status (companion /bearings): exactly four sections, always rendered, in this order:
+ *  Your Move, Loot, In Progress, Up Next. */
+export interface StatusReport {
+  generatedAt: string
+  yourMove: StatusLine[]
+  loot: StatusLine[]
+  inProgress: StatusLine[]
+  upNext: StatusLine[]
+  markdown: string
+  filedPath?: string
+  includePRs: boolean
+}
+
+export interface FleetSnapshot {
+  tasks: Task[]
+  backlog: BacklogItem[]
+  decisions: Decision[]
+  projects: Project[]
+  wksps: WkspInfo[]
+  allies: Ally[]
+  away: AwayState
+  inbox: InboxNote[]
+  stats: FleetStats
+}
+
+export interface FleetStats {
+  shippedToday: number
+  shippedTotal: number
+  scoutsTotal: number
+  costTodayUsd: number
+  level: number
+  xp: number
+  xpNext: number
+  streakDays: number
+  achievements: Achievement[]
+}
+
+export interface Achievement {
+  id: string
+  name: string
+  description: string
+  unlockedAt?: string
+}
+
+export interface TerminalInfo {
+  id: string
+  taskId?: string
+  title: string
+  cwd: string
+  alive: boolean
+  exitCode?: number
+  cols: number
+  rows: number
+  kind: 'worker' | 'playtest' | 'shell' | 'validation'
+}
+
+export interface PermissionRequest {
+  id: string
+  wksp: string
+  tool: string
+  input: string
+  reason?: string
+  ts: string
+}
+
+export interface UpdateInfo {
+  isGitCheckout: boolean
+  branch?: string
+  behind: number
+  ahead: number
+  dirty: boolean
+  incoming: string[]
+  canFastForward: boolean
+  error?: string
+}
+
+/** Push events main → renderer */
+export type GenioEvent =
+  | { type: 'snapshot'; data: FleetSnapshot }
+  | { type: 'task'; task: Task }
+  | { type: 'task-removed'; id: string }
+  | { type: 'backlog'; items: BacklogItem[] }
+  | { type: 'decisions'; decisions: Decision[] }
+  | { type: 'projects'; projects: Project[] }
+  | { type: 'wksp'; wksp: WkspInfo }
+  | { type: 'chat'; message: ChatMessage }
+  | { type: 'chat-delta'; wksp: string; id: string; text: string }
+  | { type: 'status'; event: StatusEvent }
+  | { type: 'wake'; wake: Wake }
+  | { type: 'away'; away: AwayState }
+  | { type: 'inbox'; notes: InboxNote[] }
+  | { type: 'stats'; stats: FleetStats }
+  | { type: 'achievement'; achievement: Achievement }
+  | { type: 'toast'; level: 'info' | 'success' | 'warn' | 'error'; title: string; body?: string }
+  | { type: 'permission'; request: PermissionRequest }
+  | { type: 'permission-resolved'; id: string }
+  | { type: 'terminal'; terminal: TerminalInfo }
+  | { type: 'terminal-removed'; id: string }
+  | { type: 'settings'; settings: Settings }
+  | { type: 'allies'; allies: Ally[] }
+  | { type: 'sfx'; sound: SfxName }
+  | { type: 'speak'; text: string }
+
+export type SfxName = 'blip' | 'spawn' | 'ready' | 'merge' | 'alert' | 'decision' | 'levelup' | 'send' | 'error'
