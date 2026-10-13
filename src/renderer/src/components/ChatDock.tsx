@@ -1,8 +1,8 @@
-import { createContext, useContext, useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { Fragment, createContext, useContext, useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { Check, Globe, Plus, Users, X } from 'lucide-react'
 import { go, setDock, useStore } from '../store'
 import {
-  MAIN_PANEL, canClose, closePanel, focusPanel, hasUnread, isOpen, movePanel, openPanel, resizeSplit,
+  MAIN_PANEL, canClose, closePanel, dragSash, focusPanel, hasUnread, isOpen, minSize, movePanel, openPanel, resizeSplit,
   type DockGroup, type DockNode, type DockSplit, type DropZone
 } from '../lib/dock'
 import { cx } from '../lib/format'
@@ -11,9 +11,19 @@ import { requestSystemsSection } from '../views/Systems'
 /**
  * Unity-style dock for the chat screen: every chat is a tab that can be
  * reordered, grouped with others, or docked on any edge of a pane to split it.
+ * Every class here is dock- prefixed: bare names like .row or .ally are global
+ * utilities in app.css and would leak their layout into the dock.
  */
 
 const DRAG_MIME = 'application/x-genio-chat'
+
+const ZONE_LABEL: Record<DropZone, string> = {
+  center: 'Add as tab',
+  left: 'Dock left',
+  right: 'Dock right',
+  top: 'Dock top',
+  bottom: 'Dock bottom'
+}
 
 interface DragCtx {
   dragging: string | null
@@ -29,7 +39,10 @@ export function ChatDock({ render }: { render: (panel: string) => ReactNode }) {
   return (
     <Ctx.Provider value={{ dragging, setDragging, render }}>
       <div className={cx('dock', dragging && 'dragging')}>
-        <Node node={root} />
+        {/* Never smaller than every pane's minimum: past that the dock scrolls instead of crushing panes. */}
+        <div className="dock-root" style={{ minWidth: minSize(root, 'row'), minHeight: minSize(root, 'column') }}>
+          <Node node={root} />
+        </div>
       </div>
     </Ctx.Provider>
   )
@@ -40,26 +53,26 @@ function Node({ node }: { node: DockNode }) {
 }
 
 function Split({ s }: { s: DockSplit }) {
-  const ref = useRef<HTMLDivElement>(null)
+  const cells = useRef<(HTMLDivElement | null)[]>([])
+  const [resizing, setResizing] = useState<number | null>(null)
+  const row = s.dir === 'row'
   const startDrag = (i: number, e: ReactPointerEvent<HTMLDivElement>): void => {
-    const box = ref.current?.getBoundingClientRect()
-    if (!box) return
+    const a = cells.current[i]?.getBoundingClientRect()
+    const b = cells.current[i + 1]?.getBoundingClientRect()
+    if (!a || !b || e.button !== 0) return
     e.preventDefault()
     const el = e.currentTarget
     el.setPointerCapture(e.pointerId)
-    const total = s.dir === 'row' ? box.width : box.height
-    const origin = s.dir === 'row' ? e.clientX : e.clientY
+    const px: [number, number] = row ? [a.width, b.width] : [a.height, b.height]
+    const min: [number, number] = [minSize(s.children[i], s.dir), minSize(s.children[i + 1], s.dir)]
+    const origin = row ? e.clientX : e.clientY
     const start = s.sizes.slice()
+    setResizing(i)
     const move = (ev: PointerEvent): void => {
-      const delta = ((s.dir === 'row' ? ev.clientX : ev.clientY) - origin) / (total || 1)
-      const pair = start[i] + start[i + 1]
-      const a = Math.min(pair - 0.08, Math.max(0.08, start[i] + delta))
-      const sizes = start.slice()
-      sizes[i] = a
-      sizes[i + 1] = pair - a
-      setDock((d) => resizeSplit(d, s.id, sizes))
+      setDock((d) => resizeSplit(d, s.id, dragSash(start, i, px, (row ? ev.clientX : ev.clientY) - origin, min)))
     }
     const up = (): void => {
+      setResizing(null)
       el.removeEventListener('pointermove', move)
       el.removeEventListener('pointerup', up)
       el.removeEventListener('pointercancel', up)
@@ -68,25 +81,42 @@ function Split({ s }: { s: DockSplit }) {
     el.addEventListener('pointerup', up)
     el.addEventListener('pointercancel', up)
   }
+  const even = (i: number): void => {
+    const sizes = s.sizes.slice()
+    sizes[i] = sizes[i + 1] = (s.sizes[i] + s.sizes[i + 1]) / 2
+    setDock((d) => resizeSplit(d, s.id, sizes))
+  }
   return (
-    <div ref={ref} className={cx('dock-split', s.dir)}>
-      {s.children.map((c, i) => (
-        <SplitChild key={c.id} grow={s.sizes[i]} last={i === s.children.length - 1} dir={s.dir} onResize={(e) => startDrag(i, e)}>
-          <Node node={c} />
-        </SplitChild>
-      ))}
+    <div className={cx('dock-split', `dock-${s.dir}`)}>
+      {s.children.map((c, i) => {
+        // grow by the stored ratio from a zero basis, so content never sizes a pane
+        const flex = `${s.sizes[i] * 100} 1 0px`
+        const min = minSize(c, s.dir)
+        return (
+          <Fragment key={c.id}>
+            <div
+              ref={(el) => {
+                cells.current[i] = el
+              }}
+              className="dock-cell"
+              style={row ? { flex, minWidth: min } : { flex, minHeight: min }}
+            >
+              <Node node={c} />
+            </div>
+            {i < s.children.length - 1 && (
+              <div
+                className={cx('dock-sash', `dock-${s.dir}`, resizing === i && 'on')}
+                title="Drag to resize · double-click to split evenly"
+                role="separator"
+                aria-orientation={row ? 'vertical' : 'horizontal'}
+                onPointerDown={(e) => startDrag(i, e)}
+                onDoubleClick={() => even(i)}
+              />
+            )}
+          </Fragment>
+        )
+      })}
     </div>
-  )
-}
-
-function SplitChild({ grow, last, dir, onResize, children }: { grow: number; last: boolean; dir: DockSplit['dir']; onResize: (e: ReactPointerEvent<HTMLDivElement>) => void; children: ReactNode }) {
-  return (
-    <>
-      <div className="dock-cell" style={{ flex: `${grow} 1 0` }}>
-        {children}
-      </div>
-      {!last && <div className={cx('dock-sash', dir)} onPointerDown={onResize} role="separator" aria-orientation={dir === 'row' ? 'vertical' : 'horizontal'} />}
-    </>
   )
 }
 
@@ -131,6 +161,8 @@ function Group({ g }: { g: DockGroup }) {
     if (dragging) setDock((d) => movePanel(d, dragging, g.id, z, index))
     setDragging(null)
   }
+  // A pane's only tab cannot be dropped onto its own body: there is nothing to split or join.
+  const ownOnlyTab = dragging !== null && g.tabs.length === 1 && g.tabs[0] === dragging
 
   return (
     <div className={cx('dock-group', g.tabs.includes(focused) && 'focused')} onMouseDownCapture={() => setDock((d) => focusPanel(d, g.active))}>
@@ -160,7 +192,7 @@ function Group({ g }: { g: DockGroup }) {
       <div
         className="dock-body"
         onDragOver={(e) => {
-          if (!dragging) return
+          if (!dragging || ownOnlyTab) return
           e.preventDefault()
           e.dataTransfer.dropEffect = 'move'
           setZone(zoneAt(e))
@@ -170,12 +202,16 @@ function Group({ g }: { g: DockGroup }) {
         }}
         onDrop={(e) => {
           e.preventDefault()
-          drop(zoneAt(e))
+          if (!ownOnlyTab) drop(zoneAt(e))
         }}
       >
         {render(g.active)}
         {dragging && <div className="dock-catch" />}
-        {dragging && zone && <div className={cx('dock-zone', zone)} />}
+        {dragging && zone && !ownOnlyTab && (
+          <div className={cx('dock-zone', `dock-zone-${zone}`)}>
+            <span>{ZONE_LABEL[zone]}</span>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -191,7 +227,7 @@ function Tab({ panel, active, insertBefore, onDragStart, onDragEnd }: { panel: s
     <>
       {insertBefore && <span className="dock-insert" />}
       <div
-        className={cx('dock-tab', active && 'on', main ? 'main' : 'ally')}
+        className={cx('dock-tab', active && 'on', main ? 'dock-tab-main' : 'dock-tab-ally')}
         draggable
         title={main ? 'Genio — always open' : `Ally · ${panel}${scope ? `\n${scope}` : ''}`}
         onDragStart={(e) => {

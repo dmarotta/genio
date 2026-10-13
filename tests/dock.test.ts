@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Ally } from '@shared/types'
 import type { AllyCreateRequest } from '@shared/api'
 import {
-  MAIN_PANEL, allyForWorld, allyNameForWorld, closePanel, defaultDock, groupOf, groups, hasUnread, isOpen, markSeen,
-  movePanel, openPanel, openPanels, parseDock, reconcileDock, resizeSplit, serializeDock, spawnWorldAlly, visiblePanels,
-  type DockState
+  MAIN_PANEL, MIN_PANE, SASH_PX, allyForWorld, allyNameForWorld, closePanel, defaultDock, dragSash, groupOf, groups, hasUnread,
+  isOpen, markSeen, minSize, movePanel, openPanel, openPanels, parseDock, reconcileDock, resizeSplit, serializeDock, spawnWorldAlly,
+  visiblePanels, type DockState
 } from '../src/renderer/src/lib/dock'
 
 const ally = (name: string, extra: Partial<Ally> = {}): Ally => ({
@@ -79,6 +79,52 @@ describe('dock layout', () => {
     const d = splitLayout()
     const r = resizeSplit(d, d.root.id, [0.99, 0.01])
     expect(r.root.type === 'split' && r.root.sizes[1]).toBeGreaterThan(0.07)
+  })
+})
+
+describe('dock layout metrics', () => {
+  /** main | (art over audio), as in a main chat with two allies stacked on the right */
+  function nested(): DockState {
+    let d = splitLayout()
+    d = movePanel(d, 'art', groupOf(d.root, 'audio')!.id, 'top')
+    return d
+  }
+
+  it('splits evenly by default at every depth', () => {
+    const d = nested()
+    expect(d.root.type === 'split' && d.root.dir).toBe('row')
+    expect(d.root.type === 'split' && d.root.sizes).toEqual([0.5, 0.5])
+    const right = d.root.type === 'split' ? d.root.children[1] : d.root
+    expect(right.type === 'split' && right.dir).toBe('column')
+    expect(right.type === 'split' && right.sizes).toEqual([0.5, 0.5])
+  })
+
+  it('adds minimum sizes along a split and takes the largest across it', () => {
+    expect(minSize(defaultDock().root, 'row')).toBe(MIN_PANE.width)
+    const d = nested()
+    expect(minSize(d.root, 'row')).toBe(2 * MIN_PANE.width + SASH_PX)
+    expect(minSize(d.root, 'column')).toBe(2 * MIN_PANE.height + SASH_PX)
+  })
+
+  it('drags a sash between neighbours only, within their pixel minimums', () => {
+    const sizes = [0.25, 0.25, 0.5]
+    const moved = dragSash(sizes, 0, [300, 300], 60, [100, 100])
+    expect(moved[0]).toBeCloseTo(0.3)
+    expect(moved[1]).toBeCloseTo(0.2)
+    expect(moved[2]).toBe(0.5)
+    expect(dragSash(sizes, 0, [300, 300], 1000, [100, 150])[1]).toBeCloseTo(0.125)
+    expect(dragSash(sizes, 0, [300, 300], -1000, [100, 150])[0]).toBeCloseTo(0.5 / 6)
+  })
+
+  it('splits a pair too small for both minimums by those minimums', () => {
+    const moved = dragSash([0.5, 0.5], 0, [100, 100], 80, [300, 100])
+    expect(moved[0]).toBeCloseTo(0.75)
+    expect(moved[1]).toBeCloseTo(0.25)
+  })
+
+  it('ignores a sash that does not exist', () => {
+    const sizes = [0.5, 0.5]
+    expect(dragSash(sizes, 1, [100, 100], 10, [50, 50])).toBe(sizes)
   })
 })
 

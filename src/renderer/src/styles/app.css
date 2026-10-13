@@ -281,7 +281,7 @@ button.usage-toggle:hover { color: var(--text); }
 
 /* ---------- comms ---------- */
 .comms { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 320px; }
-.comms-main { min-height: 0; display: flex; flex-direction: column; }
+.comms-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .comms-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 8px 20px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .comms-status { display: flex; align-items: center; gap: 14px; }
 .chat-panel { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
@@ -292,23 +292,27 @@ button.usage-toggle:hover { color: var(--text); }
 .chat-scope { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---------- chat dock ---------- */
-.dock { flex: 1; min-height: 0; display: flex; padding: 6px; gap: 0; }
-.dock > * { flex: 1; min-width: 0; }
-.dock-split { display: flex; min-width: 0; min-height: 0; flex: 1; }
-.dock-split.row { flex-direction: row; }
-.dock-split.column { flex-direction: column; }
-.dock-cell { display: flex; min-width: 140px; min-height: 120px; }
-.dock-cell > * { flex: 1; min-width: 0; }
-.dock-sash { flex: none; position: relative; z-index: 2; }
-.dock-sash.row { width: 6px; cursor: col-resize; }
-.dock-sash.column { height: 6px; cursor: row-resize; }
-.dock-sash::after { content: ''; position: absolute; inset: 0; margin: auto; background: transparent; transition: background 0.15s; }
-.dock-sash.row::after { width: 2px; }
-.dock-sash.column::after { height: 2px; }
-.dock-sash:hover::after, .dock-sash:active::after { background: var(--line-strong); box-shadow: var(--glow); }
-.dock-group { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; border: 1px solid var(--line); background: rgba(7, 9, 14, 0.35); }
+/* Every dock class is dock- prefixed: bare modifiers (.row, .ally…) are global utilities above and below.
+   Each level stretches to fill its parent from a zero basis, so no pane is ever sized by its content. */
+.dock { flex: 1; min-width: 0; min-height: 0; display: flex; padding: 6px; overflow: auto; }
+.dock-root { flex: 1; min-width: 0; min-height: 0; display: flex; }
+.dock-root > *, .dock-cell > * { flex: 1 1 0; min-width: 0; min-height: 0; }
+.dock-split { display: flex; align-items: stretch; }
+.dock-split.dock-row { flex-direction: row; }
+.dock-split.dock-column { flex-direction: column; }
+.dock-cell { display: flex; align-items: stretch; min-width: 0; min-height: 0; }
+.dock-sash { flex: none; position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; touch-action: none; }
+.dock-sash.dock-row { width: 7px; cursor: col-resize; }
+.dock-sash.dock-column { height: 7px; cursor: row-resize; }
+.dock-sash::after { content: ''; flex: none; background: var(--line-strong); transition: background 0.15s, box-shadow 0.15s, width 0.15s var(--ease), height 0.15s var(--ease); }
+.dock-sash.dock-row::after { width: 2px; height: 40px; }
+.dock-sash.dock-column::after { width: 40px; height: 2px; }
+.dock-sash:hover::after, .dock-sash.on::after { background: var(--neon); box-shadow: var(--glow); }
+.dock-sash.dock-row:hover::after, .dock-sash.dock-row.on::after { height: 100%; }
+.dock-sash.dock-column:hover::after, .dock-sash.dock-column.on::after { width: 100%; }
+.dock-group { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--line); background: rgba(7, 9, 14, 0.35); }
 .dock-group.focused { border-color: var(--line-strong); }
-.dock-strip { display: flex; align-items: stretch; gap: 2px; padding: 0 4px; min-height: 34px; border-bottom: 1px solid var(--line); background: rgba(0, 0, 0, 0.35); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.dock-strip { flex: none; display: flex; align-items: stretch; gap: 2px; padding: 0 4px; min-height: 34px; border-bottom: 1px solid var(--line); background: rgba(0, 0, 0, 0.35); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
 .dock-tab {
   position: relative; display: inline-flex; align-items: center; gap: 7px; padding: 0 8px 0 12px; cursor: pointer; flex: none;
   color: var(--text-mute); border-bottom: 2px solid transparent; white-space: nowrap;
@@ -316,11 +320,11 @@ button.usage-toggle:hover { color: var(--text); }
 }
 .dock-tab:hover { color: var(--text-dim); background: rgba(255, 255, 255, 0.025); }
 .dock-tab.on { color: var(--text); background: var(--neon-soft); border-bottom-color: var(--neon); }
-.dock-tab.ally.on { background: var(--violet-soft); border-bottom-color: var(--violet); }
-.dock-tab.main { padding-right: 14px; }
+.dock-tab.dock-tab-ally.on { background: var(--violet-soft); border-bottom-color: var(--violet); }
+.dock-tab.dock-tab-main { padding-right: 14px; }
 .dock-tab-dot { width: 6px; height: 6px; background: var(--text-mute); flex: none; }
-.dock-tab.main .dock-tab-dot { background: var(--neon); }
-.dock-tab.ally .dock-tab-dot { background: var(--violet); }
+.dock-tab-main .dock-tab-dot { background: var(--neon); }
+.dock-tab-ally .dock-tab-dot { background: var(--violet); }
 .dock-tab-dot.busy { animation: pulse 0.9s infinite; box-shadow: var(--glow); }
 .dock-tab-dot.err { background: var(--alert) !important; }
 .dock-tab-x { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 0; background: none; color: var(--text-mute); cursor: pointer; opacity: 0; }
@@ -342,14 +346,18 @@ button.usage-toggle:hover { color: var(--text); }
 .dock-menu-state { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; }
 .dock-menu-foot { display: flex; justify-content: space-between; gap: 10px; padding: 8px 10px 4px; margin-top: 4px; border-top: 1px solid var(--line); }
 .dock-menu-foot .link-btn { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; }
-.dock-body { position: relative; flex: 1; min-height: 0; display: flex; }
+.dock-body { position: relative; flex: 1 1 0; min-width: 0; min-height: 0; display: flex; }
 .dock-catch { position: absolute; inset: 0; z-index: 5; }
-.dock-zone { position: absolute; z-index: 6; pointer-events: none; background: var(--neon-soft); border: 1px solid var(--neon); box-shadow: var(--glow); transition: all 0.12s var(--ease); }
-.dock-zone.center { inset: 8px; }
-.dock-zone.left { top: 0; bottom: 0; left: 0; width: 50%; }
-.dock-zone.right { top: 0; bottom: 0; right: 0; width: 50%; }
-.dock-zone.top { left: 0; right: 0; top: 0; height: 50%; }
-.dock-zone.bottom { left: 0; right: 0; bottom: 0; height: 50%; }
+.dock-zone { position: absolute; z-index: 6; pointer-events: none; display: flex; align-items: center; justify-content: center; background: var(--neon-soft); border: 1px solid var(--neon); box-shadow: var(--glow); transition: all 0.12s var(--ease); }
+.dock-zone span {
+  padding: 4px 10px; border: 1px solid var(--neon); background: rgba(5, 7, 11, 0.85); color: var(--neon);
+  font-size: 11px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; white-space: nowrap;
+}
+.dock-zone-center { inset: 8px; }
+.dock-zone-left { top: 0; bottom: 0; left: 0; width: 50%; }
+.dock-zone-right { top: 0; bottom: 0; right: 0; width: 50%; }
+.dock-zone-top { left: 0; right: 0; top: 0; height: 50%; }
+.dock-zone-bottom { left: 0; right: 0; bottom: 0; height: 50%; }
 .activity { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-dim); }
 .chat-log { flex: 1; min-height: 0; overflow-y: auto; padding: 26px 28px 12px; display: flex; flex-direction: column; gap: 16px; }
 .chat-log > * { width: 100%; max-width: 860px; margin-left: auto; margin-right: auto; }

@@ -217,6 +217,39 @@ export function resizeSplit(state: DockState, splitId: string, sizes: number[]):
   return { ...state, root: walk(state.root) }
 }
 
+// ------------------------------------------------------------------ layout metrics
+
+/** Smallest usable pane: room for the tab strip, the chat header, a little log and the composer. */
+export const MIN_PANE = { width: 260, height: 220 }
+/** Thickness of the resize sash between split children, in px (matches .dock-sash in app.css). */
+export const SASH_PX = 7
+
+/** Minimum pixel size of a subtree along an axis: children add up along their split, the largest wins across it. */
+export function minSize(node: DockNode, axis: DockSplit['dir']): number {
+  if (node.type === 'group') return axis === 'row' ? MIN_PANE.width : MIN_PANE.height
+  const kids = node.children.map((c) => minSize(c, axis))
+  return node.dir === axis ? kids.reduce((a, b) => a + b, 0) + SASH_PX * (kids.length - 1) : Math.max(...kids)
+}
+
+/**
+ * New split sizes after dragging the sash behind child i by deltaPx. Only the
+ * two neighbours change. px is their rendered size at drag start, min their
+ * pixel minimums; a pair too small for both minimums splits by those minimums.
+ */
+export function dragSash(sizes: number[], i: number, px: [number, number], deltaPx: number, min: [number, number]): number[] {
+  const pairPx = px[0] + px[1]
+  if (i < 0 || i + 1 >= sizes.length || pairPx <= 0) return sizes
+  let lo = min[0]
+  let hi = pairPx - min[1]
+  if (lo > hi) lo = hi = (pairPx * min[0]) / (min[0] + min[1] || 1)
+  const a = Math.min(hi, Math.max(lo, px[0] + deltaPx))
+  const pair = sizes[i] + sizes[i + 1]
+  const out = sizes.slice()
+  out[i] = (pair * a) / pairPx
+  out[i + 1] = pair - out[i]
+  return out
+}
+
 /** Record what the player has seen of a panel (newest message timestamp). */
 export function markSeen(state: DockState, panel: string, ts: string): DockState {
   const cur = state.lastSeen[panel]
