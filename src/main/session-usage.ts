@@ -84,8 +84,9 @@ export class SessionQuotaPolicy {
 
   unitBlocked(): boolean { return Object.keys(this.read().rejections).length > 0 }
 
-  limitState(): { resetsAt?: number; restartRequired?: boolean } {
+  limitState(): { resetsAt?: number; restartRequired?: boolean; reason?: string } {
     const rejections = Object.values(this.read().rejections)
+    if (!rejections.length) return { reason: 'Background work is waiting for a newer Claude usage report. You can still send a message or choose another provider.' }
     const resets = rejections.map((r) => r.reset)
     const resetsAt = resets.length && resets.every((r) => r !== undefined) ? Math.max(...resets as number[]) : undefined
     return { resetsAt, restartRequired: resetsAt === undefined || resetsAt <= Date.now() }

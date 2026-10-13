@@ -256,6 +256,7 @@ export interface ClaudeRateLimitInfo {
 }
 
 interface StoredWindow {
+  utilizationObservedAt?: string
   status?: string
   utilization?: number
   resetsAt?: number
@@ -273,6 +274,7 @@ export function mergeClaudeRateLimit(file: ClaudeLimitsFile, info: ClaudeRateLim
   const type = info.rateLimitType || 'unspecified'
   const prev = file.windows[type]
   const next: StoredWindow = {
+    utilizationObservedAt: typeof info.utilization === 'number' && Number.isFinite(info.utilization) ? at : prev?.utilizationObservedAt ?? prev?.observedAt ?? prev?.updatedAt,
     status: info.status ?? prev?.status,
     utilization: typeof info.utilization === 'number' && Number.isFinite(info.utilization) ? info.utilization : (info.status === 'allowed' && prev?.status === 'rejected') || (info.resetsAt !== undefined && info.resetsAt !== prev?.resetsAt) ? undefined : prev?.utilization,
     resetsAt: typeof info.resetsAt === 'number' ? info.resetsAt : prev?.resetsAt,
@@ -306,7 +308,7 @@ export function claudeLimits(file: ClaudeLimitsFile | undefined, now = Date.now(
   if (!entries.length) return undefined
   const windows = entries.map(
     ([type, w]): UsageWindow => expireWindow({
-      observedAt: w.observedAt ?? w.updatedAt,
+      observedAt: w.status === 'rejected' ? w.observedAt ?? w.updatedAt : w.utilizationObservedAt ?? w.observedAt ?? w.updatedAt,
       changedAt: w.changedAt ?? w.updatedAt,
       label: CLAUDE_WINDOW_LABEL[type] ?? type.replace(/_/g, ' '),
       usedPercent: typeof w.utilization === 'number' ? claudePercent(w.utilization) : undefined,
@@ -325,6 +327,18 @@ export function recordClaudeRateLimit(file: string, info: ClaudeRateLimitInfo): 
 }
 
 export const claudeLimitsFile = (dataDir: string): string => path.join(dataDir, 'usage', 'claude-limits.json')
+
+/** A missing report is unknown; corrupt/unreadable evidence is a visible read failure. */
+export function readClaudeLimits(dataDir: string): ClaudeLimitsFile | undefined {
+  try {
+    const value = JSON.parse(fs.readFileSync(claudeLimitsFile(dataDir), 'utf8')) as ClaudeLimitsFile
+    if (!value?.windows || typeof value.windows !== 'object' || Array.isArray(value.windows)) throw new Error('Invalid Claude usage report')
+    return value
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw error
+  }
+}
 
 // ---------------------------------------------------------------- FAL
 
@@ -478,7 +492,7 @@ async function claudeUsage(ctx: AppCtx, root: string, now: number): Promise<Tool
   const worlds = new Map<TokenRecord, string>()
   for (const [key, r] of seen) if (worldByKey.has(key)) worlds.set(r, worldByKey.get(key)!)
   claudeCache.prune(new Set(files))
-  const limits = claudeLimits(readJson<ClaudeLimitsFile | undefined>(claudeLimitsFile(ctx.main.home.data), undefined), now)
+  const limits = claudeLimits(readClaudeLimits(ctx.main.home.data), now)
   return {
     tool: 'claude',
     limits: limits ? [limits] : [],

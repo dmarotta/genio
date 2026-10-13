@@ -51,6 +51,15 @@ describe('Claude reset clocks', () => {
 })
 
 describe('expired Claude usage snapshots', () => {
+  it('does not freshen an old percentage when only status is reported', () => {
+    const at = new Date(now - 600_001).toISOString()
+    const file = mergeClaudeRateLimit({ windows: {} }, { rateLimitType: 'five_hour', status: 'allowed', utilization: 0.97 }, at)!
+    const status = mergeClaudeRateLimit(file, { rateLimitType: 'five_hour', status: 'allowed' }, new Date(now).toISOString())!
+    expect(claudeLimits(status, now)?.windows[0]).toMatchObject({ stale: true, usedPercent: undefined, lastKnownUsedPercent: 97, observedAt: at })
+    const fresh = mergeClaudeRateLimit(status, { rateLimitType: 'five_hour', status: 'allowed', utilization: 0 }, new Date(now).toISOString())!
+    expect(claudeLimits(fresh, now)?.windows[0]).toMatchObject({ stale: false, usedPercent: 0 })
+  })
+
   it('shows expired usage as unknown while keeping its protective history', () => {
     const file = mergeClaudeRateLimit({ windows: {} }, { rateLimitType: 'five_hour', status: 'rejected', utilization: 1, resetsAt: now / 1000 - 1 }, new Date(now).toISOString())!
     const limits = claudeLimits(file, now)!

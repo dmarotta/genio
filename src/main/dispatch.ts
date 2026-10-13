@@ -21,7 +21,7 @@ import {
   readLearning, scoreTable, scorecardFile, type Scorecard
 } from './scorecard'
 import type { AppCtx, DispatchService, HomeCtx } from './services'
-import { claudeLimits, claudeLimitsFile, quotaFromUsage, usageReport, type ClaudeLimitsFile } from './usage'
+import { claudeLimits, readClaudeLimits, quotaFromUsage, usageReport } from './usage'
 import { expireWindow, explorationSafe } from './quota-policy'
 import { SessionQuotaPolicy } from './session-usage'
 import { PolicyNotices, claudeStatus, globalMode, holdsCapacity, liveUnits, worldUsage } from './usage-policy'
@@ -54,10 +54,17 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
     project !== undefined ? (launching.get(project) ?? 0) : [...launching.values()].reduce((a, b) => a + b, 0)
 
   /** Claude evidence lives in a file every chat session writes; re-read it on every decision. */
+  let claudeReadError: string | undefined
   const readClaude = (): ReturnType<typeof claudeLimits> => {
-    const stored = claudeLimits(readJson<ClaudeLimitsFile | undefined>(claudeLimitsFile(dataDir()), undefined))
-    if (stored) quota.claude = stored.windows
-    return stored
+    try {
+      const stored = claudeLimits(readClaudeLimits(dataDir()))
+      claudeReadError = undefined
+      if (stored) quota.claude = stored.windows
+      return stored
+    } catch (error) {
+      claudeReadError = `Could not read Claude usage: ${(error as Error).message}`
+      return undefined // retain protective history, but never present it as a successful refresh
+    }
   }
 
   const plansNow = (): Record<'claude' | 'codex', PlanStatus> => {
@@ -242,7 +249,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
       const codex = lastReport?.tools.find((t) => t.tool === 'codex')
       const meterReport = {
         tools: [
-          { tool: 'claude', limits: claude ? [claude] : [], note: claude ? undefined : "No plan limits seen yet: Claude Code reports them only to Genio's chat." },
+          { tool: 'claude', limits: claude ? [claude] : [], error: claudeReadError, note: claude ? undefined : "No plan limits seen yet: Claude Code reports them only to Genio's chat." },
           codex ? { ...codex, limits: codex.limits.map((l) => ({ ...l, windows: l.windows.map((w) => expireWindow(w)) })) }
             : { tool: 'codex', limits: [], note: lastReport ? undefined : 'Reading Codex session logs…' }
         ]
@@ -285,7 +292,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
       }
       quotaAt = Date.now()
       const prev = lastReport
-      lastReport = { ...r, tools: r.tools.map((t) => (t.limits.length || !prev ? t : (prev.tools.find((x) => x.tool === t.tool) ?? t))) }
+      lastReport = { ...r, tools: r.tools.map((t) => (t.limits.length || !prev ? t : { ...t, limits: prev.tools.find((x) => x.tool === t.tool)?.limits ?? [] })) }
       transitions()
     },
 

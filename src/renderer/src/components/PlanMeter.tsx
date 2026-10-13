@@ -13,13 +13,18 @@ import { ago, cx } from '../lib/format'
 const REFRESH_MS = 60_000
 
 /** The cached policy view: on mount, every minute and when settings change. Main reads local evidence only. */
-export function useUsagePolicy(): UsagePolicyView | null {
+export function useUsagePolicy(): UsagePolicyView | null { return useUsagePolicyState().view }
+
+export function useUsagePolicyState(): { view: UsagePolicyView | null; error?: string } {
   const [view, setView] = useState<UsagePolicyView | null>(null)
+  const [error, setError] = useState<string>()
   const settings = useStore((s) => s.settings)
   useEffect(() => {
     let live = true
     const load = (): void => {
-      void api().usagePolicy().then((v) => live && setView(v)).catch(() => undefined)
+      void api().usagePolicy().then((v) => { if (live) { setView(v); setError(undefined) } }).catch(() => {
+        if (live) { setView(null); setError('Could not refresh usage. Current plan remaining is unknown; retrying automatically.') }
+      })
     }
     load()
     const t = setInterval(load, REFRESH_MS)
@@ -28,7 +33,7 @@ export function useUsagePolicy(): UsagePolicyView | null {
       clearInterval(t)
     }
   }, [settings])
-  return view
+  return { view, error }
 }
 
 const tone = (w?: MeterWindow): string =>
@@ -63,9 +68,10 @@ function Row({ r }: { r: MeterRow }) {
       <div className="meter-row-head">
         <b>{r.label}</b>
         {r.planName && <span className="chip">{r.planName}</span>}
-        {r.level !== 'ok' && <span className={cx('chip', r.level === 'warm' ? 'amber' : 'alert')}>{r.level === 'warm' ? '70%+ used' : r.level === 'hot' ? '85%+ used' : 'limit'}</span>}
+        {r.level !== 'ok' && <span className={cx('chip', r.level === 'warm' ? 'amber' : 'alert')}>{r.headline?.state === 'unknown' ? 'Background hold: old report' : r.level === 'warm' ? '70%+ used' : r.level === 'hot' ? '85%+ used' : r.headline?.state === 'limit' ? 'limit reached' : '95%+ used'}</span>}
         <span className="mute">{r.source ?? 'no plan report yet'}</span>
       </div>
+      {r.error && r.headline && <div role="status" className="mute">Could not refresh: {r.error}. Showing the last report.</div>}
       {r.headline ? <WindowLine w={r.headline} head /> : <div className="mute meter-empty">{r.error ? `could not read: ${r.error}` : (r.note ?? 'unknown')}</div>}
       {rest.map((w) => <WindowLine key={w.label} w={w} />)}
       {r.missing.length > 0 && r.headline && <div className="mute meter-missing">{r.missing.map((m) => `${m}: not reported`).join(' · ')}</div>}
@@ -74,7 +80,8 @@ function Row({ r }: { r: MeterRow }) {
 }
 
 /** Full meter: Claude and Codex rows, shared across all worlds. */
-export function PlanMeter({ view }: { view: UsagePolicyView | null }) {
+export function PlanMeter({ view, error }: { view: UsagePolicyView | null; error?: string }) {
+  if (error) return <div role="status" className="mute">{error}</div>
   if (!view) return <div className="bar indeterminate"><i /></div>
   return (
     <div className="plan-meter">
@@ -86,7 +93,8 @@ export function PlanMeter({ view }: { view: UsagePolicyView | null }) {
 
 /** Compact rail version: one bar per plan; click opens Systems → Usage. */
 export function RailMeter() {
-  const view = useUsagePolicy()
+  const { view, error } = useUsagePolicyState()
+  if (error) return <div role="status" className="mute" title={error}>Usage unknown</div>
   if (!view) return null
   const title = view.meter
     .map((r) => `${r.label}: ${leftText(r.headline)}${r.headline ? ` (${r.headline.label})` : ''}`)

@@ -1,4 +1,5 @@
 import type { ChatDriver, ChatDriverEvents, ChatProvider, ChatTurn } from './chat-driver'
+import type { WkspInfo } from '@shared/types'
 
 export interface ProviderSessions {
   active?: ChatProvider
@@ -15,10 +16,12 @@ export class ProviderChatSession {
   private paused = false
   private dispatching = false
   private handoff = ''
+  private retryTimer?: ReturnType<typeof setTimeout>
   private configuration: { model?: string; effort?: string } = {}
   constructor(private readonly options: {
     selection(): ChatProvider
     config?(): { model?: string; effort?: string }
+    hold?(provider: ChatProvider, item: ChatTurn): WkspInfo['limit']
     create(provider: ChatProvider, events: ChatDriverEvents, config: () => { model?: string; effort?: string }): ChatDriver
     events: ChatDriverEvents
     persisted?: ProviderSessions
@@ -51,6 +54,11 @@ export class ProviderChatSession {
   private pump(): void {
     if (this.busy || this.paused || !this.pending.length) return
     const want = this.options.selection()
+    const hold = this.options.hold?.(want, this.pending[0])
+    if (hold) { this.defer(hold); return }
+    this.options.events.onLimit?.(undefined)
+    if (this.retryTimer) clearTimeout(this.retryTimer)
+    this.retryTimer = undefined
     this.configuration = this.options.config?.() ?? {}
     if (want !== this.provider) {
       if (this.driver?.queued) return // a rejected/paused turn still belongs to its route
@@ -63,6 +71,11 @@ export class ProviderChatSession {
       const provider = this.provider
       this.driver = this.options.create(provider, {
         ...this.options.events,
+        onDeferred: (item, limit) => {
+          this.dispatching = false
+          this.pending.unshift(item)
+          this.defer(limit)
+        },
         onMessage: (message, final) => this.options.events.onMessage({ ...message, provider, providerModel: this.configuration.model, providerSession: this.sessionId }, final),
         onTurnEnd: (...args) => {
           this.dispatching = false
@@ -79,6 +92,13 @@ export class ProviderChatSession {
     this.dispatching = true
     this.driver.send(next)
   }
+  private defer(limit: WkspInfo['limit']): void {
+    this.options.events.onLimit?.(limit)
+    if (!this.retryTimer) {
+      this.retryTimer = setTimeout(() => { this.retryTimer = undefined; this.pump() }, 30_000)
+      this.retryTimer.unref?.()
+    }
+  }
   async interrupt(): Promise<void> {
     await this.driver?.interrupt()
     // Explicit cancellation authorizes a queued provider change, but does not replay the active turn.
@@ -91,5 +111,9 @@ export class ProviderChatSession {
     if (fresh) delete this.ids[this.provider]
     this.pump()
   }
-  stop(): void { this.state(); this.driver?.stop(); this.dispatching = false; this.pending = [] }
+  stop(): void {
+    if (this.retryTimer) clearTimeout(this.retryTimer)
+    this.retryTimer = undefined
+    this.state(); this.driver?.stop(); this.dispatching = false; this.pending = []
+  }
 }

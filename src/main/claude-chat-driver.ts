@@ -134,6 +134,8 @@ export class AgentSession implements ChatDriver {
   private lastText = ''
   private stderrTail = ''
   private generation = 0
+  private initTimer?: ReturnType<typeof setTimeout>
+  private starting?: Promise<void>
   /** model/effort the running query was started with or last switched to */
   private applied?: SessionConfig
 
@@ -180,6 +182,11 @@ export class AgentSession implements ChatDriver {
     if (this.busy) return
     const waiting = this.pending[0]
     if (waiting && !this.quotaPolicy().canStart(waiting.kind === 'player', Date.now(), true, `${this.wkspName}:${this.label}`)) {
+      if (this.hooks.onDeferred) {
+        this.pending.shift()
+        this.hooks.onDeferred(waiting, this.quotaPolicy().limitState())
+        return
+      }
       this.setLimit(this.quotaPolicy().limitState())
       // Local polling can detect new on-disk evidence without spending provider quota.
       if (!this.retryTimer) {
@@ -201,9 +208,13 @@ export class AgentSession implements ChatDriver {
     this.hooks.onActivity('thinking')
     try {
       await this.syncConfig()
+      if (this.current !== next) return
       await this.ensureStarted()
+      if (this.current !== next) return // stopped or timed out during setup
       this.input!.push(next.prompt, next.images)
     } catch (e) {
+      if (this.current !== next) return
+      this.reset()
       this.busy = false
       this.current = undefined
       this.hooks.onError(`Genio could not start: ${(e as Error).message}`)
@@ -280,16 +291,36 @@ export class AgentSession implements ChatDriver {
     this.setLimit({ resetsAt: state.resetsAt, restartRequired: state.stale })
   }
 
-  private async ensureStarted(): Promise<void> {
-    if (this.q) return
-    const sdk = await loadSdk()
+  private ensureStarted(): Promise<void> {
+    if (this.starting) return this.starting
+    if (this.q) return Promise.resolve()
+    const starting = this.initialize().finally(() => { if (this.starting === starting) this.starting = undefined })
+    this.starting = starting
+    return starting
+  }
+
+  private async initialize(): Promise<void> {
     const gen = ++this.generation
+    this.stderrTail = ''
+    this.initTimer = setTimeout(() => {
+      if (gen !== this.generation) return
+      this.ended(`Claude initialization timed out after 30 seconds; the request was not replayed.${this.stderrTail ? `\n${truncate(this.stderrTail.trim(), 600)}` : ''}`)
+      // Failed wake acknowledgements remain pending. Require deliberate recovery
+      // so the wake scheduler cannot replay an attempt with an unknown outcome.
+      this.setLimit({ provider: 'claude', restartRequired: true,
+        reason: 'Claude initialization timed out. The request outcome is unknown; restart the session to continue.' })
+    }, 30_000)
+    this.initTimer.unref?.()
+    const sdk = await loadSdk()
+    if (gen !== this.generation) return
     this.input = new InputQueue()
     this.gotInit = false
     this.resumedFrom = this.sessionId
     const options = await this.build(this.sessionId)
+    if (gen !== this.generation) return
     this.applied = { model: options.model, effort: options.effort as EffortLevel | undefined }
     options.stderr = (d: string): void => {
+      if (gen !== this.generation) return
       this.stderrTail = (this.stderrTail + d).slice(-2000)
     }
     this.q = sdk.query({ prompt: this.input, options })
@@ -351,6 +382,9 @@ export class AgentSession implements ChatDriver {
   }
 
   private reset(): void {
+    if (this.initTimer) clearTimeout(this.initTimer)
+    this.initTimer = undefined
+    this.starting = undefined
     this.generation++
     try {
       this.input?.close()
@@ -382,6 +416,8 @@ export class AgentSession implements ChatDriver {
     switch (m.type) {
       case 'system': {
         if (m.subtype === 'init') {
+          if (this.initTimer) clearTimeout(this.initTimer)
+          this.initTimer = undefined
           this.gotInit = true
           const sid = (m as { session_id?: string }).session_id
           if (sid && sid !== this.sessionId) {

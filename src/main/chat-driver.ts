@@ -12,6 +12,8 @@ export interface ChatTurn {
   limitRetried?: boolean
 }
 export interface ChatDriverEvents {
+  /** Return an unsubmitted turn to the owning queue without acknowledging it. */
+  onDeferred?(item: ChatTurn, limit: WkspInfo['limit']): void
   onStart?(item: ChatTurn): void
   onMessage(message: ChatMessage, final: boolean): void
   onDelta(id: string, text: string): void

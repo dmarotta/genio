@@ -8,7 +8,7 @@ import {
 import {
   MODE_PRESETS, USAGE_MODES, USAGE_MODE_LABEL, modeSummary, pctText, planLabel, presetRows, type UsageMode, type UsagePolicyView
 } from '@shared/usage-mode'
-import { PlanMeter, useUsagePolicy } from '../components/PlanMeter'
+import { PlanMeter, useUsagePolicyState } from '../components/PlanMeter'
 import { accountActions, type AccountStatus, type ApiKeyStatus, type FalSpend, type ToolUsage, type UsageReport } from '@shared/api'
 import { api, errText, op, saveSettings, toast, useStore } from '../store'
 import { CommitInput, Confirm, Field, Toggle, ViewHeader } from '../components/ui'
@@ -335,7 +335,7 @@ const LEVEL_TEXT = { ok: 'below 70%: the mode as set', warm: '70-84%: exploratio
 
 /** Systems → Usage: one mode, what it sets, what is pinned, protection and the shared plan meter. */
 function Usage({ s, advanced, setAdvanced, open }: { s: Settings; advanced: boolean; setAdvanced: (v: boolean) => void; open: (s: Section) => void }) {
-  const view = useUsagePolicy()
+  const { view, error: usageError } = useUsagePolicyState()
   const mode: UsageMode = s.usageMode ?? 'balanced'
   const [hover, setHover] = useState<UsageMode | null>(null)
   const shown = hover ?? mode
@@ -441,7 +441,7 @@ function Usage({ s, advanced, setAdvanced, open }: { s: Settings; advanced: bool
       )}
 
       <div className="label" style={{ margin: '18px 0 6px' }}>Plan remaining</div>
-      <PlanMeter view={view} />
+      <PlanMeter view={view} error={usageError} />
 
       {advanced && <UsageAdvanced s={s} view={view} open={open} />}
     </>
@@ -1120,7 +1120,7 @@ function Accounts() {
   const [logout, setLogout] = useState<AccountStatus | null>(null)
   const [usage, setUsage] = useState<UsageReport | null>(null)
   const [open, setOpen] = useState<Record<string, boolean>>({})
-  const policy = useUsagePolicy()
+  const { view: policy, error: policyError } = useUsagePolicyState()
   const sessionTerm = useStore((s) => (session ? s.terminals[session] : undefined))
   // read on opening the screen and on Refresh only: no background polling
   const load = (): void => {
@@ -1163,7 +1163,7 @@ function Accounts() {
         </button>
       </h2>
       <p className="mute">Sign in to the CLIs Genio and its units drive. Each login runs the tool's own flow; the tool keeps its credentials and Genio never reads them. Usage comes from what each tool reports and from local session logs.</p>
-      <PlanMeter view={policy} />
+      <PlanMeter view={policy} error={policyError} />
       {usage && <WorldAttribution usage={usage} />}
       {!accounts && (
         <div className="bar indeterminate">

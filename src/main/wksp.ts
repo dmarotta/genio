@@ -243,6 +243,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
   // ---------------------------------------------------------- sessions
 
   const quotaPolicy = (): SessionQuotaPolicy => new SessionQuotaPolicy(getCtx().main.home.data)
+  const quotaHold = (provider: ChatProvider, item: TurnItem): WkspInfo['limit'] =>
+    provider === 'claude' && !quotaPolicy().canStart(item.kind === 'player', Date.now(), false) ? quotaPolicy().limitState() : undefined
   const costs = new SessionCostLedger(path.join(home.data, 'usage', 'session-costs.json'))
 
   // plan limits are per account: every base records into the main base (Systems → Accounts)
@@ -252,6 +254,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
   }
 
   const genio = new ProviderChatSession({
+    hold: quotaHold,
     selection: selectedProvider,
     config: driverConfig,
     create: (provider, events, config) => createDriver(provider, 'genio', events, config),
@@ -327,6 +330,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
   const botFile = `${home.data}/bot.jsonl`
   if (home.isMain) {
     bot = new ProviderChatSession({
+      hold: quotaHold,
       selection: selectedProvider,
     config: driverConfig,
       create: (provider, events, config) => createDriver(provider, 'bot', events, config),
