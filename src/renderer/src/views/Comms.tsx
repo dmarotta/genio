@@ -2,16 +2,18 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import { ChevronDown, ChevronRight, CircleStop, Radar, RefreshCw, Rocket, Send, ShieldCheck, TriangleAlert, Wrench } from 'lucide-react'
 import type { ChatMessage, Settings, Task } from '@shared/types'
 import {
-  api, errText, focusTask, getState, go, liveTasks, loadChat, op, openDeploy, saveSettings, setState, toast, useStore
+  api, errText, focusTask, getState, go, liveTasks, loadChat, op, openDeploy, saveSettings, setDock, setState, toast, useStore
 } from '../store'
 import { Markdown } from '../components/Markdown'
 import { GenioCore } from '../components/GenioCore'
+import { ChatDock } from '../components/ChatDock'
 import { Chip, Dot, Toggle, useNow } from '../components/ui'
 import { KIND_LABEL, STATE_LABEL, isActive, stateTone } from '../lib/vocab'
 import { clock, cx, elapsed, trunc } from '../lib/format'
 import { playSfx } from '../lib/sfx'
 import { getDraft, setDraft } from '../drafts'
 import { AttachmentStrip, MessageImages, toSendable, useAttachments } from '../components/ChatImages'
+import { MAIN_PANEL, markSeen } from '../lib/dock'
 import { EffortSelect, ModelSelect, requestSystemsSection } from './Systems'
 
 const SLASH: { cmd: string; hint: string }[] = [
@@ -29,67 +31,90 @@ const SLASH: { cmd: string; hint: string }[] = [
 const NOOP_RE = /^\s*(all clear|gg,? all clear)\b/i
 
 export function Comms() {
-  const wksp = useStore((s) => s.activeWksp)
-  const allies = useStore((s) => s.snap.allies.filter((a) => !a.retiredAt))
-  const info = useStore((s) => s.snap.wksps.find((m) => m.name === s.activeWksp))
-  const messages = useStore((s) => s.chats[s.activeWksp] ?? [])
-  const settings = useStore((s) => s.settings)
-  const gamertag = settings?.gamertag || 'Player'
-  const calm = !!settings?.calm
-  const busy = info?.activity === 'thinking' || info?.activity === 'tool' || info?.activity === 'starting'
-  const isAlly = wksp !== 'main'
+  const allyNames = useStore((s) => s.snap.allies.filter((a) => !a.retiredAt).map((a) => a.name).join('\n'))
 
+  // Closed allies still get their history, so the dock can flag unread messages.
   useEffect(() => {
-    void loadChat(wksp)
-  }, [wksp])
-
-  const visible = useMemo(() => (calm ? messages.filter((m) => m.role !== 'wake') : messages), [messages, calm])
+    for (const name of allyNames.split('\n')) if (name) void loadChat(name)
+  }, [allyNames])
 
   return (
     <div className="comms">
       <section className="comms-main">
-        <header className="comms-head">
-          <div className="wksp-tabs">
-            <button className={cx('wksp-tab', wksp === 'main' && 'on')} onClick={() => setState({ activeWksp: 'main' })}>
-              Genio
-            </button>
-            {allies.map((a) => (
-              <button key={a.name} className={cx('wksp-tab', wksp === a.name && 'on')} onClick={() => setState({ activeWksp: a.name })} title={a.scope}>
-                Ally · {a.name}
-              </button>
-            ))}
-          </div>
-          <div className="comms-status">
-            <span className={cx('activity', info?.activity)}>
-              <Dot tone={info?.activity === 'error' ? 'alert' : busy ? 'neon' : info?.activity === 'offline' ? 'mute' : 'volt'} pulse={busy} />
-              {activityText(info?.activity, info?.activityDetail)}
-            </span>
-            {info?.queued ? <Chip tone="amber">{info.queued} queued</Chip> : null}
-            <Toggle checked={calm} onChange={(v) => void saveSettings({ calm: v })} label={<span className="label">Clean HUD</span>} />
-            {busy && (
-              <button className="btn sm alert" onClick={() => void op('Interrupt', () => api().interruptWksp(wksp))}>
-                <CircleStop size={13} /> Interrupt
-              </button>
-            )}
-            <button
-              className="btn sm ghost icon"
-              title="Restart session (keeps memory; shift-click for a fresh session)"
-              onClick={(e) => void op('Restart', () => api().restartWksp(wksp, e.shiftKey), () => (e.shiftKey ? 'Fresh session' : 'Session resumed'))}
-            >
-              <RefreshCw size={13} />
-            </button>
-          </div>
-        </header>
-
-        <ChatLog messages={visible} calm={calm} busy={busy} gamertag={gamertag} activityDetail={info?.activityDetail} lastError={info?.lastError} />
-
-        <Composer wksp={wksp} disabled={isAlly} busy={busy} />
+        <ChatDock render={(p) => <ChatPanel key={p} wksp={p} />} />
       </section>
 
       <aside className="comms-side">
         <Roster />
         <Killfeed />
       </aside>
+    </div>
+  )
+}
+
+/** One chat in the dock: its own status bar, log and composer. */
+function ChatPanel({ wksp }: { wksp: string }) {
+  const info = useStore((s) => s.snap.wksps.find((m) => m.name === wksp))
+  const ally = useStore((s) => s.snap.allies.find((a) => a.name === wksp && !a.retiredAt))
+  const messages = useStore((s) => s.chats[wksp] ?? [])
+  const settings = useStore((s) => s.settings)
+  const gamertag = settings?.gamertag || 'Player'
+  const calm = !!settings?.calm
+  const busy = info?.activity === 'thinking' || info?.activity === 'tool' || info?.activity === 'starting'
+  const isAlly = wksp !== MAIN_PANEL
+
+  useEffect(() => {
+    void loadChat(wksp)
+  }, [wksp])
+
+  // This panel is on screen: everything in it counts as read.
+  const lastTs = messages.length ? messages[messages.length - 1].ts : ''
+  useEffect(() => {
+    if (lastTs) setDock((d) => markSeen(d, wksp, lastTs))
+  }, [wksp, lastTs])
+
+  const visible = useMemo(() => (calm ? messages.filter((m) => m.role !== 'wake') : messages), [messages, calm])
+
+  return (
+    <div className="chat-panel">
+      <header className="comms-head">
+        <div className="chat-title">
+          {isAlly ? (
+            <>
+              <span className="label violet-text">Ally</span>
+              <span className="mute chat-scope" title={ally?.scope}>
+                {ally?.scope}
+              </span>
+            </>
+          ) : (
+            <span className="label neon-text">Genio</span>
+          )}
+        </div>
+        <div className="comms-status">
+          <span className={cx('activity', info?.activity)}>
+            <Dot tone={info?.activity === 'error' ? 'alert' : busy ? 'neon' : info?.activity === 'offline' ? 'mute' : 'volt'} pulse={busy} />
+            {activityText(info?.activity, info?.activityDetail)}
+          </span>
+          {info?.queued ? <Chip tone="amber">{info.queued} queued</Chip> : null}
+          <Toggle checked={calm} onChange={(v) => void saveSettings({ calm: v })} label={<span className="label">Clean HUD</span>} />
+          {busy && (
+            <button className="btn sm alert" onClick={() => void op('Interrupt', () => api().interruptWksp(wksp))}>
+              <CircleStop size={13} /> Interrupt
+            </button>
+          )}
+          <button
+            className="btn sm ghost icon"
+            title="Restart session (keeps memory; shift-click for a fresh session)"
+            onClick={(e) => void op('Restart', () => api().restartWksp(wksp, e.shiftKey), () => (e.shiftKey ? 'Fresh session' : 'Session resumed'))}
+          >
+            <RefreshCw size={13} />
+          </button>
+        </div>
+      </header>
+
+      <ChatLog wksp={wksp} messages={visible} calm={calm} busy={busy} gamertag={gamertag} activityDetail={info?.activityDetail} lastError={info?.lastError} />
+
+      <Composer wksp={wksp} disabled={isAlly} busy={busy} />
     </div>
   )
 }
@@ -111,7 +136,7 @@ function activityText(a?: string, detail?: string): string {
   }
 }
 
-function ChatLog({ messages, calm, busy, gamertag, activityDetail, lastError }: { messages: ChatMessage[]; calm: boolean; busy: boolean; gamertag: string; activityDetail?: string; lastError?: string }) {
+function ChatLog({ wksp, messages, calm, busy, gamertag, activityDetail, lastError }: { wksp: string; messages: ChatMessage[]; calm: boolean; busy: boolean; gamertag: string; activityDetail?: string; lastError?: string }) {
   const ref = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
   useLayoutEffect(() => {
@@ -127,7 +152,16 @@ function ChatLog({ messages, calm, busy, gamertag, activityDetail, lastError }: 
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
       }}
     >
-      {messages.length === 0 && (
+      {messages.length === 0 && wksp !== MAIN_PANEL && (
+        <div className="chat-empty rise">
+          <GenioCore size={80} state={busy ? 'active' : 'idle'} />
+          <h2 className="title" style={{ fontSize: 24 }}>
+            Ally <span className="violet-text">{wksp}</span>
+          </h2>
+          <p className="dim">Genio routes in-scope work here; this ally reports back through Genio. Its chat shows up as it works.</p>
+        </div>
+      )}
+      {messages.length === 0 && wksp === MAIN_PANEL && (
         <div className="chat-empty rise">
           <GenioCore size={110} state={busy ? 'active' : 'idle'} />
           <h2 className="title" style={{ fontSize: 30 }}>
@@ -156,7 +190,7 @@ function ChatLog({ messages, calm, busy, gamertag, activityDetail, lastError }: 
             <GenioCore size={34} state="active" />
           </div>
           <div className="working-line">
-            <span className="working-text">{activityDetail ? trunc(activityDetail, 60) : 'Genio is on it'}</span>
+            <span className="working-text">{activityDetail ? trunc(activityDetail, 60) : `${wksp === MAIN_PANEL ? 'Genio' : wksp} is on it`}</span>
             <span className="working-dots">
               <i />
               <i />
@@ -231,7 +265,7 @@ function Message({ m, calm, gamertag }: { m: ChatMessage; calm: boolean; gamerta
           </div>
         )}
         <div className="msg-meta">
-          Genio · {clock(m.ts)}
+          {m.wksp === MAIN_PANEL ? 'Genio' : m.wksp} · {clock(m.ts)}
           {m.costUsd ? ` · $${m.costUsd.toFixed(3)}` : ''}
         </div>
       </div>
@@ -410,8 +444,8 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
       </div>
       <div className="composer-hints mute">
         <span>
-          <ShellModeButton />
-          <ChatModelControls disabled={disabled} />
+          <ShellModeButton disabled={disabled} />
+          <ChatModelControls wksp={wksp} />
           <kbd>Enter</kbd> send · <kbd>Shift</kbd>+<kbd>Enter</kbd> newline · <kbd>/</kbd> commands · <kbd>Ctrl</kbd>+<kbd>V</kbd> image
         </span>
         <span className="quick">
@@ -437,7 +471,7 @@ function cycleShellMode(): void {
 }
 
 /** Chat approval-mode switcher (click or Shift+Tab in the input), à la Claude Code. */
-function ShellModeButton() {
+function ShellModeButton({ disabled }: { disabled?: boolean }) {
   const mode = useStore((s) => s.settings?.chatShellMode ?? 'ask')
   const m = SHELL_MODES.find((x) => x.id === mode) ?? SHELL_MODES[0]
   const auto = mode !== 'ask'
@@ -445,7 +479,8 @@ function ShellModeButton() {
     <button
       className={cx('btn sm', mode === 'all' ? 'alert' : auto ? 'amber' : 'ghost')}
       style={{ marginRight: 12, verticalAlign: 'middle' }}
-      title={`${m.hint}\nClick or Shift+Tab to switch.`}
+      disabled={disabled}
+      title={disabled ? 'Approval mode applies to the Genio chat.' : `${m.hint}\nClick or Shift+Tab to switch.`}
       onClick={cycleShellMode}
     >
       {auto ? <TriangleAlert size={12} /> : <ShieldCheck size={12} />} {m.label}
@@ -456,23 +491,28 @@ function ShellModeButton() {
 const COMPACT_SELECT: CSSProperties = { width: 'auto', height: 26, padding: '0 6px', fontSize: 10.5, marginRight: 8, verticalAlign: 'middle' }
 const APPLY_HINT = 'Applies from the next turn; a turn in progress finishes first.'
 
-/** Genio model/effort for this chat: the same wkspModel/wkspEffort settings as Systems › Genio. */
-function ChatModelControls({ disabled }: { disabled: boolean }) {
-  const model = useStore((s) => s.settings?.wkspModel ?? '')
-  const effort = useStore((s) => s.settings?.wkspEffort ?? '')
+/**
+ * Model/effort for this chat. Genio: the same wkspModel/wkspEffort settings as Systems › Genio.
+ * An ally: its own recruit-time model and effort, shown read-only.
+ */
+function ChatModelControls({ wksp }: { wksp: string }) {
+  const ally = useStore((s) => (wksp === MAIN_PANEL ? undefined : s.snap.allies.find((a) => a.name === wksp)))
+  const model = useStore((s) => (ally ? ally.model : s.settings?.wkspModel) ?? '')
+  const effort = useStore((s) => (ally ? ally.effort : s.settings?.wkspEffort) ?? '')
+  const disabled = wksp !== MAIN_PANEL
   return (
     <>
       <ModelSelect
         value={model}
         disabled={disabled}
-        title={`Genio model (blank = default). ${APPLY_HINT}`}
+        title={disabled ? `${wksp} model, set when it was recruited (blank = default).` : `Genio model (blank = default). ${APPLY_HINT}`}
         style={COMPACT_SELECT}
         onChange={(v) => void saveSettings({ wkspModel: v })}
       />
       <EffortSelect
         value={effort}
         disabled={disabled}
-        title={`Genio effort. ${APPLY_HINT}`}
+        title={disabled ? `${wksp} effort, set when it was recruited.` : `Genio effort. ${APPLY_HINT}`}
         style={{ ...COMPACT_SELECT, marginRight: 12 }}
         onChange={(v) => void saveSettings({ wkspEffort: v })}
       />

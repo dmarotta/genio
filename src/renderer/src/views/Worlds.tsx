@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, FolderOpen, Gamepad2, Globe, Play, Plus, RefreshCw, Rocket, Sparkles, Trash } from 'lucide-react'
+import { ChevronDown, ChevronRight, FolderOpen, Gamepad2, Globe, Play, Plus, RefreshCw, Rocket, Sparkles, Trash, Users } from 'lucide-react'
 import type { Engine, Project, ProjectCommands, ProjectMode } from '@shared/types'
-import { api, errText, op, openDeploy, setState, toast, useStore } from '../store'
+import { api, errText, op, openDeploy, setState, spawnWorldAllyChat, toast, useStore } from '../store'
 import { CommitInput, Confirm, Empty, Field, Modal, Toggle, ViewHeader } from '../components/ui'
 import { ENGINES, ENGINE_COLOR, ENGINE_LABEL, MODE_HINT, MODE_LABEL, PROJECT_MODES, isActive } from '../lib/vocab'
 import { cx, shortPath } from '../lib/format'
+import { allyForWorld } from '../lib/dock'
 
 export function Worlds() {
   const projects = useStore((s) => s.snap.projects)
@@ -74,6 +75,8 @@ function WorldCard({ p, highlight }: { p: Project; highlight: boolean }) {
   const [confirmYolo, setConfirmYolo] = useState(false)
   const [remove, setRemove] = useState(false)
   const [delClone, setDelClone] = useState(false)
+  const ally = useStore((s) => allyForWorld(s.snap.allies, p.name))
+  const [spawning, setSpawning] = useState(false)
   const ref = useRef<HTMLElement>(null)
 
   useEffect(() => {
@@ -165,6 +168,18 @@ function WorldCard({ p, highlight }: { p: Project; highlight: boolean }) {
         </button>
         <button className="btn sm volt" disabled={!p.commands.run} title={p.commands.run ?? 'Set a run command first'} onClick={() => void op('Playtest', () => api().playtest({ project: p.name }), (r) => (r ? 'Playtest launched in Squad › Sessions' : undefined))}>
           <Play size={12} /> Playtest
+        </button>
+        <button
+          className="btn sm violet"
+          disabled={spawning}
+          title={ally ? `Open the chat tab of ally ${ally.name}` : `Recruit an ally for all work in ${p.name} and open its chat tab`}
+          onClick={async () => {
+            setSpawning(true)
+            await spawnWorldAllyChat(p.name)
+            setSpawning(false)
+          }}
+        >
+          <Users size={12} /> {ally ? 'Open ally' : spawning ? 'Spawning…' : 'Spawn ally'}
         </button>
         <button className="btn sm ghost" onClick={() => void op('Sync', () => api().projectSync(p.name))}>
           <RefreshCw size={12} /> Sync

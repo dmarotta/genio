@@ -4,6 +4,7 @@ import type {
   TerminalInfo, Wake
 } from '@shared/types'
 import type { SpawnRequest } from '@shared/api'
+import { DOCK_STORAGE_KEY, closePanel, focusPanel, openPanel, parseDock, reconcileDock, serializeDock, spawnWorldAlly, type DockState } from './lib/dock'
 import { playSfx } from './lib/sfx'
 import { speak } from './lib/voice'
 
@@ -45,7 +46,8 @@ export interface State {
   achievements: Achievement[]
   view: ViewId
   focus: Focus
-  activeWksp: string
+  /** chat screen dock layout (persisted in localStorage) */
+  dock: DockState
   deploy: Partial<SpawnRequest> | null
   palette: boolean
   highlightWorld?: string
@@ -89,7 +91,7 @@ let state: State = {
   achievements: [],
   view: 'comms',
   focus: null,
-  activeWksp: 'main',
+  dock: loadDock(),
   deploy: null,
   palette: false
 }
@@ -177,6 +179,72 @@ export function go(view: ViewId): void {
 
 export function focusTask(id: string): void {
   setState({ view: 'squad', focus: { type: 'task', id }, palette: false })
+}
+
+// ------------------------------------------------------------------ chat dock
+
+function loadDock(): DockState {
+  try {
+    return parseDock(localStorage.getItem(DOCK_STORAGE_KEY))
+  } catch {
+    return parseDock(null)
+  }
+}
+
+let dockSaveTimer: number | undefined
+export function setDock(fn: (d: DockState) => DockState): void {
+  const next = fn(state.dock)
+  if (next === state.dock) return
+  setState({ dock: next })
+  if (dockSaveTimer) window.clearTimeout(dockSaveTimer)
+  dockSaveTimer = window.setTimeout(() => {
+    try {
+      localStorage.setItem(DOCK_STORAGE_KEY, serializeDock(state.dock))
+    } catch {
+      /* storage unavailable: the layout just won't survive a restart */
+    }
+  }, 300)
+}
+
+/** Drop panels of retired or missing allies; open tabs for allies the dock has not met yet. */
+function syncDock(): void {
+  setDock((d) => reconcileDock(d, state.snap.allies))
+}
+
+/** Open (or focus) a chat tab and switch to the chat screen. */
+export function openChat(wksp: string): void {
+  setDock((d) => openPanel(d, wksp))
+  go('comms')
+  void loadChat(wksp)
+}
+
+/** Hide a chat tab. The ally keeps running; the main chat cannot be closed. */
+export function closeChat(wksp: string): void {
+  setDock((d) => closePanel(d, wksp))
+}
+
+export function focusChat(wksp: string): void {
+  setDock((d) => focusPanel(d, wksp))
+}
+
+/** World → ally: create the world's ally once, then just reopen its tab. */
+export async function spawnWorldAllyChat(world: string): Promise<void> {
+  try {
+    await spawnWorldAlly(world, {
+      allies: () => state.snap.allies,
+      create: (req) => api().allyCreate(req),
+      open: (ally) => {
+        // The 'allies' event may land after the create reply; keep the ally so the dock doesn't drop its tab.
+        if (!state.snap.allies.some((x) => x.name === ally.name && !x.retiredAt)) {
+          setState((s) => ({ snap: { ...s.snap, allies: [...s.snap.allies.filter((x) => x.name !== ally.name), ally] } }))
+        }
+        openChat(ally.name)
+      }
+    })
+  } catch (e) {
+    toast('error', 'Could not spawn ally', errText(e))
+    playSfx('error', state.settings)
+  }
 }
 
 export function openDeploy(prefill: Partial<SpawnRequest> = {}): void {
@@ -272,6 +340,7 @@ export function handleEvent(ev: GenioEvent): void {
   switch (ev.type) {
     case 'snapshot':
       setState({ snap: ev.data })
+      if (s.connected) syncDock()
       break
     case 'task':
       setState({ snap: { ...s.snap, tasks: upsertBy(s.snap.tasks, ev.task, (t) => t.id) } })
@@ -359,6 +428,7 @@ export function handleEvent(ev: GenioEvent): void {
       break
     case 'allies':
       setState({ snap: { ...s.snap, allies: ev.allies } })
+      if (s.connected) syncDock()
       break
     case 'sfx':
       playSfx(ev.sound, s.settings)
@@ -394,6 +464,7 @@ export async function boot(): Promise<void> {
       feed: wakes.map(wakeToFeed).sort((a, b) => b.ts.localeCompare(a.ts)).slice(0, 80)
     })
     if (settings.fx === false) document.body.classList.add('fx-off')
+    syncDock()
     await loadChat('main')
   } catch (e) {
     toast('error', 'Could not reach Genio core', errText(e))
