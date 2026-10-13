@@ -92,6 +92,74 @@ export interface ApiKeyStatus {
   setAt?: string
 }
 
+export type FalRunStatus = 'submitting' | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+export type FalOutputKind = 'image' | 'audio' | 'video' | 'model' | 'other'
+
+/** One file a FAL run produced. Genio keeps a local copy in its data dir. */
+export interface FalOutput {
+  kind: FalOutputKind
+  /** where FAL serves it (https), or '' when FAL inlined it as a data URI */
+  url: string
+  /** JSON path in the result, e.g. images[0] */
+  field: string
+  fileName: string
+  contentType?: string
+  size?: number
+  width?: number
+  height?: number
+  /** absolute path of the local copy */
+  localPath?: string
+  /** genio-media:// URL the renderer can load */
+  mediaUrl?: string
+  downloadError?: string
+}
+
+/** A FAL.ai queue request and what came back (FAL screen history). */
+export interface FalRun {
+  id: string
+  endpoint: string
+  input: Record<string, unknown>
+  status: FalRunStatus
+  requestId?: string
+  statusUrl?: string
+  responseUrl?: string
+  cancelUrl?: string
+  queuePosition?: number
+  /** last log lines FAL reported */
+  logs: string[]
+  error?: string
+  outputs: FalOutput[]
+  /** the result JSON (long strings trimmed) */
+  result?: unknown
+  /** only when FAL reports one */
+  costUsd?: number
+  createdAt: string
+  startedAt?: string
+  completedAt?: string
+}
+
+export interface FalRunRequest {
+  /** FAL endpoint id, e.g. fal-ai/flux/dev */
+  endpoint: string
+  input: Record<string, unknown>
+}
+
+export interface FalSaveRequest {
+  runId: string
+  output: number
+  project: string
+  /** folder relative to the world root ('' = root) */
+  folder: string
+  fileName: string
+  overwrite?: boolean
+}
+
+export interface FalSaveResult extends OpResult {
+  /** the target exists and overwrite was not confirmed */
+  exists?: boolean
+  path?: string
+}
+
 export interface GenioApi {
   snapshot(): Promise<FleetSnapshot>
   homePath(): Promise<string>
@@ -110,6 +178,15 @@ export interface GenioApi {
   apiKeys(): Promise<ApiKeyStatus[]>
   apiKeySet(id: string, key: string): Promise<OpResult>
   apiKeyClear(id: string): Promise<OpResult>
+
+  // ---- FAL.ai (runs in main with the stored key; the key never reaches the renderer)
+  falRuns(): Promise<FalRun[]>
+  falRun(req: FalRunRequest): Promise<FalRun>
+  falCancel(id: string): Promise<OpResult>
+  falDelete(id: string): Promise<OpResult>
+  falSave(req: FalSaveRequest): Promise<FalSaveResult>
+  /** folder picker rooted at a world; returns the path relative to it */
+  falPickFolder(project: string): Promise<string | null>
 
   // ---- bridge (chat with Genio / second units)
   chatHistory(wksp: string, limit?: number): Promise<ChatMessage[]>
@@ -200,6 +277,12 @@ export const API_METHODS = [
   'apiKeys',
   'apiKeySet',
   'apiKeyClear',
+  'falRuns',
+  'falRun',
+  'falCancel',
+  'falDelete',
+  'falSave',
+  'falPickFolder',
   'chatHistory',
   'sendChat',
   'interruptWksp',

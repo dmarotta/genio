@@ -14,6 +14,7 @@ import { Status } from './views/Status'
 import { Worlds } from './views/Worlds'
 import { Lore } from './views/Lore'
 import { Systems } from './views/Systems'
+import { Fal } from './views/Fal'
 
 const VIEW: Record<ViewId, ComponentType> = {
   comms: Comms,
@@ -23,7 +24,8 @@ const VIEW: Record<ViewId, ComponentType> = {
   status: Status,
   worlds: Worlds,
   lore: Lore,
-  systems: Systems
+  systems: Systems,
+  fal: Fal
 }
 
 export function App() {

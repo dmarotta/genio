@@ -14,7 +14,8 @@ import type {
   DeliveryMode, SfxName
 } from '@shared/types'
 import type {
-  OpResult, ProjectAddRequest, ProjectCreateRequest, AllyCreateRequest, SpawnRequest, TaskFile, MemoryFile
+  OpResult, ProjectAddRequest, ProjectCreateRequest, AllyCreateRequest, SpawnRequest, TaskFile, MemoryFile,
+  FalRun, FalRunRequest, FalSaveRequest, FalSaveResult
 } from '@shared/api'
 import type { Home } from './home'
 
@@ -173,6 +174,21 @@ export interface UpdateService {
   apply(): Promise<OpResult>
 }
 
+/** FAL screen: requests run here with the stored key; the renderer only sees runs. */
+export interface FalService {
+  runs(): FalRun[]
+  /** records the run and starts it in the background (submit → poll → download) */
+  run(req: FalRunRequest): FalRun
+  cancel(id: string): Promise<OpResult>
+  remove(id: string): OpResult
+  /** copy an output into a world; refuses to overwrite unless req.overwrite */
+  save(req: FalSaveRequest): Promise<FalSaveResult>
+  /** session start: keep polling runs that were in flight */
+  resume(): void
+  /** local file behind a genio-media://fal/<id>/<file> URL */
+  mediaPath(id: string, fileName: string): string | undefined
+}
+
 export interface PermissionBroker {
   /** ask the player through the GUI; resolves true when allowed */
   ask(req: Omit<PermissionRequest, 'id' | 'ts'>): Promise<boolean>
@@ -309,6 +325,7 @@ export interface AppCtx {
   memory: MemoryService
   update: UpdateService
   permissions: PermissionBroker
+  fal: FalService
   main: HomeCtx
   homes: Map<string, HomeCtx>
   home(name: string): HomeCtx

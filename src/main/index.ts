@@ -4,10 +4,11 @@
  */
 import path from 'node:path'
 import fs from 'node:fs'
-import { app, BrowserWindow, dialog, shell } from 'electron'
+import { app, BrowserWindow, dialog, protocol, shell } from 'electron'
 import { EVENT_CHANNEL } from '@shared/api'
 import { bus } from './bus'
 import { createApp, getCtx, startApp, stopApp } from './ctx'
+import { MEDIA_SCHEME, mediaResponse } from './fal-service'
 import { defaultHomeRoot } from './home'
 import { registerIpc } from './ipc'
 import type { AppCtx } from './services'
@@ -38,6 +39,9 @@ if (!app.requestSingleInstanceLock()) {
 
 app.setAppUserModelId('dev.genio.app')
 
+// genio-media://fal/<run>/<file>: FAL outputs from Genio's data dir (streamable, seekable)
+protocol.registerSchemesAsPrivileged([{ scheme: MEDIA_SCHEME, privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true } }])
+
 function appRoot(): string {
   // out/main/index.js → project root in dev/preview; app path when packaged
   return app.isPackaged ? app.getAppPath() : path.resolve(__dirname, '..', '..')
@@ -65,8 +69,19 @@ async function boot(): Promise<void> {
   writeLock()
   ctx = createApp(appRoot())
   registerIpc(getCtx)
+  registerMedia()
   createWindow()
   wireEvents()
+}
+
+function registerMedia(): void {
+  protocol.handle(MEDIA_SCHEME, (req) => {
+    const u = new URL(req.url)
+    const [id, file] = u.pathname.split('/').filter(Boolean).map(decodeURIComponent)
+    const p = u.hostname === 'fal' && id && file ? getCtx().fal.mediaPath(id, file) : undefined
+    if (!p) return new Response('not found', { status: 404 })
+    return mediaResponse(p, req.headers.get('range'))
+  })
 }
 
 function createWindow(): void {
@@ -222,7 +237,7 @@ process.on('unhandledRejection', (e) => {
 
 /**
  * Dev-only visual check: GENIO_CAPTURE_DIR=<dir> makes Genio screenshot its own
- * window on every view (Ctrl+1..8) and quit. Captures only Genio's own pixels.
+ * window on every view (Ctrl+1..9) and quit. Captures only Genio's own pixels.
  */
 async function captureTour(dir: string): Promise<void> {
   const fs = await import('node:fs')
@@ -246,7 +261,7 @@ async function captureTour(dir: string): Promise<void> {
     await win.webContents.executeJavaScript(`(async () => { ${body}
  })()`).catch((e) => console.error('[capture] script failed', e))
   }
-  const views = ['comms', 'squad', 'quests', 'yourmove', 'status', 'worlds', 'lore', 'systems']
+  const views = ['comms', 'squad', 'quests', 'yourmove', 'status', 'worlds', 'lore', 'systems', 'fal']
   for (let i = 0; i < views.length; i++) {
     if (!win || win.isDestroyed()) return
     await win.webContents.executeJavaScript(

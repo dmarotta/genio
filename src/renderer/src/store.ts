@@ -7,9 +7,10 @@ import type { SpawnRequest } from '@shared/api'
 import { playSfx } from './lib/sfx'
 import { speak } from './lib/voice'
 
-export type ViewId = 'comms' | 'squad' | 'quests' | 'move' | 'status' | 'worlds' | 'lore' | 'systems'
+export type ViewId = 'comms' | 'squad' | 'quests' | 'move' | 'status' | 'worlds' | 'lore' | 'systems' | 'fal'
 
-export const VIEWS: ViewId[] = ['comms', 'squad', 'quests', 'move', 'status', 'worlds', 'lore', 'systems']
+/** Ctrl+N order (the rail may show them in a different order) */
+export const VIEWS: ViewId[] = ['comms', 'squad', 'quests', 'move', 'status', 'worlds', 'lore', 'systems', 'fal']
 
 export interface Toast {
   id: number

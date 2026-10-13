@@ -3,6 +3,8 @@
 // companion (Genio) which deploys a Squad of units, each in an isolated git
 // worktree, supervised to completion.
 
+import type { FalRun } from './api'
+
 export type TaskKind = 'ship' | 'scout'
 
 /** How a Build mission lands: no-mistakes=Hardcore (Gauntlet then PR), direct-PR=Standard, local-only=Offline. */
@@ -581,5 +583,6 @@ export type GenioEvent =
   | { type: 'allies'; allies: Ally[] }
   | { type: 'sfx'; sound: SfxName }
   | { type: 'speak'; text: string }
+  | { type: 'fal-run'; run: FalRun }
 
 export type SfxName = 'blip' | 'spawn' | 'ready' | 'merge' | 'alert' | 'decision' | 'levelup' | 'send' | 'error'

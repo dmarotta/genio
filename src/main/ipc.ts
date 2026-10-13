@@ -2,13 +2,15 @@
  * IPC: one ipcMain.handle per GenioApi method ('genio:<method>'). The table is
  * typed against GenioApi so a missing or mistyped method fails the build.
  */
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import path from 'node:path'
+import { BrowserWindow, dialog, ipcMain, shell, type OpenDialogOptions } from 'electron'
 import { API_PREFIX, type GenioApi } from '@shared/api'
 import type { Task } from '@shared/types'
 import { listAccounts, openAccountSession } from './accounts'
 import { answerChoice, findDecision, findTask } from './wksp-tools'
 import { resolveLoadout } from './loadout'
 import { clearSecret, secretStatus, setSecret } from './secrets'
+import { isSubPath } from './util'
 import type { AppCtx, HomeCtx } from './services'
 
 type Handlers = { [K in keyof GenioApi]: (...args: Parameters<GenioApi[K]>) => ReturnType<GenioApi[K]> | Awaited<ReturnType<GenioApi[K]>> }
@@ -59,6 +61,23 @@ export function registerIpc(getCtx: () => AppCtx): void {
     apiKeyClear: (id) => {
       clearSecret(id, ctx().main.home.data)
       return { ok: true, message: 'Key cleared.' }
+    },
+
+    // ---- FAL.ai
+    falRuns: () => ctx().fal.runs(),
+    falRun: (req) => ctx().fal.run(req),
+    falCancel: (id) => ctx().fal.cancel(id),
+    falDelete: (id) => ctx().fal.remove(id),
+    falSave: (req) => ctx().fal.save(req),
+    falPickFolder: async (project) => {
+      const proj = ctx().projects.get(project)
+      if (!proj) throw new Error(`No world named ${project}.`)
+      const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+      const opts: OpenDialogOptions = { title: `Folder in ${proj.name}`, defaultPath: proj.path, properties: ['openDirectory', 'createDirectory'] }
+      const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+      if (r.canceled || !r.filePaths[0]) return null
+      if (!isSubPath(r.filePaths[0], proj.path)) throw new Error(`Pick a folder inside ${proj.name} (${proj.path}).`)
+      return path.relative(proj.path, r.filePaths[0]).replace(/\\/g, '/')
     },
 
     // ---- comms

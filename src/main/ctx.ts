@@ -24,6 +24,7 @@
  *   memory.ts       createMemoryService(getCtx)
  *   update.ts       createUpdateService(getCtx)
  *   permissions.ts  createPermissionBroker(getCtx)
+ *   fal-service.ts  createFalService(getCtx)
  */
 import type { FleetSnapshot, Ally } from '@shared/types'
 import { Home, defaultHomeRoot } from './home'
@@ -50,6 +51,7 @@ import { createAlliesService } from './allies'
 import { createMemoryService } from './memory'
 import { createUpdateService } from './update'
 import { createPermissionBroker } from './permissions'
+import { createFalService } from './fal-service'
 
 let current: AppCtx | undefined
 
@@ -99,6 +101,7 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
   ctx.update = createUpdateService(getCtx)
   ctx.permissions = createPermissionBroker(getCtx)
   ctx.allies = createAlliesService(getCtx)
+  ctx.fal = createFalService(getCtx)
 
   ctx.main = makeHomeCtx(mainHome)
   homes.set('main', ctx.main)
@@ -134,6 +137,7 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
 /** Start supervision and agents for every home (after the window exists). */
 export async function startApp(ctx: AppCtx): Promise<void> {
   ctx.inbox.configure()
+  ctx.fal.resume()
   for (const h of ctx.homes.values()) {
     await h.crew.reconcileOnStart()
     h.supervisor.start()
