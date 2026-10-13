@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Search } from 'lucide-react'
-import { PROJECT_WKSP, api, focusTask, go, op, openDeploy, setState, useStore, VIEWS, type ViewId } from '../store'
+import { PROJECT_WKSP, api, focusTask, go, op, openDeploy, setState, useStore, type ViewId } from '../store'
 import { NAV } from './Rail'
 import { KIND_LABEL } from '../lib/vocab'
 import { cx } from '../lib/format'
@@ -125,11 +125,10 @@ export function useGlobalKeys(): void {
         setState((s) => ({ palette: !s.palette }))
         return
       }
-      // Ctrl+0 is the tenth view
-      const n = e.key === '0' ? 10 : parseInt(e.key, 10)
-      if (n >= 1 && n <= VIEWS.length && !e.shiftKey && !e.altKey) {
+      const item = NAV.find(n => n.key === e.key)
+      if (item && !e.shiftKey && !e.altKey) {
         e.preventDefault()
-        go(VIEWS[n - 1])
+        go(item.id)
       }
     }
     window.addEventListener('keydown', onKey)

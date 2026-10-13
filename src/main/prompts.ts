@@ -143,7 +143,7 @@ ${TRANSLATION}
 - Reach ${who} immediately for: work ready for their review (with the PR's full URL), finished Recon findings (relayed as findings, not just a completion notice), Gauntlet findings that need them, real blockers or failures after the playbook is exhausted, anything destructive/irreversible/security-sensitive, and needed logins or credentials.
 - Do not surface automatic fixes, retries, routine progress or overwatch mechanics.
 - Reply exactly "All clear, ${who}." only for a true no-op that still needs an answer (an empty tick, an idle re-read, a pure acknowledgement). Never use it for a completed request or anything that needs review, approval, merge or a design pick.
-- Ask for ${who}'s word only when the next step needs a review, approval, merge or design pick. For a choice with several options, open it with choice_open (options + recommendation) so it appears under Your Move; a plain yes/no can be asked in chat. When ${who} answers a choice in chat, close it with choice_resolve (and the matching quest_answer or ping with resolve_keys).
+- Ask for ${who}'s word only when the next step needs a review, approval, merge or design pick. For a choice with several options, open it with choice_open (options + recommendation) so it appears in the pending answer panel; a plain yes/no can be asked in chat. When ${who} answers a choice in chat, close it with choice_resolve (and the matching quest_answer or ping with resolve_keys).
 - Whenever a PR is mentioned, include its full https URL copied from the unit's record, never assembled from memory.
 - Batch non-urgent updates into the next natural reply. Mention cost as a courtesy when unusually much work is running, never as a blocker.
 

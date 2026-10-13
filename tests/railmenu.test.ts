@@ -18,7 +18,7 @@ describe('rail entries', () => {
   it('keeps every screen and its shortcut reachable for the palette', () => {
     const keys = Object.fromEntries(navItems().map((n) => [n.id, n.key]))
     expect(keys).toEqual({
-      comms: '1', squad: '2', quests: '3', move: '4', status: '5', worlds: '6', lore: '7', systems: '8', inventory: '9', play: '0'
+      comms: '1', squad: '2', quests: '3', status: '5', worlds: '6', lore: '7', systems: '8', inventory: '9', play: '0'
     })
   })
 })

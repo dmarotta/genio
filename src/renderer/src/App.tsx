@@ -9,7 +9,7 @@ import { Onboarding } from './components/Onboarding'
 import { Comms } from './views/Comms'
 import { Squad } from './views/Squad'
 import { Quests } from './views/Quests'
-import { YourMove } from './views/YourMove'
+import { Answers } from './components/Answers'
 import { CharacterSheet } from './views/CharacterSheet'
 import { ProjectNotice, Worlds } from './views/Worlds'
 import { Lore } from './views/Lore'
@@ -22,7 +22,6 @@ const VIEW: Partial<Record<ViewId, ComponentType>> = {
   comms: Comms,
   squad: Squad,
   quests: Quests,
-  move: YourMove,
   status: CharacterSheet,
   worlds: Worlds,
   lore: Lore,
@@ -62,6 +61,7 @@ export function App() {
             <View />
           )}
         </main>
+        <Answers />
       </div>
       <DeployModal />
       <CommandPalette />

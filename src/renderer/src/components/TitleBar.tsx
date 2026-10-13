@@ -1,15 +1,18 @@
 import { Crosshair, Users } from 'lucide-react'
-import { PROJECT_WINDOW, api, go, op, openDecisions, readyTasks, setState, useStore } from '../store'
+import { PROJECT_WINDOW, api, go, op, openDecisions, setState, useStore } from '../store'
+import { useNow } from './ui'
 import { PRESENCE } from '../lib/vocab'
 import { cx, usd } from '../lib/format'
 import { playSfx } from '../lib/sfx'
 import type { AwayMode } from '@shared/types'
 
 export function TitleBar() {
+  useNow(30_000)
   const away = useStore((s) => s.snap.away)
   const stats = useStore((s) => s.snap.stats)
   const units = useStore((s) => s.snap.tasks.filter((t) => t.state === 'working' || t.state === 'spawning' || t.state === 'validating').length)
-  const moves = useStore((s) => openDecisions(s).length + readyTasks(s).length)
+  const moves = useStore((s) => openDecisions(s).length)
+  const answersOpen = useStore(s => s.answersOpen)
   const settings = useStore((s) => s.settings)
   const pct = stats.xpNext > 0 ? Math.min(100, (stats.xp / stats.xpNext) * 100) : 0
 
@@ -55,7 +58,7 @@ export function TitleBar() {
           <Users size={14} />
           <span className="num">{units}</span>
         </button>
-        <button className={cx('hud-stat', moves > 0 && 'amber')} title="Your move: choices & merges waiting" onClick={() => go('move')}>
+        <button className={cx('hud-stat', moves > 0 && 'amber')} title="Pending answers" aria-label="Pending answers" aria-controls="answers" aria-expanded={answersOpen && moves > 0} onClick={() => setState({ answersOpen: !answersOpen })}>
           <Crosshair size={14} />
           <span className="num">{moves}</span>
         </button>

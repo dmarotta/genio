@@ -168,10 +168,10 @@ export function WelcomeBack() {
             className="btn"
             onClick={() => {
               close()
-              setState({ view: 'move' })
+              setState({ answersOpen: true })
             }}
           >
-            Open Your Move
+            Show pending answers
           </button>
           <button className="btn solid volt" onClick={close}>
             GG, got it

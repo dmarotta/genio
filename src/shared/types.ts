@@ -731,7 +731,7 @@ export type GenioEvent =
   | { type: 'fal-catalogue' }
   | { type: 'uthana-run'; run: UthanaRun }
 
-/** Where clicking a desktop notification takes the player. */
+/** Notification destination; legacy `move` targets reveal pending answer cards. */
 export type NotifyTarget = { view: 'move' } | { view: 'squad'; taskId?: string } | { view: 'comms'; wksp?: string }
 
 export type SfxName = 'blip' | 'spawn' | 'ready' | 'merge' | 'alert' | 'decision' | 'levelup' | 'send' | 'error'

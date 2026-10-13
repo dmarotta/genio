@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { BookOpen, FolderOpen, Cpu, Crosshair, Gauge, Globe, MessageSquare, ScrollText, Swords, Gamepad2, type LucideIcon } from 'lucide-react'
-import { PROJECT_WINDOW, go, openDecisions, readyTasks, useStore, type ViewId } from '../store'
+import { BookOpen, FolderOpen, Cpu, Gauge, Globe, MessageSquare, ScrollText, Swords, Gamepad2, type LucideIcon } from 'lucide-react'
+import { PROJECT_WINDOW, go, useStore, type ViewId } from '../store'
 import { cx } from '../lib/format'
 import { RAIL, entryActive, initialIndex, menuKey, navItems, opensMenu, type RailEntry } from '../lib/railmenu'
 import '../styles/railmenu.css'
@@ -12,7 +12,6 @@ const ICON: Record<string, LucideIcon> = {
   comms: MessageSquare,
   squad: Swords,
   quests: ScrollText,
-  move: Crosshair,
   status: Gauge,
   worlds: Globe,
   lore: BookOpen,
@@ -26,13 +25,11 @@ export const NAV = navItems(windowRail)
 
 export function Rail() {
   const view = useStore((s) => s.view)
-  const moves = useStore((s) => openDecisions(s).length + readyTasks(s).length)
   const live = useStore((s) => s.snap.tasks.filter((t) => t.state === 'working' || t.state === 'spawning' || t.state === 'validating').length)
   const mail = useStore((s) => s.snap.inbox.filter((n) => !n.ackedAt).length)
   const thinking = useStore((s) => s.snap.wksps.some((m) => m.activity === 'thinking' || m.activity === 'tool'))
   const quests = useStore((s) => questCounts(s.snap.backlog))
   const badge: Partial<Record<ViewId, { n: number; tone: string }>> = {
-    move: { n: moves, tone: 'amber' },
     squad: { n: live, tone: 'neon' },
     lore: { n: mail, tone: 'violet' }
   }

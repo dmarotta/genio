@@ -448,7 +448,7 @@ export function createToolRegistry(
   // ------------------------------------------------------------ choices
   t(
     'choice_open',
-    'Open a choice for the player under Your Move (several options with a recommendation, or a design pick). Link task when it came from a unit.',
+    'Open a choice for the player in the pending answer panel (several options with a recommendation, or a design pick). Link task when it came from a unit.',
     {
       question: z.string().min(5), options: z.array(z.string()).default([]), recommendation: z.string().optional(),
       context: z.string().optional(), task: z.string().optional(), key: z.string().optional(), quest_id: z.string().optional(),
@@ -472,7 +472,7 @@ export function createToolRegistry(
     return r.ok ? ok(r.message) : fail(r.message)
   })
 
-  t('choice_list', 'Open choices (Your Move) in this base; include_resolved for history.', { include_resolved: z.boolean().default(false) }, async ({ include_resolved }) => {
+  t('choice_list', 'Open choices in this base; include_resolved for history.', { include_resolved: z.boolean().default(false) }, async ({ include_resolved }) => {
     return ok(json(hc().decisions.list(include_resolved)))
   })
 

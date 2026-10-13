@@ -33,7 +33,7 @@ Vocabulary is gaming, not nautical: see [VOCABULARY.md](VOCABULARY.md).
 | `fm-control` interrupt/exit/relaunch | `crew.control()` | INTERRUPT / RECALL / RESPAWN |
 | `fm-watch` wakes | `supervisor.ts` (overwatch) + durable `wakes.ts` | KILLFEED |
 | backlog + holds | `backlog.ts` | QUEST LOG |
-| keyed decisions / captain holds | `decisions.ts` + held quests | YOUR MOVE |
+| keyed decisions / captain holds | `decisions.ts` + held quests | Pending answers / QUEST LOG |
 | project registry, modes, +yolo | `projects.ts` | WORLDS |
 | no-mistakes pipeline | `gauntlet.ts` | GAUNTLET |
 | `fm-pr-merge` / `fm-merge-local` / `fm-teardown` | `crew.merge()` / `crew.cleanup()` | MERGE / DESPAWN |
@@ -161,5 +161,7 @@ legacy main supervisor still observes old units and forwards task wakes to the
 owning open project. A close cancellation keeps units running; confirmation
 stops that project's terminals and preserves its worktrees.
 
-Your Move remains until the following inline-answer build; this shell introduces
-no replacement standalone choices page.
+The standalone Your Move page has been removed. Pending choices appear in a
+non-modal answer panel beside the current screen; the title-bar count and desktop
+notifications reveal it without navigating away. Merges remain in Squad and held
+quests in Quests. Existing `move` notification targets reveal the answer panel.

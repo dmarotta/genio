@@ -284,7 +284,7 @@ export function createAwayService(getCtx: () => AppCtx): AwayService {
         lines.push(`- [${SEVERITY_TAG[e.severity]}]${wksp} ${e.text}`)
       }
       const moves = pending.filter((e) => e.severity === 'decision').length
-      if (moves) lines.push(`${moves} choice(s) still need your move — open YOUR MOVE.`)
+      if (moves) lines.push(`${moves} choice(s) still need your move — show Pending answers.`)
       return lines.join('\n')
     }
   }

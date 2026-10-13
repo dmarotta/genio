@@ -734,7 +734,7 @@ function Dispatch({ s }: { s: Settings }) {
       </p>
       <Row
         label="Learn the order automatically"
-        hint={`Swaps two neighbouring candidates when both have ${LEARNING.minSamples}+ outcomes and the lower one scores ${LEARNING.reorderMargin} higher (scores 0-1, recency half-life ${LEARNING.halfLifeDays} days). Adding or removing candidates always waits for your OK under Your Move. Locked rows and rules are never touched.`}
+        hint={`Swaps two neighbouring candidates when both have ${LEARNING.minSamples}+ outcomes and the lower one scores ${LEARNING.reorderMargin} higher (scores 0-1, recency half-life ${LEARNING.halfLifeDays} days). Adding or removing candidates always waits for your OK in Pending answers. Locked rows and rules are never touched.`}
       >
         <Toggle checked={s.autoReorder} onChange={(v) => set({ autoReorder: v })} />
       </Row>

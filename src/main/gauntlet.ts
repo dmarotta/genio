@@ -263,7 +263,7 @@ export function createGauntlet(getCtx: () => AppCtx, home: Home): Gauntlet {
           context: rv.verdict.findings.map((f) => f.issue).join('\n')
         })
         save({ state: 'needs-decision', stateReason: 'Gauntlet review needs a player choice' })
-        return { ok: false, message: 'The review needs a player choice; raised it in Your Move.' }
+        return { ok: false, message: 'The review needs a player choice; added it to Pending answers.' }
       } else {
         reviewNote = rv.verdict.summary ?? 'Review passed.'
         end(review, 'passed', reviewNote)

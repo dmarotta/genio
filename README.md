@@ -26,7 +26,7 @@ for the design and [docs/VOCABULARY.md](docs/VOCABULARY.md) for the terms.
   in-scope work on its own.
 - **Overwatch** — zero-token supervision: Genio only spends tokens when a unit
   finishes, needs a choice, lags, or a PR changes state.
-- **Your Move** — every open choice, one card at a time, with a recommendation.
+- **Pending answers** — choice cards beside the current screen, with options, recommendations and free-text answers.
 - **Quest Log** — queued work with priorities, dependencies, holds and capacity.
 - **Character Sheet** (`/status`) — Level, XP, streaks, achievements and recent completion loot (Ctrl+5).
 - **Presence** — Online, DND (routine events handled off-screen), AFK (the Bot
@@ -104,7 +104,7 @@ MIT. Genio reimplements concepts from companion by The team (MIT).
 ### Open a project folder
 
 Launching Genio without arguments opens the Hub (Worlds). **Open** opens a world's
-own window; **Open folder�** accepts any existing folder. Git subfolders resolve to
+own window; **Open folder�** accepts any existing folder. Git subfolders resolve to
 the repository root. Ordinary folders open Offline with chat and Inventory; git
 actions unlock after initializing the repository in chat and reopening the folder.
 

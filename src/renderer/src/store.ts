@@ -15,9 +15,6 @@ const windowParams = new URLSearchParams(typeof window === 'undefined' ? '' : wi
 export const PROJECT_WINDOW = windowParams.get('project') || undefined
 export const PROJECT_WKSP = PROJECT_WINDOW ? windowParams.get('wksp') || undefined : undefined
 
-/** Ctrl+N order (the rail may show them in a different order) */
-export const VIEWS: ViewId[] = ['comms', 'squad', 'quests', 'move', 'status', 'worlds', 'lore', 'systems', 'inventory', 'play']
-
 export interface Toast {
   id: number
   level: 'info' | 'success' | 'warn' | 'error'
@@ -50,6 +47,7 @@ export interface State {
   toasts: Toast[]
   permissions: PermissionRequest[]
   achievements: Achievement[]
+  answersOpen: boolean
   view: ViewId
   focus: Focus
   deploy: Partial<SpawnRequest> | null
@@ -99,7 +97,8 @@ let state: State = {
   registeredProject: windowParams.has('registered') ? PROJECT_WINDOW : undefined,
   focus: null,
   deploy: null,
-  palette: false
+  palette: false,
+  answersOpen: true
 }
 
 const listeners = new Set<() => void>()
@@ -424,7 +423,7 @@ export function handleEvent(ev: GenioEvent): void {
     case 'navigate': {
       // a desktop notification was clicked
       const t = ev.target
-      if (t.view === 'move') go('move')
+      if (t.view === 'move') setState({ answersOpen: true })
       else if (t.view === 'squad') {
         if (t.taskId) focusTask(t.taskId)
         else go('squad')
@@ -482,12 +481,4 @@ export function liveTasks(s: State): FleetSnapshot['tasks'] {
 export function openDecisions(s: State): FleetSnapshot['decisions'] {
   const now = Date.now()
   return s.snap.decisions.filter((d) => !d.resolvedAt && (!d.until || new Date(d.until).getTime() <= now))
-}
-
-export function readyTasks(s: State): FleetSnapshot['tasks'] {
-  return s.snap.tasks.filter((t) => t.state === 'ready')
-}
-
-export function heldQuests(s: State): FleetSnapshot['backlog'] {
-  return s.snap.backlog.filter((b) => b.state === 'held' || (b.hold && b.state !== 'done' && b.state !== 'dropped'))
 }
