@@ -19,6 +19,8 @@ import { createGauntlet } from './gauntlet'
 import { resolveLoadout } from './loadout'
 import { modeLabel } from '@shared/vocab'
 import { defaultShell } from './terminals'
+import { getSecret } from './secrets'
+import { installUnitPlugin, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief } from './unitskills'
 import {
   appendLine, ensureDir, exists, fwd, nowIso, readJson, readText, rid, slugify, stripAnsi, truncate, writeJson, writeText
 } from './util'
@@ -119,6 +121,28 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     return { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: fwd(dir) }
   }
 
+  /** Bundled unit skills live in the main base, outside every world. */
+  const mainHome = home.parent ?? home
+  const pluginDir = unitPluginDir(mainHome.root)
+  const toolsBrief = (): string => unitToolsBrief(pluginDir)
+
+  /** Launch additions for unit skills; a missing install or key never blocks a launch. */
+  const skillExtras = (t: Task, harnessId: string, worldPath?: string): ReturnType<typeof unitLaunchExtras> => {
+    let installed: string | undefined
+    try {
+      installed = installUnitPlugin(unitPluginSource(getCtx().appRoot), pluginDir, [t.worktree, worldPath ?? ''])
+    } catch {
+      /* launch without the skills */
+    }
+    let falKey: string | undefined
+    try {
+      falKey = getSecret('fal', mainHome.data)
+    } catch {
+      /* no OS encryption: the skill reports the key as missing */
+    }
+    return unitLaunchExtras(harnessId, { pluginDir: installed, falKey })
+  }
+
   const writeClaudeSettings = (t: Task): string => {
     const p = path.join(home.state, `${t.id}.claude-settings.json`)
     const marker = fwd(turnEndedFile(t.id))
@@ -214,11 +238,16 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     const isClaude = adapter.id === 'claude'
     if (isClaude) setClaudeTrust([t.worktree], true)
     const settingsPath = isClaude ? writeClaudeSettings(t) : undefined
-    const args = buildArgs(adapter, { model: t.model, effort: t.effort, prompt: opts.prompt, cwd: t.worktree, settings: settingsPath, resume: opts.resume }, s)
+    const skills = skillExtras(t, adapter.id, project?.path)
+    const args = [
+      ...skills.args,
+      ...buildArgs(adapter, { model: t.model, effort: t.effort, prompt: opts.prompt, cwd: t.worktree, settings: settingsPath, resume: opts.resume }, s)
+    ]
     const hookEnv = project ? await writeHooks(t, project.path) : {}
     const env: Record<string, string> = {
       ...(adapter.env ?? {}),
       ...hookEnv,
+      ...skills.env,
       GENIO_TASK_ID: t.id,
       GENIO_STATUS_FILE: fwd(home.statusFile(t.id)),
       GENIO_TASK_INBOX: fwd(inboxDir(t.id)),
@@ -439,7 +468,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           reportPath,
           engine: project.engine,
           engineHints: engineHints(project.engine),
-          briefInclude: s.briefInclude
+          briefInclude: s.briefInclude,
+          tools: toolsBrief()
         })
       )
 
@@ -708,6 +738,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           taskDataDir: home.taskDir(id),
           engine: project.engine,
           briefInclude: ctx.settings.get().briefInclude,
+          tools: toolsBrief(),
           carriedReport: report || '(the recon report was empty)'
         })
       )

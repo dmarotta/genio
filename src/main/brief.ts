@@ -27,6 +27,8 @@ export interface BriefInput {
   briefInclude?: string
   /** Recon report carried into an upgraded Build brief */
   carriedReport?: string
+  /** Bundled unit skills (paths only, never keys) */
+  tools?: string
 }
 
 export const MODE_LABEL: Record<DeliveryMode, string> = {
@@ -178,6 +180,12 @@ export function renderBrief(i: BriefInput): string {
   out.push('')
   out.push((i.engineHints ?? engineHints(i.engine)).trim())
   out.push('')
+  if (i.tools?.trim()) {
+    out.push('# Tools')
+    out.push('')
+    out.push(i.tools.trim())
+    out.push('')
+  }
   out.push('# Definition of done')
   out.push('')
   out.push(dod(i))

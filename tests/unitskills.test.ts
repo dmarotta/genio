@@ -1,0 +1,220 @@
+import fs from 'node:fs'
+import http from 'node:http'
+import os from 'node:os'
+import path from 'node:path'
+import { execFile } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { renderBrief, type BriefInput } from '../src/main/brief'
+import { falSkillDir, installUnitPlugin, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief } from '../src/main/unitskills'
+
+const APP_ROOT = fileURLToPath(new URL('..', import.meta.url))
+const SCRIPT = path.join(unitPluginSource(APP_ROOT), 'skills', 'fal', 'scripts', 'fal.mjs')
+const KEY = 'fal-test-key-0000:abcdefabcdefabcdef'
+const fwd = (p: string): string => p.replace(/\\/g, '/')
+
+let tmp: string
+beforeEach(() => {
+  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-unitskills-'))
+})
+afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }))
+
+const listFiles = (dir: string): string[] =>
+  fs.readdirSync(dir, { recursive: true, withFileTypes: true }).filter((e) => e.isFile()).map((e) => path.join(e.parentPath, e.name)).sort()
+
+describe('unit launch extras', () => {
+  const pluginDir = path.join('C:\\genio', 'skills', 'genio')
+
+  it('passes the FAL key only as FAL_KEY when one is set', () => {
+    const x = unitLaunchExtras('claude', { pluginDir, falKey: `  ${KEY}\n` })
+    expect(x.env.FAL_KEY).toBe(KEY)
+    expect(x.args).toEqual(['--plugin-dir', pluginDir])
+    expect(x.args.join(' ')).not.toContain(KEY)
+    expect(Object.entries(x.env).filter(([, v]) => v.includes(KEY)).map(([k]) => k)).toEqual(['FAL_KEY'])
+  })
+
+  it('sets no FAL_KEY when the key is absent or blank', () => {
+    for (const falKey of [undefined, '', '   ']) {
+      const x = unitLaunchExtras('claude', { pluginDir, falKey })
+      expect(x.env).not.toHaveProperty('FAL_KEY')
+      expect(x.env.GENIO_FAL_SKILL).toBe(fwd(falSkillDir(pluginDir)))
+    }
+  })
+
+  it('gives the plugin dir only to Claude Code, the skill path to every runtime', () => {
+    const codex = unitLaunchExtras('codex', { pluginDir, falKey: KEY })
+    expect(codex.args).toEqual([])
+    expect(codex.env).toEqual({ GENIO_FAL_SKILL: fwd(falSkillDir(pluginDir)), FAL_KEY: KEY })
+    expect(unitLaunchExtras('claude', { falKey: KEY })).toEqual({ args: [], env: { FAL_KEY: KEY } })
+  })
+})
+
+describe('installUnitPlugin', () => {
+  it('installs into the base, outside the world tree, and leaves the world untouched', () => {
+    const world = path.join(tmp, 'home', 'worktrees', 'game', 'unit-a1')
+    fs.mkdirSync(world, { recursive: true })
+    fs.writeFileSync(path.join(world, 'README.md'), 'game\n')
+    const before = listFiles(world)
+    const target = unitPluginDir(path.join(tmp, 'home'))
+
+    installUnitPlugin(unitPluginSource(APP_ROOT), target, [world])
+
+    expect(listFiles(world)).toEqual(before)
+    expect(fwd(path.relative(world, target)).startsWith('../')).toBe(true)
+    expect(fs.existsSync(path.join(target, '.claude-plugin', 'plugin.json'))).toBe(true)
+    const skill = fs.readFileSync(path.join(falSkillDir(target), 'SKILL.md'), 'utf8')
+    expect(skill).toMatch(/^---\nname: fal\n/)
+    expect(skill).not.toContain('{{SKILL_DIR}}')
+    expect(skill).toContain(`${fwd(falSkillDir(target))}/scripts/fal.mjs`)
+    expect(skill).toMatch(/budget/i)
+    expect(skill).toContain('Systems → Accounts')
+    expect(fs.existsSync(path.join(falSkillDir(target), 'scripts', 'fal.mjs'))).toBe(true)
+    // idempotent refresh
+    expect(() => installUnitPlugin(unitPluginSource(APP_ROOT), target, [world])).not.toThrow()
+  })
+
+  it('refuses a target inside a world', () => {
+    const world = path.join(tmp, 'world')
+    fs.mkdirSync(world)
+    const target = path.join(world, '.claude', 'plugins', 'genio')
+    expect(() => installUnitPlugin(unitPluginSource(APP_ROOT), target, [world])).toThrow(/overlaps the world/)
+    expect(fs.existsSync(path.join(world, '.claude'))).toBe(false)
+  })
+})
+
+describe('brief tools section', () => {
+  const base: BriefInput = {
+    taskId: 't-a1',
+    kind: 'ship',
+    project: 'game',
+    worktree: 'C:\\genio\\worktrees\\game\\t-a1',
+    branch: 'genio/t-a1',
+    baseBranch: 'main',
+    intent: 'Make a jingle',
+    statusFile: 'C:\\genio\\state\\t-a1.status',
+    inboxDir: 'C:\\genio\\state\\t-a1.inbox',
+    taskDataDir: 'C:\\genio\\data\\t-a1'
+  }
+
+  it('points at the skill by path, before the definition of done', () => {
+    const b = renderBrief({ ...base, tools: unitToolsBrief('C:\\genio\\skills\\genio') })
+    expect(b).toContain('C:/genio/skills/genio/skills/fal/SKILL.md')
+    expect(b.indexOf('# Tools')).toBeGreaterThan(b.indexOf('# Engine notes'))
+    expect(b.indexOf('# Tools')).toBeLessThan(b.indexOf('# Definition of done'))
+    expect(b).toMatch(/budget/i)
+    expect(renderBrief(base)).not.toContain('# Tools')
+  })
+})
+
+interface Run {
+  code: number
+  stdout: string
+  stderr: string
+}
+
+function runScript(args: string[], env: Record<string, string | undefined>, cwd = tmp): Promise<Run> {
+  const childEnv: NodeJS.ProcessEnv = { ...process.env }
+  delete childEnv.FAL_KEY
+  delete childEnv.GENIO_FAL_TEST_BASE
+  Object.assign(childEnv, env)
+  return new Promise((resolve) => {
+    execFile(process.execPath, [SCRIPT, ...args], { cwd, env: childEnv }, (err, stdout, stderr) => {
+      const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? ((err as { code: number }).code) : 1) : 0
+      resolve({ code, stdout, stderr })
+    })
+  })
+}
+
+describe('fal.mjs helper', () => {
+  it('reports a missing key clearly and makes no receipt', async () => {
+    const r = await runScript(['check'], {})
+    expect(r.code).toBe(3)
+    expect(r.stderr).toMatch(/FAL key missing/)
+    expect(r.stderr).toMatch(/Systems -> Accounts/)
+    fs.writeFileSync(path.join(tmp, 'in.json'), '{"prompt":"x"}')
+    const s = await runScript(['submit', '--endpoint', 'fal-ai/flux/dev', '--input', 'in.json', '--receipt', 'a.job.json'], {})
+    expect(s.code).toBe(3)
+    expect(fs.existsSync(path.join(tmp, 'a.job.json'))).toBe(false)
+  })
+
+  it('confirms a key without printing it', async () => {
+    const r = await runScript(['check'], { FAL_KEY: KEY })
+    expect(r.code).toBe(0)
+    expect(JSON.parse(r.stdout)).toMatchObject({ configured: true })
+    expect(r.stdout + r.stderr).not.toContain(KEY)
+  })
+
+  describe('against a loopback FAL stand-in', () => {
+    let server: http.Server
+    let base = ''
+    const seen: { method: string; url: string; auth?: string }[] = []
+
+    beforeEach(async () => {
+      seen.length = 0
+      server = http.createServer((req, res) => {
+        seen.push({ method: req.method!, url: req.url!, auth: req.headers.authorization })
+        const json = (code: number, body: unknown): void => {
+          res.writeHead(code, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify(body))
+        }
+        const authed = req.headers.authorization === `Key ${KEY}`
+        if (req.url === '/files/out.png') {
+          res.writeHead(200, { 'Content-Type': 'image/png' })
+          res.end(Buffer.from([137, 80, 78, 71, 1, 2, 3]))
+          return
+        }
+        if (!authed) return json(401, { detail: 'no key' })
+        if (req.method === 'POST' && req.url === '/queue/fal-ai/test/bad') return json(422, { detail: [{ msg: 'prompt too long' }] })
+        if (req.method === 'POST' && req.url === '/queue/fal-ai/test/model') {
+          const r = `${base}/queue/fal-ai/test/requests/r1`
+          return json(200, { request_id: 'r1', status_url: `${r}/status`, response_url: r, cancel_url: `${r}/cancel`, queue_position: 0 })
+        }
+        if (req.url === '/queue/fal-ai/test/requests/r1/status') return json(200, { status: 'COMPLETED', metrics: { inference_time: 1.5 } })
+        if (req.url === '/queue/fal-ai/test/requests/r1') {
+          return json(200, { images: [{ url: `${base}/files/out.png`, content_type: 'image/png', file_name: 'out.png' }], seed: 7 })
+        }
+        json(404, {})
+      })
+      await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+      base = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+    })
+    afterEach(() => new Promise<void>((r) => server.close(() => r())))
+
+    it('runs a model end to end, downloads unauthenticated, and resumes without resubmitting', async () => {
+      fs.writeFileSync(path.join(tmp, 'hero.input.json'), JSON.stringify({ prompt: 'a knight' }))
+      const args = ['run', '--endpoint', 'fal-ai/test/model', '--input', 'hero.input.json', '--receipt', 'art/hero.job.json', '--dir', 'art/out', '--name', 'hero']
+      const env = { FAL_KEY: KEY, GENIO_FAL_TEST_BASE: base }
+      const r = await runScript(args, env)
+      expect(r.stderr).not.toContain(KEY)
+      expect(r.code).toBe(0)
+      expect(r.stdout).not.toContain(KEY)
+      const out = JSON.parse(r.stdout)
+      expect(out).toMatchObject({ request_id: 'r1', resumed: false, metrics: { inference_time: 1.5 } })
+      const png = path.join(tmp, 'art', 'out', 'hero.png')
+      expect(fs.readFileSync(png).subarray(0, 4)).toEqual(Buffer.from([137, 80, 78, 71]))
+      const receipt = fs.readFileSync(path.join(tmp, 'art', 'hero.job.json'), 'utf8')
+      expect(receipt).not.toContain(KEY)
+      expect(JSON.parse(receipt)).toMatchObject({ state: 'completed', endpoint: 'fal-ai/test/model', submission: { request_id: 'r1' } })
+      expect(fs.existsSync(path.join(tmp, 'art', 'hero.result.json'))).toBe(true)
+      expect(seen.find((s) => s.url === '/files/out.png')?.auth).toBeUndefined()
+      expect(seen.filter((s) => s.method === 'POST')).toHaveLength(1)
+
+      const again = await runScript(args, env)
+      expect(again.code).toBe(0)
+      expect(JSON.parse(again.stdout)).toMatchObject({ resumed: true, request_id: 'r1' })
+      expect(seen.filter((s) => s.method === 'POST')).toHaveLength(1)
+    })
+
+    it('records a rejected input and refuses to reuse its receipt', async () => {
+      const env = { FAL_KEY: KEY, GENIO_FAL_TEST_BASE: base }
+      const args = ['submit', '--endpoint', 'fal-ai/test/bad', '--json', '{"prompt":"x"}', '--receipt', 'bad.job.json']
+      const r = await runScript(args, env)
+      expect(r.code).toBe(4)
+      expect(JSON.parse(fs.readFileSync(path.join(tmp, 'bad.job.json'), 'utf8'))).toMatchObject({ state: 'rejected' })
+      const again = await runScript(args, env)
+      expect(again.code).toBe(2)
+      expect(again.stderr).toMatch(/already exists/)
+      expect(seen.filter((s) => s.method === 'POST')).toHaveLength(1)
+    })
+  })
+})
