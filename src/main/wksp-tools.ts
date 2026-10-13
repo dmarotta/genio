@@ -13,6 +13,7 @@ import type { AppCtx, HomeCtx } from './services'
 import type { Home } from './home'
 import { readText } from './util'
 import path from 'node:path'
+import fs from 'node:fs'
 import { ToolPages, isPagedTool, pageShape } from './tool-pages'
 import { procedureText, PROCEDURES } from './prompts'
 import { unitPluginSource } from './unitskills'
@@ -41,6 +42,16 @@ export interface ToolHooks {
 const ok = (text: string): CallToolResult => ({ content: [{ type: 'text', text }] })
 const fail = (text: string): CallToolResult => ({ content: [{ type: 'text', text }], isError: true })
 const json = (v: unknown): string => JSON.stringify(v, null, 1)
+
+/** On-demand evidence stays inside its task/skill folder, including symlinks. */
+function readReference(root: string, file: string): string {
+  if (path.isAbsolute(file) || file.split(/[\\/]/).includes('..') || /[:\0]/.test(file)) throw new Error('Reference must stay inside its source folder')
+  const base = fs.realpathSync(root)
+  const target = fs.realpathSync(path.join(base, file))
+  const relative = path.relative(base, target)
+  if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) throw new Error('Reference escapes its source folder')
+  return fs.readFileSync(target, 'utf8')
+}
 
 /** Locate a task: own base first, then every other base. */
 export function findTask(ctx: AppCtx, id: string, prefer?: Home): { hc: HomeCtx; task: Task } | undefined {
@@ -194,11 +205,11 @@ export function createToolRegistry(
     return ok(procedureText(name, { gamertag: getCtx().settings.get().gamertag, base: home.name, isAlly: !home.isMain,
       charter: a ? readText(path.join(home.data, 'charter.md'), a.charter) : undefined, scope: a?.scope }))
   })
-  t('skill_read', 'Load one bundled skill on demand. Follow pages before applying its instructions; directory identifies relative reference paths. Never preload configuration manuals.', {
-    name: z.enum(['assets', 'imagegen-codex', 'fal', 'uthana', 'blender'])
-  }, ({ name }) => {
+  t('skill_read', 'Load one bundled skill on demand. reference optionally reads a linked Markdown file relative to that skill directory. Follow pages before applying instructions. Never preload configuration manuals.', {
+    name: z.enum(['assets', 'imagegen-codex', 'fal', 'uthana', 'blender']), reference: z.string().regex(/\.md$/i).optional()
+  }, ({ name, reference }) => {
     const dir = path.join(unitPluginSource(getCtx().appRoot), 'skills', name)
-    const text = readText(path.join(dir, 'SKILL.md'))
+    const text = readReference(dir, reference ?? 'SKILL.md')
     if (!text) return fail(`Bundled skill ${name} is unavailable`)
     return ok(`Skill directory: ${dir}\n\n${text.replace(/\{\{SKILL_DIR\}\}/g, dir.replace(/\\/g, '/'))}`)
   })
@@ -236,10 +247,14 @@ export function createToolRegistry(
 
   t(
     'read_task_file',
-    "Read a unit's instructions (brief), Recon report, status log, inbox, diff against base, terminal log, or Gauntlet log.",
-    { task: z.string(), which: z.enum(['brief', 'report', 'status', 'inbox', 'diff', 'log', 'validation']) },
-    async ({ task, which }) => {
+    "Read a unit's instructions (brief), Recon report, status log, inbox, diff against base, terminal log, or Gauntlet log. For a linked report appendix, pass appendix=its relative path inside the task data folder and which=report.",
+    { task: z.string(), which: z.enum(['brief', 'report', 'status', 'inbox', 'diff', 'log', 'validation']), appendix: z.string().optional() },
+    async ({ task, which, appendix }) => {
       const f = requireTask(task)
+      if (appendix) {
+        if (which !== 'report') return fail('appendix is only supported for report reads')
+        return ok(readReference(f.hc.home.taskDir(task), appendix))
+      }
       const txt = await f.hc.crew.readFile(task, which as TaskFile)
       return ok(txt || '(empty)')
     }
@@ -299,11 +314,12 @@ export function createToolRegistry(
 
   t(
     'control',
-    'Unit lifecycle: interrupt (stop the current action), exit (recall the unit), relaunch (respawn in the same isolated copy, resuming its conversation; note is appended to its instructions as a progress note). Never tears anything down.',
-    { task: z.string(), action: z.enum(['interrupt', 'exit', 'relaunch']), note: z.string().optional() },
-    async ({ task, action, note }) => {
+    'Unit lifecycle: interrupt, exit (recall), relaunch (respawn in the same copy and session). Never tears anything down. For an explicit player-approved restart, quote their request in player_words to use the same manual authority as the UI Respawn button; otherwise the one-automatic-retry limit applies. Quota and capacity safeguards still apply.',
+    { task: z.string(), action: z.enum(['interrupt', 'exit', 'relaunch']), note: z.string().optional(), player_words: z.string().trim().min(1).optional() },
+    async ({ task, action, note, player_words }) => {
+      if (role === 'bot' && player_words) return fail('The Bot cannot authorize a manual restart')
       const f = requireTask(task)
-      const r = await f.hc.crew.control(task, action, note)
+      const r = await f.hc.crew.control(task, action, note, !!player_words && role !== 'bot')
       return r.ok ? ok(r.message || `${action} done`) : fail(r.message)
     }
   )

@@ -81,6 +81,7 @@ describe('event queue', () => {
     const lines = fs.readFileSync(home.wakesFile, 'utf8').trim().split('\n')
     expect(lines.length).toBeLessThan(200)
     expect(q.pending()).toHaveLength(5)
+    expect(() => q.ackEvents([1])).not.toThrow() // already acked and compacted
     const q2 = createWakeService(() => ctx, home)
     expect(q2.enqueue({ kind: 'check', reason: 'next' }).seq).toBe(621)
   })

@@ -35,6 +35,7 @@ describe('decideTool: chat shell approval mode', () => {
       expect(decideTool('genio', 'Write', {}, mode).behavior).toBe('deny')
       expect(decideTool('genio', 'Edit', {}, mode).behavior).toBe('deny')
       expect(decideTool('genio', 'Agent', {}, mode).behavior).toBe('deny')
+      expect(decideTool('genio', 'Skill', { skill: 'configuration' }, mode)).toMatchObject({ behavior: 'deny', message: expect.stringContaining('settings_read') })
     }
   })
 

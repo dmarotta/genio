@@ -47,12 +47,14 @@ export function chatSettings(s: Settings, dataDir: string): Settings {
   return { ...s, wkspModel: chat.model, wkspEffort: chat.effort, botModel: s.botModel?.trim() || SONNET }
 }
 
-/** A unit holding a concurrency place: deployed and not yet handed over (PR), landed, done or failed. */
-export const holdsCapacity = (t: Pick<Task, 'pr' | 'state'>): boolean => !t.pr && !['cleaned', 'done', 'merged', 'failed'].includes(t.state)
+/** Launches hold a slot before a terminal exists; stopped/detached records do not.
+ * Completed/handed-over work releases its slot even if an idle terminal remains. */
+export const holdsCapacity = (t: Pick<Task, 'pr' | 'state'>, alive: boolean): boolean =>
+  t.state === 'spawning' || (alive && !t.pr && !['cleaned', 'done', 'merged', 'failed'].includes(t.state))
 
-export function liveUnits(homes: Iterable<{ crew: { list(): Task[] } }>, project?: string): number {
+export function liveUnits(homes: Iterable<{ crew: { list(): Task[] } }>, alive: (t: Task) => boolean, project?: string): number {
   let n = 0
-  for (const h of homes) n += h.crew.list().filter((t) => holdsCapacity(t) && (!project || t.project === project)).length
+  for (const h of homes) n += h.crew.list().filter((t) => holdsCapacity(t, alive(t)) && (!project || t.project === project)).length
   return n
 }
 

@@ -72,6 +72,7 @@ const { Home } = await import('../src/main/home')
 const { createWkspService, AgentSession } = await import('../src/main/wksp')
 const { bus } = await import('../src/main/bus')
 const { SessionQuotaPolicy, SessionCostLedger } = await import('../src/main/session-usage')
+const { createWakeService } = await import('../src/main/wakes')
 
 const PNG = 'iVBORw0KGgo='
 
@@ -296,6 +297,29 @@ describe('Claude limit recovery through the SDK stream', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-10-13T13:32:00Z'))
+  })
+
+  it('refreshes a retained event turn after partial acknowledgement before retrying', async () => {
+    const c = chat('events')
+    const wakes = createWakeService(() => ctx as never, c.home)
+    wakes.enqueue({ kind: 'signal', reason: 'handled outcome' })
+    wakes.enqueue({ kind: 'signal', reason: 'unfinished outcome' })
+    const homeRead = vi.spyOn(ctx, 'home').mockReturnValue({ wakes, crew: { list: () => [] }, decisions: { list: () => [] } } as never)
+    try {
+      c.svc.deliverWakes()
+      await flush()
+      expect(fake.queries[0].received[0]).toContain('handled outcome')
+      wakes.ackEvents([1])
+      fake.queries[0].emit(limitResult("You've hit your session limit ? resets 7pm (Europe/Rome)"))
+      await flush()
+      fake.queries[0].emit({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } })
+      await flush()
+      expect(fake.queries[1].received[0]).toContain('unfinished outcome')
+      expect(fake.queries[1].received[0]).not.toContain('handled outcome')
+      fake.queries[1].finishTurn()
+      await flush()
+      expect(wakes.pending()).toHaveLength(0)
+    } finally { homeRead.mockRestore() }
   })
 
   it('silently resumes the same conversation and resends the failed message once, retaining images and the queue', async () => {

@@ -3,8 +3,8 @@
  *
  * Every actionable overwatch event is appended to state/wakes.jsonl with a
  * monotonically increasing seq. Genio drains the queue at the start of a
- * handling turn and acknowledges *after* the turn completes, so a crash
- * mid-turn re-presents the same events (idempotent re-handling).
+ * handling turn and acknowledges each handled event durably. Successful turn
+ * completion also acknowledges its batch; a crash re-presents unfinished events.
  */
 import fs from 'node:fs'
 import type { Wake, WakeKind } from '@shared/types'
@@ -23,7 +23,7 @@ interface AckCursor {
 const COMPACT_AFTER = 500
 const KEEP_ACKED = 100
 
-export function createWakeService(getCtx: () => AppCtx, home: Home): WakeService {
+export function createWakeService(_getCtx: () => AppCtx, home: Home): WakeService {
   let loaded = false
   let rows: Wake[] = []
   let maxSeq = 0
@@ -52,8 +52,10 @@ export function createWakeService(getCtx: () => AppCtx, home: Home): WakeService
     const acked = rows.filter(isAcked)
     if (acked.length <= COMPACT_AFTER) return
     const keep = [...acked.slice(-KEEP_ACKED), ...rows.filter(w => !isAcked(w))].sort((a, b) => a.seq - b.seq)
+    const temp = `${home.wakesFile}.tmp`
+    writeText(temp, keep.map((w) => JSON.stringify(w)).join('\n') + (keep.length ? '\n' : ''))
+    fs.renameSync(temp, home.wakesFile)
     rows = keep
-    writeText(home.wakesFile, keep.map((w) => JSON.stringify(w)).join('\n') + (keep.length ? '\n' : ''))
   }
 
   function withAck(w: Wake): Wake {
@@ -65,6 +67,7 @@ export function createWakeService(getCtx: () => AppCtx, home: Home): WakeService
     const at = nowIso()
     const events = { ...cursor.events }
     for (const seq of seqs) {
+      if (Number.isSafeInteger(seq) && seq > 0 && (seq <= cursor.through || events[seq])) continue
       if (!Number.isSafeInteger(seq) || !rows.some(w => w.seq === seq)) throw new Error(`Unknown event #${seq}`)
       if (seq > cursor.through) events[seq] = at
     }

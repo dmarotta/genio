@@ -24,7 +24,7 @@ import type { AppCtx, DispatchService, HomeCtx } from './services'
 import { claudeLimits, claudeLimitsFile, quotaFromUsage, usageReport, type ClaudeLimitsFile } from './usage'
 import { expireWindow, explorationSafe } from './quota-policy'
 import { SessionQuotaPolicy } from './session-usage'
-import { PolicyNotices, claudeStatus, globalMode, liveUnits, worldUsage } from './usage-policy'
+import { PolicyNotices, claudeStatus, globalMode, holdsCapacity, liveUnits, worldUsage } from './usage-policy'
 import { readJson } from './util'
 
 const USAGE_TTL = 5 * 60_000
@@ -49,6 +49,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
   const dataDir = (): string => getCtx().main.home.data
   const scorecard = (): Scorecard => (card ??= createScorecard(scorecardFile(dataDir())))
   const homes = (): HomeCtx[] => [...getCtx().homes.values()]
+  const alive = (t: Task): boolean => !!t.terminalId && !!getCtx().terminals.get(t.terminalId)?.alive
   const launchingCount = (project?: string): number =>
     project !== undefined ? (launching.get(project) ?? 0) : [...launching.values()].reduce((a, b) => a + b, 0)
 
@@ -97,11 +98,11 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
     const world = ctx.projects.get(project)
     const own = world ? worldUsage(s, world) : undefined
     const caps = unitCaps(globalMode(s), { mode: own && own.source !== 'global' ? own.mode : undefined, capacity: world?.capacity })
-    const used = liveUnits(homes()) + launchingCount()
+    const used = liveUnits(homes(), alive) + launchingCount()
     if (used >= caps.global)
       throw new Error(`deferred: the ${USAGE_MODE_LABEL[globalMode(s)]} usage mode allows ${caps.global} concurrent unit${caps.global === 1 ? '' : 's'} across all worlds (${used} running or launching). The quest stays queued.`)
     if (caps.world !== undefined) {
-      const mine = liveUnits(homes(), project) + launchingCount(project)
+      const mine = liveUnits(homes(), alive, project) + launchingCount(project)
       if (mine >= caps.world) throw new Error(`deferred: ${project} allows ${caps.world} concurrent unit${caps.world === 1 ? '' : 's'} (${mine} running or launching). The quest stays queued.`)
     }
   }
@@ -139,12 +140,12 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
     return values.length ? Math.max(...values) : undefined
   }
 
-  const unavailable = (id: string, own?: string): boolean => {
+  const unavailable = (id: string, own?: string, replacing?: Task): boolean => {
     const ctx = getCtx()
     return (id !== own && reservations.has(id)) || (id === 'claude' && new SessionQuotaPolicy(dataDir()).unitBlocked()) ||
       // 70%+ (including retained last-known evidence): at most one unit on that plan
       (isPlan(id) && planStatus(id, quota[id]).level !== 'ok' && [...ctx.homes.values()].some((h) =>
-        h.crew.list().some((t) => t.harness === id && !!t.terminalId && ctx.terminals.get(t.terminalId)?.alive)))
+        h.crew.list().some((t) => !(replacing && t.id === replacing.id && t.wksp === replacing.wksp) && t.harness === id && alive(t))))
   }
 
   const svc: DispatchService = {
@@ -176,14 +177,17 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
       // separates the final policy evaluation (caps included) from claiming the slot.
       const result = launchQueue.then(async () => {
         svc.noteUsage(await usageReport(getCtx()))
-        // a respawn resumes a unit that already holds its place
-        if (!opts.respawn) capGate(input.project)
-        const signals = svc.signals(input.project)
+        const replacing = opts.respawn ? getCtx().homes.get(opts.respawn.wksp)?.crew.get(opts.respawn.id) : undefined
+        if (opts.respawn && (!replacing || replacing.project !== input.project)) throw new Error('Unknown respawn target')
+        const occupies = !!replacing && holdsCapacity(replacing, alive(replacing))
+        // Only a genuinely live/spawning replacement already owns a slot.
+        if (!occupies) capGate(input.project)
+        const signals = { ...svc.signals(input.project), unavailable: (id: string) => unavailable(id, undefined, replacing) }
         const loadout = resolveLoadout(input, getCtx().settings, signals)
         const primary = loadout.explored ? resolveLoadout(input, getCtx().settings, { ...signals, preview: true }).harness : undefined
         reservations.add(loadout.harness)
         let released = false
-        let counted = Boolean(opts.respawn)
+        let counted = occupies
         if (!counted) launching.set(input.project, launchingCount(input.project) + 1)
         const listed = (): void => {
           if (counted) return
@@ -196,7 +200,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
           async check() {
             if (released) throw new Error('Launch reservation was already released.')
             svc.noteUsage(await usageReport(getCtx()))
-            const env = { ...svc.signals(input.project), unavailable: (id: string) => unavailable(id, loadout.harness) }
+            const env = { ...svc.signals(input.project), unavailable: (id: string) => unavailable(id, loadout.harness, replacing) }
             resolveLoadout({ ...input, harness: loadout.harness }, getCtx().settings, env)
             if (loadout.explored) {
               if (!explorationSafe(env.quota?.[primary!]) || !explorationSafe(env.quota?.[loadout.harness]))
@@ -213,7 +217,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
     usagePercent: hottest,
 
     capacity() {
-      return { cap: MODE_PRESETS[globalMode(getCtx().settings.get())].unitCap, used: liveUnits(homes()) + launchingCount() }
+      return { cap: MODE_PRESETS[globalMode(getCtx().settings.get())].unitCap, used: liveUnits(homes(), alive) + launchingCount() }
     },
 
     quotaWait(item) {
@@ -255,7 +259,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
         bot: { model: s.botModel?.trim() || SONNET, pinned: Boolean(s.botModel?.trim()) },
         units: { defaultHarness: s.defaultHarness, model: s.defaultWorkerModel || undefined, effort: s.defaultWorkerEffort || undefined },
         unitCap: MODE_PRESETS[mode].unitCap,
-        liveUnits: liveUnits(homes()),
+        liveUnits: liveUnits(homes(), alive),
         worlds: ctx.projects.list().map((p) => {
           const u = worldUsage(s, p)
           return { ...u, cap: unitCaps(mode, { mode: u.source !== 'global' ? u.mode : undefined, capacity: p.capacity }).world }

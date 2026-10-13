@@ -15,8 +15,8 @@ import { recordCodexChatUsage, recordCodexChatLimits } from './usage'
  *     started lazily so an idle base spends zero tokens;
  *   - (main base only) the Bot session: Genio's away supervisor that handles
  *     events while the player is DND/AFK and escalates what they must see.
- * Events from overwatch are drained into one turn and acknowledged only after
- * that turn completes, so a crash re-presents them.
+ * Overwatch supplies compact batches. Per-event tool acknowledgements survive
+ * failed turns; successful completion also acknowledges the delivered batch.
  */
 import path from 'node:path'
 import type {
@@ -195,9 +195,22 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
     saveState()
   }
   function createDriver(provider: ChatProvider, role: ToolRole, events: ChatDriverEvents, config: () => { model?: string; effort?: string }) {
+    const preparedEvents: ChatDriverEvents = { ...events, onStart(item) {
+      // Drivers may retain a failed/limited turn for an explicit retry. Refresh
+      // its event body at submission so durable per-event acks also apply there.
+      if (item.kind === 'events' && item.ackThrough !== undefined) {
+        const drain = getCtx().home(name).wakes.drain()
+        const boot = item.prompt.indexOf('[GENIO SESSION START]')
+        const marker = boot >= 0 ? boot : item.prompt.indexOf('[GENIO EVENTS]')
+        const handoff = marker >= 0 ? item.prompt.slice(0, marker) : ''
+        item.prompt = handoff + (boot >= 0 ? `${sessionStartPrompt(gamertag())}\n\n${drain.text}` : eventsPrompt(drain.text))
+        item.ackThrough = drain.count ? drain.ackThrough : undefined
+      }
+      events.onStart?.(item)
+    } }
     const claudeTurnConfig = () => sessionConfig('genio', { ...settings(), wkspModel: config().model ?? '', wkspEffort: config().effort ?? '' })
     if (provider === 'claude') return new AgentSession(role, resume => buildOptions(role, resume, claudeTurnConfig()),
-      { ...events, onRateLimit: rateLimit }, name, claudeTurnConfig, quotaPolicy, costs)
+      { ...preparedEvents, onRateLimit: rateLimit }, name, claudeTurnConfig, quotaPolicy, costs)
     return new CodexChatDriver({
       wksp: name, cwd: home.root,
       config: () => ({ model: config().model!, effort: config().effort }),
@@ -224,7 +237,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       usage: (thread, usage) => recordCodexChatUsage(getCtx().main.home.data, home.root, thread, usage),
       rateLimits: limits => recordCodexChatLimits(getCtx().main.home.data, limits),
       unavailable: reason => markChatRouteUnavailable('codex', reason)
-    }, events)
+    }, preparedEvents)
   }
 
   // ---------------------------------------------------------- sessions

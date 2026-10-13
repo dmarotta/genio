@@ -26,4 +26,9 @@ describe('bounded custom contract and lazy procedures', () => {
     expect(procedureText('memory', o)).toContain('memory_archive')
     expect(() => customContract(o, false, 'x'.repeat(10000))).toThrow('Custom contract exceeds')
   })
+
+  it('leaves budget for provider instructions even with long identity fields', () => {
+    expect(customContract({ gamertag: 'x'.repeat(1000), base: 'b'.repeat(1000), isAlly: true }, true, 'u'.repeat(300)).length)
+      .toBeLessThanOrEqual(CUSTOM_CONTRACT_BUDGET)
+  })
 })

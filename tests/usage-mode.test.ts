@@ -271,17 +271,17 @@ describe('concurrent unit cap across worlds', () => {
   })
   afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }) })
 
-  const task = (project: string, state: Task['state'] = 'working'): Task => ({ id: `${project}-${Math.random()}`, project, state, harness: 'codex' }) as Task
+  const task = (project: string, state: Task['state'] = 'working'): Task => ({ id: `${project}-${Math.random()}`, project, state, harness: 'codex', terminalId: 'live' }) as Task
   function service(mode: UsageMode, tasks: Task[] = [], worlds: Record<string, { capacity?: number; usageMode?: UsageMode }> = {}, backlog: BacklogItem[] = []) {
     const s = settings({ usageMode: mode })
     const homes = new Map([
-      ['main', { crew: { list: () => tasks.filter((t) => !t.wksp) }, backlog: { list: () => backlog } }],
-      ['ally', { crew: { list: () => tasks.filter((t) => t.wksp === 'ally') }, backlog: { list: () => [] } }]
+      ['main', { crew: { list: () => tasks.filter((t) => !t.wksp), get: (id: string) => tasks.find(t => t.id === id && !t.wksp) }, backlog: { list: () => backlog } }],
+      ['ally', { crew: { list: () => tasks.filter((t) => t.wksp === 'ally'), get: (id: string) => tasks.find(t => t.id === id && t.wksp === 'ally') }, backlog: { list: () => [] } }]
     ])
     const ctx = {
       settings: { get: () => s, availableHarnesses: () => s.harnesses.filter((h) => ['claude', 'codex'].includes(h.id)) },
       projects: { get: (name: string) => (worlds[name] ? { name, ...worlds[name] } : { name }), list: () => Object.keys(worlds).map((name) => ({ name, ...worlds[name] })) },
-      main: { home: { data: dir } }, homes, terminals: { get: () => undefined }
+      main: { home: { data: dir } }, homes, terminals: { get: (id: string) => id === 'live' ? { alive: true } : undefined }
     } as unknown as AppCtx
     return createDispatchService(() => ctx)
   }
@@ -317,8 +317,39 @@ describe('concurrent unit cap across worlds', () => {
     await expect(service('max', [task('slow')], { slow: { usageMode: 'save' } }).reserve(ship('slow'))).rejects.toThrow(/slow allows 1 concurrent unit/)
     const other = await service('max', [task('slow')], { slow: { usageMode: 'save' } }).reserve(ship('fast'))
     other.release()
-    const respawn = await service('save', [task('a')]).reserve({ ...ship('a'), harness: 'codex' }, { respawn: true })
+    const active = task('a')
+    const respawn = await service('save', [active]).reserve({ ...ship('a'), harness: 'codex' }, { respawn: { id: active.id, wksp: 'main' } })
     respawn.release()
+  })
+
+  it('frees absent, dead and recalled terminals but counts live waits and unstarted launches', async () => {
+    const records = [task('a'), ...(['exited', 'detached', 'working', 'paused'] as const).map(state => ({ ...task('b', state), terminalId: undefined }))]
+    const svc = service('balanced', records)
+    expect(svc.capacity()).toEqual({ used: 1, cap: 2 })
+    const slot = await svc.reserve(ship('new'))
+    expect(svc.capacity().used).toBe(2)
+    await expect(svc.reserve(ship('over'))).rejects.toThrow(/allows 2/)
+    slot.release()
+    expect(service('max', [task('a', 'paused'), { ...task('a', 'spawning'), terminalId: undefined }, { ...task('a'), terminalId: 'dead' }]).capacity().used).toBe(2)
+  })
+
+  it('reserves a new place for an absent-terminal restart instead of bypassing caps', async () => {
+    const stopped = { ...task('b', 'exited'), terminalId: undefined }
+    await expect(service('save', [task('a'), stopped]).reserve({ ...ship('b'), harness: 'codex' }, { respawn: { id: stopped.id, wksp: 'main' } })).rejects.toThrow(/allows 1/)
+    const svc = service('balanced', [task('a'), stopped])
+    const restart = await svc.reserve({ ...ship('b'), harness: 'codex' }, { respawn: { id: stopped.id, wksp: 'main' } })
+    expect(svc.capacity().used).toBe(2)
+    restart.release()
+    expect(svc.capacity().used).toBe(1)
+  })
+
+  it('does not mistake a live replacement for a second warm-plan unit', async () => {
+    scan.report = { tools: [{ tool: 'codex', limits: [{ source: 'test', updatedAt: new Date().toISOString(), windows: [fresh(75)] }] }] } as UsageReport
+    const active = task('a')
+    const svc = service('save', [active])
+    const replacement = await svc.reserve({ ...ship('a'), harness: 'codex' }, { respawn: { id: active.id, wksp: 'main' } })
+    await replacement.check()
+    replacement.release()
   })
 
   it('reports queued-until-reset quests in the policy view', async () => {

@@ -259,8 +259,8 @@ export interface UthanaService {
 export interface DispatchService {
   /** what the picker knows beyond settings for a deploy in this world; preview never rolls exploration */
   signals(project: string, opts?: { preview?: boolean }): Omit<PickEnv, 'available'>
-  /** Serialized selection + global/world cap + provider slot. `respawn`: the unit already holds its place. */
-  reserve(input: import('@shared/types').LoadoutInput, opts?: { respawn?: boolean }): Promise<{
+  /** Serialized selection + caps + provider slot. A respawn reuses a slot only while its target is live. */
+  reserve(input: import('@shared/types').LoadoutInput, opts?: { respawn?: { id: string; wksp: string } }): Promise<{
     loadout: import('@shared/types').Loadout
     check(): Promise<void>
     /** the task is now in the crew list: stop counting it as launching */

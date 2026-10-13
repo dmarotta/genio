@@ -44,6 +44,8 @@ describe('renderBrief', () => {
     const recon = renderBrief({ ...base, kind: 'scout', reportPath: 'C:\\genio\\data\\x\\report.md' })
     expect(recon).toContain('Delivery contract: kind=recon')
     expect(recon).toContain('C:/genio/data/x/report.md')
+    expect(recon).toContain('800 words and 6000 characters')
+    expect(renderBrief({ ...base, kind: 'scout', summaryWords: 400 })).toContain('400 words and 6000 characters')
   })
 
   it('never uses nautical vocabulary', () => {

@@ -14,6 +14,8 @@ import { enforceTool } from '../src/main/chat-tool-policy'
 import { chatDriverCapabilities } from '../src/shared/chat-driver-capabilities'
 import { agentGeneration } from '../src/main/agent-generation'
 import { z } from 'zod'
+import { createMemoryService } from '../src/main/memory'
+import { createWakeService } from '../src/main/wakes'
 import { CodexChatDriver } from '../src/main/codex-chat-driver'
 import { FakeAppServer } from './helpers/fake-codex-server'
 
@@ -180,6 +182,66 @@ describe('authenticated local MCP bridge', () => {
 })
 
 describe('authority and unchanged deterministic handlers', () => {
+  it('pages shared read tools, preserves a report snapshot and explicitly reads more than 60K', async () => {
+    const source = 'unit-id: failure E42 https://example.test/pr/123\n'.repeat(1600)
+    ctx.main.crew.readFile = vi.fn(async () => source)
+    ctx.main.crew.fleetView = vi.fn(async () => source)
+    ctx.terminals = { get: () => ({}), tail: () => source } as any
+    task.terminalId = 'terminal'
+    ctx.memory = createMemoryService(() => ctx)
+    ctx.memory.write('lore', source, home)
+    const b = await bridge()
+    for (const [name, args] of [['read_task_file', { task: 'unit', which: 'report' }], ['fleet_view', {}],
+      ['terminal_tail', { task: 'unit' }], ['memory_read', { which: 'lore' }]] as const) {
+      const first = await call(b, name, args)
+      expect(first.structuredContent.page.end).toBeLessThanOrEqual(2000)
+      expect(first.content[0].text).toContain('next_cursor=')
+      expect(first.structuredContent.page.total).toBeGreaterThan(60_000)
+      const full = await call(b, name, { ...args, cursor: first.structuredContent.page.next_cursor, full: true })
+      expect(full.content[0].text).toContain('E42')
+      expect(full.content[0].text.length).toBeGreaterThan(60_000)
+    }
+    const first = await call(b, 'read_task_file', { task: 'unit', which: 'report' })
+    ctx.main.crew.readFile = vi.fn(async () => 'changed')
+    expect((await call(b, 'read_task_file', { task: 'unit', which: 'report', cursor: first.structuredContent.page.next_cursor })).content[0].text).toContain('E42')
+    expect(ctx.main.crew.readFile).not.toHaveBeenCalled()
+    const version = ctx.memory.readVersion('lore', undefined, home).version
+    const unchanged = await call(b, 'memory_read', { which: 'lore', since: version })
+    expect(JSON.parse(unchanged.content[0].text)).toMatchObject({ version, unchanged: true })
+  })
+
+  it('exposes durable event acknowledgements to the Bot while keeping world scope on every read', async () => {
+    ctx.main.wakes = createWakeService(() => ctx, home)
+    const event = ctx.main.wakes.enqueue({ kind: 'signal', reason: 'failed', taskId: 'unit', lines: ['error E42'] })
+    const scoped = await bridge('genio', ['safe'])
+    expect((await call(scoped, 'event_read', { seq: event.seq })).content[0].text).toContain('E42')
+    task.project = 'outside'
+    expect(await call(scoped, 'events_ack', { seqs: [event.seq] })).toMatchObject({ isError: true })
+    expect(ctx.main.wakes.pending()).toHaveLength(1)
+    const bot = await bridge('bot')
+    expect(await call(bot, 'events_ack', { seqs: [event.seq] })).not.toHaveProperty('isError')
+    expect(createWakeService(() => ctx, home).pending()).toHaveLength(0)
+    expect(await call(bot, 'settings_update', { player_words: 'yes', patch: { sound: false } })).toMatchObject({ isError: true })
+  })
+
+  it('reads lazy evidence and skill references without exposing sibling files or configuration secrets', async () => {
+    fs.mkdirSync(home.taskDir('unit'), { recursive: true })
+    fs.writeFileSync(path.join(home.taskDir('unit'), 'evidence.md'), 'supporting evidence')
+    const b = await bridge()
+    expect((await call(b, 'read_task_file', { task: 'unit', which: 'report', appendix: 'evidence.md' })).content[0].text).toBe('supporting evidence')
+    expect(await call(b, 'read_task_file', { task: 'unit', which: 'report', appendix: '../private.md' })).toMatchObject({ isError: true })
+    expect((await call(b, 'skill_read', { name: 'assets', reference: 'references/placement.md' })).content[0].text).toContain('Skill directory:')
+    expect(await call(b, 'skill_read', { name: 'assets', reference: '../fal/SKILL.md' })).toMatchObject({ isError: true })
+    const settings = { usageMode: 'balanced', sound: true, inboxToken: 'private-token', webhookUrl: 'private-url' }
+    ctx.settings.get = () => settings as any
+    ctx.settings.save = vi.fn(patch => Object.assign(settings, patch) as any)
+    const read = await call(b, 'settings_read')
+    expect(read.content[0].text).not.toContain('private-')
+    expect(await call(b, 'settings_update', { player_words: 'turn sound off', patch: { sound: false } })).not.toHaveProperty('isError')
+    expect(settings.sound).toBe(false)
+    expect(await call(b, 'settings_update', { player_words: 'yes', patch: { chatShellMode: 'all' } })).toMatchObject({ isError: true })
+  })
+
   it('returns SDK-equivalent schemas and results, including errors and defaults', async () => {
     const sdk = await import('@anthropic-ai/claude-agent-sdk')
     const defs = buildTools(sdk.tool, () => ctx, home, 'genio')

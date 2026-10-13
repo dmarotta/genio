@@ -46,6 +46,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
   const inboxDir = (id: string): string => path.join(home.state, `${id}.inbox`)
   const turnEndedFile = (id: string): string => path.join(home.state, `${id}.turn-ended`)
   const bypassWarned = new Set<string>()
+  const controlling = new Set<string>()
+  const restarting = new Set<string>()
 
   const persist = (): void => writeJson(home.tasksFile, tasks)
   const hc = () => getCtx().home(home.name)
@@ -262,6 +264,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     ctx.terminals.onExit(term.id, (code) => {
       const cur = get(t.id)
       if (!cur || cur.terminalId !== term.id) return
+      if (restarting.has(t.id)) return // replacement keeps its reserved slot during recall
       if (ACTIVE.includes(cur.state)) {
         update(t.id, { state: 'exited', stateReason: `unit process exited (code ${code}) without a final status` })
         bump(t.id, 'stopped')
@@ -607,70 +610,88 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     async control(id, action, note, manual = false): Promise<OpResult> {
       const t = get(id)
       if (!t) return { ok: false, message: `Unknown unit: ${id}` }
-      const ctx = getCtx()
-      const adapter = ctx.settings.harness(t.harness)
-      const terms = ctx.terminals
-      if (action === 'interrupt') {
-        if (!terminalAlive(t)) return { ok: false, message: `${id} is not running.` }
-        terms.write(t.terminalId!, adapter?.interrupt ?? '\x1b')
-        return { ok: true, message: `Interrupted ${id}.` }
-      }
-      const recall = async (): Promise<void> => {
-        if (!terminalAlive(t)) return
-        const tid = t.terminalId!
-        await terms.submit(tid, adapter?.exitSequence ?? '/exit', adapter?.submitKey ?? '\r')
-        for (let i = 0; i < 20 && terms.get(tid)?.alive; i++) await sleep(500)
-        if (terms.get(tid)?.alive) terms.kill(tid)
-      }
-      if (action === 'exit') {
-        const was = t.state
-        await recall()
-        if (ACTIVE.includes(was)) update(id, { state: 'exited', stateReason: 'recalled' })
-        return { ok: true, message: `Recalled ${id}.` }
-      }
-      // respawn
-      if (t.state === 'cleaned') return { ok: false, message: `${id} was despawned; deploy a new mission instead.` }
-      if (!exists(t.worktree)) return { ok: false, message: `The worktree for ${id} is gone; cannot respawn.` }
-      const policy = relaunchPolicy(t, manual)
-      if (!policy.allowed) {
-        update(id, { state: 'paused', stateReason: 'Automatic relaunch limit reached. Use Respawn to resume manually.' })
-        return { ok: false, message: 'Held after one automatic relaunch. Use the unit Respawn action to resume manually.' }
-      }
-      let reservation: Awaited<ReturnType<typeof ctx.dispatch.reserve>>
+      if (controlling.has(id)) return { ok: false, message: `A lifecycle action is already in progress for ${id}.` }
+      controlling.add(id)
       try {
-        reservation = await ctx.dispatch.reserve({ kind: t.kind, project: t.project, title: t.title, intent: '',
-          harness: t.harness, model: t.model, effort: t.effort }, { respawn: true })
-      } catch (e) {
-        return { ok: false, message: (e as Error).message }
-      }
-      try {
-        // Recheck after reservation acquisition: another caller may have relaunched meanwhile.
-        const currentPolicy = relaunchPolicy(get(id)!, manual)
-        if (!currentPolicy.allowed) return { ok: false, message: 'Held after one automatic relaunch. Use Respawn to resume manually.' }
-        update(id, { automaticRelaunches: currentPolicy.nextAttempts })
-        appendProgressNote(t.briefPath, note ?? '')
-        await recall()
-        const prompt = `Genio respawned you. Re-read your brief at ${fwd(t.briefPath)} (see the latest Progress note), check your ping inbox, then continue.`
+        const ctx = getCtx()
+        const adapter = ctx.settings.harness(t.harness)
+        const terms = ctx.terminals
+        if (action === 'interrupt') {
+          if (!terminalAlive(t)) return { ok: false, message: `${id} is not running.` }
+          terms.write(t.terminalId!, adapter?.interrupt ?? '\x1b')
+          return { ok: true, message: `Interrupted ${id}.` }
+        }
+        const recall = async (): Promise<void> => {
+          if (!terminalAlive(t)) return
+          const tid = t.terminalId!
+          await terms.submit(tid, adapter?.exitSequence ?? '/exit', adapter?.submitKey ?? '\r')
+          for (let i = 0; i < 20 && terms.get(tid)?.alive; i++) await sleep(500)
+          if (terms.get(tid)?.alive) terms.kill(tid)
+        }
+        if (action === 'exit') {
+          const was = t.state
+          await recall()
+          if (ACTIVE.includes(was)) update(id, { state: 'exited', stateReason: 'recalled' })
+          return { ok: true, message: `Recalled ${id}.` }
+        }
+        // respawn
+        if (t.state === 'cleaned') return { ok: false, message: `${id} was despawned; deploy a new mission instead.` }
+        if (!exists(t.worktree)) return { ok: false, message: `The worktree for ${id} is gone; cannot respawn.` }
+        const policy = relaunchPolicy(t, manual)
+        if (!policy.allowed) {
+          update(id, { state: 'paused', stateReason: 'Automatic relaunch limit reached. Use Respawn to resume manually.' })
+          return { ok: false, message: 'Held after one automatic relaunch. Use the unit Respawn action to resume manually.' }
+        }
+        let reservation: Awaited<ReturnType<typeof ctx.dispatch.reserve>>
         try {
-          const term = await launch(t, { resume: true, prompt, check: reservation.check })
-          if (t.terminalId && t.terminalId !== term.id) terms.kill(t.terminalId)
-          const keepState = t.state === 'ready' || t.state === 'merged' || t.state === 'done'
-          update(id, {
-            terminalId: term.id,
-            state: keepState ? t.state : 'working',
-            stateReason: 'respawned',
-            relaunches: t.relaunches + 1
-          })
-          ledger('task.relaunched', t, { relaunches: t.relaunches + 1 })
-          return {
-            ok: true,
-            message: `Respawned ${id}.`
-          }
+          reservation = await ctx.dispatch.reserve({ kind: t.kind, project: t.project, title: t.title, intent: '',
+            harness: t.harness, model: t.model, effort: t.effort }, { respawn: { id, wksp: home.name } })
         } catch (e) {
-          update(id, { state: 'failed', stateReason: (e as Error).message })
           return { ok: false, message: (e as Error).message }
         }
-      } finally { reservation.release() }
+        try {
+          // Recheck after reservation acquisition: another caller may have relaunched meanwhile.
+          const currentPolicy = relaunchPolicy(get(id)!, manual)
+          if (!currentPolicy.allowed) return { ok: false, message: 'Held after one automatic relaunch. Use Respawn to resume manually.' }
+          if (!manual) update(id, { automaticRelaunches: currentPolicy.nextAttempts })
+          appendProgressNote(t.briefPath, note ?? '')
+          restarting.add(id)
+          update(id, { state: 'spawning', stateReason: 'restarting in the existing copy' })
+          reservation.listed()
+          await recall()
+          const prompt = `Genio respawned you. Re-read your brief at ${fwd(t.briefPath)} (see the latest Progress note), check your ping inbox, then continue.`
+          try {
+            const term = await launch(t, { resume: true, prompt, check: reservation.check })
+            if (t.terminalId && t.terminalId !== term.id) terms.kill(t.terminalId)
+            const keepState = t.state === 'ready' || t.state === 'merged' || t.state === 'done'
+            update(id, {
+              terminalId: term.id,
+              state: keepState ? t.state : 'working',
+              stateReason: 'respawned',
+              relaunches: t.relaunches + 1,
+              automaticRelaunches: currentPolicy.nextAttempts
+            })
+            ledger('task.relaunched', t, { relaunches: t.relaunches + 1 })
+            return {
+              ok: true,
+              message: `Respawned ${id}.`
+            }
+          } catch (e) {
+            update(id, { state: terminalAlive(t) ? t.state : 'failed', stateReason: (e as Error).message,
+              terminalId: terminalAlive(t) ? t.terminalId : undefined })
+            return { ok: false, message: (e as Error).message }
+          }
+        } finally { reservation.release() }
+      } catch (e) {
+        // Preparation and recall can fail too. Never discard the copy/branch,
+        // claim a successful restart, or leave a phantom spawning slot behind.
+        if (restarting.has(id)) update(id, { state: terminalAlive(t) ? t.state : 'failed', stateReason: (e as Error).message,
+          terminalId: terminalAlive(t) ? t.terminalId : undefined })
+        return { ok: false, message: (e as Error).message }
+      } finally {
+        controlling.delete(id)
+        restarting.delete(id)
+      }
     },
 
     async cleanup(id, force = false): Promise<OpResult> {
@@ -1017,7 +1038,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     },
 
     capacityUsed(project) {
-      return tasks.filter((t) => t.project === project && holdsCapacity(t)).length
+      return tasks.filter((t) => t.project === project && holdsCapacity(t, terminalAlive(t))).length
     }
   }
 
