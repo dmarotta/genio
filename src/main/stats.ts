@@ -33,6 +33,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'play-takeover', name: 'My Turn', description: 'Take over a shared Play slot.', feature: 'play' },
   { id: 'play-step', name: 'One Frame at a Time', description: 'Step a paused Unity game.', feature: 'play' },
   { id: 'play-resolution', name: 'New Perspective', description: 'Set the game rendering resolution.', feature: 'play' },
+  { id: 'play-fullscreen', name: 'Big Screen', description: 'Expand the live Game view to full screen.', feature: 'play' },
   { id: 'play-snapshot', name: 'In the Frame', description: 'Capture a game snapshot.', feature: 'play' },
   { id: 'play-observed', name: 'Shared Sight', description: 'Let Genio observe a game frame.', feature: 'play_frame' },
   { id: 'chat-provider-switch', feature: 'comms', name: 'New Perspective', description: 'Switch the chat provider.' },
@@ -348,6 +349,7 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
     if (ev.type === 'feature-used') {
       const ids: Record<string, string> = {
         'character-sheet': 'character-sheet-open',
+        'play-fullscreen': 'play-fullscreen',
         'model-picker': 'model-picker', 'model-switch': 'model-switch', screenshot: 'screenshot', world_push: 'push-first',
         rate_task: 'rating-first', 'account-login': 'account-login', 'yolo-chat': 'yolo-chat', 'usage-mode': 'usage-mode',
         quest_add: 'quest-first', world_add: 'world-first', memory_write: 'lore-first', 'inventory-index': 'inventory-index'

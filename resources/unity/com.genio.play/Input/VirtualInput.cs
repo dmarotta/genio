@@ -13,10 +13,8 @@ namespace Genio.Play
         static Mouse mouse;
         static Gamepad pad;
         static Vector2 position;
-#if UNITY_EDITOR
         static InputSettings originalSettings;
         static InputSettings temporarySettings;
-#endif
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Init()
         {
@@ -37,16 +35,18 @@ namespace Genio.Play
         static void Ensure()
         {
             if (keyboard != null) return;
-            keyboard = InputSystem.AddDevice<Keyboard>("Genio Keyboard");
-            mouse = InputSystem.AddDevice<Mouse>("Genio Mouse");
-            pad = InputSystem.AddDevice<Gamepad>("Genio Gamepad");
-#if UNITY_EDITOR
             originalSettings = InputSystem.settings;
             temporarySettings = UnityEngine.Object.Instantiate(originalSettings);
             temporarySettings.hideFlags = HideFlags.HideAndDontSave;
+            temporarySettings.backgroundBehavior = InputSettings.BackgroundBehavior.IgnoreFocus;
+#if UNITY_EDITOR
             temporarySettings.editorInputBehaviorInPlayMode = InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
-            InputSystem.settings = temporarySettings;
 #endif
+            InputSystem.settings = temporarySettings;
+            keyboard = InputSystem.AddDevice<Keyboard>("Genio Keyboard");
+            mouse = InputSystem.AddDevice<Mouse>("Genio Mouse");
+            pad = InputSystem.AddDevice<Gamepad>("Genio Gamepad");
+            InputSystem.EnableDevice(keyboard); InputSystem.EnableDevice(mouse); InputSystem.EnableDevice(pad);
         }
         static void Apply(string json)
         {
@@ -79,10 +79,8 @@ namespace Genio.Play
             Release();
             InputSystem.RemoveDevice(keyboard); InputSystem.RemoveDevice(mouse); InputSystem.RemoveDevice(pad);
             keyboard = null; mouse = null; pad = null;
-#if UNITY_EDITOR
             if (InputSystem.settings == temporarySettings) InputSystem.settings = originalSettings;
             UnityEngine.Object.Destroy(temporarySettings); temporarySettings = null; originalSettings = null;
-#endif
         }
     }
 }

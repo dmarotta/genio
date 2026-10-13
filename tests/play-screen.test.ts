@@ -5,6 +5,7 @@ import { beforeEach, afterEach, expect, it, vi } from 'vitest'
 vi.mock('../src/renderer/src/store', () => ({ PROJECT_WINDOW: 'game', PROJECT_WKSP:'game-wksp' }))
 vi.mock('../src/renderer/src/views/Comms', () => ({ ChatPanel: () => null }))
 import { Play } from '../src/renderer/src/views/Play'
+import { PlayLive } from '../src/renderer/src/views/PlayLive'
 let root: Root; let host: HTMLDivElement
 const status = { connected:true, state:'playing', scenes:[{name:'Game',path:'Assets/Game.unity',isActive:true,isDirty:false}], capabilities:{input:true,resolution:false} }
 const api = { playStatus:vi.fn(), playFrame:vi.fn(), playStats:vi.fn(), playConsole:vi.fn(), playScenes:vi.fn(), playAction:vi.fn(), playScreenshot:vi.fn(), playOpenUnity:vi.fn(), playDetach:vi.fn().mockResolvedValue(undefined), playStream:vi.fn().mockResolvedValue(undefined), playPool:vi.fn().mockResolvedValue({cap:1,slots:[],queue:[]}) }
@@ -49,4 +50,28 @@ it('does not overlap slow captures or keep showing a disconnected frame', async 
   api.playFrame.mockRejectedValueOnce(new Error('Editor closed'))
   await act(async () => vi.advanceTimersByTimeAsync(1000))
   expect(host.querySelector('img')).toBeNull()
+})
+it('decodes one live frame per credit, forwards held input only while focused, and releases on close', async () => {
+  const bitmap = { close: vi.fn() }
+  const drawImage = vi.fn()
+  vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue(bitmap))
+  const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({drawImage} as unknown as CanvasRenderingContext2D)
+  const channel = { postMessage:vi.fn(), start:vi.fn(), close:vi.fn(), onmessage:null as ((e: {data:unknown}) => Promise<void>) | null }
+  try {
+    await act(async () => root.render(React.createElement(PlayLive,{world:'game',width:640,height:360,input:true,onError:vi.fn()})))
+    expect(api.playStream).toHaveBeenCalledWith('game',true,640,360)
+    await act(async () => window.dispatchEvent(new MessageEvent('message',{source:window,data:{type:'genio:play-port',world:'game'},ports:[channel as unknown as MessagePort]})))
+    expect(channel.postMessage).toHaveBeenCalledWith({type:'ready'})
+    await act(async () => channel.onmessage!({data:{type:'frame',bytes:new Uint8Array([255,216,255,217])}}))
+    expect(drawImage).toHaveBeenCalledWith(bitmap,0,0,640,360)
+    expect(bitmap.close).toHaveBeenCalledOnce()
+    const canvas=host.querySelector('canvas')!
+    await act(async () => { canvas.focus(); canvas.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyW',key:'w',bubbles:true})); await vi.advanceTimersByTimeAsync(33) })
+    expect(channel.postMessage).toHaveBeenCalledWith(expect.objectContaining({type:'input',input:expect.objectContaining({type:'state',keys:['W']})}))
+    await act(async () => canvas.blur())
+    expect(channel.postMessage).toHaveBeenCalledWith({type:'input',input:{type:'release'}})
+    await act(async () => root.render(null))
+    expect(channel.close).toHaveBeenCalledOnce()
+    expect(api.playStream).toHaveBeenLastCalledWith('game',false)
+  } finally { context.mockRestore();vi.unstubAllGlobals() }
 })

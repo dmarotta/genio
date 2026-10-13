@@ -104,12 +104,13 @@ namespace Genio.Play
                     var pixels = request.GetData<byte>().ToArray();
                     var connection = socket;
                     var cancellation = cancel.Token;
-                    var flip = SystemInfo.graphicsUVStartsAtTop;
                     _ = Task.Run(async () =>
                     {
                         try
                         {
-                            if (!flip) FlipRows(pixels, width, height);
+                            // Readback texture rows use Unity's bottom-left texture origin;
+                            // JPEG rows start at the top, irrespective of the GPU UV convention.
+                            FlipRows(pixels, width, height);
                             var jpg = ImageConversion.EncodeArrayToJPG(pixels, GraphicsFormat.R8G8B8A8_UNorm, (uint)width, (uint)height, 0, 75);
                             if (jpg.Length <= 4 * 1024 * 1024 && connection.State == WebSocketState.Open)
                                 await connection.SendAsync(new ArraySegment<byte>(jpg), WebSocketMessageType.Binary, true, cancellation);

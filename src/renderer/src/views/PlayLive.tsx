@@ -73,6 +73,6 @@ export function PlayLive({ world, width, height, input, onError }: { world: stri
       onFocus={() => { enabled.current = input }}
       onKeyUp={e => { keys.current.delete(key(e.code)); if (input) e.preventDefault() }} />
     <button className="btn" disabled={!input} onClick={() => { canvas.current?.focus(); void canvas.current?.requestPointerLock() }}>Lock pointer · Esc releases</button>
-    <button className="btn" onClick={() => void canvas.current?.requestFullscreen()}>Full screen</button>
+    <button className="btn" onClick={() => { if (canvas.current) void canvas.current.requestFullscreen().then(() => window.genio.api.featureUsed('play-fullscreen')).catch(() => {}) }}>Full screen</button>
   </div>
 }

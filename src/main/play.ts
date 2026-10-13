@@ -192,8 +192,10 @@ export class PlayService {
     const editor = unityEditor(root)
     if (!editor) throw new Error('Install the project Unity version through Unity Hub first')
     this.opening.set(root, Date.now())
+    const lease = this.leases.get(world)
+    if (lease) { await this.pool(world).validateCopy(lease.id); await this.pool(world).check(lease.id, lease.token) }
     await new Promise<void>((resolve, reject) => {
-      const child = spawn(editor, ['-projectPath', root], { detached: true, stdio: 'ignore', windowsHide: false })
+      const child = spawn(editor, [...(lease ? ['-automated'] : []), '-projectPath', root], { detached: true, stdio: 'ignore', windowsHide: !!lease })
       child.once('error', () => { this.opening.delete(root); reject(new Error('Could not open Unity')) })
       child.once('spawn', () => { child.unref(); resolve() })
     })

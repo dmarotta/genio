@@ -10,7 +10,7 @@ export function poolDirectory(data, world) { return path.join(data, 'play-pools'
 export class PlayPool {
   constructor(data, world, engineRoot = '') {
     this.world = fs.realpathSync(world)
-    if (path.isAbsolute(engineRoot) || engineRoot.split(/[\\/]/).includes('..')) throw new Error('Invalid Unity root')
+    if (path.isAbsolute(engineRoot) || /[:\x00-\x1f]/.test(engineRoot) || engineRoot.split(/[\\/]/).includes('..')) throw new Error('Invalid Unity root')
     this.engineRoot = engineRoot
     this.dir = poolDirectory(data, world)
     fs.mkdirSync(this.dir, { recursive: true })
@@ -93,7 +93,8 @@ export class PlayPool {
   async prepare(id, token, source = this.world) {
     await this.check(id, token)
     // Source must be the registered repository or one of its git worktrees.
-    const git = async (cwd, args) => (await exec('git', args, { cwd, windowsHide: true, maxBuffer: 4 * 1024 * 1024 })).stdout.trim()
+    const gitOptions = { windowsHide: true, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: path.join(this.dir, 'no-hooks') } }
+    const git = async (cwd, args) => (await exec('git', args, { ...gitOptions, cwd })).stdout.trim()
     const common = async cwd => canonical(path.resolve(cwd, await git(cwd, ['rev-parse', '--git-common-dir'])))
     if (await common(source) !== await common(this.world)) throw new Error('Play source must belong to the registered world')
     const revision = await git(source, ['rev-parse', '--verify', 'HEAD^{commit}'])
@@ -107,7 +108,7 @@ export class PlayPool {
     })
     if (ready) return this.root(id)
     try {
-      if (!fs.existsSync(dest)) await exec('git', ['clone', '--no-hardlinks', '--no-checkout', '--', this.world, dest], { windowsHide: true })
+      if (!fs.existsSync(dest)) await exec('git', ['clone', '--no-hardlinks', '--no-checkout', '--', this.world, dest], gitOptions)
       if (await git(dest, ['status', '--porcelain', '--untracked-files=normal'])) {
         // A new --no-checkout clone has an empty index and appears entirely deleted.
         const populated = fs.existsSync(path.join(dest, '.git', 'genio-play-ready'))
@@ -116,6 +117,9 @@ export class PlayPool {
       await git(dest, ['fetch', '--', source, revision])
       await this.check(id, token)
       await git(dest, ['checkout', '--detach', revision])
+      // A Unity import may write anywhere under these trees. Reject links before
+      // opening the editor so a copied project's link cannot reach another world.
+      await this.validateCopy(id)
       const library = path.join(this.root(id), 'Library')
       if (!fs.existsSync(library)) {
         const original = path.join(this.world, this.engineRoot, 'Library')
@@ -126,5 +130,18 @@ export class PlayPool {
       await this.transaction(s => { const slot = s.slots.find(v => v.id === id); if (slot?.lease?.token !== token) throw new Error('Play lease lost'); slot.revision = revision; slot.preparing = false })
       return this.root(id)
     } catch (e) { await this.transaction(s => { const slot = s.slots.find(v => v.id === id); if (slot?.lease?.token === token) slot.preparing = false }); throw e }
+  }
+  async validateCopy(id) {
+    const slot = path.join(this.dir, `slot-${id}`)
+    const check = async p => {
+      const stat = await fs.promises.lstat(p)
+      if (stat.isSymbolicLink() || stat.isFile() && stat.nlink > 1) throw new Error('Play slots cannot contain symlinks, junctions or hardlinks')
+      if (stat.isDirectory()) for (const name of await fs.promises.readdir(p)) await check(path.join(p, name))
+    }
+    let current = slot
+    await checkParents(slot)
+    for (const part of this.engineRoot.split(/[\\/]/).filter(Boolean)) { current = path.join(current, part); await checkParents(current) }
+    for (const name of ['Assets', 'Packages', 'ProjectSettings']) if (fs.existsSync(path.join(current, name))) await check(path.join(current, name))
+    async function checkParents(p) { if ((await fs.promises.lstat(p)).isSymbolicLink()) throw new Error('Play root cannot follow a link') }
   }
 }

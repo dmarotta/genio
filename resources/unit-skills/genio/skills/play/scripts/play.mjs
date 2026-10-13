@@ -23,12 +23,14 @@ try {
   while (!(lease = await pool.acquire(owner))) { output({ waiting: true }); await new Promise(r => setTimeout(r, 1000)) }
   timer = setInterval(() => void pool.check(lease.id, lease.token).catch(() => { lost = true; activeRequest?.destroy(); process.stdin.destroy() }), 5000)
   await pool.prepare(lease.id, lease.token, source)
+  await pool.validateCopy(lease.id)
   if (process.argv.includes('--open') && !pool.editorAlive(lease.id)) {
     const version = fs.readFileSync(path.join(lease.root, 'ProjectSettings/ProjectVersion.txt'), 'utf8').match(/^m_EditorVersion:\s*(\S+)/m)?.[1]
     if (!version || !/^[\w.]+$/.test(version)) throw new Error('Invalid Unity version')
     const executable = path.join(process.env.ProgramFiles || 'C:/Program Files', 'Unity/Hub/Editor', version, 'Editor/Unity.exe')
     if (!fs.existsSync(executable)) throw new Error('Install the slot Unity version with Hub first')
-    const child = spawn(executable, ['-projectPath', lease.root], { detached: true, stdio: 'ignore', windowsHide: true })
+    await pool.check(lease.id, lease.token)
+    const child = spawn(executable, ['-automated', '-projectPath', lease.root], { detached: true, stdio: 'ignore', windowsHide: true })
     await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject) }); child.unref()
   }
   output({ ready: true, slot: lease.id, project: lease.root })

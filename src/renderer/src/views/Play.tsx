@@ -80,7 +80,7 @@ export function Play() {
       <label>Scene <select disabled={busy || !status?.connected || status.state !== 'stopped'} value={status?.scenes.find(s => s.isActive)?.path ?? ''} onChange={e => act({ type: 'scene', path: e.target.value })}>
         <option value="" disabled>Current editor scene</option>{scenes.map(s => <option key={s.path} value={s.path}>{s.name}{s.isDirty ? ' *' : ''} — {s.path}</option>)}
       </select></label>
-      <label>Snapshot size <select value={size} onChange={e => setSize(Number(e.target.value))}>{presets.map(([w,h], i) => <option key={i} value={i}>{w} × {h}</option>)}</select></label>
+      <label>{live ? 'Stream size' : 'Snapshot size'} <select value={size} onChange={e => setSize(Number(e.target.value))}>{presets.map(([w,h], i) => <option key={i} value={i}>{w} × {h}</option>)}</select></label>
       <button className="btn solid" disabled={busy || !status?.connected || status.state !== 'stopped'} onClick={() => act({ type:'play' })}>Play</button>
       <button className="btn" disabled={busy || !status?.connected || !['playing','paused'].includes(status.state)} onClick={() => act({ type:'pause' })}>{status?.state === 'paused' ? 'Resume' : 'Pause'}</button>
       <button className="btn" disabled={busy || !status?.connected || status.state === 'stopped'} onClick={() => act({ type:'stop' })}>Stop</button>
@@ -89,7 +89,7 @@ export function Play() {
       <button className="btn" disabled={busy} onClick={() => void run(() => api.playEnableStreaming(world))}>Enable live streaming</button>
       <button className="btn" disabled={!live && !playing} onClick={() => { setInput(false); setLive(!live) }}>{live ? 'Use snapshots' : 'Start live stream'}</button>
       <button className="btn" disabled={busy || !status?.capabilities.resolution} onClick={() => act({ type:'resolution', width:presets[size][0], height:presets[size][1] })}>Apply size to game</button>
-      <label><input type="checkbox" checked={input} disabled={!playing || !status?.capabilities.input} onChange={e => setInput(e.target.checked)} />Forward clicks and keys</label>
+      <label><input type="checkbox" checked={input} disabled={!playing || !status?.capabilities.input} onChange={e => setInput(e.target.checked)} />{live ? 'Capture keyboard, mouse and gamepad' : 'Forward clicks and keys'}</label>
     </div>
     <p className="dim">{status?.state ?? 'Connecting…'} · {playing && stats?.fps ? `${stats.fps.toFixed(1)} game fps` : 'Game FPS unavailable'} · {cpu !== undefined ? `${cpu.toFixed(1)} ms CPU` : 'CPU timing unavailable'} · {stats?.render?.drawCalls ?? '—'} draw calls · {stats?.render?.triangles ?? '—'} triangles · {stats?.memory ? `${(stats.memory.totalAllocatedBytes/1048576).toFixed(0)} MB` : '—'} · capture {frame ? `${frame.latencyMs} ms` : '—'}</p>
     <p className="dim">Enable live streaming adds the Genio package tarball and one manifest entry to this world, left uncommitted. Live input supports Input System games; legacy input paths remain view-only. Click the view to focus; Escape releases input.</p>

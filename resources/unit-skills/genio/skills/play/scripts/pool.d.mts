@@ -13,5 +13,6 @@ export class PlayPool {
   releaseMain(): Promise<void>
   prepare(id: number, token: string, source?: string): Promise<string>
   estimate(): Promise<number>
+  validateCopy(id: number): Promise<void>
 }
 export function poolDirectory(data: string, world: string): string

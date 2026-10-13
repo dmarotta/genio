@@ -60,3 +60,10 @@ it('copies only a committed revision, seeds Library without credentials, and pro
   await expect(pool.prepare(a.id,a.token)).rejects.toThrow('local changes')
   expect(fs.readFileSync(path.join(a.root,'Assets/game.txt'),'utf8')).toBe('local')
 })
+it('refuses links in Unity trees before an editor can import outside its slot', async () => {
+  const lease=(await pool.acquire('a'))!
+  fs.mkdirSync(path.join(lease.root,'Assets'),{recursive:true})
+  const external=path.join(root,'external');fs.mkdirSync(external)
+  fs.symlinkSync(external,path.join(lease.root,'Assets','outside'),process.platform==='win32'?'junction':'dir')
+  await expect(pool.validateCopy(lease.id)).rejects.toThrow('links')
+})
