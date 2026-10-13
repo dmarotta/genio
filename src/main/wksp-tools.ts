@@ -17,6 +17,7 @@ import { GENERATE_IMAGE_DESC, generateImageShape } from './chat-imagegen'
 import { findAssets, assetInfo, locateAsset } from './asset-tools'
 import { agentGeneration, falGenerateShape, uthanaMotionShape, uthanaCharacterShape, assetPlaceShape } from './agent-generation'
 import { CATEGORY_IDS } from '@shared/dispatch'
+import { playService } from './play'
 
 export type ToolRole = 'genio' | 'ally' | 'bot'
 
@@ -126,6 +127,30 @@ export function createToolRegistry(
   }
 
   const assetKind = z.enum(['image', 'audio', 'video', 'model', 'animation', 'material'])
+  const play = (world: string) => {
+    if (!home.isMain) {
+      const owner = getCtx().allies.list().find(a => a.name === home.name && !a.retiredAt)
+      if (!owner?.projects.includes(world)) throw new Error('Play world is outside this chat session')
+    }
+    return playService(getCtx())
+  }
+  t('play_status', 'Observe the session world Unity editor. Never launch another editor or use a unit against the main editor.', { world: z.string() }, async ({ world }) => ok(json(await play(world).status(world))))
+  t('play_console', 'Read recent Unity console entries, following cursor and session.', { world: z.string(), cursor: z.number().int().optional(), session: z.string().optional() }, async ({ world, cursor, session }) => ok(json(await play(world).adapter(world).console(cursor, session))))
+  t('play_stats', 'Observe Unity performance statistics.', { world: z.string() }, async ({ world }) => ok(json(await play(world).adapter(world).stats())))
+  t('play_frame', 'Observe a fresh game PNG in snapshot mode (about 1 fps).', { world: z.string() }, async ({ world }) => {
+    const frame = await play(world).frame(world, 1280, 720, true)
+    return { content: [{ type: 'image', data: frame.base64, mimeType: 'image/png' }, { type: 'text', text: `${frame.width}x${frame.height} captured ${frame.capturedAt}` }] }
+  })
+  t('play_control', 'Control Play only on the explicit player request quoted in player_words. Never save scenes or use eval. Units control only their own copy/slot.', {
+    world: z.string(), player_words: z.string().trim().min(1), action: z.discriminatedUnion('type', [
+      z.object({ type: z.enum(['play', 'pause', 'stop']) }), z.object({ type: z.literal('scene'), path: z.string() }),
+      z.object({ type: z.literal('key'), key: z.string() }), z.object({ type: z.literal('pointer'), x: z.number().nonnegative(), y: z.number().nonnegative() })
+    ])
+  }, async ({ world, player_words, action }) => {
+    if (role === 'bot') return fail('Play control waits for the player')
+    await play(world).act(world, action, 'genio', player_words)
+    return ok('Play action completed')
+  })
   t('assets_find', 'Read-only world Inventory search. Supports browser syntax such as t:sfx, in:Audio, lfs:missing. Includes vendor assets; results never authorize writes.', {
     world: z.string(), query: z.string().optional(), kind: assetKind.optional(), folder: z.string().optional(), generated: z.boolean().optional(), limit: z.number().int().min(1).max(200).optional()
   }, async ({ world, query, kind, folder, generated, limit }) => {

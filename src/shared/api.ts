@@ -398,6 +398,14 @@ export interface FalSaveResult extends OpResult {
 }
 
 export interface GenioApi {
+  playStatus(world: string): Promise<import('./play').PlayStatus>
+  playScenes(world: string): Promise<import('./play').PlayScene[]>
+  playAction(world: string, action: import('./play').PlayAction): Promise<void>
+  playFrame(world: string, width?: number, height?: number): Promise<import('./play').PlayFrame>
+  playConsole(world: string, cursor?: number, session?: string): Promise<import('./play').PlayConsole>
+  playStats(world: string): Promise<import('./play').PlayStats>
+  playOpenUnity(world: string): Promise<void>
+  playScreenshot(world: string): Promise<string>
   /** Open starts the watcher and returns the cache while reconciling in background. */
   inventoryOpen(world: string): Promise<InventoryState>
   inventoryClose(world: string): Promise<void>
@@ -524,6 +532,7 @@ export type MemoryFile = 'player' | 'lore' | 'player-shared'
 export type ApiMethod = keyof GenioApi
 /** Every GenioApi method, as runtime data (contextBridge cannot clone a Proxy). */
 export const API_METHODS = [
+  'playStatus', 'playScenes', 'playAction', 'playFrame', 'playConsole', 'playStats', 'playOpenUnity', 'playScreenshot',
   'inventoryOpen', 'inventoryClose', 'inventoryRefresh', 'inventoryList', 'inventoryInfo',
   'featureUsed',
   'snapshot',

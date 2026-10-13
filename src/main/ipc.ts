@@ -1,6 +1,7 @@
 import { modelCatalogue, invalidateModelCatalogue } from './model-catalogue'
 import { agentGeneration } from './agent-generation'
 import { readWorldMetadata } from './world-metadata'
+import { assertPlayWindow, playService } from './play'
 /**
  * IPC: one ipcMain.handle per GenioApi method ('genio:<method>'). The table is
  * typed against GenioApi so a missing or mistyped method fails the build.
@@ -37,6 +38,14 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
   }
 
   const h: Handlers = {
+    playStatus: world => playService(ctx()).status(world),
+    playScenes: world => playService(ctx()).scenes(world),
+    playAction: (world, action) => playService(ctx()).act(world, action, 'player'),
+    playFrame: (world, width, height) => playService(ctx()).frame(world, width, height),
+    playConsole: (world, cursor, session) => playService(ctx()).adapter(world).console(cursor, session),
+    playStats: world => playService(ctx()).adapter(world).stats(),
+    playOpenUnity: world => playService(ctx()).open(world),
+    playScreenshot: world => playService(ctx()).screenshot(world),
     inventoryOpen: async (world) => {
       const state = await ctx().inventory.open(world)
       ctx().stats.unlock('inventory-open')
@@ -257,6 +266,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
           finally { closeUnusedInventory(world) }
         }
         const binding = windows?.binding(_e.sender.id)
+        if (method.startsWith('play') && method !== 'playtest') assertPlayWindow(binding, args[0])
         if (binding) {
           if (method === 'snapshot') return projectSnapshot(ctx().snapshot(), binding)
           if (method === 'terminals') return ctx().terminals.list().filter(t => terminalProject(t, ctx().snapshot()) === binding.project)

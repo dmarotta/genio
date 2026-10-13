@@ -10,6 +10,7 @@ import { modeLabel, modeSourceOf } from '@shared/vocab'
 import type { AppCtx, ProjectsService } from './services'
 import { bus } from './bus'
 import { Home, defaultHomeRoot } from './home'
+import { isDefaultUnityTest, unityTestCommand } from './play-editor'
 import * as git from './git'
 import { exists, nowIso, readJson, run, slugify, which, writeJson, writeText } from './util'
 
@@ -61,7 +62,7 @@ function detectAtRoot(dir: string): { engine: Engine; commands: ProjectCommands 
     }
   }
   if (exists(path.join(dir, 'ProjectSettings', 'ProjectVersion.txt'))) {
-    return { engine: 'unity', commands: { test: 'Unity -batchmode -projectPath . -runTests -testPlatform EditMode -logFile -', run: undefined } }
+    return { engine: 'unity', commands: { test: unityTestCommand(dir), run: undefined } }
   }
   const uproject = any(/\.uproject$/i)
   if (uproject) return { engine: 'unreal', commands: {} }
@@ -112,7 +113,7 @@ export function detectEngine(dir: string): { engine: Engine; engineRoot: string;
         // Commands execute from the checkout root. Quote the relative engine path.
         const quoted = JSON.stringify(item.root)
         if (commands.run) commands.run = `godot --path ${quoted}`
-        if (detected.engine === 'unity') commands.test = `Unity -batchmode -projectPath ${quoted} -runTests -testPlatform EditMode -logFile -`
+        if (detected.engine === 'unity') commands.test = unityTestCommand(full, item.root)
         if (detected.engine === 'godot') {
           commands.build = `godot --headless --path ${quoted} --quit`
           if (commands.test) commands.test = `godot --headless --path ${quoted} -s addons/gut/gut_cmdln.gd -gexit`
@@ -138,6 +139,7 @@ export function refreshEngine(p: Project): Project {
   const manual = p.engineSource === 'manual' || (!p.engineSource && p.engine !== 'other')
   return {
     ...p,
+    commands: det.engine === 'unity' && isDefaultUnityTest(p.commands.test) && det.commands.test ? { ...p.commands, test: det.commands.test } : p.commands,
     engine: manual ? p.engine : det.engine,
     engineSource: manual ? 'manual' : 'auto',
     engineRoot: !manual || det.engine === p.engine ? det.engineRoot : p.engineRoot ?? ''

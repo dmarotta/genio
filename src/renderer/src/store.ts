@@ -17,7 +17,7 @@ export const PROJECT_WINDOW = windowParams.get('project') || undefined
 export const PROJECT_WKSP = PROJECT_WINDOW ? windowParams.get('wksp') || undefined : undefined
 
 /** Ctrl+N order (the rail may show them in a different order) */
-export const VIEWS: ViewId[] = ['comms', 'squad', 'quests', 'move', 'status', 'worlds', 'lore', 'systems', 'inventory']
+export const VIEWS: ViewId[] = ['comms', 'squad', 'quests', 'move', 'status', 'worlds', 'lore', 'systems', 'inventory', 'play']
 
 export interface Toast {
   id: number

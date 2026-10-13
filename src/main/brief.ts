@@ -45,7 +45,7 @@ export function engineHints(engine?: Engine): string {
     case 'godot':
       return `- Engine: Godot. Run headless with \`godot --headless --path . --quit\` to check the project loads; if GUT is installed run \`godot --headless -s addons/gut/gut_cmdln.gd\`.\n- Edit .tscn/.tres as text carefully; keep UIDs and resource ids stable.\n${common}`
     case 'unity':
-      return `- Engine: Unity. Tests run via \`Unity -batchmode -projectPath . -runTests -testPlatform EditMode\` when a Unity editor is installed.\n- Never commit Library/, Temp/ or Logs/. Keep .meta files paired with their assets.\n${common}`
+      return `- Engine: Unity. Resolve the editor binary for ProjectSettings/ProjectVersion.txt through Unity Hub; never use bare Unity -batchmode (it may resolve to the unrelated unity CLI). Run batch tests only on your isolated copy.\n- Units may control only their own copy or leased Play slot, never the player's main editor. Always pass --project-path to the unity CLI. Never read the main editor Pipeline token or save its scenes.\n- Never commit Library/, Temp/ or Logs/. Keep .meta files paired with their assets.\n${common}`
     case 'unreal':
       return `- Engine: Unreal. Build with UnrealBuildTool / RunUAT when available; never commit Binaries/, Intermediate/, Saved/ or DerivedDataCache/.\n- .uasset/.umap are binary: do not modify them unless asked.\n${common}`
     case 'bevy':

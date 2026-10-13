@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { BookOpen, FolderOpen, Cpu, Crosshair, Gauge, Globe, MessageSquare, ScrollText, Swords, type LucideIcon } from 'lucide-react'
+import { BookOpen, FolderOpen, Cpu, Crosshair, Gauge, Globe, MessageSquare, ScrollText, Swords, Gamepad2, type LucideIcon } from 'lucide-react'
 import { go, openDecisions, readyTasks, useStore, type ViewId } from '../store'
 import { cx } from '../lib/format'
 import { RAIL, entryActive, initialIndex, menuKey, navItems, opensMenu, type RailEntry } from '../lib/railmenu'
 import '../styles/railmenu.css'
 
 const ICON: Record<string, LucideIcon> = {
+  play: Gamepad2,
   comms: MessageSquare,
   squad: Swords,
   quests: ScrollText,

@@ -17,7 +17,7 @@ export interface ChatToolBinding {
   hooks?: ToolHooks
 }
 
-const BOT_READS = new Set(['assets_find', 'asset_info', 'asset_locate', 'fleet_view', 'unit_state', 'read_task_file',
+const BOT_READS = new Set(['play_status', 'play_console', 'play_stats', 'play_frame', 'assets_find', 'asset_info', 'asset_locate', 'fleet_view', 'unit_state', 'read_task_file',
   'terminal_tail', 'quest_list', 'choice_list', 'world_list', 'world_posture', 'status_report', 'memory_read',
   'memory_report', 'mail_list', 'dispatch_profiles', 'loadout_preview', 'toolchain_check', 'ally_list', 'escalate'])
 // These services aggregate across worlds or create new authority. Until they

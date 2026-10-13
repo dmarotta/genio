@@ -1,4 +1,4 @@
-export type ViewId = 'inventory' | 'comms' | 'squad' | 'quests' | 'move' | 'status' | 'worlds' | 'lore' | 'systems'
+export type ViewId = 'play' | 'inventory' | 'comms' | 'squad' | 'quests' | 'move' | 'status' | 'worlds' | 'lore' | 'systems'
 
 /** One screen reachable from the rail; key is its Ctrl shortcut. */
 export interface NavItem {
@@ -23,6 +23,7 @@ export const RAIL: RailEntry[] = [
   view('worlds', 'Worlds', '6'),
   view('lore', 'Lore', '7'),
   view('inventory', 'Inventory', '9'),
+  view('play', 'Play', '0'),
   view('systems', 'Systems', '8')
 ]
 

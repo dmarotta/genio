@@ -9,6 +9,8 @@
  * CI is watched afterwards by overwatch through the registered PR.
  */
 import fs from 'node:fs'
+import path from 'node:path'
+import { isDefaultUnityTest, unityTestCommand } from './play-editor'
 import type { Task, ValidationRun, ValidationStep } from '@shared/types'
 import type { OpResult } from '@shared/api'
 import type { AppCtx } from './services'
@@ -143,11 +145,17 @@ export function createGauntlet(getCtx: () => AppCtx, home: Home): Gauntlet {
       return { ok: false, message: 'Round limit reached; raised a choice for the player.' }
     }
 
+    const cmds = { ...project.commands }
+    if (project.engine === 'unity' && isDefaultUnityTest(cmds.test)) {
+      const engineRoot = project.engineRoot || '.'
+      const command = unityTestCommand(path.resolve(t.worktree, engineRoot), engineRoot)
+      if (!command) return { ok: false, message: 'The Unity version required by this worktree is not installed in Unity Hub.' }
+      cmds.test = command
+    }
     active.add(taskId)
     const logFile = home.validationLog(taskId)
     const log = (s: string): void => appendLine(logFile, `[${nowIso()}] ${s}`)
     const stepNames: { name: string; command?: string }[] = [{ name: 'sync' }]
-    const cmds = project.commands
     const hasChecks = Boolean(cmds.lint || cmds.build || cmds.test)
     if (cmds.setup && hasChecks) stepNames.push({ name: 'setup', command: cmds.setup })
     if (cmds.lint) stepNames.push({ name: 'lint', command: cmds.lint })

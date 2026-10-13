@@ -28,7 +28,8 @@ it.each(['', 'FoundersOfAvalonUnity', 'games/My Game'])('finds Unity at %s with 
   put(`${engineRoot ? engineRoot + '/' : ''}ProjectSettings/ProjectVersion.txt`)
   const detected = detectEngine(root)
   expect(detected).toMatchObject({ engine: 'unity', engineRoot })
-  expect(detected.commands.test).toContain(`-projectPath ${engineRoot ? JSON.stringify(engineRoot) : '.'}`)
+  // No version or installed editor: never propose the colliding Unity CLI alias.
+  expect(detected.commands.test).toBeUndefined()
 })
 
 it('finds nested Godot with GUT and Unreal', () => {

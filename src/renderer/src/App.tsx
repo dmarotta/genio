@@ -15,8 +15,10 @@ import { ProjectNotice, Worlds } from './views/Worlds'
 import { Lore } from './views/Lore'
 import { Systems } from './views/Systems'
 import { Inventory } from './views/Inventory'
+import { Play } from './views/Play'
 
 const VIEW: Partial<Record<ViewId, ComponentType>> = {
+  play: Play,
   comms: Comms,
   squad: Squad,
   quests: Quests,
