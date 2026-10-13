@@ -25,11 +25,11 @@ afterEach(() => {
 function fixture(allies: Ally[]) {
   const file = path.join(dir, 'allies.json')
   fs.writeFileSync(file, JSON.stringify(allies))
-  const sends: Record<string, { text: string; origin?: string }[]> = {}
+  const sends: Record<string, { text: string; origin?: string; images?: unknown[] }[]> = {}
   const homes = new Map<string, unknown>()
   for (const n of ['main', ...allies.map((a) => a.name)]) {
     sends[n] = []
-    homes.set(n, { wksp: { send: vi.fn(async (text: string, origin?: string) => void sends[n].push({ text, origin })) } })
+    homes.set(n, { wksp: { send: vi.fn(async (text: string, origin?: string, images?: unknown[]) => void sends[n].push(images ? { text, origin, images } : { text, origin })) } })
   }
   const ctx = {
     main: { home: { alliesFile: file } },
@@ -92,6 +92,14 @@ describe('two-way ally chats', () => {
     expect(sends.art).toEqual([{ text: 'make the sky purple', origin: 'player' }])
     expect(sends.audio).toEqual([])
     expect(sends.main).toEqual([])
+  })
+
+  it('an ally tab send carries its pasted images to that ally', async () => {
+    const { ctx, sends } = fixture([ally('art'), ally('audio')])
+    const images = [{ mediaType: 'image/png' as const, data: 'iVBORw0KGgo=', width: 1, height: 1 }]
+    await sendPlayerChat(ctx as never, 'art', 'like this', images)
+    expect(sends.art).toEqual([{ text: 'like this', origin: 'player', images }])
+    expect(sends.audio).toEqual([])
   })
 
   it('a request routed by Genio lands in the ally tab history labelled as from Genio', async () => {
