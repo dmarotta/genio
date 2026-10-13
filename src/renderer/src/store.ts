@@ -8,8 +8,9 @@ import { applyChatEvent, patchAllyControls, type AllyControlsPatch } from '@shar
 import { DOCK_STORAGE_KEY, closePanel, focusPanel, openPanel, parseDock, reconcileDock, serializeDock, spawnWorldAlly, type DockState } from './lib/dock'
 import { playSfx } from './lib/sfx'
 import { speak } from './lib/voice'
+import type { ViewId } from './lib/railmenu'
 
-export type ViewId = 'comms' | 'squad' | 'quests' | 'move' | 'status' | 'worlds' | 'lore' | 'systems' | 'fal' | 'animation'
+export type { ViewId }
 
 /** Ctrl+N order (the rail may show them in a different order) */
 export const VIEWS: ViewId[] = ['comms', 'squad', 'quests', 'move', 'status', 'worlds', 'lore', 'systems', 'fal', 'animation']
