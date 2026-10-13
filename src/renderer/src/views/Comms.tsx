@@ -67,7 +67,7 @@ export function ChatPanel({ wksp, context, active: _active = true }: { wksp: str
     void loadChat(wksp)
   }, [wksp])
 
-  const visible = useMemo(() => (calm ? messages.filter((m) => m.role !== 'wake') : messages), [messages, calm])
+  const visible = useMemo(() => (calm ? messages.filter((m) => !calmHidden(m)) : messages), [messages, calm])
 
   // Edit / cancel a message the session has not picked up yet; edit puts it back in this chat's composer.
   const fill = useRef<((c: UnqueuedChat) => void) | undefined>(undefined)
@@ -154,6 +154,15 @@ function activityText(a?: string, detail?: string): string {
     default:
       return 'Ready'
   }
+}
+
+/**
+ * Clean HUD drops wakes and any Genio turn with nothing left to show once tool traces are hidden
+ * (tool-only turns, empty partials), header and timestamp included, so no bare headers stack up.
+ */
+function calmHidden(m: ChatMessage): boolean {
+  if (m.role === 'wake') return true
+  return m.role === 'genio' && !m.text.trim() && !m.generation && !m.generating && !m.images?.length
 }
 
 type TakeBack = (m: ChatMessage, edit: boolean) => Promise<void>
