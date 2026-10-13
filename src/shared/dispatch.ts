@@ -6,6 +6,9 @@
  */
 import type { CategoryPool, CostDial, PoolCandidate, TaskCategory, Verdict } from './types'
 
+export const QUOTA_EVIDENCE_TTL = 10 * 60_000
+export const QUOTA_EXPLORE_PERCENT = 70
+
 export const CATEGORIES: { id: TaskCategory; label: string; hint: string }[] = [
   { id: 'recon-design', label: 'Recon / design', hint: 'investigate, plan, architect' },
   { id: 'feature', label: 'Feature (multi-file)', hint: 'new mechanics and systems' },

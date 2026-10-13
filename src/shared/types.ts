@@ -158,6 +158,8 @@ export interface Task {
   landedAt?: string
   cleanedAt?: string
   relaunches: number
+  /** Automatic attempts since the last explicit manual resume. */
+  automaticRelaunches?: number
   /** Unit-reported session id so a respawn can resume the conversation. */
   sessionHint?: string
 }
@@ -630,6 +632,7 @@ export interface FleetStats {
   shippedToday: number
   shippedTotal: number
   scoutsTotal: number
+  /** SDK estimate: chat, Bot and review only; excludes units and subscription charges. */
   costTodayUsd: number
   level: number
   xp: number

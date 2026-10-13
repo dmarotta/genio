@@ -16,7 +16,7 @@ import { appendProgressNote, doorbellLine, engineHints, kickoffPrompt, renderBri
 import { buildArgs, CLAUDE_BYPASS_DIALOG } from './harness'
 import { foldOpenDecisions, formatStatusLine, parseStatusLine, parseStatusLog } from './status'
 import { createGauntlet } from './gauntlet'
-import { resolveLoadout } from './loadout'
+import { relaunchPolicy } from './relaunch-policy'
 import { modeLabel } from '@shared/vocab'
 import { cheapModelsAllowed } from '@shared/dispatch'
 import { defaultShell } from './terminals'
@@ -430,6 +430,18 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         backlogId = b.id
       }
 
+      // a follow-up on the same quest keeps the loadout of the unit that worked it before
+      const quest = backlog.get(backlogId!)
+      const prev = quest?.taskId ? get(quest.taskId) : undefined
+      const pickInput: LoadoutInput = {
+        ...req,
+        priority: quest?.priority,
+        sticky: prev ? { from: prev.id, harness: prev.harness, model: prev.model, effort: prev.effort, category: prev.category } : undefined
+      }
+      const reservation = await ctx.dispatch.reserve(pickInput)
+      const loadout = reservation.loadout
+      try {
+
       const id = uniqueId(req.title)
       const branch = `${posture.branchPrefix}${id}`
       const baseBranch = req.baseBranch?.trim() || project.defaultBranch
@@ -472,15 +484,6 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         })
       )
 
-      // a follow-up on the same quest keeps the loadout of the unit that worked it before
-      const quest = backlog.get(backlogId!)
-      const prev = quest?.taskId ? get(quest.taskId) : undefined
-      const pickInput: LoadoutInput = {
-        ...req,
-        priority: quest?.priority,
-        sticky: prev ? { from: prev.id, harness: prev.harness, model: prev.model, effort: prev.effort, category: prev.category } : undefined
-      }
-      const loadout = resolveLoadout(pickInput, ctx.settings, ctx.dispatch.signals(project.name))
       const harness = loadout.harness
       const now = nowIso()
       const task: Task = {
@@ -531,6 +534,9 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       safe(() => ctx.stats.award('spawn', id))
       safe(() => ctx.notifier.sfx('spawn'))
       return get(id)!
+      } finally {
+        reservation.release()
+      }
     },
 
     async send(id, text, resolveKeys = []): Promise<OpResult> {
@@ -590,7 +596,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       return true
     },
 
-    async control(id, action, note): Promise<OpResult> {
+    async control(id, action, note, manual = false): Promise<OpResult> {
       const t = get(id)
       if (!t) return { ok: false, message: `Unknown unit: ${id}` }
       const ctx = getCtx()
@@ -617,7 +623,21 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       // respawn
       if (t.state === 'cleaned') return { ok: false, message: `${id} was despawned; deploy a new mission instead.` }
       if (!exists(t.worktree)) return { ok: false, message: `The worktree for ${id} is gone; cannot respawn.` }
-      const max = ctx.settings.get().maxRelaunches
+      const policy = relaunchPolicy(t, manual)
+      if (!policy.allowed) {
+        update(id, { state: 'paused', stateReason: 'Automatic relaunch limit reached. Use Respawn to resume manually.' })
+        return { ok: false, message: 'Held after one automatic relaunch. Use the unit Respawn action to resume manually.' }
+      }
+      let reservation: Awaited<ReturnType<typeof ctx.dispatch.reserve>>
+      try {
+        reservation = await ctx.dispatch.reserve({ kind: t.kind, project: t.project, title: t.title, intent: '',
+          harness: t.harness, model: t.model, effort: t.effort })
+      } catch (e) {
+        return { ok: false, message: (e as Error).message }
+      }
+      // Count attempts before any await, including failed launches; notes do not reset the cap.
+      update(id, { automaticRelaunches: policy.nextAttempts })
+      try {
       appendProgressNote(t.briefPath, note ?? '')
       await recall()
       const prompt = `Genio respawned you. Re-read your brief at ${fwd(t.briefPath)} (see the latest Progress note), check your ping inbox, then continue.`
@@ -634,12 +654,13 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         ledger('task.relaunched', t, { relaunches: t.relaunches + 1 })
         return {
           ok: true,
-          message: `Respawned ${id}.${t.relaunches + 1 > max ? ` Warning: ${t.relaunches + 1} respawns (limit ${max}); it may be stuck in a loop.` : ''}`
+          message: `Respawned ${id}.`
         }
       } catch (e) {
         update(id, { state: 'failed', stateReason: (e as Error).message })
         return { ok: false, message: (e as Error).message }
       }
+      } finally { reservation.release() }
     },
 
     async cleanup(id, force = false): Promise<OpResult> {

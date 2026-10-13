@@ -126,7 +126,7 @@ export function Status() {
             <Tile label="Shipped total" value={stats.shippedTotal} tone="neon" />
             <Tile label="Recons" value={stats.scoutsTotal} tone="violet" />
             <Tile label="Streak" value={`${stats.streakDays}d`} tone="amber" icon={<Flame size={14} />} />
-            <Tile label="Spend today" value={usd(stats.costTodayUsd)} tone="mute" />
+            <Tile label="Chat/review estimate today" value={usd(stats.costTodayUsd)} tone="mute" />
           </div>
         </section>
         <section className="panel achv-grid-card">

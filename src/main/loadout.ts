@@ -11,15 +11,17 @@
  * configured default. Inside a rule or the table, candidates whose tool is not
  * installed, enabled or logged in are skipped, cheap third-party models need
  * the world not opted out, the cost dial reorders, and a tool above ~85% of a plan
- * window is down-ranked. Exploration only ever happens inside the table.
+ * window is excluded. Exploration only ever happens inside the table.
  */
 import type {
   CategoryPool, CostDial, DispatchRule, HarnessAdapter, Loadout, LoadoutInput, PoolCandidate, Settings, TaskCategory, TaskKind
 } from '@shared/types'
 import {
-  COST_MODEL, DIAL_LABEL, QUALITY_MODEL, QUOTA_HOT_PERCENT, categoryLabel, defaultCategoryPools, isCategory, shiftEffort, type ScoreRow
+  COST_MODEL, DIAL_LABEL, QUALITY_MODEL, categoryLabel, defaultCategoryPools, isCategory, shiftEffort, type ScoreRow
 } from '@shared/dispatch'
 import type { SettingsService } from './services'
+import { blockedWindow, explorationSafe, type QuotaWindow } from './quota-policy'
+export type { QuotaWindow } from './quota-policy'
 
 type RuleCandidate = DispatchRule['candidates'][number]
 
@@ -116,11 +118,6 @@ export function classifyCategory(kind: TaskKind, title: string, body: string): {
   return { category: best.category, why: `keywords ${best.terms.slice(0, 3).map((t) => `"${t}"`).join(', ')}` }
 }
 
-export interface QuotaWindow {
-  label: string
-  usedPercent: number
-}
-
 /** What the picker knows about this machine and world beyond the settings. */
 export interface PickEnv {
   /** installed, enabled and verified on this machine */
@@ -129,6 +126,7 @@ export interface PickEnv {
   loggedOut?: (id: string) => boolean
   /** current plan windows per tool id */
   quota?: Record<string, QuotaWindow[]>
+  unavailable?: (id: string) => boolean
   /** cheap third-party models: OpenRouter key + OpenCode installed + the world not opted out */
   cheap?: { allowed: boolean; why: string }
   /** the world's dial override, else Settings.costDial */
@@ -146,7 +144,7 @@ type Option = { c: PoolCandidate & { spendPriority?: number }; i: number }
 
 /** Plan windows of a tool at or above the quota threshold, worst first. */
 export function hotWindows(quota: PickEnv['quota'], harness: string): QuotaWindow[] {
-  return (quota?.[harness] ?? []).filter((w) => w.usedPercent >= QUOTA_HOT_PERCENT).sort((a, b) => b.usedPercent - a.usedPercent)
+  return (quota?.[harness] ?? []).filter((w) => blockedWindow(w)).sort((a, b) => (b.usedPercent ?? b.lastKnownUsedPercent ?? 100) - (a.usedPercent ?? a.lastKnownUsedPercent ?? 100))
 }
 
 /** Stable: cool tools keep their order, hot ones move after them. */
@@ -181,7 +179,8 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
     const h = byId(id)
     return Boolean(h && env.available(h))
   }
-  const usable = (id: string): boolean => installed(id) && !env.loggedOut?.(id)
+  const quotaBlocked = (id: string): boolean => !!hotWindows(env.quota, id).length || !!env.unavailable?.(id)
+  const usable = (id: string): boolean => installed(id) && !env.loggedOut?.(id) && !quotaBlocked(id)
   const nameOf = (id: string): string => byId(id)?.name ?? s.harnesses.find((h) => h.id === id)?.name ?? id
   const dial: CostDial = env.dial ?? s.costDial ?? 'balanced'
   const text = `${input.title}\n${input.intent}\n${input.spec ?? ''}`
@@ -230,6 +229,10 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
         reasons.push(`${name} skipped: not logged in`)
         continue
       }
+      if (quotaBlocked(id)) {
+        reasons.push(`${name} excluded: quota protection or launch already reserved`)
+        continue
+      }
       if (o.c.cheap && !env.cheap?.allowed) {
         reasons.push(`${name} skipped: ${env.cheap?.why ?? 'cheap third-party models are off'}`)
         continue
@@ -245,10 +248,10 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
       if (seen.has(o.c.harness) || o.c.harness === picked.c.harness) continue
       seen.add(o.c.harness)
       const w = hotWindows(env.quota, o.c.harness)[0]
-      if (w) reasons.push(`${nameOf(o.c.harness)} down-ranked: ${w.label} window at ${Math.round(w.usedPercent)}%`)
+      if (w) reasons.push(`${nameOf(o.c.harness)} excluded: ${w.label} window at ${Math.round(w.usedPercent ?? w.lastKnownUsedPercent ?? 100)}%`)
     }
     const own = hotWindows(env.quota, picked.c.harness)[0]
-    if (own) reasons.push(`${nameOf(picked.c.harness)} is at ${Math.round(own.usedPercent)}% of its ${own.label} window, but nothing cooler is available`)
+    if (own) reasons.push(`${nameOf(picked.c.harness)} is at ${Math.round(own.usedPercent ?? own.lastKnownUsedPercent ?? 100)}% of its ${own.label} window, but nothing cooler is available`)
   }
 
   let harness = explicitHarness
@@ -259,6 +262,7 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
   let explored = false
 
   if (harness) {
+    if (quotaBlocked(harness)) throw new Error(`deferred: ${nameOf(harness)} is held by quota protection. Wait for fresh evidence before resuming this pinned task.`)
     reasons.push(`${nameOf(harness)}: your pick`)
   } else {
     // ---- explicit dispatch rules
@@ -295,9 +299,9 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
       if (pick) {
         quotaNote(ordered, pick)
         let chosen = pick
-        const eligible = ordered.filter((o) => usable(o.c.harness) && (!o.c.cheap || env.cheap?.allowed))
+        const eligible = ordered.filter((o) => usable(o.c.harness) && explorationSafe(env.quota?.[o.c.harness]) && (!o.c.cheap || env.cheap?.allowed))
         const rate = Math.max(0, Math.min(1, s.explorationRate ?? 0))
-        const canExplore = rate > 0 && eligible.length >= 2 && !explicitModel && input.priority !== 'critical'
+        const canExplore = rate > 0 && eligible.includes(pick) && eligible.length >= 2 && !explicitModel && !explicitEffort && input.priority !== 'critical'
         if (canExplore && env.preview) {
           reasons.push(`exploration: ${Math.round(rate * 100)}% of deploys try a less-proven candidate`)
         } else if (canExplore && env.rand && env.rand() < rate) {
@@ -328,6 +332,7 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
 
     if (!harness) {
       harness = s.defaultHarness || 'claude'
+      if (!usable(harness)) throw new Error('deferred: no eligible unit plan is available; the quest stays queued.')
       source = 'default'
       reasons.push(`${nameOf(harness)}: default unit tool${ranked.length || !s.dispatchRules.length ? '' : ' (no rule matched)'}`)
     }

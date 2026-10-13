@@ -122,7 +122,11 @@ export interface UsageWindow {
   /** 'allowed' | 'allowed_warning' | 'rejected' (Claude Code only) */
   status?: string
   resetsAt?: string
-  /** the reset time has passed since this snapshot: the figure is out of date */
+  observedAt?: string
+  changedAt?: string
+  /** Kept for protection only; stale percentages are not presented as current usage. */
+  lastKnownUsedPercent?: number
+  /** Observation expired or the reset time passed; current usage is unknown. */
   stale?: boolean
 }
 

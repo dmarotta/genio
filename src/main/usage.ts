@@ -16,6 +16,7 @@ import path from 'node:path'
 import readline from 'node:readline'
 import type { FalRun, FalSpend, MeasuredUsage, TokenTally, ToolUsage, UsageLimits, UsageReport, UsageWindow } from '@shared/api'
 import { FalHistory } from './fal-history'
+import { expireWindow, type QuotaWindow } from './quota-policy'
 import type { AppCtx } from './services'
 import { isSubPath, nowIso, readJson, writeJson } from './util'
 
@@ -173,12 +174,13 @@ export function codexLimits(snapshots: Iterable<CodexSnapshot>, now = Date.now()
       name: s.limitId === 'codex' ? undefined : (s.name ?? s.limitId),
       plan: s.limitId === 'codex' ? (s.plan ?? plan) : s.plan,
       windows: s.windows.map(
-        (w): UsageWindow => ({
+        (w): UsageWindow => expireWindow({
+          observedAt: s.ts,
+          changedAt: s.ts,
           label: windowLabel(w.minutes),
           usedPercent: w.usedPercent,
           resetsAt: w.resetsAt,
-          stale: w.resetsAt ? Date.parse(w.resetsAt) <= now : undefined
-        })
+          }, now)
       )
     }))
 }
@@ -229,13 +231,15 @@ interface StoredWindow {
   utilization?: number
   resetsAt?: number
   updatedAt: string
+  observedAt?: string
+  changedAt?: string
 }
 
 export interface ClaudeLimitsFile {
   windows: Record<string, StoredWindow>
 }
 
-/** Merge one rate_limit_event into the stored state; returns undefined when nothing changed. */
+/** Merge one rate_limit_event; unchanged events refresh observation time, not change time. */
 export function mergeClaudeRateLimit(file: ClaudeLimitsFile, info: ClaudeRateLimitInfo, at = nowIso()): ClaudeLimitsFile | undefined {
   const type = info.rateLimitType || 'unspecified'
   const prev = file.windows[type]
@@ -243,9 +247,11 @@ export function mergeClaudeRateLimit(file: ClaudeLimitsFile, info: ClaudeRateLim
     status: info.status,
     utilization: typeof info.utilization === 'number' && Number.isFinite(info.utilization) ? info.utilization : info.status === 'allowed' && prev?.status === 'rejected' ? undefined : prev?.utilization,
     resetsAt: typeof info.resetsAt === 'number' ? info.resetsAt : prev?.resetsAt,
-    updatedAt: at
+    updatedAt: at,
+    observedAt: at,
+    changedAt: at
   }
-  if (prev && prev.status === next.status && prev.utilization === next.utilization && prev.resetsAt === next.resetsAt) return undefined
+  if (prev && prev.status === next.status && prev.utilization === next.utilization && prev.resetsAt === next.resetsAt) next.changedAt = prev.changedAt ?? prev.updatedAt
   return { windows: { ...file.windows, [type]: next } }
 }
 
@@ -270,13 +276,14 @@ export function claudeLimits(file: ClaudeLimitsFile | undefined, now = Date.now(
   const entries = Object.entries(file?.windows ?? {}).sort(([a], [b]) => CLAUDE_ORDER.indexOf(a) - CLAUDE_ORDER.indexOf(b))
   if (!entries.length) return undefined
   const windows = entries.map(
-    ([type, w]): UsageWindow => ({
+    ([type, w]): UsageWindow => expireWindow({
+      observedAt: w.observedAt ?? w.updatedAt,
+      changedAt: w.changedAt ?? w.updatedAt,
       label: CLAUDE_WINDOW_LABEL[type] ?? type.replace(/_/g, ' '),
       usedPercent: typeof w.utilization === 'number' ? claudePercent(w.utilization) : undefined,
       status: w.status === 'rejected' && w.resetsAt !== undefined && w.resetsAt * 1000 <= now ? undefined : w.status,
       resetsAt: w.resetsAt ? new Date(w.resetsAt * 1000).toISOString() : undefined,
-      stale: w.resetsAt ? w.resetsAt * 1000 <= now : undefined
-    })
+    }, now)
   )
   const updatedAt = entries.map(([, w]) => w.updatedAt).sort().pop() as string
   return { source: "reported by Claude Code to Genio's chat", updatedAt, windows }
@@ -310,13 +317,10 @@ export function falSpend(runs: FalRun[], now = Date.now()): FalSpend {
 // ---------------------------------------------------------------- dispatch quota
 
 /** Live 5-hour and weekly windows per tool, for the loadout picker (a rejected window counts as 100%). */
-export function quotaFromUsage(r: UsageReport): Record<string, { label: string; usedPercent: number }[]> {
-  const out: Record<string, { label: string; usedPercent: number }[]> = {}
+export function quotaFromUsage(r: UsageReport): Record<string, QuotaWindow[]> {
+  const out: Record<string, QuotaWindow[]> = {}
   for (const t of r.tools) {
-    const windows = (t.limits[0]?.windows ?? [])
-      .filter((w) => !w.stale && (w.label === '5-hour' || w.label.startsWith('weekly')))
-      .map((w) => ({ label: w.label, usedPercent: w.status === 'rejected' ? 100 : w.usedPercent }))
-      .filter((w): w is { label: string; usedPercent: number } => typeof w.usedPercent === 'number')
+    const windows = t.limits.flatMap((l) => l.windows.map((w) => expireWindow({ ...w, observedAt: w.observedAt ?? l.updatedAt })))
     if (windows.length) out[t.tool] = windows
   }
   return out
@@ -397,28 +401,34 @@ function measured(source: string, scope: string, records: TokenRecord[], now: nu
   return { source, scope, updatedAt: new Date(now).toISOString(), today: tally(records, todayStart), week: tally(records, weekStart) }
 }
 
+export function belongsToGenio(line: ClaudeUsageLine, sessions: Set<string>, root: string): boolean {
+  return sessions.has(line.record.session) || Boolean(line.cwd && isSubPath(line.cwd, root))
+}
+
 async function claudeUsage(ctx: AppCtx, root: string, now: number): Promise<ToolUsage> {
   const { weekStart } = usageWindows(now)
   const projects = path.join(claudeHome(), 'projects')
-  const prefix = claudeProjectDir(root).toLowerCase()
-  let dirs: string[] = []
-  try {
-    dirs = fs.readdirSync(projects).filter((d) => d.toLowerCase().startsWith(prefix))
-  } catch {
-    /* no transcripts yet */
+  // Persisted session identity wins over cwd (which can change mid-conversation).
+  const sessions = new Set<string>()
+  for (const h of ctx.homes.values()) {
+    const state = readJson<{ sessionId?: string; botSessionId?: string }>(h.home.wkspFile, {})
+    if (state.sessionId) sessions.add(state.sessionId)
+    if (state.botSessionId) sessions.add(state.botSessionId)
   }
-  const files = dirs.flatMap((d) => recentJsonl(path.join(projects, d), weekStart))
-  const seen = new Set<string>()
-  const records: TokenRecord[] = []
+  const files = recentJsonl(projects, weekStart)
+  const seen = new Map<string, TokenRecord>()
   for (const f of files) {
     const lines = await claudeCache.get(f, (p) => pickLines(p, parseClaudeUsageLine))
     for (const l of lines ?? []) {
-      // the folder prefix can match a sibling path; the cwd on each line decides
-      if (!l.cwd || !isSubPath(l.cwd, root) || seen.has(l.key)) continue
-      seen.add(l.key)
-      records.push(l.record)
+      if (!belongsToGenio(l, sessions, root)) continue
+      const key = `${l.record.session}:${l.key}`
+      const prev = seen.get(key)
+      // Streaming content blocks may repeat the request with larger output counters.
+      seen.set(key, prev ? { ...prev, input: Math.max(prev.input, l.record.input),
+        cached: Math.max(prev.cached, l.record.cached), output: Math.max(prev.output, l.record.output) } : l.record)
     }
   }
+  const records = [...seen.values()]
   claudeCache.prune(new Set(files))
   const limits = claudeLimits(readJson<ClaudeLimitsFile | undefined>(claudeLimitsFile(ctx.main.home.data), undefined), now)
   return {

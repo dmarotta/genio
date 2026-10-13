@@ -1,4 +1,5 @@
 import { claudeLimitState, isClaudeLimit } from './claude-limit'
+import { SessionCostLedger, SessionQuotaPolicy, isQuotaError } from './session-usage'
 import { registerModelQuery, supportedClaudeEfforts } from './model-discovery'
 /**
  * Genio agent sessions (companion's primary harness session, in-process).
@@ -171,7 +172,7 @@ export class AgentSession {
   private assistantLimit = ''
   private gotInit = false
   private resumedFrom?: string
-  private lastTotalCost = 0
+  private retryTimer?: ReturnType<typeof setTimeout>
   private msgs = new Map<string, ChatMessage>()
   private blockText = new Map<string, string[]>()
   private toolOwner = new Map<string, string>()
@@ -188,7 +189,9 @@ export class AgentSession {
     private readonly build: (resume?: string) => Promise<Options>,
     private readonly hooks: SessionHooks,
     private readonly wkspName: string,
-    private readonly config: () => SessionConfig
+    private readonly config: () => SessionConfig,
+    private readonly quotaPolicy: () => SessionQuotaPolicy,
+    private readonly costs: SessionCostLedger
   ) {}
 
   get queued(): number {
@@ -221,7 +224,18 @@ export class AgentSession {
   }
 
   private async pump(): Promise<void> {
-    if (this.busy || this.limitPaused) return
+    if (this.busy) return
+    const waiting = this.pending[0]
+    if (waiting && !this.quotaPolicy().canStart(waiting.kind === 'player')) {
+      this.setLimit(this.quotaPolicy().limitState())
+      // Local polling can detect new on-disk evidence without spending provider quota.
+      if (!this.retryTimer) {
+        this.retryTimer = setTimeout(() => { this.retryTimer = undefined; void this.pump() }, 30_000)
+        this.retryTimer.unref?.()
+      }
+      return
+    }
+    if (waiting) this.setLimit()
     const next = this.pending.shift()
     if (!next) return
     this.busy = true
@@ -290,6 +304,8 @@ export class AgentSession {
 
   private limited(text: string): void {
     const state = claudeLimitState(text, this.latestLimit)
+    this.quotaPolicy().rejectError(text)
+    this.quotaPolicy().observe({ status: 'rejected', rateLimitType: this.latestLimit?.rateLimitType ?? 'error', resetsAt: state.resetsAt === undefined ? undefined : state.resetsAt / 1000 })
     if (state.resetsAt !== undefined && this.latestLimit?.status === 'rejected') {
       this.hooks.onRateLimit({ ...this.latestLimit, resetsAt: state.resetsAt / 1000 })
     }
@@ -350,7 +366,7 @@ export class AgentSession {
     } catch (e) {
       if (gen !== this.generation) return
       const msg = (e as Error)?.message ?? String(e)
-      if (this.resumedFrom && !this.gotInit) {
+      if (this.resumedFrom && !this.gotInit && !isQuotaError(msg)) {
         // resume failed: start a fresh conversation and retry the turn
         this.hooks.onError('Could not resume the previous Genio conversation; starting a fresh one (records on disk are intact).')
         this.sessionId = undefined
@@ -482,9 +498,10 @@ export class AgentSession {
         const r = m as { is_error?: boolean; total_cost_usd?: number; result?: string; errors?: string[]; subtype?: string }
         const errorText = (r.errors ?? []).join('; ') || r.result || this.assistantLimit
         const limitError = (r.is_error && isClaudeLimit(errorText)) || !!this.assistantLimit
-        const total = r.total_cost_usd ?? 0
-        const delta = total >= this.lastTotalCost ? total - this.lastTotalCost : total
-        this.lastTotalCost = total
+        const resultId = typeof m.uuid === 'string' ? m.uuid : ''
+        const cost = this.costs.record(this.sessionId ?? this.label, resultId, r.total_cost_usd, Boolean(this.resumedFrom))
+        if (cost.duplicate) return
+        const delta = cost.delta
         for (const id of this.turnMsgIds) {
           const cm = this.msgs.get(id)
           if (!cm) continue
@@ -545,6 +562,8 @@ export class AgentSession {
 
   stop(): void {
     this.setLimit()
+    if (this.retryTimer) clearTimeout(this.retryTimer)
+    this.retryTimer = undefined
     this.pending = []
     this.reset()
     this.busy = false
@@ -690,8 +709,14 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
 
   // ---------------------------------------------------------- sessions
 
+  const quotaPolicy = (): SessionQuotaPolicy => new SessionQuotaPolicy(getCtx().main.home.data)
+  const costs = new SessionCostLedger(path.join(home.data, 'usage', 'session-costs.json'))
+
   // plan limits are per account: every base records into the main base (Systems → Accounts)
-  const rateLimit = (rl: ClaudeRateLimitInfo): void => safe(() => recordClaudeRateLimit(claudeLimitsFile(getCtx().main.home.data), rl))
+  const rateLimit = (rl: ClaudeRateLimitInfo): void => {
+    recordClaudeRateLimit(claudeLimitsFile(getCtx().main.home.data), rl)
+    quotaPolicy().observe(rl)
+  }
 
   const genio = new AgentSession(
     'genio',
@@ -726,6 +751,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       },
       onTurnEnd(item, ok, lastText, cost) {
         if (ok) info.lastError = undefined
+        if (ok) quotaPolicy().succeeded(name + ':genio')
         info.turns++
         info.costUsd += cost
         if (cost > 0) safe(() => getCtx().stats.addCost(cost))
@@ -747,6 +773,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
         publishInfo()
       },
       onError(text) {
+        quotaPolicy().rejectError(text)
+        if (!quotaPolicy().notice(name + ':genio', text)) return
         info.lastError = text
         say(text, 'error')
         bus.publish({ type: 'sfx', sound: 'error' })
@@ -754,7 +782,9 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       onRateLimit: rateLimit
     },
     name,
-    () => sessionConfig('genio', settings(), liveAlly())
+    () => sessionConfig('genio', settings(), liveAlly()),
+    quotaPolicy,
+    costs
   )
   genio.sessionId = persisted.sessionId
 
@@ -778,6 +808,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
           }
         },
         onTurnEnd(item, ok, _last, cost) {
+          if (ok) quotaPolicy().succeeded(name + ':bot')
           info.costUsd += cost
           if (cost > 0) safe(() => getCtx().stats.addCost(cost))
           if (item?.kind === 'events' && item.ackThrough !== undefined) {
@@ -792,6 +823,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
           saveState()
         },
         onError(text) {
+          quotaPolicy().rejectError(text)
+          if (!quotaPolicy().notice(name + ':bot', text)) return
           appendJsonl(botFile, { ts: nowIso(), error: text })
           if (getCtx().away.state().mode === 'afk') safe(() => getCtx().away.capture({ wksp: name, text: `The Bot hit a problem: ${text}`, severity: 'failure', target: { view: 'comms', wksp: name } }))
         },
@@ -802,7 +835,9 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
         }
       },
       name,
-      () => sessionConfig('bot', settings())
+      () => sessionConfig('bot', settings()),
+      quotaPolicy,
+      costs
     )
     bot.sessionId = persisted.botSessionId
   }
@@ -1017,6 +1052,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
     },
     deliverWakes() {
       if (stopped) return
+      if (!quotaPolicy().canStart(false, Date.now(), false)) return
       try {
         if (Date.now() < eventsBackoffUntil) {
           setTimeout(() => svc.deliverWakes(), eventsBackoffUntil - Date.now() + 50)

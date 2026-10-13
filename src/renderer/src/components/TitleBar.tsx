@@ -58,9 +58,9 @@ export function TitleBar() {
           <Crosshair size={14} />
           <span className="num">{moves}</span>
         </button>
-        <div className="hud-stat" title="Spend today">
+        <div className="hud-stat" title="Estimated chat, Bot and review cost today; excludes unit costs and is not subscription spend">
           <span className="mute label" style={{ letterSpacing: '0.1em' }}>
-            Spend
+            Chat/review
           </span>
           <span className="num">{usd(stats.costTodayUsd)}</span>
         </div>

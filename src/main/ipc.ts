@@ -126,7 +126,7 @@ export function registerIpc(getCtx: () => AppCtx): void {
       if (r.ok && resolveKey) hc.decisions.resolveKey(id, resolveKey, text)
       return r
     },
-    controlTask: (id, action) => taskHome(id).hc.crew.control(id, action),
+    controlTask: (id, action) => taskHome(id).hc.crew.control(id, action, undefined, true),
     cleanupTask: (id, force) => taskHome(id).hc.crew.cleanup(id, force),
     // A click on MERGE is the player's explicit word for this merge.
     mergeTask: (id) => taskHome(id).hc.crew.merge(id),

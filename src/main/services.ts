@@ -256,6 +256,7 @@ export interface UthanaService {
 export interface DispatchService {
   /** what the picker knows beyond settings for a deploy in this world; preview never rolls exploration */
   signals(project: string, opts?: { preview?: boolean }): Omit<PickEnv, 'available'>
+  reserve(input: import('@shared/types').LoadoutInput): Promise<{ loadout: import('@shared/types').Loadout; release(): void }>
   /** a tool's hottest 5-hour/weekly plan window (percent), when it reported one */
   usagePercent(harness: string): number | undefined
   noteUsage(r: UsageReport): void
@@ -289,7 +290,7 @@ export interface CrewService {
   spawn(req: SpawnRequest): Promise<Task>
   /** ping: durable steering inbox write + doorbell; resolveKeys close open choices */
   send(id: string, text: string, resolveKeys?: string[]): Promise<OpResult>
-  control(id: string, action: 'interrupt' | 'exit' | 'relaunch', note?: string): Promise<OpResult>
+  control(id: string, action: 'interrupt' | 'exit' | 'relaunch', note?: string, manual?: boolean): Promise<OpResult>
   cleanup(id: string, force?: boolean): Promise<OpResult>
   merge(id: string): Promise<OpResult>
   promote(id: string, intent?: string): Promise<Task>

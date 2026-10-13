@@ -10,14 +10,16 @@ import type { Decision, Task, Verdict } from '@shared/types'
 import { cheapModelsAllowed, type DispatchScoresView } from '@shared/dispatch'
 import { bus } from './bus'
 import { listAccounts } from './accounts'
-import { cheapGate, type PickEnv, type QuotaWindow } from './loadout'
+import { resolveLoadout, cheapGate, type PickEnv, type QuotaWindow } from './loadout'
 import { getSecret } from './secrets'
 import {
   acceptsProposal, appendLearning, applyProposal, buildOutcome, createScorecard, openProposals, outcomeOf, planProposals, planReorder,
   readLearning, scoreTable, scorecardFile, type Scorecard
 } from './scorecard'
 import type { AppCtx, DispatchService } from './services'
-import { quotaFromUsage, usageReport } from './usage'
+import { claudeLimits, claudeLimitsFile, quotaFromUsage, usageReport, type ClaudeLimitsFile } from './usage'
+import { expireWindow } from './quota-policy'
+import { readJson } from './util'
 
 const USAGE_TTL = 5 * 60_000
 const LOGIN_TTL = 30 * 60_000
@@ -32,6 +34,8 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
   let loginsAt = 0
   let refreshing = false
   let card: Scorecard | undefined
+  let launchQueue: Promise<unknown> = Promise.resolve()
+  const reservations = new Set<string>()
 
   const dataDir = (): string => getCtx().main.home.data
   const scorecard = (): Scorecard => (card ??= createScorecard(scorecardFile(dataDir())))
@@ -49,14 +53,16 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
   }
 
   const hottest = (harness: string): number | undefined => {
-    const w = quota[harness]
-    return w?.length ? Math.max(...w.map((x) => x.usedPercent)) : undefined
+    const values = (quota[harness] ?? []).map((w) => expireWindow(w).usedPercent).filter((v): v is number => typeof v === 'number')
+    return values.length ? Math.max(...values) : undefined
   }
 
   const svc: DispatchService = {
     signals(project, opts = {}) {
       refresh()
       const ctx = getCtx()
+      const stored = claudeLimits(readJson<ClaudeLimitsFile | undefined>(claudeLimitsFile(dataDir()), undefined))
+      if (stored) quota.claude = stored.windows
       const s = ctx.settings.get()
       const world = ctx.projects.get(project)
       let keySet = false
@@ -69,6 +75,8 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
       const env: Omit<PickEnv, 'available'> = {
         loggedOut: (id) => logins.get(ACCOUNT_OF[id] ?? id) === 'logged-out',
         quota,
+        unavailable: (id) => reservations.has(id) || ((hottest(id) ?? 0) >= 70 && [...ctx.homes.values()].some((h) =>
+          h.crew.list().some((t) => t.harness === id && !!t.terminalId && ctx.terminals.get(t.terminalId)?.alive))),
         cheap: cheapGate({ worldAllows: cheapModelsAllowed(world), keySet, opencodeReady: opencode }),
         dial: world?.costDial ?? s.costDial,
         dialFromWorld: Boolean(world?.costDial),
@@ -77,6 +85,19 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
         preview: opts.preview
       }
       return env
+    },
+
+    reserve(input) {
+      // The single main-process dispatcher owns selection + reservation. No await
+      // separates the final policy evaluation from claiming the provider slot.
+      const result = launchQueue.then(async () => {
+        svc.noteUsage(await usageReport(getCtx()))
+        const loadout = resolveLoadout(input, getCtx().settings, svc.signals(input.project))
+        reservations.add(loadout.harness)
+        return { loadout, release: () => { reservations.delete(loadout.harness) } }
+      })
+      launchQueue = result.catch(() => undefined)
+      return result
     },
 
     usagePercent: hottest,
