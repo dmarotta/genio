@@ -166,6 +166,8 @@ export interface Task {
   statusOffset: number
   landedAt?: string
   cleanedAt?: string
+  /** Final ready signal, unaffected by later notes or bookkeeping. */
+  readyAt?: string
   relaunches: number
   /** Automatic attempts since deliberate resume, completed work, or app restart. */
   automaticRelaunches?: number
@@ -682,6 +684,7 @@ export interface TerminalInfo {
   title: string
   cwd: string
   alive: boolean
+  lastOutputAt?: string
   exitCode?: number
   cols: number
   rows: number

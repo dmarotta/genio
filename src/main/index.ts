@@ -329,14 +329,14 @@ function wireEvents(): void {
   bus.onEvent(sendEvent)
 
   // terminal output: batch every 16ms so a chatty unit can't flood IPC
-  let batch: { id: string; data: string }[] = []
+  let batch: { id: string; data: string; at: string }[] = []
   let timer: NodeJS.Timeout | undefined
   const flush = (): void => {
     timer = undefined
     if (!batch.length) return
     // merge consecutive chunks per terminal
-    const merged = new Map<string, string>()
-    for (const b of batch) merged.set(b.id, (merged.get(b.id) ?? '') + b.data)
+    const merged = new Map<string, { data: string; at: string }>()
+    for (const b of batch) merged.set(b.id, { data: (merged.get(b.id)?.data ?? '') + b.data, at: b.at })
     batch = []
     const snapshot = ctx!.snapshot()
     for (const [win, binding] of windows) {
@@ -345,12 +345,12 @@ function wireEvents(): void {
         const t = ctx!.terminals.get(id)
         const project = t ? terminalProject(t, snapshot) : terminalOwners.get(id)
         return !binding || project === binding.project
-      }).map(([id, data]) => ({ id, data }))
+      }).map(([id, output]) => ({ id, ...output }))
       if (chunks.length) win.webContents.send(TERM_CHANNEL, chunks)
     }
   }
   ctx!.terminals.onAnyData((id, data) => {
-    batch.push({ id, data })
+    batch.push({ id, data, at: new Date().toISOString() })
     if (!timer) timer = setTimeout(flush, 16)
   })
 }

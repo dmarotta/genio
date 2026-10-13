@@ -109,6 +109,7 @@ export function createTerminalService(getCtx: () => AppCtx): TerminalService {
         t.proc = proc
         proc.onData((d) => {
           t.lastOutputAt = Date.now()
+          t.info.lastOutputAt = new Date(t.lastOutputAt).toISOString()
           push(t, d)
           for (const fn of t.dataFns) {
             try {

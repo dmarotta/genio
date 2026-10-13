@@ -43,6 +43,15 @@ function sleep(ms: number): Promise<void> {
 
 export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService {
   let tasks: Task[] = readJson<Task[]>(home.tasksFile, [])
+  // Preserve a legacy ready signal before restart bookkeeping updates timestamps.
+  let readyMigrated = false
+  for (const task of tasks) {
+    if (task.state === 'ready' && !task.readyAt) {
+      task.readyAt = task.lastStatusAt ?? task.updatedAt
+      readyMigrated = true
+    }
+  }
+  if (readyMigrated) writeJson(home.tasksFile, tasks)
   for (const task of tasks) if (task.storageRoot) home.setTaskStorage(task.id, task.storageRoot)
   const gauntlet = createGauntlet(getCtx, home)
   const inboxDir = (id: string): string => home.taskStateFile(id, '.inbox')
@@ -81,6 +90,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     if (i < 0) return undefined
     const prev = tasks[i]
     const next: Task = { ...prev, ...patch, updatedAt: nowIso() }
+    if (patch.state === 'ready') next.readyAt = next.updatedAt
     tasks[i] = next
     persist()
     bus.publish({ type: 'task', task: withLive(next) })

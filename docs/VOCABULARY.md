@@ -44,7 +44,7 @@ code comments that cite the original design.
 | `captain.md` | `player.md` | **Player Profile** |
 | `captain-shared.md` | `player-shared.md` | inherited by allies |
 | `learnings.md` | `lore.md` | **Lore** |
-| wakes / watcher | **events** / **overwatch** | event feed = **Killfeed** |
+| wakes / watcher | **events** / **overwatch** | internal event records; no standalone feed |
 | stale worker | **lagging** / **frozen** | |
 | heartbeat | **tick** | |
 | fleet ledger | **Replay log** | |

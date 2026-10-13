@@ -6,15 +6,17 @@ import {
 import type { Task, TerminalInfo, ValidationStep, Verdict } from '@shared/types'
 import { categoryLabel } from '@shared/dispatch'
 import type { TaskFile } from '@shared/api'
-import { api, errText, focusTask, op, openDeploy, setState, toast, runningUnits, useStore } from '../store'
+import { api, errText, focusTask, op, openDeploy, setState, toast, liveTasks, useStore } from '../store'
 import { TerminalView } from '../components/Terminal'
 import { Markdown } from '../components/Markdown'
 import { Chip, Confirm, Dot, Empty, Modal, Field, Tabs, ViewHeader, useNow } from '../components/ui'
 import { GenioCore } from '../components/GenioCore'
 import { LoadoutReasons, RATEABLE, VerdictButtons, VerdictPick, rateThenMerge } from '../components/Dispatch'
-import { KIND_LABEL, MODE_LABEL, STATE_LABEL, isActive, stateTone } from '../lib/vocab'
+import { KIND_LABEL, MODE_LABEL } from '../lib/vocab'
 import { ago, clock, cx, elapsed, shortPath } from '../lib/format'
 import { playSfx } from '../lib/sfx'
+import { squadState, squadTone } from '@shared/squad-display'
+import { pendingDecision } from '@shared/decisions'
 
 export function Squad() {
   const focus = useStore((s) => s.focus)
@@ -24,33 +26,25 @@ export function Squad() {
 }
 
 function SquadGrid() {
-  const tasks = useStore((s) => s.snap.tasks)
+  const tasks = useStore(liveTasks)
   const terminals = useStore((s) => s.terminals)
-  const [showAll, setShowAll] = useState(false)
   const list = useMemo(
     () =>
       tasks
-        .filter((t) => showAll || t.state !== 'cleaned')
         .sort((a, b) => rank(a) - rank(b) || b.createdAt.localeCompare(a.createdAt)),
-    [tasks, showAll]
+    [tasks]
   )
   const sessions = Object.values(terminals).filter((t) => t.kind !== 'worker')
-  const live = useStore(runningUnits)
   return (
     <div className="view">
       <ViewHeader
-        kicker={`${live} in action · ${list.length} on the roster`}
+        kicker={`${list.length} active units`}
         title={
           <>
             The <span className="accent">Squad</span>
           </>
         }
       >
-        <label className="toggle">
-          <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
-          <span className="track" />
-          <span className="label">Show despawned</span>
-        </label>
         <button className="btn ghost" onClick={() => void api().terminalOpenShell().then((t) => setState({ focus: { type: 'terminal', id: t.id } })).catch((e) => toast('error', 'Shell', errText(e)))}>
           <SquareTerminal size={14} /> Shell
         </button>
@@ -97,7 +91,8 @@ function rank(t: Task): number {
 
 function UnitCard({ t, term }: { t: Task; term?: TerminalInfo }) {
   const now = useNow(1000)
-  const tone = stateTone(t.state)
+  const attention = useStore(s => s.snap.decisions.some(d => d.taskId === t.id && pendingDecision(d, now)))
+  const tone = squadTone(t, term, attention)
   const recon = t.kind === 'scout'
   return (
     <article className={cx('unit-card panel', `tone-${tone}`, recon && 'recon')}>
@@ -115,8 +110,8 @@ function UnitCard({ t, term }: { t: Task; term?: TerminalInfo }) {
           </div>
         </div>
         <div className="unit-state">
-          <Chip tone={tone} pulse={isActive(t.state)}>
-            {STATE_LABEL[t.state]}
+          <Chip tone={tone} pulse={squadState(t, term) === 'WORKING'}>
+            {squadState(t, term)}
           </Chip>
           <span className="mono mute">{elapsed(t.createdAt, now)}</span>
         </div>
@@ -249,6 +244,8 @@ function UnitDetail({ id }: { id: string }) {
   const [verdict, setVerdict] = useState<Verdict | undefined>()
   const now = useNow(1000)
 
+  const attention = useStore(s => s.snap.decisions.some(d => d.taskId === id && pendingDecision(d, now)))
+
   useEffect(() => {
     if (t?.kind === 'scout' && (t.state === 'done' || t.reportPath)) setTab('report')
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -279,7 +276,7 @@ function UnitDetail({ id }: { id: string }) {
     )
   }
 
-  const tone = stateTone(t.state)
+  const tone = squadTone(t, term, attention)
   const recon = t.kind === 'scout'
   const live = !!term?.alive
   const canMerge = t.kind === 'ship' && (t.state === 'ready' || !!t.pr?.url)
@@ -320,8 +317,8 @@ function UnitDetail({ id }: { id: string }) {
             <span className={cx('chip', recon ? 'violet' : 'neon')}>
               {recon ? <Radar size={11} /> : <Rocket size={11} />} {KIND_LABEL[t.kind]}
             </span>
-            <Chip tone={tone} pulse={isActive(t.state)}>
-              {STATE_LABEL[t.state]}
+            <Chip tone={tone} pulse={squadState(t, term) === 'WORKING'}>
+              {squadState(t, term)}
             </Chip>
             {t.mode && <span className="chip">{MODE_LABEL[t.mode]}</span>}
             {t.yolo && <span className="chip volt">Auto-loot</span>}

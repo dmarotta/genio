@@ -22,8 +22,8 @@ const bridge = {
     ipcRenderer.on(EVENT_CHANNEL, h)
     return () => ipcRenderer.off(EVENT_CHANNEL, h)
   },
-  onTerminalData(fn: (batch: { id: string; data: string }[]) => void): () => void {
-    const h = (_e: IpcRendererEvent, batch: { id: string; data: string }[]): void => fn(batch)
+  onTerminalData(fn: (batch: { id: string; data: string; at?: string }[]) => void): () => void {
+    const h = (_e: IpcRendererEvent, batch: { id: string; data: string; at?: string }[]): void => fn(batch)
     ipcRenderer.on(TERM_CHANNEL, h)
     return () => ipcRenderer.off(TERM_CHANNEL, h)
   },

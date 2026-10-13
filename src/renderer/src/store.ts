@@ -1,12 +1,13 @@
 import { useRef, useSyncExternalStore } from 'react'
 import type {
   Achievement, Ally, ChatMessage, FleetSnapshot, GenioEvent, PermissionRequest, Settings, StatusEvent,
-  TerminalInfo, Wake
+  TerminalInfo
 } from '@shared/types'
 import type { SpawnRequest } from '@shared/api'
 import { applyChatEvent, patchAllyControls, type AllyControlsPatch } from '@shared/chat'
 import { pendingDecision } from '@shared/decisions'
 import { occupiedUnits } from '@shared/unit-capacity'
+import { squadState } from '@shared/squad-display'
 import { playSfx } from './lib/sfx'
 import { speak } from './lib/voice'
 import type { ViewId } from './lib/railmenu'
@@ -24,15 +25,6 @@ export interface Toast {
   body?: string
 }
 
-export interface FeedItem {
-  id: string
-  ts: string
-  kind: 'event' | 'lag' | 'check' | 'tick' | 'status'
-  tone: 'neon' | 'volt' | 'amber' | 'alert' | 'violet' | 'mute'
-  taskId?: string
-  text: string
-}
-
 export type Focus = { type: 'task'; id: string } | { type: 'terminal'; id: string } | null
 
 export interface State {
@@ -43,7 +35,6 @@ export interface State {
   settings: Settings | null
   chats: Record<string, ChatMessage[]>
   chatLoaded: Record<string, boolean>
-  feed: FeedItem[]
   statusByTask: Record<string, StatusEvent[]>
   terminals: Record<string, TerminalInfo>
   toasts: Toast[]
@@ -90,7 +81,6 @@ let state: State = {
   settings: null,
   chats: {},
   chatLoaded: {},
-  feed: [],
   statusByTask: {},
   terminals: {},
   toasts: [],
@@ -287,35 +277,6 @@ function scheduleRefresh(): void {
   }, 250)
 }
 
-// ------------------------------------------------------------------ feed
-
-function wakeToFeed(w: Wake): FeedItem {
-  const map: Record<Wake['kind'], FeedItem['kind']> = { signal: 'event', stale: 'lag', check: 'check', heartbeat: 'tick' }
-  const tone: FeedItem['tone'] = w.kind === 'stale' ? 'alert' : w.kind === 'heartbeat' ? 'mute' : w.routine ? 'neon' : 'amber'
-  return { id: `w${w.wksp}-${w.seq}`, ts: w.ts, kind: map[w.kind], tone, taskId: w.taskId, text: w.reason }
-}
-
-function statusToFeed(e: StatusEvent): FeedItem {
-  const tone: FeedItem['tone'] =
-    e.kind === 'failed' || e.kind === 'blocked'
-      ? 'alert'
-      : e.kind === 'needs-decision'
-        ? 'amber'
-        : e.kind === 'done'
-          ? 'volt'
-          : e.kind === 'note' || e.kind === 'resolved'
-            ? 'mute'
-            : 'neon'
-  return { id: `s${e.taskId}-${e.ts}-${e.raw.length}`, ts: e.ts, kind: 'status', tone, taskId: e.taskId, text: `${e.kind}${e.key && e.key !== 'default' ? ` [${e.key}]` : ''}: ${e.text}` }
-}
-
-function pushFeed(item: FeedItem): void {
-  setState((s) => {
-    if (s.feed.some((f) => f.id === item.id)) return {}
-    return { feed: [item, ...s.feed].slice(0, 80) }
-  })
-}
-
 // ------------------------------------------------------------------ events
 
 function upsertBy<T>(list: T[], item: T, key: (t: T) => string): T[] {
@@ -374,12 +335,8 @@ export function handleEvent(ev: GenioEvent): void {
     case 'status': {
       const arr = s.statusByTask[ev.event.taskId] ?? []
       setState({ statusByTask: { ...s.statusByTask, [ev.event.taskId]: [...arr, ev.event].slice(-200) } })
-      pushFeed(statusToFeed(ev.event))
       break
     }
-    case 'wake':
-      pushFeed(wakeToFeed(ev.wake))
-      break
     case 'away':
       setState({ snap: { ...s.snap, away: ev.away } })
       break
@@ -456,12 +413,27 @@ export async function boot(): Promise<void> {
     return
   }
   window.genio.on(handleEvent)
+  window.genio.onTerminalData?.((batch) => {
+    const terminals = { ...state.terminals }
+    let changed = false
+    for (const { id, at } of batch) {
+      const terminal = terminals[id]
+      const task = state.snap.tasks.find(t => t.terminalId === id && t.state === 'ready')
+      const output = terminal && { ...terminal, lastOutputAt: at ?? new Date().toISOString() }
+      // Notify the store only when new output actually invalidates a ready
+      // label; ordinary terminal streaming stays on its existing fast path.
+      if (terminal?.alive && task && output && squadState(task, terminal) === 'READY TO MERGE' && squadState(task, output) === 'WORKING') {
+        terminals[id] = output
+        changed = true
+      }
+    }
+    if (changed) setState({ terminals })
+  })
   try {
-    const [snap, settings, terms, wakes] = await Promise.all([
+    const [snap, settings, terms] = await Promise.all([
       api().snapshot(),
       api().getSettings(),
-      api().terminals().catch(() => [] as TerminalInfo[]),
-      api().wakes(40).catch(() => [] as Wake[])
+      api().terminals().catch(() => [] as TerminalInfo[])
     ])
     const terminals: Record<string, TerminalInfo> = {}
     for (const t of terms) terminals[t.id] = t
@@ -469,8 +441,7 @@ export async function boot(): Promise<void> {
       snap,
       settings,
       terminals,
-      connected: true,
-      feed: wakes.map(wakeToFeed).sort((a, b) => b.ts.localeCompare(a.ts)).slice(0, 80)
+      connected: true
     })
     if (settings.fx === false) document.body.classList.add('fx-off')
     if (PROJECT_WKSP) await loadChat(PROJECT_WKSP)
@@ -488,7 +459,7 @@ export const runningUnits = (s: State): number => occupiedUnits(s.snap.tasks, s.
 export const LIVE_STATES = new Set(['spawning', 'working', 'paused', 'blocked', 'needs-decision', 'validating', 'ready', 'stale', 'detached', 'exited', 'merged'])
 
 export function liveTasks(s: State): FleetSnapshot['tasks'] {
-  return s.snap.tasks.filter((t) => t.state !== 'cleaned' && !(t.kind === 'scout' && t.state === 'done' && !t.terminalId))
+  return s.snap.tasks.filter((t) => squadState(t, t.terminalId ? s.terminals[t.terminalId] : undefined) !== 'DONE')
 }
 
 export function openDecisions(s: State): FleetSnapshot['decisions'] {

@@ -1,6 +1,6 @@
 import type { AwayMode, DeliveryMode, Engine, Priority, ProjectMode, TaskKind, TaskState } from '@shared/types'
 
-export type Tone = 'neon' | 'volt' | 'amber' | 'alert' | 'violet' | 'mute'
+export type Tone = 'neon' | 'blue' | 'volt' | 'amber' | 'alert' | 'violet' | 'mute'
 
 export const MODE_LABEL: Record<ProjectMode, string> = {
   'no-mistakes': 'Hardcore',

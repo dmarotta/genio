@@ -335,3 +335,16 @@ describe('per-launch premium approval', () => {
     expect(release).toHaveBeenCalledOnce()
   })
 })
+
+
+it('persists the ready signal independently of later notes and restart bookkeeping', () => {
+  const crew = ctx.main.crew
+  crew.update(task.id, { state: 'ready' })
+  const readyAt = crew.get(task.id)!.readyAt
+  expect(readyAt).toBeTruthy()
+  vi.advanceTimersByTime(60_000)
+  crew.update(task.id, { lastStatusAt: new Date().toISOString(), stateReason: 'later note' })
+  const restored = createCrewService(() => ctx, home)
+  expect(restored.get(task.id)!.readyAt).toBe(readyAt)
+  expect(restored.get(task.id)!.updatedAt).not.toBe(readyAt)
+})

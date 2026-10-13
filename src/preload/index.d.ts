@@ -6,7 +6,7 @@ declare global {
     genio: {
       api: GenioApi
       on(fn: (e: GenioEvent) => void): () => void
-      onTerminalData(fn: (batch: { id: string; data: string }[]) => void): () => void
+      onTerminalData(fn: (batch: { id: string; data: string; at?: string }[]) => void): () => void
       pathForFile(file: File): string
       platform: string
     }

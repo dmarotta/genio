@@ -1,19 +1,19 @@
 import { ComingNext } from '../components/ComingNext'
 import { GenerationCard } from '../components/GenerationCard'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
-import { ChevronDown, ChevronRight, CircleStop, Pencil, Radar, RefreshCw, Rocket, Send, ShieldCheck, TriangleAlert, Wrench, X } from 'lucide-react'
-import type { Ally, ChatMessage, Settings, Task } from '@shared/types'
+import { ChevronDown, ChevronRight, CircleStop, Pencil, RefreshCw, Rocket, Send, ShieldCheck, TriangleAlert, Wrench, X } from 'lucide-react'
+import type { Ally, ChatMessage, Settings } from '@shared/types'
 import { chatControls, routedRequest, splitQueued, type ChatControls, type UnqueuedChat } from '@shared/chat'
 import { MAX_IMAGES_PER_MESSAGE } from '@shared/chat-images'
 import {
-  PROJECT_WKSP, api, errText, focusTask, getState, go, liveTasks, loadChat, op, openDeploy, saveChatControls, saveSettings, setState, toast, useStore
+  PROJECT_WKSP, api, errText, focusTask, getState, go, loadChat, op, openDeploy, saveChatControls, saveSettings, setState, toast, useStore
 } from '../store'
 import { Markdown } from '../components/Markdown'
 import { CopyMessageButton } from '../components/CopyMessageButton'
 import { GenioCore } from '../components/GenioCore'
-import { Chip, Dot, Toggle, useNow } from '../components/ui'
-import { KIND_LABEL, STATE_LABEL, isActive, stateTone } from '../lib/vocab'
-import { clock, cx, elapsed, trunc } from '../lib/format'
+import { Chip, Dot, Toggle } from '../components/ui'
+import { Roster } from '../components/SquadPanel'
+import { clock, cx, trunc } from '../lib/format'
 import { playSfx } from '../lib/sfx'
 import { getDraft, setDraft } from '../drafts'
 import { AttachmentStrip, GeneratingImages, MessageImages, fromSendable, toSendable, useAttachments } from '../components/ChatImages'
@@ -47,7 +47,6 @@ export function Comms() {
 
       <aside className="comms-side">
         <Roster />
-        <Killfeed />
       </aside>
     </div>
   )
@@ -638,81 +637,5 @@ function ChatModelControls({ wksp }: { wksp: string }) {
         onChange={(v) => void saveChatControls(wksp, { effort: v })}
       />
     </>
-  )
-}
-function Roster() {
-  const tasks = useStore(liveTasks)
-  const now = useNow(1000)
-  return (
-    <div className="side-block">
-      <div className="side-head">
-        <span className="label">Squad</span>
-        <span className="num dim">{tasks.length}</span>
-      </div>
-      {tasks.length === 0 ? (
-        <div className="side-empty mute">
-          No units deployed.{' '}
-          <button className="link-btn" onClick={() => openDeploy()}>
-            Deploy one
-          </button>
-        </div>
-      ) : (
-        <div className="roster">
-          {tasks.map((t) => (
-            <RosterRow key={t.id} t={t} now={now} />
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function RosterRow({ t, now }: { t: Task; now: number }) {
-  const tone = t.kind === 'scout' && isActive(t.state) ? 'violet' : stateTone(t.state)
-  return (
-    <button className="roster-row" onClick={() => focusTask(t.id)}>
-      <Dot tone={tone} pulse={isActive(t.state) || t.state === 'needs-decision'} />
-      <div className="roster-main">
-        <div className="roster-title">{t.title}</div>
-        <div className="roster-sub mute">
-          {t.kind === 'scout' ? <Radar size={10} /> : <Rocket size={10} />} {KIND_LABEL[t.kind]} · {t.project}
-        </div>
-      </div>
-      <div className="roster-right">
-        <span className="roster-state" style={{ color: `var(--${tone === 'mute' ? 'text-mute' : tone})` }}>
-          {STATE_LABEL[t.state]}
-        </span>
-        <span className="mono mute">{elapsed(t.createdAt, now)}</span>
-      </div>
-    </button>
-  )
-}
-
-function Killfeed() {
-  const feed = useStore((s) => s.feed)
-  const tasks = useStore((s) => s.snap.tasks)
-  const titleOf = (id?: string): string | undefined => tasks.find((t) => t.id === id)?.title
-  return (
-    <div className="side-block grow">
-      <div className="side-head">
-        <span className="label">Killfeed</span>
-      </div>
-      {feed.length === 0 ? (
-        <div className="side-empty mute">Quiet on the map.</div>
-      ) : (
-        <div className="killfeed">
-          {feed.map((f) => (
-            <button key={f.id} className={cx('kf-row', `kf-${f.tone}`)} onClick={() => f.taskId && focusTask(f.taskId)} disabled={!f.taskId}>
-              <span className="kf-time mono">{clock(f.ts)}</span>
-              <span className="kf-tag">{f.kind}</span>
-              <span className="kf-text">
-                {f.taskId && <b>{trunc(titleOf(f.taskId) ?? f.taskId, 22)} </b>}
-                {trunc(f.text, 90)}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
   )
 }

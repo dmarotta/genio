@@ -188,8 +188,8 @@ running; confirmation stops that project's terminals and preserves its worktrees
 
 The standalone Your Move page has been removed. Pending choices appear in a
 non-modal answer panel beside the current screen; the title-bar count and desktop
-notifications reveal it without navigating away. Merges remain in Squad and held
-quests in Quests. Existing `move` notification targets reveal the answer panel.
+notifications reveal it without navigating away. Ready merges remain in Squad; completed units leave the active roster. Held
+quests remain in Quests. Existing `move` notification targets reveal the answer panel.
 
 
 Choices retain their project and conversation ownership while a project is closed.

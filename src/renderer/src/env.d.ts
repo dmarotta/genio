@@ -10,7 +10,7 @@ export interface TerminalDataChunk {
 export interface GenioBridge {
   api: GenioApi
   on(fn: (e: GenioEvent) => void): () => void
-  onTerminalData(fn: (batch: { id: string; data: string }[]) => void): () => void
+  onTerminalData(fn: (batch: { id: string; data: string; at?: string }[]) => void): () => void
   /** absolute path of a dropped file ('' when it has none) */
   pathForFile(file: File): string
   platform: string
@@ -21,7 +21,7 @@ declare global {
     genio: {
       api: GenioApi
       on(fn: (e: GenioEvent) => void): () => void
-      onTerminalData(fn: (batch: { id: string; data: string }[]) => void): () => void
+      onTerminalData(fn: (batch: { id: string; data: string; at?: string }[]) => void): () => void
       pathForFile(file: File): string
       platform: string
     }
