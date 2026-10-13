@@ -12,6 +12,10 @@ import type { ViewId } from './lib/railmenu'
 
 export type { ViewId }
 
+const windowParams = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search)
+export const PROJECT_WINDOW = windowParams.get('project') || undefined
+export const PROJECT_WKSP = PROJECT_WINDOW ? windowParams.get('wksp') || undefined : undefined
+
 /** Ctrl+N order (the rail may show them in a different order) */
 export const VIEWS: ViewId[] = ['comms', 'squad', 'quests', 'move', 'status', 'worlds', 'lore', 'systems', 'inventory']
 
@@ -34,6 +38,7 @@ export interface FeedItem {
 export type Focus = { type: 'task'; id: string } | { type: 'terminal'; id: string } | null
 
 export interface State {
+  registeredProject?: string
   booted: boolean
   connected: boolean
   snap: FleetSnapshot
@@ -92,7 +97,9 @@ let state: State = {
   toasts: [],
   permissions: [],
   achievements: [],
-  view: 'comms',
+  view: PROJECT_WINDOW ? 'inventory' : 'worlds',
+  inventoryWorld: PROJECT_WINDOW,
+  registeredProject: windowParams.has('registered') ? PROJECT_WINDOW : undefined,
   focus: null,
   dock: loadDock(),
   deploy: null,
@@ -181,7 +188,7 @@ export function registerViews(views: string[]): void { views.forEach((view) => r
 export function hasView(view: string): boolean { return registeredViews.has(view) }
 
 export function go(view: ViewId, context?: { world: string }): void {
-  setState({ view, palette: false, ...(context ? { inventoryWorld: context.world } : {}) })
+  setState({ view, palette: false, ...(PROJECT_WINDOW ? { inventoryWorld: PROJECT_WINDOW } : context ? { inventoryWorld: context.world } : {}) })
 }
 
 export function focusTask(id: string): void {
@@ -216,11 +223,13 @@ export function setDock(fn: (d: DockState) => DockState): void {
 
 /** Drop panels of retired or missing allies; open tabs for allies the dock has not met yet. */
 function syncDock(): void {
+  if (PROJECT_WKSP) return
   setDock((d) => reconcileDock(d, state.snap.allies))
 }
 
 /** Open (or focus) a chat tab and switch to the chat screen. */
 export function openChat(wksp: string): void {
+  if (PROJECT_WKSP) wksp = PROJECT_WKSP
   setDock((d) => openPanel(d, wksp))
   go('comms')
   void loadChat(wksp)
@@ -280,6 +289,11 @@ export async function saveChatControls(wksp: string, patch: AllyControlsPatch): 
 }
 
 export function openDeploy(prefill: Partial<SpawnRequest> = {}): void {
+  if (PROJECT_WINDOW) prefill = { ...prefill, project: PROJECT_WINDOW, wksp: PROJECT_WKSP }
+  if (state.snap.projects.find(p => p.name === prefill.project)?.gitRepo === false) {
+    toast('info', 'Deploy needs a git repo', 'You can ask Genio to create it in chat.')
+    return
+  }
   setState({ deploy: { kind: 'ship', ...prefill }, palette: false })
 }
 
@@ -295,6 +309,7 @@ export async function saveSettings(patch: Partial<Settings>): Promise<void> {
 }
 
 export async function loadChat(wksp: string, force = false): Promise<void> {
+  if (PROJECT_WKSP && wksp !== PROJECT_WKSP) return
   if (state.chatLoaded[wksp] && !force) return
   try {
     const hist = await api().chatHistory(wksp, 300)
@@ -510,7 +525,7 @@ export async function boot(): Promise<void> {
     })
     if (settings.fx === false) document.body.classList.add('fx-off')
     syncDock()
-    await loadChat('main')
+    await loadChat(PROJECT_WKSP ?? 'main')
   } catch (e) {
     toast('error', 'Could not reach Genio core', errText(e))
   } finally {

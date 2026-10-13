@@ -15,6 +15,19 @@ import { exists, nowIso, readJson, run, slugify, which, writeJson, writeText } f
 
 export const DEFAULT_BRANCH_PREFIX = 'genio/'
 
+export function normalisedProjectPath(folder: string, platform = process.platform): string {
+  const paths = platform === 'win32' ? path.win32 : path
+  const resolved = paths.resolve(folder).replace(/[\\/]+$/, '')
+  return platform === 'win32' ? resolved.toLowerCase() : resolved
+}
+
+export function uniqueProjectName(folder: string, names: string[]): string {
+  const base = nameFromSource(folder) || 'world'
+  let name = base
+  for (let n = 2; names.some(x => x.toLowerCase() === name.toLowerCase()); n++) name = `${base}-${n}`
+  return name
+}
+
 function listDir(dir: string): string[] {
   try {
     return fs.readdirSync(dir)
@@ -218,14 +231,16 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
   }
 
   const register = async (dir: string, name: string, req: Partial<ProjectAddRequest>, managed: boolean): Promise<Project> => {
-    const remote = await git.remoteUrl(dir)
+    const gitRepo = await git.isRepo(dir)
+    const remote = gitRepo ? await git.remoteUrl(dir) : undefined
     const det = detectEngine(dir)
     const p: Project = {
       name,
       path: path.resolve(dir),
+      gitRepo,
       remote,
-      defaultBranch: await git.defaultBranch(dir),
-      mode: req.mode ?? autoModeFor(remote),
+      defaultBranch: gitRepo ? await git.defaultBranch(dir) : '',
+      mode: gitRepo ? req.mode ?? autoModeFor(remote) : 'local-only',
       modeSource: req.mode ? 'manual' : 'auto',
       yolo: req.yolo ?? false,
       branchPrefix: req.branchPrefix ?? DEFAULT_BRANCH_PREFIX,
@@ -251,10 +266,31 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
   }
 
   const liveStates = new Set(['spawning', 'working', 'paused', 'blocked', 'needs-decision', 'validating', 'ready', 'stale', 'detached', 'exited', 'merged', 'failed'])
+  // Serialize registration, including different paths whose folder names collide.
+  let opening: Promise<unknown> = Promise.resolve()
 
   const svc: ProjectsService = {
     list: () => [...load()],
     get: (name) => load().find((p) => p.name === name),
+
+    openFolder(folder) {
+      const operation = opening.then(async () => {
+        const requested = path.resolve(folder)
+        if (!fs.statSync(requested).isDirectory()) throw new Error('Open a folder, not a file.')
+        const gitRepo = await git.isRepo(requested)
+        const dir = gitRepo ? await git.repoTop(requested) || requested : requested
+        const known = load().find(p => normalisedProjectPath(p.path) === normalisedProjectPath(dir))
+          ?? load().find(p => normalisedProjectPath(p.path) === normalisedProjectPath(requested))
+        if (!known) return { project: await register(dir, uniqueProjectName(dir, load().map(p => p.name)), {}, false), registered: true }
+        const remote = gitRepo ? await git.remoteUrl(dir) : undefined
+        const mode = !gitRepo ? 'local-only' : modeSourceOf(known) === 'auto' ? autoModeFor(remote) : known.mode
+        const project = refreshEngine({ ...known, path: dir, gitRepo, remote, defaultBranch: gitRepo ? await git.defaultBranch(dir) : '', mode, forge: forgeFor(mode, remote) })
+        save(load().map(p => p.name === known.name ? project : p))
+        return { project, registered: false }
+      })
+      opening = operation.catch(() => undefined)
+      return operation
+    },
 
     async add(req) {
       const src = req.source.trim().replace(/^"|"$/g, '')
@@ -262,7 +298,8 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
       const isLocal = exists(src) && fs.statSync(src).isDirectory()
       if (isLocal) {
         const dir = path.resolve(src)
-        if (!(await git.isRepo(dir))) throw new Error(`${dir} is not a git repository. Run git init there or create a new world instead.`)
+        if (req.inPlace !== false && !req.name) return (await svc.openFolder(dir)).project
+        if (req.inPlace === false && !(await git.isRepo(dir))) throw new Error('Cloning needs a git repo.')
         const top = await git.repoTop(dir)
         const name = req.name ? slugify(req.name, 48) : nameFromSource(top || dir)
         if (svc.get(name)) throw new Error(`A world named "${name}" already exists.`)
@@ -331,6 +368,7 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
       else if (patch.mode !== undefined) next.modeSource = 'manual'
       if (patch.mode !== undefined || patch.modeSource === 'auto') next.forge = forgeFor(next.mode, next.remote)
       if (next.mode === 'local-only') next.forge = 'none'
+      if (next.gitRepo === false) { next.mode = 'local-only'; next.forge = 'none'; next.remote = undefined; next.defaultBranch = '' }
       list[i] = next
       save([...list])
       return next
@@ -384,6 +422,7 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
     async refreshRemotes(name) {
       const notices: string[] = []
       const list = [...load()]
+      const originals = new Map(list.map(p => [p.name, p]))
       let engineChanged = false
       for (let i = 0; i < list.length; i++) {
         const p = list[i]
@@ -402,7 +441,8 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
         }
         bus.toast('info', 'World remote changed', change.notice)
       }
-      if (notices.length || engineChanged) save(list)
+      // An open/register/update can complete while git is being queried. Preserve those edits.
+      if (notices.length || engineChanged) save(load().map(p => p === originals.get(p.name) ? list.find(x => x.name === p.name)! : p))
       return notices
     },
 
@@ -413,6 +453,7 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
       const lines: string[] = [...notices]
       let ok = true
       for (const p of targets) {
+        if (p.gitRepo === false) { lines.push(`${p.name}: sync needs a git repo.`); if (name) ok = false; continue }
         if (!exists(p.path)) {
           lines.push(`${p.name}: clone missing at ${p.path}`)
           ok = false
@@ -443,13 +484,14 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
 
     async pushStatus(name) {
       const p = svc.get(name)
-      if (!p || p.mode !== 'local-only' || !exists(p.path)) return undefined
+      if (!p || p.gitRepo === false || p.mode !== 'local-only' || !exists(p.path)) return undefined
       return git.pushStatus(p.path, p.defaultBranch)
     },
 
     async push(name, branch): Promise<OpResult> {
       const p = svc.get(name)
       if (!p) return { ok: false, message: `Unknown world: ${name}` }
+      if (p.gitRepo === false) return { ok: false, message: `${name}: needs a git repo.` }
       if (!exists(p.path)) return { ok: false, message: `The clone of ${name} is missing at ${p.path}.` }
       if (!(await git.hasRemote(p.path))) return { ok: false, message: `${name} has no remote: work lands locally and there is nothing to push to.` }
       if (p.mode !== 'local-only') {

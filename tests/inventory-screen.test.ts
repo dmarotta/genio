@@ -6,6 +6,7 @@ import type { InventoryInfo, InventoryQuery, InventoryState } from '../src/share
 vi.mock('../src/renderer/src/views/Comms', () => ({ ChatPanel: () => null }))
 const f = vi.hoisted(() => ({ world: 'alpha', open: vi.fn(), close: vi.fn(), list: vi.fn(), info: vi.fn(), go: vi.fn(), setState: vi.fn(), on: vi.fn() }))
 vi.mock('../src/renderer/src/store', () => ({
+  PROJECT_WKSP: undefined,
   useStore: (select: (s: unknown) => unknown) => select({ inventoryWorld: f.world, chats: {}, snap: { wksps: [], projects: [{ name: 'alpha', path: 'C:/alpha' }, { name: 'beta', path: 'C:/beta' }] } }),
   api: () => ({ inventoryOpen: f.open, inventoryClose: f.close, inventoryList: f.list, inventoryInfo: f.info, inventoryRefresh: f.open }),
   go: f.go, setState: f.setState, op: async (_: string, fn: () => unknown) => fn(), errText: String

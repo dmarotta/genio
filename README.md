@@ -100,3 +100,23 @@ for ally bases.
 ## License
 
 MIT. Genio reimplements concepts from companion by The team (MIT).
+
+### Open a project folder
+
+Launching Genio without arguments opens the Hub (Worlds). **Open** opens a world's
+own window; **Open folder…** accepts any existing folder. Git subfolders resolve to
+the repository root. Ordinary folders open Offline with chat and Inventory; git
+actions unlock after initializing the repository in chat and reopening the folder.
+
+For development, run `npm ci`, then `npm run build`. From any PowerShell directory:
+
+```powershell
+& C:\path\to\genio\resources\genio.cmd .
+& C:\path\to\genio\resources\genio.cmd 'C:\Games\My Game'
+```
+
+The shim preserves the caller's working directory. Equivalently, invoke
+`C:\path\to\genio\node_modules\electron\dist\electron.exe C:\path\to\genio <folder>`.
+With `resources` on PATH, use `genio .` or `genio <folder>`. A second invocation
+opens or focuses the project in the existing process. Closing a project with
+running units offers **Stop units and close** or **Cancel**, retaining worktrees.

@@ -369,7 +369,7 @@ function UnitDetail({ id }: { id: string }) {
             </button>
           )}
           {canMerge && (
-            <button className="btn sm solid volt" onClick={() => setConfirm('merge')}>
+            <button className="btn sm solid volt" disabled={project?.gitRepo === false} title={project?.gitRepo === false ? 'Merge needs a git repo' : undefined} onClick={() => setConfirm('merge')}>
               <GitMerge size={13} /> Merge
             </button>
           )}

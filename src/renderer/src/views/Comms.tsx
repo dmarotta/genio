@@ -5,7 +5,7 @@ import type { Ally, ChatMessage, Settings, Task } from '@shared/types'
 import { chatControls, routedRequest, splitQueued, type ChatControls, type UnqueuedChat } from '@shared/chat'
 import { MAX_IMAGES_PER_MESSAGE } from '@shared/chat-images'
 import {
-  api, errText, focusTask, getState, go, liveTasks, loadChat, op, openDeploy, saveChatControls, saveSettings, setDock, setState, toast, useStore
+  PROJECT_WKSP, api, errText, focusTask, getState, go, liveTasks, loadChat, op, openDeploy, saveChatControls, saveSettings, setDock, setState, toast, useStore
 } from '../store'
 import { Markdown } from '../components/Markdown'
 import { GenioCore } from '../components/GenioCore'
@@ -46,7 +46,7 @@ export function Comms() {
   return (
     <div className="comms">
       <section className="comms-main">
-        <ChatDock render={(p) => <ChatPanel key={p} wksp={p} />} />
+        {PROJECT_WKSP ? <ChatPanel wksp={PROJECT_WKSP} /> : <ChatDock render={(p) => <ChatPanel key={p} wksp={p} />} />}
       </section>
 
       <aside className="comms-side">

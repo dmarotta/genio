@@ -11,7 +11,7 @@ import { Squad } from './views/Squad'
 import { Quests } from './views/Quests'
 import { YourMove } from './views/YourMove'
 import { Status } from './views/Status'
-import { Worlds } from './views/Worlds'
+import { ProjectNotice, Worlds } from './views/Worlds'
 import { Lore } from './views/Lore'
 import { Systems } from './views/Systems'
 import { Inventory } from './views/Inventory'
@@ -45,6 +45,7 @@ export function App() {
   return (
     <div className="app">
       <TitleBar />
+      <ProjectNotice />
       <div className="app-body">
         <Rail />
         <main className="stage" key={view}>

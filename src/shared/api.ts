@@ -487,6 +487,7 @@ export interface GenioApi {
 
   // ---- projects
   projectAdd(req: ProjectAddRequest): Promise<Project>
+  projectOpen(folder: string): Promise<void>
   projectCreate(req: ProjectCreateRequest): Promise<Project>
   projectUpdate(name: string, patch: Partial<Project> & { commands?: ProjectCommands }): Promise<Project>
   projectRemove(name: string, deleteClone: boolean): Promise<OpResult>
@@ -583,6 +584,7 @@ export const API_METHODS = [
   'deferDecision',
   'addDecision',
   'projectAdd',
+  'projectOpen',
   'projectCreate',
   'projectUpdate',
   'projectRemove',

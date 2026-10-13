@@ -42,6 +42,7 @@ export interface SettingsService {
 
 export interface ProjectsService {
   list(): Project[]
+  openFolder(folder: string): Promise<{ project: Project; registered: boolean }>
   get(name: string): Project | undefined
   add(req: ProjectAddRequest): Promise<Project>
   create(req: ProjectCreateRequest): Promise<Project>

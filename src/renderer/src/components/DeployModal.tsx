@@ -86,7 +86,7 @@ export function DeployModal() {
   if (!draft) return null
   const toolName = (id: string): string => settings?.harnesses.find((x) => x.id === id)?.name ?? id
   const close = (): void => setState({ deploy: null })
-  const valid = project && title.trim() && intent.trim()
+  const valid = project && proj?.gitRepo !== false && title.trim() && intent.trim()
 
   const deployNow = async (): Promise<void> => {
     if (!valid) return
@@ -182,7 +182,7 @@ export function DeployModal() {
       </div>
 
       <div className="form-grid">
-        <Field label="World">
+        <Field label="World" hint={proj?.gitRepo === false ? "Unit creation needs a git repo" : undefined}>
           <select
             className="select"
             value={project}
@@ -194,8 +194,8 @@ export function DeployModal() {
           >
             {!projects.length && <option value="">No worlds yet — add one in Worlds</option>}
             {projects.map((p) => (
-              <option key={p.name} value={p.name}>
-                {p.name}
+              <option key={p.name} value={p.name} disabled={p.gitRepo === false}>
+                {p.name}{p.gitRepo === false ? ' — needs a git repo' : ''}
               </option>
             ))}
           </select>

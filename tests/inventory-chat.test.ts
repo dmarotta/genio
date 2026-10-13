@@ -6,7 +6,7 @@ import type { InventoryContext } from '../src/shared/inventory-context'
 import type { ChatMessage } from '../src/shared/types'
 import { clearDraft, getDraftContext } from '../src/renderer/src/drafts'
 const f = vi.hoisted(() => ({ send: vi.fn(), messages: [] as ChatMessage[] }))
-vi.mock('../src/renderer/src/store', () => ({ useStore: (fn: (s: unknown) => unknown) => fn({ snap: { wksps: [] }, chats: { main: f.messages } }) }))
+vi.mock('../src/renderer/src/store', () => ({ PROJECT_WKSP: undefined, useStore: (fn: (s: unknown) => unknown) => fn({ snap: { wksps: [] }, chats: { main: f.messages } }) }))
 vi.mock('../src/renderer/src/views/Comms', async () => {
   const { useInventoryContext } = await import('../src/renderer/src/components/InventoryContextChips')
   return { ChatPanel: ({ wksp, context }: { wksp: string; context: InventoryContext }) => {

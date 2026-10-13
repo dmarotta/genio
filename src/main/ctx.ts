@@ -59,8 +59,15 @@ import { createUthanaService } from './uthana-service'
 import { createDispatchService } from './dispatch'
 import { createInventoryService } from './inventory'
 import { createThumbnailDecoder } from './inventory-thumbnails'
+import { allyNameForWorld, worldAllyRequest } from '../renderer/src/lib/dock'
 
 let current: AppCtx | undefined
+const closedProjects = new WeakMap<AppCtx, Set<string>>()
+
+function assertProjectRunning(project: string): void {
+  if (closedProjects.get(getCtx())?.has(project)) throw new Error('Open the project window before starting units.')
+  if (getCtx().projects.get(project)?.gitRepo === false) throw new Error('Unit creation needs a git repo.')
+}
 
 export const getCtx = (): AppCtx => {
   if (!current) throw new Error('Genio context not initialised')
@@ -78,7 +85,51 @@ export function makeHomeCtx(home: Home, ally?: Ally): HomeCtx {
     supervisor: createSupervisor(getCtx, home),
     wksp: createWkspService(getCtx, home, ally)
   }
+  // Guard service calls as well as buttons: chat tools and queued quests also spawn units.
+  const spawn = hc.crew.spawn
+  hc.crew.spawn = async (req) => {
+    assertProjectRunning(req.project)
+    return spawn(req)
+  }
+  const control = hc.crew.control
+  hc.crew.control = async (id, action, note) => {
+    if (action === 'relaunch') assertProjectRunning(hc.crew.get(id)?.project ?? '')
+    return control(id, action, note)
+  }
+  const merge = hc.crew.merge
+  hc.crew.merge = async (id) => {
+    const project = hc.crew.get(id)?.project
+    if (project && getCtx().projects.get(project)?.gitRepo === false) return { ok: false, message: 'Merge needs a git repo.' }
+    return merge(id)
+  }
   return hc
+}
+
+/** Reuse the world-ally creation contract, but never adopt an unrelated same-name ally. */
+export async function ensureProjectBase(ctx: AppCtx, project: string): Promise<string> {
+  closedProjects.get(ctx)?.delete(project)
+  const allies = ctx.allies.list().filter(a => !a.retiredAt)
+  let ally = allies.find(a => a.projects.length === 1 && a.projects[0] === project)
+  if (!ally) {
+    const req = worldAllyRequest(project)
+    const base = allyNameForWorld(project)
+    for (let n = 2; allies.some(a => a.name === req.name); n++) req.name = `${base.slice(0, 26)}-${n}`
+    ally = await ctx.allies.create(req)
+  }
+  ctx.home(ally.name).supervisor.start()
+  return ally.name
+}
+
+export async function stopProjectBase(ctx: AppCtx, project: string, wksp: string): Promise<void> {
+  let closed = closedProjects.get(ctx)
+  if (!closed) { closed = new Set(); closedProjects.set(ctx, closed) }
+  closed.add(project)
+  const home = ctx.home(wksp)
+  home.supervisor.stop()
+  await home.wksp.stop()
+  await Promise.all([...ctx.homes.values()].flatMap(h => h.crew.list()
+    .filter(t => t.project === project && t.terminalId && ctx.terminals.get(t.terminalId)?.alive)
+    .map(t => h.crew.control(t.id, 'exit').then(r => { if (!r.ok) throw new Error(r.message) }))))
 }
 
 export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx {

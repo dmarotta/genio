@@ -223,7 +223,7 @@ function ReadyRow({ t }: { t: Task }) {
         <button className="btn sm ghost icon" title="Playtest this branch" disabled={!project?.commands.run} onClick={() => void op('Playtest', () => api().playtest({ taskId: t.id }), (r) => (r ? 'Playtest launched' : undefined))}>
           <Play size={13} />
         </button>
-        <button className="btn sm solid volt" disabled={checks === 'failing'} onClick={() => setConfirm(true)}>
+        <button className="btn sm solid volt" disabled={checks === 'failing' || project?.gitRepo === false} title={project?.gitRepo === false ? 'Merge needs a git repo' : undefined} onClick={() => setConfirm(true)}>
           <GitMerge size={13} /> Merge
         </button>
       </div>

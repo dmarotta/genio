@@ -16,10 +16,11 @@ import { sendPlayerChat } from './wksp'
 import { clearSecret, secretStatus, setSecret } from './secrets'
 import { usageReport } from './usage'
 import type { AppCtx, HomeCtx } from './services'
+import { projectSnapshot, terminalProject, type WindowBinding } from './project-windows'
 
 type Handlers ={ [K in keyof GenioApi]: (...args: Parameters<GenioApi[K]>) => ReturnType<GenioApi[K]> | Awaited<ReturnType<GenioApi[K]>> }
 
-export function registerIpc(getCtx: () => AppCtx): void {
+export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder: string): Promise<void>; binding(senderId: number): WindowBinding | undefined }): void {
   const ctx = (): AppCtx => getCtx()
   const taskHome = (id: string): { hc: HomeCtx; task: Task } => {
     const f = findTask(ctx(), id)
@@ -177,6 +178,10 @@ export function registerIpc(getCtx: () => AppCtx): void {
 
     // ---- worlds
     projectAdd: (req) => ctx().projects.add(req),
+    projectOpen: (folder) => {
+      if (!windows) throw new Error('Project windows are unavailable.')
+      return windows.openProject(folder)
+    },
     projectCreate: (req) => ctx().projects.create(req),
     projectUpdate: (name, patch) => ctx().projects.update(name, patch),
     projectRemove: (name, deleteClone) => ctx().projects.remove(name, deleteClone),
@@ -227,6 +232,18 @@ export function registerIpc(getCtx: () => AppCtx): void {
     ipcMain.removeHandler(API_PREFIX + method)
     ipcMain.handle(API_PREFIX + method, async (_e, ...args: unknown[]) => {
       try {
+        const binding = windows?.binding(_e.sender.id)
+        if (binding) {
+          if (method === 'snapshot') return projectSnapshot(ctx().snapshot(), binding)
+          if (method === 'terminals') return ctx().terminals.list().filter(t => terminalProject(t, ctx().snapshot()) === binding.project)
+          if (method === 'recap' || method === 'save') return ctx().home(binding.wksp).wksp.send('/' + method, 'player')
+          if (method === 'spawnTask') args[0] = { ...(args[0] as object), project: binding.project, wksp: binding.wksp }
+          if (method === 'wakes') return ctx().home(binding.wksp).wakes.recent(args[0] as number)
+          // Chat history, sends and controls cannot switch this window to another base.
+          if (['chatHistory', 'sendChat', 'interruptWksp', 'restartWksp', 'unqueueChat', 'approveGeneration', 'allyUpdate'].includes(method) && args[0] !== binding.wksp) {
+            throw new Error('This window is bound to its project chat.')
+          }
+        }
         return await (fn as (...a: unknown[]) => unknown)(...args)
       } catch (e) {
         // rethrow as a plain Error so the renderer gets a readable message

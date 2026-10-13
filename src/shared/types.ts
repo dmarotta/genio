@@ -32,6 +32,8 @@ export interface ProjectCommands {
 export interface Project {
   name: string
   path: string
+  /** False for ordinary folders; rechecked whenever the project is opened. */
+  gitRepo?: boolean
   remote?: string
   defaultBranch: string
   mode: ProjectMode

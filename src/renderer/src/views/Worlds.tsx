@@ -5,7 +5,7 @@ import type { PushStatus } from '@shared/api'
 import { modeSourceOf } from '@shared/vocab'
 import type { CostDial, Engine, Project, ProjectCommands, ProjectMode } from '@shared/types'
 import { DIAL_HINT, DIAL_LABEL, cheapModelsAllowed } from '@shared/dispatch'
-import { api, errText, go, hasView, op, openDeploy, setState, spawnWorldAllyChat, toast, useStore } from '../store'
+import { PROJECT_WINDOW, api, errText, go, hasView, op, openDeploy, setState, spawnWorldAllyChat, toast, useStore } from '../store'
 import { CommitInput, Confirm, Empty, Field, Modal, Toggle, ViewHeader } from '../components/ui'
 import { ENGINES, ENGINE_COLOR, ENGINE_LABEL, MODE_HINT, MODE_LABEL, PROJECT_MODES, isActive } from '../lib/vocab'
 import { cx } from '../lib/format'
@@ -41,9 +41,13 @@ export function Worlds() {
           </>
         }
       >
+        <button className="btn solid" onClick={() => void op('Open folder', async () => {
+          const folder = await api().pickDirectory()
+          if (folder) await api().projectOpen(folder)
+        })}><FolderOpen size={14} /> Open folder…</button>
         <button
           className="btn ghost"
-          disabled={syncing || !projects.length}
+          disabled={syncing || !projects.some(p => p.gitRepo !== false)}
           onClick={async () => {
             setSyncing(true)
             await op('Sync all', () => api().projectSync())
@@ -151,27 +155,28 @@ function WorldRow({ p, highlight, metadata }: { p: Project; highlight: boolean; 
         </button>
         <span className="world-engine-cell">{ENGINE_LABEL[p.engine]}<small className="mute">{metadata?.engineVersion ?? ''}</small></span>
         <span className="dim world-modified" title={metadata?.lastCommitAt}>{modifiedLabel(metadata?.lastCommitAt)}</span>
-        <span className="world-delivery"><span className="world-badge">{pushable ? 'Push on demand' : MODE_LABEL[p.mode]}</span>{pushable && <small className="mute">{push ? `${push.ahead} commits not pushed` : 'Checking...'}</small>}{!!push?.behind && <small className="amber-text">{push.behind} on origin not local</small>}</span>
+        <span className="world-delivery">{p.gitRepo === false && <small className="amber-text">Git actions need a git repo</small>}<span className="world-badge">{pushable ? 'Push on demand' : MODE_LABEL[p.mode]}</span>{pushable && <small className="mute">{push ? `${push.ahead} commits not pushed` : 'Checking...'}</small>}{!!push?.behind && <small className="amber-text">{push.behind} on origin not local</small>}</span>
         <div className="world-actions" onClick={(e) => e.stopPropagation()}>
+          <button className="btn sm solid" onClick={() => void op('Open project', () => api().projectOpen(p.path))}><FolderOpen size={13} /> Open</button>
           <span title={hasView('inventory') ? `Open ${p.name} Inventory` : 'Inventory coming soon'}><button className="btn sm solid" disabled={!hasView('inventory')} onClick={() => go('inventory', { world: p.name })}><Package size={13} /> Inventory</button></span>
           <button className="btn sm violet" disabled={spawning} title={ally ? `Open ally ${ally.name}` : 'Spawn ally'} onClick={async () => { setSpawning(true); await spawnWorldAllyChat(p.name); setSpawning(false) }}><Users size={13} />{spawning ? 'Spawning...' : 'Ally'}</button>
           <details className="world-menu" onKeyDown={(e) => { if (e.key === 'Escape') { e.currentTarget.open = false; e.currentTarget.querySelector('summary')?.focus() } }}>
             <summary className="btn sm ghost icon" aria-label={`Actions for ${p.name}`}><MoreHorizontal size={17} /></summary>
             <div className="world-menu-items" onClick={(e) => { const menu = e.currentTarget.closest('details'); if (menu) menu.open = false }}>
               <button className="btn sm ghost" onClick={() => setSettings(true)}><Settings size={13} /> Settings</button>
-        <button className="btn sm solid" onClick={() => openDeploy({ project: p.name })}>
+        <button className="btn sm solid" disabled={p.gitRepo === false} title={p.gitRepo === false ? "Needs a git repo" : undefined} onClick={() => openDeploy({ project: p.name })}>
           <Rocket size={12} /> Deploy
         </button>
         <button className="btn sm volt" disabled={!p.commands.run} title={p.commands.run ?? 'Set a run command first'} onClick={() => void op('Playtest', () => api().playtest({ project: p.name }), (r) => (r ? 'Playtest launched in Squad › Sessions' : undefined))}>
           <Play size={12} /> Playtest
         </button>
-        <button className="btn sm ghost" onClick={() => void op('Sync', () => api().projectSync(p.name)).then(() => setPushTick((n) => n + 1))}>
+        <button className="btn sm ghost" disabled={p.gitRepo === false} title={p.gitRepo === false ? "Needs a git repo" : undefined} onClick={() => void op('Sync', () => api().projectSync(p.name)).then(() => setPushTick((n) => n + 1))}>
           <RefreshCw size={12} /> Sync
         </button>
         {pushable && (
           <button
             className="btn sm ghost"
-            disabled={pushing}
+            disabled={pushing || p.gitRepo === false}
             title={`Push ${p.defaultBranch} to origin (fast-forward only, never forced)`}
             onClick={async () => {
               setPushing(true)
@@ -202,6 +207,8 @@ function WorldRow({ p, highlight, metadata }: { p: Project; highlight: boolean; 
         <Field label="Delivery" hint={modeSourceOf(p) === 'auto' ? `Follows the remote · ${MODE_HINT[p.mode]}` : MODE_HINT[p.mode]}>
           <select
             className="select"
+            disabled={p.gitRepo === false}
+            title={p.gitRepo === false ? "Needs a git repo" : undefined}
             value={modeSourceOf(p) === 'auto' ? 'auto' : p.mode}
             onChange={(e) => update(e.target.value === 'auto' ? { modeSource: 'auto' } : { mode: e.target.value as ProjectMode })}
           >
@@ -452,4 +459,17 @@ function NewWorld({ onClose }: { onClose: () => void }) {
       </div>
     </Modal>
   )
+}
+
+/** Registration is informational and dismissible; settings remain one click away. */
+export function ProjectNotice() {
+  const registered = useStore(s => s.registeredProject)
+  const project = useStore(s => s.snap.projects.find(p => p.name === PROJECT_WINDOW))
+  if (!project || (!registered && project.gitRepo !== false)) return null
+  return <div role="status" style={{ padding: '8px 18px', background: 'var(--panel)', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12 }}>
+    <span>{registered ? `Registered ${project.name} · ${ENGINE_LABEL[project.engine]} · ${MODE_LABEL[project.mode]}` : project.name}
+      {project.gitRepo === false ? ' · Git actions need a git repo' : !project.remote ? ' · No remote' : ''}</span>
+    {registered && <><button className="btn sm ghost" onClick={() => { setState({ highlightWorld: project.name }); go('worlds') }}>Change</button>
+      <button className="btn sm ghost" aria-label="Dismiss registration" onClick={() => setState({ registeredProject: undefined })}>Dismiss</button></>}
+  </div>
 }
