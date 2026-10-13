@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Search } from 'lucide-react'
 import { PROJECT_WKSP, api, focusTask, go, op, openDeploy, setState, useStore, type ViewId } from '../store'
 import { NAV } from './Rail'
+import { requestSystemsSection } from '../views/Systems'
 import { KIND_LABEL } from '../lib/vocab'
 import { cx } from '../lib/format'
 
@@ -35,7 +36,9 @@ export function CommandPalette() {
       { id: 'deploy', label: 'Deploy a unit', hint: 'New Build or Recon mission', group: 'Action', run: () => openDeploy() },
       { id: 'recap', label: '/recap', hint: 'Previously on… and your pending moves', group: 'Action', run: () => { close(); go('comms'); void op('Recap', () => api().recap()) } },
       { id: 'status', label: '/status', hint: 'Character Sheet', group: 'Action', run: () => go('status') },
-      { id: 'save', label: '/save', hint: 'Curate Player Profile & Lore', group: 'Action', run: () => { close(); void op('Save', () => api().save(), () => 'Genio is curating memory') } },
+      { id: 'save', label: '/save', hint: 'Curate player profile & squad memory', group: 'Action', run: () => { close(); void op('Save', () => api().save(), () => 'Genio is curating memory') } },
+      { id: 'memory', label: 'Go to Memory', hint: 'Settings · player profile, squad memory, archive', group: 'Navigate', run: () => { requestSystemsSection('memory'); go('systems') } },
+      { id: 'mail', label: 'Go to Mail', hint: 'Settings · notes for Genio', group: 'Navigate', run: () => { requestSystemsSection('mail'); go('systems') } },
       { id: 'online', label: 'Presence: Online', group: 'Presence', run: () => { close(); void op('Presence', () => api().setAway('online'), () => 'Online') } },
       { id: 'dnd', label: 'Presence: DND', group: 'Presence', run: () => { close(); void op('Presence', () => api().setAway('dnd'), () => 'Do not disturb') } },
       { id: 'afk', label: 'Presence: AFK', group: 'Presence', run: () => { close(); void op('Presence', () => api().setAway('afk'), () => 'AFK — the Bot has the controls') } },

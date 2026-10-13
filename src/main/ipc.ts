@@ -231,6 +231,8 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
     setAway: (mode) => ctx().away.set(mode),
     readMemory: (which) => ctx().memory.read(which),
     writeMemory: (which, content) => ctx().memory.write(which, content),
+    memoryReport: () => ctx().memory.report(),
+    memoryArchive: (entries, reason) => ctx().memory.archive(entries, reason),
     inboxSubmit: (text, from) => ctx().inbox.submit(text, from),
     inboxAck: (id) => ctx().inbox.ack(id),
     ledgerTail: (n) => ctx().ledger.tail(n),
@@ -336,6 +338,8 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
           }
           if (method === 'readMemory') return ctx().memory.read(args[0] as Parameters<GenioApi['readMemory']>[0], ctx().home(binding.wksp).home)
           if (method === 'writeMemory') return ctx().memory.write(args[0] as Parameters<GenioApi['writeMemory']>[0], String(args[1]), ctx().home(binding.wksp).home)
+          if (method === 'memoryReport') return ctx().memory.report(ctx().home(binding.wksp).home)
+          if (method === 'memoryArchive') return ctx().memory.archive((args[0] as unknown[]).map(String), String(args[1]), ctx().home(binding.wksp).home)
           if (method === 'addDecision') args[0] = { ...(args[0] as object), project: binding.project, wksp: binding.wksp }
           if (method === 'snapshot') return projectSnapshot(ctx().snapshot(), binding)
           if (method === 'terminals') return ctx().terminals.list().filter(t => terminalProject(t, ctx().snapshot()) === binding.project)

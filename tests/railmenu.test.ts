@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { RAIL, entryActive, initialIndex, menuKey, navItems, opensMenu } from '../src/renderer/src/lib/railmenu'
 
@@ -19,8 +20,15 @@ describe('rail entries', () => {
   it('keeps every screen and its shortcut reachable for the palette', () => {
     const keys = Object.fromEntries(navItems().map((n) => [n.id, n.key]))
     expect(keys).toEqual({
-      comms: '1', squad: '2', quests: '3', status: '5', lore: '7', systems: '8', inventory: '9', play: '0'
+      comms: '1', squad: '2', quests: '3', status: '5', systems: '8', inventory: '9', play: '0'
     })
+  })
+
+  it('has no Lore entry: memory lives in Settings → Memory', () => {
+    expect(navItems().map((i) => i.id as string)).not.toContain('lore')
+    expect(navItems().some((i) => /\blore\b/i.test(i.label))).toBe(false)
+    expect(existsSync('src/renderer/src/views/Lore.tsx')).toBe(false)
+    expect(readFileSync('src/renderer/src/App.tsx', 'utf8')).not.toMatch(/\blore\b/i)
   })
 })
 

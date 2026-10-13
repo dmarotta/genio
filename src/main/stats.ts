@@ -69,7 +69,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'assets-50', feature: 'assets', name: 'Asset Factory', description: 'Generate 50 assets.' },
   { id: 'quest-first', feature: 'quests', name: 'Side Quest', description: 'Add a quest.' },
   { id: 'world-first', feature: 'worlds', name: 'New Game', description: 'Register a project.' },
-  { id: 'lore-first', feature: 'lore', name: 'Save Point', description: 'Save your first memory update.' },
+  { id: 'lore-first', feature: 'memory', name: 'Save Point', description: 'Save your first memory update.' },
   { feature: 'move', id: 'first-blood', name: 'First Blood', description: 'Merge your first build.' },
   { feature: 'squad', id: 'squad-up', name: 'Squad Up', description: 'Have 3 units deployed at once.' },
   { feature: 'squad', id: 'full-party', name: 'Full Party', description: 'Have 5 units deployed at once.' },

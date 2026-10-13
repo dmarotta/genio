@@ -14,17 +14,21 @@ import { accountActions, type AccountStatus, type ApiKeyStatus, type ExplorerSta
 import { api, errText, op, saveSettings, toast, useStore } from '../store'
 import { CommitInput, Confirm, Field, Toggle, ViewHeader } from '../components/ui'
 import { TerminalView } from '../components/Terminal'
+import { Memory } from '../components/Memory'
+import { Mailbox } from '../components/Mailbox'
 import { EFFORTS } from '../lib/vocab'
 import { ago, clock, cx, dateShort, usd } from '../lib/format'
 import { playSfx } from '../lib/sfx'
 
-type Section =
+export type Section =
   | 'project' | 'profile' | 'genio' | 'units' | 'overwatch' | 'gauntlet' | 'comms' | 'alerts' | 'mail' | 'memory'
   | 'harnesses' | 'dispatch' | 'triggers' | 'toolchain' | 'accounts' | 'patch' | 'usage' | 'explorer'
 
-const SECTIONS: { id: Section; label: string; group: string }[] = [
+export const SECTIONS: { id: Section; label: string; group: string }[] = [
   { id: 'project', label: 'This project', group: 'Project' },
   { id: 'profile', label: 'Profile', group: 'Player' },
+  { id: 'memory', label: 'Memory', group: 'Player' },
+  { id: 'mail', label: 'Mail & replay', group: 'Player' },
   { id: 'comms', label: 'Comms & FX', group: 'Player' },
   { id: 'alerts', label: 'Alerts', group: 'Player' },
   { id: 'usage', label: 'Usage', group: 'Squad' },
@@ -35,8 +39,6 @@ const SECTIONS: { id: Section; label: string; group: string }[] = [
   { id: 'overwatch', label: 'Overwatch', group: 'Engine' },
   { id: 'gauntlet', label: 'Gauntlet', group: 'Engine' },
   { id: 'triggers', label: 'Triggers', group: 'Engine' },
-  { id: 'memory', label: 'Memory & briefs', group: 'Engine' },
-  { id: 'mail', label: 'Mail & replay', group: 'Engine' },
   { id: 'toolchain', label: 'Loadout', group: 'Base' },
   { id: 'explorer', label: 'Explorer', group: 'Base' },
   { id: 'accounts', label: 'Accounts', group: 'Base' },
@@ -52,6 +54,7 @@ export function requestSystemsSection(s: Section): void {
 
 export function Systems() {
   const settings = useStore((s) => s.settings)
+  const unread = useStore((s) => s.snap.inbox.filter((n) => !n.ackedAt).length)
   const [sec, setSec] = useState<Section>(() => {
     const p = pendingSection
     pendingSection = null
@@ -105,6 +108,7 @@ export function Systems() {
                 {head && <div className="label sys-group">{s.group}</div>}
                 <button className={cx('sys-link', sec === s.id && 'on')} onClick={() => setSec(s.id)}>
                   {s.label}
+                  {s.id === 'mail' && unread > 0 && <span className="sys-badge">{unread}</span>}
                 </button>
               </div>
             )
@@ -316,6 +320,11 @@ function SectionBody({ sec, s, advanced, setAdvanced, open }: { sec: Section; s:
           <Row label="Genio trailer identity" hint="Name <email>. The .invalid domain never links to a real account.">
             <CommitInput mono value={s.genioCoAuthorIdentity} onCommit={(v) => set({ genioCoAuthorIdentity: v.trim() })} />
           </Row>
+          <div className="sys-row col">
+            <div className="sys-row-title">Brief additions</div>
+            <div className="mute sys-row-hint">Appended to every unit brief.</div>
+            <BriefInclude value={s.briefInclude} />
+          </div>
         </>
       )
     case 'overwatch':
@@ -347,13 +356,8 @@ function SectionBody({ sec, s, advanced, setAdvanced, open }: { sec: Section; s:
     case 'memory':
       return (
         <>
-          <h2 className="sys-title">Memory & briefs</h2>
-          <NumRow label="Memory budget (tokens)" hint="Player Profile + Lore kept under this on /save." value={s.memoryBudgetTokens} onCommit={(v) => set({ memoryBudgetTokens: num(v, 500) })} />
-          <div className="sys-row col">
-            <div className="sys-row-title">Brief additions</div>
-            <div className="mute sys-row-hint">Appended to every unit brief.</div>
-            <BriefInclude value={s.briefInclude} />
-          </div>
+          <Memory budget={s.memoryBudgetTokens} />
+          <NumRow label="Memory budget (tokens)" hint="Player profile + squad memory kept under this on /save." value={s.memoryBudgetTokens} onCommit={(v) => set({ memoryBudgetTokens: num(v, 500) })} />
         </>
       )
     case 'mail':
@@ -648,6 +652,7 @@ function MailServer({ s }: { s: Settings }) {
   return (
     <>
       <h2 className="sys-title">Mail & replay</h2>
+      <Mailbox />
       <Row label="Mail HTTP intake" hint="Send Genio notes from your phone or scripts. Localhost only, token protected.">
         <Toggle checked={s.inboxServer} onChange={(v) => set({ inboxServer: v })} />
       </Row>

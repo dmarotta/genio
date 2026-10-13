@@ -79,7 +79,7 @@ A current, explicit, concrete instruction from ${who} overrides a conflicting st
 ## 2. Records
 Everything that matters lives on disk; conversation memory is not authoritative. A restart is a non-event: reconcile from the squad view, quest log, choices and events.
 - Player Profile (player.md): ${who}'s preferences for this base. ${o.isAlly ? 'player-shared.md is inherited from the main base and read-only here.' : 'player-shared.md: preferences every Ally inherits.'}
-- Lore (lore.md): curated, base-local squad knowledge.
+- Squad memory (lore.md, memory_read/memory_write which=lore): curated, base-local squad knowledge. Call it squad memory when talking to ${who}.
 - Task-scoped notes belong on the quest; findings belong in the Recon report.
 - Knowledge useful to almost every contributor of one project belongs in that project's committed AGENTS.md, which only deliberate human edits extend. You never write a project's AGENTS.md. A unit may edit a project's AGENTS.md/CLAUDE.md only to correct factually wrong text.
 - Keep delivery posture and ${who}'s private strategy out of project memory.
@@ -161,7 +161,7 @@ ${allyBlock}
 ## Current memory
 ### Player Profile
 ${(o.playerProfile ?? '').trim() || '(empty)'}
-${o.sharedProfile?.trim() ? `### Shared Player Profile\n${o.sharedProfile.trim()}\n` : ''}### Lore
+${o.sharedProfile?.trim() ? `### Shared Player Profile\n${o.sharedProfile.trim()}\n` : ''}### Squad memory
 ${(o.lore ?? '').trim() || '(empty)'}
 `
 }
@@ -213,7 +213,7 @@ Address the player once in each chat message. Use plain English, optional light 
 - Read tools default to 2000-character pages. Repeat original arguments with cursor to continue the same snapshot, or full=true for an explicit complete read. Pages are excerpts, not complete JSON documents. Follow continuations before claiming completeness, replacing memory, or acting on missing evidence. Errors, IDs and links must survive summaries. Expired cursors require a fresh read.
 - Event turns contain only pending changes, once each. For linked oversized details use event_read(seq). Handle each event, then events_ack(seqs=[its ID]) immediately so a later failure does not replay finished work. A successful turn also acknowledges its delivered batch; later batches arrive separately. Do not ack unfinished events. choice_list exposes open choices when needed; do not repeat unchanged choices every turn.
 - Signals: act on listed changes; check unit_state where needed. Stale units: inspect state and terminal_tail, steer/interrupt/relaunch with progress notes; escalate only after the playbook. Declared pauses are waits. Mail: handle then mail_ack, mail_reply if a durable response is needed. Ticks: reconcile squad, release clear quests, remain silent on no change. Load procedure_read("events") if needed.
-- Durable disk records are authoritative. Memory contents are not injected: use memory_read(player), memory_read(player-shared), memory_read(lore) when relevant, retaining each returned version; since=version returns only changes. Finish all pages before applying a version or replacement. Unknown versions reset to a full snapshot. Full reads remain available. Player preferences belong in profile, squad facts in lore, task notes on quests and findings in reports. Allies read shared profile but never write it. Project AGENTS.md/CLAUDE.md may only be corrected when factually wrong, never extended by agents. Keep delivery posture/private strategy out of project memory. Load procedure_read("memory") for /save.
+- Durable disk records are authoritative. Memory contents are not injected: use memory_read(player), memory_read(player-shared), memory_read(lore) when relevant, retaining each returned version; since=version returns only changes. Finish all pages before applying a version or replacement. Unknown versions reset to a full snapshot. Full reads remain available. Player preferences belong in profile, squad facts in squad memory (lore), task notes on quests and findings in reports. Allies read shared profile but never write it. Project AGENTS.md/CLAUDE.md may only be corrected when factually wrong, never extended by agents. Keep delivery posture/private strategy out of project memory. Load procedure_read("memory") for /save.
 
 ## Player choices and communication
 - Escalate ready work with full URLs, Recon findings (substance, not just completion), Gauntlet questions, exhausted-playbook failures, logins and destructive/security-sensitive actions. Ask-user findings are never answered by the implementing unit. Do not invent manual review gates on top of the Gauntlet.
@@ -282,9 +282,9 @@ export function savePrompt(gamertag: string, isAlly: boolean): string {
   return `/save — curate memory (save game).
 1. memory_report for the budget, per-file sizes and expired entries.
 2. memory_read player, ${isAlly ? '' : 'player-shared, '}lore.
-3. Sweep this session for durable, uncaptured knowledge and route it to its most specific owner: ${who}'s preferences → player${isAlly ? '' : ' (or player-shared when it applies to every Ally)'}; squad operational facts → lore; task-scoped notes → the quest; findings → Recon reports. Never write a project's AGENTS.md.
+3. Sweep this session for durable, uncaptured knowledge and route it to its most specific owner: ${who}'s preferences → player${isAlly ? '' : ' (or player-shared when it applies to every Ally)'}; squad operational facts → lore (squad memory); task-scoped notes → the quest; findings → Recon reports. Never write a project's AGENTS.md.
 4. Persist open work this session is holding that is unfiled or now wrong (quest_add / quest_update / quest_hold). Do not reconcile the quest log against repository or PR reality.
-5. Tiers: unmarked entries in the player files and <!--P--> entries elsewhere are pinned; <!--a:YYYY-MM-DD--> aging (stale after 30 days); <!--p:YYYY-MM-DD--> perishable (stale after 7 days, and the entry must name its expiry condition). New lore entries get <!--a:today--> unless clearly pinned or perishable.
+5. Tiers: unmarked entries in the player files and <!--P--> entries elsewhere are pinned; <!--a:YYYY-MM-DD--> aging (stale after 30 days); <!--p:YYYY-MM-DD--> perishable (stale after 7 days, and the entry must name its expiry condition). New squad memory entries get <!--a:today--> unless clearly pinned or perishable.
 6. Reinforce (refresh the date of) an entry only with named evidence from this session. Decay: memory_archive the stale entries with a reason. Consolidate duplicates and rewrite verbose entries.
 7. If over budget: archive, consolidate, then evict aging entries oldest-first until within budget. If you cannot get within budget without losing something important, open a choice for ${who}.
 8. Write changes with memory_write, re-run memory_report, ${isAlly ? '' : 'route a short "/save" request to every Ally with ally_route, '}and finish with a receipt: per file — unchanged / added / rewritten / pruned / archived — budget before and after, and whether it is safe to reset the conversation.`
@@ -333,6 +333,6 @@ export const HELP_TEXT = `Comms commands
 /afk [notes]      go AFK — the Bot plays, escalations wait for you
 /dnd [off]        Do Not Disturb — routine events handled off-screen
 /online           back to normal (also ends AFK with a welcome-back brief)
-/save             curate memory (Player Profile + Lore)
+/save             curate memory (player profile + squad memory)
 /patch            update Genio itself (fast-forward only)
 /help             this list`

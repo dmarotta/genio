@@ -174,7 +174,7 @@ Legacy unit artifacts and worktrees keep their absolute paths. A migrated task's
 `storageRoot` lets its project crew read and write the original status log, ping
 inbox, reports, hooks and turn markers, so existing briefs and resumed CLI sessions
 remain valid. New units use their project base's storage. Global settings,
-credentials, progression, profiles, Lore and archived transcripts remain intact.
+credentials, progression, profiles, squad memory and archived transcripts remain intact.
 
 The old main chat is read-only. Opening the `genio` project imports its compacted
 transcript and image files once into that project's base without changing the

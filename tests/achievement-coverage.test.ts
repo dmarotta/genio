@@ -9,7 +9,7 @@ const PLAYER_FACING_TOOLS: Record<string, string> = {
   fal_generate: 'fal_generate', uthana_motion: 'uthana_motion', uthana_character: 'agent_generation', asset_place: 'asset_place',
   deploy: 'deploy', merge: 'move', run_gauntlet: 'squad', quest_add: 'quests',
   world_add: 'worlds', world_create: 'worlds', world_push: 'world_push',
-  memory_write: 'lore', generate_image: 'generate_image', rate_task: 'rate_task',
+  memory_write: 'memory', generate_image: 'generate_image', rate_task: 'rate_task',
   loadout_preview: 'loadout_preview', assets_find: 'assets_find', asset_locate: 'asset_locate'
 }
 // Supporting reads, orchestration and maintenance. New tools must be classified

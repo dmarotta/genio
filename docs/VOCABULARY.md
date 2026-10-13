@@ -43,7 +43,7 @@ code comments that cite the original design.
 | `/updatecompanion` | **/patch** | self-update |
 | `captain.md` | `player.md` | **Player Profile** |
 | `captain-shared.md` | `player-shared.md` | inherited by allies |
-| `learnings.md` | `lore.md` | **Lore** |
+| `learnings.md` | `lore.md` | **Squad memory** (Settings → Memory) |
 | wakes / watcher | **events** / **overwatch** | internal event records; no standalone feed |
 | stale worker | **lagging** / **frozen** | |
 | heartbeat | **tick** | |

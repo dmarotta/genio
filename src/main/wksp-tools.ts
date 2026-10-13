@@ -628,10 +628,10 @@ export function createToolRegistry(
   })
 
   const memEnum = home.isMain ? z.enum(['player', 'player-shared', 'lore']) : z.enum(['player', 'player-shared', 'lore'])
-  t('memory_read', 'Read versioned memory. since=the previous version returns unchanged or a character splice (start, deleteCount, insert); apply it to that version. Unknown versions return a full snapshot with reset=true. Finish all pages before using a version. full=true ignores since.', { which: memEnum, since: z.string().optional(), full: pageShape.full }, async ({ which, since, full }) => ok(json(getCtx().memory.readVersion(which, full ? undefined : since, home))))
+  t('memory_read', 'Read versioned memory. which: player = player profile, player-shared = shared profile, lore = squad memory (call it squad memory to the player). since=the previous version returns unchanged or a character splice (start, deleteCount, insert); apply it to that version. Unknown versions return a full snapshot with reset=true. Finish all pages before using a version. full=true ignores since.', { which: memEnum, since: z.string().optional(), full: pageShape.full }, async ({ which, since, full }) => ok(json(getCtx().memory.readVersion(which, full ? undefined : since, home))))
   t('memory_write', 'Replace a memory file with curated content (keep markers <!--P-->, <!--a:DATE-->, <!--p:DATE-->).', { which: memEnum, content: z.string() }, async ({ which, content }) => {
     getCtx().memory.write(which, content, home)
-    return ok(`${which} saved`)
+    return ok(`${which === 'lore' ? 'squad memory' : which} saved`)
   })
   t('memory_report', 'Memory budget (estimated tokens), per-file size and expired entries.', {}, async () => ok(json(getCtx().memory.report(home))))
   t('memory_archive', 'Move entries (exact lines) out of memory files into the archive with a reason.', { entries: z.array(z.string()).min(1), reason: z.string() }, async ({ entries, reason }) => {

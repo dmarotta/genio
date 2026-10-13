@@ -29,7 +29,7 @@ const SLASH: { cmd: string; hint: string }[] = [
   { cmd: '/afk', hint: 'Go AFK — the Bot plays, outcomes replay on return' },
   { cmd: '/dnd', hint: 'Do not disturb — routine events stay off-screen' },
   { cmd: '/online', hint: 'Back online — everything reported here' },
-  { cmd: '/save', hint: 'Curate Player Profile & Lore (save game)' },
+  { cmd: '/save', hint: 'Curate player profile & squad memory (save game)' },
   { cmd: '/patch', hint: 'Check for a Genio update' },
   { cmd: '/help', hint: 'List commands' }
 ]

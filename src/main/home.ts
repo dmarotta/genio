@@ -14,7 +14,7 @@ import { ensureDir, exists, writeText } from './util'
  *     allies.json      registered allies (main base only)
  *     player.md        Player Profile: preferences (base-local)
  *     player-shared.md preferences inherited by allies (main only)
- *     lore.md          curated squad knowledge (Lore)
+ *     lore.md          curated squad knowledge (Squad memory)
  *     chat.jsonl       Comms transcript
  *     inbox.jsonl      Mail from the player
  *     fleet-ledger.jsonl opt-in Replay log
@@ -100,7 +100,7 @@ export class Home {
     if (!exists(this.loreFile)) {
       writeText(
         this.loreFile,
-        `# Lore\n\nCurated, base-local squad knowledge. Markers: <!--P--> pinned, <!--a:DATE--> aging (stale after 30d), <!--p:DATE--> perishable (stale after 7d).\n\n`
+        `# Squad memory\n\nCurated, base-local squad knowledge. Markers: <!--P--> pinned, <!--a:DATE--> aging (stale after 30d), <!--p:DATE--> perishable (stale after 7d).\n\n`
       )
     }
     if (this.isMain && !exists(this.playerSharedFile)) {

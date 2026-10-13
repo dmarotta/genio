@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { BookOpen, FolderOpen, Cpu, Gauge, Globe, MessageSquare, ScrollText, Swords, Gamepad2, type LucideIcon } from 'lucide-react'
+import { FolderOpen, Cpu, Gauge, Globe, MessageSquare, ScrollText, Swords, Gamepad2, type LucideIcon } from 'lucide-react'
 import { PROJECT_WINDOW, go, useStore, runningUnits, type ViewId } from '../store'
 import { cx } from '../lib/format'
 import { RAIL, entryActive, initialIndex, menuKey, navItems, opensMenu, type RailEntry } from '../lib/railmenu'
@@ -14,7 +14,6 @@ const ICON: Record<string, LucideIcon> = {
   quests: ScrollText,
   status: Gauge,
   worlds: Globe,
-  lore: BookOpen,
   systems: Cpu,
   inventory: FolderOpen
 }
@@ -31,7 +30,7 @@ export function Rail() {
   const quests = useStore((s) => questCounts(s.snap.backlog))
   const badge: Partial<Record<ViewId, { n: number; tone: string }>> = {
     squad: { n: live, tone: 'neon' },
-    lore: { n: mail, tone: 'violet' }
+    systems: { n: mail, tone: 'violet' }
   }
   return (
     <nav className="rail">

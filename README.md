@@ -32,7 +32,7 @@ for the design and [docs/VOCABULARY.md](docs/VOCABULARY.md) for the terms.
 - **Presence** — Online, DND (routine events handled off-screen), AFK (the Bot
   plays for you and replays a welcome-back brief; optional desktop and webhook
   alerts).
-- **Lore** (`/save`) — curated player profile and squad knowledge with decay
+- **Memory** (Settings → Memory, `/save`) — curated player profile and squad memory with decay
   and a memory budget.
 - **Project windows** - open a folder for its own chat, Inventory and squad.
   Closing warns before stopping running units; non-git folders keep git actions disabled.
@@ -85,7 +85,7 @@ ones it needs (`electron`, `esbuild`, `node-pty`) in `package.json`.
 | `/afk [note]` | Go AFK: the Bot handles events and holds anything that needs you |
 | `/dnd` · `/dnd off` | Do not disturb: routine events stay off Comms |
 | `/online` | Back online |
-| `/save` | Curate the Player Profile and Lore |
+| `/save` | Curate the player profile and squad memory |
 | `/patch` | Update Genio itself (fast-forward only) |
 | `/help` | List commands |
 
@@ -93,7 +93,7 @@ ones it needs (`electron`, `esbuild`, `node-pty`) in `package.json`.
 
 Everything lives under `~/.genio` (override with `GENIO_HOME`): `config/`
 settings, `data/` durable records (projects, quests, choices, briefs, reports,
-profile, lore, replay log), `state/` runtime records (unit status logs, event
+profile, squad memory, replay log), `state/` runtime records (unit status logs, event
 queue, presence), `projects/` clones, `worktrees/` one per unit, and `wksps/`
 for project and ally bases. Registered projects own their units, quests and
 choices in their project base. Startup migrates legacy ownership once with a

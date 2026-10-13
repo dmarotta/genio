@@ -13,7 +13,6 @@ import { Quests } from './views/Quests'
 import { Answers } from './components/Answers'
 import { CharacterSheet } from './views/CharacterSheet'
 import { ProjectNotice } from './views/ProjectSettings'
-import { Lore } from './views/Lore'
 import { Systems } from './views/Systems'
 import { Inventory } from './views/Inventory'
 import { Play } from './views/Play'
@@ -24,7 +23,6 @@ const VIEW: Partial<Record<ViewId, ComponentType>> = {
   squad: Squad,
   quests: Quests,
   status: CharacterSheet,
-  lore: Lore,
   systems: Systems,
   inventory: Inventory
 }

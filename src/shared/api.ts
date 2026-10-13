@@ -527,6 +527,10 @@ export interface GenioApi {
   setAway(mode: AwayMode): Promise<AwayState>
   readMemory(which: MemoryFile): Promise<string>
   writeMemory(which: MemoryFile, content: string): Promise<void>
+  /** estimated tokens per memory file against the budget, plus expired entries */
+  memoryReport(): Promise<MemoryReport>
+  /** move entries (exact lines, as listed by memoryReport) into the memory archive */
+  memoryArchive(entries: string[], reason: string): Promise<void>
   inboxSubmit(text: string, from?: string): Promise<InboxNote>
   inboxAck(id: string): Promise<void>
   ledgerTail(n: number): Promise<LedgerRecord[]>
@@ -545,6 +549,7 @@ export interface GenioApi {
 
 export interface ExplorerStatus { available: boolean; installed: boolean; present: boolean }
 export type MemoryFile = 'player' | 'lore' | 'player-shared'
+export interface MemoryReport { tokens: number; budget: number; overBudget: boolean; stale: string[]; files: { file: string; tokens: number }[] }
 
 export type ApiMethod = keyof GenioApi
 /** Every GenioApi method, as runtime data (contextBridge cannot clone a Proxy). */
@@ -628,6 +633,8 @@ export const API_METHODS = [
   'setAway',
   'readMemory',
   'writeMemory',
+  'memoryReport',
+  'memoryArchive',
   'inboxSubmit',
   'inboxAck',
   'ledgerTail',

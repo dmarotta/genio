@@ -454,7 +454,7 @@ async function captureTour(dir: string, win: BrowserWindow, binding?: WindowBind
     app.exit(0)
     return
   }
-  const views = ['comms', 'squad', 'quests', 'yourmove', 'status', 'worlds', 'lore', 'systems', 'inventory']
+  const views = ['comms', 'squad', 'quests', 'yourmove', 'status', 'worlds', 'unbound', 'systems', 'inventory']
   focusWindow(win)
   for (let i = 0; i < views.length; i++) {
     if (!win || win.isDestroyed()) return
