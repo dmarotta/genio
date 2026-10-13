@@ -22,6 +22,10 @@ type Handlers ={ [K in keyof GenioApi]: (...args: Parameters<GenioApi[K]>) => Re
 
 export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder: string): Promise<void>; binding(senderId: number): WindowBinding | undefined }): void {
   const ctx = (): AppCtx => getCtx()
+  const inventoryClients = new Map<number, Set<string>>()
+  const closeUnusedInventory = (world: string): void => {
+    if (![...inventoryClients.values()].some(worlds => worlds.has(world))) ctx().inventory.close(world)
+  }
   const taskHome = (id: string): { hc: HomeCtx; task: Task } => {
     const f = findTask(ctx(), id)
     if (!f) throw new Error(`no unit/mission ${id}`)
@@ -232,6 +236,26 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
     ipcMain.removeHandler(API_PREFIX + method)
     ipcMain.handle(API_PREFIX + method, async (_e, ...args: unknown[]) => {
       try {
+        if (method === 'inventoryOpen' || method === 'inventoryClose') {
+          const world = args[0] as string
+          const sender = _e.sender
+          let worlds = inventoryClients.get(sender.id)
+          if (!worlds) {
+            worlds = new Set(); inventoryClients.set(sender.id, worlds)
+            sender.once('destroyed', () => {
+              const opened = inventoryClients.get(sender.id) ?? []
+              inventoryClients.delete(sender.id)
+              for (const world of opened) closeUnusedInventory(world)
+            })
+          }
+          if (method === 'inventoryClose') {
+            worlds.delete(world); closeUnusedInventory(world); return
+          }
+          worlds.add(world)
+          try { return await h.inventoryOpen(world) }
+          catch (error) { worlds.delete(world); throw error }
+          finally { closeUnusedInventory(world) }
+        }
         const binding = windows?.binding(_e.sender.id)
         if (binding) {
           if (method === 'snapshot') return projectSnapshot(ctx().snapshot(), binding)

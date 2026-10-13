@@ -63,6 +63,19 @@ import { allyNameForWorld, worldAllyRequest } from '../renderer/src/lib/dock'
 
 let current: AppCtx | undefined
 const closedProjects = new WeakMap<AppCtx, Set<string>>()
+const startingUnits = new WeakMap<AppCtx, Map<string, Set<Promise<unknown>>>>()
+
+async function startProjectUnit<T>(project: string, start: () => Promise<T>): Promise<T> {
+  assertProjectRunning(project)
+  const ctx = getCtx()
+  let projects = startingUnits.get(ctx)
+  if (!projects) { projects = new Map(); startingUnits.set(ctx, projects) }
+  let pending = projects.get(project)
+  if (!pending) { pending = new Set(); projects.set(project, pending) }
+  const operation = start()
+  pending.add(operation)
+  try { return await operation } finally { pending.delete(operation) }
+}
 
 function assertProjectRunning(project: string): void {
   if (closedProjects.get(getCtx())?.has(project)) throw new Error('Open the project window before starting units.')
@@ -87,13 +100,10 @@ export function makeHomeCtx(home: Home, ally?: Ally): HomeCtx {
   }
   // Guard service calls as well as buttons: chat tools and queued quests also spawn units.
   const spawn = hc.crew.spawn
-  hc.crew.spawn = async (req) => {
-    assertProjectRunning(req.project)
-    return spawn(req)
-  }
+  hc.crew.spawn = req => startProjectUnit(req.project, () => spawn(req))
   const control = hc.crew.control
   hc.crew.control = async (id, action, note) => {
-    if (action === 'relaunch') assertProjectRunning(hc.crew.get(id)?.project ?? '')
+    if (action === 'relaunch') return startProjectUnit(hc.crew.get(id)?.project ?? '', () => control(id, action, note))
     return control(id, action, note)
   }
   const merge = hc.crew.merge
@@ -108,12 +118,14 @@ export function makeHomeCtx(home: Home, ally?: Ally): HomeCtx {
 /** Reuse the world-ally creation contract, but never adopt an unrelated same-name ally. */
 export async function ensureProjectBase(ctx: AppCtx, project: string): Promise<string> {
   closedProjects.get(ctx)?.delete(project)
-  const allies = ctx.allies.list().filter(a => !a.retiredAt)
+  const allAllies = ctx.allies.list()
+  const allies = allAllies.filter(a => !a.retiredAt)
   let ally = allies.find(a => a.projects.length === 1 && a.projects[0] === project)
   if (!ally) {
     const req = worldAllyRequest(project)
     const base = allyNameForWorld(project)
-    for (let n = 2; allies.some(a => a.name === req.name); n++) req.name = `${base.slice(0, 26)}-${n}`
+    // Retired bases still contain chat history; never recycle one for a different project.
+    for (let n = 2; allAllies.some(a => a.name === req.name); n++) req.name = `${base.slice(0, 26)}-${n}`
     ally = await ctx.allies.create(req)
   }
   ctx.home(ally.name).supervisor.start()
@@ -127,6 +139,8 @@ export async function stopProjectBase(ctx: AppCtx, project: string, wksp: string
   const home = ctx.home(wksp)
   home.supervisor.stop()
   await home.wksp.stop()
+  // A spawn may be preparing its worktree and not have a terminal yet.
+  await Promise.allSettled([...(startingUnits.get(ctx)?.get(project) ?? [])])
   await Promise.all([...ctx.homes.values()].flatMap(h => h.crew.list()
     .filter(t => t.project === project && t.terminalId && ctx.terminals.get(t.terminalId)?.alive)
     .map(t => h.crew.control(t.id, 'exit').then(r => { if (!r.ok) throw new Error(r.message) }))))

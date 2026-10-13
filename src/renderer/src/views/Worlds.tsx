@@ -156,7 +156,7 @@ function WorldRow({ p, highlight, metadata }: { p: Project; highlight: boolean; 
         <span className="world-engine-cell">{ENGINE_LABEL[p.engine]}<small className="mute">{metadata?.engineVersion ?? ''}</small></span>
         <span className="dim world-modified" title={metadata?.lastCommitAt}>{modifiedLabel(metadata?.lastCommitAt)}</span>
         <span className="world-delivery">{p.gitRepo === false && <small className="amber-text">Git actions need a git repo</small>}<span className="world-badge">{pushable ? 'Push on demand' : MODE_LABEL[p.mode]}</span>{pushable && <small className="mute">{push ? `${push.ahead} commits not pushed` : 'Checking...'}</small>}{!!push?.behind && <small className="amber-text">{push.behind} on origin not local</small>}</span>
-        <div className="world-actions" onClick={(e) => e.stopPropagation()}>
+        <div className="world-actions" style={{ flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
           <button className="btn sm solid" onClick={() => void op('Open project', () => api().projectOpen(p.path))}><FolderOpen size={13} /> Open</button>
           <span title={hasView('inventory') ? `Open ${p.name} Inventory` : 'Inventory coming soon'}><button className="btn sm solid" disabled={!hasView('inventory')} onClick={() => go('inventory', { world: p.name })}><Package size={13} /> Inventory</button></span>
           <button className="btn sm violet" disabled={spawning} title={ally ? `Open ally ${ally.name}` : 'Spawn ally'} onClick={async () => { setSpawning(true); await spawnWorldAllyChat(p.name); setSpawning(false) }}><Users size={13} />{spawning ? 'Spawning...' : 'Ally'}</button>

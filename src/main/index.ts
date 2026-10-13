@@ -226,7 +226,7 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
     e.preventDefault()
     if (closing) return
     const live = [...ctx.homes.values()].flatMap(h => h.crew.list()).filter(t =>
-      (!binding || t.project === binding.project) && t.terminalId && ctx!.terminals.get(t.terminalId)?.alive)
+      (!binding || t.project === binding.project) && (t.state === 'spawning' || t.terminalId && ctx!.terminals.get(t.terminalId)?.alive))
     if (live.length) {
       const choice = dialog.showMessageBoxSync(win, {
         type: 'warning', buttons: ['Stop units and close', 'Cancel'], defaultId: 1, cancelId: 1,
@@ -402,6 +402,7 @@ async function captureTour(dir: string, win: BrowserWindow, binding?: WindowBind
     return
   }
   const views = ['comms', 'squad', 'quests', 'yourmove', 'status', 'worlds', 'lore', 'systems', 'inventory']
+  focusWindow(win)
   for (let i = 0; i < views.length; i++) {
     if (!win || win.isDestroyed()) return
     await win.webContents.executeJavaScript(

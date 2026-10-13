@@ -9,6 +9,7 @@ import { assetKind, assetTags, ignoredAssetPath, queryInventory, under, vendorPa
 import { INVENTORY_WORKER } from './inventory-worker'
 import { bus } from './bus'
 import { run } from './util'
+import { isRepo } from './git'
 import type { AppCtx } from './services'
 
 export interface InventoryService {
@@ -54,13 +55,26 @@ export async function guardedWorldFile(root: string, rel: string, internal = fal
   } catch { return }
 }
 
-/** One git enumeration, including untracked but excluding ignored files. No filesystem walk. */
+/** Git honors ignore rules; ordinary folders use a symlink-free walk with the same cache exclusions. */
 export async function enumerateInventory(root: string): Promise<{ files: Map<string, boolean>; ms: number }> {
   const start = performance.now()
   const excludes = ['Library/', 'Temp/', 'Logs/', 'obj/', 'Build/', 'Builds/', 'BuildOutput/', 'UserSettings/', '.godot/', '.import/', 'Intermediate/', 'Saved/', 'DerivedDataCache/', 'Binaries/', 'node_modules/']
   const r = await run('git', ['ls-files', '-z', '-t', '--cached', '--others', '--exclude-standard', ...excludes.map(x => `--exclude=${x}`)], { cwd: root })
-  if (r.code) throw new Error(`Inventory requires a Git world: ${r.stderr.trim()}`)
   const files = new Map<string, boolean>()
+  if (r.code) {
+    if (await isRepo(root)) throw new Error(`Could not read Inventory: ${r.stderr.trim()}`)
+    const dirs = ['']
+    for (const dir of dirs) {
+      const entries = await fsp.opendir(path.join(root, dir))
+      for await (const entry of entries) {
+        const rel = dir ? `${dir}/${entry.name}` : entry.name
+        if (!validInventoryPath(rel) || ignoredAssetPath(rel) || entry.isSymbolicLink()) continue
+        if (entry.isDirectory()) dirs.push(rel)
+        else if (entry.isFile()) files.set(rel, false)
+      }
+    }
+    return { files, ms: performance.now() - start }
+  }
   for (const line of r.stdout.split('\0')) {
     const p = line.slice(2)
     if (validInventoryPath(p) && !ignoredAssetPath(p)) files.set(p, files.get(p) || line[0] !== '?')
@@ -259,7 +273,6 @@ export function createInventoryService(getCtx: () => AppCtx, decode?: ThumbnailD
   return {
     async open(world) {
       const w = await get(world)
-      for (const other of worlds.keys()) if (other !== world) close(other)
       w.open = true
       if (!w.watcher) {
         try {

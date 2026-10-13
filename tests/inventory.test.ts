@@ -47,6 +47,29 @@ afterEach(async () => {
 })
 
 describe('Inventory backend', () => {
+  it('keeps other project windows watching when an Inventory opens or closes', async () => {
+    const ctx = context()
+    ctx.projects.get = name => ({ name, path: root, engine: 'unity' }) as never
+    const s = createInventoryService(() => ctx); services.push(s)
+    await s.open('one'); await s.open('two')
+    expect((await s.list('one')).state.watching).toBe(true)
+    s.close('two')
+    expect((await s.list('one')).state.watching).toBe(true)
+    expect((await s.list('two')).state.watching).toBe(false)
+  })
+  it('indexes ordinary folders without creating a repository or following directory links', async () => {
+    const plain = path.join(base, 'plain')
+    fs.mkdirSync(path.join(plain, 'Art'), { recursive: true })
+    fs.mkdirSync(path.join(plain, 'Library'), { recursive: true })
+    fs.writeFileSync(path.join(plain, 'Art', 'icon.png'), 'image')
+    fs.writeFileSync(path.join(plain, 'Library', 'cache.png'), 'cache')
+    fs.symlinkSync(root, path.join(plain, 'linked'), process.platform === 'win32' ? 'junction' : 'dir')
+    expect([...(await enumerateInventory(plain)).files]).toEqual([['Art/icon.png', false]])
+    root = plain
+    const result = await create().list('fixture')
+    expect(result.items.map(a => a.path)).toEqual(['Art/icon.png'])
+    expect(fs.existsSync(path.join(plain, '.git'))).toBe(false)
+  })
   it('reports successful indexing, but not failed scans or cached reads, for achievements', async () => {
     const used: string[] = []
     const off = bus.onEvent((event) => { if (event.type === 'feature-used') used.push(event.feature) })
