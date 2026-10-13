@@ -127,7 +127,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     } catch {
       /* no OS encryption: the skill reports the key as missing */
     }
-    return unitLaunchExtras(harnessId, { pluginDir: installed, falKey, dataDir: mainHome.data })
+    return unitLaunchExtras(harnessId, { pluginDir: installed, falKey, dataDir: mainHome.data, taskDataDir: home.taskDir(t.id) })
   }
 
   const writeClaudeSettings = (t: Task): string => {

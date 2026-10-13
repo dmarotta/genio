@@ -5,11 +5,13 @@
 import type { ToolStatus } from '@shared/types'
 import type { OpResult } from '@shared/api'
 import type { AppCtx, ToolchainService } from './services'
+import { findBlender } from '../../resources/unit-skills/genio/lib/blender-path.mjs'
 import { bus } from './bus'
 import { clearWhichCache, run, runShell, which } from './util'
 
 interface ToolDef {
   name: string
+  probe?: () => string | null
   purpose: string
   required: boolean
   versionArgs: string[]
@@ -19,6 +21,7 @@ interface ToolDef {
 }
 
 const TOOLS: ToolDef[] = [
+  { name: 'blender', purpose: 'Batch 3D modelling, mesh validation and export', required: false, versionArgs: ['--version'], winget: 'BlenderFoundation.Blender', probe: findBlender },
   { name: 'git', purpose: 'Worktrees, branches and merges for every world', required: true, versionArgs: ['--version'], winget: 'Git.Git', brew: 'git' },
   { name: 'gh', purpose: 'GitHub pull requests, checks and merges', required: false, versionArgs: ['--version'], winget: 'GitHub.cli', brew: 'gh' },
   { name: 'glab', purpose: 'GitLab merge requests (best effort)', required: false, versionArgs: ['--version'], winget: 'GLab.GLab', brew: 'glab' },
@@ -42,7 +45,7 @@ function installHint(t: ToolDef): string | undefined {
 }
 
 async function probeTool(t: ToolDef): Promise<ToolStatus> {
-  const p = which(t.name)
+  const p = t.probe ? t.probe() : which(t.name)
   const st: ToolStatus = { name: t.name, found: Boolean(p), path: p ?? undefined, required: t.required, purpose: t.purpose, install: installHint(t) }
   if (p) {
     const r = /\.(cmd|bat)$/i.test(p)
@@ -75,7 +78,10 @@ export function createToolchainService(_getCtx: () => AppCtx): ToolchainService 
       return Promise.all(TOOLS.map(probe))
     },
     has(name) {
-      if (!found.has(name)) found.set(name, Boolean(which(name)))
+      if (!found.has(name)) {
+        const t = TOOLS.find(x => x.name === name)
+        found.set(name, Boolean(t?.probe ? t.probe() : which(name)))
+      }
       return found.get(name) ?? false
     },
     async install(name): Promise<OpResult> {

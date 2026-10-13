@@ -17,6 +17,7 @@ const SKILL_DIR_TOKEN = /\{\{SKILL_DIR\}\}/g
 export const unitPluginSource = (appRoot: string): string => path.join(appRoot, 'resources', 'unit-skills', UNIT_PLUGIN)
 export const unitPluginDir = (homeRoot: string): string => path.join(homeRoot, 'skills', UNIT_PLUGIN)
 export const falSkillDir = (pluginDir: string): string => path.join(pluginDir, 'skills', 'fal')
+export const blenderSkillDir = (pluginDir: string): string => path.join(pluginDir, 'skills', 'blender')
 export const codexImageSkillDir = (pluginDir: string): string => path.join(pluginDir, 'skills', 'imagegen-codex')
 /** Scratch runs of the Codex image helper live in Genio's data, never in a world. */
 export const codexImageScratch = (dataDir: string): string => path.join(dataDir, 'codex-image')
@@ -68,12 +69,14 @@ export interface UnitLaunchExtras {
 }
 
 /** Launch additions for a unit: the plugin dir for Claude Code, the skill paths, Codex image scratch and the FAL key for all. */
-export function unitLaunchExtras(harnessId: string, opts: { pluginDir?: string; falKey?: string; dataDir?: string }): UnitLaunchExtras {
+export function unitLaunchExtras(harnessId: string, opts: { pluginDir?: string; falKey?: string; dataDir?: string; taskDataDir?: string }): UnitLaunchExtras {
   const args: string[] = []
   const env: Record<string, string> = {}
   if (opts.pluginDir) {
     // First in argv: the next element is always another flag, never the prompt.
     if (harnessId === 'claude') args.push('--plugin-dir', opts.pluginDir)
+    env.GENIO_BLENDER_SKILL = fwd(blenderSkillDir(opts.pluginDir))
+    if (opts.taskDataDir ?? opts.dataDir) env.GENIO_BLENDER_SCRATCH = fwd(path.join((opts.taskDataDir ?? opts.dataDir)!, 'blender'))
     env.GENIO_FAL_SKILL = fwd(falSkillDir(opts.pluginDir))
     env.GENIO_IMAGEGEN_CODEX_SKILL = fwd(codexImageSkillDir(opts.pluginDir))
     if (opts.dataDir) env.GENIO_CODEX_IMAGE_SCRATCH = fwd(codexImageScratch(opts.dataDir))
@@ -97,7 +100,9 @@ export function openRouterEnv(harnessId: string, worldAllows: boolean, key: stri
 export function unitToolsBrief(pluginDir: string): string {
   const dir = fwd(falSkillDir(pluginDir))
   const codex = fwd(codexImageSkillDir(pluginDir))
+  const blender = fwd(blenderSkillDir(pluginDir))
   return (
+    `- Blender (batch modelling, validation, export and conversion): read \`${blender}/SKILL.md\` and use \`node "${blender}/scripts/blender.mjs"\`. Requires local Blender; no MCP or live session. Logs go to GENIO_BLENDER_SCRATCH.\n` +
     `- Images (default): Codex images on the player's ChatGPT plan, on in every world unless it opted out. For concept art, sprites, icons, transparent cutouts and edits from references read \`${codex}/SKILL.md\` and use \`node "${codex}/scripts/codex-image.mjs"\`.\n` +
     `- FAL.ai (specific needs: seamless/PBR textures, 3D, audio, music, video, pixel-art conversion, upscaling, background removal, exact size/seed/reproducibility): before any FAL work read \`${dir}/SKILL.md\` and use its helper \`node "${dir}/scripts/fal.mjs"\`. ` +
     'Every model run is a paid call: the USD budget stated in this brief or a ping is a hard stop; pass it as --budget and report what you spent. ' +

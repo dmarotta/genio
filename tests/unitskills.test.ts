@@ -6,7 +6,7 @@ import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { renderBrief, type BriefInput } from '../src/main/brief'
-import { codexImageSkillDir, falSkillDir, installUnitPlugin, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief } from '../src/main/unitskills'
+import { blenderSkillDir, codexImageSkillDir, falSkillDir, installUnitPlugin, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief } from '../src/main/unitskills'
 
 const APP_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SCRIPT = path.join(unitPluginSource(APP_ROOT), 'skills', 'fal', 'scripts', 'fal.mjs')
@@ -44,14 +44,21 @@ describe('unit launch extras', () => {
   it('gives the plugin dir only to Claude Code, the skill path to every runtime', () => {
     const codex = unitLaunchExtras('codex', { pluginDir, falKey: KEY })
     expect(codex.args).toEqual([])
-    expect(codex.env).toEqual({ GENIO_FAL_SKILL: fwd(falSkillDir(pluginDir)), GENIO_IMAGEGEN_CODEX_SKILL: fwd(codexImageSkillDir(pluginDir)), FAL_KEY: KEY })
+    expect(codex.env).toEqual({ GENIO_BLENDER_SKILL: fwd(blenderSkillDir(pluginDir)), GENIO_FAL_SKILL: fwd(falSkillDir(pluginDir)), GENIO_IMAGEGEN_CODEX_SKILL: fwd(codexImageSkillDir(pluginDir)), FAL_KEY: KEY })
     expect(unitLaunchExtras('claude', { falKey: KEY })).toEqual({ args: [], env: { FAL_KEY: KEY } })
   })
 
   it('points the Codex image helper at a scratch folder in Genio data', () => {
     const x = unitLaunchExtras('claude', { pluginDir, dataDir: path.join('C:\\genio', 'data') })
+    expect(x.env.GENIO_BLENDER_SCRATCH).toBe('C:/genio/data/blender')
     expect(x.env.GENIO_CODEX_IMAGE_SCRATCH).toBe('C:/genio/data/codex-image')
     expect(x.env.GENIO_IMAGEGEN_CODEX_SKILL).toBe('C:/genio/skills/genio/skills/imagegen-codex')
+  })
+
+  it('uses the unit data folder for Blender logs', () => {
+    const x = unitLaunchExtras('codex', { pluginDir, dataDir: 'C:/genio/data', taskDataDir: 'C:/genio/data/unit-a' })
+    expect(x.env.GENIO_BLENDER_SCRATCH).toBe('C:/genio/data/unit-a/blender')
+    expect(unitToolsBrief(pluginDir)).toContain('skills/blender/SKILL.md')
   })
 })
 
