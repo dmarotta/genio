@@ -17,12 +17,14 @@ vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events')
   f.app = Object.assign(new EventEmitter(), { requestSingleInstanceLock: () => true, whenReady: async () => {}, isPackaged: true, getAppPath: () => '.', quit: vi.fn(), exit: vi.fn() })
   class Window extends EventEmitter {
-    webContents = Object.assign(new EventEmitter(), { id: f.windows.length + 1, send: vi.fn(), isDestroyed: () => false, setWindowOpenHandler: () => {} })
+    openHandler: any
+    webContents = Object.assign(new EventEmitter(), { id: f.windows.length + 1, send: vi.fn(), isDestroyed: () => false, getURL: () => 'file:///genio/index.html?project=one&wksp=ally-one', setWindowOpenHandler: (fn: any) => { this.openHandler = fn } })
     destroyed = false
     query: any
     focus = vi.fn()
     show = vi.fn()
     restore = vi.fn()
+    destroy() { this.destroyed = true; this.emit('closed') }
     isMinimized = () => false
     isDestroyed = () => this.destroyed
     constructor(_options: unknown) { super(); f.windows.push(this) }
@@ -72,6 +74,29 @@ describe('project window lifecycle', () => {
     expect(f.windows[1].webContents.send).toHaveBeenCalledWith('genio:event', event)
     expect(f.windows[2].webContents.send).not.toHaveBeenCalled()
   })
+  it('allows only the bound same-page chat popup and closes it with its owner', async () => {
+    const owner = f.windows[1]
+    const handler = owner.openHandler
+    const url = owner.webContents.getURL() + '#genio-inventory-chat'
+    expect(handler({ url })).toMatchObject({ action: 'allow', overrideBrowserWindowOptions: {
+      alwaysOnTop: true, minWidth: 360, webPreferences: { nodeIntegration: false, contextIsolation: true }
+    } })
+    expect(handler({ url: 'file:///other.html#genio-inventory-chat' })).toEqual({ action: 'deny' })
+    const child = { isDestroyed: () => false, isMinimized: () => false, show: vi.fn(), focus: vi.fn(), destroy: vi.fn(),
+      webContents: { setWindowOpenHandler: vi.fn(), on: vi.fn(), once: vi.fn() }, on: vi.fn() }
+    owner.webContents.emit('did-create-window', child)
+    const navigate = child.webContents.on.mock.calls[0][1]
+    const prevented = vi.fn()
+    navigate({ preventDefault: prevented }, url)
+    expect(prevented).not.toHaveBeenCalled()
+    child.webContents.once.mock.calls[0][1]()
+    navigate({ preventDefault: prevented }, url)
+    expect(prevented).toHaveBeenCalledOnce()
+    expect(handler({ url })).toEqual({ action: 'deny' })
+    expect(child.focus).toHaveBeenCalledOnce()
+    // The following confirmed-close case must destroy this child, without stopping extra units.
+    owner.chatChild = child
+  })
   it('cancels close without stopping units, then stops only the confirmed project', async () => {
     f.ctx.homes.set('main', { crew: { list: () => [{ project: 'one', terminalId: 'term' }] } })
     f.windows[1].close()
@@ -81,6 +106,7 @@ describe('project window lifecycle', () => {
     f.windows[1].close()
     await vi.waitFor(() => expect(f.windows[1].destroyed).toBe(true))
     expect(f.stop).toHaveBeenCalledWith(f.ctx, 'one', 'ally-one')
+    expect(f.windows[1].chatChild.destroy).toHaveBeenCalledOnce()
     expect(f.windows[2].destroyed).toBe(false)
     f.windows[0].close()
     expect(f.windows[0].destroyed).toBe(true)

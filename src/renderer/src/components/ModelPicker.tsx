@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { canDrive, rankedModels, modelRowLabel, modelDisabledReason, staticClaudeCatalogue, type ModelCatalogue } from '@shared/model-catalogue'
 import { api } from '../store'
 import './ModelPicker.css'
+import { useChatDocument } from './ChatDocument'
 
 let latest: ModelCatalogue = staticClaudeCatalogue()
 let pending: Promise<ModelCatalogue> | undefined
@@ -39,6 +40,8 @@ export function useModelCatalogue(): ModelCatalogue {
 }
 export type ModelSelectProps = { value: string; onChange: (value: string) => void; title?: string; disabled?: boolean; style?: CSSProperties }
 export function ModelPicker({ value, onChange, onAccounts: _onAccounts, ...props }: ModelSelectProps & { onAccounts: () => void }) {
+  const document = useChatDocument()
+  const window = document.defaultView!
   const catalogue = useModelCatalogue()
   const [open, setOpen] = useState(false)
   const panel = useRef<HTMLDivElement>(null)
@@ -67,7 +70,7 @@ export function ModelPicker({ value, onChange, onAccounts: _onAccounts, ...props
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
-  }, [open])
+  }, [open, document])
   const choose = (id: string): void => { if (id !== value) onChange(id); close() }
   const anchor = trigger.current?.getBoundingClientRect()
   const below = !!anchor && window.innerHeight - anchor.bottom > anchor.top

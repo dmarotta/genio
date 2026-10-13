@@ -12,7 +12,9 @@ Successful Inventory opening and asset inspection unlock feature-tagged achievem
 
 ## Floating Genio chat
 
-Inventory mounts the same `ChatPanel wksp="main"` as Comms. Conversation history, queued messages, image paste, drafts, model/effort and approval controls are shared. Drag its header or resize from its lower-right corner; arrow keys on either handle also work. Drag to the right edge or use Snap to put it in the right column, with an Inspector/Chat toggle. Collapse to a pill or use **Ctrl+Space**. The pill shows activity, new messages and queued/generating counts. Position, size, snap and collapse state are saved in this window's session storage.
+Inventory mounts the same project `ChatPanel` as Comms. Conversation history, queued messages, image paste, drafts, model/effort and approval controls are shared. Drag its header or resize from its lower-right corner; arrow keys on either handle also work. Drag to the right edge or use Snap to put it in the right column, with an Inspector/Chat toggle. Collapse to a pill or use **Ctrl+Space**. The pill shows activity, new messages and queued/generating counts. Position, size, snap and collapse state are saved in this window's session storage.
+
+**Pop out Genio chat** opens a separate native desktop window that stays on top of other apps. Move it outside Genio or onto another monitor and resize it with the OS window controls. The same mounted composer keeps its text, pasted images, removed chips and queued edits; Inventory browsing still updates its live context. Model and image overlays open in the chat window. **Return chat** or closing the native window restores the original panel layout without stopping units. Leaving Inventory or closing its project also closes the pop-out; drafts remain available in the project chat.
 
 The composer shows removable folder, preview and multi-selection chips. Ctrl/Command/Shift-click toggles up to 20 selected assets. Changing folders clears the old preview and selection. A dismissal applies to that chip value; browsing to another value restores it. Removing every chip sends no Inventory context.
 

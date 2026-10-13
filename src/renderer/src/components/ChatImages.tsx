@@ -11,6 +11,7 @@ import { getDraftImages, setDraftImages, type DraftImage } from '../drafts'
 import { toDraftImage } from '../lib/attach'
 import { fitImage, viewerClick, viewerKey, type ViewerAction } from '../lib/image-viewer'
 import { errText, toast } from '../store'
+import { useChatDocument } from './ChatDocument'
 
 const hasFiles = (e: DragEvent): boolean => Array.from(e.dataTransfer.types).includes('Files')
 
@@ -171,6 +172,8 @@ interface ViewerProps {
 
 /** Full-window overlay portalled to <body>, so the chat's scroll and floating panel can't clip or move it. */
 function ImageViewer({ urls, index, onIndex, onClose }: ViewerProps) {
+  const document = useChatDocument()
+  const window = document.defaultView!
   const closeRef = useRef<HTMLButtonElement>(null)
   const [natural, setNatural] = useState<{ w: number; h: number }>()
   const [viewport, setViewport] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }))
@@ -196,6 +199,7 @@ function ImageViewer({ urls, index, onIndex, onClose }: ViewerProps) {
       actRef.current(a)
     }
     const onResize = (): void => setViewport({ w: window.innerWidth, h: window.innerHeight })
+    onResize()
     window.addEventListener('keydown', onKey, true)
     window.addEventListener('resize', onResize)
     return () => {
@@ -204,7 +208,7 @@ function ImageViewer({ urls, index, onIndex, onClose }: ViewerProps) {
       document.body.style.overflow = prevOverflow
       prevFocus?.focus?.()
     }
-  }, [urls.length])
+  }, [urls.length, document])
 
   useEffect(() => setNatural(undefined), [index])
 

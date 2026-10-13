@@ -27,7 +27,47 @@ beforeEach(() => {
   Object.defineProperties(host, { clientWidth: { value: 1200 }, clientHeight: { value: 600 } })
   root = createRoot(host)
 })
-afterEach(async () => { await act(async () => root.unmount()); host.remove() })
+afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks() })
+
+it('moves the mounted chat into an OS window and returns it with dismissals and live context intact', async () => {
+  const frame = document.createElement('iframe'); document.body.append(frame)
+  const child = frame.contentWindow!
+  child.document.body.innerHTML = '<div id="root"></div>'
+  vi.spyOn(child, 'close').mockImplementation(() => { child.dispatchEvent(new Event('beforeunload')) })
+  const open = vi.spyOn(window, 'open').mockReturnValue(child)
+  await render(); await click('Remove preview context')
+  const mountedChat = host.querySelector('.inventory-chat-content .inventory-chat-content')
+  await click('Pop out Genio chat')
+  expect(open.mock.calls[0][0]).toContain('#genio-inventory-chat')
+  await act(async () => child.dispatchEvent(new Event('load')))
+  expect(child.document.querySelector('.inventory-chat-content')).toBe(mountedChat)
+  const send = () => [...child.document.querySelectorAll('button')].find(b => b.textContent === 'Test send')!.click()
+  await act(async () => send())
+  expect(f.send.mock.lastCall?.[0]).not.toHaveProperty('preview')
+  await render(context('beta', 'Assets/stone.png'))
+  await act(async () => send())
+  expect(f.send.mock.lastCall?.[0]).toMatchObject({ world: 'beta', preview: { path: 'Assets/stone.png' } })
+  await click('Return chat')
+  expect(host.querySelector('.inventory-chat-content .inventory-chat-content')).toBe(mountedChat)
+  expect(child.close).toHaveBeenCalledOnce()
+  frame.remove()
+})
+
+it('restores chat when the native window closes and reports a denied popup', async () => {
+  const frame = document.createElement('iframe'); document.body.append(frame)
+  const child = frame.contentWindow!
+  child.document.body.innerHTML = '<div id="root"></div>'
+  vi.spyOn(child, 'close').mockImplementation(() => {})
+  const open = vi.spyOn(window, 'open').mockReturnValue(child)
+  await render(); await click('Pop out Genio chat')
+  await act(async () => child.dispatchEvent(new Event('load')))
+  await act(async () => child.dispatchEvent(new Event('beforeunload')))
+  expect(button('Test send')).toBeTruthy()
+  open.mockReturnValue(null)
+  await click('Pop out Genio chat')
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('Could not open')
+  frame.remove()
+})
 
 it('counts active generation cards in the pill and notices new messages while collapsed', async () => {
   await render(); await click('Collapse Genio chat')

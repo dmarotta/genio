@@ -17,6 +17,7 @@ import { nowIso, writeJson } from './util'
 import { ensureWindowsToastIdentity, setWindowsAppId } from './win-identity'
 import { projectFromArgv, projectSnapshot, routeProjectEvent, terminalProject, type WindowBinding } from './project-windows'
 import type { GenioEvent } from '@shared/types'
+import { isChatPopoutUrl } from '@shared/chat-popout'
 
 const TERM_CHANNEL = 'genio:term-data'
 
@@ -195,9 +196,31 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
   win.on('ready-to-show', () => win.show())
 
   // external links open in the OS browser, never inside Genio
+  let chatWindow: BrowserWindow | undefined
   win.webContents.setWindowOpenHandler(({ url }) => {
+    if (binding && isChatPopoutUrl(url, win.webContents.getURL())) {
+      if (chatWindow && !chatWindow.isDestroyed()) { focusWindow(chatWindow); return { action: 'deny' } }
+      return { action: 'allow', overrideBrowserWindowOptions: {
+        width: 520, height: 640, minWidth: 360, minHeight: 360,
+        title: `Genio chat · ${binding.project}`, alwaysOnTop: true,
+        frame: true, titleBarStyle: 'default', titleBarOverlay: false,
+        backgroundColor: '#07090e', autoHideMenuBar: true,
+        webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
+      } }
+    }
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
     return { action: 'deny' }
+  })
+  win.webContents.on('did-create-window', child => {
+    chatWindow = child
+    child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    // window.open's initial navigation happens after did-create-window.
+    let loaded = false
+    child.webContents.once('did-finish-load', () => { loaded = true })
+    child.webContents.on('will-navigate', (e, url) => {
+      if (loaded || !isChatPopoutUrl(url, win.webContents.getURL())) e.preventDefault()
+    })
+    child.on('closed', () => { if (chatWindow === child) chatWindow = undefined })
   })
   win.webContents.on('will-navigate', (e, url) => {
     const dev = process.env.ELECTRON_RENDERER_URL
@@ -252,7 +275,7 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
       }
     })()
   })
-  win.on('closed', () => windows.delete(win))
+  win.on('closed', () => { chatWindow?.destroy(); windows.delete(win) })
 
   const query: Record<string, string> = binding ? { project: binding.project, wksp: binding.wksp, ...(registered ? { registered: '1' } : {}) } : {}
   if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
