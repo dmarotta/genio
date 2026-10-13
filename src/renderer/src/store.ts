@@ -52,6 +52,7 @@ export interface State {
   dock: DockState
   deploy: Partial<SpawnRequest> | null
   palette: boolean
+  inventoryWorld?: string
   highlightWorld?: string
   welcomeDismissedAt?: string
 }
@@ -175,8 +176,12 @@ export function errText(e: unknown): string {
   return m.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 }
 
-export function go(view: ViewId): void {
-  setState({ view, palette: false })
+const registeredViews = new Set<string>()
+export function registerViews(views: string[]): void { views.forEach((view) => registeredViews.add(view)) }
+export function hasView(view: string): boolean { return registeredViews.has(view) }
+
+export function go(view: ViewId, context?: { world: string }): void {
+  setState({ view, palette: false, ...(context ? { inventoryWorld: context.world } : {}) })
 }
 
 export function focusTask(id: string): void {

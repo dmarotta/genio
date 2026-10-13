@@ -1,4 +1,4 @@
-export type ViewId = 'comms' | 'squad' | 'quests' | 'move' | 'status' | 'worlds' | 'lore' | 'systems' | 'fal' | 'animation'
+export type ViewId = 'inventory' | 'comms' | 'squad' | 'quests' | 'move' | 'status' | 'worlds' | 'lore' | 'systems' | 'fal' | 'animation'
 
 /** One screen reachable from the rail; key is its Ctrl shortcut. */
 export interface NavItem {

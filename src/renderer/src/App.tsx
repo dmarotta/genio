@@ -1,5 +1,5 @@
 import { useEffect, type ComponentType } from 'react'
-import { useStore, type ViewId } from './store'
+import { registerViews, useStore, type ViewId } from './store'
 import { TitleBar } from './components/TitleBar'
 import { Rail } from './components/Rail'
 import { AchievementOverlay, BootSplash, PermissionPrompt, Toasts, WelcomeBack } from './components/Overlays'
@@ -17,7 +17,7 @@ import { Systems } from './views/Systems'
 import { Fal } from './views/Fal'
 import { Animation } from './views/Animation'
 
-const VIEW: Record<ViewId, ComponentType> = {
+const VIEW: Partial<Record<ViewId, ComponentType>> = {
   comms: Comms,
   squad: Squad,
   quests: Quests,
@@ -30,6 +30,8 @@ const VIEW: Record<ViewId, ComponentType> = {
   animation: Animation
 }
 
+registerViews(Object.keys(VIEW))
+
 export function App() {
   const booted = useStore((s) => s.booted)
   const connected = useStore((s) => s.connected)
@@ -41,7 +43,7 @@ export function App() {
     document.body.classList.toggle('fx-off', fx === false)
   }, [fx])
 
-  const View = VIEW[view]
+  const View = VIEW[view] ?? Worlds
   return (
     <div className="app">
       <TitleBar />

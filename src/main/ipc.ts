@@ -1,3 +1,4 @@
+import { readWorldMetadata } from './world-metadata'
 /**
  * IPC: one ipcMain.handle per GenioApi method ('genio:<method>'). The table is
  * typed against GenioApi so a missing or mistyped method fails the build.
@@ -244,6 +245,7 @@ export function registerIpc(getCtx: () => AppCtx): void {
     projectUpdate: (name, patch) => ctx().projects.update(name, patch),
     projectRemove: (name, deleteClone) => ctx().projects.remove(name, deleteClone),
     projectSync: (name) => ctx().projects.sync(name),
+    projectMetadata: (name) => readWorldMetadata(ctx().projects.get(name)),
     projectPushStatus: (name) => ctx().projects.pushStatus(name),
     projectPush: (name, branch) => ctx().projects.push(name, branch),
 

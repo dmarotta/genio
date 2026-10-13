@@ -1,3 +1,5 @@
+export interface WorldMetadata { engineVersion?: string; lastCommitAt?: string }
+
 import type { AllyControlsPatch, UnqueuedChat } from './chat'
 import type {
   AwayMode, AwayState, BacklogItem, StatusReport, ChatMessage, DeliveryMode, Engine, FleetSnapshot,
@@ -524,6 +526,7 @@ export interface GenioApi {
   projectRemove(name: string, deleteClone: boolean): Promise<OpResult>
   projectSync(name?: string): Promise<OpResult>
   /** commits on the local default branch not yet on origin (Offline worlds with a remote) */
+  projectMetadata(name: string): Promise<WorldMetadata>
   projectPushStatus(name: string): Promise<PushStatus | undefined>
   /** guarded, never-forced push of the default (or a named) branch to origin */
   projectPush(name: string, branch?: string): Promise<OpResult>
@@ -639,6 +642,7 @@ export const API_METHODS = [
   'projectUpdate',
   'projectRemove',
   'projectSync',
+  'projectMetadata',
   'projectPushStatus',
   'projectPush',
   'statusReport',

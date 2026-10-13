@@ -1,24 +1,37 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, FolderOpen, Gamepad2, Globe, Play, Plus, RefreshCw, Rocket, Sparkles, Trash, Upload, Users } from 'lucide-react'
+import { ChevronDown, ChevronRight, FolderOpen, Gamepad2, Globe, MoreHorizontal, Package, Settings, Search, Play, Plus, RefreshCw, Rocket, Sparkles, Trash, Upload, Users } from 'lucide-react'
 import type { PushStatus } from '@shared/api'
 import { modeSourceOf } from '@shared/vocab'
 import type { CostDial, Engine, Project, ProjectCommands, ProjectMode } from '@shared/types'
 import { DIAL_HINT, DIAL_LABEL, cheapModelsAllowed } from '@shared/dispatch'
-import { api, errText, op, openDeploy, setState, spawnWorldAllyChat, toast, useStore } from '../store'
+import { api, errText, go, hasView, op, openDeploy, setState, spawnWorldAllyChat, toast, useStore } from '../store'
 import { CommitInput, Confirm, Empty, Field, Modal, Toggle, ViewHeader } from '../components/ui'
 import { ENGINES, ENGINE_COLOR, ENGINE_LABEL, MODE_HINT, MODE_LABEL, PROJECT_MODES, isActive } from '../lib/vocab'
-import { cx, shortPath } from '../lib/format'
+import { cx } from '../lib/format'
 import { allyForWorld } from '../lib/dock'
+import { worldList, worldPath, modifiedLabel, type WorldSort } from '../lib/worlds'
+import type { WorldMetadata } from '@shared/api'
 
 export function Worlds() {
   const projects = useStore((s) => s.snap.projects)
   const highlight = useStore((s) => s.highlightWorld)
+  const [query, setQuery] = useState('')
+  const [sort, setSort] = useState<WorldSort>('modified')
+  const [metadata, setMetadata] = useState<Record<string, WorldMetadata>>({})
+  const landed = useStore((s) => s.snap.tasks.filter((t) => t.state === 'merged' || t.state === 'cleaned').length)
+  useEffect(() => {
+    let live = true
+    void Promise.all(projects.map(async (p) => [p.name, await api().projectMetadata(p.name)] as const))
+      .then((entries) => { if (live) setMetadata(Object.fromEntries(entries)) }).catch(() => undefined)
+    return () => { live = false }
+  }, [projects, landed])
+  const visible = worldList(projects, query, sort, metadata)
   const [adding, setAdding] = useState(false)
   const [creating, setCreating] = useState(false)
   const [syncing, setSyncing] = useState(false)
 
   return (
-    <div className="view">
+    <div className="view worlds-view">
       <ViewHeader
         kicker={`${projects.length} world${projects.length === 1 ? '' : 's'} loaded`}
         title={
@@ -46,6 +59,12 @@ export function Worlds() {
         </button>
       </ViewHeader>
 
+      <div className="world-toolbar">
+        <label className="world-search"><Search size={15} /><input className="input" aria-label="Search worlds" placeholder="Search worlds by name, path or engine" value={query} onChange={(e) => setQuery(e.target.value)} /></label>
+        <select className="select" aria-label="Sort worlds" value={sort} onChange={(e) => setSort(e.target.value as WorldSort)}>
+          <option value="modified">Last modified</option><option value="name">Name</option><option value="engine">Engine</option>
+        </select>
+      </div>
       {projects.length === 0 ? (
         <Empty icon={<Globe size={44} className="neon-text" />} title="No worlds loaded">
           Point Genio at a game repo — a URL, owner/repo, or a folder on disk — or start a fresh one.
@@ -59,10 +78,12 @@ export function Worlds() {
           </div>
         </Empty>
       ) : (
-        <div className="world-grid">
-          {projects.map((p) => (
-            <WorldCard key={p.name} p={p} highlight={highlight === p.name} />
+        <div className="world-list">
+          <div className="world-columns" aria-hidden="true"><span>World</span><span>Engine</span><span>Last modified</span><span>Delivery</span><span>Actions</span></div>
+          {visible.map((p) => (
+            <WorldRow key={p.name} p={p} metadata={metadata[p.name]} highlight={highlight === p.name} />
           ))}
+          {!visible.length && <p className="world-no-results dim">No worlds match "{query}". <button className="btn sm ghost" onClick={() => setQuery('')}>Clear search</button></p>}
         </div>
       )}
       {adding && <AddWorld onClose={() => setAdding(false)} />}
@@ -71,7 +92,8 @@ export function Worlds() {
   )
 }
 
-function WorldCard({ p, highlight }: { p: Project; highlight: boolean }) {
+function WorldRow({ p, highlight, metadata }: { p: Project; highlight: boolean; metadata?: WorldMetadata }) {
+  const [settings, setSettings] = useState(false)
   const units = useStore((s) => s.snap.tasks.filter((t) => t.project === p.name && isActive(t.state)).length)
   const total = useStore((s) => s.snap.tasks.filter((t) => t.project === p.name && t.state !== 'cleaned').length)
   const [open, setOpen] = useState(false)
@@ -119,33 +141,61 @@ function WorldCard({ p, highlight }: { p: Project; highlight: boolean }) {
   }
 
   return (
-    <article ref={ref} className={cx('world panel', highlight && 'hl')} style={{ ['--eng' as string]: ENGINE_COLOR[p.engine] }}>
-      <div className="world-banner">
-        <div className="world-engine">
-          <Gamepad2 size={14} /> {ENGINE_LABEL[p.engine]}
-        </div>
-        <div className="world-units">
-          {units > 0 && <span className="dot pulse" style={{ ['--c' as string]: 'var(--neon)' }} />}
-          <span className="num">{units}</span>
-          <span className="label">active</span>
-          <span className="mute num">/ {total}</span>
-        </div>
-      </div>
-      <h2 className="world-name">{p.name}</h2>
-      {p.description && <p className="dim world-desc">{p.description}</p>}
-      <div className="world-path mono mute" title={p.path}>
-        {shortPath(p.path, 3)} · {p.defaultBranch}
-        {p.remote ? ` · ${p.forge === 'none' ? 'remote' : p.forge}` : ' · no remote'}
-        {pushable && push && (push.ahead > 0 || push.behind > 0) && (
-          <span className="amber-text" title={`origin/${push.branch}${push.remoteMissing ? ' does not exist yet' : ''}`}>
-            {' · '}
-            {push.ahead > 0 && `${push.ahead} commit${push.ahead === 1 ? '' : 's'} not pushed`}
-            {push.ahead > 0 && push.behind > 0 && ', '}
-            {push.behind > 0 && `${push.behind} on origin not local`}
-          </span>
+    <article ref={ref} className={cx('world-list-item', highlight && 'hl')} style={{ ['--eng' as string]: ENGINE_COLOR[p.engine] }}>
+      <div className="world-summary" onClick={() => setSettings((v) => !v)}>
+        <button className="world-identity" aria-expanded={settings} aria-controls={`settings-${p.name}`} onClick={(e) => { e.stopPropagation(); setSettings((v) => !v) }}>
+          <Gamepad2 className="world-engine-icon" size={22} />
+          <span><strong>{p.name}</strong><span className="world-root mono mute" title={worldPath(p)}>{worldPath(p)}</span></span>
+        </button>
+        <span className="world-engine-cell">{ENGINE_LABEL[p.engine]}<small className="mute">{metadata?.engineVersion ?? ''}</small></span>
+        <span className="dim world-modified" title={metadata?.lastCommitAt}>{modifiedLabel(metadata?.lastCommitAt)}</span>
+        <span className="world-delivery"><span className="world-badge">{pushable ? 'Push on demand' : MODE_LABEL[p.mode]}</span>{pushable && <small className="mute">{push ? `${push.ahead} commits not pushed` : 'Checking...'}</small>}{!!push?.behind && <small className="amber-text">{push.behind} on origin not local</small>}</span>
+        <div className="world-actions" onClick={(e) => e.stopPropagation()}>
+          <span title={hasView('inventory') ? `Open ${p.name} Inventory` : 'Inventory coming soon'}><button className="btn sm solid" disabled={!hasView('inventory')} onClick={() => go('inventory', { world: p.name })}><Package size={13} /> Inventory</button></span>
+          <button className="btn sm violet" disabled={spawning} title={ally ? `Open ally ${ally.name}` : 'Spawn ally'} onClick={async () => { setSpawning(true); await spawnWorldAllyChat(p.name); setSpawning(false) }}><Users size={13} />{spawning ? 'Spawning...' : 'Ally'}</button>
+          <details className="world-menu" onKeyDown={(e) => { if (e.key === 'Escape') { e.currentTarget.open = false; e.currentTarget.querySelector('summary')?.focus() } }}>
+            <summary className="btn sm ghost icon" aria-label={`Actions for ${p.name}`}><MoreHorizontal size={17} /></summary>
+            <div className="world-menu-items" onClick={(e) => { const menu = e.currentTarget.closest('details'); if (menu) menu.open = false }}>
+              <button className="btn sm ghost" onClick={() => setSettings(true)}><Settings size={13} /> Settings</button>
+        <button className="btn sm solid" onClick={() => openDeploy({ project: p.name })}>
+          <Rocket size={12} /> Deploy
+        </button>
+        <button className="btn sm volt" disabled={!p.commands.run} title={p.commands.run ?? 'Set a run command first'} onClick={() => void op('Playtest', () => api().playtest({ project: p.name }), (r) => (r ? 'Playtest launched in Squad › Sessions' : undefined))}>
+          <Play size={12} /> Playtest
+        </button>
+        <button className="btn sm ghost" onClick={() => void op('Sync', () => api().projectSync(p.name)).then(() => setPushTick((n) => n + 1))}>
+          <RefreshCw size={12} /> Sync
+        </button>
+        {pushable && (
+          <button
+            className="btn sm ghost"
+            disabled={pushing}
+            title={`Push ${p.defaultBranch} to origin (fast-forward only, never forced)`}
+            onClick={async () => {
+              setPushing(true)
+              await op('Push', () => api().projectPush(p.name))
+              setPushing(false)
+              setPushTick((n) => n + 1)
+            }}
+          >
+            <Upload size={12} /> {pushing ? 'Pushing…' : 'Push'}
+          </button>
         )}
-      </div>
+        <button className="btn sm ghost" title="Reveal in Explorer" onClick={() => void api().openPath(p.path)}>
+          <FolderOpen size={13} /> Reveal in Explorer
+        </button>
+        <span style={{ flex: 1 }} />
+        <button className="btn sm ghost alert" title="Remove world" onClick={() => setRemove(true)}>
+          <Trash size={13} /> Remove
+        </button>
 
+            </div>
+          </details>
+        </div>
+      </div>
+      {settings && <section className="world-details" id={`settings-${p.name}`} aria-label={`${p.name} settings`}>
+        <div className="world-details-heading"><h3>World settings</h3><span className="mute">{units} active / {total} units / {p.defaultBranch} / {p.remote ?? 'No remote'}</span><button className="btn sm ghost" onClick={() => setSettings(false)}>Close</button></div>
+        <Field label="Description"><CommitInput value={p.description ?? ''} placeholder="Describe this world" onCommit={(v) => update({ description: v })} /></Field>
       <div className="world-controls">
         <Field label="Delivery" hint={modeSourceOf(p) === 'auto' ? `Follows the remote · ${MODE_HINT[p.mode]}` : MODE_HINT[p.mode]}>
           <select
@@ -215,51 +265,8 @@ function WorldCard({ p, highlight }: { p: Project; highlight: boolean }) {
         </div>
       )}
 
-      <footer className="world-foot">
-        <button className="btn sm solid" onClick={() => openDeploy({ project: p.name })}>
-          <Rocket size={12} /> Deploy
-        </button>
-        <button className="btn sm volt" disabled={!p.commands.run} title={p.commands.run ?? 'Set a run command first'} onClick={() => void op('Playtest', () => api().playtest({ project: p.name }), (r) => (r ? 'Playtest launched in Squad › Sessions' : undefined))}>
-          <Play size={12} /> Playtest
-        </button>
-        <button
-          className="btn sm violet"
-          disabled={spawning}
-          title={ally ? `Open the chat tab of ally ${ally.name}` : `Recruit an ally for all work in ${p.name} and open its chat tab`}
-          onClick={async () => {
-            setSpawning(true)
-            await spawnWorldAllyChat(p.name)
-            setSpawning(false)
-          }}
-        >
-          <Users size={12} /> {ally ? 'Open ally' : spawning ? 'Spawning…' : 'Spawn ally'}
-        </button>
-        <button className="btn sm ghost" onClick={() => void op('Sync', () => api().projectSync(p.name)).then(() => setPushTick((n) => n + 1))}>
-          <RefreshCw size={12} /> Sync
-        </button>
-        {pushable && (
-          <button
-            className="btn sm ghost"
-            disabled={pushing}
-            title={`Push ${p.defaultBranch} to origin (fast-forward only, never forced)`}
-            onClick={async () => {
-              setPushing(true)
-              await op('Push', () => api().projectPush(p.name))
-              setPushing(false)
-              setPushTick((n) => n + 1)
-            }}
-          >
-            <Upload size={12} /> {pushing ? 'Pushing…' : 'Push'}
-          </button>
-        )}
-        <button className="btn sm ghost icon" title="Open folder" onClick={() => void api().openPath(p.path)}>
-          <FolderOpen size={13} />
-        </button>
-        <span style={{ flex: 1 }} />
-        <button className="btn sm ghost icon alert" title="Remove world" onClick={() => setRemove(true)}>
-          <Trash size={13} />
-        </button>
-      </footer>
+      <section className="world-generation"><h4>Generation</h4><p className="mute">Generation settings coming soon.</p></section>
+      </section>}
 
       {confirmYolo && (
         <Confirm
