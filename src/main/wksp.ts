@@ -25,6 +25,7 @@ import { chatImageDir, loadChatImages, saveChatImages } from './chat-images'
 import { attachedIdsNote } from './chat-imagegen'
 import type { Home } from './home'
 import { buildTools, type ToolRole } from './wksp-tools'
+import { closeChatToolBridges } from './chat-tool-bridge'
 import { formatNotification } from './notify-format'
 import {
   HELP_TEXT, afkPrompt, botContract, eventsPrompt, genioContract, recapPrompt, returnPrompt, savePrompt, sessionStartPrompt,
@@ -39,56 +40,9 @@ type Sdk = typeof import('@anthropic-ai/claude-agent-sdk')
 let sdkPromise: Promise<Sdk> | undefined
 const loadSdk = (): Promise<Sdk> => (sdkPromise ??= import('@anthropic-ai/claude-agent-sdk'))
 
-// ------------------------------------------------------------------ tool policy
-
-/** companion subagent guard: Genio delegates to units, never to in-session subagents. */
-const SUBAGENT_RE = /agent|subagent|^task$|^task(create|update|output|stop|get|list)?$|workflow|cron|schedul|worktree|delegate|spawn|dispatch|handoff|remote|sendmessage|monitor/i
-const DISALLOWED = ['Agent', 'Task', 'Workflow', 'CronCreate', 'CronDelete', 'EnterWorktree', 'ExitWorktree', 'RemoteTrigger', 'SendMessage', 'Monitor', 'Write', 'Edit', 'NotebookEdit', 'MultiEdit']
-const ALLOWED = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebSearch', 'WebFetch', 'TodoWrite', 'ToolSearch'])
-
-const READ_ONLY_SEGMENTS: RegExp[] = [
-  /^git\s+(-C\s+\S+\s+)?(status|log|diff|show|branch|rev-parse|ls-files|blame|shortlog|describe|remote(\s+-v)?|tag\s+(-l|--list)|worktree\s+list|config\s+--get)\b/i,
-  /^(ls|dir|cat|type|head|tail|rg|grep|wc|pwd|echo|tree|stat|file|which|where|sort|uniq|jq|du|date|whoami|cut|awk)\b/i,
-  /^find\b(?!.*\s-(exec|execdir|delete|ok|fprint)\b)/i,
-  /^gh\s+(pr\s+(view|list|checks|diff|status)|run\s+(view|list)|repo\s+view|issue\s+(view|list)|search\s+prs|auth\s+status)\b/i,
-  /^glab\s+(mr\s+(view|list)|ci\s+(view|list|status))\b/i,
-  /^cd\s+\S+$/i,
-  /^(node|npm|python|py|cargo|godot|dotnet)\s+(-v|--version)$/i
-]
-
-/** True when every segment of a shell command is a known read-only command and nothing writes. */
-export function isReadOnlyCommand(cmd: string): boolean {
-  const c = cmd.trim()
-  if (!c) return false
-  if (/[`]|\$\(|<\(|>\(/.test(c)) return false
-  // allow only harmless stderr redirections; any other '>' writes a file
-  const scrubbed = c.replace(/2>&1|2>\s*\/dev\/null|2>\s*nul\b/gi, '')
-  if (/>/.test(scrubbed)) return false
-  const segments = scrubbed.split(/\s*(?:&&|\|\||;|\|)\s*/).filter(Boolean)
-  return segments.every((s) => READ_ONLY_SEGMENTS.some((re) => re.test(s.trim())))
-}
-
-export type ToolDecision = { behavior: 'allow' } | { behavior: 'deny'; message: string } | { behavior: 'ask'; input: string; reason?: string }
-
-/** Pure tool policy for a Genio/Bot session; 'ask' goes to the player's permission prompt. */
-export function decideTool(role: ToolRole, toolName: string, input: unknown, shellMode: Settings['chatShellMode']): ToolDecision {
-  if (toolName.startsWith('mcp__genio__')) return { behavior: 'allow' }
-  if (ALLOWED.has(toolName)) return { behavior: 'allow' }
-  if (DISALLOWED.includes(toolName) || SUBAGENT_RE.test(toolName)) {
-    return { behavior: 'deny', message: 'Genio delegates work to units (deploy) and never writes worlds or spawns in-session subagents.' }
-  }
-  if (toolName === 'Bash' || toolName === 'PowerShell') {
-    const cmd = String((input as { command?: string } | undefined)?.command ?? '')
-    if (isReadOnlyCommand(cmd)) return { behavior: 'allow' }
-    // the Bot stays read-only whatever the chat's approval mode
-    if (role === 'bot') return { behavior: 'deny', message: 'The Bot only runs read-only commands while the player is away.' }
-    if (shellMode === 'auto-shell' || shellMode === 'all') return { behavior: 'allow' }
-    return { behavior: 'ask', input: cmd, reason: 'Not on the read-only list' }
-  }
-  if (role === 'bot') return { behavior: 'deny', message: 'Not available to the Bot.' }
-  if (shellMode === 'all') return { behavior: 'allow' }
-  return { behavior: 'ask', input: truncate(JSON.stringify(input), 1500) }
-}
+export { decideTool, isReadOnlyCommand } from './chat-tool-policy'
+export type { ToolDecision } from './chat-tool-policy'
+import { DISALLOWED, enforceTool } from './chat-tool-policy'
 
 const EFFORT_LEVELS: readonly string[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
@@ -728,14 +682,9 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
 
   function makePolicy(role: ToolRole): CanUseTool {
     return async (toolName, input): Promise<PermissionResult> => {
-      // read the mode at decision time so a switch applies without restarting the session
-      const d = decideTool(role, toolName, input, chatControls(settings(), liveAlly()).shellMode)
-      if (d.behavior === 'allow') return { behavior: 'allow', updatedInput: input }
-      if (d.behavior === 'deny') return d
-      const allowed = await getCtx().permissions.ask({ wksp: name, tool: toolName, input: d.input, reason: d.reason })
-      if (allowed) return { behavior: 'allow', updatedInput: input }
-      const shell = toolName === 'Bash' || toolName === 'PowerShell'
-      return { behavior: 'deny', message: shell ? `${gamertag()} declined this command.` : `${gamertag()} declined ${toolName}.` }
+      const d = await enforceTool({ role, chat: name, shellMode: () => chatControls(settings(), liveAlly()).shellMode,
+        permissions: getCtx().permissions, player: gamertag() }, { runtime: 'claude', name: toolName, input })
+      return d.behavior === 'allow' ? { behavior: 'allow', updatedInput: input } : d
     }
   }
 
@@ -1095,6 +1044,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       await bot?.interrupt()
     },
     async restart(fresh, role = 'genio') {
+      await closeChatToolBridges(getCtx(), name, role)
       if (role === 'bot') {
         bot?.restart(fresh)
       } else {
@@ -1109,6 +1059,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
     },
     async stop() {
       stopped = true
+      await closeChatToolBridges(getCtx(), name)
       genio.stop()
       bot?.stop()
       info.activity = 'offline'

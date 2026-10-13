@@ -1,5 +1,5 @@
 /**
- * Genio's in-process MCP toolbelt (mcp__genio__*). Every mechanic is a
+ * App-owned Genio tool registry (mcp__genio__*). Every mechanic is a
  * deterministic service call; the agent only supplies judgment. Guards that
  * companion enforced in scripts (merge authority, despawn force, outward
  * consent) are enforced here too, so a confused model cannot bypass them.
@@ -7,7 +7,6 @@
 import { z } from 'zod'
 import { modeLabel } from '@shared/vocab'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk'
 import type { Decision, Task } from '@shared/types'
 import type { TaskFile } from '@shared/api'
 import type { AppCtx, HomeCtx } from './services'
@@ -19,9 +18,14 @@ import { findAssets, assetInfo, locateAsset } from './asset-tools'
 import { agentGeneration, falGenerateShape, uthanaMotionShape, uthanaCharacterShape, assetPlaceShape } from './agent-generation'
 import { CATEGORY_IDS } from '@shared/dispatch'
 
-type ToolFn = typeof import('@anthropic-ai/claude-agent-sdk').tool
+export type ToolRole = 'genio' | 'ally' | 'bot'
 
-export type ToolRole = 'genio' | 'bot'
+export interface AppTool {
+  name: string
+  description: string
+  shape: z.ZodRawShape
+  invoke(args: unknown): Promise<CallToolResult>
+}
 
 export interface ToolHooks {
   /** Bot only: surface something the player must see */
@@ -92,27 +96,27 @@ function taskLine(t: Task): Record<string, unknown> {
   }
 }
 
-export function buildTools(
-  tool: ToolFn,
+export function createToolRegistry(
   getCtx: () => AppCtx,
   home: Home,
   role: ToolRole,
   hooks: ToolHooks = {}
-): SdkMcpToolDefinition<any>[] {
+): AppTool[] {
   const hc = (): HomeCtx => getCtx().home(home.name)
-  const tools: SdkMcpToolDefinition<any>[] = []
+  const tools: AppTool[] = []
 
   // Wrap every handler so a thrown error becomes a tool error, never a crash.
   function t<S extends z.ZodRawShape>(name: string, desc: string, shape: S, fn: (a: z.infer<z.ZodObject<S>>) => Promise<CallToolResult> | CallToolResult): void {
-    tools.push(
-      tool(name, desc, shape, async (args: unknown) => {
+    tools.push({
+      name, description: desc, shape,
+      async invoke(args) {
         try {
-          return await fn(args as z.infer<z.ZodObject<S>>)
+          return await fn(z.object(shape).parse(args))
         } catch (e) {
           return fail(`${name} failed: ${(e as Error)?.message ?? String(e)}`)
         }
-      })
-    )
+      }
+    })
   }
 
   const requireTask = (id: string): { hc: HomeCtx; task: Task } => {
@@ -602,3 +606,6 @@ export function buildTools(
 
   return tools
 }
+
+// Compatibility entry point; SDK-specific adaptation lives in its own module.
+export { buildTools } from './wksp-sdk-tools'

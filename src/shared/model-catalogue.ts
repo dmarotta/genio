@@ -1,3 +1,4 @@
+import { chatDriverCapabilities } from './chat-driver-capabilities'
 export type ModelRuntime = 'claude' | 'codex' | 'gemini' | 'opencode'
 export type ModelAccountState = 'connected' | 'free-no-login' | 'sign-in-needed' | 'unavailable'
 export interface CatalogueModel {
@@ -62,7 +63,7 @@ export function filterModels(models: CatalogueModel[], search: string, provider 
     words.every(word => `${m.name} ${m.id} ${m.provider} ${m.runtime} ${m.aliases.join(' ')}`.toLowerCase().includes(word)))
 }
 export function canDrive(route: CatalogueRoute): boolean {
-  return route.runtime === 'claude' && route.state === 'connected' && !route.stale
+  return chatDriverCapabilities(route.runtime).mode === 'driver' && route.state === 'connected' && !route.stale
 }
 
 export function providerTag(route: Pick<CatalogueRoute, 'runtime' | 'provider'>): string {
