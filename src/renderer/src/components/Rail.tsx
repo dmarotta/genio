@@ -5,6 +5,7 @@ import { cx } from '../lib/format'
 import { RAIL, entryActive, initialIndex, menuKey, navItems, opensMenu, type RailEntry } from '../lib/railmenu'
 import '../styles/railmenu.css'
 import { RailMeter } from './PlanMeter'
+import { questCounts } from '@shared/quest-summary'
 
 const ICON: Record<string, LucideIcon> = {
   play: Gamepad2,
@@ -29,6 +30,7 @@ export function Rail() {
   const live = useStore((s) => s.snap.tasks.filter((t) => t.state === 'working' || t.state === 'spawning' || t.state === 'validating').length)
   const mail = useStore((s) => s.snap.inbox.filter((n) => !n.ackedAt).length)
   const thinking = useStore((s) => s.snap.wksps.some((m) => m.activity === 'thinking' || m.activity === 'tool'))
+  const quests = useStore((s) => questCounts(s.snap.backlog))
   const badge: Partial<Record<ViewId, { n: number; tone: string }>> = {
     move: { n: moves, tone: 'amber' },
     squad: { n: live, tone: 'neon' },
@@ -48,6 +50,7 @@ export function Rail() {
             {b && b.n > 0 && <span className={cx('rail-badge', b.tone)}>{b.n > 99 ? '99' : b.n}</span>}
             <span className="rail-tip">
               {n.label}
+              {n.id === 'quests' && <span>{quests.running} running &middot; {quests.planned} planned</span>}
               <kbd>Ctrl {n.key}</kbd>
             </span>
           </button>

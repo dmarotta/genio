@@ -21,6 +21,7 @@ const XP: Record<AwardEvent, number> = {
 }
 
 export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
+  { id: 'character-sheet-open', name: 'Know Your Character', description: 'Open your Character Sheet.', feature: 'status' },
   { id: 'project-window-open', name: 'Home Base', description: 'Open your first project window.', feature: 'project-window' },
   { id: 'project-cli-open', name: 'Direct Entry', description: 'Open a project with genio <folder>.', feature: 'project-cli' },
   { id: 'play-first', name: 'Press Play', description: 'Start a Unity Play session.', feature: 'play' },
@@ -338,6 +339,7 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
   bus.onEvent((ev) => {
     if (ev.type === 'feature-used') {
       const ids: Record<string, string> = {
+        'character-sheet': 'character-sheet-open',
         'model-picker': 'model-picker', 'model-switch': 'model-switch', screenshot: 'screenshot', world_push: 'push-first',
         rate_task: 'rating-first', 'account-login': 'account-login', 'yolo-chat': 'yolo-chat', 'usage-mode': 'usage-mode',
         quest_add: 'quest-first', world_add: 'world-first', memory_write: 'lore-first', 'inventory-index': 'inventory-index'

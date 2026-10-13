@@ -1,24 +1,17 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { Flame, Lock, Trophy } from 'lucide-react'
-import type { LedgerRecord } from '@shared/types'
+import { recentLoot } from '@shared/quest-summary'
 import { api, useStore } from '../store'
 import { ViewHeader } from '../components/ui'
-import { clock, cx, dateShort, usd } from '../lib/format'
+import { cx, dateShort, usd } from '../lib/format'
 
 export function CharacterSheet() {
   const stats = useStore((s) => s.snap.stats)
-  const tasks = useStore((s) => s.snap.tasks)
-  const [ledger, setLedger] = useState<LedgerRecord[]>([])
+  const loot = useStore((s) => recentLoot(s.snap))
 
   useEffect(() => {
-    let active = true
-    void api().ledgerTail(60).then((records) => {
-      if (active) setLedger(records.slice().reverse())
-    }).catch(() => {
-      if (active) setLedger([])
-    })
-    return () => { active = false }
-  }, [tasks])
+    void api().featureUsed('character-sheet').catch(() => {})
+  }, [])
   const pct = stats.xpNext ? Math.min(100, (stats.xp / stats.xpNext) * 100) : 0
   const unlocked = stats.achievements.filter((a) => a.unlockedAt).length
 
@@ -73,23 +66,20 @@ export function CharacterSheet() {
         </section>
       </div>
 
-      <section className="panel replay">
+      <section className="status-sec panel ticks" style={{ ['--sec' as string]: 'var(--volt)' }}>
         <header className="card-head">
-          <span className="label">Replay log</span>
-          <span className="mute" style={{ fontSize: 12 }}>
-            {ledger.length ? 'Newest first' : 'Enable the Replay log in Systems to record squad activity'}
-          </span>
+          <h2 className="sec-title">Loot</h2>
+          <span className="mute">Last {loot.length} completions</span>
         </header>
-        <div className="replay-list mono">
-          {ledger.map((r, i) => (
-            <div key={i} className="replay-row">
-              <span className="mute">{dateShort(r.ts)} {clock(r.ts)}</span>
-              <span className="replay-ev">{r.event}</span>
-              <span className="dim">{r.task ?? r.project ?? ''}</span>
-              <span className="mute replay-data">{r.data ? JSON.stringify(r.data).slice(0, 140) : ''}</span>
-            </div>
+        {!loot.length && <div className="mute sec-empty">No loot yet. Completed quests appear here.</div>}
+        <ul className="sec-lines">
+          {loot.map((entry) => (
+            <li key={entry.key} className="sec-line">
+              <i className="sec-dot" style={{ background: 'var(--volt)' }} />
+              <span><b>{entry.title}</b><br /><span className="mute">{entry.detail} · {dateShort(entry.completedAt)}</span></span>
+            </li>
           ))}
-        </div>
+        </ul>
       </section>
     </div>
   )

@@ -60,7 +60,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
       return info
     },
     featureUsed: async (feature) => {
-      if (feature === 'screenshot' || feature === 'model-picker') bus.publish({ type: 'feature-used', feature })
+      if (feature === 'screenshot' || feature === 'model-picker' || feature === 'character-sheet') bus.publish({ type: 'feature-used', feature })
     },
     snapshot: () => ctx().snapshot(),
     homePath: () => ctx().main.home.root,

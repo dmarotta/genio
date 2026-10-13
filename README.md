@@ -28,7 +28,7 @@ for the design and [docs/VOCABULARY.md](docs/VOCABULARY.md) for the terms.
   finishes, needs a choice, lags, or a PR changes state.
 - **Your Move** — every open choice, one card at a time, with a recommendation.
 - **Quest Log** — queued work with priorities, dependencies, holds and capacity.
-- **Character Sheet** (`/status`) — Level, XP, streaks and achievements.
+- **Character Sheet** (`/status`) — Level, XP, streaks, achievements and recent completion loot (Ctrl+5).
 - **Presence** — Online, DND (routine events handled off-screen), AFK (the Bot
   plays for you and replays a welcome-back brief; optional desktop and webhook
   alerts).

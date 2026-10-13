@@ -32,6 +32,7 @@ describe('achievement feature coverage', () => {
   it('keeps Character Sheet tied to the stable streak achievement and screen id', () => {
     expect(navItems().find((v) => v.label === 'Character Sheet')?.id).toBe('status')
     expect(ACHIEVEMENTS.find((a) => a.id === 'on-a-roll')?.feature).toBe('status')
+    expect(ACHIEVEMENTS.find((a) => a.id === 'character-sheet-open')?.feature).toBe('status')
     expect(navItems().some((v) => v.label === 'Status')).toBe(false)
   })
   it('covers every Rail view and submenu', () => {
