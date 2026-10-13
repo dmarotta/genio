@@ -4,11 +4,11 @@ import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { Project } from '../src/shared/types'
 import { worldList, worldPath, modifiedLabel } from '../src/renderer/src/lib/worlds'
-const fixture = vi.hoisted(() => ({ projects: [] as Project[], tasks: [], allies: [], enabled: false, go: vi.fn(), deploy: vi.fn(), ally: vi.fn(), update: vi.fn(), push: vi.fn(), sync: vi.fn(), openPath: vi.fn(), playtest: vi.fn() }))
+const fixture = vi.hoisted(() => ({ projects: [] as Project[], tasks: [], allies: [], enabled: false, go: vi.fn(), deploy: vi.fn(), projectOpen: vi.fn(), update: vi.fn(), push: vi.fn(), sync: vi.fn(), openPath: vi.fn(), playtest: vi.fn() }))
 vi.mock('../src/renderer/src/store', () => ({
   useStore: (selector: (s: unknown) => unknown) => selector({ snap: { projects: fixture.projects, tasks: fixture.tasks, allies: fixture.allies } }),
-  api: () => ({ falWorld: async () => ({ config: {} }), uthanaWorld: async () => ({ config: {} }), projectMetadata: async () => ({}), projectPushStatus: async () => ({ ahead: 2, behind: 0 }), projectUpdate: fixture.update, projectPush: fixture.push, projectSync: fixture.sync, openPath: fixture.openPath, playtest: fixture.playtest }),
-  hasView: () => fixture.enabled, go: fixture.go, openDeploy: fixture.deploy, spawnWorldAllyChat: fixture.ally,
+  api: () => ({ projectOpen: fixture.projectOpen, falWorld: async () => ({ config: {} }), uthanaWorld: async () => ({ config: {} }), projectMetadata: async () => ({}), projectPushStatus: async () => ({ ahead: 2, behind: 0 }), projectUpdate: fixture.update, projectPush: fixture.push, projectSync: fixture.sync, openPath: fixture.openPath, playtest: fixture.playtest }),
+  hasView: () => fixture.enabled, go: fixture.go, openDeploy: fixture.deploy,
   op: async (_: string, fn: () => unknown) => fn(), setState: vi.fn(), toast: vi.fn(), errText: String
 }))
 import { Worlds } from '../src/renderer/src/views/Worlds'
@@ -66,7 +66,8 @@ describe('Worlds list', () => {
     await act(async () => (host.querySelector('.world-identity') as HTMLButtonElement).click())
     expect(host.querySelector('.world-details')).not.toBeNull()
     await click('Deploy'); expect(fixture.deploy).toHaveBeenCalledWith({ project: 'Zebra' })
-    await click('Ally'); expect(fixture.ally).toHaveBeenCalledWith('Zebra')
+    await click('Open'); expect(fixture.projectOpen).toHaveBeenCalledWith('C:/games/Zebra')
+    expect(host.textContent).not.toContain('Spawn ally')
     await click('Sync'); expect(fixture.sync).toHaveBeenCalledWith('Zebra')
     await click('Push'); expect(fixture.push).toHaveBeenCalledWith('Zebra')
     await click('Reveal in Explorer'); expect(fixture.openPath).toHaveBeenCalledWith('C:/games/Zebra')

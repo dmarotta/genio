@@ -138,3 +138,25 @@ Forcing requires the Player's explicit word.
 ## Base layout
 
 See `src/main/home.ts`.
+
+## Project chat shell
+
+The Hub opens one window per project. Comms and Inventory share the window's
+project wksp, with per-chat controls, queued-message editing, image attachments,
+and in-memory drafts. There are no chat tabs, splits or saved dock layouts.
+Both chat providers run from the project folder and use scoped tool sessions.
+Legacy units and quests remain in their original homes until the data migration;
+project windows and tool sessions include only records belonging to their world.
+
+The old main chat is read-only. Opening the `genio` project imports its compacted
+transcript and image files once into that project's base without changing the
+source log or adopting the old cross-world provider session. Existing project
+messages win on duplicate IDs. Imported history supplies a bounded handoff on a
+new provider session; existing project provider sessions retain normal resume.
+Project agents and their Bot cannot wake while their project is closed. The
+legacy main supervisor still observes old units and forwards task wakes to the
+owning open project. A close cancellation keeps units running; confirmation
+stops that project's terminals and preserves its worktrees.
+
+Your Move remains until the following inline-answer build; this shell introduces
+no replacement standalone choices page.

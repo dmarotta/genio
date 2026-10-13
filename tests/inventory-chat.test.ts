@@ -6,7 +6,7 @@ import type { InventoryContext } from '../src/shared/inventory-context'
 import type { ChatMessage } from '../src/shared/types'
 import { clearDraft, getDraftContext } from '../src/renderer/src/drafts'
 const f = vi.hoisted(() => ({ send: vi.fn(), messages: [] as ChatMessage[] }))
-vi.mock('../src/renderer/src/store', () => ({ PROJECT_WKSP: undefined, useStore: (fn: (s: unknown) => unknown) => fn({ snap: { wksps: [] }, chats: { main: f.messages } }) }))
+vi.mock('../src/renderer/src/store', () => ({ PROJECT_WKSP: 'project-chat', useStore: (fn: (s: unknown) => unknown) => fn({ snap: { wksps: [] }, chats: { 'project-chat': f.messages } }) }))
 vi.mock('../src/renderer/src/views/Comms', async () => {
   const { useInventoryContext } = await import('../src/renderer/src/components/InventoryContextChips')
   return { ChatPanel: ({ wksp, context }: { wksp: string; context: InventoryContext }) => {
@@ -22,7 +22,7 @@ const button = (label: string): HTMLButtonElement => host.querySelector(`[aria-l
 const click = async (label: string) => { await act(async () => button(label).click()) }
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true, ResizeObserver: class { observe() {} disconnect() {} } })
-  sessionStorage.clear(); clearDraft('main'); f.send.mockClear(); f.messages = []
+  sessionStorage.clear(); clearDraft('project-chat'); f.send.mockClear(); f.messages = []
   host = document.createElement('div'); document.body.append(host)
   Object.defineProperties(host, { clientWidth: { value: 1200 }, clientHeight: { value: 600 } })
   root = createRoot(host)
@@ -53,7 +53,7 @@ it('removes chips from sends and keeps dismissals while collapsed; browser chang
 it('preserves an edited queued snapshot independently of browsing and across panel remounts', async () => {
   await render(); await click('Test restore'); await render(context('beta')); await click('Test send')
   expect(f.send.mock.lastCall?.[0]).toEqual({ world: 'saved', folder: 'Old' })
-  expect(getDraftContext('main')).toMatchObject({ world: 'saved', folder: 'Old' })
+  expect(getDraftContext('project-chat')).toMatchObject({ world: 'saved', folder: 'Old' })
   await act(async () => root.render(null)); await render(); await click('Test send')
   expect(f.send.mock.lastCall?.[0]).toMatchObject({ world: 'saved', folder: 'Old' })
 })

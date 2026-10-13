@@ -357,6 +357,9 @@ async function captureTour(dir: string, win: BrowserWindow, binding?: WindowBind
   await wait(Number(process.env.GENIO_CAPTURE_DELAY ?? 3500))
   if (binding) {
     fs.writeFileSync(path.join(dir, `project-${binding.project}.png`), (await win.webContents.capturePage()).toPNG())
+    await win.webContents.executeJavaScript(`window.dispatchEvent(new KeyboardEvent('keydown', { key: '1', ctrlKey: true, bubbles: true }))`)
+    await wait(700)
+    fs.writeFileSync(path.join(dir, `project-${binding.project}-chat.png`), (await win.webContents.capturePage()).toPNG())
     if (![...windows.values()].some(b => !b)) { quitting = true; app.exit(0) }
     return
   }

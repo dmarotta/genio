@@ -65,3 +65,34 @@ it('main and AFK Bot inherit the selected provider/model, retain one transcript 
   peers[1].events.notification('turn/completed', { threadId: 'session-2', turn: { id: 'turn', status: 'completed' } })
   expect(service.history().filter(m => m.role === 'genio')).toHaveLength(1)
 })
+
+it('leaves the archived main log and session state untouched and cannot start a provider', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-archive-'))
+  const home = new Home(root); home.ensure()
+  const archive = JSON.stringify({ id: 'queued', wksp: 'main', role: 'player', text: 'old', ts: '2026-01-01', queue: 'queued' }) + '\n'
+  fs.writeFileSync(home.chatFile, archive)
+  fs.writeFileSync(home.wkspFile, '{}')
+  const ctx = { settings: { get: () => ({}) } } as unknown as AppCtx
+  const service = createWkspService(() => ctx, home, undefined, true)
+  cleanup.push(async () => { await service.stop(); fs.rmSync(root, { recursive: true, force: true }) })
+  expect(service.history()[0].queue).toBe('unsent')
+  await expect(service.send('new')).rejects.toThrow('archived')
+  await expect(service.restart(false)).rejects.toThrow('archived')
+  service.say('ignored'); service.deliverWakes(); await service.stop()
+  expect(fs.readFileSync(home.chatFile, 'utf8')).toBe(archive)
+  expect(fs.readFileSync(home.wkspFile, 'utf8')).toBe('{}')
+  expect(peers).toHaveLength(0)
+})
+
+it('refuses sends, retries and wake delivery while a project window is closed', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-closed-chat-'))
+  const home = new Home(root); home.ensure()
+  const ctx = { settings: { get: () => ({}) } } as unknown as AppCtx
+  const service = createWkspService(() => ctx, home, undefined, false, () => false)
+  cleanup.push(async () => { await service.stop(); fs.rmSync(root, { recursive: true, force: true }) })
+  await expect(service.send('do work')).rejects.toThrow('Open the project window')
+  await expect(service.restart(false)).rejects.toThrow('Open the project window')
+  service.deliverWakes()
+  expect(service.history()).toEqual([])
+  expect(peers).toHaveLength(0)
+})

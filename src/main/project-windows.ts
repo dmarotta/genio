@@ -26,7 +26,7 @@ export function projectSnapshot(s: FleetSnapshot, binding?: WindowBinding): Flee
     projects: s.projects.filter(p => p.name === binding.project),
     tasks: s.tasks.filter(t => t.project === binding.project),
     backlog: s.backlog.filter(t => t.project === binding.project),
-    decisions: s.decisions.filter(t => t.project === binding.project),
+    decisions: s.decisions.filter(t => t.project === binding.project || (!t.project && t.wksp === binding.wksp)),
     wksps: s.wksps.filter(m => m.name === binding.wksp),
     allies: s.allies.filter(a => a.name === binding.wksp)
   }

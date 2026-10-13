@@ -13,7 +13,7 @@ import { recordCodexChatUsage, recordCodexChatLimits } from './usage'
  * Each base has one WkspService. It owns:
  *   - the Genio session: a Claude Agent SDK query() in streaming-input mode,
  *     started lazily so an idle base spends zero tokens;
- *   - (main base only) the Bot session: Genio's away supervisor that handles
+ *   - the project Bot session: Genio's away supervisor that handles
  *     events while the player is DND/AFK and escalates what they must see.
  * Overwatch supplies compact batches. Per-event tool acknowledgements survive
  * failed turns; successful completion also acknowledges the delivered batch.
@@ -58,7 +58,7 @@ interface WkspState {
   turns?: number
 }
 
-export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally): WkspService {
+export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally, readOnly = false, isOpen: () => boolean = () => true): WkspService {
   const name = home.name
   const persisted = readJson<WkspState>(home.wkspFile, {})
   const info: WkspInfo = {
@@ -85,8 +85,13 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
   /** the ally record as saved now (its chat controls can change while the base runs) */
   const liveAlly = (): Ally | undefined => (ally ? (safeGet(() => getCtx().allies.list().find((a) => a.name === ally.name && !a.retiredAt)) ?? ally) : undefined)
   const gamertag = (): string => settings().gamertag || 'Player'
+  const chatCwd = (): string => {
+    const world = liveAlly()?.projects[0]
+    return (world && getCtx().projects.get(world)?.path) || home.root
+  }
 
   const saveState = (): void => {
+    if (readOnly) return
     writeJson(home.wkspFile, { providers: genio.state(), botProviders: bot?.state(), sessionId: genio.sessionId, botSessionId: bot?.sessionId, costUsd: info.costUsd, turns: info.turns } satisfies WkspState)
   }
   const publishInfo = (): void => {
@@ -99,12 +104,13 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
     if (!history) {
       // first read in this run: anything still queued was lost with the previous session
       const { list, stranded } = strandQueued(compactChat(readJsonl<ChatMessage>(home.chatFile)).slice(-1000))
-      for (const m of stranded) appendJsonl(home.chatFile, m)
+      if (!readOnly) for (const m of stranded) appendJsonl(home.chatFile, m)
       history = list
     }
     return history
   }
   const record = (m: ChatMessage, persist: boolean): void => {
+    if (readOnly) return
     const h = loadHistory()
     const i = h.findIndex((x) => x.id === m.id)
     if (i >= 0) h[i] = m
@@ -136,15 +142,15 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
     const ctx = getCtx()
     const sdk = await loadSdk()
     const s = settings()
-    const toolDefs = buildTools(sdk.tool, getCtx, home, role, { escalate: (text, severity) => botEscalate(text, severity) })
+    const toolDefs = buildTools(sdk.tool, getCtx, home, role, { escalate: (text, severity) => botEscalate(text, severity) }, home.isMain || role === 'bot' ? undefined : liveAlly()?.projects ?? [])
     const server = sdk.createSdkMcpServer({ name: 'genio', version: '1.0.0', tools: toolDefs, alwaysLoad: true })
-    const worlds = ctx.projects.list().map((p) => p.path)
+    const worlds = ctx.projects.list().filter(p => liveAlly()?.projects.includes(p.name)).map((p) => p.path)
     const { model, effort } = config ?? claudeConfig()
     const usage = role === 'bot' ? '' : `\n\n${chatUsageLine(globalMode(s), claudeStatus(ctx.main.home.data))}`
     const opts: Options = {
       // Load only the bounded rules. Skills, charter and versioned memory are tools.
       systemPrompt: { type: 'preset', preset: 'claude_code', append: customContract({ gamertag: gamertag(), base: name, isAlly: !home.isMain }, role === 'bot', usage) },
-      cwd: home.root,
+      cwd: chatCwd(),
       additionalDirectories: worlds,
       settingSources: [],
       includePartialMessages: role !== 'bot',
@@ -159,7 +165,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
     }
     if (role === 'bot') {
       opts.tools = [] // All Bot tools, for either provider, go through the guarded bridge.
-      const bridge = await openChatToolBridge(getCtx, { home, role: 'bot', worlds: '*', signal: new AbortController().signal,
+      const bridge = await openChatToolBridge(getCtx, { home, role: 'bot', worlds: home.isMain ? '*' : liveAlly()?.projects ?? [], signal: new AbortController().signal,
         hooks: { escalate: botEscalate } })
       opts.mcpServers = { genio: { command: process.execPath, args: [bridge.entry],
         env: { ...bridge.env, ELECTRON_RUN_AS_NODE: '1' } } }
@@ -185,7 +191,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
   const claudeConfig = () => sessionConfig('genio', { ...settings(), wkspModel: driverConfig().model ?? '', wkspEffort: driverConfig().effort })
   function handoffContext(excludeMessageId?: string): string {
     const ctx = getCtx(), hc = ctx.home(name)
-    return chatHandoff({ messages: loadHistory().filter(m => m.id !== excludeMessageId), projects: ctx.projects.list(), tasks: hc.crew.list(),
+    return chatHandoff({ messages: loadHistory().filter(m => m.id !== excludeMessageId), projects: ctx.projects.list().filter(p => home.isMain || liveAlly()?.projects.includes(p.name)), tasks: hc.crew.list(),
       decisions: hc.decisions.list(true), permissions: chatControls(settings(), liveAlly()).shellMode })
   }
   function providerChanged(from: ChatProvider, to: ChatProvider): void {
@@ -212,7 +218,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
     if (provider === 'claude') return new AgentSession(role, resume => buildOptions(role, resume, claudeTurnConfig()),
       { ...preparedEvents, onRateLimit: rateLimit }, name, claudeTurnConfig, quotaPolicy, costs)
     return new CodexChatDriver({
-      wksp: name, cwd: home.root,
+      wksp: name, cwd: chatCwd(),
       config: () => ({ model: config().model!, effort: config().effort }),
       instructions: () => customContract({ gamertag: gamertag(), base: name, isAlly: !home.isMain }, role === 'bot',
         `${chatUsageLine(globalMode(settings()))}\nUse only genio_ tools. Native shell, edits, agents and plugins are unavailable. Never replay completed mutations from a handoff.`),
@@ -328,7 +334,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
 
   let bot: ProviderChatSession | undefined
   const botFile = `${home.data}/bot.jsonl`
-  if (home.isMain) {
+  if (!readOnly) {
     bot = new ProviderChatSession({
       hold: quotaHold,
       selection: selectedProvider,
@@ -407,7 +413,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
   }
 
   setTimeout(() => {
-    if (stopped || bootDone) return
+    if (readOnly || !isOpen() || stopped || bootDone) return
     bootDone = true
     if (!needsSessionStart()) return
     let drain = { text: '', ackThrough: -1, count: 0 }
@@ -416,7 +422,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
     } catch {
       /* no events */
     }
-    const toBot = home.isMain && getCtx().away.state().mode === 'afk' && bot
+    const toBot = getCtx().away.state().mode === 'afk' && bot
     const target = toBot ? bot! : genio
     target.enqueue({
       kind: drain.count ? 'events' : 'system',
@@ -460,7 +466,6 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
         publishInfo()
         return true
       case 'afk':
-        if (!home.isMain) return false
         player()
         await ctx.away.set('afk')
         genio.enqueue({ kind: 'player', prompt: afkPrompt(gamertag(), rest) })
@@ -468,7 +473,6 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
         return true
       case 'dnd':
       case 'quiet': {
-        if (!home.isMain) return false
         player()
         const off = /^(off|stop|no)$/i.test(rest)
         if (off) {
@@ -482,7 +486,6 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       }
       case 'online':
       case 'back': {
-        if (!home.isMain) return false
         player()
         const mode = ctx.away.state().mode
         if (mode === 'afk') {
@@ -519,6 +522,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
   // ---------------------------------------------------------- service
 
   const performSend: WkspService['send'] = async (text, origin = 'player', images = [], context) => {
+    if (readOnly) throw new Error('The main chat is archived. Open the Genio project to continue.')
+    if (!isOpen()) throw new Error('Open the project window before using its chat.')
     stopped = false
     bootDone = true
     const trimmed = text.trim()
@@ -537,9 +542,9 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       () => loadHistory().filter(m => m.ts >= contextSessionStart))
     const stored = saveChatImages(chatImageDir(home.data), prepared.images)
     if (prepared.context?.thumbnail?.status === 'attached') prepared.context.thumbnail.image = stored.refs.at(-1)
-    let prompt = trimmed
+    let prompt = !genio.sessionId && loadHistory().length ? `${handoffContext()}\n\nCurrent request:\n${trimmed}` : trimmed
     // companion: the first ordinary player message after AFK ends it with a return brief
-    if (origin === 'player' && home.isMain && ctx.away.state().mode === 'afk') {
+    if (origin === 'player' && ctx.away.state().mode === 'afk') {
       const brief = ctx.away.takeReturnBrief()
       await ctx.away.set('online')
       prompt = `${returnPrompt(gamertag(), brief)}\n\nThen handle ${gamertag()}'s new message:\n${trimmed || '(see the attached image)'}`
@@ -576,6 +581,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       return sending
     },
     unqueue(id) {
+      if (readOnly) return null
       const h = loadHistory()
       const m = h.find((x) => x.id === id)
       if (!m || (m.queue !== 'queued' && m.queue !== 'unsent')) return null
@@ -594,7 +600,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       return { text: m.text, ...(images?.length ? { images } : {}), ...(m.context ? { context: m.context } : {}) }
     },
     deliverWakes() {
-      if (stopped) return
+      if (readOnly || !isOpen() || stopped) return
       if (selectedProvider() === 'claude' && !quotaPolicy().canStart(false, Date.now(), false)) return
       try {
         if (Date.now() < eventsBackoffUntil) {
@@ -613,7 +619,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
           batchTimer = setTimeout(() => svc.deliverWakes(), hold + 50)
           return
         }
-        const mode = home.isMain ? ctx.away.state().mode : 'online'
+        const mode = ctx.away.state().mode
         const allRoutine = pend.every((w) => w.routine)
         const target = bot && (mode === 'afk' || (mode === 'dnd' && allRoutine)) ? bot : genio
         const d = wk.drain()
@@ -630,6 +636,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       await bot?.interrupt()
     },
     async restart(fresh, role = 'genio') {
+      if (readOnly) throw new Error('The main chat is archived.')
+      if (!isOpen()) throw new Error('Open the project window before using its chat.')
       await closeChatToolBridges(getCtx(), name, role)
       if (role === 'bot') {
         bot?.restart(fresh)

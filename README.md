@@ -34,8 +34,8 @@ for the design and [docs/VOCABULARY.md](docs/VOCABULARY.md) for the terms.
   alerts).
 - **Lore** (`/save`) — curated player profile and squad knowledge with decay
   and a memory budget.
-- **Allies** — extra Genio instances with their own base and charter for
-  separate domains.
+- **Project windows** - open a folder for its own chat, Inventory and squad.
+  Closing warns before stopping running units; non-git folders keep git actions disabled.
 - **Playtest** — launch the game from any unit's worktree before you merge.
 - **Engine aware** — Godot, Unity, Unreal, Bevy, LÖVE, GameMaker, Defold,
   MonoGame and web engines get sensible build, test and run presets.

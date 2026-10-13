@@ -1,15 +1,14 @@
 import { GenerationSettings } from '../components/GenerationSettings'
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, FolderOpen, Gamepad2, Globe, MoreHorizontal, Package, Settings, Search, Play, Plus, RefreshCw, Rocket, Sparkles, Trash, Upload, Users } from 'lucide-react'
+import { ChevronDown, ChevronRight, FolderOpen, Gamepad2, Globe, MoreHorizontal, Package, Settings, Search, Play, Plus, RefreshCw, Rocket, Sparkles, Trash, Upload } from 'lucide-react'
 import type { PushStatus } from '@shared/api'
 import { modeSourceOf } from '@shared/vocab'
 import type { CostDial, Engine, Project, ProjectCommands, ProjectMode } from '@shared/types'
 import { DIAL_HINT, DIAL_LABEL, cheapModelsAllowed } from '@shared/dispatch'
-import { PROJECT_WINDOW, api, errText, go, hasView, op, openDeploy, setState, spawnWorldAllyChat, toast, useStore } from '../store'
+import { PROJECT_WINDOW, api, errText, go, hasView, op, openDeploy, setState, toast, useStore } from '../store'
 import { CommitInput, Confirm, Empty, Field, Modal, Toggle, ViewHeader } from '../components/ui'
 import { ENGINES, ENGINE_COLOR, ENGINE_LABEL, MODE_HINT, MODE_LABEL, PROJECT_MODES, isActive } from '../lib/vocab'
 import { cx } from '../lib/format'
-import { allyForWorld } from '../lib/dock'
 import { worldList, worldPath, modifiedLabel, type WorldSort } from '../lib/worlds'
 import type { WorldMetadata } from '@shared/api'
 
@@ -105,8 +104,6 @@ function WorldRow({ p, highlight, metadata }: { p: Project; highlight: boolean; 
   const [confirmYolo, setConfirmYolo] = useState(false)
   const [remove, setRemove] = useState(false)
   const [delClone, setDelClone] = useState(false)
-  const ally = useStore((s) => allyForWorld(s.snap.allies, p.name))
-  const [spawning, setSpawning] = useState(false)
   const ref = useRef<HTMLElement>(null)
   // Offline worlds with a remote push on demand: show what origin is missing.
   const pushable = p.mode === 'local-only' && !!p.remote
@@ -159,7 +156,6 @@ function WorldRow({ p, highlight, metadata }: { p: Project; highlight: boolean; 
         <div className="world-actions" style={{ flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
           <button className="btn sm solid" onClick={() => void op('Open project', () => api().projectOpen(p.path))}><FolderOpen size={13} /> Open</button>
           <span title={hasView('inventory') ? `Open ${p.name} Inventory` : 'Inventory coming soon'}><button className="btn sm solid" disabled={!hasView('inventory')} onClick={() => go('inventory', { world: p.name })}><Package size={13} /> Inventory</button></span>
-          <button className="btn sm violet" disabled={spawning} title={ally ? `Open ally ${ally.name}` : 'Spawn ally'} onClick={async () => { setSpawning(true); await spawnWorldAllyChat(p.name); setSpawning(false) }}><Users size={13} />{spawning ? 'Spawning...' : 'Ally'}</button>
           <details className="world-menu" onKeyDown={(e) => { if (e.key === 'Escape') { e.currentTarget.open = false; e.currentTarget.querySelector('summary')?.focus() } }}>
             <summary className="btn sm ghost icon" aria-label={`Actions for ${p.name}`}><MoreHorizontal size={17} /></summary>
             <div className="world-menu-items" onClick={(e) => { const menu = e.currentTarget.closest('details'); if (menu) menu.open = false }}>

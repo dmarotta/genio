@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Search } from 'lucide-react'
-import { api, focusTask, go, op, openDeploy, setState, useStore, VIEWS, type ViewId } from '../store'
+import { PROJECT_WKSP, api, focusTask, go, op, openDeploy, setState, useStore, VIEWS, type ViewId } from '../store'
 import { NAV } from './Rail'
 import { KIND_LABEL } from '../lib/vocab'
 import { cx } from '../lib/format'
@@ -45,7 +45,7 @@ export function CommandPalette() {
         .filter((t) => t.state !== 'cleaned')
         .map((t) => ({ id: `task-${t.id}`, label: `Unit: ${t.title}`, hint: `${KIND_LABEL[t.kind]} · ${t.project}`, group: 'Squad', run: () => focusTask(t.id) }))
     ]
-    return list
+    return PROJECT_WKSP ? list : list.filter(c => !['recap', 'save'].includes(c.id))
   }, [tasks, projects])
 
   const filtered = useMemo(() => {

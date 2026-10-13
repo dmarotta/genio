@@ -5,7 +5,7 @@ import { chatControls } from '@shared/chat'
 import type { AppCtx } from './services'
 import type { Home } from './home'
 import { agentGeneration } from './agent-generation'
-import { createToolRegistry, findTask, type ToolHooks, type ToolRole } from './wksp-tools'
+import { createToolRegistry, findTask, findDecision, type ToolHooks, type ToolRole } from './wksp-tools'
 import { enforceTool } from './chat-tool-policy'
 import { ToolPages } from './tool-pages'
 
@@ -24,8 +24,8 @@ const BOT_READS = new Set(['play_status', 'play_console', 'play_stats', 'play_fr
   'procedure_read', 'skill_read', 'settings_read', 'event_read', 'events_ack'])
 // These services aggregate across worlds or create new authority. Until they
 // offer scoped APIs, limited-world connections cannot call them at all.
-const GLOBAL_ONLY = new Set(['fleet_view', 'status_report', 'dispatch_profiles', 'world_add', 'world_create',
-  'mail_list', 'mail_ack', 'mail_reply', 'ally_list', 'ally_route', 'presence_set', 'settings_update'])
+const GLOBAL_ONLY = new Set(['status_report', 'dispatch_profiles', 'world_add', 'world_create',
+  'mail_list', 'mail_ack', 'mail_reply', 'ally_list', 'ally_route', 'report_to_main', 'presence_set', 'settings_update'])
 const fail = (text: string): CallToolResult => ({ isError: true, content: [{ type: 'text', text }] })
 const result = (value: unknown): CallToolResult => ({ content: [{ type: 'text', text: JSON.stringify(value, null, 1) }] })
 
@@ -45,14 +45,15 @@ export function createChatToolSession(getCtx: () => AppCtx, binding: ChatToolBin
     if (!ally || [...worlds!].some(w => !ally.projects.includes(w))) throw new Error('World scope exceeds ally authority')
   }
   const within = (world: unknown) => typeof world === 'string' && (!worlds || worlds.has(world))
+  const withinChoice = (d: { project?: string; wksp?: string }) => within(d.project) || (!d.project && d.wksp === home.name)
   const checkWorld = (world: unknown) => { if (!within(world)) throw new Error('World is outside this connection scope') }
   const checkTask = (id: unknown) => {
     const found = typeof id === 'string' ? findTask(getCtx(), id, home) : undefined
-    if (!found || (!home.isMain && found.hc.home.name !== home.name)) throw new Error('Task is outside this chat')
+    if (!found) throw new Error('Task is outside this chat')
     checkWorld(found.task.project)
   }
   const checkQuest = (id: unknown) => {
-    const quest = typeof id === 'string' ? getCtx().home(home.name).backlog.get(id) : undefined
+    const quest = typeof id === 'string' ? [...getCtx().homes.values()].map(h => h.backlog.get(id)).find(Boolean) : undefined
     if (!quest || (worlds && !within(quest.project))) throw new Error('Quest is outside this connection scope')
   }
   const tools = createToolRegistry(getCtx, home, role, binding.hooks).filter(t =>
@@ -90,11 +91,11 @@ export function createChatToolSession(getCtx: () => AppCtx, binding: ChatToolBin
         if (Array.isArray(args.depends_on)) for (const id of args.depends_on) checkQuest(id)
         if (name.startsWith('quest_') && args.id !== undefined) checkQuest(args.id)
         if (name === 'choice_resolve') {
-          const d = getCtx().home(home.name).decisions.get(String(args.id))
+          const d = findDecision(getCtx(), String(args.id))?.d
           if (!d) throw new Error('Choice is outside this chat')
           if (d.taskId) checkTask(d.taskId)
           if (d.backlogId) checkQuest(d.backlogId)
-          if (worlds) checkWorld(d.project)
+          if (worlds && !withinChoice(d)) throw new Error('Choice is outside this project')
         }
         if (args.run !== undefined) {
           const card = agentGeneration(getCtx()).status(String(args.run), home.name)
@@ -108,9 +109,17 @@ export function createChatToolSession(getCtx: () => AppCtx, binding: ChatToolBin
         }, { runtime: 'bridge', name, input: args, registered })
         if (d.behavior === 'deny') return fail(d.message)
         if (signal.aborted) return fail('Chat closed')
+        if (worlds && name === 'fleet_view') return pages.read(name, args, () => {
+          const homes = [...getCtx().homes.values()]
+          return result({
+            tasks: homes.flatMap(h => h.crew.list()).filter(t => within(t.project)),
+            quests: homes.flatMap(h => h.backlog.list()).filter(q => within(q.project) && !['done', 'dropped'].includes(q.state)),
+            choices: homes.flatMap(h => h.decisions.list(false)).filter(withinChoice)
+          })
+        })
         if (worlds && name === 'world_list') return pages.read(name, args, () => result(getCtx().projects.list().filter(p => within(p.name))))
-        if (worlds && name === 'quest_list') return pages.read(name, args, () => result(getCtx().home(home.name).backlog.list().filter(q => within(q.project) && (args.include_done || !['done', 'dropped'].includes(q.state)))))
-        if (worlds && name === 'choice_list') return pages.read(name, args, () => result(getCtx().home(home.name).decisions.list(Boolean(args.include_resolved)).filter(d => within(d.project))))
+        if (worlds && name === 'quest_list') return pages.read(name, args, () => result([...getCtx().homes.values()].flatMap(h => h.backlog.list()).filter(q => within(q.project) && (args.include_done || !['done', 'dropped'].includes(q.state)))))
+        if (worlds && name === 'choice_list') return pages.read(name, args, () => result([...getCtx().homes.values()].flatMap(h => h.decisions.list(Boolean(args.include_resolved))).filter(withinChoice)))
         return await tool.invoke(args)
       } catch {
         // Do not reflect malformed arguments (which can contain credentials).

@@ -6,11 +6,10 @@ import type { Ally, ChatMessage, Settings, Task } from '@shared/types'
 import { chatControls, routedRequest, splitQueued, type ChatControls, type UnqueuedChat } from '@shared/chat'
 import { MAX_IMAGES_PER_MESSAGE } from '@shared/chat-images'
 import {
-  PROJECT_WKSP, api, errText, focusTask, getState, go, liveTasks, loadChat, op, openDeploy, saveChatControls, saveSettings, setDock, setState, toast, useStore
+  PROJECT_WKSP, api, errText, focusTask, getState, go, liveTasks, loadChat, op, openDeploy, saveChatControls, saveSettings, setState, toast, useStore
 } from '../store'
 import { Markdown } from '../components/Markdown'
 import { GenioCore } from '../components/GenioCore'
-import { ChatDock } from '../components/ChatDock'
 import { Chip, Dot, Toggle, useNow } from '../components/ui'
 import { KIND_LABEL, STATE_LABEL, isActive, stateTone } from '../lib/vocab'
 import { clock, cx, elapsed, trunc } from '../lib/format'
@@ -19,7 +18,7 @@ import { getDraft, setDraft } from '../drafts'
 import { AttachmentStrip, GeneratingImages, MessageImages, fromSendable, toSendable, useAttachments } from '../components/ChatImages'
 import type { InventoryContext } from '@shared/inventory-context'
 import { InventoryContextChips, useInventoryContext } from '../components/InventoryContextChips'
-import { MAIN_PANEL, markSeen } from '../lib/dock'
+const MAIN_PANEL = 'main'
 import { EffortSelect, ModelSelect, requestSystemsSection } from './Systems'
 
 const SLASH: { cmd: string; hint: string }[] = [
@@ -37,17 +36,12 @@ const SLASH: { cmd: string; hint: string }[] = [
 const NOOP_RE = /^\s*(all clear|gg,? all clear)\b/i
 
 export function Comms() {
-  const allyNames = useStore((s) => s.snap.allies.filter((a) => !a.retiredAt).map((a) => a.name).join('\n'))
-
-  // Closed allies still get their history, so the dock can flag unread messages.
-  useEffect(() => {
-    for (const name of allyNames.split('\n')) if (name) void loadChat(name)
-  }, [allyNames])
+  if (!PROJECT_WKSP) return null
 
   return (
     <div className="comms">
       <section className="comms-main">
-        {PROJECT_WKSP ? <ChatPanel wksp={PROJECT_WKSP} /> : <ChatDock render={(p) => <ChatPanel key={p} wksp={p} />} />}
+        <ChatPanel wksp={PROJECT_WKSP} />
       </section>
 
       <aside className="comms-side">
@@ -58,8 +52,8 @@ export function Comms() {
   )
 }
 
-/** One chat in the dock: its own status bar, log and composer. */
-export function ChatPanel({ wksp, context, active = true }: { wksp: string; context?: InventoryContext; active?: boolean }) {
+/** The project chat: its own status bar, log and composer. */
+export function ChatPanel({ wksp, context, active: _active = true }: { wksp: string; context?: InventoryContext; active?: boolean }) {
   const info = useStore((s) => s.snap.wksps.find((m) => m.name === wksp))
   const ally = useStore((s) => s.snap.allies.find((a) => a.name === wksp && !a.retiredAt))
   const messages = useStore((s) => s.chats[wksp] ?? [])
@@ -72,12 +66,6 @@ export function ChatPanel({ wksp, context, active = true }: { wksp: string; cont
   useEffect(() => {
     void loadChat(wksp)
   }, [wksp])
-
-  // This panel is on screen: everything in it counts as read.
-  const lastTs = messages.length ? messages[messages.length - 1].ts : ''
-  useEffect(() => {
-    if (active && lastTs) setDock((d) => markSeen(d, wksp, lastTs))
-  }, [wksp, lastTs, active])
 
   const visible = useMemo(() => (calm ? messages.filter((m) => m.role !== 'wake') : messages), [messages, calm])
 
@@ -99,7 +87,7 @@ export function ChatPanel({ wksp, context, active = true }: { wksp: string; cont
         <div className="chat-title">
           {isAlly ? (
             <>
-              <span className="label violet-text">Ally</span>
+              <span className="label neon-text">Genio</span>
               <span className="mute chat-scope" title={ally?.scope}>
                 {ally?.scope}
               </span>
@@ -192,9 +180,9 @@ function ChatLog({ wksp, messages: all, calm, busy, gamertag, activityDetail, la
         <div className="chat-empty rise">
           <GenioCore size={80} state={busy ? 'active' : 'idle'} />
           <h2 className="title" style={{ fontSize: 24 }}>
-            Ally <span className="violet-text">{wksp}</span>
+            Genio <span className="accent">{wksp}</span>
           </h2>
-          <p className="dim">Talk to it directly here, or let Genio route in-scope work to it. Both show up in this timeline; answers to Genio's requests also go back to Genio.</p>
+          <p className="dim">Tell Genio what to build in this project. Your conversation and controls stay with this window.</p>
         </div>
       )}
       {all.length === 0 && wksp === MAIN_PANEL && (

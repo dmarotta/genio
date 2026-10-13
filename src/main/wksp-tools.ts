@@ -120,6 +120,7 @@ export function createToolRegistry(
   hooks: ToolHooks = {}
 ): AppTool[] {
   const hc = (): HomeCtx => getCtx().home(home.name)
+  const questHome = (id: string): HomeCtx => [...getCtx().homes.values()].find(h => h.backlog.get(id)) ?? hc()
   const tools: AppTool[] = []
   const pages = new ToolPages()
 
@@ -287,9 +288,10 @@ export function createToolRegistry(
     async (a) => {
       if (/^\s*(captain|player|boss)\b[:,]/i.test(a.intent)) return fail('intent must be the player\'s words without a speaker label or direct address')
       try {
-        const task = await hc().crew.spawn({
+        const owner = a.quest_id ? questHome(a.quest_id) : hc()
+        const task = await owner.crew.spawn({
           kind: a.kind, project: a.world, title: a.title, intent: a.intent, spec: a.spec, mode: a.mode, yolo: a.auto_loot,
-          baseBranch: a.base_branch, harness: a.harness, model: a.model, effort: a.effort, category: a.category, backlogId: a.quest_id, wksp: home.name
+          baseBranch: a.base_branch, harness: a.harness, model: a.model, effort: a.effort, category: a.category, backlogId: a.quest_id, wksp: owner.home.name
         })
         return ok(`deployed ${task.id}: ${task.kind === 'ship' ? 'Build' : 'Recon'} "${task.title}" in ${task.project} (unit tool ${task.harness}${task.model ? ` / ${task.model}` : ''}${task.effort ? ` / ${task.effort}` : ''}, mode ${modeLabel(task.mode)}, branch ${task.branch})${task.loadout?.length ? `\nloadout reasons:\n- ${task.loadout.join('\n- ')}` : ''}`)
       } catch (e) {
@@ -418,28 +420,28 @@ export function createToolRegistry(
       if (a.world !== undefined) patch.project = a.world
       if (a.not_before !== undefined) patch.notBefore = a.not_before
       if (a.state !== undefined) patch.state = a.state
-      const it = hc().backlog.update(a.id, patch)
+      const it = questHome(a.id).backlog.update(a.id, patch)
       return ok(`quest ${it.id} updated (${it.state})`)
     }
   )
 
   t('quest_hold', 'Hold a quest for the player (a choice only they can make). until=YYYY-MM-DD defers it ("later").', { id: z.string(), reason: z.string().min(3), until: z.string().optional() }, async ({ id, reason, until }) => {
-    const it = hc().backlog.hold(id, reason, until)
+    const it = questHome(id).backlog.hold(id, reason, until)
     return ok(`quest ${it.id} held: ${reason}${until ? ` until ${until}` : ''}`)
   })
 
   t("quest_answer", "Record the player's exact words on a held quest. release=true unholds the work so it proceeds; false closes it.", { id: z.string(), words: z.string().min(1), release: z.boolean().default(true) }, async ({ id, words, release }) => {
-    const it = hc().backlog.answer(id, words, release)
+    const it = questHome(id).backlog.answer(id, words, release)
     return ok(`answer recorded on ${it.id} (${it.state})`)
   })
 
   t('quest_release', 'Release a player hold so the quest can be dispatched.', { id: z.string() }, async ({ id }) => {
-    const it = hc().backlog.release(id)
+    const it = questHome(id).backlog.release(id)
     return ok(`quest ${it.id} released (${it.state})`)
   })
 
   t('quest_remove', 'Remove a quest from the log (only for mistakes/duplicates; prefer state=dropped).', { id: z.string() }, async ({ id }) => {
-    hc().backlog.remove(id)
+    questHome(id).backlog.remove(id)
     return ok(`quest ${id} removed`)
   })
 
@@ -453,12 +455,13 @@ export function createToolRegistry(
       urgency: z.enum(['normal', 'urgent']).default('normal')
     },
     async (a) => {
-      const h = hc()
+      const h = a.task ? findTask(getCtx(), a.task, home)!.hc : hc()
+      const project = getCtx().allies.list().find(ally => ally.name === home.name)?.projects[0]
       const d = a.task
         ? h.decisions.openForTask(a.task, a.key ?? 'default', a.question, role === 'bot' ? 'genio' : 'genio', {
             options: a.options, recommendation: a.recommendation, context: a.context, urgency: a.urgency, backlogId: a.quest_id
           })
-        : h.decisions.open({ question: a.question, options: a.options, recommendation: a.recommendation, context: a.context, urgency: a.urgency, backlogId: a.quest_id, key: a.key, source: 'genio', wksp: home.name })
+        : h.decisions.open({ question: a.question, options: a.options, recommendation: a.recommendation, context: a.context, urgency: a.urgency, backlogId: a.quest_id, project, key: a.key, source: 'genio', wksp: home.name })
       return ok(`choice ${d.id} opened`)
     }
   )

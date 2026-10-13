@@ -59,10 +59,10 @@ import { createUthanaService } from './uthana-service'
 import { createDispatchService } from './dispatch'
 import { createInventoryService } from './inventory'
 import { createThumbnailDecoder } from './inventory-thumbnails'
-import { allyNameForWorld, worldAllyRequest } from '../renderer/src/lib/dock'
+import { allyNameForWorld, worldAllyRequest, inheritMainHistory } from './project-chat'
 
 let current: AppCtx | undefined
-const closedProjects = new WeakMap<AppCtx, Set<string>>()
+const openProjects = new WeakMap<AppCtx, Set<string>>()
 const startingUnits = new WeakMap<AppCtx, Map<string, Set<Promise<unknown>>>>()
 
 async function startProjectUnit<T>(project: string, start: () => Promise<T>): Promise<T> {
@@ -78,7 +78,7 @@ async function startProjectUnit<T>(project: string, start: () => Promise<T>): Pr
 }
 
 function assertProjectRunning(project: string): void {
-  if (closedProjects.get(getCtx())?.has(project)) throw new Error('Open the project window before starting units.')
+  if (!openProjects.get(getCtx())?.has(project)) throw new Error('Open the project window before starting units.')
   if (getCtx().projects.get(project)?.gitRepo === false) throw new Error('Unit creation needs a git repo.')
 }
 
@@ -96,7 +96,7 @@ export function makeHomeCtx(home: Home, ally?: Ally): HomeCtx {
     decisions: createDecisionService(getCtx, home),
     wakes: createWakeService(getCtx, home),
     supervisor: createSupervisor(getCtx, home),
-    wksp: createWkspService(getCtx, home, ally)
+    wksp: createWkspService(getCtx, home, ally, home.isMain, () => !!ally?.projects.some(p => openProjects.get(getCtx())?.has(p)))
   }
   // Guard service calls as well as buttons: chat tools and queued quests also spawn units.
   const spawn = hc.crew.spawn
@@ -117,7 +117,9 @@ export function makeHomeCtx(home: Home, ally?: Ally): HomeCtx {
 
 /** Reuse the world-ally creation contract, but never adopt an unrelated same-name ally. */
 export async function ensureProjectBase(ctx: AppCtx, project: string): Promise<string> {
-  closedProjects.get(ctx)?.delete(project)
+  let opened = openProjects.get(ctx)
+  if (!opened) { opened = new Set(); openProjects.set(ctx, opened) }
+  opened.add(project)
   const allAllies = ctx.allies.list()
   const allies = allAllies.filter(a => !a.retiredAt)
   let ally = allies.find(a => a.projects.length === 1 && a.projects[0] === project)
@@ -128,14 +130,13 @@ export async function ensureProjectBase(ctx: AppCtx, project: string): Promise<s
     for (let n = 2; allAllies.some(a => a.name === req.name); n++) req.name = `${base.slice(0, 26)}-${n}`
     ally = await ctx.allies.create(req)
   }
+  if (project === 'genio') inheritMainHistory(ctx.main.home, ctx.home(ally.name).home)
   ctx.home(ally.name).supervisor.start()
   return ally.name
 }
 
 export async function stopProjectBase(ctx: AppCtx, project: string, wksp: string): Promise<void> {
-  let closed = closedProjects.get(ctx)
-  if (!closed) { closed = new Set(); closedProjects.set(ctx, closed) }
-  closed.add(project)
+  openProjects.get(ctx)?.delete(project)
   const home = ctx.home(wksp)
   home.supervisor.stop()
   await home.wksp.stop()
@@ -194,6 +195,21 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
     return h
   }
 
+  // Legacy unit records remain in their original home until data migration. Route
+  // their supervision into the owning project chat, never the archived main log.
+  ctx.main.wksp.deliverWakes = () => {
+    for (const wake of ctx.main.wakes.pending()) {
+      const project = wake.taskId && ctx.main.crew.get(wake.taskId)?.project
+      if (!project || !openProjects.get(ctx)?.has(project)) continue
+      const owner = ctx.allies.list().find(a => !a.retiredAt && a.projects.length === 1 && a.projects[0] === project)
+      if (!owner) continue
+      const target = ctx.home(owner.name)
+      target.wakes.enqueue(wake)
+      ctx.main.wakes.ackEvents([wake.seq])
+      target.wksp.deliverWakes()
+    }
+  }
+
   ctx.snapshot = (): FleetSnapshot => {
     const all = [...homes.values()]
     return {
@@ -222,7 +238,7 @@ export async function startApp(ctx: AppCtx): Promise<void> {
   void ctx.projects.refreshRemotes().catch(() => undefined)
   for (const h of ctx.homes.values()) {
     await h.crew.reconcileOnStart()
-    h.supervisor.start()
+    if (h.home.isMain || ctx.allies.list().find(a => a.name === h.home.name)?.projects.some(p => openProjects.get(ctx)?.has(p))) h.supervisor.start()
   }
 }
 

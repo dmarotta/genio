@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { BookOpen, FolderOpen, Cpu, Crosshair, Gauge, Globe, MessageSquare, ScrollText, Swords, Gamepad2, type LucideIcon } from 'lucide-react'
-import { go, openDecisions, readyTasks, useStore, type ViewId } from '../store'
+import { PROJECT_WINDOW, go, openDecisions, readyTasks, useStore, type ViewId } from '../store'
 import { cx } from '../lib/format'
 import { RAIL, entryActive, initialIndex, menuKey, navItems, opensMenu, type RailEntry } from '../lib/railmenu'
 import '../styles/railmenu.css'
@@ -20,7 +20,8 @@ const ICON: Record<string, LucideIcon> = {
 }
 
 /** Every screen with its shortcut, submenus flattened (command palette). */
-export const NAV = navItems()
+const windowRail = PROJECT_WINDOW ? RAIL : RAIL.filter(e => e.kind === 'view' && !['comms', 'inventory', 'play'].includes(e.item.id))
+export const NAV = navItems(windowRail)
 
 export function Rail() {
   const view = useStore((s) => s.view)
@@ -35,7 +36,7 @@ export function Rail() {
   }
   return (
     <nav className="rail">
-      {RAIL.map((e) => {
+      {windowRail.map((e) => {
         if (e.kind === 'menu') return <RailMenu key={e.id} entry={e} view={view} />
         const n = e.item
         const b = badge[n.id]

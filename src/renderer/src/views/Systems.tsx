@@ -19,7 +19,7 @@ import { playSfx } from '../lib/sfx'
 
 type Section =
   | 'profile' | 'genio' | 'units' | 'overwatch' | 'gauntlet' | 'comms' | 'alerts' | 'mail' | 'memory'
-  | 'harnesses' | 'dispatch' | 'triggers' | 'toolchain' | 'accounts' | 'allies' | 'patch' | 'usage'
+  | 'harnesses' | 'dispatch' | 'triggers' | 'toolchain' | 'accounts' | 'patch' | 'usage'
 
 const SECTIONS: { id: Section; label: string; group: string }[] = [
   { id: 'profile', label: 'Profile', group: 'Player' },
@@ -30,7 +30,6 @@ const SECTIONS: { id: Section; label: string; group: string }[] = [
   { id: 'units', label: 'Units', group: 'Squad' },
   { id: 'harnesses', label: 'Harnesses', group: 'Squad' },
   { id: 'dispatch', label: 'Dispatch (Advanced)', group: 'Squad' },
-  { id: 'allies', label: 'Allies', group: 'Squad' },
   { id: 'overwatch', label: 'Overwatch', group: 'Engine' },
   { id: 'gauntlet', label: 'Gauntlet', group: 'Engine' },
   { id: 'triggers', label: 'Triggers', group: 'Engine' },
@@ -324,8 +323,6 @@ function SectionBody({ sec, s, advanced, setAdvanced, open }: { sec: Section; s:
       return <Toolchain />
     case 'accounts':
       return <Accounts />
-    case 'allies':
-      return <Allies />
     case 'patch':
       return <Patch />
   }
@@ -481,7 +478,7 @@ function UsageAdvanced({ s, view, open }: { s: Settings; view: UsagePolicyView |
     <div className="usage-advanced">
       <h3 className="sys-subtitle">Advanced</h3>
       <p className="mute">Any value set here is Pinned: the mode and protection leave it alone. Blank or (auto) follows the mode.</p>
-      <ModelRow label="Chat model" hint="Main chat, and allies without their own pick." value={s.wkspModel} onCommit={(v) => set({ wkspModel: v })} />
+      <ModelRow label="Chat model" hint="Default for project chats without their own pick." value={s.wkspModel} onCommit={(v) => set({ wkspModel: v })} />
       <Row label="Chat effort">
         <EffortSelect model={s.wkspModel} value={s.wkspEffort} onChange={(v) => set({ wkspEffort: v })} />
       </Row>
@@ -1403,103 +1400,6 @@ function ApiKeyRow({ k, spend, onChange }: { k: ApiKeyStatus; spend?: FalSpend; 
         />
       )}
     </Row>
-  )
-}
-
-function Allies() {
-  const allies = useStore((s) => s.snap.allies)
-  const projects = useStore((s) => s.snap.projects)
-  const [name, setName] = useState('')
-  const [scope, setScope] = useState('')
-  const [charter, setCharter] = useState('')
-  const [worlds, setWorlds] = useState<string[]>([])
-  const [model, setModel] = useState('')
-  const [retire, setRetire] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const valid = /^[a-z0-9][a-z0-9-]{1,31}$/.test(name) && scope.trim()
-  return (
-    <>
-      <h2 className="sys-title">Allies</h2>
-      <p className="mute">Allied Genios with their own base, scope and charter. Genio routes in-scope work to them and they report back through Genio. You can also talk to an ally directly in its chat tab.</p>
-      <div className="ally-list">
-        {allies.length === 0 && <div className="mute side-empty">No allies recruited.</div>}
-        {allies.map((a) => (
-          <div key={a.name} className={cx('ally panel', a.retiredAt && 'off')}>
-            <Users size={16} className="violet-text" />
-            <div className="ally-main">
-              <b>{a.name}</b>
-              <div className="mute">{a.scope}</div>
-              <div className="mono mute" style={{ fontSize: 11 }}>
-                {a.projects.join(', ') || 'no worlds'} · {a.model || 'default model'} · since {dateShort(a.createdAt)}
-              </div>
-            </div>
-            {a.retiredAt ? (
-              <span className="chip">retired</span>
-            ) : (
-              <button className="btn sm alert" onClick={() => setRetire(a.name)}>
-                Retire
-              </button>
-            )}
-          </div>
-        ))}
-      </div>
-      <div className="label" style={{ margin: '20px 0 10px' }}>
-        Recruit an ally
-      </div>
-      <div className="form-grid">
-        <Field label="Name" hint="lowercase, digits, dashes">
-          <input className="input mono" value={name} onChange={(e) => setName(e.target.value.toLowerCase())} placeholder="art-pipeline" />
-        </Field>
-        <Field label="Model">
-          <ModelSelect value={model} onChange={setModel} />
-        </Field>
-        <Field label="Scope" hint="What work routes to this ally" wide>
-          <input className="input" value={scope} onChange={(e) => setScope(e.target.value)} placeholder="Shaders, VFX and the asset import pipeline" />
-        </Field>
-        <Field label="Charter" wide>
-          <textarea className="textarea" rows={3} value={charter} onChange={(e) => setCharter(e.target.value)} placeholder="Standing instructions for this ally" />
-        </Field>
-        <Field label="Worlds" wide>
-          <div className="dep-picker">
-            {projects.map((p) => (
-              <button key={p.name} className={cx('chip dep', worlds.includes(p.name) && 'neon')} onClick={() => setWorlds((w) => (w.includes(p.name) ? w.filter((x) => x !== p.name) : [...w, p.name]))}>
-                {p.name}
-              </button>
-            ))}
-          </div>
-        </Field>
-      </div>
-      <button
-        className="btn solid violet"
-        style={{ marginTop: 12 }}
-        disabled={!valid || busy}
-        onClick={async () => {
-          setBusy(true)
-          const r = await op('Ally recruited', () => api().allyCreate({ name, scope: scope.trim(), charter: charter.trim(), projects: worlds, model: model.trim() || undefined }), (a) => a.name)
-          if (r) {
-            setName('')
-            setScope('')
-            setCharter('')
-            setWorlds([])
-          }
-          setBusy(false)
-        }}
-      >
-        <Plus size={13} /> Recruit
-      </button>
-      {retire && (
-        <Confirm
-          title={`Retire ${retire}?`}
-          tone="alert"
-          confirmLabel="Retire"
-          body="The ally stops. Genio refuses while it still has units in the field."
-          onConfirm={async () => {
-            await op('Retire ally', () => api().allyRetire(retire))
-          }}
-          onClose={() => setRetire(null)}
-        />
-      )}
-    </>
   )
 }
 

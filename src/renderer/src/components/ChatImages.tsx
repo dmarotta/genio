@@ -169,7 +169,7 @@ interface ViewerProps {
   onClose(): void
 }
 
-/** Full-window overlay portalled to <body>, so the chat's scroll and the dock panes can't clip or move it. */
+/** Full-window overlay portalled to <body>, so the chat's scroll and floating panel can't clip or move it. */
 function ImageViewer({ urls, index, onIndex, onClose }: ViewerProps) {
   const closeRef = useRef<HTMLButtonElement>(null)
   const [natural, setNatural] = useState<{ w: number; h: number }>()

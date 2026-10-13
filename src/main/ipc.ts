@@ -60,7 +60,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
       return info
     },
     featureUsed: async (feature) => {
-      if (feature === 'screenshot' || feature === 'dock-split' || feature === 'model-picker') bus.publish({ type: 'feature-used', feature })
+      if (feature === 'screenshot' || feature === 'model-picker') bus.publish({ type: 'feature-used', feature })
     },
     snapshot: () => ctx().snapshot(),
     homePath: () => ctx().main.home.root,
@@ -208,20 +208,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
 
     // ---- status / presence / memory / mail
     statusReport: (opts) => ctx().statusReport.generate(opts),
-    setAway: async (mode) => {
-      const c = ctx()
-      const prev = c.away.state().mode
-      if (prev === 'afk' && mode !== 'afk') {
-        // returning from AFK through the presence switch: same welcome-back flow as /online
-        await c.main.wksp.send('/online', 'player')
-        return c.away.state()
-      }
-      if (mode === 'afk') {
-        await c.main.wksp.send('/afk', 'player')
-        return c.away.state()
-      }
-      return c.away.set(mode)
-    },
+    setAway: (mode) => ctx().away.set(mode),
     readMemory: (which) => ctx().memory.read(which),
     writeMemory: (which, content) => ctx().memory.write(which, content),
     inboxSubmit: (text, from) => ctx().inbox.submit(text, from),
@@ -269,12 +256,24 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
           finally { closeUnusedInventory(world) }
         }
         const binding = windows?.binding(_e.sender.id)
+        if (windows && !binding && ['sendChat', 'recap', 'save', 'restartWksp', 'interruptWksp', 'unqueueChat', 'approveGeneration'].includes(method)) throw new Error('Open a project window to use its chat.')
         if (method.startsWith('play') && method !== 'playtest') assertPlayWindow(binding, args[0])
         if (binding) {
+          if (method === 'readMemory') return ctx().memory.read(args[0] as Parameters<GenioApi['readMemory']>[0], ctx().home(binding.wksp).home)
+          if (method === 'writeMemory') return ctx().memory.write(args[0] as Parameters<GenioApi['writeMemory']>[0], String(args[1]), ctx().home(binding.wksp).home)
+          if (method === 'addDecision') args[0] = { ...(args[0] as object), project: binding.project, wksp: binding.wksp }
           if (method === 'snapshot') return projectSnapshot(ctx().snapshot(), binding)
           if (method === 'terminals') return ctx().terminals.list().filter(t => terminalProject(t, ctx().snapshot()) === binding.project)
           if (method === 'recap' || method === 'save') return ctx().home(binding.wksp).wksp.send('/' + method, 'player')
+          if (method === 'backlogDispatch') {
+            const quest = backlogHome(String(args[0])).backlog.get(String(args[0]))!
+            if (quest.project !== binding.project) throw new Error('Quest is outside this project.')
+            if (quest.hold) return { ok: false, message: 'Release this quest first.' }
+            await ctx().home(binding.wksp).wksp.send(`Dispatch quest ${quest.id} (${quest.title}): ${quest.notes}`, 'system')
+            return { ok: true, message: 'Sent to project chat.' }
+          }
           if (method === 'spawnTask') args[0] = { ...(args[0] as object), project: binding.project, wksp: binding.wksp }
+          if (method === 'backlogAdd') return ctx().home(binding.wksp).backlog.add({ ...(args[0] as Parameters<GenioApi['backlogAdd']>[0]), project: binding.project })
           if (method === 'wakes') return ctx().home(binding.wksp).wakes.recent(args[0] as number)
           // Chat history, sends and controls cannot switch this window to another base.
           if (['chatHistory', 'sendChat', 'interruptWksp', 'restartWksp', 'unqueueChat', 'approveGeneration', 'allyUpdate'].includes(method) && args[0] !== binding.wksp) {

@@ -273,7 +273,7 @@ describe('authority and unchanged deterministic handlers', () => {
     expect(worlds.content[0].text).toContain('safe')
     expect(worlds.content[0].text).not.toContain('outside')
   })
-  it('requires configured ally worlds and keeps tasks in the bound chat', async () => {
+  it('requires configured project worlds and permits legacy tasks only within that world', async () => {
     const allyHome = new Home(path.join(root, 'ally'), 'ally', home)
     const allyCtx = { ...ctx.main, home: allyHome, crew: { ...ctx.main.crew, get: () => undefined } }
     ctx.homes.set('ally', allyCtx)
@@ -285,6 +285,18 @@ describe('authority and unchanged deterministic handlers', () => {
     const session = createChatToolSession(() => ctx, binding)
     binding.worlds.push('outside')
     expect(await session.call('world_posture', { world: 'outside' })).toMatchObject({ isError: true })
+    expect(await session.call('read_task_file', { task: 'unit', which: 'report' })).not.toHaveProperty('isError')
+    allyCtx.crew.list = () => []
+    ctx.main.crew.list = () => [task, { ...task, id: 'other-unit', project: 'outside' }]
+    const fleet = await session.call('fleet_view', {})
+    expect(JSON.stringify(fleet)).toContain('unit')
+    expect(JSON.stringify(fleet)).not.toContain('other-unit')
+    expect(session.list().map(t => t.name)).not.toContain('report_to_main')
+    allyCtx.decisions.list = () => [{ id: 'local-choice', wksp: 'ally' }, { id: 'foreign-choice', wksp: 'other' }] as any
+    const choices = await session.call('choice_list', {})
+    expect(JSON.stringify(choices)).toContain('local-choice')
+    expect(JSON.stringify(choices)).not.toContain('foreign-choice')
+    task.project = 'outside'
     expect(await session.call('read_task_file', { task: 'unit', which: 'report' })).toMatchObject({ isError: true })
   })
   it('keeps Bot read-only even with Auto-loot, YOLO and fabricated player words', async () => {

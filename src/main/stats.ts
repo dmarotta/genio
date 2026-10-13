@@ -39,8 +39,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'chat-image', feature: 'generate_image', name: 'Pixel Summoner', description: 'Generate an image in chat.' },
   { id: 'fal-first', feature: 'fal_generate', name: 'Asset Alchemist', description: 'Complete a FAL run.' },
   { id: 'animation-first', feature: 'uthana_motion', name: 'Motion Unlocked', description: 'Generate your first Uthana animation.' },
-  { id: 'ally-chat', feature: 'comms', name: 'Party Chat', description: 'Talk directly to an ally.' },
-  { id: 'dock-split', feature: 'comms', name: 'Multiplayer View', description: 'Split chat into multiple panes.' },
+  { id: 'ally-chat', feature: 'comms', name: 'Project Chat', description: 'Talk to Genio in a project window.' },
   { id: 'push-first', feature: 'world_push', name: 'Go Live', description: 'Push a world on demand.' },
   { id: 'rating-first', feature: 'rate_task', name: 'GG or Go Again', description: 'Rate a unit on the scorecard.' },
   { id: 'smart-pick', feature: 'loadout_preview', name: 'Adaptive Build', description: 'Deploy an exploration or quota-based pick.' },
@@ -339,7 +338,7 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
   bus.onEvent((ev) => {
     if (ev.type === 'feature-used') {
       const ids: Record<string, string> = {
-        'model-picker': 'model-picker', 'model-switch': 'model-switch', screenshot: 'screenshot', 'dock-split': 'dock-split', world_push: 'push-first',
+        'model-picker': 'model-picker', 'model-switch': 'model-switch', screenshot: 'screenshot', world_push: 'push-first',
         rate_task: 'rating-first', 'account-login': 'account-login', 'yolo-chat': 'yolo-chat', 'usage-mode': 'usage-mode',
         quest_add: 'quest-first', world_add: 'world-first', memory_write: 'lore-first', 'inventory-index': 'inventory-index'
       }

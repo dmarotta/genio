@@ -6,8 +6,12 @@ import { PROJECT_WKSP, useStore } from '../store'
 import { clampFloatingChat, readFloatingChat } from '../lib/inventory-chat'
 import '../styles/inventory-chat.css'
 
-export function InventoryChat({ context, inspector }: { context: InventoryContext; inspector: ReactNode }) {
-  const wksp = PROJECT_WKSP ?? 'main'
+export function InventoryChat(props: { context: InventoryContext; inspector: ReactNode }) {
+  return PROJECT_WKSP ? <ProjectInventoryChat {...props} /> : <>{props.inspector}</>
+}
+
+function ProjectInventoryChat({ context, inspector }: { context: InventoryContext; inspector: ReactNode }) {
+  const wksp = PROJECT_WKSP!
   const [state, setState] = useState(readFloatingChat)
   const [inspect, setInspect] = useState(false)
   const panel = useRef<HTMLDivElement>(null)

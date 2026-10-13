@@ -1,5 +1,5 @@
 import { Crosshair, Users } from 'lucide-react'
-import { api, go, op, openDecisions, readyTasks, setState, useStore } from '../store'
+import { PROJECT_WINDOW, api, go, op, openDecisions, readyTasks, setState, useStore } from '../store'
 import { PRESENCE } from '../lib/vocab'
 import { cx, usd } from '../lib/format'
 import { playSfx } from '../lib/sfx'
@@ -31,6 +31,7 @@ export function TitleBar() {
         </span>
       </div>
 
+      <span className="label dim" style={{ maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={PROJECT_WINDOW}>{PROJECT_WINDOW ?? 'Hub'}</span>
       <div className="presence" role="radiogroup" aria-label="Presence">
         {PRESENCE.map((p) => (
           <button

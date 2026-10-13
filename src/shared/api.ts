@@ -415,7 +415,7 @@ export interface GenioApi {
   inventoryRefresh(world: string): Promise<InventoryState>
   inventoryList(world: string, query?: InventoryQuery): Promise<InventoryResult>
   inventoryInfo(world: string, path: string, verifyHash?: boolean): Promise<InventoryInfo | null>
-  featureUsed(feature: 'screenshot' | 'dock-split' | 'model-picker'): Promise<void>
+  featureUsed(feature: 'screenshot' | 'model-picker'): Promise<void>
   snapshot(): Promise<FleetSnapshot>
   homePath(): Promise<string>
   getSettings(): Promise<Settings>
