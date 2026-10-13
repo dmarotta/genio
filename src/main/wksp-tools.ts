@@ -15,6 +15,7 @@ import type { Home } from './home'
 import { truncate } from './util'
 import { resolveLoadout } from './loadout'
 import { GENERATE_IMAGE_DESC, chatImageGen, generateChatImages, generateImageShape } from './chat-imagegen'
+import { CATEGORY_IDS } from '@shared/dispatch'
 
 type ToolFn = typeof import('@anthropic-ai/claude-agent-sdk').tool
 
@@ -85,7 +86,7 @@ function taskLine(t: Task): Record<string, unknown> {
   return {
     id: t.id, kind: t.kind === 'ship' ? 'build' : 'recon', title: t.title, world: t.project, state: t.state,
     reason: t.stateReason, mode: t.mode, autoLoot: t.yolo, branch: t.branch, pr: t.pr?.url, checks: t.pr?.checks,
-    unitTool: t.harness, model: t.model, effort: t.effort, base: t.wksp
+    unitTool: t.harness, model: t.model, effort: t.effort, category: t.category, verdict: t.verdict, base: t.wksp
   }
 }
 
@@ -151,13 +152,14 @@ export function buildTools(
 
   t(
     'deploy',
-    'Deploy a unit on a Build (kind=ship: produces a change) or Recon (kind=scout: produces a report) mission in an isolated copy of a world. intent = the player\'s own words (no speaker labels); spec = only the build instructions the ask requires. mode/auto_loot default to the world posture (resolve with world_posture first). Files a quest automatically unless quest_id is given. Omit harness/model/effort to let the loadout picker choose (dispatch rules, defaults, effort from the ask); preview it with loadout_preview.',
+    'Deploy a unit on a Build (kind=ship: produces a change) or Recon (kind=scout: produces a report) mission in an isolated copy of a world. intent = the player\'s own words (no speaker labels); spec = only the build instructions the ask requires. category = what kind of work it is (drives the category table). mode/auto_loot default to the world posture (resolve with world_posture first). Files a quest automatically unless quest_id is given. Omit harness/model/effort to let the loadout picker choose (rules, category table, cost dial, quota, learning); preview it with loadout_preview.',
     {
       kind: z.enum(['ship', 'scout']),
       world: z.string(),
       title: z.string().min(3),
       intent: z.string().min(3),
       spec: z.string().optional(),
+      category: z.enum(CATEGORY_IDS).optional(),
       mode: z.enum(['no-mistakes', 'direct-PR', 'local-only']).optional(),
       auto_loot: z.boolean().optional(),
       base_branch: z.string().optional(),
@@ -171,9 +173,9 @@ export function buildTools(
       try {
         const task = await hc().crew.spawn({
           kind: a.kind, project: a.world, title: a.title, intent: a.intent, spec: a.spec, mode: a.mode, yolo: a.auto_loot,
-          baseBranch: a.base_branch, harness: a.harness, model: a.model, effort: a.effort, backlogId: a.quest_id, wksp: home.name
+          baseBranch: a.base_branch, harness: a.harness, model: a.model, effort: a.effort, category: a.category, backlogId: a.quest_id, wksp: home.name
         })
-        return ok(`deployed ${task.id}: ${task.kind === 'ship' ? 'Build' : 'Recon'} "${task.title}" in ${task.project} (unit tool ${task.harness}${task.model ? ` / ${task.model}` : ''}${task.effort ? ` / ${task.effort}` : ''}${task.loadout?.length ? ` — ${task.loadout.join('; ')}` : ''}, mode ${modeLabel(task.mode)}, branch ${task.branch})`)
+        return ok(`deployed ${task.id}: ${task.kind === 'ship' ? 'Build' : 'Recon'} "${task.title}" in ${task.project} (unit tool ${task.harness}${task.model ? ` / ${task.model}` : ''}${task.effort ? ` / ${task.effort}` : ''}, mode ${modeLabel(task.mode)}, branch ${task.branch})${task.loadout?.length ? `\nloadout reasons:\n- ${task.loadout.join('\n- ')}` : ''}`)
       } catch (e) {
         const msg = (e as Error).message ?? String(e)
         if (/deferred|capacity/i.test(msg)) return ok(`deferred: ${msg}. The quest stays queued; it will be dispatchable when capacity frees up.`)
@@ -460,12 +462,16 @@ export function buildTools(
   })
 
   // ------------------------------------------------------------ dispatch & tools
-  t('dispatch_profiles', 'Dispatch rules and the unit tools available on this machine (with models), plus defaults. Consult at every deploy.', {}, async () => {
+  t('dispatch_profiles', 'Dispatch rules, the category table, the cost dial, learned scores and the unit tools available on this machine (with models), plus defaults. Consult at every deploy.', {}, async () => {
     const s = getCtx().settings
     const cfg = s.get()
     return ok(
       json({
         rules: cfg.dispatchRules,
+        categoryTable: cfg.categoryPools.map((p) => ({ category: p.category, candidates: p.candidates, locked: p.locked || undefined })),
+        costDial: cfg.costDial,
+        explorationRate: cfg.explorationRate,
+        scores: getCtx().dispatch.scores().rows.map((r) => ({ scope: r.scope, tool: r.harness, model: r.model, score: r.score, samples: r.samples })),
         default: { harness: cfg.defaultHarness, model: cfg.defaultWorkerModel || undefined, effort: cfg.defaultWorkerEffort || undefined },
         available: s.availableHarnesses().map((h) => ({ id: h.id, name: h.name, models: h.models, role: h.role, verified: h.verified }))
       })
@@ -474,9 +480,32 @@ export function buildTools(
 
   t(
     'loadout_preview',
-    'What a deploy would get (unit tool, model, effort) if harness/model/effort are omitted or set as given, and why.',
-    { kind: z.enum(['ship', 'scout']), world: z.string(), title: z.string(), intent: z.string(), spec: z.string().optional(), harness: z.string().optional(), model: z.string().optional(), effort: z.string().optional() },
-    async (a) => ok(json(resolveLoadout({ kind: a.kind, project: a.world, title: a.title, intent: a.intent, spec: a.spec, harness: a.harness, model: a.model, effort: a.effort }, getCtx().settings)))
+    'What a deploy would get (unit tool, model, effort, category) if harness/model/effort are omitted or set as given, and why.',
+    {
+      kind: z.enum(['ship', 'scout']), world: z.string(), title: z.string(), intent: z.string(), spec: z.string().optional(),
+      category: z.enum(CATEGORY_IDS).optional(), harness: z.string().optional(), model: z.string().optional(), effort: z.string().optional()
+    },
+    async (a) =>
+      ok(
+        json(
+          resolveLoadout(
+            { kind: a.kind, project: a.world, title: a.title, intent: a.intent, spec: a.spec, category: a.category, harness: a.harness, model: a.model, effort: a.effort },
+            getCtx().settings,
+            getCtx().dispatch.signals(a.world, { preview: true })
+          )
+        )
+      )
+  )
+
+  t(
+    'rate_task',
+    "Record the player's verdict on how a unit did (up = good work, down = poor), with their words as the note. Feeds the dispatch scorecard.",
+    { task: z.string(), verdict: z.enum(['up', 'down']), note: z.string().optional() },
+    async ({ task, verdict, note }) => {
+      if (role === 'bot') return fail('only the player rates units')
+      const r = getCtx().dispatch.rate(task, verdict, note)
+      return r.ok ? ok(r.message) : fail(r.message)
+    }
   )
 
   t('toolchain_check', 'Which tools (git, gh, unit CLIs, engines) are installed. Missing tools are offered to the player; never installed without their consent.', {}, async () => {

@@ -6,7 +6,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { DeliveryMode, StatusEvent, Task, TaskState, TerminalInfo } from '@shared/types'
+import type { DeliveryMode, LoadoutInput, StatusEvent, Task, TaskCounters, TaskState, TerminalInfo } from '@shared/types'
 import type { OpResult, SpawnRequest, TaskFile } from '@shared/api'
 import type { AppCtx, CrewService } from './services'
 import type { Home } from './home'
@@ -20,7 +20,7 @@ import { resolveLoadout } from './loadout'
 import { modeLabel } from '@shared/vocab'
 import { defaultShell } from './terminals'
 import { getSecret } from './secrets'
-import { installUnitPlugin, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief } from './unitskills'
+import { installUnitPlugin, openRouterEnv, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief } from './unitskills'
 import {
   appendLine, ensureDir, exists, fwd, nowIso, readJson, readText, rid, slugify, stripAnsi, truncate, writeJson, writeText
 } from './util'
@@ -29,6 +29,8 @@ import {
 const ACTIVE: TaskState[] = ['spawning', 'working', 'paused', 'blocked', 'needs-decision', 'stale', 'validating']
 /** States that end a mission's work (process may still be around). */
 const FINISHED: TaskState[] = ['ready', 'merged', 'done', 'failed', 'cleaned']
+/** States that put an outcome on the dispatch scorecard (a later end replaces an earlier one). */
+const ENDED: TaskState[] = ['merged', 'done', 'failed', 'cleaned']
 
 const TRAILER_FILTER = /^(Co-Authored-By:.*(Claude|Anthropic|OpenAI|GPT|Codex|Gemini|Copilot|Cursor|Grok|Aider|noreply@anthropic\.com).*|.*Generated with \[?Claude Code.*|.*🤖 Generated with.*)$/i
 
@@ -78,8 +80,19 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     bus.publish({ type: 'task', task: withLive(next) })
     if (patch.state && patch.state !== prev.state) {
       ledger('task.status', next, { state: patch.state, reason: patch.stateReason })
+      // scorecard: a unit that never launched says nothing about its tool
+      const launched = Boolean(prev.terminalId || next.terminalId || next.relaunches)
+      if (ENDED.includes(next.state) && (next.state !== 'failed' || launched)) safe(() => getCtx().dispatch.record(next))
     }
     return next
+  }
+
+  /** Rework signals for the scorecard. */
+  const bump = (id: string, k: keyof TaskCounters): void => {
+    const t = get(id)
+    if (!t) return
+    const c = t.counters ?? { pings: 0, lagging: 0, stopped: 0, fixRounds: 0 }
+    update(id, { counters: { ...c, [k]: c[k] + 1 } })
   }
 
   const terminalAlive = (t: Task): boolean => Boolean(t.terminalId && getCtx().terminals.get(t.terminalId)?.alive)
@@ -244,10 +257,19 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       ...buildArgs(adapter, { model: t.model, effort: t.effort, prompt: opts.prompt, cwd: t.worktree, settings: settingsPath, resume: opts.resume }, s)
     ]
     const hookEnv = project ? await writeHooks(t, project.path) : {}
+    let openRouterKey: string | undefined
+    if (adapter.id === 'opencode' && project?.allowCheapModels) {
+      try {
+        openRouterKey = getSecret('openrouter', mainHome.data)
+      } catch {
+        /* no OS encryption: no key */
+      }
+    }
     const env: Record<string, string> = {
       ...(adapter.env ?? {}),
       ...hookEnv,
       ...skills.env,
+      ...openRouterEnv(adapter.id, Boolean(project?.allowCheapModels), openRouterKey),
       GENIO_TASK_ID: t.id,
       GENIO_STATUS_FILE: fwd(home.statusFile(t.id)),
       GENIO_TASK_INBOX: fwd(inboxDir(t.id)),
@@ -261,6 +283,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       if (!cur || cur.terminalId !== term.id) return
       if (ACTIVE.includes(cur.state)) {
         update(t.id, { state: 'exited', stateReason: `unit process exited (code ${code}) without a final status` })
+        bump(t.id, 'stopped')
       }
     })
     if (adapter.promptDelivery === 'type') {
@@ -384,6 +407,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       return t ? withLive(t) : undefined
     },
     update,
+    bump,
 
     async spawn(req: SpawnRequest): Promise<Task> {
       const ctx = getCtx()
@@ -473,7 +497,15 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         })
       )
 
-      const loadout = resolveLoadout(req, ctx.settings)
+      // a follow-up on the same quest keeps the loadout of the unit that worked it before
+      const quest = backlog.get(backlogId!)
+      const prev = quest?.taskId ? get(quest.taskId) : undefined
+      const pickInput: LoadoutInput = {
+        ...req,
+        priority: quest?.priority,
+        sticky: prev ? { from: prev.id, harness: prev.harness, model: prev.model, effort: prev.effort, category: prev.category } : undefined
+      }
+      const loadout = resolveLoadout(pickInput, ctx.settings, ctx.dispatch.signals(project.name))
       const harness = loadout.harness
       const now = nowIso()
       const task: Task = {
@@ -495,6 +527,12 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         model: loadout.model,
         effort: loadout.effort,
         loadout: loadout.reasons,
+        category: loadout.category,
+        loadoutSource: loadout.source,
+        ruleId: loadout.ruleId,
+        explored: loadout.explored,
+        counters: { pings: 0, lagging: 0, stopped: 0, fixRounds: 0 },
+        usageAtStart: ctx.dispatch.usagePercent(harness),
         state: 'spawning',
         stateReason: posture.warning,
         createdAt: now,
@@ -514,7 +552,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         throw e
       }
       safe(() => backlog.markInFlight(backlogId!, id))
-      ledger('task.dispatched', task, { kind: task.kind, project: task.project, harness, model: task.model ?? 'default', effort: task.effort ?? 'default', loadout: loadout.source, rule: loadout.ruleId, mode: task.mode, yolo: task.yolo })
+      ledger('task.dispatched', task, { kind: task.kind, project: task.project, harness, model: task.model ?? 'default', effort: task.effort ?? 'default', category: loadout.category, loadout: loadout.source, rule: loadout.ruleId, explored: loadout.explored, mode: task.mode, yolo: task.yolo })
       safe(() => ctx.stats.award('spawn', id))
       safe(() => ctx.notifier.sfx('spawn'))
       return get(id)!
@@ -540,6 +578,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         safe(() => hc().decisions.resolveKey(id, k, text))
       }
       update(id, { inbox: { ...t.inbox, seq, rings: 0, lastRingAt: nowIso() } })
+      bump(id, 'pings')
       safe(() => getCtx().notifier.sfx('send'))
       const rang = await svc.ring(id)
       return {

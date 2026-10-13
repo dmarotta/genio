@@ -41,6 +41,10 @@ export interface Project {
   engine: Engine
   commands: ProjectCommands
   description?: string
+  /** this world's Quality / Balanced / Cost setting; unset = the global dial */
+  costDial?: CostDial
+  /** opt-in: units may send this world's code to cheap third-party models (OpenRouter via OpenCode) */
+  allowCheapModels?: boolean
   /** true when Genio cloned/created it under its home `projects/`. */
   managed: boolean
   addedAt: string
@@ -113,6 +117,19 @@ export interface Task {
   profile?: string
   /** why the unit got this tool / model / effort */
   loadout?: string[]
+  /** dispatch category the loadout was picked for */
+  category?: TaskCategory
+  /** who decided the unit tool, and whether exploration picked it */
+  loadoutSource?: Loadout['source']
+  ruleId?: string
+  explored?: boolean
+  /** rework signals for the scorecard */
+  counters?: TaskCounters
+  /** plan window usage of the unit tool when it deployed (percent) */
+  usageAtStart?: number
+  /** the player's verdict on how the unit did */
+  verdict?: Verdict
+  verdictNote?: string
   state: TaskState
   stateReason?: string
   createdAt: string
@@ -210,7 +227,11 @@ export interface Decision {
   answer?: string
   /** Deferred until this ISO date (player said "later"). */
   until?: string
+  /** what Genio does when the player accepts (the first option) */
+  action?: DecisionAction
 }
+
+export type DecisionAction = { kind: 'dispatch-proposal'; proposal: DispatchProposal }
 
 export type WakeKind = 'signal' | 'stale' | 'check' | 'heartbeat'
 
@@ -382,7 +403,48 @@ export interface DispatchRule {
   project?: string
   /** ordered candidates; first available wins unless spendPriority says otherwise */
   candidates: { harness: string; model?: string; effort?: string; spendPriority: number }[]
+  /** never reordered or rewritten by the learning loop */
+  locked?: boolean
 }
+
+/** Fixed dispatch categories (src/shared/dispatch.ts has labels and the default table). */
+export type TaskCategory =
+  | 'recon-design' | 'feature' | 'bugfix' | 'refactor' | 'graphics' | 'ui' | 'review'
+  | 'tests' | 'chore' | 'build-ci' | 'docs' | 'art' | 'large-context'
+
+/** Quality prefers stronger models and more effort, Cost cheaper candidates and less effort. */
+export type CostDial = 'quality' | 'balanced' | 'cost'
+
+export type Verdict = 'up' | 'down'
+
+export interface PoolCandidate {
+  harness: string
+  model?: string
+  effort?: string
+  /** a cheap third-party model (OpenRouter): only with the key, OpenCode and the world's opt-in */
+  cheap?: boolean
+}
+
+/** One row of the category table: ordered candidates for a category. */
+export interface CategoryPool {
+  category: TaskCategory
+  candidates: PoolCandidate[]
+  /** never reordered or rewritten by the learning loop */
+  locked?: boolean
+}
+
+export interface TaskCounters {
+  pings: number
+  lagging: number
+  stopped: number
+  fixRounds: number
+}
+
+/** A rule or table change the learning loop proposes; it waits for the player's OK under Your Move. */
+export type DispatchProposal =
+  | { op: 'pool-add'; category: TaskCategory; candidate: PoolCandidate; evidence: string }
+  | { op: 'pool-remove'; category: TaskCategory; candidate: PoolCandidate; evidence: string }
+  | { op: 'rule-drop-candidate'; ruleId: string; candidate: PoolCandidate; evidence: string }
 
 /** What the loadout picker needs to know about a mission. Empty harness/model/effort = auto. */
 export interface LoadoutInput {
@@ -394,6 +456,12 @@ export interface LoadoutInput {
   harness?: string
   model?: string
   effort?: string
+  /** passed by Genio at deploy; absent = keyword heuristic */
+  category?: TaskCategory
+  /** the quest's priority: critical work is never explored */
+  priority?: Priority
+  /** a follow-up on the same quest keeps this loadout */
+  sticky?: { from: string; harness: string; model?: string; effort?: string; category?: TaskCategory }
 }
 
 export interface Loadout {
@@ -401,8 +469,11 @@ export interface Loadout {
   model?: string
   effort?: string
   /** who decided the unit tool */
-  source: 'player' | 'rule' | 'default'
+  source: 'player' | 'rule' | 'table' | 'default' | 'sticky'
   ruleId?: string
+  category: TaskCategory
+  /** a less-proven candidate picked on purpose */
+  explored?: boolean
   /** one short line per decision */
   reasons: string[]
 }
@@ -481,6 +552,13 @@ export interface Settings {
   stripAiTrailers: boolean
   harnesses: HarnessAdapter[]
   dispatchRules: DispatchRule[]
+  /** category table: ordered candidates per category, after explicit rules */
+  categoryPools: CategoryPool[]
+  costDial: CostDial
+  /** share of picks (0-1) that try a less-proven candidate; 0 disables */
+  explorationRate: number
+  /** reorder candidates automatically when the scorecard evidence is clear */
+  autoReorder: boolean
   eventSources: EventSource[]
   firstRunDone: boolean
 }

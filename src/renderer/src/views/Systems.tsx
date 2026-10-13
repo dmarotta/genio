@@ -1,6 +1,9 @@
 import { Fragment, useEffect, useState, type CSSProperties, type ReactNode } from 'react'
-import { ChevronDown, ChevronRight, Copy, Download, KeyRound, LogIn, LogOut, Plus, RefreshCw, Trash, TriangleAlert, Users, Wrench, X } from 'lucide-react'
-import type { DispatchRule, EventSource, HarnessAdapter, Settings, ToolStatus, UpdateInfo } from '@shared/types'
+import { ChevronDown, ChevronRight, ChevronUp, Copy, Download, KeyRound, Lock, LockOpen, LogIn, LogOut, Plus, RefreshCw, Trash, TriangleAlert, Users, Wrench, X } from 'lucide-react'
+import type { CategoryPool, CostDial, DispatchRule, EventSource, HarnessAdapter, PoolCandidate, Settings, ToolStatus, UpdateInfo } from '@shared/types'
+import {
+  CATEGORIES, DIAL_HINT, DIAL_LABEL, LEARNING, QUOTA_HOT_PERCENT, categoryLabel, defaultCategoryPools, type DispatchScoresView, type ScoreRow
+} from '@shared/dispatch'
 import { accountActions, type AccountStatus, type ApiKeyStatus, type FalSpend, type ToolUsage, type UsageReport } from '@shared/api'
 import { api, errText, op, saveSettings, toast, useStore } from '../store'
 import { CommitInput, Confirm, Field, Toggle, ViewHeader } from '../components/ui'
@@ -20,7 +23,7 @@ const SECTIONS: { id: Section; label: string; group: string }[] = [
   { id: 'genio', label: 'Genio', group: 'Squad' },
   { id: 'units', label: 'Units', group: 'Squad' },
   { id: 'harnesses', label: 'Harnesses', group: 'Squad' },
-  { id: 'dispatch', label: 'Dispatch rules', group: 'Squad' },
+  { id: 'dispatch', label: 'Dispatch', group: 'Squad' },
   { id: 'allies', label: 'Allies', group: 'Squad' },
   { id: 'overwatch', label: 'Overwatch', group: 'Engine' },
   { id: 'gauntlet', label: 'Gauntlet', group: 'Engine' },
@@ -495,14 +498,47 @@ function Dispatch({ s }: { s: Settings }) {
   const save = (rules: DispatchRule[]): void => set({ dispatchRules: rules })
   const upd = (id: string, patch: Partial<DispatchRule>): void => save(s.dispatchRules.map((r) => (r.id === id ? { ...r, ...patch } : r)))
   const harnessOpts = s.harnesses.filter((h) => h.enabled)
+  const [scores, setScores] = useState<DispatchScoresView | null>(null)
+  useEffect(() => {
+    void api().dispatchScores().then(setScores).catch(() => setScores(null))
+  }, [s.categoryPools, s.dispatchRules])
   return (
     <>
-      <h2 className="sys-title">Dispatch rules</h2>
-      <p className="mute">Steer which harness and model handles which mission. First matching rule wins; higher spend priority is tried first among candidates. Your explicit per-mission choice always overrides.</p>
-      {s.dispatchRules.length === 0 && <div className="mute side-empty">No rules — every unit uses the Units defaults.</div>}
+      <h2 className="sys-title">Dispatch</h2>
+      <p className="mute">
+        How Genio picks a unit tool, model and effort. Precedence: your (or Genio's) explicit per-mission pick, then a follow-up's original loadout, then the best-fit rule below, then the
+        category table, then the Units default. Tools that aren't installed or logged in are skipped, and a subscription above {QUOTA_HOT_PERCENT}% of its 5-hour or weekly window is down-ranked.
+      </p>
+      <Row label="Cost dial" hint={DIAL_HINT[s.costDial ?? 'balanced']}>
+        <div className="seg">
+          {(['quality', 'balanced', 'cost'] as CostDial[]).map((d) => (
+            <button key={d} className={cx('btn sm', (s.costDial ?? 'balanced') === d && 'solid')} onClick={() => set({ costDial: d })}>
+              {DIAL_LABEL[d]}
+            </button>
+          ))}
+        </div>
+      </Row>
+      <Row label="Exploration" hint="Share of table picks that try a less-proven candidate when two or more are eligible. Never for explicit picks or critical quests. 0 turns it off.">
+        <CommitInput type="number" className="num-input" value={Math.round((s.explorationRate ?? 0) * 100)} onCommit={(v) => set({ explorationRate: Math.min(100, num(v)) / 100 })} />
+        <span className="mute">%</span>
+      </Row>
+      <Row
+        label="Learn the order automatically"
+        hint={`Swaps two neighbouring candidates when both have ${LEARNING.minSamples}+ outcomes and the lower one scores ${LEARNING.reorderMargin} higher (scores 0-1, recency half-life ${LEARNING.halfLifeDays} days). Adding or removing candidates always waits for your OK under Your Move. Locked rows and rules are never touched.`}
+      >
+        <Toggle checked={s.autoReorder} onChange={(v) => set({ autoReorder: v })} />
+      </Row>
+
+      <CategoryTable s={s} scores={scores} />
+
+      <div className="label" style={{ margin: '22px 0 8px' }}>
+        Rules
+      </div>
+      <p className="mute">Explicit rules beat the category table. First matching rule wins; higher spend priority is tried first among candidates.</p>
+      {s.dispatchRules.length === 0 && <div className="mute side-empty">No rules — the category table decides.</div>}
       {s.dispatchRules.map((r) => (
         <div key={r.id} className="rule panel">
-          <div className="rule-head">
+          <div className="rule-head locks">
             <Field label="When the mission mentions">
               <CommitInput value={r.match} placeholder="(always)" onCommit={(v) => upd(r.id, { match: v })} />
             </Field>
@@ -523,6 +559,7 @@ function Dispatch({ s }: { s: Settings }) {
                 ))}
               </select>
             </Field>
+            <LockButton locked={!!r.locked} onChange={(v) => upd(r.id, { locked: v || undefined })} />
             <button className="btn sm ghost icon alert" title="Remove rule" onClick={() => save(s.dispatchRules.filter((x) => x.id !== r.id))}>
               <Trash size={12} />
             </button>
@@ -568,6 +605,170 @@ function Dispatch({ s }: { s: Settings }) {
       >
         <Plus size={13} /> Add rule
       </button>
+
+      <Scores scores={scores} />
+    </>
+  )
+}
+
+function LockButton({ locked, onChange }: { locked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      className={cx('btn sm ghost icon', locked && 'amber')}
+      title={locked ? 'Locked: the learning loop never changes this' : 'Lock so the learning loop never changes this'}
+      onClick={() => onChange(!locked)}
+    >
+      {locked ? <Lock size={12} /> : <LockOpen size={12} />}
+    </button>
+  )
+}
+
+function CategoryTable({ s, scores }: { s: Settings; scores: DispatchScoresView | null }) {
+  const harnessOpts = s.harnesses.filter((h) => h.enabled)
+  const [reset, setReset] = useState(false)
+  const savePools = (pools: CategoryPool[]): void => set({ categoryPools: pools })
+  const updPool = (cat: string, patch: Partial<CategoryPool>): void => savePools(s.categoryPools.map((p) => (p.category === cat ? { ...p, ...patch } : p)))
+  const scoreOf = (cat: string, c: PoolCandidate): ScoreRow | undefined =>
+    scores?.rows.find((r) => r.scope === cat && r.harness === c.harness && (r.model ?? '') === (c.model ?? ''))
+  return (
+    <>
+      <div className="label" style={{ margin: '22px 0 8px', display: 'flex', alignItems: 'center', gap: 10 }}>
+        Category table
+        <button className="btn sm ghost" onClick={() => setReset(true)}>
+          <RefreshCw size={11} /> Reset to defaults
+        </button>
+      </div>
+      <p className="mute">
+        Genio passes the category at deploy; the Deploy window guesses it from keywords and lets you override. The first available candidate wins. Cheap OpenRouter models (OpenCode) are used only with
+        the OpenRouter key and in worlds that allow them.
+      </p>
+      <div className="cat-table">
+        {s.categoryPools.map((p) => {
+          const meta = CATEGORIES.find((c) => c.id === p.category)
+          const setCands = (candidates: PoolCandidate[]): void => updPool(p.category, { candidates })
+          return (
+            <div key={p.category} className={cx('cat-row panel', p.locked && 'locked')}>
+              <div className="cat-head">
+                <b>{meta?.label ?? p.category}</b>
+                <span className="mute">{meta?.hint}</span>
+                <span style={{ flex: 1 }} />
+                <LockButton locked={!!p.locked} onChange={(v) => updPool(p.category, { locked: v || undefined })} />
+              </div>
+              {p.candidates.map((c, i) => {
+                const updC = (patch: Partial<PoolCandidate>): void => setCands(p.candidates.map((x, j) => (j === i ? { ...x, ...patch } : x)))
+                const move = (by: number): void => {
+                  const next = p.candidates.slice()
+                  const [it] = next.splice(i, 1)
+                  next.splice(i + by, 0, it)
+                  setCands(next)
+                }
+                const sc = scoreOf(p.category, c)
+                return (
+                  <div key={i} className="cand-row cat-cand">
+                    <span className="mono mute">{i + 1}</span>
+                    <select className="select" value={c.harness} onChange={(e) => updC({ harness: e.target.value })}>
+                      {harnessOpts.map((h) => (
+                        <option key={h.id} value={h.id}>
+                          {h.name}
+                        </option>
+                      ))}
+                    </select>
+                    <CommitInput mono value={c.model ?? ''} placeholder="tool default model" onCommit={(v) => updC({ model: v.trim() || undefined })} />
+                    <select className="select" value={c.effort ?? ''} onChange={(e) => updC({ effort: e.target.value || undefined })}>
+                      <option value="">effort</option>
+                      {EFFORTS.map((x) => (
+                        <option key={x} value={x}>
+                          {x}
+                        </option>
+                      ))}
+                    </select>
+                    <button className={cx('chip', c.cheap && 'amber')} title="Cheap third-party model: needs the OpenRouter key and the world's opt-in" onClick={() => updC({ cheap: !c.cheap || undefined })}>
+                      cheap
+                    </button>
+                    <span className="mono mute cat-score" title={sc ? `${sc.landed}/${sc.samples} landed` : 'no outcomes yet'}>
+                      {sc ? `${sc.score.toFixed(2)} · ${sc.samples}` : '—'}
+                    </span>
+                    <button className="btn sm ghost icon" disabled={i === 0} title="Move up" onClick={() => move(-1)}>
+                      <ChevronUp size={12} />
+                    </button>
+                    <button className="btn sm ghost icon" disabled={i === p.candidates.length - 1} title="Move down" onClick={() => move(1)}>
+                      <ChevronDown size={12} />
+                    </button>
+                    <button className="btn sm ghost icon" title="Remove" onClick={() => setCands(p.candidates.filter((_, j) => j !== i))}>
+                      <Trash size={12} />
+                    </button>
+                  </div>
+                )
+              })}
+              <button className="btn sm ghost" onClick={() => setCands([...p.candidates, { harness: s.defaultHarness }])}>
+                <Plus size={12} /> Candidate
+              </button>
+            </div>
+          )
+        })}
+      </div>
+      {reset && (
+        <Confirm
+          title="Reset the category table?"
+          tone="amber"
+          confirmLabel="Reset"
+          body="Every category row goes back to the shipped defaults, including learned order and locks. Rules are kept."
+          onConfirm={() => savePools(defaultCategoryPools())}
+          onClose={() => setReset(false)}
+        />
+      )}
+    </>
+  )
+}
+
+function Scores({ scores }: { scores: DispatchScoresView | null }) {
+  if (!scores) return null
+  const scopeLabel = (scope: string): string => (scope.startsWith('rule:') ? `rule ${scope.slice(5)}` : categoryLabel(scope))
+  return (
+    <>
+      <div className="label" style={{ margin: '22px 0 8px' }}>
+        Scorecard
+      </div>
+      <p className="mute">Recency-weighted score per category, tool and model: landed work scores high, steering pings, respawns, Gauntlet fix rounds and lagging pull it down, and your 👍/👎 weighs most.</p>
+      {scores.rows.length === 0 ? (
+        <div className="mute side-empty">No outcomes yet. Every unit that lands, is despawned or fails adds one.</div>
+      ) : (
+        <div className="score-grid mono">
+          <span className="mute">category</span>
+          <span className="mute">tool / model</span>
+          <span className="mute">score</span>
+          <span className="mute">landed</span>
+          {scores.rows.map((r) => (
+            <Fragment key={`${r.scope}|${r.harness}|${r.model ?? ''}`}>
+              <span>{scopeLabel(r.scope)}</span>
+              <span>
+                {r.harness}
+                {r.model ? ` / ${r.model}` : ''}
+              </span>
+              <div className="bar" title={r.score.toFixed(2)}>
+                <i style={{ width: `${Math.round(r.score * 100)}%`, ['--c' as string]: r.score >= 0.7 ? 'var(--volt)' : r.score >= 0.4 ? 'var(--amber)' : 'var(--alert)' }} />
+              </div>
+              <span>
+                {r.landed}/{r.samples}
+              </span>
+            </Fragment>
+          ))}
+        </div>
+      )}
+      {scores.log.length > 0 && (
+        <>
+          <div className="label" style={{ margin: '16px 0 6px' }}>
+            Learning log
+          </div>
+          <div className="learning-log">
+            {scores.log.map((e, i) => (
+              <div key={i}>
+                <span className="mono mute">{dateShort(e.ts)}</span> <span className={cx('chip', e.kind === 'reorder' ? 'neon' : e.kind === 'applied' ? 'volt' : 'amber')}>{e.kind}</span> {e.text}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </>
   )
 }
@@ -821,7 +1022,7 @@ function Accounts() {
       <div className="label" style={{ margin: '22px 0 8px' }}>
         API keys
       </div>
-      <p className="mute">For services without a CLI login. Keys are encrypted with your OS keychain and stay in Genio's base; Genio shows only whether one is set. Not passed to units yet.</p>
+      <p className="mute">For services without a CLI login. Keys are encrypted with your OS keychain and stay in Genio's base; Genio shows only whether one is set. Units get a key only through their process environment: FAL as FAL_KEY, OpenRouter as OPENROUTER_API_KEY for OpenCode units in worlds that allow cheap third-party models.</p>
       {keys.map((k) => (
         <ApiKeyRow key={k.id} k={k} spend={k.id === 'fal' ? usage?.fal : undefined} onChange={() => void api().apiKeys().then(setKeys).catch(() => undefined)} />
       ))}

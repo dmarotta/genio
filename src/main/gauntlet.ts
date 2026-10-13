@@ -343,6 +343,7 @@ export function createGauntlet(getCtx: () => AppCtx, home: Home): Gauntlet {
       findings
     ].join('\n')
     const r = await crew.send(taskId, msg)
+    if (r.ok) crew.bump(taskId, 'fixRounds')
     return { ok: false, message: r.ok ? `Gauntlet round ${round} found problems; pinged the unit with fixes.` : `Gauntlet found problems but the ping failed: ${r.message}` }
   }
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Check, ChevronLeft, ChevronRight, Clock, ExternalLink, GitMerge, Hand, Play, Sparkles } from 'lucide-react'
-import type { Decision, Task } from '@shared/types'
+import type { Decision, Task, Verdict } from '@shared/types'
+import { VerdictPick, rateThenMerge } from '../components/Dispatch'
 import { api, focusTask, heldQuests, op, openDecisions, readyTasks, useStore } from '../store'
 import { Markdown } from '../components/Markdown'
 import { Chip, Confirm, Empty, ViewHeader } from '../components/ui'
@@ -200,6 +201,7 @@ function ReadyRow({ t }: { t: Task }) {
   const project = useStore((s) => s.snap.projects.find((p) => p.name === t.project))
   const settings = useStore((s) => s.settings)
   const [confirm, setConfirm] = useState(false)
+  const [verdict, setVerdict] = useState<Verdict | undefined>()
   const checks = t.pr?.checks
   return (
     <div className="ready-row panel">
@@ -228,9 +230,14 @@ function ReadyRow({ t }: { t: Task }) {
           title="Merge this Build?"
           tone="volt"
           confirmLabel="Merge"
-          body={t.pr?.url ? `Squash-merge ${t.pr.url}. Genio refuses drafts, conflicts and anything not green.` : `Fast-forward ${t.branch} into ${t.baseBranch} locally.`}
+          body={
+            <>
+              {t.pr?.url ? `Squash-merge ${t.pr.url}. Genio refuses drafts, conflicts and anything not green.` : `Fast-forward ${t.branch} into ${t.baseBranch} locally.`}
+              <VerdictPick value={verdict ?? t.verdict} onChange={setVerdict} />
+            </>
+          }
           onConfirm={async () => {
-            const r = await op('Merge', () => api().mergeTask(t.id))
+            const r = await rateThenMerge(t.id, verdict)
             if (r?.ok) playSfx('merge', settings)
           }}
           onClose={() => setConfirm(false)}

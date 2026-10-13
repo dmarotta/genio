@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Radar, Rocket, SlidersHorizontal, Sparkles } from 'lucide-react'
-import type { DeliveryMode, Loadout, TaskKind } from '@shared/types'
+import type { DeliveryMode, Loadout, TaskCategory, TaskKind } from '@shared/types'
+import { CATEGORIES, categoryLabel } from '@shared/dispatch'
 import { api, errText, focusTask, setState, toast, useStore } from '../store'
 import { Field, Modal, Toggle } from './ui'
 import { DELIVERY_MODES, EFFORTS, MODE_HINT, MODE_LABEL } from '../lib/vocab'
@@ -22,6 +23,7 @@ export function DeployModal() {
   const [harness, setHarness] = useState('')
   const [model, setModel] = useState('')
   const [effort, setEffort] = useState('')
+  const [category, setCategory] = useState<TaskCategory | ''>('')
   const [base, setBase] = useState('')
   const [busy, setBusy] = useState(false)
   const [override, setOverride] = useState(false)
@@ -39,6 +41,7 @@ export function DeployModal() {
     setHarness(draft.harness ?? '')
     setModel(draft.model ?? '')
     setEffort(draft.effort ?? '')
+    setCategory(draft.category ?? '')
     setBase(draft.baseBranch ?? '')
     setOverride(Boolean(draft.harness || draft.model || draft.effort))
     const p = projects.find((x) => x.name === (draft.project ?? projects[0]?.name))
@@ -66,6 +69,7 @@ export function DeployModal() {
           title,
           intent,
           spec: spec || undefined,
+          category: category || undefined,
           harness: pickHarness || undefined,
           model: pickModel || undefined,
           effort: pickEffort || undefined
@@ -77,7 +81,7 @@ export function DeployModal() {
       live = false
       clearTimeout(t)
     }
-  }, [draft, kind, project, title, intent, spec, pickHarness, pickModel, pickEffort, settings])
+  }, [draft, kind, project, title, intent, spec, category, pickHarness, pickModel, pickEffort, settings])
 
   if (!draft) return null
   const toolName = (id: string): string => settings?.harnesses.find((x) => x.id === id)?.name ?? id
@@ -94,6 +98,7 @@ export function DeployModal() {
         title: title.trim(),
         intent: intent.trim(),
         spec: spec.trim() || undefined,
+        category: category || undefined,
         mode: kind === 'ship' && mode ? mode : undefined,
         yolo: kind === 'ship' ? yolo : undefined,
         baseBranch: base.trim() || undefined,
@@ -247,6 +252,19 @@ export function DeployModal() {
         <div className="loadout-head">
           <span className="label">Loadout</span>
           <span className={cx('chip', custom ? 'amber' : 'neon')}>{custom ? 'Custom' : 'Auto'}</span>
+          <select
+            className="select compact"
+            value={category}
+            title="Dispatch category: picks the row of the category table"
+            onChange={(e) => setCategory(e.target.value as TaskCategory | '')}
+          >
+            <option value="">{preview && !category ? `Auto · ${categoryLabel(preview.category)}` : 'Auto category'}</option>
+            {CATEGORIES.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
+          </select>
           <span className="loadout-pick">
             {preview ? (
               <>
@@ -269,7 +287,13 @@ export function DeployModal() {
             {override ? 'Auto' : 'Override'}
           </button>
         </div>
-        {preview && <div className="loadout-why">Why: {preview.reasons.map((r) => r.replace(/^[^:]+: /, '')).join(' · ')}</div>}
+        {preview && (
+          <ul className="loadout-why">
+            {preview.reasons.map((r, i) => (
+              <li key={i}>{r}</li>
+            ))}
+          </ul>
+        )}
         {override && (
           <div className="form-grid cols-3">
             <Field label="Unit tool">

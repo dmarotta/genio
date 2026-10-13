@@ -307,6 +307,21 @@ export function falSpend(runs: FalRun[], now = Date.now()): FalSpend {
   return s
 }
 
+// ---------------------------------------------------------------- dispatch quota
+
+/** Live 5-hour and weekly windows per tool, for the loadout picker (a rejected window counts as 100%). */
+export function quotaFromUsage(r: UsageReport): Record<string, { label: string; usedPercent: number }[]> {
+  const out: Record<string, { label: string; usedPercent: number }[]> = {}
+  for (const t of r.tools) {
+    const windows = (t.limits[0]?.windows ?? [])
+      .filter((w) => !w.stale && (w.label === '5-hour' || w.label.startsWith('weekly')))
+      .map((w) => ({ label: w.label, usedPercent: w.status === 'rejected' ? 100 : w.usedPercent }))
+      .filter((w): w is { label: string; usedPercent: number } => typeof w.usedPercent === 'number')
+    if (windows.length) out[t.tool] = windows
+  }
+  return out
+}
+
 // ---------------------------------------------------------------- scanning
 
 const claudeHome = (): string => process.env.CLAUDE_CONFIG_DIR?.trim() || path.join(os.homedir(), '.claude')

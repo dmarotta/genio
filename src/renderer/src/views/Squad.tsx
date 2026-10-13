@@ -3,13 +3,15 @@ import {
   ArrowLeft, CircleStop, ExternalLink, FolderOpen, GitMerge, LogOut, Play, Radar, RotateCcw, Rocket, Send,
   ShieldCheck, SquareTerminal, Trash, ArrowUpFromLine, X
 } from 'lucide-react'
-import type { Task, TerminalInfo, ValidationStep } from '@shared/types'
+import type { Task, TerminalInfo, ValidationStep, Verdict } from '@shared/types'
+import { categoryLabel } from '@shared/dispatch'
 import type { TaskFile } from '@shared/api'
 import { api, errText, focusTask, op, openDeploy, setState, toast, useStore } from '../store'
 import { TerminalView } from '../components/Terminal'
 import { Markdown } from '../components/Markdown'
 import { Chip, Confirm, Dot, Empty, Modal, Field, Tabs, ViewHeader, useNow } from '../components/ui'
 import { GenioCore } from '../components/GenioCore'
+import { LoadoutReasons, RATEABLE, VerdictButtons, VerdictPick, rateThenMerge } from '../components/Dispatch'
 import { KIND_LABEL, MODE_LABEL, STATE_LABEL, isActive, stateTone } from '../lib/vocab'
 import { ago, clock, cx, elapsed, shortPath } from '../lib/format'
 import { playSfx } from '../lib/sfx'
@@ -106,9 +108,10 @@ function UnitCard({ t, term }: { t: Task; term?: TerminalInfo }) {
         </div>
         <div className="unit-title-wrap">
           <div className="unit-title">{t.title}</div>
-          <div className="unit-sub mute">
+          <div className="unit-sub mute" title={t.loadout?.join('\n')}>
             {t.project} · {t.harness}
             {t.model ? ` · ${t.model}` : ''}
+            {t.category ? ` · ${categoryLabel(t.category)}` : ''}
           </div>
         </div>
         <div className="unit-state">
@@ -134,6 +137,7 @@ function UnitCard({ t, term }: { t: Task; term?: TerminalInfo }) {
             PR{t.pr.number ? ` #${t.pr.number}` : ''} {t.pr.checks && t.pr.checks !== 'none' ? `· ${t.pr.checks}` : ''}
           </a>
         )}
+        {RATEABLE.includes(t.state) && <VerdictButtons t={t} label={false} />}
         <button className="btn sm ghost" onClick={() => focusTask(t.id)}>
           Open
         </button>
@@ -242,6 +246,7 @@ function UnitDetail({ id }: { id: string }) {
   const [refusal, setRefusal] = useState('')
   const [upgrade, setUpgrade] = useState(false)
   const [crew, setCrew] = useState('')
+  const [verdict, setVerdict] = useState<Verdict | undefined>()
   const now = useNow(1000)
 
   useEffect(() => {
@@ -321,6 +326,7 @@ function UnitDetail({ id }: { id: string }) {
             {t.mode && <span className="chip">{MODE_LABEL[t.mode]}</span>}
             {t.yolo && <span className="chip volt">Auto-loot</span>}
             <span className="mono mute">{elapsed(t.createdAt, now)}</span>
+            {RATEABLE.includes(t.state) && <VerdictButtons t={t} />}
           </div>
           <h1 className="title" style={{ fontSize: 26 }}>
             {t.title}
@@ -329,6 +335,7 @@ function UnitDetail({ id }: { id: string }) {
             {t.project} · <span className="mono">{t.branch}</span> → <span className="mono">{t.baseBranch}</span> · {t.harness}
             {t.model ? `/${t.model}` : ''}
             {t.effort ? ` · ${t.effort}` : ''}
+            {t.category ? ` · ${categoryLabel(t.category)}` : ''}
             {t.relaunches ? ` · respawned ×${t.relaunches}` : ''}
           </div>
         </div>
@@ -391,6 +398,7 @@ function UnitDetail({ id }: { id: string }) {
         </div>
         <aside className="detail-side panel">
           {crew && <div className="crew-state mono">{crew}</div>}
+          <LoadoutReasons t={t} />
           <Tabs<TabId>
             value={tab}
             onChange={setTab}
@@ -462,18 +470,21 @@ function UnitDetail({ id }: { id: string }) {
           tone="volt"
           confirmLabel="Merge"
           body={
-            t.pr?.url ? (
-              <>
-                Squash-merge <a onClick={() => void api().openExternal(t.pr!.url)}>{t.pr.url}</a> into <span className="mono">{t.baseBranch}</span>. Genio refuses drafts, conflicts, and anything not green.
-              </>
-            ) : (
-              <>
-                Fast-forward <span className="mono">{t.branch}</span> into <span className="mono">{t.baseBranch}</span> in your local copy of {t.project}.
-              </>
-            )
+            <>
+              {t.pr?.url ? (
+                <>
+                  Squash-merge <a onClick={() => void api().openExternal(t.pr!.url)}>{t.pr.url}</a> into <span className="mono">{t.baseBranch}</span>. Genio refuses drafts, conflicts, and anything not green.
+                </>
+              ) : (
+                <>
+                  Fast-forward <span className="mono">{t.branch}</span> into <span className="mono">{t.baseBranch}</span> in your local copy of {t.project}.
+                </>
+              )}
+              <VerdictPick value={verdict ?? t.verdict} onChange={setVerdict} />
+            </>
           }
           onConfirm={async () => {
-            const r = await op('Merge', () => api().mergeTask(t.id))
+            const r = await rateThenMerge(t.id, verdict)
             if (r?.ok) playSfx('merge', settings)
           }}
           onClose={() => setConfirm(null)}

@@ -31,13 +31,14 @@ afterEach(() => fs.rmSync(dir, { recursive: true, force: true }))
 
 describe('secret store', () => {
   it('round-trips a key without writing it in plain text', () => {
-    expect(secretStatus(dir)).toEqual([expect.objectContaining({ id: 'fal', set: false })])
+    expect(secretStatus(dir)).toEqual([expect.objectContaining({ id: 'fal', set: false }), expect.objectContaining({ id: 'openrouter', set: false })])
     setSecret('fal', `  ${KEY}\n`, dir)
     expect(getSecret('fal', dir)).toBe(KEY)
     const raw = fs.readFileSync(path.join(dir, 'secrets.json'), 'utf8')
     expect(raw).not.toContain(KEY)
     expect(raw).not.toContain('0123456789abcdef')
-    const st = secretStatus(dir)[0]
+    const st = secretStatus(dir).find((s) => s.id === 'fal')!
+    expect(secretStatus(dir).find((s) => s.id === 'openrouter')?.set).toBe(false)
     expect(st).toMatchObject({ id: 'fal', label: 'FAL.ai', set: true, last4: 'WXYZ' })
     expect(JSON.stringify(st)).not.toContain(KEY)
   })

@@ -11,12 +11,15 @@ import type {
   AwayMode, AwayEntry, AwayState, BacklogItem, StatusReport, ChatMessage, Decision, FleetSnapshot,
   FleetStats, HarnessAdapter, InboxNote, LedgerRecord, WkspInfo, PermissionRequest, Project, Ally,
   Settings, StatusEvent, Task, TerminalInfo, ToolStatus, UpdateInfo, Wake, WakeKind, Achievement,
-  DeliveryMode, SfxName, NotifyTarget
+  DeliveryMode, SfxName, NotifyTarget, Verdict, TaskCounters
 } from '@shared/types'
 import type {
   OpResult, ProjectAddRequest, ProjectCreateRequest, AllyCreateRequest, SpawnRequest, TaskFile, MemoryFile,
-  FalRun, FalRunRequest, FalSaveRequest, FalSaveResult, FalCatalogue, FalModelInfo, FalSearchHit, FalWorldState, FalWorldConfig, FalRecipe
+  FalRun, FalRunRequest, FalSaveRequest, FalSaveResult, FalCatalogue, FalModelInfo, FalSearchHit, FalWorldState, FalWorldConfig, FalRecipe,
+  AccountStatus, UsageReport
 } from '@shared/api'
+import type { DispatchScoresView } from '@shared/dispatch'
+import type { PickEnv } from './loadout'
 import type { AllyControlsPatch, UnqueuedChat } from '@shared/chat'
 import type { ChatImageInput } from '@shared/chat-images'
 import type { Home } from './home'
@@ -210,6 +213,25 @@ export interface FalService {
   deleteRecipe(world: string | null, id: string): FalRecipe[]
 }
 
+/** Smart dispatch: live picker signals, the scorecard, verdicts and the learning loop. */
+export interface DispatchService {
+  /** what the picker knows beyond settings for a deploy in this world; preview never rolls exploration */
+  signals(project: string, opts?: { preview?: boolean }): Omit<PickEnv, 'available'>
+  /** a tool's hottest 5-hour/weekly plan window (percent), when it reported one */
+  usagePercent(harness: string): number | undefined
+  noteUsage(r: UsageReport): void
+  noteLogins(list: AccountStatus[]): void
+  /** a task reached an end state: upsert its outcome on the scorecard, then learn */
+  record(t: Task): void
+  /** the player's verdict on a unit */
+  rate(taskId: string, verdict: Verdict, note?: string): OpResult
+  scores(): DispatchScoresView
+  /** reorder on clear evidence, propose rule/table changes as choices */
+  learn(): void
+  /** a choice was answered: apply an accepted dispatch proposal */
+  answered(d: Decision, answer: string): void
+}
+
 export interface PermissionBroker {
   /** ask the player through the GUI; resolves true when allowed */
   ask(req: Omit<PermissionRequest, 'id' | 'ts'>): Promise<boolean>
@@ -223,6 +245,8 @@ export interface CrewService {
   list(): Task[]
   get(id: string): Task | undefined
   update(id: string, patch: Partial<Task>): Task | undefined
+  /** count a rework signal for the dispatch scorecard */
+  bump(id: string, counter: keyof TaskCounters): void
   spawn(req: SpawnRequest): Promise<Task>
   /** ping: durable steering inbox write + doorbell; resolveKeys close open choices */
   send(id: string, text: string, resolveKeys?: string[]): Promise<OpResult>
@@ -355,6 +379,7 @@ export interface AppCtx {
   update: UpdateService
   permissions: PermissionBroker
   fal: FalService
+  dispatch: DispatchService
   main: HomeCtx
   homes: Map<string, HomeCtx>
   home(name: string): HomeCtx

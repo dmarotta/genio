@@ -1,5 +1,5 @@
 /**
- * API keys for services that have no CLI login (FAL.ai). The one deliberate
+ * API keys for services that have no CLI login (FAL.ai, OpenRouter). The one deliberate
  * exception to "Genio keeps no credentials": each key is encrypted with
  * Electron safeStorage (OS-backed: DPAPI / Keychain / libsecret) and kept in
  * the main base's data/secrets.json, never in a world or in settings.json.
@@ -12,7 +12,10 @@ import type { ApiKeyStatus } from '@shared/api'
 import { defaultHomeRoot } from './home'
 import { nowIso, readJson, writeJson } from './util'
 
-export const SECRET_SERVICES = [{ id: 'fal', label: 'FAL.ai', purpose: 'Generative media API (images, audio, video)' }] as const
+export const SECRET_SERVICES = [
+  { id: 'fal', label: 'FAL.ai', purpose: 'Generative media API (images, audio, video)' },
+  { id: 'openrouter', label: 'OpenRouter', purpose: 'Cheap third-party coding models for OpenCode units, only in worlds that allow them' }
+] as const
 export type SecretId = (typeof SECRET_SERVICES)[number]['id']
 
 interface SecretRecord {

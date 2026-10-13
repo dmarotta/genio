@@ -60,9 +60,17 @@ export function registerIpc(getCtx: () => AppCtx): void {
     },
 
     // ---- accounts
-    accounts: () => listAccounts(),
+    accounts: async () => {
+      const list = await listAccounts()
+      ctx().dispatch.noteLogins(list)
+      return list
+    },
     accountSession: (tool, action) => openAccountSession(ctx(), tool, action),
-    accountUsage: () => usageReport(ctx()),
+    accountUsage: async () => {
+      const r = await usageReport(ctx())
+      ctx().dispatch.noteUsage(r)
+      return r
+    },
     apiKeys: () => secretStatus(ctx().main.home.data),
     apiKeySet: (id, key) => {
       setSecret(id, key, ctx().main.home.data)
@@ -125,7 +133,9 @@ export function registerIpc(getCtx: () => AppCtx): void {
 
     // ---- squad
     spawnTask: (req) => ctx().home(req.wksp ?? 'main').crew.spawn(req),
-    previewLoadout: async (req) => resolveLoadout(req, ctx().settings),
+    previewLoadout: async (req) => resolveLoadout(req, ctx().settings, ctx().dispatch.signals(req.project, { preview: true })),
+    rateTask: async (id, verdict, note) => ctx().dispatch.rate(id, verdict, note),
+    dispatchScores: async () => ctx().dispatch.scores(),
     sendToTask: async (id, text, resolveKey) => {
       const { hc } = taskHome(id)
       const r = await hc.crew.send(id, text, resolveKey ? [resolveKey] : undefined)

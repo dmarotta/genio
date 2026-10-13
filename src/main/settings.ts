@@ -4,6 +4,7 @@ import type { SettingsService } from './services'
 import type { Home } from './home'
 import { bus } from './bus'
 import { mergeHarnesses } from './harness'
+import { mergeCategoryPools } from '@shared/dispatch'
 import { readJson, which, writeJson } from './util'
 
 export function defaultSettings(): Settings {
@@ -53,6 +54,10 @@ export function defaultSettings(): Settings {
     stripAiTrailers: true,
     harnesses: mergeHarnesses(undefined),
     dispatchRules: [],
+    categoryPools: mergeCategoryPools(undefined),
+    costDial: 'balanced',
+    explorationRate: 0.2,
+    autoReorder: true,
     eventSources: [],
     firstRunDone: false
   }
@@ -61,7 +66,7 @@ export function defaultSettings(): Settings {
 export function createSettingsService(home: Home): SettingsService {
   const defaults = defaultSettings()
   const saved = readJson<Partial<Settings>>(home.settingsFile, {})
-  let current: Settings = { ...defaults, ...saved, harnesses: mergeHarnesses(saved.harnesses) }
+  let current: Settings = { ...defaults, ...saved, harnesses: mergeHarnesses(saved.harnesses), categoryPools: mergeCategoryPools(saved.categoryPools) }
   if (!saved.inboxToken) writeJson(home.settingsFile, current)
 
   const svc: SettingsService = {
@@ -69,6 +74,7 @@ export function createSettingsService(home: Home): SettingsService {
     save(patch) {
       const next: Settings = { ...current, ...patch }
       if (patch.harnesses) next.harnesses = mergeHarnesses(patch.harnesses)
+      if (patch.categoryPools) next.categoryPools = mergeCategoryPools(patch.categoryPools)
       current = next
       writeJson(home.settingsFile, current)
       bus.publish({ type: 'settings', settings: current })

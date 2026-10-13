@@ -111,7 +111,8 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
         source: input.source ?? 'genio',
         urgency: input.urgency ?? 'normal',
         createdAt: nowIso(),
-        ...(input.until ? { until: input.until } : {})
+        ...(input.until ? { until: input.until } : {}),
+        ...(input.action ? { action: input.action } : {})
       }
       load().push(d)
       save()
@@ -157,6 +158,13 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
         ctx = undefined
       }
       if (ctx) {
+        if (d.action) {
+          try {
+            ctx.dispatch.answered(d, answer)
+          } catch {
+            /* a failed apply never blocks the answer */
+          }
+        }
         // Relay the player's words to the unit that asked; closes the key.
         if (d.taskId && (d.source === 'unit' || d.source === 'validation')) {
           const h = safeHome(ctx, home.name)

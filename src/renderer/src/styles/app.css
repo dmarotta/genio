@@ -976,3 +976,27 @@ button.usage-toggle:hover { color: var(--text); }
 @media (max-width: 1280px) {
   .fal-layout { grid-template-columns: 380px minmax(0, 1fr); }
 }
+
+.rule-head.locks { grid-template-columns: 2fr 1fr 1fr auto auto; }
+
+/* ---------- Smart dispatch ---------- */
+ul.loadout-why { margin: 8px 0 0; padding-left: 18px; }
+ul.loadout-why li { margin: 1px 0; }
+.loadout-head .select.compact { width: auto; max-width: 220px; padding-top: 3px; padding-bottom: 3px; font-size: 12px; }
+.seg { display: inline-flex; gap: 4px; }
+.verdict { display: inline-flex; align-items: center; gap: 4px; }
+.verdict .btn.on.volt { color: var(--volt); border-color: var(--volt); }
+.verdict .btn.on.alert { color: var(--alert); border-color: var(--alert); }
+.verdict-pick { margin-top: 14px; }
+.loadout-reasons { margin: 6px 0 10px; font-size: 12px; }
+.loadout-reasons summary { cursor: pointer; }
+.loadout-reasons ul { margin: 6px 0 0; padding-left: 18px; color: var(--text-dim); line-height: 1.45; }
+.cat-table { display: flex; flex-direction: column; gap: 8px; }
+.cat-row { padding: 10px 12px; }
+.cat-row.locked { border-color: var(--amber); }
+.cat-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.cat-head .mute { font-size: 12px; }
+.cand-row.cat-cand { grid-template-columns: 18px 1fr 1.4fr 0.8fr auto 74px auto auto auto; align-items: center; }
+.cat-score { font-size: 11px; text-align: right; }
+.score-grid { display: grid; grid-template-columns: 1.2fr 1.6fr 1fr 60px; gap: 6px 12px; align-items: center; font-size: 12px; }
+.learning-log { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }

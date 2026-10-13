@@ -14,8 +14,8 @@ const installed =
     ids.includes(h.id)
 
 describe('loadout picker', () => {
-  it('falls back to the default unit tool with no rules', () => {
-    const l = pickLoadout(base, settings(), installed('claude'))
+  it('falls back to the default unit tool with no rules and no category table', () => {
+    const l = pickLoadout(base, settings([], { categoryPools: [] }), installed('claude'))
     expect(l.harness).toBe('claude')
     expect(l.source).toBe('default')
   })

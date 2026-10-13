@@ -2,8 +2,9 @@ import type { AllyControlsPatch, UnqueuedChat } from './chat'
 import type {
   AwayMode, AwayState, BacklogItem, StatusReport, ChatMessage, DeliveryMode, Engine, FleetSnapshot,
   GenioEvent, LedgerRecord, Priority, Project, ProjectCommands, Ally, Settings, Task, TaskKind,
-  TerminalInfo, ToolStatus, UpdateInfo, Wake, Forge, Decision, InboxNote, ProjectMode, Loadout, LoadoutInput
+  TerminalInfo, ToolStatus, UpdateInfo, Wake, Forge, Decision, InboxNote, ProjectMode, Loadout, LoadoutInput, TaskCategory, Verdict
 } from './types'
+import type { DispatchScoresView } from './dispatch'
 import type { ChatImageInput } from './chat-images'
 
 export interface SpawnRequest {
@@ -20,6 +21,8 @@ export interface SpawnRequest {
   harness?: string
   model?: string
   effort?: string
+  /** dispatch category (Genio passes it; absent = keyword heuristic) */
+  category?: TaskCategory
   backlogId?: string
   wksp?: string
 }
@@ -431,6 +434,10 @@ export interface GenioApi {
   spawnTask(req: SpawnRequest): Promise<Task>
   /** What a deploy with these fields would get (harness, model, effort) and why. */
   previewLoadout(req: LoadoutInput): Promise<Loadout>
+  /** the player's 👍/👎 on a unit (scorecard) */
+  rateTask(id: string, verdict: Verdict, note?: string): Promise<OpResult>
+  /** Systems → Dispatch: learned scores, recent outcomes, learning log */
+  dispatchScores(): Promise<DispatchScoresView>
   sendToTask(id: string, text: string, resolveKey?: string): Promise<OpResult>
   controlTask(id: string, action: 'interrupt' | 'exit' | 'relaunch'): Promise<OpResult>
   cleanupTask(id: string, force?: boolean): Promise<OpResult>
@@ -534,6 +541,8 @@ export const API_METHODS = [
   'save',
   'spawnTask',
   'previewLoadout',
+  'rateTask',
+  'dispatchScores',
   'sendToTask',
   'controlTask',
   'cleanupTask',

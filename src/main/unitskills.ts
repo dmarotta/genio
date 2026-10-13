@@ -83,6 +83,16 @@ export function unitLaunchExtras(harnessId: string, opts: { pluginDir?: string; 
   return { args, env }
 }
 
+/**
+ * The OpenRouter key reaches a unit only as OPENROUTER_API_KEY in its process
+ * environment, only for OpenCode, and only in a world that allows cheap
+ * third-party models.
+ */
+export function openRouterEnv(harnessId: string, worldAllows: boolean, key: string | undefined): Record<string, string> {
+  const k = key?.trim()
+  return harnessId === 'opencode' && worldAllows && k ? { OPENROUTER_API_KEY: k } : {}
+}
+
 /** The brief's pointer to the bundled skills. Paths only; never a key. */
 export function unitToolsBrief(pluginDir: string): string {
   const dir = fwd(falSkillDir(pluginDir))

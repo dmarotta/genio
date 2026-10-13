@@ -233,6 +233,7 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
         tr.exitedReported = true
         const code = info?.exitCode
         hc().crew.update(t.id, { state: 'exited', stateReason: `process ended${code !== undefined ? ` (exit ${code})` : ''} without a final status` })
+        hc().crew.bump(t.id, 'stopped')
         enqueue('stale', `${label(t)}: unit process ended${code !== undefined ? ` (exit ${code})` : ''} without a final status`, t.id, tailLines(t, 15), false)
       }
       return
@@ -252,6 +253,8 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
     if (tr.lastStaleWakeAt && now - tr.lastStaleWakeAt < windowMs) return
     tr.lastStaleWakeAt = now
     tr.staleEscalations++
+    // one lagging episode per quiet spell, for the dispatch scorecard
+    if (tr.staleEscalations === 1) hc().crew.bump(t.id, 'lagging')
     const deep = tr.staleEscalations > Math.max(1, s.staleEscalations || 3) ? ' demand-deep-inspection' : ''
     enqueue(
       'stale',

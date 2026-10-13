@@ -25,6 +25,7 @@
  *   update.ts       createUpdateService(getCtx)
  *   permissions.ts  createPermissionBroker(getCtx)
  *   fal-service.ts  createFalService(getCtx)
+ *   dispatch.ts     createDispatchService(getCtx)
  */
 import type { FleetSnapshot, Ally } from '@shared/types'
 import { Home, defaultHomeRoot } from './home'
@@ -52,6 +53,7 @@ import { createMemoryService } from './memory'
 import { createUpdateService } from './update'
 import { createPermissionBroker } from './permissions'
 import { createFalService } from './fal-service'
+import { createDispatchService } from './dispatch'
 
 let current: AppCtx | undefined
 
@@ -102,6 +104,7 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
   ctx.permissions = createPermissionBroker(getCtx)
   ctx.allies = createAlliesService(getCtx)
   ctx.fal = createFalService(getCtx)
+  ctx.dispatch = createDispatchService(getCtx)
 
   ctx.main = makeHomeCtx(mainHome)
   homes.set('main', ctx.main)
