@@ -44,12 +44,11 @@ beforeEach(() => {
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); fs.rmSync(root, { recursive: true, force: true }); handlers.clear() })
 
 describe('non-destructive lifecycle recovery', () => {
-  it('holds automatic repeats but gives UI and player-authorized chat the same explicit restart authority', async () => {
+  it('holds automatic repeats but lets chat and UI deliberately restart without approval text', async () => {
     const crew = ctx.main.crew
     expect((await crew.control(task.id, 'relaunch')).ok).toBe(false)
     const tool = createToolRegistry(() => ctx, home, 'genio').find(t => t.name === 'control')!
-    expect(await tool.invoke({ task: task.id, action: 'relaunch' })).toMatchObject({ isError: true })
-    expect(await tool.invoke({ task: task.id, action: 'relaunch', player_words: 'restart this unit' })).not.toHaveProperty('isError')
+    expect(await tool.invoke({ task: task.id, action: 'relaunch' })).not.toHaveProperty('isError')
     expect(crew.get(task.id)).toMatchObject({ state: 'working', automaticRelaunches: 0, relaunches: 2, branch: task.branch, worktree: task.worktree })
     crew.update(task.id, { automaticRelaunches: 1 })
     registerIpc(() => ctx)
@@ -59,11 +58,58 @@ describe('non-destructive lifecycle recovery', () => {
     expect(release).toHaveBeenCalledTimes(2)
   })
 
-  it('preserves work and retry history when restart fails, and releases phantom capacity', async () => {
+  it('caps Bot recovery at one attempt, even when the automatic launch fails', async () => {
+    const crew = ctx.main.crew
+    crew.update(task.id, { automaticRelaunches: 0 })
+    ctx.terminals.create = vi.fn(() => { throw new Error('terminal launch failed') })
+    const tool = createToolRegistry(() => ctx, home, 'bot').find(t => t.name === 'control')!
+    expect(await tool.invoke({ task: task.id, action: 'relaunch' })).toMatchObject({ isError: true })
+    expect(crew.get(task.id)?.automaticRelaunches).toBe(1)
+    expect(await tool.invoke({ task: task.id, action: 'relaunch' })).toMatchObject({ isError: true })
+    expect(ctx.terminals.create).toHaveBeenCalledOnce()
+    expect(ctx.dispatch.reserve).toHaveBeenCalledOnce()
+  })
+
+  it('allows repeated deliberate chat relaunches and a fresh automatic retry afterward', async () => {
+    const crew = ctx.main.crew
+    const tool = createToolRegistry(() => ctx, home, 'ally').find(t => t.name === 'control')!
+    for (let i = 0; i < 3; i++) {
+      crew.update(task.id, { automaticRelaunches: 1 })
+      expect(await tool.invoke({ task: task.id, action: 'relaunch' })).not.toHaveProperty('isError')
+      expect(crew.get(task.id)?.automaticRelaunches).toBe(0)
+    }
+    expect((await crew.control(task.id, 'relaunch')).ok).toBe(true)
+    expect((await crew.control(task.id, 'relaunch')).ok).toBe(false)
+    expect(crew.get(task.id)?.relaunches).toBe(5)
+  })
+
+  it.each([1, undefined])('resets persisted recovery history on app restart (counter %s)', async (attempts) => {
+    ctx.main.crew.update(task.id, { automaticRelaunches: attempts, relaunches: 8 })
+    const crew = createCrewService(() => ctx, home)
+    ctx.main.crew = crew
+    await crew.reconcileOnStart()
+    expect(crew.get(task.id)).toMatchObject({ state: 'detached', automaticRelaunches: 0, relaunches: 8 })
+    expect(JSON.parse(fs.readFileSync(home.tasksFile, 'utf8'))[0].automaticRelaunches).toBe(0)
+    expect((await crew.control(task.id, 'relaunch')).ok).toBe(true)
+    expect((await crew.control(task.id, 'relaunch')).ok).toBe(false)
+  })
+
+  it('resets recovery after completed work, but not just a progress note', () => {
+    const crew = ctx.main.crew
+    crew.update(task.id, { state: 'working', mode: 'local-only' })
+    crew.appendStatus(task.id, 'working: continuing')
+    crew.readNewStatus(task.id)
+    expect(crew.get(task.id)?.automaticRelaunches).toBe(1)
+    crew.appendStatus(task.id, 'done: ready in branch genio/unit')
+    crew.readNewStatus(task.id)
+    expect(crew.get(task.id)).toMatchObject({ state: 'ready', automaticRelaunches: 0 })
+  })
+
+  it('preserves work and resets retry history when deliberate restart fails, and releases phantom capacity', async () => {
     ctx.terminals.create = vi.fn(() => { throw new Error('terminal launch failed') })
     const result = await ctx.main.crew.control(task.id, 'relaunch', 'resume existing work', true)
     expect(result).toEqual({ ok: false, message: 'terminal launch failed' })
-    expect(ctx.main.crew.get(task.id)).toMatchObject({ state: 'failed', automaticRelaunches: 1, relaunches: 1, branch: task.branch, worktree: task.worktree })
+    expect(ctx.main.crew.get(task.id)).toMatchObject({ state: 'failed', automaticRelaunches: 0, relaunches: 1, branch: task.branch, worktree: task.worktree })
     expect(ctx.main.crew.capacityUsed('world')).toBe(0)
     expect(fs.readFileSync(path.join(task.worktree, 'uncommitted.txt'), 'utf8')).toBe('preserve my work')
     expect(fs.readFileSync(task.briefPath, 'utf8')).toContain('# Existing mission')

@@ -163,7 +163,7 @@ export interface Task {
   landedAt?: string
   cleanedAt?: string
   relaunches: number
-  /** Automatic attempts since the last explicit manual resume. */
+  /** Automatic attempts since deliberate resume, completed work, or app restart. */
   automaticRelaunches?: number
   /** Unit-reported session id so a respawn can resume the conversation. */
   sessionHint?: string

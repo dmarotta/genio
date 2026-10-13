@@ -335,6 +335,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         break
       }
       case 'done': {
+        // A completed turn ends the recovery streak; progress notes alone do not.
+        update(t.id, { automaticRelaunches: 0 })
         if (t.kind === 'scout') {
           update(t.id, { state: 'done', stateReason: e.text })
           safe(() => ctx.stats.award('scout', t.id))
@@ -653,7 +655,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           // Recheck after reservation acquisition: another caller may have relaunched meanwhile.
           const currentPolicy = relaunchPolicy(get(id)!, manual)
           if (!currentPolicy.allowed) return { ok: false, message: 'Held after one automatic relaunch. Use Respawn to resume manually.' }
-          if (!manual) update(id, { automaticRelaunches: currentPolicy.nextAttempts })
+          update(id, { automaticRelaunches: currentPolicy.nextAttempts })
           appendProgressNote(t.briefPath, note ?? '')
           restarting.add(id)
           update(id, { state: 'spawning', stateReason: 'restarting in the existing copy' })
@@ -1022,7 +1024,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         if (t.state === 'cleaned') continue
         const alive = t.terminalId ? ctx.terminals.get(t.terminalId)?.alive : false
         if (alive) continue
-        const patch: Partial<Task> = { terminalId: undefined }
+        const patch: Partial<Task> = { terminalId: undefined, automaticRelaunches: 0 }
         if (!exists(t.worktree)) {
           if (!FINISHED.includes(t.state)) {
             patch.state = 'failed'

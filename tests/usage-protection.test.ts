@@ -147,7 +147,7 @@ describe('usage measurement regressions', () => {
   })
 })
 
-it('permits one automatic relaunch, holds subsequent attempts across reloads, and permits manual resume', () => {
+it('permits one automatic relaunch per recovery streak and permits manual resume', () => {
   const first = relaunchPolicy({ relaunches: 0 }, false)
   expect(first).toEqual({ allowed: true, nextAttempts: 1 })
   const persisted = JSON.parse(JSON.stringify({ relaunches: 1, automaticRelaunches: first.nextAttempts }))

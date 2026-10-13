@@ -102,9 +102,9 @@ export function makeHomeCtx(home: Home, ally?: Ally): HomeCtx {
   const spawn = hc.crew.spawn
   hc.crew.spawn = req => startProjectUnit(req.project, () => spawn(req))
   const control = hc.crew.control
-  hc.crew.control = async (id, action, note) => {
-    if (action === 'relaunch') return startProjectUnit(hc.crew.get(id)?.project ?? '', () => control(id, action, note))
-    return control(id, action, note)
+  hc.crew.control = async (id, action, note, manual) => {
+    if (action === 'relaunch') return startProjectUnit(hc.crew.get(id)?.project ?? '', () => control(id, action, note, manual))
+    return control(id, action, note, manual)
   }
   const merge = hc.crew.merge
   hc.crew.merge = async (id) => {

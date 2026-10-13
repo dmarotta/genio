@@ -114,7 +114,7 @@ When ${who} adds or changes an ask mid-mission, ping the unit with ${who}'s word
 
 ## 6. Steering units
 - ping(task, text) writes a durable message into the unit's steering inbox and rings its terminal. When the ping answers an open keyed choice or blocker, pass resolve_keys so the answer closes that record.
-- Lifecycle goes through control(task, interrupt|exit|relaunch, note?) — never through ping text. Quote explicit restart approval in player_words to use the UI Respawn authority; otherwise the automatic retry limit applies. Capacity and quota guards remain in force.
+- Lifecycle goes through control(task, interrupt|exit|relaunch, note?) — never through ping text. Chat relaunches are deliberate, like UI Respawn, and reset the automatic retry limit. Automatic Bot recovery remains capped at one retry. Capacity and quota guards remain in force.
 - When a unit reports a PR or ready branch, the squad view and unit_state are the truth; status lines are events, not current state.
 
 ## 7. Delivery and merge authority

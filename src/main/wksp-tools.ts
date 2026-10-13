@@ -314,12 +314,12 @@ export function createToolRegistry(
 
   t(
     'control',
-    'Unit lifecycle: interrupt, exit (recall), relaunch (respawn in the same copy and session). Never tears anything down. For an explicit player-approved restart, quote their request in player_words to use the same manual authority as the UI Respawn button; otherwise the one-automatic-retry limit applies. Quota and capacity safeguards still apply.',
+    'Unit lifecycle: interrupt, exit (recall), relaunch (respawn in the same copy and session). Never tears anything down. Chat relaunches are deliberate, like the UI Respawn button, and reset the automatic retry limit; Bot recovery is capped at one retry. Quota and capacity safeguards still apply.',
     { task: z.string(), action: z.enum(['interrupt', 'exit', 'relaunch']), note: z.string().optional(), player_words: z.string().trim().min(1).optional() },
     async ({ task, action, note, player_words }) => {
       if (role === 'bot' && player_words) return fail('The Bot cannot authorize a manual restart')
       const f = requireTask(task)
-      const r = await f.hc.crew.control(task, action, note, !!player_words && role !== 'bot')
+      const r = await f.hc.crew.control(task, action, note, role !== 'bot')
       return r.ok ? ok(r.message || `${action} done`) : fail(r.message)
     }
   )
