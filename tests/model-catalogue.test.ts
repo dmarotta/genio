@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canDrive, filterModels, modelState, normalizeModels, type CatalogueRoute } from '@shared/model-catalogue'
+import { canDrive, filterModels, rankedModels, modelRowLabel, modelSelectionAction, modelState, normalizeModels, type CatalogueRoute } from '@shared/model-catalogue'
 import { parseOpenCodeModels } from '../src/main/model-discovery'
 
 describe('model catalogue normalization', () => {
@@ -62,4 +62,40 @@ it('parses OpenCode metadata and only advertises verified zero-cost text candida
   expect(parseOpenCodeModels(text('free', 0) + text('paid', 1), 'opencode')).toEqual([
     { id: 'opencode/free', name: 'free', inputModalities: ['text', 'image'], hidden: false, supportedEffortLevels: ['high'] }
   ])
+})
+
+
+describe('ranked picker rows', () => {
+  it('ranks newest families first, limits to four and removes legacy, aliases and hidden duplicates', () => {
+    const models = normalizeModels('claude', 'Anthropic', [
+      { id: 'claude-sonnet-4-6' }, { id: 'claude-opus-5' },
+      { id: 'claude-sonnet-5-5' }, { id: 'claude-haiku-5-5' },
+      { id: 'claude-opus-5-5' }, { id: 'claude-fable-5-1' },
+      { value: 'opus', resolvedModel: 'claude-opus-5-5' },
+      { id: 'opus' }, { id: 'claude-opus-5-5-20261001' },
+      { id: 'internal-model', hidden: true }
+    ])
+    expect(rankedModels(models).map(m => m.id)).toEqual([
+      'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-fable-5-1'
+    ])
+    expect(rankedModels(models, true)).toHaveLength(6)
+    expect(rankedModels(models, false, 2)).toHaveLength(2)
+    expect(rankedModels(models, true).some(m => m.id === 'claude-sonnet-4-6')).toBe(true)
+  })
+  it('formats short provider tags and strips vendor and date prefixes', () => {
+    for (const [runtime, provider, id, label] of [
+      ['claude', 'Anthropic', 'claude-sonnet-5-5-20261001', 'claude / sonnet 5.5'],
+      ['codex', 'OpenAI', 'gpt-6.1-sol', 'codex / gpt 6.1 sol'],
+      ['gemini', 'Google', 'gemini-3.5-flash', 'gemini / 3.5 flash'],
+      ['opencode', 'OpenRouter', 'anthropic/claude-opus-5-5', 'openrouter / opus 5.5']
+    ] as const) expect(modelRowLabel(normalizeModels(runtime, provider, [{ id }])[0])).toBe(label)
+  })
+  it('routes unconnected, free and stale rows to accounts without switching', () => {
+    const route: CatalogueRoute = { runtime: 'claude', provider: 'Anthropic', state: 'connected', stale: false, checkedAt: '', lastResult: 'ok', models: [] }
+    expect(modelSelectionAction(route)).toBe('select')
+    expect(modelSelectionAction({ ...route, runtime: 'codex' })).toBe('coming-soon')
+    for (const state of ['sign-in-needed', 'free-no-login', 'unavailable'] as const)
+      expect(modelSelectionAction({ ...route, state })).toBe('accounts')
+    expect(modelSelectionAction({ ...route, stale: true })).toBe('accounts')
+  })
 })
