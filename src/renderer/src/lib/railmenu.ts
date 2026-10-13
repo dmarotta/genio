@@ -17,7 +17,7 @@ export const ASSET_GEN: RailEntry & { kind: 'menu' } = {
   id: 'assets',
   label: 'Asset Generation',
   items: [
-    { id: 'fal', label: 'FAL.ai', key: '9' },
+    { id: 'fal', label: 'FAL.ai', key: '' },
     { id: 'animation', label: 'Uthana (3D Rigging & Animation)', key: '0' }
   ]
 }
@@ -32,13 +32,13 @@ export const RAIL: RailEntry[] = [
   view('status', 'Status', '5'),
   view('worlds', 'Worlds', '6'),
   view('lore', 'Lore', '7'),
-  ASSET_GEN,
+  view('inventory', 'Inventory', '9'),
   view('systems', 'Systems', '8')
 ]
 
 /** Every screen in rail order, submenus flattened (command palette, shortcuts). */
 export function navItems(rail: RailEntry[] = RAIL): NavItem[] {
-  return rail.flatMap((e) => (e.kind === 'view' ? [e.item] : e.items))
+  return [...rail.flatMap((e) => (e.kind === 'view' ? [e.item] : e.items)), ...ASSET_GEN.items]
 }
 
 /** A rail button lights up while its screen, or any screen in its submenu, is open. */

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { BookOpen, Cpu, Crosshair, Gauge, Globe, MessageSquare, PersonStanding, ScrollText, Sparkles, Swords, WandSparkles, type LucideIcon } from 'lucide-react'
+import { BookOpen, FolderOpen, Cpu, Crosshair, Gauge, Globe, MessageSquare, PersonStanding, ScrollText, Sparkles, Swords, WandSparkles, type LucideIcon } from 'lucide-react'
 import { go, openDecisions, readyTasks, useStore, type ViewId } from '../store'
 import { cx } from '../lib/format'
 import { RAIL, entryActive, initialIndex, menuKey, navItems, opensMenu, type RailEntry } from '../lib/railmenu'
@@ -16,7 +16,8 @@ const ICON: Record<string, LucideIcon> = {
   fal: Sparkles,
   animation: PersonStanding,
   systems: Cpu,
-  assets: WandSparkles
+  assets: WandSparkles,
+  inventory: FolderOpen
 }
 
 /** Every screen with its shortcut, submenus flattened (command palette). */

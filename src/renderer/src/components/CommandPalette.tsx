@@ -39,7 +39,7 @@ export function CommandPalette() {
       { id: 'online', label: 'Presence: Online', group: 'Presence', run: () => { close(); void op('Presence', () => api().setAway('online'), () => 'Online') } },
       { id: 'dnd', label: 'Presence: DND', group: 'Presence', run: () => { close(); void op('Presence', () => api().setAway('dnd'), () => 'Do not disturb') } },
       { id: 'afk', label: 'Presence: AFK', group: 'Presence', run: () => { close(); void op('Presence', () => api().setAway('afk'), () => 'AFK — the Bot has the controls') } },
-      ...NAV.map((n) => ({ id: `nav-${n.id}`, label: `Go to ${n.label}`, hint: `Ctrl ${n.key}`, group: 'Navigate', run: () => go(n.id as ViewId) })),
+      ...NAV.map((n) => ({ id: `nav-${n.id}`, label: `Go to ${n.label}`, hint: n.key ? `Ctrl ${n.key}` : undefined, group: 'Navigate', run: () => go(n.id as ViewId) })),
       ...projects.map((p) => ({ id: `world-${p.name}`, label: `World: ${p.name}`, hint: p.engine, group: 'Worlds', run: () => setState({ view: 'worlds', highlightWorld: p.name, palette: false }) })),
       ...tasks
         .filter((t) => t.state !== 'cleaned')

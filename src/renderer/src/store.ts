@@ -13,7 +13,7 @@ import type { ViewId } from './lib/railmenu'
 export type { ViewId }
 
 /** Ctrl+N order (the rail may show them in a different order) */
-export const VIEWS: ViewId[] = ['comms', 'squad', 'quests', 'move', 'status', 'worlds', 'lore', 'systems', 'fal', 'animation']
+export const VIEWS: ViewId[] = ['comms', 'squad', 'quests', 'move', 'status', 'worlds', 'lore', 'systems', 'inventory', 'animation']
 
 export interface Toast {
   id: number

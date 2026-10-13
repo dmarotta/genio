@@ -41,11 +41,19 @@ export function registerIpc(getCtx: () => AppCtx): void {
   }
 
   const h: Handlers = {
-    inventoryOpen: (world) => ctx().inventory.open(world),
+    inventoryOpen: async (world) => {
+      const state = await ctx().inventory.open(world)
+      ctx().stats.unlock('inventory-open')
+      return state
+    },
     inventoryClose: (world) => ctx().inventory.close(world),
     inventoryRefresh: (world) => ctx().inventory.refresh(world),
     inventoryList: (world, query) => ctx().inventory.list(world, query),
-    inventoryInfo: (world, asset, verifyHash) => ctx().inventory.info(world, asset, verifyHash),
+    inventoryInfo: async (world, asset, verifyHash) => {
+      const info = await ctx().inventory.info(world, asset, verifyHash)
+      if (info) ctx().stats.unlock('inventory-preview')
+      return info
+    },
     featureUsed: async (feature) => {
       if (feature === 'screenshot' || feature === 'dock-split') bus.publish({ type: 'feature-used', feature })
     },

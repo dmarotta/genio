@@ -15,6 +15,7 @@ import { Worlds } from './views/Worlds'
 import { Lore } from './views/Lore'
 import { Systems } from './views/Systems'
 import { Fal } from './views/Fal'
+import { Inventory } from './views/Inventory'
 import { Animation } from './views/Animation'
 
 const VIEW: Partial<Record<ViewId, ComponentType>> = {
@@ -27,6 +28,7 @@ const VIEW: Partial<Record<ViewId, ComponentType>> = {
   lore: Lore,
   systems: Systems,
   fal: Fal,
+  inventory: Inventory,
   animation: Animation
 }
 
