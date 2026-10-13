@@ -9,6 +9,7 @@ import {
   PROJECT_WKSP, api, errText, focusTask, getState, go, liveTasks, loadChat, op, openDeploy, saveChatControls, saveSettings, setState, toast, useStore
 } from '../store'
 import { Markdown } from '../components/Markdown'
+import { CopyMessageButton } from '../components/CopyMessageButton'
 import { GenioCore } from '../components/GenioCore'
 import { Chip, Dot, Toggle, useNow } from '../components/ui'
 import { KIND_LABEL, STATE_LABEL, isActive, stateTone } from '../lib/vocab'
@@ -252,6 +253,7 @@ function Message({ m, calm, gamertag, onTakeBack }: { m: ChatMessage; calm: bool
             </span>
           )}
           {gamertag} · {clock(m.ts)}
+          <CopyMessageButton text={m.text} />
           {waiting && (
             <span className="msg-acts">
               <button className="msg-act" title="Edit: put it back in the composer" aria-label="Edit queued message" onClick={() => void onTakeBack(m, true)}>
@@ -269,8 +271,10 @@ function Message({ m, calm, gamertag, onTakeBack }: { m: ChatMessage; calm: bool
   if (m.role === 'wake') {
     return (
       <div className="msg-wake mono" title={m.text}>
-        <span className="neon-text">⚡</span> {trunc(m.text.split('\n')[0], 140)}
-        <span className="mute"> · {clock(m.ts)}</span>
+        <span className="msg-wake-text"><span className="neon-text">⚡</span> {trunc(m.text.split('\n')[0], 140)}
+          <span className="mute"> · {clock(m.ts)}</span>
+        </span>
+        <CopyMessageButton text={m.text} />
       </div>
     )
   }
@@ -285,6 +289,7 @@ function Message({ m, calm, gamertag, onTakeBack }: { m: ChatMessage; calm: bool
         <div className="msg-meta">
           Genio → {m.wksp} · {clock(m.ts)}
           {routed.corr ? ` · ${routed.corr}` : ''}
+          <CopyMessageButton text={routed.text} />
         </div>
       </div>
     )
@@ -293,11 +298,12 @@ function Message({ m, calm, gamertag, onTakeBack }: { m: ChatMessage; calm: bool
     return (
       <div className="msg-system rise">
         <Markdown text={m.text} />
+        <CopyMessageButton text={m.text} />
       </div>
     )
   }
   if (m.role === 'error') {
-    return <div className="msg-error mono selectable">{m.text}</div>
+    return <div className="msg-error mono selectable">{m.text}<CopyMessageButton text={m.text} /></div>
   }
   const noop = NOOP_RE.test(m.text) && m.text.length < 90
   const tools = m.tools ?? []
@@ -334,6 +340,7 @@ function Message({ m, calm, gamertag, onTakeBack }: { m: ChatMessage; calm: bool
         <div className="msg-meta">
           {m.wksp === MAIN_PANEL ? 'Genio' : m.wksp} · {clock(m.ts)}
           {m.costUsd ? ` · $${m.costUsd.toFixed(3)}` : ''}
+          <CopyMessageButton text={m.text} />
         </div>
       </div>
     </div>

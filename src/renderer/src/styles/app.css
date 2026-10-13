@@ -323,6 +323,10 @@ button.usage-toggle:hover { color: var(--text); }
 .msg-acts { display: inline-flex; gap: 2px; margin-left: 8px; vertical-align: middle; }
 .msg-act { display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 1px solid transparent; background: none; color: var(--text-mute); cursor: pointer; }
 .msg-act:hover { color: var(--text); border-color: var(--line-strong); }
+.msg-copy { width: 26px; height: 26px; border-radius: 4px; }
+.msg-copy:focus-visible { outline: 2px solid var(--neon); outline-offset: 2px; }
+.msg-copy:disabled { opacity: 0.5; cursor: default; }
+.msg-acts .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .msg.from-genio { align-items: flex-start; }
 .msg.from-genio .msg-bubble { white-space: normal; background: linear-gradient(135deg, var(--violet-soft), rgba(165, 107, 255, 0.04)); border-color: rgba(165, 107, 255, 0.4); }
 .msg-from { font-size: 10px; margin-bottom: 4px; }
@@ -333,7 +337,9 @@ button.usage-toggle:hover { color: var(--text); }
 .msg.noop { opacity: 0.6; }
 .msg.calm-noop { opacity: 0.35; transform: scale(0.97); transform-origin: left; }
 .msg.calm-noop .msg-avatar { display: none; }
-.msg-wake { font-size: 11.5px; color: var(--text-dim); padding: 4px 10px; border-left: 2px solid var(--neon-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.msg-wake { display: flex; align-items: center; font-size: 11.5px; color: var(--text-dim); padding: 4px 10px; border-left: 2px solid var(--neon-soft); }
+.msg-wake-text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.msg-wake .msg-acts { flex-shrink: 0; }
 .msg-system { color: var(--text-dim); font-size: 13px; padding: 10px 14px; border: 1px dashed var(--line-strong); }
 .msg-error { color: var(--alert); font-size: 12px; padding: 10px 14px; background: var(--alert-soft); white-space: pre-wrap; }
 .working-line { display: flex; align-items: center; gap: 10px; color: var(--neon); font-size: 12px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; padding-top: 9px; }
