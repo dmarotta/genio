@@ -19,6 +19,10 @@ import type {
   AccountStatus, UsageReport, PushStatus
 } from '@shared/api'
 import type { DispatchScoresView } from '@shared/dispatch'
+import type {
+  UthanaAccount, UthanaExportRequest, UthanaExportResult, UthanaFile, UthanaFileInfo, UthanaGenerateRequest, UthanaPreviewRequest, UthanaRemoteCharacter, UthanaRun,
+  UthanaUploadRequest, UthanaWorldConfig, UthanaWorldState
+} from '@shared/uthana'
 import type { PickEnv } from './loadout'
 import type { AllyControlsPatch, UnqueuedChat } from '@shared/chat'
 import type { ChatImageInput } from '@shared/chat-images'
@@ -219,6 +223,33 @@ export interface FalService {
   deleteRecipe(world: string | null, id: string): FalRecipe[]
 }
 
+/** Animation screen (Uthana): calls run here with the stored key; the renderer only sees runs. */
+export interface UthanaService {
+  runs(): UthanaRun[]
+  world(world: string | null): UthanaWorldState
+  /** explicit player save into <world>/.genio/uthana/config.json */
+  saveWorldConfig(world: string | null, config: UthanaWorldConfig): UthanaWorldState
+  account(): Promise<UthanaAccount>
+  characters(): Promise<UthanaRemoteCharacter[]>
+  forgetCharacter(world: string | null, id: string): UthanaWorldState
+  inspect(path: string, kind: 'character' | 'video', world: string | null): UthanaFileInfo
+  /** records the upload and runs it in the background */
+  upload(req: UthanaUploadRequest): UthanaRun
+  /** records the generation and runs it in the background (submit → poll) */
+  generate(req: UthanaGenerateRequest): UthanaRun
+  cancel(id: string): OpResult
+  remove(id: string): OpResult
+  preview(req: UthanaPreviewRequest): Promise<UthanaFile>
+  /** download an export into the run folder (cached per motion and options) */
+  fetchExport(req: UthanaExportRequest): Promise<{ run: UthanaRun; file: UthanaFile }>
+  /** copy an export into a world with provenance; refuses to overwrite unless req.overwrite */
+  saveToWorld(req: UthanaExportRequest): Promise<UthanaExportResult>
+  /** session start: keep polling jobs that were in flight */
+  resume(): void
+  /** local file behind a genio-media://uthana/<id>/<file> URL */
+  mediaPath(id: string, fileName: string): string | undefined
+}
+
 /** Smart dispatch: live picker signals, the scorecard, verdicts and the learning loop. */
 export interface DispatchService {
   /** what the picker knows beyond settings for a deploy in this world; preview never rolls exploration */
@@ -386,6 +417,7 @@ export interface AppCtx {
   permissions: PermissionBroker
   fal: FalService
   sprites: import('./sprites').SpriteService
+  uthana: UthanaService
   dispatch: DispatchService
   main: HomeCtx
   homes: Map<string, HomeCtx>

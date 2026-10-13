@@ -9,10 +9,10 @@ import { DOCK_STORAGE_KEY, closePanel, focusPanel, openPanel, parseDock, reconci
 import { playSfx } from './lib/sfx'
 import { speak } from './lib/voice'
 
-export type ViewId = 'comms' | 'squad' | 'quests' | 'move' | 'status' | 'worlds' | 'lore' | 'systems' | 'fal' | 'sprites'
+export type ViewId = 'comms' | 'squad' | 'quests' | 'move' | 'status' | 'worlds' | 'lore' | 'systems' | 'fal' | 'animation'
 
 /** Ctrl+N order (the rail may show them in a different order) */
-export const VIEWS: ViewId[] = ['comms', 'squad', 'quests', 'move', 'status', 'worlds', 'lore', 'systems', 'fal', 'sprites']
+export const VIEWS: ViewId[] = ['comms', 'squad', 'quests', 'move', 'status', 'worlds', 'lore', 'systems', 'fal', 'animation']
 
 export interface Toast {
   id: number

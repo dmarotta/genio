@@ -2,9 +2,11 @@
  * IPC: one ipcMain.handle per GenioApi method ('genio:<method>'). The table is
  * typed against GenioApi so a missing or mistyped method fails the build.
  */
+import fs from 'node:fs'
 import path from 'node:path'
 import { BrowserWindow, dialog, ipcMain, shell, type OpenDialogOptions } from 'electron'
 import { API_PREFIX, type GenioApi } from '@shared/api'
+import { UTHANA_CHARACTER_EXTS, UTHANA_VIDEO_EXTS } from '@shared/uthana'
 import type { Task } from '@shared/types'
 import { listAccounts, openAccountSession } from './accounts'
 import { answerChoice, findDecision, findTask } from './wksp-tools'
@@ -133,6 +135,46 @@ export function registerIpc(getCtx: () => AppCtx): void {
       if (r.canceled || !r.filePaths[0]) return null
       if (proj && !isSubPath(r.filePaths[0], proj.path)) throw new Error(`Pick a file inside ${proj.name} (${proj.path}).`)
       return r.filePaths[0]
+    },
+
+    // ---- Animation (Uthana)
+    uthanaRuns: () => ctx().uthana.runs(),
+    uthanaWorld: (world) => ctx().uthana.world(world),
+    uthanaWorldConfig: (world, config) => ctx().uthana.saveWorldConfig(world, config),
+    uthanaAccount: () => ctx().uthana.account(),
+    uthanaCharacters: () => ctx().uthana.characters(),
+    uthanaForgetCharacter: (world, id) => ctx().uthana.forgetCharacter(world, id),
+    uthanaPickFile: async (world, kind) => {
+      const proj = world ? ctx().projects.get(world) : undefined
+      if (world && !proj) throw new Error(`No world named ${world}.`)
+      const exts = kind === 'character' ? UTHANA_CHARACTER_EXTS : UTHANA_VIDEO_EXTS
+      const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+      const opts: OpenDialogOptions = {
+        title: kind === 'character' ? `Character model${proj ? ` in ${proj.name}` : ''}` : 'Video of the motion',
+        defaultPath: proj?.path,
+        properties: ['openFile'],
+        filters: [{ name: kind === 'character' ? 'FBX / glTF' : 'Video', extensions: exts }]
+      }
+      const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+      if (r.canceled || !r.filePaths[0]) return null
+      return ctx().uthana.inspect(r.filePaths[0], kind, world)
+    },
+    uthanaInspect: (p, kind, world) => ctx().uthana.inspect(p, kind, world),
+    uthanaUpload: (req) => ctx().uthana.upload(req),
+    uthanaGenerate: (req) => ctx().uthana.generate(req),
+    uthanaCancel: async (id) => ctx().uthana.cancel(id),
+    uthanaDelete: async (id) => ctx().uthana.remove(id),
+    uthanaPreview: (req) => ctx().uthana.preview(req),
+    uthanaExport: async (req) => {
+      if (req.dest === 'world') return ctx().uthana.saveToWorld(req)
+      const { file } = await ctx().uthana.fetchExport(req)
+      const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+      const opts = { title: 'Export animation', defaultPath: req.fileName, filters: [{ name: req.format.toUpperCase(), extensions: [req.format] }] }
+      const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts)
+      if (r.canceled || !r.filePath) return { ok: false, message: 'Export cancelled.' }
+      // the system dialog already asked before replacing an existing file
+      fs.copyFileSync(file.localPath, r.filePath)
+      return { ok: true, path: r.filePath, message: `Exported ${path.basename(r.filePath)}` }
     },
 
     // ---- comms

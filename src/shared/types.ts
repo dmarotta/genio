@@ -6,6 +6,7 @@
 import type { ChatImage } from './chat-images'
 
 import type { FalRun } from './api'
+import type { UthanaRun } from './uthana'
 
 export type TaskKind = 'ship' | 'scout'
 
@@ -696,6 +697,7 @@ export type GenioEvent =
   | { type: 'fal-run'; run: FalRun }
   | { type: 'navigate'; target: NotifyTarget }
   | { type: 'fal-catalogue' }
+  | { type: 'uthana-run'; run: UthanaRun }
 
 /** Where clicking a desktop notification takes the player. */
 export type NotifyTarget = { view: 'move' } | { view: 'squad'; taskId?: string } | { view: 'comms'; wksp?: string }

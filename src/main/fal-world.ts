@@ -11,6 +11,7 @@
  *   .genio/fal/config.json  save folders per kind, budget, per-endpoint defaults
  *   .genio/fal/recipes.json named presets (per-world favourites)
  *   .genio/fal/catalogue.json  optional: {add: [...entries], hide: [...endpoints]}
+ *   .genio/uthana/config.json  Animation screen: save folder
  *   .genio/provenance/<asset path>.json  one record per saved generated asset
  *   .genio/spend.jsonl      one line per paid call (estimated USD)
  *
@@ -37,11 +38,12 @@ Machine-readable data Genio keeps with this world. Small text only; safe to read
 - \`fal/config.json\`: save folders per output kind, the monthly budget and the confirm threshold for the FAL screen.
 - \`fal/recipes.json\`: named generation presets (this world's favourites). Units read them.
 - \`fal/catalogue.json\` (optional): \`{"add": [...], "hide": [...]}\` to extend or trim Genio's curated FAL catalogue for this world.
+- \`uthana/config.json\`: the Animation screen's save folder for this world.
 - \`provenance/<asset path>.json\`: how each saved generated asset was made (model, request id, input, estimated price, sha256).
 - \`spend.jsonl\`: one line per paid generation call (estimated USD). Merges with \`merge=union\`.
 - \`cache/\`: ignored, normally empty. Genio keeps run history and downloads in its own data folder.
 
-Genio writes here only when you save something from its FAL screen, and never commits. Commit these files with the assets they describe.
+Genio writes here only when you save something from its FAL or Animation screens, and never commits. Commit these files with the assets they describe.
 `
 
 /** Create .genio/ with its own README, .gitignore and .gitattributes (never overwrites them). */
@@ -138,7 +140,7 @@ export interface Provenance {
   schema: 'genio.provenance.v1'
   path: string
   sha256: string
-  provider: 'fal' | 'codex' | 'local'
+  provider: 'fal' | 'codex' | 'local' | 'uthana'
   endpoint: string
   request_id: string | null
   input: Record<string, unknown>

@@ -7,6 +7,10 @@ import type {
 import type { DispatchScoresView } from './dispatch'
 import type { SpriteProject, SpriteQuote, SpriteAsset, SpriteExport, SpriteExportResult } from './sprites'
 import type { ChatImageInput } from './chat-images'
+import type {
+  UthanaAccount, UthanaExportRequest, UthanaExportResult, UthanaFile, UthanaFileInfo, UthanaGenerateRequest, UthanaPreviewRequest, UthanaRemoteCharacter, UthanaRun,
+  UthanaUploadRequest, UthanaWorldConfig, UthanaWorldState
+} from './uthana'
 
 export interface SpawnRequest {
   kind: TaskKind
@@ -436,6 +440,33 @@ export interface GenioApi {
   /** file picker for a file input: inside the world when given, else anywhere; absolute path */
   falPickFile(world: string | null, kind?: FalOutputKind): Promise<string | null>
 
+  // ---- Animation (Uthana; runs in main with the stored key, which never reaches the renderer)
+  uthanaRuns(): Promise<UthanaRun[]>
+  uthanaWorld(world: string | null): Promise<UthanaWorldState>
+  /** explicit save of the world's animation settings (.genio/uthana/config.json) */
+  uthanaWorldConfig(world: string | null, config: UthanaWorldConfig): Promise<UthanaWorldState>
+  /** free queries: account, quotas and pay-as-you-go figures (also checks the key) */
+  uthanaAccount(): Promise<UthanaAccount>
+  /** characters in the Uthana account (free query) */
+  uthanaCharacters(): Promise<UthanaRemoteCharacter[]>
+  /** forget a remembered character in this world (Uthana keeps it) */
+  uthanaForgetCharacter(world: string | null, id: string): Promise<UthanaWorldState>
+  /** file picker for a character model or a video: inside the world when given, else anywhere */
+  uthanaPickFile(world: string | null, kind: 'character' | 'video'): Promise<UthanaFileInfo | null>
+  /** check a dropped file (type, size, video length) */
+  uthanaInspect(path: string, kind: 'character' | 'video', world: string | null): Promise<UthanaFileInfo>
+  /** upload a character (auto-rigs when it has no skeleton); runs in the background */
+  uthanaUpload(req: UthanaUploadRequest): Promise<UthanaRun>
+  /** text- or video-to-motion; runs in the background (submit → poll) */
+  uthanaGenerate(req: UthanaGenerateRequest): Promise<UthanaRun>
+  /** stop waiting for a job (Uthana has no cancel: it may still finish and bill) */
+  uthanaCancel(id: string): Promise<OpResult>
+  uthanaDelete(id: string): Promise<OpResult>
+  /** download (once) the GLB to play in the viewer */
+  uthanaPreview(req: UthanaPreviewRequest): Promise<UthanaFile>
+  /** download as FBX/GLB/BVH with options, into a world (provenance, no overwrite unless confirmed) or anywhere */
+  uthanaExport(req: UthanaExportRequest): Promise<UthanaExportResult>
+
   // ---- bridge (chat with Genio / second units)
   chatHistory(wksp: string, limit?: number): Promise<ChatMessage[]>
   /** images go to the session as image blocks; text may be empty when images are attached */
@@ -554,6 +585,20 @@ export const API_METHODS = [
   'falRecipeSave',
   'falRecipeDelete',
   'falPickFile',
+  'uthanaRuns',
+  'uthanaWorld',
+  'uthanaWorldConfig',
+  'uthanaAccount',
+  'uthanaCharacters',
+  'uthanaForgetCharacter',
+  'uthanaPickFile',
+  'uthanaInspect',
+  'uthanaUpload',
+  'uthanaGenerate',
+  'uthanaCancel',
+  'uthanaDelete',
+  'uthanaPreview',
+  'uthanaExport',
   'chatHistory',
   'sendChat',
   'unqueueChat',

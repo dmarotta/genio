@@ -31,7 +31,11 @@ afterEach(() => fs.rmSync(dir, { recursive: true, force: true }))
 
 describe('secret store', () => {
   it('round-trips a key without writing it in plain text', () => {
-    expect(secretStatus(dir)).toEqual([expect.objectContaining({ id: 'fal', set: false }), expect.objectContaining({ id: 'openrouter', set: false })])
+    expect(secretStatus(dir)).toEqual([
+      expect.objectContaining({ id: 'fal', set: false }),
+      expect.objectContaining({ id: 'openrouter', set: false }),
+      expect.objectContaining({ id: 'uthana', label: 'Uthana', set: false })
+    ])
     setSecret('fal', `  ${KEY}\n`, dir)
     expect(getSecret('fal', dir)).toBe(KEY)
     const raw = fs.readFileSync(path.join(dir, 'secrets.json'), 'utf8')
@@ -59,6 +63,17 @@ describe('secret store', () => {
     safe.available = true
     expect(() => setSecret('fal', '   ', dir)).toThrow(/empty/i)
     expect(() => setSecret('openai', KEY, dir)).toThrow(/Unknown/)
+  })
+
+  it('keeps the Uthana key apart: the status the renderer gets shows only that it is set', () => {
+    const uth = 'uthana-live-key-abcdef0123456789-9QZK'
+    setSecret('uthana', uth, dir)
+    expect(getSecret('uthana', dir)).toBe(uth)
+    expect(getSecret('fal', dir)).toBeUndefined()
+    const st = secretStatus(dir)
+    expect(st.find((s) => s.id === 'uthana')).toMatchObject({ set: true, last4: '9QZK' })
+    expect(JSON.stringify(st)).not.toContain(uth)
+    expect(fs.readFileSync(path.join(dir, 'secrets.json'), 'utf8')).not.toContain(uth)
   })
 
   it('errors never echo the key', () => {

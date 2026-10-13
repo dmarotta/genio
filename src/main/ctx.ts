@@ -25,6 +25,7 @@
  *   update.ts       createUpdateService(getCtx)
  *   permissions.ts  createPermissionBroker(getCtx)
  *   fal-service.ts  createFalService(getCtx)
+ *   uthana-service.ts  createUthanaService(getCtx)
  *   dispatch.ts     createDispatchService(getCtx)
  */
 import type { FleetSnapshot, Ally } from '@shared/types'
@@ -54,6 +55,7 @@ import { createUpdateService } from './update'
 import { createPermissionBroker } from './permissions'
 import { createFalService } from './fal-service'
 import { createSpriteService } from './sprites'
+import { createUthanaService } from './uthana-service'
 import { createDispatchService } from './dispatch'
 
 let current: AppCtx | undefined
@@ -106,6 +108,7 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
   ctx.allies = createAlliesService(getCtx)
   ctx.fal = createFalService(getCtx)
   ctx.sprites = createSpriteService(getCtx)
+  ctx.uthana = createUthanaService(getCtx)
   ctx.dispatch = createDispatchService(getCtx)
 
   ctx.main = makeHomeCtx(mainHome)
@@ -143,6 +146,7 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
 export async function startApp(ctx: AppCtx): Promise<void> {
   ctx.inbox.configure()
   ctx.fal.resume()
+  ctx.uthana.resume()
   // a world's remote may have changed while Genio was closed: auto modes follow it
   void ctx.projects.refreshRemotes().catch(() => undefined)
   for (const h of ctx.homes.values()) {

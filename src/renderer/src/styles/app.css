@@ -973,6 +973,29 @@ button.usage-toggle:hover { color: var(--text); }
 .glb-canvas:active { cursor: grabbing; }
 .glb-hud { position: absolute; left: 8px; bottom: 6px; font-size: 10.5px; color: var(--text-mute); pointer-events: none; }
 .glb-msg { padding: 26px 14px; text-align: center; font-size: 12px; }
+.glb-view.animated .glb-hud { bottom: 44px; }
+.glb-player { position: absolute; left: 6px; right: 6px; bottom: 6px; display: flex; align-items: center; gap: 6px; padding: 4px 6px; background: rgba(0, 0, 0, 0.55); border: 1px solid var(--line); }
+.glb-scrub { flex: 1; min-width: 60px; accent-color: var(--neon); }
+.glb-time { font-size: 11px; color: var(--text-dim); white-space: nowrap; min-width: 92px; text-align: right; }
+.glb-player .select.compact { padding: 2px 6px; font-size: 11.5px; }
+
+/* ---------- Animation (Uthana) ---------- */
+.anim-char { display: flex; flex-direction: column; gap: 6px; }
+.anim-char .row { gap: 6px; }
+.anim-char .select { flex: 1; min-width: 0; }
+.anim-file { display: flex; align-items: center; gap: 8px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.anim-title { font-size: 15px; color: var(--text); overflow-wrap: anywhere; }
+.anim-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.anim-stage { min-height: 420px; }
+.anim-stage .glb-view.anim-viewer { height: 420px; }
+.anim-export { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--line); }
+.anim-export-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px 16px; align-items: center; }
+.anim-opt { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.anim-character { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 14px; font-size: 12.5px; }
+.anim-modal-cost { margin-right: auto; font-size: 11.5px; }
+.anim-chars { display: flex; flex-direction: column; gap: 4px; }
+.anim-char-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) 26px; gap: 10px; align-items: center; font-size: 12px; }
+.anim-char-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 1280px) {
   .fal-layout { grid-template-columns: 380px minmax(0, 1fr); }
 }

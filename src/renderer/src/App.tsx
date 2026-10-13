@@ -15,7 +15,7 @@ import { Worlds } from './views/Worlds'
 import { Lore } from './views/Lore'
 import { Systems } from './views/Systems'
 import { Fal } from './views/Fal'
-import { Sprites } from './views/Sprites'
+import { Animation } from './views/Animation'
 
 const VIEW: Record<ViewId, ComponentType> = {
   comms: Comms,
@@ -27,7 +27,7 @@ const VIEW: Record<ViewId, ComponentType> = {
   lore: Lore,
   systems: Systems,
   fal: Fal,
-  sprites: Sprites
+  animation: Animation
 }
 
 export function App() {

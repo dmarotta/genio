@@ -1028,7 +1028,7 @@ function Accounts() {
       <div className="label" style={{ margin: '22px 0 8px' }}>
         API keys
       </div>
-      <p className="mute">For services without a CLI login. Keys are encrypted with your OS keychain and stay in Genio's base; Genio shows only whether one is set. Units get a key only through their process environment: FAL as FAL_KEY, OpenRouter as OPENROUTER_API_KEY for OpenCode units in worlds that allow cheap third-party models.</p>
+      <p className="mute">For services without a CLI login. Keys are encrypted with your OS keychain and stay in Genio's base; Genio shows only whether one is set. Units get a key only through their process environment: FAL as FAL_KEY, OpenRouter as OPENROUTER_API_KEY for OpenCode units in worlds that allow cheap third-party models. The Uthana key stays in Genio's core for the Animation screen.</p>
       {keys.map((k) => (
         <ApiKeyRow key={k.id} k={k} spend={k.id === 'fal' ? usage?.fal : undefined} onChange={() => void api().apiKeys().then(setKeys).catch(() => undefined)} />
       ))}
