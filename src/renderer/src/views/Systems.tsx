@@ -1,10 +1,14 @@
 import { ModelPicker, useModelCatalogue } from '../components/ModelPicker'
 import { Fragment, useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { ChevronDown, ChevronRight, ChevronUp, Copy, Download, KeyRound, Lock, LockOpen, LogIn, LogOut, Plus, RefreshCw, Trash, TriangleAlert, Users, Wrench, X } from 'lucide-react'
-import type { CategoryPool, CostDial, DispatchRule, EventSource, HarnessAdapter, PoolCandidate, Settings, ToolStatus, UpdateInfo } from '@shared/types'
+import type { CategoryPool, DispatchRule, EventSource, HarnessAdapter, PoolCandidate, Settings, ToolStatus, UpdateInfo } from '@shared/types'
 import {
-  CATEGORIES, DIAL_HINT, DIAL_LABEL, LEARNING, QUOTA_HOT_PERCENT, categoryLabel, defaultCategoryPools, type DispatchScoresView, type ScoreRow
+  CATEGORIES, LEARNING, QUOTA_HOT_PERCENT, categoryLabel, defaultCategoryPools, type DispatchScoresView, type ScoreRow
 } from '@shared/dispatch'
+import {
+  MODE_PRESETS, USAGE_MODES, USAGE_MODE_LABEL, modeSummary, pctText, planLabel, presetRows, type UsageMode, type UsagePolicyView
+} from '@shared/usage-mode'
+import { PlanMeter, useUsagePolicy } from '../components/PlanMeter'
 import { accountActions, type AccountStatus, type ApiKeyStatus, type FalSpend, type ToolUsage, type UsageReport } from '@shared/api'
 import { api, errText, op, saveSettings, toast, useStore } from '../store'
 import { CommitInput, Confirm, Field, Toggle, ViewHeader } from '../components/ui'
@@ -15,16 +19,17 @@ import { playSfx } from '../lib/sfx'
 
 type Section =
   | 'profile' | 'genio' | 'units' | 'overwatch' | 'gauntlet' | 'comms' | 'alerts' | 'mail' | 'memory'
-  | 'harnesses' | 'dispatch' | 'triggers' | 'toolchain' | 'accounts' | 'allies' | 'patch'
+  | 'harnesses' | 'dispatch' | 'triggers' | 'toolchain' | 'accounts' | 'allies' | 'patch' | 'usage'
 
 const SECTIONS: { id: Section; label: string; group: string }[] = [
   { id: 'profile', label: 'Profile', group: 'Player' },
   { id: 'comms', label: 'Comms & FX', group: 'Player' },
   { id: 'alerts', label: 'Alerts', group: 'Player' },
+  { id: 'usage', label: 'Usage', group: 'Squad' },
   { id: 'genio', label: 'Genio', group: 'Squad' },
   { id: 'units', label: 'Units', group: 'Squad' },
   { id: 'harnesses', label: 'Harnesses', group: 'Squad' },
-  { id: 'dispatch', label: 'Dispatch', group: 'Squad' },
+  { id: 'dispatch', label: 'Dispatch (Advanced)', group: 'Squad' },
   { id: 'allies', label: 'Allies', group: 'Squad' },
   { id: 'overwatch', label: 'Overwatch', group: 'Engine' },
   { id: 'gauntlet', label: 'Gauntlet', group: 'Engine' },
@@ -49,11 +54,28 @@ export function Systems() {
     return p ?? 'profile'
   })
   const [home, setHome] = useState('')
+  const [advanced, setAdvancedState] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('genio.usage.advanced') === '1'
+    } catch {
+      return false
+    }
+  })
+  const setAdvanced = (v: boolean): void => {
+    setAdvancedState(v)
+    try {
+      localStorage.setItem('genio.usage.advanced', v ? '1' : '0')
+    } catch {
+      /* per-viewer convenience only */
+    }
+  }
   useEffect(() => {
     void api().homePath().then(setHome).catch(() => undefined)
   }, [])
   if (!settings) return <div className="view"><div className="bar indeterminate"><i /></div></div>
 
+  // Dispatch tables, rules and telemetry are Advanced: listed only while Advanced is open
+  const visible = SECTIONS.filter((x) => x.id !== 'dispatch' || advanced || sec === 'dispatch')
   let lastGroup = ''
   return (
     <div className="view">
@@ -67,7 +89,7 @@ export function Systems() {
       />
       <div className="sys-layout">
         <nav className="sys-nav">
-          {SECTIONS.map((s) => {
+          {visible.map((s) => {
             const head = s.group !== lastGroup
             lastGroup = s.group
             return (
@@ -81,7 +103,7 @@ export function Systems() {
           })}
         </nav>
         <div className="sys-body panel">
-          <SectionBody sec={sec} s={settings} />
+          <SectionBody sec={sec} s={settings} advanced={advanced} setAdvanced={setAdvanced} open={setSec} />
         </div>
       </div>
     </div>
@@ -103,8 +125,10 @@ function Row({ label, hint, children }: { label: string; hint?: ReactNode; child
 const set = (patch: Partial<Settings>): void => void saveSettings(patch)
 const num = (v: string, min = 0): number => Math.max(min, Number(v) || 0)
 
-function SectionBody({ sec, s }: { sec: Section; s: Settings }) {
+function SectionBody({ sec, s, advanced, setAdvanced, open }: { sec: Section; s: Settings; advanced: boolean; setAdvanced: (v: boolean) => void; open: (s: Section) => void }) {
   switch (sec) {
+    case 'usage':
+      return <Usage s={s} advanced={advanced} setAdvanced={setAdvanced} open={open} />
     case 'profile':
       return (
         <>
@@ -188,13 +212,8 @@ function SectionBody({ sec, s }: { sec: Section; s: Settings }) {
       return (
         <>
           <h2 className="sys-title">Genio</h2>
-          <ModelRow label="Genio model" hint="Model for the companion you talk to." value={s.wkspModel} onCommit={(v) => set({ wkspModel: v, wkspEffort: '' })} />
-          <Row label="Genio effort">
-            <EffortSelect model={s.wkspModel} value={s.wkspEffort} onChange={(v) => set({ wkspEffort: v })} />
-          </Row>
-          <Row label="Bot model" hint="Handles events while you're DND/AFK. A cheaper model is fine.">
-            <CommitInput mono value={s.botModel} placeholder="(default)" onCommit={(v) => set({ botModel: v.trim() })} />
-            <div className="model-chips">{['claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', ''].map(m => <button key={m} className={cx('chip', s.botModel === m && 'neon')} onClick={() => set({ botModel: m })}>{m.replace('claude-', '') || 'default'}</button>)}</div>
+          <Row label="Model and effort" hint="Set by the Usage mode. Raw chat and Bot picks are under Usage → Advanced.">
+            <button className="btn sm" onClick={() => open('usage')}>Usage</button>
           </Row>
           <Row label="Claude Code path" hint="Blank uses the bundled Claude Code.">
             <CommitInput mono value={s.claudePath} placeholder="(bundled)" onCommit={(v) => set({ claudePath: v.trim() })} />
@@ -218,10 +237,6 @@ function SectionBody({ sec, s }: { sec: Section; s: Settings }) {
                   </option>
                 ))}
             </select>
-          </Row>
-          <ModelRow allowCustom label="Default model" value={s.defaultWorkerModel} onCommit={(v) => set({ defaultWorkerModel: v })} />
-          <Row label="Default effort" hint="Blank lets Genio choose: low for clear work, higher for ambiguous design.">
-            <EffortSelect value={s.defaultWorkerEffort} onChange={(v) => set({ defaultWorkerEffort: v })} />
           </Row>
           <Row
             label="Claude permission posture"
@@ -267,8 +282,9 @@ function SectionBody({ sec, s }: { sec: Section; s: Settings }) {
           <NumRow label="Lagging after (s)" hint="Idle with no declared wait." value={s.staleSeconds} onCommit={(v) => set({ staleSeconds: num(v, 30) })} />
           <NumRow label="Lag escalations" hint="Before deep inspection." value={s.staleEscalations} onCommit={(v) => set({ staleEscalations: num(v, 1) })} />
           <NumRow label="Paused resurface (h)" value={s.pausedResurfaceHours} onCommit={(v) => set({ pausedResurfaceHours: num(v, 1) })} />
-          <NumRow label="Tick base (min)" value={s.heartbeatBaseMinutes} onCommit={(v) => set({ heartbeatBaseMinutes: num(v, 1) })} />
-          <NumRow label="Tick max (min)" value={s.heartbeatMaxMinutes} onCommit={(v) => set({ heartbeatMaxMinutes: num(v, 1) })} />
+          <Row label="Heartbeat" hint="Routine heartbeat and wake batching follow the Usage mode.">
+            <span className="mono">{MODE_PRESETS[s.usageMode ?? 'balanced'].heartbeat.baseMinutes}/{MODE_PRESETS[s.usageMode ?? 'balanced'].heartbeat.maxMinutes} min</span>
+          </Row>
           <NumRow label="PR poll (min)" value={s.prPollMinutes} onCommit={(v) => set({ prPollMinutes: num(v, 1) })} />
           <NumRow label="Event grace (s)" hint="Coalesce status lines." value={s.signalGraceSeconds} onCommit={(v) => set({ signalGraceSeconds: num(v) })} />
           <NumRow label="Ping re-ring (s)" value={s.inboxGraceSeconds} onCommit={(v) => set({ inboxGraceSeconds: num(v, 10) })} />
@@ -313,6 +329,231 @@ function SectionBody({ sec, s }: { sec: Section; s: Settings }) {
     case 'patch':
       return <Patch />
   }
+}
+
+const LEVEL_TEXT = { ok: 'below 70%: the mode as set', warm: '70-84%: exploration off, one unit, Auto effort one step lower, other plan preferred', hot: '85-94%: no automatic units; Auto chat Sonnet / low', out: '95%+ or rejected: no new automatic work until reset' } as const
+
+/** Systems → Usage: one mode, what it sets, what is pinned, protection and the shared plan meter. */
+function Usage({ s, advanced, setAdvanced, open }: { s: Settings; advanced: boolean; setAdvanced: (v: boolean) => void; open: (s: Section) => void }) {
+  const view = useUsagePolicy()
+  const mode: UsageMode = s.usageMode ?? 'balanced'
+  const [hover, setHover] = useState<UsageMode | null>(null)
+  const shown = hover ?? mode
+  const pins = pinnedOverrides(s, view)
+  return (
+    <>
+      <h2 className="sys-title">Usage</h2>
+      <div className="usage-mode-bar">
+        <span className="label">Usage mode</span>
+        <div className="seg" role="radiogroup" aria-label="Usage mode">
+          {USAGE_MODES.map((m) => (
+            <button
+              key={m}
+              role="radio"
+              aria-checked={mode === m}
+              className={cx('btn sm', mode === m && 'solid')}
+              onMouseEnter={() => setHover(m)}
+              onMouseLeave={() => setHover(null)}
+              onFocus={() => setHover(m)}
+              onBlur={() => setHover(null)}
+              onClick={() => set({ usageMode: m })}
+            >
+              {USAGE_MODE_LABEL[m]}
+              {m === 'balanced' ? '*' : ''}
+            </button>
+          ))}
+        </div>
+        <button className={cx('btn sm ghost', advanced && 'neon')} aria-pressed={advanced} onClick={() => setAdvanced(!advanced)}>
+          Advanced
+        </button>
+      </div>
+      <div className="usage-summary">
+        <b>{modeSummary(mode, view?.chat)}</b>
+        {view && <span className="mute"> · {view.liveUnits} of {view.unitCap} unit places in use across all worlds</span>}
+        <div className="mute">* Balanced is the default. Max means higher ceilings, never permission to exhaust a plan.</div>
+      </div>
+
+      <div className="usage-preview panel">
+        <div className="label">{hover && hover !== mode ? `Preview: what ${USAGE_MODE_LABEL[shown]} would set` : `What ${USAGE_MODE_LABEL[shown]} sets`}</div>
+        <div className="usage-preview-grid">
+          {presetRows(shown).map((r) => (
+            <Fragment key={r.label}>
+              <span className="mute">{r.label}</span>
+              <span className="mono">{r.value}</span>
+            </Fragment>
+          ))}
+        </div>
+        <div className="mute usage-preview-foot">Pinned choices below are kept as they are. Bot: Sonnet / low only when deterministic handling cannot finish. Polling, PR checks and permissions are not changed by a mode.</div>
+      </div>
+
+      <div className="label" style={{ margin: '18px 0 6px' }}>Pinned</div>
+      {pins.length === 0 ? (
+        <div className="mute">Nothing pinned: every model and effort follows the mode.</div>
+      ) : (
+        <div className="usage-pins">
+          {pins.map((p) => (
+            <div key={p.label} className="usage-pin">
+              <span className="chip amber">Pinned</span>
+              <span>{p.label}</span>
+              <span className="mono">{p.value}</span>
+              {p.unpin ? (
+                <button className="btn sm ghost" onClick={p.unpin}>Unpin</button>
+              ) : (
+                <button className="btn sm ghost" onClick={() => { setAdvanced(true); open('dispatch') }}>Open</button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="label" style={{ margin: '18px 0 6px' }}>Automatic protection</div>
+      <p className="mute">Applies to automatic choices in every mode, using the worst reported window of each plan. Pinned choices, permissions, queued work and paid spend are never changed.</p>
+      {view && (
+        <div className="usage-levels">
+          {view.plans.map((p) => (
+            <div key={p.plan} className={cx('usage-level', `lvl-${p.level}`)}>
+              <b>{planLabel(p.plan)}</b>
+              <span className="mono">{p.known || p.level !== 'ok' ? pctText(p) : 'unknown'}</span>
+              <span className="mute">{p.known || p.level !== 'ok' ? LEVEL_TEXT[p.level] : 'no current report: ordinary dispatch, never exploration'}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {view && view.waiting.length > 0 && (
+        <div className="amber-text" style={{ marginTop: 8 }}>
+          {view.waiting.length} queued quest{view.waiting.length === 1 ? '' : 's'} wait{view.waiting.length === 1 ? 's' : ''} for a plan reset (see Quests).
+        </div>
+      )}
+      {view && view.notices.length > 0 && (
+        <>
+          <div className="label" style={{ margin: '14px 0 6px' }}>Recent notices</div>
+          <div className="usage-notices">
+            {view.notices.map((n) => (
+              <details key={`${n.ts}-${n.plan}`}>
+                <summary>
+                  <span className="mono mute">{dateShort(n.ts)} {clock(n.ts)}</span> {n.text}
+                </summary>
+                <div className="mute mono">{n.details}</div>
+              </details>
+            ))}
+          </div>
+        </>
+      )}
+
+      <div className="label" style={{ margin: '18px 0 6px' }}>Plan remaining</div>
+      <PlanMeter view={view} />
+
+      {advanced && <UsageAdvanced s={s} view={view} open={open} />}
+    </>
+  )
+}
+
+interface Pin {
+  label: string
+  value: string
+  unpin?: () => void
+}
+
+function pinnedOverrides(s: Settings, view: UsagePolicyView | null): Pin[] {
+  const out: Pin[] = []
+  if (s.wkspModel) out.push({ label: 'Chat model', value: s.wkspModel, unpin: () => set({ wkspModel: '' }) })
+  if (s.wkspEffort) out.push({ label: 'Chat effort', value: s.wkspEffort, unpin: () => set({ wkspEffort: '' }) })
+  if (s.botModel) out.push({ label: 'Bot model', value: s.botModel, unpin: () => set({ botModel: '' }) })
+  if (s.defaultWorkerModel) out.push({ label: `Unit model (${s.defaultHarness})`, value: s.defaultWorkerModel, unpin: () => set({ defaultWorkerModel: '' }) })
+  if (s.defaultWorkerEffort) out.push({ label: 'Unit effort', value: s.defaultWorkerEffort, unpin: () => set({ defaultWorkerEffort: '' }) })
+  const locked = s.categoryPools.filter((p) => p.locked)
+  if (locked.length) out.push({ label: 'Category rows', value: locked.map((p) => categoryLabel(p.category)).join(', ') })
+  if (s.dispatchRules.length) out.push({ label: 'Dispatch rules', value: `${s.dispatchRules.length} rule${s.dispatchRules.length === 1 ? '' : 's'}` })
+  for (const w of view?.worlds ?? []) {
+    if (w.source === 'global') continue
+    out.push({
+      label: `World ${w.name}`,
+      value: `${USAGE_MODE_LABEL[w.mode]}${w.source === 'legacy-dial' ? ' (from its old cost dial)' : ''}`,
+      unpin: () => void op('World usage mode', () => api().projectUpdate(w.name, { usageMode: undefined, costDial: undefined }))
+    })
+  }
+  return out
+}
+
+/** Advanced: raw chat/unit/Bot picks (each one Pins), per-world mode and capacity, paid-spend allowance, tables. */
+function UsageAdvanced({ s, view, open }: { s: Settings; view: UsagePolicyView | null; open: (s: Section) => void }) {
+  const projects = useStore((st) => st.snap.projects)
+  return (
+    <div className="usage-advanced">
+      <h3 className="sys-subtitle">Advanced</h3>
+      <p className="mute">Any value set here is Pinned: the mode and protection leave it alone. Blank or (auto) follows the mode.</p>
+      <ModelRow label="Chat model" hint="Main chat, and allies without their own pick." value={s.wkspModel} onCommit={(v) => set({ wkspModel: v })} />
+      <Row label="Chat effort">
+        <EffortSelect model={s.wkspModel} value={s.wkspEffort} onChange={(v) => set({ wkspEffort: v })} />
+      </Row>
+      <Row label="Bot model" hint="Handles events while you're DND/AFK. Auto: Sonnet / low.">
+        <CommitInput mono value={s.botModel} placeholder="(auto)" onCommit={(v) => set({ botModel: v.trim() })} />
+        <div className="model-chips">{['claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', ''].map(m => <button key={m} className={cx('chip', s.botModel === m && 'neon')} onClick={() => set({ botModel: m })}>{m.replace('claude-', '') || 'auto'}</button>)}</div>
+      </Row>
+      <ModelRow allowCustom label="Unit model" hint={`Applies to ${s.defaultHarness} units.`} value={s.defaultWorkerModel} onCommit={(v) => set({ defaultWorkerModel: v })} />
+      <Row label="Unit effort" hint="Blank: the mode's effort per category.">
+        <EffortSelect value={s.defaultWorkerEffort} onChange={(v) => set({ defaultWorkerEffort: v })} />
+      </Row>
+      <Row label="Paid spend on cheap models" hint="Lets low-stakes units use OpenRouter models through OpenCode, billed to your OpenRouter key. A mode never turns this on.">
+        <Toggle checked={!!s.cheapSpendAllowed} onChange={(v) => set({ cheapSpendAllowed: v })} />
+        {view && <span className="mute">{view.cheap.why}</span>}
+      </Row>
+      <div className="label" style={{ margin: '16px 0 6px' }}>Worlds</div>
+      <p className="mute">A world can use its own mode. Its unit cap can only be lower than the global {MODE_PRESETS[s.usageMode ?? 'balanced'].unitCap}.</p>
+      {projects.map((p) => {
+        const w = view?.worlds.find((x) => x.name === p.name)
+        return (
+          <Row key={p.name} label={p.name} hint={w?.cap !== undefined ? `at most ${w.cap} unit${w.cap === 1 ? '' : 's'} here` : undefined}>
+            <select
+              className="select"
+              value={p.usageMode ?? ''}
+              onChange={(e) => void op('World usage mode', () => api().projectUpdate(p.name, { usageMode: (e.target.value || undefined) as UsageMode | undefined, costDial: undefined }))}
+            >
+              <option value="">Global ({USAGE_MODE_LABEL[s.usageMode ?? 'balanced']})</option>
+              {USAGE_MODES.map((m) => <option key={m} value={m}>{USAGE_MODE_LABEL[m]}</option>)}
+            </select>
+            <span className="mute">capacity</span>
+            <CommitInput type="number" className="num-input" value={p.capacity ?? 0} onCommit={(v) => void op('World capacity', () => api().projectUpdate(p.name, { capacity: Math.max(0, parseInt(v, 10) || 0) }))} />
+          </Row>
+        )
+      })}
+      <Row label="Category table, rules, scorecard" hint="Locked rows and rules are Pinned; unlocked rows follow the mode.">
+        <button className="btn sm" onClick={() => open('dispatch')}>Dispatch</button>
+      </Row>
+    </div>
+  )
+}
+
+/** Measured tokens per world, separate from the shared plan meter (a world has no private quota). */
+function WorldAttribution({ usage }: { usage: UsageReport }) {
+  const rows = usage.tools.flatMap((t) => Object.entries(t.measured?.byWorld ?? {}).map(([world, v]) => ({ tool: t.tool, world, ...v })))
+  if (!rows.length) return null
+  return (
+    <div className="usage-block" style={{ margin: '10px 0 16px' }}>
+      <div className="usage-head">
+        <b>Attributed to worlds</b>
+        <span className="mute">unit tokens measured by Genio from local logs · not a share of the plan · chat spans worlds and is not split</span>
+      </div>
+      <div className="usage-tokens mono">
+        <span className="mute">world</span>
+        <span className="mute">plan</span>
+        <span className="mute">today</span>
+        <span className="mute">7 days</span>
+        <span />
+        <span />
+        {rows.map((r) => (
+          <Fragment key={`${r.tool}:${r.world}`}>
+            <span>{r.world}</span>
+            <span>{planLabel(r.tool)}</span>
+            <span>{tokens(r.today.total)}</span>
+            <span>{tokens(r.week.total)}</span>
+            <span />
+            <span />
+          </Fragment>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function NumRow({ label, hint, value, onCommit }: { label: string; hint?: string; value: number; onCommit: (v: string) => void }) {
@@ -494,21 +735,9 @@ function Dispatch({ s }: { s: Settings }) {
       <h2 className="sys-title">Dispatch</h2>
       <p className="mute">
         How Genio picks a unit tool, model and effort. Precedence: your (or Genio's) explicit per-mission pick, then a follow-up's original loadout, then the best-fit rule below, then the
-        category table, then the Units default. Tools that aren't installed or logged in are skipped, and a subscription above {QUOTA_HOT_PERCENT}% of its 5-hour or weekly window is down-ranked.
+        category table, then the Units default. Unlocked table rows follow the Usage mode; a locked row is Pinned and used as written. Tools that aren't installed or logged in are skipped, and a subscription at
+        {' '}{QUOTA_HOT_PERCENT}% or more of its 5-hour or weekly window is excluded. Exploration is set by the Usage mode.
       </p>
-      <Row label="Cost dial" hint={DIAL_HINT[s.costDial ?? 'balanced']}>
-        <div className="seg">
-          {(['quality', 'balanced', 'cost'] as CostDial[]).map((d) => (
-            <button key={d} className={cx('btn sm', (s.costDial ?? 'balanced') === d && 'solid')} onClick={() => set({ costDial: d })}>
-              {DIAL_LABEL[d]}
-            </button>
-          ))}
-        </div>
-      </Row>
-      <Row label="Exploration" hint="Share of table picks that try a less-proven candidate when two or more are eligible. Never for explicit picks or critical quests. 0 turns it off.">
-        <CommitInput type="number" className="num-input" value={Math.round((s.explorationRate ?? 0) * 100)} onCommit={(v) => set({ explorationRate: Math.min(100, num(v)) / 100 })} />
-        <span className="mute">%</span>
-      </Row>
       <Row
         label="Learn the order automatically"
         hint={`Swaps two neighbouring candidates when both have ${LEARNING.minSamples}+ outcomes and the lower one scores ${LEARNING.reorderMargin} higher (scores 0-1, recency half-life ${LEARNING.halfLifeDays} days). Adding or removing candidates always waits for your OK under Your Move. Locked rows and rules are never touched.`}
@@ -602,7 +831,7 @@ function LockButton({ locked, onChange }: { locked: boolean; onChange: (v: boole
   return (
     <button
       className={cx('btn sm ghost icon', locked && 'amber')}
-      title={locked ? 'Locked: the learning loop never changes this' : 'Lock so the learning loop never changes this'}
+      title={locked ? 'Pinned: the Usage mode and the learning loop never change this' : 'Pin so the Usage mode and the learning loop never change this'}
       onClick={() => onChange(!locked)}
     >
       {locked ? <Lock size={12} /> : <LockOpen size={12} />}
@@ -893,6 +1122,7 @@ function Accounts() {
   const [logout, setLogout] = useState<AccountStatus | null>(null)
   const [usage, setUsage] = useState<UsageReport | null>(null)
   const [open, setOpen] = useState<Record<string, boolean>>({})
+  const policy = useUsagePolicy()
   const sessionTerm = useStore((s) => (session ? s.terminals[session] : undefined))
   // read on opening the screen and on Refresh only: no background polling
   const load = (): void => {
@@ -935,6 +1165,8 @@ function Accounts() {
         </button>
       </h2>
       <p className="mute">Sign in to the CLIs Genio and its units drive. Each login runs the tool's own flow; the tool keeps its credentials and Genio never reads them. Usage comes from what each tool reports and from local session logs.</p>
+      <PlanMeter view={policy} />
+      {usage && <WorldAttribution usage={usage} />}
       {!accounts && (
         <div className="bar indeterminate">
           <i />

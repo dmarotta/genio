@@ -52,7 +52,7 @@ describe('quota evidence', () => {
 
 describe('97% explored Recon regression', () => {
   const input: LoadoutInput = { kind: 'scout', project: 'genio', title: 'Folder-first workspace', intent: 'Investigate folder-first sessions', category: 'recon-design' }
-  const settings = { ...defaultSettings(), explorationRate: 1,
+  const settings = { ...defaultSettings(), usageMode: 'max' as const,
     categoryPools: [{ category: 'recon-design' as const, candidates: [{ harness: 'codex' }, { harness: 'claude' }] }] }
   const env = () => ({ available: (h: { id: string }) => ['claude', 'codex'].includes(h.id), rand: () => 0,
     quota: { claude: [{ ...cold, observedAt: new Date().toISOString(), usedPercent: 97 }], codex: [{ ...cold, resetsAt: undefined, observedAt: new Date().toISOString() }] } })

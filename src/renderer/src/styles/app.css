@@ -930,3 +930,41 @@ ul.loadout-why li { margin: 1px 0; }
 
 .chat-limit { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 12px; }
 .chat-limit > span { flex: 1; min-width: 180px; }
+
+/* ---------- usage mode & shared plan meter ---------- */
+.usage-mode-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.usage-summary { margin: 8px 0 14px; font-size: 13px; }
+.usage-preview { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.usage-preview-grid { display: grid; grid-template-columns: minmax(150px, 260px) minmax(0, 1fr); gap: 4px 14px; font-size: 12px; }
+.usage-preview-foot { font-size: 11.5px; }
+.usage-pins, .usage-levels, .usage-notices { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
+.usage-pin { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.usage-level { display: grid; grid-template-columns: 70px 80px minmax(0, 1fr); gap: 10px; align-items: baseline; }
+.usage-level.lvl-warm .mono, .meter-row.lvl-warm .meter-row-head b { color: var(--amber); }
+.usage-level.lvl-hot .mono, .usage-level.lvl-out .mono, .meter-row.lvl-hot .meter-row-head b, .meter-row.lvl-out .meter-row-head b { color: var(--alert); }
+.usage-notices summary { cursor: pointer; }
+.usage-notices details > div { padding: 2px 0 4px 16px; font-size: 11.5px; }
+.usage-advanced { margin-top: 24px; padding-top: 14px; border-top: 1px solid var(--line); }
+.sys-subtitle { margin: 0 0 6px; font-family: var(--font-display); font-size: 16px; letter-spacing: 0.08em; text-transform: uppercase; }
+.plan-meter { display: flex; flex-direction: column; gap: 12px; font-size: 12px; margin-bottom: 8px; }
+.meter-caption { font-size: 11.5px; }
+.meter-row { display: flex; flex-direction: column; gap: 4px; }
+.meter-row-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.meter-window { display: grid; grid-template-columns: 140px minmax(80px, 200px) 96px minmax(0, 1fr); gap: 10px; align-items: center; }
+.meter-window.head .meter-left { font-weight: 700; }
+.meter-window.unknown .meter-left { color: var(--text-mute); }
+.meter-missing, .meter-empty { font-size: 11.5px; }
+@media (max-width: 760px) {
+  .meter-window { grid-template-columns: 110px minmax(0, 1fr) 90px; }
+  .meter-meta { grid-column: 1 / -1; }
+  .usage-preview-grid { grid-template-columns: minmax(0, 1fr); }
+}
+.rail-meter { margin-top: auto; width: 52px; padding: 6px 4px; display: flex; flex-direction: column; gap: 5px; background: none; border: 0; border-top: 1px solid var(--line); color: var(--text-mute); cursor: pointer; }
+.rail-meter:hover { color: var(--text); }
+.rail-meter-row { display: grid; grid-template-columns: 14px 1fr; grid-template-rows: auto auto; column-gap: 3px; align-items: center; font-size: 8.5px; letter-spacing: 0.04em; }
+.rail-meter-row .bar { grid-column: 1 / -1; height: 3px; }
+.rail-meter-val { justify-self: end; }
+.rail-meter-row.lvl-warm .rail-meter-val { color: var(--amber); }
+.rail-meter-row.lvl-hot .rail-meter-val, .rail-meter-row.lvl-out .rail-meter-val { color: var(--alert); }
+.rail-meter + .rail-foot { margin-top: 6px; }
+.quest-hold.quota-wait { flex-direction: column; gap: 2px; }

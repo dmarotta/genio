@@ -131,10 +131,12 @@ export function createStatusReportService(getCtx: () => AppCtx): StatusReportSer
           if (q.state === 'queued' || q.state === 'blocked') {
             const world = q.project ? ` (${q.project})` : ''
             let why = ''
+            const wait = ready.has(q.id) ? undefined : safe(() => ctx.dispatch.quotaWait(q), undefined)
             if (ready.has(q.id)) why = ' — ready to deploy'
+            else if (wait) why = ` — queued until reset: ${wait.reason}${wait.until ? ` (${shortDate(wait.until)})` : ''}`
             else if (q.dependsOn.length) why = ` — waiting on ${q.dependsOn.join(', ')}`
             else if (q.notBefore && Date.parse(q.notBefore) > Date.now()) why = ` — not before ${shortDate(q.notBefore)}`
-            else if (q.project) why = ' — world at capacity'
+            else if (q.project) why = ' — at capacity (world or Usage mode unit cap)'
             const prio = q.priority !== 'normal' ? ` [${q.priority}]` : ''
             upNext.push({ text: `Quest "${q.title}"${world}${base(h)}${prio}${why}`, backlogId: q.id, tone: ready.has(q.id) ? 'neon' : undefined })
           } else if (q.state === 'held' && q.hold) {

@@ -49,3 +49,62 @@ Replay coverage: the 97%-Claude explored Recon; stale/unknown/rejected combinati
 atomic launch reservations and last-moment rejection; cwd drift; the resumed
 $14.7858063 checkpoint; duplicate result IDs; independent snapshot expiry; shared
 chat backoff; and the relaunch cap. All tests use local fixtures or fake SDK streams.
+
+# Usage mode and shared plan meter (stage 3)
+
+One control, Systems → Usage: **Usage mode [Save | Balanced* | Max] Advanced**.
+`src/shared/usage-mode.ts` holds the table; the Systems preview, the loadout
+picker, the chat sessions, the supervisor and the dispatcher all read it.
+
+| | Save | Balanced (default) | Max |
+|---|---|---|---|
+| Chat, including allies without their own pick | Sonnet / low | Sonnet / medium | Opus / high |
+| Units: chore, docs, tests, build/CI | Codex / low | Codex / medium | Codex / high |
+| Units: feature, bugfix, UI | Sonnet / medium | Codex / medium | Opus / high |
+| Units: recon/design, refactor, graphics | Codex / medium | Codex / high | Opus / xhigh |
+| Units: review, large-context | Codex / medium | Codex / high | Codex / xhigh |
+| Units: art (agent work) | Codex / low | Codex / medium | Codex / high |
+| Concurrent units across all worlds and bases | 1 | 2 | 4 |
+| Exploration | 0 | 0 | 5%, only with fresh evidence below 70% on both plans |
+| Cheap third-party models (low-stakes only) | first | after the plans | off |
+| Routine wake batching; heartbeat base/max | 10 min; 30/120 | 5 min; 15/120 | 1 min; 10/120 |
+| Chat answer / Recon summary target | 150 / 400 words | 250 / 800 | 400 / 1,500 |
+
+Codex runs on its own default model. Each unit cell falls back at the same effort:
+Codex ↔ Sonnet, Opus → Codex. Cells are final efforts; no dial shift is applied.
+A world can carry its own mode (Advanced, or its legacy cost dial); the global
+mode sets the shared unit cap, and a world's mode or capacity can only lower it.
+The cap is checked inside the serialized launch reservation, counting units that
+hold a place in every base plus launches reserved but not yet listed; a respawn
+keeps the place it already holds. Cheap models also need an explicit paid-spend
+allowance (Advanced); a mode never grants one.
+
+**Pinned.** A non-empty chat/Bot/unit model or effort, an ally's own pick, a
+locked category row, a dispatch rule or an explicit deploy pick is Pinned: neither
+the mode nor protection changes it, and Systems → Usage lists it with Unpin.
+Migration keeps every explicit pick as written; only the old shipped chat default
+(`wkspEffort: 'high'` with no model) becomes Auto, and the old cost dial becomes
+the mode (Quality → Max, Cost → Save).
+
+**Protection**, per plan, from the worst reported window (retained hot evidence
+still counts, stale cold evidence is unknown):
+
+- below 70%: the mode as set;
+- 70–84%: exploration off, at most one unit on that plan, Auto unit effort one
+  step lower, the other plan preferred, Auto chat effort one step lower and
+  answers held to Save's target;
+- 85–94%: excluded from every automatic unit candidate; Auto chat drops to
+  Sonnet / low at the next turn;
+- 95%+ or rejected: also no background chat work (stage 1); low-priority queued
+  quests and, when no plan has headroom, all queued quests stay queued until
+  reset ("Queued until reset" in Quests). Running work is never stopped.
+
+A one-line notice (toast and Systems → Usage) is emitted only when a plan's level
+changes; its details give the cause and evidence age. Levels persist in
+`data/usage/policy-state.json`, so restarts do not repeat notices.
+
+**Plan meter.** One component (Accounts, Usage, compact in the rail): a Claude
+row and a Codex row, never summed, each reported window with what is left, reset
+time, source and observation age. Expired or missing observations read "unknown",
+never "100% left"; missing standard windows read "not reported". Unit tokens per
+world are shown separately as measured consumption, not a share of the plan.

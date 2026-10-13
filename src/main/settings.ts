@@ -6,12 +6,14 @@ import { bus } from './bus'
 import { mergeHarnesses } from './harness'
 import { mergeCategoryPools } from '@shared/dispatch'
 import { readJson, which, writeJson } from './util'
+import { migrateUsageSettings } from './usage-policy'
+import { DEFAULT_USAGE_MODE } from '@shared/usage-mode'
 
 export function defaultSettings(): Settings {
   return {
     gamertag: 'Player',
     wkspModel: '',
-    wkspEffort: 'high',
+    wkspEffort: '',
     botModel: '',
     defaultHarness: 'claude',
     defaultWorkerModel: '',
@@ -58,7 +60,9 @@ export function defaultSettings(): Settings {
     dispatchRules: [],
     categoryPools: mergeCategoryPools(undefined),
     costDial: 'balanced',
-    explorationRate: 0.2,
+    explorationRate: 0,
+    usageMode: DEFAULT_USAGE_MODE,
+    cheapSpendAllowed: false,
     autoReorder: true,
     eventSources: [],
     firstRunDone: false
@@ -67,9 +71,10 @@ export function defaultSettings(): Settings {
 
 export function createSettingsService(home: Home): SettingsService {
   const defaults = defaultSettings()
-  const saved = readJson<Partial<Settings>>(home.settingsFile, {})
+  const stored = readJson<Partial<Settings>>(home.settingsFile, {})
+  const saved = migrateUsageSettings(stored)
   let current: Settings = { ...defaults, ...saved, harnesses: mergeHarnesses(saved.harnesses), categoryPools: mergeCategoryPools(saved.categoryPools) }
-  if (!saved.inboxToken) writeJson(home.settingsFile, current)
+  if (!saved.inboxToken || saved !== stored) writeJson(home.settingsFile, current)
 
   const svc: SettingsService = {
     get: () => current,

@@ -13,6 +13,7 @@ import type { Home } from './home'
 import { bus } from './bus'
 import * as git from './git'
 import { appendProgressNote, doorbellLine, engineHints, kickoffPrompt, renderBrief } from './brief'
+import { holdsCapacity } from './usage-policy'
 import { buildArgs, CLAUDE_BYPASS_DIALOG } from './harness'
 import { foldOpenDecisions, formatStatusLine, parseStatusLine, parseStatusLog } from './status'
 import { createGauntlet } from './gauntlet'
@@ -480,6 +481,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
             engine: project.engine,
             engineHints: engineHints(project.engine),
             briefInclude: s.briefInclude,
+            summaryWords: req.kind === 'scout' ? ctx.dispatch.reportWords(project.name, loadout.harness) : undefined,
             tools: toolsBrief()
           })
         )
@@ -520,6 +522,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           relaunches: 0
         }
         tasks.push(task)
+        reservation.listed()
         persist()
         bus.publish({ type: 'task', task })
         try {
@@ -631,7 +634,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       let reservation: Awaited<ReturnType<typeof ctx.dispatch.reserve>>
       try {
         reservation = await ctx.dispatch.reserve({ kind: t.kind, project: t.project, title: t.title, intent: '',
-          harness: t.harness, model: t.model, effort: t.effort })
+          harness: t.harness, model: t.model, effort: t.effort }, { respawn: true })
       } catch (e) {
         return { ok: false, message: (e as Error).message }
       }
@@ -1009,7 +1012,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     },
 
     capacityUsed(project) {
-      return tasks.filter((t) => t.project === project && !t.pr && !['cleaned', 'done', 'merged', 'failed'].includes(t.state)).length
+      return tasks.filter((t) => t.project === project && holdsCapacity(t)).length
     }
   }
 

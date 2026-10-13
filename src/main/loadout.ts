@@ -8,10 +8,13 @@
  * Precedence for the unit tool: the explicit per-task pick (player or Genio),
  * then a follow-up's sticky loadout, then the best-fit dispatch rule, then the
  * category table (category from Genio or the keyword heuristic), then the
- * configured default. Inside a rule or the table, candidates whose tool is not
+ * configured default. An unlocked table row follows the Usage mode (its preset
+ * cell, the same-effort fallback, cheap models per the mode); a locked row is
+ * Pinned and used as written under the mode's dial. Candidates whose tool is not
  * installed, enabled or logged in are skipped, cheap third-party models need
- * the world not opted out, the cost dial reorders, and a tool above ~85% of a plan
- * window is excluded. Exploration only ever happens inside the table.
+ * the world not opted out and a paid-spend allowance, and a tool above ~85% of a
+ * plan window is excluded. At 70-84% the mode prefers the other plan and lowers
+ * Auto effort one step. Exploration only ever happens inside the table.
  */
 import type {
   CategoryPool, CostDial, DispatchRule, HarnessAdapter, Loadout, LoadoutInput, PoolCandidate, Settings, TaskCategory, TaskKind
@@ -19,8 +22,12 @@ import type {
 import {
   COST_MODEL, DIAL_LABEL, QUALITY_MODEL, categoryLabel, defaultCategoryPools, isCategory, shiftEffort, type ScoreRow
 } from '@shared/dispatch'
+import {
+  MODE_PRESETS, USAGE_MODE_LABEL, isPlan, modeCandidates, planStatus, planStatuses, protectionCause, stepDown, type PlanLevel, type UsageMode
+} from '@shared/usage-mode'
 import type { SettingsService } from './services'
 import { blockedWindow, explorationSafe, type QuotaWindow } from './quota-policy'
+import { globalMode } from './usage-policy'
 export type { QuotaWindow } from './quota-policy'
 
 type RuleCandidate = DispatchRule['candidates'][number]
@@ -129,7 +136,10 @@ export interface PickEnv {
   unavailable?: (id: string) => boolean
   /** cheap third-party models: OpenRouter key + OpenCode installed + the world not opted out */
   cheap?: { allowed: boolean; why: string }
-  /** the world's dial override, else Settings.costDial */
+  /** the world's Usage mode, else Settings.usageMode */
+  mode?: UsageMode
+  modeFromWorld?: boolean
+  /** dial for locked (pinned) table rows: the world's legacy dial, else the mode's */
   dial?: CostDial
   dialFromWorld?: boolean
   /** scorecard rows (learning) */
@@ -176,7 +186,12 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
   const quotaBlocked = (id: string): boolean => !!hotWindows(env.quota, id).length || !!env.unavailable?.(id)
   const usable = (id: string): boolean => installed(id) && !env.loggedOut?.(id) && !quotaBlocked(id)
   const nameOf = (id: string): string => byId(id)?.name ?? s.harnesses.find((h) => h.id === id)?.name ?? id
-  const dial: CostDial = env.dial ?? s.costDial ?? 'balanced'
+  const mode: UsageMode = env.mode ?? globalMode(s)
+  const preset = MODE_PRESETS[mode]
+  const modeName = `${USAGE_MODE_LABEL[mode]} mode${env.modeFromWorld ? ' (this world)' : ''}`
+  const dial: CostDial = env.dial ?? preset.dial
+  const plans = planStatuses(env.quota)
+  const levelOf = (id: string): PlanLevel => (isPlan(id) ? plans[id].level : 'ok')
   const text = `${input.title}\n${input.intent}\n${input.spec ?? ''}`
   const explicitHarness = input.harness?.trim() || ''
   const explicitModel = input.model?.trim() || ''
@@ -208,7 +223,7 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
     reasons.push(`${nameOf(st.harness)} from ${st.from} is not available now: picking again`)
   }
 
-  if (dial !== 'balanced') reasons.push(`dial ${DIAL_LABEL[dial]}${env.dialFromWorld ? ' (this world)' : ''}`)
+  if (!explicitHarness) reasons.push(`usage: ${modeName}`)
 
   /** Walk an ordered list: the first usable candidate wins; say why earlier ones were passed over. */
   const walk = (ordered: Option[], label: string): Option | undefined => {
@@ -243,6 +258,7 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
   let ruleId: string | undefined
   let cand: Option['c'] | undefined
   let fromTable = false
+  let fromMode = false
   let explored = false
 
   if (harness) {
@@ -272,17 +288,22 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
       break
     }
 
-    // ---- category table
+    // ---- category table: an unlocked row follows the Usage mode, a locked row is Pinned as written
     const pool = harness ? undefined : poolFor(s, category)
-    if (!harness && pool?.candidates.length) {
-      const label = `${categoryLabel(category)} table`
-      const ordered = dialOrder(pool.candidates.map((c, i) => ({ c, i })), dial)
+    const byMode = Boolean(pool && !pool.locked)
+    const auto = byMode ? modeCandidates(mode, category, plans) : undefined
+    const rowCandidates = auto ? auto.candidates : (pool?.candidates ?? [])
+    if (!harness && rowCandidates.length) {
+      const label = byMode ? `${modeName} for ${categoryLabel(category)}` : `${categoryLabel(category)} table (pinned)`
+      reasons.push(...(auto?.notes ?? []))
+      const options = rowCandidates.map((c, i) => ({ c, i }))
+      const ordered = byMode ? options : dialOrder(options, dial)
       const before = reasons.length
       const pick = walk(ordered, label)
       if (pick) {
         let chosen = pick
         const eligible = ordered.filter((o) => usable(o.c.harness) && explorationSafe(env.quota?.[o.c.harness]) && (!o.c.cheap || env.cheap?.allowed))
-        const rate = Math.max(0, Math.min(1, s.explorationRate ?? 0))
+        const rate = Math.max(0, Math.min(1, preset.exploration))
         const canExplore = rate > 0 && eligible.includes(pick) && eligible.length >= 2 && !explicitModel && !explicitEffort && input.priority !== 'critical'
         if (canExplore && env.preview) {
           reasons.push(`exploration: ${Math.round(rate * 100)}% of deploys try a less-proven candidate`)
@@ -301,11 +322,12 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
         }
         cand = chosen.c
         harness = cand.harness
-        source = 'table'
-        fromTable = true
+        source = byMode ? 'mode' : 'table'
+        fromTable = !byMode
+        fromMode = byMode
         if (!explored) {
-          const pos = pool.candidates.indexOf(chosen.c)
-          reasons.push(`${nameOf(harness)}${cand.model ? ` / ${cand.model}` : ''}: ${label}${pos > 0 ? ` (#${pos + 1} of ${pool.candidates.length})` : ''}`)
+          const pos = rowCandidates.indexOf(chosen.c)
+          reasons.push(`${nameOf(harness)}${cand.model ? ` / ${cand.model}` : ''}: ${label}${pos > 0 ? ` (#${pos + 1} of ${rowCandidates.length})` : ''}`)
         }
         const row = statFor(env.stats, category, cand)
         if (row) reasons.push(`learning: score ${row.score.toFixed(2)} for ${categoryLabel(category)} over ${row.samples} outcome${row.samples === 1 ? '' : 's'}`)
@@ -326,9 +348,14 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
   // ---- model
   let model = explicitModel || undefined
   if (model) reasons.push(`model ${model}: your pick`)
-  else if (cand?.model) {
+  else if (fromMode && !cand?.cheap && isDefaultTool && s.defaultWorkerModel) {
+    model = s.defaultWorkerModel
+    reasons.push(`model ${model}: Pinned default (the mode would pick ${cand?.model ?? 'the tool default'})`)
+  } else if (cand?.model) {
     model = cand.model
-    reasons.push(`model ${model}: ${cand.cheap ? 'cheap OpenRouter model' : fromTable ? 'from the table' : 'from the rule'}`)
+    reasons.push(`model ${model}: ${cand.cheap ? 'cheap OpenRouter model' : fromMode ? modeName : fromTable ? 'from the table' : 'from the rule'}`)
+  } else if (fromMode) {
+    reasons.push(`model: ${nameOf(harness)} default (${modeName})`)
   } else if (isDefaultTool && s.defaultWorkerModel) {
     model = s.defaultWorkerModel
     reasons.push(`model ${model}: default`)
@@ -349,7 +376,22 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
   }
   let effort = explicitEffort || undefined
   if (effort) reasons.push(`effort ${effort}: your pick`)
-  else if (cand?.effort && !fromTable) {
+  else if (fromMode && s.defaultWorkerEffort && !cand?.cheap) {
+    effort = s.defaultWorkerEffort
+    reasons.push(`effort ${effort}: Pinned default`)
+  } else if (fromMode && cand?.effort) {
+    // the mode's cell is the final effort; only 70-84% protection lowers it one step
+    effort = cand.effort
+    let why = modeName
+    if (levelOf(harness) === 'warm' && isPlan(harness)) {
+      const lower = stepDown(effort)
+      if (lower !== effort) {
+        why = `lowered from ${effort}: ${protectionCause(planStatus(harness, env.quota?.[harness]))}`
+        effort = lower
+      }
+    }
+    reasons.push(`effort ${effort}: ${why}`)
+  } else if (cand?.effort && !fromTable) {
     effort = cand.effort
     reasons.push(`effort ${effort}: from the rule`)
   } else {

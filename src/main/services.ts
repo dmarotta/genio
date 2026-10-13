@@ -258,9 +258,24 @@ export interface UthanaService {
 export interface DispatchService {
   /** what the picker knows beyond settings for a deploy in this world; preview never rolls exploration */
   signals(project: string, opts?: { preview?: boolean }): Omit<PickEnv, 'available'>
-  reserve(input: import('@shared/types').LoadoutInput): Promise<{ loadout: import('@shared/types').Loadout; check(): Promise<void>; release(): void }>
+  /** Serialized selection + global/world cap + provider slot. `respawn`: the unit already holds its place. */
+  reserve(input: import('@shared/types').LoadoutInput, opts?: { respawn?: boolean }): Promise<{
+    loadout: import('@shared/types').Loadout
+    check(): Promise<void>
+    /** the task is now in the crew list: stop counting it as launching */
+    listed(): void
+    release(): void
+  }>
   /** a tool's hottest 5-hour/weekly plan window (percent), when it reported one */
   usagePercent(harness: string): number | undefined
+  /** the global mode's concurrent-unit cap and the units holding or claiming a place across every base */
+  capacity(): { cap: number; used: number }
+  /** a queued quest waiting for a plan reset (not offered for automatic dispatch) */
+  quotaWait(item: import('@shared/types').BacklogItem): import('@shared/usage-mode').QuotaWait | undefined
+  /** Recon summary word target for a world and unit plan */
+  reportWords(project: string, harness: string): number
+  /** Systems → Usage, the plan meter and the quest list; cached local evidence only */
+  view(): import('@shared/usage-mode').UsagePolicyView
   noteUsage(r: UsageReport): void
   noteLogins(list: AccountStatus[]): void
   /** a task reached an end state: upsert its outcome on the scorecard, then learn */

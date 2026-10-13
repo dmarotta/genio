@@ -50,7 +50,8 @@ describe('loadout picker', () => {
       { id: 'jump', match: 'jump', candidates: [{ harness: 'aider', spendPriority: 0 }] }
     ]
     const l = pickLoadout({ ...base, intent: 'Fix the double jump in the build' }, settings(rules), installed('claude', 'codex'))
-    expect(l.harness).toBe('claude')
+    // no usable rule: Balanced sends a bugfix to Codex / medium
+    expect(l).toMatchObject({ harness: 'codex', effort: 'medium', source: 'mode' })
     expect(l.reasons.join(' ')).toMatch(/none of its tools/)
   })
 
@@ -71,6 +72,8 @@ describe('effort guess', () => {
   })
   it('defers to the configured default effort', () => {
     expect(pickLoadout(base, settings([], { defaultWorkerEffort: 'medium' }), installed('claude')).effort).toBe('medium')
-    expect(pickLoadout(base, settings(), installed('claude')).effort).toBe('low')
+    // the built-in guess applies on the default-tool path (no table row); a table row follows the mode
+    expect(pickLoadout(base, settings([], { categoryPools: [] }), installed('claude')).effort).toBe('low')
+    expect(pickLoadout(base, settings(), installed('claude')).effort).toBe('medium')
   })
 })

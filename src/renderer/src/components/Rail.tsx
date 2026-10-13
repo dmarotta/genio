@@ -4,6 +4,7 @@ import { go, openDecisions, readyTasks, useStore, type ViewId } from '../store'
 import { cx } from '../lib/format'
 import { RAIL, entryActive, initialIndex, menuKey, navItems, opensMenu, type RailEntry } from '../lib/railmenu'
 import '../styles/railmenu.css'
+import { RailMeter } from './PlanMeter'
 
 const ICON: Record<string, LucideIcon> = {
   play: Gamepad2,
@@ -51,6 +52,7 @@ export function Rail() {
           </button>
         )
       })}
+      <RailMeter />
       <div className="rail-foot label">v0.1</div>
     </nav>
   )

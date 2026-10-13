@@ -138,6 +138,23 @@ export function createBacklogService(getCtx: () => AppCtx, home: Home): BacklogS
     }
   }
 
+  function usageCapacity(): { cap: number; used: number } | undefined {
+    try {
+      return getCtx().dispatch.capacity()
+    } catch {
+      return undefined
+    }
+  }
+
+  /** queued until a plan resets: stays queued, just not offered for automatic dispatch */
+  function waitsForQuota(it: BacklogItem): boolean {
+    try {
+      return Boolean(getCtx().dispatch.quotaWait(it))
+    } catch {
+      return false
+    }
+  }
+
   function capacityOf(project: string): number {
     try {
       return getCtx().projects.get(project)?.capacity ?? 0
@@ -321,10 +338,14 @@ export function createBacklogService(getCtx: () => AppCtx, home: Home): BacklogS
         .filter((i) => i.kind === 'ship' || i.kind === 'scout')
         .filter((i) => i.state === 'queued' || (i.state === 'held' && i.hold?.until && Date.parse(i.hold.until) <= now))
         .sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || a.createdAt.localeCompare(b.createdAt))
+      const global = usageCapacity()
       for (const it of candidates) {
         if (it.hold && !(it.hold.until && Date.parse(it.hold.until) <= now)) continue
         if (it.notBefore && Date.parse(it.notBefore) > now) continue
         if (unresolvedDeps(it).length) continue
+        // the Usage mode's cap counts units in every world and base
+        if (global && global.used + picked.length >= global.cap) break
+        if (waitsForQuota(it)) continue
         if (it.project) {
           const cap = capacityOf(it.project)
           if (cap > 0) {

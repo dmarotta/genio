@@ -101,8 +101,10 @@ A Build `done:` naming `PR <https url>` registers the PR.
   `inboxGraceSeconds` re-rings up to `inboxRingMax`, then escalates.
 - **check** — PR polls every `prPollMinutes` (merged / checks red / green), Mail,
   triggers, ally reports, Gauntlet results.
-- **tick** (heartbeat) — base `heartbeatBaseMinutes` (10), doubling per quiet
-  streak to `heartbeatMaxMinutes` (120); surfaces only with something to act on.
+- **tick** (heartbeat) — base and max set by the Usage mode (Save 30/120,
+  Balanced 15/120, Max 10/120 min), doubling per quiet streak; surfaces only with
+  something to act on. Routine-only event batches wait the mode's batching window
+  (10 / 5 / 1 min) before Genio gets a turn; anything urgent is delivered at once.
 
 Actionable events go to the durable queue (`state/wakes.jsonl`). Genio gets one
 turn per drain (queued events, UNREAD STATUS, OPEN CHOICES); the queue is acked

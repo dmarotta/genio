@@ -8,6 +8,7 @@ import type { ChatImage } from './chat-images'
 
 import type { FalRun } from './api'
 import type { UthanaRun } from './uthana'
+import type { UsageMode } from './usage-mode'
 
 export type TaskKind = 'ship' | 'scout'
 
@@ -53,8 +54,10 @@ export interface Project {
   engineSource?: 'auto' | 'manual'
   commands: ProjectCommands
   description?: string
-  /** this world's Quality / Balanced / Cost setting; unset = the global dial */
+  /** legacy per-world dial; read as the equivalent Usage mode when usageMode is unset */
   costDial?: CostDial
+  /** this world's Usage mode override (Systems → Usage → Advanced); unset = the global mode. Cannot raise the global unit cap. */
+  usageMode?: UsageMode
   /** on unless false: units may send this world's code to cheap third-party models (OpenRouter via OpenCode); false opts the world out */
   allowCheapModels?: boolean
   /** true when Genio cloned/created it under its home `projects/`. */
@@ -488,7 +491,7 @@ export interface Loadout {
   model?: string
   effort?: string
   /** who decided the unit tool */
-  source: 'player' | 'rule' | 'table' | 'default' | 'sticky'
+  source: 'player' | 'rule' | 'table' | 'mode' | 'default' | 'sticky'
   ruleId?: string
   category: TaskCategory
   /** a less-proven candidate picked on purpose */
@@ -578,9 +581,14 @@ export interface Settings {
   dispatchRules: DispatchRule[]
   /** category table: ordered candidates per category, after explicit rules */
   categoryPools: CategoryPool[]
+  /** Legacy: read once as the initial usageMode; the mode now sets the dial. */
   costDial: CostDial
-  /** share of picks (0-1) that try a less-proven candidate; 0 disables */
+  /** Legacy: exploration is set by usageMode (Save 0, Balanced 0, Max 5%). */
   explorationRate: number
+  /** Save / Balanced / Max: model, effort, unit cap, exploration, cheap models, wake batching and answer targets */
+  usageMode: UsageMode
+  /** explicit allowance for paid OpenRouter spend on cheap candidates; a mode never grants it */
+  cheapSpendAllowed: boolean
   /** reorder candidates automatically when the scorecard evidence is clear */
   autoReorder: boolean
   eventSources: EventSource[]

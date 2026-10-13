@@ -5,12 +5,14 @@ import { PRIORITIES } from '@shared/api'
 import { api, errText, focusTask, op, toast, useStore } from '../store'
 import { Confirm, Empty, Field, Modal, ViewHeader } from '../components/ui'
 import { PRIORITY_GLYPH, KIND_LABEL } from '../lib/vocab'
-import { cx, dateInput, dateShort, trunc } from '../lib/format'
+import { clock, cx, dateInput, dateShort, trunc } from '../lib/format'
+import { useUsagePolicy } from '../components/PlanMeter'
+import type { QuotaWait } from '@shared/usage-mode'
 
 type Col = 'queued' | 'in-flight' | 'held' | 'done'
 
 const COLS: { id: Col; label: string; hint: string }[] = [
-  { id: 'queued', label: 'Queued', hint: 'Ready when deps, gates and capacity clear' },
+  { id: 'queued', label: 'Queued', hint: 'Ready when deps, gates, capacity and plan headroom clear' },
   { id: 'in-flight', label: 'In flight', hint: 'A unit is on it' },
   { id: 'held', label: 'Held', hint: 'Waiting on your move or a date' },
   { id: 'done', label: 'Done', hint: 'Recent loot' }
@@ -33,6 +35,8 @@ export function Quests() {
   const [kind, setKind] = useState<BacklogKind>('ship')
   const [priority, setPriority] = useState<Priority>('normal')
   const [edit, setEdit] = useState<BacklogItem | null>(null)
+  const policy = useUsagePolicy()
+  const waits = useMemo(() => new Map((policy?.waiting ?? []).map((w) => [w.id, w.wait])), [policy])
 
   const byCol = useMemo(() => {
     const m: Record<Col, BacklogItem[]> = { queued: [], 'in-flight': [], held: [], done: [] }
@@ -115,7 +119,7 @@ export function Quests() {
               <div className="kan-hint mute">{c.hint}</div>
               <div className="kan-list">
                 {byCol[c.id].map((b) => (
-                  <QuestCard key={b.id} b={b} all={items} onEdit={() => setEdit(b)} />
+                  <QuestCard key={b.id} b={b} all={items} wait={waits.get(b.id)} onEdit={() => setEdit(b)} />
                 ))}
               </div>
             </section>
@@ -127,7 +131,7 @@ export function Quests() {
   )
 }
 
-function QuestCard({ b, all, onEdit }: { b: BacklogItem; all: BacklogItem[]; onEdit: () => void }) {
+function QuestCard({ b, all, wait, onEdit }: { b: BacklogItem; all: BacklogItem[]; wait?: QuotaWait; onEdit: () => void }) {
   const pg = PRIORITY_GLYPH[b.priority]
   const deps = b.dependsOn.map((d) => all.find((x) => x.id === d)).filter(Boolean) as BacklogItem[]
   const openDeps = deps.filter((d) => d.state !== 'done')
@@ -157,6 +161,12 @@ function QuestCard({ b, all, onEdit }: { b: BacklogItem; all: BacklogItem[]; onE
           </span>
         )}
       </div>
+      {wait && (
+        <div className="quest-hold quota-wait" title={wait.reason}>
+          <Clock size={11} /> Queued until reset{wait.until ? ` · ${clock(wait.until)}` : ': waiting for fresh plan evidence'}
+          <div className="mute">{trunc(wait.reason, 120)}</div>
+        </div>
+      )}
       {b.hold && (
         <div className="quest-hold">
           <Hand size={11} /> {trunc(b.hold.reason, 120)}

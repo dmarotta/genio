@@ -397,9 +397,21 @@ class FileCache<T> {
 const claudeCache = new FileCache<ClaudeUsageLine[]>()
 const codexCache = new FileCache<CodexSession>()
 
-function measured(source: string, scope: string, records: TokenRecord[], now: number): MeasuredUsage {
+/** The world a unit session belongs to: the first folder under Genio's worktrees/ (units run in worktrees/<world>/<task>). */
+export function worldOf(cwd: string | undefined, root: string): string | undefined {
+  if (!cwd) return undefined
+  const rel = path.relative(path.join(root, 'worktrees'), cwd)
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return undefined
+  return rel.split(/[\\/]/)[0] || undefined
+}
+
+function measured(source: string, scope: string, records: TokenRecord[], now: number, worlds?: Map<TokenRecord, string>): MeasuredUsage {
   const { todayStart, weekStart } = usageWindows(now)
-  return { source, scope, updatedAt: new Date(now).toISOString(), today: tally(records, todayStart), week: tally(records, weekStart) }
+  const byWorld: NonNullable<MeasuredUsage['byWorld']> = {}
+  const groups = new Map<string, TokenRecord[]>()
+  for (const [r, w] of worlds ?? []) groups.set(w, [...(groups.get(w) ?? []), r])
+  for (const [w, list] of groups) byWorld[w] = { today: tally(list, todayStart), week: tally(list, weekStart) }
+  return { source, scope, updatedAt: new Date(now).toISOString(), today: tally(records, todayStart), week: tally(records, weekStart), byWorld }
 }
 
 export function belongsToGenio(line: ClaudeUsageLine, sessions: Set<string>, root: string): boolean {
@@ -420,11 +432,14 @@ async function claudeUsage(ctx: AppCtx, root: string, now: number): Promise<Tool
   }
   const files = recentJsonl(projects, weekStart)
   const seen = new Map<string, TokenRecord>()
+  const worldByKey = new Map<string, string>()
   for (const f of files) {
     const lines = await claudeCache.get(f, (p) => pickLines(p, parseClaudeUsageLine))
     for (const l of lines ?? []) {
       if (!belongsToGenio(l, sessions, root)) continue
       const key = `${l.record.session}:${l.key}`
+      const world = worldOf(l.cwd, root)
+      if (world) worldByKey.set(key, world)
       const prev = seen.get(key)
       // Streaming content blocks may repeat the request with larger output counters.
       seen.set(key, prev ? { ...prev, input: Math.max(prev.input, l.record.input),
@@ -432,12 +447,14 @@ async function claudeUsage(ctx: AppCtx, root: string, now: number): Promise<Tool
     }
   }
   const records = [...seen.values()]
+  const worlds = new Map<TokenRecord, string>()
+  for (const [key, r] of seen) if (worldByKey.has(key)) worlds.set(r, worldByKey.get(key)!)
   claudeCache.prune(new Set(files))
   const limits = claudeLimits(readJson<ClaudeLimitsFile | undefined>(claudeLimitsFile(ctx.main.home.data), undefined), now)
   return {
     tool: 'claude',
     limits: limits ? [limits] : [],
-    measured: measured('measured by Genio', "Genio's units and chats (Claude Code transcripts)", records, now),
+    measured: measured('measured by Genio', "Genio's units and chats (Claude Code transcripts)", records, now, worlds),
     note: limits ? undefined : "No plan limits seen yet: Claude Code reports them only to Genio's chat, when they change."
   }
 }
@@ -446,20 +463,25 @@ async function codexUsage(root: string, now: number): Promise<ToolUsage> {
   const { weekStart } = usageWindows(now)
   const files = recentJsonl(path.join(codexHome(), 'sessions'), weekStart)
   const records: TokenRecord[] = []
+  const worlds = new Map<TokenRecord, string>()
   const snapshots: CodexSnapshot[] = []
   for (const f of files) {
     const s = await codexCache.get(f, async (p) => parseCodexSession(await pickLines(p, (l) => (isCodexUsageLine(l) ? l : undefined)), path.basename(p, '.jsonl')))
     if (!s) continue
     // plan limits are account-wide: every session's snapshot counts
     snapshots.push(...s.snapshots)
-    if (s.cwd && isSubPath(s.cwd, root)) records.push(...s.records)
+    if (s.cwd && isSubPath(s.cwd, root)) {
+      records.push(...s.records)
+      const world = worldOf(s.cwd, root)
+      if (world) for (const r of s.records) worlds.set(r, world)
+    }
   }
   codexCache.prune(new Set(files))
   const limits = codexLimits(snapshots, now)
   return {
     tool: 'codex',
     limits,
-    measured: measured('measured by Genio', "Genio's units (Codex session logs)", records, now),
+    measured: measured('measured by Genio', "Genio's units (Codex session logs)", records, now, worlds),
     note: limits.length ? undefined : 'No rate-limit snapshot in the last 7 days of Codex session logs.'
   }
 }

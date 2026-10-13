@@ -160,6 +160,8 @@ export interface MeasuredUsage {
   scope: string
   today: TokenTally
   week: TokenTally
+  /** unit sessions attributed to a world by their worktree (chat sessions span worlds and are not split); measured tokens, not plan share */
+  byWorld?: Record<string, { today: TokenTally; week: TokenTally }>
 }
 
 export interface ToolUsage {
@@ -431,6 +433,8 @@ export interface GenioApi {
   accountSession(tool: string, action: 'login' | 'logout'): Promise<TerminalInfo>
   /** plan limits reported by the CLIs plus usage Genio measured from local session logs */
   accountUsage(): Promise<UsageReport>
+  /** Usage mode, what it resolves to, protection levels, the shared plan meter and quests waiting for a reset (cached local evidence) */
+  usagePolicy(): Promise<import('./usage-mode').UsagePolicyView>
   apiKeys(): Promise<ApiKeyStatus[]>
   apiKeySet(id: string, key: string): Promise<OpResult>
   apiKeyClear(id: string): Promise<OpResult>
@@ -548,6 +552,7 @@ export const API_METHODS = [
   'accounts',
   'accountSession',
   'accountUsage',
+  'usagePolicy',
   'apiKeys',
   'apiKeySet',
   'apiKeyClear',

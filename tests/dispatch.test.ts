@@ -20,6 +20,8 @@ const base: LoadoutInput = { kind: 'ship', project: 'neon-runner', title: 'Add a
 const settings = (patch: Partial<Settings> = {}): Settings => ({ ...defaultSettings(), ...patch })
 const env = (ids: string[], extra: Partial<PickEnv> = {}): PickEnv => ({ available: (h) => ids.includes(h.id), ...extra })
 const ALL = ['claude', 'codex', 'gemini', 'opencode']
+/** Locked rows are Pinned: used as written under the mode's dial (the old category-table behaviour). */
+const lockedPools = (): CategoryPool[] => defaultCategoryPools().map((p) => ({ ...p, locked: true }))
 const coolQuota = () => Object.fromEntries(['claude', 'codex'].map(id => [id, [{ label: '5-hour', usedPercent: 20, observedAt: new Date().toISOString() }]]))
 
 function rec(p: Partial<OutcomeRecord> = {}): OutcomeRecord {
@@ -64,12 +66,19 @@ describe('precedence: explicit > rules > category table > default', () => {
     expect(l).toMatchObject({ harness: 'gemini', source: 'rule', ruleId: 'r1' })
   })
 
-  it('the category table applies when no rule matches', () => {
-    expect(pickLoadout({ ...base, category: 'feature' }, settings(), env(ALL))).toMatchObject({ harness: 'claude', source: 'table' })
-    expect(pickLoadout({ ...base, category: 'tests' }, settings(), env(ALL))).toMatchObject({ harness: 'codex', source: 'table' })
+  it('unlocked table rows follow the Usage mode when no rule matches', () => {
+    expect(pickLoadout({ ...base, category: 'feature' }, settings(), env(ALL))).toMatchObject({ harness: 'codex', effort: 'medium', source: 'mode' })
+    expect(pickLoadout({ ...base, category: 'tests' }, settings(), env(ALL))).toMatchObject({ harness: 'codex', source: 'mode' })
+    expect(pickLoadout({ ...base, category: 'large-context' }, settings(), env(ALL))).toMatchObject({ harness: 'codex', effort: 'high' })
+  })
+
+  it('a locked (pinned) table row applies as written when no rule matches', () => {
+    const s = settings({ categoryPools: lockedPools() })
+    expect(pickLoadout({ ...base, category: 'feature' }, s, env(ALL))).toMatchObject({ harness: 'claude', source: 'table' })
+    expect(pickLoadout({ ...base, category: 'tests' }, s, env(ALL))).toMatchObject({ harness: 'codex', source: 'table' })
     // Gemini leads large-context reads when installed, otherwise Claude
-    expect(pickLoadout({ ...base, category: 'large-context' }, settings(), env(ALL)).harness).toBe('gemini')
-    expect(pickLoadout({ ...base, category: 'large-context' }, settings(), env(['claude', 'codex'])).harness).toBe('claude')
+    expect(pickLoadout({ ...base, category: 'large-context' }, s, env(ALL)).harness).toBe('gemini')
+    expect(pickLoadout({ ...base, category: 'large-context' }, s, env(['claude', 'codex'])).harness).toBe('claude')
   })
 
   it('queues when neither the table nor the default tool is usable', () => {
@@ -83,42 +92,44 @@ describe('precedence: explicit > rules > category table > default', () => {
   })
 })
 
-describe('cost dial', () => {
+describe('mode dial on locked (pinned) rows', () => {
   const cheapOk = { allowed: true, why: 'allowed' }
 
   it('Quality raises effort, picks the stronger model and keeps cheap models last', () => {
-    const l = pickLoadout({ ...base, category: 'feature' }, settings({ costDial: 'quality' }), env(ALL, { cheap: cheapOk }))
+    const l = pickLoadout({ ...base, category: 'feature' }, settings({ usageMode: 'max', categoryPools: lockedPools() }), env(ALL, { cheap: cheapOk }))
     expect(l.harness).toBe('claude')
     expect(l.model).toBe('claude-opus-5-5')
     expect(l.effort).toBe('medium') // small explicit Build: low + 1
     expect(l.reasons.join('\n')).toMatch(/raised from low by the Quality dial/)
-    expect(pickLoadout({ ...base, category: 'tests' }, settings({ costDial: 'quality' }), env(ALL, { cheap: cheapOk })).harness).toBe('codex')
+    expect(pickLoadout({ ...base, category: 'tests' }, settings({ usageMode: 'max', categoryPools: lockedPools() }), env(ALL, { cheap: cheapOk })).harness).toBe('codex')
   })
 
   it('Cost puts cheap candidates first where allowed and lowers effort', () => {
-    const l = pickLoadout({ ...base, category: 'tests' }, settings({ costDial: 'cost' }), env(ALL, { cheap: cheapOk }))
+    const l = pickLoadout({ ...base, category: 'tests' }, settings({ usageMode: 'save', categoryPools: lockedPools() }), env(ALL, { cheap: cheapOk }))
     expect(l).toMatchObject({ harness: 'opencode', model: CHEAP_MODELS[0].model })
-    const claude = pickLoadout({ ...base, category: 'feature' }, settings({ costDial: 'cost', defaultWorkerEffort: 'high' }), env(ALL))
+    const claude = pickLoadout({ ...base, category: 'feature' }, settings({ usageMode: 'save', categoryPools: lockedPools(), defaultWorkerEffort: 'high' }), env(ALL))
     expect(claude.model).toBe('claude-sonnet-5-5')
     expect(claude.effort).toBe('medium')
   })
 
   it('a world override wins over the global dial', () => {
-    const l = pickLoadout({ ...base, category: 'feature' }, settings({ costDial: 'cost', defaultWorkerEffort: 'high' }), env(ALL, { dial: 'balanced' }))
+    const l = pickLoadout({ ...base, category: 'feature' }, settings({ usageMode: 'save', categoryPools: lockedPools(), defaultWorkerEffort: 'high' }), env(ALL, { dial: 'balanced' }))
     expect(l.model).toBeUndefined()
     expect(l.effort).toBe('high')
   })
 
   it('never shifts an explicit effort', () => {
-    expect(pickLoadout({ ...base, category: 'feature', effort: 'low' }, settings({ costDial: 'quality' }), env(ALL)).effort).toBe('low')
+    expect(pickLoadout({ ...base, category: 'feature', effort: 'low' }, settings({ usageMode: 'max', categoryPools: lockedPools() }), env(ALL)).effort).toBe('low')
+    expect(pickLoadout({ ...base, category: 'feature', effort: 'low' }, settings({ usageMode: 'max' }), env(ALL)).effort).toBe('low')
   })
 })
 
 describe('hard quota eligibility', () => {
   it('moves a tool above ~85% of a plan window behind cooler candidates, and says so', () => {
-    const l = pickLoadout({ ...base, category: 'feature' }, settings(), env(ALL, { quota: { claude: [{ label: '5-hour', usedPercent: 91 }] } }))
+    // Max puts Opus first for features: at 91% Claude is excluded and the same-effort Codex fallback runs
+    const l = pickLoadout({ ...base, category: 'feature' }, settings({ usageMode: 'max' }), env(ALL, { quota: { claude: [{ label: '5-hour', usedPercent: 91 }] } }))
     expect(l.harness).toBe('codex')
-    expect(l.reasons.join('\n')).toMatch(/Claude Code excluded: 5-hour window at 91%/)
+    expect(l.reasons.join('\n')).toMatch(/Claude Code \/ claude-opus-5-5 excluded: 5-hour window at 91%/)
   })
 
   it('queues when the only available plan is hot', () => {
@@ -156,13 +167,14 @@ describe('stickiness', () => {
 })
 
 describe('exploration gating', () => {
-  const s = settings({ explorationRate: 0.2 })
+  // only Max explores (5%), and only with fresh evidence below 70% on both plans
+  const s = settings({ usageMode: 'max' })
   const stats = scoreTable(many(9, { category: 'tests', harness: 'codex' }))
 
   it('about rate-share of picks try a less-proven candidate', () => {
-    const l = pickLoadout({ ...base, category: 'tests' }, s, env(ALL, { rand: () => 0.1, stats, quota: coolQuota() }))
-    expect(l).toMatchObject({ harness: 'claude', explored: true })
-    expect(l.reasons.join('\n')).toMatch(/exploration \(20%\): trying Claude Code, less proven for Tests \(0 vs 9 outcomes\)/)
+    const l = pickLoadout({ ...base, category: 'tests' }, s, env(ALL, { rand: () => 0.01, stats, quota: coolQuota() }))
+    expect(l).toMatchObject({ harness: 'claude', model: 'claude-sonnet-5-5', effort: 'high', explored: true })
+    expect(l.reasons.join('\n')).toMatch(/exploration \(5%\): trying Claude Code \/ claude-sonnet-5-5, less proven for Tests \(0 vs 9 outcomes\)/)
     expect(pickLoadout({ ...base, category: 'tests' }, s, env(ALL, { rand: () => 0.5, stats, quota: coolQuota() })).harness).toBe('codex')
   })
 
@@ -171,14 +183,15 @@ describe('exploration gating', () => {
     expect(pickLoadout({ ...base, category: 'tests', model: 'gpt-x' }, s, roll).explored).toBeUndefined()
     expect(pickLoadout({ ...base, category: 'tests', harness: 'codex' }, s, roll).explored).toBeUndefined()
     expect(pickLoadout({ ...base, category: 'tests', priority: 'critical' }, s, roll).explored).toBeUndefined()
-    expect(pickLoadout({ ...base, category: 'tests' }, settings({ explorationRate: 0 }), roll).explored).toBeUndefined()
+    expect(pickLoadout({ ...base, category: 'tests' }, settings({ usageMode: 'balanced' }), roll).explored).toBeUndefined()
+    expect(pickLoadout({ ...base, category: 'tests' }, settings({ usageMode: 'save' }), roll).explored).toBeUndefined()
     expect(pickLoadout({ ...base, category: 'tests' }, s, env(['codex'], { rand: () => 0 })).explored).toBeUndefined()
   })
 
   it('the preview only says exploration may happen', () => {
     const l = pickLoadout({ ...base, category: 'tests' }, s, env(ALL, { rand: () => 0, preview: true, quota: coolQuota() }))
     expect(l.harness).toBe('codex')
-    expect(l.reasons.join('\n')).toMatch(/20% of deploys try a less-proven candidate/)
+    expect(l.reasons.join('\n')).toMatch(/5% of deploys try a less-proven candidate/)
   })
 })
 
@@ -198,7 +211,7 @@ describe('OpenRouter gating', () => {
   })
 
   it('cheap candidates are skipped unless the gate is open', () => {
-    const s = settings({ costDial: 'cost' })
+    const s = settings({ usageMode: 'save' })
     const closed = pickLoadout({ ...base, category: 'docs' }, s, env(ALL, { cheap: cheapGate({ worldAllows: false, keySet: true, opencodeReady: true }) }))
     expect(closed.harness).toBe('codex')
     expect(closed.reasons.join('\n')).toMatch(/off for this world/)

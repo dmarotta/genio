@@ -67,8 +67,10 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
     getSettings: () => ctx().settings.get(),
     saveSettings: (patch) => {
       const previousModel = ctx().settings.get().wkspModel
+      const previousMode = ctx().settings.get().usageMode
       const s = ctx().settings.save(patch)
       if ('wkspModel' in patch && previousModel !== s.wkspModel) bus.publish({ type: 'feature-used', feature: 'model-switch' })
+      if ('usageMode' in patch && previousMode !== s.usageMode) bus.publish({ type: 'feature-used', feature: 'usage-mode' })
       if ('claudePath' in patch) invalidateModelCatalogue()
       if ('inboxServer' in patch || 'inboxPort' in patch || 'inboxToken' in patch) ctx().inbox.configure()
       return s
@@ -100,6 +102,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
       ctx().dispatch.noteUsage(r)
       return r
     },
+    usagePolicy: async () => ctx().dispatch.view(),
     apiKeys: () => secretStatus(ctx().main.home.data),
     apiKeySet: (id, key) => {
       setSecret(id, key, ctx().main.home.data)

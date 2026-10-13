@@ -29,6 +29,8 @@ export interface BriefInput {
   carriedReport?: string
   /** Bundled unit skills (paths only, never keys) */
   tools?: string
+  /** Recon: the report summary's word target from the Usage mode */
+  summaryWords?: number
 }
 
 export const MODE_LABEL: Record<DeliveryMode, string> = {
@@ -79,6 +81,7 @@ function dod(i: BriefInput): string {
     lines.push(`Report: ${r}`)
     lines.push('')
     lines.push(`1. Write the report at \`${r}\`: what you did, findings, evidence with \`file:line\` references, and recommendations.`)
+    if (i.summaryWords) lines.push(`   Open it with a summary of at most ${i.summaryWords} words; put supporting detail in evidence appendices it links to. Detail the mission explicitly asks for overrides this target.`)
     lines.push('2. If the findings raise choices only the player can make, append a `needs-decision [key=<slug>]: <question>` line for each BEFORE you finish, and stop until they are resolved.')
     lines.push('3. Never push, open a PR, or commit to shared branches. This worktree is scratch.')
     lines.push('4. Finish with `done: <one-line conclusion>` and stop.')

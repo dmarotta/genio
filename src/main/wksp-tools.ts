@@ -202,7 +202,7 @@ export function createToolRegistry(
 
   t(
     'deploy',
-    'Deploy a unit on a Build (kind=ship: produces a change) or Recon (kind=scout: produces a report) mission in an isolated copy of a world. intent = the player\'s own words (no speaker labels); spec = only the build instructions the ask requires. category = what kind of work it is (drives the category table). mode/auto_loot default to the world posture (resolve with world_posture first). Files a quest automatically unless quest_id is given. Omit harness/model/effort to let the loadout picker choose (rules, category table, cost dial, quota, learning); preview it with loadout_preview.',
+    'Deploy a unit on a Build (kind=ship: produces a change) or Recon (kind=scout: produces a report) mission in an isolated copy of a world. intent = the player\'s own words (no speaker labels); spec = only the build instructions the ask requires. category = what kind of work it is (drives the category table). mode/auto_loot default to the world posture (resolve with world_posture first). Files a quest automatically unless quest_id is given. Omit harness/model/effort to let the loadout picker choose (rules, the Usage mode, category table, quota protection, learning); preview it with loadout_preview.',
     {
       kind: z.enum(['ship', 'scout']),
       world: z.string(),
@@ -524,15 +524,14 @@ export function createToolRegistry(
   })
 
   // ------------------------------------------------------------ dispatch & tools
-  t('dispatch_profiles', 'Dispatch rules, the category table, the cost dial, learned scores and the unit tools available on this machine (with models), plus defaults. Consult at every deploy.', {}, async () => {
+  t('dispatch_profiles', 'The Usage mode and what it resolves to (protection levels, unit cap, quests waiting for a reset), dispatch rules, the category table (locked rows are pinned; unlocked rows follow the mode), learned scores and the unit tools available on this machine (with models), plus pinned defaults. Consult at every deploy.', {}, async () => {
     const s = getCtx().settings
     const cfg = s.get()
     return ok(
       json({
         rules: cfg.dispatchRules,
         categoryTable: cfg.categoryPools.map((p) => ({ category: p.category, candidates: p.candidates, locked: p.locked || undefined })),
-        costDial: cfg.costDial,
-        explorationRate: cfg.explorationRate,
+        usage: (({ meter: _m, notices: _n, ...v }) => v)(getCtx().dispatch.view()),
         scores: getCtx().dispatch.scores().rows.map((r) => ({ scope: r.scope, tool: r.harness, model: r.model, score: r.score, samples: r.samples })),
         default: { harness: cfg.defaultHarness, model: cfg.defaultWorkerModel || undefined, effort: cfg.defaultWorkerEffort || undefined },
         available: s.availableHarnesses().map((h) => ({ id: h.id, name: h.name, models: h.models, role: h.role, verified: h.verified }))

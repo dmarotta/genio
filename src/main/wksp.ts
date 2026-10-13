@@ -1,5 +1,7 @@
 import { claudeLimitState } from './claude-limit'
 import { SessionCostLedger, SessionQuotaPolicy, isQuotaError } from './session-usage'
+import { chatSettings, claudeStatus, globalMode, routineDelay, wakeBatchMs } from './usage-policy'
+import { chatUsageLine } from '@shared/usage-mode'
 import { registerModelQuery, supportedClaudeEfforts } from './model-discovery'
 /**
  * Genio agent sessions (companion's primary harness session, in-process).
@@ -604,6 +606,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
   let contextSessionStart = nowIso()
   let history: ChatMessage[] | undefined
   let eventsBackoffUntil = 0
+  let batchTimer: ReturnType<typeof setTimeout> | undefined
   let bootDone = false
   let stopped = false
 
@@ -679,10 +682,12 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
             sharedProfile: safeRead(() => mem.read('player-shared', home)),
             lore: safeRead(() => mem.read('lore', home))
           })
-    const { model, effort } = sessionConfig(role, s, liveAlly())
+    // Auto chat values follow the Usage mode and Claude protection; pinned values are kept
+    const { model, effort } = sessionConfig(role, chatSettings(s, ctx.main.home.data), liveAlly())
+    const usage = role === 'bot' ? '' : `\n\n${chatUsageLine(globalMode(s), claudeStatus(ctx.main.home.data))}`
     const opts: Options = {
       // settingSources is deliberately empty: inject the umbrella so skill discovery is not assumed.
-      systemPrompt: { type: 'preset', preset: 'claude_code', append: append + (role === 'bot' || !ctx.appRoot ? '' : '\n\nAssets skill directory (resolve the following skill references relative to it): ' + path.join(unitPluginSource(ctx.appRoot), 'skills/assets') + '\n' + readText(path.join(unitPluginSource(ctx.appRoot), 'skills/assets/SKILL.md'))) },
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: append + usage + (role === 'bot' || !ctx.appRoot ? '' : '\n\nAssets skill directory (resolve the following skill references relative to it): ' + path.join(unitPluginSource(ctx.appRoot), 'skills/assets') + '\n' + readText(path.join(unitPluginSource(ctx.appRoot), 'skills/assets/SKILL.md'))) },
       cwd: home.root,
       additionalDirectories: worlds,
       settingSources: [],
@@ -783,7 +788,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       onRateLimit: rateLimit
     },
     name,
-    () => sessionConfig('genio', settings(), liveAlly()),
+    () => sessionConfig('genio', chatSettings(settings(), getCtx().main.home.data), liveAlly()),
     quotaPolicy,
     costs
   )
@@ -836,7 +841,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
         }
       },
       name,
-      () => sessionConfig('bot', settings()),
+      () => sessionConfig('bot', chatSettings(settings(), getCtx().main.home.data)),
       quotaPolicy,
       costs
     )
@@ -1064,6 +1069,13 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
         const wk = ctx.home(name).wakes
         const pend = wk.pending()
         if (!pend.length) return
+        // routine-only batches wait for the Usage mode's batching window; anything urgent goes now
+        const hold = routineDelay(pend, wakeBatchMs(settings()))
+        if (hold > 0) {
+          clearTimeout(batchTimer)
+          batchTimer = setTimeout(() => svc.deliverWakes(), hold + 50)
+          return
+        }
         const mode = home.isMain ? ctx.away.state().mode : 'online'
         const allRoutine = pend.every((w) => w.routine)
         const target = bot && (mode === 'afk' || (mode === 'dnd' && allRoutine)) ? bot : genio

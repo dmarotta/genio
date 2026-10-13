@@ -22,6 +22,7 @@ import { bus } from './bus'
 import type { Home } from './home'
 import type { AppCtx, SupervisorService } from './services'
 import { runShell, truncate } from './util'
+import { heartbeatFor } from './usage-policy'
 
 interface Track {
   pendingSignal: StatusEvent[]
@@ -492,8 +493,8 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
   // ------------------------------------------------------------ (8) tick
 
   function stepTick(now: number, s: ReturnType<typeof settings>): void {
-    const baseMs = Math.max(1, s.heartbeatBaseMinutes || 10) * 60_000
-    const maxMs = Math.max(baseMs, (s.heartbeatMaxMinutes || 120) * 60_000)
+    // the Usage mode sets routine heartbeat timing (Save 30/120, Balanced 15/120, Max 10/120 min)
+    const { baseMs, maxMs } = heartbeatFor(s)
     if (!nextTickAt) nextTickAt = now + baseMs
     if (now < nextTickAt) return
 
