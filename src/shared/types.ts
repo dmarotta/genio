@@ -550,6 +550,10 @@ export interface Settings {
   briefInclude: string
   /** strip AI co-author trailers from unit commits */
   stripAiTrailers: boolean
+  /** add Genio's own Co-authored-by trailer to unit commits */
+  genioCoAuthor: boolean
+  /** trailer identity for genioCoAuthor, `Name <email>` */
+  genioCoAuthorIdentity: string
   harnesses: HarnessAdapter[]
   dispatchRules: DispatchRule[]
   /** category table: ordered candidates per category, after explicit rules */

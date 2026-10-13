@@ -20,6 +20,7 @@ import { resolveLoadout } from './loadout'
 import { modeLabel } from '@shared/vocab'
 import { defaultShell } from './terminals'
 import { getSecret } from './secrets'
+import { installUnitHooks } from './unithooks'
 import { installUnitPlugin, openRouterEnv, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief } from './unitskills'
 import {
   appendLine, ensureDir, exists, fwd, nowIso, readJson, readText, rid, slugify, stripAnsi, truncate, writeJson, writeText
@@ -31,8 +32,6 @@ const ACTIVE: TaskState[] = ['spawning', 'working', 'paused', 'blocked', 'needs-
 const FINISHED: TaskState[] = ['ready', 'merged', 'done', 'failed', 'cleaned']
 /** States that put an outcome on the dispatch scorecard (a later end replaces an earlier one). */
 const ENDED: TaskState[] = ['merged', 'done', 'failed', 'cleaned']
-
-const TRAILER_FILTER = /^(Co-Authored-By:.*(Claude|Anthropic|OpenAI|GPT|Codex|Gemini|Copilot|Cursor|Grok|Aider|noreply@anthropic\.com).*|.*Generated with \[?Claude Code.*|.*🤖 Generated with.*)$/i
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
@@ -104,35 +103,9 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     }
   }
 
-  /** Per-task git hooks dir that chains the world's own hooks and strips AI trailers. */
-  const writeHooks = async (t: Task, repo: string): Promise<Record<string, string>> => {
-    if (!getCtx().settings.get().stripAiTrailers) return {}
-    const dir = path.join(home.state, `${t.id}.git-hooks`)
-    ensureDir(dir)
-    const configured = (await git.git(repo, ['config', '--get', 'core.hooksPath'])).stdout.trim()
-    const original = configured
-      ? path.resolve(repo, configured)
-      : path.resolve(repo, (await git.git(repo, ['rev-parse', '--git-path', 'hooks'])).stdout.trim() || '.git/hooks')
-    const orig = fwd(original)
-    const names = ['pre-commit', 'prepare-commit-msg', 'post-commit', 'pre-push', 'post-checkout', 'post-merge', 'pre-rebase']
-    for (const n of names) {
-      writeText(path.join(dir, n), `#!/bin/sh\n[ -x "${orig}/${n}" ] && exec "${orig}/${n}" "$@"\nexit 0\n`)
-    }
-    const filter = TRAILER_FILTER.source.replace(/'/g, "'\\''")
-    writeText(
-      path.join(dir, 'commit-msg'),
-      `#!/bin/sh\nif [ -x "${orig}/commit-msg" ]; then "${orig}/commit-msg" "$@" || exit $?; fi\n` +
-        `tmp="$1.genio"\ngrep -Eiv '${filter}' "$1" > "$tmp" || true\nmv "$tmp" "$1"\nexit 0\n`
-    )
-    for (const n of [...names, 'commit-msg']) {
-      try {
-        fs.chmodSync(path.join(dir, n), 0o755)
-      } catch {
-        /* windows */
-      }
-    }
-    return { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: fwd(dir) }
-  }
+  /** Per-task git hooks dir that chains the world's own hooks, strips AI trailers and adds Genio's. */
+  const writeHooks = (t: Task, repo: string): Promise<Record<string, string>> =>
+    installUnitHooks(path.join(home.state, `${t.id}.git-hooks`), repo, getCtx().settings.get())
 
   /** Bundled unit skills live in the main base, outside every world. */
   const mainHome = home.parent ?? home

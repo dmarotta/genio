@@ -246,6 +246,12 @@ function SectionBody({ sec, s }: { sec: Section; s: Settings }) {
           <Row label="Strip AI commit trailers">
             <Toggle checked={s.stripAiTrailers} onChange={(v) => set({ stripAiTrailers: v })} />
           </Row>
+          <Row label="Co-authored by Genio" hint="Adds a Co-authored-by trailer for Genio to every unit commit.">
+            <Toggle checked={s.genioCoAuthor} onChange={(v) => set({ genioCoAuthor: v })} />
+          </Row>
+          <Row label="Genio trailer identity" hint="Name <email>. The .invalid domain never links to a real account.">
+            <CommitInput mono value={s.genioCoAuthorIdentity} onCommit={(v) => set({ genioCoAuthorIdentity: v.trim() })} />
+          </Row>
         </>
       )
     case 'overwatch':

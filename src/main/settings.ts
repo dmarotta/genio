@@ -52,6 +52,8 @@ export function defaultSettings(): Settings {
     memoryBudgetTokens: 7500,
     briefInclude: '',
     stripAiTrailers: true,
+    genioCoAuthor: true,
+    genioCoAuthorIdentity: 'Genio <noreply@genio.invalid>',
     harnesses: mergeHarnesses(undefined),
     dispatchRules: [],
     categoryPools: mergeCategoryPools(undefined),
