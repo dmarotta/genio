@@ -6,7 +6,7 @@ import { cx } from '../lib/format'
 import { assetBytes, breadcrumbs, previewKind, thumbnailUrl, virtualWindow } from '../lib/inventory'
 import { GlbViewer } from '../components/GlbViewer'
 import { contextAsset, toggleSelection } from '@shared/inventory-context'
-import { InventoryChat } from '../components/InventoryChat'
+import { listFact, useScreenContext } from '../lib/screen-context'
 import '../styles/inventory.css'
 
 const TYPES: [AssetKind, string][] = [['image', 'Image'], ['audio', 'Audio'], ['video', 'Video'], ['model', '3D'], ['animation', 'Animation'], ['material', 'Material']]
@@ -73,6 +73,10 @@ function WorldInventory({ world, root }: { world: string; root: string }) {
   const filterKey = JSON.stringify(filters)
   const browseQuery = useMemo(() => ({ ...filters, folder }), [filters, folder])
   const revision = state?.revision ?? 0
+  const [visible, setVisible] = useState<{ names: string[]; total: number }>()
+  const filtered = [query && `search "${query}"`, kinds.length && kinds.join('/'), scope !== 'ours' && scope, generated && 'generated only', tags.trim() && `tags ${tags.trim()}`].filter(Boolean).join(', ')
+  useScreenContext('inventory', { world, engine: state?.engine, engineRoot: state?.engineRoot, folder, preview: selected && contextAsset(selected), selection: selection.length > 1 ? selection.map(contextAsset) : undefined,
+    facts: [visible && { label: 'Visible', value: `${visible.total} matching: ${listFact(visible.names, visible.total)}` }, !!filtered && { label: 'Filters', value: filtered }] })
   const selectedPaths = JSON.stringify(selection.map(a => a.path))
   useEffect(() => {
     let alive = true
@@ -111,8 +115,8 @@ function WorldInventory({ world, root }: { world: string; root: string }) {
         <button className={cx('inventory-folder', !folder && 'on')} onClick={() => browseFolder('')}><FolderOpen size={15} /><span>All assets</span></button>
         {state ? <FolderChildren key={filterKey} world={world} parent="" filters={filters} revision={revision} selected={folder} select={browseFolder} depth={0} /> : <p className="dim">Indexing project…</p>}
       </aside>
-      {state ? <AssetBrowser key={filterKey + folder + list + tile} world={world} query={browseQuery} revision={revision} list={list} tile={tile} selected={selection.map(a => a.path)} select={select} /> : <div className="inventory-empty">Indexing supported media…</div>}
-      <InventoryChat context={{ world, engine: state?.engine, engineRoot: state?.engineRoot, folder, preview: selected && contextAsset(selected), selection: selection.length > 1 ? selection.map(contextAsset) : undefined }} inspector={<Inspector key={selected?.path ?? 'empty'} world={world} root={root} asset={selected} revision={revision} />} />
+      {state ? <AssetBrowser key={filterKey + folder + list + tile} world={world} query={browseQuery} revision={revision} list={list} tile={tile} selected={selection.map(a => a.path)} select={select} onVisible={setVisible} /> : <div className="inventory-empty">Indexing supported media…</div>}
+      <Inspector key={selected?.path ?? 'empty'} world={world} root={root} asset={selected} revision={revision} />
     </div>
     <footer className="inventory-status"><span>{(state?.total ?? 0).toLocaleString()} indexed media</span><span>{state?.refreshing ? 'Refreshing…' : state?.watching ? '● Watching for changes' : 'Refreshes on focus'}</span><span>{state?.engine}{state?.engineRoot ? ` · ${state.engineRoot}` : ''}</span><span className="dim">Vendor packs excluded from Ours</span></footer>
   </>
@@ -139,12 +143,16 @@ function FolderChildren({ world, parent, filters, revision, selected, select, de
   })}</>
 }
 
-function AssetBrowser({ world, query, revision, list, tile, selected, select }: { world: string; query: InventoryQuery; revision: number; list: boolean; tile: number; selected: string[]; select: (asset: InventoryAsset, multiple: boolean) => void }) {
+function AssetBrowser({ world, query, revision, list, tile, selected, select, onVisible }: { world: string; query: InventoryQuery; revision: number; list: boolean; tile: number; selected: string[]; select: (asset: InventoryAsset, multiple: boolean) => void; onVisible: (v: { names: string[]; total: number }) => void }) {
   const ref = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width: 600, height: 500, top: 0 })
   const [page, setPage] = useState<{ items: InventoryAsset[]; offset: number; total: number }>()
   const [error, setError] = useState('')
   const range = virtualWindow(page?.total ?? 0, size.width, size.height, size.top, tile, list)
+  // What the player can see in the grid, for the Genio panel's screen context.
+  const shown = page?.items.slice(Math.max(0, range.offset - page.offset)).map(a => a.name) ?? []
+  const shownKey = JSON.stringify([shown.slice(0, 6), page?.total])
+  useEffect(() => { if (page) onVisible({ names: shown.slice(0, 6), total: page.total }) }, [shownKey])
   useEffect(() => {
     const el = ref.current!
     const ro = new ResizeObserver(() => setSize(s => ({ ...s, width: el.clientWidth, height: el.clientHeight })))

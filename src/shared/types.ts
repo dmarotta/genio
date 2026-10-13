@@ -745,6 +745,8 @@ export type GenioEvent =
   | { type: 'navigate'; target: NotifyTarget }
   | { type: 'fal-catalogue' }
   | { type: 'uthana-run'; run: UthanaRun }
+  /** A chat generation (card or generate_image placeholder) started or settled; drives the panel's generating count. */
+  | { type: 'generation'; wksp: string; id: string; active: boolean }
 
 /** Notification destination; legacy `move` targets reveal pending answer cards. */
 export type NotifyTarget = { view: 'move'; project?: string; wksp?: string; decisionId?: string } | { view: 'squad'; taskId?: string } | { view: 'comms'; wksp?: string }

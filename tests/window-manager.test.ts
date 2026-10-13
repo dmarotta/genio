@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { bus } from '../src/main/bus'
 
-const f = vi.hoisted(() => ({ windows: [] as any[], ctx: undefined as any, app: undefined as any, choice: 1, stop: vi.fn(async () => {}), start: vi.fn(async () => {}), terminalData: undefined as any }))
+const f = vi.hoisted(() => ({ windows: [] as any[], ctx: undefined as any, app: undefined as any, screen: undefined as any, popouts: undefined as any, choice: 1, stop: vi.fn(async () => {}), start: vi.fn(async () => {}), terminalData: undefined as any }))
 vi.mock('../src/main/ctx', () => ({
   createApp: () => f.ctx, getCtx: () => f.ctx, startApp: async () => {}, stopApp: async () => {},
   ensureProjectBase: async (_ctx: unknown, project: string) => `ally-${project}`, startProjectBase: f.start, stopProjectBase: f.stop
@@ -11,7 +11,7 @@ vi.mock('../src/main/win-identity', () => ({ ensureWindowsToastIdentity: () => {
 vi.mock('../src/main/fal-service', () => ({ MEDIA_SCHEME: 'genio-media', mediaResponse: () => {} }))
 vi.mock('../src/main/chat-images', () => ({ chatImageDir: () => '', chatImagePath: () => undefined }))
 vi.mock('../src/main/home', () => ({ defaultHomeRoot: () => '/nonexistent-test-home' }))
-vi.mock('../src/main/util', () => ({ nowIso: () => '', writeJson: () => {} }))
+vi.mock('../src/main/util', () => ({ nowIso: () => '', writeJson: (p: string, data: unknown) => { if (p.endsWith('chat-popout.json')) f.popouts = data }, readJson: () => f.popouts ?? {} }))
 vi.mock('node:fs', () => ({ default: { mkdirSync: () => {}, unlinkSync: () => {} } }))
 vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events')
@@ -35,7 +35,11 @@ vi.mock('electron', async () => {
       if (!prevented) { this.destroyed = true; this.emit('closed') }
     }
   }
-  return { app: f.app, BrowserWindow: Window, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, shell: {}, dialog: { showMessageBoxSync: () => f.choice, showErrorBox: vi.fn() } }
+  f.screen = Object.assign(new EventEmitter(), {
+    displays: [{ workArea: { x: 0, y: 0, width: 1920, height: 1040 } }, { workArea: { x: 1920, y: 0, width: 1280, height: 984 } }],
+    getAllDisplays() { return this.displays }, getPrimaryDisplay() { return this.displays[0] }
+  })
+  return { app: f.app, BrowserWindow: Window, screen: f.screen, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, shell: {}, dialog: { showMessageBoxSync: () => f.choice, showErrorBox: vi.fn() } }
 })
 
 let openProject: (folder: string) => Promise<void>
@@ -77,21 +81,34 @@ describe('project window lifecycle', () => {
   it('allows only the bound same-page chat popup and closes it with its owner', async () => {
     const owner = f.windows[1]
     const handler = owner.openHandler
-    const url = owner.webContents.getURL() + '#genio-inventory-chat'
+    const url = owner.webContents.getURL() + '#genio-chat-panel'
     expect(handler({ url })).toMatchObject({ action: 'allow', overrideBrowserWindowOptions: {
-      alwaysOnTop: true, minWidth: 360, webPreferences: { nodeIntegration: false, contextIsolation: true }
+      alwaysOnTop: true, show: false, minWidth: 360, webPreferences: { nodeIntegration: false, contextIsolation: true }
     } })
-    expect(handler({ url: 'file:///other.html#genio-inventory-chat' })).toEqual({ action: 'deny' })
-    const child = { isDestroyed: () => false, isMinimized: () => false, show: vi.fn(), focus: vi.fn(), destroy: vi.fn(),
-      webContents: { setWindowOpenHandler: vi.fn(), on: vi.fn(), once: vi.fn() }, on: vi.fn() }
+    expect(handler({ url: 'file:///other.html#genio-chat-panel' })).toEqual({ action: 'deny' })
+    let bounds = { x: 2000, y: 100, width: 500, height: 600 }
+    const child = Object.assign(new (await import('node:events')).EventEmitter(), {
+      isDestroyed: () => false, isMinimized: () => false, isVisible: vi.fn(() => false), show: vi.fn(), showInactive: vi.fn(), focus: vi.fn(), destroy: vi.fn(),
+      getBounds: () => bounds, getNormalBounds: () => bounds, setBounds: vi.fn((b: typeof bounds) => { bounds = b }),
+      webContents: { setWindowOpenHandler: vi.fn(), on: vi.fn(), once: vi.fn() } })
     owner.webContents.emit('did-create-window', child)
     const navigate = child.webContents.on.mock.calls[0][1]
     const prevented = vi.fn()
     navigate({ preventDefault: prevented }, url)
     expect(prevented).not.toHaveBeenCalled()
     child.webContents.once.mock.calls[0][1]()
+    // Shown without taking focus from the game or editor.
+    expect(child.showInactive).toHaveBeenCalledOnce()
+    expect(child.focus).not.toHaveBeenCalled()
     navigate({ preventDefault: prevented }, url)
     expect(prevented).toHaveBeenCalledOnce()
+    // Unplugging the right monitor pulls the window back onto the remaining display.
+    f.screen.displays = f.screen.displays.slice(0, 1)
+    f.screen.emit('display-removed')
+    expect(bounds).toEqual({ x: 1420, y: 100, width: 500, height: 600 })
+    // Closing remembers the window position per project, and reopening restores it on screen.
+    child.emit('close')
+    expect(f.popouts).toEqual({ one: bounds })
     expect(handler({ url })).toEqual({ action: 'deny' })
     expect(child.focus).toHaveBeenCalledOnce()
     // The following confirmed-close case must destroy this child, without stopping extra units.

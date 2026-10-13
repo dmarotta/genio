@@ -17,6 +17,7 @@ import { ago, clock, cx, elapsed, shortPath } from '../lib/format'
 import { playSfx } from '../lib/sfx'
 import { squadState, squadTone } from '@shared/squad-display'
 import { pendingDecision } from '@shared/decisions'
+import { listFact, useScreenContext } from '../lib/screen-context'
 
 export function Squad() {
   const focus = useStore((s) => s.focus)
@@ -35,6 +36,10 @@ function SquadGrid() {
     [tasks]
   )
   const sessions = Object.values(terminals).filter((t) => t.kind !== 'worker')
+  useScreenContext('squad', { facts: [
+    { label: 'Roster', value: `${list.length} active units` },
+    list.length > 0 && { label: 'Units', value: listFact(list.map((t) => `${t.title} (${squadState(t, t.terminalId ? terminals[t.terminalId] : undefined)})`), list.length, 5) }
+  ] })
   return (
     <div className="view">
       <ViewHeader
@@ -187,6 +192,7 @@ function SessionCard({ s }: { s: TerminalInfo }) {
 
 function SessionDetail({ id }: { id: string }) {
   const s = useStore((st) => st.terminals[id])
+  useScreenContext('squad', { facts: [{ label: 'Session', value: s ? `${s.title} (${s.kind}) · ${s.cwd}` : `${id} (closed)` }] })
   if (!s) {
     return (
       <div className="view">
@@ -243,6 +249,13 @@ function UnitDetail({ id }: { id: string }) {
   const [crew, setCrew] = useState('')
   const [verdict, setVerdict] = useState<Verdict | undefined>()
   const now = useNow(1000)
+  const latest = useStore((s) => s.statusByTask[id]?.at(-1))
+  useScreenContext('squad', { facts: t ? [
+    { label: 'Unit', value: `${t.title} [${t.id}]` },
+    { label: 'State', value: `${squadState(t, term)} (${t.state}) · ${KIND_LABEL[t.kind]} · ${t.branch}` },
+    { label: 'Tab', value: tab },
+    latest && { label: 'Last status', value: `${latest.kind}: ${latest.text}` }
+  ] : [{ label: 'Unit', value: `${id} (gone)` }] })
 
   const attention = useStore(s => s.snap.decisions.some(d => d.taskId === id && pendingDecision(d, now)))
 

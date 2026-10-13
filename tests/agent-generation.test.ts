@@ -2,10 +2,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi, type Mock } from 'vitest'
 import { z } from 'zod'
 import type { AppCtx } from '../src/main/services'
-import type { Project } from '../src/shared/types'
+import type { GenioEvent, Project } from '../src/shared/types'
 import type { FalRun } from '../src/shared/api'
 import type { UthanaRun } from '../src/shared/uthana'
 import type { Home } from '../src/main/home'
@@ -216,8 +216,15 @@ it('refuses an upload whose bytes changed after the quote', async () => {
   const q = await service.character('main', { world: 'test', path: 'Game/Assets/knight.fbx', player_words: 'rig this', auto_rig: true })
   if (!('id' in q)) throw new Error('Expected a quote')
   write('Game/Assets/knight.fbx', 'new character')
+  const events: GenioEvent[] = []
+  const off = bus.onEvent(e => { if (e.type === 'generation') events.push(e) })
   expect((await service.approve(q.id, 'main', 'yes')).status).toBe('failed')
+  off()
   expect(ctx.uthana.upload).not.toHaveBeenCalled()
+  // The failed card is shown in chat and settles the panel's generating count; Genio is not woken for it.
+  expect((ctx.main.wksp.post as Mock).mock.lastCall?.[0]).toMatchObject({ id: q.id, generation: { status: 'failed' } })
+  expect(events.at(-1)).toEqual({ type: 'generation', wksp: 'main', id: q.id, active: false })
+  expect(ctx.main.wakes!.enqueue).not.toHaveBeenCalled()
 })
 
 it('refuses custom vendor directories even when they have no indexed media', async () => {

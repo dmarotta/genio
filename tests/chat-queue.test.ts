@@ -266,7 +266,7 @@ it('snapshots Inventory context in queued history and returns it intact for edit
   await svc.send(edit.text, 'player', edit.images, edit.context)
   fake.queries[0].finishTurn()
   await waitReceived(() => fake.queries[0], 2)
-  expect(fake.queries[0].received[1]).toContain('[inventory: ')
+  expect(fake.queries[0].received[1]).toContain('[screen: ')
   expect(fake.queries[0].received[1]).toContain('Assets/Audio/door.wav')
   expect(fake.queries[0].received[1]).not.toContain('elsewhere')
   expect(ctx.stats.unlock).toHaveBeenCalledWith('inventory-chat')

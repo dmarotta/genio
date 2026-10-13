@@ -4,7 +4,7 @@
  */
 import path from 'node:path'
 import fs from 'node:fs'
-import { app, BrowserWindow, dialog, protocol, shell } from 'electron'
+import { app, BrowserWindow, dialog, protocol, screen, shell } from 'electron'
 import { EVENT_CHANNEL } from '@shared/api'
 import { bus } from './bus'
 import { createApp, ensureProjectBase, getCtx, startApp, startProjectBase, stopApp, stopProjectBase } from './ctx'
@@ -13,11 +13,11 @@ import { chatImageDir, chatImagePath } from './chat-images'
 import { defaultHomeRoot } from './home'
 import { registerIpc } from './ipc'
 import type { AppCtx } from './services'
-import { nowIso, writeJson } from './util'
+import { nowIso, readJson, writeJson } from './util'
 import { ensureWindowsToastIdentity, setWindowsAppId } from './win-identity'
 import { projectFromArgv, projectSnapshot, routeProjectEvent, terminalProject, type WindowBinding } from './project-windows'
 import type { GenioEvent } from '@shared/types'
-import { isChatPopoutUrl } from '@shared/chat-popout'
+import { fitInto, isChatPopoutUrl, POPOUT_MIN, visiblePopoutBounds, type Rect } from '@shared/chat-popout'
 
 const TERM_CHANNEL = 'genio:term-data'
 
@@ -167,6 +167,23 @@ export function openProject(folder: string): Promise<void> {
   return operation
 }
 
+// Pop-out chat bounds per project, reopened only where a current display shows its title bar.
+const popoutFile = (): string => path.join(defaultHomeRoot(), 'state', 'chat-popout.json')
+const workAreas = (): Rect[] => screen.getAllDisplays().map(d => d.workArea)
+function savedPopout(project: string): Rect | undefined {
+  try { return visiblePopoutBounds(readJson<Record<string, Rect>>(popoutFile(), {})[project], workAreas()) } catch { return undefined }
+}
+function savePopout(project: string, bounds: Rect): void {
+  try { writeJson(popoutFile(), { ...readJson<Record<string, Rect>>(popoutFile(), {}), [project]: bounds }) } catch { /* best effort */ }
+}
+/** Pull the pop-out back onto a display after a monitor is removed or rearranged. */
+function keepPopoutVisible(child: BrowserWindow): void {
+  if (child.isDestroyed()) return
+  const current = child.getBounds()
+  const next = visiblePopoutBounds(current, workAreas()) ?? fitInto(current, screen.getPrimaryDisplay().workArea)
+  if ((next.x !== current.x || next.y !== current.y || next.width !== current.width || next.height !== current.height)) child.setBounds(next)
+}
+
 function createWindow(binding?: WindowBinding, registered = false): BrowserWindow {
   const isWin = process.platform === 'win32'
   const win = new BrowserWindow({
@@ -200,8 +217,12 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (binding && isChatPopoutUrl(url, win.webContents.getURL())) {
       if (chatWindow && !chatWindow.isDestroyed()) { focusWindow(chatWindow); return { action: 'deny' } }
+      const at = savedPopout(binding.project)
       return { action: 'allow', overrideBrowserWindowOptions: {
-        width: 520, height: 640, minWidth: 360, minHeight: 360,
+        width: at?.width ?? 520, height: at?.height ?? 640, ...(at ? { x: at.x, y: at.y } : {}),
+        minWidth: POPOUT_MIN.width, minHeight: POPOUT_MIN.height,
+        // Shown inactive once painted, so popping out never steals focus from the game or editor.
+        show: false,
         title: `Genio chat · ${binding.project}`, alwaysOnTop: true,
         frame: true, titleBarStyle: 'default', titleBarOverlay: false,
         backgroundColor: '#07090e', autoHideMenuBar: true,
@@ -216,11 +237,21 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
     child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     // window.open's initial navigation happens after did-create-window.
     let loaded = false
-    child.webContents.once('did-finish-load', () => { loaded = true })
+    const reveal = (): void => { if (!child.isDestroyed() && !child.isVisible()) child.showInactive() }
+    child.webContents.once('did-finish-load', () => { loaded = true; reveal() })
     child.webContents.on('will-navigate', (e, url) => {
       if (loaded || !isChatPopoutUrl(url, win.webContents.getURL())) e.preventDefault()
     })
-    child.on('closed', () => { if (chatWindow === child) chatWindow = undefined })
+    child.once('ready-to-show', reveal)
+    const displays = (): void => keepPopoutVisible(child)
+    screen.on('display-removed', displays)
+    screen.on('display-metrics-changed', displays)
+    child.on('close', () => { if (binding) savePopout(binding.project, child.getNormalBounds()) })
+    child.on('closed', () => {
+      screen.off('display-removed', displays)
+      screen.off('display-metrics-changed', displays)
+      if (chatWindow === child) chatWindow = undefined
+    })
   })
   win.webContents.on('will-navigate', (e, url) => {
     const dev = process.env.ELECTRON_RENDERER_URL

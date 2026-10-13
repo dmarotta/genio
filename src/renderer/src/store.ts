@@ -35,6 +35,8 @@ export interface State {
   settings: Settings | null
   chats: Record<string, ChatMessage[]>
   chatLoaded: Record<string, boolean>
+  /** Generations in flight per chat, from generation events (seeded once from cards when the chat loads). */
+  generating: Record<string, string[]>
   statusByTask: Record<string, StatusEvent[]>
   terminals: Record<string, TerminalInfo>
   toasts: Toast[]
@@ -81,6 +83,7 @@ let state: State = {
   settings: null,
   chats: {},
   chatLoaded: {},
+  generating: {},
   statusByTask: {},
   terminals: {},
   toasts: [],
@@ -248,9 +251,11 @@ export async function loadChat(wksp: string, force = false): Promise<void> {
   if (state.chatLoaded[wksp] && !force) return
   try {
     const hist = await api().chatHistory(wksp, 300)
+    const running = hist.filter(m => m.generation?.status === 'running' || m.generation?.status === 'placing').map(m => m.id)
     setState((s) => ({
       chats: { ...s.chats, [wksp]: mergeChat(hist, s.chats[wksp] ?? []) },
-      chatLoaded: { ...s.chatLoaded, [wksp]: true }
+      chatLoaded: { ...s.chatLoaded, [wksp]: true },
+      generating: { ...s.generating, [wksp]: [...new Set([...(s.generating[wksp] ?? []), ...running])] }
     }))
   } catch {
     /* main not ready yet */
@@ -330,6 +335,11 @@ export function handleEvent(ev: GenioEvent): void {
         next[i] = { ...next[i], text: next[i].text + ev.text, partial: true }
       }
       setState({ chats: { ...s.chats, [ev.wksp]: next } })
+      break
+    }
+    case 'generation': {
+      const ids = (s.generating[ev.wksp] ?? []).filter((id) => id !== ev.id)
+      setState({ generating: { ...s.generating, [ev.wksp]: ev.active ? [...ids, ev.id] : ids } })
       break
     }
     case 'status': {

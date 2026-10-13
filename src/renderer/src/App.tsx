@@ -16,6 +16,7 @@ import { ProjectNotice } from './views/ProjectSettings'
 import { Systems } from './views/Systems'
 import { Inventory } from './views/Inventory'
 import { Play } from './views/Play'
+import { GenioPanel } from './components/GenioPanel'
 
 const VIEW: Partial<Record<ViewId, ComponentType>> = {
   play: Play,
@@ -57,18 +58,21 @@ export function App() {
       <ProjectNotice />
       <div className="app-body">
         <Rail />
-        <main className="stage" key={view}>
-          {booted && !connected ? (
-            <div className="offline">
-              <div className="title">
-                No <span className="accent">link</span>
+        <div className="stage-shell">
+          <main className="stage" key={view}>
+            {booted && !connected ? (
+              <div className="offline">
+                <div className="title">
+                  No <span className="accent">link</span>
+                </div>
+                <p className="dim">Genio's core is not responding. Restart the app; if it persists, check the console.</p>
               </div>
-              <p className="dim">Genio's core is not responding. Restart the app; if it persists, check the console.</p>
-            </div>
-          ) : (
-            <View />
-          )}
-        </main>
+            ) : (
+              <View />
+            )}
+          </main>
+          <GenioPanel />
+        </div>
         <Answers />
       </div>
       <DeployModal />

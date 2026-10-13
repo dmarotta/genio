@@ -56,7 +56,7 @@ export function routeProjectEvent(ev: GenioEvent, binding: WindowBinding | undef
     case 'task-removed': return ev // deletion contains no content; may already be absent from snapshot
     case 'status': return project(s.tasks.find(t => t.id === ev.event.taskId)?.project)
     case 'chat': return wksp(ev.message.wksp)
-    case 'chat-delta': return wksp(ev.wksp)
+    case 'chat-delta': case 'generation': return wksp(ev.wksp)
     case 'wksp': return wksp(ev.wksp.name)
     case 'permission': return wksp(ev.request.wksp)
     case 'wake': return wksp(ev.wake.wksp)

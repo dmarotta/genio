@@ -8,6 +8,7 @@ import { PRIORITY_GLYPH, KIND_LABEL } from '../lib/vocab'
 import { clock, cx, dateInput, dateShort, trunc } from '../lib/format'
 import { useUsagePolicy } from '../components/PlanMeter'
 import type { QuotaWait } from '@shared/usage-mode'
+import { useScreenContext } from '../lib/screen-context'
 
 type Col = 'queued' | 'in-flight' | 'held' | 'done'
 
@@ -58,6 +59,11 @@ export function Quests() {
   }
 
   const open = items.filter((b) => b.state !== 'done' && b.state !== 'dropped').length
+  useScreenContext('quests', { facts: [
+    { label: 'Board', value: COLS.slice(0, 3).map((c) => `${byCol[c.id].length} ${c.label.toLowerCase()}`).join(' · ') },
+    edit && { label: 'Quest', value: `${edit.title} [${edit.id}] · ${COLS.find((c) => c.id === colOf(edit))?.label} · ${edit.priority} · ${edit.kind}` },
+    !!title.trim() && { label: 'Drafting', value: title }
+  ] })
 
   return (
     <div className="view">

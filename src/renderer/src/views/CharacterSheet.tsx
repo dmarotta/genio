@@ -3,6 +3,7 @@ import { Flame, Lock, Trophy } from 'lucide-react'
 import { api, useStore } from '../store'
 import { ViewHeader } from '../components/ui'
 import { cx, dateShort, usd } from '../lib/format'
+import { useScreenContext } from '../lib/screen-context'
 
 export function CharacterSheet() {
   const stats = useStore((s) => s.snap.stats)
@@ -12,6 +13,10 @@ export function CharacterSheet() {
   }, [])
   const pct = stats.xpNext ? Math.min(100, (stats.xp / stats.xpNext) * 100) : 0
   const unlocked = stats.achievements.filter((a) => a.unlockedAt).length
+  useScreenContext('status', { facts: [
+    { label: 'Level', value: `${stats.level} · ${stats.xp}/${stats.xpNext} XP · ${stats.streakDays}-day streak` },
+    { label: 'Achievements', value: `${unlocked} of ${stats.achievements.length} unlocked` }
+  ] })
 
   return (
     <div className="view character-sheet">

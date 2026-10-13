@@ -6,7 +6,6 @@ import { chipKey, contextAsset, inventoryContextBlock, MAX_CONTEXT_SELECTION, to
 import type { InventoryAsset } from '../src/shared/inventory'
 import type { ChatMessage } from '../src/shared/types'
 import { prepareInventoryContext } from '../src/main/inventory-context'
-import { clampFloatingChat } from '../src/renderer/src/lib/inventory-chat'
 import { ACHIEVEMENTS } from '../src/main/stats'
 
 const asset = (name = 'tree.png'): InventoryAsset => ({ path: `Assets/${name}`, name, folder: 'Assets', kind: 'image', size: 128, mtimeMs: 42, ext: 'png', tracked: true, lfs: false, vendor: false, generated: false, tags: [] })
@@ -84,8 +83,7 @@ describe('preview thumbnail payload', () => {
   })
 })
 
-it('keeps floating geometry reachable after resizing the window and covers the feature achievement', () => {
-  const s = clampFloatingChat({ x: 900, y: 900, width: 700, height: 600, collapsed: false, snapped: false }, 600, 450)
-  expect(s).toMatchObject({ x: 0, y: 0, width: 600, height: 450 })
+it('covers the Inventory and screen context feature achievements', () => {
   expect(ACHIEVEMENTS.find(a => a.id === 'inventory-chat')?.feature).toBe('inventory-chat')
+  expect(ACHIEVEMENTS.find(a => a.id === 'genio-panel-context')?.feature).toBe('genio-panel')
 })

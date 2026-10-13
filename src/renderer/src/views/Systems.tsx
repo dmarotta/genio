@@ -19,6 +19,7 @@ import { Mailbox } from '../components/Mailbox'
 import { EFFORTS } from '../lib/vocab'
 import { ago, clock, cx, dateShort, usd } from '../lib/format'
 import { playSfx } from '../lib/sfx'
+import { useScreenContext } from '../lib/screen-context'
 
 export type Section =
   | 'project' | 'profile' | 'genio' | 'units' | 'overwatch' | 'gauntlet' | 'comms' | 'alerts' | 'mail' | 'memory'
@@ -65,6 +66,8 @@ export function Systems() {
     return () => { sectionListeners.delete(setSec) }
   }, [])
   const [home, setHome] = useState('')
+  const section = SECTIONS.find((s) => s.id === sec)
+  useScreenContext('systems', { facts: [{ label: 'Section', value: section ? `${section.group} › ${section.label}` : sec }] })
   const [advanced, setAdvancedState] = useState<boolean>(() => {
     try {
       return localStorage.getItem('genio.usage.advanced') === '1'

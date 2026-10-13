@@ -67,6 +67,7 @@ export class AgentGeneration {
     this.save()
     const text = `${j.model}: ${j.status}${j.paths.length ? '\n' + j.paths.join('\n') : ''}${j.error ? '\n' + j.error : ''}`
     this.ctx.home(j.wksp).wksp.post({ id: j.id, wksp: j.wksp, role: 'genio', ts: j.ts, text, generation: this.card(j), images: j.images }, true)
+    bus.publish({ type: 'generation', wksp: j.wksp, id: j.id, active: j.status === 'running' || j.status === 'placing' })
   }
   private card(j: Job): GenerationCard {
     const { id, provider, world, model, status, estimatedUsd, spentUsd, capUsd, paths, warnings, error, progress, outputs } = j
@@ -80,9 +81,9 @@ export class AgentGeneration {
     if (!j) throw new Error('No such generation in this chat')
     return j
   }
+  /** The failed card is the report: the player sees it in chat, so no wake is queued for Genio. */
   private failed(j: Job, e: unknown): void {
     j.status = 'failed'; j.error = e instanceof Error ? e.message : String(e); this.post(j)
-    this.ctx.home(j.wksp).wakes?.enqueue({ kind: 'check', reason: `Generation ${j.id} failed: ${j.error}` })
   }
   private async destination(a: Placement, kind: AssetKind, name: string): Promise<string> {
     this.requirePlayer('genio', a.player_words)

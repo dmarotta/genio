@@ -1,0 +1,42 @@
+/* The floating Genio panel lives in .stage-shell, beside (never over) the pending answers lane. */
+.genio-panel { z-index: 30; position: absolute; background: var(--surface); border: 1px solid var(--line-strong); box-shadow: 0 12px 40px #0009; min-width: 0; }
+.genio-panel[hidden], .genio-panel [hidden] { display: none !important; }
+.genio-panel-expanded { height: 100%; display: flex; flex-direction: column; }
+.genio-panel-bar { display: flex; align-items: center; gap: 4px; padding: 4px 6px; min-height: 38px; border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.genio-panel-grip { display: flex; gap: 8px; align-items: center; flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: move; touch-action: none; background: none; border: 0; color: var(--neon); font: 12px var(--font-ui); text-align: left; padding: 6px; }
+.genio-panel-busy { color: var(--amber); font: 11px var(--font-ui); white-space: nowrap; }
+.genio-panel-error { padding: 6px 10px; color: var(--alert); font-size: 12px; }
+.genio-panel-slot, .genio-panel-content { flex: 1; display: flex; min-height: 0; min-width: 0; overflow: hidden; }
+.genio-panel-content > .chat-panel { flex: 1; min-width: 0; }
+.genio-panel .comms-head { padding: 6px 10px; }
+.genio-panel .chat-title { display: none; }
+.genio-panel .comms-status { flex-wrap: wrap; gap: 8px; }
+.genio-panel .chat-log { padding: 10px; }
+.genio-panel .chat-empty { gap: 8px; }
+.genio-panel .chat-empty .core { width: 52px; height: 52px; flex-shrink: 0; }
+.genio-panel .chat-empty .title { margin: 4px 0; font-size: 22px !important; }
+.genio-panel .chat-empty p { font-size: 12px; }
+.genio-panel .chat-empty .quick-chips { display: none; }
+.genio-panel .composer { padding: 8px 10px 12px; }
+.genio-panel .composer-hints { flex-wrap: wrap; gap: 8px; }
+.genio-panel .composer-hints > span:first-child { display: flex; flex-wrap: wrap; gap: 6px 0; align-items: center; }
+.genio-panel .composer-keys { display: none; }
+.genio-panel-resize { position: absolute; width: 16px; height: 16px; touch-action: none; border: 0; padding: 0; background: none; z-index: 1; }
+.genio-panel-resize.se { bottom: 0; right: 0; cursor: nwse-resize; background: linear-gradient(135deg, transparent 55%, var(--neon) 56%, var(--neon) 62%, transparent 63%, transparent 72%, var(--neon) 73%, var(--neon) 80%, transparent 81%); }
+.genio-panel-resize.nw { top: 0; left: 0; width: 10px; height: 10px; cursor: nwse-resize; }
+.genio-panel.collapsed { right: 16px; bottom: 16px; border-radius: 24px; overflow: hidden; }
+.genio-panel-pill { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border: 0; background: var(--surface-2); color: var(--neon); cursor: pointer; font: 13px var(--font-ui); white-space: nowrap; }
+.genio-panel-pill kbd { color: var(--text-mute); font-size: 10px; }
+div.genio-panel-pill { cursor: default; padding: 6px 8px 6px 16px; }
+.genio-panel.popout { position: fixed; inset: 0; display: flex; flex-direction: column; border: 0; box-shadow: none; }
+.genio-panel.popout .popout-bar { order: -1; justify-content: space-between; }
+
+/* Context chips: the screen plus Inventory folder/preview/selection, in the composer and on sent bubbles. */
+.inventory-context { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; padding: 0 0 8px; font: 10px var(--font-ui); }
+.inventory-context-world { color: var(--text-dim); max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.inventory-context-chip { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 4px 6px; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--surface-2); color: var(--neon); }
+.inventory-context-chip > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 240px; }
+.inventory-context-chip svg { flex-shrink: 0; }
+.inventory-context-chip button { display: flex; padding: 0; border: 0; background: none; color: var(--text-dim); cursor: pointer; }
+.msg.player > .inventory-context { justify-content: flex-end; padding-top: 6px; }
+.inventory-context-thumb { width: 40px; height: 32px; object-fit: contain; background: var(--surface-2); border-radius: 3px; }

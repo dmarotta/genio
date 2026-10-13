@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { PROJECT_WINDOW, PROJECT_WKSP } from '../store'
-import { ChatPanel } from './Comms'
+import { PROJECT_WINDOW } from '../store'
+import { openGenioPanel, useScreenContext } from '../lib/screen-context'
 import { snapshotDelay, type PlayAction, type PlayConsole, type PlayFrame, type PlayScene, type PlayStats, type PlayStatus } from '@shared/play'
 import '../styles/play.css'
 import { PlayLive } from './PlayLive'
@@ -20,7 +20,6 @@ export function Play() {
   const [input, setInput] = useState(false)
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState('')
-  const [chat, setChat] = useState(false)
   const [live, setLive] = useState(false)
   const [targetVersion, setTargetVersion] = useState(0)
   const working = useRef(false)
@@ -70,11 +69,20 @@ export function Play() {
     finally { refresh.current = true; working.current = false; setBusy(false) }
   }
   const act = (action: PlayAction) => void run(() => api.playAction(world!, action))
+  const scene = status?.scenes.find(s => s.isActive) ?? scenes.find(s => s.isActive)
+  useScreenContext('play', { facts: [
+    { label: 'Editor', value: status ? `${status.connected ? status.state : 'not connected'}${status.message ? ` · ${status.message}` : ''}` : 'connecting' },
+    scene && { label: 'Scene', value: `${scene.name}${scene.isDirty ? ' (unsaved)' : ''} · ${scene.path}` },
+    { label: 'View', value: `${live ? 'live stream' : 'snapshots'} · ${presets[size].join('×')}${input ? ' · input captured' : ''}${status?.genioDriving ? ' · Genio driving' : ''}` },
+    stats?.fps !== undefined && { label: 'Performance', value: `${stats.fps.toFixed(1)} fps${stats.render ? ` · ${stats.render.drawCalls} draw calls` : ''}` },
+    !!error && { label: 'Error', value: error },
+    logs.length > 0 && { label: 'Last console', value: `[${logs.at(-1)!.level ?? 'log'}] ${logs.at(-1)!.message}` }
+  ] })
   if (!world) return <section className="play-view"><h1>Play</h1><p>Open Play from a project window.</p></section>
   const playing = status?.state === 'playing'
   const cpu = stats?.frameTiming?.available ? stats.frameTiming.cpuFrameTimeMs : undefined
   return <section className="play-view">
-    <header><h1 className="title">Play <span className="dim">· {world}</span></h1><span>{live ? 'Live streaming · up to 30 fps' : 'Snapshot mode · about 1 fps'} · shared control</span><button className="btn" onClick={() => setChat(!chat)}>{chat ? 'Close chat' : 'Ask Genio'}</button></header>
+    <header><h1 className="title">Play <span className="dim">· {world}</span></h1><span>{live ? 'Live streaming · up to 30 fps' : 'Snapshot mode · about 1 fps'} · shared control</span><button className="btn" onClick={openGenioPanel}>Ask Genio</button></header>
     <PlayPoolPanel world={world} onError={setError} onChange={() => { setLive(false); setInput(false); refresh.current = true; setTargetVersion(v => v + 1) }} />
     <div className="play-toolbar">
       <label>Scene <select disabled={busy || !status?.connected || status.state !== 'stopped'} value={status?.scenes.find(s => s.isActive)?.path ?? ''} onChange={e => act({ type: 'scene', path: e.target.value })}>
@@ -107,6 +115,5 @@ export function Play() {
           e.preventDefault(); act({type:'key',key}) }} /> : <span className="dim">Waiting for a Game view snapshot</span>}
     </div>
     <details className="play-console" open><summary>Unity console · latest {logs.length} entries</summary><div>{logs.map((l,i) => <pre key={`${l.seq}-${i}`}>[{l.level ?? 'log'}] {l.message}{l.stackTrace ? `\n${l.stackTrace}` : ''}</pre>)}</div></details>
-    {chat && PROJECT_WKSP && <aside className="play-chat panel"><ChatPanel wksp={PROJECT_WKSP} /></aside>}
   </section>
 }

@@ -24,7 +24,7 @@ import type {
   Options, CanUseTool, PermissionResult
 } from '@anthropic-ai/claude-agent-sdk'
 import type { Ally, ChatMessage, WkspInfo } from '@shared/types'
-import { inventoryContextBlock, validateInventoryContext, type InventoryContext } from '@shared/inventory-context'
+import { hasInventoryChips, inventoryContextBlock, validateInventoryContext, type InventoryContext } from '@shared/inventory-context'
 import type { ChatImageInput } from '@shared/chat-images'
 import { prepareInventoryContext } from './inventory-context'
 import { bus } from './bus'
@@ -630,7 +630,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     // the ids let Genio pass pasted images to generate_image as refs
     prompt += inventoryContextBlock(m.context) + attachedIdsNote(stored.refs)
     genio.enqueue({ kind: player ? 'player' : 'system', prompt, images: stored.send.length ? stored.send : undefined, msgId: player ? m.id : undefined })
-    if (m.context) safe(() => ctx.stats.unlock('inventory-chat'))
+    if (hasInventoryChips(m.context)) safe(() => ctx.stats.unlock('inventory-chat'))
+    if (m.context?.screen) safe(() => ctx.stats.unlock('genio-panel-context'))
     publishInfo()
   }
   let pendingSend: Promise<void> = Promise.resolve()
