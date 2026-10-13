@@ -2,8 +2,8 @@
  * Smart dispatch service: the live signals the loadout picker needs (who is
  * logged in, plan quota, the cheap-model gate, the cost dial, scorecard
  * scores), the scorecard itself, the player's verdicts and the learning loop
- * (scorecard.ts). Login and usage checks are slow, so the picker reads the
- * last known values and a stale cache refreshes in the background.
+ * (scorecard.ts). Previews use a background cache; launches scan local evidence,
+ * claim a provider reservation and recheck immediately before terminal creation.
  */
 import type { AccountStatus, OpResult, UsageReport } from '@shared/api'
 import type { Decision, Task, Verdict } from '@shared/types'
@@ -18,7 +18,8 @@ import {
 } from './scorecard'
 import type { AppCtx, DispatchService } from './services'
 import { claudeLimits, claudeLimitsFile, quotaFromUsage, usageReport, type ClaudeLimitsFile } from './usage'
-import { expireWindow } from './quota-policy'
+import { expireWindow, explorationSafe } from './quota-policy'
+import { SessionQuotaPolicy } from './session-usage'
 import { readJson } from './util'
 
 const USAGE_TTL = 5 * 60_000
@@ -57,6 +58,13 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
     return values.length ? Math.max(...values) : undefined
   }
 
+  const unavailable = (id: string, own?: string): boolean => {
+    const ctx = getCtx()
+    return (id !== own && reservations.has(id)) || (id === 'claude' && new SessionQuotaPolicy(dataDir()).unitBlocked()) ||
+      ((hottest(id) ?? 0) >= 70 && [...ctx.homes.values()].some((h) =>
+        h.crew.list().some((t) => t.harness === id && !!t.terminalId && ctx.terminals.get(t.terminalId)?.alive)))
+  }
+
   const svc: DispatchService = {
     signals(project, opts = {}) {
       refresh()
@@ -75,8 +83,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
       const env: Omit<PickEnv, 'available'> = {
         loggedOut: (id) => logins.get(ACCOUNT_OF[id] ?? id) === 'logged-out',
         quota,
-        unavailable: (id) => reservations.has(id) || ((hottest(id) ?? 0) >= 70 && [...ctx.homes.values()].some((h) =>
-          h.crew.list().some((t) => t.harness === id && !!t.terminalId && ctx.terminals.get(t.terminalId)?.alive))),
+        unavailable,
         cheap: cheapGate({ worldAllows: cheapModelsAllowed(world), keySet, opencodeReady: opencode }),
         dial: world?.costDial ?? s.costDial,
         dialFromWorld: Boolean(world?.costDial),
@@ -92,9 +99,25 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
       // separates the final policy evaluation from claiming the provider slot.
       const result = launchQueue.then(async () => {
         svc.noteUsage(await usageReport(getCtx()))
-        const loadout = resolveLoadout(input, getCtx().settings, svc.signals(input.project))
+        const signals = svc.signals(input.project)
+        const loadout = resolveLoadout(input, getCtx().settings, signals)
+        const primary = loadout.explored ? resolveLoadout(input, getCtx().settings, { ...signals, preview: true }).harness : undefined
         reservations.add(loadout.harness)
-        return { loadout, release: () => { reservations.delete(loadout.harness) } }
+        let released = false
+        return {
+          loadout,
+          async check() {
+            if (released) throw new Error('Launch reservation was already released.')
+            svc.noteUsage(await usageReport(getCtx()))
+            const env = { ...svc.signals(input.project), unavailable: (id: string) => unavailable(id, loadout.harness) }
+            resolveLoadout({ ...input, harness: loadout.harness }, getCtx().settings, env)
+            if (loadout.explored) {
+              if (!explorationSafe(env.quota?.[primary!]) || !explorationSafe(env.quota?.[loadout.harness]))
+                throw new Error('deferred: exploration no longer has fresh headroom on both plans.')
+            }
+          },
+          release() { if (!released) { released = true; reservations.delete(loadout.harness) } }
+        }
       })
       launchQueue = result.catch(() => undefined)
       return result
@@ -103,7 +126,16 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
     usagePercent: hottest,
 
     noteUsage(r: UsageReport) {
-      quota = quotaFromUsage(r)
+      const observed = quotaFromUsage(r)
+      // A scan error/missing bucket is not provider evidence of recovery.
+      for (const [tool, windows] of Object.entries(observed)) {
+        const merged = new Map((quota[tool] ?? []).map((w) => [w.label, w]))
+        for (const w of windows) {
+          const old = merged.get(w.label)
+          if (!old || (w.observedAt ?? '') >= (old.observedAt ?? '')) merged.set(w.label, w)
+        }
+        quota[tool] = [...merged.values()]
+      }
       quotaAt = Date.now()
     },
 

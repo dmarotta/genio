@@ -147,12 +147,6 @@ export function hotWindows(quota: PickEnv['quota'], harness: string): QuotaWindo
   return (quota?.[harness] ?? []).filter((w) => blockedWindow(w)).sort((a, b) => (b.usedPercent ?? b.lastKnownUsedPercent ?? 100) - (a.usedPercent ?? a.lastKnownUsedPercent ?? 100))
 }
 
-/** Stable: cool tools keep their order, hot ones move after them. */
-function downRankHot(list: Option[], quota: PickEnv['quota']): Option[] {
-  const cool = list.filter((o) => !hotWindows(quota, o.c.harness).length)
-  return [...cool, ...list.filter((o) => hotWindows(quota, o.c.harness).length)]
-}
-
 /** The category table's order after the cost dial. */
 export function dialOrder(list: Option[], dial: CostDial): Option[] {
   if (dial === 'quality') return [...list.filter((o) => !o.c.cheap), ...list.filter((o) => o.c.cheap)]
@@ -230,7 +224,8 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
         continue
       }
       if (quotaBlocked(id)) {
-        reasons.push(`${name} excluded: quota protection or launch already reserved`)
+        const w = hotWindows(env.quota, id)[0]
+        reasons.push(w ? `${name} excluded: ${w.label} window at ${Math.round(w.usedPercent ?? w.lastKnownUsedPercent ?? 100)}%` : `${name} excluded: quota protection or launch already reserved`)
         continue
       }
       if (o.c.cheap && !env.cheap?.allowed) {
@@ -241,17 +236,6 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
     }
     reasons.push(`${label}: none of its tools are installed, enabled and logged in`)
     return undefined
-  }
-  const quotaNote = (ordered: Option[], picked: Option): void => {
-    const seen = new Set<string>()
-    for (const o of ordered) {
-      if (seen.has(o.c.harness) || o.c.harness === picked.c.harness) continue
-      seen.add(o.c.harness)
-      const w = hotWindows(env.quota, o.c.harness)[0]
-      if (w) reasons.push(`${nameOf(o.c.harness)} excluded: ${w.label} window at ${Math.round(w.usedPercent ?? w.lastKnownUsedPercent ?? 100)}%`)
-    }
-    const own = hotWindows(env.quota, picked.c.harness)[0]
-    if (own) reasons.push(`${nameOf(picked.c.harness)} is at ${Math.round(own.usedPercent ?? own.lastKnownUsedPercent ?? 100)}% of its ${own.label} window, but nothing cooler is available`)
   }
 
   let harness = explicitHarness
@@ -275,10 +259,9 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
       const byPriority = rule.candidates
         .map((c: RuleCandidate, i) => ({ c, i }))
         .sort((a, b) => (b.c.spendPriority ?? 0) - (a.c.spendPriority ?? 0) || a.i - b.i)
-      const ordered = downRankHot(byPriority, env.quota)
+      const ordered = byPriority
       const pick = walk(ordered, label)
       if (!pick) continue
-      quotaNote(ordered, pick)
       cand = pick.c
       harness = cand.harness
       source = 'rule'
@@ -293,12 +276,11 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
     const pool = harness ? undefined : poolFor(s, category)
     if (!harness && pool?.candidates.length) {
       const label = `${categoryLabel(category)} table`
-      const ordered = downRankHot(dialOrder(pool.candidates.map((c, i) => ({ c, i })), dial), env.quota)
+      const ordered = dialOrder(pool.candidates.map((c, i) => ({ c, i })), dial)
       const before = reasons.length
       const pick = walk(ordered, label)
       if (pick) {
-        quotaNote(ordered, pick)
-        let chosen = pick
+          let chosen = pick
         const eligible = ordered.filter((o) => usable(o.c.harness) && explorationSafe(env.quota?.[o.c.harness]) && (!o.c.cheap || env.cheap?.allowed))
         const rate = Math.max(0, Math.min(1, s.explorationRate ?? 0))
         const canExplore = rate > 0 && eligible.includes(pick) && eligible.length >= 2 && !explicitModel && !explicitEffort && input.priority !== 'critical'

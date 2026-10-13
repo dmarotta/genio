@@ -1,15 +1,18 @@
 import path from 'node:path'
 import { readJson, writeJson } from './util'
 import { claudeLimits, claudeLimitsFile, type ClaudeLimitsFile, type ClaudeRateLimitInfo } from './usage'
+import { isClaudeLimit } from './claude-limit'
 
 interface Rejection { at: number; reset?: number }
 interface BackoffState {
   rejections: Record<string, Rejection>
   probeAt?: number
+  probeOwner?: string
+  acceptedAt?: number
   notices: Record<string, string[]>
 }
 
-export const isQuotaError = (text: string): boolean => /rate.?limit|usage limit|usage_limit|hit your limit|quota exceeded|too many requests|\b429\b/i.test(text)
+export const isQuotaError = (text: string): boolean => isClaudeLimit(text) || /rate.?limit|usage limit|usage_limit|hit your limit|quota exceeded|too many requests|\b429\b/i.test(text)
 
 /** Account-wide, durable gate shared by main chat, allies and Bot. No provider calls. */
 export class SessionQuotaPolicy {
@@ -21,7 +24,7 @@ export class SessionQuotaPolicy {
     // Also migrate previously recorded SDK rejections, including after an app restart.
     const limits = readJson<ClaudeLimitsFile>(claudeLimitsFile(this.data), { windows: {} })
     for (const [key, w] of Object.entries(limits.windows ?? {})) {
-      if (w.status === 'rejected' && !state.rejections[key]) state.rejections[key] = {
+      if (w.status === 'rejected' && !state.rejections[key] && !(Date.parse(w.observedAt ?? w.updatedAt) <= (state.acceptedAt ?? 0))) state.rejections[key] = {
         at: Date.parse(w.observedAt ?? w.updatedAt), reset: w.resetsAt ? w.resetsAt * 1000 : undefined
       }
     }
@@ -39,6 +42,7 @@ export class SessionQuotaPolicy {
       delete state.rejections.error
       if (!Object.keys(state.rejections).length) {
         state.probeAt = undefined
+        state.probeOwner = undefined
         state.notices = {}
       }
     }
@@ -52,13 +56,13 @@ export class SessionQuotaPolicy {
     writeJson(this.file, state)
   }
 
-  canStart(player: boolean, now = Date.now(), claim = true): boolean {
+  canStart(player: boolean, now = Date.now(), claim = true, owner = 'foreground'): boolean {
     const state = this.read()
     const rejections = Object.values(state.rejections)
     if (rejections.length) {
       if (!player || state.probeAt !== undefined || rejections.some((r) => !r.reset || r.reset > now)) return false
       // After reset only one explicit foreground probe across all sessions is allowed.
-      if (claim) { state.probeAt = now; writeJson(this.file, state) }
+      if (claim) { state.probeAt = now; state.probeOwner = owner; writeJson(this.file, state) }
       return true
     }
     if (!player) {
@@ -66,6 +70,15 @@ export class SessionQuotaPolicy {
       if (windows.some((w) => (w.usedPercent ?? w.lastKnownUsedPercent ?? 0) >= 95)) return false
     }
     return true
+  }
+
+  unitBlocked(): boolean { return Object.keys(this.read().rejections).length > 0 }
+
+  limitState(): { resetsAt?: number; restartRequired?: boolean } {
+    const rejections = Object.values(this.read().rejections)
+    const resets = rejections.map((r) => r.reset)
+    const resetsAt = resets.length && resets.every((r) => r !== undefined) ? Math.max(...resets as number[]) : undefined
+    return { resetsAt, restartRequired: resetsAt === undefined || resetsAt <= Date.now() }
   }
 
   /** Collapse SDK error/result/notice variants into one notice per rejection episode. */
@@ -82,6 +95,14 @@ export class SessionQuotaPolicy {
   succeeded(channel: string): void {
     const state = this.read()
     delete state.notices[channel]
+    if (state.probeAt !== undefined && state.probeOwner === channel) {
+      for (const [key, r] of Object.entries(state.rejections)) {
+        if (r.reset !== undefined && r.reset <= state.probeAt) delete state.rejections[key]
+      }
+      state.acceptedAt = Date.now()
+      state.probeAt = undefined
+      state.probeOwner = undefined
+    }
     writeJson(this.file, state)
   }
 }

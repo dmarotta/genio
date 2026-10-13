@@ -89,9 +89,9 @@ describe('codexLimits', () => {
       ],
       now
     )
-    expect(limits).toEqual([
-      { source: 'reported by Codex', updatedAt: '2026-10-13T09:00:00.000Z', name: undefined, plan: 'pro', windows: [{ label: 'weekly', usedPercent: 24, resetsAt: '2026-10-18T00:00:00.000Z', stale: false }] },
-      { source: 'reported by Codex', updatedAt: '2026-10-12T10:00:00.000Z', name: 'GPT-5.3-Codex-Spark', plan: undefined, windows: [{ label: '5-hour', usedPercent: 0, resetsAt: '2026-10-12T15:00:00.000Z', stale: true }] }
+    expect(limits).toMatchObject([
+      { source: 'reported by Codex', updatedAt: '2026-10-13T09:00:00.000Z', name: undefined, plan: 'pro', windows: [{ label: 'weekly', usedPercent: undefined, lastKnownUsedPercent: 24, observedAt: '2026-10-13T09:00:00.000Z', resetsAt: '2026-10-18T00:00:00.000Z', stale: true }] },
+      { source: 'reported by Codex', updatedAt: '2026-10-12T10:00:00.000Z', name: 'GPT-5.3-Codex-Spark', plan: undefined, windows: [{ label: '5-hour', usedPercent: undefined, lastKnownUsedPercent: 0, resetsAt: '2026-10-12T15:00:00.000Z', stale: true }] }
     ])
   })
 
@@ -136,10 +136,10 @@ describe('parseClaudeUsageLine', () => {
 })
 
 describe('Claude Code rate limits', () => {
-  it('merges rate_limit_event info per window and skips unchanged events', () => {
+  it('refreshes observation times on unchanged events without changing the transition time', () => {
     const a = mergeClaudeRateLimit({ windows: {} }, { status: 'allowed', rateLimitType: 'five_hour', utilization: 0.42, resetsAt: 1792312471 }, '2026-10-13T09:00:00.000Z')!
-    expect(a.windows.five_hour).toEqual({ status: 'allowed', utilization: 0.42, resetsAt: 1792312471, updatedAt: '2026-10-13T09:00:00.000Z' })
-    expect(mergeClaudeRateLimit(a, { status: 'allowed', rateLimitType: 'five_hour', utilization: 0.42, resetsAt: 1792312471 })).toBeUndefined()
+    expect(a.windows.five_hour).toMatchObject({ status: 'allowed', utilization: 0.42, resetsAt: 1792312471, updatedAt: '2026-10-13T09:00:00.000Z' })
+    expect(mergeClaudeRateLimit(a, { status: 'allowed', rateLimitType: 'five_hour', utilization: 0.42, resetsAt: 1792312471 }, '2026-10-13T09:05:00.000Z')?.windows.five_hour).toMatchObject({ observedAt: '2026-10-13T09:05:00.000Z', changedAt: '2026-10-13T09:00:00.000Z' })
     const b = mergeClaudeRateLimit(a, { status: 'allowed_warning', rateLimitType: 'seven_day' }, '2026-10-13T10:00:00.000Z')!
     expect(Object.keys(b.windows)).toEqual(['five_hour', 'seven_day'])
   })
@@ -154,9 +154,9 @@ describe('Claude Code rate limits', () => {
     const l = claudeLimits(file, Date.parse('2026-10-13T12:00:00.000Z'))!
     expect(l.source).toBe("reported by Claude Code to Genio's chat")
     expect(l.updatedAt).toBe('2026-10-13T10:00:00.000Z')
-    expect(l.windows).toEqual([
-      { label: '5-hour', usedPercent: 42, status: 'allowed', resetsAt: '2026-10-13T11:00:00.000Z', stale: true },
-      { label: 'weekly', usedPercent: undefined, status: 'allowed_warning', resetsAt: undefined, stale: undefined }
+    expect(l.windows).toMatchObject([
+      { label: '5-hour', usedPercent: undefined, lastKnownUsedPercent: 42, status: 'allowed', resetsAt: '2026-10-13T11:00:00.000Z', stale: true },
+      { label: 'weekly', usedPercent: undefined, status: 'allowed_warning', resetsAt: undefined, stale: true }
     ])
     expect(claudeLimits({ windows: {} })).toBeUndefined()
     expect(claudeLimits(undefined)).toBeUndefined()

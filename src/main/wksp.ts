@@ -1,4 +1,4 @@
-import { claudeLimitState, isClaudeLimit } from './claude-limit'
+import { claudeLimitState } from './claude-limit'
 import { SessionCostLedger, SessionQuotaPolicy, isQuotaError } from './session-usage'
 import { registerModelQuery, supportedClaudeEfforts } from './model-discovery'
 /**
@@ -226,7 +226,7 @@ export class AgentSession {
   private async pump(): Promise<void> {
     if (this.busy) return
     const waiting = this.pending[0]
-    if (waiting && !this.quotaPolicy().canStart(waiting.kind === 'player')) {
+    if (waiting && !this.quotaPolicy().canStart(waiting.kind === 'player', Date.now(), true, `${this.wkspName}:${this.label}`)) {
       this.setLimit(this.quotaPolicy().limitState())
       // Local polling can detect new on-disk evidence without spending provider quota.
       if (!this.retryTimer) {
@@ -235,6 +235,7 @@ export class AgentSession {
       }
       return
     }
+    if (waiting && this.limitPaused) this.reset()
     if (waiting) this.setLimit()
     const next = this.pending.shift()
     if (!next) return
@@ -317,7 +318,7 @@ export class AgentSession {
       this.hooks.onRequeue?.(item)
     }
     this.hooks.onActivity('idle')
-    if (state.stale && item && !item.limitRetried) {
+    if (state.stale && item && !item.limitRetried && this.quotaPolicy().canStart(item.kind === 'player', Date.now(), false)) {
       this.setLimit()
       item.limitRetried = true
       this.retryLimit()
@@ -453,7 +454,7 @@ export class AgentSession {
         if ((m as { parent_tool_use_id?: string | null }).parent_tool_use_id) return
         const am = m as { message?: { id?: string; content?: unknown[] }; error?: unknown }
         const errorText = (am.message?.content ?? []).map(b => (b as { text?: string }).text ?? '').join(' ')
-        if (am.error && (isClaudeLimit(errorText) || isClaudeLimit(String(am.error)))) {
+        if (am.error && (isQuotaError(errorText) || isQuotaError(String(am.error)))) {
           this.assistantLimit = errorText || String(am.error)
           return
         }
@@ -497,7 +498,7 @@ export class AgentSession {
       case 'result': {
         const r = m as { is_error?: boolean; total_cost_usd?: number; result?: string; errors?: string[]; subtype?: string }
         const errorText = (r.errors ?? []).join('; ') || r.result || this.assistantLimit
-        const limitError = (r.is_error && isClaudeLimit(errorText)) || !!this.assistantLimit
+        const limitError = (r.is_error && isQuotaError(errorText)) || !!this.assistantLimit
         const resultId = typeof m.uuid === 'string' ? m.uuid : ''
         const cost = this.costs.record(this.sessionId ?? this.label, resultId, r.total_cost_usd, Boolean(this.resumedFrom))
         if (cost.duplicate) return
@@ -1008,7 +1009,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
     if (prepared.context) m.context = prepared.context
     const player = origin === 'player'
     // mid-turn: the message waits in the log as queued until the session picks it up
-    if (player && !genio.idle) m.queue = 'queued'
+    if (player) m.queue = 'queued'
     record(m, true)
     bus.publish({ type: 'sfx', sound: 'send' })
     // the ids let Genio pass pasted images to generate_image as refs

@@ -51,11 +51,11 @@ describe('Claude reset clocks', () => {
 })
 
 describe('expired Claude usage snapshots', () => {
-  it('cannot keep the account or dispatch exhausted after reset', () => {
+  it('shows expired usage as unknown while keeping its protective history', () => {
     const file = mergeClaudeRateLimit({ windows: {} }, { rateLimitType: 'five_hour', status: 'rejected', utilization: 1, resetsAt: now / 1000 - 1 }, new Date(now).toISOString())!
     const limits = claudeLimits(file, now)!
     expect(limits.windows[0]).toMatchObject({ stale: true, status: undefined })
-    expect(quotaFromUsage({ tools: [{ tool: 'claude', limits: [limits] }] } as UsageReport)).toEqual({})
+    expect(quotaFromUsage({ tools: [{ tool: 'claude', limits: [limits] }] } as UsageReport).claude[0]).toMatchObject({ usedPercent: undefined, lastKnownUsedPercent: 100, stale: true })
   })
 
   it('allowed without utilization does not inherit an exhausted rejected percentage', () => {

@@ -71,6 +71,7 @@ vi.mock('../src/main/wksp-tools', () => ({ buildTools: () => [] }))
 const { Home } = await import('../src/main/home')
 const { createWkspService, AgentSession } = await import('../src/main/wksp')
 const { bus } = await import('../src/main/bus')
+const { SessionQuotaPolicy, SessionCostLedger } = await import('../src/main/session-usage')
 
 const PNG = 'iVBORw0KGgo='
 
@@ -322,11 +323,8 @@ describe('Claude limit recovery through the SDK stream', () => {
     expect(fake.queries).toHaveLength(2)
     await c.svc.restart(false)
     await flush()
-    expect(fake.queries[2].received).toEqual([prompt])
-    fake.queries[2].finishTurn()
-    await flush()
-    expect(fake.queries[2].received[1]).toBe('second')
-    expect(c.svc.info().limit).toBeUndefined()
+    expect(fake.queries).toHaveLength(2) // restarting cannot reset the durable retry budget
+    expect(c.view().queued.map(m => m.text)).toEqual(['first', 'second'])
   })
 
   it('deduplicates rejected events and results, keeps messages visibly queued, then resumes at reset', async () => {
@@ -348,14 +346,13 @@ describe('Claude limit recovery through the SDK stream', () => {
     await vi.advanceTimersByTimeAsync(102)
     expect(fake.queries).toHaveLength(2)
     expect(fake.queries[1].received).toEqual(['one'])
-    expect(c.svc.info().limit).toBeDefined()
     fake.queries[1].finishTurn()
     await flush()
     expect(c.svc.info().limit).toBeUndefined()
     expect(fake.queries[1].received).toEqual(['one', 'two'])
   })
 
-  it('allowed with no reset recovers a cached error and hides assistant rate-limit errors', async () => {
+  it('a rejection supersedes older allowed evidence and waits for a new allowed observation', async () => {
     const c = chat('art')
     await c.svc.send('one')
     await flush()
@@ -363,9 +360,12 @@ describe('Claude limit recovery through the SDK stream', () => {
     fake.queries[0].emit({ type: 'assistant', error: 'rate_limit', message: { id: 'limit', content: [{ type: 'text', text: "You've hit your session limit" }] } })
     fake.queries[0].emit(limitResult("You've hit your session limit"))
     await flush()
-    expect(fake.queries).toHaveLength(2)
+    expect(fake.queries).toHaveLength(1)
     expect(c.svc.history().map(m => m.text)).toEqual(['one'])
     expect(c.svc.info().lastError).toBeUndefined()
+    fake.queries[0].emit({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } })
+    await flush()
+    expect(fake.queries).toHaveLength(2)
   })
 
   it('a later allowed event clears a genuine banner and restarts the waiting query', async () => {
@@ -381,7 +381,7 @@ describe('Claude limit recovery through the SDK stream', () => {
     expect(fake.queries[1].received).toEqual(['one'])
   })
 
-  it('Retry now restarts early without losing queued messages; stopping cancels scheduled recovery', async () => {
+  it('Retry now cannot bypass a future reset; stopping cancels scheduled recovery', async () => {
     const c = chat('art')
     await c.svc.send('one')
     await flush()
@@ -391,15 +391,14 @@ describe('Claude limit recovery through the SDK stream', () => {
     await c.svc.send('two')
     await c.svc.restart(false)
     await flush()
-    expect(fake.queries[1].received).toEqual(['one'])
-    fake.queries[1].emit(error)
-    await flush()
+    expect(fake.queries).toHaveLength(1)
+    expect(c.view().queued.map(m => m.text)).toEqual(['one', 'two'])
     await c.svc.stop()
     await vi.advanceTimersByTimeAsync(24 * 3600_000)
-    expect(fake.queries).toHaveLength(2)
+    expect(fake.queries).toHaveLength(1)
   })
 
-  it('an ally limit does not pause another chat, and Bot recovery only restarts its own query', async () => {
+  it('shares rejection protection with other allies and Bot without dropping queued work', async () => {
     const art = chat('art')
     const audio = chat('audio')
     await art.svc.send('art')
@@ -408,24 +407,24 @@ describe('Claude limit recovery through the SDK stream', () => {
     await flush()
     await audio.svc.send('audio')
     await flush()
-    expect(fake.queries[1].received).toEqual(['audio'])
-    expect(audio.svc.info().limit).toBeUndefined()
+    expect(fake.queries).toHaveLength(1)
+    expect(audio.view().queued.map(m => m.text)).toEqual(['audio'])
+    expect(audio.svc.info().limit).toBeDefined()
     const onTurnEnd = vi.fn()
     const bot = new AgentSession('bot', async resume => ({ resume }), {
       onMessage: vi.fn(), onDelta: vi.fn(), onActivity: vi.fn(), onTurnEnd,
       onSessionId: vi.fn(), onError: vi.fn(), onRateLimit: vi.fn()
-    }, 'main', () => ({}))
+    }, 'main', () => ({}), () => new SessionQuotaPolicy(ctx.main.home.data), new SessionCostLedger(path.join(dir, 'bot-costs.json')))
     cleanup.push(() => bot.stop())
     bot.enqueue({ kind: 'events', prompt: 'wake events', ackThrough: 42 })
-    await flush()
-    fake.queries[2].emit(limitResult())
-    await flush()
-    expect(fake.queries[3].received).toEqual(['wake events'])
-    expect(onTurnEnd).toHaveBeenCalledWith(undefined, false, '', 0)
-    expect(art.svc.info().limit).toBeDefined()
-    expect(audio.svc.info().limit).toBeUndefined()
-    fake.queries[3].finishTurn()
-    await flush()
-    expect(onTurnEnd).toHaveBeenLastCalledWith(expect.objectContaining({ ackThrough: 42 }), true, '', 0)
+    await vi.advanceTimersByTimeAsync(5 * 3600_000)
+    expect(onTurnEnd).not.toHaveBeenCalled()
+    expect(bot.pending[0]).toMatchObject({ ackThrough: 42 })
+    // At most one queued foreground turn may probe after reset; Bot never probes.
+    expect(fake.queries).toHaveLength(2)
+    const policy = new SessionQuotaPolicy(ctx.main.home.data)
+    policy.observe({ status: 'allowed' })
+    await vi.advanceTimersByTimeAsync(30_001)
+    expect(fake.queries.some(q => q.received.includes('wake events'))).toBe(true)
   })
 })

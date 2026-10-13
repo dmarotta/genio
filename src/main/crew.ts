@@ -215,7 +215,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     setTimeout(off, 90_000)
   }
 
-  const launch = async (t: Task, opts: { resume: boolean; prompt: string }): Promise<TerminalInfo> => {
+  const launch = async (t: Task, opts: { resume: boolean; prompt: string; check(): Promise<void> }): Promise<TerminalInfo> => {
     const ctx = getCtx()
     const s = ctx.settings.get()
     const adapter = ctx.settings.harness(t.harness)
@@ -249,6 +249,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       GENIO_TASK_INBOX: fwd(inboxDir(t.id)),
       GENIO_BRIEF: fwd(t.briefPath)
     }
+    await opts.check()
     const term = ctx.terminals.create({ kind: 'worker', title: t.id, cwd: t.worktree, file: adapter.command, args, env, taskId: t.id })
     if (!term.alive) throw new Error(`Could not start ${adapter.name} (${adapter.command}). Is it installed? Check SYSTEMS.`)
     watchConsent(t, term.id, adapter.trustPatterns, adapter.trustResponse, isClaude)
@@ -441,99 +442,98 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       const reservation = await ctx.dispatch.reserve(pickInput)
       const loadout = reservation.loadout
       try {
+        const id = uniqueId(req.title)
+        const branch = `${posture.branchPrefix}${id}`
+        const baseBranch = req.baseBranch?.trim() || project.defaultBranch
+        const wt = home.worktreeFor(project.name, id)
+        // Offline worlds land locally and push on demand: branch from the local default, not origin's.
+        const add = await git.addWorktree(project.path, wt, branch, baseBranch, posture.mode === 'local-only')
+        if (add.code !== 0) throw new Error(`Could not create the isolated worktree: ${add.stderr.trim()}`)
+        const iso = await git.assertIsolated(project.path, wt)
+        if (!iso.ok) {
+          await git.removeWorktree(project.path, wt, true)
+          throw new Error(`Isolation check failed (${iso.reason}); the mission was stopped.`)
+        }
 
-      const id = uniqueId(req.title)
-      const branch = `${posture.branchPrefix}${id}`
-      const baseBranch = req.baseBranch?.trim() || project.defaultBranch
-      const wt = home.worktreeFor(project.name, id)
-      // Offline worlds land locally and push on demand: branch from the local default, not origin's.
-      const add = await git.addWorktree(project.path, wt, branch, baseBranch, posture.mode === 'local-only')
-      if (add.code !== 0) throw new Error(`Could not create the isolated worktree: ${add.stderr.trim()}`)
-      const iso = await git.assertIsolated(project.path, wt)
-      if (!iso.ok) {
-        await git.removeWorktree(project.path, wt, true)
-        throw new Error(`Isolation check failed (${iso.reason}); the mission was stopped.`)
-      }
+        ensureDir(home.taskDir(id))
+        ensureDir(path.join(inboxDir(id), 'handled'))
+        if (!exists(home.statusFile(id))) writeText(home.statusFile(id), '')
+        const reportPath = req.kind === 'scout' ? home.reportFile(id) : undefined
+        const briefPath = home.briefFile(id)
+        writeText(
+          briefPath,
+          renderBrief({
+            taskId: id,
+            kind: req.kind,
+            project: project.name,
+            worktree: wt,
+            branch,
+            baseBranch,
+            mode: req.kind === 'ship' ? posture.mode : undefined,
+            yolo: posture.yolo,
+            intent: req.intent,
+            spec: req.spec,
+            statusFile: home.statusFile(id),
+            inboxDir: inboxDir(id),
+            taskDataDir: home.taskDir(id),
+            reportPath,
+            engine: project.engine,
+            engineHints: engineHints(project.engine),
+            briefInclude: s.briefInclude,
+            tools: toolsBrief()
+          })
+        )
 
-      ensureDir(home.taskDir(id))
-      ensureDir(path.join(inboxDir(id), 'handled'))
-      if (!exists(home.statusFile(id))) writeText(home.statusFile(id), '')
-      const reportPath = req.kind === 'scout' ? home.reportFile(id) : undefined
-      const briefPath = home.briefFile(id)
-      writeText(
-        briefPath,
-        renderBrief({
-          taskId: id,
+        const harness = loadout.harness
+        const now = nowIso()
+        const task: Task = {
+          id,
           kind: req.kind,
+          title: req.title.trim(),
           project: project.name,
-          worktree: wt,
-          branch,
-          baseBranch,
+          wksp: home.name,
+          backlogId,
           mode: req.kind === 'ship' ? posture.mode : undefined,
-          yolo: posture.yolo,
-          intent: req.intent,
-          spec: req.spec,
-          statusFile: home.statusFile(id),
-          inboxDir: inboxDir(id),
-          taskDataDir: home.taskDir(id),
+          yolo: req.kind === 'ship' ? posture.yolo : undefined,
+          branchPrefix: posture.branchPrefix,
+          baseBranch,
+          branch,
+          worktree: wt,
+          briefPath,
           reportPath,
-          engine: project.engine,
-          engineHints: engineHints(project.engine),
-          briefInclude: s.briefInclude,
-          tools: toolsBrief()
-        })
-      )
-
-      const harness = loadout.harness
-      const now = nowIso()
-      const task: Task = {
-        id,
-        kind: req.kind,
-        title: req.title.trim(),
-        project: project.name,
-        wksp: home.name,
-        backlogId,
-        mode: req.kind === 'ship' ? posture.mode : undefined,
-        yolo: req.kind === 'ship' ? posture.yolo : undefined,
-        branchPrefix: posture.branchPrefix,
-        baseBranch,
-        branch,
-        worktree: wt,
-        briefPath,
-        reportPath,
-        harness,
-        model: loadout.model,
-        effort: loadout.effort,
-        loadout: loadout.reasons,
-        category: loadout.category,
-        loadoutSource: loadout.source,
-        ruleId: loadout.ruleId,
-        explored: loadout.explored,
-        counters: { pings: 0, lagging: 0, stopped: 0, fixRounds: 0 },
-        usageAtStart: ctx.dispatch.usagePercent(harness),
-        state: 'spawning',
-        stateReason: posture.warning,
-        createdAt: now,
-        updatedAt: now,
-        inbox: { seq: 0, acked: 0, rings: 0 },
-        statusOffset: 0,
-        relaunches: 0
-      }
-      tasks.push(task)
-      persist()
-      bus.publish({ type: 'task', task })
-      try {
-        const term = await launch(task, { resume: false, prompt: kickoffPrompt(briefPath) })
-        update(id, { terminalId: term.id, state: 'working', stateReason: posture.warning ?? 'deployed' })
-      } catch (e) {
-        update(id, { state: 'failed', stateReason: (e as Error).message })
-        throw e
-      }
-      safe(() => backlog.markInFlight(backlogId!, id))
-      ledger('task.dispatched', task, { kind: task.kind, project: task.project, harness, model: task.model ?? 'default', effort: task.effort ?? 'default', category: loadout.category, loadout: loadout.source, rule: loadout.ruleId, explored: loadout.explored, mode: task.mode, yolo: task.yolo })
-      safe(() => ctx.stats.award('spawn', id))
-      safe(() => ctx.notifier.sfx('spawn'))
-      return get(id)!
+          harness,
+          model: loadout.model,
+          effort: loadout.effort,
+          loadout: loadout.reasons,
+          category: loadout.category,
+          loadoutSource: loadout.source,
+          ruleId: loadout.ruleId,
+          explored: loadout.explored,
+          counters: { pings: 0, lagging: 0, stopped: 0, fixRounds: 0 },
+          usageAtStart: ctx.dispatch.usagePercent(harness),
+          state: 'spawning',
+          stateReason: posture.warning,
+          createdAt: now,
+          updatedAt: now,
+          inbox: { seq: 0, acked: 0, rings: 0 },
+          statusOffset: 0,
+          relaunches: 0
+        }
+        tasks.push(task)
+        persist()
+        bus.publish({ type: 'task', task })
+        try {
+          const term = await launch(task, { resume: false, prompt: kickoffPrompt(briefPath), check: reservation.check })
+          update(id, { terminalId: term.id, state: 'working', stateReason: posture.warning ?? 'deployed' })
+        } catch (e) {
+          update(id, { state: 'failed', stateReason: (e as Error).message })
+          throw e
+        }
+        safe(() => backlog.markInFlight(backlogId!, id))
+        ledger('task.dispatched', task, { kind: task.kind, project: task.project, harness, model: task.model ?? 'default', effort: task.effort ?? 'default', category: loadout.category, loadout: loadout.source, rule: loadout.ruleId, explored: loadout.explored, mode: task.mode, yolo: task.yolo })
+        safe(() => ctx.stats.award('spawn', id))
+        safe(() => ctx.notifier.sfx('spawn'))
+        return get(id)!
       } finally {
         reservation.release()
       }
@@ -635,31 +635,33 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       } catch (e) {
         return { ok: false, message: (e as Error).message }
       }
-      // Count attempts before any await, including failed launches; notes do not reset the cap.
-      update(id, { automaticRelaunches: policy.nextAttempts })
       try {
-      appendProgressNote(t.briefPath, note ?? '')
-      await recall()
-      const prompt = `Genio respawned you. Re-read your brief at ${fwd(t.briefPath)} (see the latest Progress note), check your ping inbox, then continue.`
-      try {
-        const term = await launch(t, { resume: true, prompt })
-        if (t.terminalId && t.terminalId !== term.id) terms.kill(t.terminalId)
-        const keepState = t.state === 'ready' || t.state === 'merged' || t.state === 'done'
-        update(id, {
-          terminalId: term.id,
-          state: keepState ? t.state : 'working',
-          stateReason: 'respawned',
-          relaunches: t.relaunches + 1
-        })
-        ledger('task.relaunched', t, { relaunches: t.relaunches + 1 })
-        return {
-          ok: true,
-          message: `Respawned ${id}.`
+        // Recheck after reservation acquisition: another caller may have relaunched meanwhile.
+        const currentPolicy = relaunchPolicy(get(id)!, manual)
+        if (!currentPolicy.allowed) return { ok: false, message: 'Held after one automatic relaunch. Use Respawn to resume manually.' }
+        update(id, { automaticRelaunches: currentPolicy.nextAttempts })
+        appendProgressNote(t.briefPath, note ?? '')
+        await recall()
+        const prompt = `Genio respawned you. Re-read your brief at ${fwd(t.briefPath)} (see the latest Progress note), check your ping inbox, then continue.`
+        try {
+          const term = await launch(t, { resume: true, prompt, check: reservation.check })
+          if (t.terminalId && t.terminalId !== term.id) terms.kill(t.terminalId)
+          const keepState = t.state === 'ready' || t.state === 'merged' || t.state === 'done'
+          update(id, {
+            terminalId: term.id,
+            state: keepState ? t.state : 'working',
+            stateReason: 'respawned',
+            relaunches: t.relaunches + 1
+          })
+          ledger('task.relaunched', t, { relaunches: t.relaunches + 1 })
+          return {
+            ok: true,
+            message: `Respawned ${id}.`
+          }
+        } catch (e) {
+          update(id, { state: 'failed', stateReason: (e as Error).message })
+          return { ok: false, message: (e as Error).message }
         }
-      } catch (e) {
-        update(id, { state: 'failed', stateReason: (e as Error).message })
-        return { ok: false, message: (e as Error).message }
-      }
       } finally { reservation.release() }
     },
 

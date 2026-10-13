@@ -20,6 +20,7 @@ const base: LoadoutInput = { kind: 'ship', project: 'neon-runner', title: 'Add a
 const settings = (patch: Partial<Settings> = {}): Settings => ({ ...defaultSettings(), ...patch })
 const env = (ids: string[], extra: Partial<PickEnv> = {}): PickEnv => ({ available: (h) => ids.includes(h.id), ...extra })
 const ALL = ['claude', 'codex', 'gemini', 'opencode']
+const coolQuota = () => Object.fromEntries(['claude', 'codex'].map(id => [id, [{ label: '5-hour', usedPercent: 20, observedAt: new Date().toISOString() }]]))
 
 function rec(p: Partial<OutcomeRecord> = {}): OutcomeRecord {
   return {
@@ -71,10 +72,8 @@ describe('precedence: explicit > rules > category table > default', () => {
     expect(pickLoadout({ ...base, category: 'large-context' }, settings(), env(['claude', 'codex'])).harness).toBe('claude')
   })
 
-  it('the default unit tool applies when the table has nothing usable', () => {
-    const l = pickLoadout({ ...base, category: 'tests' }, settings(), env(['aider']))
-    expect(l.source).toBe('default')
-    expect(l.reasons.join('\n')).toMatch(/none of its tools/)
+  it('queues when neither the table nor the default tool is usable', () => {
+    expect(() => pickLoadout({ ...base, category: 'tests' }, settings(), env(['aider']))).toThrow(/deferred/)
   })
 
   it('skips tools that are installed but logged out', () => {
@@ -115,17 +114,15 @@ describe('cost dial', () => {
   })
 })
 
-describe('quota down-ranking', () => {
+describe('hard quota eligibility', () => {
   it('moves a tool above ~85% of a plan window behind cooler candidates, and says so', () => {
     const l = pickLoadout({ ...base, category: 'feature' }, settings(), env(ALL, { quota: { claude: [{ label: '5-hour', usedPercent: 91 }] } }))
     expect(l.harness).toBe('codex')
-    expect(l.reasons.join('\n')).toMatch(/Claude Code down-ranked: 5-hour window at 91%/)
+    expect(l.reasons.join('\n')).toMatch(/Claude Code excluded: 5-hour window at 91%/)
   })
 
-  it('still picks a hot tool when nothing cooler is available', () => {
-    const l = pickLoadout({ ...base, category: 'feature' }, settings(), env(['claude'], { quota: { claude: [{ label: 'weekly', usedPercent: 97 }] } }))
-    expect(l.harness).toBe('claude')
-    expect(l.reasons.join('\n')).toMatch(/97% of its weekly window/)
+  it('queues when the only available plan is hot', () => {
+    expect(() => pickLoadout({ ...base, category: 'feature' }, settings(), env(['claude'], { quota: { claude: [{ label: 'weekly', usedPercent: 97 }] } }))).toThrow(/deferred/)
   })
 
   it('reads live 5-hour and weekly windows from the usage report', () => {
@@ -137,7 +134,7 @@ describe('quota down-ranking', () => {
         { tool: 'codex', limits: [] }
       ]
     })
-    expect(q).toEqual({ claude: [{ label: '5-hour', usedPercent: 88 }, { label: 'weekly', usedPercent: 100 }] })
+    expect(q.claude).toMatchObject([{ label: '5-hour', usedPercent: undefined, lastKnownUsedPercent: 88 }, { label: 'weekly', status: 'rejected' }, { label: 'weekly (Opus)', usedPercent: undefined, lastKnownUsedPercent: 99 }])
   })
 })
 
@@ -163,14 +160,14 @@ describe('exploration gating', () => {
   const stats = scoreTable(many(9, { category: 'tests', harness: 'codex' }))
 
   it('about rate-share of picks try a less-proven candidate', () => {
-    const l = pickLoadout({ ...base, category: 'tests' }, s, env(ALL, { rand: () => 0.1, stats }))
+    const l = pickLoadout({ ...base, category: 'tests' }, s, env(ALL, { rand: () => 0.1, stats, quota: coolQuota() }))
     expect(l).toMatchObject({ harness: 'claude', explored: true })
     expect(l.reasons.join('\n')).toMatch(/exploration \(20%\): trying Claude Code, less proven for Tests \(0 vs 9 outcomes\)/)
-    expect(pickLoadout({ ...base, category: 'tests' }, s, env(ALL, { rand: () => 0.5, stats })).harness).toBe('codex')
+    expect(pickLoadout({ ...base, category: 'tests' }, s, env(ALL, { rand: () => 0.5, stats, quota: coolQuota() })).harness).toBe('codex')
   })
 
   it('never explores on explicit picks, critical quests, a 0 rate or a single eligible candidate', () => {
-    const roll = env(ALL, { rand: () => 0, stats })
+    const roll = env(ALL, { rand: () => 0, stats, quota: coolQuota() })
     expect(pickLoadout({ ...base, category: 'tests', model: 'gpt-x' }, s, roll).explored).toBeUndefined()
     expect(pickLoadout({ ...base, category: 'tests', harness: 'codex' }, s, roll).explored).toBeUndefined()
     expect(pickLoadout({ ...base, category: 'tests', priority: 'critical' }, s, roll).explored).toBeUndefined()
@@ -179,7 +176,7 @@ describe('exploration gating', () => {
   })
 
   it('the preview only says exploration may happen', () => {
-    const l = pickLoadout({ ...base, category: 'tests' }, s, env(ALL, { rand: () => 0, preview: true }))
+    const l = pickLoadout({ ...base, category: 'tests' }, s, env(ALL, { rand: () => 0, preview: true, quota: coolQuota() }))
     expect(l.harness).toBe('codex')
     expect(l.reasons.join('\n')).toMatch(/20% of deploys try a less-proven candidate/)
   })

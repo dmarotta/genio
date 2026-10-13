@@ -256,7 +256,7 @@ export interface UthanaService {
 export interface DispatchService {
   /** what the picker knows beyond settings for a deploy in this world; preview never rolls exploration */
   signals(project: string, opts?: { preview?: boolean }): Omit<PickEnv, 'available'>
-  reserve(input: import('@shared/types').LoadoutInput): Promise<{ loadout: import('@shared/types').Loadout; release(): void }>
+  reserve(input: import('@shared/types').LoadoutInput): Promise<{ loadout: import('@shared/types').Loadout; check(): Promise<void>; release(): void }>
   /** a tool's hottest 5-hour/weekly plan window (percent), when it reported one */
   usagePercent(harness: string): number | undefined
   noteUsage(r: UsageReport): void

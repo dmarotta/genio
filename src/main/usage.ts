@@ -156,9 +156,18 @@ export function parseCodexSession(lines: Iterable<string>, id: string): CodexSes
 /** The latest snapshot per limit bucket, main bucket first. */
 export function codexLimits(snapshots: Iterable<CodexSnapshot>, now = Date.now()): UsageLimits[] {
   const latest = new Map<string, CodexSnapshot>()
+  const windows = new Map<string, Map<string, UsageWindow>>()
   let plan: string | undefined
   let planTs = ''
-  for (const s of snapshots) {
+  for (const s of [...snapshots].sort((a, b) => a.ts.localeCompare(b.ts))) {
+    const bucket = windows.get(s.limitId) ?? new Map<string, UsageWindow>()
+    for (const w of s.windows) {
+      const label = windowLabel(w.minutes)
+      const prev = bucket.get(label)
+      bucket.set(label, { label, usedPercent: w.usedPercent, resetsAt: w.resetsAt, observedAt: s.ts,
+        changedAt: prev && prev.usedPercent === w.usedPercent && prev.resetsAt === w.resetsAt ? prev.changedAt : s.ts })
+    }
+    windows.set(s.limitId, bucket)
     const cur = latest.get(s.limitId)
     if (!cur || s.ts > cur.ts) latest.set(s.limitId, s)
     if (s.plan && s.ts > planTs) {
@@ -173,15 +182,7 @@ export function codexLimits(snapshots: Iterable<CodexSnapshot>, now = Date.now()
       updatedAt: s.ts,
       name: s.limitId === 'codex' ? undefined : (s.name ?? s.limitId),
       plan: s.limitId === 'codex' ? (s.plan ?? plan) : s.plan,
-      windows: s.windows.map(
-        (w): UsageWindow => expireWindow({
-          observedAt: s.ts,
-          changedAt: s.ts,
-          label: windowLabel(w.minutes),
-          usedPercent: w.usedPercent,
-          resetsAt: w.resetsAt,
-          }, now)
-      )
+      windows: [...windows.get(s.limitId)!.values()].map((w) => expireWindow(w, now))
     }))
 }
 
@@ -244,8 +245,8 @@ export function mergeClaudeRateLimit(file: ClaudeLimitsFile, info: ClaudeRateLim
   const type = info.rateLimitType || 'unspecified'
   const prev = file.windows[type]
   const next: StoredWindow = {
-    status: info.status,
-    utilization: typeof info.utilization === 'number' && Number.isFinite(info.utilization) ? info.utilization : info.status === 'allowed' && prev?.status === 'rejected' ? undefined : prev?.utilization,
+    status: info.status ?? prev?.status,
+    utilization: typeof info.utilization === 'number' && Number.isFinite(info.utilization) ? info.utilization : (info.status === 'allowed' && prev?.status === 'rejected') || (info.resetsAt !== undefined && info.resetsAt !== prev?.resetsAt) ? undefined : prev?.utilization,
     resetsAt: typeof info.resetsAt === 'number' ? info.resetsAt : prev?.resetsAt,
     updatedAt: at,
     observedAt: at,
@@ -320,7 +321,7 @@ export function falSpend(runs: FalRun[], now = Date.now()): FalSpend {
 export function quotaFromUsage(r: UsageReport): Record<string, QuotaWindow[]> {
   const out: Record<string, QuotaWindow[]> = {}
   for (const t of r.tools) {
-    const windows = t.limits.flatMap((l) => l.windows.map((w) => expireWindow({ ...w, observedAt: w.observedAt ?? l.updatedAt })))
+    const windows = t.limits.flatMap((l) => l.windows.map((w) => expireWindow({ ...w, label: l.name ? `${l.name}: ${w.label}` : w.label, observedAt: w.observedAt ?? l.updatedAt })))
     if (windows.length) out[t.tool] = windows
   }
   return out
@@ -414,6 +415,8 @@ async function claudeUsage(ctx: AppCtx, root: string, now: number): Promise<Tool
     const state = readJson<{ sessionId?: string; botSessionId?: string }>(h.home.wkspFile, {})
     if (state.sessionId) sessions.add(state.sessionId)
     if (state.botSessionId) sessions.add(state.botSessionId)
+    const costs = readJson<{ sessions: Record<string, unknown> }>(path.join(h.home.data, 'usage', 'session-costs.json'), { sessions: {} })
+    for (const id of Object.keys(costs.sessions)) sessions.add(id)
   }
   const files = recentJsonl(projects, weekStart)
   const seen = new Map<string, TokenRecord>()
