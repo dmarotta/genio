@@ -5,8 +5,10 @@
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { API_PREFIX, type GenioApi } from '@shared/api'
 import type { Task } from '@shared/types'
+import { listAccounts, openAccountSession } from './accounts'
 import { answerChoice, findDecision, findTask } from './wksp-tools'
 import { resolveLoadout } from './loadout'
+import { clearSecret, secretStatus, setSecret } from './secrets'
 import type { AppCtx, HomeCtx } from './services'
 
 type Handlers = { [K in keyof GenioApi]: (...args: Parameters<GenioApi[K]>) => ReturnType<GenioApi[K]> | Awaited<ReturnType<GenioApi[K]>> }
@@ -44,6 +46,19 @@ export function registerIpc(getCtx: () => AppCtx): void {
     },
     openExternal: async (url) => {
       if (/^https?:\/\//i.test(url)) await shell.openExternal(url)
+    },
+
+    // ---- accounts
+    accounts: () => listAccounts(),
+    accountSession: (tool, action) => openAccountSession(ctx(), tool, action),
+    apiKeys: () => secretStatus(ctx().main.home.data),
+    apiKeySet: (id, key) => {
+      setSecret(id, key, ctx().main.home.data)
+      return { ok: true, message: 'Key saved (encrypted).' }
+    },
+    apiKeyClear: (id) => {
+      clearSecret(id, ctx().main.home.data)
+      return { ok: true, message: 'Key cleared.' }
     },
 
     // ---- comms

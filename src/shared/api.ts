@@ -61,6 +61,37 @@ export interface OpResult {
   message: string
 }
 
+export type LoginState = 'logged-in' | 'logged-out' | 'unknown'
+
+/** A CLI with its own login (Systems → Accounts). Genio never holds its credentials. */
+export interface AccountStatus {
+  tool: string
+  label: string
+  purpose: string
+  installed: boolean
+  version?: string
+  /** loadout install hint, shown when missing */
+  install?: string
+  state: LoginState
+  /** account or auth method, as the CLI reports it (token-free) */
+  detail?: string
+  canLogin: boolean
+  canLogout: boolean
+  /** auth commands checked against the installed CLI's --help (else wired from its docs) */
+  verified: boolean
+  note?: string
+}
+
+/** An API-key service; the key itself never crosses to the renderer. */
+export interface ApiKeyStatus {
+  id: string
+  label: string
+  purpose: string
+  set: boolean
+  last4?: string
+  setAt?: string
+}
+
 export interface GenioApi {
   snapshot(): Promise<FleetSnapshot>
   homePath(): Promise<string>
@@ -71,6 +102,14 @@ export interface GenioApi {
   pickDirectory(): Promise<string | null>
   openPath(path: string): Promise<void>
   openExternal(url: string): Promise<void>
+
+  // ---- accounts
+  accounts(): Promise<AccountStatus[]>
+  /** runs the tool's own login/logout in a visible terminal */
+  accountSession(tool: string, action: 'login' | 'logout'): Promise<TerminalInfo>
+  apiKeys(): Promise<ApiKeyStatus[]>
+  apiKeySet(id: string, key: string): Promise<OpResult>
+  apiKeyClear(id: string): Promise<OpResult>
 
   // ---- bridge (chat with Genio / second units)
   chatHistory(wksp: string, limit?: number): Promise<ChatMessage[]>
@@ -156,6 +195,11 @@ export const API_METHODS = [
   'pickDirectory',
   'openPath',
   'openExternal',
+  'accounts',
+  'accountSession',
+  'apiKeys',
+  'apiKeySet',
+  'apiKeyClear',
   'chatHistory',
   'sendChat',
   'interruptWksp',

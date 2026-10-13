@@ -1,15 +1,17 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
-import { Copy, Download, Plus, RefreshCw, Trash, TriangleAlert, Users, Wrench } from 'lucide-react'
+import { Copy, Download, KeyRound, LogIn, LogOut, Plus, RefreshCw, Trash, TriangleAlert, Users, Wrench, X } from 'lucide-react'
 import type { DispatchRule, EventSource, HarnessAdapter, Settings, ToolStatus, UpdateInfo } from '@shared/types'
+import type { AccountStatus, ApiKeyStatus } from '@shared/api'
 import { api, errText, op, saveSettings, toast, useStore } from '../store'
 import { CommitInput, Confirm, Field, Toggle, ViewHeader } from '../components/ui'
+import { TerminalView } from '../components/Terminal'
 import { EFFORTS, MODEL_SUGGESTIONS } from '../lib/vocab'
 import { cx, dateShort } from '../lib/format'
 import { playSfx } from '../lib/sfx'
 
 type Section =
   | 'profile' | 'genio' | 'units' | 'overwatch' | 'gauntlet' | 'comms' | 'alerts' | 'mail' | 'memory'
-  | 'harnesses' | 'dispatch' | 'triggers' | 'toolchain' | 'allies' | 'patch'
+  | 'harnesses' | 'dispatch' | 'triggers' | 'toolchain' | 'accounts' | 'allies' | 'patch'
 
 const SECTIONS: { id: Section; label: string; group: string }[] = [
   { id: 'profile', label: 'Profile', group: 'Player' },
@@ -26,6 +28,7 @@ const SECTIONS: { id: Section; label: string; group: string }[] = [
   { id: 'memory', label: 'Memory & briefs', group: 'Engine' },
   { id: 'mail', label: 'Mail & replay', group: 'Engine' },
   { id: 'toolchain', label: 'Loadout', group: 'Base' },
+  { id: 'accounts', label: 'Accounts', group: 'Base' },
   { id: 'patch', label: 'Patch', group: 'Base' }
 ]
 
@@ -290,6 +293,8 @@ function SectionBody({ sec, s }: { sec: Section; s: Settings }) {
       return <Triggers s={s} />
     case 'toolchain':
       return <Toolchain />
+    case 'accounts':
+      return <Accounts />
     case 'allies':
       return <Allies />
     case 'patch':
@@ -684,6 +689,191 @@ function Toolchain() {
         />
       )}
     </>
+  )
+}
+
+const LOGIN_LABEL: Record<AccountStatus['state'], { text: string; tone: string }> = {
+  'logged-in': { text: 'logged in', tone: 'volt' },
+  'logged-out': { text: 'logged out', tone: 'amber' },
+  unknown: { text: 'unknown', tone: '' }
+}
+
+function Accounts() {
+  const [accounts, setAccounts] = useState<AccountStatus[] | null>(null)
+  const [keys, setKeys] = useState<ApiKeyStatus[]>([])
+  const [session, setSession] = useState<string | null>(null)
+  const [logout, setLogout] = useState<AccountStatus | null>(null)
+  const sessionTerm = useStore((s) => (session ? s.terminals[session] : undefined))
+  const load = (): void => {
+    setAccounts(null)
+    void api().accounts().then(setAccounts).catch((e) => {
+      toast('error', 'Account check failed', errText(e))
+      setAccounts([])
+    })
+    void api().apiKeys().then(setKeys).catch(() => setKeys([]))
+  }
+  useEffect(load, [])
+  // the login/logout flow finished: re-read every status
+  const ended = Boolean(session && sessionTerm && !sessionTerm.alive)
+  useEffect(() => {
+    if (ended) load()
+  }, [ended])
+  const start = async (a: AccountStatus, action: 'login' | 'logout'): Promise<void> => {
+    try {
+      if (session) await api().terminalKill(session)
+      const t = await api().accountSession(a.tool, action)
+      setSession(t.id)
+    } catch (e) {
+      toast('error', `${action === 'login' ? 'Log in' : 'Log out'} · ${a.label}`, errText(e))
+    }
+  }
+  const close = (): void => {
+    if (session) void api().terminalKill(session).catch(() => undefined)
+    setSession(null)
+  }
+  return (
+    <>
+      <h2 className="sys-title">
+        Accounts
+        <button className="btn sm ghost" style={{ marginLeft: 12 }} onClick={load}>
+          <RefreshCw size={12} /> Refresh
+        </button>
+      </h2>
+      <p className="mute">Sign in to the CLIs Genio and its units drive. Each login runs the tool's own flow; the tool keeps its credentials and Genio never reads them.</p>
+      {!accounts && (
+        <div className="bar indeterminate">
+          <i />
+        </div>
+      )}
+      <div className="tool-list account-list">
+        {accounts?.map((a) => {
+          const st = LOGIN_LABEL[a.state]
+          return (
+            <div key={a.tool} className="tool-row account-row">
+              <span className="dot" style={{ ['--c' as string]: !a.installed ? 'var(--text-mute)' : a.state === 'logged-in' ? 'var(--volt)' : a.state === 'logged-out' ? 'var(--amber)' : 'var(--text-dim)' }} />
+              <b className="mono">{a.tool}</b>
+              <div className="account-main">
+                <div>
+                  {a.label}
+                  {!a.verified && (
+                    <span className="chip" style={{ marginLeft: 8 }} title="Auth commands wired from the tool's documentation; not yet checked against an installed copy.">
+                      documented
+                    </span>
+                  )}
+                </div>
+                {a.installed ? (
+                  <div className="mute tool-purpose">{a.detail ?? a.note ?? a.purpose}</div>
+                ) : (
+                  <div className="mute tool-purpose">
+                    not installed{a.install && <> · <span className="mono selectable">{a.install}</span></>}
+                  </div>
+                )}
+              </div>
+              {a.installed ? <span className={cx('chip', st.tone)}>{st.text}</span> : <span />}
+              <div className="row account-actions">
+                {a.installed && a.canLogin && (
+                  <button className="btn sm" onClick={() => void start(a, 'login')}>
+                    <LogIn size={12} /> Log in
+                  </button>
+                )}
+                {a.installed && a.canLogout && (
+                  <button className="btn sm ghost" disabled={a.state === 'logged-out'} onClick={() => setLogout(a)}>
+                    <LogOut size={12} /> Log out
+                  </button>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      {session && (
+        <div className="account-session panel">
+          <div className="account-session-head">
+            <b>{sessionTerm?.title ?? 'Session'}</b>
+            <span className="mute">{sessionTerm && !sessionTerm.alive ? `exited (${sessionTerm.exitCode ?? '?'})` : 'finish any prompts here or in your browser'}</span>
+            <span style={{ flex: 1 }} />
+            <button className="btn sm ghost icon" title="Close" onClick={close}>
+              <X size={12} />
+            </button>
+          </div>
+          <div className="account-term">
+            <TerminalView id={session} autoFocus />
+          </div>
+        </div>
+      )}
+      <div className="label" style={{ margin: '22px 0 8px' }}>
+        API keys
+      </div>
+      <p className="mute">For services without a CLI login. Keys are encrypted with your OS keychain and stay in Genio's base; Genio shows only whether one is set. Not passed to units yet.</p>
+      {keys.map((k) => (
+        <ApiKeyRow key={k.id} k={k} onChange={() => void api().apiKeys().then(setKeys).catch(() => undefined)} />
+      ))}
+      {logout && (
+        <Confirm
+          title={`Log out of ${logout.label}?`}
+          tone="amber"
+          confirmLabel="Log out"
+          body={`Runs ${logout.tool}'s own logout. Units using ${logout.label} will need you to log in again.`}
+          onConfirm={() => start(logout, 'logout')}
+          onClose={() => setLogout(null)}
+        />
+      )}
+    </>
+  )
+}
+
+function ApiKeyRow({ k, onChange }: { k: ApiKeyStatus; onChange: () => void }) {
+  const [v, setV] = useState('')
+  const [clear, setClear] = useState(false)
+  const save = async (): Promise<void> => {
+    const r = await op(`${k.label} key`, () => api().apiKeySet(k.id, v))
+    if (r?.ok) setV('')
+    onChange()
+  }
+  return (
+    <Row
+      label={k.label}
+      hint={
+        <>
+          {k.purpose}
+          <br />
+          <KeyRound size={11} style={{ verticalAlign: -1 }} /> {k.set ? <span className="volt-text">key set{k.last4 ? ` · ••••${k.last4}` : ''}</span> : 'no key'}
+          {k.set && k.setAt && <> · {dateShort(k.setAt)}</>}
+        </>
+      }
+    >
+      <div className="row">
+        <input
+          className="input mono"
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          value={v}
+          placeholder={k.set ? 'Paste a new key to replace' : 'Paste API key'}
+          onChange={(e) => setV(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && v.trim() && void save()}
+        />
+        <button className="btn sm solid" disabled={!v.trim()} onClick={() => void save()}>
+          {k.set ? 'Replace' : 'Save'}
+        </button>
+        <button className="btn sm ghost alert" disabled={!k.set} onClick={() => setClear(true)}>
+          Clear
+        </button>
+      </div>
+      {clear && (
+        <Confirm
+          title={`Clear the ${k.label} key?`}
+          tone="alert"
+          confirmLabel="Clear"
+          body="The stored key is deleted from Genio's base."
+          onConfirm={async () => {
+            await op(`${k.label} key`, () => api().apiKeyClear(k.id))
+            onChange()
+          }}
+          onClose={() => setClear(false)}
+        />
+      )}
+    </Row>
   )
 }
 

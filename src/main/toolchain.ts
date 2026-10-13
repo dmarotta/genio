@@ -41,20 +41,31 @@ function installHint(t: ToolDef): string | undefined {
   return undefined
 }
 
+async function probeTool(t: ToolDef): Promise<ToolStatus> {
+  const p = which(t.name)
+  const st: ToolStatus = { name: t.name, found: Boolean(p), path: p ?? undefined, required: t.required, purpose: t.purpose, install: installHint(t) }
+  if (p) {
+    const r = /\.(cmd|bat)$/i.test(p)
+      ? await runShell(`"${p}" ${t.versionArgs.join(' ')}`, { timeoutMs: 15_000 })
+      : await run(p, t.versionArgs, { timeoutMs: 15_000 })
+    const v = (r.stdout || r.stderr).trim().split(/\r?\n/)[0]
+    if (v) st.version = v.slice(0, 120)
+  }
+  return st
+}
+
+/** Loadout detection for one known tool (undefined for tools outside the loadout). */
+export function toolStatus(name: string): Promise<ToolStatus> | undefined {
+  const t = TOOLS.find((x) => x.name === name)
+  return t ? probeTool(t) : undefined
+}
+
 export function createToolchainService(_getCtx: () => AppCtx): ToolchainService {
   const found = new Map<string, boolean>()
 
   const probe = async (t: ToolDef): Promise<ToolStatus> => {
-    const p = which(t.name)
-    found.set(t.name, Boolean(p))
-    const st: ToolStatus = { name: t.name, found: Boolean(p), path: p ?? undefined, required: t.required, purpose: t.purpose, install: installHint(t) }
-    if (p) {
-      const r = /\.(cmd|bat)$/i.test(p)
-        ? await runShell(`"${p}" ${t.versionArgs.join(' ')}`, { timeoutMs: 15_000 })
-        : await run(p, t.versionArgs, { timeoutMs: 15_000 })
-      const v = (r.stdout || r.stderr).trim().split(/\r?\n/)[0]
-      if (v) st.version = v.slice(0, 120)
-    }
+    const st = await probeTool(t)
+    found.set(t.name, st.found)
     return st
   }
 
