@@ -1,4 +1,5 @@
 import type { ModelCatalogue } from './model-catalogue'
+import type { RecommendationReview, RecommendationResult } from './choice'
 import type { InventoryContext } from './inventory-context'
 export interface WorldMetadata { engineVersion?: string; lastCommitAt?: string }
 
@@ -503,6 +504,8 @@ export interface GenioApi {
 
   // ---- decisions
   answerDecision(id: string, answer: string): Promise<OpResult>
+  clarifyDecision(id: string, question: string): Promise<OpResult>
+  applyRecommendations(review: RecommendationReview[]): Promise<RecommendationResult[]>
   deferDecision(id: string, until: string): Promise<void>
   addDecision(d: Partial<Decision> & { question: string }): Promise<Decision>
 
@@ -608,6 +611,8 @@ export const API_METHODS = [
   'backlogDispatch',
   'backlogRemove',
   'answerDecision',
+  'clarifyDecision',
+  'applyRecommendations',
   'deferDecision',
   'addDecision',
   'projectAdd',

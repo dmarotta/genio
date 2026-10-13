@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Clock, Sparkles, X } from 'lucide-react'
 import { pendingDecision } from '@shared/decisions'
 import type { Decision } from '@shared/types'
+import { choiceGroup, reviewRecommendation, type RecommendationReview, type RecommendationResult } from '@shared/choice'
 import { api, focusTask, op, openDecisions, setState, useStore } from '../store'
 import { Markdown } from './Markdown'
 import { Chip, useNow } from './ui'
@@ -20,7 +21,7 @@ export function Answers() {
   useEffect(() => {
     if (open && target) document.getElementById(`answer-${target}`)?.scrollIntoView?.({ block: 'nearest' })
   }, [open, target, history, all])
-  if (!open || (!decisions.length && !history)) return null
+  if (!open) return null
   const visible = history ? all.filter(d => history === 'answered' ? !!d.resolvedAt : !d.resolvedAt && !pendingDecision(d)) : decisions
   const sorted = [...visible].sort((a, b) => history === 'answered' ? (b.resolvedAt ?? '').localeCompare(a.resolvedAt ?? '') : a.urgency === b.urgency ? a.createdAt.localeCompare(b.createdAt) : a.urgency === 'urgent' ? -1 : 1)
   return (
@@ -34,7 +35,7 @@ export function Answers() {
         <button className="btn sm ghost" aria-pressed={history === 'answered'} onClick={() => setState({ answerHistory: 'answered' })}>Answered</button>
         <button className="btn sm ghost" aria-pressed={history === 'deferred'} onClick={() => setState({ answerHistory: 'deferred' })}>Deferred</button>
       </nav>
-      <div className="answers-list">{sorted.length ? sorted.map(d => history ?
+      <div className="answers-list"><RecommendationBatches decisions={decisions} />{sorted.length ? sorted.map(d => history ?
         <div className="choice panel" id={`answer-${d.id}`} key={d.id}>
           <div className="choice-q">{d.question}</div>
           {d.project && <span className="chip">{d.project}</span>}
@@ -45,10 +46,54 @@ export function Answers() {
   )
 }
 
+function RecommendationBatches({ decisions }: { decisions: Decision[] }) {
+  const [review, setReview] = useState<{ question: string; row: RecommendationReview }[]>([])
+  const [results, setResults] = useState<RecommendationResult[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const sending = useRef(false)
+  const groups = new Map<string, Decision[]>()
+  for (const d of decisions) {
+    if (!reviewRecommendation(d)) continue
+    const group = choiceGroup(d)
+    groups.set(group, [...(groups.get(group) ?? []), d])
+  }
+  const apply = async () => {
+    if (sending.current) return
+    sending.current = true
+    setBusy(true)
+    try {
+      const r = await api().applyRecommendations(review.map(r => r.row))
+      setResults(r)
+    } catch (error) {
+      setResults(review.map(r => ({ id: r.row.id, ok: false, message: (error as Error).message })))
+    } finally { sending.current = false; setBusy(false) }
+  }
+  if (review.length) return (
+    <section className="panel choice" aria-label="Review recommendations">
+      <div className="label">Review recommendations · {review.length}</div>
+      <p>Only these choices will be applied. Changed choices stay pending.</p>
+      {review.map(({ question, row }) => <div key={row.id} className="choice-context">
+        <div>{question}</div><strong>Answer: {row.answer}</strong>
+        {results?.find(r => r.id === row.id) && <p role="status">{results.find(r => r.id === row.id)!.ok ? 'Applied' : 'Still pending'}: {results.find(r => r.id === row.id)!.message}</p>}
+      </div>)}
+      {!results && <button className="btn sm volt" disabled={busy} onClick={() => void apply()}>Apply recommendations ({review.length})</button>}
+      <button className="btn sm ghost" disabled={busy} onClick={() => { setReview([]); setResults(null) }}>{results ? 'Close results' : 'Cancel review'}</button>
+    </section>
+  )
+  return <>{[...groups].filter(([, rows]) => rows.length > 1).map(([key, rows]) => <button key={key} className="btn sm" onClick={() => {
+    setResults(null)
+    setReview(rows.map(d => ({ question: d.question, row: reviewRecommendation(d)! })))
+  }}>Review recommendations ({rows.length}) · {rows[0].project ?? rows[0].wksp} · {rows[0].batch ?? rows[0].taskId ?? rows[0].backlogId}</button>)}</>
+}
+
 export function AnswerCard({ d }: { d: Decision }) {
   const task = useStore((s) => (d.taskId ? s.snap.tasks.find((t) => t.id === d.taskId) : undefined))
   const settings = useStore((s) => s.settings)
   const [answer, setAnswer] = useState('')
+  const [clarifying, setClarifying] = useState(false)
+  const [question, setQuestion] = useState('')
+  const [receipt, setReceipt] = useState('')
+  const draft = clarifying ? question : answer
   const [later, setLater] = useState(false)
   const [until, setUntil] = useState(() => new Date(Date.now() + 86400000).toISOString().slice(0, 10))
   const [busy, setBusy] = useState(false)
@@ -62,16 +107,19 @@ export function AnswerCard({ d }: { d: Decision }) {
     if (!el) return
     el.style.height = 'auto'
     el.style.height = `${el.scrollHeight + 2}px`
-  }, [answer])
+  }, [draft])
 
-  const submit = async (text: string): Promise<void> => {
+  const submit = async (text: string, clarification = false): Promise<void> => {
     if (!text.trim() || submitting.current) return
     submitting.current = true
     setBusy(true)
-    const r = await op('Your move', () => api().answerDecision(d.id, text.trim()))
-    if (r?.ok) playSfx('decision', settings)
-    submitting.current = false
-    setBusy(false)
+    try {
+      const r = await op(clarification ? 'Ask for clarification' : 'Your move', () => clarification ? api().clarifyDecision(d.id, text.trim()) : api().answerDecision(d.id, text.trim()))
+      if (r?.ok) {
+        if (clarification) { setReceipt(r.message); setQuestion(''); setClarifying(false) }
+        else playSfx('decision', settings)
+      }
+    } finally { submitting.current = false; setBusy(false) }
   }
 
   const sourceLabel: Record<Decision['source'], string> = { unit: 'From a unit', genio: 'From Genio', validation: 'From the Gauntlet', ally: 'From an ally', system: 'System' }
@@ -96,11 +144,14 @@ export function AnswerCard({ d }: { d: Decision }) {
         </div>
       )}
       {d.context && (
-        <div className="choice-context">
+        <details className="choice-context">
+          <summary>Details</summary>
           <Markdown text={d.context} className="md-compact" />
-        </div>
+        </details>
       )}
-      {d.options.length > 0 && (
+      {receipt && <p role="status">{receipt}</p>}
+      {d.clarifications?.map((c, i) => <details key={i} className="choice-context"><summary>Clarification requested</summary>{c.question}</details>)}
+      {!clarifying && d.options.length > 0 && (
         <div className="choice-options">
           {d.options.map((o, i) => {
             const rec = isRecommended(o, d.recommendation)
@@ -117,18 +168,18 @@ export function AnswerCard({ d }: { d: Decision }) {
       <div className="choice-answer">
         <textarea
           ref={box}
-          aria-label="Your answer"
+          aria-label={clarifying ? 'Your clarification question' : 'Your answer'}
           disabled={busy}
           className="textarea"
           rows={1}
-          value={answer}
-          placeholder={d.options.length || quickRec ? 'Or answer in your own words…' : 'Your answer…'}
-          onChange={(e) => setAnswer(e.target.value)}
+          value={draft}
+          placeholder={clarifying ? 'What would you like explained?' : d.options.length || quickRec ? 'Or answer in your own words…' : 'Your answer…'}
+          onChange={(e) => clarifying ? setQuestion(e.target.value) : setAnswer(e.target.value)}
           onKeyDown={(e) => {
             const act = answerKey({ key: e.key, shiftKey: e.shiftKey, isComposing: e.nativeEvent.isComposing })
             if (act === 'submit') {
               e.preventDefault()
-              void submit(answer)
+              void submit(draft, clarifying)
             } else if (act === 'blur') {
               e.preventDefault()
               e.currentTarget.blur()
@@ -139,7 +190,7 @@ export function AnswerCard({ d }: { d: Decision }) {
           <span className="choice-hint mute">
             <kbd>Enter</kbd> lock in · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line
           </span>
-          {quickRec && (
+          {!clarifying && quickRec && (
             <button className="btn sm volt" disabled={busy} title={quickRec} onClick={() => void submit(quickRec)}>
               <Sparkles size={12} /> Go with recommendation
             </button>
@@ -165,8 +216,11 @@ export function AnswerCard({ d }: { d: Decision }) {
               <Clock size={13} /> Later
             </button>
           )}
-          <button className="btn sm solid amber" disabled={busy || !answer.trim()} onClick={() => void submit(answer)}>
-            Lock in
+          <button className="btn sm ghost" disabled={busy} onClick={() => { setClarifying(!clarifying); box.current?.focus() }}>
+            {clarifying ? 'Back to answer' : 'Ask for clarification'}
+          </button>
+          <button className="btn sm solid amber" disabled={busy || !draft.trim()} onClick={() => void submit(draft, clarifying)}>
+            {clarifying ? 'Send question' : 'Lock in'}
           </button>
         </div>
       </div>

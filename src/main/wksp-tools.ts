@@ -24,6 +24,8 @@ import { findAssets, assetInfo, locateAsset } from './asset-tools'
 import { agentGeneration, falGenerateShape, uthanaMotionShape, uthanaCharacterShape, assetPlaceShape } from './agent-generation'
 import { CATEGORY_IDS } from '@shared/dispatch'
 import { playService } from './play'
+import { formatStatusLine } from './status'
+import { choiceGroup, choiceRevision, recommendationAnswer, type RecommendationReview, type RecommendationResult } from '@shared/choice'
 
 export type ToolRole = 'genio' | 'ally' | 'bot'
 
@@ -76,17 +78,89 @@ export function findDecision(ctx: AppCtx, id: string): { hc: HomeCtx; d: Decisio
  * Answer a player choice everywhere it lives: ping the unit (closing the keyed
  * record), record it on a held quest, and resolve the choice.
  */
-export async function answerChoice(ctx: AppCtx, id: string, answer: string): Promise<{ ok: boolean; message: string }> {
+const activeChoices = new Set<string>()
+
+async function withChoice(id: string, run: () => Promise<{ ok: boolean; message: string }>) {
+  if (activeChoices.has(id)) return { ok: false, message: 'This choice is being sent. Try again shortly.' }
+  activeChoices.add(id)
+  try { return await run() } finally { activeChoices.delete(id) }
+}
+
+export function answerChoice(ctx: AppCtx, id: string, answer: string): Promise<{ ok: boolean; message: string }> {
+  return withChoice(id, () => sendChoiceAnswer(ctx, id, answer))
+}
+
+export function clarifyChoice(ctx: AppCtx, id: string, question: string): Promise<{ ok: boolean; message: string }> {
+  return withChoice(id, async () => {
+    if (!question.trim()) return { ok: false, message: 'Write a question first.' }
+    const found = findDecision(ctx, id)
+    if (!found || found.d.resolvedAt) return { ok: false, message: 'This choice is no longer pending.' }
+    const { hc, d } = found
+    const text = `Clarification requested for choice ${id} [key=${d.key}]: ${question.trim()}\nThis is a question, not an answer or approval. Keep the obligation open; reply with a clearer question, options and Details under the same key.`
+    if (d.taskId) {
+      const task = findTask(ctx, d.taskId, hc.home)
+      if (!task || ['cleaned', 'done', 'merged'].includes(task.task.state)) return { ok: false, message: 'The originating unit is unavailable.' }
+      const r = await task.hc.crew.send(d.taskId, text, [])
+      if (!r.ok) return r
+    } else {
+      await hc.wksp.send(text, 'player')
+    }
+    hc.decisions.clarify(id, question.trim())
+    return { ok: true, message: 'Question sent. The choice remains pending.' }
+  })
+}
+
+export async function applyRecommendations(ctx: AppCtx, review: RecommendationReview[]): Promise<RecommendationResult[]> {
+  if (!Array.isArray(review) || !review.length || review.length > 100) throw new Error('Review between 1 and 100 recommendations.')
+  if (new Set(review.map(r => r.id)).size !== review.length || review.some(r => r.group !== review[0].group)) throw new Error('Review one related group with unique choice IDs.')
+  const results: RecommendationResult[] = []
+  // Only the captured IDs are considered, even if more choices arrive during delivery.
+  for (const row of review) {
+    try {
+      const result = await withChoice(row.id, async () => {
+        const found = findDecision(ctx, row.id)
+        const d = found?.d
+        if (!d || d.resolvedAt || (d.until && Date.parse(d.until) > Date.now()) || choiceGroup(d) !== row.group || choiceRevision(d) !== row.revision || recommendationAnswer(d) !== row.answer) {
+          return { ok: false, message: 'Choice changed since review. Review it again.' }
+        }
+        return sendChoiceAnswer(ctx, row.id, row.answer)
+      })
+      results.push({ id: row.id, ...result })
+    } catch (error) {
+      results.push({ id: row.id, ok: false, message: (error as Error).message })
+    }
+  }
+  return results
+}
+
+async function sendChoiceAnswer(ctx: AppCtx, id: string, answer: string): Promise<{ ok: boolean; message: string }> {
+  if (!answer.trim()) return { ok: false, message: 'Write an answer first.' }
   const found = findDecision(ctx, id)
   if (!found) return { ok: false, message: `no choice ${id}` }
   const { hc, d } = found
   if (d.resolvedAt) return { ok: true, message: 'already answered' }
-  try {
-    hc.decisions.resolve(id, answer)
-    return { ok: true, message: 'choice answered' }
-  } catch (error) {
-    return { ok: false, message: (error as Error).message }
+  let note = ''
+  let recipient: ReturnType<typeof findTask>
+  if (d.taskId) {
+    const t = findTask(ctx, d.taskId, hc.home)
+    if (!t || ['cleaned', 'done', 'merged'].includes(t.task.state)) return { ok: false, message: 'The originating unit is unavailable. The choice remains pending.' }
+    recipient = t
+    if (t) {
+      const r = await t.hc.crew.send(d.taskId, `Answer to your open question (${d.key}): ${answer}`, [])
+      if (!r.ok) return { ok: false, message: `Ping failed: ${r.message}. The choice remains pending.` }
+      note = ' and pinged the unit'
+    }
   }
+  if (d.backlogId && hc.backlog.get(d.backlogId)) {
+    try {
+      hc.backlog.answer(d.backlogId, answer, true)
+    } catch {
+      /* quest may already be closed */
+    }
+  }
+  hc.decisions.resolve(id, answer, { relay: false })
+  if (recipient) recipient.hc.crew.appendStatus(d.taskId!, formatStatusLine('resolved', `answered: ${answer}`, { key: d.key }))
+  return { ok: true, message: `choice answered${note}` }
 }
 
 function taskLine(t: Task): Record<string, unknown> {
@@ -435,7 +509,7 @@ export function createToolRegistry(
     'choice_open',
     'Open a choice for the player in the pending answer panel (several options with a recommendation, or a design pick). Link task when it came from a unit.',
     {
-      question: z.string().min(5), options: z.array(z.string()).default([]), recommendation: z.string().optional(),
+      question: z.string().min(5), options: z.array(z.string()).default([]), recommendation: z.string().optional(), batch: z.string().optional(),
       context: z.string().optional(), task: z.string().optional(), key: z.string().optional(), quest_id: z.string().optional(),
       urgency: z.enum(['normal', 'urgent']).default('normal')
     },
@@ -444,9 +518,9 @@ export function createToolRegistry(
       const project = getCtx().allies.list().find(ally => ally.name === home.name)?.projects[0]
       const d = a.task
         ? h.decisions.openForTask(a.task, a.key ?? 'default', a.question, role === 'bot' ? 'genio' : 'genio', {
-            options: a.options, recommendation: a.recommendation, context: a.context, urgency: a.urgency, backlogId: a.quest_id
+            options: a.options, recommendation: a.recommendation, batch: a.batch, context: a.context, urgency: a.urgency, backlogId: a.quest_id
           })
-        : h.decisions.open({ question: a.question, options: a.options, recommendation: a.recommendation, context: a.context, urgency: a.urgency, backlogId: a.quest_id, project, key: a.key, source: 'genio', wksp: home.name })
+        : h.decisions.open({ question: a.question, options: a.options, recommendation: a.recommendation, batch: a.batch, context: a.context, urgency: a.urgency, backlogId: a.quest_id, project, key: a.key, source: 'genio', wksp: home.name })
       return ok(`choice ${d.id} opened`)
     }
   )

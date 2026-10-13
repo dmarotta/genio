@@ -12,7 +12,7 @@ import { createExplorerIntegration, explorerCommand } from './explorer'
 import { API_PREFIX, type GenioApi } from '@shared/api'
 import type { Task } from '@shared/types'
 import { listAccounts, openAccountSession } from './accounts'
-import { answerChoice, findDecision, findTask } from './wksp-tools'
+import { answerChoice, clarifyChoice, applyRecommendations, findDecision, findTask } from './wksp-tools'
 import { resolveLoadout } from './loadout'
 import { sendPlayerChat } from './wksp'
 import { clearSecret, secretStatus, setSecret } from './secrets'
@@ -203,6 +203,8 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
 
     // ---- choices
     answerDecision: (id, answer) => answerChoice(ctx(), id, answer),
+    clarifyDecision: (id, question) => clarifyChoice(ctx(), id, question),
+    applyRecommendations: (review) => applyRecommendations(ctx(), review),
     deferDecision: (id, until) => {
       const f = findDecision(ctx(), id)
       if (!f) throw new Error(`no choice ${id}`)
@@ -324,11 +326,14 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
           return
         }
         if (method === 'playDetach' || method === 'playSelectSlot') playConnections.get(args[0] as string)?.()
-        if (binding && ['answerDecision', 'deferDecision'].includes(method)) {
-          const found = findDecision(ctx(), String(args[0]))
-          if (!found || !ownsDecision(found.d, binding)) throw new Error('Choice is outside this project.')
-        }
         if (binding) {
+          if (['answerDecision', 'clarifyDecision', 'deferDecision', 'applyRecommendations'].includes(method)) {
+            const ids = method === 'applyRecommendations' ? (args[0] as { id: string }[]).map(r => r.id) : [String(args[0])]
+            for (const id of ids) {
+              const found = findDecision(ctx(), id)
+              if (!found || !ownsDecision(found.d, binding)) throw new Error('Choice is outside this project.')
+            }
+          }
           if (method === 'readMemory') return ctx().memory.read(args[0] as Parameters<GenioApi['readMemory']>[0], ctx().home(binding.wksp).home)
           if (method === 'writeMemory') return ctx().memory.write(args[0] as Parameters<GenioApi['writeMemory']>[0], String(args[1]), ctx().home(binding.wksp).home)
           if (method === 'addDecision') args[0] = { ...(args[0] as object), project: binding.project, wksp: binding.wksp }

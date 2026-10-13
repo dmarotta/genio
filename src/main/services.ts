@@ -365,7 +365,8 @@ export interface DecisionService {
   open(d: Partial<Decision> & { question: string }): Decision
   /** idempotent: one open decision per (taskId,key) */
   openForTask(taskId: string, key: string, question: string, source: Decision['source'], extra?: Partial<Decision>): Decision
-  resolve(id: string, answer: string): Decision | undefined
+  resolve(id: string, answer: string, options?: { relay?: boolean }): Decision | undefined
+  clarify(id: string, question: string): void
   resolveKey(taskId: string, key: string, answer: string): void
   defer(id: string, until: string): void
 }

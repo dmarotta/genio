@@ -345,7 +345,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         safe(() =>
           decisions.openForTask(t.id, e.key ?? 'default', e.text || (e.kind === 'blocked' ? 'The unit is blocked.' : 'The unit needs a choice.'), 'unit', {
             project: t.project,
-            context: e.kind === 'blocked' ? 'blocked' : undefined
+            context: e.kind === 'blocked' ? 'blocked' : undefined,
+            ...(e.fields.choice ? JSON.parse(e.fields.choice) : {})
           })
         )
         update(t.id, { state: e.kind, stateReason: e.text })

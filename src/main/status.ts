@@ -51,6 +51,22 @@ export function parseStatusLine(raw: string, taskId: string, ts = new Date().toI
   if (kind === 'needs-decision' || kind === 'blocked' || kind === 'resolved' || kind === 'player-held') {
     key = key ?? DEFAULT_KEY
   }
+  // Optional inline JSON keeps old status writers and readers compatible.
+  if (kind === 'needs-decision' || kind === 'blocked') {
+    const split = text.indexOf(' || ')
+    if (split >= 0) {
+      try {
+        const value = JSON.parse(text.slice(split + 4))
+        if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid choice metadata')
+        if (value.options !== undefined && (!Array.isArray(value.options) || !value.options.every((o: unknown) => typeof o === 'string' && o.trim()))) throw new Error('Invalid options')
+        for (const field of ['recommendation', 'details', 'batch']) {
+          if (value[field] !== undefined && typeof value[field] !== 'string') throw new Error('Invalid metadata')
+        }
+        fields.choice = JSON.stringify({ options: value.options, recommendation: value.recommendation, context: value.details, batch: value.batch })
+        text = text.slice(0, split).trim()
+      } catch { /* Malformed metadata remains visible as legacy prose. */ }
+    }
+  }
   const pr = line.match(/https?:\/\/[^\s)>\]]+\/(?:pull|merge_requests|pulls)\/\d+/i)
   if (pr) fields.pr = pr[0]
   if (kind === 'paused') {

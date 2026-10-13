@@ -241,6 +241,9 @@ export interface Decision {
   context?: string
   options: string[]
   recommendation?: string
+  /** Explicit related batch, scoped to this base and project. */
+  batch?: string
+  clarifications?: { question: string; at: string }[]
   source: DecisionSource
   urgency: 'normal' | 'urgent'
   createdAt: string

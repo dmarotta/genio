@@ -109,6 +109,7 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
         context: input.context,
         options: Array.isArray(input.options) ? input.options.filter(Boolean) : [],
         recommendation: input.recommendation,
+        batch: input.batch,
         source: input.source ?? 'genio',
         urgency: input.urgency ?? 'normal',
         createdAt: nowIso(),
@@ -131,7 +132,7 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
           changed = true
         }
         if (extra) {
-          for (const f of ['context', 'recommendation', 'options', 'urgency'] as const) {
+          for (const f of ['context', 'recommendation', 'options', 'urgency', 'batch'] as const) {
             if (extra[f] !== undefined) {
               ;(existing as unknown as Record<string, unknown>)[f] = extra[f]
               changed = true
@@ -144,7 +145,7 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
       return svc.open({ ...extra, taskId, key: k, question, source })
     },
 
-    resolve(id, answer) {
+    resolve(id, answer, options) {
       const d = load().find((x) => x.id === id)
       if (!d) return undefined
       if (d.resolvedAt) return d
@@ -171,7 +172,7 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
           }
         }
         // Relay the player's words to the unit that asked; closes the key.
-        if (d.taskId) {
+        if (options?.relay !== false && d.taskId) {
           const h = safeHome(ctx, home.name)
           const task = h?.crew.get(d.taskId)
           if (h && task && !['cleaned', 'done', 'merged'].includes(task.state)) {
@@ -197,6 +198,13 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
         }
       }
       return d
+    },
+
+    clarify(id, question) {
+      const d = load().find(x => x.id === id && !x.resolvedAt)
+      if (!d) return
+      d.clarifications = [...(d.clarifications ?? []), { question, at: nowIso() }]
+      save()
     },
 
     resolveKey(taskId, key, answer) {
