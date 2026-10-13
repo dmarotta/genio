@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import path from 'node:path'
 import { run, exists, ensureDir, type ExecResult } from './util'
 
@@ -93,6 +94,29 @@ export async function assertIsolated(repo: string, wtPath: string): Promise<{ ok
   return { ok: true }
 }
 
+const samePath = (p: string): string => {
+  let r = path.resolve(p)
+  try {
+    r = fs.realpathSync.native(r)
+  } catch {
+    /* missing: compare the plain path */
+  }
+  r = r.replace(/[\\/]+$/, '')
+  return process.platform === 'win32' ? r.toLowerCase() : r
+}
+
+/** True when wtPath is a registered worktree of repo. A missing or leftover unregistered folder is not. */
+export async function isWorktreeOf(repo: string, wtPath: string): Promise<boolean> {
+  if (!exists(wtPath) || !exists(repo)) return false
+  const list = await out(repo, ['worktree', 'list', '--porcelain'])
+  const want = samePath(wtPath)
+  return list.split(/\r?\n/).some((l) => l.startsWith('worktree ') && samePath(l.slice('worktree '.length)) === want)
+}
+
+export async function pruneWorktrees(repo: string): Promise<ExecResult> {
+  return git(repo, ['worktree', 'prune'])
+}
+
 export async function removeWorktree(repo: string, wtPath: string, force = false): Promise<ExecResult> {
   const args = ['worktree', 'remove', wtPath]
   if (force) args.push('--force')
@@ -139,6 +163,16 @@ export interface LandedVerdict {
   uncommitted: number
   unpushedCommits: number
   via?: 'remote' | 'base' | 'patch-equivalent' | 'pr-merged' | 'no-commits'
+  /** Exact uncommitted entries (`git status --porcelain`) and unlanded commits (oneline), for the player to decide. */
+  files: string[]
+  commits: string[]
+}
+
+/** The exact files and commits a refusal is about, capped for a readable message. */
+export function unlandedDetail(v: Pick<LandedVerdict, 'files' | 'commits'>, max = 20): string {
+  const list = (label: string, rows: string[]): string =>
+    rows.length ? `\n${label}:\n${rows.slice(0, max).map((r) => `  ${r}`).join('\n')}${rows.length > max ? `\n  … ${rows.length - max} more` : ''}` : ''
+  return list('Uncommitted', v.files) + list('Unlanded commits', v.commits)
 }
 
 /**
@@ -157,15 +191,15 @@ export async function landedVerdict(
   localBase = false
 ): Promise<LandedVerdict> {
   const reasons: string[] = []
-  let uncommitted = 0
-  if (exists(wtPath)) {
-    uncommitted = (await statusPorcelain(wtPath)).length
-    if (uncommitted) reasons.push(`${uncommitted} uncommitted change(s) in the worktree`)
-  }
-  const dir = exists(wtPath) ? wtPath : repo
-  const head = exists(wtPath) ? await headSha(wtPath) : (await branchExists(repo, branch)) ? await headSha(repo, branch) : ''
+  // A missing or unregistered folder holds no work of this branch: judge the branch itself.
+  const live = await isWorktreeOf(repo, wtPath)
+  const files = live ? await statusPorcelain(wtPath) : []
+  const uncommitted = files.length
+  if (uncommitted) reasons.push(`${uncommitted} uncommitted change(s) in the worktree`)
+  const dir = live ? wtPath : repo
+  const head = live ? await headSha(wtPath) : (await branchExists(repo, branch)) ? await headSha(repo, branch) : ''
   if (!head) {
-    return { landed: reasons.length === 0, reasons, uncommitted, unpushedCommits: 0, via: 'no-commits' }
+    return { landed: reasons.length === 0, reasons, uncommitted, unpushedCommits: 0, via: 'no-commits', files, commits: [] }
   }
   if (await hasRemote(repo)) await fetch(repo)
   const ref = await baseRef(repo, base, localBase)
@@ -184,7 +218,8 @@ export async function landedVerdict(
     }
   }
   if (!via) reasons.push(`${unique.ahead} commit(s) on ${branch} are not pushed, not in ${ref}, and no merged PR is recorded`)
-  return { landed: reasons.length === 0, reasons, uncommitted, unpushedCommits: via ? 0 : unique.ahead, via }
+  const commits = via ? [] : await logOneline(dir, `${ref}..${head}`, 50)
+  return { landed: reasons.length === 0, reasons, uncommitted, unpushedCommits: via ? 0 : unique.ahead, via, files, commits }
 }
 
 /** Fast-forward only merge of a ready local branch into base (local-only mode). */

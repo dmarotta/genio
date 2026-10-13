@@ -383,7 +383,7 @@ export function createToolRegistry(
 
   t(
     'despawn',
-    'Despawn a unit and remove its isolated copy. Refuses unlanded work (uncommitted changes, commits not pushed/merged). force=true discards work and REQUIRES player_words quoting the player\'s explicit instruction to discard this specific work.',
+    'Despawn a unit and remove its isolated copy. Refuses unlanded work (uncommitted changes, commits not pushed/merged) and lists the exact files/commits. A Recon that has exited (recalled or duplicate) needs no report. force=true discards work and REQUIRES player_words quoting the player\'s explicit instruction to discard this specific work.',
     { task: z.string(), force: z.boolean().default(false), player_words: z.string().optional() },
     async ({ task, force, player_words }) => {
       if (force && (role === 'bot' || !player_words?.trim())) return fail('force despawn refused: it needs the player\'s explicit words authorizing discarding this work')

@@ -44,14 +44,18 @@ async function reconcile(ctx: AppCtx, project: string, wksp: string, isOpen: () 
     // cleared. A replayed done line can start a fresh Gauntlet, which must stay
     // validating rather than being cancelled by another liveness reconcile.
     for (const task of home.crew.list().filter(t => t.project === project)) {
-      if (['working', 'spawning', 'stale', 'exited'].includes(task.state) && !(task.terminalId && ctx.terminals.get(task.terminalId)?.alive)) {
-        home.crew.update(task.id, { state: 'detached', stateReason: 'Project reopened; resume unfinished work' })
-      }
+      if (!['working', 'spawning', 'stale', 'exited'].includes(task.state) || (task.terminalId && ctx.terminals.get(task.terminalId)?.alive)) continue
+      // A quest the player already closed is never resumed.
+      const quest = home.crew.questState(task)
+      if (quest === 'done' || quest === 'dropped') {
+        if (task.state !== 'exited') home.crew.update(task.id, { state: 'exited', stateReason: `quest ${quest}; not resumed after restart` })
+      } else home.crew.update(task.id, { state: 'detached', stateReason: 'Project reopened; resume unfinished work' })
     }
   }
   for (const home of homes) {
     for (const task of home.crew.list().filter(t => t.project === project && t.state === 'detached')) {
       if (!isOpen()) return
+      if (['done', 'dropped'].includes(home.crew.questState(task) ?? '')) continue
       if (!hasCapacity(ctx, project)) {
         results.push(`Unit ${task.id} waiting for capacity.`)
         continue

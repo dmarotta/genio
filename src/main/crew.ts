@@ -21,6 +21,7 @@ import { createGauntlet } from './gauntlet'
 import { relaunchPolicy } from './relaunch-policy'
 import { approvalModel, unitModel, UNIT_MODEL_APPROVAL_REASON } from '@shared/unit-model-policy'
 import { modeLabel } from '@shared/vocab'
+import { DONE_STATES, squadOutcome } from '@shared/squad-display'
 import { cheapModelsAllowed } from '@shared/dispatch'
 import { questOrder } from '@shared/quest-board'
 import { defaultShell } from './terminals'
@@ -92,6 +93,15 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     const prev = tasks[i]
     const next: Task = { ...prev, ...patch, updatedAt: nowIso() }
     if (patch.state === 'ready') next.readyAt = next.updatedAt
+    // Squad history: stamp the first finish (a landing re-stamps it); a respawn makes the unit active again.
+    const wasDone = DONE_STATES.includes(prev.state), isDone = DONE_STATES.includes(next.state)
+    if (isDone && (!wasDone || (next.state === 'merged' && prev.outcome !== 'merged'))) {
+      next.finishedAt = next.updatedAt
+      next.outcome = squadOutcome({ ...next, outcome: undefined })
+    } else if (!isDone && wasDone) {
+      delete next.finishedAt
+      delete next.outcome
+    }
     tasks[i] = next
     persist()
     bus.publish({ type: 'task', task: withLive(next) })
@@ -755,25 +765,44 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       let via = 'forced'
       if (t.kind === 'scout') {
         const reportOk = exists(t.reportPath ?? home.reportFile(id))
+        // A recalled or exited Recon (often a duplicate) has nothing left to report.
+        const ended = !terminalAlive(t) && ['exited', 'failed', 'detached'].includes(t.state)
         const reasons: string[] = []
-        if (!reportOk) reasons.push('the recon report has not been written')
+        if (!reportOk && !ended) reasons.push('the recon report has not been written')
         if (openChoices.length) reasons.push(`${openChoices.length} open choice(s) from this recon are unanswered`)
         if (reasons.length && !force) return { ok: false, message: `Refusing to despawn ${id}: ${reasons.join('; ')}.` }
-        via = 'recon scratch'
+        via = reportOk ? 'recon scratch' : 'recon ended without a report'
       } else if (repo) {
         const verdict = await git.landedVerdict(repo, t.worktree, t.branch, t.baseBranch, t.pr?.state === 'MERGED', t.mode === 'local-only')
         if (!verdict.landed && !force) {
-          return { ok: false, message: `Refusing to despawn ${id}: unlanded work (${verdict.reasons.join('; ')}). Only the player can authorise discarding it.` }
+          return { ok: false, message: `Refusing to despawn ${id}: unlanded work (${verdict.reasons.join('; ')}). Only the player can authorise discarding it.${git.unlandedDetail(verdict)}` }
         }
         via = verdict.landed ? `landed (${verdict.via})` : 'forced by the player'
       } else if (!force) {
         return { ok: false, message: `Cannot verify ${id}'s work: its project is not registered. Force only with the player's word.` }
       }
       if (t.terminalId) ctx.terminals.kill(t.terminalId)
-      if (repo && exists(t.worktree)) {
-        let r = await git.removeWorktree(repo, t.worktree, t.kind === 'scout' || force)
-        if (r.code !== 0) r = await git.removeWorktree(repo, t.worktree, true)
-        if (r.code !== 0 && exists(t.worktree)) return { ok: false, message: `Could not remove the worktree: ${r.stderr.trim()}` }
+      let leftover = ''
+      if (repo) {
+        const scratch = t.kind === 'scout' || force
+        // A folder git no longer knows ("not a working tree") or one already gone is already clean.
+        let registered = await git.isWorktreeOf(repo, t.worktree)
+        if (registered) {
+          let r = await git.removeWorktree(repo, t.worktree, scratch)
+          if (r.code !== 0 && !scratch) {
+            // Forcing past ignored or locked leftovers is fine; never past real changes.
+            const dirty = await git.statusPorcelain(t.worktree)
+            if (dirty.length) {
+              return { ok: false, message: `Refusing to despawn ${id}: the worktree changed during despawn.${git.unlandedDetail({ files: dirty, commits: [] })}` }
+            }
+            r = await git.removeWorktree(repo, t.worktree, true)
+          }
+          registered = await git.isWorktreeOf(repo, t.worktree)
+          if (r.code !== 0 && registered) return { ok: false, message: `Could not remove the worktree: ${r.stderr.trim()}` }
+        } else {
+          await git.pruneWorktrees(repo)
+        }
+        if (exists(t.worktree)) leftover = ` Left the unregistered folder ${fwd(t.worktree)} untouched.`
       }
       if (t.harness === 'claude') setClaudeTrust([t.worktree], false)
       if (repo && (await git.branchExists(repo, t.branch))) {
@@ -783,7 +812,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       update(id, { state: 'cleaned', cleanedAt: nowIso(), terminalId: undefined, stateReason: `despawned: ${via}` })
       ledger('task.cleaned_up', t, { via })
       safe(() => ctx.stats.award('cleanup', id))
-      return { ok: true, message: `Despawned ${id} (${via}).` }
+      return { ok: true, message: `Despawned ${id} (${via}).${leftover}` }
     },
 
     async merge(id): Promise<OpResult> {
@@ -795,25 +824,28 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       if (!project) return { ok: false, message: `Project ${t.project} is not registered.` }
       let result: OpResult
       let mergeVia: 'pr' | 'local'
+      let landedCommit: string | undefined
       if (t.pr?.url) {
         mergeVia = 'pr'
-        result = await ctx.forge.merge(t.pr.url, exists(t.worktree) ? t.worktree : project.path)
+        result = await ctx.forge.merge(t.pr.url, (await git.isWorktreeOf(project.path, t.worktree)) ? t.worktree : project.path)
       } else if (t.mode === 'local-only') {
         if (t.state !== 'ready') return { ok: false, message: `${id} has not reported a ready branch yet.` }
         mergeVia = 'local'
         const r = await git.mergeLocalFastForward(project.path, t.branch, t.baseBranch)
         result = r.code === 0 ? { ok: true, message: `Landed ${t.branch} into local ${t.baseBranch}.` } : { ok: false, message: r.stderr.trim() || 'fast-forward merge failed' }
+        if (result.ok) landedCommit = (await git.headSha(project.path, t.branch)) || undefined
       } else {
         return { ok: false, message: `${id} has no registered PR to merge yet.` }
       }
       if (!result.ok) return result
-      update(id, { state: 'merged', landedAt: nowIso(), pr: t.pr ? { ...t.pr, state: 'MERGED', checkedAt: nowIso() } : undefined })
+      update(id, { state: 'merged', landedAt: nowIso(), landedCommit, stateReason: mergeVia === 'pr' ? 'PR merged' : `landed in local ${t.baseBranch}`,
+        pr: t.pr ? { ...t.pr, state: 'MERGED', checkedAt: nowIso() } : undefined })
       ledger('task.merged', t, { via: mergeVia, pr: t.pr?.url })
       safe(() => ctx.stats.award('merge', id))
       safe(() => ctx.notifier.sfx('merge'))
       if (mergeVia === 'pr') await ctx.projects.sync(project.name).catch(() => undefined)
       const c = await svc.cleanup(id)
-      return { ok: true, message: `${result.message} ${c.ok ? c.message : `Despawn deferred: ${c.message}`}`.trim() }
+      return { ok: true, message: `${result.message} ${c.ok ? c.message : `Despawn deferred, nothing was discarded: ${c.message}`}`.trim() }
     },
 
     async promote(id, intent): Promise<Task> {
@@ -1087,10 +1119,19 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         const alive = t.terminalId ? ctx.terminals.get(t.terminalId)?.alive : false
         if (alive) continue
         const patch: Partial<Task> = { terminalId: undefined, automaticRelaunches: 0 }
+        // a landed unit whose despawn was deferred still closes the quest it flew
+        if (t.backlogId) safe(() => hc().backlog.followUnit(t))
+        const quest = svc.questState(t)
         if (!exists(t.worktree)) {
           if (!FINISHED.includes(t.state)) {
             patch.state = 'failed'
             patch.stateReason = 'worktree missing after restart'
+          }
+        } else if (quest === 'done' || quest === 'dropped') {
+          // Never resume a unit whose quest the player already closed.
+          if (ACTIVE.includes(t.state) || t.state === 'detached') {
+            patch.state = 'exited'
+            patch.stateReason = `quest ${quest}; not resumed after restart`
           }
         } else if ((ACTIVE.includes(t.state) && !['blocked', 'needs-decision', 'paused'].includes(t.state)) || t.state === 'exited') {
           patch.state = 'detached'
@@ -1103,6 +1144,15 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
 
     capacityUsed(project) {
       return tasks.filter((t) => t.project === project && holdsCapacity(t, terminalAlive(t))).length
+    },
+
+    questState(t) {
+      if (!t.backlogId) return undefined
+      try {
+        return hc().backlog.get(t.backlogId)?.state
+      } catch {
+        return undefined // no quest log in this base
+      }
     }
   }
 

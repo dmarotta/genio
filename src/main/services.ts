@@ -340,6 +340,8 @@ export interface CrewService {
   reconcileOnStart(project?: string): Promise<void>
   /** number of live (not-yet-PR) tasks holding a capacity place for project */
   capacityUsed(project: string): number
+  /** state of the unit's quest in this base's quest log, when it has one */
+  questState(t: Task): BacklogItem['state'] | undefined
   /** unhandled steering-inbox messages, oldest first */
   unreadInbox(id: string): { seq: number; ageSec: number }[]
   /** type the doorbell line into the unit's terminal again (re-ring) */

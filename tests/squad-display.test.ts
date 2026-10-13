@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Task, TaskState, TerminalInfo } from '../src/shared/types'
-import { squadState, squadTone } from '../src/shared/squad-display'
+import { DONE_HISTORY, finishedAt, outcomeTone, squadOutcome, squadSections, squadState, squadTone } from '../src/shared/squad-display'
 
 const at = '2026-10-13T10:00:00Z'
 const task = (state: TaskState, patch: Partial<Task> = {}): Task => ({
@@ -42,5 +42,44 @@ describe('Squad display only', () => {
       expect(squadState(task(state))).toBe('WORKING')
     }
     expect(squadTone(task('working', { kind: 'scout' }), undefined, true)).toBe('amber')
+  })
+})
+
+describe('Squad done history', () => {
+  const minute = (n: number): string => new Date(Date.parse('2026-10-13T00:00:00Z') + n * 60_000).toISOString()
+  it('pins active units first in their order, then the 25 newest finished units newest first', () => {
+    const done = Array.from({ length: 30 }, (_, i) => task(i % 3 ? 'cleaned' : 'merged', { id: `done-${i}`, finishedAt: minute(i) }))
+    const active = [task('working', { id: 'a1' }), task('ready', { id: 'a2' }), task('needs-decision', { id: 'a3' })]
+    const { active: top, done: history } = squadSections([done[4], active[0], ...done.slice(10), active[1], ...done.slice(0, 4), active[2], ...done.slice(5, 10)])
+    expect(top.map(t => t.id)).toEqual(['a1', 'a2', 'a3'])
+    expect(history).toHaveLength(DONE_HISTORY)
+    expect(DONE_HISTORY).toBe(25)
+    expect(history.map(t => t.id)).toEqual(Array.from({ length: 25 }, (_, i) => `done-${29 - i}`))
+  })
+  it('sinks older entries as new ones finish and uses legacy timestamps without a recorded finish', () => {
+    const legacy = [
+      task('cleaned', { id: 'landed', landedAt: minute(5), cleanedAt: minute(50), updatedAt: minute(50) }),
+      task('cleaned', { id: 'despawned', cleanedAt: minute(10), updatedAt: minute(60) }),
+      task('failed', { id: 'failed', updatedAt: minute(20) })
+    ]
+    expect(squadSections(legacy).done.map(t => t.id)).toEqual(['failed', 'despawned', 'landed'])
+    const fresh = Array.from({ length: 25 }, (_, i) => task('done', { id: `new-${i}`, finishedAt: minute(100 + i) }))
+    const { done } = squadSections([...legacy, ...fresh])
+    expect(done[0].id).toBe('new-24')
+    expect(done.map(t => t.id)).not.toContain('landed')
+  })
+  it('reports merged, done, failed and abnormal exits with green or red', () => {
+    expect(squadOutcome(task('cleaned', { landedAt: at }))).toBe('merged')
+    expect(squadOutcome(task('merged'))).toBe('merged')
+    expect(squadOutcome(task('cleaned', { outcome: 'failed' }))).toBe('failed')
+    expect(squadOutcome(task('done', { kind: 'scout' }))).toBe('done')
+    expect(squadOutcome(task('failed'))).toBe('failed')
+    expect(squadOutcome(task('exited'), term({ alive: false, exitCode: 1 }))).toBe('exited abnormally')
+    expect(squadOutcome(task('exited', { stateReason: 'unit process exited (code 0) without a final status' }))).toBe('done')
+    expect(outcomeTone('merged')).toBe('volt')
+    expect(outcomeTone('done')).toBe('volt')
+    expect(outcomeTone('failed')).toBe('alert')
+    expect(outcomeTone('exited abnormally')).toBe('alert')
+    expect(finishedAt(task('cleaned', { finishedAt: minute(1), landedAt: minute(2) }))).toBe(minute(1))
   })
 })

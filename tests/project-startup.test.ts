@@ -206,6 +206,34 @@ describe('project window startup reconciliation', () => {
     expect(hc.wksp.wakeProject).toHaveBeenCalledTimes(2)
   })
 
+  it('never resumes units whose quest is already done or dropped, but still resumes open quests', async () => {
+    const quest = (id: string, state?: 'done' | 'dropped') => hc.backlog.add({ id, title: id, project: 'world', ...(state ? { state } : {}) }).id
+    const units = { finished: ['exited', 'done'], dropped: ['working', 'dropped'], parked: ['detached', 'dropped'], open: ['detached', undefined] } as const
+    for (const [id, [state, q]] of Object.entries(units)) {
+      unit(id, state)
+      hc.crew.update(id, { backlogId: quest(`q-${id}`, q) })
+    }
+    hc.backlog.markInFlight('q-open', 'open')
+    await open()
+    expect(ctx.terminals.create).toHaveBeenCalledOnce()
+    expect(hc.crew.get('open')?.state).toBe('working')
+    for (const id of ['finished', 'dropped', 'parked']) {
+      expect(hc.crew.get(id)).toMatchObject({ state: 'exited', relaunches: 8 })
+    }
+    expect(hc.crew.get('dropped')?.stateReason).toBe('quest dropped; not resumed after restart')
+    expect(hc.backlog.get('q-finished')?.state).toBe('done')
+  })
+
+  it('settles the quest of a landed unit whose despawn was deferred', async () => {
+    unit('landed-late', 'merged')
+    hc.crew.update('landed-late', { backlogId: hc.backlog.add({ id: 'q-landed', title: 'landed', project: 'world' }).id })
+    hc.backlog.markInFlight('q-landed', 'landed-late')
+    await open()
+    expect(hc.backlog.get('q-landed')?.state).toBe('done')
+    expect(hc.crew.get('landed-late')?.state).toBe('merged')
+    expect(ctx.terminals.create).not.toHaveBeenCalled()
+  })
+
   it('always wakes an empty project and scopes landed history to the previous visit', async () => {
     const task = unit('landed', 'merged')
     hc.crew.update(task.id, { landedAt: '2026-01-01T10:00:00Z' })

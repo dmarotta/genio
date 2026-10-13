@@ -83,6 +83,9 @@ export type TaskState =
   | 'detached'        // app restarted; worktree exists, no live process
   | 'cleaned'         // despawned: worktree removed, record kept for history
 
+/** How a finished unit ended, recorded when it finished. */
+export type TaskOutcome = 'merged' | 'done' | 'failed' | 'exited abnormally'
+
 export interface PrInfo {
   url: string
   number?: number
@@ -165,7 +168,12 @@ export interface Task {
   /** Unread status lines Genio has not processed yet. */
   statusOffset: number
   landedAt?: string
+  /** Local fast-forward merges record the landed commit; PR merges keep the PR link. */
+  landedCommit?: string
   cleanedAt?: string
+  /** When the unit first finished (Squad DONE), kept through a later despawn; cleared on respawn. */
+  finishedAt?: string
+  outcome?: TaskOutcome
   /** Final ready signal, unaffected by later notes or bookkeeping. */
   readyAt?: string
   relaunches: number
