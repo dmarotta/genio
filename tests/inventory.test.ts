@@ -151,9 +151,38 @@ describe('Inventory backend', () => {
     second.close('fixture')
     expect((await second.list('fixture')).state.watching).toBe(false)
   })
+  it('opens before the first scan finishes, then keeps the revision when a refresh finds nothing new', async () => {
+    const s = create(), opened = await s.open('fixture')
+    expect(opened).toMatchObject({ refreshing: true, total: 0, indexing: { done: 0 } })
+    const indexed = await s.refresh('fixture')
+    expect(indexed).toMatchObject({ total: 8, refreshing: false })
+    expect(indexed.indexing).toBeUndefined()
+    const again = await s.refresh('fixture')
+    expect(again.revision).toBe(indexed.revision)
+    expect(again.updatedAt).toBe(indexed.updatedAt)
+  })
+  it('ignores access-time watcher echoes without re-enumerating, and re-reads only changed stamps', async () => {
+    // A whole-second mtime survives utimes round trips exactly on every filesystem.
+    const file = path.join(root, 'Nested/Assets/UI/door icon.png'), mtime = new Date('2026-01-01T00:00:00Z')
+    fs.utimesSync(file, mtime, mtime)
+    const s = create(); await s.open('fixture')
+    const before = await s.refresh('fixture')
+    const settled = (): Promise<void> => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { off(); reject(Error('watcher batch timeout')) }, 5000)
+      const off = bus.onEvent(e => { if (e.type === 'feature-used' && e.feature === 'inventory-index') { clearTimeout(timer); off(); resolve() } })
+    })
+    // Reading files updates access times; the watcher reports those as changes. They must not rescan or re-query.
+    const pending = settled()
+    fs.utimesSync(file, new Date(), mtime)
+    await pending
+    const after = (await s.list('fixture')).state
+    expect(after.revision).toBe(before.revision)
+    expect(after.enumerationMs).toBe(before.enumerationMs)
+    expect(JSON.parse(fs.readFileSync(path.join(data, 'inventory/fixture/index.json'), 'utf8')).stamps.length).toBeGreaterThanOrEqual(8)
+  })
   it('updates additions, renames, deletions, metadata and provenance through the watcher, and stops on close', async () => {
-    const s = create(); const state = await s.open('fixture')
-    expect(state.watching).toBe(true)
+    const s = create(); expect((await s.open('fixture')).watching).toBe(true)
+    const state = await s.refresh('fixture')
     const waitRevision = (revision: number): Promise<void> => new Promise((resolve, reject) => {
       const timer = setTimeout(() => { off(); reject(Error('watcher update timeout')) }, 5000)
       const off = bus.onEvent(e => { if (e.type === 'inventory' && e.state.revision > revision && e.state.updatedAt !== state.updatedAt && !e.state.refreshing) { clearTimeout(timer); off(); resolve() } })

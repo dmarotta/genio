@@ -115,10 +115,10 @@ function WorldInventory({ world, root }: { world: string; root: string }) {
         <button className={cx('inventory-folder', !folder && 'on')} onClick={() => browseFolder('')}><FolderOpen size={15} /><span>All assets</span></button>
         {state ? <FolderChildren key={filterKey} world={world} parent="" filters={filters} revision={revision} selected={folder} select={browseFolder} depth={0} /> : <p className="dim">Indexing project…</p>}
       </aside>
-      {state ? <AssetBrowser key={filterKey + folder + list + tile} world={world} query={browseQuery} revision={revision} list={list} tile={tile} selected={selection.map(a => a.path)} select={select} onVisible={setVisible} /> : <div className="inventory-empty">Indexing supported media…</div>}
+      {state ? <AssetBrowser key={filterKey + folder + list + tile} world={world} query={browseQuery} revision={revision} indexing={state.indexing} list={list} tile={tile} selected={selection.map(a => a.path)} select={select} onVisible={setVisible} /> : <div className="inventory-empty">Indexing supported media…</div>}
       <Inspector key={selected?.path ?? 'empty'} world={world} root={root} asset={selected} revision={revision} />
     </div>
-    <footer className="inventory-status"><span>{(state?.total ?? 0).toLocaleString()} indexed media</span><span>{state?.refreshing ? 'Refreshing…' : state?.watching ? '● Watching for changes' : 'Refreshes on focus'}</span><span>{state?.engine}{state?.engineRoot ? ` · ${state.engineRoot}` : ''}</span><span className="dim">Vendor packs excluded from Ours</span></footer>
+    <footer className="inventory-status"><span>{(state?.total ?? 0).toLocaleString()} indexed media</span><span>{state?.indexing ? indexingText(state.indexing) : state?.refreshing ? 'Refreshing…' : state?.watching ? '● Watching for changes' : 'Refreshes on focus'}</span><span>{state?.engine}{state?.engineRoot ? ` · ${state.engineRoot}` : ''}</span><span className="dim">Vendor packs excluded from Ours</span></footer>
   </>
 }
 
@@ -143,7 +143,11 @@ function FolderChildren({ world, parent, filters, revision, selected, select, de
   })}</>
 }
 
-function AssetBrowser({ world, query, revision, list, tile, selected, select, onVisible }: { world: string; query: InventoryQuery; revision: number; list: boolean; tile: number; selected: string[]; select: (asset: InventoryAsset, multiple: boolean) => void; onVisible: (v: { names: string[]; total: number }) => void }) {
+function indexingText(p: NonNullable<InventoryState['indexing']>): string {
+  return p.total ? `Indexing ${p.done.toLocaleString()} / ${p.total.toLocaleString()}…` : 'Listing project files…'
+}
+
+function AssetBrowser({ world, query, revision, indexing, list, tile, selected, select, onVisible }: { world: string; query: InventoryQuery; revision: number; indexing?: InventoryState['indexing']; list: boolean; tile: number; selected: string[]; select: (asset: InventoryAsset, multiple: boolean) => void; onVisible: (v: { names: string[]; total: number }) => void }) {
   const ref = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width: 600, height: 500, top: 0 })
   const [page, setPage] = useState<{ items: InventoryAsset[]; offset: number; total: number }>()
@@ -168,7 +172,7 @@ function AssetBrowser({ world, query, revision, list, tile, selected, select, on
     <div className="inventory-result-count">{page ? `${page.total.toLocaleString()} matching assets` : 'Loading assets…'}<span className="dim">Ctrl click to select up to 20</span></div>
     {list && <div className="inventory-list-head"><span>Name</span><span>Type</span><span>Size</span></div>}
     <div ref={ref} className="inventory-scroll" onScroll={e => { const top = e.currentTarget.scrollTop; setSize(s => ({ ...s, top })) }}>
-      {error ? <p className="inventory-error" role="alert">{error}</p> : page?.total === 0 ? <div className="inventory-empty"><Search size={32} /><h3>No matching media</h3><p>Try another folder, scope or search.</p></div> : <div style={{ height: range.height, position: 'relative' }} role="group" aria-label="Assets">
+      {error ? <p className="inventory-error" role="alert">{error}</p> : page?.total === 0 ? indexing ? <div className="inventory-empty"><RefreshCw size={32} className="spin" /><h3>{indexingText(indexing)}</h3><p>Assets appear here as they are indexed.</p></div> : <div className="inventory-empty"><Search size={32} /><h3>No matching media</h3><p>Try another folder, scope or search.</p></div> : <div style={{ height: range.height, position: 'relative' }} role="group" aria-label="Assets">
         <div className={cx('inventory-tiles', list && 'is-list')} style={{ top: Math.floor((page?.offset ?? 0) / range.columns) * range.rowHeight, gridTemplateColumns: `repeat(${range.columns}, minmax(0, 1fr))`, gridAutoRows: range.rowHeight }}>
           {page?.items.map(asset => <button key={asset.path} title={asset.path} className={cx('inventory-tile', selected.includes(asset.path) && 'selected')} aria-pressed={selected.includes(asset.path)} onClick={e => select(asset, e.ctrlKey || e.metaKey || e.shiftKey)}>
             <AssetThumbnail world={world} asset={asset} />
@@ -190,11 +194,14 @@ function AssetThumbnail({ world, asset }: { world: string; asset: InventoryAsset
   const [loaded, setLoaded] = useState(false)
   useEffect(() => {
     const el = ref.current!
+    // Request only after the tile stays near the viewport briefly, so fast scrolling queues no decodes.
+    let timer: ReturnType<typeof setTimeout> | undefined
     const observer = new IntersectionObserver(entries => {
-      if (entries.some(e => e.isIntersecting)) { setVisible(true); observer.disconnect() }
+      clearTimeout(timer)
+      if (entries.at(-1)?.isIntersecting) timer = setTimeout(() => { setVisible(true); observer.disconnect() }, 120)
     }, { root: el.closest('.inventory-scroll'), rootMargin: '100px' })
     observer.observe(el)
-    return () => observer.disconnect()
+    return () => { clearTimeout(timer); observer.disconnect() }
   }, [])
   const Icon = ICONS[asset.kind]
   return <span ref={ref} className="inventory-thumb">{(!loaded || failed) && <Icon size={30} strokeWidth={1.2} />}{url && visible && !failed && <img src={url} alt="" onLoad={() => setLoaded(true)} onError={() => setFailed(true)} style={{ display: loaded ? 'block' : 'none' }} />}</span>

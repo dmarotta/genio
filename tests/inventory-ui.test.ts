@@ -38,6 +38,14 @@ describe('Inventory browser', () => {
     expect(virtualWindow(0, 0, 0, 9000, 150, false).offset).toBe(0)
     expect(virtualWindow(2, 640, 600, 20000, 150, true).offset).toBeLessThan(2)
   })
+  it('keeps a screen page payload small for a large index', () => {
+    const big = Array.from({ length: 30000 }, (_, i) => asset(`Assets/Area${i % 40}/Set${i % 7}/asset_${i}.png`, { tags: ['sprite'] }))
+    const { limit } = virtualWindow(big.length, 1200, 900, 0, 120, false)
+    const page = queryInventory(big, { folder: '', offset: 0, limit }), tree = queryInventory(big, { folder: '', limit: 1 })
+    expect(page.items.length).toBe(limit)
+    expect(JSON.stringify(page).length).toBeLessThan(64 * 1024)
+    expect(JSON.stringify(tree).length).toBeLessThan(8 * 1024)
+  })
   it('uses guarded thumbnail URLs and metadata fallbacks for unsupported formats, large files and LFS', () => {
     expect(thumbnailUrl('my-world', assets[0])).toBe('genio-media://thumb/my-world/Assets/UI/door.png')
     expect(thumbnailUrl('my-world', asset('large.png', { size: 70 * 1024 ** 2 }))).toBeUndefined()

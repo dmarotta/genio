@@ -93,7 +93,7 @@ function registerMedia(): void {
         if (req.method !== 'GET') return new Response('method not allowed', { status: 405 })
         const [world, ...parts] = u.pathname.slice(1).split('/').map(decodeURIComponent)
         const asset = parts.join('/')
-        const p = u.hostname === 'world' ? await getCtx().inventory.mediaPath(world, asset) : await getCtx().inventory.thumbnail(world, asset)
+        const p = u.hostname === 'world' ? await getCtx().inventory.mediaPath(world, asset) : await getCtx().inventory.thumbnail(world, asset, req.signal)
         if (!p) return new Response('not found', { status: 404 })
         const response = mediaResponse(p, req.headers.get('range'))
         response.headers.set('X-Content-Type-Options', 'nosniff')

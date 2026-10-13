@@ -6,9 +6,13 @@ the Inventory screen, generation, placement, drafts or undo.
 ## Screen contract
 
 - `inventoryOpen(world)` starts watching this project (closing any other project's
-  watcher). It returns cached state immediately and reconciles in the background;
-  without a cache it awaits the initial scan. State includes the registered engine
-  and engine root, revision, counts, refresh/watch status and errors.
+  watcher). It never waits for a scan: it returns cached state immediately and
+  reconciles in the background. Without a cache the first scan streams into the
+  index in pages; `state.indexing` reports `{done, total}` and the revision bumps
+  about every 250 ms so the open screen fills as it runs. Nothing scans at app
+  start; a project is first indexed when Inventory opens or a tool asks for it.
+  State includes the registered engine and engine root, revision, counts,
+  refresh/watch status and errors.
 - Subscribe to the `inventory` event and re-query when its revision changes.
   `inventoryList(world, query)` returns a paginated asset list, matching total and
   immediate child folders with recursive media counts. Paths remain relative to
@@ -25,8 +29,16 @@ the Inventory screen, generation, placement, drafts or undo.
   generated regardless of whether its author was a player, unit or Genio.
 - Call `inventoryRefresh(world)` on focus; this also covers platforms where
   recursive watching is unavailable. Call `inventoryClose(world)` on leaving the
-  screen. Watch events are debounced 300 ms; unchanged assets are reused. A large
-  event batch, ignore/config change or explicit refresh triggers a full stat diff.
+  screen. Watch events are debounced 300 ms. A batch of only `change` events
+  re-stats the affected known assets without running Git; renames, ignore/config
+  changes, a large batch or an explicit refresh enumerate with Git and stat-diff
+  every asset. Each indexed path keeps a size/mtime/sidecar/record stamp; equal
+  stamps reuse the entry without reading. A refresh that changes nothing keeps
+  the revision, so the screen does not re-query. This matters on Windows, where
+  reading files updates last-access times and the recursive watcher reports them
+  as changes; before stamps, Inventory's own reads re-triggered full rescans.
+  `list` memoizes the sorted match per revision and filters, so the tree, grid
+  and scrolled pages share one filter/sort.
 
 ## Index and transport
 
@@ -37,15 +49,18 @@ Build output directories are excluded by exact names (`Build`, `Builds`,
 `BuildOutput`), preserving legitimate `Buildings` art. Other output follows
 `.gitignore`. Submodules are not recursively enumerated.
 
-Stat and LFS header reads run in a Node worker. Sidecar contents are lazy for the
-inspector/label filters, and hydrated in the background while open. Reads are
+Stat and LFS header reads run in a Node worker that streams results in pages of
+256; the main thread yields between enumeration batches. Sidecar contents are
+read only on demand: for the selected asset (inspector) or when a label/sprite/
+texture filter needs them. Hydrated metadata persists in the index. Reads are
 bounded to 64 KiB for sidecars and 256 KiB for provenance. `.meta`, `.import` and
 `.genio` files never become tiles. `.tres` files are checked for a material type.
 Vendor detection uses known folder names, configured prefixes and a conservative
 pack heuristic (documentation plus demos/scenes). `.genio/assets.json` accepts
 project-relative `vendor` and `ignore` prefix arrays; it is never written.
 
-`data/inventory/<world>/index.json` is versioned and atomically replaced.
+`data/inventory/<world>/index.json` is versioned (v2 adds stamps; v1 still loads
+and is re-read once) and atomically replaced.
 `genio-media://world/<world>/<path>` supports nested paths and Range requests;
 guards reject traversal, Windows alternate streams, hidden control/cache folders,
 and symlinks/junctions escaping the project. `.gltf` companion buffers can use the
@@ -55,7 +70,9 @@ Request `genio-media://thumb/<world>/<path>` only for visible tiles. Native imag
 formats decode via `createImageBitmap` and `OffscreenCanvas` in a Web Worker hosted
 by a lazy, hidden, sandboxed renderer. Input is capped at 64 MiB, decoded images at
 64 megapixels, output at 256 px and 1 MiB, and jobs at 20 seconds. Jobs are serialized
-and duplicate requests coalesced. Unsupported/oversized/LFS assets return 404 so
+and duplicate requests coalesced. A queued job whose requests were all aborted
+(tile scrolled away) is skipped. Cache hits do not wait for the one-off walk of
+the thumbnail cache; that walk happens only before the first write. Unsupported/oversized/LFS assets return 404 so
 the screen can show a type icon. DCC/HDR decoding, waveforms, video posters and
 model snapshots belong to later preview steps.
 
@@ -74,6 +91,30 @@ Spike 0c used five real PNGs (78 B–1.67 MB): native worker thumbnail requests 
 and **0.8 ms** for a cache hit. All five output WebPs were independently decoded
 and measured at no more than 256 px. Outputs ranged from 526 B to 10.4 KB. The
 project was read only; benchmark caches lived in the unit's Genio scratch data.
+
+### Open latency (Windows, 2026-10-13, async/lazy index)
+
+The service was measured in-process: open → first page → settled, with a 5 ms
+timer measuring main-thread stalls. On a synthetic project (12,000 media files with
+`.meta` sidecars and access times aged 3 days, so reads trigger last-access
+watcher events), the results were:
+
+| | before | after |
+|---|---|---|
+| cold open (no cache) | 4,738 ms, blocked on full scan | 24 ms; grid streams in |
+| cold settle / rescans | 14.9 s / 4 | 8.1 s / 1 (+1 no-op stat batch) |
+| warm open / settle | 102 ms / 33 s | 50 ms / 6.2 s |
+| warm self-triggered revisions | 6 full rescans and re-queries | 0 |
+| worst main-thread stall | 465 ms (3.8 s total > 50 ms) | 81 ms |
+| repeat page query | 10–28 ms | 0–4 ms (memoized) |
+
+On lands-of-old (6,616 media), the first open of the day took 3.96 s, then
+re-scanned itself 13 times (warm: 22 times) over 22–27 s, with stalls of up to
+549 ms. After the change, cold open took 8 ms and settled in 3.7 s. Warm open
+took 30 ms and settled in 1.4 s with no revision change; the worst stall was 28 ms.
+Access times were recent for the after-run, so this run did not reproduce the
+echo storm. The synthetic run covers that case. The default page payload is
+about 20 KB.
 
 ## Genio read tools
 

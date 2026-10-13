@@ -28,15 +28,20 @@ export function assetTags(p: string, kind: AssetKind): string[] {
     : /(?:^|\/)(?:vo|voice|dialogue)(?:\/|$)/i.test(p) ? ['voice']
       : /(?:^|\/)(?:sfx|sound effects)(?:\/|$)/i.test(p) ? ['sfx'] : []
 }
-export function queryInventory(assets: InventoryAsset[], q: InventoryQuery): { items: InventoryAsset[]; total: number; folders: InventoryFolder[] } {
+const collator = new Intl.Collator()
+export interface InventoryMatch { items: InventoryAsset[]; folders: InventoryFolder[] }
+/** Every match, sorted, with folder counts: independent of offset/limit so pages of one query can share it. */
+export function matchInventory(assets: Iterable<InventoryAsset>, q: InventoryQuery): InventoryMatch {
   const folder = (q.folder ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
   const tokens = (q.query ?? '').match(/(?:[^\s"]+|"[^"]*")+/g)?.map(t => t.replace(/"/g, '').toLowerCase()) ?? []
-  const matches = assets.filter(a => {
+  const lower = !!q.tags?.length || tokens.length > 0, matches: InventoryAsset[] = []
+  for (const a of assets) if (keep(a)) matches.push(a)
+  function keep(a: InventoryAsset): boolean {
     if (folder && !under(a.path, folder)) return false
     if ((q.scope ?? 'ours') === 'ours' && a.vendor || q.scope === 'vendor' && !a.vendor) return false
     if (q.kinds?.length && !q.kinds.includes(a.kind)) return false
     if (q.generated !== undefined && q.generated !== a.generated) return false
-    const tags = a.tags.map(t => t.toLowerCase())
+    const tags = lower ? a.tags.map(t => t.toLowerCase()) : []
     if (q.tags?.some(t => !tags.includes(t.toLowerCase()))) return false
     return tokens.every(t => {
       const colon = t.indexOf(':'), key = t.slice(0, colon), value = t.slice(colon + 1)
@@ -57,7 +62,7 @@ export function queryInventory(assets: InventoryAsset[], q: InventoryQuery): { i
       }
       return matchScore(t, a.path) >= 0
     })
-  })
+  }
   const folders = new Map<string, InventoryFolder>()
   const prefix = folder ? folder + '/' : ''
   for (const a of matches) {
@@ -67,11 +72,18 @@ export function queryInventory(assets: InventoryAsset[], q: InventoryQuery): { i
     if (f) { f.count++; f.vendor &&= a.vendor } else folders.set(p, { path: p, name, count: 1, vendor: a.vendor })
   }
   const items = q.recursive === false ? matches.filter(a => a.folder === folder) : matches
+  // Same ordering as localeCompare, without its per-call locale setup on every list request.
   items.sort((a, b) => {
     const n = q.sort === 'size' ? a.size - b.size : q.sort === 'modified' ? a.mtimeMs - b.mtimeMs
-      : q.sort === 'type' ? a.kind.localeCompare(b.kind) : a.name.localeCompare(b.name)
-    return (n || a.path.localeCompare(b.path)) * (q.descending ? -1 : 1)
+      : q.sort === 'type' ? collator.compare(a.kind, b.kind) : collator.compare(a.name, b.name)
+    return (n || collator.compare(a.path, b.path)) * (q.descending ? -1 : 1)
   })
+  return { items, folders: [...folders.values()].sort((a, b) => collator.compare(a.name, b.name)) }
+}
+export function pageInventory(match: InventoryMatch, q: InventoryQuery): { items: InventoryAsset[]; total: number; folders: InventoryFolder[] } {
   const offset = Math.max(0, Math.floor(q.offset ?? 0)), limit = Math.min(1000, Math.max(1, Math.floor(q.limit ?? 200)))
-  return { items: items.slice(offset, offset + limit), total: items.length, folders: [...folders.values()].sort((a, b) => a.name.localeCompare(b.name)) }
+  return { items: match.items.slice(offset, offset + limit), total: match.items.length, folders: match.folders }
+}
+export function queryInventory(assets: Iterable<InventoryAsset>, q: InventoryQuery): { items: InventoryAsset[]; total: number; folders: InventoryFolder[] } {
+  return pageInventory(matchInventory(assets, q), q)
 }

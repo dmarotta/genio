@@ -74,6 +74,8 @@ export interface InventoryState {
   refreshing: boolean
   watching: boolean
   error?: string
+  /** Present while a world's first scan streams in; `total` is 0 until enumeration finishes. */
+  indexing?: { done: number; total: number }
   enumerationMs?: number
   scanMs?: number
 }

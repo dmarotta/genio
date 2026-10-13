@@ -47,8 +47,11 @@ try {
     stream.on('error', e => { throw e; });
     stream.on('end', () => parentPort.postMessage(hash.digest('hex')));
   } else {
-    const results = [];
+    let results = [];
+    function mtime(rel) { try { const s = fs.lstatSync(safe(rel)); return s.isFile() ? s.mtimeMs : 'x'; } catch { return '-'; } }
     for (const a of d.assets) {
+      // Stream pages so the main thread merges small batches instead of one huge clone.
+      if (d.chunk && results.length >= d.chunk) { parentPort.postMessage({ chunk: results }); results = []; }
       try {
         if (d.metadataOnly) {
           try { a.meta = meta(a.meta.path); } catch { a.meta = undefined; }
@@ -60,6 +63,10 @@ try {
         }
         const file = safe(a.path), stat = fs.lstatSync(file);
         if (!stat.isFile()) continue;
+        // Stat diff: unchanged file, sidecar and record stamps reuse the previous entry without reading.
+        const stamp = stat.size + ':' + stat.mtimeMs + ':' + (a.sidecar ? mtime(a.sidecar) : '') + ':' + (a.record ? mtime(a.record) : '');
+        if (a.stamp === stamp) { results.push({ path: a.path, same: true }); continue; }
+        a.stamp = stamp;
         a.size = stat.size; a.mtimeMs = stat.mtimeMs;
         a.lfs = false; a.generated = false;
         if (stat.size <= 1024) {
@@ -67,7 +74,7 @@ try {
           const pointer = /^version https:\/\/git-lfs.github.com\/spec\/v1\r?\noid sha256:([a-f\d]{64})\r?\nsize (\d+)\s*$/i.exec(text);
           if (pointer) { a.lfs = true; a.lfsOid = pointer[1]; a.lfsSize = Number(pointer[2]); }
         }
-        if (a.ext === 'tres' && !a.lfs && !/^\[gd_resource\s+type="[^"]*Material[^"]*"/m.test(read(a.path, 1024))) continue;
+        if (a.ext === 'tres' && !a.lfs && !/^\[gd_resource\s+type="[^"]*Material[^"]*"/m.test(read(a.path, 1024))) { results.push({ path: a.path, skip: true, stamp }); continue; }
         if (a.sidecar) {
           if (!a.meta?.loaded) a.meta = { path: a.sidecar, labels: [], loaded: false };
           else try {
@@ -93,7 +100,7 @@ try {
         results.push(a);
       } catch { /* deleted, inaccessible or symlink: omit */ }
     }
-    parentPort.postMessage(results);
+    parentPort.postMessage(d.chunk ? { chunk: results, done: true } : results);
   }
 } catch (e) { throw e; }
 `

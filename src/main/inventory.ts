@@ -5,7 +5,7 @@ import { Worker } from 'node:worker_threads'
 import { createHash } from 'node:crypto'
 import type { InventoryAsset, InventoryInfo, InventoryQuery, InventoryResult, InventoryState } from '@shared/inventory'
 import { inventoryMediaUrl, NATIVE_THUMB_EXTS, THUMB_MAX_BYTES } from '@shared/inventory'
-import { assetKind, assetTags, ignoredAssetPath, queryInventory, under, vendorPath } from './inventory-query'
+import { assetKind, assetTags, ignoredAssetPath, matchInventory, pageInventory, under, vendorPath, type InventoryMatch } from './inventory-query'
 import { INVENTORY_WORKER } from './inventory-worker'
 import { bus } from './bus'
 import { run } from './util'
@@ -19,26 +19,42 @@ export interface InventoryService {
   list(world: string, query?: InventoryQuery): Promise<InventoryResult>
   info(world: string, asset: string, verifyHash?: boolean): Promise<InventoryInfo | null>
   mediaPath(world: string, asset: string): Promise<string | undefined>
-  thumbnail(world: string, asset: string): Promise<string | undefined>
+  thumbnail(world: string, asset: string, signal?: AbortSignal): Promise<string | undefined>
   stop(): void
 }
 export type ThumbnailDecoder = (url: string) => Promise<Buffer | undefined>
-type Candidate = InventoryAsset & { sidecar?: string; record?: string }
+type Candidate = InventoryAsset & { sidecar?: string; record?: string; stamp?: string }
+type ScanResult = (InventoryAsset & { stamp: string }) | { path: string; same: true } | { path: string; skip: true; stamp: string }
+/** Watcher batch: `enumerate` when a path may have appeared or vanished (rename events, ignore/config files). */
+interface ChangeBatch { paths: Set<string>; enumerate: boolean }
 interface WorldIndex {
   root: string
   assets: Map<string, InventoryAsset>
+  /** size:mtime:sidecar-mtime:record-mtime per indexed (or deliberately skipped) path; equal stamps skip all reads. */
+  stamps: Map<string, string>
+  /** Last enumeration and world config, reused by change-only watcher batches. */
+  files?: Map<string, boolean>
+  config?: { vendor: string[]; ignore: string[] }
   state: InventoryState
   initialized: boolean
   loading?: Promise<void>
   saving?: Promise<void>
   metadata?: Promise<void>
   refreshing?: Promise<InventoryState>
+  refreshFull?: boolean
   watcher?: fs.FSWatcher
   watchError?: string
   open: boolean
   pending: Set<string>
+  structural: boolean
+  /** Recent sorted query results keyed by revision and filters (LRU). */
+  matches: Map<string, InventoryMatch>
   timer?: NodeJS.Timeout
 }
+const INDEX_VERSION = 2
+const SCAN_CHUNK = 256
+const yieldLoop = (): Promise<void> => new Promise(resolve => setImmediate(resolve))
+const STRUCTURAL = /(?:^|\/)(?:\.gitignore|\.gitmodules|\.git)$/
 
 /** Reject ambiguous Windows paths, traversal and hidden/control folders before resolving. */
 export function validInventoryPath(rel: string): boolean {
@@ -75,23 +91,31 @@ export async function enumerateInventory(root: string): Promise<{ files: Map<str
     }
     return { files, ms: performance.now() - start }
   }
-  for (const line of r.stdout.split('\0')) {
-    const p = line.slice(2)
-    if (validInventoryPath(p) && !ignoredAssetPath(p)) files.set(p, files.get(p) || line[0] !== '?')
+  const lines = r.stdout.split('\0')
+  for (let i = 0; i < lines.length; i++) {
+    if (i && i % 5000 === 0) await yieldLoop()
+    const p = lines[i].slice(2)
+    if (validInventoryPath(p) && !ignoredAssetPath(p)) files.set(p, files.get(p) || lines[i][0] !== '?')
   }
   return { files, ms: performance.now() - start }
 }
 
 export function createInventoryService(getCtx: () => AppCtx, decode?: ThumbnailDecoder, thumbCap = 1024 ** 3): InventoryService {
   const worlds = new Map<string, WorldIndex>(), workers = new Set<Worker>()
-  const thumbs = new Map<string, Promise<string | undefined>>()
+  const thumbs = new Map<string, { task: Promise<string | undefined>; waiters: (AbortSignal | undefined)[] }>()
   const thumbCaches = new Map<string, Promise<Map<string, { size: number; time: number }>>>()
   let stopped = false, thumbQueue: Promise<unknown> = Promise.resolve()
-  const worker = <T>(data: unknown): Promise<T> => new Promise((resolve, reject) => {
+  /** One-shot worker; with `onChunk`, results stream in pages until the worker reports `done`. */
+  const worker = <T>(data: unknown, onChunk?: (items: T) => void): Promise<T> => new Promise((resolve, reject) => {
     if (stopped) return reject(new Error('Inventory stopped'))
     const w = new Worker(INVENTORY_WORKER, { eval: true, workerData: data })
     workers.add(w)
-    w.once('message', resolve)
+    w.on('message', (m: T | { chunk: T; done?: boolean }) => {
+      if (!onChunk) return resolve(m as T)
+      const { chunk, done } = m as { chunk: T; done?: boolean }
+      try { onChunk(chunk) } catch (e) { reject(e); void w.terminate(); return }
+      if (done) resolve(chunk)
+    })
     w.once('error', reject)
     w.once('exit', code => { workers.delete(w); if (code) reject(new Error(`Inventory worker exited (${code})`)) })
   })
@@ -122,7 +146,7 @@ export function createInventoryService(getCtx: () => AppCtx, decode?: ThumbnailD
       if (stopped || worlds.get(w.state.world) !== w) return
       const dir = cacheDir(w.state.world)
       await fsp.mkdir(dir, { recursive: true })
-      await fsp.writeFile(path.join(dir, 'index.json.tmp'), JSON.stringify({ version: 1, root: w.root, updatedAt: w.state.updatedAt, assets: [...w.assets.values()] }))
+      await fsp.writeFile(path.join(dir, 'index.json.tmp'), JSON.stringify({ version: INDEX_VERSION, root: w.root, updatedAt: w.state.updatedAt, assets: [...w.assets.values()], stamps: [...w.stamps] }))
       await fsp.rename(path.join(dir, 'index.json.tmp'), path.join(dir, 'index.json'))
     })
     return w.saving
@@ -148,14 +172,16 @@ export function createInventoryService(getCtx: () => AppCtx, decode?: ThumbnailD
     let w = worlds.get(world)
     if (w && w.root !== proj.path) { close(world); worlds.delete(world); w = undefined }
     if (!w) {
-      w = { root: proj.path, assets: new Map(), initialized: false, open: false, pending: new Set(), state: { world, revision: 0, total: 0, refreshing: false, watching: false } }
+      w = { root: proj.path, assets: new Map(), stamps: new Map(), initialized: false, open: false, pending: new Set(), structural: false, matches: new Map(), state: { world, revision: 0, total: 0, refreshing: false, watching: false } }
       worlds.set(world, w)
       const fresh = w
       fresh.loading = (async () => {
         try {
           const c = JSON.parse(await fsp.readFile(path.join(dir, 'index.json'), 'utf8'))
-          if (c.version === 1 && c.root === fresh.root && Array.isArray(c.assets)) {
+          // Version 1 has no stamps: its assets show at once and the first refresh re-reads them.
+          if ((c.version === 1 || c.version === INDEX_VERSION) && c.root === fresh.root && Array.isArray(c.assets)) {
             fresh.assets = new Map(c.assets.filter((a: InventoryAsset) => validInventoryPath(a.path) && !ignoredAssetPath(a.path)).map((a: InventoryAsset) => [a.path, a]))
+            if (Array.isArray(c.stamps)) fresh.stamps = new Map(c.stamps.filter((s: unknown) => Array.isArray(s) && typeof s[0] === 'string' && typeof s[1] === 'string'))
             fresh.state = { ...fresh.state, total: fresh.assets.size, updatedAt: c.updatedAt }
             fresh.initialized = true
           }
@@ -167,48 +193,121 @@ export function createInventoryService(getCtx: () => AppCtx, decode?: ThumbnailD
     w.state.engineRoot = proj.engineRoot
     return w
   }
-  const refreshIndex = (w: WorldIndex, changed?: Set<string>): Promise<InventoryState> => {
-    if (w.refreshing) return w.refreshing
+  const readConfig = async (w: WorldIndex, files: Map<string, boolean>): Promise<{ vendor: string[]; ignore: string[] }> => {
+    let config: { vendor?: string[]; ignore?: string[] } = {}
+    const configPath = await guardedWorldFile(w.root, '.genio/assets.json', true)
+    if (configPath) { try { config = JSON.parse(await fsp.readFile(configPath, 'utf8')) } catch {} }
+    const paths = (v: unknown): string[] => Array.isArray(v) ? v.filter(x => typeof x === 'string').map(x => x.replace(/\\/g, '/').replace(/\/$/, '')) : []
+    const vendor = paths(config?.vendor), ignore = paths(config?.ignore)
+    // Conservative pack shape: documentation AND demo/scenes, alongside art.
+    const docs = new Set<string>(), demos = new Set<string>()
+    for (const p of files.keys()) {
+      const m = /^(.*)\/(Documentation|Demo|Scenes)\//i.exec(p)
+      if (m) (m[2].toLowerCase() === 'documentation' ? docs : demos).add(m[1])
+    }
+    vendor.push(...[...docs].filter(p => demos.has(p)))
+    return { vendor, ignore }
+  }
+  /**
+   * Full refreshes enumerate with Git and stat-diff every asset; watcher batches only revisit affected paths, and skip
+   * Git entirely when no path can have appeared or vanished. Reads happen only for changed stamps, and a refresh that
+   * changes nothing keeps the revision, so the screen does not re-query (this also stops access-time watcher echoes).
+   */
+  const refreshIndex = (w: WorldIndex, batch?: ChangeBatch): Promise<InventoryState> => {
+    if (w.refreshing) {
+      // An explicit refresh must not settle for a narrower watcher batch that is already running.
+      if (!batch && !w.refreshFull) return w.refreshing.catch(() => undefined).then(() => refreshIndex(w))
+      return w.refreshing.then(() => state(w))
+    }
+    w.refreshFull = !batch
+    const cold = !w.initialized
+    if (cold) w.state.indexing = { done: 0, total: 0 }
     w.refreshing = (async () => {
-      const started = performance.now(), { files, ms } = await enumerateInventory(w.root)
-      let config: { vendor?: string[]; ignore?: string[] } = {}
-      const configPath = await guardedWorldFile(w.root, '.genio/assets.json', true)
-      if (configPath) { try { config = JSON.parse(await fsp.readFile(configPath, 'utf8')) } catch {} }
-      const paths = (v: unknown): string[] => Array.isArray(v) ? v.filter(x => typeof x === 'string').map(x => x.replace(/\\/g, '/').replace(/\/$/, '')) : []
-      const vendor = paths(config?.vendor), ignore = paths(config?.ignore)
-      // Conservative pack shape: documentation AND demo/scenes, alongside art.
-      const docs = new Set<string>(), demos = new Set<string>()
-      for (const p of files.keys()) {
-        const m = /^(.*)\/(Documentation|Demo|Scenes)\//i.exec(p)
-        if (m) (m[2].toLowerCase() === 'documentation' ? docs : demos).add(m[1])
+      const started = performance.now(), enumerate = !batch || batch.enumerate || !w.files || !w.config
+      let files = w.files!, config = w.config!, ms = 0
+      if (enumerate) {
+        ({ files, ms } = await enumerateInventory(w.root))
+        config = await readConfig(w, files)
       }
-      vendor.push(...[...docs].filter(p => demos.has(p)))
-      const candidates: Candidate[] = [], next = new Map<string, InventoryAsset>()
-      const changes = [...changed ?? []]
-      const full = !changed || changes.length > 128 || changes.some(p => /(?:^|\/)(?:\.gitignore|\.gitmodules|\.git)$/.test(p) || p === '.genio/assets.json')
-      for (const [p, tracked] of files) {
+      const changes = batch ? batch.paths : new Set<string>()
+      const all = !batch || changes.size > 128 || [...changes].some(p => STRUCTURAL.test(p) || p === '.genio/assets.json')
+      const hit = (p: string): boolean => {
+        for (let q = p; ; q = q.slice(0, q.lastIndexOf('/'))) { if (changes.has(q)) return true; if (!q.includes('/')) return false }
+      }
+      const dirty = (p: string): boolean => all || hit(p) || changes.has(p + '.meta') || changes.has(p + '.import') || hit(`.genio/provenance/${p}.json`)
+      const candidates = new Map<string, Candidate>(), next = new Map<string, InventoryAsset>(), stamps = new Map<string, string>()
+      const candidate = (p: string, tracked: boolean): void => {
         const kind = assetKind(p)
-        if (!kind || p.startsWith('.genio/') || ignore.some(f => under(p, f))) continue
-        const prev = w.assets.get(p), vendorFlag = vendorPath(p, vendor)
-        const dirty = full || changes.some(c => under(p, c) || c === `${p}.meta` || c === `${p}.import` || c === `.genio/provenance/${p}.json` || under(`.genio/provenance/${p}.json`, c))
-        if (prev && !dirty) { next.set(p, { ...prev, tracked, vendor: vendorFlag }); continue }
-        candidates.push({ path: p, name: path.posix.basename(p), folder: path.posix.dirname(p) === '.' ? '' : path.posix.dirname(p),
-          ext: path.posix.extname(p).slice(1).toLowerCase(), kind, size: 0, mtimeMs: 0, tracked, lfs: false, vendor: vendorFlag, tags: assetTags(p, kind), generated: false,
-          meta: prev?.meta,
+        if (!kind || p.startsWith('.genio/') || config.ignore.some(f => under(p, f))) return
+        const prev = w.assets.get(p), vendor = vendorPath(p, config.vendor)
+        if (prev && !dirty(p)) {
+          next.set(p, prev.tracked === tracked && prev.vendor === vendor ? prev : { ...prev, tracked, vendor })
+          const stamp = w.stamps.get(p)
+          if (stamp) stamps.set(p, stamp)
+          return
+        }
+        candidates.set(p, { path: p, name: path.posix.basename(p), folder: path.posix.dirname(p) === '.' ? '' : path.posix.dirname(p),
+          ext: path.posix.extname(p).slice(1).toLowerCase(), kind, size: 0, mtimeMs: 0, tracked, lfs: false, vendor, tags: assetTags(p, kind), generated: false,
+          meta: prev?.meta, stamp: w.stamps.get(p),
           sidecar: files.has(p + '.meta') ? p + '.meta' : files.has(p + '.import') ? p + '.import' : undefined,
           record: files.has(`.genio/provenance/${p}.json`) ? `.genio/provenance/${p}.json` : undefined })
       }
-      if (candidates.length) for (const a of await worker<InventoryAsset[]>({ root: w.root, assets: candidates })) next.set(a.path, a)
+      if (enumerate) {
+        let i = 0
+        for (const [p, tracked] of files) {
+          if (++i % 2000 === 0) await yieldLoop()
+          candidate(p, tracked)
+        }
+      } else {
+        // Change-only batch: modifications (or access-time noise) to known paths; nothing can appear or vanish.
+        for (const [p, a] of w.assets) next.set(p, a)
+        for (const [p, s] of w.stamps) stamps.set(p, s)
+        for (const c of changes) {
+          const p = c.startsWith('.genio/provenance/') && c.endsWith('.json') ? c.slice(18, -5) : c.replace(/\.(?:meta|import)$/, '')
+          for (const q of new Set([c, p])) {
+            if (!files.has(q) || !(w.assets.has(q) || w.stamps.has(q))) continue
+            next.delete(q); stamps.delete(q); candidate(q, files.get(q)!)
+          }
+        }
+      }
+      if (cold) { w.assets = next; w.state.indexing = { done: 0, total: candidates.size } }
+      let done = 0, published = performance.now()
+      const merge = (items: ScanResult[]): void => {
+        if (stopped || worlds.get(w.state.world) !== w) return
+        for (const r of items) {
+          const c = candidates.get(r.path)
+          if (!c) continue
+          if ('same' in r) {
+            const prev = w.assets.get(r.path)
+            if (prev) next.set(r.path, prev.tracked === c.tracked && prev.vendor === c.vendor ? prev : { ...prev, tracked: c.tracked, vendor: c.vendor })
+            if (c.stamp) stamps.set(r.path, c.stamp)
+          } else if ('skip' in r) stamps.set(r.path, r.stamp)
+          else { const { stamp, ...asset } = r; next.set(asset.path, asset); stamps.set(asset.path, stamp) }
+        }
+        done += items.length
+        // A first scan streams into the visible index so the screen fills while it runs.
+        if (cold && performance.now() - published > 250) {
+          published = performance.now()
+          w.state = { ...w.state, total: next.size, revision: w.state.revision + 1, indexing: { done, total: candidates.size } }
+          publish(w)
+        }
+      }
+      if (candidates.size) await worker<ScanResult[]>({ root: w.root, assets: [...candidates.values()], chunk: SCAN_CHUNK }, merge)
       if (stopped || worlds.get(w.state.world) !== w) return state(w)
-      w.assets = next; w.initialized = true
-      w.state = { ...w.state, total: next.size, revision: w.state.revision + 1, updatedAt: new Date().toISOString(), error: undefined, enumerationMs: ms, scanMs: performance.now() - started }
-      await saveCache(w)
+      let changed = cold || next.size !== w.assets.size
+      if (!changed) for (const [p, a] of next) if (w.assets.get(p) !== a) { changed = true; break }
+      w.files = files; w.config = config; w.stamps = stamps; w.initialized = true
+      const timing = { enumerationMs: enumerate ? ms : w.state.enumerationMs, scanMs: performance.now() - started }
+      if (changed) {
+        w.assets = next
+        w.state = { ...w.state, ...timing, total: next.size, revision: w.state.revision + 1, updatedAt: new Date().toISOString(), error: undefined, indexing: undefined }
+        await saveCache(w)
+      } else w.state = { ...w.state, ...timing, error: undefined, indexing: undefined }
       bus.publish({ type: 'feature-used', feature: 'inventory-index' })
       return state(w)
-    })().catch(e => { w.state.error = String((e as Error).message); throw e }).finally(() => {
-      w.refreshing = undefined; publish(w)
+    })().catch(e => { w.state.error = String((e as Error).message); w.state.indexing = undefined; throw e }).finally(() => {
+      w.refreshing = undefined; w.refreshFull = undefined; publish(w)
       if (w.open && w.pending.size) schedule(w)
-      if (w.open) void metadata(w).catch(() => undefined)
     })
     publish(w)
     return w.refreshing.then(() => state(w))
@@ -218,8 +317,9 @@ export function createInventoryService(getCtx: () => AppCtx, decode?: ThumbnailD
     w.timer = setTimeout(() => {
       w.timer = undefined
       if (w.refreshing) return // refresh's finally schedules the pending batch
-      const changed = new Set(w.pending); w.pending.clear()
-      void refreshIndex(w, changed.has('') ? undefined : changed).catch(() => undefined)
+      const paths = new Set(w.pending), enumerate = w.structural
+      w.pending.clear(); w.structural = false
+      void refreshIndex(w, paths.has('') ? undefined : { paths, enumerate }).catch(() => undefined)
     }, 300)
   }
   const close = (world: string): void => {
@@ -227,15 +327,20 @@ export function createInventoryService(getCtx: () => AppCtx, decode?: ThumbnailD
     if (!w) return
     w.open = false; w.watcher?.close(); w.watcher = undefined
     if (w.timer) clearTimeout(w.timer)
-    w.timer = undefined; w.pending.clear(); publish(w)
+    w.timer = undefined; w.pending.clear(); w.structural = false; publish(w)
   }
-  const ready = async (world: string): Promise<WorldIndex> => { const w = await get(world); if (!w.initialized) await refreshIndex(w); return w }
+  /** An open screen reads the partial index while its first scan streams in; other callers wait for a complete index. */
+  const ready = async (world: string): Promise<WorldIndex> => {
+    const w = await get(world)
+    if (!w.initialized && !(w.open && w.refreshing)) await refreshIndex(w)
+    return w
+  }
   const mediaPath = async (world: string, asset: string): Promise<string | undefined> => {
     const proj = getCtx().projects.get(world)
     if (!proj) return
     return guardedWorldFile(proj.path, asset)
   }
-  const thumbnail = async (world: string, asset: string): Promise<string | undefined> => {
+  const thumbnail = async (world: string, asset: string, signal?: AbortSignal): Promise<string | undefined> => {
     const w = await ready(world), a = w.assets.get(asset)
     if (!decode || !a || a.lfs || !NATIVE_THUMB_EXTS.has(a.ext)) return
     const file = await mediaPath(world, asset)
@@ -244,18 +349,21 @@ export function createInventoryService(getCtx: () => AppCtx, decode?: ThumbnailD
     if (!stat.size || stat.size > THUMB_MAX_BYTES) return
     const key = createHash('sha256').update(`${w.root}\0${asset}\0${stat.size}\0${stat.mtimeMs}`).digest('hex')
     const dir = cacheDir(world, 'thumbs'), dest = path.join(dir, key + '.webp')
-    const entries = await thumbCache(dir)
+    // Cache hits never wait for the one-off cache walk; LRU entries load only when a thumbnail must be written.
     try {
       await fsp.utimes(dest, new Date(), new Date())
-      const entry = entries.get(dest)
-      if (entry) entry.time = Date.now()
+      void thumbCaches.get(dir)?.then(entries => { const entry = entries.get(dest); if (entry) entry.time = Date.now() })
       return dest
-    } catch { entries.delete(dest) }
-    if (thumbs.has(dest)) return thumbs.get(dest)
+    } catch { void thumbCaches.get(dir)?.then(entries => entries.delete(dest)) }
+    const queued = thumbs.get(dest)
+    if (queued) { queued.waiters.push(signal); return queued.task }
+    const waiters = [signal]
     const task = thumbQueue.then(async () => {
-      if (stopped) return
+      // Requests for tiles scrolled away before their turn are dropped instead of decoded.
+      if (stopped || waiters.every(s => s?.aborted)) return
       const data = await decode(inventoryMediaUrl('world', world, asset))
       if (!data || data.length > 1024 * 1024 || data.toString('ascii', 0, 4) !== 'RIFF' || data.toString('ascii', 8, 12) !== 'WEBP') return
+      const entries = await thumbCache(dir)
       await fsp.mkdir(dir, { recursive: true })
       await fsp.writeFile(dest, data)
       entries.set(dest, { size: data.length, time: Date.now() })
@@ -267,7 +375,7 @@ export function createInventoryService(getCtx: () => AppCtx, decode?: ThumbnailD
       }
       return total <= thumbCap && data.length <= thumbCap ? dest : undefined
     }).catch(() => undefined).finally(() => thumbs.delete(dest))
-    thumbs.set(dest, task); thumbQueue = task
+    thumbs.set(dest, { task, waiters }); thumbQueue = task
     return task
   }
   return {
@@ -277,18 +385,19 @@ export function createInventoryService(getCtx: () => AppCtx, decode?: ThumbnailD
       if (!w.watcher) {
         try {
           w.watchError = undefined
-          w.watcher = fs.watch(w.root, { recursive: true }, (_event, file) => {
+          w.watcher = fs.watch(w.root, { recursive: true }, (event, file) => {
             const p = file?.toString().replace(/\\/g, '/') ?? ''
             if (ignoredAssetPath(p)) return
             if (p.startsWith('.genio/') && p !== '.genio/assets.json' && !p.startsWith('.genio/provenance/')) return
+            // Only renames (create/delete/move) and ignore/config edits can change the set of paths.
+            if (event === 'rename' || !p || STRUCTURAL.test(p) || p === '.genio/assets.json') w.structural = true
             w.pending.add(p); schedule(w)
           })
           w.watcher.on('error', e => { w.watcher?.close(); w.watcher = undefined; w.watchError = e.message; publish(w) })
         } catch (e) { w.watchError = `Watcher unavailable; refresh on focus: ${(e as Error).message}` }
       }
-      const refreshing = refreshIndex(w)
-      if (!w.initialized) await refreshing
-      else void refreshing.catch(() => undefined)
+      // Never wait for the scan: the cached index (or a streaming first scan) serves the screen immediately.
+      void refreshIndex(w).catch(() => undefined)
       return state(w)
     },
     close,
@@ -296,7 +405,15 @@ export function createInventoryService(getCtx: () => AppCtx, decode?: ThumbnailD
     async list(world, query = {}) {
       const w = await ready(world)
       if (query.tags?.length || /(?:^|\s)(?:l:|t:(?:sprite|normal|texture))/i.test(query.query ?? '')) await metadata(w)
-      return { state: state(w), ...queryInventory([...w.assets.values()], query) }
+      // Tree, grid and every scrolled page of one filter share a single filter+sort per revision.
+      const { offset: _offset, limit: _limit, ...filters } = query, key = `${w.state.revision}\0${JSON.stringify(filters)}`
+      let match = w.matches.get(key)
+      if (!match) {
+        match = matchInventory(w.assets.values(), query)
+        if (w.matches.size >= 8) w.matches.delete(w.matches.keys().next().value!)
+      }
+      w.matches.delete(key); w.matches.set(key, match)
+      return { state: state(w), ...pageInventory(match, query) }
     },
     async info(world, asset, verifyHash = false) {
       const w = await ready(world)
