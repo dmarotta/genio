@@ -1,7 +1,9 @@
 import path from 'node:path'
 import { readJson, writeJsonAtomic } from './util'
-import { claudeLimits, claudeLimitsFile, type ClaudeLimitsFile, type ClaudeRateLimitInfo } from './usage'
+import { claudeLimits, readClaudeLimits, type ClaudeLimitsFile, type ClaudeRateLimitInfo } from './usage'
 import { isClaudeLimit } from './claude-limit'
+import { QUOTA_EVIDENCE_TTL } from '@shared/dispatch'
+import type { UsageWindow } from '@shared/api'
 
 interface Rejection { at: number; reset?: number }
 interface BackoffState {
@@ -21,8 +23,17 @@ export class SessionQuotaPolicy {
 
   private read(): BackoffState {
     const state = readJson<BackoffState>(this.file, { rejections: {}, notices: {} })
+    const hadRejections = Object.keys(state.rejections).length > 0
     // Also migrate previously recorded SDK rejections, including after an app restart.
-    const limits = readJson<ClaudeLimitsFile>(claudeLimitsFile(this.data), { windows: {} })
+    let limits: ClaudeLimitsFile
+    try { limits = readClaudeLimits(this.data) ?? { windows: {} } } catch { limits = { windows: {} } }
+    const planAt = Date.parse(limits.planObservedAt ?? '')
+    for (const [key, rejection] of Object.entries(state.rejections)) {
+      const recovered = limits.planAvailable === false || (key === 'error' || key === 'unspecified'
+        ? Object.values(limits.windows ?? {}).length > 0 && Object.values(limits.windows).every(w => w.utilization !== undefined && w.utilization < 0.85)
+        : limits.windows[key]?.utilization !== undefined && limits.windows[key].utilization! < 0.85)
+      if (planAt > rejection.at && recovered) delete state.rejections[key]
+    }
     for (const [key, w] of Object.entries(limits.windows ?? {})) {
       const observed = Date.parse(w.observedAt ?? w.updatedAt)
       if (w.status === 'allowed' || w.status === 'allowed_warning') {
@@ -35,6 +46,7 @@ export class SessionQuotaPolicy {
       }
     }
     if (!Object.keys(state.rejections).length) {
+      if (hadRejections) state.notices = {}
       state.probeAt = undefined
       state.probeOwner = undefined
     }
@@ -76,13 +88,21 @@ export class SessionQuotaPolicy {
       return true
     }
     if (!player) {
-      const windows = claudeLimits(readJson<ClaudeLimitsFile | undefined>(claudeLimitsFile(this.data), undefined), now)?.windows ?? []
-      if (windows.some((w) => (w.usedPercent ?? w.lastKnownUsedPercent ?? 0) >= 95)) return false
+      let windows: UsageWindow[]
+      try { windows = claudeLimits(readClaudeLimits(this.data), now)?.windows ?? [] } catch { windows = [] }
+      if (windows.some((w) => (w.usedPercent ?? 0) >= 95)) return false
     }
     return true
   }
 
-  unitBlocked(): boolean { return Object.keys(this.read().rejections).length > 0 }
+  /** Status delivery bypasses percentage protection; actual provider rejection backoff remains. */
+  canStartTurn(kind: 'player' | 'system' | 'events', now = Date.now(), claim = true, owner = 'foreground'): boolean {
+    return kind === 'events' ? !Object.keys(this.read().rejections).length : this.canStart(kind === 'player', now, claim, owner)
+  }
+
+  unitBlocked(now = Date.now()): boolean {
+    return Object.values(this.read().rejections).some(r => Number.isFinite(r.at) && r.at <= now && now - r.at <= QUOTA_EVIDENCE_TTL && !(r.reset !== undefined && r.reset <= now))
+  }
 
   limitState(): { resetsAt?: number; restartRequired?: boolean; reason?: string } {
     const rejections = Object.values(this.read().rejections)

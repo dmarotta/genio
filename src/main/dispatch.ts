@@ -26,6 +26,7 @@ import { expireWindow, explorationSafe } from './quota-policy'
 import { SessionQuotaPolicy } from './session-usage'
 import { PolicyNotices, claudeStatus, globalMode, holdsCapacity, liveUnits, worldUsage } from './usage-policy'
 import { readJson } from './util'
+import { claudeProbeError } from './claude-usage-probe'
 
 const USAGE_TTL = 5 * 60_000
 const LOGIN_TTL = 30 * 60_000
@@ -60,13 +61,14 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
   let claudeReadError: string | undefined
   const readClaude = (): ReturnType<typeof claudeLimits> => {
     try {
-      const stored = claudeLimits(readClaudeLimits(dataDir()))
-      claudeReadError = undefined
-      if (stored) quota.claude = stored.windows
+      const file = readClaudeLimits(dataDir())
+      const stored = claudeLimits(file)
+      claudeReadError = claudeProbeError(dataDir())
+      if (file) quota.claude = stored?.windows ?? []
       return stored
     } catch (error) {
       claudeReadError = `Could not read Claude usage: ${(error as Error).message}`
-      return undefined // retain protective history, but never present it as a successful refresh
+      return undefined // retained history expires on its original observation clock
     }
   }
 
@@ -153,7 +155,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
   const unavailable = (id: string, own?: string, replacing?: Task): boolean => {
     const ctx = getCtx()
     return (id !== own && reservations.has(id)) || (id === 'claude' && new SessionQuotaPolicy(dataDir()).unitBlocked()) ||
-      // 70%+ (including retained last-known evidence): at most one unit on that plan
+      // Fresh 70%+: at most one unit on that plan
       (isPlan(id) && planStatus(id, quota[id]).level !== 'ok' && [...ctx.homes.values()].some((h) =>
         h.crew.list().some((t) => !(replacing && t.id === replacing.id && t.wksp === replacing.wksp) && t.harness === id && holdsCapacity(t, alive(t)))))
   }
@@ -186,7 +188,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
       // The single main-process dispatcher owns selection + reservation. No await
       // separates the final policy evaluation (caps included) from claiming the slot.
       const result = launchQueue.then(async () => {
-        svc.noteUsage(await usageReport(getCtx()))
+        svc.noteUsage(await usageReport(getCtx(), { forceClaude: plansNow().claude.level !== 'ok' }))
         const replacing = opts.respawn ? getCtx().homes.get(opts.respawn.wksp)?.crew.get(opts.respawn.id) : undefined
         if (opts.respawn && (!replacing || replacing.project !== input.project)) throw new Error('Unknown respawn target')
         const occupies = !!replacing && holdsCapacity(replacing, alive(replacing))
@@ -212,7 +214,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
           listed,
           async check() {
             if (released) throw new Error('Launch reservation was already released.')
-            svc.noteUsage(await usageReport(getCtx()))
+            svc.noteUsage(await usageReport(getCtx(), { forceClaude: plansNow().claude.level !== 'ok' }))
             const env = { ...svc.signals(input.project), unavailable: (id: string) => unavailable(id, loadout.harness, replacing) }
             resolveLoadout({ ...input, harness: loadout.harness }, getCtx().settings, env)
             if (loadout.explored) {
@@ -257,7 +259,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
       const codex = lastReport?.tools.find((t) => t.tool === 'codex')
       const meterReport = {
         tools: [
-          { tool: 'claude', limits: claude ? [claude] : [], error: claudeReadError, note: claude ? undefined : "No plan limits seen yet: Claude Code reports them only to Genio's chat." },
+          { tool: 'claude', limits: claude ? [claude] : [], error: claudeReadError, note: 'Current Claude usage unknown; ordinary dispatch is allowed with quota unverified.' },
           codex ? { ...codex, limits: codex.limits.map((l) => ({ ...l, windows: l.windows.map((w) => expireWindow(w)) })) }
             : { tool: 'codex', limits: [], note: lastReport ? undefined : 'Reading Codex session logs…' }
         ]

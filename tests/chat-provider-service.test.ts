@@ -27,8 +27,44 @@ vi.mock('../src/main/codex-chat-driver', async original => {
 import { Home } from '../src/main/home'
 import { createWkspService } from '../src/main/wksp'
 import type { AppCtx } from '../src/main/services'
+import { createWakeService } from '../src/main/wakes'
+import { claudeLimitsFile, recordClaudeRateLimit } from '../src/main/usage'
 const cleanup: (() => Promise<void>)[] = []
 afterEach(async () => { for (const close of cleanup.splice(0)) await close(); peers.length = 0 })
+
+it('Codex delivers ready/blocked events across restart despite persisted stale 97% Claude usage, acking only success', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-codex-wakes-'))
+  const home = new Home(root); home.ensure()
+  recordClaudeRateLimit(claudeLimitsFile(home.data), { status: 'allowed', utilization: 0.97, rateLimitType: 'five_hour' })
+  const snapshot = JSON.parse(fs.readFileSync(claudeLimitsFile(home.data), 'utf8'))
+  snapshot.windows.five_hour.utilizationObservedAt = new Date(Date.now() - 3600_000).toISOString()
+  fs.writeFileSync(claudeLimitsFile(home.data), JSON.stringify(snapshot))
+  const hc = { home, crew: { list: () => [] }, decisions: { list: () => [] }, backlog: { list: () => [] }, wakes: undefined as any }
+  const ctx = { appRoot: process.cwd(), main: hc, home: () => hc, homes: new Map([['main', hc]]),
+    settings: { get: () => ({ wkspModel: 'codex:OpenAI:gpt-test', wkspEffort: 'high', chatShellMode: 'ask' }) },
+    away: { state: () => ({ mode: 'online' }) }, allies: { list: () => [] }, projects: { list: () => [] },
+    stats: { unlock: vi.fn(), addCost: vi.fn() }, inventory: { thumbnail: vi.fn() }, memory: { read: () => '' }, permissions: { ask: vi.fn(async () => true) }
+  } as unknown as AppCtx
+  hc.wakes = createWakeService(() => ctx, home)
+  hc.wakes.enqueue({ kind: 'signal', reason: 'unit ready', routine: false })
+  hc.wakes.enqueue({ kind: 'signal', reason: 'unit blocked', routine: false })
+  const first = createWkspService(() => ctx, home)
+  cleanup.push(async () => { await first.stop(); fs.rmSync(root, { recursive: true, force: true }) })
+  first.deliverWakes(); first.deliverWakes()
+  await vi.waitFor(() => expect(peers[0]?.requests.filter(r => r.method === 'turn/start')).toHaveLength(1))
+  expect(JSON.stringify(peers[0].requests.find(r => r.method === 'turn/start'))).toContain('unit ready')
+  expect(hc.wakes.pending()).toHaveLength(2)
+  // Crash before success: no acknowledgement and both events survive a new service.
+  await first.stop()
+  hc.wakes = createWakeService(() => ctx, home)
+  const second = createWkspService(() => ctx, home)
+  cleanup.unshift(async () => { await second.stop() })
+  second.deliverWakes()
+  await vi.waitFor(() => expect(peers[1]?.requests.filter(r => r.method === 'turn/start')).toHaveLength(1))
+  expect(hc.wakes.pending()).toHaveLength(2)
+  peers[1].events.notification('turn/completed', { threadId: 'session-2', turn: { id: 'turn', status: 'completed' } })
+  expect(hc.wakes.pending()).toEqual([])
+})
 
 it('main and AFK Bot inherit the selected provider/model, retain one transcript and award only successful turns', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-provider-service-'))

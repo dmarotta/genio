@@ -68,8 +68,8 @@ describe('expired Claude usage snapshots', () => {
   })
 
   it('allowed without utilization does not inherit an exhausted rejected percentage', () => {
-    const file = mergeClaudeRateLimit({ windows: {} }, { rateLimitType: 'five_hour', status: 'rejected', utilization: 1 })!
-    const allowed = mergeClaudeRateLimit(file, { rateLimitType: 'five_hour', status: 'allowed' })!
+    const file = mergeClaudeRateLimit({ windows: {} }, { rateLimitType: 'five_hour', status: 'rejected', utilization: 1 }, new Date(now).toISOString())!
+    const allowed = mergeClaudeRateLimit(file, { rateLimitType: 'five_hour', status: 'allowed' }, new Date(now).toISOString())!
     expect(claudeLimits(allowed, now)?.windows[0]).toMatchObject({ status: 'allowed', usedPercent: undefined })
   })
 })

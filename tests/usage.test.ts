@@ -155,8 +155,8 @@ describe('Claude Code rate limits', () => {
     expect(l.source).toBe("reported by Claude Code to Genio's chat")
     expect(l.updatedAt).toBe('2026-10-13T10:00:00.000Z')
     expect(l.windows).toMatchObject([
-      { label: '5-hour', usedPercent: undefined, lastKnownUsedPercent: 42, status: 'allowed', resetsAt: '2026-10-13T11:00:00.000Z', stale: true },
-      { label: 'weekly', usedPercent: undefined, status: 'allowed_warning', resetsAt: undefined, stale: true }
+      { label: '5-hour', usedPercent: undefined, lastKnownUsedPercent: 42, status: undefined, resetsAt: '2026-10-13T11:00:00.000Z', stale: true },
+      { label: 'weekly', usedPercent: undefined, status: undefined, resetsAt: undefined, stale: true }
     ])
     expect(claudeLimits({ windows: {} })).toBeUndefined()
     expect(claudeLimits(undefined)).toBeUndefined()
@@ -165,7 +165,9 @@ describe('Claude Code rate limits', () => {
   it('treats utilization as a fraction', () => {
     expect(claudePercent(0.756)).toBe(75.6)
     expect(claudePercent(1)).toBe(100)
-    expect(claudePercent(64)).toBe(64)
+    expect(claudePercent(64)).toBeUndefined()
+    expect(claudePercent(-1)).toBeUndefined()
+    expect(claudePercent(NaN)).toBeUndefined()
   })
 })
 

@@ -14,6 +14,7 @@ import type { CostDial, PoolCandidate, Priority, TaskCategory } from './types'
 import type { UsageReport, UsageWindow } from './api'
 import { CHEAP_MODELS, EFFORT_LADDER, LOW_STAKES } from './dispatch'
 import { CODEX_UNIT_MODEL } from './unit-model-policy'
+import { expireWindow, freshWindow } from './quota-evidence'
 
 export type UsageMode = 'save' | 'balanced' | 'max'
 export const USAGE_MODES: UsageMode[] = ['save', 'balanced', 'max']
@@ -125,14 +126,13 @@ export interface PlanStatus {
 }
 
 /**
- * The worst applicable window. Retained last-known evidence stays protective
- * (stage 1: hot evidence holds until fresh provider evidence), so a stale 97%
- * is still `out`; a stale cold percentage is just unknown.
+ * The worst current window. Old readings are unknown and cannot hold dispatch.
  */
-export function planStatus(plan: PlanId, windows: UsageWindow[] | undefined): PlanStatus {
+export function planStatus(plan: PlanId, windows: UsageWindow[] | undefined, now = Date.now()): PlanStatus {
   let worst: { pct: number; w: UsageWindow } | undefined
   for (const w of windows ?? []) {
-    const pct = w.status === 'rejected' ? 100 : (w.usedPercent ?? w.lastKnownUsedPercent)
+    if (!freshWindow(w, now)) continue
+    const pct = w.status === 'rejected' ? 100 : w.usedPercent
     if (pct === undefined) continue
     if (!worst || pct > worst.pct) worst = { pct, w }
   }
@@ -284,6 +284,7 @@ export interface MeterWindow {
   state: 'known' | 'unknown' | 'limit'
   /** only when the current percentage is known; never assumed */
   leftPercent?: number
+  usedPercent?: number
   resetsAt?: string
   observedAt?: string
 }
@@ -302,10 +303,11 @@ export interface MeterRow {
   error?: string
 }
 
-export function meterWindow(w: UsageWindow): MeterWindow {
+export function meterWindow(raw: UsageWindow): MeterWindow {
+  const w = expireWindow(raw)
   const base = { label: w.label, resetsAt: w.resetsAt, observedAt: w.observedAt }
   if (w.status === 'rejected') return { ...base, state: 'limit', leftPercent: 0 }
-  if (!w.stale && typeof w.usedPercent === 'number') return { ...base, state: 'known', leftPercent: Math.max(0, Math.round(100 - w.usedPercent)) }
+  if (!w.stale && typeof w.usedPercent === 'number') return { ...base, state: 'known', usedPercent: w.usedPercent, leftPercent: Math.max(0, Math.round(100 - w.usedPercent)) }
   return { ...base, state: 'unknown' }
 }
 

@@ -57,6 +57,7 @@ import { createPermissionBroker } from './permissions'
 import { createFalService } from './fal-service'
 import { createUthanaService } from './uthana-service'
 import { createDispatchService } from './dispatch'
+import { usageReport } from './usage'
 import { createInventoryService } from './inventory'
 import { createThumbnailDecoder } from './inventory-thumbnails'
 import { allyNameForWorld, worldAllyRequest, inheritMainHistory } from './project-chat'
@@ -251,6 +252,8 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
 
 /** Start supervision and agents for every home (after the window exists). */
 export async function startApp(ctx: AppCtx): Promise<void> {
+  // Begin a no-prompt account refresh before supervision/dispatch decisions.
+  void usageReport(ctx).then(report => ctx.dispatch.noteUsage(report)).catch(() => undefined)
   ctx.inbox.configure()
   agentGeneration(ctx)
   ctx.fal.resume()

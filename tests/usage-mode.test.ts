@@ -143,19 +143,19 @@ describe('stale, unknown and rejected quota combinations', () => {
     expect(planStatus('claude', [fresh(85)]).level).toBe('hot')
     expect(planStatus('claude', [fresh(94)]).level).toBe('hot')
     expect(planStatus('claude', [fresh(95)]).level).toBe('out')
-    expect(planStatus('claude', [fresh(10), { label: 'weekly', status: 'rejected' }])).toMatchObject({ level: 'out', rejected: true, window: 'weekly' })
-    // stale cold evidence is unknown; stale hot evidence keeps protecting
+    expect(planStatus('claude', [fresh(10), { label: 'weekly', status: 'rejected', observedAt: new Date().toISOString() }])).toMatchObject({ level: 'out', rejected: true, window: 'weekly' })
+    // All expired evidence is unknown; current readings alone protect quota
     expect(planStatus('claude', [stale(40)])).toMatchObject({ level: 'ok', known: false })
-    expect(planStatus('claude', [stale(97)])).toMatchObject({ level: 'out', known: false })
-    expect(planStatus('claude', [fresh(20), stale(88)]).level).toBe('hot')
+    expect(planStatus('claude', [stale(97)])).toMatchObject({ level: 'ok', known: false })
+    expect(planStatus('claude', [fresh(20), stale(88)]).level).toBe('ok')
   })
 
   const cases: [string, Record<string, UsageWindow[]>, string, string][] = [
     ['codex warm (75%): Sonnet preferred at the mode effort', { claude: [fresh(20)], codex: [fresh(75)] }, 'claude', 'medium'],
     ['codex hot (88%): excluded', { claude: [fresh(20)], codex: [fresh(88)] }, 'claude', 'medium'],
     ['codex out (96%): excluded', { claude: [fresh(20)], codex: [fresh(96)] }, 'claude', 'medium'],
-    ['codex rejected: excluded', { claude: [fresh(20)], codex: [{ label: 'weekly', status: 'rejected' }] }, 'claude', 'medium'],
-    ['codex stale hot: still excluded', { claude: [fresh(20)], codex: [stale(97)] }, 'claude', 'medium'],
+    ['codex rejected: excluded', { claude: [fresh(20)], codex: [{ label: 'weekly', status: 'rejected', observedAt: new Date().toISOString() }] }, 'claude', 'medium'],
+    ['codex stale hot: unknown, ordinary dispatch', { claude: [fresh(20)], codex: [stale(97)] }, 'codex', 'medium'],
     ['codex stale cold: unknown, ordinary dispatch', { claude: [fresh(20)], codex: [stale(30)] }, 'codex', 'medium'],
     ['codex never reported: ordinary dispatch', { claude: [fresh(20)] }, 'codex', 'medium'],
     ['both warm: no preference, effort one step lower', { claude: [fresh(75)], codex: [fresh(72)] }, 'codex', 'low']
@@ -170,7 +170,7 @@ describe('stale, unknown and rejected quota combinations', () => {
     const l = pickLoadout(input('feature'), settings(), env(['codex'], { quota: { codex: [fresh(76)] } }))
     expect(l).toMatchObject({ harness: 'codex', effort: 'low' })
     expect(l.reasons.join('\n')).toMatch(/lowered from medium: Codex 5-hour at 76%/)
-    for (const quota of [{ claude: [fresh(90)], codex: [fresh(96)] }, { claude: [{ label: 'weekly', status: 'rejected' }], codex: [stale(99)] }])
+    for (const quota of [{ claude: [fresh(90)], codex: [fresh(96)] }, { claude: [{ label: 'weekly', status: 'rejected', observedAt: new Date().toISOString() }], codex: [fresh(99)] }])
       expect(() => pickLoadout(input('feature'), settings(), env(['claude', 'codex'], { quota }))).toThrow(/deferred/)
   })
 
@@ -186,7 +186,7 @@ describe('stale, unknown and rejected quota combinations', () => {
     expect(resolveChat('max', {}, planStatus('claude', [fresh(50)]))).toMatchObject({ model: OPUS, effort: 'high' })
     expect(resolveChat('max', {}, planStatus('claude', [fresh(75)]))).toMatchObject({ model: OPUS, effort: 'medium' })
     expect(resolveChat('max', {}, planStatus('claude', [fresh(86)]))).toMatchObject({ model: SONNET, effort: 'low' })
-    expect(resolveChat('balanced', {}, planStatus('claude', [{ label: '5-hour', status: 'rejected' }]))).toMatchObject({ model: SONNET, effort: 'low' })
+    expect(resolveChat('balanced', {}, planStatus('claude', [{ label: '5-hour', status: 'rejected', observedAt: new Date().toISOString() }]))).toMatchObject({ model: SONNET, effort: 'low' })
     expect(resolveChat('balanced', {}, planStatus('claude', [stale(40)]))).toMatchObject({ model: SONNET, effort: 'medium' })
     // a pinned model keeps its model, only its Auto effort follows protection
     expect(resolveChat('max', { model: OPUS }, planStatus('claude', [fresh(90)]))).toMatchObject({ model: OPUS, effort: 'low' })
@@ -231,7 +231,7 @@ describe('shared plan meter', () => {
     expect(codex).toMatchObject({ plan: 'codex', headline: { leftPercent: 89 }, missing: ['5-hour'] })
     const empty = meterRows({ tools: [] })
     expect(empty.map((r) => r.headline)).toEqual([undefined, undefined])
-    expect(meterRows({ tools: [{ tool: 'claude', limits: [{ source: '', updatedAt: '', windows: [{ label: '5-hour', status: 'rejected' }] }] }] })[0].headline).toMatchObject({ state: 'limit', leftPercent: 0 })
+    expect(meterRows({ tools: [{ tool: 'claude', limits: [{ source: '', updatedAt: '', windows: [{ label: '5-hour', status: 'rejected', observedAt: new Date().toISOString() }] }] }] })[0].headline).toMatchObject({ state: 'limit', leftPercent: 0 })
   })
 })
 

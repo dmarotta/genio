@@ -227,6 +227,9 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
   }
 
   if (!explicitHarness) reasons.push(`usage: ${modeName}`)
+  for (const id of ['claude', 'codex'] as const) {
+    if (installed(id) && !plans[id].known) reasons.push(`warning: ${nameOf(id)} quota unverified (missing or expired report); ordinary dispatch allowed, exploration off`)
+  }
 
   /** Walk an ordered list: the first usable candidate wins; say why earlier ones were passed over. */
   const walk = (ordered: Option[], label: string): Option | undefined => {

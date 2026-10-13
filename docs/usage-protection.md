@@ -1,26 +1,26 @@
 # Usage protection and measurement (stage 1)
 
 Automatic unit selection excludes any provider with a reported window at 85% or
-above, a rejection, or retained hot evidence awaiting fresh confirmation. This
+above or a rejection, observed within ten minutes and before reset. This
 applies to category pools, rules, sticky follow-ups, defaults, exploration and
 respawns. Pinned choices are held instead of silently changing their provider.
-Unknown cold headroom permits ordinary dispatch but never exploration.
+Unknown headroom (including expired hot evidence) permits ordinary dispatch with a quota-unverified warning, but never exploration.
 
 Exploration requires both its original primary and alternate to have known,
 unrejected applicable windows, observed within ten minutes and below 70%. Critical
 work and explicit model/effort/harness picks do not explore. At 70?84%, a provider
 can have at most one running or launching unit. The main-process dispatcher
 serializes selection and claims a provider launch reservation across all homes;
-launch scans local evidence again just before terminal creation, and releases the
+launch refreshes the account report again just before terminal creation, and releases the
 reservation on success or failure. Previews may use cached signals; actual launches
 cannot rely on the five-minute preview cache. No quota is estimated from dollars
-or token counts. Missing/failed scans do not clear previous protective evidence.
+or token counts. Missing/failed scans preserve fresh protection only until its original observation expires; a scan never renews the evidence clock.
 
 Each reported window retains observedAt and changedAt independently. Repeated
-Claude events refresh observation time even when the percentage is unchanged.
+Claude events carrying a number refresh its observation time even when the percentage is unchanged. Status-only events do not renew that number; a changed reset discards the old percentage.
 Codex snapshots merge per window, so a partial event cannot erase a hot weekly
 window. Current percentages expire after ten minutes or their reset time and are
-shown as unknown. Last-known percentages remain separate protective evidence.
+shown as unknown. Last-known percentages remain diagnostic history and cannot hold units, queue entries, exploration eligibility or chat settings.
 Model buckets are conservatively included in provider eligibility.
 
 Claude usage is attributed by persisted main/ally/Bot session IDs before cwd,
@@ -49,6 +49,39 @@ Replay coverage: the 97%-Claude explored Recon; stale/unknown/rejected combinati
 atomic launch reservations and last-moment rejection; cwd drift; the resumed
 $14.7858063 checkpoint; duplicate result IDs; independent snapshot expiry; shared
 chat backoff; and the relaunch cap. All tests use local fixtures or fake SDK streams.
+
+
+Claude plan usage is refreshed through the SDK's structured `/usage` control request
+(`usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`, SDK 0.3.296), using
+an empty streaming input, no tools and no persisted session. It submits no model
+prompt. The CLI handles its own authentication and its account usage endpoint;
+Genio does not read credentials or call a private OAuth endpoint. Refresh starts
+on application startup, runs on meter/usage scans (one-minute probe cache), and
+is checked before unit reservation and immediately before launch, with a forced
+refresh whenever Claude protection could hold the launch. Probes are
+single-flight and close after success, error or a 25-second deadline. An older
+CLI without this experimental control reports a visible refresh failure; expired
+evidence remains unknown and permits ordinary dispatch.
+
+The structured account endpoint reports **used percent, 0?100**, including 0 and 1;
+SDK `rate_limit_event.utilization` is a **used fraction, 0?1**. The parsers use
+separate contracts, never a magnitude-based guess. Remaining is computed once,
+as `100 - used`. Five-hour, weekly and model windows stay separate; session cost,
+context occupancy and transcript token totals never become plan percentages.
+A successful full account snapshot replaces old account/window evidence and
+records the subscription type. API-key/third-party sessions invalidate the saved
+subscription snapshot without inventing a remaining balance.
+
+Event turns (unit ready/blocked/done notifications and the requested project-open
+greeting) bypass percentage protection at delivery, provider preflight and the
+Claude driver. They can pass optional unsubmitted system work waiting on plan
+protection. Routine events still use the Usage mode's batching window. Actual
+provider rejections retain the shared transport backoff; delivery keeps its
+batch unacknowledged, publishes the pending event count and a durable deduplicated
+hold reason, and refreshes account usage automatically. A newer full account
+report can confirm recovery. Only successful handling acknowledges the batch;
+failed or interrupted handling is replayable after restart. Unit protection for
+fresh 70/85/95% readings and rejections remains in place.
 
 # Usage mode and shared plan meter (stage 3)
 
@@ -117,8 +150,7 @@ Migration keeps every explicit pick as written; only the old shipped chat defaul
 (`wkspEffort: 'high'` with no model) becomes Auto, and the old cost dial becomes
 the mode (Quality → Max, Cost → Save).
 
-**Protection**, per plan, from the worst reported window (retained hot evidence
-still counts, stale cold evidence is unknown):
+**Protection**, per plan, from the worst fresh reported window (all expired evidence is unknown):
 
 - below 70%: the mode as set;
 - 70–84%: exploration off, at most one unit on that plan, Auto unit effort one
@@ -126,7 +158,7 @@ still counts, stale cold evidence is unknown):
   answers held to Save's target;
 - 85–94%: excluded from every automatic unit candidate; Auto chat drops to
   Sonnet / low at the next turn;
-- 95%+ or rejected: also no background chat work (stage 1); low-priority queued
+- 95%+ or rejected: optional system work is held; low-priority queued
   quests and, when no plan has headroom, all queued quests stay queued until
   reset ("Queued until reset" in Quests). Running work is never stopped.
 

@@ -7,6 +7,7 @@ import { ProviderChatSession } from '../src/main/provider-chat-session'
 import { SessionCostLedger, SessionQuotaPolicy } from '../src/main/session-usage'
 import { claudeLimitsFile, recordClaudeRateLimit, readClaudeLimits } from '../src/main/usage'
 import type { ChatDriverEvents, ChatProvider } from '../src/main/chat-driver'
+import { claudeStatus } from '../src/main/usage-policy'
 
 const sdk = vi.hoisted(() => ({ query: vi.fn() }))
 vi.mock('@anthropic-ai/claude-agent-sdk', () => sdk)
@@ -25,14 +26,15 @@ beforeEach(() => {
   vi.setSystemTime(now + 600_001)
 })
 afterEach(() => { sessions.splice(0).forEach(s => s.stop()); vi.useRealTimers(); fs.rmSync(dir, { recursive: true, force: true }) })
-function setup(build = vi.fn(async () => ({})), preflight = true) {
+function setup(build = vi.fn(async () => ({})), preflight = true, stale = false) {
+  if (!stale) recordClaudeRateLimit(claudeLimitsFile(dir), { status: 'allowed', utilization: 0.97, rateLimitType: 'five_hour', resetsAt: Date.now() / 1000 + 3600 })
   const policy = new SessionQuotaPolicy(dir)
   const events: ChatDriverEvents = { onMessage: vi.fn(), onDelta: vi.fn(), onActivity: vi.fn(), onTurnEnd: vi.fn(),
     onSessionId: vi.fn(), onError: vi.fn(), onStart: vi.fn(), onLimit: vi.fn() }
   let provider: ChatProvider = 'claude'
   const created: ChatProvider[] = []
   const session = new ProviderChatSession({ selection: () => provider, handoff: () => '', switched: vi.fn(), events,
-    hold: (p, item) => preflight && p === 'claude' && !policy.canStart(item.kind === 'player', Date.now(), false) ? policy.limitState() : undefined,
+    hold: (p, item) => preflight && p === 'claude' && !policy.canStartTurn(item.kind, Date.now(), false) ? policy.limitState() : undefined,
     create: (p, e) => {
       created.push(p)
       if (p === 'codex') return {
@@ -49,16 +51,45 @@ function setup(build = vi.fn(async () => ({})), preflight = true) {
   return { session, policy, events, created, build, select: (p: ChatProvider) => { provider = p } }
 }
 
+describe('event turns bypass plan protection at preflight and driver boundaries', () => {
+  it('lets a new status batch pass optional system work held by fresh 97%', async () => {
+    const f = setup()
+    f.session.enqueue({ kind: 'system', prompt: 'optional boot' })
+    expect(sdk.query).not.toHaveBeenCalled()
+    f.session.enqueue({ kind: 'events', prompt: 'unit blocked', ackThrough: 42 })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sdk.query).toHaveBeenCalledOnce()
+    expect(f.events.onStart).toHaveBeenCalledWith(expect.objectContaining({ kind: 'events', ackThrough: 42 }))
+  })
+  it.each(['stale 97%', 'fresh 97%'] as const)('delivers and acknowledges an event after restart with %s', async evidence => {
+    const f = setup(undefined, true, evidence === 'stale 97%')
+    f.session.restart()
+    f.session.enqueue({ kind: 'events', prompt: 'unit ready and blocked', ackThrough: 42 })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sdk.query).toHaveBeenCalledOnce()
+    expect(f.events.onStart).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ ackThrough: 42 }))
+    expect(f.events.onTurnEnd).not.toHaveBeenCalled()
+    emit({ type: 'system', subtype: 'init', session_id: 'test' }); await vi.advanceTimersByTimeAsync(0)
+    emit({ type: 'result', uuid: 'event-result', is_error: false, total_cost_usd: 0 }); await vi.advanceTimersByTimeAsync(0)
+    expect(f.events.onTurnEnd).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ ackThrough: 42 }), true, '', 0)
+  })
+})
+
 describe('startup quota holds do not own the foreground queue', () => {
   it('reports unreadable usage instead of converting it into a missing report', () => {
     fs.writeFileSync(claudeLimitsFile(dir), '{broken')
     expect(() => readClaudeLimits(dir)).toThrow()
     fs.unlinkSync(claudeLimitsFile(dir))
     expect(readClaudeLimits(dir)).toBeUndefined()
+    fs.writeFileSync(claudeLimitsFile(dir), JSON.stringify({ windows: { five_hour: null } }))
+    expect(() => readClaudeLimits(dir)).toThrow('Invalid Claude usage window')
+    expect(new SessionQuotaPolicy(dir).unitBlocked()).toBe(false)
+    expect(new SessionQuotaPolicy(dir).canStart(false)).toBe(true)
+    expect(claudeStatus(dir)).toMatchObject({ level: 'ok', known: false })
   })
-  it('defers stale 97% startup without acknowledging wakes, then accepts a player turn', async () => {
+  it('defers fresh 97% optional work, then accepts a player turn', async () => {
     const f = setup()
-    f.session.enqueue({ kind: 'events', prompt: 'boot', ackThrough: 42 })
+    f.session.enqueue({ kind: 'system', prompt: 'boot', ackThrough: 42 })
     expect(f.session.busy).toBe(false); expect(f.created).toEqual([])
     expect(f.events.onTurnEnd).not.toHaveBeenCalled()
     expect(f.events.onLimit).toHaveBeenLastCalledWith(expect.objectContaining({ reason: expect.stringContaining('Background') }))
@@ -77,7 +108,7 @@ describe('startup quota holds do not own the foreground queue', () => {
   })
   it('interrupt and restart do not submit held boot; newer evidence releases it once', async () => {
     const f = setup()
-    f.session.enqueue({ kind: 'events', prompt: 'boot', ackThrough: 42 })
+    f.session.enqueue({ kind: 'system', prompt: 'boot', ackThrough: 42 })
     await f.session.interrupt(); f.session.restart()
     await vi.advanceTimersByTimeAsync(30_000)
     expect(sdk.query).not.toHaveBeenCalled(); expect(f.events.onTurnEnd).not.toHaveBeenCalled()
@@ -104,12 +135,12 @@ describe('startup quota holds do not own the foreground queue', () => {
     const driver = new AgentSession('genio', f.build, { ...f.events, onDeferred: deferred, onRateLimit: vi.fn() },
       'main', () => ({}), () => f.policy, new SessionCostLedger(path.join(dir, 'costs.json')))
     sessions.push(driver)
-    driver.send({ kind: 'events', prompt: 'race' })
+    driver.send({ kind: 'system', prompt: 'race' })
     expect(deferred).toHaveBeenCalledOnce(); expect(driver.queued).toBe(0); expect(driver.busy).toBe(false)
   })
   it('can switch away from a driver that refused an unsubmitted startup turn', () => {
     const f = setup(undefined, false)
-    f.session.enqueue({ kind: 'events', prompt: 'boot', ackThrough: 42 })
+    f.session.enqueue({ kind: 'system', prompt: 'boot', ackThrough: 42 })
     expect(f.created).toEqual(['claude']); expect(f.session.busy).toBe(false)
     f.select('codex'); f.session.enqueue({ kind: 'player', prompt: 'switch' })
     expect(f.created).toEqual(['claude', 'codex']); expect(f.session.queued).toBe(1)

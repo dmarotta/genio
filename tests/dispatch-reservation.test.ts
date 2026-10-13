@@ -80,3 +80,22 @@ it('does not erase hot evidence when a later scan fails or omits the bucket', as
   scan.report = { tools: [{ tool: 'claude', limits: [], error: 'locked transcript' }] } as unknown as UsageReport
   await expect(svc.reserve(input)).rejects.toThrow(/deferred/)
 })
+
+it('allows dispatch with a warning after a failed refresh and TTL expiry, including a persisted 97% restart', async () => {
+  vi.useFakeTimers()
+  try {
+    const start = Date.now()
+    recordClaudeRateLimit(claudeLimitsFile(dir), { status: 'allowed', utilization: 0.97, rateLimitType: 'five_hour' })
+    const svc = service()
+    await expect(svc.reserve(input)).rejects.toThrow(/deferred/)
+    vi.setSystemTime(start + 600_001)
+    scan.report = { tools: [{ tool: 'claude', limits: [], error: 'refresh failed' }] } as unknown as UsageReport
+    for (const dispatcher of [svc, service()]) {
+      const reservation = await dispatcher.reserve(input)
+      expect(reservation.loadout.harness).toBe('claude')
+      expect(reservation.loadout.reasons.join('\n')).toContain('quota unverified')
+      await reservation.check()
+      reservation.release()
+    }
+  } finally { vi.useRealTimers() }
+})

@@ -181,7 +181,7 @@ export class AgentSession implements ChatDriver {
   private async pump(): Promise<void> {
     if (this.busy) return
     const waiting = this.pending[0]
-    if (waiting && !this.quotaPolicy().canStart(waiting.kind === 'player', Date.now(), true, `${this.wkspName}:${this.label}`)) {
+    if (waiting && !this.quotaPolicy().canStartTurn(waiting.kind, Date.now(), true, `${this.wkspName}:${this.label}`)) {
       if (this.hooks.onDeferred) {
         this.pending.shift()
         this.hooks.onDeferred(waiting, this.quotaPolicy().limitState())
@@ -282,7 +282,7 @@ export class AgentSession implements ChatDriver {
       this.hooks.onRequeue?.(item)
     }
     this.hooks.onActivity('idle')
-    if (state.stale && item && !item.limitRetried && this.quotaPolicy().canStart(item.kind === 'player', Date.now(), false)) {
+    if (state.stale && item && !item.limitRetried && this.quotaPolicy().canStartTurn(item.kind, Date.now(), false)) {
       this.setLimit()
       item.limitRetried = true
       this.retryLimit()

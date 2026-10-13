@@ -43,7 +43,9 @@ export class ProviderChatSession {
   }
   hasEventsQueued(): boolean { return this.pending.some(t => t.kind === 'events') || !!this.driver?.hasEventsQueued() }
   enqueue(item: ChatTurn): void {
-    const i = item.kind === 'player' ? this.pending.findIndex(t => t.kind !== 'player') : -1
+    // Status delivery must also pass optional system work held by plan protection.
+    const i = item.kind === 'player' ? this.pending.findIndex(t => t.kind !== 'player')
+      : item.kind === 'events' ? this.pending.findIndex(t => t.kind === 'system') : -1
     if (i < 0) this.pending.push(item); else this.pending.splice(i, 0, item)
     this.pump()
   }

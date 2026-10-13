@@ -55,7 +55,7 @@ function WindowLine({ w, head }: { w: MeterWindow; head?: boolean }) {
       </div>
       <span className="mono meter-left">{leftText(w)}</span>
       <span className="mute meter-meta">
-        {[resetText(w.resetsAt), w.observedAt ? `last report ${ago(w.observedAt)} ago` : 'no report time'].filter(Boolean).join(' · ')}
+        {[w.usedPercent !== undefined ? `${w.usedPercent}% used` : '', resetText(w.resetsAt), w.observedAt ? `last report ${ago(w.observedAt)} ago` : 'no report time'].filter(Boolean).join(' · ')}
       </span>
     </div>
   )
@@ -68,10 +68,11 @@ function Row({ r }: { r: MeterRow }) {
       <div className="meter-row-head">
         <b>{r.label}</b>
         {r.planName && <span className="chip">{r.planName}</span>}
-        {r.level !== 'ok' && <span className={cx('chip', r.level === 'warm' ? 'amber' : 'alert')}>{r.headline?.state === 'unknown' ? 'Background hold: old report' : r.level === 'warm' ? '70%+ used' : r.level === 'hot' ? '85%+ used' : r.headline?.state === 'limit' ? 'limit reached' : '95%+ used'}</span>}
+        {r.level !== 'ok' && <span className={cx('chip', r.level === 'warm' ? 'amber' : 'alert')}>{r.level === 'warm' ? '70%+ used' : r.level === 'hot' ? '85%+ used' : r.headline?.state === 'limit' ? 'limit reached' : '95%+ used'}</span>}
         <span className="mute">{r.source ?? 'no plan report yet'}</span>
       </div>
       {r.error && r.headline && <div role="status" className="mute">Could not refresh: {r.error}. Showing the last report.</div>}
+      {(!r.headline || r.windows.some(w => w.state === 'unknown')) && <div role="status" className="mute">Quota unverified for unknown windows; expired reports do not hold ordinary dispatch.</div>}
       {r.headline ? <WindowLine w={r.headline} head /> : <div className="mute meter-empty">{r.error ? `could not read: ${r.error}` : (r.note ?? 'unknown')}</div>}
       {rest.map((w) => <WindowLine key={w.label} w={w} />)}
       {r.missing.length > 0 && r.headline && <div className="mute meter-missing">{r.missing.map((m) => `${m}: not reported`).join(' · ')}</div>}
@@ -97,7 +98,7 @@ export function RailMeter() {
   if (error) return <div role="status" className="mute" title={error}>Usage unknown</div>
   if (!view) return null
   const title = view.meter
-    .map((r) => `${r.label}: ${leftText(r.headline)}${r.headline ? ` (${r.headline.label})` : ''}`)
+    .map((r) => `${r.label}: ${leftText(r.headline)}${r.headline ? ` (${r.headline.label}; ${r.headline.usedPercent ?? '?'}% used; ${r.headline.observedAt ? ago(r.headline.observedAt) + ' ago' : 'age unknown'})` : ''}; ${r.source ?? 'no report source'}`)
     .join('\n')
   return (
     <button className="rail-meter" title={`${title}\nClick for Usage`} aria-label="Plan remaining" onClick={() => {

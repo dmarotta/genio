@@ -10,7 +10,7 @@ import {
   DEFAULT_USAGE_MODE, DIAL_MODE, MODE_PRESETS, SONNET, isUsageMode, pctText, planLabel, planStatus, resolveChat,
   type PlanId, type PlanLevel, type PlanStatus, type PolicyNotice, type UsageMode, type WorldUsage
 } from '@shared/usage-mode'
-import { claudeLimits, claudeLimitsFile, type ClaudeLimitsFile } from './usage'
+import { claudeLimits, readClaudeLimits } from './usage'
 import { readJson, writeJsonAtomic } from './util'
 import { holdsCapacity } from '@shared/unit-capacity'
 export { holdsCapacity } from '@shared/unit-capacity'
@@ -38,7 +38,8 @@ export function worldUsage(s: Pick<Settings, 'usageMode'>, p?: Pick<Project, 'na
 export const globalMode = (s: Pick<Settings, 'usageMode'>): UsageMode => (isUsageMode(s.usageMode) ? s.usageMode : DEFAULT_USAGE_MODE)
 
 export function claudeStatus(dataDir: string, now = Date.now()): PlanStatus {
-  return planStatus('claude', claudeLimits(readJson<ClaudeLimitsFile | undefined>(claudeLimitsFile(dataDir), undefined), now)?.windows)
+  try { return planStatus('claude', claudeLimits(readClaudeLimits(dataDir), now)?.windows, now) }
+  catch { return planStatus('claude', undefined, now) } // The meter exposes the read failure; chat must remain usable.
 }
 
 /** The settings the chat sessions read, with Auto values resolved by the mode and Claude protection. */
@@ -94,7 +95,7 @@ export function noticeFor(p: PlanStatus, from: PlanLevel, other: PlanId, lowWait
   } else if (p.level === 'warm') {
     text = `${name} at ${pctText(p)}: exploration off, one ${name} unit at a time, Auto effort one step lower.`
   } else {
-    text = `${name} is back under 70%: the Usage mode applies again.`
+    text = p.known ? `${name} is back under 70%: the Usage mode applies again.` : `${name} usage is unknown: the old quota hold expired; ordinary dispatch is allowed with quota unverified.`
   }
   const cause = p.level === 'ok' ? `was ${from}` : `${p.window ?? 'plan'} window ${pctText(p)}${p.rejected ? ' (rejected)' : ''}`
   const age = p.observedAt ? ageText(now - Date.parse(p.observedAt)) : 'age unknown'
@@ -118,12 +119,11 @@ export class PolicyNotices {
 
   list(): PolicyNotice[] { return this.read().notices.slice().reverse() }
 
-  /** Record current levels; returns only the notices for levels that changed. Unknown headroom is not a transition. */
+  /** Record current levels, including expiry of a persisted hold to unknown. */
   observe(plans: PlanStatus[], lowWaiting = 0, now = Date.now()): PolicyNotice[] {
     const state = this.read()
     const out: PolicyNotice[] = []
     for (const p of plans) {
-      if (!p.known && p.level === 'ok') continue
       const from = state.levels[p.plan] ?? 'ok'
       if (from === p.level) continue
       state.levels[p.plan] = p.level

@@ -128,13 +128,13 @@ describe('mode dial on locked (pinned) rows', () => {
 describe('hard quota eligibility', () => {
   it('moves a tool above ~85% of a plan window behind cooler candidates, and says so', () => {
     // Max puts Opus first for features: at 91% Claude is excluded and the same-effort Codex fallback runs
-    const l = pickLoadout({ ...base, category: 'feature' }, settings({ usageMode: 'max' }), env(ALL, { quota: { claude: [{ label: '5-hour', usedPercent: 91 }] } }))
+    const l = pickLoadout({ ...base, category: 'feature' }, settings({ usageMode: 'max' }), env(ALL, { quota: { claude: [{ label: '5-hour', usedPercent: 91, observedAt: new Date().toISOString() }] } }))
     expect(l.harness).toBe('codex')
     expect(l.reasons.join('\n')).toMatch(/Claude Code \/ claude-opus-5-5 excluded: 5-hour window at 91%/)
   })
 
   it('queues when the only available plan is hot', () => {
-    expect(() => pickLoadout({ ...base, category: 'feature' }, settings(), env(['claude'], { quota: { claude: [{ label: 'weekly', usedPercent: 97 }] } }))).toThrow(/deferred/)
+    expect(() => pickLoadout({ ...base, category: 'feature' }, settings(), env(['claude'], { quota: { claude: [{ label: 'weekly', usedPercent: 97, observedAt: new Date().toISOString() }] } }))).toThrow(/deferred/)
   })
 
   it('reads live 5-hour and weekly windows from the usage report', () => {
@@ -146,7 +146,7 @@ describe('hard quota eligibility', () => {
         { tool: 'codex', limits: [] }
       ]
     })
-    expect(q.claude).toMatchObject([{ label: '5-hour', usedPercent: undefined, lastKnownUsedPercent: 88 }, { label: 'weekly', status: 'rejected' }, { label: 'weekly (Opus)', usedPercent: undefined, lastKnownUsedPercent: 99 }])
+    expect(q.claude).toMatchObject([{ label: '5-hour', usedPercent: undefined, lastKnownUsedPercent: 88 }, { label: 'weekly', status: undefined, stale: true }, { label: 'weekly (Opus)', usedPercent: undefined, lastKnownUsedPercent: 99 }])
   })
 })
 

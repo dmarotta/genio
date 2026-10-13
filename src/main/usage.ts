@@ -3,12 +3,13 @@
  *   - plan / rate-limit status the tool itself reports:
  *       Codex: the rate_limits snapshot in token_count events of its session logs
  *       ($CODEX_HOME/sessions/**.jsonl);
- *       Claude Code: rate_limit_event messages Genio's own chat sessions receive from the
- *       Agent SDK, kept in data/usage/claude-limits.json (the CLI writes no limits to disk);
+ *       Claude Code: a zero-prompt structured /usage account refresh plus SDK
+ *       rate_limit_event messages, kept in data/usage/claude-limits.json;
  *   - tokens Genio measures from the session logs of its own units and chats (sessions whose
  *     cwd is inside Genio's base): Claude Code transcripts and Codex session logs;
  *   - FAL.ai spend recorded in the FAL screen's run history.
- * Only session/usage logs are read: never auth or credential files, never a private endpoint.
+ * Genio reads only usage/session records. The SDK handles its own authenticated
+ * account probe; Genio never reads credentials or calls a private endpoint directly.
  */
 import fs from 'node:fs'
 import os from 'node:os'
@@ -19,6 +20,7 @@ import { FalHistory } from './fal-history'
 import { expireWindow, type QuotaWindow } from './quota-policy'
 import type { AppCtx } from './services'
 import { appendJsonl, isSubPath, nowIso, readJson, writeJsonAtomic } from './util'
+import { claudeProbeError, refreshClaudePlanUsage } from './claude-usage-probe'
 
 const DAY = 86_400_000
 
@@ -257,6 +259,8 @@ export interface ClaudeRateLimitInfo {
 }
 
 interface StoredWindow {
+  source?: string
+  label?: string
   utilizationObservedAt?: string
   status?: string
   utilization?: number
@@ -268,28 +272,39 @@ interface StoredWindow {
 
 export interface ClaudeLimitsFile {
   windows: Record<string, StoredWindow>
+  plan?: string
+  /** Last successful full account /usage snapshot, separate from status-only events. */
+  planObservedAt?: string
+  planAvailable?: boolean
 }
 
 /** Merge one rate_limit_event; unchanged events refresh observation time, not change time. */
 export function mergeClaudeRateLimit(file: ClaudeLimitsFile, info: ClaudeRateLimitInfo, at = nowIso()): ClaudeLimitsFile | undefined {
   const type = info.rateLimitType || 'unspecified'
   const prev = file.windows[type]
+  // SDK rate-limit headers are USED fractions, unlike structured /usage's percentages.
+  const utilization = typeof info.utilization === 'number' && Number.isFinite(info.utilization) && info.utilization >= 0 && info.utilization <= 1 ? info.utilization : undefined
+  const changedReset = info.resetsAt !== undefined && info.resetsAt !== prev?.resetsAt
+  const recovered = info.status === 'allowed' && prev?.status === 'rejected'
+  const keepUtilization = !changedReset && !recovered && info.utilization === undefined
   const next: StoredWindow = {
-    utilizationObservedAt: typeof info.utilization === 'number' && Number.isFinite(info.utilization) ? at : prev?.utilizationObservedAt ?? prev?.observedAt ?? prev?.updatedAt,
+    source: utilization !== undefined ? 'Claude Code rate-limit event (used fraction)' : prev?.source,
+    utilizationObservedAt: utilization !== undefined ? at : keepUtilization ? prev?.utilizationObservedAt ?? prev?.observedAt ?? prev?.updatedAt : undefined,
     status: info.status ?? prev?.status,
-    utilization: typeof info.utilization === 'number' && Number.isFinite(info.utilization) ? info.utilization : (info.status === 'allowed' && prev?.status === 'rejected') || (info.resetsAt !== undefined && info.resetsAt !== prev?.resetsAt) ? undefined : prev?.utilization,
+    utilization: utilization ?? (keepUtilization ? prev?.utilization : undefined),
     resetsAt: typeof info.resetsAt === 'number' ? info.resetsAt : prev?.resetsAt,
     updatedAt: at,
     observedAt: at,
     changedAt: at
   }
   if (prev && prev.status === next.status && prev.utilization === next.utilization && prev.resetsAt === next.resetsAt) next.changedAt = prev.changedAt ?? prev.updatedAt
-  return { windows: { ...file.windows, [type]: next } }
+  return { ...file, windows: { ...file.windows, [type]: next } }
 }
 
 const CLAUDE_WINDOW_LABEL: Record<string, string> = {
   five_hour: '5-hour',
   seven_day: 'weekly',
+  seven_day_oauth_apps: 'weekly (OAuth apps)',
   seven_day_opus: 'weekly (Opus)',
   seven_day_sonnet: 'weekly (Sonnet)',
   seven_day_overage_included: 'weekly (with extra usage)',
@@ -299,10 +314,10 @@ const CLAUDE_WINDOW_LABEL: Record<string, string> = {
 const CLAUDE_ORDER = Object.keys(CLAUDE_WINDOW_LABEL)
 
 /**
- * The SDK reports utilization as a fraction (0-1); a value above 1 is taken as already
- * being a percentage.
+ * SDK events report a used fraction (0-1). Structured /usage is normalized at its
+ * boundary instead; guessing by magnitude would turn 1% used into 100% used.
  */
-export const claudePercent = (u: number): number => Math.round((u <= 1 ? u * 100 : u) * 10) / 10
+export const claudePercent = (u: number): number | undefined => Number.isFinite(u) && u >= 0 && u <= 1 ? Math.round(u * 1000) / 10 : undefined
 
 export function claudeLimits(file: ClaudeLimitsFile | undefined, now = Date.now()): UsageLimits | undefined {
   const entries = Object.entries(file?.windows ?? {}).sort(([a], [b]) => CLAUDE_ORDER.indexOf(a) - CLAUDE_ORDER.indexOf(b))
@@ -311,14 +326,15 @@ export function claudeLimits(file: ClaudeLimitsFile | undefined, now = Date.now(
     ([type, w]): UsageWindow => expireWindow({
       observedAt: w.status === 'rejected' ? w.observedAt ?? w.updatedAt : w.utilizationObservedAt ?? w.observedAt ?? w.updatedAt,
       changedAt: w.changedAt ?? w.updatedAt,
-      label: CLAUDE_WINDOW_LABEL[type] ?? type.replace(/_/g, ' '),
+      label: w.label ?? CLAUDE_WINDOW_LABEL[type] ?? type.replace(/_/g, ' '),
       usedPercent: typeof w.utilization === 'number' ? claudePercent(w.utilization) : undefined,
       status: w.status === 'rejected' && w.resetsAt !== undefined && w.resetsAt * 1000 <= now ? undefined : w.status,
       resetsAt: w.resetsAt ? new Date(w.resetsAt * 1000).toISOString() : undefined,
     }, now)
   )
   const updatedAt = entries.map(([, w]) => w.updatedAt).sort().pop() as string
-  return { source: "reported by Claude Code to Genio's chat", updatedAt, windows }
+  const sources = [...new Set(entries.map(([, w]) => w.source ?? "reported by Claude Code to Genio's chat"))]
+  return { source: sources.join('; '), plan: file?.plan, updatedAt, windows }
 }
 
 export function recordClaudeRateLimit(file: string, info: ClaudeRateLimitInfo): void {
@@ -334,6 +350,11 @@ export function readClaudeLimits(dataDir: string): ClaudeLimitsFile | undefined 
   try {
     const value = JSON.parse(fs.readFileSync(claudeLimitsFile(dataDir), 'utf8')) as ClaudeLimitsFile
     if (!value?.windows || typeof value.windows !== 'object' || Array.isArray(value.windows)) throw new Error('Invalid Claude usage report')
+    for (const w of Object.values(value.windows)) {
+      if (!w || typeof w !== 'object' || typeof w.updatedAt !== 'string' ||
+        (w.utilization !== undefined && (typeof w.utilization !== 'number' || !Number.isFinite(w.utilization))) ||
+        (w.resetsAt !== undefined && (typeof w.resetsAt !== 'number' || !Number.isFinite(w.resetsAt)))) throw new Error('Invalid Claude usage window')
+    }
     return value
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
@@ -516,8 +537,9 @@ async function claudeUsage(ctx: AppCtx, root: string, now: number): Promise<Tool
   return {
     tool: 'claude',
     limits: limits ? [limits] : [],
+    error: claudeProbeError(ctx.main.home.data),
     measured: measured('measured by Genio', "Genio's units and chats (Claude Code transcripts)", records, now, worlds),
-    note: limits ? undefined : "No plan limits seen yet: Claude Code reports them only to Genio's chat, when they change."
+    note: limits?.windows.some(w => w.usedPercent !== undefined) ? undefined : 'Current Claude usage unknown; ordinary dispatch is allowed. Plan protection requires a report under 10 minutes old.'
   }
 }
 
@@ -565,10 +587,11 @@ async function safely(tool: string, fn: () => Promise<ToolUsage>): Promise<ToolU
 let inFlight: Promise<UsageReport> | undefined
 
 /** Build the usage report (one scan at a time; parsed files are cached between calls). */
-export function usageReport(ctx: AppCtx): Promise<UsageReport> {
+export async function usageReport(ctx: AppCtx, options: { forceClaude?: boolean } = {}): Promise<UsageReport> {
+  await refreshClaudePlanUsage(ctx.main.home.data, ctx.main.home.root, ctx.settings.get().claudePath?.trim() || undefined, options.forceClaude)
   inFlight ??= (async (): Promise<UsageReport> => {
-    const now = Date.now()
     const root = ctx.main.home.root
+    const now = Date.now()
     const tools = [await safely('claude', () => claudeUsage(ctx, root, now)), await safely('codex', () => codexUsage(ctx, root, now, ctx.main.home.data))]
     let fal: FalSpend
     try {

@@ -30,12 +30,13 @@ describe('quota evidence', () => {
     expect(explorationSafe([{ ...cold, observedAt: new Date(now - 600_000).toISOString() }], now)).toBe(true)
   })
 
-  it('expires stale cold percentages to unknown and retains old hot evidence for protection', () => {
+  it('expires both cold and hot percentages and rejections to unknown', () => {
     const old = { ...cold, observedAt: new Date(now - 3600_000).toISOString() }
     expect(expireWindow(old, now)).toMatchObject({ stale: true, usedPercent: undefined, lastKnownUsedPercent: 11 })
     expect(blockedWindow(expireWindow(old, now))).toBe(false)
-    expect(blockedWindow(expireWindow({ ...old, usedPercent: 85 }, now))).toBe(true)
-    expect(blockedWindow(expireWindow({ ...old, status: 'rejected', usedPercent: undefined }, now))).toBe(true)
+    expect(blockedWindow(expireWindow({ ...old, usedPercent: 85 }, now), now)).toBe(false)
+    expect(blockedWindow(expireWindow({ ...old, status: 'rejected', usedPercent: undefined }, now), now)).toBe(false)
+    expect(blockedWindow({ ...cold, usedPercent: 97 }, now)).toBe(true)
   })
 
   it('preserves independent Codex windows and refreshes observedAt without rewriting changedAt', () => {
@@ -55,7 +56,7 @@ describe('97% explored Recon regression', () => {
   const settings = { ...defaultSettings(), usageMode: 'max' as const,
     categoryPools: [{ category: 'recon-design' as const, candidates: [{ harness: 'codex' }, { harness: 'claude' }] }] }
   const env = () => ({ available: (h: { id: string }) => ['claude', 'codex'].includes(h.id), rand: () => 0,
-    quota: { claude: [{ ...cold, observedAt: new Date().toISOString(), usedPercent: 97 }], codex: [{ ...cold, resetsAt: undefined, observedAt: new Date().toISOString() }] } })
+    quota: { claude: [{ ...cold, resetsAt: undefined, observedAt: new Date().toISOString(), usedPercent: 97 }], codex: [{ ...cold, resetsAt: undefined, observedAt: new Date().toISOString() }] } })
 
   it('never explores into the 97% Claude plan, even with a guaranteed exploration roll', () => {
     expect(pickLoadout(input, settings, env())).toMatchObject({ harness: 'codex', explored: undefined })
@@ -120,10 +121,11 @@ describe('durable session policy', () => {
   })
 
   it('migrates rejection snapshots and does not let a cold different window clear them', () => {
-    recordClaudeRateLimit(claudeLimitsFile(dir), { status: 'rejected', rateLimitType: 'seven_day', resetsAt: (now + 3600_000) / 1000 })
+    const observed = Date.now()
+    recordClaudeRateLimit(claudeLimitsFile(dir), { status: 'rejected', rateLimitType: 'seven_day', resetsAt: (observed + 3600_000) / 1000 })
     const policy = new SessionQuotaPolicy(dir)
-    policy.observe({ status: 'allowed', rateLimitType: 'five_hour' }, now)
-    expect(policy.canStart(true, now)).toBe(false)
+    policy.observe({ status: 'allowed', rateLimitType: 'five_hour' }, observed)
+    expect(policy.canStart(true, observed)).toBe(false)
     expect(policy.unitBlocked()).toBe(true)
   })
 })

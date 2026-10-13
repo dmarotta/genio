@@ -124,7 +124,7 @@ export interface UsageWindow {
   resetsAt?: string
   observedAt?: string
   changedAt?: string
-  /** Kept for protection only; stale percentages are not presented as current usage. */
+  /** Diagnostic history only; never used to protect quota after expiry. */
   lastKnownUsedPercent?: number
   /** Observation expired or the reset time passed; current usage is unknown. */
   stale?: boolean

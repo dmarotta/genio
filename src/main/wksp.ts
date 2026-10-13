@@ -7,6 +7,7 @@ import { CodexChatDriver } from './codex-chat-driver'
 import { chatHandoff } from './chat-handoff'
 import { chatRouteUnavailable, markChatRouteUnavailable } from './model-catalogue'
 import { recordCodexChatUsage, recordCodexChatLimits } from './usage'
+import { refreshClaudePlanUsage } from './claude-usage-probe'
 /**
  * Genio agent sessions (companion's primary harness session, in-process).
  *
@@ -256,7 +257,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
 
   const quotaPolicy = (): SessionQuotaPolicy => new SessionQuotaPolicy(getCtx().main.home.data)
   const quotaHold = (provider: ChatProvider, item: TurnItem): WkspInfo['limit'] =>
-    provider === 'claude' && !quotaPolicy().canStart(item.kind === 'player', Date.now(), false) ? quotaPolicy().limitState() : undefined
+    provider === 'claude' && !quotaPolicy().canStartTurn(item.kind, Date.now(), false) ? quotaPolicy().limitState() : undefined
   const costs = new SessionCostLedger(path.join(home.data, 'usage', 'session-costs.json'))
 
   // plan limits are per account: every base records into the main base (Systems → Accounts)
@@ -614,7 +615,6 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     },
     deliverWakes() {
       if (readOnly || !isOpen() || stopped || projectOpening) return
-      if (selectedProvider() === 'claude' && !quotaPolicy().canStart(false, Date.now(), false)) return
       try {
         if (Date.now() < eventsBackoffUntil) {
           setTimeout(() => svc.deliverWakes(), eventsBackoffUntil - Date.now() + 50)
@@ -625,6 +625,17 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
         const wk = ctx.home(name).wakes
         const pend = wk.pending()
         if (!pend.length) return
+        // A genuine failed provider request has its own durable backoff, separate
+        // from plan percentages. Keep the batch pending and make the hold visible.
+        const policy = quotaPolicy()
+        if (selectedProvider() === 'claude' && !policy.canStartTurn('events', Date.now(), false)) {
+          const reason = `Claude rejected a request; ${pend.length} pending event${pend.length === 1 ? '' : 's'} will be delivered after recovery. Refreshing account usage automatically.`
+          if (info.limit?.reason !== reason) { info.limit = { ...policy.limitState(), reason }; publishInfo() }
+          if (policy.notice(name + ':wakes', '429 wake delivery')) say(reason, 'system')
+          void refreshClaudePlanUsage(ctx.main.home.data, chatCwd(), settings().claudePath?.trim() || undefined)
+            .then(() => { if (policy.canStartTurn('events', Date.now(), false)) svc.deliverWakes() })
+          return
+        }
         // routine-only batches wait for the Usage mode's batching window; anything urgent goes now
         const hold = routineDelay(pend, wakeBatchMs(settings()))
         if (hold > 0) {
