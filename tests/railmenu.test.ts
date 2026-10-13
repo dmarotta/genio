@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { ASSET_GEN, RAIL, entryActive, initialIndex, menuKey, navItems, opensMenu } from '../src/renderer/src/lib/railmenu'
 
 describe('rail entries', () => {
-  it('replaces the FAL.ai and Animation buttons with one Asset Generation menu', () => {
+  it('replaces Asset Generation with Inventory while retaining palette generation commands', () => {
     const top = RAIL.map((e) => (e.kind === 'view' ? e.item.id : e.id))
     expect(top).not.toContain('fal')
     expect(top).not.toContain('animation')
-    expect(top).toContain('assets')
+    expect(top).toContain('inventory')
+    expect(top).not.toContain('assets')
     expect(ASSET_GEN.label).toBe('Asset Generation')
     expect(ASSET_GEN.items.map((i) => [i.id, i.label])).toEqual([
       ['fal', 'FAL.ai'],
@@ -17,7 +18,7 @@ describe('rail entries', () => {
   it('keeps every screen and its shortcut reachable for the palette', () => {
     const keys = Object.fromEntries(navItems().map((n) => [n.id, n.key]))
     expect(keys).toEqual({
-      comms: '1', squad: '2', quests: '3', move: '4', status: '5', worlds: '6', lore: '7', systems: '8', fal: '9', animation: '0'
+      comms: '1', squad: '2', quests: '3', move: '4', status: '5', worlds: '6', lore: '7', systems: '8', inventory: '9', fal: '', animation: '0'
     })
   })
 })

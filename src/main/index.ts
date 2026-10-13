@@ -296,7 +296,30 @@ async function captureTour(dir: string): Promise<void> {
     await win.webContents.executeJavaScript(`(async () => { ${body}
  })()`).catch((e) => console.error('[capture] script failed', e))
   }
-  const views = ['comms', 'squad', 'quests', 'yourmove', 'status', 'worlds', 'lore', 'systems', 'fal']
+  // Optional UI scenarios: each renderer script settles its own state before capture.
+  // This exercises real IPC/media while keeping fixture setup outside the application.
+  const scenarios = process.env.GENIO_CAPTURE_SCENARIOS
+  if (scenarios && win && !win.isDestroyed()) {
+    const cases = JSON.parse(fs.readFileSync(scenarios, 'utf8')) as { name: string; script: string }[]
+    for (const c of cases) {
+      try {
+        await win.webContents.executeJavaScript(`(async () => { ${c.script}\n })()`)
+      } catch (e) {
+        console.error('[capture] failed', c.name, e)
+        fs.writeFileSync(path.join(dir, 'scenario-failure.png'), (await win.webContents.capturePage()).toPNG())
+        quitting = true
+        app.exit(1)
+        return
+      }
+      const img = await win.webContents.capturePage()
+      fs.writeFileSync(path.join(dir, `${c.name.replace(/[^a-zA-Z0-9_-]/g, '_')}.png`), img.toPNG())
+      console.log('[capture]', c.name)
+    }
+    quitting = true
+    app.exit(0)
+    return
+  }
+  const views = ['comms', 'squad', 'quests', 'yourmove', 'status', 'worlds', 'lore', 'systems', 'inventory']
   for (let i = 0; i < views.length; i++) {
     if (!win || win.isDestroyed()) return
     await win.webContents.executeJavaScript(

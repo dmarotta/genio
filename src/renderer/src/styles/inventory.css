@@ -1,7 +1,7 @@
 .inventory { display: flex; flex-direction: column; min-height: 0; height: 100%; padding: 22px 24px 12px; gap: 12px; }
 .inventory-head { display: flex; align-items: center; gap: 24px; }
 .inventory-head h1 { font: 700 34px var(--font-display); margin: 0; color: var(--neon); }
-.inventory-head .select { min-width: 240px; }
+.inventory-head .select { width: 300px; min-width: 240px; }
 .inventory-head > .dim { margin-left: auto; font-size: 12px; }
 .inventory-toolbar { display: flex; align-items: center; gap: 8px; }
 .inventory-search { flex: 1; display: flex; align-items: center; gap: 10px; border: 1px solid var(--line-strong); background: var(--surface); padding: 8px 12px; color: var(--text-dim); }

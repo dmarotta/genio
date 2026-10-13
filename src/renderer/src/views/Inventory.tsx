@@ -101,7 +101,7 @@ function WorldInventory({ world, root }: { world: string; root: string }) {
 
 function FolderChildren({ world, parent, filters, revision, selected, select, depth }: { world: string; parent: string; filters: InventoryQuery; revision: number; selected: string; select: (path: string) => void; depth: number }) {
   const [folders, setFolders] = useState<InventoryFolder[]>([])
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(breadcrumbs(selected).map(b => b.path)))
   const [error, setError] = useState('')
   useEffect(() => {
     let alive = true
@@ -109,7 +109,7 @@ function FolderChildren({ world, parent, filters, revision, selected, select, de
     return () => { alive = false }
   }, [world, parent, filters, revision])
   return <>{error && <p role="alert">{error}</p>}{folders.map(f => {
-    const open = expanded.has(f.path) || selected.startsWith(f.path + '/')
+    const open = expanded.has(f.path)
     return <div key={f.path}>
       <div className={cx('inventory-folder', selected === f.path && 'on')} style={{ paddingLeft: 6 + depth * 12 }}>
         <button aria-label={`${open ? 'Collapse' : 'Expand'} ${f.name}`} aria-expanded={open} onClick={() => setExpanded(prev => { const next = new Set(prev); if (open) next.delete(f.path); else next.add(f.path); return next })}>{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</button>
@@ -157,9 +157,20 @@ function AssetBrowser({ world, query, revision, list, tile, selected, select }: 
 
 function AssetThumbnail({ world, asset }: { world: string; asset: InventoryAsset }) {
   const url = thumbnailUrl(world, asset)
+  const ref = useRef<HTMLSpanElement>(null)
+  const [visible, setVisible] = useState(false)
   const [failed, setFailed] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  useEffect(() => {
+    const el = ref.current!
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(e => e.isIntersecting)) { setVisible(true); observer.disconnect() }
+    }, { root: el.closest('.inventory-scroll'), rootMargin: '100px' })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
   const Icon = ICONS[asset.kind]
-  return <span className="inventory-thumb">{url && !failed ? <img src={url} loading="lazy" alt="" onError={() => setFailed(true)} /> : <Icon size={30} strokeWidth={1.2} />}</span>
+  return <span ref={ref} className="inventory-thumb">{(!loaded || failed) && <Icon size={30} strokeWidth={1.2} />}{url && visible && !failed && <img src={url} alt="" onLoad={() => setLoaded(true)} onError={() => setFailed(true)} style={{ display: loaded ? 'block' : 'none' }} />}</span>
 }
 
 function Inspector({ world, root, asset, revision }: { world: string; root: string; asset?: InventoryAsset; revision: number }) {
