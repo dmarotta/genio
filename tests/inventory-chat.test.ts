@@ -3,9 +3,10 @@ import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { InventoryContext } from '../src/shared/inventory-context'
+import type { ChatMessage } from '../src/shared/types'
 import { clearDraft, getDraftContext } from '../src/renderer/src/drafts'
-const f = vi.hoisted(() => ({ send: vi.fn() }))
-vi.mock('../src/renderer/src/store', () => ({ useStore: (fn: (s: unknown) => unknown) => fn({ snap: { wksps: [] }, chats: {} }) }))
+const f = vi.hoisted(() => ({ send: vi.fn(), messages: [] as ChatMessage[] }))
+vi.mock('../src/renderer/src/store', () => ({ useStore: (fn: (s: unknown) => unknown) => fn({ snap: { wksps: [] }, chats: { main: f.messages } }) }))
 vi.mock('../src/renderer/src/views/Comms', async () => {
   const { useInventoryContext } = await import('../src/renderer/src/components/InventoryContextChips')
   return { ChatPanel: ({ wksp, context }: { wksp: string; context: InventoryContext }) => {
@@ -21,12 +22,22 @@ const button = (label: string): HTMLButtonElement => host.querySelector(`[aria-l
 const click = async (label: string) => { await act(async () => button(label).click()) }
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true, ResizeObserver: class { observe() {} disconnect() {} } })
-  sessionStorage.clear(); clearDraft('main'); f.send.mockClear()
+  sessionStorage.clear(); clearDraft('main'); f.send.mockClear(); f.messages = []
   host = document.createElement('div'); document.body.append(host)
   Object.defineProperties(host, { clientWidth: { value: 1200 }, clientHeight: { value: 600 } })
   root = createRoot(host)
 })
 afterEach(async () => { await act(async () => root.unmount()); host.remove() })
+
+it('counts active generation cards in the pill and notices new messages while collapsed', async () => {
+  await render(); await click('Collapse Genio chat')
+  f.messages = [{ id: 'new', wksp: 'main', role: 'genio', text: '', ts: 'now', generation: { id: 'run', provider: 'fal', model: 'fixture', status: 'running', estimatedUsd: 0, spentUsd: 0, paths: [], warnings: [] } }]
+  await render()
+  expect(button('Expand Genio chat').textContent).toContain('1 generating')
+  expect(button('Expand Genio chat').textContent).toContain('New')
+  f.messages[0].generation!.status = 'completed'; await render()
+  expect(button('Expand Genio chat').textContent).not.toContain('generating')
+})
 
 it('removes chips from sends and keeps dismissals while collapsed; browser changes update live', async () => {
   await render(); await click('Remove preview context'); await click('Test send')

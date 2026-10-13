@@ -12,7 +12,8 @@ export function InventoryChat({ context, inspector }: { context: InventoryContex
   const panel = useRef<HTMLDivElement>(null)
   const info = useStore(s => s.snap.wksps.find(m => m.name === 'main'))
   const last = useStore(s => s.chats.main?.at(-1)?.id)
-  const generating = useStore(s => (s.chats.main ?? []).reduce((n, m) => n + (m.generating ?? 0), 0))
+  const generating = useStore(s => (s.chats.main ?? []).reduce((n, m) => n + (m.generating ?? 0)
+    + (m.generation?.status === 'running' || m.generation?.status === 'placing' ? 1 : 0), 0))
   const seen = useRef(last)
   if (!state.collapsed && !(state.snapped && inspect)) seen.current = last
   useEffect(() => { sessionStorage.setItem('genio.inventory.chat', JSON.stringify(state)) }, [state])
