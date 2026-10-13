@@ -107,6 +107,8 @@ export interface Task {
   model?: string
   effort?: string
   profile?: string
+  /** why the unit got this tool / model / effort */
+  loadout?: string[]
   state: TaskState
   stateReason?: string
   createdAt: string
@@ -355,6 +357,29 @@ export interface DispatchRule {
   project?: string
   /** ordered candidates; first available wins unless spendPriority says otherwise */
   candidates: { harness: string; model?: string; effort?: string; spendPriority: number }[]
+}
+
+/** What the loadout picker needs to know about a mission. Empty harness/model/effort = auto. */
+export interface LoadoutInput {
+  kind: TaskKind
+  project: string
+  title: string
+  intent: string
+  spec?: string
+  harness?: string
+  model?: string
+  effort?: string
+}
+
+export interface Loadout {
+  harness: string
+  model?: string
+  effort?: string
+  /** who decided the unit tool */
+  source: 'player' | 'rule' | 'default'
+  ruleId?: string
+  /** one short line per decision */
+  reasons: string[]
 }
 
 export interface EventSource {

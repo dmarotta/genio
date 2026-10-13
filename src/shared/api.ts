@@ -1,7 +1,7 @@
 import type {
   AwayMode, AwayState, BacklogItem, StatusReport, ChatMessage, DeliveryMode, Engine, FleetSnapshot,
   GenioEvent, LedgerRecord, Priority, Project, ProjectCommands, Ally, Settings, Task, TaskKind,
-  TerminalInfo, ToolStatus, UpdateInfo, Wake, Forge, Decision, InboxNote, ProjectMode
+  TerminalInfo, ToolStatus, UpdateInfo, Wake, Forge, Decision, InboxNote, ProjectMode, Loadout, LoadoutInput
 } from './types'
 
 export interface SpawnRequest {
@@ -83,6 +83,8 @@ export interface GenioApi {
 
   // ---- crew
   spawnTask(req: SpawnRequest): Promise<Task>
+  /** What a deploy with these fields would get (harness, model, effort) and why. */
+  previewLoadout(req: LoadoutInput): Promise<Loadout>
   sendToTask(id: string, text: string, resolveKey?: string): Promise<OpResult>
   controlTask(id: string, action: 'interrupt' | 'exit' | 'relaunch'): Promise<OpResult>
   cleanupTask(id: string, force?: boolean): Promise<OpResult>
@@ -162,6 +164,7 @@ export const API_METHODS = [
   'recap',
   'save',
   'spawnTask',
+  'previewLoadout',
   'sendToTask',
   'controlTask',
   'cleanupTask',

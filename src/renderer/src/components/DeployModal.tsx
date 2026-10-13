@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Radar, Rocket } from 'lucide-react'
-import type { DeliveryMode, TaskKind } from '@shared/types'
+import { Radar, Rocket, SlidersHorizontal, Sparkles } from 'lucide-react'
+import type { DeliveryMode, Loadout, TaskKind } from '@shared/types'
 import { api, errText, focusTask, setState, toast, useStore } from '../store'
 import { Field, Modal, Toggle } from './ui'
 import { DELIVERY_MODES, EFFORTS, MODE_HINT, MODE_LABEL } from '../lib/vocab'
@@ -24,6 +24,8 @@ export function DeployModal() {
   const [effort, setEffort] = useState('')
   const [base, setBase] = useState('')
   const [busy, setBusy] = useState(false)
+  const [override, setOverride] = useState(false)
+  const [preview, setPreview] = useState<Loadout | null>(null)
 
   useEffect(() => {
     if (!draft) return
@@ -38,6 +40,7 @@ export function DeployModal() {
     setModel(draft.model ?? '')
     setEffort(draft.effort ?? '')
     setBase(draft.baseBranch ?? '')
+    setOverride(Boolean(draft.harness || draft.model || draft.effort))
     const p = projects.find((x) => x.name === (draft.project ?? projects[0]?.name))
     setYolo(draft.yolo ?? p?.yolo ?? false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -45,9 +48,39 @@ export function DeployModal() {
 
   const proj = projects.find((p) => p.name === project)
   const harnesses = useMemo(() => (settings?.harnesses ?? []).filter((h) => h.enabled), [settings])
-  const h = harnesses.find((x) => x.id === (harness || settings?.defaultHarness))
+  const h = harnesses.find((x) => x.id === (harness || preview?.harness || settings?.defaultHarness))
+  const pickHarness = override ? harness : ''
+  const pickModel = override ? model.trim() : ''
+  const pickEffort = override ? effort : ''
+  const custom = Boolean(pickHarness || pickModel || pickEffort)
+
+  // Live preview of the auto loadout; debounced so typing the ask doesn't spam the main process.
+  useEffect(() => {
+    if (!draft || !project) return setPreview(null)
+    let live = true
+    const t = setTimeout(() => {
+      api()
+        .previewLoadout({
+          kind,
+          project,
+          title,
+          intent,
+          spec: spec || undefined,
+          harness: pickHarness || undefined,
+          model: pickModel || undefined,
+          effort: pickEffort || undefined
+        })
+        .then((l) => live && setPreview(l))
+        .catch(() => live && setPreview(null))
+    }, 250)
+    return () => {
+      live = false
+      clearTimeout(t)
+    }
+  }, [draft, kind, project, title, intent, spec, pickHarness, pickModel, pickEffort, settings])
 
   if (!draft) return null
+  const toolName = (id: string): string => settings?.harnesses.find((x) => x.id === id)?.name ?? id
   const close = (): void => setState({ deploy: null })
   const valid = project && title.trim() && intent.trim()
 
@@ -64,9 +97,9 @@ export function DeployModal() {
         mode: kind === 'ship' && mode ? mode : undefined,
         yolo: kind === 'ship' ? yolo : undefined,
         baseBranch: base.trim() || undefined,
-        harness: harness || undefined,
-        model: model.trim() || undefined,
-        effort: effort || undefined,
+        harness: pickHarness || undefined,
+        model: pickModel || undefined,
+        effort: pickEffort || undefined,
         backlogId: draft.backlogId,
         wksp: draft.wksp
       })
@@ -111,7 +144,12 @@ export function DeployModal() {
           <button className="btn ghost" onClick={close}>
             Cancel
           </button>
-          <button className="btn" disabled={busy || !project || !intent.trim()} onClick={() => void briefGenio()} title="Let Genio scope it, pick posture and deploy">
+          <button
+            className="btn"
+            disabled={busy || !project || !intent.trim()}
+            onClick={() => void briefGenio()}
+            title="Let Genio scope it, pick posture and deploy"
+          >
             Brief Genio
           </button>
           <button className={cx('btn solid', kind === 'scout' && 'violet')} disabled={busy || !valid} onClick={() => void deployNow()}>
@@ -140,11 +178,15 @@ export function DeployModal() {
 
       <div className="form-grid">
         <Field label="World">
-          <select className="select" value={project} onChange={(e) => {
-            setProject(e.target.value)
-            const p = projects.find((x) => x.name === e.target.value)
-            setYolo(p?.yolo ?? false)
-          }}>
+          <select
+            className="select"
+            value={project}
+            onChange={(e) => {
+              setProject(e.target.value)
+              const p = projects.find((x) => x.name === e.target.value)
+              setYolo(p?.yolo ?? false)
+            }}
+          >
             {!projects.length && <option value="">No worlds yet — add one in Worlds</option>}
             {projects.map((p) => (
               <option key={p.name} value={p.name}>
@@ -157,7 +199,13 @@ export function DeployModal() {
           <input className="input" value={title} placeholder="e.g. Fix double-jump on slopes" onChange={(e) => setTitle(e.target.value)} />
         </Field>
         <Field label="Your words" hint="Becomes the unit's acceptance criteria. Say it like you'd say it to a teammate." wide>
-          <textarea className="textarea" rows={5} value={intent} onChange={(e) => setIntent(e.target.value)} placeholder="What should happen, and anything that's out of bounds." />
+          <textarea
+            className="textarea"
+            rows={5}
+            value={intent}
+            onChange={(e) => setIntent(e.target.value)}
+            placeholder="What should happen, and anything that's out of bounds."
+          />
         </Field>
         {showSpec ? (
           <Field label="Genio spec (optional)" hint="Build instructions only this ask requires." wide>
@@ -185,35 +233,6 @@ export function DeployModal() {
             </select>
           </Field>
         )}
-        <Field label="Harness">
-          <select className="select" value={harness} onChange={(e) => setHarness(e.target.value)}>
-            <option value="">Default ({settings?.defaultHarness || 'claude'})</option>
-            {harnesses.map((x) => (
-              <option key={x.id} value={x.id}>
-                {x.name}
-                {x.verified ? '' : ' (unverified)'}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Model">
-          <input className="input" list="deploy-models" value={model} placeholder={settings?.defaultWorkerModel || 'default'} onChange={(e) => setModel(e.target.value)} />
-          <datalist id="deploy-models">
-            {(h?.models ?? []).map((m) => (
-              <option key={m} value={m} />
-            ))}
-          </datalist>
-        </Field>
-        <Field label="Effort">
-          <select className="select" value={effort} onChange={(e) => setEffort(e.target.value)}>
-            <option value="">Default ({settings?.defaultWorkerEffort || 'auto'})</option>
-            {EFFORTS.map((x) => (
-              <option key={x} value={x}>
-                {x}
-              </option>
-            ))}
-          </select>
-        </Field>
         <Field label="Base branch">
           <input className="input mono" value={base} placeholder={proj?.defaultBranch ?? 'main'} onChange={(e) => setBase(e.target.value)} />
         </Field>
@@ -221,6 +240,68 @@ export function DeployModal() {
           <Field label="Auto-loot" hint="Genio merges green, in-scope work without asking">
             <Toggle checked={yolo} onChange={setYolo} label={yolo ? 'On' : 'Off'} />
           </Field>
+        )}
+      </div>
+
+      <div className={cx('loadout', custom && 'open')}>
+        <div className="loadout-head">
+          <span className="label">Loadout</span>
+          <span className={cx('chip', custom ? 'amber' : 'neon')}>{custom ? 'Custom' : 'Auto'}</span>
+          <span className="loadout-pick">
+            {preview ? (
+              <>
+                <b>{toolName(preview.harness)}</b>
+                <span className="dim">
+                  {' '}
+                  · {preview.model || 'tool default model'} · {preview.effort ? `${preview.effort} effort` : 'tool default effort'}
+                </span>
+              </>
+            ) : (
+              <span className="mute">Pick a world to see the loadout</span>
+            )}
+          </span>
+          <button
+            className="btn sm ghost"
+            onClick={() => setOverride((v) => !v)}
+            title={override ? 'Back to the automatic pick' : 'Choose the unit tool, model and effort yourself'}
+          >
+            {override ? <Sparkles size={12} /> : <SlidersHorizontal size={12} />}
+            {override ? 'Auto' : 'Override'}
+          </button>
+        </div>
+        {preview && <div className="loadout-why">Why: {preview.reasons.map((r) => r.replace(/^[^:]+: /, '')).join(' · ')}</div>}
+        {override && (
+          <div className="form-grid cols-3">
+            <Field label="Unit tool">
+              <select className="select" value={harness} onChange={(e) => setHarness(e.target.value)}>
+                <option value="">Auto</option>
+                {harnesses.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.name}
+                    {x.verified ? '' : ' (unverified)'}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Model">
+              <input className="input" list="deploy-models" value={model} placeholder="Auto" onChange={(e) => setModel(e.target.value)} />
+              <datalist id="deploy-models">
+                {(h?.models ?? []).map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+            </Field>
+            <Field label="Effort">
+              <select className="select" value={effort} onChange={(e) => setEffort(e.target.value)}>
+                <option value="">Auto</option>
+                {EFFORTS.map((x) => (
+                  <option key={x} value={x}>
+                    {x}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
         )}
       </div>
     </Modal>

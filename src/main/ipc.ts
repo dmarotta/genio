@@ -6,6 +6,7 @@ import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { API_PREFIX, type GenioApi } from '@shared/api'
 import type { Task } from '@shared/types'
 import { answerChoice, findDecision, findTask } from './wksp-tools'
+import { resolveLoadout } from './loadout'
 import type { AppCtx, HomeCtx } from './services'
 
 type Handlers = { [K in keyof GenioApi]: (...args: Parameters<GenioApi[K]>) => ReturnType<GenioApi[K]> | Awaited<ReturnType<GenioApi[K]>> }
@@ -56,6 +57,7 @@ export function registerIpc(getCtx: () => AppCtx): void {
 
     // ---- squad
     spawnTask: (req) => ctx().home(req.wksp ?? 'main').crew.spawn(req),
+    previewLoadout: async (req) => resolveLoadout(req, ctx().settings),
     sendToTask: async (id, text, resolveKey) => {
       const { hc } = taskHome(id)
       const r = await hc.crew.send(id, text, resolveKey ? [resolveKey] : undefined)

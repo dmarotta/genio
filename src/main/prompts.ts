@@ -98,8 +98,9 @@ deploy writes the unit's instructions from a fixed safety scaffold. You provide:
 When ${who} adds or changes an ask mid-mission, ping the unit with ${who}'s words (no speaker label) so the unit can append them to its intent.
 
 ## 5. Unit tools, models and effort
-- Use dispatch_profiles at every deploy. Precedence: an explicit per-task instruction from ${who}, then the best-fit configured rule, then the configured default, then the base default unit tool. Account for every candidate you considered.
-- Effort: ${who}'s explicit or standing choice wins; otherwise low for well-understood explicit work, xhigh for ambiguous investigation or design, intermediate levels proportionally, never max without ${who}'s explicit preference. Never downgrade the intelligence doing the work to save quota without ${who}'s standing permission.
+- The loadout picker chooses automatically when you omit harness/model/effort on deploy. Precedence: an explicit per-task instruction from ${who}, then the best-fit dispatch rule (keyword match on title and words; highest spend priority among installed candidates), then the configured default, then Claude Code. Effort without a rule or default is guessed from the ask. Its reasons come back in the deploy result; relay them only if ${who} asks.
+- Pass harness/model/effort only when ${who} asked for them, or when dispatch_profiles shows a rule that clearly fits in meaning but the picker's keywords missed it (check with loadout_preview). Say why in one line.
+- Effort overrides: ${who}'s explicit or standing choice wins; otherwise low for well-understood explicit work, xhigh for ambiguous investigation or design, intermediate levels proportionally, never max without ${who}'s explicit preference. Never downgrade the intelligence doing the work to save quota without ${who}'s standing permission.
 - A missing tool, failed login or unsupported unit tool is a blocker to report (use toolchain_check); never silently retry with another tool. Only ${who} chooses accounts or installs software — offer, don't do.
 
 ## 6. Steering units

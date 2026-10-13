@@ -13,6 +13,7 @@ import type { TaskFile } from '@shared/api'
 import type { AppCtx, HomeCtx } from './services'
 import type { Home } from './home'
 import { truncate } from './util'
+import { resolveLoadout } from './loadout'
 
 type ToolFn = typeof import('@anthropic-ai/claude-agent-sdk').tool
 
@@ -149,7 +150,7 @@ export function buildTools(
 
   t(
     'deploy',
-    'Deploy a unit on a Build (kind=ship: produces a change) or Recon (kind=scout: produces a report) mission in an isolated copy of a world. intent = the player\'s own words (no speaker labels); spec = only the build instructions the ask requires. mode/auto_loot default to the world posture (resolve with world_posture first). Files a quest automatically unless quest_id is given.',
+    'Deploy a unit on a Build (kind=ship: produces a change) or Recon (kind=scout: produces a report) mission in an isolated copy of a world. intent = the player\'s own words (no speaker labels); spec = only the build instructions the ask requires. mode/auto_loot default to the world posture (resolve with world_posture first). Files a quest automatically unless quest_id is given. Omit harness/model/effort to let the loadout picker choose (dispatch rules, defaults, effort from the ask); preview it with loadout_preview.',
     {
       kind: z.enum(['ship', 'scout']),
       world: z.string(),
@@ -171,7 +172,7 @@ export function buildTools(
           kind: a.kind, project: a.world, title: a.title, intent: a.intent, spec: a.spec, mode: a.mode, yolo: a.auto_loot,
           baseBranch: a.base_branch, harness: a.harness, model: a.model, effort: a.effort, backlogId: a.quest_id, wksp: home.name
         })
-        return ok(`deployed ${task.id}: ${task.kind === 'ship' ? 'Build' : 'Recon'} "${task.title}" in ${task.project} (unit tool ${task.harness}${task.model ? ` / ${task.model}` : ''}${task.effort ? ` / ${task.effort}` : ''}, mode ${modeLabel(task.mode)}, branch ${task.branch})`)
+        return ok(`deployed ${task.id}: ${task.kind === 'ship' ? 'Build' : 'Recon'} "${task.title}" in ${task.project} (unit tool ${task.harness}${task.model ? ` / ${task.model}` : ''}${task.effort ? ` / ${task.effort}` : ''}${task.loadout?.length ? ` — ${task.loadout.join('; ')}` : ''}, mode ${modeLabel(task.mode)}, branch ${task.branch})`)
       } catch (e) {
         const msg = (e as Error).message ?? String(e)
         if (/deferred|capacity/i.test(msg)) return ok(`deferred: ${msg}. The quest stays queued; it will be dispatchable when capacity frees up.`)
@@ -469,6 +470,13 @@ export function buildTools(
       })
     )
   })
+
+  t(
+    'loadout_preview',
+    'What a deploy would get (unit tool, model, effort) if harness/model/effort are omitted or set as given, and why.',
+    { kind: z.enum(['ship', 'scout']), world: z.string(), title: z.string(), intent: z.string(), spec: z.string().optional(), harness: z.string().optional(), model: z.string().optional(), effort: z.string().optional() },
+    async (a) => ok(json(resolveLoadout({ kind: a.kind, project: a.world, title: a.title, intent: a.intent, spec: a.spec, harness: a.harness, model: a.model, effort: a.effort }, getCtx().settings)))
+  )
 
   t('toolchain_check', 'Which tools (git, gh, unit CLIs, engines) are installed. Missing tools are offered to the player; never installed without their consent.', {}, async () => {
     const list = await getCtx().toolchain.check()

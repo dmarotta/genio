@@ -16,6 +16,7 @@ import { appendProgressNote, doorbellLine, engineHints, kickoffPrompt, renderBri
 import { buildArgs, CLAUDE_BYPASS_DIALOG } from './harness'
 import { foldOpenDecisions, formatStatusLine, parseStatusLine, parseStatusLog } from './status'
 import { createGauntlet } from './gauntlet'
+import { resolveLoadout } from './loadout'
 import { modeLabel } from '@shared/vocab'
 import { defaultShell } from './terminals'
 import {
@@ -442,7 +443,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         })
       )
 
-      const harness = req.harness || s.defaultHarness || 'claude'
+      const loadout = resolveLoadout(req, ctx.settings)
+      const harness = loadout.harness
       const now = nowIso()
       const task: Task = {
         id,
@@ -460,8 +462,9 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         briefPath,
         reportPath,
         harness,
-        model: req.model || s.defaultWorkerModel || undefined,
-        effort: req.effort || s.defaultWorkerEffort || undefined,
+        model: loadout.model,
+        effort: loadout.effort,
+        loadout: loadout.reasons,
         state: 'spawning',
         stateReason: posture.warning,
         createdAt: now,
@@ -481,7 +484,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         throw e
       }
       safe(() => backlog.markInFlight(backlogId!, id))
-      ledger('task.dispatched', task, { kind: task.kind, project: task.project, harness, model: task.model ?? 'default', mode: task.mode, yolo: task.yolo })
+      ledger('task.dispatched', task, { kind: task.kind, project: task.project, harness, model: task.model ?? 'default', effort: task.effort ?? 'default', loadout: loadout.source, rule: loadout.ruleId, mode: task.mode, yolo: task.yolo })
       safe(() => ctx.stats.award('spawn', id))
       safe(() => ctx.notifier.sfx('spawn'))
       return get(id)!
