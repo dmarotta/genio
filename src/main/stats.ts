@@ -21,6 +21,7 @@ const XP: Record<AwardEvent, number> = {
 }
 
 export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
+  { id: 'explorer-install', name: 'Open Sesame', description: 'Install Open with Genio in Windows Explorer.', feature: 'explorer' },
   { id: 'character-sheet-open', name: 'Know Your Character', description: 'Open your Character Sheet.', feature: 'status' },
   { id: 'project-window-open', name: 'Home Base', description: 'Open your first project window.', feature: 'project-window' },
   { id: 'project-welcome', name: 'Welcome Back', description: 'Genio greets you with a project recap.', feature: 'comms' },

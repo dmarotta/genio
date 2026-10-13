@@ -9,7 +9,7 @@ import {
   MODE_PRESETS, USAGE_MODES, USAGE_MODE_LABEL, modeSummary, pctText, planLabel, presetRows, type UsageMode, type UsagePolicyView
 } from '@shared/usage-mode'
 import { PlanMeter, useUsagePolicyState } from '../components/PlanMeter'
-import { accountActions, type AccountStatus, type ApiKeyStatus, type FalSpend, type ToolUsage, type UsageReport } from '@shared/api'
+import { accountActions, type AccountStatus, type ApiKeyStatus, type ExplorerStatus, type FalSpend, type ToolUsage, type UsageReport } from '@shared/api'
 import { api, errText, op, saveSettings, toast, useStore } from '../store'
 import { CommitInput, Confirm, Field, Toggle, ViewHeader } from '../components/ui'
 import { TerminalView } from '../components/Terminal'
@@ -19,7 +19,7 @@ import { playSfx } from '../lib/sfx'
 
 type Section =
   | 'profile' | 'genio' | 'units' | 'overwatch' | 'gauntlet' | 'comms' | 'alerts' | 'mail' | 'memory'
-  | 'harnesses' | 'dispatch' | 'triggers' | 'toolchain' | 'accounts' | 'patch' | 'usage'
+  | 'harnesses' | 'dispatch' | 'triggers' | 'toolchain' | 'accounts' | 'patch' | 'usage' | 'explorer'
 
 const SECTIONS: { id: Section; label: string; group: string }[] = [
   { id: 'profile', label: 'Profile', group: 'Player' },
@@ -36,6 +36,7 @@ const SECTIONS: { id: Section; label: string; group: string }[] = [
   { id: 'memory', label: 'Memory & briefs', group: 'Engine' },
   { id: 'mail', label: 'Mail & replay', group: 'Engine' },
   { id: 'toolchain', label: 'Loadout', group: 'Base' },
+  { id: 'explorer', label: 'Explorer', group: 'Base' },
   { id: 'accounts', label: 'Accounts', group: 'Base' },
   { id: 'patch', label: 'Patch', group: 'Base' }
 ]
@@ -109,6 +110,39 @@ export function Systems() {
   )
 }
 
+function ExplorerIntegration() {
+  const [state, setState] = useState<ExplorerStatus | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let active = true
+    void api().explorerStatus().then(value => { if (active) setState(value) }).catch(e => { if (active) setError(errText(e)) })
+    return () => { active = false }
+  }, [])
+  const change = async (enabled: boolean): Promise<void> => {
+    setBusy(true); setError('')
+    try { setState(await api().explorerSet(enabled)) }
+    catch (e) {
+      setError(errText(e))
+      // A failed install may have left one key; keep Remove available.
+      try { setState(await api().explorerStatus()) } catch { /* retain last state */ }
+    } finally { setBusy(false) }
+  }
+  return <>
+    <h2 className="sys-title">Explorer</h2>
+    <Row label="Open with Genio" hint="Open or focus a project from a folder or folder background. Installs for your Windows account only; no administrator rights required.">
+      <button className="btn sm" disabled={busy || state?.available === false || state?.installed === true} onClick={() => void change(true)}>Install</button>
+      <button className="btn sm" disabled={busy || state?.available === false} onClick={() => void change(false)}>Remove</button>
+    </Row>
+    <p className="mute">{busy ? 'Updating Explorer…' : state?.available === false ? 'Available on Windows only.' : state?.installed ? 'Installed for this Genio location.' : state?.present ? 'A partial or older installation exists. Install to update it, or Remove to clean it up.' : 'Not installed.'}</p>
+    {error && <p role="alert">{error}</p>}
+    <p className="dim">On Windows 11, use Show more options in the context menu. Moving Genio requires installing again from its new location.</p>
+    <Row label="Terminal command" hint="Add the Genio resources folder to your user PATH to use the genio.cmd shim. See README → Open a project folder.">
+      <code>genio .</code>
+    </Row>
+  </>
+}
+
 function Row({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
   return (
     <div className="sys-row">
@@ -126,6 +160,8 @@ const num = (v: string, min = 0): number => Math.max(min, Number(v) || 0)
 
 function SectionBody({ sec, s, advanced, setAdvanced, open }: { sec: Section; s: Settings; advanced: boolean; setAdvanced: (v: boolean) => void; open: (s: Section) => void }) {
   switch (sec) {
+    case 'explorer':
+      return <ExplorerIntegration />
     case 'usage':
       return <Usage s={s} advanced={advanced} setAdvanced={setAdvanced} open={open} />
     case 'profile':

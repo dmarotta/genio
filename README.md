@@ -125,3 +125,21 @@ The shim preserves the caller's working directory. Equivalently, invoke
 With `resources` on PATH, use `genio .` or `genio <folder>`. A second invocation
 opens or focuses the project in the existing process. Closing a project with
 running units offers **Stop units and close** or **Cancel**, retaining worktrees.
+
+To enable `genio` in new terminals, open Windows **Edit environment variables for
+your account**, edit the user **Path**, and add the absolute path to Genio's
+`resources` folder (containing `genio.cmd`). Remove that entry to uninstall the
+terminal command. The shim runs a packaged `Genio.exe` beside `resources`, or the
+built development app in the parent folder. It does not change PATH itself.
+
+In a project window, **Systems → Explorer → Install** adds **Open with Genio**
+to folder and folder-background context menus for your Windows account. On
+Windows 11 it appears under **Show more options**. It uses the same folder-open
+path as `genio <folder>`, including focusing an already-open project. **Remove**
+deletes both Genio context-menu keys, including a partial installation. Only
+these HKCU keys are modified: `Software\Classes\Directory\shell\Genio` and
+`Software\Classes\Directory\Background\shell\Genio`. No administrator rights
+are needed, and startup never installs or repairs them. If Genio moves, click
+Install from the new location. Remove the entry before deleting Genio's files.
+Development installs require a built app and register Electron with the app's
+absolute entry path; packaged installs register the Genio executable directly.

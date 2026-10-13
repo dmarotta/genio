@@ -426,6 +426,8 @@ export interface GenioApi {
   snapshot(): Promise<FleetSnapshot>
   homePath(): Promise<string>
   getSettings(): Promise<Settings>
+  explorerStatus(): Promise<ExplorerStatus>
+  explorerSet(enabled: boolean): Promise<ExplorerStatus>
   saveSettings(patch: Partial<Settings>): Promise<Settings>
   toolchain(): Promise<ToolStatus[]>
   installTool(name: string): Promise<OpResult>
@@ -538,6 +540,7 @@ export interface GenioApi {
   applyUpdate(): Promise<OpResult>
 }
 
+export interface ExplorerStatus { available: boolean; installed: boolean; present: boolean }
 export type MemoryFile = 'player' | 'lore' | 'player-shared'
 
 export type ApiMethod = keyof GenioApi
@@ -550,6 +553,8 @@ export const API_METHODS = [
   'snapshot',
   'homePath',
   'getSettings',
+  'explorerStatus',
+  'explorerSet',
   'saveSettings',
   'toolchain',
   'installTool',

@@ -7,7 +7,8 @@ import { assertPlayWindow, playService } from './play'
  * typed against GenioApi so a missing or mistyped method fails the build.
  */
 import { bus } from './bus'
-import { BrowserWindow, dialog, ipcMain, shell, MessageChannelMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell, MessageChannelMain } from 'electron'
+import { createExplorerIntegration, explorerCommand } from './explorer'
 import { API_PREFIX, type GenioApi } from '@shared/api'
 import type { Task } from '@shared/types'
 import { listAccounts, openAccountSession } from './accounts'
@@ -23,6 +24,7 @@ type Handlers ={ [K in keyof GenioApi]: (...args: Parameters<GenioApi[K]>) => Re
 
 export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder: string): Promise<void>; binding(senderId: number): WindowBinding | undefined }): void {
   const ctx = (): AppCtx => getCtx()
+  const explorer = createExplorerIntegration(explorerCommand(process.execPath, process.defaultApp ? app.getAppPath() : undefined))
   const inventoryClients = new Map<number, Set<string>>()
   const playConnections = new Map<string, () => void>()
   const playClients = new Map<number, string>()
@@ -74,6 +76,12 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
     snapshot: () => ctx().snapshot(),
     homePath: () => ctx().main.home.root,
     getSettings: () => ctx().settings.get(),
+    explorerStatus: () => explorer.status(),
+    explorerSet: async enabled => {
+      const state = await explorer.set(enabled)
+      if (enabled && state.installed) ctx().stats.unlock('explorer-install')
+      return state
+    },
     saveSettings: (patch) => {
       const previousModel = ctx().settings.get().wkspModel
       const previousMode = ctx().settings.get().usageMode
