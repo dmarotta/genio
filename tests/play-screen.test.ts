@@ -7,7 +7,7 @@ vi.mock('../src/renderer/src/views/Comms', () => ({ ChatPanel: () => null }))
 import { Play } from '../src/renderer/src/views/Play'
 let root: Root; let host: HTMLDivElement
 const status = { connected:true, state:'playing', scenes:[{name:'Game',path:'Assets/Game.unity',isActive:true,isDirty:false}], capabilities:{input:true,resolution:false} }
-const api = { playStatus:vi.fn(), playFrame:vi.fn(), playStats:vi.fn(), playConsole:vi.fn(), playScenes:vi.fn(), playAction:vi.fn(), playScreenshot:vi.fn(), playOpenUnity:vi.fn() }
+const api = { playStatus:vi.fn(), playFrame:vi.fn(), playStats:vi.fn(), playConsole:vi.fn(), playScenes:vi.fn(), playAction:vi.fn(), playScreenshot:vi.fn(), playOpenUnity:vi.fn(), playDetach:vi.fn().mockResolvedValue(undefined), playStream:vi.fn().mockResolvedValue(undefined), playPool:vi.fn().mockResolvedValue({cap:1,slots:[],queue:[]}) }
 beforeEach(() => {
   vi.useFakeTimers()
   Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true})

@@ -1,0 +1,1 @@
+{ "name": "Genio.Play.Editor", "references": ["Genio.Play", "Unity.Pipeline.Attributes"], "includePlatforms": ["Editor"] }

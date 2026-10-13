@@ -165,7 +165,8 @@ export function createToolRegistry(
   })
   t('play_control', 'Control Play only on the explicit player request quoted in player_words. Never save scenes or use eval. Units control only their own copy/slot.', {
     world: z.string(), player_words: z.string().trim().min(1), action: z.discriminatedUnion('type', [
-      z.object({ type: z.enum(['play', 'pause', 'stop']) }), z.object({ type: z.literal('scene'), path: z.string() }),
+      z.object({ type: z.enum(['play', 'pause', 'stop', 'step']) }), z.object({ type: z.literal('scene'), path: z.string() }),
+      z.object({ type: z.literal('resolution'), width: z.number().int(), height: z.number().int() }),
       z.object({ type: z.literal('key'), key: z.string() }), z.object({ type: z.literal('pointer'), x: z.number().nonnegative(), y: z.number().nonnegative() })
     ])
   }, async ({ world, player_words, action }) => {

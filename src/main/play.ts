@@ -5,7 +5,10 @@ import type { AppCtx } from './services'
 import { detectEngine } from './projects'
 import { UnityAdapter, type EngineAdapter } from './play-unity'
 import { unityEditor } from './play-editor'
-import type { PlayAction, PlayScene } from '@shared/play'
+import type { PlayAction, PlayInput, PlayScene } from '@shared/play'
+import { PlayStream } from './play-stream'
+import { installPlayPackage } from './play-package'
+import { PlayPool, type PoolLease } from '../../resources/unit-skills/genio/skills/play/scripts/pool.mjs'
 
 export function assertPlayWindow(binding: { project: string } | undefined, world: unknown): void {
   if (!binding || world !== binding.project) throw new Error('Play is bound to this project window; open the project first')
@@ -16,18 +19,110 @@ export class PlayService {
   private opening = new Map<string, number>()
   private generations = new Map<string, number>()
   private driving = new Map<string, number>()
+  private streams = new Map<string, PlayStream>()
+  private pools = new Map<string, PlayPool>()
+  private leases = new Map<string, PoolLease>()
+  private heartbeats = new Map<string, ReturnType<typeof setInterval>>()
+  private poolBusy = new Set<string>()
+  private streamHeartbeats = new Map<string, ReturnType<typeof setInterval>>()
+  private lostSlots = new Set<string>()
   constructor(private ctx: AppCtx) {}
-  private project(world: string) {
+  private project(world: string, main = false) {
     const p = this.ctx.projects.get(world)
     if (!p) throw new Error('Unknown Play world')
     const detected = detectEngine(p.path)
     if (detected.engine !== 'unity') throw new Error('Snapshot Play currently supports Unity projects')
-    return { p, root: path.resolve(p.path, detected.engineRoot) }
+    if (!main && this.lostSlots.has(world)) throw new Error('Play slot lease was taken over. Select main or lease a slot again.')
+    return { p, root: !main && this.leases.has(world) ? this.leases.get(world)!.root : path.resolve(p.path, detected.engineRoot), engineRoot: detected.engineRoot }
   }
+  pool(world: string): PlayPool {
+    let pool = this.pools.get(world)
+    if (!pool) { const { p, engineRoot } = this.project(world, true); pool = new PlayPool(this.ctx.main.home.data, p.path, engineRoot); this.pools.set(world, pool) }
+    return pool
+  }
+  async poolState(world: string) { return { ...await this.pool(world).state(), selected: this.leases.get(world)?.id } }
+  async configurePool(world: string, cap: number) { await this.pool(world).configure(cap); this.ctx.stats.unlock('play-pool-configured') }
+  async selectSlot(world: string, id?: number, takeover = false): Promise<void> {
+    if (this.poolBusy.has(world)) throw new Error('Play slot preparation is already running')
+    this.poolBusy.add(world)
+    try {
+      await this.stopStream(world)
+      this.lostSlots.delete(world)
+      const pool = this.pool(world), old = this.leases.get(world)
+      if (old && old.id === id) return
+      if (old) { await pool.release(old.id, old.token); this.leases.delete(world) }
+      clearInterval(this.heartbeats.get(world)); this.heartbeats.delete(world)
+      if (id === undefined) { await pool.cancel(`player:${process.pid}`); return }
+      const lease = await pool.acquire(`player:${process.pid}`, process.pid, id, takeover)
+      if (!lease) throw new Error('All requested Play slots are leased; queued. Retry to keep your place, or take over explicitly.')
+      this.leases.set(world, lease)
+      const timer = setInterval(() => void pool.check(lease.id, lease.token).catch(() => {
+        clearInterval(timer); this.lostSlots.add(world); this.leases.delete(world); this.stopStreamLocal(world)
+      }), 5000)
+      timer.unref(); this.heartbeats.set(world, timer)
+      try { if (!(await pool.state()).slots.find(s => s.id === lease.id)?.revision) await pool.prepare(lease.id, lease.token) }
+      catch (error) { clearInterval(timer); this.heartbeats.delete(world); this.leases.delete(world); await pool.release(lease.id, lease.token); throw error }
+      this.ctx.stats.unlock(takeover ? 'play-takeover' : 'play-slot')
+    } finally { this.poolBusy.delete(world) }
+  }
+  async enableStreaming(world: string) {
+    if (this.leases.has(world)) throw new Error('Enable the package on the main copy and commit it before preparing a slot')
+    const { p, root } = this.project(world, true)
+    installPlayPackage(this.ctx.appRoot, p.path, root)
+    this.ctx.stats.unlock('play-package')
+  }
+  async startStream(world: string, width: number, height: number, onFrame: (frame: Buffer) => void, onDisconnect: () => void): Promise<void> {
+    if (![width, height].every(n => Number.isInteger(n) && n >= 16 && n <= 1920)) throw new Error('Stream dimensions must be 16–1920')
+    await this.stopStream(world)
+    const stream = new PlayStream()
+    this.streams.set(world, stream)
+    stream.onFrame = frame => { this.ctx.stats.unlock('play-stream'); onFrame(frame) }
+    stream.onDisconnect = onDisconnect
+    try {
+      const credentials = await stream.listen()
+      if (this.streams.get(world) !== stream) throw new Error('Stream start cancelled')
+      const adapter = this.adapter(world)
+      if (!adapter.stream) throw new Error('Streaming is unavailable for this engine')
+      await adapter.stream({ ...credentials, width, height })
+      if (this.streams.get(world) !== stream) throw new Error('Stream start cancelled')
+      const lease = this.leases.get(world)
+      const heartbeat = setInterval(() => void (lease ? this.pool(world).check(lease.id, lease.token) : this.pool(world).mainControl()).catch(() => this.stopStreamLocal(world)), 5000)
+      heartbeat.unref(); this.streamHeartbeats.set(world, heartbeat)
+    } catch (e) { if (this.streams.get(world) === stream) this.stopStreamLocal(world); else stream.close(); throw e }
+  }
+  async input(world: string, input: PlayInput): Promise<void> {
+    const lease = this.leases.get(world)
+    if (lease) await this.pool(world).check(lease.id, lease.token)
+    else await this.pool(world).mainControl()
+    this.generations.set(world, (this.generations.get(world) ?? 0) + 1)
+    const stream = this.streams.get(world)
+    if (!stream) { if (input.type === 'release') return; throw new Error('Start live streaming first') }
+    stream.input(input)
+    if (input.type === 'state') this.ctx.stats.unlock('play-input')
+  }
+  private stopStreamLocal(world: string): void {
+    clearInterval(this.streamHeartbeats.get(world)); this.streamHeartbeats.delete(world)
+    const stream = this.streams.get(world); this.streams.delete(world); stream?.close()
+  }
+  async stopStream(world: string): Promise<void> {
+    if (!this.streams.has(world)) return
+    this.stopStreamLocal(world)
+    // Closing the socket tears down Unity's session and releases input. Do not send
+    // a delayed stop command: it could disconnect a successor's new stream.
+  }
+  async detach(world: string): Promise<void> { await this.selectSlot(world); await this.pool(world).releaseMain() }
   adapter(world: string): EngineAdapter {
     const { root } = this.project(world)
-    let a = this.adapters.get(root)
-    if (!a) { a = new UnityAdapter(root); this.adapters.set(root, a) }
+    const lease = this.leases.get(world)
+    const key = `${root}:${lease?.token ?? 'main'}`
+    let a = this.adapters.get(key)
+    if (!a) {
+      const guard = async () => {
+        if (lease) { if (this.leases.get(world)?.token !== lease.token) throw new Error('Play target changed'); await this.pool(world).check(lease.id, lease.token) }
+        else { if (this.leases.has(world) || this.lostSlots.has(world)) throw new Error('Play target changed'); await this.pool(world).mainControl() }
+      }
+      a = new UnityAdapter(root, guard); this.adapters.set(key, a)
+    }
     return a
   }
   async status(world: string) {
@@ -60,6 +155,8 @@ export class PlayService {
     if (actor === 'genio') this.driving.set(world, (this.driving.get(world) ?? 0) + 1)
     try {
       await this.adapter(world).act(action, () => actor === 'player' || version === (this.generations.get(world) ?? 0))
+      if (action.type === 'step') this.ctx.stats.unlock('play-step')
+      if (action.type === 'resolution') this.ctx.stats.unlock('play-resolution')
     } finally {
       if (actor === 'genio') this.driving.set(world, Math.max(0, (this.driving.get(world) ?? 1) - 1))
     }

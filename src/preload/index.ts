@@ -4,6 +4,11 @@ import type { GenioEvent } from '@shared/types'
 
 const TERM_CHANNEL = 'genio:term-data'
 
+// Transfer the port out of the isolated preload; no Unity address or token reaches the page.
+ipcRenderer.on('genio:play-port', (event, data: { world: string }) => {
+  window.postMessage({ type: 'genio:play-port', world: data.world }, '*', event.ports)
+})
+
 // Each method maps to ipcRenderer.invoke('genio:<method>', ...args). Built as a
 // plain object: contextBridge cannot clone a Proxy.
 const api = Object.fromEntries(

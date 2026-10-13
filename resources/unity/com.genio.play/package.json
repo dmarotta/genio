@@ -1,0 +1,9 @@
+{
+  "name": "com.genio.play",
+  "version": "0.1.0",
+  "displayName": "Genio Play",
+  "description": "Opt-in loopback JPEG streaming and virtual input for Genio Play. No listener, telemetry or scene changes.",
+  "unity": "6000.0",
+  "dependencies": { "com.unity.pipeline": "0.8.0-exp.1" },
+  "author": { "name": "Genio" }
+}

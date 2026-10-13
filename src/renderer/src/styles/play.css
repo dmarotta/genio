@@ -10,3 +10,6 @@
 .play-screen img:focus { outline: 2px solid var(--accent, #8ad4ff); }
 .play-console > div { max-height: 220px; overflow: auto; }
 .play-console pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.play-live { width: 100%; text-align: center; }
+.play-live canvas { display: block; max-width: 100%; max-height: 65vh; object-fit: contain; margin: auto; outline: none; }
+.play-live canvas:focus { outline: 2px solid var(--accent, #50d0a0); }

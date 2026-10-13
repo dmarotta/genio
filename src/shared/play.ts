@@ -16,11 +16,15 @@ export interface PlayStats {
   frameTiming?: { available: boolean; cpuFrameTimeMs: number; gpuFrameTimeMs: number }
 }
 export type PlayAction =
-  | { type: 'play' | 'pause' | 'stop' }
+  | { type: 'play' | 'pause' | 'stop' | 'step' }
   | { type: 'scene'; path: string }
   | { type: 'resolution'; width: number; height: number }
   | { type: 'key'; key: string }
   | { type: 'pointer'; x: number; y: number }
+
+export type PlayInput = { type: 'release' } | { type: 'state'; keys: string[]; x: number; y: number; buttons: number; axes: number[]; gamepadButtons: number }
+export interface PlaySlot { id: number; root: string; revision?: string; owner?: string; expires?: number; preparing?: boolean }
+export interface PlayPoolState { cap: number; slots: PlaySlot[]; queue: string[]; selected?: number }
 
 /** Delay after completion: no overlapping captures or catch-up bursts. */
 export function snapshotDelay(latencyMs: number, failures = 0): number {

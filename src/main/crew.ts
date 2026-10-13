@@ -132,7 +132,13 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     } catch {
       /* no OS encryption: the skill reports the key as missing */
     }
-    return unitLaunchExtras(harnessId, { pluginDir: installed, falKey, dataDir: mainHome.data, taskDataDir: home.taskDir(t.id) })
+    const extras = unitLaunchExtras(harnessId, { pluginDir: installed, falKey, dataDir: mainHome.data, taskDataDir: home.taskDir(t.id) })
+    const project = getCtx().projects.get(t.project)
+    if (project?.engine === 'unity') Object.assign(extras.env, {
+      GENIO_PLAY_DATA: mainHome.data, GENIO_PLAY_WORLD: project.path,
+      GENIO_PLAY_SOURCE: t.worktree, GENIO_PLAY_ENGINE_ROOT: project.engineRoot ?? ''
+    })
+    return extras
   }
 
   const writeClaudeSettings = (t: Task): string => {

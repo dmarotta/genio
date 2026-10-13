@@ -10,6 +10,7 @@ export interface EngineAdapter {
   frame(width: number, height: number): Promise<PlayFrame>
   console(cursor?: number, session?: string): Promise<PlayConsole>
   stats(): Promise<PlayStats>
+  stream?(session?: { port: number; token: string; width: number; height: number }): Promise<void>
 }
 interface Descriptor { port: number; pid: number; evalToken: string; projectPath: string; lastHeartbeat: string; mode: string; host?: string }
 const samePath = (a: string, b: string): boolean => {
@@ -56,7 +57,7 @@ export function pipelineRequest(port: number, token: string, command: string, pa
 export class UnityAdapter implements EngineAdapter {
   private queue: Promise<unknown> = Promise.resolve()
   private pending = 0
-  constructor(readonly root: string) {}
+  constructor(readonly root: string, private guard: () => Promise<unknown> = async () => {}) {}
   private supportsInput(): boolean {
     try { return !/activeInputHandler:\s*0\b/.test(fs.readFileSync(path.join(this.root, 'ProjectSettings/ProjectSettings.asset'), 'utf8')) }
     catch { return true } // Pipeline returns an explicit unavailable error if no Input System exists.
@@ -76,6 +77,7 @@ export class UnityAdapter implements EngineAdapter {
   }
   private identity?: string
   private async call<T>(command: string, parameters: object = {}): Promise<T> {
+    await this.guard()
     const d = this.descriptor()
     const identity = `${d.pid}:${d.port}:${d.evalToken}`
     if (identity !== this.identity) {
@@ -83,6 +85,7 @@ export class UnityAdapter implements EngineAdapter {
       if (!s.projectPath || !samePath(s.projectPath, this.root)) throw new Error('Pipeline editor identity does not match this world')
       this.identity = identity
     }
+    await this.guard()
     return pipelineRequest(d.port, d.evalToken, command, parameters) as Promise<T>
   }
   private serial<T>(fn: () => Promise<T>): Promise<T> {
@@ -100,18 +103,26 @@ export class UnityAdapter implements EngineAdapter {
       try {
         const s = await this.call<{ playMode: PlayStatus['state']; compiling: boolean; domainReloadInProgress: boolean }>('editor_status')
         const scenes = (await this.call<{ scenes: PlayScene[] }>('list_open_scenes')).scenes
-        return { connected: true, state: s.compiling ? 'compiling' : s.domainReloadInProgress ? 'reloading' : s.playMode, scenes, capabilities: { resolution: false, input: this.supportsInput() } }
+        return { connected: true, state: s.compiling ? 'compiling' : s.domainReloadInProgress ? 'reloading' : s.playMode, scenes, capabilities: { resolution: this.hasPackage(), input: this.supportsInput() } }
       } catch (e) { return { connected: false, state: 'gone', scenes: [], capabilities: { resolution: false, input: false }, message: (e as Error).message } }
     })
   }
   async act(a: PlayAction, stillAllowed: () => boolean = () => true): Promise<void> {
     return this.serial(async () => {
       if (!stillAllowed()) throw new Error('Player took control')
-      if (!a || !['play', 'pause', 'stop', 'scene', 'resolution', 'key', 'pointer'].includes(a.type)) throw new Error('Unknown Play action')
-      if (a.type === 'resolution') throw new Error('Pipeline does not support Game view resolution. Presets change snapshot size only.')
+      if (!a || !['play', 'pause', 'stop', 'step', 'scene', 'resolution', 'key', 'pointer'].includes(a.type)) throw new Error('Unknown Play action')
+      if (a.type === 'resolution' && !this.hasPackage()) throw new Error('Pipeline does not support Game view resolution. Presets change snapshot size only.')
       const s = await this.call<{ playMode: string; compiling: boolean; domainReloadInProgress: boolean }>('editor_status')
       if (s.compiling || s.domainReloadInProgress) throw new Error('Wait for Unity to finish compiling or reloading')
       if (!stillAllowed()) throw new Error('Player took control')
+      if (a.type === 'step') {
+        if (s.playMode !== 'paused') throw new Error('Pause Play Mode before stepping')
+        await this.call('genio_step'); return
+      }
+      if (a.type === 'resolution') {
+        if (![a.width, a.height].every(n => Number.isInteger(n) && n >= 16 && n <= 3840)) throw new Error('Invalid game resolution')
+        await this.call('genio_set_resolution', { width: a.width, height: a.height }); return
+      }
       if (a.type === 'play' || a.type === 'scene') {
         const { scenes } = await this.call<{ scenes: PlayScene[] }>('list_open_scenes')
         if (!Array.isArray(scenes) || !scenes.length || scenes.some(s => s.isDirty !== false || !s.path)) throw new Error('Unsaved scenes: save or discard changes in Unity before continuing. Genio never saves scenes.')
@@ -141,6 +152,12 @@ export class UnityAdapter implements EngineAdapter {
       }
       await this.call(a.type === 'play' ? 'editor_play' : a.type === 'pause' ? 'editor_pause' : 'editor_stop')
     })
+  }
+  private hasPackage(): boolean {
+    try { return !!JSON.parse(fs.readFileSync(path.join(this.root, 'Packages/manifest.json'), 'utf8')).dependencies?.['com.genio.play'] } catch { return false }
+  }
+  stream(session?: { port: number; token: string; width: number; height: number }): Promise<void> {
+    return this.serial(async () => { await this.call(session ? 'genio_stream_start' : 'genio_stream_stop', session ?? {}) })
   }
   frame(width: number, height: number): Promise<PlayFrame> {
     if (![width, height].every(v => Number.isInteger(v) && v >= 1 && v <= 1920)) throw new Error('Snapshot dimensions must be 1–1920')

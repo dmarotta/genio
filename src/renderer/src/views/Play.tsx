@@ -3,6 +3,8 @@ import { PROJECT_WINDOW, PROJECT_WKSP } from '../store'
 import { ChatPanel } from './Comms'
 import { snapshotDelay, type PlayAction, type PlayConsole, type PlayFrame, type PlayScene, type PlayStats, type PlayStatus } from '@shared/play'
 import '../styles/play.css'
+import { PlayLive } from './PlayLive'
+import { PlayPoolPanel } from './PlayPool'
 
 const presets = [[1280,720], [640,360], [1920,1080], [1024,768], [720,1280]]
 export function Play() {
@@ -19,6 +21,8 @@ export function Play() {
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState('')
   const [chat, setChat] = useState(false)
+  const [live, setLive] = useState(false)
+  const [targetVersion, setTargetVersion] = useState(0)
   const working = useRef(false)
   const refresh = useRef(true)
   useEffect(() => {
@@ -36,9 +40,11 @@ export function Play() {
           if (closed) return
           setStatus(s)
           if (s.connected) {
-            const f = await api.playFrame(world!, ...presets[size] as [number, number])
-            if (closed) return
-            setFrame(f)
+            if (!live) {
+              const f = await api.playFrame(world!, ...presets[size] as [number, number])
+              if (closed) return
+              setFrame(f)
+            }
             if (round++ % 5 === 0) {
               const p = await api.playStats(world!)
               const l = await api.playConsole(world!, cursor, session)
@@ -55,7 +61,8 @@ export function Play() {
     }
     void poll()
     return () => { closed = true; clearTimeout(timer) }
-  }, [world, size])
+  }, [world, size, live, targetVersion])
+  useEffect(() => () => { if (world) void api.playDetach(world).catch(() => {}) }, [world])
   async function run(fn: () => Promise<unknown>) {
     if (working.current) return
     working.current = true; setBusy(true)
@@ -67,7 +74,8 @@ export function Play() {
   const playing = status?.state === 'playing'
   const cpu = stats?.frameTiming?.available ? stats.frameTiming.cpuFrameTimeMs : undefined
   return <section className="play-view">
-    <header><h1 className="title">Play <span className="dim">· {world}</span></h1><span>Snapshot mode · about 1 fps · shared control</span><button className="btn" onClick={() => setChat(!chat)}>{chat ? 'Close chat' : 'Ask Genio'}</button></header>
+    <header><h1 className="title">Play <span className="dim">· {world}</span></h1><span>{live ? 'Live streaming · up to 30 fps' : 'Snapshot mode · about 1 fps'} · shared control</span><button className="btn" onClick={() => setChat(!chat)}>{chat ? 'Close chat' : 'Ask Genio'}</button></header>
+    <PlayPoolPanel world={world} onError={setError} onChange={() => { setLive(false); setInput(false); refresh.current = true; setTargetVersion(v => v + 1) }} />
     <div className="play-toolbar">
       <label>Scene <select disabled={busy || !status?.connected || status.state !== 'stopped'} value={status?.scenes.find(s => s.isActive)?.path ?? ''} onChange={e => act({ type: 'scene', path: e.target.value })}>
         <option value="" disabled>Current editor scene</option>{scenes.map(s => <option key={s.path} value={s.path}>{s.name}{s.isDirty ? ' *' : ''} — {s.path}</option>)}
@@ -76,18 +84,22 @@ export function Play() {
       <button className="btn solid" disabled={busy || !status?.connected || status.state !== 'stopped'} onClick={() => act({ type:'play' })}>Play</button>
       <button className="btn" disabled={busy || !status?.connected || !['playing','paused'].includes(status.state)} onClick={() => act({ type:'pause' })}>{status?.state === 'paused' ? 'Resume' : 'Pause'}</button>
       <button className="btn" disabled={busy || !status?.connected || status.state === 'stopped'} onClick={() => act({ type:'stop' })}>Stop</button>
-      <button className="btn" disabled={busy || !frame} onClick={() => void run(async () => setSaved(await api.playScreenshot(world)))}>Screenshot</button>
+      <button className="btn" disabled={busy || status?.state !== 'paused' || !status.capabilities.resolution} onClick={() => act({ type:'step' })}>Step</button>
+      <button className="btn" disabled={busy || !status?.connected} onClick={() => void run(async () => setSaved(await api.playScreenshot(world)))}>Screenshot</button>
+      <button className="btn" disabled={busy} onClick={() => void run(() => api.playEnableStreaming(world))}>Enable live streaming</button>
+      <button className="btn" disabled={!live && !playing} onClick={() => { setInput(false); setLive(!live) }}>{live ? 'Use snapshots' : 'Start live stream'}</button>
+      <button className="btn" disabled={busy || !status?.capabilities.resolution} onClick={() => act({ type:'resolution', width:presets[size][0], height:presets[size][1] })}>Apply size to game</button>
       <label><input type="checkbox" checked={input} disabled={!playing || !status?.capabilities.input} onChange={e => setInput(e.target.checked)} />Forward clicks and keys</label>
     </div>
     <p className="dim">{status?.state ?? 'Connecting…'} · {playing && stats?.fps ? `${stats.fps.toFixed(1)} game fps` : 'Game FPS unavailable'} · {cpu !== undefined ? `${cpu.toFixed(1)} ms CPU` : 'CPU timing unavailable'} · {stats?.render?.drawCalls ?? '—'} draw calls · {stats?.render?.triangles ?? '—'} triangles · {stats?.memory ? `${(stats.memory.totalAllocatedBytes/1048576).toFixed(0)} MB` : '—'} · capture {frame ? `${frame.latencyMs} ms` : '—'}</p>
-    <p className="dim">Presets resize snapshots; Pipeline cannot change the game aspect. Input is discrete and delayed. Click the image to focus keyboard input; Escape releases it.</p>
+    <p className="dim">Enable live streaming adds the Genio package tarball and one manifest entry to this world, left uncommitted. Live input supports Input System games; legacy input paths remain view-only. Click the view to focus; Escape releases input.</p>
     {status?.connected && !status.capabilities.input && <p>Legacy input is view-only. Use Unity for hands-on play.</p>}
     {status?.genioDriving && <p>Genio driving <button onClick={() => act({type:'stop'})}>Stop</button></p>}
     {error && <p role="alert">{error}</p>}
     {saved && <p>Saved screenshot <button onClick={() => void api.openPath(saved)}>Open</button></p>}
     {!status?.connected && <div><p>{status?.message}</p><button className="btn" disabled={busy} onClick={() => void run(() => api.playOpenUnity(world))}>Open in Unity</button></div>}
     <div className="play-screen">
-      {frame ? <img src={`data:image/png;base64,${frame.base64}`} alt={`Game snapshot from ${frame.capturedAt}`} tabIndex={input ? 0 : -1}
+      {live ? <PlayLive world={world} width={presets[size][0]} height={presets[size][1]} input={input && !!playing} onError={message => { setLive(false); setInput(false); setError(message) }} /> : frame ? <img src={`data:image/png;base64,${frame.base64}`} alt={`Game snapshot from ${frame.capturedAt}`} tabIndex={input ? 0 : -1}
         onClick={e => { if (!input || !playing) return; e.currentTarget.focus(); const r = e.currentTarget.getBoundingClientRect(); act({type:'pointer', x:(e.clientX-r.left)/r.width, y:(e.clientY-r.top)/r.height}) }}
         onKeyDown={e => { if (e.key === 'Escape') { setInput(false); return }; if (!input || !playing || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return
           const key = e.code.startsWith('Key') ? e.code.slice(3) : e.code.startsWith('Digit') ? e.code : ({ArrowLeft:'LeftArrow',ArrowRight:'RightArrow',ArrowUp:'UpArrow',ArrowDown:'DownArrow'}[e.code] ?? e.code)

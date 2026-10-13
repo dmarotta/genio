@@ -408,6 +408,13 @@ export interface GenioApi {
   playStats(world: string): Promise<import('./play').PlayStats>
   playOpenUnity(world: string): Promise<void>
   playScreenshot(world: string): Promise<string>
+  playEnableStreaming(world: string): Promise<void>
+  playStream(world: string, enabled: boolean, width?: number, height?: number): Promise<void>
+  playPool(world: string): Promise<import('./play').PlayPoolState>
+  playPoolCap(world: string, cap: number): Promise<void>
+  playPoolEstimate(world: string): Promise<number>
+  playSelectSlot(world: string, id?: number, takeover?: boolean): Promise<void>
+  playDetach(world: string): Promise<void>
   /** Open starts the watcher and returns the cache while reconciling in background. */
   inventoryOpen(world: string): Promise<InventoryState>
   inventoryClose(world: string): Promise<void>
@@ -537,6 +544,7 @@ export type ApiMethod = keyof GenioApi
 /** Every GenioApi method, as runtime data (contextBridge cannot clone a Proxy). */
 export const API_METHODS = [
   'playStatus', 'playScenes', 'playAction', 'playFrame', 'playConsole', 'playStats', 'playOpenUnity', 'playScreenshot',
+  'playEnableStreaming', 'playStream', 'playPool', 'playPoolCap', 'playPoolEstimate', 'playSelectSlot', 'playDetach',
   'inventoryOpen', 'inventoryClose', 'inventoryRefresh', 'inventoryList', 'inventoryInfo',
   'featureUsed',
   'snapshot',

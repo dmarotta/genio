@@ -7,7 +7,7 @@ import { assertPlayWindow, playService } from './play'
  * typed against GenioApi so a missing or mistyped method fails the build.
  */
 import { bus } from './bus'
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { BrowserWindow, dialog, ipcMain, shell, MessageChannelMain } from 'electron'
 import { API_PREFIX, type GenioApi } from '@shared/api'
 import type { Task } from '@shared/types'
 import { listAccounts, openAccountSession } from './accounts'
@@ -24,6 +24,7 @@ type Handlers ={ [K in keyof GenioApi]: (...args: Parameters<GenioApi[K]>) => Re
 export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder: string): Promise<void>; binding(senderId: number): WindowBinding | undefined }): void {
   const ctx = (): AppCtx => getCtx()
   const inventoryClients = new Map<number, Set<string>>()
+  const playConnections = new Map<string, () => void>()
   const closeUnusedInventory = (world: string): void => {
     if (![...inventoryClients.values()].some(worlds => worlds.has(world))) ctx().inventory.close(world)
   }
@@ -46,6 +47,13 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
     playStats: world => playService(ctx()).adapter(world).stats(),
     playOpenUnity: world => playService(ctx()).open(world),
     playScreenshot: world => playService(ctx()).screenshot(world),
+    playEnableStreaming: world => playService(ctx()).enableStreaming(world),
+    playStream: async () => { throw new Error('Streaming requires the owning window') },
+    playPool: world => playService(ctx()).poolState(world),
+    playPoolCap: (world, cap) => playService(ctx()).configurePool(world, cap),
+    playPoolEstimate: world => playService(ctx()).pool(world).estimate(),
+    playSelectSlot: (world, id, takeover) => playService(ctx()).selectSlot(world, id, takeover),
+    playDetach: world => playService(ctx()).detach(world),
     inventoryOpen: async (world) => {
       const state = await ctx().inventory.open(world)
       ctx().stats.unlock('inventory-open')
@@ -258,6 +266,44 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
         const binding = windows?.binding(_e.sender.id)
         if (windows && !binding && ['sendChat', 'recap', 'save', 'restartWksp', 'interruptWksp', 'unqueueChat', 'approveGeneration'].includes(method)) throw new Error('Open a project window to use its chat.')
         if (method.startsWith('play') && method !== 'playtest') assertPlayWindow(binding, args[0])
+        if (method === 'playStream') {
+          const [world, enabled, width = 1280, height = 720] = args as [string, boolean, number?, number?]
+          playConnections.get(world)?.()
+          if (!enabled) { await playService(ctx()).stopStream(world); return }
+          const { port1, port2 } = new MessageChannelMain()
+          let credit = false, closed = false, latest: Buffer | undefined
+          let inputPending = false
+          const send = (): void => {
+            if (!credit || !latest || closed) return
+            credit = false
+            port1.postMessage({ type: 'frame', bytes: new Uint8Array(latest) }); latest = undefined
+          }
+          const close = (): void => {
+            if (closed) return
+            closed = true; port1.postMessage({ type: 'closed' }); port1.close(); latest = undefined
+            _e.sender.removeListener('destroyed', close)
+            if (playConnections.get(world) === close) { playConnections.delete(world); void playService(ctx()).stopStream(world) }
+          }
+          playConnections.set(world, close)
+          port1.on('message', ({ data }) => {
+            if (closed) return
+            if (data?.type === 'ready') { credit = true; send() }
+            else if (data?.type === 'input' && !inputPending) {
+              inputPending = true
+              void playService(ctx()).input(world, data.input).catch(() => close()).finally(() => { inputPending = false })
+            }
+            else if (data?.type === 'close') close()
+          })
+          port1.on('close', close); port1.start()
+          _e.sender.once('destroyed', close)
+          try {
+            await playService(ctx()).startStream(world, width, height, frame => { latest = frame; send() }, close)
+            if (closed || _e.sender.isDestroyed()) throw new Error('Play window closed')
+            _e.sender.postMessage('genio:play-port', { world }, [port2])
+          } catch (error) { close(); throw error }
+          return
+        }
+        if (method === 'playDetach' || method === 'playSelectSlot') playConnections.get(args[0] as string)?.()
         if (binding) {
           if (method === 'readMemory') return ctx().memory.read(args[0] as Parameters<GenioApi['readMemory']>[0], ctx().home(binding.wksp).home)
           if (method === 'writeMemory') return ctx().memory.write(args[0] as Parameters<GenioApi['writeMemory']>[0], String(args[1]), ctx().home(binding.wksp).home)

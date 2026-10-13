@@ -80,6 +80,7 @@ export function unitLaunchExtras(harnessId: string, opts: { pluginDir?: string; 
     env.GENIO_BLENDER_SKILL = fwd(blenderSkillDir(opts.pluginDir))
     if (opts.taskDataDir ?? opts.dataDir) env.GENIO_BLENDER_SCRATCH = fwd(path.join((opts.taskDataDir ?? opts.dataDir)!, 'blender'))
     env.GENIO_ASSETS_SKILL = fwd(assetsSkillDir(opts.pluginDir))
+    env.GENIO_PLAY_SKILL = fwd(path.join(opts.pluginDir, 'skills/play/SKILL.md'))
     env.GENIO_UTHANA_SKILL = fwd(uthanaSkillDir(opts.pluginDir))
     env.GENIO_FAL_SKILL = fwd(falSkillDir(opts.pluginDir))
     env.GENIO_IMAGEGEN_CODEX_SKILL = fwd(codexImageSkillDir(opts.pluginDir))
@@ -108,6 +109,7 @@ export function unitToolsBrief(pluginDir: string): string {
   const codex = fwd(codexImageSkillDir(pluginDir))
   const blender = fwd(blenderSkillDir(pluginDir))
   return (
+    `- Unity Play: read \`${fwd(path.join(pluginDir, 'skills/play/SKILL.md'))}\` and use its long-lived shared-slot helper. Never control the main editor from a unit; never touch Toolbox.\n` +
     `- Assets: read \`${assets}/SKILL.md\` first for provider routing and world-type placement. Use asset_locate / the shared suggestLocation helper. Uthana motions use Genio tools described in \`${uthana}/SKILL.md\`; units have no Uthana CLI.\n` +
     `- Blender (batch modelling, validation, export and conversion): read \`${blender}/SKILL.md\` and use \`node "${blender}/scripts/blender.mjs"\`. Requires local Blender; no MCP or live session. Logs go to GENIO_BLENDER_SCRATCH.\n` +
     `- Images (default): Codex images on the player's ChatGPT plan, on in every world unless it opted out. For concept art, sprites, icons, transparent cutouts and edits from references read \`${codex}/SKILL.md\` and use \`node "${codex}/scripts/codex-image.mjs"\`.\n` +
