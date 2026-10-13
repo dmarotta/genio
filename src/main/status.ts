@@ -5,8 +5,8 @@
 import type { StatusEvent, StatusKind } from '@shared/types'
 
 const VERBS: StatusKind[] = ['working', 'needs-decision', 'blocked', 'paused', 'done', 'failed', 'note', 'resolved', 'player-held']
-const NEVER_RELEVANT: StatusKind[] = ['working', 'paused', 'resolved', 'player-held', 'note']
-const RELEVANT_VERBS: StatusKind[] = ['done', 'needs-decision', 'blocked', 'failed']
+const NEVER_RELEVANT: StatusKind[] = ['working', 'resolved', 'player-held', 'note']
+const RELEVANT_VERBS: StatusKind[] = ['done', 'needs-decision', 'blocked', 'failed', 'paused']
 const LEGACY_RELEVANT = /PR ready|checks green|ready in branch|merged/i
 
 export const DEFAULT_KEY = 'default'

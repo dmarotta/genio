@@ -293,6 +293,35 @@ it('keeps send order while a preview thumbnail is loading and isolates later con
 const flush = async (): Promise<void> => { for (let i = 0; i < 60; i++) await Promise.resolve() }
 const limitResult = (text = "You've hit your session limit ? resets 2:30pm (Europe/Rome)") => ({ type: 'result', subtype: 'success', is_error: true, result: text })
 
+it('delivers events arriving during player and event turns without acknowledging later arrivals', async () => {
+  vi.useFakeTimers()
+  const c = chat('busy-events')
+  const wakes = createWakeService(() => ctx as never, c.home)
+  const homeRead = vi.spyOn(ctx, 'home').mockReturnValue({ wakes, crew: { list: () => [] }, decisions: { list: () => [] } } as never)
+  try {
+    await c.svc.send('implement my request')
+    await flush()
+    wakes.enqueue({ kind: 'signal', reason: 'unit ready to land' })
+    c.svc.deliverWakes()
+    expect(fake.queries[0].received).toHaveLength(1)
+    expect(wakes.pending()).toHaveLength(1)
+    fake.queries[0].finishTurn()
+    await flush()
+    expect(fake.queries[0].received[1]).toContain('unit ready to land')
+    wakes.enqueue({ kind: 'signal', reason: 'second unit failed' })
+    c.svc.deliverWakes()
+    fake.queries[0].finishTurn()
+    await flush()
+    expect(wakes.pending().map(w => w.reason)).toEqual(['second unit failed'])
+    await vi.advanceTimersByTimeAsync(300)
+    await flush()
+    expect(fake.queries[0].received[2]).toContain('second unit failed')
+    fake.queries[0].finishTurn()
+    await flush()
+    expect(wakes.pending()).toHaveLength(0)
+  } finally { homeRead.mockRestore() }
+})
+
 describe('Claude limit recovery through the SDK stream', () => {
   beforeEach(() => {
     vi.useFakeTimers()

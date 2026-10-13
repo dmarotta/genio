@@ -285,7 +285,6 @@ function SectionBody({ sec, s, advanced, setAdvanced, open }: { sec: Section; s:
             <span className="mono">{MODE_PRESETS[s.usageMode ?? 'balanced'].heartbeat.baseMinutes}/{MODE_PRESETS[s.usageMode ?? 'balanced'].heartbeat.maxMinutes} min</span>
           </Row>
           <NumRow label="PR poll (min)" value={s.prPollMinutes} onCommit={(v) => set({ prPollMinutes: num(v, 1) })} />
-          <NumRow label="Event grace (s)" hint="Coalesce status lines." value={s.signalGraceSeconds} onCommit={(v) => set({ signalGraceSeconds: num(v) })} />
           <NumRow label="Ping re-ring (s)" value={s.inboxGraceSeconds} onCommit={(v) => set({ inboxGraceSeconds: num(v, 10) })} />
           <NumRow label="Ping rings before escalating" value={s.inboxRingMax} onCommit={(v) => set({ inboxRingMax: num(v, 1) })} />
         </>

@@ -325,7 +325,7 @@ export interface CrewService {
   /** append a status line on behalf of Genio (resolved / player-held / note) */
   appendStatus(id: string, line: string): void
   /** parse new status lines since the last read; advances the per-task cursor */
-  readNewStatus(id: string): StatusEvent[]
+  readNewStatus(id: string, beforeConsume?: (events: StatusEvent[]) => void): StatusEvent[]
   statusEvents(id: string): StatusEvent[]
   openDecisionKeys(id: string): string[]
   /** session start: mark detached tasks, reconcile worktrees */

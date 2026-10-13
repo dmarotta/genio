@@ -1002,7 +1002,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       appendLine(home.statusFile(id), line.replace(/\r?\n/g, ' '))
     },
 
-    readNewStatus(id): StatusEvent[] {
+    readNewStatus(id, beforeConsume): StatusEvent[] {
       const t = get(id)
       if (!t) return []
       const file = home.statusFile(id)
@@ -1027,11 +1027,14 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       const lastNl = buf.lastIndexOf(0x0a)
       if (lastNl < 0) return [] // wait for a complete line
       const chunk = buf.subarray(0, lastNl + 1).toString('utf8')
-      update(id, { statusOffset: offset + lastNl + 1, lastStatusAt: nowIso() })
       const events = chunk
         .split(/\r?\n/)
         .filter((l) => l.trim())
         .map((l) => parseStatusLine(l, id))
+      // Overwatch persists actionable events before advancing the durable read
+      // cursor. Failed queue writes leave the lines available for the next pass;
+      // a restart cannot lose events in an in-memory coalescing window.
+      beforeConsume?.(events)
       for (const e of events) {
         try {
           applyStatus(t, e)
@@ -1041,6 +1044,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         ledger('task.status', t, { state: e.kind, key: e.key, text: truncate(e.text, 2000) })
         bus.publish({ type: 'status', event: e })
       }
+      update(id, { statusOffset: offset + lastNl + 1, lastStatusAt: nowIso() })
       return events
     },
 

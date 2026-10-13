@@ -25,8 +25,6 @@ import { runShell, truncate } from './util'
 import { heartbeatFor } from './usage-policy'
 
 interface Track {
-  pendingSignal: StatusEvent[]
-  signalSince?: number
   lastDeclaredAt: number
   turnEndSeenMtime: number
   turnEndAt?: number
@@ -59,7 +57,6 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
   let kick: NodeJS.Timeout | undefined
   let running = false
   let pollMs = 15_000
-  let dirty = false
   let unsub: (() => void) | undefined
 
   // tick (heartbeat) state
@@ -80,7 +77,6 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
     let tr = tracks.get(t.id)
     if (!tr) {
       tr = {
-        pendingSignal: [],
         lastDeclaredAt: t.lastStatusAt ? Date.parse(t.lastStatusAt) || 0 : 0,
         turnEndSeenMtime: turnEndMtime(t.id),
         staleEscalations: 0,
@@ -111,15 +107,14 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
   function enqueue(kind: WakeKind, reason: string, taskId: string | undefined, lines: string[], routine: boolean): void {
     try {
       hc().wakes.enqueue({ kind, reason, taskId, lines, routine })
-      dirty = true
     } catch {
       /* queue unavailable; next pass retries the condition */
     }
   }
 
   function deliver(): void {
-    if (!dirty) return
-    dirty = false
+    // Retry pending durable wakes even without new activity (busy/closed chat,
+    // quota hold, transient delivery failure, or restored queue after restart).
     try {
       hc().wksp.deliverWakes()
     } catch {
@@ -167,10 +162,21 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
 
   // ------------------------------------------------------------ (1) status
 
-  function stepStatus(t: Task, tr: Track, now: number, grace: number): void {
-    const events = hc().crew.readNewStatus(t.id)
+  function stepStatus(t: Task, tr: Track, now: number): void {
+    const events = hc().crew.readNewStatus(t.id, (batch) => {
+      const relevant = batch.filter(ev => ev.playerRelevant)
+      if (!relevant.length) return
+      // Do not swallow persistence failures here: the crew must retain its
+      // status cursor until this batch is safely in the durable wake queue.
+      hc().wakes.enqueue({
+        kind: 'signal',
+        reason: `${label(t)} reported ${[...new Set(relevant.map(e => e.kind))].join(', ')}`,
+        taskId: t.id,
+        lines: relevant.map(e => e.raw),
+        routine: false
+      })
+    })
     for (const ev of events) {
-      bus.publish({ type: 'status', event: ev })
       tr.staleEscalations = 0
       tr.lastStaleWakeAt = undefined
       if (DECLARED.has(ev.kind)) tr.lastDeclaredAt = now
@@ -178,23 +184,6 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
         tr.pausedSince = undefined
         tr.pausedLastSurfaceAt = undefined
       }
-      if (ev.playerRelevant) {
-        tr.pendingSignal.push(ev)
-        tr.signalSince = tr.signalSince ?? now
-      }
-    }
-    if (tr.pendingSignal.length && tr.signalSince !== undefined && now - tr.signalSince >= grace) {
-      const evs = tr.pendingSignal
-      tr.pendingSignal = []
-      tr.signalSince = undefined
-      const kinds = [...new Set(evs.map((e) => e.kind))].join(', ')
-      enqueue(
-        'signal',
-        `${label(t)} reported ${kinds}`,
-        t.id,
-        evs.map((e) => e.raw),
-        false
-      )
     }
   }
 
@@ -213,7 +202,6 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
     const cur = hc().crew.get(t.id) ?? t
     if (!LIVE_FOR_STALE.has(cur.state)) return
     if (tr.lastDeclaredAt >= at - 2_000) return
-    if (tr.pendingSignal.length) return
     // quiet for the settle window → the unit stopped without declaring anything
     if (lastOutput(cur, tr) > now - (TURN_END_SETTLE_MS - 5_000)) return
     enqueue('signal', `${label(cur)}: turn ended without a declared status`, cur.id, tailLines(cur, 15), false)
@@ -567,7 +555,6 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
         return
       }
       const now = Date.now()
-      const grace = Math.max(0, s.signalGraceSeconds ?? 30) * 1000
       let tasks: Task[] = []
       try {
         tasks = hc().crew.list().filter((t) => t.state !== 'cleaned')
@@ -579,7 +566,7 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
 
       for (const t0 of tasks) {
         const tr = track(t0)
-        step('status', () => stepStatus(hc().crew.get(t0.id) ?? t0, tr, now, grace))
+        step('status', () => stepStatus(hc().crew.get(t0.id) ?? t0, tr, now))
         const t = (() => {
           try {
             return hc().crew.get(t0.id) ?? t0

@@ -85,15 +85,15 @@ Verbs: `working`, `needs-decision`, `blocked`, `paused` (optional `until <ISO>`)
 `done`, `failed`, `note`, `resolved`, `player-held`. `needs-decision`/`blocked`
 open a keyed choice (key `default` when absent); `resolved`/`player-held` with
 the same key close it. Player-relevant: `done`, `needs-decision`, `blocked`,
-`failed`, plus legacy free text `PR ready|checks green|ready in branch|merged`.
+`failed`, `paused`, plus legacy free text `PR ready|checks green|ready in branch|merged`.
 A Build `done:` naming `PR <https url>` registers the PR.
 
 ## Overwatch (zero-token supervision)
 
 `supervisor.ts` polls every `pollSeconds` (15s) per base:
 
-- **signal** — new status lines, coalesced for `signalGraceSeconds` (30s);
-  surfaced when player-relevant, or when a turn ended (Claude Stop hook writes
+- **signal** — player-relevant status lines, persisted as a batch on the next poll
+  before advancing the status-file cursor; also surfaced when a turn ended (Claude Stop hook writes
   `state/<id>.turn-ended`) without a declared status.
 - **stale** — lagging unit: no PTY output for `staleSeconds` (240s) outside a
   declared wait; `paused` resurfaces every `pausedResurfaceHours` or at its
@@ -106,9 +106,12 @@ A Build `done:` naming `PR <https url>` registers the PR.
   something to act on. Routine-only event batches wait the mode's batching window
   (10 / 5 / 1 min) before Genio gets a turn; anything urgent is delivered at once.
 
-Actionable events go to the durable queue (`state/wakes.jsonl`). Genio gets one
-turn per drain (queued events, UNREAD STATUS, OPEN CHOICES); the queue is acked
-only after that turn completes, so a crash re-presents them.
+Actionable events go to the durable queue (`state/wakes.jsonl`). Every poll retries
+delivery of pending events, including after restart or while chat was unavailable.
+Genio gets one turn per bounded drain; per-event acknowledgements persist immediately,
+and successful completion acknowledges only the delivered batch. Events arriving
+during a turn remain pending for a later batch. A crash re-presents unfinished events.
+Completed local branches in `ready` release concurrency slots even with an idle PTY.
 
 Presence: in **DND** routine events go to a separate *Bot* session instead of
 Comms; in **AFK** everything goes to the Bot, player-relevant outcomes are

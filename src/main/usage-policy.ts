@@ -50,7 +50,7 @@ export function chatSettings(s: Settings, dataDir: string): Settings {
 /** Launches hold a slot before a terminal exists; stopped/detached records do not.
  * Completed/handed-over work releases its slot even if an idle terminal remains. */
 export const holdsCapacity = (t: Pick<Task, 'pr' | 'state'>, alive: boolean): boolean =>
-  t.state === 'spawning' || (alive && !t.pr && !['cleaned', 'done', 'merged', 'failed'].includes(t.state))
+  t.state === 'spawning' || (alive && !t.pr && !['ready', 'cleaned', 'done', 'merged', 'failed'].includes(t.state))
 
 export function liveUnits(homes: Iterable<{ crew: { list(): Task[] } }>, alive: (t: Task) => boolean, project?: string): number {
   let n = 0

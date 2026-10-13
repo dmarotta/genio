@@ -32,8 +32,8 @@ describe('parseStatusLine', () => {
     expect(parseStatusLine('done: ready in branch genio/fix-1.', 't').fields.branch).toBe('genio/fix-1')
   })
 
-  it('never marks working/paused/resolved/player-held/note as relevant even with keywords', () => {
-    for (const v of ['working', 'paused', 'resolved', 'player-held', 'note']) {
+  it('never marks working/resolved/player-held/note as relevant even with keywords', () => {
+    for (const v of ['working', 'resolved', 'player-held', 'note']) {
       expect(parseStatusLine(`${v}: PR ready merged checks green`, 't').playerRelevant).toBe(false)
     }
   })
