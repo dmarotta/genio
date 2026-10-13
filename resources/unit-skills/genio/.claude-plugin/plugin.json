@@ -1,6 +1,6 @@
 {
   "name": "genio",
-  "description": "Skills Genio bundles for its units (FAL.ai generative media).",
+  "description": "Skills Genio bundles for its units (FAL.ai generative media, Codex images on the ChatGPT plan).",
   "version": "0.1.0",
   "author": { "name": "Genio" }
 }

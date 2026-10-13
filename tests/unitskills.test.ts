@@ -6,7 +6,7 @@ import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { renderBrief, type BriefInput } from '../src/main/brief'
-import { falSkillDir, installUnitPlugin, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief } from '../src/main/unitskills'
+import { codexImageSkillDir, falSkillDir, installUnitPlugin, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief } from '../src/main/unitskills'
 
 const APP_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SCRIPT = path.join(unitPluginSource(APP_ROOT), 'skills', 'fal', 'scripts', 'fal.mjs')
@@ -44,8 +44,14 @@ describe('unit launch extras', () => {
   it('gives the plugin dir only to Claude Code, the skill path to every runtime', () => {
     const codex = unitLaunchExtras('codex', { pluginDir, falKey: KEY })
     expect(codex.args).toEqual([])
-    expect(codex.env).toEqual({ GENIO_FAL_SKILL: fwd(falSkillDir(pluginDir)), FAL_KEY: KEY })
+    expect(codex.env).toEqual({ GENIO_FAL_SKILL: fwd(falSkillDir(pluginDir)), GENIO_IMAGEGEN_CODEX_SKILL: fwd(codexImageSkillDir(pluginDir)), FAL_KEY: KEY })
     expect(unitLaunchExtras('claude', { falKey: KEY })).toEqual({ args: [], env: { FAL_KEY: KEY } })
+  })
+
+  it('points the Codex image helper at a scratch folder in Genio data', () => {
+    const x = unitLaunchExtras('claude', { pluginDir, dataDir: path.join('C:\\genio', 'data') })
+    expect(x.env.GENIO_CODEX_IMAGE_SCRATCH).toBe('C:/genio/data/codex-image')
+    expect(x.env.GENIO_IMAGEGEN_CODEX_SKILL).toBe('C:/genio/skills/genio/skills/imagegen-codex')
   })
 })
 
@@ -69,6 +75,12 @@ describe('installUnitPlugin', () => {
     expect(skill).toMatch(/budget/i)
     expect(skill).toContain('Systems → Accounts')
     expect(fs.existsSync(path.join(falSkillDir(target), 'scripts', 'fal.mjs'))).toBe(true)
+    expect(skill).toContain('https://fal.ai/api/openapi/queue/openapi.json?endpoint_id=')
+    const codexSkill = fs.readFileSync(path.join(codexImageSkillDir(target), 'SKILL.md'), 'utf8')
+    expect(codexSkill).toMatch(/^---\nname: imagegen-codex\n/)
+    expect(codexSkill).toContain('uses your ChatGPT plan')
+    expect(codexSkill).toContain(`${fwd(codexImageSkillDir(target))}/scripts/codex-image.mjs`)
+    expect(fs.existsSync(path.join(target, 'lib', 'genio-world.mjs'))).toBe(true)
     // idempotent refresh
     expect(() => installUnitPlugin(unitPluginSource(APP_ROOT), target, [world])).not.toThrow()
   })
@@ -102,6 +114,9 @@ describe('brief tools section', () => {
     expect(b.indexOf('# Tools')).toBeGreaterThan(b.indexOf('# Engine notes'))
     expect(b.indexOf('# Tools')).toBeLessThan(b.indexOf('# Definition of done'))
     expect(b).toMatch(/budget/i)
+    expect(b).toContain('--world')
+    expect(b).toContain('C:/genio/skills/genio/skills/imagegen-codex/SKILL.md')
+    expect(b).toContain('uses your ChatGPT plan')
     expect(renderBrief(base)).not.toContain('# Tools')
   })
 })

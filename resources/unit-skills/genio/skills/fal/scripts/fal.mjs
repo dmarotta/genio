@@ -8,13 +8,22 @@
  * and never sent with output downloads. Paid calls are never retried
  * automatically, and an existing receipt is never resubmitted.
  *
+ *
+ * With --world <worktree root> it follows the world's .genio/ folder: player
+ * defaults and recipes from .genio/fal/, a budget gate before every paid call,
+ * one spend.jsonl line per paid call and a provenance file per downloaded
+ * asset. It never writes .genio/fal/config.json or recipes.json.
+ *
  * Every command prints one JSON document on stdout; progress goes to stderr.
- * Exit codes: 0 ok, 2 usage, 3 key missing, 4 FAL/network error, 5 still pending.
+ * Exit codes: 0 ok, 2 usage, 3 key missing, 4 FAL/network error, 5 still pending, 6 over budget.
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import {
+  WorldError, appendSpend, checkBudget, codexEnabled, findRecipe, folderFor, openWorld, readSpend, spendFile, unitBy, worldRel, writeProvenance
+} from '../../../lib/genio-world.mjs'
 
-const EXIT = { usage: 2, nokey: 3, api: 4, pending: 5 }
+const EXIT = { usage: 2, nokey: 3, api: 4, pending: 5, budget: 6 }
 const MISSING_KEY =
   'FAL key missing: FAL_KEY is not set for this unit. The player sets it in Genio under Systems -> Accounts (FAL.ai); units launched after that receive it automatically.'
 
@@ -179,18 +188,111 @@ function queueUrl(record, field) {
   return url
 }
 
+/** The world for --world, or null. */
+function worldOf(opts) {
+  if (opts.world === undefined) return null
+  if (typeof opts.world !== 'string' || !opts.world.trim()) throw new Fail('--world needs the path of your worktree root.', EXIT.usage)
+  return openWorld(opts.world)
+}
+
+function needWorld(opts) {
+  const world = worldOf(opts)
+  if (!world) throw new Fail('This command needs --world <your worktree root>.', EXIT.usage)
+  return world
+}
+
+/** Endpoint and recipe for a paid call: --endpoint, or the recipe's endpoint with --recipe <id>. */
+function target(opts, world) {
+  let recipe = null
+  if (opts.recipe !== undefined) {
+    if (!world) throw new Fail('--recipe needs --world: recipes live in the world\'s .genio/fal/recipes.json.', EXIT.usage)
+    recipe = findRecipe(world, String(opts.recipe))
+  }
+  const endpoint = endpointOf(opts.endpoint === undefined && recipe ? { endpoint: recipe.endpoint } : opts)
+  if (recipe?.endpoint && recipe.endpoint !== endpoint) throw new Fail(`Recipe "${recipe.id}" runs ${recipe.endpoint}, not ${endpoint}.`, EXIT.usage)
+  return { endpoint, recipe }
+}
+
+const isObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v)
+
+/** Player defaults for the endpoint, then the recipe's input, then yours (yours win). */
+function mergedInput(world, endpoint, recipe, body = {}) {
+  const defaults = isObj(world?.config.defaults?.[endpoint]) ? world.config.defaults[endpoint] : {}
+  return { ...defaults, ...(isObj(recipe?.input) ? recipe.input : {}), ...body }
+}
+
+const usd = (n) => Math.round(n * 1e6) / 1e6
+const today = () => nowUtc().slice(0, 10)
+
+function positive(opts, name, allowZero = false) {
+  const n = Number(opts[name])
+  if (opts[name] === true || !Number.isFinite(n) || n < 0 || (!allowZero && n === 0)) throw new Fail(`--${name} must be a ${allowZero ? 'non-negative' : 'positive'} number.`, EXIT.usage)
+  return n
+}
+
+/** The cost estimate for one call: --est-usd as given, or --units priced through FAL's pricing API (free). */
+async function estimateFor(opts, endpoint) {
+  if (opts['est-usd'] !== undefined) {
+    return { price: { unit: null, unit_price_usd: null, estimated_usd: usd(positive(opts, 'est-usd', true)), checked: today() }, units: null }
+  }
+  if (opts.units === undefined) return null
+  const units = positive(opts, 'units')
+  const data = await call(`${PRICING}?endpoint_id=${encodeURIComponent(endpoint)}`)
+  const rows = Array.isArray(data.prices) ? data.prices : []
+  const row = rows.find((r) => r?.endpoint_id === endpoint) ?? rows[0]
+  const unitPrice = Number(row?.unit_price)
+  if (!row || !Number.isFinite(unitPrice) || (row.currency && row.currency !== 'USD')) {
+    throw new Fail(`FAL's pricing API gave no USD unit price for ${endpoint}. Work the cost out from the model page and pass --est-usd <n> instead.`, EXIT.usage, { pricing: data })
+  }
+  return { price: { unit: row.unit ?? null, unit_price_usd: unitPrice, estimated_usd: usd(unitPrice * units), checked: today() }, units }
+}
+
+/** The spend ledger: the world's .genio/spend.jsonl, or --ledger outside world mode. */
+function ledgerOf(opts, world) {
+  if (world) return spendFile(world)
+  if (opts.ledger === undefined) return null
+  return path.resolve(req(opts, 'ledger'))
+}
+
 async function submit(opts) {
-  const endpoint = endpointOf(opts)
+  const world = worldOf(opts)
+  const { endpoint, recipe } = target(opts, world)
   const receipt = req(opts, 'receipt')
-  const body = readInput(opts)
+  const body = mergedInput(world, endpoint, recipe, readInput(opts))
+  if (body.sync_mode) throw new Fail('Leave sync_mode off: queued output stays recoverable from the receipt.', EXIT.usage)
+  const budget = opts.budget === undefined ? null : positive(opts, 'budget', true)
+  const ledger = ledgerOf(opts, world)
+  if (budget != null && !ledger) throw new Fail('--budget outside world mode needs --ledger <spend.jsonl> to count what you already spent.', EXIT.usage)
+  if (fs.existsSync(receipt)) {
+    throw new Fail(`Receipt ${receipt} already exists. It records an earlier call; use status/result on it, or pick a new receipt name for a new paid call.`, EXIT.usage)
+  }
   needKey()
+  const by = unitBy()
+  const est = await estimateFor(opts, endpoint)
+  let gate = null
+  if (ledger) {
+    if (!est) throw new Fail('Price the call first: add --units <billing units> (priced through FAL, free) or --est-usd <n>. It is checked against your budget and logged.', EXIT.usage)
+    gate = checkBudget({ lines: readSpend(ledger), by, estUsd: est.price.estimated_usd, unitBudget: budget, config: world?.config })
+    if (!gate.ok) {
+      throw new Fail(`${gate.reason} Nothing was submitted. Append needs-decision with the plan, the estimate and the budget, then stop.`, EXIT.budget, { budget: gate })
+    }
+  }
   const payload = inlineFiles(body)
   const record = { state: 'submission_unknown', endpoint, created_utc: nowUtc(), input: body }
+  if (est) record.price = est.price
+  if (world) record.genio = { by, recipe: recipe?.id ?? null }
   try {
     writeJson(receipt, record, true) // reserve before the paid call; never overwrite
   } catch (e) {
     if (e.code === 'EEXIST') throw new Fail(`Receipt ${receipt} already exists. It records an earlier call; use status/result on it, or pick a new receipt name for a new paid call.`, EXIT.usage)
     throw e
+  }
+  const spend = (requestId, uncertain) => {
+    if (!ledger) return
+    appendSpend(ledger, {
+      t: nowUtc(), provider: 'fal', endpoint, request_id: requestId, units: est.units, unit: est.price.unit, est_usd: est.price.estimated_usd, by,
+      ...(uncertain ? { uncertain: true } : {})
+    })
   }
   let sub
   try {
@@ -200,6 +302,8 @@ async function submit(opts) {
     if (http >= 400 && http < 500) {
       record.state = 'rejected' // FAL refused it: no request was created, nothing billed
       record.error = e.extra.detail
+    } else {
+      spend(null, true) // the outcome is unknown: count it against the budget
     }
     writeJson(receipt, record)
     throw e
@@ -213,7 +317,12 @@ async function submit(opts) {
   }
   record.state = sub.request_id ? 'submitted' : 'submission_unknown'
   writeJson(receipt, record)
-  return { receipt: path.resolve(receipt), state: record.state, endpoint, request_id: sub.request_id ?? null }
+  spend(sub.request_id ?? null, !sub.request_id)
+  return {
+    receipt: path.resolve(receipt), state: record.state, endpoint, request_id: sub.request_id ?? null,
+    ...(est ? { est_usd: est.price.estimated_usd } : {}),
+    ...(gate ? { budget: { ...gate, ok: undefined, reason: undefined } } : {})
+  }
 }
 
 async function status(opts, quiet = false) {
@@ -319,7 +428,48 @@ async function download(opts) {
     process.stderr.write(`[fal] saved ${dest} (${bytes.length} bytes)\n`)
     saved.push({ path: dest, bytes: bytes.length, content_type: f.content_type ?? null, source: f.url.startsWith('data:') ? 'data-uri' : f.url })
   }
+  const world = worldOf(opts)
+  if (!world) return { dir, files: saved }
+  const receipt = typeof opts.receipt === 'string' ? opts.receipt : resultFile.replace(/\.result\.json$/i, '.job.json')
+  if (!fs.existsSync(receipt)) throw new Fail(`World mode needs the receipt for provenance; pass --receipt <x.job.json> (looked for ${receipt}).`, EXIT.usage)
+  const record = readJson(receipt)
+  const seed = readJson(resultFile).seed
+  for (const s of saved) {
+    if (s.skipped) continue
+    s.provenance = writeFalProvenance(world, s.path, record, seed)
+    if (s.provenance) process.stderr.write(`[fal] provenance ${s.provenance}\n`)
+  }
   return { dir, files: saved }
+}
+
+/** Input as recorded in provenance: local "@file:" inputs become world-relative (or bare names), never personal paths. */
+function provenanceInput(world, v, derived) {
+  if (typeof v === 'string' && v.startsWith('@file:')) {
+    const rel = worldRel(world, v.slice(6))
+    if (rel) derived.add(rel)
+    return `@file:${rel ?? path.basename(v.slice(6))}`
+  }
+  if (typeof v === 'string' && v.startsWith('data:')) return `${v.slice(0, v.indexOf(',') + 1)}…`
+  if (Array.isArray(v)) return v.map((x) => provenanceInput(world, x, derived))
+  if (isObj(v)) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, provenanceInput(world, x, derived)]))
+  return v
+}
+
+function writeFalProvenance(world, file, record, seed) {
+  const derived = new Set()
+  const input = provenanceInput(world, record.input ?? {}, derived)
+  return writeProvenance(world, file, {
+    provider: 'fal',
+    endpoint: record.endpoint,
+    request_id: record.submission?.request_id ?? null,
+    input,
+    ...(seed !== undefined && input.seed === undefined ? { seed } : {}),
+    price: record.price ?? null,
+    recipe: record.genio?.recipe ?? null,
+    derived_from: [...derived],
+    by: record.genio?.by ?? unitBy(),
+    created: record.completed_utc ?? nowUtc()
+  })
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -327,7 +477,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 /** Submit (or resume an existing receipt), poll, fetch the result and download the outputs. */
 async function run(opts) {
   const receipt = req(opts, 'receipt')
-  const dir = req(opts, 'dir')
+  const world = worldOf(opts)
+  let dir = typeof opts.dir === 'string' ? opts.dir : null
+  if (!dir && world) {
+    const kind = opts.kind ?? (opts.recipe !== undefined ? findRecipe(world, String(opts.recipe)).save_to : undefined)
+    dir = folderFor(world, typeof kind === 'string' ? kind : undefined)
+  }
+  if (!dir) throw new Fail('Missing --dir (in world mode it can come from .genio/fal/config.json folders via --kind <image|audio|model|video> or a recipe\'s save_to).', EXIT.usage)
   needKey()
   let submitted
   if (fs.existsSync(receipt)) {
@@ -361,7 +517,7 @@ async function run(opts) {
     wait = Math.min(Math.round(wait * 1.5), 10_000)
   }
   const res = await result({ receipt, out: opts.out })
-  const dl = await download({ result: res.result, dir, name: opts.name, overwrite: opts.overwrite })
+  const dl = await download({ result: res.result, dir, name: opts.name, overwrite: opts.overwrite, world: opts.world, receipt })
   const rec = readJson(receipt)
   return { receipt: path.resolve(receipt), request_id: submitted.request_id, resumed: Boolean(submitted.resumed), result: res.result, metrics: rec.metrics ?? null, ...dl }
 }
@@ -383,6 +539,43 @@ function check() {
   return { configured: true, source: 'FAL_KEY environment variable', network_checked: false }
 }
 
+const folderOf = (world, kind) => (typeof kind === 'string' && typeof world.config.folders?.[kind] === 'string' ? world.config.folders[kind] : null)
+
+/** What the world's .genio/ says: folders, budget and spend so far, defaults, recipes, providers. No network. */
+function worldInfo(opts) {
+  const world = needWorld(opts)
+  const by = unitBy()
+  const budget = opts.budget === undefined ? null : positive(opts, 'budget', true)
+  const g = checkBudget({ lines: readSpend(spendFile(world)), by, estUsd: 0, unitBudget: budget, config: world.config })
+  const b = world.config.budget ?? {}
+  return {
+    world: world.root,
+    config: world.hasConfig,
+    folders: world.config.folders ?? {},
+    budget: {
+      monthly_usd: b.monthly_usd ?? null,
+      confirm_over_usd: b.confirm_over_usd ?? null,
+      spent_this_month: g.spent_this_month,
+      remaining_this_month: b.monthly_usd == null ? null : usd(Math.max(0, b.monthly_usd - g.spent_this_month)),
+      you: by,
+      spent_by_you: g.spent_by_unit,
+      ...(budget == null ? {} : { your_budget_usd: budget, your_remaining_usd: usd(Math.max(0, budget - g.spent_by_unit)) })
+    },
+    defaults: world.config.defaults ?? {},
+    recipes: world.recipes.map((r) => ({ id: r?.id, label: r?.label ?? null, endpoint: r?.endpoint, save_to: r?.save_to ?? null, folder: folderOf(world, r?.save_to) })),
+    providers: { codex: codexEnabled(world.config) }
+  }
+}
+
+/** One recipe, with its prompt template filled (--subject) and the player's defaults merged into its input. No network. */
+function recipe(opts) {
+  const world = needWorld(opts)
+  const r = findRecipe(world, req(opts, 'id'))
+  const subject = typeof opts.subject === 'string' ? opts.subject : null
+  const prompt = typeof r.prompt_template === 'string' && subject != null ? r.prompt_template.split('{subject}').join(subject) : null
+  return { ...r, prompt, input: mergedInput(world, r.endpoint, r), folder: folderOf(world, r.save_to) }
+}
+
 const USAGE = `Genio FAL helper (key from FAL_KEY only).
   check                                              is a key available? (no network)
   price    --endpoint <id>                           unit price for a model (free)
@@ -392,9 +585,15 @@ const USAGE = `Genio FAL helper (key from FAL_KEY only).
   status   --receipt <x.job.json> [--logs]
   result   --receipt <x.job.json> [--out <x.result.json>]
   download --result <x.result.json> --dir <out dir> [--name <base>] [--overwrite]
-  cancel   --receipt <x.job.json>`
+  cancel   --receipt <x.job.json>
+World mode (.genio/ in your worktree):
+  world    --world <root> [--budget <usd>]           folders, budget and spend, defaults, recipes (no network)
+  recipe   --world <root> --id <recipe> [--subject <text>]   a recipe with its prompt filled in (no network)
+  run/submit ... --world <root> (--units <n>|--est-usd <n>) [--budget <usd>] [--recipe <id>] [--kind <image|audio|model|video>]
+           priced and checked against the budgets first; logs .genio/spend.jsonl and writes .genio/provenance/
+  run/submit ... --budget <usd> --ledger <spend.jsonl> (--units <n>|--est-usd <n>)   the same budget stop outside a world`
 
-const COMMANDS = { check, price, estimate, run, submit, status, result, download, cancel }
+const COMMANDS = { check, price, estimate, run, submit, status, result, download, cancel, world: worldInfo, recipe }
 
 async function main() {
   const { command, opts } = parseArgs(process.argv.slice(2))
@@ -409,8 +608,8 @@ async function main() {
 }
 
 main().catch((e) => {
-  const code = e instanceof Fail ? e.code : 1
-  const message = e instanceof Fail ? e.message : `${e?.code ?? e?.name ?? 'Error'}: ${e?.message ?? e}`
+  const code = e instanceof Fail ? e.code : e instanceof WorldError ? EXIT.usage : 1
+  const message = e instanceof Fail || e instanceof WorldError ? e.message : `${e?.code ?? e?.name ?? 'Error'}: ${e?.message ?? e}`
   process.stderr.write(JSON.stringify(redact({ error: message, ...(e?.extra ?? {}) }), null, 2) + '\n')
   process.exit(code)
 })
