@@ -6,6 +6,8 @@
  * copies them into a world on request, with the same provenance and spend
  * records as the FAL screen. The key never leaves this process.
  */
+import { recordGenerationSpend } from './generation-spend'
+import { placeOutput } from './asset-placement'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { OpResult } from '@shared/api'
@@ -22,7 +24,7 @@ import { bus } from './bus'
 import type { FetchFn } from './fal'
 import { trimForHistory } from './fal'
 import { safeFileName, worldTarget } from './fal-service'
-import { appendSpend, ensureGenioDir, genioPath, lfsWarnings, provenanceInput, readSpend, readWorldConfig, sha256File, writeProvenance } from './fal-world'
+import { ensureGenioDir, genioPath, provenanceInput, readSpend, readWorldConfig, sha256File } from './fal-world'
 import { getSecret } from './secrets'
 import type { AppCtx, UthanaService } from './services'
 import { UthanaClient, pollJob, type UploadFile, type UthanaJob } from './uthana'
@@ -146,7 +148,7 @@ export function createUthanaService(getCtx: () => AppCtx, fetchFn: FetchFn = (u,
 
   const set = (id: string, patch: Partial<UthanaRun>): UthanaRun | undefined => {
     const r = history().update(id, patch)
-    if (r) bus.publish({ type: 'uthana-run', run: r })
+    if (r) { recordGenerationSpend(getCtx(), 'uthana', r); bus.publish({ type: 'uthana-run', run: r }) }
     return r
   }
   const fail = (id: string, error: string): void => {
@@ -308,6 +310,7 @@ export function createUthanaService(getCtx: () => AppCtx, fetchFn: FetchFn = (u,
 
   const newRun = (r: Omit<UthanaRun, 'id' | 'status' | 'files' | 'createdAt'>): UthanaRun => {
     const run: UthanaRun = { ...r, id: `uth-${Date.now().toString(36)}-${rid(2)}`, status: 'submitting', files: [], createdAt: nowIso() }
+    recordGenerationSpend(getCtx(), 'uthana', run, true)
     history().add(run)
     bus.publish({ type: 'uthana-run', run })
     return run
@@ -509,9 +512,6 @@ export function createUthanaService(getCtx: () => AppCtx, fetchFn: FetchFn = (u,
       const rel = path.relative(proj.path, target).replace(/\\/g, '/')
       if (exists(target) && !req.overwrite) return { ok: false, exists: true, path: target, message: `${rel} already exists in ${proj.name}.` }
       const { run, file } = await svc.fetchExport(req)
-      ensureDir(path.dirname(target))
-      fs.copyFileSync(file.localPath, target, req.overwrite ? 0 : fs.constants.COPYFILE_EXCL)
-
       // provenance + spend line next to the asset, left uncommitted like the asset itself
       const prov = provenanceInput(run.input, proj.path)
       const derived = [...prov.derivedFrom]
@@ -520,12 +520,10 @@ export function createUthanaService(getCtx: () => AppCtx, fetchFn: FetchFn = (u,
       const m = uthanaModel(run.model)
       const cost = runCost(run)
       const endpoint = `uthana/${run.model}`
-      const provenance = writeProvenance(
-        proj.path,
-        {
+      const placed = await placeOutput({
+        project: proj, source: file.localPath, relative: rel, overwrite: req.overwrite,
+        provenance: {
           schema: 'genio.provenance.v1',
-          path: rel,
-          sha256: sha256File(target),
           provider: 'uthana',
           endpoint,
           request_id: file.motionId,
@@ -539,18 +537,12 @@ export function createUthanaService(getCtx: () => AppCtx, fetchFn: FetchFn = (u,
           price: { unit: m?.unit ?? null, unit_price_usd: m?.unitPrice ?? null, estimated_usd: cost ?? null, checked: UTHANA_PRICES_CHECKED },
           recipe: null,
           derived_from: derived,
-          by: 'player',
+          by: req.by ?? 'player',
           created: run.completedAt ?? run.createdAt
         },
-        proj.engine
-      )
-      appendSpend(
-        proj.path,
-        { t: run.createdAt, provider: 'uthana', endpoint, request_id: uthanaRequestId(run), units: run.outputSeconds ?? null, unit: 'seconds', est_usd: cost ?? 0, by: 'player' },
-        proj.engine
-      )
-      const warnings = [...exportWarnings(req.format, req.options, run.characterId), ...(await lfsWarnings(proj.path, rel))]
-      return { ok: true, path: target, provenance, warnings, message: `Saved to ${proj.name}/${rel}` }
+        spend: { t: run.createdAt, provider: 'uthana', endpoint, request_id: uthanaRequestId(run), units: run.outputSeconds ?? null, unit: 'seconds', est_usd: cost ?? 0, by: req.by ?? 'player' }
+      })
+      return { ...placed, warnings: [...(placed.warnings ?? []), ...exportWarnings(req.format, req.options, run.characterId)] }
     },
 
     resume(): void {

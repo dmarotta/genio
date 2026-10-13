@@ -3,6 +3,8 @@ name: fal
 description: Generate audio, music, video, 3D, textures and specialised images with FAL.ai models (queue API) and download the outputs into your worktree. For specific needs Codex images cannot cover (seamless/PBR textures, 3D, audio, video, pixel-art conversion, upscaling, background removal, exact size/seed/reproducibility), or when the mission asks for FAL. Every model run is a paid call.
 ---
 
+Genio chat: use fal_models for current schemas/prices and fal_generate with world, place from asset_locate, input and player_words. The tool enforces quotes and hard monthly caps. Units keep using this CLI with their budget. Start with the assets umbrella skill.
+
 # FAL.ai (Genio)
 
 FAL is for specific use cases. For ordinary image work (concept art, sprites, icons, transparent cutouts, edits from references) use the `imagegen-codex` skill next to this one first: it runs on the player's ChatGPT plan, is on in every world by default and costs no FAL credit. Use FAL for seamless or PBR textures, 3D, audio, music, video, pixel-art conversion, upscaling, background removal on an existing image, when an exact size, seed or reproducible result is required, or when the mission asks for FAL by name.

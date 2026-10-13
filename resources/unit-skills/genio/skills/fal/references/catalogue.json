@@ -1,0 +1,333 @@
+{
+  "schema": "genio.fal-catalogue.v1",
+  "checked": "2026-10-13",
+  "about": "Curated game-dev FAL models. Prices are a snapshot (USD) refreshed live from FAL's pricing API; treat them as estimates. tier: core shows by default, alt and post under 'more in this job'. pin: essentials shown above More options. defaults: Genio's game-friendly values for pinned fields (applied only when the field exists in the schema). hide: fields kept out of the form (still settable in JSON). unitsPerRun: billing units one typical run uses when FAL bills in abstract units. accepts: the file kind its main input takes (for 'Use as input').",
+  "jobs": [
+    { "id": "concept", "label": "Concept" },
+    { "id": "sprites", "label": "Sprites · icons" },
+    { "id": "textures", "label": "Textures" },
+    { "id": "cutout", "label": "Cutout · upscale" },
+    { "id": "3d", "label": "3D" },
+    { "id": "sfx", "label": "SFX" },
+    { "id": "music", "label": "Music" },
+    { "id": "voice", "label": "Voice" },
+    { "id": "video", "label": "Video" }
+  ],
+  "entries": [
+    {
+      "endpoint": "google/nano-banana-2.1",
+      "job": "concept", "tier": "core", "label": "Nano Banana 2.1",
+      "hint": "Concept sheets, key art and variations",
+      "output": "image",
+      "pin": ["aspect_ratio", "resolution", "num_images", "output_format"],
+      "defaults": { "output_format": "png" },
+      "price": { "unitPrice": 1, "unit": "units" }, "unitsPerRun": 0.04,
+      "pagePrice": "≈$0.04 at 1K · $0.059 at 2K · $0.134 at 4K"
+    },
+    {
+      "endpoint": "google/nano-banana-2.1/edit",
+      "job": "concept", "tier": "core", "label": "Nano Banana 2.1 · edit",
+      "hint": "Edit with up to 14 reference images; keeps characters and sets consistent",
+      "output": "image", "accepts": "image",
+      "pin": ["aspect_ratio", "resolution", "num_images", "output_format"],
+      "defaults": { "output_format": "png" },
+      "hide": ["video_url", "pdf_url"],
+      "price": { "unitPrice": 1, "unit": "units" }, "unitsPerRun": 0.04,
+      "pagePrice": "≈$0.04 at 1K · $0.059 at 2K · $0.134 at 4K"
+    },
+    {
+      "endpoint": "blackforestlabs/flux-3/text-to-image",
+      "job": "concept", "tier": "core", "label": "FLUX 3",
+      "hint": "High-aesthetic concepts and environment paintings",
+      "output": "image",
+      "pin": ["image_size", "num_images", "output_format"],
+      "defaults": { "output_format": "png" },
+      "price": { "unitPrice": 0.024, "unit": "megapixels" }
+    },
+    {
+      "endpoint": "blackforestlabs/flux-3/edit-image",
+      "job": "concept", "tier": "core", "label": "FLUX 3 · edit",
+      "hint": "Precise local edits to a concept or screenshot",
+      "output": "image", "accepts": "image",
+      "pin": ["image_size", "num_images", "output_format"],
+      "defaults": { "output_format": "png" },
+      "price": { "unitPrice": 0.024, "unit": "megapixels" }
+    },
+    {
+      "endpoint": "fal-ai/flux/schnell",
+      "job": "concept", "tier": "core", "label": "FLUX schnell · draft",
+      "hint": "Cheap thumbnails and quick idea exploration",
+      "output": "image",
+      "pin": ["image_size", "num_images", "output_format"],
+      "defaults": { "image_size": "square_hd", "output_format": "png" },
+      "price": { "unitPrice": 0.003, "unit": "megapixels" }
+    },
+    {
+      "endpoint": "fal-ai/ideogram/v3/generate-transparent",
+      "job": "sprites", "tier": "core", "label": "Ideogram · transparent",
+      "hint": "Items, props, sprites and icons born with alpha",
+      "output": "image",
+      "pin": ["aspect_ratio", "rendering_speed", "num_images", "negative_prompt"],
+      "defaults": { "aspect_ratio": "1:1" },
+      "price": { "unitPrice": 0.03, "unit": "images" }
+    },
+    {
+      "endpoint": "recraft/v4/style/text-to-image",
+      "job": "sprites", "tier": "core", "label": "Recraft V4 · styled set",
+      "hint": "Consistent icon and item sets from one saved style",
+      "output": "image",
+      "pin": ["style_id", "image_size", "colors", "background_color"],
+      "defaults": { "image_size": "square_hd" },
+      "price": { "unitPrice": 0.035, "unit": "images" }
+    },
+    {
+      "endpoint": "recraft/v4/create-style",
+      "job": "sprites", "tier": "core", "label": "Recraft V4 · create style",
+      "hint": "Turn reference images into a style_id for Recraft V4",
+      "output": "other", "accepts": "image",
+      "price": { "unitPrice": 0.005, "unit": "requests" }
+    },
+    {
+      "endpoint": "fal-ai/image2pixel",
+      "job": "sprites", "tier": "core", "label": "Image2Pixel · pixelate",
+      "hint": "Grid-true pixel art from any render, with palette control",
+      "output": "image", "accepts": "image",
+      "pin": ["max_colors", "scale", "transparent_background", "snap_grid", "fixed_palette"],
+      "defaults": { "transparent_background": true },
+      "price": { "unitPrice": 0.00017, "unit": "compute seconds" }, "unitsPerRun": 10,
+      "pagePrice": "under a cent per image"
+    },
+    {
+      "endpoint": "fal-ai/recraft/v4.1/text-to-vector",
+      "job": "sprites", "tier": "alt", "label": "Recraft V4.1 · vector",
+      "hint": "SVG UI icons and emblems",
+      "output": "image",
+      "pin": ["image_size", "colors"],
+      "defaults": { "image_size": "square_hd" },
+      "price": { "unitPrice": 0.08, "unit": "images" }
+    },
+    {
+      "endpoint": "fal-ai/patina/material",
+      "job": "textures", "tier": "core", "label": "Patina · PBR material",
+      "hint": "Seamless PBR set (basecolor, normal, roughness, metal, height) from text",
+      "output": "image",
+      "pin": ["tiling_mode", "maps", "upscale_factor", "image_size"],
+      "defaults": { "image_size": "square_hd" },
+      "price": { "unitPrice": 0.01, "unit": "megapixels" },
+      "pagePrice": "≈$0.10 for 1024², 5 maps, 2× upscale"
+    },
+    {
+      "endpoint": "fal-ai/patina/material/extract",
+      "job": "textures", "tier": "core", "label": "Patina · extract PBR",
+      "hint": "Photo or concept crop to a tiling PBR set",
+      "output": "image", "accepts": "image",
+      "pin": ["tiling_mode", "maps", "upscale_factor"],
+      "price": { "unitPrice": 0.01, "unit": "megapixels" }
+    },
+    {
+      "endpoint": "ideogram/v4/tiling",
+      "job": "textures", "tier": "core", "label": "Ideogram V4 · tiling",
+      "hint": "Stylised or hand-painted seamless tiles and UI backgrounds",
+      "output": "image",
+      "price": { "unitPrice": 0.04, "unit": "images" }
+    },
+    {
+      "endpoint": "fal-ai/z-image/turbo/tiling",
+      "job": "textures", "tier": "alt", "label": "Z-Image Turbo · tiling",
+      "hint": "Cheaper photoreal seamless tiles",
+      "output": "image",
+      "pin": ["image_size", "num_images", "output_format"],
+      "defaults": { "image_size": "square_hd", "output_format": "png" },
+      "price": { "unitPrice": 0.02, "unit": "megapixels" }
+    },
+    {
+      "endpoint": "fal-ai/seedvr/upscale/image/seamless",
+      "job": "textures", "tier": "alt", "label": "SeedVR2 · seamless upscale",
+      "hint": "Upscale a tile without breaking the seam",
+      "output": "image", "accepts": "image",
+      "price": { "unitPrice": 0.0025, "unit": "megapixels" }
+    },
+    {
+      "endpoint": "fal-ai/birefnet/v2",
+      "job": "cutout", "tier": "core", "label": "BiRefNet v2 · remove BG",
+      "hint": "Clean cutouts and masks for sprites, props and portraits",
+      "output": "image", "accepts": "image",
+      "pin": ["model", "operating_resolution", "output_mask"],
+      "price": { "unitPrice": 0.0008, "unit": "compute seconds" }, "unitsPerRun": 3,
+      "pagePrice": "under a cent per image"
+    },
+    {
+      "endpoint": "topaz/upscale/image/transparent",
+      "job": "cutout", "tier": "core", "label": "Topaz · upscale with alpha",
+      "hint": "Upscale sprites and icons keeping transparency",
+      "output": "image", "accepts": "image",
+      "price": { "unitPrice": 0.01, "unit": "units" },
+      "pagePrice": "$0.01 per unit; units depend on output size"
+    },
+    {
+      "endpoint": "bria/guided-remove-background",
+      "job": "cutout", "tier": "alt", "label": "Bria · guided cutout",
+      "hint": "Prompt-steered cutout for hard cases (keep the sword, drop the pedestal)",
+      "output": "image", "accepts": "image",
+      "price": { "unitPrice": 0.03, "unit": "images" }
+    },
+    {
+      "endpoint": "fal-ai/seedvr/upscale/image",
+      "job": "cutout", "tier": "alt", "label": "SeedVR2 · upscale",
+      "hint": "Cheap general upscale for concepts and textures",
+      "output": "image", "accepts": "image",
+      "price": { "unitPrice": 0.001, "unit": "megapixels" }
+    },
+    {
+      "endpoint": "bytedance/seedream/v5/pro/layerize",
+      "job": "cutout", "tier": "alt", "label": "Seedream 5 Pro · layerize",
+      "hint": "Split a painted scene into transparent parallax layers",
+      "output": "image", "accepts": "image",
+      "price": { "unitPrice": 0.03375, "unit": "images" }
+    },
+    {
+      "endpoint": "meshy/v7.1/image-to-3d",
+      "job": "3d", "tier": "core", "label": "Meshy 7.1 · image → 3D",
+      "hint": "Game-ready props and characters: low-poly, quads, PBR, optional rig",
+      "output": "model", "accepts": "image",
+      "pin": ["model_type", "target_polycount", "topology", "enable_pbr"],
+      "defaults": { "model_type": "lowpoly", "target_polycount": 10000, "enable_pbr": true },
+      "price": { "unitPrice": 0.8, "unit": "generations" }
+    },
+    {
+      "endpoint": "fal-ai/trellis-2",
+      "job": "3d", "tier": "core", "label": "TRELLIS 2 · image → 3D",
+      "hint": "Detailed static props at the best price",
+      "output": "model", "accepts": "image",
+      "pin": ["resolution", "texture_size", "decimation_target", "remesh"],
+      "defaults": { "decimation_target": 50000 },
+      "price": { "unitPrice": 0.05, "unit": "units" }, "unitsPerRun": 6,
+      "pagePrice": "$0.25 / $0.30 / $0.35 at 512 / 1024 / 1536"
+    },
+    {
+      "endpoint": "meshy/v7.1/text-to-3d",
+      "job": "3d", "tier": "alt", "label": "Meshy 7.1 · text → 3D",
+      "hint": "Straight from a description; image-first gives more design control",
+      "output": "model",
+      "pin": ["model_type", "target_polycount", "topology", "enable_pbr"],
+      "defaults": { "model_type": "lowpoly", "target_polycount": 10000, "enable_pbr": true },
+      "price": { "unitPrice": 0.8, "unit": "generations" }
+    },
+    {
+      "endpoint": "fal-ai/hunyuan-3d/v3.1/pro/image-to-3d",
+      "job": "3d", "tier": "alt", "label": "Hunyuan 3D 3.1 Pro",
+      "hint": "Mid-price mesh when you need a face count plus PBR",
+      "output": "model", "accepts": "image",
+      "price": { "unitPrice": 0.015, "unit": "units" }, "unitsPerRun": 25,
+      "pagePrice": "$0.375, +$0.15 each for PBR, multi-view, face count"
+    },
+    {
+      "endpoint": "fal-ai/meshy/rigging",
+      "job": "3d", "tier": "post", "label": "Meshy · auto-rig",
+      "hint": "Rig a humanoid GLB, with optional basic animations",
+      "output": "model", "accepts": "model",
+      "pin": ["height_meters", "enable_animation"],
+      "price": { "unitPrice": 0.8, "unit": "generations" }
+    },
+    {
+      "endpoint": "tripo3d/tripo/remesh",
+      "job": "3d", "tier": "post", "label": "Tripo · remesh",
+      "hint": "Clean quad topology at a target face count",
+      "output": "model", "accepts": "model",
+      "price": { "unitPrice": 0.01, "unit": "units" },
+      "pagePrice": "unit-billed"
+    },
+    {
+      "endpoint": "fal-ai/hunyuan-motion",
+      "job": "3d", "tier": "post", "label": "Hunyuan Motion",
+      "hint": "Text to a humanoid motion clip",
+      "output": "model",
+      "price": { "unitPrice": 0.08, "unit": "generations" }
+    },
+    {
+      "endpoint": "fal-ai/elevenlabs/sound-effects/v2",
+      "job": "sfx", "tier": "core", "label": "ElevenLabs SFX v2",
+      "hint": "One-shots and seamless ambience loops, 0.5–22 s",
+      "output": "audio",
+      "pin": ["duration_seconds", "loop", "output_format", "prompt_influence"],
+      "defaults": { "output_format": "pcm_48000" },
+      "price": { "unitPrice": 0.002, "unit": "seconds" }
+    },
+    {
+      "endpoint": "sonilo/v1.1/text-to-sound-effects",
+      "job": "sfx", "tier": "alt", "label": "Sonilo SFX",
+      "hint": "Same job, commercial-use-safe training data",
+      "output": "audio",
+      "price": { "unitPrice": 0.0018, "unit": "seconds" }
+    },
+    {
+      "endpoint": "fal-ai/stable-audio-3/small/music/text-to-audio",
+      "job": "music", "tier": "core", "label": "Stable Audio 3 · music",
+      "hint": "Cheap background music and stingers up to 120 s",
+      "output": "audio",
+      "pin": ["duration", "output_format", "negative_prompt"],
+      "defaults": { "output_format": "wav" },
+      "price": { "unitPrice": 0.0217, "unit": "audios" }
+    },
+    {
+      "endpoint": "elevenlabs/music/v2.5",
+      "job": "music", "tier": "core", "label": "ElevenLabs Music 2.5",
+      "hint": "Hero tracks with section-level structure, up to 10 min",
+      "output": "audio",
+      "pin": ["music_length_ms", "force_instrumental", "output_format"],
+      "defaults": { "force_instrumental": true },
+      "price": { "unitPrice": 0.6, "unit": "minutes" }
+    },
+    {
+      "endpoint": "elevenlabs/tts/eleven-v4",
+      "job": "voice", "tier": "core", "label": "ElevenLabs v4 · TTS",
+      "hint": "NPC lines and barks with delivery control",
+      "output": "audio",
+      "price": { "unitPrice": 0.08, "unit": "1000 characters" }
+    },
+    {
+      "endpoint": "fal-ai/minimax/voice-design",
+      "job": "voice", "tier": "core", "label": "MiniMax · voice design",
+      "hint": "Invent an NPC voice from a description, then reuse it",
+      "output": "audio",
+      "price": { "unitPrice": 3, "unit": "cloned voices" },
+      "pagePrice": "$3 per designed voice (one-off)"
+    },
+    {
+      "endpoint": "fal-ai/elevenlabs/text-to-dialogue/eleven-v3",
+      "job": "voice", "tier": "alt", "label": "ElevenLabs v3 · dialogue",
+      "hint": "Multi-speaker scenes in one take",
+      "output": "audio",
+      "price": { "unitPrice": 0.1, "unit": "1000 characters" }
+    },
+    {
+      "endpoint": "google/gemini-3.8-flash-tts",
+      "job": "voice", "tier": "alt", "label": "Gemini 3.8 Flash TTS",
+      "hint": "Budget TTS for placeholder and bulk lines",
+      "output": "audio",
+      "price": { "unitPrice": 0.045, "unit": "1000 characters" }
+    },
+    {
+      "endpoint": "fal-ai/qwen-3-tts/voice-design/1.7b",
+      "job": "voice", "tier": "alt", "label": "Qwen 3 TTS · voice design",
+      "hint": "Cheap described voices, billed per character",
+      "output": "audio",
+      "price": { "unitPrice": 0.09, "unit": "1000 characters" }
+    },
+    {
+      "endpoint": "fal-ai/veo3.1/lite/image-to-video",
+      "job": "video", "tier": "core", "label": "Veo 3.1 Lite · image → video",
+      "hint": "Animate concept art: menu backgrounds, animatics, motion reference",
+      "output": "video", "accepts": "image",
+      "price": { "unitPrice": 0.05, "unit": "seconds" }
+    },
+    {
+      "endpoint": "fal-ai/kling-video/v3/turbo/standard/image-to-video",
+      "job": "video", "tier": "core", "label": "Kling 3 Turbo · image → video",
+      "hint": "Trailer shots and cutscenes, 3–15 s",
+      "output": "video", "accepts": "image",
+      "pin": ["duration", "prompt"],
+      "price": { "unitPrice": 0.112, "unit": "seconds" }
+    }
+  ]
+}

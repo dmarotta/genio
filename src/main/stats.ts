@@ -40,6 +40,8 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'yolo-chat', feature: 'comms', name: 'No Safety Wheels', description: 'Switch chat to YOLO mode.' },
   { id: 'account-login', feature: 'systems', name: 'Signed In', description: 'Log in from Systems Accounts.' },
   { id: 'cheap-unit', feature: 'deploy', name: 'Budget Build', description: 'Deploy an OpenCode unit.' },
+  { id: 'agent-asset-first', feature: 'agent_generation', name: 'Made to Order', description: 'Generate your first asset through Genio.' },
+  { id: 'asset-placed-first', feature: 'asset_place', name: 'Loot Delivered', description: 'Place an agent-generated asset in a world.' },
   { id: 'unit-image', feature: 'assets', name: 'Pixel Crafter', description: 'A unit creates a Codex image.' },
   { id: 'blender-first', feature: 'blender', name: 'Polygon Power', description: 'Complete a Blender skill run.' },
   { id: 'inventory-index', feature: 'inventory-index', name: 'Loot Catalog', description: "Index a world's assets for the first time." },

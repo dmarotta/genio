@@ -3,6 +3,8 @@ name: imagegen-codex
 description: Generate PNG images (concept art, sprites, icons, transparent cutouts, edits and variations from reference images) through Codex's built-in image_gen tool. Uses your ChatGPT plan, not a paid API. The default for ordinary image work in any world; use FAL only for what Codex cannot do.
 ---
 
+Genio chat: use generate_image with world, place from asset_locate and player_words for world assets. It returns a background run id; generation_status reports completion. Omit world for chat-only output. Codex never asks for paid approval. Units keep using the helper below. Start with the assets umbrella skill.
+
 # Codex images (Genio) · uses your ChatGPT plan
 
 Images come from Codex's built-in `image_gen` tool, billed to the player's **ChatGPT plan** (no API key, no per-image price). The plan is shared with the coding units, so every image uses allowance they also need. The helper is a dependency-free Node script:

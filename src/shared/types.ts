@@ -268,6 +268,7 @@ export interface ToolTrace {
 }
 
 export interface ChatMessage {
+  generation?: import('./generation').GenerationCard
   id: string
   wksp: string
   role: ChatRole

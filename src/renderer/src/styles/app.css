@@ -1103,3 +1103,7 @@ ul.loadout-why li { margin: 1px 0; }
   .world-actions { grid-column: 2 / 4; }
   .world-controls { grid-template-columns: 1fr; }
 }
+
+.generation-card { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; overflow-wrap: anywhere; }
+.generation-card audio, .generation-card video, .generation-card img { max-width: 100%; max-height: 260px; }
+.generation-card .btn { justify-self: start; }

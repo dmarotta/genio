@@ -16,6 +16,8 @@ const SKILL_DIR_TOKEN = /\{\{SKILL_DIR\}\}/g
 
 export const unitPluginSource = (appRoot: string): string => path.join(appRoot, 'resources', 'unit-skills', UNIT_PLUGIN)
 export const unitPluginDir = (homeRoot: string): string => path.join(homeRoot, 'skills', UNIT_PLUGIN)
+export const assetsSkillDir = (pluginDir: string): string => path.join(pluginDir, 'skills', 'assets')
+export const uthanaSkillDir = (pluginDir: string): string => path.join(pluginDir, 'skills', 'uthana')
 export const falSkillDir = (pluginDir: string): string => path.join(pluginDir, 'skills', 'fal')
 export const blenderSkillDir = (pluginDir: string): string => path.join(pluginDir, 'skills', 'blender')
 export const codexImageSkillDir = (pluginDir: string): string => path.join(pluginDir, 'skills', 'imagegen-codex')
@@ -77,6 +79,8 @@ export function unitLaunchExtras(harnessId: string, opts: { pluginDir?: string; 
     if (harnessId === 'claude') args.push('--plugin-dir', opts.pluginDir)
     env.GENIO_BLENDER_SKILL = fwd(blenderSkillDir(opts.pluginDir))
     if (opts.taskDataDir ?? opts.dataDir) env.GENIO_BLENDER_SCRATCH = fwd(path.join((opts.taskDataDir ?? opts.dataDir)!, 'blender'))
+    env.GENIO_ASSETS_SKILL = fwd(assetsSkillDir(opts.pluginDir))
+    env.GENIO_UTHANA_SKILL = fwd(uthanaSkillDir(opts.pluginDir))
     env.GENIO_FAL_SKILL = fwd(falSkillDir(opts.pluginDir))
     env.GENIO_IMAGEGEN_CODEX_SKILL = fwd(codexImageSkillDir(opts.pluginDir))
     if (opts.dataDir) env.GENIO_CODEX_IMAGE_SCRATCH = fwd(codexImageScratch(opts.dataDir))
@@ -98,10 +102,13 @@ export function openRouterEnv(harnessId: string, worldAllows: boolean, key: stri
 
 /** The brief's pointer to the bundled skills. Paths only; never a key. */
 export function unitToolsBrief(pluginDir: string): string {
+  const assets = fwd(assetsSkillDir(pluginDir))
+  const uthana = fwd(uthanaSkillDir(pluginDir))
   const dir = fwd(falSkillDir(pluginDir))
   const codex = fwd(codexImageSkillDir(pluginDir))
   const blender = fwd(blenderSkillDir(pluginDir))
   return (
+    `- Assets: read \`${assets}/SKILL.md\` first for provider routing and world-type placement. Use asset_locate / the shared suggestLocation helper. Uthana motions use Genio tools described in \`${uthana}/SKILL.md\`; units have no Uthana CLI.\n` +
     `- Blender (batch modelling, validation, export and conversion): read \`${blender}/SKILL.md\` and use \`node "${blender}/scripts/blender.mjs"\`. Requires local Blender; no MCP or live session. Logs go to GENIO_BLENDER_SCRATCH.\n` +
     `- Images (default): Codex images on the player's ChatGPT plan, on in every world unless it opted out. For concept art, sprites, icons, transparent cutouts and edits from references read \`${codex}/SKILL.md\` and use \`node "${codex}/scripts/codex-image.mjs"\`.\n` +
     `- FAL.ai (specific needs: seamless/PBR textures, 3D, audio, music, video, pixel-art conversion, upscaling, background removal, exact size/seed/reproducibility): before any FAL work read \`${dir}/SKILL.md\` and use its helper \`node "${dir}/scripts/fal.mjs"\`. ` +

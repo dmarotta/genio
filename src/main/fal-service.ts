@@ -3,6 +3,8 @@
  * key, keeps the history, downloads outputs into Genio's data dir (served to
  * the renderer over genio-media://) and copies them into a world on request.
  */
+import { recordGenerationSpend } from './generation-spend'
+import { placeOutput } from './asset-placement'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Readable } from 'node:stream'
@@ -17,8 +19,8 @@ import { FalClient, extractCost, extractOutputs, inlineData, pollResult, validEn
 import { FalModelCache, catalogueFile, loadCatalogueFile, mergeWorldCatalogue, type CatalogueFile } from './fal-catalogue'
 import { FalHistory, IN_FLIGHT } from './fal-history'
 import {
-  appendSpend, genioPath, lfsWarnings, provenanceInput, readRecipesFile, readSpend, readWorldCatalogue, readWorldConfig, sha256File,
-  worldRecipesFile, writeProvenance, writeWorldConfig, cleanConfig, ensureGenioDir
+  genioPath, provenanceInput, readRecipesFile, readSpend, readWorldCatalogue, readWorldConfig,
+  worldRecipesFile, writeWorldConfig, cleanConfig, ensureGenioDir
 } from './fal-world'
 import { getSecret } from './secrets'
 import type { AppCtx, FalService } from './services'
@@ -204,7 +206,7 @@ export function createFalService(getCtx: () => AppCtx, fetchFn: FetchFn = (u, i)
 
   const set = (id: string, patch: Partial<FalRun>): FalRun | undefined => {
     const r = history().update(id, patch)
-    if (r) bus.publish({ type: 'fal-run', run: r })
+    if (r) { recordGenerationSpend(getCtx(), 'fal', r); bus.publish({ type: 'fal-run', run: r }) }
     return r
   }
   const fail = (id: string, error: string): void => {
@@ -314,6 +316,8 @@ export function createFalService(getCtx: () => AppCtx, fetchFn: FetchFn = (u, i)
         recipe: req.recipe || undefined,
         createdAt: nowIso()
       }
+      if (req.maxCostUsd !== undefined && (run.estUsd === undefined || run.estUsd > req.maxCostUsd + 1e-9)) throw new Error('FAL price changed since the quote; request a fresh quote')
+      recordGenerationSpend(getCtx(), 'fal', run, true)
       const rec = history().add(run)
       bus.publish({ type: 'fal-run', run: rec })
       void drive(run.id, body)
@@ -427,9 +431,6 @@ export function createFalService(getCtx: () => AppCtx, fetchFn: FetchFn = (u, i)
       const target = worldTarget(proj.path, req.folder, req.fileName)
       const rel = path.relative(proj.path, target).replace(/\\/g, '/')
       if (exists(target) && !req.overwrite) return { ok: false, exists: true, path: target, message: `${rel} already exists in ${proj.name}.` }
-      ensureDir(path.dirname(target))
-      fs.copyFileSync(src, target, req.overwrite ? 0 : fs.constants.COPYFILE_EXCL)
-
       // provenance + spend line next to the asset, left uncommitted like the asset itself
       const prov = provenanceInput(r.input, proj.path)
       const info = cache().read().models[r.endpoint]
@@ -444,12 +445,10 @@ export function createFalService(getCtx: () => AppCtx, fetchFn: FetchFn = (u, i)
       const est = r.costUsd ?? r.estUsd
       const res = (r.result ?? {}) as Record<string, unknown>
       const seed = typeof res.seed === 'number' && r.input.seed === undefined ? res.seed : undefined
-      const provenance = writeProvenance(
-        proj.path,
-        {
+      const placed = await placeOutput({
+        project: proj, source: src, relative: rel, overwrite: req.overwrite,
+        provenance: {
           schema: 'genio.provenance.v1',
-          path: rel,
-          sha256: sha256File(target),
           provider: 'fal',
           endpoint: r.endpoint,
           request_id: r.requestId ?? null,
@@ -458,18 +457,12 @@ export function createFalService(getCtx: () => AppCtx, fetchFn: FetchFn = (u, i)
           price: { unit: price?.unit ?? null, unit_price_usd: price?.unitPrice ?? null, estimated_usd: est ?? null, checked: (info?.checkedAt ?? nowIso()).slice(0, 10) },
           recipe: r.recipe ?? null,
           derived_from: prov.derivedFrom,
-          by: 'player',
+          by: req.by ?? 'player',
           created: r.completedAt ?? r.createdAt
         },
-        proj.engine
-      )
-      appendSpend(
-        proj.path,
-        { t: r.createdAt, provider: 'fal', endpoint: r.endpoint, request_id: r.requestId ?? null, units: null, unit: price?.unit ?? null, est_usd: est ?? 0, by: 'player' },
-        proj.engine
-      )
-      const warnings = await lfsWarnings(proj.path, rel)
-      return { ok: true, path: target, provenance, warnings, message: `Saved to ${proj.name}/${rel}` }
+        spend: { t: r.createdAt, provider: 'fal', endpoint: r.endpoint, request_id: r.requestId ?? null, units: null, unit: price?.unit ?? null, est_usd: est ?? 0, by: req.by ?? 'player' }
+      })
+      return placed
     },
 
     resume(): void {

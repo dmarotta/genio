@@ -10,6 +10,8 @@ import { registerModelQuery, supportedClaudeEfforts } from './model-discovery'
  * Events from overwatch are drained into one turn and acknowledged only after
  * that turn completes, so a crash re-presents them.
  */
+import { unitPluginSource } from './unitskills'
+import path from 'node:path'
 import type {
   Query, SDKMessage, SDKUserMessage, Options, CanUseTool, PermissionResult, EffortLevel
 } from '@anthropic-ai/claude-agent-sdk'
@@ -609,7 +611,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
           })
     const { model, effort } = sessionConfig(role, s, liveAlly())
     const opts: Options = {
-      systemPrompt: { type: 'preset', preset: 'claude_code', append },
+      // settingSources is deliberately empty: inject the umbrella so skill discovery is not assumed.
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: append + (role === 'bot' || !ctx.appRoot ? '' : '\n\nAssets skill directory (resolve the following skill references relative to it): ' + path.join(unitPluginSource(ctx.appRoot), 'skills/assets') + '\n' + readText(path.join(unitPluginSource(ctx.appRoot), 'skills/assets/SKILL.md'))) },
       cwd: home.root,
       additionalDirectories: worlds,
       settingSources: [],

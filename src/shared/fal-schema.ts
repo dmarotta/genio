@@ -330,7 +330,8 @@ export function validateValues(model: FormModel, values: Record<string, unknown>
       errs[f.key] = `One of: ${f.options.join(', ')}.`
       continue
     }
-    if (f.valueType === 'string' && typeof v === 'string') {
+    if (f.valueType === 'string') {
+      if (typeof v !== 'string') { errs[f.key] = 'Must be text.'; continue }
       if (f.maxLength !== undefined && v.length > f.maxLength) errs[f.key] = `${v.length}/${f.maxLength} characters: too long.`
       else if (f.minLength !== undefined && v.trim().length < f.minLength) errs[f.key] = `At least ${f.minLength} characters.`
     }

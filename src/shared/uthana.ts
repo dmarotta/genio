@@ -526,6 +526,7 @@ export interface UthanaPreviewRequest {
 }
 
 export interface UthanaExportRequest {
+  by?: string
   runId: string
   motionId?: string
   format: UthanaFormat

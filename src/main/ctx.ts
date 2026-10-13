@@ -28,6 +28,7 @@
  *   uthana-service.ts  createUthanaService(getCtx)
  *   dispatch.ts     createDispatchService(getCtx)
  */
+import { agentGeneration } from './agent-generation'
 import type { FleetSnapshot, Ally } from '@shared/types'
 import { Home, defaultHomeRoot } from './home'
 import { scrubInheritedSessionEnv } from './util'
@@ -149,6 +150,7 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
 /** Start supervision and agents for every home (after the window exists). */
 export async function startApp(ctx: AppCtx): Promise<void> {
   ctx.inbox.configure()
+  agentGeneration(ctx)
   ctx.fal.resume()
   ctx.uthana.resume()
   // a world's remote may have changed while Genio was closed: auto modes follow it
@@ -160,6 +162,7 @@ export async function startApp(ctx: AppCtx): Promise<void> {
 }
 
 export async function stopApp(ctx: AppCtx): Promise<void> {
+  agentGeneration(ctx).stop()
   ctx.inventory.stop()
   for (const h of ctx.homes.values()) {
     h.supervisor.stop()

@@ -44,7 +44,7 @@ describe('unit launch extras', () => {
   it('gives the plugin dir only to Claude Code, the skill path to every runtime', () => {
     const codex = unitLaunchExtras('codex', { pluginDir, falKey: KEY })
     expect(codex.args).toEqual([])
-    expect(codex.env).toEqual({ GENIO_BLENDER_SKILL: fwd(blenderSkillDir(pluginDir)), GENIO_FAL_SKILL: fwd(falSkillDir(pluginDir)), GENIO_IMAGEGEN_CODEX_SKILL: fwd(codexImageSkillDir(pluginDir)), FAL_KEY: KEY })
+    expect(codex.env).toEqual({ GENIO_ASSETS_SKILL: 'C:/genio/skills/genio/skills/assets', GENIO_UTHANA_SKILL: 'C:/genio/skills/genio/skills/uthana', GENIO_BLENDER_SKILL: fwd(blenderSkillDir(pluginDir)), GENIO_FAL_SKILL: fwd(falSkillDir(pluginDir)), GENIO_IMAGEGEN_CODEX_SKILL: fwd(codexImageSkillDir(pluginDir)), FAL_KEY: KEY })
     expect(unitLaunchExtras('claude', { falKey: KEY })).toEqual({ args: [], env: { FAL_KEY: KEY } })
   })
 

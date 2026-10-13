@@ -30,12 +30,15 @@ export const LOGIN_HINT = 'log in to Codex in Systems → Accounts'
 export const GENERATE_IMAGE_DESC =
   "Generate PNG image(s) with Codex's image_gen on the player's ChatGPT plan (no API cost; about a minute per call) and show them in this chat. " +
   'Use for concepts, sprites, icons, transparent cutouts, and edits or variations of an image: pass refs = chat image ids (shown as [attached image ids: ...] on pasted screenshots and returned by earlier generate_image calls) or absolute paths. ' +
-  'You get the images back to judge them, plus the plan meter. Chat-only: nothing is saved into a world.'
+  'You get the images back to judge them, plus the plan meter. For world assets pass world, place from asset_locate, and player_words. Runs in the background; use generation_status to inspect completion. Without a world it stays in chat.'
 
 export const generateImageShape = {
   prompt: z.string().min(3).max(4000),
   transparent: z.boolean().default(false),
   refs: z.array(z.string().min(1)).max(MAX_REFS).default([]),
+  world: z.string().optional(),
+  place: z.string().optional(),
+  player_words: z.string().trim().min(1).optional(),
   count: z.number().int().min(1).max(MAX_GENERATED).default(1)
 }
 export type GenerateImageArgs = z.infer<z.ZodObject<typeof generateImageShape>>

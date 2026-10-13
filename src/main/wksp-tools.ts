@@ -14,8 +14,9 @@ import type { AppCtx, HomeCtx } from './services'
 import type { Home } from './home'
 import { truncate } from './util'
 import { resolveLoadout } from './loadout'
-import { GENERATE_IMAGE_DESC, chatImageGen, generateChatImages, generateImageShape } from './chat-imagegen'
+import { GENERATE_IMAGE_DESC, generateImageShape } from './chat-imagegen'
 import { findAssets, assetInfo, locateAsset } from './asset-tools'
+import { agentGeneration, falGenerateShape, uthanaMotionShape, uthanaCharacterShape, assetPlaceShape } from './agent-generation'
 import { CATEGORY_IDS } from '@shared/dispatch'
 
 type ToolFn = typeof import('@anthropic-ai/claude-agent-sdk').tool
@@ -582,9 +583,21 @@ export function buildTools(
     )
   }
 
-  // ------------------------------------------------------------ images (Codex, ChatGPT plan; chat-only)
+  // ------------------------------------------------------------ agent generation and guarded placement
   if (role !== 'bot') {
-    t('generate_image', GENERATE_IMAGE_DESC, generateImageShape, (a) => generateChatImages(chatImageGen(getCtx(), home), a))
+    t('fal_models', 'Browse the FAL catalogue by job or query; endpoint returns its current schema and price. Read before fal_generate.', { world: z.string(), job: z.string().optional(), query: z.string().optional(), endpoint: z.string().optional() }, async a => {
+      const fal = getCtx().fal
+      if (a.endpoint) return ok(json(await fal.model(a.endpoint)))
+      const c = fal.catalogue(a.world)
+      return ok(json({ ...c, entries: c.entries.filter(e => (!a.job || e.job === a.job) && (!a.query || JSON.stringify(e).toLowerCase().includes(a.query.toLowerCase()))) }))
+    })
+    t('fal_generate', 'Generate FAL media in the background. Follow assets skill: asset_locate, then pass place and the player request. Quote card above threshold; monthly cap is a hard stop. Up to four outputs, $2 maximum; delegate larger work.', falGenerateShape, async a => ok(json(await agentGeneration(getCtx()).fal(home.name, a, role))))
+    t('uthana_motion', 'Generate a motion in the background. Stock Manny humanoid by default; FBX for Unity, GLB otherwise. Follow assets and uthana skills; no import settings are changed.', uthanaMotionShape, async a => ok(json(await agentGeneration(getCtx()).motion(home.name, a, role))))
+    t('uthana_character', 'Reuse an uploaded character by world source and sha256, or upload this world-relative FBX/GLB. Prefer stock humanoids; rigging can cost $0.15.', uthanaCharacterShape, async a => ok(json(await agentGeneration(getCtx()).character(home.name, a, role))))
+    t('asset_place', 'Place a generated run output in its world, uncommitted, with provenance. Media only. Never Bot, forbidden dirs or vendor packs. Requires player_words; overwriting additionally requires overwrite_words quoting explicit confirmation for that file.', assetPlaceShape, async a => ok(json(await agentGeneration(getCtx()).place(home.name, a, role))))
+    t('approve_run', 'Approve the exact pending quote in this chat only when the player agrees; quote their words. Cannot override the monthly cap.', { run: z.string(), player_words: z.string().trim().min(1) }, async a => ok(json(await agentGeneration(getCtx()).approve(a.run, home.name, a.player_words, role))))
+    t('generation_status', 'Inspect a background generation and its saved paths or error. Never resubmit uncertain jobs.', { run: z.string() }, a => ok(json(agentGeneration(getCtx()).status(a.run, home.name))))
+    t('generate_image', GENERATE_IMAGE_DESC, generateImageShape, async (a) => ok(json(await agentGeneration(getCtx()).image(home.name, a, role))))
   }
 
   return tools

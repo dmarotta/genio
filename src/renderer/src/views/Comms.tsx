@@ -1,3 +1,4 @@
+import { GenerationCard } from '../components/GenerationCard'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { ChevronDown, ChevronRight, CircleStop, Pencil, Radar, RefreshCw, Rocket, Send, ShieldCheck, TriangleAlert, Wrench, X } from 'lucide-react'
 import type { Ally, ChatMessage, Settings, Task } from '@shared/types'
@@ -300,7 +301,8 @@ function Message({ m, calm, gamertag, onTakeBack }: { m: ChatMessage; calm: bool
         <GenioCore size={34} state={m.partial ? 'active' : 'idle'} />
       </div>
       <div className="msg-content">
-        {m.text && <Markdown text={m.text} className={m.partial ? 'streaming' : ''} />}
+        {m.text && !m.generation && <Markdown text={m.text} className={m.partial ? 'streaming' : ''} />}
+        {m.generation && <GenerationCard card={m.generation} wksp={m.wksp} />}
         {m.generating ? <GeneratingImages count={m.generating} /> : null}
         {m.images?.length ? <MessageImages wksp={m.wksp} images={m.images} /> : null}
         {!calm && tools.length > 0 && (

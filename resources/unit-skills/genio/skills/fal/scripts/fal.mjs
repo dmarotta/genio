@@ -18,9 +18,11 @@
  * Exit codes: 0 ok, 2 usage, 3 key missing, 4 FAL/network error, 5 still pending, 6 over budget.
  */
 import fs from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import {
-  WorldError, appendSpend, checkBudget, codexEnabled, findRecipe, folderFor, openWorld, readSpend, spendFile, unitBy, worldRel, writeProvenance
+  WorldError, suggestLocation, appendSpend, checkBudget, codexEnabled, findRecipe, folderFor, openWorld, readSpend, spendFile, unitBy, worldRel, writeProvenance
 } from '../../../lib/genio-world.mjs'
 
 const EXIT = { usage: 2, nokey: 3, api: 4, pending: 5, budget: 6 }
@@ -577,6 +579,8 @@ function recipe(opts) {
 }
 
 const USAGE = `Genio FAL helper (key from FAL_KEY only).
+  catalogue [--job <job>] [--query <text>]            bundled model catalogue (no network)
+  locate --world <root> --kind <kind> --name <name.ext> [--engine unity] [--engine-root Game] [--hint <folder>]
   check                                              is a key available? (no network)
   price    --endpoint <id>                           unit price for a model (free)
   estimate --endpoint <id> --units <n>               cost estimate for n billing units (free)
@@ -593,7 +597,19 @@ World mode (.genio/ in your worktree):
            priced and checked against the budgets first; logs .genio/spend.jsonl and writes .genio/provenance/
   run/submit ... --budget <usd> --ledger <spend.jsonl> (--units <n>|--est-usd <n>)   the same budget stop outside a world`
 
-const COMMANDS = { check, price, estimate, run, submit, status, result, download, cancel, world: worldInfo, recipe }
+function catalogue(opts) {
+  const file = fileURLToPath(new URL('../references/catalogue.json', import.meta.url))
+  const c = JSON.parse(fs.readFileSync(file, 'utf8'))
+  return { ...c, entries: c.entries.filter(e => (!opts.job || e.job === opts.job) && (!opts.query || JSON.stringify(e).toLowerCase().includes(String(opts.query).toLowerCase()))) }
+}
+function locate(opts) {
+  const world = needWorld(opts)
+  const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: world.root, encoding: 'utf8', windowsHide: true, maxBuffer: 64 * 1024 * 1024 }).split('\0')
+  const kinds = { image: /\.(png|jpg|jpeg|webp|tga|psd|tif|exr)$/i, audio: /\.(wav|ogg|mp3|flac)$/i, model: /\.(fbx|glb|gltf|obj)$/i, animation: /\.(bvh|anim)$/i, video: /\.(mp4|mov|webm)$/i, material: /\.(mat|tres)$/i }
+  const assets = [...new Set(files)].filter(Boolean).map(p => ({ path: p, folder: path.posix.dirname(p), kind: Object.keys(kinds).find(k => kinds[k].test(p)), vendor: /(?:^|\/)(?:vendor|third[-_ ]?party|plugins|addons)(?:\/|$)/i.test(p) })).filter(a => a.kind)
+  return suggestLocation({ assets, kind: opts.kind ?? 'image', name: opts.name, hint: opts.hint, engine: opts.engine ?? 'other', engineRoot: opts['engine-root'] ?? '', config: world.config, root: world.root })
+}
+const COMMANDS = { catalogue, locate, check, price, estimate, run, submit, status, result, download, cancel, world: worldInfo, recipe }
 
 async function main() {
   const { command, opts } = parseArgs(process.argv.slice(2))

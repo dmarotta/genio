@@ -1,4 +1,5 @@
 import { modelCatalogue, invalidateModelCatalogue } from './model-catalogue'
+import { agentGeneration } from './agent-generation'
 import { readWorldMetadata } from './world-metadata'
 /**
  * IPC: one ipcMain.handle per GenioApi method ('genio:<method>'). The table is
@@ -189,6 +190,7 @@ export function registerIpc(getCtx: () => AppCtx): void {
     },
 
     // ---- comms
+    approveGeneration: (wksp, run) => agentGeneration(ctx()).approve(run, wksp, 'Approved this exact quote in chat'),
     chatHistory: (wksp, limit) => ctx().home(wksp).wksp.history(limit),
     sendChat: (wksp, text, images) => sendPlayerChat(ctx(), wksp, text, images),
     unqueueChat: async (wksp, id) => ctx().home(wksp).wksp.unqueue(id),

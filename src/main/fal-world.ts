@@ -1,7 +1,7 @@
 /**
  * A world's .genio/ folder: small, committable text that travels with the
  * world (units see it once it is committed). Genio writes here only on an
- * explicit player action (Save to world, saving FAL settings or a recipe) and
+ * explicit player action (guarded agent placement, Save to world, or settings) and
  * never commits; it never edits the world's root .gitignore/.gitattributes.
  *
  *   .genio/README.md        what this folder is
@@ -43,7 +43,7 @@ Machine-readable data Genio keeps with this world. Small text only; safe to read
 - \`spend.jsonl\`: one line per paid generation call (estimated USD). Merges with \`merge=union\`.
 - \`cache/\`: ignored, normally empty. Genio keeps run history and downloads in its own data folder.
 
-Genio writes here only when you save something from its FAL or Animation screens, and never commits. Commit these files with the assets they describe.
+Genio writes here for guarded agent placement or explicit Save actions from its FAL or Animation screens, and never commits. Commit these files with the assets they describe.
 `
 
 /** Create .genio/ with its own README, .gitignore and .gitattributes (never overwrites them). */

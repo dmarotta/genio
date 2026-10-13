@@ -5,6 +5,7 @@ import { RAIL, navItems } from '../src/renderer/src/lib/railmenu'
 
 // Deliberately explicit: add new player-facing tools here, with their feature tag.
 const PLAYER_FACING_TOOLS: Record<string, string> = {
+  fal_generate: 'agent_generation', uthana_motion: 'agent_generation', uthana_character: 'agent_generation', asset_place: 'asset_place',
   deploy: 'deploy', merge: 'move', run_gauntlet: 'squad', quest_add: 'quests',
   world_add: 'worlds', world_create: 'worlds', world_push: 'world_push',
   memory_write: 'lore', generate_image: 'generate_image', rate_task: 'rate_task',
@@ -13,6 +14,7 @@ const PLAYER_FACING_TOOLS: Record<string, string> = {
 // Supporting reads, orchestration and maintenance. New tools must be classified
 // explicitly so adding a registration cannot silently bypass the coverage guard.
 const SUPPORTING_TOOLS = [
+  'fal_models', 'approve_run', 'generation_status',
   'fleet_view', 'unit_state', 'read_task_file', 'terminal_tail', 'ping', 'control',
   'despawn', 'upgrade_recon', 'quest_list', 'quest_update', 'quest_hold', 'quest_release',
   'quest_remove', 'choice_open', 'choice_resolve', 'choice_list', 'world_list',

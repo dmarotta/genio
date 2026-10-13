@@ -249,6 +249,8 @@ export interface FalRun {
 }
 
 export interface FalRunRequest {
+  /** Agent quote ceiling; service refuses changed/unknown pricing before submitting. */
+  maxCostUsd?: number
   /** FAL endpoint id, e.g. fal-ai/flux/dev */
   endpoint: string
   /** string values "@file:<absolute path>" are sent as data URIs */
@@ -373,6 +375,7 @@ export interface FalWorldState {
 }
 
 export interface FalSaveRequest {
+  by?: string
   runId: string
   output: number
   project: string
@@ -472,6 +475,7 @@ export interface GenioApi {
   uthanaExport(req: UthanaExportRequest): Promise<UthanaExportResult>
 
   // ---- bridge (chat with Genio / second units)
+  approveGeneration(wksp: string, run: string): Promise<import('./generation').GenerationCard>
   chatHistory(wksp: string, limit?: number): Promise<ChatMessage[]>
   /** images go to the session as image blocks; text may be empty when images are attached */
   sendChat(wksp: string, text: string, images?: ChatImageInput[]): Promise<void>
@@ -606,6 +610,7 @@ export const API_METHODS = [
   'uthanaDelete',
   'uthanaPreview',
   'uthanaExport',
+  'approveGeneration',
   'chatHistory',
   'sendChat',
   'unqueueChat',
