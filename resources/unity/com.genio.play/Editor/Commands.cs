@@ -14,6 +14,7 @@ namespace Genio.Play.Editor
         {
             AssemblyReloadEvents.beforeAssemblyReload += () => StreamSession.StopStream();
             EditorApplication.quitting += () => StreamSession.StopStream();
+            EditorApplication.pauseStateChanged += state => { if (state == PauseState.Paused) StreamSession.ReleaseInput?.Invoke(); };
             // The spike proved forced ticks keep an unfocused Editor running. Only our
             // temporary streaming object opts in; no Pipeline autotick setting is changed.
             EditorApplication.update += () =>
