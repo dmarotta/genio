@@ -242,6 +242,7 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
     const list = load().filter((x) => x.name !== name)
     save([...list, p])
     try {
+      bus.publish({ type: 'feature-used', feature: 'world_add' })
       getCtx().ledger.record({ event: 'project.added', project: name, data: { engine: p.engine, mode: p.mode } })
     } catch {
       /* ledger optional */
@@ -457,6 +458,7 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
       const target = branch?.trim() || p.defaultBranch
       const r = await git.pushOnDemand(p.path, target)
       try {
+        if (r.ok) bus.publish({ type: 'feature-used', feature: 'world_push' })
         getCtx().ledger.record({ event: r.ok ? 'project.pushed' : 'project.push_refused', project: name, data: { branch: target, ahead: r.ahead, behind: r.behind } })
       } catch {
         /* ledger optional */

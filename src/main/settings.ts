@@ -77,8 +77,10 @@ export function createSettingsService(home: Home): SettingsService {
       const next: Settings = { ...current, ...patch }
       if (patch.harnesses) next.harnesses = mergeHarnesses(patch.harnesses)
       if (patch.categoryPools) next.categoryPools = mergeCategoryPools(patch.categoryPools)
+      const enteredYolo = current.chatShellMode !== 'all' && next.chatShellMode === 'all'
       current = next
       writeJson(home.settingsFile, current)
+      if (enteredYolo) bus.publish({ type: 'feature-used', feature: 'yolo-chat' })
       bus.publish({ type: 'settings', settings: current })
       return current
     },

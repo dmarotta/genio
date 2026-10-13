@@ -634,6 +634,7 @@ export interface FleetStats {
 }
 
 export interface Achievement {
+  feature: string
   id: string
   name: string
   description: string
@@ -675,6 +676,7 @@ export interface UpdateInfo {
 /** Push events main → renderer */
 export type GenioEvent =
   | { type: 'inventory'; state: import('./inventory').InventoryState }
+  | { type: 'feature-used'; feature: string; id?: string; count?: number }
   | { type: 'snapshot'; data: FleetSnapshot }
   | { type: 'task'; task: Task }
   | { type: 'task-removed'; id: string }

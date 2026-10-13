@@ -4,6 +4,7 @@ import { readWorldMetadata } from './world-metadata'
  * typed against GenioApi so a missing or mistyped method fails the build.
  */
 import fs from 'node:fs'
+import { bus } from './bus'
 import path from 'node:path'
 import { BrowserWindow, dialog, ipcMain, shell, type OpenDialogOptions } from 'electron'
 import { API_PREFIX, type GenioApi } from '@shared/api'
@@ -45,6 +46,9 @@ export function registerIpc(getCtx: () => AppCtx): void {
     inventoryRefresh: (world) => ctx().inventory.refresh(world),
     inventoryList: (world, query) => ctx().inventory.list(world, query),
     inventoryInfo: (world, asset, verifyHash) => ctx().inventory.info(world, asset, verifyHash),
+    featureUsed: async (feature) => {
+      if (feature === 'screenshot' || feature === 'dock-split') bus.publish({ type: 'feature-used', feature })
+    },
     snapshot: () => ctx().snapshot(),
     homePath: () => ctx().main.home.root,
     getSettings: () => ctx().settings.get(),

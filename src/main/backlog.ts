@@ -249,6 +249,7 @@ export function createBacklogService(getCtx: () => AppCtx, home: Home): BacklogS
       })
       load().push(it)
       ledger('backlog.added', it)
+      bus.publish({ type: 'feature-used', feature: 'quest_add' })
       save()
       return it
     },

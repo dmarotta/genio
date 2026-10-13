@@ -44,7 +44,7 @@ export function useAttachments(wksp: string, disabled = false): Attachments {
     if (current.current === target) setImages(next)
   }
 
-  const add = async (files: Blob[]): Promise<void> => {
+  const add = async (files: Blob[], pasted = false): Promise<void> => {
     const target = wksp
     const imgs = files.filter((f) => f.type.startsWith('image/'))
     if (!imgs.length) return
@@ -56,6 +56,7 @@ export function useAttachments(wksp: string, disabled = false): Attachments {
       try {
         const img = await toDraftImage(f)
         commit(target, [...getDraftImages(target), img].slice(0, MAX_IMAGES_PER_MESSAGE))
+        if (pasted) void window.genio.api.featureUsed('screenshot').catch(() => {})
       } catch (e) {
         toast('error', 'Image not attached', errText(e))
       } finally {
@@ -80,7 +81,7 @@ export function useAttachments(wksp: string, disabled = false): Attachments {
       if (!files.length) return
       // an image paste attaches; text pastes fall through to the textarea
       e.preventDefault()
-      void add(files)
+      void add(files, true)
     },
     dropProps: {
       onDragOver(e) {

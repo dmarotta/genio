@@ -110,6 +110,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
       }
       const recorded = scorecard().rate(taskId, verdict, note?.trim())
       if (!task && !recorded) return { ok: false, message: `No unit ${taskId}.` }
+      bus.publish({ type: 'feature-used', feature: 'rate_task' })
       if (recorded) svc.learn()
       return { ok: true, message: `Recorded ${verdict === 'up' ? '👍' : '👎'} for ${taskId}${recorded ? '' : '; it goes on the scorecard when the unit ends'}.` }
     },

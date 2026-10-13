@@ -9,6 +9,7 @@
  */
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
+import { bus } from './bus'
 import path from 'node:path'
 import { z } from 'zod'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
@@ -205,6 +206,7 @@ export async function generateChatImages(gen: ChatImageGen, a: GenerateImageArgs
     warn ? `⚠ Your ChatGPT plan meter is at ${used}%: images share that allowance with your Codex units.` : result.warning ? `⚠ ${result.warning}` : ''
   ]
   gen.post({ ...base, text: lines.filter(Boolean).join('\n\n'), images: made.map((m) => m.ref) }, true)
+  bus.publish({ type: 'feature-used', feature: 'chat-image', id: base.id, count: made.length })
 
   const summary = {
     posted_in_chat: true,

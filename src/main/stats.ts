@@ -21,18 +21,37 @@ const XP: Record<AwardEvent, number> = {
 }
 
 export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
-  { id: 'first-blood', name: 'First Blood', description: 'Merge your first build.' },
-  { id: 'squad-up', name: 'Squad Up', description: 'Have 3 units deployed at once.' },
-  { id: 'full-party', name: 'Full Party', description: 'Have 5 units deployed at once.' },
-  { id: 'recon-expert', name: 'Recon Expert', description: 'Complete 10 recon missions.' },
-  { id: 'speedrunner', name: 'Speedrunner', description: 'A build is ready less than 15 minutes after deploy.' },
-  { id: 'night-owl', name: 'Night Owl', description: 'Merge a build between midnight and 5 AM.' },
-  { id: 'inbox-zero', name: 'Inbox Zero', description: 'Answer every open choice.' },
-  { id: 'combo-x5', name: 'Combo x5', description: 'Merge 5 builds in a single day.' },
-  { id: 'on-a-roll', name: 'On a Roll', description: 'Play 7 days in a row.' },
-  { id: 'janitor', name: 'Janitor', description: 'Despawn 25 units cleanly.' },
-  { id: 'big-spender', name: 'Big Spender', description: 'Spend $50 of model time in total.' },
-  { id: 'hardcore-hero', name: 'Hardcore Hero', description: 'Pass the Gauntlet 10 times.' }
+  { id: 'screenshot', feature: 'comms', name: 'Show and Tell', description: 'Paste a screenshot into chat.' },
+  { id: 'chat-image', feature: 'generate_image', name: 'Pixel Summoner', description: 'Generate an image in chat.' },
+  { id: 'fal-first', feature: 'fal', name: 'Asset Alchemist', description: 'Complete a FAL run.' },
+  { id: 'animation-first', feature: 'animation', name: 'Motion Unlocked', description: 'Generate your first Uthana animation.' },
+  { id: 'ally-chat', feature: 'comms', name: 'Party Chat', description: 'Talk directly to an ally.' },
+  { id: 'dock-split', feature: 'comms', name: 'Multiplayer View', description: 'Split chat into multiple panes.' },
+  { id: 'push-first', feature: 'world_push', name: 'Go Live', description: 'Push a world on demand.' },
+  { id: 'rating-first', feature: 'rate_task', name: 'GG or Go Again', description: 'Rate a unit on the scorecard.' },
+  { id: 'smart-pick', feature: 'loadout_preview', name: 'Adaptive Build', description: 'Deploy an exploration or quota-based pick.' },
+  { id: 'queue-edit', feature: 'comms', name: 'Second Thoughts', description: 'Edit or cancel a queued message.' },
+  { id: 'yolo-chat', feature: 'comms', name: 'No Safety Wheels', description: 'Switch chat to YOLO mode.' },
+  { id: 'account-login', feature: 'systems', name: 'Signed In', description: 'Log in from Systems Accounts.' },
+  { id: 'cheap-unit', feature: 'deploy', name: 'Budget Build', description: 'Deploy an OpenCode unit.' },
+  { id: 'unit-image', feature: 'assets', name: 'Pixel Crafter', description: 'A unit creates a Codex image.' },
+  { id: 'assets-10', feature: 'assets', name: 'Asset Combo', description: 'Generate 10 assets.' },
+  { id: 'assets-50', feature: 'assets', name: 'Asset Factory', description: 'Generate 50 assets.' },
+  { id: 'quest-first', feature: 'quests', name: 'Side Quest', description: 'Add a quest.' },
+  { id: 'world-first', feature: 'worlds', name: 'New Game', description: 'Register a world.' },
+  { id: 'lore-first', feature: 'lore', name: 'Save Point', description: 'Save your first memory update.' },
+  { feature: 'move', id: 'first-blood', name: 'First Blood', description: 'Merge your first build.' },
+  { feature: 'squad', id: 'squad-up', name: 'Squad Up', description: 'Have 3 units deployed at once.' },
+  { feature: 'squad', id: 'full-party', name: 'Full Party', description: 'Have 5 units deployed at once.' },
+  { feature: 'squad', id: 'recon-expert', name: 'Recon Expert', description: 'Complete 10 recon missions.' },
+  { feature: 'squad', id: 'speedrunner', name: 'Speedrunner', description: 'A build is ready less than 15 minutes after deploy.' },
+  { feature: 'move', id: 'night-owl', name: 'Night Owl', description: 'Merge a build between midnight and 5 AM.' },
+  { feature: 'move', id: 'inbox-zero', name: 'Inbox Zero', description: 'Answer every open choice.' },
+  { feature: 'move', id: 'combo-x5', name: 'Combo x5', description: 'Merge 5 builds in a single day.' },
+  { feature: 'status', id: 'on-a-roll', name: 'On a Roll', description: 'Play 7 days in a row.' },
+  { feature: 'squad', id: 'janitor', name: 'Janitor', description: 'Despawn 25 units cleanly.' },
+  { feature: 'systems', id: 'big-spender', name: 'Big Spender', description: 'Spend $50 of model time in total.' },
+  { feature: 'squad', id: 'hardcore-hero', name: 'Hardcore Hero', description: 'Pass the Gauntlet 10 times.' }
 ]
 
 interface StatsFile {
@@ -51,6 +70,8 @@ interface StatsFile {
   costTodayUsd: number
   activeDays: string[]
   achievements: Record<string, string>
+  assetsTotal: number
+  assetIds: Record<string, true>
   awarded: Record<string, string[]>
 }
 
@@ -75,6 +96,8 @@ function fresh(): StatsFile {
     costTodayUsd: 0,
     activeDays: [],
     achievements: {},
+    assetsTotal: 0,
+    assetIds: {},
     awarded: {}
   }
 }
@@ -95,6 +118,7 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
       data = { ...fresh(), ...raw }
       data.achievements = data.achievements ?? {}
       data.awarded = data.awarded ?? {}
+      data.assetIds = data.assetIds ?? {}
       data.activeDays = Array.isArray(data.activeDays) ? data.activeDays : []
     }
     rollDay(data)
@@ -220,6 +244,8 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
       const task = findTask(taskId)
       switch (event) {
         case 'spawn': {
+          if (task?.harness === 'opencode') svc.unlock('cheap-unit')
+          if (task?.explored || task?.loadout?.some((r) => r.includes('down-ranked:'))) svc.unlock('smart-pick')
           const live = liveUnits()
           if (live >= 3) svc.unlock('squad-up')
           if (live >= 5) svc.unlock('full-party')
@@ -255,6 +281,7 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
           if (d.despawnsTotal >= 25) svc.unlock('janitor')
           break
         case 'save':
+          svc.unlock('lore-first')
           break
       }
       save()
@@ -287,6 +314,42 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
       save()
       return ach
     }
+  }
+
+  // Listen only to live outcomes; snapshots/history never backfill new unlocks.
+  bus.onEvent((ev) => {
+    if (ev.type === 'feature-used') {
+      const ids: Record<string, string> = {
+        screenshot: 'screenshot', 'dock-split': 'dock-split', world_push: 'push-first',
+        rate_task: 'rating-first', 'account-login': 'account-login', 'yolo-chat': 'yolo-chat',
+        quest_add: 'quest-first', world_add: 'world-first', memory_write: 'lore-first'
+      }
+      if (ids[ev.feature]) svc.unlock(ids[ev.feature])
+      if (ev.feature === 'unit-image' && ev.id) asset('unit-image', ev.id, ev.count)
+      if (ev.feature === 'chat-image' && ev.id) asset('chat-image', ev.id, ev.count)
+    } else if (ev.type === 'chat') {
+      const m = ev.message
+      if (m.queue === 'cancelled') svc.unlock('queue-edit')
+      if (m.role === 'player' && m.wksp !== 'main' && !m.from) svc.unlock('ally-chat')
+    } else if (ev.type === 'fal-run' && ev.run.status === 'completed') {
+      asset('fal-first', ev.run.id, ev.run.outputs.length)
+    } else if (ev.type === 'uthana-run' && ev.run.status === 'completed' && ev.run.kind !== 'character') {
+      asset('animation-first', ev.run.id, ev.run.motionIds?.length || 1)
+    } else if (ev.type === 'status' && ev.event.kind === 'note' && ev.event.key === 'genio-codex-image') {
+      asset('unit-image', ev.event.taskId + ':' + ev.event.text)
+    }
+  })
+
+  function asset(achievement: string, id: string, count = 1): void {
+    const d = load()
+    const key = achievement + ':' + id
+    if (d.assetIds[key]) return
+    d.assetIds[key] = true
+    d.assetsTotal += (Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0)
+    svc.unlock(achievement)
+    if (d.assetsTotal >= 10) svc.unlock('assets-10')
+    if (d.assetsTotal >= 50) svc.unlock('assets-50')
+    save()
   }
 
   return svc

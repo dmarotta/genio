@@ -88,6 +88,7 @@ export function createAlliesService(getCtx: () => AppCtx): AlliesService {
     update(name, patch) {
       const i = load().findIndex((a) => a.name === name && !a.retiredAt)
       if (i < 0) throw new Error(`no active ally named ${name}`)
+      const enteredYolo = load()[i].shellMode !== 'all' && patch.shellMode === 'all'
       const next = patchAllyControls(load()[i], patch)
       // in place, so the running base's view of its ally record stays current
       for (const k of ['model', 'effort', 'shellMode'] as const) {
@@ -95,6 +96,7 @@ export function createAlliesService(getCtx: () => AppCtx): AlliesService {
         else load()[i][k] = next[k] as never
       }
       persist()
+      if (enteredYolo) bus.publish({ type: 'feature-used', feature: 'yolo-chat' })
       return { ...load()[i] }
     },
 

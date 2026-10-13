@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { bus } from './bus'
 import type { MemoryFile } from '@shared/api'
 import type { Home } from './home'
 import type { AppCtx, MemoryService } from './services'
@@ -83,6 +84,7 @@ export function createMemoryService(getCtx: () => AppCtx): MemoryService {
         throw new Error('player-shared.md belongs to the main base; allies can only read it')
       }
       writeText(fileFor(home, which), content.endsWith('\n') ? content : content + '\n')
+      bus.publish({ type: 'feature-used', feature: 'memory_write' })
     },
     report(home = defaultHome()) {
       const files: { file: string; tokens: number }[] = []

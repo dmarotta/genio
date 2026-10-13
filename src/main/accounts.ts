@@ -5,6 +5,7 @@
  * prints or stores their tokens or credential files: parsers keep only the
  * account name / auth method and scrub anything token-shaped.
  */
+import { bus } from './bus'
 import type { AccountStatus, LoginState } from '@shared/api'
 import type { TerminalInfo } from '@shared/types'
 import type { AppCtx } from './services'
@@ -187,11 +188,20 @@ export async function openAccountSession(ctx: AppCtx, tool: string, action: 'log
   if (!args) throw new Error(`${def.label} has no ${action} command`)
   const t = await toolStatus(def.tool)
   if (!t?.found || !t.path) throw new Error(`${def.label} is not installed${t?.install ? ` (${t.install})` : ''}`)
-  return ctx.terminals.create({
+  const terminal = ctx.terminals.create({
     kind: 'shell',
     title: `${action === 'login' ? 'Log in' : 'Log out'} · ${def.label}`,
     cwd: ctx.main.home.root,
     file: t.path,
     args
   })
+  if (action === 'login' && terminal.alive) {
+    ctx.terminals.onExit(terminal.id, (code) => {
+      if (code !== 0) return
+      void accountStatus(def).then((status) => {
+        if (status.state === 'logged-in') bus.publish({ type: 'feature-used', feature: 'account-login' })
+      }).catch(() => {})
+    })
+  }
+  return terminal
 }

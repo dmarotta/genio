@@ -399,6 +399,7 @@ export interface GenioApi {
   inventoryRefresh(world: string): Promise<InventoryState>
   inventoryList(world: string, query?: InventoryQuery): Promise<InventoryResult>
   inventoryInfo(world: string, path: string, verifyHash?: boolean): Promise<InventoryInfo | null>
+  featureUsed(feature: 'screenshot' | 'dock-split'): Promise<void>
   snapshot(): Promise<FleetSnapshot>
   homePath(): Promise<string>
   getSettings(): Promise<Settings>
@@ -558,6 +559,7 @@ export type ApiMethod = keyof GenioApi
 /** Every GenioApi method, as runtime data (contextBridge cannot clone a Proxy). */
 export const API_METHODS = [
   'inventoryOpen', 'inventoryClose', 'inventoryRefresh', 'inventoryList', 'inventoryInfo',
+  'featureUsed',
   'snapshot',
   'homePath',
   'getSettings',

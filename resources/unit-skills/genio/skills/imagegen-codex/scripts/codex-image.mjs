@@ -303,6 +303,12 @@ async function main() {
       })
     }
   }
+  // Successful unit outputs reach Genio through its existing status channel.
+  if (process.env.GENIO_STATUS_FILE && process.env.GENIO_TASK_ID) {
+    for (const r of results.filter((r) => r.ok)) {
+      try { fs.appendFileSync(process.env.GENIO_STATUS_FILE, `note [key=genio-codex-image]: ${threadId}/${r.call_id}\n`) } catch { /* cosmetic */ }
+    }
+  }
   const ok = results.every((r) => r.ok)
   const out = {
     provider: 'codex',

@@ -202,6 +202,7 @@ let dockSaveTimer: number | undefined
 export function setDock(fn: (d: DockState) => DockState): void {
   const next = fn(state.dock)
   if (next === state.dock) return
+  if (next.root.type === 'split' && state.dock.root.type !== 'split') void window.genio.api.featureUsed('dock-split').catch(() => {})
   setState({ dock: next })
   if (dockSaveTimer) window.clearTimeout(dockSaveTimer)
   dockSaveTimer = window.setTimeout(() => {
