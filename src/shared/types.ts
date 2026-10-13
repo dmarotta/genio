@@ -249,6 +249,8 @@ export interface ChatMessage {
   costUsd?: number
   /** images the player attached (stored in the base's data/chat-images) */
   images?: ChatImage[]
+  /** in an ally's chat: a request main Genio routed to it (shown as from Genio) */
+  from?: 'genio'
 }
 
 export type WkspActivity = 'offline' | 'starting' | 'idle' | 'thinking' | 'tool' | 'error'
@@ -277,6 +279,8 @@ export interface Ally {
   projects: string[]
   model?: string
   effort?: string
+  /** this ally chat's approval mode; unset = follow the main chat's chatShellMode */
+  shellMode?: Settings['chatShellMode']
   home: string
   createdAt: string
   retiredAt?: string

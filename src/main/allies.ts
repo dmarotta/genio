@@ -3,10 +3,12 @@
  * an isolated base under <main>/wksps/<name> with its own state, quest log,
  * worktrees and Genio session. Idle by default; main Genio routes in-scope
  * work to them and they report back through the parent channel (main-base
- * 'check' events), never by the player reading their chat.
+ * 'check' events). The player can also talk to an ally directly in its chat tab;
+ * routed requests show up there too, marked as from Genio.
  */
 import path from 'node:path'
 import type { Ally } from '@shared/types'
+import { patchAllyControls } from '@shared/chat'
 import { bus } from './bus'
 import { makeHomeCtx } from './ctx'
 import { Home } from './home'
@@ -83,12 +85,25 @@ export function createAlliesService(getCtx: () => AppCtx): AlliesService {
       return { ok: true, message: `${name} retired; its base is kept at ${ally.home}` }
     },
 
+    update(name, patch) {
+      const i = load().findIndex((a) => a.name === name && !a.retiredAt)
+      if (i < 0) throw new Error(`no active ally named ${name}`)
+      const next = patchAllyControls(load()[i], patch)
+      // in place, so the running base's view of its ally record stays current
+      for (const k of ['model', 'effort', 'shellMode'] as const) {
+        if (next[k] === undefined) delete load()[i][k]
+        else load()[i][k] = next[k] as never
+      }
+      persist()
+      return { ...load()[i] }
+    },
+
     async route(name, request) {
       const ctx = getCtx()
       const hc = ctx.homes.get(name)
       if (!hc) return { ok: false, message: `ally ${name} is not active` }
       const corr = rid(8)
-      await hc.wksp.send(`[FROM GENIO MAIN corr=${corr}] ${request}\n\nWhen finished (or blocked), answer with report_to_main and corr=${corr}.`, 'system')
+      await hc.wksp.send(`[FROM GENIO MAIN corr=${corr}] ${request}\n\nWhen finished (or blocked), answer with report_to_main and corr=${corr}.`, 'genio')
       ctx.ledger.record({ event: 'task.status', data: { routedTo: name, corr } })
       return { ok: true, message: `routed to ${name} (corr=${corr}); its answer returns as an ally event` }
     },

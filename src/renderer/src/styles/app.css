@@ -365,7 +365,10 @@ button.usage-toggle:hover { color: var(--text); }
   border: 1px solid rgba(0, 229, 255, 0.3); color: var(--text);
   clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
 }
-.msg-meta { font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-mute); margin-top: 5px; }
+.msg.from-genio { align-items: flex-start; }
+.msg.from-genio .msg-bubble { white-space: normal; background: linear-gradient(135deg, var(--violet-soft), rgba(165, 107, 255, 0.04)); border-color: rgba(165, 107, 255, 0.4); }
+.msg-from { font-size: 10px; margin-bottom: 4px; }
+.msg-meta {font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-mute); margin-top: 5px; }
 .msg-avatar { flex: none; width: 34px; padding-top: 2px; }
 .msg-content { flex: 1; min-width: 0; }
 .msg.genio .md { color: var(--text); line-height: 1.65; }

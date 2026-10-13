@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { ChevronDown, ChevronRight, CircleStop, Radar, RefreshCw, Rocket, Send, ShieldCheck, TriangleAlert, Wrench } from 'lucide-react'
-import type { ChatMessage, Settings, Task } from '@shared/types'
+import type { Ally, ChatMessage, Settings, Task } from '@shared/types'
+import { chatControls, routedRequest, type ChatControls } from '@shared/chat'
 import {
-  api, errText, focusTask, getState, go, liveTasks, loadChat, op, openDeploy, saveSettings, setDock, setState, toast, useStore
+  api, errText, focusTask, getState, go, liveTasks, loadChat, op, openDeploy, saveChatControls, saveSettings, setDock, setState, toast, useStore
 } from '../store'
 import { Markdown } from '../components/Markdown'
 import { GenioCore } from '../components/GenioCore'
@@ -114,7 +115,7 @@ function ChatPanel({ wksp }: { wksp: string }) {
 
       <ChatLog wksp={wksp} messages={visible} calm={calm} busy={busy} gamertag={gamertag} activityDetail={info?.activityDetail} lastError={info?.lastError} />
 
-      <Composer wksp={wksp} disabled={isAlly} busy={busy} />
+      <Composer wksp={wksp} busy={busy} />
     </div>
   )
 }
@@ -158,7 +159,7 @@ function ChatLog({ wksp, messages, calm, busy, gamertag, activityDetail, lastErr
           <h2 className="title" style={{ fontSize: 24 }}>
             Ally <span className="violet-text">{wksp}</span>
           </h2>
-          <p className="dim">Genio routes in-scope work here; this ally reports back through Genio. Its chat shows up as it works.</p>
+          <p className="dim">Talk to it directly here, or let Genio route in-scope work to it. Both show up in this timeline; answers to Genio's requests also go back to Genio.</p>
         </div>
       )}
       {messages.length === 0 && wksp === MAIN_PANEL && (
@@ -225,6 +226,21 @@ function Message({ m, calm, gamertag }: { m: ChatMessage; calm: boolean; gamerta
       </div>
     )
   }
+  const routed = m.wksp !== MAIN_PANEL ? routedRequest(m) : null
+  if (routed) {
+    return (
+      <div className="msg player from-genio rise">
+        <div className="msg-from label neon-text">From Genio</div>
+        <div className="msg-bubble selectable">
+          <Markdown text={routed.text} />
+        </div>
+        <div className="msg-meta">
+          Genio → {m.wksp} · {clock(m.ts)}
+          {routed.corr ? ` · ${routed.corr}` : ''}
+        </div>
+      </div>
+    )
+  }
   if (m.role === 'system') {
     return (
       <div className="msg-system rise">
@@ -273,11 +289,13 @@ function Message({ m, calm, gamertag }: { m: ChatMessage; calm: boolean; gamerta
   )
 }
 
-function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; busy: boolean }) {
+function Composer({ wksp, busy }: { wksp: string; busy: boolean }) {
+  // Client-side commands drive the whole app, so they live in the main chat; an ally gets its text (and its own /help, /status, /save) as typed.
+  const isMain = wksp === MAIN_PANEL
   const [text, setText] = useState(() => getDraft(wksp))
   const [sel, setSel] = useState(0)
   const ta = useRef<HTMLTextAreaElement>(null)
-  const att = useAttachments(wksp, disabled)
+  const att = useAttachments(wksp)
   const canSend = !!text.trim() || att.images.length > 0
   const update = (v: string): void => {
     setText(v)
@@ -295,7 +313,7 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
     }
   }, [wksp])
   const settings = useStore((s) => s.settings)
-  const showSlash = text.startsWith('/') && !text.includes(' ') && !text.includes('\n')
+  const showSlash = isMain && text.startsWith('/') && !text.includes(' ') && !text.includes('\n')
   const matches = showSlash ? SLASH.filter((s) => s.cmd.startsWith(text.toLowerCase())) : []
 
   useEffect(() => {
@@ -323,7 +341,7 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
     const [cmd, ...rest] = t.split(/\s+/)
     const words = rest.join(' ')
     // with images attached, a leading slash is just text for Genio
-    if (t.startsWith('/') && !images.length) {
+    if (isMain && t.startsWith('/') && !images.length) {
       switch (cmd.toLowerCase()) {
         case '/recap':
           await op('Recap', () => api().recap())
@@ -372,7 +390,7 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
   }
 
   return (
-    <div className={cx('composer', disabled && 'disabled')}>
+    <div className="composer">
       {matches.length > 0 && (
         <div className="slash-menu panel">
           {matches.map((s, i) => (
@@ -397,9 +415,14 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
           ref={ta}
           rows={1}
           value={text}
-          disabled={disabled}
           onPaste={att.onPaste}
-          placeholder={disabled ? 'Ally comms are read-only — route work through Genio.' : busy ? 'Genio is working… you can still type; it will read this next.' : 'Message Genio  ·  / for commands'}
+          placeholder={
+            busy
+              ? `${isMain ? 'Genio' : wksp} is working… you can still type; it will read this next.`
+              : isMain
+                ? 'Message Genio  ·  / for commands'
+                : `Message ${wksp}  ·  it answers you here`
+          }
           onChange={(e) => {
             update(e.target.value)
             setSel(0)
@@ -429,7 +452,7 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
             }
             if (e.key === 'Tab' && e.shiftKey) {
               e.preventDefault()
-              cycleShellMode()
+              cycleShellMode(wksp)
               return
             }
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -438,21 +461,23 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
             }
           }}
         />
-        <button className="btn solid icon" disabled={disabled || !canSend || att.pending > 0} onClick={() => void submit(text)} aria-label="Send">
+        <button className="btn solid icon" disabled={!canSend || att.pending > 0} onClick={() => void submit(text)} aria-label="Send">
           <Send size={15} />
         </button>
       </div>
       <div className="composer-hints mute">
         <span>
-          <ShellModeButton disabled={disabled} />
+          <ShellModeButton wksp={wksp} />
           <ChatModelControls wksp={wksp} />
           <kbd>Enter</kbd> send · <kbd>Shift</kbd>+<kbd>Enter</kbd> newline · <kbd>/</kbd> commands · <kbd>Ctrl</kbd>+<kbd>V</kbd> image
         </span>
-        <span className="quick">
-          <button className="link-btn" onClick={() => void op('Recap', () => api().recap())}>Recap</button>
-          <button className="link-btn" onClick={() => go('status')}>Status</button>
-          <button className="link-btn" onClick={() => openDeploy()}>Deploy</button>
-        </span>
+        {isMain && (
+          <span className="quick">
+            <button className="link-btn" onClick={() => void op('Recap', () => api().recap())}>Recap</button>
+            <button className="link-btn" onClick={() => go('status')}>Status</button>
+            <button className="link-btn" onClick={() => openDeploy()}>Deploy</button>
+          </span>
+        )}
       </div>
     </div>
   )
@@ -460,28 +485,37 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
 
 const SHELL_MODES: { id: Settings['chatShellMode']; label: string; hint: string }[] = [
   { id: 'ask', label: 'Ask', hint: 'Read-only commands run; anything else asks you first.' },
-  { id: 'auto-shell', label: 'Auto-approve shell', hint: 'Every Bash/PowerShell command in the Genio chat runs without asking. Other tools still ask; the Bot stays read-only.' },
-  { id: 'all', label: 'YOLO', hint: 'Nothing will ask for permission: every command and tool the Genio chat can use runs without asking. The Bot stays read-only.' }
+  { id: 'auto-shell', label: 'Auto-approve shell', hint: 'Every Bash/PowerShell command in this chat runs without asking. Other tools still ask; the Bot stays read-only.' },
+  { id: 'all', label: 'YOLO', hint: 'Nothing will ask for permission: every command and tool this chat can use runs without asking. The Bot stays read-only.' }
 ]
 
-function cycleShellMode(): void {
-  const cur = getState().settings?.chatShellMode ?? 'ask'
-  const i = SHELL_MODES.findIndex((m) => m.id === cur)
-  void saveSettings({ chatShellMode: SHELL_MODES[(i + 1) % SHELL_MODES.length].id })
+/** This chat's saved controls: Genio settings for the main chat, the ally's own values (falling back to Genio's) for an ally. */
+function useChatControls(wksp: string): ChatControls & { ally?: Ally } {
+  const ally = useStore((s) => (wksp === MAIN_PANEL ? undefined : s.snap.allies.find((a) => a.name === wksp && !a.retiredAt)))
+  const settings = useStore((s) => s.settings)
+  return useMemo(() => ({ ...chatControls(settings, ally), ally }), [settings, ally])
 }
 
-/** Chat approval-mode switcher (click or Shift+Tab in the input), à la Claude Code. */
-function ShellModeButton({ disabled }: { disabled?: boolean }) {
-  const mode = useStore((s) => s.settings?.chatShellMode ?? 'ask')
+function cycleShellMode(wksp: string): void {
+  const s = getState()
+  const cur = chatControls(s.settings, wksp === MAIN_PANEL ? undefined : s.snap.allies.find((a) => a.name === wksp && !a.retiredAt)).shellMode
+  const i = SHELL_MODES.findIndex((m) => m.id === cur)
+  void saveChatControls(wksp, { shellMode: SHELL_MODES[(i + 1) % SHELL_MODES.length].id })
+}
+
+const inherits = (own: string | undefined): string => (own ? '' : ' (following Genio)')
+
+/** Chat approval-mode switcher (click or Shift+Tab in the input), à la Claude Code. One per chat. */
+function ShellModeButton({ wksp }: { wksp: string }) {
+  const { shellMode: mode, ally } = useChatControls(wksp)
   const m = SHELL_MODES.find((x) => x.id === mode) ?? SHELL_MODES[0]
   const auto = mode !== 'ask'
   return (
     <button
       className={cx('btn sm', mode === 'all' ? 'alert' : auto ? 'amber' : 'ghost')}
       style={{ marginRight: 12, verticalAlign: 'middle' }}
-      disabled={disabled}
-      title={disabled ? 'Approval mode applies to the Genio chat.' : `${m.hint}\nClick or Shift+Tab to switch.`}
-      onClick={cycleShellMode}
+      title={`${m.hint}${ally ? inherits(ally.shellMode) : ''}\nClick or Shift+Tab to switch.`}
+      onClick={() => cycleShellMode(wksp)}
     >
       {auto ? <TriangleAlert size={12} /> : <ShieldCheck size={12} />} {m.label}
     </button>
@@ -493,33 +527,28 @@ const APPLY_HINT = 'Applies from the next turn; a turn in progress finishes firs
 
 /**
  * Model/effort for this chat. Genio: the same wkspModel/wkspEffort settings as Systems › Genio.
- * An ally: its own recruit-time model and effort, shown read-only.
+ * An ally: its own saved values, following Genio's until changed here.
  */
 function ChatModelControls({ wksp }: { wksp: string }) {
-  const ally = useStore((s) => (wksp === MAIN_PANEL ? undefined : s.snap.allies.find((a) => a.name === wksp)))
-  const model = useStore((s) => (ally ? ally.model : s.settings?.wkspModel) ?? '')
-  const effort = useStore((s) => (ally ? ally.effort : s.settings?.wkspEffort) ?? '')
-  const disabled = wksp !== MAIN_PANEL
+  const { model, effort, ally } = useChatControls(wksp)
+  const who = ally ? ally.name : 'Genio'
   return (
     <>
       <ModelSelect
         value={model}
-        disabled={disabled}
-        title={disabled ? `${wksp} model, set when it was recruited (blank = default).` : `Genio model (blank = default). ${APPLY_HINT}`}
+        title={`${who} model (blank = default)${ally ? inherits(ally.model) : ''}. ${APPLY_HINT}`}
         style={COMPACT_SELECT}
-        onChange={(v) => void saveSettings({ wkspModel: v })}
+        onChange={(v) => void saveChatControls(wksp, { model: v })}
       />
       <EffortSelect
         value={effort}
-        disabled={disabled}
-        title={disabled ? `${wksp} effort, set when it was recruited.` : `Genio effort. ${APPLY_HINT}`}
+        title={`${who} effort${ally ? inherits(ally.effort) : ''}. ${APPLY_HINT}`}
         style={{ ...COMPACT_SELECT, marginRight: 12 }}
-        onChange={(v) => void saveSettings({ wkspEffort: v })}
+        onChange={(v) => void saveChatControls(wksp, { effort: v })}
       />
     </>
   )
 }
-
 function Roster() {
   const tasks = useStore(liveTasks)
   const now = useNow(1000)

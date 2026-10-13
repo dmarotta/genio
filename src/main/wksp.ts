@@ -22,6 +22,7 @@ import {
   HELP_TEXT, afkPrompt, botContract, eventsPrompt, genioContract, recapPrompt, returnPrompt, savePrompt, sessionStartPrompt,
   statusPrompt
 } from './prompts'
+import { chatControls } from '@shared/chat'
 import type { AppCtx, WkspService } from './services'
 import { claudeLimitsFile, recordClaudeRateLimit, type ClaudeRateLimitInfo } from './usage'
 import { appendJsonl, nowIso, readJson, readJsonl, readText, rid, truncate, writeJson } from './util'
@@ -110,6 +111,18 @@ export async function applyLiveConfig(q: LiveControls, from: SessionConfig, to: 
   } catch {
     return false
   }
+}
+
+/** The chat record of an incoming message: the player's own, a synthesized prompt, or a request routed from main Genio. */
+export function inboundMessage(wksp: string, text: string, origin: 'player' | 'system' | 'genio'): ChatMessage {
+  const m: ChatMessage = { id: `p-${rid(6)}`, wksp, role: origin === 'player' ? 'player' : 'system', text, ts: nowIso() }
+  if (origin === 'genio') m.from = 'genio'
+  return m
+}
+
+/** A message the player typed in a chat tab: it goes to that chat's base only (main or one ally). */
+export function sendPlayerChat(ctx: Pick<AppCtx, 'home'>, wksp: string, text: string, images?: ChatImageInput[]): Promise<void> {
+  return ctx.home(wksp).wksp.send(text, 'player', images)
 }
 
 const NOOP_RE = /^all clear[,!.]?(\s+[\w .'-]{0,40})?[.!]?$/i
@@ -497,6 +510,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
   let stopped = false
 
   const settings = (): ReturnType<AppCtx['settings']['get']> => getCtx().settings.get()
+  /** the ally record as saved now (its chat controls can change while the base runs) */
+  const liveAlly = (): Ally | undefined => (ally ? (safeGet(() => getCtx().allies.list().find((a) => a.name === ally.name && !a.retiredAt)) ?? ally) : undefined)
   const gamertag = (): string => settings().gamertag || 'Player'
 
   const saveState = (): void => {
@@ -551,7 +566,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
             sharedProfile: safeRead(() => mem.read('player-shared', home)),
             lore: safeRead(() => mem.read('lore', home))
           })
-    const { model, effort } = sessionConfig(role, s, ally)
+    const { model, effort } = sessionConfig(role, s, liveAlly())
     const opts: Options = {
       systemPrompt: { type: 'preset', preset: 'claude_code', append },
       cwd: home.root,
@@ -574,7 +589,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
   function makePolicy(role: ToolRole): CanUseTool {
     return async (toolName, input): Promise<PermissionResult> => {
       // read the mode at decision time so a switch applies without restarting the session
-      const d = decideTool(role, toolName, input, settings().chatShellMode ?? 'ask')
+      const d = decideTool(role, toolName, input, chatControls(settings(), liveAlly()).shellMode)
       if (d.behavior === 'allow') return { behavior: 'allow', updatedInput: input }
       if (d.behavior === 'deny') return d
       const allowed = await getCtx().permissions.ask({ wksp: name, tool: toolName, input: d.input, reason: d.reason })
@@ -635,7 +650,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       onRateLimit: rateLimit
     },
     name,
-    () => sessionConfig('genio', settings(), ally)
+    () => sessionConfig('genio', settings(), liveAlly())
   )
   genio.sessionId = persisted.sessionId
 
@@ -847,7 +862,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
         await ctx.away.set('online')
         prompt = `${returnPrompt(gamertag(), brief)}\n\nThen handle ${gamertag()}'s new message:\n${trimmed || '(see the attached image)'}`
       }
-      const m: ChatMessage = { id: `p-${rid(6)}`, wksp: name, role: origin === 'player' ? 'player' : 'system', text: trimmed, ts: nowIso() }
+      const m = inboundMessage(name, trimmed, origin)
       if (stored.refs.length) m.images = stored.refs
       record(m, true)
       bus.publish({ type: 'sfx', sound: 'send' })
@@ -914,6 +929,14 @@ function safe(fn: () => void): void {
     fn()
   } catch {
     /* optional collaborator */
+  }
+}
+
+function safeGet<T>(fn: () => T): T | undefined {
+  try {
+    return fn()
+  } catch {
+    return undefined
   }
 }
 

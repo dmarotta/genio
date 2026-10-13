@@ -1002,7 +1002,7 @@ function Allies() {
   return (
     <>
       <h2 className="sys-title">Allies</h2>
-      <p className="mute">Allied Genios with their own base, scope and charter. Genio routes in-scope work to them; they report back through Genio, never to you directly.</p>
+      <p className="mute">Allied Genios with their own base, scope and charter. Genio routes in-scope work to them and they report back through Genio. You can also talk to an ally directly in its chat tab.</p>
       <div className="ally-list">
         {allies.length === 0 && <div className="mute side-empty">No allies recruited.</div>}
         {allies.map((a) => (

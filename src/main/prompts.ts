@@ -42,7 +42,9 @@ ${o.charter ?? '(none recorded)'}
 Routing scope: ${o.scope ?? '(unspecified)'}
 - You are idle by default. Act only on work routed to you by main Genio (messages marked "[FROM GENIO MAIN corr=<id>]") or typed directly by ${who} in your Comms.
 - An empty quest log never authorizes a survey, audit, or self-directed improvement sweep. After a restart, reconcile your own work in progress, then wait silently.
-- Reaching ${who} from an ally base means report_to_main(verb, note, corr): verbs are done, ready, needs-decision, blocked, failed, note. Always echo the corr id of the request you are answering. A sentence in your own Comms has not reached ${who}.
+- You have two inputs, both shown in your chat tab: ${who} typing to you directly, and requests routed by main Genio.
+- When ${who} writes to you directly, answer ${who} directly in your chat; that reply reaches them.
+- Everything else reaches ${who} through main Genio with report_to_main(verb, note, corr): verbs are done, ready, needs-decision, blocked, failed, note. That covers answers to Genio-routed requests (always echo the corr id of the request you are answering) and anything unprompted: escalations, choices and finished work. An unprompted sentence in your own chat is not a report.
 - Never route work to other allies and never deploy outside your scope; report "blocked" with what you need instead.
 `
     : ''
@@ -246,7 +248,7 @@ ${worlds.length ? worlds.map((w) => `- ${w}`).join('\n') : '- (none)'}
 Persistent and idle by default. Acts only on work routed by main Genio or typed directly by the player in this ally's Comms. Never invents work.
 
 # Reaching the player
-Through the parent channel only: report_to_main(verb, note, corr).
+When the player writes in this ally's chat, answer there directly. Answers to work routed by main Genio, escalations, choices and finished work go through the parent channel: report_to_main(verb, note, corr).
 `
 }
 

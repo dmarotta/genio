@@ -17,6 +17,7 @@ import type {
   OpResult, ProjectAddRequest, ProjectCreateRequest, AllyCreateRequest, SpawnRequest, TaskFile, MemoryFile,
   FalRun, FalRunRequest, FalSaveRequest, FalSaveResult
 } from '@shared/api'
+import type { AllyControlsPatch } from '@shared/chat'
 import type { ChatImageInput } from '@shared/chat-images'
 import type { Home } from './home'
 
@@ -156,6 +157,8 @@ export interface AlliesService {
   list(): Ally[]
   create(req: AllyCreateRequest): Promise<Ally>
   retire(name: string): Promise<OpResult>
+  /** save an ally's own chat controls; the ally's session picks them up between turns */
+  update(name: string, patch: AllyControlsPatch): Ally
   /** route a request from the main wksp to a second unit (marked, correlated) */
   route(name: string, request: string): Promise<OpResult>
   /** a second unit reports to its parent channel (main home wakes) */
@@ -289,8 +292,8 @@ export interface SupervisorService {
 export interface WkspService {
   info(): WkspInfo
   history(limit?: number): ChatMessage[]
-  /** player message from the GUI (or mail / recap / save synthesized prompts) */
-  send(text: string, origin?: 'player' | 'system', images?: ChatImageInput[]): Promise<void>
+  /** player message from the GUI (or mail / recap / save synthesized prompts); 'genio' = routed by main Genio to an ally */
+  send(text: string, origin?: 'player' | 'system' | 'genio', images?: ChatImageInput[]): Promise<void>
   /** deliver queued wakes (drain → one turn → ack after the turn completes) */
   deliverWakes(): void
   interrupt(): Promise<void>

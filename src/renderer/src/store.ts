@@ -1,9 +1,10 @@
 import { useRef, useSyncExternalStore } from 'react'
 import type {
-  Achievement, ChatMessage, FleetSnapshot, GenioEvent, PermissionRequest, Settings, StatusEvent,
+  Achievement, Ally, ChatMessage, FleetSnapshot, GenioEvent, PermissionRequest, Settings, StatusEvent,
   TerminalInfo, Wake
 } from '@shared/types'
 import type { SpawnRequest } from '@shared/api'
+import { patchAllyControls, type AllyControlsPatch } from '@shared/chat'
 import { DOCK_STORAGE_KEY, closePanel, focusPanel, openPanel, parseDock, reconcileDock, serializeDock, spawnWorldAlly, type DockState } from './lib/dock'
 import { playSfx } from './lib/sfx'
 import { speak } from './lib/voice'
@@ -244,6 +245,30 @@ export async function spawnWorldAllyChat(world: string): Promise<void> {
   } catch (e) {
     toast('error', 'Could not spawn ally', errText(e))
     playSfx('error', state.settings)
+  }
+}
+
+/**
+ * Save one chat's controls (approval mode, model, effort). The main chat writes the Genio
+ * settings; an ally saves its own overrides ('' = follow the main chat). Either way they
+ * persist across restarts and apply to that chat's session from its next turn.
+ */
+export async function saveChatControls(wksp: string, patch: AllyControlsPatch): Promise<void> {
+  if (wksp === 'main') {
+    const p: Partial<Settings> = {}
+    if (patch.shellMode) p.chatShellMode = patch.shellMode
+    if (patch.model !== undefined) p.wkspModel = patch.model
+    if (patch.effort !== undefined) p.wkspEffort = patch.effort
+    return saveSettings(p)
+  }
+  const swap = (a: Ally): void => setState((s) => ({ snap: { ...s.snap, allies: s.snap.allies.map((x) => (x.name === a.name && !x.retiredAt ? a : x)) } }))
+  const cur = state.snap.allies.find((a) => a.name === wksp && !a.retiredAt)
+  if (cur) swap(patchAllyControls(cur, patch))
+  try {
+    swap(await api().allyUpdate(wksp, patch))
+  } catch (e) {
+    if (cur) swap(cur)
+    toast('error', 'Ally settings not saved', errText(e))
   }
 }
 

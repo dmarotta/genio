@@ -1,3 +1,4 @@
+import type { AllyControlsPatch } from './chat'
 import type {
   AwayMode, AwayState, BacklogItem, StatusReport, ChatMessage, DeliveryMode, Engine, FleetSnapshot,
   GenioEvent, LedgerRecord, Priority, Project, ProjectCommands, Ally, Settings, Task, TaskKind,
@@ -339,6 +340,8 @@ export interface GenioApi {
   // ---- second units
   allyCreate(req: AllyCreateRequest): Promise<Ally>
   allyRetire(name: string): Promise<OpResult>
+  /** save an ally chat's own approval mode / model / effort ('' = follow the main chat) */
+  allyUpdate(name: string, patch: AllyControlsPatch): Promise<Ally>
 
   // ---- self update
   checkUpdate(): Promise<UpdateInfo>
@@ -419,6 +422,7 @@ export const API_METHODS = [
   'wakes',
   'allyCreate',
   'allyRetire',
+  'allyUpdate',
   'checkUpdate',
   'applyUpdate'
 ] as const satisfies readonly ApiMethod[]

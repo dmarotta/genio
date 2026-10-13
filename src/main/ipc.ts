@@ -9,6 +9,7 @@ import type { Task } from '@shared/types'
 import { listAccounts, openAccountSession } from './accounts'
 import { answerChoice, findDecision, findTask } from './wksp-tools'
 import { resolveLoadout } from './loadout'
+import { sendPlayerChat } from './wksp'
 import { clearSecret, secretStatus, setSecret } from './secrets'
 import { usageReport } from './usage'
 import { isSubPath } from './util'
@@ -84,7 +85,7 @@ export function registerIpc(getCtx: () => AppCtx): void {
 
     // ---- comms
     chatHistory: (wksp, limit) => ctx().home(wksp).wksp.history(limit),
-    sendChat: (wksp, text, images) => ctx().home(wksp).wksp.send(text, 'player', images),
+    sendChat: (wksp, text, images) => sendPlayerChat(ctx(), wksp, text, images),
     interruptWksp: (wksp) => ctx().home(wksp).wksp.interrupt(),
     restartWksp: (wksp, fresh) => ctx().home(wksp).wksp.restart(fresh),
     resolvePermission: (id, allow) => ctx().permissions.resolve(id, allow),
@@ -182,6 +183,7 @@ export function registerIpc(getCtx: () => AppCtx): void {
     // ---- allies
     allyCreate: (req) => ctx().allies.create(req),
     allyRetire: (name) => ctx().allies.retire(name),
+    allyUpdate: async (name, patch) => ctx().allies.update(name, patch),
 
     // ---- patch
     checkUpdate: () => ctx().update.check(),
