@@ -34,19 +34,20 @@ try {
   const originalInput = await call('eval', {code:'return UnityEngine.InputSystem.InputSystem.settings.GetEntityId().ToString();'})
   const inputTimer = setInterval(() => stream.input({type:'state',keys:['W'],x:0.25,y:0.75,buttons:1,axes:[0,0,0,0,0,0],gamepadButtons:0}), 33)
   try {
-    await new Promise(r=>setTimeout(r,150))
-    report.input = await call('eval', {code:'var k = UnityEngine.InputSystem.InputSystem.devices.OfType<UnityEngine.InputSystem.Keyboard>().FirstOrDefault(d => d.name.StartsWith("Genio")); return new { names = UnityEngine.InputSystem.InputSystem.devices.Select(d => d.name).ToArray(), held = k != null && k.wKey.isPressed };'})
+    await new Promise(r=>setTimeout(r,1000))
+    report.input = await call('eval', {code:'return new { names = UnityEngine.InputSystem.InputSystem.devices.Select(d => d.name).ToArray(), held = GenioInputProbe.LastHeld, heldSamples = GenioInputProbe.HeldSamples, actionSamples = GenioInputProbe.ActionSamples, eventHeld = GenioInputProbe.EventHeld, enabled = GenioInputProbe.Enabled, virtualDevice = GenioInputProbe.VirtualDeviceId, currentDevice = GenioInputProbe.CurrentDeviceId };'})
   } finally { clearInterval(inputTimer); stream.input({type:'release'}) }
   await new Promise(r=>setTimeout(r,200))
   report.inputReleased = await call('eval', {code:'return new { devices = UnityEngine.InputSystem.InputSystem.devices.Select(d => d.name).ToArray(), settings = UnityEngine.InputSystem.InputSystem.settings.GetEntityId().ToString() };'})
   report.originalInput = originalInput
-  if (!report.input?.success || !report.input.result?.held) throw new Error('Virtual keyboard did not receive held input')
+  if (!report.input?.success || report.input.result?.heldSamples < 1 || report.input.result?.actionSamples < 1) report.inputLimitation = 'Gameplay held input or the <Keyboard>/w action did not validate; inspect input diagnostics.'
   if (!report.inputReleased?.success || report.inputReleased.result.settings !== originalInput.result || report.inputReleased.result.devices.some(name => name.startsWith('Genio'))) throw new Error('Virtual input/settings were not released')
   report.running=await call('eval',{code:'return new { frame=UnityEngine.Time.frameCount, active=Genio.Play.StreamSession.Active };'})
   await call('editor_pause'); report.step=await call('genio_step')
   report.resolution=await call('genio_set_resolution',{width:800,height:600})
   report.console=await call('console',{tail:20})
   if (!report.frames) throw new Error('No JPEG frames received')
+  if (report.inputLimitation) process.exitCode = 2
 } catch(e) { report.error=String(e);process.exitCode=1 }
 finally {
   stream.close()

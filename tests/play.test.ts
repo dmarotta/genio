@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import http from 'node:http'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { UnityAdapter, pipelineRequest } from '../src/main/play-unity'
 import { snapshotDelay } from '../src/shared/play'
 import { unityEditor, unityVersion } from '../src/main/play-editor'
@@ -119,4 +119,24 @@ it('resolves the installed editor for the exact project version, never PATH unit
   expect(unityVersion(root)).toBe(version)
   expect(unityEditor(root,[base])).toBe(editor)
   expect(unityEditor(root,[path.join(root,'missing')])).toBeUndefined()
+})
+it('releases a lease after preparation when its Play window closes during the copy', async () => {
+  const svc = new PlayService({stats:{unlock:vi.fn()}} as unknown as AppCtx)
+  let finish!: () => void, began!: () => void
+  const started = new Promise<void>(r => { began = r })
+  const copying = new Promise<void>(r => { finish = r })
+  const lease = {id:1,token:'lease',root}
+  const pool = {
+    acquire:vi.fn().mockResolvedValue(lease), check:vi.fn().mockResolvedValue(root),
+    state:vi.fn().mockResolvedValue({cap:1,slots:[{id:1,root}],queue:[]}),
+    prepare:vi.fn().mockImplementation(async () => { began(); await copying; return root }),
+    release:vi.fn().mockResolvedValue(undefined),cancel:vi.fn().mockResolvedValue(undefined),releaseMain:vi.fn().mockResolvedValue(undefined)
+  }
+  vi.spyOn(svc,'pool').mockReturnValue(pool as unknown as ReturnType<PlayService['pool']>)
+  const selecting = svc.selectSlot('game',1)
+  await started; await svc.detach('game')
+  expect(pool.release).not.toHaveBeenCalled()
+  finish(); await selecting
+  expect(pool.release).toHaveBeenCalledWith(1,'lease')
+  expect((await svc.poolState('game')).selected).toBeUndefined()
 })

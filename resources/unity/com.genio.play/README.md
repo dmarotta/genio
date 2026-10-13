@@ -19,6 +19,8 @@ The optional Input System assembly creates virtual keyboard, mouse and gamepad d
 
 Input is neutralized on pause, focus loss, release, disconnection and a 300 ms input watchdog. In the Editor, a temporary clone of Input System settings routes input to the game; the original settings object is restored without saving an asset. Scene reload, domain reload, detach and quit remove temporary objects and devices. After a reload, restart the stream from Genio. Keep the Game view tab active in Unity: Unity's end-of-frame capture can suspend when another editor tab becomes active.
 
+**Experimental input limitation:** the Unity 6000.5.1f1 smoke confirmed W held for 132 gameplay samples and one `<Keyboard>/w` action, with the virtual keyboard enabled and current. Explicit release did not remove devices or restore the original settings within the probe's 200 ms window after a sustained input burst. Editor load/queued packets can delay release. Leave capture off for observation, and stop the live stream or Play Mode for full detach if input remains held. Do not treat this version's release latency as validated for interactive play. The task's `smoke-result.json` and `unity-smoke/editor-guidance.log` contain the diagnostics; the run also received 142 JPEG frames in five seconds. No further input smoke was attempted after this result, as directed by Genio.
+
 The Editor tick pump uses the same `SignalTick` method validated by the throttle spike, while the temporary streaming object is active. It does not change Pipeline's own autotick preferences. `Application.runInBackground` is restored on disconnect.
 
 ## Shared instances
@@ -35,4 +37,4 @@ Rebuild the deterministic tarball with `node scripts/pack-unity-play.mjs` from t
 
 `node --experimental-transform-types scripts/play-stream-smoke.mjs <scratch-project> <scratch-output>`
 
-It verifies authenticated frame delivery, virtual input, release, pause, step, resolution and stop. It saves a JPEG orientation fixture (green above blue) and a JSON report in scratch output. Never target a game world with this script.
+Copy `scripts/unity-smoke/GenioInputProbe.cs` into the disposable fixture's Assets before launching. The probe records held input and a `<Keyboard>/w` action in gameplay updates; Editor callbacks can read a different input state buffer. It logs device identity, enabled state and received W state. The script verifies frame delivery, release/settings restoration, pause, step, resolution and stop, and separately records any input limitation (exit code 2). It saves a JPEG orientation fixture (green above blue) and a JSON report in scratch output. Never target a game world with this script.

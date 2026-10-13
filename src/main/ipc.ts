@@ -25,6 +25,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
   const ctx = (): AppCtx => getCtx()
   const inventoryClients = new Map<number, Set<string>>()
   const playConnections = new Map<string, () => void>()
+  const playClients = new Map<number, string>()
   const closeUnusedInventory = (world: string): void => {
     if (![...inventoryClients.values()].some(worlds => worlds.has(world))) ctx().inventory.close(world)
   }
@@ -265,7 +266,17 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
         }
         const binding = windows?.binding(_e.sender.id)
         if (windows && !binding && ['sendChat', 'recap', 'save', 'restartWksp', 'interruptWksp', 'unqueueChat', 'approveGeneration'].includes(method)) throw new Error('Open a project window to use its chat.')
-        if (method.startsWith('play') && method !== 'playtest') assertPlayWindow(binding, args[0])
+        if (method.startsWith('play') && method !== 'playtest') {
+          assertPlayWindow(binding, args[0])
+          if (!playClients.has(_e.sender.id)) {
+            const world = args[0] as string, sender = _e.sender
+            playClients.set(sender.id, world)
+            sender.once('destroyed', () => {
+              playClients.delete(sender.id); playConnections.get(world)?.()
+              void playService(ctx()).detach(world).catch(() => {})
+            })
+          }
+        }
         if (method === 'playStream') {
           const [world, enabled, width = 1280, height = 720] = args as [string, boolean, number?, number?]
           playConnections.get(world)?.()

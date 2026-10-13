@@ -43,10 +43,11 @@ namespace Genio.Play
             temporarySettings.editorInputBehaviorInPlayMode = InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
 #endif
             InputSystem.settings = temporarySettings;
-            keyboard = InputSystem.AddDevice<Keyboard>("Genio Keyboard");
+            keyboard = InputSystem.AddDevice<Keyboard>("GenioVirtualKeyboard");
             mouse = InputSystem.AddDevice<Mouse>("Genio Mouse");
             pad = InputSystem.AddDevice<Gamepad>("Genio Gamepad");
             InputSystem.EnableDevice(keyboard); InputSystem.EnableDevice(mouse); InputSystem.EnableDevice(pad);
+            keyboard.MakeCurrent();
         }
         static void Apply(string json)
         {
@@ -54,6 +55,7 @@ namespace Genio.Play
             try { p = JsonUtility.FromJson<Packet>(json); } catch { Release(); return; }
             if (p == null || p.type == "release") { Remove(); return; }
             if (p.type != "state" || p.keys == null || p.keys.Length > 32 || p.axes == null || p.axes.Length != 6) { Release(); return; }
+            bool firstPacket = keyboard == null;
             Ensure();
             var keys = new List<Key>();
             foreach (var name in p.keys) if (Enum.TryParse<Key>(name, true, out var key) && key != Key.None) keys.Add(key);
@@ -65,6 +67,9 @@ namespace Genio.Play
             var buttons = new[] { GamepadButton.South, GamepadButton.East, GamepadButton.West, GamepadButton.North, GamepadButton.LeftShoulder, GamepadButton.RightShoulder, GamepadButton.Select, GamepadButton.Start, GamepadButton.LeftStick, GamepadButton.RightStick, GamepadButton.DpadUp, GamepadButton.DpadDown, GamepadButton.DpadLeft, GamepadButton.DpadRight };
             for (int i = 0; i < buttons.Length; i++) if ((p.gamepadButtons & (1 << i)) != 0) state = state.WithButton(buttons[i]);
             InputSystem.QueueStateEvent(pad, state);
+            // Flush the initial state after creating devices while the Editor is
+            // unfocused. Later packets use Unity's normal per-frame input update.
+            if (firstPacket) InputSystem.Update();
         }
         static void Release()
         {

@@ -34,7 +34,7 @@ it('reclaims expired leases, prunes stale queues, and refuses cap reduction acro
 })
 it('allocates at most one lease across separate Node processes', async () => {
   const module=pathToFileURL(path.resolve('resources/unit-skills/genio/skills/play/scripts/pool.mjs')).href
-  const script=`import {PlayPool} from ${JSON.stringify(module)}; const p=new PlayPool(process.argv[1],process.argv[2]); console.log(JSON.stringify(await p.acquire(process.argv[3]))); setTimeout(()=>{},2000);`
+  const script=`import {PlayPool} from ${JSON.stringify(module)}; const p=new PlayPool(process.argv[1],process.argv[2]); console.log(JSON.stringify(await p.acquire(process.argv[3]))); setInterval(()=>{},1000);`
   const children=Array.from({length:3},(_,i)=>spawn(process.execPath,['--no-warnings','--input-type=module','-e',script,data,world,`unit:${i}`],{windowsHide:true,stdio:['ignore','pipe','pipe']}))
   try {
     const results=await Promise.all(children.map(c=>new Promise<unknown>((resolve,reject)=>{let out='';c.stdout.on('data',b=>{out+=b;if(out.includes('\n')) resolve(JSON.parse(out.trim()))});c.once('error',reject);c.stderr.on('data',b=>reject(new Error(String(b))))})))

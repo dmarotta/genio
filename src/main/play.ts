@@ -26,6 +26,7 @@ export class PlayService {
   private poolBusy = new Set<string>()
   private streamHeartbeats = new Map<string, ReturnType<typeof setInterval>>()
   private lostSlots = new Set<string>()
+  private pendingDetach = new Set<string>()
   constructor(private ctx: AppCtx) {}
   private project(world: string, main = false) {
     const p = this.ctx.projects.get(world)
@@ -63,7 +64,10 @@ export class PlayService {
       try { if (!(await pool.state()).slots.find(s => s.id === lease.id)?.revision) await pool.prepare(lease.id, lease.token) }
       catch (error) { clearInterval(timer); this.heartbeats.delete(world); this.leases.delete(world); await pool.release(lease.id, lease.token); throw error }
       this.ctx.stats.unlock(takeover ? 'play-takeover' : 'play-slot')
-    } finally { this.poolBusy.delete(world) }
+    } finally {
+      this.poolBusy.delete(world)
+      if (this.pendingDetach.delete(world)) await this.detach(world)
+    }
   }
   async enableStreaming(world: string) {
     if (this.leases.has(world)) throw new Error('Enable the package on the main copy and commit it before preparing a slot')
@@ -110,7 +114,10 @@ export class PlayService {
     // Closing the socket tears down Unity's session and releases input. Do not send
     // a delayed stop command: it could disconnect a successor's new stream.
   }
-  async detach(world: string): Promise<void> { await this.selectSlot(world); await this.pool(world).releaseMain() }
+  async detach(world: string): Promise<void> {
+    if (this.poolBusy.has(world)) { this.pendingDetach.add(world); this.stopStreamLocal(world); return }
+    await this.selectSlot(world); await this.pool(world).releaseMain()
+  }
   adapter(world: string): EngineAdapter {
     const { root } = this.project(world)
     const lease = this.leases.get(world)
