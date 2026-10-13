@@ -173,6 +173,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       env: { ...process.env, CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION: 'false', CLAUDE_AGENT_SDK_CLIENT_APP: 'genio/0.1.0' }
     }
     if (role === 'bot') {
+      opts.tools = [] // All Bot tools, for either provider, go through the guarded bridge.
       const bridge = await openChatToolBridge(getCtx, { home, role: 'bot', worlds: '*', signal: new AbortController().signal,
         hooks: { escalate: botEscalate } })
       opts.mcpServers = { genio: { command: process.execPath, args: [bridge.entry],
@@ -203,6 +204,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       decisions: hc.decisions.list(true), permissions: chatControls(settings(), liveAlly()).shellMode })
   }
   function providerChanged(from: ChatProvider, to: ChatProvider): void {
+    void closeChatToolBridges(getCtx(), name, 'genio')
     say(`Provider changed: ${from} to ${to}. Shared a bounded handoff; existing provider sessions are retained.`, 'system')
     safe(() => getCtx().stats.unlock('chat-provider-switch'))
     saveState()
@@ -331,7 +333,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       selection: selectedProvider,
     config: driverConfig,
       create: (provider, events, config) => createDriver(provider, 'bot', events, config),
-      persisted: persisted.botProviders, handoff: handoffContext, switched: () => {},
+      persisted: persisted.botProviders, handoff: handoffContext,
+      switched: () => { void closeChatToolBridges(getCtx(), name, 'bot') },
       events: {
         onMessage(m, final) {
           if (final) appendJsonl(botFile, m)

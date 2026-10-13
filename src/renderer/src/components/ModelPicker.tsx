@@ -134,7 +134,7 @@ export function ModelPicker({ value, onChange, onAccounts, ...props }: ModelSele
               style={{ display: 'block', width: '100%', textAlign: 'left', whiteSpace: 'normal', height: 'auto', color: canDrive(route) ? undefined : 'var(--muted, #8b949e)', overflowWrap: 'anywhere', padding: 10, margin: '6px 0' }}>
               <strong><Icon size={14} aria-hidden="true" /> {modelRowLabel(model)}{selected?.key === model.key ? ' ✓' : ''}</strong>
               <div>{STATES[route.state]}{modelSelectionAction(route) === 'accounts' ? ' - Open Accounts' : ''}{route.reason ? ` · ${route.reason}` : ''}{route.stale ? ' · Stale catalogue' : ''}{route.sourceAt ? ` · discovered ${ago(route.sourceAt)}` : ''}</div>
-              {!canDrive(route) && route.state === 'connected' && <div>chat driver coming soon</div>}
+              {modelSelectionAction(route) === 'coming-soon' && <div>chat driver coming soon</div>}
               <div className="mute">{usageText(route, usage)}{model.images === undefined ? '' : model.images ? ' · Images supported' : ' · Text only'}</div>
             </button>)}
           </div>

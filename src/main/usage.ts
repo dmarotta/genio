@@ -500,7 +500,7 @@ async function codexUsage(root: string, now: number, data: string): Promise<Tool
     if (!s) continue
     // plan limits are account-wide: every session's snapshot counts
     snapshots.push(...s.snapshots)
-    if (s.cwd && isSubPath(s.cwd, root)) {
+    if (chats.includes(f) || s.cwd && isSubPath(s.cwd, root)) {
       records.push(...s.records)
       const world = worldOf(s.cwd, root)
       if (world) for (const r of s.records) worlds.set(r, world)
