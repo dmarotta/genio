@@ -100,7 +100,7 @@ function dod(i: BriefInput): string {
     lines.push('3. Append `done: PR <full https url>` and stop. A PR deliberately kept as a draft is reported with `paused: <why>` instead.')
   } else {
     lines.push('1. Implement the mission and commit on the build branch. Do not push, open a PR, or merge.')
-    lines.push(`2. Keep the branch a clean fast-forward of \`${i.baseBranch}\` (rebase onto it if it moved).`)
+    lines.push(`2. Keep the branch a clean fast-forward of the local \`${i.baseBranch}\` (rebase onto it if it moved; not origin's copy, which may be behind).`)
     lines.push(`3. Append \`done: ready in branch ${i.branch}\` and stop. Genio lands it after approval.`)
   }
   return lines.join('\n')

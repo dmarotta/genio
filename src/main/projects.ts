@@ -4,8 +4,9 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import type { DeliveryMode, Engine, Forge, Project, ProjectCommands } from '@shared/types'
+import type { DeliveryMode, Engine, Forge, Project, ProjectCommands, ProjectMode } from '@shared/types'
 import type { OpResult, ProjectAddRequest, ProjectCreateRequest } from '@shared/api'
+import { modeLabel, modeSourceOf } from '@shared/vocab'
 import type { AppCtx, ProjectsService } from './services'
 import { bus } from './bus'
 import { Home, defaultHomeRoot } from './home'
@@ -91,6 +92,39 @@ export function forgeFromRemote(remote?: string): Forge {
   return 'none'
 }
 
+/**
+ * The app's default delivery mode: it follows the remote. No remote → Offline; a GitHub remote →
+ * Standard (PRs); any other remote (GitLab, Gitea, self-hosted) → Offline with local landing and
+ * push on demand (world_push), since Genio only drives PRs through GitHub.
+ */
+export function autoModeFor(remote?: string): ProjectMode {
+  return forgeFromRemote(remote) === 'github' ? 'direct-PR' : 'local-only'
+}
+
+/** Forge recorded for a mode: Offline worlds never use one. */
+function forgeFor(mode: ProjectMode, remote?: string): Forge {
+  return mode === 'local-only' ? 'none' : forgeFromRemote(remote)
+}
+
+/**
+ * Re-read a world's remote. When it changed, record it; an auto mode follows the new remote,
+ * a manual one is kept. Returns the updated entry and a one-line notice, or undefined if unchanged.
+ */
+export function applyRemoteChange(p: Project, remote: string | undefined): { next: Project; notice: string } | undefined {
+  if ((remote ?? '') === (p.remote ?? '')) return undefined
+  const auto = modeSourceOf(p) === 'auto'
+  const mode = auto ? autoModeFor(remote) : p.mode
+  const next: Project = { ...p, remote, mode, modeSource: auto ? 'auto' : 'manual', forge: forgeFor(mode, remote) }
+  const what = remote ? (p.remote ? `remote changed to ${remote}` : `gained remote ${remote}`) : 'lost its remote'
+  const how =
+    mode !== p.mode
+      ? `delivery ${modeLabel(p.mode)} → ${modeLabel(mode)} (follows the remote)`
+      : auto
+        ? `delivery stays ${modeLabel(mode)}`
+        : `delivery stays ${modeLabel(mode)} (set by hand)`
+  return { next, notice: `${p.name} ${what}: ${how}.` }
+}
+
 const GITIGNORE: Record<Engine, string> = {
   godot: '.godot/\n.import/\nexport.cfg\nexport_presets.cfg\n*.translation\n',
   unity: '/[Ll]ibrary/\n/[Tt]emp/\n/[Oo]bj/\n/[Bb]uild/\n/[Bb]uilds/\n/[Ll]ogs/\n/[Uu]ser[Ss]ettings/\n*.csproj\n*.sln\n.vs/\n',
@@ -145,7 +179,8 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
       path: path.resolve(dir),
       remote,
       defaultBranch: await git.defaultBranch(dir),
-      mode: req.mode ?? (remote ? 'no-mistakes' : 'local-only'),
+      mode: req.mode ?? autoModeFor(remote),
+      modeSource: req.mode ? 'manual' : 'auto',
       yolo: req.yolo ?? false,
       branchPrefix: req.branchPrefix ?? DEFAULT_BRANCH_PREFIX,
       forge: req.forge ?? forgeFromRemote(remote),
@@ -236,6 +271,10 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
       const i = list.findIndex((p) => p.name === name)
       if (i < 0) throw new Error(`Unknown world: ${name}`)
       const next: Project = { ...list[i], ...patch, name: list[i].name, commands: { ...list[i].commands, ...(patch.commands ?? {}) } }
+      // Choosing a mode pins it; asking for 'auto' hands it back to the remote.
+      if (patch.modeSource === 'auto') next.mode = autoModeFor(next.remote)
+      else if (patch.mode !== undefined) next.modeSource = 'manual'
+      if (patch.mode !== undefined || patch.modeSource === 'auto') next.forge = forgeFor(next.mode, next.remote)
       if (next.mode === 'local-only') next.forge = 'none'
       list[i] = next
       save([...list])
@@ -287,10 +326,32 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
       return { ok: true, message: `${name} removed${deleteClone && p.managed ? ' and its clone deleted' : ''}.` }
     },
 
+    async refreshRemotes(name) {
+      const notices: string[] = []
+      const list = [...load()]
+      for (let i = 0; i < list.length; i++) {
+        const p = list[i]
+        if ((name && p.name !== name) || !exists(p.path) || !(await git.isRepo(p.path))) continue
+        const change = applyRemoteChange(p, await git.remoteUrl(p.path))
+        if (!change) continue
+        list[i] = change.next
+        notices.push(change.notice)
+        try {
+          getCtx().ledger.record({ event: 'project.remote_changed', project: p.name, data: { from: p.remote, to: change.next.remote, modeFrom: p.mode, mode: change.next.mode } })
+        } catch {
+          /* ledger optional */
+        }
+        bus.toast('info', 'World remote changed', change.notice)
+      }
+      if (notices.length) save(list)
+      return notices
+    },
+
     async sync(name): Promise<OpResult> {
+      const notices = await svc.refreshRemotes(name)
       const targets = name ? load().filter((p) => p.name === name) : load()
       if (name && !targets.length) return { ok: false, message: `Unknown world: ${name}` }
-      const lines: string[] = []
+      const lines: string[] = [...notices]
       let ok = true
       for (const p of targets) {
         if (!exists(p.path)) {
@@ -298,8 +359,19 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
           ok = false
           continue
         }
-        if (p.mode === 'local-only' || !(await git.hasRemote(p.path))) {
+        if (!(await git.hasRemote(p.path))) {
           lines.push(`${p.name}: offline world, nothing to sync`)
+          continue
+        }
+        if (p.mode === 'local-only') {
+          // Offline with a remote: landings are local, so only refresh origin's refs; never touch local branches.
+          const f = await git.fetch(p.path)
+          const st = f.code === 0 ? await git.pushStatus(p.path, p.defaultBranch) : undefined
+          lines.push(
+            f.code !== 0
+              ? `${p.name}: offline world; could not reach origin (${f.stderr.trim()})`
+              : `${p.name}: offline world; ${st && st.ahead ? `${st.ahead} commit(s) on ${p.defaultBranch} not pushed` : `${p.defaultBranch} has nothing to push`}${st && st.behind ? `, ${st.behind} on origin not local` : ''}`
+          )
           continue
         }
         const r = await git.syncClone(p.path, p.defaultBranch)
@@ -307,6 +379,30 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
         lines.push(`${p.name}: ${r.message}${r.pruned.length ? ` (pruned ${r.pruned.join(', ')})` : ''}`)
       }
       return { ok, message: lines.join('\n') || 'No worlds registered.' }
+    },
+
+    async pushStatus(name) {
+      const p = svc.get(name)
+      if (!p || p.mode !== 'local-only' || !exists(p.path)) return undefined
+      return git.pushStatus(p.path, p.defaultBranch)
+    },
+
+    async push(name, branch): Promise<OpResult> {
+      const p = svc.get(name)
+      if (!p) return { ok: false, message: `Unknown world: ${name}` }
+      if (!exists(p.path)) return { ok: false, message: `The clone of ${name} is missing at ${p.path}.` }
+      if (!(await git.hasRemote(p.path))) return { ok: false, message: `${name} has no remote: work lands locally and there is nothing to push to.` }
+      if (p.mode !== 'local-only') {
+        return { ok: false, message: `${name} is ${modeLabel(p.mode)}: work reaches origin through PRs. Push on demand is for Offline worlds.` }
+      }
+      const target = branch?.trim() || p.defaultBranch
+      const r = await git.pushOnDemand(p.path, target)
+      try {
+        getCtx().ledger.record({ event: r.ok ? 'project.pushed' : 'project.push_refused', project: name, data: { branch: target, ahead: r.ahead, behind: r.behind } })
+      } catch {
+        /* ledger optional */
+      }
+      return { ok: r.ok, message: `${name}: ${r.message}` }
     },
 
     resolvePosture(name, opts = {}) {

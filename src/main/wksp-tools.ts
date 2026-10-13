@@ -367,7 +367,7 @@ export function buildTools(
 
   t(
     'world_add',
-    'Register a world: clone a git URL / owner/repo, or register a local folder in place (in_place=true). Confirm name, source and posture with the player first.',
+    'Register a world: clone a git URL / owner/repo, or register a local folder in place (in_place=true). Omit mode to let it follow the remote (none/other → Offline, GitHub → Standard); a mode you pass is pinned. Confirm name, source and posture with the player first.',
     {
       source: z.string(), name: z.string().optional(),
       mode: z.enum(['no-mistakes', 'direct-PR', 'local-only', 'no-mistakes-prod-only']).optional(),
@@ -397,9 +397,9 @@ export function buildTools(
 
   t(
     'world_update',
-    'Change a world\'s registry entry: mode, Auto-loot (only on the player\'s word), branch prefix, capacity, engine commands (setup/build/test/lint/run), description.',
+    'Change a world\'s registry entry: mode (pins it; mode=auto makes it follow the remote again), Auto-loot (only on the player\'s word), branch prefix, capacity, engine commands (setup/build/test/lint/run), description.',
     {
-      world: z.string(), mode: z.enum(['no-mistakes', 'direct-PR', 'local-only', 'no-mistakes-prod-only']).optional(),
+      world: z.string(), mode: z.enum(['no-mistakes', 'direct-PR', 'local-only', 'no-mistakes-prod-only', 'auto']).optional(),
       auto_loot: z.boolean().optional(), player_words: z.string().optional(), branch_prefix: z.string().optional(),
       capacity: z.number().int().min(0).optional(), description: z.string().optional(),
       commands: z.object({ setup: z.string().optional(), build: z.string().optional(), test: z.string().optional(), lint: z.string().optional(), run: z.string().optional() }).optional()
@@ -407,7 +407,8 @@ export function buildTools(
     async (a) => {
       if (a.auto_loot === true && (role === 'bot' || !a.player_words?.trim())) return fail('Auto-loot is granted only on the player\'s explicit word (player_words)')
       const patch: Record<string, unknown> = {}
-      if (a.mode) patch.mode = a.mode
+      if (a.mode === 'auto') patch.modeSource = 'auto'
+      else if (a.mode) patch.mode = a.mode
       if (a.auto_loot !== undefined) patch.yolo = a.auto_loot
       if (a.branch_prefix !== undefined) patch.branchPrefix = a.branch_prefix
       if (a.capacity !== undefined) patch.capacity = a.capacity
@@ -428,10 +429,21 @@ export function buildTools(
     return r.ok ? ok(r.message) : fail(r.message)
   })
 
-  t('world_sync', "Guarded sync of a world's main copy (fast-forward default branch, prune merged gone branches). Omit world for all.", { world: z.string().optional() }, async ({ world }) => {
+  t('world_sync', "Guarded sync of a world's main copy (re-detect the remote, fast-forward default branch, prune merged gone branches; Offline worlds only fetch). Omit world for all.", { world: z.string().optional() }, async ({ world }) => {
     const r = await getCtx().projects.sync(world)
     return r.ok ? ok(r.message) : fail(r.message)
   })
+
+  t(
+    'world_push',
+    "Push on demand for an Offline world with a remote: pushes the default branch (or `branch`) to origin, reporting ahead/behind first. A plain fast-forward push only: refuses when origin has diverged, never forces. Outward-facing: only on the player's request.",
+    { world: z.string(), branch: z.string().optional() },
+    async ({ world, branch }) => {
+      if (role === 'bot') return fail('pushing waits for the player: it is outward-facing')
+      const r = await getCtx().projects.push(world, branch)
+      return r.ok ? ok(r.message) : fail(r.message)
+    }
+  )
 
   // ------------------------------------------------------------ status, memory, mail
   t('status_report', 'The four-section status screen (Your Move, Loot, In Progress, Up Next). include_prs adds live GitHub PR enrichment; file=true also saves today\'s report.', { include_prs: z.boolean().default(false), file: z.boolean().default(false) }, async ({ include_prs, file }) => {

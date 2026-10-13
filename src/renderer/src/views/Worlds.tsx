@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, FolderOpen, Gamepad2, Globe, Play, Plus, RefreshCw, Rocket, Sparkles, Trash, Users } from 'lucide-react'
+import { ChevronDown, ChevronRight, FolderOpen, Gamepad2, Globe, Play, Plus, RefreshCw, Rocket, Sparkles, Trash, Upload, Users } from 'lucide-react'
+import type { PushStatus } from '@shared/api'
+import { modeSourceOf } from '@shared/vocab'
 import type { CostDial, Engine, Project, ProjectCommands, ProjectMode } from '@shared/types'
 import { DIAL_HINT, DIAL_LABEL, cheapModelsAllowed } from '@shared/dispatch'
 import { api, errText, op, openDeploy, setState, spawnWorldAllyChat, toast, useStore } from '../store'
@@ -79,6 +81,26 @@ function WorldCard({ p, highlight }: { p: Project; highlight: boolean }) {
   const ally = useStore((s) => allyForWorld(s.snap.allies, p.name))
   const [spawning, setSpawning] = useState(false)
   const ref = useRef<HTMLElement>(null)
+  // Offline worlds with a remote push on demand: show what origin is missing.
+  const pushable = p.mode === 'local-only' && !!p.remote
+  const landed = useStore((s) => s.snap.tasks.filter((t) => t.project === p.name && (t.state === 'merged' || t.state === 'cleaned')).length)
+  const [push, setPush] = useState<PushStatus | undefined>()
+  const [pushTick, setPushTick] = useState(0)
+  const [pushing, setPushing] = useState(false)
+  useEffect(() => {
+    if (!pushable) {
+      setPush(undefined)
+      return
+    }
+    let live = true
+    api()
+      .projectPushStatus(p.name)
+      .then((s) => live && setPush(s))
+      .catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [pushable, p.name, p.defaultBranch, landed, pushTick])
 
   useEffect(() => {
     if (highlight && ref.current) {
@@ -113,12 +135,25 @@ function WorldCard({ p, highlight }: { p: Project; highlight: boolean }) {
       {p.description && <p className="dim world-desc">{p.description}</p>}
       <div className="world-path mono mute" title={p.path}>
         {shortPath(p.path, 3)} · {p.defaultBranch}
-        {p.remote ? ` · ${p.forge}` : ' · no remote'}
+        {p.remote ? ` · ${p.forge === 'none' ? 'remote' : p.forge}` : ' · no remote'}
+        {pushable && push && (push.ahead > 0 || push.behind > 0) && (
+          <span className="amber-text" title={`origin/${push.branch}${push.remoteMissing ? ' does not exist yet' : ''}`}>
+            {' · '}
+            {push.ahead > 0 && `${push.ahead} commit${push.ahead === 1 ? '' : 's'} not pushed`}
+            {push.ahead > 0 && push.behind > 0 && ', '}
+            {push.behind > 0 && `${push.behind} on origin not local`}
+          </span>
+        )}
       </div>
 
       <div className="world-controls">
-        <Field label="Delivery" hint={MODE_HINT[p.mode]}>
-          <select className="select" value={p.mode} onChange={(e) => update({ mode: e.target.value as ProjectMode })}>
+        <Field label="Delivery" hint={modeSourceOf(p) === 'auto' ? `Follows the remote · ${MODE_HINT[p.mode]}` : MODE_HINT[p.mode]}>
+          <select
+            className="select"
+            value={modeSourceOf(p) === 'auto' ? 'auto' : p.mode}
+            onChange={(e) => update(e.target.value === 'auto' ? { modeSource: 'auto' } : { mode: e.target.value as ProjectMode })}
+          >
+            <option value="auto">Auto · {MODE_LABEL[p.mode]} (follows the remote)</option>
             {PROJECT_MODES.map((m) => (
               <option key={m} value={m} disabled={m !== 'local-only' && !p.remote}>
                 {MODE_LABEL[m]}
@@ -199,9 +234,24 @@ function WorldCard({ p, highlight }: { p: Project; highlight: boolean }) {
         >
           <Users size={12} /> {ally ? 'Open ally' : spawning ? 'Spawning…' : 'Spawn ally'}
         </button>
-        <button className="btn sm ghost" onClick={() => void op('Sync', () => api().projectSync(p.name))}>
+        <button className="btn sm ghost" onClick={() => void op('Sync', () => api().projectSync(p.name)).then(() => setPushTick((n) => n + 1))}>
           <RefreshCw size={12} /> Sync
         </button>
+        {pushable && (
+          <button
+            className="btn sm ghost"
+            disabled={pushing}
+            title={`Push ${p.defaultBranch} to origin (fast-forward only, never forced)`}
+            onClick={async () => {
+              setPushing(true)
+              await op('Push', () => api().projectPush(p.name))
+              setPushing(false)
+              setPushTick((n) => n + 1)
+            }}
+          >
+            <Upload size={12} /> {pushing ? 'Pushing…' : 'Push'}
+          </button>
+        )}
         <button className="btn sm ghost icon" title="Open folder" onClick={() => void api().openPath(p.path)}>
           <FolderOpen size={13} />
         </button>
@@ -305,7 +355,7 @@ function AddWorld({ onClose }: { onClose: () => void }) {
         </Field>
         <Field label="Delivery">
           <select className="select" value={mode} onChange={(e) => setMode(e.target.value as ProjectMode | '')}>
-            <option value="">Auto (Hardcore with a remote, Offline without)</option>
+            <option value="">Auto (follows the remote: GitHub → Standard, otherwise Offline)</option>
             {PROJECT_MODES.map((m) => (
               <option key={m} value={m}>
                 {MODE_LABEL[m]}

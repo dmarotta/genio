@@ -434,7 +434,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       const branch = `${posture.branchPrefix}${id}`
       const baseBranch = req.baseBranch?.trim() || project.defaultBranch
       const wt = home.worktreeFor(project.name, id)
-      const add = await git.addWorktree(project.path, wt, branch, baseBranch)
+      // Offline worlds land locally and push on demand: branch from the local default, not origin's.
+      const add = await git.addWorktree(project.path, wt, branch, baseBranch, posture.mode === 'local-only')
       if (add.code !== 0) throw new Error(`Could not create the isolated worktree: ${add.stderr.trim()}`)
       const iso = await git.assertIsolated(project.path, wt)
       if (!iso.ok) {
@@ -658,7 +659,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         if (reasons.length && !force) return { ok: false, message: `Refusing to despawn ${id}: ${reasons.join('; ')}.` }
         via = 'recon scratch'
       } else if (repo) {
-        const verdict = await git.landedVerdict(repo, t.worktree, t.branch, t.baseBranch, t.pr?.state === 'MERGED')
+        const verdict = await git.landedVerdict(repo, t.worktree, t.branch, t.baseBranch, t.pr?.state === 'MERGED', t.mode === 'local-only')
         if (!verdict.landed && !force) {
           return { ok: false, message: `Refusing to despawn ${id}: unlanded work (${verdict.reasons.join('; ')}). Only the player can authorise discarding it.` }
         }
@@ -792,7 +793,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         case 'diff': {
           if (!exists(t.worktree)) return '(worktree removed)'
           const project = getCtx().projects.get(t.project)
-          const ref = project ? await git.baseRef(project.path, t.baseBranch) : t.baseBranch
+          const ref = project ? await git.baseRef(project.path, t.baseBranch, t.mode === 'local-only') : t.baseBranch
           return (await git.diff(t.worktree, ref)) || '(no changes)'
         }
         case 'log':

@@ -51,8 +51,13 @@ export async function fetch(repo: string): Promise<ExecResult> {
   return git(repo, ['fetch', '--prune', 'origin'], 300_000)
 }
 
-/** Base ref to branch from: origin/<base> when a remote exists, else local <base>. */
-export async function baseRef(repo: string, base: string): Promise<string> {
+/**
+ * Base ref to branch from: origin/<base> when a remote exists, else local <base>.
+ * `local` forces the local branch: Offline worlds land locally and push on demand,
+ * so origin may lag behind and branching from it would start units on stale code.
+ */
+export async function baseRef(repo: string, base: string, local = false): Promise<string> {
+  if (local) return base
   const r = await git(repo, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${base}`])
   return r.code === 0 ? `origin/${base}` : base
 }
@@ -62,13 +67,13 @@ export async function branchExists(repo: string, branch: string): Promise<boolea
 }
 
 /** Create an isolated worktree on a fresh branch. Refuses to reuse the primary checkout. */
-export async function addWorktree(repo: string, wtPath: string, branch: string, base: string): Promise<ExecResult> {
+export async function addWorktree(repo: string, wtPath: string, branch: string, base: string, localBase = false): Promise<ExecResult> {
   if (path.resolve(wtPath) === path.resolve(repo)) {
     return { code: 1, stdout: '', stderr: 'refusing: worktree path equals the primary checkout' }
   }
   ensureDir(path.dirname(wtPath))
-  if (await hasRemote(repo)) await fetch(repo)
-  const from = await baseRef(repo, base)
+  if (!localBase && (await hasRemote(repo))) await fetch(repo)
+  const from = await baseRef(repo, base, localBase)
   if (await branchExists(repo, branch)) {
     return git(repo, ['worktree', 'add', wtPath, branch])
   }
@@ -148,7 +153,8 @@ export async function landedVerdict(
   wtPath: string,
   branch: string,
   base: string,
-  prMerged: boolean
+  prMerged: boolean,
+  localBase = false
 ): Promise<LandedVerdict> {
   const reasons: string[] = []
   let uncommitted = 0
@@ -162,7 +168,7 @@ export async function landedVerdict(
     return { landed: reasons.length === 0, reasons, uncommitted, unpushedCommits: 0, via: 'no-commits' }
   }
   if (await hasRemote(repo)) await fetch(repo)
-  const ref = await baseRef(repo, base)
+  const ref = await baseRef(repo, base, localBase)
   const unique = await aheadBehind(dir, head, ref)
   let via: LandedVerdict['via']
   if (unique.ahead === 0) via = 'no-commits'
@@ -245,6 +251,40 @@ export async function commitAll(dir: string, message: string): Promise<ExecResul
 
 export async function push(dir: string, branch: string): Promise<ExecResult> {
   return git(dir, ['push', '-u', 'origin', branch], 300_000)
+}
+
+/** Local <branch> vs origin/<branch> as of the last fetch (no network). undefined without a remote or local branch. */
+export async function pushStatus(repo: string, branch: string): Promise<{ branch: string; ahead: number; behind: number; remoteMissing: boolean } | undefined> {
+  if (!(await hasRemote(repo)) || !(await branchExists(repo, branch))) return undefined
+  const tracked = await git(repo, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`])
+  if (tracked.code !== 0) {
+    const n = parseInt(await out(repo, ['rev-list', '--count', branch]), 10) || 0
+    return { branch, ahead: n, behind: 0, remoteMissing: true }
+  }
+  return { branch, ...(await aheadBehind(repo, `refs/heads/${branch}`, `origin/${branch}`)), remoteMissing: false }
+}
+
+/**
+ * Push on demand (Offline worlds with a remote): fetch, report ahead/behind, then a plain
+ * fast-forward push of <branch> to origin. Refuses when origin has commits the local branch
+ * lacks (diverged or behind). Never forces: no --force, no +refspec.
+ */
+export async function pushOnDemand(repo: string, branch: string): Promise<{ ok: boolean; message: string; ahead: number; behind: number }> {
+  if (!(await hasRemote(repo))) return { ok: false, message: 'no remote: nothing to push to', ahead: 0, behind: 0 }
+  if (!/^[\w./-]+$/.test(branch) || branch.startsWith('-')) return { ok: false, message: `invalid branch name: ${branch}`, ahead: 0, behind: 0 }
+  if (!(await branchExists(repo, branch))) return { ok: false, message: `no local branch ${branch}`, ahead: 0, behind: 0 }
+  const f = await fetch(repo)
+  if (f.code !== 0) return { ok: false, message: `fetch failed: ${f.stderr.trim()}`, ahead: 0, behind: 0 }
+  const st = (await pushStatus(repo, branch))!
+  const where = st.remoteMissing ? `origin has no ${branch} yet` : `${st.ahead} ahead, ${st.behind} behind origin/${branch}`
+  if (st.behind > 0) {
+    const what = st.ahead > 0 ? 'has diverged from' : 'is behind'
+    return { ok: false, message: `refused: local ${branch} ${what} origin/${branch} (${where}). Genio never force-pushes; integrate the remote commits first.`, ahead: st.ahead, behind: st.behind }
+  }
+  if (st.ahead === 0) return { ok: true, message: `${branch} is already up to date with origin`, ahead: 0, behind: 0 }
+  const p = await git(repo, ['push', 'origin', `refs/heads/${branch}:refs/heads/${branch}`], 300_000)
+  if (p.code !== 0) return { ok: false, message: `push refused by git (${where}): ${(p.stderr || p.stdout).trim()}`, ahead: st.ahead, behind: st.behind }
+  return { ok: true, message: `pushed ${st.ahead} commit(s) on ${branch} to origin (${where})`, ahead: st.ahead, behind: 0 }
 }
 
 export async function deleteBranch(repo: string, branch: string, force = false): Promise<ExecResult> {

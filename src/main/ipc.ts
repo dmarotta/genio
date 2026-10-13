@@ -197,6 +197,8 @@ export function registerIpc(getCtx: () => AppCtx): void {
     projectUpdate: (name, patch) => ctx().projects.update(name, patch),
     projectRemove: (name, deleteClone) => ctx().projects.remove(name, deleteClone),
     projectSync: (name) => ctx().projects.sync(name),
+    projectPushStatus: (name) => ctx().projects.pushStatus(name),
+    projectPush: (name, branch) => ctx().projects.push(name, branch),
 
     // ---- status / presence / memory / mail
     statusReport: (opts) => ctx().statusReport.generate(opts),

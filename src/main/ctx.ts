@@ -141,6 +141,8 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
 export async function startApp(ctx: AppCtx): Promise<void> {
   ctx.inbox.configure()
   ctx.fal.resume()
+  // a world's remote may have changed while Genio was closed: auto modes follow it
+  void ctx.projects.refreshRemotes().catch(() => undefined)
   for (const h of ctx.homes.values()) {
     await h.crew.reconcileOnStart()
     h.supervisor.start()

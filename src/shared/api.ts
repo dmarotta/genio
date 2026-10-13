@@ -40,6 +40,14 @@ export interface ProjectAddRequest {
   inPlace?: boolean
 }
 
+/** Local branch vs origin, as last fetched. `remoteMissing` = origin has no such branch yet. */
+export interface PushStatus {
+  branch: string
+  ahead: number
+  behind: number
+  remoteMissing: boolean
+}
+
 export interface ProjectCreateRequest {
   name: string
   engine: Engine
@@ -475,6 +483,10 @@ export interface GenioApi {
   projectUpdate(name: string, patch: Partial<Project> & { commands?: ProjectCommands }): Promise<Project>
   projectRemove(name: string, deleteClone: boolean): Promise<OpResult>
   projectSync(name?: string): Promise<OpResult>
+  /** commits on the local default branch not yet on origin (Offline worlds with a remote) */
+  projectPushStatus(name: string): Promise<PushStatus | undefined>
+  /** guarded, never-forced push of the default (or a named) branch to origin */
+  projectPush(name: string, branch?: string): Promise<OpResult>
 
   // ---- debrief / modes / memory
   statusReport(opts: { file: boolean; includePRs: boolean }): Promise<StatusReport>
@@ -572,6 +584,8 @@ export const API_METHODS = [
   'projectUpdate',
   'projectRemove',
   'projectSync',
+  'projectPushStatus',
+  'projectPush',
   'statusReport',
   'setAway',
   'readMemory',

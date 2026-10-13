@@ -33,6 +33,10 @@ export interface Project {
   remote?: string
   defaultBranch: string
   mode: ProjectMode
+  /** 'auto' = the mode follows the remote (none/other -> Offline, GitHub -> Standard) and Genio
+   *  switches it when the remote changes; 'manual' = the player chose it and it is never auto-changed.
+   *  Absent on older entries: see projects.ts modeSourceOf. */
+  modeSource?: 'auto' | 'manual'
   yolo: boolean
   branchPrefix: string
   forge: Forge
@@ -360,7 +364,8 @@ export interface LedgerRecord {
   event:
     | 'task.dispatched' | 'task.status' | 'task.pr_ready' | 'task.merged' | 'task.cleaned_up' | 'task.relaunched'
     | 'decision.opened' | 'decision.resolved' | 'backlog.added' | 'backlog.state'
-    | 'project.added' | 'project.removed' | 'presence.changed' | 'achievement'
+    | 'project.added' | 'project.removed' | 'project.remote_changed' | 'project.pushed' | 'project.push_refused'
+    | 'presence.changed' | 'achievement'
   task?: string
   project?: string
   data?: Record<string, unknown>

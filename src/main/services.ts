@@ -16,7 +16,7 @@ import type {
 import type {
   OpResult, ProjectAddRequest, ProjectCreateRequest, AllyCreateRequest, SpawnRequest, TaskFile, MemoryFile,
   FalRun, FalRunRequest, FalSaveRequest, FalSaveResult, FalCatalogue, FalModelInfo, FalSearchHit, FalWorldState, FalWorldConfig, FalRecipe,
-  AccountStatus, UsageReport
+  AccountStatus, UsageReport, PushStatus
 } from '@shared/api'
 import type { DispatchScoresView } from '@shared/dispatch'
 import type { PickEnv } from './loadout'
@@ -44,6 +44,12 @@ export interface ProjectsService {
   remove(name: string, deleteClone: boolean): Promise<OpResult>
   /** guarded fleet sync (fast-forward default branch, prune merged gone branches) */
   sync(name?: string): Promise<OpResult>
+  /** re-read each world's remote; auto modes follow a changed remote (manual ones are kept). Returns notices. */
+  refreshRemotes(name?: string): Promise<string[]>
+  /** unpushed/behind counts of the default branch for Offline worlds with a remote */
+  pushStatus(name: string): Promise<PushStatus | undefined>
+  /** guarded push on demand (Offline worlds): fast-forward only, never forced */
+  push(name: string, branch?: string): Promise<OpResult>
   /** resolve the concrete delivery posture for a task (mode never guessed). */
   resolvePosture(name: string, opts?: { mode?: DeliveryMode; yolo?: boolean; surface?: 'product' | 'internal' }): {
     mode: DeliveryMode
