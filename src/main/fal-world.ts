@@ -1,7 +1,7 @@
 /**
  * A world's .genio/ folder: small, committable text that travels with the
  * world (units see it once it is committed). Genio writes here only on an
- * explicit player action (guarded agent placement, Save to world, or settings) and
+ * explicit player action (guarded agent placement or world settings) and
  * never commits; it never edits the world's root .gitignore/.gitattributes.
  *
  *   .genio/README.md        what this folder is
@@ -11,7 +11,7 @@
  *   .genio/fal/config.json  save folders per kind, budget, per-endpoint defaults
  *   .genio/fal/recipes.json named presets (per-world favourites)
  *   .genio/fal/catalogue.json  optional: {add: [...entries], hide: [...endpoints]}
- *   .genio/uthana/config.json  Animation screen: save folder
+ *   .genio/uthana/config.json  animation save folder
  *   .genio/provenance/<asset path>.json  one record per saved generated asset
  *   .genio/spend.jsonl      one line per paid call (estimated USD)
  *
@@ -35,15 +35,15 @@ const README = `# .genio
 
 Machine-readable data Genio keeps with this world. Small text only; safe to read and edit by hand.
 
-- \`fal/config.json\`: save folders per output kind, the monthly budget and the confirm threshold for the FAL screen.
+- \`fal/config.json\`: save folders per output kind, the monthly budget and the shared paid-generation confirmation threshold.
 - \`fal/recipes.json\`: named generation presets (this world's favourites). Units read them.
 - \`fal/catalogue.json\` (optional): \`{"add": [...], "hide": [...]}\` to extend or trim Genio's curated FAL catalogue for this world.
-- \`uthana/config.json\`: the Animation screen's save folder for this world.
+- \`uthana/config.json\`: the animation save folder for this world.
 - \`provenance/<asset path>.json\`: how each saved generated asset was made (model, request id, input, estimated price, sha256).
 - \`spend.jsonl\`: one line per paid generation call (estimated USD). Merges with \`merge=union\`.
 - \`cache/\`: ignored, normally empty. Genio keeps run history and downloads in its own data folder.
 
-Genio writes here for guarded agent placement or explicit Save actions from its FAL or Animation screens, and never commits. Commit these files with the assets they describe.
+Genio writes here for guarded agent placement or explicit world settings changes, and never commits. Commit these files with the assets they describe.
 `
 
 /** Create .genio/ with its own README, .gitignore and .gitattributes (never overwrites them). */

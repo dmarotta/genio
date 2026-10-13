@@ -1,8 +1,4 @@
-/**
- * FAL screen logic shared by main and renderer: cost estimates, the per-world
- * budget check, world filtering of history, save-folder suggestions and the
- * "Use as input" chain targets. Pure functions; no I/O.
- */
+/** Shared generation estimates, budget accounting, folder suggestions and asset search. */
 import type { FalBudget, FalCatalogueEntry, FalOutputKind, FalPrice, FalRun } from './api'
 import type { Engine } from './types'
 
@@ -163,14 +159,6 @@ export function worldSpend(lines: SpendLine[], runs: FalRun[], world: string | n
 
 // ---------------------------------------------------------------- history
 
-export type HistoryScope = 'world' | 'all'
-
-/** null world = Scratch (runs with no world). */
-export function filterRuns(runs: FalRun[], world: string | null, scope: HistoryScope): FalRun[] {
-  if (scope === 'all') return runs
-  return runs.filter((r) => (r.world ?? null) === world)
-}
-
 // ---------------------------------------------------------------- worlds
 
 const KIND_DIR: Record<FalOutputKind, string> = { image: 'Art', audio: 'Audio', model: 'Models', video: 'Video', other: 'Generated' }
@@ -196,11 +184,6 @@ export function suggestFolder(engine: Engine | undefined, kind: FalOutputKind, e
 
 // ---------------------------------------------------------------- catalogue
 
-/** Catalogue entries that can take an output of this kind as their main input. */
-export function chainTargets(entries: FalCatalogueEntry[], kind: FalOutputKind): FalCatalogueEntry[] {
-  return entries.filter((e) => e.accepts === kind)
-}
-
 /** Substring first, then subsequence (same idea as the command palette). -1 = no match. */
 export function matchScore(needle: string, hay: string): number {
   const n = needle.trim().toLowerCase()
@@ -212,10 +195,3 @@ export function matchScore(needle: string, hay: string): number {
   for (const ch of h) if (ch === n[i]) i++
   return i === n.length ? 1000 : -1
 }
-
-export function entryHaystack(e: FalCatalogueEntry, jobLabel = ''): string {
-  return `${e.label} ${e.hint} ${e.endpoint} ${jobLabel} ${e.output}`
-}
-
-const TIER_RANK: Record<string, number> = { core: 0, alt: 1, post: 2 }
-export const byTier = (a: FalCatalogueEntry, b: FalCatalogueEntry): number => (TIER_RANK[a.tier] ?? 3) - (TIER_RANK[b.tier] ?? 3)

@@ -1,5 +1,5 @@
 /**
- * Animation screen (Uthana) logic shared by main and renderer: run and
+ * Uthana generation logic shared by main and renderer: run and
  * character records, the models Genio offers with their published prices,
  * download (export) option mapping, cost estimates and the per-world spend.
  * Pure functions; no I/O. API facts were checked against uthana.com/docs/api
@@ -204,7 +204,7 @@ export interface UthanaFile {
   createdAt: string
 }
 
-/** One Uthana call from the Animation screen (generation or character upload) and what came back. */
+/** One Uthana generation service call (generation or character upload) and what came back. */
 export interface UthanaRun {
   id: string
   kind: UthanaRunKind
@@ -268,13 +268,6 @@ export function uthanaWorldSpend(lines: SpendLine[], falRuns: FalRun[], runs: Ut
     total += runCost(r) ?? 0
   }
   return total
-}
-
-export type UthanaScope = 'world' | 'all'
-
-/** History of one world (null = Scratch) or of every world. */
-export function filterUthanaRuns(runs: UthanaRun[], world: string | null, scope: UthanaScope): UthanaRun[] {
-  return scope === 'all' ? runs : runs.filter((r) => (r.world ?? null) === world)
 }
 
 /** Characters remembered for a world, newest first, without duplicates. */
@@ -449,7 +442,7 @@ export function exportFileName(motionName: string | undefined, format: UthanaFor
 /** <world>/.genio/uthana/config.json */
 export interface UthanaWorldConfig {
   schema?: string
-  /** where Save to world puts animations, relative to the world root */
+  /** where generated animations are saved, relative to the world root */
   folder?: string
   [k: string]: unknown
 }

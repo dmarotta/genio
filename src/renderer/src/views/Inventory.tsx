@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Box, ChevronDown, ChevronRight, FileImage, Film, Folder, FolderOpen, Grid2X2, List, Music, RefreshCw, Search } from 'lucide-react'
+import { Box, ChevronDown, ChevronRight, FileImage, Film, Folder, FolderOpen, Grid2X2, List, Music, RefreshCw, Search, Settings } from 'lucide-react'
 import type { AssetKind, InventoryAsset, InventoryFolder, InventoryInfo, InventoryQuery, InventoryState } from '@shared/inventory'
-import { api, errText, go, op, useStore } from '../store'
+import { api, errText, go, op, setState, useStore } from '../store'
 import { cx } from '../lib/format'
 import { assetBytes, breadcrumbs, previewKind, thumbnailUrl, virtualWindow } from '../lib/inventory'
 import { GlbViewer } from '../components/GlbViewer'
@@ -31,6 +31,7 @@ export function Inventory() {
         {!projects.length && <option value="">No worlds</option>}
         {projects.map(p => <option key={p.name}>{p.name}</option>)}
       </select>
+      {world && <button className="btn sm ghost" onClick={() => setState({ view: 'worlds', highlightWorld: world })}><Settings size={14} /> Generation settings</button>}
       <span className="dim">Explore · select · preview</span>
     </header>
     {world ? <WorldInventory key={world} world={world} root={projects.find(p => p.name === world)!.path} />

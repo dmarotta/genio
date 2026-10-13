@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { FalRun } from '@shared/api'
 import {
-  estimateUthana, exportFileName, exportProblems, exportQuery, exportWarnings, filterUthanaRuns, jobError, jobMotionIds, motionFileUrl, motionOnlyUrl, runStatusOfJob,
+  estimateUthana, exportFileName, exportProblems, exportQuery, exportWarnings, jobError, jobMotionIds, motionFileUrl, motionOnlyUrl, runStatusOfJob,
   textParamErrors, textParamsFor, uthanaWorldSpend, worldCharacters, type UthanaCharacterRecord, type UthanaRun
 } from '@shared/uthana'
 import type { FetchFn } from '../src/main/fal'
@@ -206,11 +206,7 @@ describe('Uthana runs, jobs and spend', () => {
 
   const run = (p: Partial<UthanaRun>): UthanaRun => ({ id: p.id ?? 'r', kind: 'text', model: 'text-to-motion-3.0', input: {}, characterId: 'c1', status: 'completed', files: [], createdAt: new Date().toISOString(), ...p })
 
-  it('keeps history and characters per world', () => {
-    const runs = [run({ id: 'a', world: 'golem' }), run({ id: 'b' }), run({ id: 'c', world: 'other' })]
-    expect(filterUthanaRuns(runs, 'golem', 'world').map((r) => r.id)).toEqual(['a'])
-    expect(filterUthanaRuns(runs, null, 'world').map((r) => r.id)).toEqual(['b'])
-    expect(filterUthanaRuns(runs, 'golem', 'all')).toHaveLength(3)
+  it('keeps characters per world', () => {
     const ch = (id: string, world: string | undefined, createdAt: string): UthanaCharacterRecord => ({ id, name: id, world, createdAt })
     const list = [ch('c1', 'golem', '2026-10-01'), ch('c2', 'golem', '2026-10-05'), ch('c1', 'golem', '2026-09-01'), ch('c3', undefined, '2026-10-02')]
     expect(worldCharacters(list, 'golem').map((c) => c.id)).toEqual(['c2', 'c1'])

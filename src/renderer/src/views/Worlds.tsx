@@ -1,3 +1,4 @@
+import { GenerationSettings } from '../components/GenerationSettings'
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, FolderOpen, Gamepad2, Globe, MoreHorizontal, Package, Settings, Search, Play, Plus, RefreshCw, Rocket, Sparkles, Trash, Upload, Users } from 'lucide-react'
 import type { PushStatus } from '@shared/api'
@@ -126,6 +127,7 @@ function WorldRow({ p, highlight, metadata }: { p: Project; highlight: boolean; 
 
   useEffect(() => {
     if (highlight && ref.current) {
+      setSettings(true)
       ref.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
       const t = window.setTimeout(() => setState({ highlightWorld: undefined }), 2000)
       return () => window.clearTimeout(t)
@@ -265,7 +267,7 @@ function WorldRow({ p, highlight, metadata }: { p: Project; highlight: boolean; 
         </div>
       )}
 
-      <section className="world-generation"><h4>Generation</h4><p className="mute">Generation settings coming soon.</p></section>
+      <GenerationSettings world={p.name} />
       </section>}
 
       {confirmYolo && (

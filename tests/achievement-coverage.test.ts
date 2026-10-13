@@ -5,7 +5,7 @@ import { RAIL, navItems } from '../src/renderer/src/lib/railmenu'
 
 // Deliberately explicit: add new player-facing tools here, with their feature tag.
 const PLAYER_FACING_TOOLS: Record<string, string> = {
-  fal_generate: 'agent_generation', uthana_motion: 'agent_generation', uthana_character: 'agent_generation', asset_place: 'asset_place',
+  fal_generate: 'fal_generate', uthana_motion: 'uthana_motion', uthana_character: 'agent_generation', asset_place: 'asset_place',
   deploy: 'deploy', merge: 'move', run_gauntlet: 'squad', quest_add: 'quests',
   world_add: 'worlds', world_create: 'worlds', world_push: 'world_push',
   memory_write: 'lore', generate_image: 'generate_image', rate_task: 'rate_task',
@@ -48,5 +48,11 @@ describe('achievement feature coverage', () => {
   it('gives every achievement a tag and a unique stable id', () => {
     expect(new Set(ACHIEVEMENTS.map((a) => a.id)).size).toBe(ACHIEVEMENTS.length)
     for (const a of ACHIEVEMENTS) expect(a.feature.trim(), `${a.id}: ${help}`).not.toBe('')
+  })
+  it('keeps the original provider achievement ids mapped to live agent tools', () => {
+    for (const [id, tool] of [['fal-first', 'fal_generate'], ['animation-first', 'uthana_motion']]) {
+      expect(ACHIEVEMENTS.find((a) => a.id === id)?.feature).toBe(PLAYER_FACING_TOOLS[tool])
+      expect(navItems().map((v) => v.id)).not.toContain(tool === 'fal_generate' ? 'fal' : 'animation')
+    }
   })
 })

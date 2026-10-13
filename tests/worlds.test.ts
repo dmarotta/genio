@@ -7,7 +7,7 @@ import { worldList, worldPath, modifiedLabel } from '../src/renderer/src/lib/wor
 const fixture = vi.hoisted(() => ({ projects: [] as Project[], tasks: [], allies: [], enabled: false, go: vi.fn(), deploy: vi.fn(), ally: vi.fn(), update: vi.fn(), push: vi.fn(), sync: vi.fn(), openPath: vi.fn(), playtest: vi.fn() }))
 vi.mock('../src/renderer/src/store', () => ({
   useStore: (selector: (s: unknown) => unknown) => selector({ snap: { projects: fixture.projects, tasks: fixture.tasks, allies: fixture.allies } }),
-  api: () => ({ projectMetadata: async () => ({}), projectPushStatus: async () => ({ ahead: 2, behind: 0 }), projectUpdate: fixture.update, projectPush: fixture.push, projectSync: fixture.sync, openPath: fixture.openPath, playtest: fixture.playtest }),
+  api: () => ({ falWorld: async () => ({ config: {} }), uthanaWorld: async () => ({ config: {} }), projectMetadata: async () => ({}), projectPushStatus: async () => ({ ahead: 2, behind: 0 }), projectUpdate: fixture.update, projectPush: fixture.push, projectSync: fixture.sync, openPath: fixture.openPath, playtest: fixture.playtest }),
   hasView: () => fixture.enabled, go: fixture.go, openDeploy: fixture.deploy, spawnWorldAllyChat: fixture.ally,
   op: async (_: string, fn: () => unknown) => fn(), setState: vi.fn(), toast: vi.fn(), errText: String
 }))

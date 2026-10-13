@@ -1,6 +1,6 @@
 # Inventory screen v1
 
-Open Inventory with **Ctrl+9**, the folder icon in the rail, or a world's **Inventory** button. The world switcher remembers the last world; navigation from Worlds takes precedence. FAL.ai and Uthana remain available in the command palette, and Ctrl+0 still opens Animation.
+Open Inventory with **Ctrl+9**, the folder icon in the rail, or a world's **Inventory** button. The world switcher remembers the last world; navigation from Worlds takes precedence. Generate assets through the Inventory chat. Per-world budgets, folder overrides and the Codex image switch are in Worlds > world settings > Generation.
 
 The hierarchy contains only indexed media, with recursive counts under the active filters. Select a folder to browse it and its descendants. **Ours** excludes vendor packs; **Vendor packs** and **All assets** reveal them with a circled-v badge. Search supports the index service's name/path matching and tokens such as `t:sfx`, `ext:png`, `in:UI`, `l:sprite`, `by:unit`, and `via:fal`. Type chips support multiple selections, tags are comma-separated, and Generated selects assets with Genio provenance. Sort by name, type, size or modification time.
 

@@ -11,10 +11,7 @@ import type {
 import type { DispatchScoresView } from './dispatch'
 import type { ChatImageInput } from './chat-images'
 import type { InventoryInfo, InventoryQuery, InventoryResult, InventoryState } from './inventory'
-import type {
-  UthanaAccount, UthanaExportRequest, UthanaExportResult, UthanaFile, UthanaFileInfo, UthanaGenerateRequest, UthanaPreviewRequest, UthanaRemoteCharacter, UthanaRun,
-  UthanaUploadRequest, UthanaWorldConfig, UthanaWorldState
-} from './uthana'
+import type { UthanaWorldConfig, UthanaWorldState } from './uthana'
 
 export interface SpawnRequest {
   kind: TaskKind
@@ -219,7 +216,7 @@ export interface FalOutput {
   downloadError?: string
 }
 
-/** A FAL.ai queue request and what came back (FAL screen history). */
+/** A FAL.ai queue request and what came back (generation history). */
 export interface FalRun {
   id: string
   endpoint: string
@@ -426,54 +423,11 @@ export interface GenioApi {
   apiKeySet(id: string, key: string): Promise<OpResult>
   apiKeyClear(id: string): Promise<OpResult>
 
-  // ---- FAL.ai (runs in main with the stored key; the key never reaches the renderer)
-  falRuns(): Promise<FalRun[]>
-  falRun(req: FalRunRequest): Promise<FalRun>
-  falCancel(id: string): Promise<OpResult>
-  falDelete(id: string): Promise<OpResult>
-  falSave(req: FalSaveRequest): Promise<FalSaveResult>
-  /** folder picker rooted at a world; returns the path relative to it */
-  falPickFolder(project: string): Promise<string | null>
-  /** curated catalogue (+ the world's additions) with cached live info; refreshes when a day old */
-  falCatalogue(world: string | null, refresh?: boolean): Promise<FalCatalogue>
-  /** one endpoint's info and input schema (fetched and cached when missing) */
-  falModel(endpoint: string): Promise<FalModelInfo>
-  /** search every FAL model (not curated) */
-  falSearch(q: string): Promise<FalSearchHit[]>
+  // ---- per-world generation settings
   falWorld(world: string | null): Promise<FalWorldState>
-  /** explicit save of the world's FAL settings (.genio/fal/config.json) */
   falWorldConfig(world: string | null, config: FalWorldConfig): Promise<FalWorldState>
-  falRecipeSave(world: string | null, recipe: FalRecipe): Promise<FalRecipe[]>
-  falRecipeDelete(world: string | null, id: string): Promise<FalRecipe[]>
-  /** file picker for a file input: inside the world when given, else anywhere; absolute path */
-  falPickFile(world: string | null, kind?: FalOutputKind): Promise<string | null>
-
-  // ---- Animation (Uthana; runs in main with the stored key, which never reaches the renderer)
-  uthanaRuns(): Promise<UthanaRun[]>
   uthanaWorld(world: string | null): Promise<UthanaWorldState>
-  /** explicit save of the world's animation settings (.genio/uthana/config.json) */
   uthanaWorldConfig(world: string | null, config: UthanaWorldConfig): Promise<UthanaWorldState>
-  /** free queries: account, quotas and pay-as-you-go figures (also checks the key) */
-  uthanaAccount(): Promise<UthanaAccount>
-  /** characters in the Uthana account (free query) */
-  uthanaCharacters(): Promise<UthanaRemoteCharacter[]>
-  /** forget a remembered character in this world (Uthana keeps it) */
-  uthanaForgetCharacter(world: string | null, id: string): Promise<UthanaWorldState>
-  /** file picker for a character model or a video: inside the world when given, else anywhere */
-  uthanaPickFile(world: string | null, kind: 'character' | 'video'): Promise<UthanaFileInfo | null>
-  /** check a dropped file (type, size, video length) */
-  uthanaInspect(path: string, kind: 'character' | 'video', world: string | null): Promise<UthanaFileInfo>
-  /** upload a character (auto-rigs when it has no skeleton); runs in the background */
-  uthanaUpload(req: UthanaUploadRequest): Promise<UthanaRun>
-  /** text- or video-to-motion; runs in the background (submit → poll) */
-  uthanaGenerate(req: UthanaGenerateRequest): Promise<UthanaRun>
-  /** stop waiting for a job (Uthana has no cancel: it may still finish and bill) */
-  uthanaCancel(id: string): Promise<OpResult>
-  uthanaDelete(id: string): Promise<OpResult>
-  /** download (once) the GLB to play in the viewer */
-  uthanaPreview(req: UthanaPreviewRequest): Promise<UthanaFile>
-  /** download as FBX/GLB/BVH with options, into a world (provenance, no overwrite unless confirmed) or anywhere */
-  uthanaExport(req: UthanaExportRequest): Promise<UthanaExportResult>
 
   // ---- bridge (chat with Genio / second units)
   approveGeneration(wksp: string, run: string): Promise<import('./generation').GenerationCard>
@@ -583,34 +537,10 @@ export const API_METHODS = [
   'apiKeys',
   'apiKeySet',
   'apiKeyClear',
-  'falRuns',
-  'falRun',
-  'falCancel',
-  'falDelete',
-  'falSave',
-  'falPickFolder',
-  'falCatalogue',
-  'falModel',
-  'falSearch',
   'falWorld',
   'falWorldConfig',
-  'falRecipeSave',
-  'falRecipeDelete',
-  'falPickFile',
-  'uthanaRuns',
   'uthanaWorld',
   'uthanaWorldConfig',
-  'uthanaAccount',
-  'uthanaCharacters',
-  'uthanaForgetCharacter',
-  'uthanaPickFile',
-  'uthanaInspect',
-  'uthanaUpload',
-  'uthanaGenerate',
-  'uthanaCancel',
-  'uthanaDelete',
-  'uthanaPreview',
-  'uthanaExport',
   'approveGeneration',
   'chatHistory',
   'sendChat',

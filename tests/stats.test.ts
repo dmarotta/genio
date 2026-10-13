@@ -27,6 +27,15 @@ const publish = (ev: unknown): void => bus.publish(ev as GenioEvent)
 
 describe('live achievement outcomes', () => {
   it.each([
+    ['fal-first', { type: 'fal-run', run: { id: 'agent-fal', world: 'test', status: 'completed', outputs: [{}] } }],
+    ['animation-first', { type: 'uthana-run', run: { id: 'agent-motion', world: 'test', status: 'completed', kind: 'text', motionId: 'motion' } }]
+  ])('unlocks %s from agent provider completion without a screen visit', (id, event) => {
+    const svc = createStatsService(() => ctx)
+    publish(event)
+    publish(event)
+    expect(svc.get().achievements.filter((a) => a.unlockedAt).map((a) => a.id)).toEqual([id])
+  })
+  it.each([
     ['screenshot', 'screenshot'], ['dock-split', 'dock-split'], ['world_push', 'push-first'],
     ['rate_task', 'rating-first'], ['account-login', 'account-login'], ['yolo-chat', 'yolo-chat'],
     ['quest_add', 'quest-first'], ['world_add', 'world-first'], ['memory_write', 'lore-first'], ['inventory-index', 'inventory-index']

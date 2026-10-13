@@ -4,11 +4,11 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { InventoryInfo, InventoryQuery, InventoryState } from '../src/shared/inventory'
 vi.mock('../src/renderer/src/views/Comms', () => ({ ChatPanel: () => null }))
-const f = vi.hoisted(() => ({ world: 'alpha', open: vi.fn(), close: vi.fn(), list: vi.fn(), info: vi.fn(), go: vi.fn(), on: vi.fn() }))
+const f = vi.hoisted(() => ({ world: 'alpha', open: vi.fn(), close: vi.fn(), list: vi.fn(), info: vi.fn(), go: vi.fn(), setState: vi.fn(), on: vi.fn() }))
 vi.mock('../src/renderer/src/store', () => ({
   useStore: (select: (s: unknown) => unknown) => select({ inventoryWorld: f.world, chats: {}, snap: { wksps: [], projects: [{ name: 'alpha', path: 'C:/alpha' }, { name: 'beta', path: 'C:/beta' }] } }),
   api: () => ({ inventoryOpen: f.open, inventoryClose: f.close, inventoryList: f.list, inventoryInfo: f.info, inventoryRefresh: f.open }),
-  go: f.go, op: async (_: string, fn: () => unknown) => fn(), errText: String
+  go: f.go, setState: f.setState, op: async (_: string, fn: () => unknown) => fn(), errText: String
 }))
 import { Inventory } from '../src/renderer/src/views/Inventory'
 const state = (world: string): InventoryState => ({ world, revision: 1, total: 20000, refreshing: false, watching: true })
@@ -28,6 +28,12 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.clearAllMocks() })
 
 describe('Inventory screen lifecycle', () => {
+  it('opens generation settings for the current world', async () => {
+    await render()
+    await click('.inventory-head button')
+    expect(f.setState).toHaveBeenCalledWith({ view: 'worlds', highlightWorld: 'alpha' })
+  })
+
   it('honours world navigation, serializes StrictMode watchers and bounds list requests', async () => {
     await render()
     expect(host.querySelector('select')?.value).toBe('alpha')

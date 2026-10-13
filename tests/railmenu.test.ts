@@ -1,45 +1,45 @@
 import { describe, expect, it } from 'vitest'
-import { ASSET_GEN, RAIL, entryActive, initialIndex, menuKey, navItems, opensMenu } from '../src/renderer/src/lib/railmenu'
+import { RAIL, entryActive, initialIndex, menuKey, navItems, opensMenu } from '../src/renderer/src/lib/railmenu'
+
+const MENU = { kind: 'menu' as const, id: 'test', label: 'Test menu', items: [{ id: 'inventory' as const, label: 'Inventory', key: '9' }, { id: 'worlds' as const, label: 'Worlds', key: '6' }] }
 
 describe('rail entries', () => {
-  it('replaces Asset Generation with Inventory while retaining palette generation commands', () => {
+  it('replaces Asset Generation with Inventory and removes generation commands', () => {
     const top = RAIL.map((e) => (e.kind === 'view' ? e.item.id : e.id))
     expect(top).not.toContain('fal')
     expect(top).not.toContain('animation')
     expect(top).toContain('inventory')
     expect(top).not.toContain('assets')
-    expect(ASSET_GEN.label).toBe('Asset Generation')
-    expect(ASSET_GEN.items.map((i) => [i.id, i.label])).toEqual([
-      ['fal', 'FAL.ai'],
-      ['animation', 'Uthana (3D Rigging & Animation)']
-    ])
+    expect(navItems().map((i) => i.id)).not.toContain('fal')
+    expect(navItems().map((i) => i.id)).not.toContain('animation')
+    expect(navItems().map((i) => i.key)).not.toContain('0')
   })
 
   it('keeps every screen and its shortcut reachable for the palette', () => {
     const keys = Object.fromEntries(navItems().map((n) => [n.id, n.key]))
     expect(keys).toEqual({
-      comms: '1', squad: '2', quests: '3', move: '4', status: '5', worlds: '6', lore: '7', systems: '8', inventory: '9', fal: '', animation: '0'
+      comms: '1', squad: '2', quests: '3', move: '4', status: '5', worlds: '6', lore: '7', systems: '8', inventory: '9'
     })
   })
 })
 
 describe('active state', () => {
-  it('lights the Asset Generation button while either of its screens is open', () => {
-    expect(entryActive(ASSET_GEN, 'fal')).toBe(true)
-    expect(entryActive(ASSET_GEN, 'animation')).toBe(true)
-    expect(entryActive(ASSET_GEN, 'comms')).toBe(false)
+  it('lights a submenu button while one of its screens is open', () => {
+    expect(entryActive(MENU, 'inventory')).toBe(true)
+    expect(entryActive(MENU, 'worlds')).toBe(true)
+    expect(entryActive(MENU, 'comms')).toBe(false)
   })
 
   it('lights a plain button only for its own screen', () => {
     const comms = RAIL[0]
     expect(entryActive(comms, 'comms')).toBe(true)
-    expect(entryActive(comms, 'fal')).toBe(false)
+    expect(entryActive(comms, 'inventory')).toBe(false)
   })
 
   it('opens the submenu on the current screen, else the first item', () => {
-    expect(initialIndex(ASSET_GEN.items, 'animation')).toBe(1)
-    expect(initialIndex(ASSET_GEN.items, 'fal')).toBe(0)
-    expect(initialIndex(ASSET_GEN.items, 'squad')).toBe(0)
+    expect(initialIndex(MENU.items, 'worlds')).toBe(1)
+    expect(initialIndex(MENU.items, 'inventory')).toBe(0)
+    expect(initialIndex(MENU.items, 'squad')).toBe(0)
   })
 })
 

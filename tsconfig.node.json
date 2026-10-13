@@ -13,5 +13,5 @@
     "paths": { "@shared/*": ["./src/shared/*"] }
   },
   "include": ["electron.vite.config.ts", "src/main/**/*", "src/preload/**/*", "src/shared/**/*", "tests/**/*"],
-  "exclude": ["tests/worlds.test.ts", "tests/inventory-screen.test.ts", "tests/generation-card.test.ts", "tests/inventory-chat.test.ts"]
+  "exclude": ["tests/worlds.test.ts", "tests/inventory-screen.test.ts", "tests/generation-card.test.ts", "tests/inventory-chat.test.ts", "tests/generation-settings.test.ts"]
 }

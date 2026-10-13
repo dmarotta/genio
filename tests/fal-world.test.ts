@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FalRun } from '@shared/api'
-import { budgetCheck, estimateRun, filterRuns, worldSpend } from '@shared/fal'
+import { budgetCheck, estimateRun, worldSpend } from '@shared/fal'
 import type { GenioEvent } from '@shared/types'
 
 vi.mock('../src/main/secrets', () => ({ getSecret: () => 'fal-key-world-test' }))
@@ -62,7 +62,7 @@ const finished = (id: string): Promise<FalRun> =>
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
 
 describe('world-tied runs and Save to world', () => {
-  it('tags runs with the world, estimates them, and history filters by world', async () => {
+  it('tags runs with the world, estimates them, and retains world association in history', async () => {
     const svc = createFalService(ctx, fetchFn)
     const a = svc.run({ endpoint: EP, input: { text: 'wind', duration_seconds: 20 }, world: 'golem' })
     await finished(a.id)
@@ -71,9 +71,9 @@ describe('world-tied runs and Save to world', () => {
     expect(a).toMatchObject({ world: 'golem', estUsd: 0.04 })
     expect(b.world).toBeUndefined()
     const runs = svc.runs()
-    expect(filterRuns(runs, 'golem', 'world').map((r) => r.id)).toEqual([a.id])
-    expect(filterRuns(runs, null, 'world').map((r) => r.id)).toEqual([b.id])
-    expect(filterRuns(runs, 'golem', 'all')).toHaveLength(2)
+    expect(runs).toHaveLength(2)
+    expect(runs.find((r) => r.id === a.id)?.world).toBe('golem')
+    expect(runs.find((r) => r.id === b.id)?.world).toBeUndefined()
     expect(() => svc.run({ endpoint: EP, input: { text: 'x' }, world: 'nowhere' })).toThrow(/No world/)
     // nothing was written into the world by running
     expect(fs.readdirSync(world)).toEqual([])

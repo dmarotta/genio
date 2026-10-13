@@ -5,7 +5,7 @@ import type { AssetKind } from '@shared/inventory'
 import type { GenerationCard } from '@shared/generation'
 import type { FalRunRequest } from '@shared/api'
 import { estimateRun } from '@shared/fal'
-import { schemaDefaults, schemaToForm, validateValues, type JsonSchema } from '@shared/fal-schema'
+import { schemaDefaults, validateValues, type JsonSchema } from '@shared/fal-schema'
 import { estimateUthana, textParamErrors, textParamsFor, UTHANA_BUILTINS, type UthanaGenerateRequest, type UthanaUploadRequest, type UthanaFormat } from '@shared/uthana'
 import type { ChatImage } from '@shared/chat-images'
 import type { AppCtx } from './services'
@@ -121,7 +121,7 @@ export class AgentGeneration {
     const entry = catalogue.entries.find(e => e.endpoint === a.endpoint)
     const config = readWorldConfig(this.project(a.world).path)
     const input = { ...schemaDefaults(info.schema as JsonSchema), ...config.defaults?.[a.endpoint], ...a.input }
-    const errors = validateValues(schemaToForm(info.schema as JsonSchema), input)
+    const errors = validateValues(info.schema as JsonSchema, input)
     if (Object.keys(errors).length) throw new Error(JSON.stringify(errors))
     for (const k of ['num_images', 'num_samples', 'num_outputs']) if (input[k] !== undefined && (typeof input[k] !== 'number' || input[k] < 1 || input[k] > 4)) throw new Error('Delegate batches above four outputs to a unit')
     const usd = estimateRun(entry, info.price ?? entry?.price, input).usd

@@ -1,4 +1,4 @@
-export type ViewId = 'inventory' | 'comms' | 'squad' | 'quests' | 'move' | 'status' | 'worlds' | 'lore' | 'systems' | 'fal' | 'animation'
+export type ViewId = 'inventory' | 'comms' | 'squad' | 'quests' | 'move' | 'status' | 'worlds' | 'lore' | 'systems'
 
 /** One screen reachable from the rail; key is its Ctrl shortcut. */
 export interface NavItem {
@@ -11,16 +11,6 @@ export interface NavItem {
 export type RailEntry =
   | { kind: 'view'; item: NavItem }
   | { kind: 'menu'; id: string; label: string; items: NavItem[] }
-
-export const ASSET_GEN: RailEntry & { kind: 'menu' } = {
-  kind: 'menu',
-  id: 'assets',
-  label: 'Asset Generation',
-  items: [
-    { id: 'fal', label: 'FAL.ai', key: '' },
-    { id: 'animation', label: 'Uthana (3D Rigging & Animation)', key: '0' }
-  ]
-}
 
 const view = (id: ViewId, label: string, key: string): RailEntry => ({ kind: 'view', item: { id, label, key } })
 
@@ -38,7 +28,7 @@ export const RAIL: RailEntry[] = [
 
 /** Every screen in rail order, submenus flattened (command palette, shortcuts). */
 export function navItems(rail: RailEntry[] = RAIL): NavItem[] {
-  return [...rail.flatMap((e) => (e.kind === 'view' ? [e.item] : e.items)), ...ASSET_GEN.items]
+  return rail.flatMap((e) => (e.kind === 'view' ? [e.item] : e.items))
 }
 
 /** A rail button lights up while its screen, or any screen in its submenu, is open. */

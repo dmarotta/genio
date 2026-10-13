@@ -1,10 +1,10 @@
 /**
- * Animation screen backend (Uthana): runs generations and character uploads
+ * Uthana generation service: runs generations and character uploads
  * from the main process with the stored key, keeps the run history and the
  * per-world character list in Genio's data (data/uthana/), downloads previews
  * and exports into each run's folder (served over genio-media://uthana/) and
  * copies them into a world on request, with the same provenance and spend
- * records as the FAL screen. The key never leaves this process.
+ * records as FAL generation. The key never leaves this process.
  */
 import { recordGenerationSpend } from './generation-spend'
 import { placeOutput } from './asset-placement'

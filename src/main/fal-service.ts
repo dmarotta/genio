@@ -1,5 +1,5 @@
 /**
- * FAL screen backend: runs FAL requests from the main process with the stored
+ * FAL generation service: runs FAL requests from the main process with the stored
  * key, keeps the history, downloads outputs into Genio's data dir (served to
  * the renderer over genio-media://) and copies them into a world on request.
  */
