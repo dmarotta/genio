@@ -13,7 +13,9 @@ import type {
   Query, SDKMessage, SDKUserMessage, Options, CanUseTool, PermissionResult, EffortLevel
 } from '@anthropic-ai/claude-agent-sdk'
 import type { Ally, ChatMessage, WkspActivity, WkspInfo, Settings, ToolTrace } from '@shared/types'
+import { userContent, type ChatImageInput } from '@shared/chat-images'
 import { bus } from './bus'
+import { chatImageDir, saveChatImages } from './chat-images'
 import type { Home } from './home'
 import { buildTools, type ToolRole } from './wksp-tools'
 import {
@@ -114,12 +116,17 @@ const NOOP_RE = /^all clear[,!.]?(\s+[\w .'-]{0,40})?[.!]?$/i
 
 // ------------------------------------------------------------------ input queue
 
+/** The SDK user message for a turn: plain text, or image blocks plus text when images are attached. */
+export function userMessage(text: string, images?: readonly ChatImageInput[]): SDKUserMessage {
+  return { type: 'user', message: { role: 'user', content: userContent(text, images) }, parent_tool_use_id: null, session_id: '' } as unknown as SDKUserMessage
+}
+
 class InputQueue implements AsyncIterable<SDKUserMessage> {
   private items: SDKUserMessage[] = []
   private waiter?: (v: IteratorResult<SDKUserMessage>) => void
   private closed = false
-  push(text: string): void {
-    const msg = { type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null, session_id: '' } as unknown as SDKUserMessage
+  push(text: string, images?: readonly ChatImageInput[]): void {
+    const msg = userMessage(text, images)
     if (this.waiter) {
       const w = this.waiter
       this.waiter = undefined
@@ -150,6 +157,8 @@ interface TurnItem {
   kind: 'player' | 'events' | 'system'
   /** what the model receives */
   prompt: string
+  /** images sent alongside the prompt as image blocks */
+  images?: ChatImageInput[]
   /** wake ack cursor to commit when the turn succeeds */
   ackThrough?: number
 }
@@ -224,7 +233,7 @@ class AgentSession {
     try {
       await this.syncConfig()
       await this.ensureStarted()
-      this.input!.push(next.prompt)
+      this.input!.push(next.prompt, next.images)
     } catch (e) {
       this.busy = false
       this.current = undefined
@@ -817,28 +826,32 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       const h = loadHistory()
       return h.slice(-limit)
     },
-    async send(text, origin = 'player') {
+    async send(text, origin = 'player', images = []) {
       stopped = false
       bootDone = true
       const trimmed = text.trim()
-      if (!trimmed) return
+      if (!trimmed && !images.length) return
       try {
-        if (origin === 'player' && trimmed.startsWith('/') && (await slash(trimmed))) return
+        if (origin === 'player' && !images.length && trimmed.startsWith('/') && (await slash(trimmed))) return
       } catch (e) {
         say(`Command failed: ${(e as Error).message}`, 'error')
         return
       }
+      // stored before anything else so a bad image fails the send (the composer keeps the draft)
+      const stored = saveChatImages(chatImageDir(home.data), images)
       const ctx = getCtx()
       let prompt = trimmed
       // companion: the first ordinary player message after AFK ends it with a return brief
       if (origin === 'player' && home.isMain && ctx.away.state().mode === 'afk') {
         const brief = ctx.away.takeReturnBrief()
         await ctx.away.set('online')
-        prompt = `${returnPrompt(gamertag(), brief)}\n\nThen handle ${gamertag()}'s new message:\n${trimmed}`
+        prompt = `${returnPrompt(gamertag(), brief)}\n\nThen handle ${gamertag()}'s new message:\n${trimmed || '(see the attached image)'}`
       }
-      record({ id: `p-${rid(6)}`, wksp: name, role: origin === 'player' ? 'player' : 'system', text: trimmed, ts: nowIso() }, true)
+      const m: ChatMessage = { id: `p-${rid(6)}`, wksp: name, role: origin === 'player' ? 'player' : 'system', text: trimmed, ts: nowIso() }
+      if (stored.refs.length) m.images = stored.refs
+      record(m, true)
       bus.publish({ type: 'sfx', sound: 'send' })
-      genio.enqueue({ kind: origin === 'player' ? 'player' : 'system', prompt })
+      genio.enqueue({ kind: origin === 'player' ? 'player' : 'system', prompt, images: stored.send.length ? stored.send : undefined })
       publishInfo()
     },
     deliverWakes() {

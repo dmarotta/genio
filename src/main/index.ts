@@ -9,6 +9,7 @@ import { EVENT_CHANNEL } from '@shared/api'
 import { bus } from './bus'
 import { createApp, getCtx, startApp, stopApp } from './ctx'
 import { MEDIA_SCHEME, mediaResponse } from './fal-service'
+import { chatImageDir, chatImagePath } from './chat-images'
 import { defaultHomeRoot } from './home'
 import { registerIpc } from './ipc'
 import type { AppCtx } from './services'
@@ -39,7 +40,7 @@ if (!app.requestSingleInstanceLock()) {
 
 app.setAppUserModelId('dev.genio.app')
 
-// genio-media://fal/<run>/<file>: FAL outputs from Genio's data dir (streamable, seekable)
+// genio-media://fal/<run>/<file>: FAL outputs from Genio's data dir (streamable, seekable); genio-media://chat/<wksp>/<file>: chat images
 protocol.registerSchemesAsPrivileged([{ scheme: MEDIA_SCHEME, privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true } }])
 
 function appRoot(): string {
@@ -78,10 +79,19 @@ function registerMedia(): void {
   protocol.handle(MEDIA_SCHEME, (req) => {
     const u = new URL(req.url)
     const [id, file] = u.pathname.split('/').filter(Boolean).map(decodeURIComponent)
-    const p = u.hostname === 'fal' && id && file ? getCtx().fal.mediaPath(id, file) : undefined
+    const p = !id || !file ? undefined : u.hostname === 'fal' ? getCtx().fal.mediaPath(id, file) : u.hostname === 'chat' ? chatMediaPath(id, file) : undefined
     if (!p) return new Response('not found', { status: 404 })
     return mediaResponse(p, req.headers.get('range'))
   })
+}
+
+/** genio-media://chat/<wksp>/<file>: an image attached in that chat */
+function chatMediaPath(wksp: string, file: string): string | undefined {
+  try {
+    return chatImagePath(chatImageDir(getCtx().home(wksp).home.data), file)
+  } catch {
+    return undefined
+  }
 }
 
 function createWindow(): void {

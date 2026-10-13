@@ -17,6 +17,7 @@ import type {
   OpResult, ProjectAddRequest, ProjectCreateRequest, AllyCreateRequest, SpawnRequest, TaskFile, MemoryFile,
   FalRun, FalRunRequest, FalSaveRequest, FalSaveResult
 } from '@shared/api'
+import type { ChatImageInput } from '@shared/chat-images'
 import type { Home } from './home'
 
 // ---------------------------------------------------------------- global
@@ -289,7 +290,7 @@ export interface WkspService {
   info(): WkspInfo
   history(limit?: number): ChatMessage[]
   /** player message from the GUI (or mail / recap / save synthesized prompts) */
-  send(text: string, origin?: 'player' | 'system'): Promise<void>
+  send(text: string, origin?: 'player' | 'system', images?: ChatImageInput[]): Promise<void>
   /** deliver queued wakes (drain → one turn → ack after the turn completes) */
   deliverWakes(): void
   interrupt(): Promise<void>

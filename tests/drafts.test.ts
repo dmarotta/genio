@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clearDraft, getDraft, setDraft } from '../src/renderer/src/drafts'
+import { clearDraft, getDraft, getDraftImages, setDraft, setDraftImages } from '../src/renderer/src/drafts'
 
 describe('composer drafts', () => {
   it('keeps one draft per chat', () => {
@@ -16,5 +16,14 @@ describe('composer drafts', () => {
     expect(getDraft('genio')).toBe('')
     setDraft('ally-1', '')
     expect(getDraft('ally-1')).toBe('')
+  })
+
+  it('keeps attached images per chat and clears them with the draft', () => {
+    const img = { id: 'i1', mediaType: 'image/png' as const, data: 'AAAA', preview: 'data:image/png;base64,AAAA' }
+    setDraftImages('genio', [img])
+    expect(getDraftImages('genio')).toEqual([img])
+    expect(getDraftImages('ally-1')).toEqual([])
+    clearDraft('genio')
+    expect(getDraftImages('genio')).toEqual([])
   })
 })

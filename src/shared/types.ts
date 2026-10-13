@@ -3,6 +3,8 @@
 // companion (Genio) which deploys a Squad of units, each in an isolated git
 // worktree, supervised to completion.
 
+import type { ChatImage } from './chat-images'
+
 import type { FalRun } from './api'
 
 export type TaskKind = 'ship' | 'scout'
@@ -245,6 +247,8 @@ export interface ChatMessage {
   /** for streaming: the message is still being written */
   partial?: boolean
   costUsd?: number
+  /** images the player attached (stored in the base's data/chat-images) */
+  images?: ChatImage[]
 }
 
 export type WkspActivity = 'offline' | 'starting' | 'idle' | 'thinking' | 'tool' | 'error'

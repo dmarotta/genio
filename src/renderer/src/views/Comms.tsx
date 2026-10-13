@@ -11,6 +11,7 @@ import { KIND_LABEL, STATE_LABEL, isActive, stateTone } from '../lib/vocab'
 import { clock, cx, elapsed, trunc } from '../lib/format'
 import { playSfx } from '../lib/sfx'
 import { getDraft, setDraft } from '../drafts'
+import { AttachmentStrip, MessageImages, toSendable, useAttachments } from '../components/ChatImages'
 import { EffortSelect, ModelSelect, requestSystemsSection } from './Systems'
 
 const SLASH: { cmd: string; hint: string }[] = [
@@ -174,7 +175,8 @@ function Message({ m, calm, gamertag }: { m: ChatMessage; calm: boolean; gamerta
   if (m.role === 'player') {
     return (
       <div className="msg player rise">
-        <div className="msg-bubble selectable">{m.text}</div>
+        {m.images?.length ? <MessageImages wksp={m.wksp} images={m.images} /> : null}
+        {m.text && <div className="msg-bubble selectable">{m.text}</div>}
         <div className="msg-meta">
           {gamertag} · {clock(m.ts)}
         </div>
@@ -241,6 +243,8 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
   const [text, setText] = useState(() => getDraft(wksp))
   const [sel, setSel] = useState(0)
   const ta = useRef<HTMLTextAreaElement>(null)
+  const att = useAttachments(wksp, disabled)
+  const canSend = !!text.trim() || att.images.length > 0
   const update = (v: string): void => {
     setText(v)
     setDraft(wksp, v)
@@ -275,11 +279,17 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
 
   const submit = async (raw: string): Promise<void> => {
     const t = raw.trim()
-    if (!t) return
+    const images = att.images
+    if (!t && !images.length) return
+    if (att.pending) {
+      toast('info', 'Attaching images', 'Wait a moment for the images to finish attaching.')
+      return
+    }
     update('')
     const [cmd, ...rest] = t.split(/\s+/)
     const words = rest.join(' ')
-    if (t.startsWith('/')) {
+    // with images attached, a leading slash is just text for Genio
+    if (t.startsWith('/') && !images.length) {
       switch (cmd.toLowerCase()) {
         case '/recap':
           await op('Recap', () => api().recap())
@@ -317,11 +327,13 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
       }
     }
     playSfx('send', settings)
+    att.set([])
     try {
-      await api().sendChat(wksp, t)
+      await api().sendChat(wksp, t, images.length ? toSendable(images) : undefined)
     } catch (e) {
       toast('error', 'Message not sent', errText(e))
       update(t)
+      att.set(images)
     }
   }
 
@@ -345,12 +357,14 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
           ))}
         </div>
       )}
-      <div className="composer-box ticks">
+      <AttachmentStrip att={att} />
+      <div className={cx('composer-box ticks', att.dragging && 'dropping')} {...att.dropProps}>
         <textarea
           ref={ta}
           rows={1}
           value={text}
           disabled={disabled}
+          onPaste={att.onPaste}
           placeholder={disabled ? 'Ally comms are read-only — route work through Genio.' : busy ? 'Genio is working… you can still type; it will read this next.' : 'Message Genio  ·  / for commands'}
           onChange={(e) => {
             update(e.target.value)
@@ -390,7 +404,7 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
             }
           }}
         />
-        <button className="btn solid icon" disabled={disabled || !text.trim()} onClick={() => void submit(text)} aria-label="Send">
+        <button className="btn solid icon" disabled={disabled || !canSend || att.pending > 0} onClick={() => void submit(text)} aria-label="Send">
           <Send size={15} />
         </button>
       </div>
@@ -398,7 +412,7 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
         <span>
           <ShellModeButton />
           <ChatModelControls disabled={disabled} />
-          <kbd>Enter</kbd> send · <kbd>Shift</kbd>+<kbd>Enter</kbd> newline · <kbd>/</kbd> commands
+          <kbd>Enter</kbd> send · <kbd>Shift</kbd>+<kbd>Enter</kbd> newline · <kbd>/</kbd> commands · <kbd>Ctrl</kbd>+<kbd>V</kbd> image
         </span>
         <span className="quick">
           <button className="link-btn" onClick={() => void op('Recap', () => api().recap())}>Recap</button>

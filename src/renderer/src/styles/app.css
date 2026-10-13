@@ -346,6 +346,23 @@ button.usage-toggle:hover { color: var(--text); }
 .composer-box:focus-within { border-color: var(--neon); box-shadow: var(--glow); }
 .composer-box textarea { flex: 1; resize: none; background: none; border: 0; outline: none; color: var(--text); font-size: 15px; line-height: 1.5; padding: 6px 0; max-height: 220px; user-select: text; }
 .composer.disabled .composer-box { opacity: 0.5; }
+.composer-box.dropping { border-color: var(--neon); box-shadow: var(--glow); border-style: dashed; }
+.attach-strip { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.attach-thumb { position: relative; width: 72px; height: 72px; border: 1px solid var(--line-strong); background: rgba(0, 0, 0, 0.45); }
+.attach-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.attach-thumb.loading { animation: pulse 0.9s infinite; }
+.attach-remove {
+  position: absolute; top: -7px; right: -7px; width: 20px; height: 20px; display: grid; place-items: center; padding: 0; cursor: pointer;
+  background: var(--bg, #07090e); border: 1px solid var(--line-strong); color: var(--text-dim); border-radius: 50%;
+}
+.attach-remove:hover { color: var(--alert); border-color: var(--alert); }
+.msg-images { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; max-width: 78%; margin-bottom: 6px; }
+.msg-image { padding: 0; border: 1px solid rgba(0, 229, 255, 0.3); background: rgba(0, 0, 0, 0.45); cursor: zoom-in; }
+.msg-image img { display: block; max-width: 220px; max-height: 160px; object-fit: contain; }
+.msg-image:hover { border-color: var(--neon); }
+.image-viewer { position: fixed; inset: 0; z-index: 200; background: rgba(0, 0, 0, 0.85); display: grid; place-items: center; padding: 40px; cursor: zoom-out; }
+.image-viewer img { max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: var(--glow); }
+.image-viewer-close { position: absolute; top: 56px; right: 20px; }
 .composer-hints { display: flex; justify-content: space-between; margin-top: 8px; font-size: 11px; }
 .composer-hints .quick { display: flex; gap: 14px; }
 .composer-hints .quick .link-btn { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; }

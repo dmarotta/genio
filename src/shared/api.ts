@@ -3,6 +3,7 @@ import type {
   GenioEvent, LedgerRecord, Priority, Project, ProjectCommands, Ally, Settings, Task, TaskKind,
   TerminalInfo, ToolStatus, UpdateInfo, Wake, Forge, Decision, InboxNote, ProjectMode, Loadout, LoadoutInput
 } from './types'
+import type { ChatImageInput } from './chat-images'
 
 export interface SpawnRequest {
   kind: TaskKind
@@ -275,7 +276,8 @@ export interface GenioApi {
 
   // ---- bridge (chat with Genio / second units)
   chatHistory(wksp: string, limit?: number): Promise<ChatMessage[]>
-  sendChat(wksp: string, text: string): Promise<void>
+  /** images go to the session as image blocks; text may be empty when images are attached */
+  sendChat(wksp: string, text: string, images?: ChatImageInput[]): Promise<void>
   interruptWksp(wksp: string): Promise<void>
   restartWksp(wksp: string, fresh: boolean): Promise<void>
   resolvePermission(id: string, allow: boolean): Promise<void>
