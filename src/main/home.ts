@@ -35,6 +35,7 @@ export class Home {
   readonly name: string
   readonly root: string
   readonly parent?: Home
+  private readonly taskStorage = new Map<string, string>()
 
   constructor(root: string, name = 'main', parent?: Home) {
     this.root = path.resolve(root)
@@ -73,13 +74,17 @@ export class Home {
   get wkspFile(): string { return path.join(this.state, 'wksp.json') }
   get lockFile(): string { return path.join(this.state, 'session.lock') }
 
-  taskDir(id: string): string { return path.join(this.data, id) }
+  setTaskStorage(id: string, root: string): void { this.taskStorage.set(id, path.resolve(root)) }
+  taskStateFile(id: string, suffix: string): string {
+    return path.join(this.taskStorage.get(id) ?? this.root, 'state', `${id}${suffix}`)
+  }
+  taskDir(id: string): string { return path.join(this.taskStorage.get(id) ?? this.root, 'data', id) }
   briefFile(id: string): string { return path.join(this.taskDir(id), 'brief.md') }
   reportFile(id: string): string { return path.join(this.taskDir(id), 'report.md') }
   taskInboxFile(id: string): string { return path.join(this.taskDir(id), 'inbox.md') }
   taskInboxLog(id: string): string { return path.join(this.taskDir(id), 'inbox.jsonl') }
   validationLog(id: string): string { return path.join(this.taskDir(id), 'validation.log') }
-  statusFile(id: string): string { return path.join(this.state, `${id}.status`) }
+  statusFile(id: string): string { return this.taskStateFile(id, '.status') }
   worktreeFor(project: string, id: string): string { return path.join(this.worktrees, project, id) }
   wkspHome(name: string): string { return path.join(this.wksps, name) }
 

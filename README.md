@@ -95,7 +95,9 @@ Everything lives under `~/.genio` (override with `GENIO_HOME`): `config/`
 settings, `data/` durable records (worlds, quests, choices, briefs, reports,
 profile, lore, replay log), `state/` runtime records (unit status logs, event
 queue, presence), `projects/` clones, `worktrees/` one per unit, and `wksps/`
-for ally bases.
+for project and ally bases. Registered projects own their units, quests and
+choices in their project base. Startup migrates legacy ownership once with a
+durable backup checkpoint; existing unit artifact and worktree paths stay valid.
 
 ## License
 

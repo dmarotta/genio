@@ -154,8 +154,27 @@ The Hub opens one window per project. Comms and Inventory share the window's
 project wksp, with per-chat controls, queued-message editing, image attachments,
 and in-memory drafts. There are no chat tabs, splits or saved dock layouts.
 Both chat providers run from the project folder and use scoped tool sessions.
-Legacy units and quests remain in their original homes until the data migration;
-project windows and tool sessions include only records belonging to their world.
+Project windows and tool sessions include only records belonging to their world.
+Before services load, the versioned project-data migration transfers registered
+worlds' units, quests and decisions from main or multi-world bases to their
+single-project bases. Existing project bases and chat sessions are reused;
+retired bases remain archived. IDs, quest dependencies, holds, player answers,
+status cursors and unit session IDs survive. Unassigned records and records for
+unregistered worlds stay in their original bases. Quest mirrors are regenerated.
+
+The migration records original file contents and complete replacements in
+`state/project-data-migration-v1.json` before changing authoritative files.
+Interrupted writes replay from this checkpoint before startup can proceed;
+completed migrations never overwrite subsequent work. Invalid JSON or destination
+ID collisions stop startup with the original data intact. Linked task wakes move
+to project queues with new sequence numbers and preserved acknowledgements; source
+events retain their sequence history and are acknowledged as transferred.
+
+Legacy unit artifacts and worktrees keep their absolute paths. A migrated task's
+`storageRoot` lets its project crew read and write the original status log, ping
+inbox, reports, hooks and turn markers, so existing briefs and resumed CLI sessions
+remain valid. New units use their project base's storage. Global settings,
+credentials, progression, profiles, Lore and archived transcripts remain intact.
 
 The old main chat is read-only. Opening the `genio` project imports its compacted
 transcript and image files once into that project's base without changing the
@@ -163,9 +182,9 @@ source log or adopting the old cross-world provider session. Existing project
 messages win on duplicate IDs. Imported history supplies a bounded handoff on a
 new provider session; existing project provider sessions retain normal resume.
 Project agents and their Bot cannot wake while their project is closed. The
-legacy main supervisor still observes old units and forwards task wakes to the
-owning open project. A close cancellation keeps units running; confirmation
-stops that project's terminals and preserves its worktrees.
+main supervisor observes any units for unregistered worlds and forwards their
+task wakes if the owning project is reopened. A close cancellation keeps units
+running; confirmation stops that project's terminals and preserves its worktrees.
 
 The standalone Your Move page has been removed. Pending choices appear in a
 non-modal answer panel beside the current screen; the title-bar count and desktop

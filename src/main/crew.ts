@@ -43,9 +43,10 @@ function sleep(ms: number): Promise<void> {
 
 export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService {
   let tasks: Task[] = readJson<Task[]>(home.tasksFile, [])
+  for (const task of tasks) if (task.storageRoot) home.setTaskStorage(task.id, task.storageRoot)
   const gauntlet = createGauntlet(getCtx, home)
-  const inboxDir = (id: string): string => path.join(home.state, `${id}.inbox`)
-  const turnEndedFile = (id: string): string => path.join(home.state, `${id}.turn-ended`)
+  const inboxDir = (id: string): string => home.taskStateFile(id, '.inbox')
+  const turnEndedFile = (id: string): string => home.taskStateFile(id, '.turn-ended')
   const bypassWarned = new Set<string>()
   const controlling = new Set<string>()
   const restarting = new Set<string>()
@@ -111,7 +112,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
 
   /** Per-task git hooks dir that chains the world's own hooks, strips AI trailers and adds Genio's. */
   const writeHooks = (t: Task, repo: string): Promise<Record<string, string>> =>
-    installUnitHooks(path.join(home.state, `${t.id}.git-hooks`), repo, getCtx().settings.get())
+    installUnitHooks(home.taskStateFile(t.id, '.git-hooks'), repo, getCtx().settings.get())
 
   /** Bundled unit skills live in the main base, outside every world. */
   const mainHome = home.parent ?? home
@@ -142,7 +143,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
   }
 
   const writeClaudeSettings = (t: Task): string => {
-    const p = path.join(home.state, `${t.id}.claude-settings.json`)
+    const p = home.taskStateFile(t.id, '.claude-settings.json')
     const marker = fwd(turnEndedFile(t.id))
     const command = `node -e "require('fs').writeFileSync('${marker}', String(Date.now()))"`
     writeJson(p, { hooks: { Stop: [{ hooks: [{ type: 'command', command }] }] } })

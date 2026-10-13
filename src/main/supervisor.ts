@@ -93,7 +93,7 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
   }
 
   function turnEndFile(id: string): string {
-    return path.join(home.state, `${id}.turn-ended`)
+    return home.taskStateFile(id, '.turn-ended')
   }
 
   function turnEndMtime(id: string): number {

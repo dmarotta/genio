@@ -61,6 +61,7 @@ import { createInventoryService } from './inventory'
 import { createThumbnailDecoder } from './inventory-thumbnails'
 import { allyNameForWorld, worldAllyRequest, inheritMainHistory } from './project-chat'
 import { reconcileProjectOpen } from './project-startup'
+import { migrateProjectData } from './project-data-migration'
 
 let current: AppCtx | undefined
 const openProjects = new WeakMap<AppCtx, Set<string>>()
@@ -169,6 +170,7 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
   scrubInheritedSessionEnv()
   const mainHome = new Home(homeRoot, 'main')
   mainHome.ensure()
+  migrateProjectData(mainHome)
   const homes = new Map<string, HomeCtx>()
 
   const ctx = {
@@ -213,8 +215,8 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
     return h
   }
 
-  // Legacy unit records remain in their original home until data migration. Route
-  // their supervision into the owning project chat, never the archived main log.
+  // Records for projects absent from the migration registry stay in main. If
+  // reopened later, route their supervision to the project, never the archived log.
   ctx.main.wksp.deliverWakes = () => {
     for (const wake of ctx.main.wakes.pending()) {
       const project = wake.taskId && ctx.main.crew.get(wake.taskId)?.project

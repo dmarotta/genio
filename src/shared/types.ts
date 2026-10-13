@@ -124,6 +124,8 @@ export interface Task {
   baseBranch: string
   branch: string
   worktree: string
+  /** Legacy unit artifacts stay at this base so existing briefs and sessions remain valid. */
+  storageRoot?: string
   briefPath: string
   reportPath?: string
   harness: string
