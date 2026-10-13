@@ -3,9 +3,10 @@ import React, { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { InventoryInfo, InventoryQuery, InventoryState } from '../src/shared/inventory'
+vi.mock('../src/renderer/src/views/Comms', () => ({ ChatPanel: () => null }))
 const f = vi.hoisted(() => ({ world: 'alpha', open: vi.fn(), close: vi.fn(), list: vi.fn(), info: vi.fn(), go: vi.fn(), on: vi.fn() }))
 vi.mock('../src/renderer/src/store', () => ({
-  useStore: (select: (s: unknown) => unknown) => select({ inventoryWorld: f.world, snap: { projects: [{ name: 'alpha', path: 'C:/alpha' }, { name: 'beta', path: 'C:/beta' }] } }),
+  useStore: (select: (s: unknown) => unknown) => select({ inventoryWorld: f.world, chats: {}, snap: { wksps: [], projects: [{ name: 'alpha', path: 'C:/alpha' }, { name: 'beta', path: 'C:/beta' }] } }),
   api: () => ({ inventoryOpen: f.open, inventoryClose: f.close, inventoryList: f.list, inventoryInfo: f.info, inventoryRefresh: f.open }),
   go: f.go, op: async (_: string, fn: () => unknown) => fn(), errText: String
 }))

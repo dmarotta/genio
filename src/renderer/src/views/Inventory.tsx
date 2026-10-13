@@ -5,6 +5,8 @@ import { api, errText, go, op, useStore } from '../store'
 import { cx } from '../lib/format'
 import { assetBytes, breadcrumbs, previewKind, thumbnailUrl, virtualWindow } from '../lib/inventory'
 import { GlbViewer } from '../components/GlbViewer'
+import { contextAsset, toggleSelection } from '@shared/inventory-context'
+import { InventoryChat } from '../components/InventoryChat'
 import '../styles/inventory.css'
 
 const TYPES: [AssetKind, string][] = [['image', 'Image'], ['audio', 'Audio'], ['video', 'Video'], ['model', '3D'], ['animation', 'Animation'], ['material', 'Material']]
@@ -51,6 +53,9 @@ function WorldInventory({ world, root }: { world: string; root: string }) {
   const [list, setList] = useState(false)
   const [tile, setTile] = useState(150)
   const [selected, setSelected] = useState<InventoryAsset>()
+  const [selection, setSelection] = useState<InventoryAsset[]>([])
+  const browseFolder = (path: string) => { setFolder(path); setSelected(undefined); setSelection([]) }
+  const select = (asset: InventoryAsset, multiple: boolean) => { setSelected(asset); setSelection(s => toggleSelection(s, asset, multiple)) }
   useEffect(() => { const t = setTimeout(() => setQuery(search), 180); return () => clearTimeout(t) }, [search])
   useEffect(() => {
     let alive = true
@@ -67,6 +72,19 @@ function WorldInventory({ world, root }: { world: string; root: string }) {
   const filterKey = JSON.stringify(filters)
   const browseQuery = useMemo(() => ({ ...filters, folder }), [filters, folder])
   const revision = state?.revision ?? 0
+  const selectedPaths = JSON.stringify(selection.map(a => a.path))
+  useEffect(() => {
+    let alive = true
+    const paths = [...new Set([...selection.map(a => a.path), ...(selected ? [selected.path] : [])])]
+    if (!paths.length) return
+    void Promise.all(paths.map(path => api().inventoryInfo(world, path))).then(infos => {
+      if (!alive) return
+      const fresh = new Map(infos.filter((a): a is InventoryInfo => !!a).map(a => [a.path, a]))
+      setSelection(prev => prev.flatMap(a => fresh.get(a.path) ?? []))
+      setSelected(prev => prev && fresh.get(prev.path))
+    }).catch(() => undefined)
+    return () => { alive = false }
+  }, [world, revision, selectedPaths, selected?.path])
   return <>
     <div className="inventory-toolbar">
       <label className="inventory-search"><Search size={16} /><input aria-label="Search assets" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or path · t:sfx  ext:png  in:UI" /></label>
@@ -85,15 +103,15 @@ function WorldInventory({ world, root }: { world: string; root: string }) {
       {!list && <input className="inventory-size" type="range" min="120" max="220" step="10" aria-label="Thumbnail size" value={tile} onChange={e => setTile(Number(e.target.value))} />}
     </div>
     {(error || state?.error) && <div className="inventory-error" role="alert">{error || state?.error}</div>}
-    <nav className="inventory-breadcrumb" aria-label="Asset folder">{breadcrumbs(folder).map((b, i) => <span key={b.path}>{i > 0 && <ChevronRight size={12} />}<button onClick={() => setFolder(b.path)}>{b.name}</button></span>)}</nav>
+    <nav className="inventory-breadcrumb" aria-label="Asset folder">{breadcrumbs(folder).map((b, i) => <span key={b.path}>{i > 0 && <ChevronRight size={12} />}<button onClick={() => browseFolder(b.path)}>{b.name}</button></span>)}</nav>
     <div className="inventory-body">
       <aside className="inventory-tree" aria-label="Asset folders">
         <div className="label">PROJECT HIERARCHY</div>
-        <button className={cx('inventory-folder', !folder && 'on')} onClick={() => setFolder('')}><FolderOpen size={15} /><span>All assets</span></button>
-        {state ? <FolderChildren key={filterKey} world={world} parent="" filters={filters} revision={revision} selected={folder} select={setFolder} depth={0} /> : <p className="dim">Indexing world…</p>}
+        <button className={cx('inventory-folder', !folder && 'on')} onClick={() => browseFolder('')}><FolderOpen size={15} /><span>All assets</span></button>
+        {state ? <FolderChildren key={filterKey} world={world} parent="" filters={filters} revision={revision} selected={folder} select={browseFolder} depth={0} /> : <p className="dim">Indexing world…</p>}
       </aside>
-      {state ? <AssetBrowser key={filterKey + folder + list + tile} world={world} query={browseQuery} revision={revision} list={list} tile={tile} selected={selected?.path} select={setSelected} /> : <div className="inventory-empty">Indexing supported media…</div>}
-      <Inspector key={selected?.path ?? 'empty'} world={world} root={root} asset={selected} revision={revision} />
+      {state ? <AssetBrowser key={filterKey + folder + list + tile} world={world} query={browseQuery} revision={revision} list={list} tile={tile} selected={selection.map(a => a.path)} select={select} /> : <div className="inventory-empty">Indexing supported media…</div>}
+      <InventoryChat context={{ world, engine: state?.engine, engineRoot: state?.engineRoot, folder, preview: selected && contextAsset(selected), selection: selection.length > 1 ? selection.map(contextAsset) : undefined }} inspector={<Inspector key={selected?.path ?? 'empty'} world={world} root={root} asset={selected} revision={revision} />} />
     </div>
     <footer className="inventory-status"><span>{(state?.total ?? 0).toLocaleString()} indexed media</span><span>{state?.refreshing ? 'Refreshing…' : state?.watching ? '● Watching for changes' : 'Refreshes on focus'}</span><span>{state?.engine}{state?.engineRoot ? ` · ${state.engineRoot}` : ''}</span><span className="dim">Vendor packs excluded from Ours</span></footer>
   </>
@@ -120,7 +138,7 @@ function FolderChildren({ world, parent, filters, revision, selected, select, de
   })}</>
 }
 
-function AssetBrowser({ world, query, revision, list, tile, selected, select }: { world: string; query: InventoryQuery; revision: number; list: boolean; tile: number; selected?: string; select: (asset: InventoryAsset) => void }) {
+function AssetBrowser({ world, query, revision, list, tile, selected, select }: { world: string; query: InventoryQuery; revision: number; list: boolean; tile: number; selected: string[]; select: (asset: InventoryAsset, multiple: boolean) => void }) {
   const ref = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width: 600, height: 500, top: 0 })
   const [page, setPage] = useState<{ items: InventoryAsset[]; offset: number; total: number }>()
@@ -138,12 +156,12 @@ function AssetBrowser({ world, query, revision, list, tile, selected, select }: 
     return () => { alive = false; clearTimeout(t) }
   }, [world, query, revision, range.offset, range.limit])
   return <section className="inventory-browser">
-    <div className="inventory-result-count">{page ? `${page.total.toLocaleString()} matching assets` : 'Loading assets…'}<span className="dim">Includes subfolders</span></div>
+    <div className="inventory-result-count">{page ? `${page.total.toLocaleString()} matching assets` : 'Loading assets…'}<span className="dim">Ctrl/? click to select up to 20</span></div>
     {list && <div className="inventory-list-head"><span>Name</span><span>Type</span><span>Size</span></div>}
     <div ref={ref} className="inventory-scroll" onScroll={e => { const top = e.currentTarget.scrollTop; setSize(s => ({ ...s, top })) }}>
       {error ? <p className="inventory-error" role="alert">{error}</p> : page?.total === 0 ? <div className="inventory-empty"><Search size={32} /><h3>No matching media</h3><p>Try another folder, scope or search.</p></div> : <div style={{ height: range.height, position: 'relative' }} role="group" aria-label="Assets">
         <div className={cx('inventory-tiles', list && 'is-list')} style={{ top: Math.floor((page?.offset ?? 0) / range.columns) * range.rowHeight, gridTemplateColumns: `repeat(${range.columns}, minmax(0, 1fr))`, gridAutoRows: range.rowHeight }}>
-          {page?.items.map(asset => <button key={asset.path} title={asset.path} className={cx('inventory-tile', selected === asset.path && 'selected')} aria-pressed={selected === asset.path} onClick={() => select(asset)}>
+          {page?.items.map(asset => <button key={asset.path} title={asset.path} className={cx('inventory-tile', selected.includes(asset.path) && 'selected')} aria-pressed={selected.includes(asset.path)} onClick={e => select(asset, e.ctrlKey || e.metaKey || e.shiftKey)}>
             <AssetThumbnail world={world} asset={asset} />
             <span className="inventory-asset-name">{asset.generated && <b className="accent">✦ </b>}{asset.name}</span>
             <span className="inventory-asset-type">{asset.vendor ? 'ⓥ ' : ''}{asset.lfs ? 'Not pulled' : asset.ext.toUpperCase()}</span>

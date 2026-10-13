@@ -21,6 +21,7 @@ const XP: Record<AwardEvent, number> = {
 }
 
 export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
+  { id: 'inventory-chat', name: 'Shared View', description: 'Send a message with Inventory context from floating chat.', feature: 'inventory-chat' },
   { id: 'inventory-scout', name: 'Inventory Scout', description: 'Find an asset or locate a new asset destination.', feature: 'assets_find' },
   { id: 'asset-pathfinder', name: 'Asset Pathfinder', description: 'Locate a new asset destination.', feature: 'asset_locate' },
   { id: 'inventory-open', name: 'Open the Vault', description: 'Open a world Inventory.', feature: 'inventory' },

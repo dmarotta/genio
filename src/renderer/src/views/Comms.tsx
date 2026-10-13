@@ -16,6 +16,8 @@ import { clock, cx, elapsed, trunc } from '../lib/format'
 import { playSfx } from '../lib/sfx'
 import { getDraft, setDraft } from '../drafts'
 import { AttachmentStrip, GeneratingImages, MessageImages, fromSendable, toSendable, useAttachments } from '../components/ChatImages'
+import type { InventoryContext } from '@shared/inventory-context'
+import { InventoryContextChips, useInventoryContext } from '../components/InventoryContextChips'
 import { MAIN_PANEL, markSeen } from '../lib/dock'
 import { EffortSelect, ModelSelect, requestSystemsSection } from './Systems'
 
@@ -56,7 +58,7 @@ export function Comms() {
 }
 
 /** One chat in the dock: its own status bar, log and composer. */
-function ChatPanel({ wksp }: { wksp: string }) {
+export function ChatPanel({ wksp, context, active = true }: { wksp: string; context?: InventoryContext; active?: boolean }) {
   const info = useStore((s) => s.snap.wksps.find((m) => m.name === wksp))
   const ally = useStore((s) => s.snap.allies.find((a) => a.name === wksp && !a.retiredAt))
   const messages = useStore((s) => s.chats[wksp] ?? [])
@@ -73,8 +75,8 @@ function ChatPanel({ wksp }: { wksp: string }) {
   // This panel is on screen: everything in it counts as read.
   const lastTs = messages.length ? messages[messages.length - 1].ts : ''
   useEffect(() => {
-    if (lastTs) setDock((d) => markSeen(d, wksp, lastTs))
-  }, [wksp, lastTs])
+    if (active && lastTs) setDock((d) => markSeen(d, wksp, lastTs))
+  }, [wksp, lastTs, active])
 
   const visible = useMemo(() => (calm ? messages.filter((m) => m.role !== 'wake') : messages), [messages, calm])
 
@@ -129,7 +131,7 @@ function ChatPanel({ wksp }: { wksp: string }) {
 
       <ChatLog wksp={wksp} messages={visible} calm={calm} busy={busy} gamertag={gamertag} activityDetail={info?.activityDetail} lastError={info?.lastError} onTakeBack={takeBack} />
 
-      <Composer wksp={wksp} busy={busy} fill={fill} />
+      <Composer wksp={wksp} busy={busy} fill={fill} context={context} />
     </div>
   )
 }
@@ -232,8 +234,9 @@ function Message({ m, calm, gamertag, onTakeBack }: { m: ChatMessage; calm: bool
     const waiting = m.queue === 'queued' || m.queue === 'unsent'
     return (
       <div className={cx('msg player rise', waiting && m.queue)}>
-        {m.images?.length ? <MessageImages wksp={m.wksp} images={m.images} /> : null}
+        {m.images?.length ? <MessageImages wksp={m.wksp} images={m.images.filter(i => i.file !== m.context?.thumbnail?.image?.file)} /> : null}
         {m.text && <div className="msg-bubble selectable">{m.text}</div>}
+        <InventoryContextChips context={m.context} wksp={m.wksp} />
         <div className="msg-meta">
           {m.queue === 'queued' && (
             <span className="msg-queue" title="Sent while the session was busy: it reads this as soon as the current turn ends.">
@@ -334,13 +337,14 @@ function Message({ m, calm, gamertag, onTakeBack }: { m: ChatMessage; calm: bool
   )
 }
 
-function Composer({ wksp, busy, fill }: { wksp: string; busy: boolean; fill: RefObject<((c: UnqueuedChat) => void) | undefined> }) {
+function Composer({ wksp, busy, fill, context }: { wksp: string; busy: boolean; context?: InventoryContext; fill: RefObject<((c: UnqueuedChat) => void) | undefined> }) {
   // Client-side commands drive the whole app, so they live in the main chat; an ally gets its text (and its own /help, /status, /save) as typed.
   const isMain = wksp === MAIN_PANEL
   const [text, setText] = useState(() => getDraft(wksp))
   const [sel, setSel] = useState(0)
   const ta = useRef<HTMLTextAreaElement>(null)
   const att = useAttachments(wksp)
+  const inventory = useInventoryContext(wksp, context)
   const canSend = !!text.trim() || att.images.length > 0
   const update = (v: string): void => {
     setText(v)
@@ -360,6 +364,7 @@ function Composer({ wksp, busy, fill }: { wksp: string; busy: boolean; fill: Ref
   // A queued message taken back for editing: its text goes first (ahead of any draft), its images join the strip.
   useEffect(() => {
     fill.current = (c) => {
+      inventory.restore(c.context)
       const draft = getDraft(wksp)
       const next = [c.text, draft].filter((s) => s.trim()).join('\n\n')
       update(next)
@@ -440,7 +445,8 @@ function Composer({ wksp, busy, fill }: { wksp: string; busy: boolean; fill: Ref
     playSfx('send', settings)
     att.set([])
     try {
-      await api().sendChat(wksp, t, images.length ? toSendable(images) : undefined)
+      await api().sendChat(wksp, t, images.length ? toSendable(images) : undefined, inventory.context)
+      inventory.sent()
     } catch (e) {
       toast('error', 'Message not sent', errText(e))
       update(t)
@@ -468,6 +474,7 @@ function Composer({ wksp, busy, fill }: { wksp: string; busy: boolean; fill: Ref
           ))}
         </div>
       )}
+      {inventory.chips}
       <AttachmentStrip att={att} />
       <div className={cx('composer-box ticks', att.dragging && 'dropping')} {...att.dropProps}>
         <textarea

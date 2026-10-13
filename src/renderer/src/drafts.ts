@@ -1,3 +1,4 @@
+import type { InventoryContext } from '@shared/inventory-context'
 import type { ChatImageInput } from '@shared/chat-images'
 
 /**
@@ -19,6 +20,7 @@ export function setDraft(wksp: string, text: string): void {
 export function clearDraft(wksp: string): void {
   drafts.delete(wksp)
   imageDrafts.delete(wksp)
+  contextDrafts.delete(wksp)
 }
 
 /** An image attached to a draft, ready to send (already downscaled). */
@@ -37,4 +39,11 @@ export function getDraftImages(wksp: string): DraftImage[] {
 export function setDraftImages(wksp: string, images: DraftImage[]): void {
   if (images.length) imageDrafts.set(wksp, images)
   else imageDrafts.delete(wksp)
+}
+
+const contextDrafts = new Map<string, InventoryContext>()
+export const getDraftContext = (wksp: string): InventoryContext | undefined => contextDrafts.get(wksp)
+export function setDraftContext(wksp: string, context?: InventoryContext): void {
+  if (context) contextDrafts.set(wksp, context)
+  else contextDrafts.delete(wksp)
 }

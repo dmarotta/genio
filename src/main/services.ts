@@ -1,3 +1,4 @@
+import type { InventoryContext } from '@shared/inventory-context'
 /**
  * Service contracts. Every main-process module implements one of these
  * interfaces and reaches its collaborators only through `AppCtx` / `HomeCtx`,
@@ -372,7 +373,7 @@ export interface WkspService {
   info(): WkspInfo
   history(limit?: number): ChatMessage[]
   /** player message from the GUI (or mail / recap / save synthesized prompts); 'genio' = routed by main Genio to an ally */
-  send(text: string, origin?: 'player' | 'system' | 'genio', images?: ChatImageInput[]): Promise<void>
+  send(text: string, origin?: 'player' | 'system' | 'genio', images?: ChatImageInput[], context?: InventoryContext): Promise<void>
   /**
    * Take back a player message the session has not picked up yet (queued, or unsent after a restart):
    * it leaves the queue and the log, and its text and images come back for the composer.

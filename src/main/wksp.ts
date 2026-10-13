@@ -17,6 +17,8 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk'
 import type { Ally, ChatMessage, WkspActivity, WkspInfo, Settings, ToolTrace } from '@shared/types'
 import { userContent, type ChatImageInput } from '@shared/chat-images'
+import { inventoryContextBlock, type InventoryContext } from '@shared/inventory-context'
+import { prepareInventoryContext } from './inventory-context'
 import { bus } from './bus'
 import { chatImageDir, loadChatImages, saveChatImages } from './chat-images'
 import { attachedIdsNote } from './chat-imagegen'
@@ -127,8 +129,8 @@ export function inboundMessage(wksp: string, text: string, origin: 'player' | 's
 }
 
 /** A message the player typed in a chat tab: it goes to that chat's base only (main or one ally). */
-export function sendPlayerChat(ctx: Pick<AppCtx, 'home'>, wksp: string, text: string, images?: ChatImageInput[]): Promise<void> {
-  return ctx.home(wksp).wksp.send(text, 'player', images)
+export function sendPlayerChat(ctx: Pick<AppCtx, 'home'>, wksp: string, text: string, images?: ChatImageInput[], context?: InventoryContext): Promise<void> {
+  return ctx.home(wksp).wksp.send(text, 'player', images, context)
 }
 
 const NOOP_RE = /^all clear[,!.]?(\s+[\w .'-]{0,40})?[.!]?$/i
@@ -532,6 +534,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
     queued: 0,
     sessionId: persisted.sessionId
   }
+  let contextSessionStart = nowIso()
   let history: ChatMessage[] | undefined
   let eventsBackoffUntil = 0
   let bootDone = false
@@ -887,7 +890,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       const h = loadHistory()
       return h.slice(-limit)
     },
-    async send(text, origin = 'player', images = []) {
+    async send(text, origin = 'player', images = [], context) {
       stopped = false
       bootDone = true
       const trimmed = text.trim()
@@ -899,8 +902,11 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
         return
       }
       // stored before anything else so a bad image fails the send (the composer keeps the draft)
-      const stored = saveChatImages(chatImageDir(home.data), images)
       const ctx = getCtx()
+      const prepared = await prepareInventoryContext(context, images, (world, asset) => ctx.inventory.thumbnail(world, asset),
+        () => loadHistory().filter(m => m.ts >= contextSessionStart))
+      const stored = saveChatImages(chatImageDir(home.data), prepared.images)
+      if (prepared.context?.thumbnail?.status === 'attached') prepared.context.thumbnail.image = stored.refs.at(-1)
       let prompt = trimmed
       // companion: the first ordinary player message after AFK ends it with a return brief
       if (origin === 'player' && home.isMain && ctx.away.state().mode === 'afk') {
@@ -910,14 +916,16 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       }
       const m = inboundMessage(name, trimmed, origin)
       if (stored.refs.length) m.images = stored.refs
+      if (prepared.context) m.context = prepared.context
       const player = origin === 'player'
       // mid-turn: the message waits in the log as queued until the session picks it up
       if (player && !genio.idle) m.queue = 'queued'
       record(m, true)
       bus.publish({ type: 'sfx', sound: 'send' })
       // the ids let Genio pass pasted images to generate_image as refs
-      prompt += attachedIdsNote(stored.refs)
+      prompt += inventoryContextBlock(m.context) + attachedIdsNote(stored.refs)
       genio.enqueue({ kind: player ? 'player' : 'system', prompt, images: stored.send.length ? stored.send : undefined, msgId: player ? m.id : undefined })
+      if (m.context) ctx.stats.unlock('inventory-chat')
       publishInfo()
     },
     unqueue(id) {
@@ -931,7 +939,9 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       appendJsonl(home.chatFile, gone)
       bus.publish({ type: 'chat', message: gone })
       publishInfo()
-      return images?.length ? { text: m.text, images } : { text: m.text }
+      // The automatic preview belongs to its chip, not the pasted-image draft.
+      const pasted = m.context?.thumbnail?.status === 'attached' ? images?.slice(0, -1) : images
+      return { text: m.text, ...(pasted?.length ? { images: pasted } : {}), ...(m.context ? { context: m.context } : {}) }
     },
     deliverWakes() {
       if (stopped) return
@@ -962,6 +972,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       await bot?.interrupt()
     },
     async restart(fresh) {
+      if (fresh) contextSessionStart = nowIso()
       // the player's queued messages survive a session restart and go to the new session
       const waiting = genio.waitingMessages()
       genio.stop()

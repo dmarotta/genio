@@ -1,4 +1,5 @@
 import type { ModelCatalogue } from './model-catalogue'
+import type { InventoryContext } from './inventory-context'
 export interface WorldMetadata { engineVersion?: string; lastCommitAt?: string }
 
 import type { AllyControlsPatch, UnqueuedChat } from './chat'
@@ -478,7 +479,7 @@ export interface GenioApi {
   approveGeneration(wksp: string, run: string): Promise<import('./generation').GenerationCard>
   chatHistory(wksp: string, limit?: number): Promise<ChatMessage[]>
   /** images go to the session as image blocks; text may be empty when images are attached */
-  sendChat(wksp: string, text: string, images?: ChatImageInput[]): Promise<void>
+  sendChat(wksp: string, text: string, images?: ChatImageInput[], context?: InventoryContext): Promise<void>
   /** take back a queued (or unsent) message for edit/cancel; null when the session already picked it up */
   unqueueChat(wksp: string, id: string): Promise<UnqueuedChat | null>
   interruptWksp(wksp: string): Promise<void>

@@ -89,7 +89,8 @@ const ctx = {
   allies: { list: () => [] },
   projects: { list: () => [] },
   memory: { read: () => '' },
-  stats: { addCost: () => undefined, award: () => undefined },
+  inventory: { thumbnail: async () => undefined },
+  stats: { unlock: vi.fn(), addCost: () => undefined, award: () => undefined },
   away: { state: () => ({ mode: 'online' }) },
   home: () => ({ wakes: { pending: () => [], drain: () => ({ text: '', ackThrough: -1, count: 0 }), ack: () => undefined }, crew: { list: () => [] }, decisions: { list: () => [] } }),
   main: { home: { data: '' } }
@@ -241,4 +242,26 @@ describe('queued chat messages', () => {
     expect(after.unqueue(lost.id)).toEqual({ text: 'lost in the restart', images: [{ mediaType: 'image/png', data: PNG }] })
     expect(createWkspService(() => ctx as never, c.home).history().map((m) => m.text)).toEqual(['one'])
   })
+})
+
+
+it('snapshots Inventory context in queued history and returns it intact for editing', async () => {
+  const { svc } = chat('inventory-test')
+  await svc.send('first')
+  await waitReceived(() => fake.queries[0], 1)
+  const context = { world: 'forest', folder: 'Assets/Audio', preview: { path: 'Assets/Audio/door.wav', kind: 'audio' as const, size: 123, mtimeMs: 1, generated: false } }
+  await svc.send('a heavier one', 'player', [], context)
+  const queued = svc.history().find(m => m.text === 'a heavier one')!
+  context.folder = 'elsewhere'
+  expect(queued.context?.folder).toBe('Assets/Audio')
+  expect(queued.queue).toBe('queued')
+  const edit = svc.unqueue(queued.id)!
+  expect(edit.context?.folder).toBe('Assets/Audio')
+  await svc.send(edit.text, 'player', edit.images, edit.context)
+  fake.queries[0].finishTurn()
+  await waitReceived(() => fake.queries[0], 2)
+  expect(fake.queries[0].received[1]).toContain('[inventory: ')
+  expect(fake.queries[0].received[1]).toContain('Assets/Audio/door.wav')
+  expect(fake.queries[0].received[1]).not.toContain('elsewhere')
+  expect(ctx.stats.unlock).toHaveBeenCalledWith('inventory-chat')
 })

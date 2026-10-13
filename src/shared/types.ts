@@ -1,3 +1,4 @@
+import type { InventoryContextReceipt } from './inventory-context'
 // Shared data model for Genio main process and renderer.
 // Concepts mirror companion (see docs/VOCABULARY.md): the Player talks to one
 // companion (Genio) which deploys a Squad of units, each in an isolated git
@@ -280,6 +281,7 @@ export interface ChatMessage {
   costUsd?: number
   /** images the player attached (stored in the base's data/chat-images) */
   images?: ChatImage[]
+  context?: InventoryContextReceipt
   /** in an ally's chat: a request main Genio routed to it (shown as from Genio) */
   from?: 'genio'
   /** a player message not yet read by the session (see ChatQueueState) */

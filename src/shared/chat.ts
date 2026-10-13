@@ -1,3 +1,4 @@
+import type { InventoryContext } from './inventory-context'
 import type { ChatImageInput } from './chat-images'
 import type { Ally, ChatMessage, Settings } from './types'
 
@@ -51,6 +52,7 @@ export function chatControls(s: Pick<Settings, 'chatShellMode' | 'wkspModel' | '
 export interface UnqueuedChat {
   text: string
   images?: ChatImageInput[]
+  context?: InventoryContext
 }
 
 /**
