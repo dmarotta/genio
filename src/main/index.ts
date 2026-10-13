@@ -79,21 +79,34 @@ async function boot(): Promise<void> {
 }
 
 function registerMedia(): void {
-  protocol.handle(MEDIA_SCHEME, (req) => {
-    const u = new URL(req.url)
-    const [id, file] = u.pathname.split('/').filter(Boolean).map(decodeURIComponent)
-    const p =
-      !id || !file
-        ? undefined
-        : u.hostname === 'fal'
-          ? getCtx().fal.mediaPath(id, file)
-          : u.hostname === 'uthana'
-            ? getCtx().uthana.mediaPath(id, file)
-            : u.hostname === 'chat'
-              ? chatMediaPath(id, file)
-              : undefined
-    if (!p) return new Response('not found', { status: 404 })
-    return mediaResponse(p, req.headers.get('range'))
+  protocol.handle(MEDIA_SCHEME, async (req) => {
+    try {
+      const u = new URL(req.url)
+      if (u.hostname === 'world' || u.hostname === 'thumb') {
+        if (req.method !== 'GET') return new Response('method not allowed', { status: 405 })
+        const [world, ...parts] = u.pathname.slice(1).split('/').map(decodeURIComponent)
+        const asset = parts.join('/')
+        const p = u.hostname === 'world' ? await getCtx().inventory.mediaPath(world, asset) : await getCtx().inventory.thumbnail(world, asset)
+        if (!p) return new Response('not found', { status: 404 })
+        const response = mediaResponse(p, req.headers.get('range'))
+        response.headers.set('X-Content-Type-Options', 'nosniff')
+        response.headers.set('Content-Security-Policy', "default-src 'none'; sandbox")
+        return response
+      }
+      const [id, file] = u.pathname.split('/').filter(Boolean).map(decodeURIComponent)
+      const p =
+        !id || !file
+          ? undefined
+          : u.hostname === 'fal'
+            ? getCtx().fal.mediaPath(id, file)
+            : u.hostname === 'uthana'
+              ? getCtx().uthana.mediaPath(id, file)
+              : u.hostname === 'chat'
+                ? chatMediaPath(id, file)
+                : undefined
+      if (!p) return new Response('not found', { status: 404 })
+      return mediaResponse(p, req.headers.get('range'))
+    } catch { return new Response('not found', { status: 404 }) }
   })
 }
 

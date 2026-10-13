@@ -56,6 +56,8 @@ import { createPermissionBroker } from './permissions'
 import { createFalService } from './fal-service'
 import { createUthanaService } from './uthana-service'
 import { createDispatchService } from './dispatch'
+import { createInventoryService } from './inventory'
+import { createThumbnailDecoder } from './inventory-thumbnails'
 
 let current: AppCtx | undefined
 
@@ -108,6 +110,10 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
   ctx.fal = createFalService(getCtx)
   ctx.uthana = createUthanaService(getCtx)
   ctx.dispatch = createDispatchService(getCtx)
+  const thumbnailDecoder = createThumbnailDecoder()
+  ctx.inventory = createInventoryService(getCtx, thumbnailDecoder.decode)
+  const stopInventory = ctx.inventory.stop
+  ctx.inventory.stop = () => { stopInventory(); thumbnailDecoder.stop() }
 
   ctx.main = makeHomeCtx(mainHome)
   homes.set('main', ctx.main)
@@ -154,6 +160,7 @@ export async function startApp(ctx: AppCtx): Promise<void> {
 }
 
 export async function stopApp(ctx: AppCtx): Promise<void> {
+  ctx.inventory.stop()
   for (const h of ctx.homes.values()) {
     h.supervisor.stop()
     await h.wksp.stop().catch(() => undefined)

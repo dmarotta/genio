@@ -39,6 +39,11 @@ export function registerIpc(getCtx: () => AppCtx): void {
   }
 
   const h: Handlers = {
+    inventoryOpen: (world) => ctx().inventory.open(world),
+    inventoryClose: (world) => ctx().inventory.close(world),
+    inventoryRefresh: (world) => ctx().inventory.refresh(world),
+    inventoryList: (world, query) => ctx().inventory.list(world, query),
+    inventoryInfo: (world, asset, verifyHash) => ctx().inventory.info(world, asset, verifyHash),
     snapshot: () => ctx().snapshot(),
     homePath: () => ctx().main.home.root,
     getSettings: () => ctx().settings.get(),

@@ -6,6 +6,7 @@ import type {
 } from './types'
 import type { DispatchScoresView } from './dispatch'
 import type { ChatImageInput } from './chat-images'
+import type { InventoryInfo, InventoryQuery, InventoryResult, InventoryState } from './inventory'
 import type {
   UthanaAccount, UthanaExportRequest, UthanaExportResult, UthanaFile, UthanaFileInfo, UthanaGenerateRequest, UthanaPreviewRequest, UthanaRemoteCharacter, UthanaRun,
   UthanaUploadRequest, UthanaWorldConfig, UthanaWorldState
@@ -389,6 +390,13 @@ export interface FalSaveResult extends OpResult {
 }
 
 export interface GenioApi {
+  /** Open starts the watcher and returns the cache while reconciling in background. */
+  inventoryOpen(world: string): Promise<InventoryState>
+  inventoryClose(world: string): Promise<void>
+  /** Call on window focus too, for platforms where recursive watching is unavailable. */
+  inventoryRefresh(world: string): Promise<InventoryState>
+  inventoryList(world: string, query?: InventoryQuery): Promise<InventoryResult>
+  inventoryInfo(world: string, path: string, verifyHash?: boolean): Promise<InventoryInfo | null>
   snapshot(): Promise<FleetSnapshot>
   homePath(): Promise<string>
   getSettings(): Promise<Settings>
@@ -546,6 +554,7 @@ export type MemoryFile = 'player' | 'lore' | 'player-shared'
 export type ApiMethod = keyof GenioApi
 /** Every GenioApi method, as runtime data (contextBridge cannot clone a Proxy). */
 export const API_METHODS = [
+  'inventoryOpen', 'inventoryClose', 'inventoryRefresh', 'inventoryList', 'inventoryInfo',
   'snapshot',
   'homePath',
   'getSettings',

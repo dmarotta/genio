@@ -27,6 +27,7 @@ import type { PickEnv } from './loadout'
 import type { AllyControlsPatch, UnqueuedChat } from '@shared/chat'
 import type { ChatImageInput } from '@shared/chat-images'
 import type { Home } from './home'
+import type { InventoryService } from './inventory'
 
 // ---------------------------------------------------------------- global
 
@@ -416,6 +417,7 @@ export interface AppCtx {
   update: UpdateService
   permissions: PermissionBroker
   fal: FalService
+  inventory: InventoryService
   uthana: UthanaService
   dispatch: DispatchService
   main: HomeCtx

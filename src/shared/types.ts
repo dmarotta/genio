@@ -674,6 +674,7 @@ export interface UpdateInfo {
 
 /** Push events main → renderer */
 export type GenioEvent =
+  | { type: 'inventory'; state: import('./inventory').InventoryState }
   | { type: 'snapshot'; data: FleetSnapshot }
   | { type: 'task'; task: Task }
   | { type: 'task-removed'; id: string }
