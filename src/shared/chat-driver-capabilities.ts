@@ -7,11 +7,11 @@ export interface ChatDriverCapabilities {
 }
 
 /** Installed/authenticated is not evidence that a runtime can enforce policy.
- * Step 1 ships the bridge, not native-tool confinement for any new driver.
+ * Codex validates read-only execution, disabled native capabilities and ChatGPT authentication at session start.
  * Promote a runtime here only with driver-level interception/disable tests.
  */
 export function chatDriverCapabilities(runtime: ModelRuntime): ChatDriverCapabilities {
-  return runtime === 'claude'
+  return runtime === 'claude' || runtime === 'codex'
     ? { mode: 'driver', guardedTools: true }
     : { mode: 'consultation-only', guardedTools: false, reason: 'Native tool confinement has not been verified for this chat runtime.' }
 }

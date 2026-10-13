@@ -33,10 +33,10 @@ describe('honest route states', () => {
     expect(modelState(true, 'logged-in')).toBe('connected')
     expect(modelState(true, 'logged-in', 'Timed out')).toBe('unavailable')
   })
-  it('allows only fresh authenticated Claude routes to drive chat', () => {
+  it('allows only fresh authenticated Claude and Codex routes to drive chat', () => {
     const route: CatalogueRoute = { runtime: 'claude', provider: 'Anthropic', state: 'connected', stale: false, checkedAt: '', lastResult: 'ok', models: [] }
     expect(canDrive(route)).toBe(true)
-    expect(canDrive({ ...route, runtime: 'codex' })).toBe(false)
+    expect(canDrive({ ...route, runtime: 'codex' })).toBe(true)
     expect(canDrive({ ...route, stale: true })).toBe(false)
     expect(canDrive({ ...route, state: 'sign-in-needed' })).toBe(false)
   })
@@ -93,7 +93,7 @@ describe('ranked picker rows', () => {
   it('routes unconnected, free and stale rows to accounts without switching', () => {
     const route: CatalogueRoute = { runtime: 'claude', provider: 'Anthropic', state: 'connected', stale: false, checkedAt: '', lastResult: 'ok', models: [] }
     expect(modelSelectionAction(route)).toBe('select')
-    expect(modelSelectionAction({ ...route, runtime: 'codex' })).toBe('coming-soon')
+    expect(modelSelectionAction({ ...route, runtime: 'codex' })).toBe('select')
     for (const state of ['sign-in-needed', 'free-no-login', 'unavailable'] as const)
       expect(modelSelectionAction({ ...route, state })).toBe('accounts')
     expect(modelSelectionAction({ ...route, stale: true })).toBe('accounts')

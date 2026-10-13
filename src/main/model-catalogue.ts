@@ -10,7 +10,15 @@ let generation = 0
 let pending: Promise<ModelCatalogue> | undefined
 let pendingGeneration = 0
 export function invalidateModelCatalogue(): void { expires = 0; generation++ }
+/** A failed chat route remains unavailable until an explicit Accounts refresh. */
+const unavailable = new Map<ModelRuntime, string>()
+export function markChatRouteUnavailable(runtime: ModelRuntime, reason: string): void {
+  unavailable.set(runtime, reason)
+  cached = { routes: cached.routes.map(r => r.runtime === runtime ? { ...r, state: 'unavailable', lastResult: 'error', reason } : r) }
+}
+export function chatRouteUnavailable(runtime: ModelRuntime): string | undefined { return unavailable.get(runtime) }
 export function modelCatalogue(dataDir: string, refresh = false, claudePath?: string): Promise<ModelCatalogue> {
+  if (refresh) unavailable.clear()
   if (pending) return refresh && pendingGeneration !== generation ? pending.then(() => modelCatalogue(dataDir, true, claudePath)) : pending
   if (!refresh && Date.now() < expires) return Promise.resolve(cached)
   const started = generation
@@ -25,6 +33,7 @@ export function modelCatalogue(dataDir: string, refresh = false, claudePath?: st
         accountLabel: runtime === 'codex' && /ChatGPT/i.test(account?.detail || '') ? 'ChatGPT' : undefined,
         checkedAt: new Date().toISOString(), lastResult: 'error', stale: !!previous?.models.length,
         sourceAt: previous?.sourceAt, models: previous?.models || [] }
+      if (unavailable.has(runtime)) { route.state = 'unavailable'; route.reason = unavailable.get(runtime); return route }
       if (!account?.installed) { route.reason = 'CLI is not installed'; return route }
       if (provider === 'OpenRouter' && !key) { route.state = 'sign-in-needed'; route.reason = 'Add an OpenRouter key in Accounts'; return route }
       if ((runtime === 'claude' || runtime === 'codex') && route.state !== 'connected') {

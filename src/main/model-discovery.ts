@@ -3,6 +3,7 @@ import { createInterface } from 'node:readline'
 import type { Query } from '@anthropic-ai/claude-agent-sdk'
 import type { RawModel } from '@shared/model-catalogue'
 import { killTree, run, runShell, stripAnsi, which } from './util'
+import { CODEX_CHAT_DISABLED } from './codex-chat-driver'
 
 const queries = new Set<Query>()
 let claudeMetadata: RawModel[] = []
@@ -41,7 +42,7 @@ export async function claudeModels(executable?: string): Promise<RawModel[]> {
 async function rpcModels(tool: 'codex' | 'gemini'): Promise<RawModel[]> {
   const file = await which(tool)
   if (!file) throw new Error('CLI is not installed')
-  const args = tool === 'codex' ? ['app-server', '--listen', 'stdio://'] : ['--acp']
+  const args = tool === 'codex' ? ['app-server', '--listen', 'stdio://', ...CODEX_CHAT_DISABLED.flatMap(name => ['--disable', name])] : ['--acp']
   const shim = /\.(cmd|bat)$/i.test(file)
   const env: NodeJS.ProcessEnv = { ...process.env, NO_BROWSER: 'true', NO_COLOR: '1' }
   delete env.ELECTRON_RUN_AS_NODE
@@ -81,6 +82,13 @@ async function rpcModels(tool: 'codex' | 'gemini'): Promise<RawModel[]> {
       return result.models?.availableModels || []
     }
     send({ method: 'initialized', params: {} })
+    const account = await request('account/read', { refreshToken: true })
+    if (!['chatgpt', 'chatgptAuthTokens'].includes(account.account?.type)) throw new Error('Codex ChatGPT authentication required')
+    const config = (await request('config/read', { includeLayers: false })).config
+    if (CODEX_CHAT_DISABLED.some(name => config?.features?.[name] !== false) || config?.model_providers?.openai ||
+      Object.keys(config?.mcp_servers ?? {}).some(name => !/^[\w-]+$/.test(name))) {
+      throw new Error('Codex chat tool confinement could not be validated')
+    }
     const rows: RawModel[] = []
     let cursor: string | undefined
     const seen = new Set<string>()

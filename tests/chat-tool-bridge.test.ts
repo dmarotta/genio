@@ -14,6 +14,8 @@ import { enforceTool } from '../src/main/chat-tool-policy'
 import { chatDriverCapabilities } from '../src/shared/chat-driver-capabilities'
 import { agentGeneration } from '../src/main/agent-generation'
 import { z } from 'zod'
+import { CodexChatDriver } from '../src/main/codex-chat-driver'
+import { FakeAppServer } from './helpers/fake-codex-server'
 
 let ctx: AppCtx, home: Home, root: string, abort: AbortController
 let task: Task
@@ -59,6 +61,31 @@ async function rpc(b: Awaited<ReturnType<typeof bridge>>, method: string, params
   return { status: r.status, body: await r.json() as any }
 }
 const call = async (b: Awaited<ReturnType<typeof bridge>>, name: string, args = {}) => (await rpc(b, 'tools/call', { name, arguments: args })).body.result
+
+it('enforces Bot guards through a Codex app-server session and the real HTTP bridge', async () => {
+  const b = await bridge('bot')
+  const server = new FakeAppServer()
+  const driver = new CodexChatDriver({ wksp: 'main', cwd: home.root, config: () => ({ model: 'gpt-test' }),
+    instructions: () => 'Bot read-only contract', approve: async () => false,
+    wire: events => { server.events = events; return server },
+    bridge: async () => ({ list: async () => (await rpc(b, 'tools/list')).body.result.tools,
+      call: (name, args) => call(b, name, args as any), close: b.close })
+  }, { onMessage() {}, onDelta() {}, onActivity() {}, onTurnEnd() {}, onSessionId() {}, onError: vi.fn() })
+  try {
+    driver.send({ kind: 'events', prompt: 'Check on the fleet' })
+    await vi.waitFor(() => expect(server.turn).toBe(1))
+    const descriptors = server.sent.find(r => r.method === 'thread/start')!.params.dynamicTools
+    expect(descriptors.map((t: any) => t.name)).toContain('genio_memory_read')
+    expect(descriptors.map((t: any) => t.name)).not.toContain('genio_deploy')
+    expect(await server.call('genio_memory_read', 'read', { which: 'lore' })).toMatchObject({ success: true })
+    await expect(server.call('genio_merge', 'merge', { task: 'unit', player_words: 'forged consent' })).rejects.toThrow()
+    await expect(server.call('genio_deploy', 'deploy', {})).rejects.toThrow()
+    expect(await server.call('genio_status_report', 'file', { file: true })).toMatchObject({ success: false })
+    expect(ctx.main.crew.merge).not.toHaveBeenCalled()
+    expect(ctx.main.crew.spawn).not.toHaveBeenCalled()
+    expect(ctx.memory.write).not.toHaveBeenCalled()
+  } finally { driver.stop() }
+})
 
 describe('authenticated local MCP bridge', () => {
   it('binds only IPv4 loopback, rotates tokens, rejects missing/wrong tokens and browser origins', async () => {
@@ -267,7 +294,7 @@ describe('common permission enforcement and runtime capabilities', () => {
   })
   it('never promotes a native tool alias or an unconstrained runtime, even in YOLO', async () => {
     for (const runtime of ['codex', 'gemini', 'opencode'] as const) {
-      expect(chatDriverCapabilities(runtime).mode).toBe('consultation-only')
+      expect(chatDriverCapabilities(runtime).mode).toBe(runtime === 'codex' ? 'driver' : 'consultation-only')
       for (const name of ['exec_command', 'run_shell_command', 'bash', 'apply_patch', 'edit', 'spawn_agent', 'task', 'mcp__genio__deploy']) {
         expect(await enforceTool({ role: 'genio', chat: 'main', shellMode: () => 'all', permissions: ctx.permissions },
           { runtime, name, input: { command: 'echo unsafe' } })).toMatchObject({ behavior: 'deny' })

@@ -18,7 +18,7 @@ import type { FalRun, FalSpend, MeasuredUsage, TokenTally, ToolUsage, UsageLimit
 import { FalHistory } from './fal-history'
 import { expireWindow, type QuotaWindow } from './quota-policy'
 import type { AppCtx } from './services'
-import { isSubPath, nowIso, readJson, writeJsonAtomic } from './util'
+import { appendJsonl, isSubPath, nowIso, readJson, writeJsonAtomic } from './util'
 
 const DAY = 86_400_000
 
@@ -97,6 +97,34 @@ export interface CodexSession {
   cwd?: string
   records: TokenRecord[]
   snapshots: CodexSnapshot[]
+}
+
+/** ChatGPT subscription telemetry; these tokens are never added to cash cost. */
+export function recordCodexChatUsage(data: string, cwd: string, thread: string, usage: Record<string, any>): void {
+  if (!/^[\w-]+$/.test(thread)) return
+  const file = path.join(data, 'usage', 'codex-chat', `${thread}.jsonl`)
+  const total = usage.total
+  if (!total) return
+  appendJsonl(file, { type: 'session_meta', payload: { cwd, id: thread } })
+  appendJsonl(file, { timestamp: nowIso(), type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: {
+    input_tokens: num(total.inputTokens), cached_input_tokens: num(total.cachedInputTokens), output_tokens: num(total.outputTokens)
+  } } } })
+}
+export function recordCodexChatLimits(data: string, event: Record<string, any>): void {
+  const limits = event.rateLimits
+  if (!limits) return
+  const window = (w: any) => w ? { used_percent: w.usedPercent, window_minutes: w.windowDurationMins, resets_at: w.resetsAt } : undefined
+  const parsed = parseCodexSession([JSON.stringify({ timestamp: nowIso(), type: 'event_msg', payload: { type: 'token_count', rate_limits: {
+    limit_id: limits.limitId ?? 'codex', limit_name: limits.limitName, plan_type: limits.planType,
+    primary: window(limits.primary), secondary: window(limits.secondary)
+  } } })], 'chat-limits')
+  const file = path.join(data, 'usage', 'codex-chat-limits.json')
+  const prior = readJson<CodexSnapshot[]>(file, [])
+  for (const snapshot of parsed.snapshots) {
+    const i = prior.findIndex(p => p.limitId === snapshot.limitId)
+    if (i >= 0) prior[i] = snapshot; else prior.push(snapshot)
+  }
+  writeJsonAtomic(file, prior)
 }
 
 /** Only these lines matter; everything else (prompts, tool output) is skipped unparsed. */
@@ -459,12 +487,14 @@ async function claudeUsage(ctx: AppCtx, root: string, now: number): Promise<Tool
   }
 }
 
-async function codexUsage(root: string, now: number): Promise<ToolUsage> {
+async function codexUsage(root: string, now: number, data: string): Promise<ToolUsage> {
   const { weekStart } = usageWindows(now)
-  const files = recentJsonl(path.join(codexHome(), 'sessions'), weekStart)
+  const chats = recentJsonl(path.join(data, 'usage', 'codex-chat'), weekStart)
+  const chatIds = chats.map(f => path.basename(f, '.jsonl'))
+  const files = [...recentJsonl(path.join(codexHome(), 'sessions'), weekStart).filter(f => !chatIds.some(id => f.endsWith(`${id}.jsonl`))), ...chats]
   const records: TokenRecord[] = []
   const worlds = new Map<TokenRecord, string>()
-  const snapshots: CodexSnapshot[] = []
+  const snapshots: CodexSnapshot[] = readJson(path.join(data, 'usage', 'codex-chat-limits.json'), [])
   for (const f of files) {
     const s = await codexCache.get(f, async (p) => parseCodexSession(await pickLines(p, (l) => (isCodexUsageLine(l) ? l : undefined)), path.basename(p, '.jsonl')))
     if (!s) continue
@@ -481,7 +511,7 @@ async function codexUsage(root: string, now: number): Promise<ToolUsage> {
   return {
     tool: 'codex',
     limits,
-    measured: measured('measured by Genio', "Genio's units (Codex session logs)", records, now, worlds),
+    measured: measured('measured by Genio', "Genio's units and chats (Codex plan tokens, not cash cost)", records, now, worlds),
     note: limits.length ? undefined : 'No rate-limit snapshot in the last 7 days of Codex session logs.'
   }
 }
@@ -501,7 +531,7 @@ export function usageReport(ctx: AppCtx): Promise<UsageReport> {
   inFlight ??= (async (): Promise<UsageReport> => {
     const now = Date.now()
     const root = ctx.main.home.root
-    const tools = [await safely('claude', () => claudeUsage(ctx, root, now)), await safely('codex', () => codexUsage(root, now))]
+    const tools = [await safely('claude', () => claudeUsage(ctx, root, now)), await safely('codex', () => codexUsage(root, now, ctx.main.home.data))]
     let fal: FalSpend
     try {
       fal = falSpend(new FalHistory(path.join(ctx.main.home.data, 'fal')).list(), now)

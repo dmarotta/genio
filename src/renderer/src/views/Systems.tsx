@@ -212,7 +212,7 @@ function SectionBody({ sec, s, advanced, setAdvanced, open }: { sec: Section; s:
       return (
         <>
           <h2 className="sys-title">Genio</h2>
-          <Row label="Model and effort" hint="Set by the Usage mode. Raw chat and Bot picks are under Usage → Advanced.">
+          <Row label="Model and effort" hint="Set by the Usage mode. Raw chat picks are under Usage → Advanced.">
             <button className="btn sm" onClick={() => open('usage')}>Usage</button>
           </Row>
           <Row label="Claude Code path" hint="Blank uses the bundled Claude Code.">
@@ -458,7 +458,6 @@ function pinnedOverrides(s: Settings, view: UsagePolicyView | null): Pin[] {
   const out: Pin[] = []
   if (s.wkspModel) out.push({ label: 'Chat model', value: s.wkspModel, unpin: () => set({ wkspModel: '' }) })
   if (s.wkspEffort) out.push({ label: 'Chat effort', value: s.wkspEffort, unpin: () => set({ wkspEffort: '' }) })
-  if (s.botModel) out.push({ label: 'Bot model', value: s.botModel, unpin: () => set({ botModel: '' }) })
   if (s.defaultWorkerModel) out.push({ label: `Unit model (${s.defaultHarness})`, value: s.defaultWorkerModel, unpin: () => set({ defaultWorkerModel: '' }) })
   if (s.defaultWorkerEffort) out.push({ label: 'Unit effort', value: s.defaultWorkerEffort, unpin: () => set({ defaultWorkerEffort: '' }) })
   const locked = s.categoryPools.filter((p) => p.locked)
@@ -486,9 +485,8 @@ function UsageAdvanced({ s, view, open }: { s: Settings; view: UsagePolicyView |
       <Row label="Chat effort">
         <EffortSelect model={s.wkspModel} value={s.wkspEffort} onChange={(v) => set({ wkspEffort: v })} />
       </Row>
-      <Row label="Bot model" hint="Handles events while you're DND/AFK. Auto: Sonnet / low.">
-        <CommitInput mono value={s.botModel} placeholder="(auto)" onCommit={(v) => set({ botModel: v.trim() })} />
-        <div className="model-chips">{['claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', ''].map(m => <button key={m} className={cx('chip', s.botModel === m && 'neon')} onClick={() => set({ botModel: m })}>{m.replace('claude-', '') || 'auto'}</button>)}</div>
+      <Row label="Bot model" hint="Handles events while you're DND/AFK using the main chat selection.">
+        <span className="mute">Inherits the main chat provider and model; read-only tools.</span>
       </Row>
       <ModelRow allowCustom label="Unit model" hint={`Applies to ${s.defaultHarness} units.`} value={s.defaultWorkerModel} onCommit={(v) => set({ defaultWorkerModel: v })} />
       <Row label="Unit effort" hint="Blank: the mode's effort per category.">
@@ -575,8 +573,8 @@ export function ModelSelect(props: SelectProps) {
 
 export function EffortSelect({ value, onChange, model, ...rest }: SelectProps & { model?: string }) {
   const catalogue = useModelCatalogue()
-  const selected = catalogue.routes.flatMap(r => r.models).find(m => m.runtime === 'claude' && (m.id === model || m.aliases.includes(model || 'default')))
-  const efforts = model === undefined ? EFFORTS : selected?.efforts || []
+  const selected = catalogue.routes.flatMap(r => r.models).find(m => (m.key === model || m.runtime === 'claude' && (m.id === model || m.aliases.includes(model || 'default'))))
+  const efforts = (model === undefined ? EFFORTS : selected?.efforts || []).filter(e => e !== 'ultra')
   return (
     <select className="select" value={efforts.includes(value) ? value : ""} onChange={(e) => onChange(e.target.value)} {...rest}>
       <option value="">(auto)</option>

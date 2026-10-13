@@ -1,8 +1,12 @@
-import { claudeLimitState } from './claude-limit'
-import { SessionCostLedger, SessionQuotaPolicy, isQuotaError } from './session-usage'
 import { chatSettings, claudeStatus, globalMode, routineDelay, wakeBatchMs } from './usage-policy'
 import { chatUsageLine } from '@shared/usage-mode'
-import { registerModelQuery, supportedClaudeEfforts } from './model-discovery'
+import { SessionCostLedger, SessionQuotaPolicy } from './session-usage'
+import { ProviderChatSession, type ProviderSessions } from './provider-chat-session'
+import { chatRoute, type ChatProvider, type ChatDriverEvents } from './chat-driver'
+import { CodexChatDriver } from './codex-chat-driver'
+import { chatHandoff } from './chat-handoff'
+import { chatRouteUnavailable, markChatRouteUnavailable } from './model-catalogue'
+import { recordCodexChatUsage, recordCodexChatLimits } from './usage'
 /**
  * Genio agent sessions (companion's primary harness session, in-process).
  *
@@ -17,10 +21,9 @@ import { registerModelQuery, supportedClaudeEfforts } from './model-discovery'
 import { unitPluginSource } from './unitskills'
 import path from 'node:path'
 import type {
-  Query, SDKMessage, SDKUserMessage, Options, CanUseTool, PermissionResult, EffortLevel
+  Options, CanUseTool, PermissionResult
 } from '@anthropic-ai/claude-agent-sdk'
-import type { Ally, ChatMessage, WkspActivity, WkspInfo, Settings, ToolTrace } from '@shared/types'
-import { userContent, type ChatImageInput } from '@shared/chat-images'
+import type { Ally, ChatMessage, WkspInfo } from '@shared/types'
 import { inventoryContextBlock, validateInventoryContext, type InventoryContext } from '@shared/inventory-context'
 import { prepareInventoryContext } from './inventory-context'
 import { bus } from './bus'
@@ -28,7 +31,7 @@ import { chatImageDir, loadChatImages, saveChatImages } from './chat-images'
 import { attachedIdsNote } from './chat-imagegen'
 import type { Home } from './home'
 import { buildTools, type ToolRole } from './wksp-tools'
-import { closeChatToolBridges } from './chat-tool-bridge'
+import { openChatToolBridge, closeChatToolBridges } from './chat-tool-bridge'
 import { formatNotification } from './notify-format'
 import {
   HELP_TEXT, afkPrompt, botContract, eventsPrompt, genioContract, recapPrompt, returnPrompt, savePrompt, sessionStartPrompt,
@@ -39,548 +42,17 @@ import type { AppCtx, WkspService } from './services'
 import { claudeLimitsFile, recordClaudeRateLimit, type ClaudeRateLimitInfo } from './usage'
 import { appendJsonl, nowIso, readJson, readJsonl, readText, rid, truncate, writeJson } from './util'
 
-type Sdk = typeof import('@anthropic-ai/claude-agent-sdk')
-let sdkPromise: Promise<Sdk> | undefined
-const loadSdk = (): Promise<Sdk> => (sdkPromise ??= import('@anthropic-ai/claude-agent-sdk'))
-
-export { decideTool, isReadOnlyCommand } from './chat-tool-policy'
-export type { ToolDecision } from './chat-tool-policy'
+import { AgentSession, loadSdk, sessionConfig, inboundMessage, type TurnItem } from './claude-chat-driver'
+export { AgentSession, sessionConfig, applyLiveConfig, inboundMessage, sendPlayerChat, userMessage, decideTool, isReadOnlyCommand } from './claude-chat-driver'
+export type { SessionConfig, LiveControls, ToolDecision } from './claude-chat-driver'
 import { DISALLOWED, enforceTool } from './chat-tool-policy'
-
-const EFFORT_LEVELS: readonly string[] = ['low', 'medium', 'high', 'xhigh', 'max']
-
-export interface SessionConfig {
-  model?: string
-  effort?: EffortLevel
-}
-
-/** Model/effort for a session: allies keep their own overrides, the Bot keeps botModel at low effort. */
-export function sessionConfig(role: ToolRole, s: Pick<Settings, 'botModel' | 'wkspModel' | 'wkspEffort'>, ally?: Pick<Ally, 'model' | 'effort'>): SessionConfig {
-  const model = (role === 'bot' ? s.botModel : ally?.model || s.wkspModel)?.trim() || undefined
-  const effort = (role === 'bot' ? 'low' : ally?.effort || s.wkspEffort) || undefined
-  const allowed = role === 'bot' ? EFFORT_LEVELS : supportedClaudeEfforts(model) ?? EFFORT_LEVELS
-  return { model, effort: effort && allowed.includes(effort) ? (effort as EffortLevel) : undefined }
-}
-
-const sameConfig = (a: SessionConfig, b: SessionConfig): boolean => a.model === b.model && a.effort === b.effort
-
-/** The live controls a running query exposes for model/effort changes. */
-export type LiveControls = Pick<Query, 'setModel' | 'applyFlagSettings'>
-
-/** Apply model/effort to a running session; false means the caller should restart it with resume. */
-export async function applyLiveConfig(q: LiveControls, from: SessionConfig, to: SessionConfig): Promise<boolean> {
-  try {
-    if (from.model !== to.model) await q.setModel(to.model)
-    // null clears the override back to the model's default effort
-    if (from.effort !== to.effort) await q.applyFlagSettings({ effortLevel: to.effort ?? null })
-    return true
-  } catch {
-    return false
-  }
-}
-
-/** The chat record of an incoming message: the player's own, a synthesized prompt, or a request routed from main Genio. */
-export function inboundMessage(wksp: string, text: string, origin: 'player' | 'system' | 'genio'): ChatMessage {
-  const m: ChatMessage = { id: `p-${rid(6)}`, wksp, role: origin === 'player' ? 'player' : 'system', text, ts: nowIso() }
-  if (origin === 'genio') m.from = 'genio'
-  return m
-}
-
-/** A message the player typed in a chat tab: it goes to that chat's base only (main or one ally). */
-export function sendPlayerChat(ctx: Pick<AppCtx, 'home'>, wksp: string, text: string, images?: ChatImageInput[], context?: InventoryContext): Promise<void> {
-  return ctx.home(wksp).wksp.send(text, 'player', images, context)
-}
-
 const NOOP_RE = /^all clear[,!.]?(\s+[\w .'-]{0,40})?[.!]?$/i
-
-// ------------------------------------------------------------------ input queue
-
-/** The SDK user message for a turn: plain text, or image blocks plus text when images are attached. */
-export function userMessage(text: string, images?: readonly ChatImageInput[]): SDKUserMessage {
-  return { type: 'user', message: { role: 'user', content: userContent(text, images) }, parent_tool_use_id: null, session_id: '' } as unknown as SDKUserMessage
-}
-
-class InputQueue implements AsyncIterable<SDKUserMessage> {
-  private items: SDKUserMessage[] = []
-  private waiter?: (v: IteratorResult<SDKUserMessage>) => void
-  private closed = false
-  push(text: string, images?: readonly ChatImageInput[]): void {
-    const msg = userMessage(text, images)
-    if (this.waiter) {
-      const w = this.waiter
-      this.waiter = undefined
-      w({ value: msg, done: false })
-    } else this.items.push(msg)
-  }
-  close(): void {
-    this.closed = true
-    if (this.waiter) {
-      const w = this.waiter
-      this.waiter = undefined
-      w({ value: undefined as unknown as SDKUserMessage, done: true })
-    }
-  }
-  [Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
-    return {
-      next: (): Promise<IteratorResult<SDKUserMessage>> => {
-        const it = this.items.shift()
-        if (it) return Promise.resolve({ value: it, done: false })
-        if (this.closed) return Promise.resolve({ value: undefined as unknown as SDKUserMessage, done: true })
-        return new Promise((resolve) => (this.waiter = resolve))
-      }
-    }
-  }
-}
-
-interface TurnItem {
-  limitRetried?: boolean
-  kind: 'player' | 'events' | 'system'
-  /** what the model receives */
-  prompt: string
-  /** images sent alongside the prompt as image blocks */
-  images?: ChatImageInput[]
-  /** wake ack cursor to commit when the turn succeeds */
-  ackThrough?: number
-  /** the player's chat message this turn carries (it shows as queued until the session picks it up) */
-  msgId?: string
-}
-
-interface SessionHooks {
-  /** the session picked this item up and is starting its turn */
-  onStart?(item: TurnItem): void
-  onMessage(m: ChatMessage, final: boolean): void
-  onDelta(id: string, text: string): void
-  onActivity(a: WkspActivity, detail?: string): void
-  onTurnEnd(item: TurnItem | undefined, ok: boolean, lastText: string, costDelta: number): void
-  onSessionId(id: string): void
-  onError(text: string): void
-  onRateLimit(info: ClaudeRateLimitInfo): void
-  onLimit?(limit: WkspInfo['limit']): void
-  onRequeue?(item: TurnItem): void
-}
-
-/** One SDK conversation (Genio or the Bot). */
-export class AgentSession {
-  q?: Query
-  input?: InputQueue
-  busy = false
-  current?: TurnItem
-  pending: TurnItem[] = []
-  sessionId?: string
-  private limit?: WkspInfo['limit']
-  private limitPaused = false
-  private latestLimit?: ClaudeRateLimitInfo
-  private limitTimer?: ReturnType<typeof setTimeout>
-  private assistantLimit = ''
-  private gotInit = false
-  private resumedFrom?: string
-  private retryTimer?: ReturnType<typeof setTimeout>
-  private msgs = new Map<string, ChatMessage>()
-  private blockText = new Map<string, string[]>()
-  private toolOwner = new Map<string, string>()
-  private turnMsgIds: string[] = []
-  private streamMsgId?: string
-  private lastText = ''
-  private stderrTail = ''
-  private generation = 0
-  /** model/effort the running query was started with or last switched to */
-  private applied?: SessionConfig
-
-  constructor(
-    readonly label: string,
-    private readonly build: (resume?: string) => Promise<Options>,
-    private readonly hooks: SessionHooks,
-    private readonly wkspName: string,
-    private readonly config: () => SessionConfig,
-    private readonly quotaPolicy: () => SessionQuotaPolicy,
-    private readonly costs: SessionCostLedger
-  ) {}
-
-  get queued(): number {
-    return this.pending.length
-  }
-
-  enqueue(item: TurnItem): void {
-    if (item.kind === 'player') {
-      // player turns jump ahead of queued event turns
-      const idx = this.pending.findIndex((p) => p.kind !== 'player')
-      if (idx === -1) this.pending.push(item)
-      else this.pending.splice(idx, 0, item)
-    } else this.pending.push(item)
-    void this.pump()
-  }
-
-  hasEventsQueued(): boolean {
-    return this.current?.kind === 'events' || this.pending.some((p) => p.kind === 'events')
-  }
-
-  /** nothing running and nothing waiting: a new item starts right away */
-  get idle(): boolean {
-    return !this.busy && !this.pending.length && !this.limitPaused
-  }
-
-  /** Take a waiting chat message's turn back out of the queue; undefined once the session picked it up. */
-  cancel(msgId: string): TurnItem | undefined {
-    const i = this.pending.findIndex((p) => p.msgId === msgId)
-    return i < 0 ? undefined : this.pending.splice(i, 1)[0]
-  }
-
-  private async pump(): Promise<void> {
-    if (this.busy) return
-    const waiting = this.pending[0]
-    if (waiting && !this.quotaPolicy().canStart(waiting.kind === 'player', Date.now(), true, `${this.wkspName}:${this.label}`)) {
-      this.setLimit(this.quotaPolicy().limitState())
-      // Local polling can detect new on-disk evidence without spending provider quota.
-      if (!this.retryTimer) {
-        this.retryTimer = setTimeout(() => { this.retryTimer = undefined; void this.pump() }, 30_000)
-        this.retryTimer.unref?.()
-      }
-      return
-    }
-    if (waiting && this.limitPaused) this.reset()
-    if (waiting) this.setLimit()
-    const next = this.pending.shift()
-    if (!next) return
-    this.busy = true
-    this.current = next
-    this.hooks.onStart?.(next)
-    this.turnMsgIds = []
-    this.lastText = ''
-    this.assistantLimit = ''
-    this.hooks.onActivity('thinking')
-    try {
-      await this.syncConfig()
-      await this.ensureStarted()
-      this.input!.push(next.prompt, next.images)
-    } catch (e) {
-      this.busy = false
-      this.current = undefined
-      this.hooks.onError(`Genio could not start: ${(e as Error).message}`)
-      this.hooks.onTurnEnd(next, false, '', 0)
-      this.hooks.onActivity('error', (e as Error).message)
-    }
-  }
-
-  private setLimit(limit?: WkspInfo['limit']): void {
-    if (limit) limit = { ...limit, restartRequired: !!limit.restartRequired }
-    if (this.limitTimer) clearTimeout(this.limitTimer)
-    this.limitTimer = undefined
-    const changed = JSON.stringify(this.limit) !== JSON.stringify(limit)
-    this.limit = limit
-    this.limitPaused = !!limit
-    if (changed) this.hooks.onLimit?.(limit)
-    if (limit?.resetsAt && !limit.restartRequired) {
-      const delay = limit.resetsAt - Date.now()
-      if (delay > 0) this.limitTimer = setTimeout(() => {
-        // A rate event can precede the result. Never interrupt a still-running turn.
-        if (this.limit?.resetsAt && this.limit.resetsAt > Date.now()) this.setLimit(this.limit)
-        else if (!this.busy) this.retryLimit()
-      }, Math.min(delay + 100, 2_147_483_647))
-    }
-  }
-
-  /** Recycle only this query, retaining its conversation and every queued turn. */
-  retryLimit(): void {
-    if (this.busy) return
-    this.reset()
-    if (this.limitTimer) clearTimeout(this.limitTimer)
-    this.limitTimer = undefined
-    this.limitPaused = false
-    void this.pump()
-  }
-
-  restart(fresh = false): void {
-    if (this.current && this.limit) {
-      this.pending.unshift(this.current)
-      this.hooks.onRequeue?.(this.current)
-    }
-    this.reset()
-    this.busy = false
-    this.current = undefined
-    for (const waiting of this.pending) waiting.limitRetried = false
-    this.latestLimit = undefined
-    this.setLimit()
-    if (fresh) this.sessionId = undefined
-    this.hooks.onActivity('offline')
-    void this.pump()
-  }
-
-  private limited(text: string): void {
-    const state = claudeLimitState(text, this.latestLimit)
-    this.quotaPolicy().rejectError(text)
-    this.quotaPolicy().observe({ status: 'rejected', rateLimitType: this.latestLimit?.rateLimitType ?? 'error', resetsAt: state.resetsAt === undefined ? undefined : state.resetsAt / 1000 })
-    if (state.resetsAt !== undefined && this.latestLimit?.status === 'rejected') {
-      this.hooks.onRateLimit({ ...this.latestLimit, resetsAt: state.resetsAt / 1000 })
-    }
-    const item = this.current
-    this.busy = false
-    this.current = undefined
-    if (item) {
-      this.pending.unshift(item)
-      this.hooks.onRequeue?.(item)
-    }
-    this.hooks.onActivity('idle')
-    if (state.stale && item && !item.limitRetried && this.quotaPolicy().canStart(item.kind === 'player', Date.now(), false)) {
-      this.setLimit()
-      item.limitRetried = true
-      this.retryLimit()
-      return
-    }
-    this.setLimit({ resetsAt: state.resetsAt, restartRequired: state.stale })
-  }
-
-  private async ensureStarted(): Promise<void> {
-    if (this.q) return
-    const sdk = await loadSdk()
-    const gen = ++this.generation
-    this.input = new InputQueue()
-    this.gotInit = false
-    this.resumedFrom = this.sessionId
-    const options = await this.build(this.sessionId)
-    this.applied = { model: options.model, effort: options.effort as EffortLevel | undefined }
-    options.stderr = (d: string): void => {
-      this.stderrTail = (this.stderrTail + d).slice(-2000)
-    }
-    this.q = sdk.query({ prompt: this.input, options })
-    const unregister = registerModelQuery(this.q)
-    void this.consume(this.q, gen).finally(unregister)
-  }
-
-  /**
-   * Bring a running session up to the current model/effort settings. Runs only between turns
-   * (from pump), so a turn in progress is never interrupted; if the live controls fail, the
-   * session is closed and the next start resumes the same conversation with the new options.
-   */
-  private async syncConfig(): Promise<void> {
-    if (!this.q || !this.applied) return
-    const want = this.config()
-    if (sameConfig(this.applied, want)) return
-    if (await applyLiveConfig(this.q, this.applied, want)) this.applied = want
-    else this.reset()
-  }
-
-  private async consume(q: Query, gen: number): Promise<void> {
-    try {
-      for await (const msg of q) {
-        if (gen !== this.generation) return
-        this.handle(msg)
-      }
-      if (gen === this.generation) this.ended('session ended')
-    } catch (e) {
-      if (gen !== this.generation) return
-      const msg = (e as Error)?.message ?? String(e)
-      if (this.resumedFrom && !this.gotInit && !isQuotaError(msg)) {
-        // resume failed: start a fresh conversation and retry the turn
-        this.hooks.onError('Could not resume the previous Genio conversation; starting a fresh one (records on disk are intact).')
-        this.sessionId = undefined
-        this.resumedFrom = undefined
-        this.reset()
-        if (this.current) this.pending.unshift(this.current)
-        this.busy = false
-        this.current = undefined
-        void this.pump()
-        return
-      }
-      this.ended(`${msg}${this.stderrTail ? `\n${truncate(this.stderrTail.trim(), 600)}` : ''}`)
-    }
-  }
-
-  private ended(reason: string): void {
-    const item = this.current
-    const wasBusy = this.busy
-    this.reset()
-    this.busy = false
-    this.current = undefined
-    if (wasBusy) {
-      this.hooks.onError(`Genio session stopped: ${reason}`)
-      this.hooks.onTurnEnd(item, false, '', 0)
-      this.hooks.onActivity('error', truncate(reason, 160))
-    } else this.hooks.onActivity('offline')
-    if (this.pending.length) setTimeout(() => void this.pump(), 2000)
-  }
-
-  private reset(): void {
-    this.generation++
-    try {
-      this.input?.close()
-    } catch {
-      /* ignore */
-    }
-    try {
-      ;(this.q as unknown as { close?: () => void })?.close?.()
-    } catch {
-      /* ignore */
-    }
-    this.q = undefined
-    this.input = undefined
-  }
-
-  private chatFor(apiId: string): ChatMessage {
-    const id = `m-${apiId}`
-    let m = this.msgs.get(id)
-    if (!m) {
-      m = { id, wksp: this.wkspName, role: 'genio', text: '', ts: nowIso(), tools: [], partial: true }
-      this.msgs.set(id, m)
-      this.turnMsgIds.push(id)
-    }
-    return m
-  }
-
-  private handle(msg: SDKMessage): void {
-    const m = msg as { type: string; subtype?: string } & Record<string, unknown>
-    switch (m.type) {
-      case 'system': {
-        if (m.subtype === 'init') {
-          this.gotInit = true
-          const sid = (m as { session_id?: string }).session_id
-          if (sid && sid !== this.sessionId) {
-            this.sessionId = sid
-            this.hooks.onSessionId(sid)
-          }
-        }
-        return
-      }
-      case 'stream_event': {
-        const ev = (m as { event?: { type: string; message?: { id: string }; delta?: { type: string; text?: string } } }).event
-        if (!ev || (m as { parent_tool_use_id?: string | null }).parent_tool_use_id) return
-        if (ev.type === 'message_start' && ev.message?.id) {
-          this.streamMsgId = ev.message.id
-          this.hooks.onActivity('thinking')
-        } else if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && ev.delta.text && this.streamMsgId) {
-          const cm = this.chatFor(this.streamMsgId)
-          this.hooks.onDelta(cm.id, ev.delta.text)
-        }
-        return
-      }
-      case 'assistant': {
-        if ((m as { parent_tool_use_id?: string | null }).parent_tool_use_id) return
-        const am = m as { message?: { id?: string; content?: unknown[] }; error?: unknown }
-        const errorText = (am.message?.content ?? []).map(b => (b as { text?: string }).text ?? '').join(' ')
-        if (am.error && (isQuotaError(errorText) || isQuotaError(String(am.error)))) {
-          this.assistantLimit = errorText || String(am.error)
-          return
-        }
-        const apiId = am.message?.id ?? rid(6)
-        const cm = this.chatFor(apiId)
-        const texts = this.blockText.get(cm.id) ?? []
-        for (const block of (am.message?.content ?? []) as { type: string; text?: string; id?: string; name?: string; input?: unknown }[]) {
-          if (block.type === 'text' && block.text) {
-            texts.push(block.text)
-          } else if (block.type === 'tool_use' && block.id) {
-            const trace: ToolTrace = { id: block.id, name: block.name ?? 'tool', input: truncate(JSON.stringify(block.input ?? {}), 2000) }
-            cm.tools = [...(cm.tools ?? []).filter((t) => t.id !== block.id), trace]
-            this.toolOwner.set(block.id, cm.id)
-            this.hooks.onActivity('tool', prettyTool(block.name ?? ''))
-          }
-        }
-        this.blockText.set(cm.id, texts)
-        cm.text = texts.join('\n\n')
-        if (cm.text) this.lastText = cm.text
-        if (am.error) this.hooks.onError(`Model error: ${typeof am.error === 'string' ? am.error : JSON.stringify(am.error)}`)
-        this.hooks.onMessage({ ...cm }, false)
-        return
-      }
-      case 'user': {
-        const content = (m as { message?: { content?: unknown } }).message?.content
-        if (!Array.isArray(content)) return
-        for (const block of content as { type: string; tool_use_id?: string; content?: unknown; is_error?: boolean }[]) {
-          if (block.type !== 'tool_result' || !block.tool_use_id) continue
-          const owner = this.toolOwner.get(block.tool_use_id)
-          const cm = owner ? this.msgs.get(owner) : undefined
-          if (!cm) continue
-          const text = Array.isArray(block.content)
-            ? (block.content as { type: string; text?: string }[]).map((c) => (c.type === 'text' ? c.text : `[${c.type}]`)).join('\n')
-            : String(block.content ?? '')
-          cm.tools = (cm.tools ?? []).map((t) => (t.id === block.tool_use_id ? { ...t, result: truncate(text, 4000), isError: !!block.is_error } : t))
-          this.hooks.onMessage({ ...cm }, false)
-        }
-        this.hooks.onActivity('thinking')
-        return
-      }
-      case 'result': {
-        const r = m as { is_error?: boolean; total_cost_usd?: number; result?: string; errors?: string[]; subtype?: string }
-        const errorText = (r.errors ?? []).join('; ') || r.result || this.assistantLimit
-        const limitError = (r.is_error && isQuotaError(errorText)) || !!this.assistantLimit
-        const resultId = typeof m.uuid === 'string' ? m.uuid : ''
-        const cost = this.costs.record(this.sessionId ?? this.label, resultId, r.total_cost_usd, Boolean(this.resumedFrom))
-        if (cost.duplicate) return
-        const delta = cost.delta
-        for (const id of this.turnMsgIds) {
-          const cm = this.msgs.get(id)
-          if (!cm) continue
-          cm.partial = false
-          if (id === this.turnMsgIds[this.turnMsgIds.length - 1]) cm.costUsd = delta
-          if (!cm.text && !(cm.tools ?? []).length) continue
-          this.hooks.onMessage({ ...cm }, true)
-          this.msgs.delete(id)
-          this.blockText.delete(id)
-        }
-        if (limitError) {
-          // Cost still belongs to this attempt, but failed wake events must not be acknowledged.
-          this.hooks.onTurnEnd(undefined, false, '', delta)
-          this.limited(errorText)
-          return
-        }
-        const okTurn = !r.is_error
-        if (okTurn) this.setLimit()
-        if (!okTurn) this.hooks.onError(`Turn ended with an error (${r.subtype ?? 'error'}): ${(r.errors ?? []).join('; ') || r.result || 'unknown'}`)
-        const item = this.current
-        this.busy = false
-        this.current = undefined
-        this.turnMsgIds = []
-        this.hooks.onTurnEnd(item, okTurn, this.lastText, delta)
-        this.hooks.onActivity('idle')
-        void this.pump()
-        return
-      }
-      case 'rate_limit_event': {
-        const info = (m as { rate_limit_info?: ClaudeRateLimitInfo }).rate_limit_info
-        if (info) {
-          this.latestLimit = info
-          this.hooks.onRateLimit(info)
-          if (info.status === 'allowed') {
-            const waiting = !!this.limit
-            this.setLimit()
-            if (waiting && !this.busy) this.retryLimit()
-          } else if (info.status === 'rejected') {
-            const state = claudeLimitState('', info)
-            if (!state.stale) this.setLimit({ resetsAt: state.resetsAt })
-          }
-        }
-        return
-      }
-      default:
-        return
-    }
-  }
-
-  async interrupt(): Promise<void> {
-    if (!this.q || !this.busy) return
-    try {
-      await this.q.interrupt()
-    } catch {
-      /* ignore */
-    }
-  }
-
-  stop(): void {
-    this.setLimit()
-    if (this.retryTimer) clearTimeout(this.retryTimer)
-    this.retryTimer = undefined
-    this.pending = []
-    this.reset()
-    this.busy = false
-    this.current = undefined
-  }
-}
-
-function prettyTool(name: string): string {
-  return name.replace(/^mcp__genio__/, '').replace(/_/g, ' ')
-}
 
 // ------------------------------------------------------------------ service
 
 interface WkspState {
+  providers?: ProviderSessions
+  botProviders?: ProviderSessions
   sessionId?: string
   botSessionId?: string
   costUsd?: number
@@ -616,7 +88,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
   const gamertag = (): string => settings().gamertag || 'Player'
 
   const saveState = (): void => {
-    writeJson(home.wkspFile, { sessionId: genio.sessionId, botSessionId: bot?.sessionId, costUsd: info.costUsd, turns: info.turns } satisfies WkspState)
+    writeJson(home.wkspFile, { providers: genio.state(), botProviders: bot?.state(), sessionId: genio.sessionId, botSessionId: bot?.sessionId, costUsd: info.costUsd, turns: info.turns } satisfies WkspState)
   }
   const publishInfo = (): void => {
     info.queued = genio.queued + (bot?.queued ?? 0)
@@ -661,7 +133,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
 
   // ---------------------------------------------------------- options
 
-  async function buildOptions(role: ToolRole, resume?: string): Promise<Options> {
+  async function buildOptions(role: ToolRole, resume?: string, config?: ReturnType<typeof claudeConfig>): Promise<Options> {
     const ctx = getCtx()
     const sdk = await loadSdk()
     const s = settings()
@@ -682,8 +154,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
             sharedProfile: safeRead(() => mem.read('player-shared', home)),
             lore: safeRead(() => mem.read('lore', home))
           })
-    // Auto chat values follow the Usage mode and Claude protection; pinned values are kept
-    const { model, effort } = sessionConfig(role, chatSettings(s, ctx.main.home.data), liveAlly())
+    const { model, effort } = config ?? claudeConfig()
     const usage = role === 'bot' ? '' : `\n\n${chatUsageLine(globalMode(s), claudeStatus(ctx.main.home.data))}`
     const opts: Options = {
       // settingSources is deliberately empty: inject the umbrella so skill discovery is not assumed.
@@ -701,6 +172,12 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       resume,
       env: { ...process.env, CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION: 'false', CLAUDE_AGENT_SDK_CLIENT_APP: 'genio/0.1.0' }
     }
+    if (role === 'bot') {
+      const bridge = await openChatToolBridge(getCtx, { home, role: 'bot', worlds: '*', signal: new AbortController().signal,
+        hooks: { escalate: botEscalate } })
+      opts.mcpServers = { genio: { command: process.execPath, args: [bridge.entry],
+        env: { ...bridge.env, ELECTRON_RUN_AS_NODE: '1' } } }
+    }
     if (s.claudePath?.trim()) opts.pathToClaudeCodeExecutable = s.claudePath.trim()
     return opts
   }
@@ -711,6 +188,57 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
         permissions: getCtx().permissions, player: gamertag() }, { runtime: 'claude', name: toolName, input })
       return d.behavior === 'allow' ? { behavior: 'allow', updatedInput: input } : d
     }
+  }
+
+  const selectedProvider = (): ChatProvider => chatRoute(chatControls(settings(), liveAlly()).model).provider
+  const driverConfig = () => {
+    const s = selectedProvider() === 'claude' ? chatSettings(settings(), getCtx().main.home.data) : settings()
+    const controls = chatControls(s, liveAlly())
+    return { model: chatRoute(controls.model).model, effort: controls.effort }
+  }
+  const claudeConfig = () => sessionConfig('genio', { ...settings(), wkspModel: driverConfig().model ?? '', wkspEffort: driverConfig().effort })
+  function handoffContext(excludeMessageId?: string): string {
+    const ctx = getCtx(), hc = ctx.home(name)
+    return chatHandoff({ messages: loadHistory().filter(m => m.id !== excludeMessageId), projects: ctx.projects.list(), tasks: hc.crew.list(),
+      decisions: hc.decisions.list(true), permissions: chatControls(settings(), liveAlly()).shellMode })
+  }
+  function providerChanged(from: ChatProvider, to: ChatProvider): void {
+    say(`Provider changed: ${from} to ${to}. Shared a bounded handoff; existing provider sessions are retained.`, 'system')
+    safe(() => getCtx().stats.unlock('chat-provider-switch'))
+    saveState()
+  }
+  function createDriver(provider: ChatProvider, role: ToolRole, events: ChatDriverEvents, config: () => { model?: string; effort?: string }) {
+    const claudeTurnConfig = () => sessionConfig('genio', { ...settings(), wkspModel: config().model ?? '', wkspEffort: config().effort ?? '' })
+    if (provider === 'claude') return new AgentSession(role, resume => buildOptions(role, resume, claudeTurnConfig()),
+      { ...events, onRateLimit: rateLimit }, name, claudeTurnConfig, quotaPolicy, costs)
+    return new CodexChatDriver({
+      wksp: name, cwd: home.root,
+      config: () => ({ model: config().model!, effort: config().effort }),
+      instructions: () => (role === 'bot' ? botContract(gamertag()) + '\n\n' : '') + genioContract({ gamertag: gamertag(), base: name,
+        isAlly: !home.isMain, charter: liveAlly()?.charter, scope: liveAlly()?.scope }) +
+        '\nUse only genio_ tools. Native shell, edits, agents and plugins are unavailable. Never replay completed mutations from a handoff.',
+      async bridge(signal) {
+        const bridge = await openChatToolBridge(getCtx, { home, role: role === 'bot' ? 'bot' : home.isMain ? 'genio' : 'ally',
+          worlds: home.isMain ? '*' : liveAlly()?.projects ?? [], signal, hooks: { escalate: botEscalate } })
+        let id = 0
+        const request = async (method: string, params?: unknown) => {
+          const response = await fetch(bridge.env.GENIO_BRIDGE_URL, { method: 'POST', signal,
+            headers: { Authorization: `Bearer ${bridge.env.GENIO_BRIDGE_TOKEN}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: ++id, method, params }) })
+          if (!response.ok) throw new Error('Genio bridge unavailable; request was not retried')
+          const reply = await response.json()
+          if (reply.error) throw new Error('Genio bridge request failed')
+          return reply.result
+        }
+        return { list: async () => (await request('tools/list')).tools,
+          call: (tool, args) => request('tools/call', { name: tool, arguments: args }), close: bridge.close }
+      },
+      approvalMode: () => chatControls(settings(), liveAlly()).shellMode,
+      approve: text => getCtx().permissions.ask({ wksp: name, tool: 'Codex', input: text }),
+      usage: (thread, usage) => recordCodexChatUsage(getCtx().main.home.data, home.root, thread, usage),
+      rateLimits: limits => recordCodexChatLimits(getCtx().main.home.data, limits),
+      unavailable: reason => markChatRouteUnavailable('codex', reason)
+    }, events)
   }
 
   // ---------------------------------------------------------- sessions
@@ -724,10 +252,12 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
     quotaPolicy().observe(rl)
   }
 
-  const genio = new AgentSession(
-    'genio',
-    (resume) => buildOptions('genio', resume),
-    {
+  const genio = new ProviderChatSession({
+    selection: selectedProvider,
+    config: driverConfig,
+    create: (provider, events, config) => createDriver(provider, 'genio', events, config),
+    persisted: persisted.providers, handoff: handoffContext, switched: providerChanged,
+    events: {
       onStart: delivered,
       onRequeue(item) {
         const m = loadHistory().find(m => m.id === item.msgId)
@@ -756,8 +286,11 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
         publishInfo()
       },
       onTurnEnd(item, ok, lastText, cost) {
-        if (ok) info.lastError = undefined
-        if (ok) quotaPolicy().succeeded(name + ':genio')
+        if (ok) {
+          info.lastError = undefined
+          if (genio.currentProvider === 'codex') safe(() => getCtx().stats.unlock('codex-chat-turn'))
+          else quotaPolicy().succeeded(name + ':genio')
+        }
         info.turns++
         info.costUsd += cost
         if (cost > 0) safe(() => getCtx().stats.addCost(cost))
@@ -779,28 +312,27 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
         publishInfo()
       },
       onError(text) {
-        quotaPolicy().rejectError(text)
-        if (!quotaPolicy().notice(name + ':genio', text)) return
+        if (genio.currentProvider === 'claude') {
+          quotaPolicy().rejectError(text)
+          if (!quotaPolicy().notice(name + ':genio', text)) return
+        }
         info.lastError = text
         say(text, 'error')
         bus.publish({ type: 'sfx', sound: 'error' })
       },
-      onRateLimit: rateLimit
-    },
-    name,
-    () => sessionConfig('genio', chatSettings(settings(), getCtx().main.home.data), liveAlly()),
-    quotaPolicy,
-    costs
-  )
+    }
+  })
   genio.sessionId = persisted.sessionId
 
-  let bot: AgentSession | undefined
+  let bot: ProviderChatSession | undefined
   const botFile = `${home.data}/bot.jsonl`
   if (home.isMain) {
-    bot = new AgentSession(
-      'bot',
-      (resume) => buildOptions('bot', resume),
-      {
+    bot = new ProviderChatSession({
+      selection: selectedProvider,
+    config: driverConfig,
+      create: (provider, events, config) => createDriver(provider, 'bot', events, config),
+      persisted: persisted.botProviders, handoff: handoffContext, switched: () => {},
+      events: {
         onMessage(m, final) {
           if (final) appendJsonl(botFile, m)
         },
@@ -814,7 +346,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
           }
         },
         onTurnEnd(item, ok, _last, cost) {
-          if (ok) quotaPolicy().succeeded(name + ':bot')
+          if (ok && bot?.currentProvider === 'claude') quotaPolicy().succeeded(name + ':bot')
           info.costUsd += cost
           if (cost > 0) safe(() => getCtx().stats.addCost(cost))
           if (item?.kind === 'events' && item.ackThrough !== undefined) {
@@ -829,22 +361,19 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
           saveState()
         },
         onError(text) {
-          quotaPolicy().rejectError(text)
-          if (!quotaPolicy().notice(name + ':bot', text)) return
+          if (bot?.currentProvider === 'claude') {
+            quotaPolicy().rejectError(text)
+            if (!quotaPolicy().notice(name + ':bot', text)) return
+          }
           appendJsonl(botFile, { ts: nowIso(), error: text })
           if (getCtx().away.state().mode === 'afk') safe(() => getCtx().away.capture({ wksp: name, text: `The Bot hit a problem: ${text}`, severity: 'failure', target: { view: 'comms', wksp: name } }))
         },
-        onRateLimit: rateLimit,
         onLimit(limit) {
           info.botLimit = limit
           publishInfo()
         }
-      },
-      name,
-      () => sessionConfig('bot', chatSettings(settings(), getCtx().main.home.data)),
-      quotaPolicy,
-      costs
-    )
+      }
+    })
     bot.sessionId = persisted.botSessionId
   }
 
@@ -990,6 +519,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
     bootDone = true
     const trimmed = text.trim()
     if (!trimmed && !images.length) return
+    const unavailable = chatRouteUnavailable(selectedProvider())
+    if (unavailable) throw new Error(`${unavailable} Open Accounts and refresh before sending. Your draft has been kept.`)
     try {
       if (origin === 'player' && !images.length && trimmed.startsWith('/') && (await slash(trimmed))) return
     } catch (e) {
@@ -1010,6 +541,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       prompt = `${returnPrompt(gamertag(), brief)}\n\nThen handle ${gamertag()}'s new message:\n${trimmed || '(see the attached image)'}`
     }
     const m = inboundMessage(name, trimmed, origin)
+    m.provider = selectedProvider()
+    m.providerModel = chatRoute(chatControls(settings(), liveAlly()).model).model
     if (stored.refs.length) m.images = stored.refs
     if (prepared.context) m.context = prepared.context
     const player = origin === 'player'
@@ -1058,7 +591,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
     },
     deliverWakes() {
       if (stopped) return
-      if (!quotaPolicy().canStart(false, Date.now(), false)) return
+      if (selectedProvider() === 'claude' && !quotaPolicy().canStart(false, Date.now(), false)) return
       try {
         if (Date.now() < eventsBackoffUntil) {
           setTimeout(() => svc.deliverWakes(), eventsBackoffUntil - Date.now() + 50)

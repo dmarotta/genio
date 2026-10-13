@@ -30,6 +30,7 @@ export interface RawModel {
   displayName?: string; name?: string; hidden?: boolean
   supportedEffortLevels?: string[]; supportedReasoningEfforts?: { reasoningEffort: string }[]
   inputModalities?: string[]
+  defaultReasoningEffort?: string
 }
 export function normalizeModels(runtime: ModelRuntime, provider: string, rows: RawModel[]): CatalogueModel[] {
   const found = new Map<string, CatalogueModel>()

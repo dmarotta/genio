@@ -26,6 +26,8 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'play-first', name: 'Press Play', description: 'Start a Unity Play session.', feature: 'play' },
   { id: 'play-snapshot', name: 'In the Frame', description: 'Capture a game snapshot.', feature: 'play' },
   { id: 'play-observed', name: 'Shared Sight', description: 'Let Genio observe a game frame.', feature: 'play_frame' },
+  { id: 'chat-provider-switch', feature: 'comms', name: 'New Perspective', description: 'Switch the chat provider.' },
+  { id: 'codex-chat-turn', feature: 'comms', name: 'Codex Companion', description: 'Complete a Codex-driven chat turn.' },
   { id: 'inventory-chat', name: 'Shared View', description: 'Send a message with Inventory context from floating chat.', feature: 'inventory-chat' },
   { id: 'inventory-scout', name: 'Inventory Scout', description: 'Find an asset or locate a new asset destination.', feature: 'assets_find' },
   { id: 'asset-pathfinder', name: 'Asset Pathfinder', description: 'Locate a new asset destination.', feature: 'asset_locate' },

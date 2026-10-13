@@ -135,9 +135,10 @@ export function ChatPanel({ wksp, context, active = true }: { wksp: string; cont
         const limit = role === 'bot' ? info?.botLimit : info?.limit
         if (!limit) return null
         return <div className="chat-limit" role="status" key={role}>
-          <span>{role === 'bot' ? 'Bot: ' : ''}{limit.restartRequired
+          <span>{role === 'bot' ? 'Bot: ' : ''}{limit.provider === 'codex' ? `${limit.reason || 'Codex unavailable'} Open Accounts, then resume the session.` : limit.restartRequired
             ? 'Claude still reports an expired limit. Restart the session to try again.'
             : `Claude limit reached${limit.resetsAt ? ` ? back at ${new Date(limit.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ' ? waiting for reset'}`}</span>
+          {limit.provider === 'codex' && <button className="btn sm" onClick={() => requestSystemsSection('accounts')}>Accounts</button>}
           {!limit.restartRequired && <button className="btn sm" onClick={() => void op('Retry', () => api().restartWksp(wksp, false, role))}>Retry now</button>}
           <button className="btn sm ghost" onClick={() => void op('Restart', () => api().restartWksp(wksp, false, role))}>Restart session</button>
         </div>

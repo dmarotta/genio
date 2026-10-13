@@ -65,7 +65,7 @@ export function ModelPicker({ value, onChange, onAccounts, ...props }: ModelSele
   const [usage, setUsage] = useState<UsageReport>()
   const panel = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
-  const selected = catalogue.routes.flatMap(r => r.models).find(m => m.runtime === 'claude' && (m.id === value || m.aliases.includes(value || 'default')))
+  const selected = catalogue.routes.flatMap(r => r.models).find(m => m.key === value || m.runtime === 'claude' && (m.id === value || m.aliases.includes(value || 'default')))
   const refresh = async (force = false): Promise<void> => {
     setBusy(true); setError('')
     try { await fetchCatalogue(force) } catch (e) { setError(errText(e)) } finally { setBusy(false) }
@@ -97,7 +97,7 @@ export function ModelPicker({ value, onChange, onAccounts, ...props }: ModelSele
     const action = modelSelectionAction(route)
     if (action === 'accounts') accounts()
     else if (action === 'coming-soon') setNotice(`${providerTag(route)}: chat driver coming soon`)
-    else choose(id)
+    else choose(route.runtime === 'claude' ? id : `${route.runtime}:${route.provider}:${id}`)
   }
   const anchor = trigger.current?.getBoundingClientRect()
   const below = !!anchor && window.innerHeight - anchor.bottom > anchor.top
@@ -123,7 +123,7 @@ export function ModelPicker({ value, onChange, onAccounts, ...props }: ModelSele
         </div>
         {error && <p role="alert">{error}</p>}
         {notice && <p role="status">{notice}</p>}
-        <p className="mute">Drive this chat · Changes apply between turns; effort resets to auto on model change. Other runtimes: chat driver coming soon.</p>
+        <p className="mute">Drive this chat · Changes apply between turns; effort resets to auto on model change. Provider changes share a bounded handoff. No paid fallback.</p>
         {!search && (!provider || provider === 'Anthropic') && <button className="btn sm" disabled={!catalogue.routes.some(canDrive)} onClick={() => choose('')}>Reset to inherited / default model</button>}
         {visible.map(route => {
           const models = filterModels(rankedModels(route.models, showAll), search, provider)
@@ -134,7 +134,7 @@ export function ModelPicker({ value, onChange, onAccounts, ...props }: ModelSele
               style={{ display: 'block', width: '100%', textAlign: 'left', whiteSpace: 'normal', height: 'auto', color: canDrive(route) ? undefined : 'var(--muted, #8b949e)', overflowWrap: 'anywhere', padding: 10, margin: '6px 0' }}>
               <strong><Icon size={14} aria-hidden="true" /> {modelRowLabel(model)}{selected?.key === model.key ? ' ✓' : ''}</strong>
               <div>{STATES[route.state]}{modelSelectionAction(route) === 'accounts' ? ' - Open Accounts' : ''}{route.reason ? ` · ${route.reason}` : ''}{route.stale ? ' · Stale catalogue' : ''}{route.sourceAt ? ` · discovered ${ago(route.sourceAt)}` : ''}</div>
-              {route.runtime !== 'claude' && <div>chat driver coming soon</div>}
+              {!canDrive(route) && route.state === 'connected' && <div>chat driver coming soon</div>}
               <div className="mute">{usageText(route, usage)}{model.images === undefined ? '' : model.images ? ' · Images supported' : ' · Text only'}</div>
             </button>)}
           </div>

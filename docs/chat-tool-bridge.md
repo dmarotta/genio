@@ -17,16 +17,16 @@ The helper implements newline-delimited stdio MCP initialize, ping, tool discove
 - The transport binds only `127.0.0.1` on an ephemeral port. Every request requires the session's 256-bit bearer token, compared in constant time. Browser-origin requests are rejected. There is no network URL or scope override in tool arguments.
 - Unknown tools and unknown top-level arguments are rejected. Target worlds, task ownership, quest dependencies, choices and generation ownership are checked before the original handler executes. World-limited image requests accept chat attachment references, not arbitrary absolute file references.
 - World-limited sessions receive filtered world/quest/choice lists. Services with no safe scoped interface (fleet/status aggregates, global dispatch profiles, mail, cross-ally routing, presence and world creation) are unavailable to those connections. Sync must name a permitted world. Scoped connections cannot silently acquire newly added worlds.
-- Bridge Bot sessions expose reads and `escalate` only, and reject report filing. This is intentionally stricter than the legacy Claude Bot's supervision actions; this step preserves the existing Claude behavior. Bridge Bot cannot deploy, merge (even with Auto-loot), answer choices, change memory or generate/place assets. The next Bot driver must inherit the selected main-chat runtime without weakening this boundary.
+- Bridge Bot sessions expose reads and `escalate` only, and reject report filing. This is intentionally stricter than the legacy Claude Bot's supervision actions; this step preserves the existing Claude behavior. Bridge Bot cannot deploy, merge (even with Auto-loot), answer choices, change memory or generate/place assets. The provider drivers now use this boundary for both Claude and Codex Bot sessions; the Bot inherits the main chat selection.
 - The server bounds requests (120/minute per session, including failures), concurrent requests (8), sockets (32), headers, body size (1 MiB) and request receipt time. Audit records contain only fixed events and registry-owned tool names, never tokens, arguments, results or exception messages. The optional audit sink replaces the default sanitized console records.
 
 ## Driver capability gate
 
-`chatDriverCapabilities` feeds the catalogue's `canDrive` gate. Claude remains the only chat driver. Codex, Gemini and OpenCode are `consultation-only` capabilities until their native tool confinement is implemented and tested. This does not add a consultation launcher.
+`chatDriverCapabilities` feeds the catalogue's `canDrive` gate. Claude and Codex are drivers; Codex discovery/startup validate authentication and native confinement before sending any prompt. Gemini and OpenCode remain consultation-only capabilities. See [chat drivers](chat-drivers.md) for lifecycle and release gates.
 
 The common enforcer denies **every** non-Claude native identity, including shell/edit/subagent/plugin aliases and names impersonating `mcp__genio__*`, even under YOLO. A future adapter must prove that native tools and global plugins cannot bypass the enforcer before enabling its driver capability. Merely installing this MCP server is insufficient. Never copy launch settings from `harness.ts`: those are worker settings, not chat settings.
 
-No provider switch, transcript transfer, automatic paid fallback, new model selection or achievement is introduced in this prerequisite. The next driver owns provider sessions, bounded handoff and AFK inheritance.
+The driver layer owns provider sessions, bounded handoff, achievements and AFK inheritance. The bridge never selects a provider or introduces a paid fallback.
 
 ## Verification
 

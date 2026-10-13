@@ -276,6 +276,9 @@ export interface ToolTrace {
 }
 
 export interface ChatMessage {
+  provider?: 'claude' | 'codex'
+  providerModel?: string
+  providerSession?: string
   generation?: import('./generation').GenerationCard
   id: string
   wksp: string
@@ -319,8 +322,8 @@ export interface WkspInfo {
   costUsd: number
   turns: number
   queued: number
-  limit?: { resetsAt?: number; restartRequired?: boolean }
-  botLimit?: { resetsAt?: number; restartRequired?: boolean }
+  limit?: { resetsAt?: number; restartRequired?: boolean; provider?: 'claude' | 'codex'; reason?: string }
+  botLimit?: { resetsAt?: number; restartRequired?: boolean; provider?: 'claude' | 'codex'; reason?: string }
   lastError?: string
 }
 

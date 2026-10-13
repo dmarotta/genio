@@ -1,3 +1,4 @@
+import { CODEX_CHAT_DISABLED } from '../src/main/codex-chat-driver'
 import { beforeEach, expect, it, vi } from 'vitest'
 const state = vi.hoisted(() => ({ sent: [] as { method: string; params: any }[], geminiError: false }))
 vi.mock('../src/main/util', () => ({ which: () => 'fake-cli.exe', killTree: vi.fn(), stripAnsi: (s: string) => s, run: vi.fn(), runShell: vi.fn() }))
@@ -12,6 +13,8 @@ vi.mock('node:child_process', async () => {
       state.sent.push(message)
       if (message.id) queueMicrotask(() => {
         let result: unknown = {}
+        if (message.method === 'account/read') result = { account: { type: 'chatgpt' } }
+        if (message.method === 'config/read') result = { config: { features: Object.fromEntries(CODEX_CHAT_DISABLED.map(n => [n, false])) } }
         if (message.method === 'model/list') result = message.params.cursor ?
           { data: [{ id: 'second', hidden: true }], nextCursor: null } : { data: [{ id: 'first' }], nextCursor: 'next' }
         if (message.method === 'session/new') result = { models: { availableModels: [{ modelId: 'gemini-real' }] } }
@@ -27,8 +30,8 @@ beforeEach(() => { state.sent = []; state.geminiError = false })
 it('initializes Codex and follows model/list pages, without sending any inference request', async () => {
   const { codexModels } = await import('../src/main/model-discovery')
   expect(await codexModels()).toEqual([{ id: 'first' }, { id: 'second', hidden: true }])
-  expect(state.sent.map(s => s.method)).toEqual(['initialize', 'initialized', 'model/list', 'model/list'])
-  expect(state.sent[3].params).toMatchObject({ cursor: 'next', includeHidden: true })
+  expect(state.sent.map(s => s.method)).toEqual(['initialize', 'initialized', 'account/read', 'config/read', 'model/list', 'model/list'])
+  expect(state.sent[5].params).toMatchObject({ cursor: 'next', includeHidden: true })
 })
 it('reads authenticated Gemini ACP session options without prompting', async () => {
   const { geminiModels } = await import('../src/main/model-discovery')

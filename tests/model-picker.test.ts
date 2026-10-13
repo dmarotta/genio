@@ -42,8 +42,8 @@ it('sorts signed-in models first, guards unsupported drivers and switches Claude
   const rows = [...document.querySelectorAll<HTMLButtonElement>('button[title]')].filter(b => b.title)
   expect(rows[0].title).toBe('claude-opus-5-5')
   await click('codex / gpt 6.1 sol')
-  expect(document.querySelector('[role=status]')?.textContent).toBe('codex: chat driver coming soon')
-  expect(f.change).not.toHaveBeenCalled()
+  expect(f.change).toHaveBeenCalledWith('codex:OpenAI:gpt-6.1-sol')
+  await open()
   await click('claude / sonnet 5.5'); expect(f.change).toHaveBeenCalledWith('claude-sonnet-5-5')
 })
 it('remembers Show all models across close and remount', async () => {
