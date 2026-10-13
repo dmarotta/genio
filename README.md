@@ -28,7 +28,7 @@ for the design and [docs/VOCABULARY.md](docs/VOCABULARY.md) for the terms.
   finishes, needs a choice, lags, or a PR changes state.
 - **Your Move** — every open choice, one card at a time, with a recommendation.
 - **Quest Log** — queued work with priorities, dependencies, holds and capacity.
-- **Status** (`/status`) — Your Move, Loot, In Progress, Up Next.
+- **Character Sheet** (`/status`) — Level, XP, streaks and achievements.
 - **Presence** — Online, DND (routine events handled off-screen), AFK (the Bot
   plays for you and replays a welcome-back brief; optional desktop and webhook
   alerts).
@@ -81,7 +81,7 @@ ones it needs (`electron`, `esbuild`, `node-pty`) in `package.json`.
 | Command | What it does |
 |---|---|
 | `/recap` | What happened since you last spoke, then your open choices one at a time |
-| `/status [file] [include PRs]` | The four-section Status Screen |
+| `/status` | Character Sheet (level, XP and achievements) |
 | `/afk [note]` | Go AFK: the Bot handles events and holds anything that needs you |
 | `/dnd` · `/dnd off` | Do not disturb: routine events stay off Comms |
 | `/online` | Back online |

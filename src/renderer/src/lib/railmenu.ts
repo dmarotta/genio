@@ -19,7 +19,7 @@ export const RAIL: RailEntry[] = [
   view('squad', 'Squad', '2'),
   view('quests', 'Quests', '3'),
   view('move', 'Your Move', '4'),
-  view('status', 'Status', '5'),
+  view('status', 'Character Sheet', '5'),
   view('worlds', 'Worlds', '6'),
   view('lore', 'Lore', '7'),
   view('inventory', 'Inventory', '9'),

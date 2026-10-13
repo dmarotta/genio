@@ -496,7 +496,7 @@ export function createToolRegistry(
   )
 
   // ------------------------------------------------------------ status, memory, mail
-  t('status_report', 'The four-section status screen (Your Move, Loot, In Progress, Up Next). include_prs adds live GitHub PR enrichment; file=true also saves today\'s report.', { include_prs: z.boolean().default(false), file: z.boolean().default(false) }, async ({ include_prs, file }) => {
+  t('status_report', 'The four-section status report (Your Move, Loot, In Progress, Up Next). include_prs adds live GitHub PR enrichment; file=true also saves today\'s report.', { include_prs: z.boolean().default(false), file: z.boolean().default(false) }, async ({ include_prs, file }) => {
     const r = await getCtx().statusReport.generate({ file, includePRs: include_prs })
     return ok(`${r.markdown}${r.filedPath ? `\n\n(saved to ${r.filedPath})` : ''}`)
   })

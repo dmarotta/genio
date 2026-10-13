@@ -33,7 +33,7 @@ This deliberately leaves that first increment unmeasured rather than inventing a
 historical turn cost. Counter decreases start a new epoch; replayed result IDs do
 not advance accounting. Existing historical estimates are not rewritten.
 
-The HUD and Status screen label their cost as a chat/review SDK estimate: main
+The HUD labels its cost as a chat/review SDK estimate: main
 chat, allies, Bot and review calls, excluding units and subscription charges.
 Token measurements in Usage include units independently.
 

@@ -29,6 +29,11 @@ const SUPPORTING_TOOLS = [
 const help = 'Add an achievement with this feature tag in src/main/stats.ts and wire its unlock to a real successful event.'
 
 describe('achievement feature coverage', () => {
+  it('keeps Character Sheet tied to the stable streak achievement and screen id', () => {
+    expect(navItems().find((v) => v.label === 'Character Sheet')?.id).toBe('status')
+    expect(ACHIEVEMENTS.find((a) => a.id === 'on-a-roll')?.feature).toBe('status')
+    expect(navItems().some((v) => v.label === 'Status')).toBe(false)
+  })
   it('covers every Rail view and submenu', () => {
     const tags = new Set(ACHIEVEMENTS.map((a) => a.feature))
     const ids = new Set([...navItems().map((v) => v.id), ...RAIL.filter((e) => e.kind === 'menu').map((e) => e.id)])

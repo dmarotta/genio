@@ -34,7 +34,7 @@ export function CommandPalette() {
     const list: Cmd[] = [
       { id: 'deploy', label: 'Deploy a unit', hint: 'New Build or Recon mission', group: 'Action', run: () => openDeploy() },
       { id: 'recap', label: '/recap', hint: 'Previously on… and your pending moves', group: 'Action', run: () => { close(); go('comms'); void op('Recap', () => api().recap()) } },
-      { id: 'status', label: '/status', hint: 'Status Screen', group: 'Action', run: () => go('status') },
+      { id: 'status', label: '/status', hint: 'Character Sheet', group: 'Action', run: () => go('status') },
       { id: 'save', label: '/save', hint: 'Curate Player Profile & Lore', group: 'Action', run: () => { close(); void op('Save', () => api().save(), () => 'Genio is curating memory') } },
       { id: 'online', label: 'Presence: Online', group: 'Presence', run: () => { close(); void op('Presence', () => api().setAway('online'), () => 'Online') } },
       { id: 'dnd', label: 'Presence: DND', group: 'Presence', run: () => { close(); void op('Presence', () => api().setAway('dnd'), () => 'Do not disturb') } },

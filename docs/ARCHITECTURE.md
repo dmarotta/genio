@@ -37,7 +37,7 @@ Vocabulary is gaming, not nautical: see [VOCABULARY.md](VOCABULARY.md).
 | project registry, modes, +yolo | `projects.ts` | WORLDS |
 | no-mistakes pipeline | `gauntlet.ts` | GAUNTLET |
 | `fm-pr-merge` / `fm-merge-local` / `fm-teardown` | `crew.merge()` / `crew.cleanup()` | MERGE / DESPAWN |
-| `/bearings` | `statusreport.ts` | STATUS (/status) |
+| `/bearings` | `statusreport.ts` | Agent status report (`status_report`) |
 | `/ahoy` | recap + one-at-a-time choices | RECAP (/recap) |
 | `/afk`, `/quiet`, away daemon, wedge alarm | `away.ts` + the Bot session | presence ONLINE / DND / AFK |
 | `/stow` | `memory.ts` + save prompt | LORE (/save) |

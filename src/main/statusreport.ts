@@ -1,5 +1,5 @@
 /**
- * /status — the Status Screen (companion /bearings). Exactly four sections,
+ * /status — the status report (companion /bearings). Exactly four sections,
  * always rendered, in this order: Your Move, Loot, In Progress, Up Next.
  * Read-only: it gathers state from every base and never changes anything.
  */

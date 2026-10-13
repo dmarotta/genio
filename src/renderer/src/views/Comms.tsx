@@ -1,3 +1,4 @@
+import { ComingNext } from '../components/ComingNext'
 import { GenerationCard } from '../components/GenerationCard'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { ChevronDown, ChevronRight, CircleStop, Pencil, Radar, RefreshCw, Rocket, Send, ShieldCheck, TriangleAlert, Wrench, X } from 'lucide-react'
@@ -23,7 +24,7 @@ import { EffortSelect, ModelSelect, requestSystemsSection } from './Systems'
 
 const SLASH: { cmd: string; hint: string }[] = [
   { cmd: '/recap', hint: 'Previously on… then your pending moves, one at a time' },
-  { cmd: '/status', hint: 'Status Screen: Your Move · Loot · In Progress · Up Next' },
+  { cmd: '/status', hint: 'Character Sheet: level, XP & achievements' },
   { cmd: '/deploy', hint: 'Open the Deploy panel' },
   { cmd: '/afk', hint: 'Go AFK — the Bot plays, outcomes replay on return' },
   { cmd: '/dnd', hint: 'Do not disturb — routine events stay off-screen' },
@@ -112,6 +113,7 @@ export function ChatPanel({ wksp, context, active = true }: { wksp: string; cont
             <Dot tone={info?.activity === 'error' ? 'alert' : busy ? 'neon' : info?.activity === 'offline' ? 'mute' : 'volt'} pulse={busy} />
             {activityText(info?.activity, info?.activityDetail)}
           </span>
+          {!isAlly && <ComingNext />}
           {info?.queued ? <Chip tone="amber">{info.queued} queued</Chip> : null}
           <Toggle checked={calm} onChange={(v) => void saveSettings({ calm: v })} label={<span className="label">Clean HUD</span>} />
           {busy && (
@@ -206,7 +208,7 @@ function ChatLog({ wksp, messages: all, calm, busy, gamertag, activityDetail, la
               Recap
             </button>
             <button className="btn" onClick={() => go('status')}>
-              Status
+              Character Sheet
             </button>
             <button className="btn solid" onClick={() => openDeploy()}>
               <Rocket size={14} /> Deploy
@@ -567,7 +569,7 @@ function Composer({ wksp, busy, fill, context }: { wksp: string; busy: boolean; 
         {isMain && (
           <span className="quick">
             <button className="link-btn" onClick={() => void op('Recap', () => api().recap())}>Recap</button>
-            <button className="link-btn" onClick={() => go('status')}>Status</button>
+            <button className="link-btn" onClick={() => go('status')}>Character Sheet</button>
             <button className="link-btn" onClick={() => openDeploy()}>Deploy</button>
           </span>
         )}

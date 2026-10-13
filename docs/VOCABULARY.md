@@ -30,7 +30,7 @@ code comments that cite the original design.
 | no-mistakes pipeline | **Gauntlet** | |
 | captain decision / hold | **Your Move** | open choices waiting on the player |
 | `/ahoy` | **/recap** | "previously on…" + one-at-a-time choices |
-| `/bearings` | **/status** | Status Screen, four sections below |
+| `/bearings` | **status_report** | Agent report, four sections below; the UI `/status` opens Character Sheet |
 | Captain's Call | **Your Move** | |
 | Recently Landed | **Loot** | |
 | Underway | **In Progress** | |

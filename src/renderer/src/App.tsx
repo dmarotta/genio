@@ -10,7 +10,7 @@ import { Comms } from './views/Comms'
 import { Squad } from './views/Squad'
 import { Quests } from './views/Quests'
 import { YourMove } from './views/YourMove'
-import { Status } from './views/Status'
+import { CharacterSheet } from './views/CharacterSheet'
 import { ProjectNotice, Worlds } from './views/Worlds'
 import { Lore } from './views/Lore'
 import { Systems } from './views/Systems'
@@ -23,7 +23,7 @@ const VIEW: Partial<Record<ViewId, ComponentType>> = {
   squad: Squad,
   quests: Quests,
   move: YourMove,
-  status: Status,
+  status: CharacterSheet,
   worlds: Worlds,
   lore: Lore,
   systems: Systems,

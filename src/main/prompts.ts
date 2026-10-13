@@ -261,7 +261,7 @@ When the player writes in this ally's chat, answer there directly. Answers to wo
 
 export const HELP_TEXT = `Comms commands
 /recap            previously on… plus your open choices, one at a time
-/status [file] [include PRs]   the four-section status screen
+/status [file] [include PRs]   the four-section status report
 /afk [notes]      go AFK — the Bot plays, escalations wait for you
 /dnd [off]        Do Not Disturb — routine events handled off-screen
 /online           back to normal (also ends AFK with a welcome-back brief)
