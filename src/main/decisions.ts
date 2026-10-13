@@ -10,8 +10,9 @@
 import type { Decision } from '@shared/types'
 import { bus } from './bus'
 import type { Home } from './home'
+import { formatNotification } from './notify-format'
 import type { AppCtx, DecisionService } from './services'
-import { nowIso, readJson, rid, truncate, writeJson } from './util'
+import { nowIso, readJson, rid, writeJson } from './util'
 
 const KEEP_RESOLVED = 300
 
@@ -71,9 +72,10 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
       const mode = ctx.away.state().mode
       const where = d.taskId ? ` (${d.taskId})` : ''
       if (mode === 'dnd' || mode === 'afk') {
-        ctx.away.capture({ wksp: home.name, text: `Your move${where}: ${d.question}`, severity: 'decision' })
+        ctx.away.capture({ wksp: home.name, text: `Your move${where}: ${d.question}`, severity: 'decision', where: d.project, target: { view: 'move' } })
       } else {
-        ctx.notifier.notify(`Your move${where}`, truncate(d.question, 240), 'decision')
+        const { title, body } = formatNotification({ kind: 'decision', text: d.question, where: d.project ?? home.name })
+        ctx.notifier.notify(title, body, 'decision', { target: { view: 'move' } })
       }
       ctx.ledger.record({ home: home.name, event: 'decision.opened', task: d.taskId, project: d.project, data: { id: d.id, key: d.key, question: d.question, source: d.source } })
     } catch {

@@ -3,9 +3,10 @@
  * generic JSON) and sound effects. Every channel is best-effort and never
  * throws into the caller.
  */
-import type { SfxName } from '@shared/types'
+import path from 'node:path'
+import type { NotifyTarget, SfxName } from '@shared/types'
 import { bus } from './bus'
-import type { AppCtx, NotifierService } from './services'
+import type { AppCtx, NotifierService, NotifyOptions } from './services'
 
 type Severity = 'info' | 'decision' | 'failure' | 'ready'
 
@@ -16,13 +17,39 @@ const SEVERITY_ICON: Record<Severity, string> = {
   ready: '[LOOT]'
 }
 
-async function desktopNotify(title: string, body: string): Promise<void> {
+// Shown notifications stay referenced until closed: on Windows a collected
+// Notification drops its click handler.
+const live = new Set<unknown>()
+
+async function desktopNotify(appRoot: string, title: string, body: string, severity: Severity, target?: NotifyTarget): Promise<void> {
   try {
     // Imported lazily so this module also loads outside Electron (tests).
     const electron = await import('electron')
     const N = electron.Notification
     if (!N || typeof N.isSupported !== 'function' || !N.isSupported()) return
-    new N({ title, body, silent: true }).show()
+    const icon = electron.nativeImage.createFromPath(path.join(appRoot, 'resources', 'icon.png'))
+    const n = new N({
+      title,
+      body,
+      silent: true,
+      icon: icon.isEmpty() ? undefined : icon,
+      urgency: severity === 'failure' || severity === 'decision' ? 'critical' : 'normal'
+    })
+    const drop = (): void => void live.delete(n)
+    n.on('click', () => {
+      drop()
+      const win = electron.BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+      if (win) {
+        if (win.isMinimized()) win.restore()
+        win.show()
+        win.focus()
+      }
+      if (target) bus.publish({ type: 'navigate', target })
+    })
+    n.on('close', drop)
+    n.on('failed', drop)
+    live.add(n)
+    n.show()
   } catch {
     /* not running inside Electron, or notifications unavailable */
   }
@@ -55,14 +82,16 @@ async function postWebhook(url: string, kind: 'discord' | 'slack' | 'generic', t
 
 export function createNotifierService(getCtx: () => AppCtx): NotifierService {
   return {
-    notify(title, body, severity) {
-      let s
+    notify(title, body, severity, opts: NotifyOptions = {}) {
+      let s, appRoot
       try {
-        s = getCtx().settings.get()
+        const ctx = getCtx()
+        s = ctx.settings.get()
+        appRoot = ctx.appRoot
       } catch {
         return
       }
-      if (s.desktopNotifications) void desktopNotify(title, body)
+      if (s.desktopNotifications || opts.force) void desktopNotify(appRoot, title, body, severity, opts.target)
       if (s.webhookUrl) void postWebhook(s.webhookUrl, s.webhookKind, title, body, severity)
     },
     sfx(name: SfxName) {

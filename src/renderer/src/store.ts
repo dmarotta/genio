@@ -461,6 +461,20 @@ export function handleEvent(ev: GenioEvent): void {
     case 'speak':
       if (s.settings?.voice) speak(ev.text)
       break
+    case 'navigate': {
+      // a desktop notification was clicked
+      const t = ev.target
+      if (t.view === 'move') go('move')
+      else if (t.view === 'squad') {
+        if (t.taskId) focusTask(t.taskId)
+        else go('squad')
+      } else {
+        const known = t.wksp === 'main' || s.snap.allies.some((a) => a.name === t.wksp && !a.retiredAt)
+        if (t.wksp && known) openChat(t.wksp)
+        else go('comms')
+      }
+      break
+    }
   }
 }
 

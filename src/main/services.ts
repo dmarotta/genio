@@ -11,7 +11,7 @@ import type {
   AwayMode, AwayEntry, AwayState, BacklogItem, StatusReport, ChatMessage, Decision, FleetSnapshot,
   FleetStats, HarnessAdapter, InboxNote, LedgerRecord, WkspInfo, PermissionRequest, Project, Ally,
   Settings, StatusEvent, Task, TerminalInfo, ToolStatus, UpdateInfo, Wake, WakeKind, Achievement,
-  DeliveryMode, SfxName
+  DeliveryMode, SfxName, NotifyTarget
 } from '@shared/types'
 import type {
   OpResult, ProjectAddRequest, ProjectCreateRequest, AllyCreateRequest, SpawnRequest, TaskFile, MemoryFile,
@@ -94,8 +94,16 @@ export interface AwayService {
   takeReturnBrief(): string
 }
 
+export interface NotifyOptions {
+  /** what clicking the notification opens */
+  target?: NotifyTarget
+  /** show even when desktop notifications are switched off (AFK alarm) */
+  force?: boolean
+}
+
 export interface NotifierService {
-  notify(title: string, body: string, severity: 'info' | 'decision' | 'failure' | 'ready'): void
+  /** title/body should come from formatNotification (notify-format.ts) */
+  notify(title: string, body: string, severity: 'info' | 'decision' | 'failure' | 'ready', opts?: NotifyOptions): void
   sfx(name: SfxName): void
 }
 

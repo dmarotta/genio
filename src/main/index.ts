@@ -14,6 +14,7 @@ import { defaultHomeRoot } from './home'
 import { registerIpc } from './ipc'
 import type { AppCtx } from './services'
 import { nowIso, writeJson } from './util'
+import { ensureWindowsToastIdentity, setWindowsAppId } from './win-identity'
 
 const TERM_CHANNEL = 'genio:term-data'
 const LIVE_STATES = new Set(['spawning', 'working', 'paused', 'blocked', 'needs-decision', 'validating', 'stale'])
@@ -38,7 +39,7 @@ if (!app.requestSingleInstanceLock()) {
   })
 }
 
-app.setAppUserModelId('dev.genio.app')
+setWindowsAppId()
 
 // genio-media://fal/<run>/<file>: FAL outputs from Genio's data dir (streamable, seekable); genio-media://chat/<wksp>/<file>: chat images
 protocol.registerSchemesAsPrivileged([{ scheme: MEDIA_SCHEME, privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true } }])
@@ -68,6 +69,7 @@ function clearLock(): void {
 
 async function boot(): Promise<void> {
   writeLock()
+  ensureWindowsToastIdentity(appRoot())
   ctx = createApp(appRoot())
   registerIpc(getCtx)
   registerMedia()

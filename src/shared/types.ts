@@ -303,6 +303,10 @@ export interface AwayEntry {
   text: string
   severity: 'info' | 'decision' | 'failure' | 'ready'
   delivered: boolean
+  /** world the entry belongs to, for the notification title */
+  where?: string
+  /** what clicking its notification opens */
+  target?: NotifyTarget
 }
 
 /** Mail: notes the player sends from elsewhere (companion captain inbox) */
@@ -592,5 +596,9 @@ export type GenioEvent =
   | { type: 'sfx'; sound: SfxName }
   | { type: 'speak'; text: string }
   | { type: 'fal-run'; run: FalRun }
+  | { type: 'navigate'; target: NotifyTarget }
+
+/** Where clicking a desktop notification takes the player. */
+export type NotifyTarget = { view: 'move' } | { view: 'squad'; taskId?: string } | { view: 'comms'; wksp?: string }
 
 export type SfxName = 'blip' | 'spawn' | 'ready' | 'merge' | 'alert' | 'decision' | 'levelup' | 'send' | 'error'

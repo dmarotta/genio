@@ -18,6 +18,7 @@ import { bus } from './bus'
 import { chatImageDir, saveChatImages } from './chat-images'
 import type { Home } from './home'
 import { buildTools, type ToolRole } from './wksp-tools'
+import { formatNotification } from './notify-format'
 import {
   HELP_TEXT, afkPrompt, botContract, eventsPrompt, genioContract, recapPrompt, returnPrompt, savePrompt, sessionStartPrompt,
   statusPrompt
@@ -689,7 +690,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
         },
         onError(text) {
           appendJsonl(botFile, { ts: nowIso(), error: text })
-          if (getCtx().away.state().mode === 'afk') safe(() => getCtx().away.capture({ wksp: name, text: `The Bot hit a problem: ${text}`, severity: 'failure' }))
+          if (getCtx().away.state().mode === 'afk') safe(() => getCtx().away.capture({ wksp: name, text: `The Bot hit a problem: ${text}`, severity: 'failure', target: { view: 'comms', wksp: name } }))
         },
         onRateLimit: rateLimit
       },
@@ -703,10 +704,11 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
     const ctx = getCtx()
     const mode = ctx.away.state().mode
     if (mode === 'afk') {
-      ctx.away.capture({ wksp: name, text, severity })
+      ctx.away.capture({ wksp: name, text, severity, target: { view: 'comms', wksp: name } })
     } else {
       say(`Bot: ${text}`, 'system')
-      ctx.notifier.notify(severity === 'ready' ? 'Ready for review' : severity === 'decision' ? 'Your move' : severity === 'failure' ? 'Problem' : 'Genio', text, severity)
+      const { title, body } = formatNotification({ kind: severity, text, where: name })
+      ctx.notifier.notify(title, body, severity, { target: { view: 'comms', wksp: name } })
       ctx.notifier.sfx(severity === 'failure' ? 'alert' : severity === 'decision' ? 'decision' : 'ready')
     }
   }

@@ -10,8 +10,9 @@
  *   `alarmMinutes` fires the configured alarm (rate limited to once / 30 min).
  */
 import { spawn } from 'node:child_process'
-import type { AwayEntry, AwayMode, AwayState } from '@shared/types'
+import type { AwayEntry, AwayMode, AwayState, NotifyTarget } from '@shared/types'
 import { bus } from './bus'
+import { formatNotification } from './notify-format'
 import type { AppCtx, AwayService } from './services'
 import { killTree, nowIso, readJson, truncate, writeJson } from './util'
 
@@ -100,14 +101,22 @@ export function createAwayService(getCtx: () => AppCtx): AwayService {
     digest = []
     if (!batch.length) return
     const worst = batch.reduce((w, e) => (SEVERITY_RANK[e.severity] > SEVERITY_RANK[w] ? e.severity : w), 'info' as AwayEntry['severity'])
-    const title = batch.length === 1 ? `Genio // ${SEVERITY_TAG[batch[0].severity]}` : `Genio // ${batch.length} updates while you're away`
-    const body = batch.map((e) => `[${SEVERITY_TAG[e.severity]}] ${truncate(e.text, 200)}`).join('\n')
+    const top = batch.find((e) => e.severity === worst) ?? batch[0]
     try {
-      getCtx().notifier.notify(title, body, worst)
+      if (batch.length === 1) notifyEntry(top)
+      else {
+        const { title, body } = formatNotification({ kind: 'digest', count: batch.length, text: top.text })
+        getCtx().notifier.notify(title, body, worst, { target: worst === 'decision' ? { view: 'move' } : entryTarget(top) })
+      }
       if (worst === 'decision' || worst === 'failure') getCtx().notifier.sfx('alert')
     } catch {
       /* not wired */
     }
+  }
+
+  function notifyEntry(e: AwayEntry): void {
+    const { title, body } = formatNotification({ kind: e.severity, text: e.text, where: e.where ?? e.wksp })
+    getCtx().notifier.notify(title, body, e.severity, { target: entryTarget(e) })
   }
 
   // ---------------------------------------------------------------- alarm
@@ -141,23 +150,24 @@ export function createAwayService(getCtx: () => AppCtx): AwayService {
       const summary = `Genio alarm: ${stuck.length} item(s) waiting on you for over ${Math.round(limitMs / 60_000)} min. ${stuck
         .map((e) => `[${SEVERITY_TAG[e.severity]}] ${truncate(e.text, 120)}`)
         .join(' | ')}`
-      fireAlarm(channel, summary)
+      fireAlarm(channel, summary, stuck)
     } catch {
       /* alarm must never crash overwatch */
     }
   }
 
-  function fireAlarm(channel: string, summary: string): void {
+  function fireAlarm(channel: string, summary: string, stuck: AwayEntry[]): void {
     const ctx = getCtx()
     if (channel.startsWith('command:')) {
       runAlarmCommand(channel.slice('command:'.length).trim(), summary)
       return
     }
     // auto / default: desktop notification (forced) + alert sound + webhook
-    void forceDesktop('GENIO // ALARM', summary)
+    const { title, body } = formatNotification({ kind: 'alarm', count: stuck.length, text: stuck[0]?.text })
+    const target: NotifyTarget = stuck.some((e) => e.severity === 'decision') ? { view: 'move' } : entryTarget(stuck[0])
     try {
       ctx.notifier.sfx('alert')
-      ctx.notifier.notify('GENIO // ALARM', summary, 'failure')
+      ctx.notifier.notify(title, body, 'failure', { target, force: true })
     } catch {
       /* best effort */
     }
@@ -244,7 +254,7 @@ export function createAwayService(getCtx: () => AppCtx): AwayService {
         if (s.held.length > MAX_HELD) s.held = s.held.slice(-MAX_HELD)
         persist()
         try {
-          getCtx().notifier.notify(`Genio // ${SEVERITY_TAG[full.severity]}`, truncate(full.text, 240), full.severity)
+          notifyEntry(full)
         } catch {
           /* not wired */
         }
@@ -282,13 +292,8 @@ export function createAwayService(getCtx: () => AppCtx): AwayService {
   return svc
 }
 
-async function forceDesktop(title: string, body: string): Promise<void> {
-  try {
-    const electron = await import('electron')
-    const N = electron.Notification
-    if (!N || typeof N.isSupported !== 'function' || !N.isSupported()) return
-    new N({ title, body: truncate(body, 400), urgency: 'critical' }).show()
-  } catch {
-    /* outside Electron */
-  }
+function entryTarget(e: AwayEntry | undefined): NotifyTarget {
+  if (e?.target) return e.target
+  if (e?.severity === 'decision') return { view: 'move' }
+  return { view: 'comms', wksp: e?.wksp }
 }
