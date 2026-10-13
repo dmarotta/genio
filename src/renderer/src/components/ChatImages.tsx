@@ -4,10 +4,12 @@
  * full-size viewer in sent message bubbles.
  */
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent } from 'react'
-import { X } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { MAX_IMAGES_PER_MESSAGE, chatImageUrl, type ChatImage, type ChatImageInput } from '@shared/chat-images'
 import { getDraftImages, setDraftImages, type DraftImage } from '../drafts'
 import { toDraftImage } from '../lib/attach'
+import { fitImage, viewerClick, viewerKey, type ViewerAction } from '../lib/image-viewer'
 import { errText, toast } from '../store'
 
 const hasFiles = (e: DragEvent): boolean => Array.from(e.dataTransfer.types).includes('Files')
@@ -132,20 +134,18 @@ export function AttachmentStrip({ att }: { att: Attachments }) {
 
 /** Thumbnails in a sent message; click one to view it full size. */
 export function MessageImages({ wksp, images }: { wksp: string; images: ChatImage[] }) {
-  const [open, setOpen] = useState<string>()
+  const [open, setOpen] = useState<number>()
+  const urls = images.map((img) => chatImageUrl(wksp, img.file))
   return (
     <>
       <div className="msg-images">
-        {images.map((img) => {
-          const url = chatImageUrl(wksp, img.file)
-          return (
-            <button key={img.file} className="msg-image" onClick={() => setOpen(url)} title="View full size">
-              <img src={url} alt="attached image" loading="lazy" />
-            </button>
-          )
-        })}
+        {urls.map((url, i) => (
+          <button key={images[i].file} className="msg-image" onClick={() => setOpen(i)} title="View full size">
+            <img src={url} alt="attached image" loading="lazy" />
+          </button>
+        ))}
       </div>
-      {open && <ImageViewer url={open} onClose={() => setOpen(undefined)} />}
+      {open !== undefined && <ImageViewer urls={urls} index={open} onIndex={setOpen} onClose={() => setOpen(undefined)} />}
     </>
   )
 }
@@ -161,20 +161,87 @@ export function GeneratingImages({ count }: { count: number }) {
   )
 }
 
-function ImageViewer({ url, onClose }: { url: string; onClose: () => void }) {
+interface ViewerProps {
+  urls: string[]
+  index: number
+  onIndex(i: number): void
+  onClose(): void
+}
+
+/** Full-window overlay portalled to <body>, so the chat's scroll and the dock panes can't clip or move it. */
+function ImageViewer({ urls, index, onIndex, onClose }: ViewerProps) {
+  const closeRef = useRef<HTMLButtonElement>(null)
+  const [natural, setNatural] = useState<{ w: number; h: number }>()
+  const [viewport, setViewport] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }))
+  const act = (a: ViewerAction): void => {
+    if (a.type === 'close') onClose()
+    else if (a.type === 'show') onIndex(a.index)
+  }
+  const actRef = useRef(act)
+  actRef.current = act
+  const indexRef = useRef(index)
+  indexRef.current = index
+
   useEffect(() => {
-    const k = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
+    const prevFocus = document.activeElement as HTMLElement | null
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    closeRef.current?.focus()
+    const onKey = (e: KeyboardEvent): void => {
+      const a = viewerKey(e.key, indexRef.current, urls.length)
+      if (a.type === 'none') return
+      e.preventDefault()
+      e.stopPropagation()
+      actRef.current(a)
     }
-    window.addEventListener('keydown', k)
-    return () => window.removeEventListener('keydown', k)
-  }, [onClose])
-  return (
-    <div className="image-viewer" onClick={onClose} role="dialog" aria-label="Image">
-      <img src={url} alt="attached image" />
-      <button className="btn sm ghost icon image-viewer-close" onClick={onClose} aria-label="Close">
-        <X size={14} />
+    const onResize = (): void => setViewport({ w: window.innerWidth, h: window.innerHeight })
+    window.addEventListener('keydown', onKey, true)
+    window.addEventListener('resize', onResize)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('resize', onResize)
+      document.body.style.overflow = prevOverflow
+      prevFocus?.focus?.()
+    }
+  }, [urls.length])
+
+  useEffect(() => setNatural(undefined), [index])
+
+  const size = natural ? fitImage(natural.w, natural.h, viewport.w, viewport.h) : undefined
+  const many = urls.length > 1
+  return createPortal(
+    <div
+      className="image-viewer"
+      onClick={(e) => act(viewerClick(e.target as Element))}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Image"
+    >
+      <img
+        key={urls[index]}
+        className="image-viewer-img"
+        src={urls[index]}
+        alt="attached image"
+        style={size ? { width: size.width, height: size.height } : undefined}
+        onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+      />
+      {many && (
+        <>
+          <button className="image-viewer-nav prev" onClick={() => act(viewerKey('ArrowLeft', index, urls.length))} aria-label="Previous image">
+            <ChevronLeft size={20} />
+          </button>
+          <button className="image-viewer-nav next" onClick={() => act(viewerKey('ArrowRight', index, urls.length))} aria-label="Next image">
+            <ChevronRight size={20} />
+          </button>
+          <div className="image-viewer-count">
+            {index + 1} / {urls.length}
+          </div>
+        </>
+      )}
+      <button ref={closeRef} className="image-viewer-close" onClick={(e) => { e.stopPropagation(); onClose() }} aria-label="Close" title="Close (Esc)">
+        <X size={18} />
       </button>
-    </div>
+    </div>,
+    document.body
   )
 }

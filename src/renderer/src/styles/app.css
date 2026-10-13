@@ -433,9 +433,14 @@ button.usage-toggle:hover { color: var(--text); }
 .msg-image:hover { border-color: var(--neon); }
 .msg.genio .msg-images { justify-content: flex-start; max-width: 100%; margin: 8px 0 6px; }
 .msg-image.generating { width: 160px; height: 160px; cursor: progress; animation: pulse 0.9s infinite; }
-.image-viewer { position: fixed; inset: 0; z-index: 200; background: rgba(0, 0, 0, 0.85); display: grid; place-items: center; padding: 40px; cursor: zoom-out; }
-.image-viewer img { max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: var(--glow); }
-.image-viewer-close { position: absolute; top: 56px; right: 20px; }
+.image-viewer { position: fixed; inset: 0; z-index: 1000; background: rgba(0, 0, 0, 0.85); display: grid; place-items: center; cursor: zoom-out; overscroll-behavior: contain; }
+.image-viewer .image-viewer-img { max-width: 95vw; max-height: 95vh; object-fit: contain; box-shadow: var(--glow); cursor: default; }
+.image-viewer .image-viewer-close { position: fixed; top: 16px; right: 16px; z-index: 1; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.25); background: rgba(0, 0, 0, 0.6); color: #fff; cursor: pointer; }
+.image-viewer .image-viewer-close:hover, .image-viewer .image-viewer-nav:hover { background: rgba(255, 255, 255, 0.15); }
+.image-viewer .image-viewer-nav { position: fixed; top: 50%; transform: translateY(-50%); z-index: 1; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.25); background: rgba(0, 0, 0, 0.6); color: #fff; cursor: pointer; }
+.image-viewer .image-viewer-nav.prev { left: 16px; }
+.image-viewer .image-viewer-nav.next { right: 16px; }
+.image-viewer .image-viewer-count { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); color: rgba(255, 255, 255, 0.75); font-size: 12px; pointer-events: none; }
 .composer-hints { display: flex; justify-content: space-between; margin-top: 8px; font-size: 11px; }
 .composer-hints .quick { display: flex; gap: 14px; }
 .composer-hints .quick .link-btn { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; }
