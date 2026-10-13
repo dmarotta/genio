@@ -14,7 +14,6 @@ import { resolveLoadout } from './loadout'
 import { sendPlayerChat } from './wksp'
 import { clearSecret, secretStatus, setSecret } from './secrets'
 import { usageReport } from './usage'
-import { exportSprites } from './sprite-projects'
 import { isSubPath } from './util'
 import type { AppCtx, HomeCtx } from './services'
 
@@ -86,19 +85,6 @@ export function registerIpc(getCtx: () => AppCtx): void {
 
     // ---- FAL.ai
     falRuns: () => ctx().fal.runs(),
-    spriteList: (world) => ctx().sprites.list(world),
-    spriteSave: (project) => ctx().sprites.save(project),
-    spriteAssets: (world) => ctx().sprites.assets(world),
-    spriteReadImage: (file) => ctx().sprites.readImage(file),
-    spriteCodex: (project, kind, direction, frame) => ctx().sprites.codex(project, kind, direction, frame),
-    spriteQuote: (project) => ctx().sprites.quote(project),
-    spritePaidStep: (ticket, confirmed, step, image) => ctx().sprites.paidStep(ticket, confirmed, step, image),
-    spriteAbandon: (ticket) => ctx().sprites.abandon(ticket),
-    spriteExport: (req, directory) => {
-      const world = req.project.world ? ctx().projects.get(req.project.world) : undefined
-      if (!directory && !world) throw new Error('Select a world or an export folder.')
-      return exportSprites(req, directory ?? world!.path, directory ? undefined : world, ctx().fal.runs())
-    },
     falRun: (req) => ctx().fal.run(req),
     falCancel: (id) => ctx().fal.cancel(id),
     falDelete: (id) => ctx().fal.remove(id),

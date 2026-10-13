@@ -416,7 +416,6 @@ export interface AppCtx {
   update: UpdateService
   permissions: PermissionBroker
   fal: FalService
-  sprites: import('./sprites').SpriteService
   uthana: UthanaService
   dispatch: DispatchService
   main: HomeCtx

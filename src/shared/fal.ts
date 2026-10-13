@@ -59,8 +59,7 @@ function megapixels(input: Record<string, unknown>): number | undefined {
 
 function seconds(input: Record<string, unknown>): number | undefined {
   for (const k of ['duration_seconds', 'duration', 'seconds_total', 'seconds', 'length_seconds']) {
-    const raw = input[k]
-    const v = typeof raw === 'string' && /^\d+(?:\.\d+)?s$/.test(raw) ? Number(raw.slice(0, -1)) : num(raw)
+    const v = num(input[k])
     if (v !== undefined) return v
   }
   const ms = num(input.music_length_ms)

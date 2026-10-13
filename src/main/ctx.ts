@@ -54,7 +54,6 @@ import { createMemoryService } from './memory'
 import { createUpdateService } from './update'
 import { createPermissionBroker } from './permissions'
 import { createFalService } from './fal-service'
-import { createSpriteService } from './sprites'
 import { createUthanaService } from './uthana-service'
 import { createDispatchService } from './dispatch'
 
@@ -107,7 +106,6 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
   ctx.permissions = createPermissionBroker(getCtx)
   ctx.allies = createAlliesService(getCtx)
   ctx.fal = createFalService(getCtx)
-  ctx.sprites = createSpriteService(getCtx)
   ctx.uthana = createUthanaService(getCtx)
   ctx.dispatch = createDispatchService(getCtx)
 

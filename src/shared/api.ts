@@ -5,7 +5,6 @@ import type {
   TerminalInfo, ToolStatus, UpdateInfo, Wake, Forge, Decision, InboxNote, ProjectMode, Loadout, LoadoutInput, TaskCategory, Verdict
 } from './types'
 import type { DispatchScoresView } from './dispatch'
-import type { SpriteProject, SpriteQuote, SpriteAsset, SpriteExport, SpriteExportResult } from './sprites'
 import type { ChatImageInput } from './chat-images'
 import type {
   UthanaAccount, UthanaExportRequest, UthanaExportResult, UthanaFile, UthanaFileInfo, UthanaGenerateRequest, UthanaPreviewRequest, UthanaRemoteCharacter, UthanaRun,
@@ -411,15 +410,6 @@ export interface GenioApi {
 
   // ---- FAL.ai (runs in main with the stored key; the key never reaches the renderer)
   falRuns(): Promise<FalRun[]>
-  spriteList(world: string | null): Promise<SpriteProject[]>
-  spriteSave(project: SpriteProject): Promise<SpriteProject>
-  spriteAssets(world: string | null): Promise<SpriteAsset[]>
-  spriteReadImage(file: string): Promise<string>
-  spriteCodex(project: SpriteProject, kind: 'source' | 'grid' | 'frame', direction: number, frame?: number): Promise<{ image: string; generation: SpriteProject['generations'][number]; warning?: string }>
-  spriteQuote(project: SpriteProject): Promise<SpriteQuote>
-  spritePaidStep(ticket: string, confirmed: boolean, step: number, image: string): Promise<FalRun>
-  spriteAbandon(ticket: string): Promise<void>
-  spriteExport(req: SpriteExport, directory?: string): Promise<SpriteExportResult>
   falRun(req: FalRunRequest): Promise<FalRun>
   falCancel(id: string): Promise<OpResult>
   falDelete(id: string): Promise<OpResult>
@@ -571,7 +561,6 @@ export const API_METHODS = [
   'apiKeySet',
   'apiKeyClear',
   'falRuns',
-  'spriteList', 'spriteSave', 'spriteAssets', 'spriteReadImage', 'spriteCodex', 'spriteQuote', 'spritePaidStep', 'spriteAbandon', 'spriteExport',
   'falRun',
   'falCancel',
   'falDelete',
