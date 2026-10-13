@@ -11,6 +11,8 @@ export interface GenioBridge {
   api: GenioApi
   on(fn: (e: GenioEvent) => void): () => void
   onTerminalData(fn: (batch: { id: string; data: string }[]) => void): () => void
+  /** absolute path of a dropped file ('' when it has none) */
+  pathForFile(file: File): string
   platform: string
 }
 
@@ -20,6 +22,7 @@ declare global {
       api: GenioApi
       on(fn: (e: GenioEvent) => void): () => void
       onTerminalData(fn: (batch: { id: string; data: string }[]) => void): () => void
+      pathForFile(file: File): string
       platform: string
     }
   }

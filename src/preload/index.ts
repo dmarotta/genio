@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import { API_METHODS, API_PREFIX, EVENT_CHANNEL, type GenioApi } from '@shared/api'
 import type { GenioEvent } from '@shared/types'
 
@@ -21,6 +21,10 @@ const bridge = {
     const h = (_e: IpcRendererEvent, batch: { id: string; data: string }[]): void => fn(batch)
     ipcRenderer.on(TERM_CHANNEL, h)
     return () => ipcRenderer.off(TERM_CHANNEL, h)
+  },
+  /** absolute path of a dropped file ('' when it has none) */
+  pathForFile(file: File): string {
+    return webUtils.getPathForFile(file)
   },
   platform: process.platform
 }

@@ -15,7 +15,14 @@ import { usageReport } from './usage'
 import { isSubPath } from './util'
 import type { AppCtx, HomeCtx } from './services'
 
-type Handlers = { [K in keyof GenioApi]: (...args: Parameters<GenioApi[K]>) => ReturnType<GenioApi[K]> | Awaited<ReturnType<GenioApi[K]>> }
+const FILE_EXTS: Record<string, string[]> = {
+  image: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif'],
+  audio: ['wav', 'mp3', 'ogg', 'flac', 'm4a', 'aac', 'opus'],
+  video: ['mp4', 'webm', 'mov'],
+  model: ['glb', 'gltf', 'obj', 'fbx', 'ply', 'stl']
+}
+
+type Handlers ={ [K in keyof GenioApi]: (...args: Parameters<GenioApi[K]>) => ReturnType<GenioApi[K]> | Awaited<ReturnType<GenioApi[K]>> }
 
 export function registerIpc(getCtx: () => AppCtx): void {
   const ctx = (): AppCtx => getCtx()
@@ -81,6 +88,29 @@ export function registerIpc(getCtx: () => AppCtx): void {
       if (r.canceled || !r.filePaths[0]) return null
       if (!isSubPath(r.filePaths[0], proj.path)) throw new Error(`Pick a folder inside ${proj.name} (${proj.path}).`)
       return path.relative(proj.path, r.filePaths[0]).replace(/\\/g, '/')
+    },
+    falCatalogue: (world, refresh) => ctx().fal.catalogue(world, refresh),
+    falModel: (endpoint) => ctx().fal.model(endpoint),
+    falSearch: (q) => ctx().fal.search(q),
+    falWorld: (world) => ctx().fal.world(world),
+    falWorldConfig: (world, config) => ctx().fal.saveWorldConfig(world, config),
+    falRecipeSave: (world, recipe) => ctx().fal.saveRecipe(world, recipe),
+    falRecipeDelete: (world, id) => ctx().fal.deleteRecipe(world, id),
+    falPickFile: async (world, kind) => {
+      const proj = world ? ctx().projects.get(world) : undefined
+      if (world && !proj) throw new Error(`No world named ${world}.`)
+      const exts = kind ? FILE_EXTS[kind] : undefined
+      const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+      const opts: OpenDialogOptions = {
+        title: proj ? `File in ${proj.name}` : 'Pick a file',
+        defaultPath: proj?.path,
+        properties: ['openFile'],
+        filters: exts ? [{ name: kind!, extensions: exts }, { name: 'All files', extensions: ['*'] }] : undefined
+      }
+      const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+      if (r.canceled || !r.filePaths[0]) return null
+      if (proj && !isSubPath(r.filePaths[0], proj.path)) throw new Error(`Pick a file inside ${proj.name} (${proj.path}).`)
+      return r.filePaths[0]
     },
 
     // ---- comms

@@ -208,7 +208,7 @@ export async function pollResult(client: FalClient, sub: FalSubmit, opts: PollOp
 // ---------------------------------------------------------------- outputs
 
 const EXT_KIND: [RegExp, FalOutputKind][] = [
-  [/\.(png|jpe?g|webp|gif|bmp|avif)$/i, 'image'],
+  [/\.(png|jpe?g|webp|gif|bmp|avif|svg)$/i, 'image'],
   [/\.(mp3|wav|ogg|flac|m4a|aac|opus)$/i, 'audio'],
   [/\.(mp4|webm|mov|mkv)$/i, 'video'],
   [/\.(glb|gltf|obj|fbx|ply|stl|usdz)$/i, 'model']

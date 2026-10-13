@@ -597,6 +597,7 @@ export type GenioEvent =
   | { type: 'speak'; text: string }
   | { type: 'fal-run'; run: FalRun }
   | { type: 'navigate'; target: NotifyTarget }
+  | { type: 'fal-catalogue' }
 
 /** Where clicking a desktop notification takes the player. */
 export type NotifyTarget = { view: 'move' } | { view: 'squad'; taskId?: string } | { view: 'comms'; wksp?: string }

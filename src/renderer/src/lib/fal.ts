@@ -1,63 +1,6 @@
-import type { FalRun } from '@shared/api'
+import type { FalCatalogue, FalCatalogueEntry, FalOutputKind, FalPrice, FalRun } from '@shared/api'
+import { fmtUsd, priceText } from '@shared/fal'
 import type { Tone } from './vocab'
-
-export interface FalPreset {
-  id: string
-  group: 'Image' | 'Audio / SFX' | '3D' | 'Video'
-  label: string
-  endpoint: string
-  /** input key the prompt box fills (null: the endpoint takes no prompt) */
-  promptKey: string | null
-  params: Record<string, unknown>
-  hint?: string
-}
-
-/** Starting points only: any FAL endpoint id can be typed in. */
-export const FAL_PRESETS: FalPreset[] = [
-  { id: 'flux-schnell', group: 'Image', label: 'FLUX schnell', endpoint: 'fal-ai/flux/schnell', promptKey: 'prompt', params: { image_size: 'square_hd', num_images: 1 }, hint: 'Fast drafts. image_size: square_hd, square, portrait_4_3, landscape_16_9…' },
-  { id: 'flux-dev', group: 'Image', label: 'FLUX dev', endpoint: 'fal-ai/flux/dev', promptKey: 'prompt', params: { image_size: 'landscape_4_3', num_inference_steps: 28, guidance_scale: 3.5, num_images: 1 } },
-  { id: 'stable-audio', group: 'Audio / SFX', label: 'Stable Audio', endpoint: 'fal-ai/stable-audio', promptKey: 'prompt', params: { seconds_total: 10, steps: 100 }, hint: 'Music loops and ambiences.' },
-  { id: 'elevenlabs-sfx', group: 'Audio / SFX', label: 'ElevenLabs SFX', endpoint: 'fal-ai/elevenlabs/sound-effects', promptKey: 'text', params: { duration_seconds: 2 }, hint: 'Short sound effects from a description.' },
-  { id: 'trellis', group: '3D', label: 'TRELLIS · image → 3D', endpoint: 'fal-ai/trellis', promptKey: null, params: { image_url: '' }, hint: 'Paste an image URL (an earlier output works). Returns a .glb.' },
-  { id: 'hunyuan3d', group: '3D', label: 'Hunyuan3D v2 · image → 3D', endpoint: 'fal-ai/hunyuan3d/v2', promptKey: null, params: { input_image_url: '', textured_mesh: true }, hint: 'Paste an image URL. Returns a .glb.' },
-  { id: 'ltx-video', group: 'Video', label: 'LTX Video', endpoint: 'fal-ai/ltx-video', promptKey: 'prompt', params: {}, hint: 'Short text-to-video clips.' }
-]
-
-export interface ParamRow {
-  key: string
-  value: string
-}
-
-/** Field text → JSON value: numbers, booleans, null, {…}/[…] JSON; anything else stays a string. */
-export function parseParam(v: string): unknown {
-  const t = v.trim()
-  if (/^-?\d+(\.\d+)?([eE][-+]?\d+)?$/.test(t)) return Number(t)
-  if (t === 'true' || t === 'false') return t === 'true'
-  if (t === 'null') return null
-  if (/^[[{]/.test(t)) {
-    try {
-      return JSON.parse(t) as unknown
-    } catch {
-      return v
-    }
-  }
-  return v
-}
-
-export function paramText(v: unknown): string {
-  return typeof v === 'string' ? v : JSON.stringify(v)
-}
-
-export function rowsFrom(obj: Record<string, unknown>): ParamRow[] {
-  return Object.entries(obj).map(([key, v]) => ({ key, value: paramText(v) }))
-}
-
-/** Rows with an empty key or value are left out (empty preset fields are placeholders). */
-export function rowsToObject(rows: ParamRow[]): Record<string, unknown> {
-  const o: Record<string, unknown> = {}
-  for (const r of rows) if (r.key.trim() && r.value.trim()) o[r.key.trim()] = parseParam(r.value)
-  return o
-}
 
 export function parseJsonObject(text: string): Record<string, unknown> {
   if (!text.trim()) return {}
@@ -87,3 +30,49 @@ export function bytes(n?: number): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
   return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
+
+export const KIND_LABEL: Record<FalOutputKind, string> = { image: 'image', audio: 'audio', video: 'video', model: '3D', other: 'data' }
+
+/** Live price when FAL's pricing API answered, else the catalogue snapshot. */
+export function priceOf(cat: FalCatalogue | null, e: FalCatalogueEntry | undefined, endpoint: string): FalPrice | undefined {
+  return cat?.info[endpoint]?.price ?? e?.price
+}
+
+/** Short price for picker rows. */
+export function shortPrice(e: FalCatalogueEntry, p: FalPrice | undefined): string {
+  if (!p) return e.pagePrice ?? ''
+  if (e.unitsPerRun) return `~${fmtUsd(p.unitPrice * e.unitsPerRun)}`
+  if (['units', 'credits', '1000 tokens'].includes(p.unit)) return e.pagePrice ?? priceText(p)
+  return priceText(p)
+}
+
+/** Display name of a file input value. */
+export function fileLabel(v: string): string {
+  if (v.startsWith('@file:')) return v.slice(6).split(/[\\/]/).pop() || v
+  if (v.startsWith('data:')) return 'inline data'
+  try {
+    return decodeURIComponent(new URL(v).pathname.split('/').filter(Boolean).pop() ?? v)
+  } catch {
+    return v
+  }
+}
+
+/** Per-viewer conveniences (active world, remembered essentials); never required to work. */
+export function load<T>(key: string, fallback: T): T {
+  try {
+    const v = localStorage.getItem(key)
+    return v === null ? fallback : (JSON.parse(v) as T)
+  } catch {
+    return fallback
+  }
+}
+
+export function store(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    /* storage unavailable: fine */
+  }
+}
+
+export const memKey = (world: string | null, endpoint: string): string => `genio.fal.mem:${world ?? '~scratch'}:${endpoint}`

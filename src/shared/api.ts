@@ -218,6 +218,12 @@ export interface FalRun {
   result?: unknown
   /** only when FAL reports one */
   costUsd?: number
+  /** Genio's pre-run estimate from the catalogue price (USD) */
+  estUsd?: number
+  /** the world it was generated for (undefined: Scratch, no world) */
+  world?: string
+  /** recipe it was launched from */
+  recipe?: string
   createdAt: string
   startedAt?: string
   completedAt?: string
@@ -226,7 +232,124 @@ export interface FalRun {
 export interface FalRunRequest {
   /** FAL endpoint id, e.g. fal-ai/flux/dev */
   endpoint: string
+  /** string values "@file:<absolute path>" are sent as data URIs */
   input: Record<string, unknown>
+  /** active world (omit for Scratch) */
+  world?: string
+  recipe?: string
+}
+
+export interface FalPrice {
+  unitPrice: number
+  /** FAL billing unit: images, megapixels, seconds, units, 1000 characters, ... */
+  unit: string
+  currency?: string
+}
+
+export type FalTier = 'core' | 'alt' | 'post'
+
+/** One curated model (resources/fal-catalogue.json, plus a world's .genio/fal/catalogue.json). */
+export interface FalCatalogueEntry {
+  endpoint: string
+  job: string
+  tier: FalTier
+  label: string
+  /** one line: what to use it for */
+  hint: string
+  output: FalOutputKind
+  /** file kind its main input takes, for "Use as input" */
+  accepts?: FalOutputKind
+  /** essentials: optional fields shown above More options */
+  pin?: string[]
+  /** Genio's game-friendly values for pinned fields */
+  defaults?: Record<string, unknown>
+  /** fields kept out of the form (JSON can still set them) */
+  hide?: string[]
+  /** price snapshot; live prices override it */
+  price?: FalPrice
+  /** billing units one typical run uses, for abstract units */
+  unitsPerRun?: number
+  /** human price text when the API unit is abstract */
+  pagePrice?: string
+  /** added by the world's own catalogue.json */
+  fromWorld?: boolean
+}
+
+/** What FAL's models API says about an endpoint (cached a day in Genio's data). */
+export interface FalModelInfo {
+  endpoint: string
+  name?: string
+  category?: string
+  description?: string
+  /** FAL's metadata.status; undefined with listed=false means FAL no longer lists it */
+  status?: string
+  listed?: boolean
+  thumbnail?: string
+  license?: string
+  /** resolved JSON schema of the endpoint input */
+  schema?: Record<string, unknown>
+  price?: FalPrice
+  checkedAt: string
+}
+
+export interface FalCatalogue {
+  jobs: { id: string; label: string }[]
+  entries: FalCatalogueEntry[]
+  info: Record<string, FalModelInfo>
+  refreshedAt?: string
+  refreshing: boolean
+  /** last refresh problem (cached data still served) */
+  error?: string
+}
+
+export interface FalSearchHit {
+  endpoint: string
+  name: string
+  category?: string
+  description?: string
+  thumbnail?: string
+}
+
+export interface FalBudget {
+  monthly_usd?: number
+  confirm_over_usd?: number
+}
+
+/** <world>/.genio/fal/config.json */
+export interface FalWorldConfig {
+  schema?: string
+  /** save folders per output kind, relative to the world root */
+  folders?: Partial<Record<FalOutputKind, string>>
+  budget?: FalBudget
+  /** per-endpoint defaults that override the catalogue's */
+  defaults?: Record<string, Record<string, unknown>>
+  /** opt-in providers, e.g. {"codex": {"enabled": true}} (read by unit helpers; kept as-is here) */
+  providers?: Record<string, unknown>
+  [k: string]: unknown
+}
+
+/** A named preset: per-world favourite (<world>/.genio/fal/recipes.json). */
+export interface FalRecipe {
+  id: string
+  label: string
+  endpoint: string
+  input: Record<string, unknown>
+  prompt_template?: string
+  save_to?: FalOutputKind
+  then?: string[]
+}
+
+export interface FalWorldState {
+  /** null: Scratch (no world) */
+  world: string | null
+  config: FalWorldConfig
+  recipes: FalRecipe[]
+  /** estimated USD this calendar month (spend.jsonl + unsaved runs) */
+  spentUsd: number
+  month: string
+  /** the world already has a .genio/ folder */
+  hasGenioDir: boolean
+  engine?: Engine
 }
 
 export interface FalSaveRequest {
@@ -243,6 +366,10 @@ export interface FalSaveResult extends OpResult {
   /** the target exists and overwrite was not confirmed */
   exists?: boolean
   path?: string
+  /** world-relative provenance file written next to the save */
+  provenance?: string
+  /** e.g. Git LFS does not cover this file type */
+  warnings?: string[]
 }
 
 export interface GenioApi {
@@ -274,6 +401,19 @@ export interface GenioApi {
   falSave(req: FalSaveRequest): Promise<FalSaveResult>
   /** folder picker rooted at a world; returns the path relative to it */
   falPickFolder(project: string): Promise<string | null>
+  /** curated catalogue (+ the world's additions) with cached live info; refreshes when a day old */
+  falCatalogue(world: string | null, refresh?: boolean): Promise<FalCatalogue>
+  /** one endpoint's info and input schema (fetched and cached when missing) */
+  falModel(endpoint: string): Promise<FalModelInfo>
+  /** search every FAL model (not curated) */
+  falSearch(q: string): Promise<FalSearchHit[]>
+  falWorld(world: string | null): Promise<FalWorldState>
+  /** explicit save of the world's FAL settings (.genio/fal/config.json) */
+  falWorldConfig(world: string | null, config: FalWorldConfig): Promise<FalWorldState>
+  falRecipeSave(world: string | null, recipe: FalRecipe): Promise<FalRecipe[]>
+  falRecipeDelete(world: string | null, id: string): Promise<FalRecipe[]>
+  /** file picker for a file input: inside the world when given, else anywhere; absolute path */
+  falPickFile(world: string | null, kind?: FalOutputKind): Promise<string | null>
 
   // ---- bridge (chat with Genio / second units)
   chatHistory(wksp: string, limit?: number): Promise<ChatMessage[]>
@@ -374,6 +514,14 @@ export const API_METHODS = [
   'falDelete',
   'falSave',
   'falPickFolder',
+  'falCatalogue',
+  'falModel',
+  'falSearch',
+  'falWorld',
+  'falWorldConfig',
+  'falRecipeSave',
+  'falRecipeDelete',
+  'falPickFile',
   'chatHistory',
   'sendChat',
   'interruptWksp',

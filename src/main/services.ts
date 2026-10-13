@@ -15,7 +15,7 @@ import type {
 } from '@shared/types'
 import type {
   OpResult, ProjectAddRequest, ProjectCreateRequest, AllyCreateRequest, SpawnRequest, TaskFile, MemoryFile,
-  FalRun, FalRunRequest, FalSaveRequest, FalSaveResult
+  FalRun, FalRunRequest, FalSaveRequest, FalSaveResult, FalCatalogue, FalModelInfo, FalSearchHit, FalWorldState, FalWorldConfig, FalRecipe
 } from '@shared/api'
 import type { AllyControlsPatch } from '@shared/chat'
 import type { ChatImageInput } from '@shared/chat-images'
@@ -199,6 +199,15 @@ export interface FalService {
   resume(): void
   /** local file behind a genio-media://fal/<id>/<file> URL */
   mediaPath(id: string, fileName: string): string | undefined
+  /** curated catalogue + cached live info; kicks a background refresh when a day old */
+  catalogue(world: string | null, refresh?: boolean): FalCatalogue
+  model(endpoint: string): Promise<FalModelInfo>
+  search(q: string): Promise<FalSearchHit[]>
+  world(world: string | null): FalWorldState
+  /** explicit player save into <world>/.genio/fal/config.json */
+  saveWorldConfig(world: string | null, config: FalWorldConfig): FalWorldState
+  saveRecipe(world: string | null, recipe: FalRecipe): FalRecipe[]
+  deleteRecipe(world: string | null, id: string): FalRecipe[]
 }
 
 export interface PermissionBroker {

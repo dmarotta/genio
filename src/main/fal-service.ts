@@ -6,16 +6,27 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { Readable } from 'node:stream'
-import type { FalOutput, FalRun, FalRunRequest, FalSaveRequest, FalSaveResult, OpResult } from '@shared/api'
+import type {
+  FalCatalogue, FalCatalogueEntry, FalOutput, FalRecipe, FalRun, FalRunRequest, FalSaveRequest, FalSaveResult, FalWorldConfig, FalWorldState, OpResult
+} from '@shared/api'
+import { estimateRun, monthKey, worldSpend } from '@shared/fal'
+import { schemaDefaults, type JsonSchema } from '@shared/fal-schema'
+import type { Project } from '@shared/types'
 import { bus } from './bus'
 import { FalClient, extractCost, extractOutputs, inlineData, pollResult, validEndpoint, type FalSubmit, type FetchFn } from './fal'
+import { FalModelCache, catalogueFile, loadCatalogueFile, mergeWorldCatalogue, type CatalogueFile } from './fal-catalogue'
 import { FalHistory, IN_FLIGHT } from './fal-history'
+import {
+  appendSpend, genioPath, lfsWarnings, provenanceInput, readRecipesFile, readSpend, readWorldCatalogue, readWorldConfig, sha256File,
+  worldRecipesFile, writeProvenance, writeWorldConfig, cleanConfig, ensureGenioDir
+} from './fal-world'
 import { getSecret } from './secrets'
 import type { AppCtx, FalService } from './services'
-import { ensureDir, exists, isSubPath, nowIso, rid } from './util'
+import { ensureDir, exists, isSubPath, nowIso, readJson, rid, slugify, writeJson } from './util'
 
 export const MEDIA_SCHEME = 'genio-media'
 const MAX_DOWNLOAD = 1024 * 1024 * 1024
+const MAX_INLINE = 20 * 1024 * 1024
 const LOG_KEEP = 40
 
 export const mediaUrl = (runId: string, fileName: string): string => `${MEDIA_SCHEME}://fal/${runId}/${encodeURIComponent(fileName)}`
@@ -81,7 +92,7 @@ export async function downloadOutput(o: FalOutput, dest: string, fetchFn: FetchF
 }
 
 const MIME: Record<string, string> = {
-  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp', '.avif': 'image/avif',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp', '.avif': 'image/avif', '.svg': 'image/svg+xml',
   '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.flac': 'audio/flac', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.opus': 'audio/ogg',
   '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime',
   '.glb': 'model/gltf-binary', '.gltf': 'model/gltf+json', '.json': 'application/json', '.txt': 'text/plain'
@@ -108,11 +119,84 @@ export function mediaResponse(file: string, range: string | null): Response {
   return new Response(body(), { status: 200, headers: { ...headers, 'Content-Length': String(size) } })
 }
 
+/** "@file:<absolute path>" strings anywhere in an input → data URIs (what the unit helper's @file: does). */
+export function resolveFileRefs(v: unknown): unknown {
+  if (typeof v === 'string' && v.startsWith('@file:')) {
+    const p = v.slice(6)
+    if (!path.isAbsolute(p) || !exists(p)) throw new Error(`Input file not found: ${p}`)
+    const size = fs.statSync(p).size
+    if (size > MAX_INLINE) throw new Error(`${path.basename(p)} is larger than 20 MB; use a URL instead.`)
+    const mime = MIME[path.extname(p).toLowerCase()] ?? 'application/octet-stream'
+    return `data:${mime};base64,${fs.readFileSync(p).toString('base64')}`
+  }
+  if (Array.isArray(v)) return v.map(resolveFileRefs)
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, resolveFileRefs(x)]))
+  return v
+}
+
+/** World config defaults become pinned essentials of the matching entries. */
+export function applyWorldDefaults(entries: FalCatalogueEntry[], config: FalWorldConfig): FalCatalogueEntry[] {
+  const d = config.defaults ?? {}
+  return entries.map((e) => {
+    const extra = d[e.endpoint]
+    if (!extra || typeof extra !== 'object') return e
+    return { ...e, defaults: { ...e.defaults, ...extra }, pin: [...new Set([...(e.pin ?? []), ...Object.keys(extra)])] }
+  })
+}
+
+/** Recipes are shared through the world: never keep machine-local file refs in them. */
+function cleanRecipe(r: FalRecipe): FalRecipe {
+  const label = String(r.label ?? '').trim()
+  if (!label) throw new Error('A recipe needs a name.')
+  if (!validEndpoint(String(r.endpoint ?? ''))) throw new Error(`Not a FAL endpoint id: ${r.endpoint}`)
+  const input = Object.fromEntries(
+    Object.entries(r.input ?? {}).filter(([, v]) => !(typeof v === 'string' && /^(@file:|data:)/.test(v)) && !(Array.isArray(v) && v.some((x) => typeof x === 'string' && /^(@file:|data:)/.test(x))))
+  )
+  const out: FalRecipe = { id: slugify(r.id || label, 40) || `recipe-${rid(2)}`, label, endpoint: r.endpoint, input }
+  if (r.prompt_template) out.prompt_template = r.prompt_template
+  if (r.save_to) out.save_to = r.save_to
+  if (r.then?.length) out.then = r.then
+  return out
+}
+
 export function createFalService(getCtx: () => AppCtx, fetchFn: FetchFn = (u, i) => fetch(u, i)): FalService {
   let hist: FalHistory | undefined
-  const history = (): FalHistory => (hist ??= new FalHistory(path.join(getCtx().main.home.data, 'fal')))
+  const falDir = (): string => path.join(getCtx().main.home.data, 'fal')
+  const history = (): FalHistory => (hist ??= new FalHistory(falDir()))
   const key = (): string | undefined => getSecret('fal', getCtx().main.home.data)
   const client = (): FalClient => new FalClient(key, fetchFn)
+  let models: FalModelCache | undefined
+  const cache = (): FalModelCache => (models ??= new FalModelCache(falDir(), fetchFn, key))
+  let base: CatalogueFile | undefined
+  const catalogueBase = (): CatalogueFile => (base ??= loadCatalogueFile(catalogueFile(getCtx().appRoot)))
+
+  const project = (name: string): Project => {
+    const p = getCtx().projects.get(name)
+    if (!p) throw new Error(`No world named ${name}.`)
+    return p
+  }
+  const scratchRecipes = (): string => path.join(falDir(), 'recipes.json')
+  const scratchConfig = (): string => path.join(falDir(), 'scratch-config.json')
+  const recipesFile = (world: string | null): string => (world ? worldRecipesFile(project(world).path) : scratchRecipes())
+  const configOf = (world: string | null): FalWorldConfig => (world ? readWorldConfig(project(world).path) : readJson<FalWorldConfig>(scratchConfig(), {}))
+
+  const entriesFor = (world: string | null): FalCatalogueEntry[] => {
+    const b = catalogueBase()
+    if (!world) return b.entries
+    const root = project(world).path
+    return applyWorldDefaults(mergeWorldCatalogue(b, readWorldCatalogue(root)), readWorldConfig(root))
+  }
+
+  /** Estimate from the live (or snapshot) unit price; undefined when FAL bills in units Genio can't count. */
+  const estimate = (endpoint: string, input: Record<string, unknown>, world: string | null): number | undefined => {
+    try {
+      const entry = entriesFor(world).find((e) => e.endpoint === endpoint)
+      const info = cache().read().models[endpoint]
+      return estimateRun(entry, info?.price ?? entry?.price, input, schemaDefaults(info?.schema as JsonSchema | undefined)).usd
+    } catch {
+      return undefined
+    }
+  }
   /** runs being polled in this session */
   const active = new Set<string>()
   /** runs the player cancelled; pollers stop at their next check */
@@ -206,7 +290,7 @@ export function createFalService(getCtx: () => AppCtx, fetchFn: FetchFn = (u, i)
     }
   }
 
-  return {
+  const svc: FalService = {
     runs: () => history().list(),
 
     run(req: FalRunRequest): FalRun {
@@ -214,6 +298,10 @@ export function createFalService(getCtx: () => AppCtx, fetchFn: FetchFn = (u, i)
       if (!validEndpoint(endpoint)) throw new Error(`Not a FAL endpoint id: "${req.endpoint}". Use the form owner/app[/path], e.g. fal-ai/flux/dev.`)
       if (!req.input || typeof req.input !== 'object' || Array.isArray(req.input)) throw new Error('Input must be a JSON object.')
       if (!key()) throw new Error('No FAL.ai key set. Add one in Systems → Accounts.')
+      const world = req.world?.trim() || undefined
+      if (world) project(world)
+      // local files go up inline; history keeps the short @file: refs
+      const body = resolveFileRefs(req.input) as Record<string, unknown>
       const run: FalRun = {
         id: `fal-${Date.now().toString(36)}-${rid(2)}`,
         endpoint,
@@ -221,12 +309,74 @@ export function createFalService(getCtx: () => AppCtx, fetchFn: FetchFn = (u, i)
         status: 'submitting',
         logs: [],
         outputs: [],
+        estUsd: estimate(endpoint, req.input, world ?? null),
+        world,
+        recipe: req.recipe || undefined,
         createdAt: nowIso()
       }
       const rec = history().add(run)
       bus.publish({ type: 'fal-run', run: rec })
-      void drive(run.id, req.input)
+      void drive(run.id, body)
       return rec
+    },
+
+    catalogue(world: string | null, refresh = false): FalCatalogue {
+      const b = catalogueBase()
+      const entries = entriesFor(world)
+      const ids = [...new Set([...b.entries, ...entries].map((e) => e.endpoint))]
+      const c = cache()
+      if ((refresh || c.stale(ids)) && !c.isRefreshing) {
+        void c.refresh(ids).then(() => bus.publish({ type: 'fal-catalogue' }))
+      }
+      const data = c.read()
+      return { jobs: b.jobs, entries, info: data.models, refreshedAt: data.modelsAt, refreshing: c.isRefreshing, error: data.error }
+    },
+
+    model: (endpoint: string) => cache().model(endpoint.trim()),
+
+    search: (q: string) => cache().search(q),
+
+    world(world: string | null): FalWorldState {
+      const month = monthKey()
+      if (!world) {
+        return { world: null, config: configOf(null), recipes: readRecipesFile(scratchRecipes()), spentUsd: worldSpend([], history().list(), null, month), month, hasGenioDir: false }
+      }
+      const p = project(world)
+      return {
+        world,
+        config: readWorldConfig(p.path),
+        recipes: readRecipesFile(worldRecipesFile(p.path)),
+        spentUsd: worldSpend(readSpend(p.path), history().list(), world, month),
+        month,
+        hasGenioDir: exists(genioPath(p.path)),
+        engine: p.engine
+      }
+    },
+
+    saveWorldConfig(world: string | null, config: FalWorldConfig): FalWorldState {
+      if (world) {
+        const p = project(world)
+        writeWorldConfig(p.path, config, p.engine)
+      } else writeJson(scratchConfig(), cleanConfig(config))
+      return svc.world(world)
+    },
+
+    saveRecipe(world: string | null, recipe: FalRecipe): FalRecipe[] {
+      const r = cleanRecipe(recipe)
+      const file = recipesFile(world)
+      if (world) ensureGenioDir(project(world).path, project(world).engine)
+      const list = readRecipesFile(file).filter((x) => x.id !== r.id)
+      const next = [...list, r]
+      writeJson(file, next)
+      return next
+    },
+
+    deleteRecipe(world: string | null, id: string): FalRecipe[] {
+      const file = recipesFile(world)
+      const list = readRecipesFile(file)
+      const next = list.filter((x) => x.id !== id)
+      if (next.length !== list.length) writeJson(file, next)
+      return next
     },
 
     async cancel(id: string): Promise<OpResult> {
@@ -264,8 +414,7 @@ export function createFalService(getCtx: () => AppCtx, fetchFn: FetchFn = (u, i)
       const r = history().get(req.runId)
       const o = r?.outputs[req.output]
       if (!r || !o) throw new Error('No such output.')
-      const proj = getCtx().projects.get(req.project)
-      if (!proj) throw new Error(`No world named ${req.project}.`)
+      const proj = project(req.project)
       let src = o.localPath
       if (!src || !exists(src)) {
         // the local copy is missing (download failed or was deleted): fetch it again
@@ -279,7 +428,47 @@ export function createFalService(getCtx: () => AppCtx, fetchFn: FetchFn = (u, i)
       if (exists(target) && !req.overwrite) return { ok: false, exists: true, path: target, message: `${rel} already exists in ${proj.name}.` }
       ensureDir(path.dirname(target))
       fs.copyFileSync(src, target, req.overwrite ? 0 : fs.constants.COPYFILE_EXCL)
-      return { ok: true, path: target, message: `Saved to ${proj.name}/${rel}` }
+
+      // provenance + spend line next to the asset, left uncommitted like the asset itself
+      const prov = provenanceInput(r.input, proj.path)
+      const info = cache().read().models[r.endpoint]
+      const entry = (() => {
+        try {
+          return entriesFor(proj.name).find((e) => e.endpoint === r.endpoint)
+        } catch {
+          return undefined
+        }
+      })()
+      const price = info?.price ?? entry?.price
+      const est = r.costUsd ?? r.estUsd
+      const res = (r.result ?? {}) as Record<string, unknown>
+      const seed = typeof res.seed === 'number' && r.input.seed === undefined ? res.seed : undefined
+      const provenance = writeProvenance(
+        proj.path,
+        {
+          schema: 'genio.provenance.v1',
+          path: rel,
+          sha256: sha256File(target),
+          provider: 'fal',
+          endpoint: r.endpoint,
+          request_id: r.requestId ?? null,
+          input: prov.input,
+          ...(seed !== undefined ? { seed } : {}),
+          price: { unit: price?.unit ?? null, unit_price_usd: price?.unitPrice ?? null, estimated_usd: est ?? null, checked: (info?.checkedAt ?? nowIso()).slice(0, 10) },
+          recipe: r.recipe ?? null,
+          derived_from: prov.derivedFrom,
+          by: 'player',
+          created: r.completedAt ?? r.createdAt
+        },
+        proj.engine
+      )
+      appendSpend(
+        proj.path,
+        { t: r.createdAt, provider: 'fal', endpoint: r.endpoint, request_id: r.requestId ?? null, units: null, unit: price?.unit ?? null, est_usd: est ?? 0, by: 'player' },
+        proj.engine
+      )
+      const warnings = await lfsWarnings(proj.path, rel)
+      return { ok: true, path: target, provenance, warnings, message: `Saved to ${proj.name}/${rel}` }
     },
 
     resume(): void {
@@ -294,4 +483,5 @@ export function createFalService(getCtx: () => AppCtx, fetchFn: FetchFn = (u, i)
       return p && exists(p) ? p : undefined
     }
   }
+  return svc
 }
