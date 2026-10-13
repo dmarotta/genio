@@ -1,5 +1,6 @@
 import { useEffect, type ComponentType } from 'react'
-import { registerViews, useStore, type ViewId } from './store'
+import { PROJECT_WINDOW, registerViews, useStore, type ViewId } from './store'
+import { Hub } from './views/Hub'
 import { TitleBar } from './components/TitleBar'
 import { Rail } from './components/Rail'
 import { AchievementOverlay, BootSplash, PermissionPrompt, Toasts, WelcomeBack } from './components/Overlays'
@@ -36,11 +37,20 @@ export function App() {
   const connected = useStore((s) => s.connected)
   const view = useStore((s) => s.view)
   const fx = useStore((s) => s.settings?.fx)
-  useGlobalKeys()
+  useGlobalKeys(!!PROJECT_WINDOW)
 
   useEffect(() => {
     document.body.classList.toggle('fx-off', fx === false)
   }, [fx])
+
+  if (!PROJECT_WINDOW) return (
+    <div className="app hub-app">
+      <header className="titlebar hub-titlebar"><span className="wordmark-text">GENIO</span><span className="label dim">Hub</span></header>
+      <main className="stage"><Hub /></main>
+      <Toasts />
+      <BootSplash ready={booted} />
+    </div>
+  )
 
   const View = VIEW[view] ?? Worlds
   return (

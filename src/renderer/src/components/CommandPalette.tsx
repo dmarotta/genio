@@ -116,8 +116,9 @@ export function CommandPalette() {
   )
 }
 
-export function useGlobalKeys(): void {
+export function useGlobalKeys(enabled = true): void {
   useEffect(() => {
+    if (!enabled) return
     const onKey = (e: KeyboardEvent): void => {
       if (!(e.ctrlKey || e.metaKey)) return
       if (e.key.toLowerCase() === 'k') {
@@ -133,5 +134,5 @@ export function useGlobalKeys(): void {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [enabled])
 }

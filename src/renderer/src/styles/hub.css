@@ -1,0 +1,19 @@
+.hub-titlebar { padding-right: 140px; }
+.hub-view { flex: 1; overflow: auto; padding: 64px 32px; }
+.hub-content { max-width: 760px; margin: 0 auto; }
+.hub-content h1 { margin: 0; font-family: var(--font-display); font-size: 36px; }
+.hub-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 28px 0 48px; }
+.hub-projects { display: flex; flex-direction: column; gap: 8px; }
+.hub-project {
+  display: flex; align-items: center; gap: 16px; width: 100%; padding: 18px;
+  background: var(--panel); border: 1px solid var(--line); color: var(--text); text-align: left; cursor: pointer;
+}
+.hub-project:hover, .hub-project:focus-visible { border-color: var(--neon); background: var(--neon-soft); }
+.hub-project:disabled { opacity: 0.5; cursor: default; }
+.hub-project-identity { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 6px; }
+.hub-project-identity strong { font-size: 18px; }
+.hub-project-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+@media (max-width: 600px) {
+  .hub-view { padding: 32px 20px; }
+  .hub-project-engine { display: none; }
+}

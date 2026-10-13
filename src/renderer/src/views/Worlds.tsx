@@ -385,7 +385,7 @@ function AddWorld({ onClose }: { onClose: () => void }) {
   )
 }
 
-function NewWorld({ onClose }: { onClose: () => void }) {
+export function NewWorld({ onClose, onCreated }: { onClose: () => void; onCreated?: (p: Project) => Promise<void> }) {
   const [name, setName] = useState('')
   const [engine, setEngine] = useState<Engine>('godot')
   const [description, setDescription] = useState('')
@@ -396,7 +396,7 @@ function NewWorld({ onClose }: { onClose: () => void }) {
   return (
     <Modal
       kicker="New game"
-      title="Create a world"
+      title="Create a project"
       onClose={onClose}
       width={620}
       footer={
@@ -413,6 +413,7 @@ function NewWorld({ onClose }: { onClose: () => void }) {
                 const p = await api().projectCreate({ name, engine, description: description.trim() || undefined, createRemote: remote, privateRemote: priv })
                 toast('success', 'World created', p.name)
                 onClose()
+                await onCreated?.(p)
               } catch (e) {
                 toast('error', 'Could not create world', errText(e))
               } finally {

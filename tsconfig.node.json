@@ -13,5 +13,5 @@
     "paths": { "@shared/*": ["./src/shared/*"] }
   },
   "include": ["electron.vite.config.ts", "src/main/**/*", "src/preload/**/*", "src/shared/**/*", "tests/**/*"],
-  "exclude": ["tests/answers.test.ts", "tests/character-sheet.test.ts", "tests/play-screen.test.ts", "tests/worlds.test.ts", "tests/inventory-screen.test.ts", "tests/generation-card.test.ts", "tests/inventory-chat.test.ts", "tests/generation-settings.test.ts", "tests/model-picker.test.ts", "tests/chat-copy.test.ts"]
+  "exclude": ["tests/answers.test.ts", "tests/character-sheet.test.ts", "tests/play-screen.test.ts", "tests/worlds.test.ts", "tests/inventory-screen.test.ts", "tests/generation-card.test.ts", "tests/inventory-chat.test.ts", "tests/generation-settings.test.ts", "tests/model-picker.test.ts", "tests/chat-copy.test.ts", "tests/hub.test.ts", "tests/project-launch-view.test.ts"]
 }

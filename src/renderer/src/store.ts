@@ -92,7 +92,7 @@ let state: State = {
   toasts: [],
   permissions: [],
   achievements: [],
-  view: PROJECT_WINDOW ? 'inventory' : 'worlds',
+  view: PROJECT_WINDOW ? 'comms' : 'worlds',
   inventoryWorld: PROJECT_WINDOW,
   registeredProject: windowParams.has('registered') ? PROJECT_WINDOW : undefined,
   focus: null,

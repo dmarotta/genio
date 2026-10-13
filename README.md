@@ -103,8 +103,11 @@ MIT. Genio reimplements concepts from companion by The team (MIT).
 
 ### Open a project folder
 
-Launching Genio without arguments opens the Hub (Worlds). **Open** opens a world's
-own window; **Open folder�** accepts any existing folder. Git subfolders resolve to
+Launching Genio without arguments opens a minimal project-selection Hub. Recent
+projects, **Open folder** and **New project** are its only controls.
+Selecting a project opens its own window on its main chat. Recent selections are
+remembered on this device; work controls and first-run setup live inside the
+project window. **Open folder�** accepts any existing folder. Git subfolders resolve to
 the repository root. Ordinary folders open Offline with chat and Inventory; git
 actions unlock after initializing the repository in chat and reopening the folder.
 
