@@ -24,6 +24,9 @@ vi.mock('../src/main/codex-chat-driver', async original => {
     }
   } }
 })
+import type { ChatMessage } from '@shared/types'
+import { applyChatEvent, splitQueued } from '@shared/chat'
+import { bus } from '../src/main/bus'
 import { Home } from '../src/main/home'
 import { createWkspService } from '../src/main/wksp'
 import type { AppCtx } from '../src/main/services'
@@ -100,6 +103,43 @@ it('main and AFK Bot inherit the selected provider/model, retain one transcript 
   expect(bot.dynamicTools.map((t: any) => t.name)).not.toContain('genio_deploy')
   peers[1].events.notification('turn/completed', { threadId: 'session-2', turn: { id: 'turn', status: 'completed' } })
   expect(service.history().filter(m => m.role === 'genio')).toHaveLength(1)
+})
+
+it('Codex shows messages sent mid-turn as queued at once and sends each exactly once, in order', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-codex-queue-'))
+  const home = new Home(root)
+  const hc = { home, crew: { list: () => [] }, decisions: { list: () => [] }, backlog: { list: () => [] },
+    wakes: { pending: () => [], drain: () => ({ text: '', count: 0, ackThrough: -1 }), ack: () => undefined } }
+  const ctx = { appRoot: process.cwd(), main: hc, home: () => hc, homes: new Map([['main', hc]]),
+    settings: { get: () => ({ wkspModel: 'codex:OpenAI:gpt-test', wkspEffort: 'high', chatShellMode: 'ask' }) },
+    away: { state: () => ({ mode: 'online' }) }, allies: { list: () => [] }, projects: { list: () => [] },
+    stats: { unlock: vi.fn(), addCost: vi.fn() }, inventory: { thumbnail: vi.fn() }, memory: { read: () => '' }, permissions: { ask: vi.fn(async () => true) }
+  } as unknown as AppCtx
+  let shown: ChatMessage[] = []
+  const off = bus.onEvent(ev => { if (ev.type === 'chat') shown = applyChatEvent(shown, ev.message) })
+  const service = createWkspService(() => ctx, home)
+  cleanup.push(async () => { off(); await service.stop(); fs.rmSync(root, { recursive: true, force: true }) })
+  const turns = () => peers[0]?.requests.filter(r => r.method === 'turn/start') ?? []
+  const complete = () => peers[0].events.notification('turn/completed', { threadId: 'session-1', turn: { id: 'turn', status: 'completed' } })
+  const sending = service.send('first')
+  // already on screen while Codex is still connecting
+  expect(splitQueued(shown).queued.map(m => m.text)).toEqual(['first'])
+  await sending
+  await vi.waitFor(() => expect(turns()).toHaveLength(1))
+  expect(splitQueued(shown).queued).toEqual([])
+  await service.send('second')
+  await service.send('third')
+  expect(splitQueued(shown).queued.map(m => m.text)).toEqual(['second', 'third'])
+  expect(service.info().queued).toBe(2)
+  complete()
+  await vi.waitFor(() => expect(turns()).toHaveLength(2))
+  expect(turns()[1].params.input[0].text).toBe('second')
+  expect(splitQueued(shown).queued.map(m => m.text)).toEqual(['third'])
+  complete()
+  await vi.waitFor(() => expect(turns()).toHaveLength(3))
+  expect(turns()[2].params.input[0].text).toBe('third')
+  expect(splitQueued(shown).queued).toEqual([])
+  expect(shown.filter(m => m.role === 'player').map(m => m.text)).toEqual(['first', 'second', 'third'])
 })
 
 it('leaves the archived main log and session state untouched and cannot start a provider', async () => {

@@ -25,6 +25,7 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk'
 import type { Ally, ChatMessage, WkspInfo } from '@shared/types'
 import { inventoryContextBlock, validateInventoryContext, type InventoryContext } from '@shared/inventory-context'
+import type { ChatImageInput } from '@shared/chat-images'
 import { prepareInventoryContext } from './inventory-context'
 import { bus } from './bus'
 import { chatImageDir, loadChatImages, saveChatImages } from './chat-images'
@@ -100,7 +101,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     writeJson(home.wkspFile, { providers: genio.state(), botProviders: bot?.state(), sessionId: genio.sessionId, botSessionId: bot?.sessionId, costUsd: info.costUsd, turns: info.turns } satisfies WkspState)
   }
   const publishInfo = (): void => {
-    info.queued = genio.queued + (bot?.queued ?? 0)
+    info.queued = genio.queued + (bot?.queued ?? 0) + preparing.size
     info.sessionId = genio.sessionId
     bus.publish({ type: 'wksp', wksp: { ...info } })
   }
@@ -131,14 +132,42 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     return m
   }
 
-  /** The session picked a queued message up: it becomes a normal sent message at the end of the log. */
-  const delivered = (item: TurnItem): void => {
+  /** Player messages already shown as queued whose turn is still being prepared (images, project opening). */
+  const preparing = new Set<string>()
+  const waiting = (id: string): boolean => loadHistory().find((x) => x.id === id)?.queue === 'queued'
+
+  /** A waiting message leaves the queue: it becomes a normal sent message at the end of the log. */
+  const markSent = (id: string): void => {
     const h = loadHistory()
-    const i = item.msgId ? h.findIndex((x) => x.id === item.msgId) : -1
+    const i = h.findIndex((x) => x.id === id)
     if (i < 0 || h[i].queue !== 'queued') return
+    preparing.delete(id)
     const { queue: _was, ...sent } = h[i]
     h.splice(i, 1)
     record({ ...sent, ts: nowIso() }, true)
+  }
+  /** The session picked a queued message up. */
+  const delivered = (item: TurnItem): void => {
+    if (item.msgId) markSent(item.msgId)
+  }
+  /** A waiting message taken out of the chat (cancelled, edited, or its send failed). */
+  const withdraw = (m: ChatMessage): void => {
+    preparing.delete(m.id)
+    history = loadHistory().filter((x) => x.id !== m.id)
+    const gone: ChatMessage = { ...m, queue: 'cancelled' }
+    appendJsonl(home.chatFile, gone)
+    bus.publish({ type: 'chat', message: gone })
+  }
+  /** The session queue was dropped: whatever still waited is shown as not sent, never left looking queued. */
+  const strandWaiting = (): void => {
+    preparing.clear()
+    if (readOnly || !history) return
+    const { list, stranded } = strandQueued(history)
+    history = list
+    for (const m of stranded) {
+      appendJsonl(home.chatFile, m)
+      bus.publish({ type: 'chat', message: m })
+    }
   }
 
   // ---------------------------------------------------------- options
@@ -442,42 +471,40 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
 
   // ---------------------------------------------------------- slash commands
 
-  async function slash(text: string): Promise<boolean> {
+  /** `shown` is the command as already shown queued: answered at once it turns sent, as a turn it waits like any message. */
+  async function slash(text: string, shown: ChatMessage): Promise<boolean> {
     const m = text.trim().match(/^\/(\w+)\b\s*(.*)$/s)
     if (!m) return false
     const cmd = m[1].toLowerCase()
     const rest = m[2].trim()
     const ctx = getCtx()
-    const player = (): void => void record({ id: `p-${rid(6)}`, wksp: name, role: 'player', text, ts: nowIso() }, true)
+    const player = (): void => markSent(shown.id)
+    const turn = (prompt: string): void => {
+      preparing.delete(shown.id)
+      if (waiting(shown.id)) genio.enqueue({ kind: 'player', prompt, msgId: shown.id })
+      publishInfo()
+    }
     switch (cmd) {
       case 'help':
         player()
         say(HELP_TEXT, 'system')
         return true
       case 'recap':
-        player()
-        genio.enqueue({ kind: 'player', prompt: recapPrompt(gamertag()) })
-        publishInfo()
+        turn(recapPrompt(gamertag()))
         return true
       case 'status': {
-        player()
         const file = /\bfile\b/i.test(rest)
         const prs = /include\s+prs?\b/i.test(rest)
-        genio.enqueue({ kind: 'player', prompt: statusPrompt(gamertag(), file, prs) })
-        publishInfo()
+        turn(statusPrompt(gamertag(), file, prs))
         return true
       }
       case 'save':
-        player()
         safe(() => ctx.stats.award('save'))
-        genio.enqueue({ kind: 'player', prompt: savePrompt(gamertag(), !home.isMain) })
-        publishInfo()
+        turn(savePrompt(gamertag(), !home.isMain))
         return true
       case 'afk':
-        player()
         await ctx.away.set('afk')
-        genio.enqueue({ kind: 'player', prompt: afkPrompt(gamertag(), rest) })
-        publishInfo()
+        turn(afkPrompt(gamertag(), rest))
         return true
       case 'dnd':
       case 'quiet': {
@@ -494,13 +521,13 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
       }
       case 'online':
       case 'back': {
-        player()
         const mode = ctx.away.state().mode
         if (mode === 'afk') {
           const brief = ctx.away.takeReturnBrief()
           await ctx.away.set('online')
-          genio.enqueue({ kind: 'player', prompt: returnPrompt(gamertag(), brief) })
+          turn(returnPrompt(gamertag(), brief))
         } else {
+          player()
           await ctx.away.set('online')
           say(`Online, ${gamertag()}.`, 'system')
         }
@@ -529,35 +556,67 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
 
   // ---------------------------------------------------------- service
 
-  const performSend: WkspService['send'] = async (text, origin = 'player', images = [], context) => {
+  const checkSend = (): void => {
     if (readOnly) throw new Error('The main chat is archived. Open the Genio project to continue.')
     if (!isOpen()) throw new Error('Open the project window before using its chat.')
+    const unavailable = chatRouteUnavailable(selectedProvider())
+    if (unavailable) throw new Error(`${unavailable} Open Accounts and refresh before sending. Your draft has been kept.`)
+  }
+
+  /** A player's message, on screen as queued the moment it is submitted: before slow thumbnails, an opening project or earlier sends. */
+  interface Shown { m: ChatMessage; send: ChatImageInput[] }
+  const showQueued = (text: string, images: ChatImageInput[], context?: InventoryContext): Shown => {
+    // stored first so a bad image fails the send before anything is shown (the composer keeps the draft)
+    const stored = saveChatImages(chatImageDir(home.data), images)
+    const m = inboundMessage(name, text, 'player')
+    m.queue = 'queued'
+    m.provider = selectedProvider()
+    m.providerModel = chatRoute(chatControls(settings(), liveAlly()).model).model
+    if (stored.refs.length) m.images = stored.refs
+    if (context) m.context = context
+    preparing.add(m.id)
+    record(m, true)
+    bus.publish({ type: 'sfx', sound: 'send' })
+    publishInfo()
+    return { m, send: stored.send }
+  }
+
+  const performSend = async (text: string, origin: 'player' | 'system' | 'genio', images: ChatImageInput[], context: InventoryContext | undefined, shown?: Shown): Promise<void> => {
+    if (!isOpen()) {
+      if (shown) return // closing: stop() shows it as not sent
+      throw new Error('Open the project window before using its chat.')
+    }
     stopped = false
     bootDone = true
     const trimmed = text.trim()
-    if (!trimmed && !images.length) return
-    const unavailable = chatRouteUnavailable(selectedProvider())
-    if (unavailable) throw new Error(`${unavailable} Open Accounts and refresh before sending. Your draft has been kept.`)
+    // taken back for an edit or cancelled while it waited for its turn
+    if (shown && !waiting(shown.m.id)) return
     try {
-      if (origin === 'player' && !images.length && trimmed.startsWith('/') && (await slash(trimmed))) return
+      if (shown && !images.length && trimmed.startsWith('/') && (await slash(trimmed, shown.m))) return
     } catch (e) {
+      if (shown) markSent(shown.m.id)
       say(`Command failed: ${(e as Error).message}`, 'error')
       return
     }
-    // stored before anything else so a bad image fails the send (the composer keeps the draft)
     const ctx = getCtx()
     const prepared = await prepareInventoryContext(context, images, (world, asset) => ctx.inventory.thumbnail(world, asset),
       () => loadHistory().filter(m => m.ts >= contextSessionStart))
-    const stored = saveChatImages(chatImageDir(home.data), prepared.images)
+    if (shown && !waiting(shown.m.id)) return
+    // a shown message stored its pasted images already; only the automatic preview is new
+    const early = shown?.send.length ?? 0
+    const added = saveChatImages(chatImageDir(home.data), prepared.images.slice(early))
+    const stored = { refs: [...(shown?.m.images ?? []), ...added.refs], send: [...(shown?.send ?? []), ...added.send] }
     if (prepared.context?.thumbnail?.status === 'attached') prepared.context.thumbnail.image = stored.refs.at(-1)
-    let prompt = !genio.sessionId && loadHistory().length ? `${handoffContext()}\n\nCurrent request:\n${trimmed}` : trimmed
+    const m: ChatMessage = shown ? { ...loadHistory().find((x) => x.id === shown.m.id)! } : inboundMessage(name, trimmed, origin)
+    // only real conversation needs a handoff; messages still waiting (this one included) are not part of it
+    let prompt = !genio.sessionId && loadHistory().some((x) => !x.queue) ?`${handoffContext()}\n\nCurrent request:\n${trimmed}` : trimmed
     // companion: the first ordinary player message after AFK ends it with a return brief
     if (origin === 'player' && ctx.away.state().mode === 'afk') {
       const brief = ctx.away.takeReturnBrief()
       await ctx.away.set('online')
       prompt = `${returnPrompt(gamertag(), brief)}\n\nThen handle ${gamertag()}'s new message:\n${trimmed || '(see the attached image)'}`
+      if (shown && !waiting(shown.m.id)) return
     }
-    const m = inboundMessage(name, trimmed, origin)
     m.provider = selectedProvider()
     m.providerModel = chatRoute(chatControls(settings(), liveAlly()).model).model
     if (stored.refs.length) m.images = stored.refs
@@ -565,34 +624,58 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     const player = origin === 'player'
     // mid-turn: the message waits in the log as queued until the session picks it up
     if (player) m.queue = 'queued'
+    if (shown) preparing.delete(m.id)
     record(m, true)
-    bus.publish({ type: 'sfx', sound: 'send' })
+    if (!shown) bus.publish({ type: 'sfx', sound: 'send' })
     // the ids let Genio pass pasted images to generate_image as refs
     prompt += inventoryContextBlock(m.context) + attachedIdsNote(stored.refs)
     genio.enqueue({ kind: player ? 'player' : 'system', prompt, images: stored.send.length ? stored.send : undefined, msgId: player ? m.id : undefined })
-    if (m.context) ctx.stats.unlock('inventory-chat')
+    if (m.context) safe(() => ctx.stats.unlock('inventory-chat'))
     publishInfo()
   }
   let pendingSend: Promise<void> = Promise.resolve()
 
   const svc: WkspService = {
-    info: () => ({ ...info, queued: genio.queued + (bot?.queued ?? 0) }),
+    info: () => ({ ...info, queued: genio.queued + (bot?.queued ?? 0) + preparing.size }),
     history(limit = 200) {
       const h = loadHistory()
       return h.slice(-limit)
     },
     send(text, origin = 'player', images = [], context) {
-      // Thumbnail decoding may be slow: retain click order and freeze the visible chips now.
-      const snapshot = context && validateInventoryContext(context)
+      let shown: Shown | undefined
+      let snapshot: InventoryContext | undefined
+      try {
+        checkSend()
+        if (!text.trim() && !images.length) return Promise.resolve()
+        // Thumbnail decoding may be slow: retain click order and freeze the visible chips now.
+        snapshot = context && validateInventoryContext(context)
+        // slash commands with images are just text for Genio
+        if (origin === 'player') shown = showQueued(text.trim(), images, snapshot)
+      } catch (e) {
+        return Promise.reject(e)
+      }
       const sending = pendingSend.then(async () => {
         if (projectOpening) {
           await projectReady
-          if (stopped || !isOpen()) throw new Error('The project window closed before the message could be sent.')
+          if (stopped || !isOpen()) {
+            if (shown) return // stop() shows it as not sent
+            throw new Error('The project window closed before the message could be sent.')
+          }
         }
-        return performSend(text, origin, images, snapshot)
+        return performSend(text, origin, images, snapshot, shown)
       })
-      pendingSend = sending.catch(() => undefined)
-      return sending
+      // A shown message whose turn could not be prepared leaves the chat; the composer gets the draft back.
+      // Once its turn is queued (or it was taken back) the message is accounted for and the send succeeded.
+      const settled = shown ? sending.catch((e) => {
+        if (!shown || !preparing.has(shown.m.id)) return
+        const current = loadHistory().find((x) => x.id === shown!.m.id)
+        if (current) withdraw(current)
+        else preparing.delete(shown.m.id)
+        publishInfo()
+        throw e
+      }) : sending
+      pendingSend = settled.catch(() => undefined)
+      return settled
     },
     unqueue(id) {
       if (readOnly) return null
@@ -605,10 +688,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
       const refs = automatic ? m.images?.filter(i => i.file !== m.context?.thumbnail?.image?.file) : m.images
       const images = item ? (automatic ? item.images?.slice(0, -1) : item.images)
         : refs?.length ? loadChatImages(chatImageDir(home.data), refs) : undefined
-      history = h.filter((x) => x.id !== id)
-      const gone: ChatMessage = { ...m, queue: 'cancelled' }
-      appendJsonl(home.chatFile, gone)
-      bus.publish({ type: 'chat', message: gone })
+      // a message still being prepared is never enqueued once withdrawn
+      withdraw(m)
       publishInfo()
       // The automatic preview belongs to its chip, not the pasted-image draft.
       return { text: m.text, ...(images?.length ? { images } : {}), ...(m.context ? { context: m.context } : {}) }
@@ -705,6 +786,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
       await closeChatToolBridges(getCtx(), name)
       genio.stop()
       bot?.stop()
+      strandWaiting()
       info.activity = 'offline'
       saveState()
     },

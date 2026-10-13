@@ -18,6 +18,16 @@ function hasCapacity(ctx: AppCtx, project: string): boolean {
 
 /** One call per window open, after app startup; deliberately independent of the Hub UI. */
 export async function reconcileProjectOpen(ctx: AppCtx, project: string, wksp: string, isOpen: () => boolean): Promise<void> {
+  try {
+    await reconcile(ctx, project, wksp, isOpen)
+  } catch (error) {
+    // The chat holds sends until the opening turn: a failed reconcile must still open it, or they wait forever.
+    if (isOpen()) ctx.home(wksp).wksp.wakeProject(`Project: ${project}. Startup reconciliation failed: ${truncate(String((error as Error)?.message ?? error), 300)}. Check fleet_view before acting on units or quests.`)
+    throw error
+  }
+}
+
+async function reconcile(ctx: AppCtx, project: string, wksp: string, isOpen: () => boolean): Promise<void> {
   const target = ctx.home(wksp)
   const file = path.join(target.home.state, 'project-open.json')
   const previous = readJson<{ openedAt?: string }>(file, {}).openedAt

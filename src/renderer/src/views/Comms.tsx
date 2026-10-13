@@ -256,7 +256,7 @@ function Message({ m, calm, gamertag, onTakeBack }: { m: ChatMessage; calm: bool
             </span>
           )}
           {m.queue === 'unsent' && (
-            <span className="msg-queue" title="Genio restarted before the session read this message. Edit to send it again.">
+            <span className="msg-queue" title="The session stopped (Genio or this project window closed) before reading this message. Edit to send it again.">
               Not sent ·{' '}
             </span>
           )}
