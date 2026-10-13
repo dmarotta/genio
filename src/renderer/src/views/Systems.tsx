@@ -366,7 +366,7 @@ function Usage({ s, advanced, setAdvanced, open }: { s: Settings; advanced: bool
       <div className="usage-summary">
         <b>{modeSummary(mode, view?.chat)}</b>
         {view && <span className="mute"> · {view.liveUnits} of {view.unitCap} unit places in use across all worlds</span>}
-        <div className="mute">* Balanced is the default. Max means higher ceilings, never permission to exhaust a plan.</div>
+        <div className="mute">Save allows up to {MODE_PRESETS.save.unitCap} concurrent units, Balanced {MODE_PRESETS.balanced.unitCap}, Max {MODE_PRESETS.max.unitCap}, shared across all worlds. * Balanced is the default. Max means higher ceilings, never permission to exhaust a plan.</div>
       </div>
 
       <div className="usage-preview panel">

@@ -7,7 +7,7 @@ import type { BacklogItem, LoadoutInput, Settings, Task, TaskCategory } from '..
 import { CATEGORY_IDS, CHEAP_MODELS } from '../src/shared/dispatch'
 import { CODEX_UNIT_MODEL } from '../src/shared/unit-model-policy'
 import {
-  MODE_PRESETS, OPUS, SONNET, USAGE_MODES, meterRows, planStatus, quotaWait, resolveChat, unitCaps, type PlanStatus, type UsageMode
+  MODE_PRESETS, OPUS, SONNET, USAGE_MODES, meterRows, modeSummary, planStatus, presetRows, quotaWait, resolveChat, unitCaps, type PlanStatus, type UsageMode
 } from '../src/shared/usage-mode'
 import { defaultSettings } from '../src/main/settings'
 import { pickLoadout, type PickEnv } from '../src/main/loadout'
@@ -59,7 +59,7 @@ describe('every preset x category', () => {
   }
 
   it('sets cap, exploration, cheap use, batching and targets exactly per the table', () => {
-    expect(USAGE_MODES.map((m) => MODE_PRESETS[m].unitCap)).toEqual([1, 2, 4])
+    expect(USAGE_MODES.map((m) => MODE_PRESETS[m].unitCap)).toEqual([4, 8, 16])
     expect(USAGE_MODES.map((m) => MODE_PRESETS[m].exploration)).toEqual([0, 0, 0.05])
     expect(USAGE_MODES.map((m) => MODE_PRESETS[m].cheap)).toEqual(['first', 'fallback', 'off'])
     expect(USAGE_MODES.map((m) => MODE_PRESETS[m].wakeBatchMinutes)).toEqual([10, 5, 1])
@@ -68,6 +68,11 @@ describe('every preset x category', () => {
     expect(USAGE_MODES.map((m) => resolveChat(m, {}))).toMatchObject([
       { model: SONNET, effort: 'low' }, { model: SONNET, effort: 'medium' }, { model: OPUS, effort: 'high' }
     ])
+  })
+
+  it.each([['save', 4], ['balanced', 8], ['max', 16]] as const)('shows the %s cap in the summary and preview', (mode, cap) => {
+    expect(modeSummary(mode)).toContain(`up to ${cap} units`)
+    expect(presetRows(mode)).toContainEqual({ label: 'Concurrent units (all worlds)', value: String(cap) })
   })
 
   it('cheap models: Save first, Balanced after the plans, Max never, never for high-stakes work, never without the allowance', () => {
@@ -289,54 +294,64 @@ describe('concurrent unit cap across worlds', () => {
   const ship = (project: string): LoadoutInput => ({ kind: 'ship', project, title: 'Add docs', intent: 'Add docs', category: 'docs' })
 
   it('counts units in every world and base against the global mode cap', async () => {
-    await expect(service('save', [task('a')]).reserve(ship('b'))).rejects.toThrow(/Save usage mode allows 1 concurrent unit across all worlds/)
-    await expect(service('balanced', [task('a'), { ...task('b'), wksp: 'ally' }]).reserve(ship('c'))).rejects.toThrow(/allows 2/)
+    for (const [mode, cap] of [['save', 4], ['balanced', 8], ['max', 16]] as const) {
+      const tasks = Array.from({ length: cap - 1 }, (_, i) => ({ ...task(`world-${i}`), ...(i % 2 ? { wksp: 'ally' } : {}) }))
+      const svc = service(mode, tasks)
+      const last = await svc.reserve(ship('last'))
+      expect(svc.capacity()).toEqual({ cap, used: cap })
+      await expect(svc.reserve(ship('over'))).rejects.toThrow(`allows ${cap} concurrent units across all worlds`)
+      last.release()
+    }
     const ok = await service('balanced', [task('a'), task('b', 'done'), { ...task('c'), pr: { url: 'x' } }]).reserve(ship('d'))
     ok.release()
-    expect(service('max', [task('a'), task('b')]).capacity()).toEqual({ cap: 4, used: 2 })
+    expect(service('max', [task('a'), task('b')]).capacity()).toEqual({ cap: 16, used: 2 })
   })
 
   it('counts launches that are reserved but not listed yet, and frees them on listing or release', async () => {
-    const svc = service('balanced')
+    const svc = service('balanced', Array.from({ length: 6 }, () => task('existing')))
     const a = await svc.reserve(ship('a'))
-    expect(svc.capacity().used).toBe(1)
+    expect(svc.capacity().used).toBe(7)
     const b = await svc.reserve({ ...ship('b'), harness: 'claude' })
-    await expect(svc.reserve({ ...ship('c'), harness: 'claude' })).rejects.toThrow(/allows 2/)
+    expect(svc.capacity().used).toBe(8)
+    await expect(svc.reserve({ ...ship('c'), harness: 'claude' })).rejects.toThrow(/allows 8/)
     a.listed()
     a.listed()
-    expect(svc.capacity().used).toBe(1)
+    expect(svc.capacity().used).toBe(7)
     a.release()
     b.release()
-    expect(svc.capacity().used).toBe(0)
+    expect(svc.capacity().used).toBe(6)
   })
 
   it('a world mode or capacity can only lower the cap; a respawn keeps its place', async () => {
-    expect(unitCaps('save', { mode: 'max' })).toEqual({ global: 1, world: undefined })
-    expect(unitCaps('max', { mode: 'save' })).toEqual({ global: 4, world: 1 })
-    expect(unitCaps('max', { capacity: 2 })).toEqual({ global: 4, world: 2 })
-    expect(unitCaps('balanced', { capacity: 5 })).toEqual({ global: 2, world: undefined })
-    await expect(service('max', [task('slow')], { slow: { usageMode: 'save' } }).reserve(ship('slow'))).rejects.toThrow(/slow allows 1 concurrent unit/)
+    expect(unitCaps('save', { mode: 'max' })).toEqual({ global: 4, world: undefined })
+    expect(unitCaps('max', { mode: 'save' })).toEqual({ global: 16, world: 4 })
+    expect(unitCaps('max', { capacity: 2 })).toEqual({ global: 16, world: 2 })
+    expect(unitCaps('balanced', { capacity: 20 })).toEqual({ global: 8, world: undefined })
+    expect(unitCaps('max', { mode: 'save', capacity: 2 })).toEqual({ global: 16, world: 2 })
+    expect(unitCaps('max', { mode: 'save', capacity: 10 })).toEqual({ global: 16, world: 4 })
+    await expect(service('max', Array.from({ length: 4 }, () => task('slow')), { slow: { usageMode: 'save' } }).reserve(ship('slow'))).rejects.toThrow(/slow allows 4 concurrent units/)
+    await expect(service('max', [task('slow'), task('slow')], { slow: { usageMode: 'save', capacity: 2 } }).reserve(ship('slow'))).rejects.toThrow(/slow allows 2 concurrent units/)
     const other = await service('max', [task('slow')], { slow: { usageMode: 'save' } }).reserve(ship('fast'))
     other.release()
     const active = task('a')
-    const respawn = await service('save', [active]).reserve({ ...ship('a'), harness: 'codex' }, { respawn: { id: active.id, wksp: 'main' } })
+    const respawn = await service('save', [active, task('b'), task('c'), task('d')]).reserve({ ...ship('a'), harness: 'codex' }, { respawn: { id: active.id, wksp: 'main' } })
     respawn.release()
   })
 
   it('frees absent, dead and recalled terminals but counts live waits and unstarted launches', async () => {
-    const records = [task('a'), ...(['exited', 'detached', 'working', 'paused'] as const).map(state => ({ ...task('b', state), terminalId: undefined }))]
+    const records = [...Array.from({ length: 7 }, () => task('a')), ...(['exited', 'detached', 'working', 'paused'] as const).map(state => ({ ...task('b', state), terminalId: undefined }))]
     const svc = service('balanced', records)
-    expect(svc.capacity()).toEqual({ used: 1, cap: 2 })
+    expect(svc.capacity()).toEqual({ used: 7, cap: 8 })
     const slot = await svc.reserve(ship('new'))
-    expect(svc.capacity().used).toBe(2)
-    await expect(svc.reserve(ship('over'))).rejects.toThrow(/allows 2/)
+    expect(svc.capacity().used).toBe(8)
+    await expect(svc.reserve(ship('over'))).rejects.toThrow(/allows 8/)
     slot.release()
     expect(service('max', [task('a', 'paused'), { ...task('a', 'spawning'), terminalId: undefined }, { ...task('a'), terminalId: 'dead' }]).capacity().used).toBe(2)
   })
 
   it('reserves a new place for an absent-terminal restart instead of bypassing caps', async () => {
     const stopped = { ...task('b', 'exited'), terminalId: undefined }
-    await expect(service('save', [task('a'), stopped]).reserve({ ...ship('b'), harness: 'codex' }, { respawn: { id: stopped.id, wksp: 'main' } })).rejects.toThrow(/allows 1/)
+    await expect(service('save', [task('a'), task('c'), task('d'), task('e'), stopped]).reserve({ ...ship('b'), harness: 'codex' }, { respawn: { id: stopped.id, wksp: 'main' } })).rejects.toThrow(/allows 4/)
     const svc = service('balanced', [task('a'), stopped])
     const restart = await svc.reserve({ ...ship('b'), harness: 'codex' }, { respawn: { id: stopped.id, wksp: 'main' } })
     expect(svc.capacity().used).toBe(2)

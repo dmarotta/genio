@@ -72,19 +72,19 @@ export const MODE_PRESETS: Record<UsageMode, ModePreset> = {
   save: {
     chat: ['S', 'low'],
     units: { light: ['C', 'low'], build: ['S', 'medium'], deep: ['C', 'medium'], review: ['C', 'medium'], art: ['C', 'low'] },
-    dial: 'cost', unitCap: 1, exploration: 0, cheap: 'first',
+    dial: 'cost', unitCap: 4, exploration: 0, cheap: 'first',
     wakeBatchMinutes: 10, heartbeat: { baseMinutes: 30, maxMinutes: 120 }, answerWords: 150, reconWords: 400
   },
   balanced: {
     chat: ['S', 'medium'],
     units: { light: ['C', 'medium'], build: ['C', 'medium'], deep: ['C', 'high'], review: ['C', 'high'], art: ['C', 'medium'] },
-    dial: 'balanced', unitCap: 2, exploration: 0, cheap: 'fallback',
+    dial: 'balanced', unitCap: 8, exploration: 0, cheap: 'fallback',
     wakeBatchMinutes: 5, heartbeat: { baseMinutes: 15, maxMinutes: 120 }, answerWords: 250, reconWords: 800
   },
   max: {
     chat: ['O', 'high'],
     units: { light: ['C', 'high'], build: ['O', 'high'], deep: ['O', 'xhigh'], review: ['C', 'xhigh'], art: ['C', 'high'] },
-    dial: 'quality', unitCap: 4, exploration: 0.05, cheap: 'off',
+    dial: 'quality', unitCap: 16, exploration: 0.05, cheap: 'off',
     wakeBatchMinutes: 1, heartbeat: { baseMinutes: 10, maxMinutes: 120 }, answerWords: 400, reconWords: 1500
   }
 }
@@ -378,7 +378,7 @@ export interface UsagePolicyView {
   cheap: { allowed: boolean; why: string }
 }
 
-/** "Auto: Sonnet / medium · up to 2 units" */
+/** "Auto: Sonnet / medium · up to 8 units" */
 export function modeSummary(mode: UsageMode, chat?: ChatChoice): string {
   const p = MODE_PRESETS[mode]
   const chatText = chat ? `${chat.model.replace(/^claude-/, '').replace(/-\d.*$/, '').replace(/^./, (c) => c.toUpperCase())} / ${chat.effort}` : cellLabel(p.chat)
