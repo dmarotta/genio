@@ -5,9 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const handlers = vi.hoisted(() => new Map<string, (...args: any[]) => Promise<any>>())
 vi.mock('electron', () => ({ ipcMain: { removeHandler() {}, handle: (name: string, fn: any) => handlers.set(name, fn) }, BrowserWindow: {}, dialog: {}, shell: {} }))
 vi.mock('../src/main/secrets', () => ({ getSecret: () => undefined }))
+vi.mock('../src/main/accounts', () => ({ listAccounts: async () => [] }))
+vi.mock('../src/main/usage', async original => ({ ...await original<typeof import('../src/main/usage')>(), usageReport: async () => ({ tools: [] }) }))
 vi.mock('../src/main/unithooks', () => ({ installUnitHooks: async () => ({}) }))
 import { Home } from '../src/main/home'
 import { createCrewService } from '../src/main/crew'
+import { createDispatchService } from '../src/main/dispatch'
 import { createToolRegistry } from '../src/main/wksp-tools'
 import { registerIpc } from '../src/main/ipc'
 import { BUILTIN_HARNESSES } from '../src/main/harness'
@@ -51,6 +54,44 @@ beforeEach(() => {
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); fs.rmSync(root, { recursive: true, force: true }); handlers.clear() })
 
 describe('non-destructive lifecycle recovery', () => {
+  it.each(['preparation', 'deferred-before-listing', 'deferred-after-listing', 'terminal'] as const)('real dispatch releases a ready-unit relaunch slot after %s failure', async failure => {
+    const adapter = ctx.settings.harness('test')!
+    const settings = { ...defaultSettings(), harnesses: [adapter] }
+    ctx.settings.get = () => settings
+    ctx.settings.availableHarnesses = () => [adapter]
+    ctx.dispatch = createDispatchService(() => ctx)
+    const reserve = ctx.dispatch.reserve.bind(ctx.dispatch)
+    vi.spyOn(ctx.dispatch, 'reserve').mockImplementation(async (...args) => {
+      const reservation = await reserve(...args)
+      let checks = 0
+      return { ...reservation, check: async () => {
+        checks++
+        if ((failure === 'deferred-before-listing' && checks === 1) || (failure === 'deferred-after-listing' && checks === 2)) throw new Error('deferred: quota protection')
+        await reservation.check()
+      } }
+    })
+    if (failure === 'terminal') ctx.terminals.create = vi.fn(() => { throw new Error('terminal failed') })
+    for (let i = 0; i < 10; i++) {
+      ctx.main.crew.update(task.id, { state: 'ready', terminalId: undefined,
+        briefPath: failure === 'preparation' ? path.join(root, 'missing', 'brief.md') : task.briefPath })
+      expect(await ctx.main.crew.control(task.id, 'relaunch', undefined, true)).toMatchObject({ ok: false })
+      expect(ctx.dispatch.capacity().used).toBe(0)
+      expect(ctx.dispatch.pendingUnits()).toEqual([])
+    }
+  })
+
+  it.each(['ready', 'merged', 'done', 'failed'] as const)('a deliberate respawn of %s work reports working and occupies one slot even with an old PR', async state => {
+    const crew = ctx.main.crew
+    const pr = { url: 'https://example.com/pull/1', state: 'MERGED' as const }
+    terminal = { id: 'idle-terminal', alive: true }
+    crew.update(task.id, { state, pr, terminalId: terminal.id })
+    expect(crew.capacityUsed('world')).toBe(0)
+    expect(await crew.control(task.id, 'relaunch', undefined, true)).toMatchObject({ ok: true })
+    expect(crew.get(task.id)).toMatchObject({ state: 'working', terminalId: 'new-terminal', pr })
+    expect(crew.capacityUsed('world')).toBe(1)
+    expect(release).toHaveBeenCalledOnce()
+  })
+
   it('holds automatic repeats but lets chat and UI deliberately restart without approval text', async () => {
     const crew = ctx.main.crew
     expect((await crew.control(task.id, 'relaunch')).ok).toBe(false)

@@ -19,6 +19,12 @@ Vocabulary is gaming, not nautical: see [VOCABULARY.md](VOCABULARY.md).
 - **A restart is a non-event.** Everything lives under the Base directory
   (`~/.genio`, or `GENIO_HOME`). On restart, units whose process died are marked
   `detached` and can be respawned with conversation resume.
+- **Unit capacity follows current work.** `shared/unit-capacity.ts` defines slot
+  occupancy for dispatch and the UI: spawning tasks and live unfinished units
+  count; ready, merged, done, failed and cleaned tasks release their slots even
+  with an idle terminal. Respawn sets the task to working, including tasks with
+  historical PRs. Dispatch owns each pending launch reservation until listing
+  or release and publishes pending counts to the Hub and scoped world windows.
 
 ## Concept map (companion → Genio)
 

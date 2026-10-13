@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { BookOpen, FolderOpen, Cpu, Gauge, Globe, MessageSquare, ScrollText, Swords, Gamepad2, type LucideIcon } from 'lucide-react'
-import { PROJECT_WINDOW, go, useStore, type ViewId } from '../store'
+import { PROJECT_WINDOW, go, useStore, runningUnits, type ViewId } from '../store'
 import { cx } from '../lib/format'
 import { RAIL, entryActive, initialIndex, menuKey, navItems, opensMenu, type RailEntry } from '../lib/railmenu'
 import '../styles/railmenu.css'
@@ -25,7 +25,7 @@ export const NAV = navItems(windowRail)
 
 export function Rail() {
   const view = useStore((s) => s.view)
-  const live = useStore((s) => s.snap.tasks.filter((t) => t.state === 'working' || t.state === 'spawning' || t.state === 'validating').length)
+  const live = useStore(runningUnits)
   const mail = useStore((s) => s.snap.inbox.filter((n) => !n.ackedAt).length)
   const thinking = useStore((s) => s.snap.wksps.some((m) => m.activity === 'thinking' || m.activity === 'tool'))
   const quests = useStore((s) => questCounts(s.snap.backlog))
@@ -47,7 +47,7 @@ export function Rail() {
             {b && b.n > 0 && <span className={cx('rail-badge', b.tone)}>{b.n > 99 ? '99' : b.n}</span>}
             <span className="rail-tip">
               {n.label}
-              {n.id === 'quests' && <span>{quests.running} running &middot; {quests.planned} planned</span>}
+              {n.id === 'quests' && <span>{live} running &middot; {quests.planned} planned</span>}
               <kbd>Ctrl {n.key}</kbd>
             </span>
           </button>

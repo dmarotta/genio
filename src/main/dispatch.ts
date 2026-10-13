@@ -43,7 +43,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
   let launchQueue: Promise<unknown> = Promise.resolve()
   const reservations = new Set<string>()
   /** launches per world that are reserved but not yet listed as tasks (they count against the caps) */
-  const launching = new Map<string, number>()
+  const launching = new Set<{ project: string }>()
   let lastReport: UsageReport | undefined
 
   const dataDir = (): string => getCtx().main.home.data
@@ -51,7 +51,10 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
   const homes = (): HomeCtx[] => [...getCtx().homes.values()]
   const alive = (t: Task): boolean => !!t.terminalId && !!getCtx().terminals.get(t.terminalId)?.alive
   const launchingCount = (project?: string): number =>
-    project !== undefined ? (launching.get(project) ?? 0) : [...launching.values()].reduce((a, b) => a + b, 0)
+    project !== undefined ? [...launching].filter(launch => launch.project === project).length : launching.size
+  const publishLaunching = (): void => {
+    try { bus.publish({ type: 'pending-units', projects: svc.pendingUnits() }) } catch { /* UI observers must not leak a reservation. */ }
+  }
 
   /** Claude evidence lives in a file every chat session writes; re-read it on every decision. */
   let claudeReadError: string | undefined
@@ -152,7 +155,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
     return (id !== own && reservations.has(id)) || (id === 'claude' && new SessionQuotaPolicy(dataDir()).unitBlocked()) ||
       // 70%+ (including retained last-known evidence): at most one unit on that plan
       (isPlan(id) && planStatus(id, quota[id]).level !== 'ok' && [...ctx.homes.values()].some((h) =>
-        h.crew.list().some((t) => !(replacing && t.id === replacing.id && t.wksp === replacing.wksp) && t.harness === id && alive(t))))
+        h.crew.list().some((t) => !(replacing && t.id === replacing.id && t.wksp === replacing.wksp) && t.harness === id && holdsCapacity(t, alive(t)))))
   }
 
   const svc: DispatchService = {
@@ -194,12 +197,15 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
         const primary = loadout.explored ? resolveLoadout(input, getCtx().settings, { ...signals, preview: true }).harness : undefined
         reservations.add(loadout.harness)
         let released = false
-        let counted = occupies
-        if (!counted) launching.set(input.project, launchingCount(input.project) + 1)
+        const launch = { project: input.project }
+        if (!occupies) {
+          launching.add(launch)
+          publishLaunching()
+        }
+        // Each reservation removes only its own pending slot. Listing and release
+        // are independently idempotent, including deferred/failed respawns.
         const listed = (): void => {
-          if (counted) return
-          counted = true
-          launching.set(input.project, Math.max(0, launchingCount(input.project) - 1))
+          if (launching.delete(launch)) publishLaunching()
         }
         return {
           loadout,
@@ -222,6 +228,8 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
     },
 
     usagePercent: hottest,
+
+    pendingUnits: () => [...launching].map(launch => launch.project),
 
     capacity() {
       return { cap: MODE_PRESETS[globalMode(getCtx().settings.get())].unitCap, used: liveUnits(homes(), alive) + launchingCount() }
@@ -266,7 +274,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
         bot: { model: s.botModel?.trim() || SONNET, pinned: Boolean(s.botModel?.trim()) },
         units: { defaultHarness: s.defaultHarness, model: s.defaultWorkerModel || undefined, effort: s.defaultWorkerEffort || undefined },
         unitCap: MODE_PRESETS[mode].unitCap,
-        liveUnits: liveUnits(homes(), alive),
+        liveUnits: svc.capacity().used,
         worlds: ctx.projects.list().map((p) => {
           const u = worldUsage(s, p)
           return { ...u, cap: unitCaps(mode, { mode: u.source !== 'global' ? u.mode : undefined, capacity: p.capacity }).world }

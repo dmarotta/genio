@@ -1,5 +1,5 @@
 import { Crosshair, Users } from 'lucide-react'
-import { PROJECT_WINDOW, api, go, op, openDecisions, setState, useStore } from '../store'
+import { PROJECT_WINDOW, api, go, op, openDecisions, runningUnits, setState, useStore } from '../store'
 import { useNow } from './ui'
 import { PRESENCE } from '../lib/vocab'
 import { cx, usd } from '../lib/format'
@@ -10,7 +10,7 @@ export function TitleBar() {
   useNow(30_000)
   const away = useStore((s) => s.snap.away)
   const stats = useStore((s) => s.snap.stats)
-  const units = useStore((s) => s.snap.tasks.filter((t) => t.state === 'working' || t.state === 'spawning' || t.state === 'validating').length)
+  const units = useStore(runningUnits)
   const moves = useStore((s) => openDecisions(s).length)
   const answersOpen = useStore(s => s.answersOpen)
   const settings = useStore((s) => s.settings)

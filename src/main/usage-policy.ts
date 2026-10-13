@@ -12,6 +12,8 @@ import {
 } from '@shared/usage-mode'
 import { claudeLimits, claudeLimitsFile, type ClaudeLimitsFile } from './usage'
 import { readJson, writeJsonAtomic } from './util'
+import { holdsCapacity } from '@shared/unit-capacity'
+export { holdsCapacity } from '@shared/unit-capacity'
 
 /**
  * Pre-mode settings: the cost dial becomes the mode, and the old shipped chat
@@ -46,11 +48,6 @@ export function chatSettings(s: Settings, dataDir: string): Settings {
   // The Bot runs Sonnet / low unless pinned.
   return { ...s, wkspModel: chat.model, wkspEffort: chat.effort, botModel: s.botModel?.trim() || SONNET }
 }
-
-/** Launches hold a slot before a terminal exists; stopped/detached records do not.
- * Completed/handed-over work releases its slot even if an idle terminal remains. */
-export const holdsCapacity = (t: Pick<Task, 'pr' | 'state'>, alive: boolean): boolean =>
-  t.state === 'spawning' || (alive && !t.pr && !['ready', 'cleaned', 'done', 'merged', 'failed'].includes(t.state))
 
 export function liveUnits(homes: Iterable<{ crew: { list(): Task[] } }>, alive: (t: Task) => boolean, project?: string): number {
   let n = 0

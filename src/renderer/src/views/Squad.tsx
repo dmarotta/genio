@@ -6,7 +6,7 @@ import {
 import type { Task, TerminalInfo, ValidationStep, Verdict } from '@shared/types'
 import { categoryLabel } from '@shared/dispatch'
 import type { TaskFile } from '@shared/api'
-import { api, errText, focusTask, op, openDeploy, setState, toast, useStore } from '../store'
+import { api, errText, focusTask, op, openDeploy, setState, toast, runningUnits, useStore } from '../store'
 import { TerminalView } from '../components/Terminal'
 import { Markdown } from '../components/Markdown'
 import { Chip, Confirm, Dot, Empty, Modal, Field, Tabs, ViewHeader, useNow } from '../components/ui'
@@ -35,7 +35,7 @@ function SquadGrid() {
     [tasks, showAll]
   )
   const sessions = Object.values(terminals).filter((t) => t.kind !== 'worker')
-  const live = tasks.filter((t) => isActive(t.state)).length
+  const live = useStore(runningUnits)
   return (
     <div className="view">
       <ViewHeader

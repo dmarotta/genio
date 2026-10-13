@@ -23,6 +23,7 @@ export function projectFromArgv(argv: string[], cwd: string, development: boolea
 export function projectSnapshot(s: FleetSnapshot, binding?: WindowBinding): FleetSnapshot {
   if (!binding) return s
   return { ...s,
+    pendingUnits: s.pendingUnits?.filter(project => project === binding.project),
     projects: s.projects.filter(p => p.name === binding.project),
     tasks: s.tasks.filter(t => t.project === binding.project),
     backlog: s.backlog.filter(t => t.project === binding.project),
@@ -48,6 +49,7 @@ export function routeProjectEvent(ev: GenioEvent, binding: WindowBinding | undef
   const project = (name?: string): GenioEvent | undefined => name === binding.project ? ev : undefined
   const wksp = (name?: string): GenioEvent | undefined => name === binding.wksp ? ev : undefined
   switch (ev.type) {
+    case 'pending-units': return { ...ev, projects: ev.projects.filter(project => project === binding.project) }
     case 'snapshot': return { ...ev, data: projectSnapshot(ev.data, binding) }
     case 'task': return project(ev.task.project)
     case 'task-removed': return ev // deletion contains no content; may already be absent from snapshot

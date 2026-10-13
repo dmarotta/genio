@@ -271,6 +271,8 @@ export interface DispatchService {
   usagePercent(harness: string): number | undefined
   /** the global mode's concurrent-unit cap and the units holding or claiming a place across every base */
   capacity(): { cap: number; used: number }
+    /** Reserved launches not yet listed as spawning tasks, for live UI counts. */
+    pendingUnits(): string[]
   /** a queued quest waiting for a plan reset (not offered for automatic dispatch) */
   quotaWait(item: import('@shared/types').BacklogItem): import('@shared/usage-mode').QuotaWait | undefined
   /** Recon summary word target for a world and unit plan */

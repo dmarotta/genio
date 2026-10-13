@@ -214,6 +214,7 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
     const all = [...homes.values()]
     return {
       tasks: all.flatMap((h) => h.crew.list()),
+      pendingUnits: ctx.dispatch.pendingUnits(),
       backlog: all.flatMap((h) => h.backlog.list()),
       decisions: all.flatMap((h) => h.decisions.list(false)),
       projects: ctx.projects.list(),

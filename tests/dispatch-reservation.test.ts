@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { UsageReport } from '../src/shared/api'
 import type { AppCtx } from '../src/main/services'
 import { defaultSettings } from '../src/main/settings'
+import { bus } from '../src/main/bus'
 
 const scan = vi.hoisted(() => ({ report: {} as UsageReport }))
 vi.mock('../src/main/accounts', () => ({ listAccounts: async () => [] }))
@@ -29,6 +30,23 @@ function service() {
   return createDispatchService(() => ctx)
 }
 const input = { kind: 'ship' as const, project: 'genio', title: 'Fix bug', intent: 'Fix bug', harness: 'claude' }
+
+it('does not leak pending slots when a UI observer fails, and an old release cannot remove a new slot', async () => {
+  const stop = bus.onEvent(event => { if (event.type === 'pending-units') throw new Error('window closed') })
+  try {
+    const svc = service()
+    const first = await svc.reserve(input)
+    expect(svc.pendingUnits()).toEqual(['genio'])
+    first.release()
+    expect(svc.capacity().used).toBe(0)
+    const next = await svc.reserve(input)
+    first.listed()
+    first.release()
+    expect(svc.capacity().used).toBe(1)
+    next.release()
+    expect(svc.pendingUnits()).toEqual([])
+  } finally { stop() }
+})
 
 it('claims a launch atomically and holds the provider slot until launch finishes', async () => {
   const svc = service()

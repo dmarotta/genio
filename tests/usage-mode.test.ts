@@ -302,7 +302,7 @@ describe('concurrent unit cap across worlds', () => {
       await expect(svc.reserve(ship('over'))).rejects.toThrow(`allows ${cap} concurrent units across all worlds`)
       last.release()
     }
-    const ok = await service('balanced', [task('a'), task('b', 'done'), { ...task('c'), pr: { url: 'x' } }]).reserve(ship('d'))
+    const ok = await service('balanced', [task('a'), task('b', 'done'), { ...task('c', 'ready'), pr: { url: 'x' } }]).reserve(ship('d'))
     ok.release()
     expect(service('max', [task('a'), task('b')]).capacity()).toEqual({ cap: 16, used: 2 })
   })
@@ -320,6 +320,53 @@ describe('concurrent unit cap across worlds', () => {
     a.release()
     b.release()
     expect(svc.capacity().used).toBe(6)
+  })
+
+  it.each(['ready', 'merged', 'done', 'failed', 'cleaned'] as const)('finished %s records in every home release global and world capacity despite live terminals', async state => {
+    const records = Array.from({ length: 8 }, (_, i) => ({ ...task('a', state), wksp: i % 2 ? 'ally' : '', pr: i % 3 ? { url: 'https://example.com/pull/1' } : undefined }))
+    const svc = service('balanced', records, { a: { capacity: 2 } })
+    expect(svc.capacity()).toEqual({ cap: 8, used: 0 })
+    const slot = await svc.reserve({ ...ship('a'), harness: 'codex' })
+    expect(svc.capacity().used).toBe(1)
+    expect(svc.view().liveUnits).toBe(1)
+    slot.release()
+    expect(svc.capacity().used).toBe(0)
+  })
+
+  it.each(['ready', 'merged', 'done', 'exited'] as const)('releases an unlisted %s respawn after a deferred or failed launch, without stealing another reservation', async state => {
+    const target = { ...task('a', state), terminalId: state === 'exited' ? undefined : 'live' }
+    const svc = service('balanced', [target], { a: { capacity: 2 } })
+    const restartInput = { ...ship('a'), harness: 'codex' }
+    const restartOptions = { respawn: { id: target.id, wksp: 'main' } }
+    for (let i = 0; i < 10; i++) {
+      const restart = await svc.reserve(restartInput, restartOptions)
+      expect(svc.capacity().used).toBe(1)
+      restart.release() // preparation failed or deferred before task was listed
+      expect(svc.capacity().used).toBe(0)
+      const next = await svc.reserve(restartInput, restartOptions)
+      restart.listed()
+      restart.release()
+      expect(svc.capacity().used).toBe(1)
+      next.listed() // now the respawn is recorded as spawning
+      target.state = 'spawning'
+      expect(svc.capacity().used).toBe(1)
+      target.state = state // terminal creation failed, or the run finished
+      next.release()
+      expect(svc.capacity().used).toBe(0)
+    }
+  })
+
+  it('counts working units with historical PRs and ignores finished terminals for warm provider protection', async () => {
+    const active = { ...task('a'), pr: { url: 'https://example.com/pull/1' } }
+    expect(service('balanced', [active]).capacity().used).toBe(1)
+    await expect(service('balanced', [active, task('a')], { a: { capacity: 2 } }).reserve(ship('a'))).rejects.toThrow(/a allows 2 concurrent units/)
+    scan.report = { tools: [{ tool: 'codex', limits: [{ source: 'test', updatedAt: new Date().toISOString(), windows: [fresh(75)] }] }] } as UsageReport
+    const finished = ['ready', 'merged', 'done', 'failed', 'cleaned'].map(state => task('a', state as Task['state']))
+    const svc = service('balanced', finished)
+    const slot = await svc.reserve({ ...ship('a'), harness: 'codex' })
+    await slot.check()
+    slot.release()
+    await expect(service('balanced', [active]).reserve({ ...ship('b'), harness: 'codex' })).rejects.toThrow(/deferred/)
   })
 
   it('a world mode or capacity can only lower the cap; a respawn keeps its place', async () => {

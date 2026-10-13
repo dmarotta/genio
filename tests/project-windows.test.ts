@@ -97,6 +97,12 @@ describe('window routing', () => {
     expect(routeProjectEvent({ type: 'chat-delta', wksp: 'main', id: 'm', text: 'private' }, binding, snapshot)).toBeUndefined()
     expect(routeProjectEvent({ type: 'permission', request: { wksp: 'ally-two' } } as GenioEvent, binding, snapshot)).toBeUndefined()
   })
+  it('scopes pending unit counts on both snapshots and events, including clearing the count', () => {
+    const pending = { ...snapshot, pendingUnits: ['one', 'two', 'one'] }
+    expect(projectSnapshot(pending, binding).pendingUnits).toEqual(['one', 'one'])
+    expect(routeProjectEvent({ type: 'pending-units', projects: pending.pendingUnits }, binding, pending)).toEqual({ type: 'pending-units', projects: ['one', 'one'] })
+    expect(routeProjectEvent({ type: 'pending-units', projects: ['two'] }, binding, pending)).toEqual({ type: 'pending-units', projects: [] })
+  })
   it('scopes snapshots and resolves terminal ownership by task or a path boundary', () => {
     expect(projectSnapshot(snapshot, binding).tasks).toEqual([tasks[0]])
     expect(projectSnapshot(snapshot, binding).wksps.map(m => m.name)).toEqual(['ally-one'])

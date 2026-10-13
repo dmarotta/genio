@@ -633,6 +633,8 @@ export interface StatusReport {
 }
 
 export interface FleetSnapshot {
+  /** Projects of reserved launches not yet represented by a spawning task. */
+  pendingUnits?: string[]
   tasks: Task[]
   backlog: BacklogItem[]
   decisions: Decision[]
@@ -699,6 +701,7 @@ export interface UpdateInfo {
 
 /** Push events main → renderer */
 export type GenioEvent =
+  | { type: 'pending-units'; projects: string[] }
   | { type: 'inventory'; state: import('./inventory').InventoryState }
   | { type: 'feature-used'; feature: string; id?: string; count?: number }
   | { type: 'snapshot'; data: FleetSnapshot }

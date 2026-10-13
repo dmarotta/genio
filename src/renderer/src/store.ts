@@ -5,6 +5,7 @@ import type {
 } from '@shared/types'
 import type { SpawnRequest } from '@shared/api'
 import { applyChatEvent, patchAllyControls, type AllyControlsPatch } from '@shared/chat'
+import { occupiedUnits } from '@shared/unit-capacity'
 import { playSfx } from './lib/sfx'
 import { speak } from './lib/voice'
 import type { ViewId } from './lib/railmenu'
@@ -401,6 +402,9 @@ export function handleEvent(ev: GenioEvent): void {
     case 'terminal':
       setState({ terminals: { ...s.terminals, [ev.terminal.id]: ev.terminal } })
       break
+    case 'pending-units':
+      setState({ snap: { ...s.snap, pendingUnits: ev.projects } })
+      break
     case 'terminal-removed': {
       const t = { ...s.terminals }
       delete t[ev.id]
@@ -471,6 +475,8 @@ export async function boot(): Promise<void> {
 }
 
 // ------------------------------------------------------------------ selectors
+
+export const runningUnits = (s: State): number => occupiedUnits(s.snap.tasks, s.terminals) + (s.snap.pendingUnits?.length ?? 0)
 
 export const LIVE_STATES = new Set(['spawning', 'working', 'paused', 'blocked', 'needs-decision', 'validating', 'ready', 'stale', 'detached', 'exited', 'merged'])
 

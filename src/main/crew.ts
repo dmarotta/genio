@@ -693,10 +693,9 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
               await recall()
             } })
             if (t.terminalId && t.terminalId !== term.id) terms.kill(t.terminalId)
-            const keepState = t.state === 'ready' || t.state === 'merged' || t.state === 'done'
             update(id, {
               terminalId: term.id,
-              state: keepState ? t.state : 'working',
+              state: 'working',
               stateReason: 'respawned',
               relaunches: t.relaunches + 1,
               automaticRelaunches: currentPolicy.nextAttempts
