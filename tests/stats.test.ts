@@ -29,11 +29,19 @@ describe('live achievement outcomes', () => {
   it.each([
     ['screenshot', 'screenshot'], ['dock-split', 'dock-split'], ['world_push', 'push-first'],
     ['rate_task', 'rating-first'], ['account-login', 'account-login'], ['yolo-chat', 'yolo-chat'],
-    ['quest_add', 'quest-first'], ['world_add', 'world-first'], ['memory_write', 'lore-first']
+    ['quest_add', 'quest-first'], ['world_add', 'world-first'], ['memory_write', 'lore-first'], ['inventory-index', 'inventory-index']
   ])('unlocks %s on its feature outcome', (feature, id) => {
     const svc = createStatsService(() => ctx)
     publish({ type: 'feature-used', feature })
     expect(svc.get().achievements.filter((a) => a.unlockedAt).map((a) => a.id)).toEqual([id])
+  })
+  it('unlocks Blender only on a successful runner receipt, not progress or index snapshots', () => {
+    const svc = createStatsService(() => ctx)
+    publish({ type: 'status', event: { kind: 'working', key: 'genio-blender-run' } })
+    publish({ type: 'inventory', state: { revision: 2, total: 50, refreshing: false } })
+    expect(svc.get().achievements.every((a) => !a.unlockedAt)).toBe(true)
+    publish({ type: 'status', event: { kind: 'note', key: 'genio-blender-run' } })
+    expect(svc.get().achievements.filter((a) => a.unlockedAt).map((a) => a.id)).toEqual(['blender-first'])
   })
   it('preserves old unlocks and leaves additions locked across restart', () => {
     fs.writeFileSync(path.join(dir, 'stats.json'), JSON.stringify({ achievements: { 'first-blood': '2025-01-01' } }))

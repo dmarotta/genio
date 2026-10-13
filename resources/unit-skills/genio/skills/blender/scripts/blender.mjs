@@ -57,6 +57,10 @@ async function main() {
     provenance = writeProvenance(world, path.resolve(opts.provenance), { provider: 'blender', by: unitBy(), t: new Date().toISOString(), script: { path: script, sha256: scriptSha }, blend: blend ? { path: blend, sha256: blendSha } : null, blender_version: version, args, threads })
     if (!provenance) throw new Error('Provenance output must be an asset inside --world, outside .genio')
   }
+  // Only successful runs report through the existing unit status channel.
+  if (process.env.GENIO_STATUS_FILE && process.env.GENIO_TASK_ID) {
+    try { fs.appendFileSync(process.env.GENIO_STATUS_FILE, `note [key=genio-blender-run]: ${path.basename(log)}\n`) } catch { /* cosmetic */ }
+  }
   console.log(JSON.stringify({ ok: true, log, provenance }))
 }
 main().catch(e => { console.error(e.message); process.exitCode = 1 })

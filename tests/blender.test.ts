@@ -19,7 +19,7 @@ afterAll(() => fs.rmSync(scratch, { recursive: true, force: true }))
 
 async function batch(script: string, args: string[] = [], options: string[] = []) {
   return run(process.execPath, [runner, '--script', script, '--scratch', path.join(scratch, 'logs'), ...options, '--', ...args], {
-    cwd: world, env: { ...process.env, GENIO_BLENDER: blender ?? '' }, timeout: 120000
+    cwd: world, env: { ...process.env, GENIO_BLENDER: blender ?? '', GENIO_TASK_ID: 'blender-test', GENIO_STATUS_FILE: path.join(scratch, 'unit.status') }, timeout: 120000
   })
 }
 
@@ -30,6 +30,7 @@ describe.skipIf(!blender)('Blender batch integration (local executable)', () => 
     const result = await batch(build, [], ['--world', world, '--provenance', 'cube.fbx'])
     const receipt = JSON.parse(result.stdout)
     expect(fs.existsSync(receipt.log)).toBe(true)
+    expect(fs.readFileSync(path.join(scratch, 'unit.status'), 'utf8')).toContain(`note [key=genio-blender-run]: ${path.basename(receipt.log)}`)
     const record = JSON.parse(fs.readFileSync(path.join(world, '.genio/provenance/cube.fbx.json'), 'utf8'))
     expect(record).toMatchObject({ schema: 'genio.provenance.v1', provider: 'blender', script: { path: build }, blend: null })
     expect(record.script.sha256).toMatch(/^[a-f0-9]{64}$/)
@@ -54,9 +55,12 @@ describe.skipIf(!blender)('Blender batch integration (local executable)', () => 
   }, 120000)
 
   it('fails on Python exceptions and preserves their error in scratch logs', async () => {
+    const status = path.join(scratch, 'unit.status')
+    const before = fs.existsSync(status) ? fs.readFileSync(status, 'utf8') : ''
     const script = path.join(scratch, 'fail.py')
     fs.writeFileSync(script, 'raise RuntimeError("intentional test failure")')
     await expect(batch(script)).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining('intentional test failure') })
+    expect(fs.existsSync(status) ? fs.readFileSync(status, 'utf8') : '').toBe(before)
   }, 30000)
 
   it('reports broken geometry and protects rigs from destructive cleanup', async () => {

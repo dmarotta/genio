@@ -47,6 +47,19 @@ afterEach(async () => {
 })
 
 describe('Inventory backend', () => {
+  it('reports successful indexing, but not failed scans or cached reads, for achievements', async () => {
+    const used: string[] = []
+    const off = bus.onEvent((event) => { if (event.type === 'feature-used') used.push(event.feature) })
+    try {
+      const service = create()
+      await expect(service.list('unknown')).rejects.toThrow()
+      expect(used).toEqual([])
+      await service.list('fixture')
+      expect(used).toEqual(['inventory-index'])
+      await service.list('fixture')
+      expect(used).toEqual(['inventory-index'])
+    } finally { off() }
+  })
   it('enumerates tracked + untracked paths without ignored engine caches; indexes kinds, sidecars, LFS and provenance', async () => {
     const enumerated = await enumerateInventory(root)
     expect(enumerated.files.has('Library/never.png')).toBe(false)

@@ -189,6 +189,7 @@ export function createInventoryService(getCtx: () => AppCtx, decode?: ThumbnailD
       w.assets = next; w.initialized = true
       w.state = { ...w.state, total: next.size, revision: w.state.revision + 1, updatedAt: new Date().toISOString(), error: undefined, enumerationMs: ms, scanMs: performance.now() - started }
       await saveCache(w)
+      bus.publish({ type: 'feature-used', feature: 'inventory-index' })
       return state(w)
     })().catch(e => { w.state.error = String((e as Error).message); throw e }).finally(() => {
       w.refreshing = undefined; publish(w)

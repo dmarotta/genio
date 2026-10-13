@@ -35,6 +35,8 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'account-login', feature: 'systems', name: 'Signed In', description: 'Log in from Systems Accounts.' },
   { id: 'cheap-unit', feature: 'deploy', name: 'Budget Build', description: 'Deploy an OpenCode unit.' },
   { id: 'unit-image', feature: 'assets', name: 'Pixel Crafter', description: 'A unit creates a Codex image.' },
+  { id: 'blender-first', feature: 'blender', name: 'Polygon Power', description: 'Complete a Blender skill run.' },
+  { id: 'inventory-index', feature: 'inventory-index', name: 'Loot Catalog', description: "Index a world's assets for the first time." },
   { id: 'assets-10', feature: 'assets', name: 'Asset Combo', description: 'Generate 10 assets.' },
   { id: 'assets-50', feature: 'assets', name: 'Asset Factory', description: 'Generate 50 assets.' },
   { id: 'quest-first', feature: 'quests', name: 'Side Quest', description: 'Add a quest.' },
@@ -322,7 +324,7 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
       const ids: Record<string, string> = {
         screenshot: 'screenshot', 'dock-split': 'dock-split', world_push: 'push-first',
         rate_task: 'rating-first', 'account-login': 'account-login', 'yolo-chat': 'yolo-chat',
-        quest_add: 'quest-first', world_add: 'world-first', memory_write: 'lore-first'
+        quest_add: 'quest-first', world_add: 'world-first', memory_write: 'lore-first', 'inventory-index': 'inventory-index'
       }
       if (ids[ev.feature]) svc.unlock(ids[ev.feature])
       if (ev.feature === 'unit-image' && ev.id) asset('unit-image', ev.id, ev.count)
@@ -335,6 +337,8 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
       asset('fal-first', ev.run.id, ev.run.outputs.length)
     } else if (ev.type === 'uthana-run' && ev.run.status === 'completed' && ev.run.kind !== 'character') {
       asset('animation-first', ev.run.id, ev.run.motionIds?.length || 1)
+    } else if (ev.type === 'status' && ev.event.kind === 'note' && ev.event.key === 'genio-blender-run') {
+      svc.unlock('blender-first')
     } else if (ev.type === 'status' && ev.event.kind === 'note' && ev.event.key === 'genio-codex-image') {
       asset('unit-image', ev.event.taskId + ':' + ev.event.text)
     }
