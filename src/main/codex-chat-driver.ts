@@ -240,7 +240,7 @@ export class CodexChatDriver implements ChatDriver {
   }
   private fail(reason: string): void {
     this.paused = true
-    // Only a turn that never received a runtime turn id can be queued for a deliberate retry.
+    // Only a turn never submitted to the runtime can be queued for a deliberate retry.
     // Once started its mutations may have completed: never replay it automatically.
     const current = this.current
     this.finishMessages()
@@ -283,7 +283,7 @@ export class CodexChatDriver implements ChatDriver {
     if (method === 'thread/tokenUsage/updated') {
       this.options.usage?.(this.sessionId!, p.tokenUsage)
       const usage = p.tokenUsage?.last
-      if (usage) this.events.onUsage?.({ provider: 'codex', input: usage.inputTokens ?? 0,
+      if (usage) this.events.onUsage?.({ provider: 'codex', input: Math.max(0, (usage.inputTokens ?? 0) - (usage.cachedInputTokens ?? 0)),
         cached: usage.cachedInputTokens ?? 0, output: usage.outputTokens ?? 0, cashCost: 0 })
       return
     }
