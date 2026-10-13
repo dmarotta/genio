@@ -323,7 +323,7 @@ export interface FalWorldConfig {
   budget?: FalBudget
   /** per-endpoint defaults that override the catalogue's */
   defaults?: Record<string, Record<string, unknown>>
-  /** opt-in providers, e.g. {"codex": {"enabled": true}} (read by unit helpers; kept as-is here) */
+  /** provider switches, e.g. {"codex": {"enabled": false}} to opt this world out of Codex images (on by default; read by unit helpers; kept as-is here) */
   providers?: Record<string, unknown>
   [k: string]: unknown
 }

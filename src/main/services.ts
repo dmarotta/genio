@@ -324,6 +324,8 @@ export interface WkspService {
   stop(): Promise<void>
   /** append a Genio-authored line to the bridge (no model turn) */
   say(text: string, role?: ChatMessage['role']): ChatMessage
+  /** add or replace (by id) a message in this chat; persist=false keeps it on screen only (e.g. a placeholder) */
+  post(m: ChatMessage, persist: boolean): void
 }
 
 export interface HomeCtx {

@@ -16,6 +16,7 @@ import type { Ally, ChatMessage, WkspActivity, WkspInfo, Settings, ToolTrace } f
 import { userContent, type ChatImageInput } from '@shared/chat-images'
 import { bus } from './bus'
 import { chatImageDir, loadChatImages, saveChatImages } from './chat-images'
+import { attachedIdsNote } from './chat-imagegen'
 import type { Home } from './home'
 import { buildTools, type ToolRole } from './wksp-tools'
 import { formatNotification } from './notify-format'
@@ -908,6 +909,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       if (player && !genio.idle) m.queue = 'queued'
       record(m, true)
       bus.publish({ type: 'sfx', sound: 'send' })
+      // the ids let Genio pass pasted images to generate_image as refs
+      prompt += attachedIdsNote(stored.refs)
       genio.enqueue({ kind: player ? 'player' : 'system', prompt, images: stored.send.length ? stored.send : undefined, msgId: player ? m.id : undefined })
       publishInfo()
     },
@@ -977,7 +980,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       info.activity = 'offline'
       saveState()
     },
-    say
+    say,
+    post: record
   }
   return svc
 }

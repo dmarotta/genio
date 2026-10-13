@@ -1,6 +1,6 @@
 ---
 name: imagegen-codex
-description: Generate PNG images (concepts, sprites, transparent cutouts, edits from reference images) through Codex's built-in image_gen tool. Uses your ChatGPT plan, not a paid API. Use only when your mission asks for images and the world enabled Codex images, or the mission explicitly asks for it outside a world.
+description: Generate PNG images (concept art, sprites, icons, transparent cutouts, edits and variations from reference images) through Codex's built-in image_gen tool. Uses your ChatGPT plan, not a paid API. The default for ordinary image work in any world; use FAL only for what Codex cannot do.
 ---
 
 # Codex images (Genio) · uses your ChatGPT plan
@@ -11,13 +11,15 @@ Images come from Codex's built-in `image_gen` tool, billed to the player's **Cha
 node "{{SKILL_DIR}}/scripts/codex-image.mjs" --world . --prompt "<text>" --out <file.png> [--transparent] [--ref <image> ...]
 ```
 
-It runs `codex exec` in a scratch folder under Genio's data (never in your worktree), reads the generated file's location from the Codex session record and copies it to `--out` itself. It prints JSON on stdout (progress on stderr). Exit codes: 0 ok, 2 usage, 3 not enabled for this world, 4 Codex error or a missing image, 5 timed out.
+It runs `codex exec` in a scratch folder under Genio's data (never in your worktree), reads the generated file's location from the Codex session record and copies it to `--out` itself. It prints JSON on stdout (progress on stderr). Exit codes: 0 ok, 2 usage, 3 this world opted out of Codex images, 4 Codex error or a missing image, 5 timed out.
 
-## When you may use it
+## When to use it
 
-- **World mode (normal):** pass `--world <your worktree root>`. It runs only if the world turned Codex on in `.genio/fal/config.json`: `"providers": { "codex": { "enabled": true } }`. Exit 3 means it is off: use FAL instead, or append `needs-decision: enable Codex images for this world?` and stop. Never edit `.genio/fal/config.json` yourself.
-- **Outside a world:** only when your mission explicitly asks for Codex images, with `--no-world` (no provenance, no spend line).
-- Make only the images the mission asks for. No speculative variants: each image costs plan allowance and about a minute.
+- **Default for ordinary image work:** concept art, sprites and icons, UI art, transparent cutouts, edits and variations from reference images. Reach for this before FAL.
+- **Use FAL instead** (the `fal` skill next to this one) for what Codex cannot cover: seamless or PBR textures, 3D, audio, video, pixel-art conversion, upscaling, background removal on an existing image, or when an exact size, seed or reproducible result is required.
+- **World mode (normal):** pass `--world <your worktree root>`. Codex images are on in every world by default. Exit 3 means the player opted this world out (`.genio/fal/config.json` `"providers": { "codex": { "enabled": false } }`): use FAL instead, or append `needs-decision: <what you need>` and stop. Never edit `.genio/fal/config.json` yourself.
+- **Outside a world:** pass `--no-world` (no provenance, no spend line).
+- Make only the images the mission needs. No speculative variants: each image costs plan allowance and about a minute.
 
 ## What you get and what you don't
 

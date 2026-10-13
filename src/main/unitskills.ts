@@ -88,10 +88,10 @@ export function unitToolsBrief(pluginDir: string): string {
   const dir = fwd(falSkillDir(pluginDir))
   const codex = fwd(codexImageSkillDir(pluginDir))
   return (
-    `- FAL.ai (generative images, audio, music, video, 3D): before any FAL work read \`${dir}/SKILL.md\` and use its helper \`node "${dir}/scripts/fal.mjs"\`. ` +
+    `- Images (default): Codex images on the player's ChatGPT plan, on in every world unless it opted out. For concept art, sprites, icons, transparent cutouts and edits from references read \`${codex}/SKILL.md\` and use \`node "${codex}/scripts/codex-image.mjs"\`.\n` +
+    `- FAL.ai (specific needs: seamless/PBR textures, 3D, audio, music, video, pixel-art conversion, upscaling, background removal, exact size/seed/reproducibility): before any FAL work read \`${dir}/SKILL.md\` and use its helper \`node "${dir}/scripts/fal.mjs"\`. ` +
     'Every model run is a paid call: the USD budget stated in this brief or a ping is a hard stop; pass it as --budget and report what you spent. ' +
     'The key, when the player set one, is only in your FAL_KEY environment variable: never print or write it. ' +
-    "Generate with --world <your worktree root>: it follows the world's .genio/fal/ config and recipes and records provenance and spend lines in .genio/, which you commit with the assets; never edit .genio/fal/config.json or recipes.json.\n" +
-    `- Codex images (uses your ChatGPT plan, not FAL credit): only when the world enabled it in .genio/fal/config.json or the mission asks for it, read \`${codex}/SKILL.md\` and use \`node "${codex}/scripts/codex-image.mjs"\`.`
+    "Generate with --world <your worktree root>: it follows the world's .genio/fal/ config and recipes and records provenance and spend lines in .genio/, which you commit with the assets; never edit .genio/fal/config.json or recipes.json."
   )
 }

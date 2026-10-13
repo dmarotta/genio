@@ -253,6 +253,8 @@ export interface ChatMessage {
   from?: 'genio'
   /** a player message not yet read by the session (see ChatQueueState) */
   queue?: ChatQueueState
+  /** a Genio image being generated: how many are on the way (the placeholder resolves into images or an error) */
+  generating?: number
 }
 
 /**

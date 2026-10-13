@@ -10,13 +10,13 @@
  * --out itself: it never relies on the Codex agent to copy them. It reads
  * session rollouts and generated images only, never Codex's auth files.
  *
- * With --world it runs only when the world opted in (.genio/fal/config.json
- * "providers": {"codex": {"enabled": true}}) and writes a provenance file per
+ * With --world it runs unless the world opted out (.genio/fal/config.json
+ * "providers": {"codex": {"enabled": false}}) and writes a provenance file per
  * image plus a spend.jsonl line (est_usd 0, plan chatgpt). Without a world it
  * needs an explicit --no-world.
  *
  * Prints one JSON document on stdout; progress goes to stderr.
- * Exit codes: 0 ok, 2 usage, 3 not enabled for this world, 4 Codex error or missing image, 5 timed out.
+ * Exit codes: 0 ok, 2 usage, 3 this world opted out, 4 Codex error or missing image, 5 timed out.
  */
 import { spawn, spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
@@ -227,7 +227,7 @@ async function main() {
     world = openWorld(String(opts.world))
     if (!codexEnabled(world.config)) {
       throw new Fail(
-        'Codex image generation is not enabled for this world. The player turns it on in .genio/fal/config.json ("providers": {"codex": {"enabled": true}}); units never edit that file. Use FAL, or append needs-decision and stop.',
+        'This world opted out of Codex images (.genio/fal/config.json "providers": {"codex": {"enabled": false}}); units never edit that file. Use FAL, or append needs-decision and stop.',
         EXIT.disabled
       )
     }
@@ -236,7 +236,7 @@ async function main() {
       if (rel === '.genio' || rel?.startsWith('.genio/')) throw new Fail(`${it.out}: images never go inside .genio/.`, EXIT.usage)
     }
   } else if (!opts['no-world']) {
-    throw new Fail('Pass --world <your worktree root> (needs the world to enable Codex) or, outside any world, an explicit --no-world.', EXIT.usage)
+    throw new Fail('Pass --world <your worktree root> or, outside any world, an explicit --no-world.', EXIT.usage)
   }
   const warnAt = opts['warn-at'] === undefined ? 80 : Number(opts['warn-at'])
   if (!Number.isFinite(warnAt)) throw new Fail('--warn-at must be a percentage.', EXIT.usage)
@@ -326,7 +326,7 @@ const USAGE = `Genio Codex image helper (uses your ChatGPT plan through Codex's 
   --batch <items.json>          instead of pairs: [{"prompt", "out", "transparent"?}, ...]
   --transparent                 transparent background for every --prompt item
   --ref <image> [--ref ...]     reference images attached to the run (for edits or consistency)
-  --world <worktree root>       world mode: needs .genio/fal/config.json providers.codex.enabled; writes provenance + spend
+  --world <worktree root>       world mode (on unless .genio/fal/config.json sets providers.codex.enabled false); writes provenance + spend
   --no-world                    explicit run outside any world (no provenance, no spend line)
   [--overwrite] [--timeout <s>] [--warn-at <plan %, default 80>] [--scratch <dir under Genio's data>]`
 

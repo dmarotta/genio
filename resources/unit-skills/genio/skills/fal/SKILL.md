@@ -1,9 +1,11 @@
 ---
 name: fal
-description: Generate images, audio, music, video or 3D with FAL.ai models (queue API) and download the outputs into your worktree. Use only when your mission asks for FAL generation, FAL pricing or a FAL cost estimate. Every model run is a paid call.
+description: Generate audio, music, video, 3D, textures and specialised images with FAL.ai models (queue API) and download the outputs into your worktree. For specific needs Codex images cannot cover (seamless/PBR textures, 3D, audio, video, pixel-art conversion, upscaling, background removal, exact size/seed/reproducibility), or when the mission asks for FAL. Every model run is a paid call.
 ---
 
 # FAL.ai (Genio)
+
+FAL is for specific use cases. For ordinary image work (concept art, sprites, icons, transparent cutouts, edits from references) use the `imagegen-codex` skill next to this one first: it runs on the player's ChatGPT plan, is on in every world by default and costs no FAL credit. Use FAL for seamless or PBR textures, 3D, audio, music, video, pixel-art conversion, upscaling, background removal on an existing image, when an exact size, seed or reproducible result is required, or when the mission asks for FAL by name.
 
 Run any FAL model by endpoint id with a JSON input: submit to the queue, poll, fetch the result, and download the output files to a path you choose. The helper is a dependency-free Node script:
 
@@ -61,5 +63,5 @@ Commit the assets with their provenance files and the spend lines. Those are the
 ## Where files go
 
 - Download outputs into your worktree at the path the mission, the world's `.genio/fal/config.json` folders or the world's conventions call for (look for an existing `tools/<media>/` or asset folder first). Commit the assets with their `.genio/provenance/` files and `.genio/spend.jsonl` lines; large intermediates, receipts and rejected candidates go to your scratch data directory instead.
-- For plain images when the world enabled Codex images, the `imagegen-codex` skill next to this one uses the player's ChatGPT plan instead of FAL credit.
+- Ordinary images go through the `imagegen-codex` skill (the player's ChatGPT plan, on by default in every world) rather than FAL credit; a world opts out only with `"providers": { "codex": { "enabled": false } }`.
 - Receipts and results never contain the key. Output URLs from FAL are public and short-lived: download, do not link.

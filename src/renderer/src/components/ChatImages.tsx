@@ -150,6 +150,17 @@ export function MessageImages({ wksp, images }: { wksp: string; images: ChatImag
   )
 }
 
+/** Pulsing tiles while Genio generates images; the message resolves into the images or an error. */
+export function GeneratingImages({ count }: { count: number }) {
+  return (
+    <div className="msg-images" aria-label="Generating image" role="status">
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className="msg-image generating" />
+      ))}
+    </div>
+  )
+}
+
 function ImageViewer({ url, onClose }: { url: string; onClose: () => void }) {
   useEffect(() => {
     const k = (e: KeyboardEvent): void => {

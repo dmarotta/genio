@@ -147,11 +147,15 @@ describe('.genio/ records', () => {
     expect(lib.checkBudget({ lines: [], by: 'unit:b', estUsd: 0.3, unitBudget: 0.5, config, now }).ok).toBe(true)
   })
 
-  it('gates Codex on the world config', () => {
-    expect(lib.codexEnabled({})).toBe(false)
-    expect(lib.codexEnabled({ providers: { codex: { enabled: false } } })).toBe(false)
+  it('turns Codex on by default; only an explicit opt-out turns it off', () => {
+    expect(lib.codexEnabled({})).toBe(true)
+    expect(lib.codexEnabled(undefined)).toBe(true)
+    expect(lib.codexEnabled({ providers: {} })).toBe(true)
+    expect(lib.codexEnabled({ providers: { codex: {} } })).toBe(true)
     expect(lib.codexEnabled({ providers: { codex: { enabled: true } } })).toBe(true)
     expect(lib.codexEnabled({ providers: { codex: true } })).toBe(true)
+    expect(lib.codexEnabled({ providers: { codex: { enabled: false } } })).toBe(false)
+    expect(lib.codexEnabled({ providers: { codex: false } })).toBe(false)
   })
 
   it('writes provenance mirrored by asset path, never for files outside the world or in .genio/', () => {
@@ -344,21 +348,31 @@ describe('codex-image.mjs', () => {
   }
   const ENABLED = { schema: 'genio.fal-config.v1', providers: { codex: { enabled: true } } }
 
-  it('runs only when the world enabled Codex, or with an explicit --no-world', async () => {
+  it('needs --world or an explicit --no-world, and refuses only a world that opted out', async () => {
     const { codexHome, env } = setup()
     const out = path.join(tmp, 'a.png')
     const none = await runNode(CODEX_IMAGE, ['--prompt', 'a', '--out', out], env)
     expect(none.code).toBe(2)
     expect(none.stderr).toMatch(/--no-world/)
-    const world = makeWorld({ schema: 'genio.fal-config.v1' })
+    const world = makeWorld({ schema: 'genio.fal-config.v1', providers: { codex: { enabled: false } } })
     const off = await runNode(CODEX_IMAGE, ['--world', world, '--prompt', 'a', '--out', path.join(world, 'a.png')], env)
     expect(off.code).toBe(3)
-    expect(off.stderr).toMatch(/not enabled for this world/)
-    fs.rmSync(path.join(world, '.genio', 'fal', 'config.json'))
-    const noConfig = await runNode(CODEX_IMAGE, ['--world', world, '--prompt', 'a', '--out', path.join(world, 'a.png')], env)
-    expect(noConfig.code).toBe(3)
+    expect(off.stderr).toMatch(/opted out of Codex images/)
     expect(fs.existsSync(path.join(codexHome, 'fake-args.json'))).toBe(false)
     expect(fs.existsSync(path.join(world, '.genio', 'spend.jsonl'))).toBe(false)
+  })
+
+  it('runs by default in a world with no config or a config that does not mention Codex', async () => {
+    const { codexHome, env } = setup()
+    const world = makeWorld()
+    const noConfig = await runNode(CODEX_IMAGE, ['--world', world, '--prompt', 'a', '--out', path.join(world, 'a.png')], env)
+    expect(noConfig.code).toBe(0)
+    expect(fs.existsSync(path.join(world, 'a.png'))).toBe(true)
+    expect(fs.existsSync(path.join(codexHome, 'fake-args.json'))).toBe(true)
+    fs.writeFileSync(path.join(world, '.genio', 'fal', 'config.json'), JSON.stringify({ schema: 'genio.fal-config.v1' }))
+    const plain = await runNode(CODEX_IMAGE, ['--world', world, '--prompt', 'b', '--out', path.join(world, 'b.png')], env)
+    expect(plain.code).toBe(0)
+    expect(readLines(path.join(world, '.genio', 'spend.jsonl'))).toHaveLength(2)
   })
 
   it('batches images in one exec, copies them from the rollout and records provenance and spend', async () => {

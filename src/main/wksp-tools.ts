@@ -14,6 +14,7 @@ import type { AppCtx, HomeCtx } from './services'
 import type { Home } from './home'
 import { truncate } from './util'
 import { resolveLoadout } from './loadout'
+import { GENERATE_IMAGE_DESC, chatImageGen, generateChatImages, generateImageShape } from './chat-imagegen'
 
 type ToolFn = typeof import('@anthropic-ai/claude-agent-sdk').tool
 
@@ -518,6 +519,11 @@ export function buildTools(
         return ok('escalated')
       }
     )
+  }
+
+  // ------------------------------------------------------------ images (Codex, ChatGPT plan; chat-only)
+  if (role !== 'bot') {
+    t('generate_image', GENERATE_IMAGE_DESC, generateImageShape, (a) => generateChatImages(chatImageGen(getCtx(), home), a))
   }
 
   return tools

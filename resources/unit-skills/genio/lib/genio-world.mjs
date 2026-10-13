@@ -56,10 +56,10 @@ export function openWorld(worldArg) {
   return { root, dir, config: config ?? {}, recipes, hasConfig: config !== null }
 }
 
-/** Whether the world opted in to the Codex image provider (`"providers": {"codex": {"enabled": true}}`). */
+/** Whether Codex images are on for the world: on by default, off only on an explicit opt-out (`"providers": {"codex": {"enabled": false}}`). */
 export function codexEnabled(config) {
   const p = config?.providers?.codex
-  return p === true || (Boolean(p) && typeof p === 'object' && p.enabled === true)
+  return !(p === false || (Boolean(p) && typeof p === 'object' && p.enabled === false))
 }
 
 export function findRecipe(world, id) {

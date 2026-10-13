@@ -14,7 +14,7 @@ import { KIND_LABEL, STATE_LABEL, isActive, stateTone } from '../lib/vocab'
 import { clock, cx, elapsed, trunc } from '../lib/format'
 import { playSfx } from '../lib/sfx'
 import { getDraft, setDraft } from '../drafts'
-import { AttachmentStrip, MessageImages, fromSendable, toSendable, useAttachments } from '../components/ChatImages'
+import { AttachmentStrip, GeneratingImages, MessageImages, fromSendable, toSendable, useAttachments } from '../components/ChatImages'
 import { MAIN_PANEL, markSeen } from '../lib/dock'
 import { EffortSelect, ModelSelect, requestSystemsSection } from './Systems'
 
@@ -301,6 +301,8 @@ function Message({ m, calm, gamertag, onTakeBack }: { m: ChatMessage; calm: bool
       </div>
       <div className="msg-content">
         {m.text && <Markdown text={m.text} className={m.partial ? 'streaming' : ''} />}
+        {m.generating ? <GeneratingImages count={m.generating} /> : null}
+        {m.images?.length ? <MessageImages wksp={m.wksp} images={m.images} /> : null}
         {!calm && tools.length > 0 && (
           <div className="tool-traces">
             <button className="tool-chip" onClick={() => setOpen((o) => !o)}>
