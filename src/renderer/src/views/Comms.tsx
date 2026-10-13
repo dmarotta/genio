@@ -10,6 +10,7 @@ import { Chip, Dot, Toggle, useNow } from '../components/ui'
 import { KIND_LABEL, STATE_LABEL, isActive, stateTone } from '../lib/vocab'
 import { clock, cx, elapsed, trunc } from '../lib/format'
 import { playSfx } from '../lib/sfx'
+import { getDraft, setDraft } from '../drafts'
 import { EffortSelect, ModelSelect, requestSystemsSection } from './Systems'
 
 const SLASH: { cmd: string; hint: string }[] = [
@@ -237,9 +238,24 @@ function Message({ m, calm, gamertag }: { m: ChatMessage; calm: boolean; gamerta
 }
 
 function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; busy: boolean }) {
-  const [text, setText] = useState('')
+  const [text, setText] = useState(() => getDraft(wksp))
   const [sel, setSel] = useState(0)
   const ta = useRef<HTMLTextAreaElement>(null)
+  const update = (v: string): void => {
+    setText(v)
+    setDraft(wksp, v)
+  }
+
+  // Restore this chat's draft (on mount or chat switch) with the caret at the end.
+  useLayoutEffect(() => {
+    const d = getDraft(wksp)
+    setText(d)
+    const el = ta.current
+    if (el && d) {
+      el.value = d
+      el.setSelectionRange(d.length, d.length)
+    }
+  }, [wksp])
   const settings = useStore((s) => s.settings)
   const showSlash = text.startsWith('/') && !text.includes(' ') && !text.includes('\n')
   const matches = showSlash ? SLASH.filter((s) => s.cmd.startsWith(text.toLowerCase())) : []
@@ -249,7 +265,7 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
     if (!el) return
     el.style.height = 'auto'
     el.style.height = Math.min(220, el.scrollHeight) + 'px'
-  }, [text])
+  }, [text, wksp])
 
   const localSystem = (t: string): void => {
     const s = getState()
@@ -260,7 +276,7 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
   const submit = async (raw: string): Promise<void> => {
     const t = raw.trim()
     if (!t) return
-    setText('')
+    update('')
     const [cmd, ...rest] = t.split(/\s+/)
     const words = rest.join(' ')
     if (t.startsWith('/')) {
@@ -305,7 +321,7 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
       await api().sendChat(wksp, t)
     } catch (e) {
       toast('error', 'Message not sent', errText(e))
-      setText(t)
+      update(t)
     }
   }
 
@@ -319,7 +335,7 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
               className={cx('slash-item', i === sel && 'on')}
               onMouseEnter={() => setSel(i)}
               onClick={() => {
-                setText(s.cmd + ' ')
+                update(s.cmd + ' ')
                 ta.current?.focus()
               }}
             >
@@ -337,7 +353,7 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
           disabled={disabled}
           placeholder={disabled ? 'Ally comms are read-only — route work through Genio.' : busy ? 'Genio is working… you can still type; it will read this next.' : 'Message Genio  ·  / for commands'}
           onChange={(e) => {
-            setText(e.target.value)
+            update(e.target.value)
             setSel(0)
           }}
           onKeyDown={(e) => {
@@ -354,7 +370,7 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
               }
               if (e.key === 'Tab') {
                 e.preventDefault()
-                setText(matches[sel].cmd + ' ')
+                update(matches[sel].cmd + ' ')
                 return
               }
               if (e.key === 'Enter' && !e.shiftKey && text.trim() !== matches[sel].cmd) {
