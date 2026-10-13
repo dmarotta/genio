@@ -94,6 +94,22 @@ hold a place in every base plus launches reserved but not yet listed; a respawn
 keeps the place it already holds. Cheap models also need an explicit paid-spend
 allowance (Advanced); a mode never grants one.
 
+All project windows share that dispatcher and account meter. Save has 4 unit
+places, Balanced 8 and Max 16. Competing project launches reserve the last place
+atomically; a warm plan's one-unit limit also counts work in every project base.
+Finished units release their places even when their terminals remain alive.
+
+The meter's world attribution includes project chat and Bot session IDs (current
+and recorded historical sessions), plus units under each base's worktrees.
+Session ownership takes precedence over cwd changes. Codex telemetry and native
+logs use the metadata session ID. Legacy main chat stays unattributed, since it
+can span worlds. These measured tokens are separate from shared account quotas;
+they do not represent a project's percentage of a plan.
+
+`tests/project-usage.test.ts` verifies both providers, historical sessions, cwd
+drift, nested project worktrees, deduplication and legacy shared chat.
+`tests/usage-mode.test.ts` covers cross-project launch races and warm-plan fallback.
+
 **Pinned.** A non-empty chat/Bot/unit model or effort, an ally's own pick, a
 locked category row, a dispatch rule or an explicit deploy pick is Pinned: neither
 the mode nor protection changes it, and Systems → Usage lists it with Unpin.

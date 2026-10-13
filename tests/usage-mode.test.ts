@@ -322,6 +322,31 @@ describe('concurrent unit cap across worlds', () => {
     expect(svc.capacity().used).toBe(6)
   })
 
+  it('serializes competing project launches against the last global place across providers', async () => {
+    const svc = service('save', [task('a'), { ...task('b'), wksp: 'ally' }, task('c')])
+    const attempts = await Promise.allSettled([
+      svc.reserve({ ...ship('d'), harness: 'codex' }),
+      svc.reserve({ ...ship('e'), harness: 'claude' })
+    ])
+    expect(attempts.map(r => r.status)).toEqual(['fulfilled', 'rejected'])
+    expect((attempts[1] as PromiseRejectedResult).reason.message).toContain('allows 4 concurrent units across all worlds')
+    const slot = (attempts[0] as PromiseFulfilledResult<Awaited<ReturnType<typeof svc.reserve>>>).value
+    slot.release()
+    const next = await svc.reserve({ ...ship('e'), harness: 'claude' })
+    expect(svc.capacity().used).toBe(4)
+    next.release()
+  })
+
+  it('protects a warm plan across project bases and selects the other plan', async () => {
+    scan.report.tools.find(t => t.tool === 'codex')!.limits[0].windows[0] = fresh(75)
+    const svc = service('balanced', [{ ...task('a'), wksp: 'ally' }])
+    await expect(svc.reserve({ ...ship('b'), harness: 'codex' })).rejects.toThrow(/deferred/)
+    const fallback = await svc.reserve(ship('b'))
+    expect(fallback.loadout.harness).toBe('claude')
+    await fallback.check()
+    fallback.release()
+  })
+
   it.each(['ready', 'merged', 'done', 'failed', 'cleaned'] as const)('finished %s records in every home release global and world capacity despite live terminals', async state => {
     const records = Array.from({ length: 8 }, (_, i) => ({ ...task('a', state), wksp: i % 2 ? 'ally' : '', pr: i % 3 ? { url: 'https://example.com/pull/1' } : undefined }))
     const svc = service('balanced', records, { a: { capacity: 2 } })

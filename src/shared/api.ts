@@ -160,7 +160,7 @@ export interface MeasuredUsage {
   scope: string
   today: TokenTally
   week: TokenTally
-  /** unit sessions attributed to a world by their worktree (chat sessions span worlds and are not split); measured tokens, not plan share */
+  /** project chat/Bot sessions and unit worktrees attributed to their world; legacy shared chat remains unattributed; measured tokens, not plan share */
   byWorld?: Record<string, { today: TokenTally; week: TokenTally }>
 }
 

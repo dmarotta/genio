@@ -155,6 +155,7 @@ export function parseCodexSession(lines: Iterable<string>, id: string): CodexSes
     const p = obj(j?.payload)
     if (!j || !p) continue
     if (j.type === 'session_meta') {
+      s.id = str(p.id) ?? s.id
       s.cwd = str(p.cwd) ?? s.cwd
       continue
     }
@@ -169,7 +170,7 @@ export function parseCodexSession(lines: Iterable<string>, id: string): CodexSes
       // a smaller total means the counter restarted (new conversation in the same file)
       const reset = d.input < 0 || d.cached < 0 || d.output < 0
       const delta = reset ? cur : d
-      if (delta.input || delta.cached || delta.output) s.records.push({ ts: ms, session: id, ...delta })
+      if (delta.input || delta.cached || delta.output) s.records.push({ ts: ms, session: s.id, ...delta })
       prev = cur
     }
     const rl = obj(p.rate_limits)
@@ -460,18 +461,37 @@ export function belongsToGenio(line: ClaudeUsageLine, sessions: Set<string>, roo
   return sessions.has(line.record.session) || Boolean(line.cwd && isSubPath(line.cwd, root))
 }
 
+/** Session ownership survives cwd changes; legacy main chat remains unattributed. */
+export function usageAttribution(ctx: AppCtx): { sessions: Map<string, string | undefined>; world(cwd?: string): string | undefined } {
+  const sessions = new Map<string, string | undefined>()
+  const owners = new Map((ctx.allies?.list() ?? []).filter(a => a.projects.length === 1).map(a => [a.name, a.projects[0]]))
+  const homes = [...ctx.homes.values()].map(h => ({ home: h.home, world: owners.get(h.home.name) }))
+    .sort((a, b) => b.home.root.length - a.home.root.length)
+  for (const { home, world } of homes) {
+    const state = readJson<{ sessionId?: string; botSessionId?: string }>(home.wkspFile, {})
+    if (state.sessionId) sessions.set(state.sessionId, world)
+    if (state.botSessionId) sessions.set(state.botSessionId, world)
+    const costs = readJson<{ sessions: Record<string, unknown> }>(path.join(home.data, 'usage', 'session-costs.json'), { sessions: {} })
+    for (const id of Object.keys(costs.sessions)) sessions.set(id, world)
+  }
+  return { sessions, world(cwd) {
+    if (!cwd) return undefined
+    // Check the most specific base first: main also contains project bases.
+    for (const { home, world } of homes) {
+      if (world && path.relative(home.root, cwd) === '') return world
+      const unitWorld = worldOf(cwd, home.root)
+      if (unitWorld) return unitWorld
+    }
+    return undefined
+  } }
+}
+
 async function claudeUsage(ctx: AppCtx, root: string, now: number): Promise<ToolUsage> {
   const { weekStart } = usageWindows(now)
   const projects = path.join(claudeHome(), 'projects')
   // Persisted session identity wins over cwd (which can change mid-conversation).
-  const sessions = new Set<string>()
-  for (const h of ctx.homes.values()) {
-    const state = readJson<{ sessionId?: string; botSessionId?: string }>(h.home.wkspFile, {})
-    if (state.sessionId) sessions.add(state.sessionId)
-    if (state.botSessionId) sessions.add(state.botSessionId)
-    const costs = readJson<{ sessions: Record<string, unknown> }>(path.join(h.home.data, 'usage', 'session-costs.json'), { sessions: {} })
-    for (const id of Object.keys(costs.sessions)) sessions.add(id)
-  }
+  const attribution = usageAttribution(ctx)
+  const sessions = new Set(attribution.sessions.keys())
   const files = recentJsonl(projects, weekStart)
   const seen = new Map<string, TokenRecord>()
   const worldByKey = new Map<string, string>()
@@ -480,7 +500,7 @@ async function claudeUsage(ctx: AppCtx, root: string, now: number): Promise<Tool
     for (const l of lines ?? []) {
       if (!belongsToGenio(l, sessions, root)) continue
       const key = `${l.record.session}:${l.key}`
-      const world = worldOf(l.cwd, root)
+      const world = attribution.sessions.has(l.record.session) ? attribution.sessions.get(l.record.session) : attribution.world(l.cwd)
       if (world) worldByKey.set(key, world)
       const prev = seen.get(key)
       // Streaming content blocks may repeat the request with larger output counters.
@@ -501,7 +521,8 @@ async function claudeUsage(ctx: AppCtx, root: string, now: number): Promise<Tool
   }
 }
 
-async function codexUsage(root: string, now: number, data: string): Promise<ToolUsage> {
+async function codexUsage(ctx: AppCtx, root: string, now: number, data: string): Promise<ToolUsage> {
+  const attribution = usageAttribution(ctx)
   const { weekStart } = usageWindows(now)
   const chats = recentJsonl(path.join(data, 'usage', 'codex-chat'), weekStart)
   const chatIds = chats.map(f => path.basename(f, '.jsonl'))
@@ -514,10 +535,13 @@ async function codexUsage(root: string, now: number, data: string): Promise<Tool
     if (!s) continue
     // plan limits are account-wide: every session's snapshot counts
     snapshots.push(...s.snapshots)
-    if (chats.includes(f) || s.cwd && isSubPath(s.cwd, root)) {
+    const owned = s.records.some(r => attribution.sessions.has(r.session))
+    if (chats.includes(f) || owned || s.cwd && isSubPath(s.cwd, root)) {
       records.push(...s.records)
-      const world = worldOf(s.cwd, root)
-      if (world) for (const r of s.records) worlds.set(r, world)
+      for (const r of s.records) {
+        const world = attribution.sessions.has(r.session) ? attribution.sessions.get(r.session) : attribution.world(s.cwd)
+        if (world) worlds.set(r, world)
+      }
     }
   }
   codexCache.prune(new Set(files))
@@ -545,7 +569,7 @@ export function usageReport(ctx: AppCtx): Promise<UsageReport> {
   inFlight ??= (async (): Promise<UsageReport> => {
     const now = Date.now()
     const root = ctx.main.home.root
-    const tools = [await safely('claude', () => claudeUsage(ctx, root, now)), await safely('codex', () => codexUsage(root, now, ctx.main.home.data))]
+    const tools = [await safely('claude', () => claudeUsage(ctx, root, now)), await safely('codex', () => codexUsage(ctx, root, now, ctx.main.home.data))]
     let fal: FalSpend
     try {
       fal = falSpend(new FalHistory(path.join(ctx.main.home.data, 'fal')).list(), now)

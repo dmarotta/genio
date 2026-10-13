@@ -562,7 +562,7 @@ function WorldAttribution({ usage }: { usage: UsageReport }) {
     <div className="usage-block" style={{ margin: '10px 0 16px' }}>
       <div className="usage-head">
         <b>Attributed to worlds</b>
-        <span className="mute">unit tokens measured by Genio from local logs · not a share of the plan · chat spans worlds and is not split</span>
+        <span className="mute">project chat and unit tokens measured from local logs · shared account plans · legacy shared chat remains unattributed</span>
       </div>
       <div className="usage-tokens mono">
         <span className="mute">world</span>
