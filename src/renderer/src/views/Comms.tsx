@@ -412,7 +412,8 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
 
 const SHELL_MODES: { id: Settings['chatShellMode']; label: string; hint: string }[] = [
   { id: 'ask', label: 'Ask', hint: 'Read-only commands run; anything else asks you first.' },
-  { id: 'auto-shell', label: 'Auto-approve shell', hint: 'Every Bash/PowerShell command in the Genio chat runs without asking. Other tools still ask; the Bot stays read-only.' }
+  { id: 'auto-shell', label: 'Auto-approve shell', hint: 'Every Bash/PowerShell command in the Genio chat runs without asking. Other tools still ask; the Bot stays read-only.' },
+  { id: 'all', label: 'YOLO', hint: 'Nothing will ask for permission: every command and tool the Genio chat can use runs without asking. The Bot stays read-only.' }
 ]
 
 function cycleShellMode(): void {
@@ -425,10 +426,10 @@ function cycleShellMode(): void {
 function ShellModeButton() {
   const mode = useStore((s) => s.settings?.chatShellMode ?? 'ask')
   const m = SHELL_MODES.find((x) => x.id === mode) ?? SHELL_MODES[0]
-  const auto = mode === 'auto-shell'
+  const auto = mode !== 'ask'
   return (
     <button
-      className={cx('btn sm', auto ? 'amber' : 'ghost')}
+      className={cx('btn sm', mode === 'all' ? 'alert' : auto ? 'amber' : 'ghost')}
       style={{ marginRight: 12, verticalAlign: 'middle' }}
       title={`${m.hint}\nClick or Shift+Tab to switch.`}
       onClick={cycleShellMode}

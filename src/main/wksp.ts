@@ -70,10 +70,11 @@ export function decideTool(role: ToolRole, toolName: string, input: unknown, she
     if (isReadOnlyCommand(cmd)) return { behavior: 'allow' }
     // the Bot stays read-only whatever the chat's approval mode
     if (role === 'bot') return { behavior: 'deny', message: 'The Bot only runs read-only commands while the player is away.' }
-    if (shellMode === 'auto-shell') return { behavior: 'allow' }
+    if (shellMode === 'auto-shell' || shellMode === 'all') return { behavior: 'allow' }
     return { behavior: 'ask', input: cmd, reason: 'Not on the read-only list' }
   }
   if (role === 'bot') return { behavior: 'deny', message: 'Not available to the Bot.' }
+  if (shellMode === 'all') return { behavior: 'allow' }
   return { behavior: 'ask', input: truncate(JSON.stringify(input), 1500) }
 }
 
