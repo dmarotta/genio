@@ -1,13 +1,11 @@
 import { useEffect, type ReactNode } from 'react'
 import { Flame, Lock, Trophy } from 'lucide-react'
-import { recentLoot } from '@shared/quest-summary'
 import { api, useStore } from '../store'
 import { ViewHeader } from '../components/ui'
 import { cx, dateShort, usd } from '../lib/format'
 
 export function CharacterSheet() {
   const stats = useStore((s) => s.snap.stats)
-  const loot = useStore((s) => recentLoot(s.snap))
 
   useEffect(() => {
     void api().featureUsed('character-sheet').catch(() => {})
@@ -19,67 +17,51 @@ export function CharacterSheet() {
     <div className="view character-sheet">
       <ViewHeader kicker="Level, XP & achievements" title={<>Character <span className="accent">Sheet</span></>} />
 
-      <div className="stats-row">
-        <section className="panel stats-card ticks">
-          <div className="level-big">
-            <div className="lv-hex">
-              <svg viewBox="0 0 100 100" width="92" height="92">
-                <polygon points="50,3 93,27 93,73 50,97 7,73 7,27" fill="rgba(198,255,61,0.06)" stroke="var(--volt)" strokeWidth="2" />
-              </svg>
-              <div className="lv-num num">{stats.level}</div>
+      <section className="panel stats-card ticks">
+        <div className="level-big">
+          <div className="lv-hex">
+            <svg viewBox="0 0 100 100" width="92" height="92">
+              <polygon points="50,3 93,27 93,73 50,97 7,73 7,27" fill="rgba(198,255,61,0.06)" stroke="var(--volt)" strokeWidth="2" />
+            </svg>
+            <div className="lv-num num">{stats.level}</div>
+          </div>
+          <div className="lv-meta">
+            <div className="label">Level</div>
+            <div className="bar" style={{ ['--c' as string]: 'var(--volt)', marginTop: 8 }}>
+              <i style={{ width: `${pct}%` }} />
             </div>
-            <div className="lv-meta">
-              <div className="label">Level</div>
-              <div className="bar" style={{ ['--c' as string]: 'var(--volt)', marginTop: 8 }}>
-                <i style={{ width: `${pct}%` }} />
-              </div>
-              <div className="mute mono" style={{ marginTop: 6, fontSize: 12 }}>
-                {stats.xp} / {stats.xpNext} XP
-              </div>
+            <div className="mute mono" style={{ marginTop: 6, fontSize: 12 }}>
+              {stats.xp} / {stats.xpNext} XP
             </div>
           </div>
-          <div className="stat-tiles">
-            <Tile label="Shipped today" value={stats.shippedToday} tone="volt" />
-            <Tile label="Shipped total" value={stats.shippedTotal} tone="neon" />
-            <Tile label="Recons" value={stats.scoutsTotal} tone="violet" />
-            <Tile label="Streak" value={`${stats.streakDays}d`} tone="amber" icon={<Flame size={14} />} />
-            <Tile label="Chat/review estimate today" value={usd(stats.costTodayUsd)} tone="mute" />
-          </div>
-        </section>
-        <section className="panel achv-grid-card">
-          <header className="card-head">
-            <span className="label">Achievements</span>
-            <span className="num dim">
-              {unlocked}/{stats.achievements.length}
-            </span>
-          </header>
-          <div className="achv-grid">
-            {stats.achievements.map((a) => (
-              <div key={a.id} className={cx('achv-tile', a.unlockedAt ? 'got' : 'locked')} title={a.description}>
-                <div className="achv-ico">{a.unlockedAt ? <Trophy size={18} /> : <Lock size={16} />}</div>
-                <div className="achv-tname">{a.name}</div>
-                <div className="achv-tdesc">{a.unlockedAt ? dateShort(a.unlockedAt) : a.description}</div>
-              </div>
-            ))}
-            {!stats.achievements.length && <div className="mute">No achievements defined.</div>}
-          </div>
-        </section>
-      </div>
+        </div>
+        <div className="stat-tiles">
+          <Tile label="Shipped today" value={stats.shippedToday} tone="volt" />
+          <Tile label="Shipped total" value={stats.shippedTotal} tone="neon" />
+          <Tile label="Recons" value={stats.scoutsTotal} tone="violet" />
+          <Tile label="Streak" value={`${stats.streakDays}d`} tone="amber" icon={<Flame size={14} />} />
+          <Tile label="Chat/review estimate today" value={usd(stats.costTodayUsd)} tone="mute" />
+        </div>
+      </section>
 
-      <section className="status-sec panel ticks" style={{ ['--sec' as string]: 'var(--volt)' }}>
+      <section className="panel achv-grid-card ticks">
         <header className="card-head">
-          <h2 className="sec-title">Loot</h2>
-          <span className="mute">Last {loot.length} completions</span>
+          <span className="label">Achievements</span>
+          <span className="achv-count">
+            <span className="num">{unlocked}/{stats.achievements.length}</span>
+            <span className="mute"> unlocked</span>
+          </span>
         </header>
-        {!loot.length && <div className="mute sec-empty">No loot yet. Completed quests appear here.</div>}
-        <ul className="sec-lines">
-          {loot.map((entry) => (
-            <li key={entry.key} className="sec-line">
-              <i className="sec-dot" style={{ background: 'var(--volt)' }} />
-              <span><b>{entry.title}</b><br /><span className="mute">{entry.detail} · {dateShort(entry.completedAt)}</span></span>
-            </li>
+        <div className="achv-grid">
+          {stats.achievements.map((a) => (
+            <div key={a.id} className={cx('achv-tile', a.unlockedAt ? 'got' : 'locked')} title={a.description}>
+              <div className="achv-ico">{a.unlockedAt ? <Trophy size={24} /> : <Lock size={20} />}</div>
+              <div className="achv-tname">{a.name}</div>
+              <div className="achv-tdesc">{a.unlockedAt ? dateShort(a.unlockedAt) : a.description}</div>
+            </div>
           ))}
-        </ul>
+          {!stats.achievements.length && <div className="mute">No achievements defined.</div>}
+        </div>
       </section>
     </div>
   )

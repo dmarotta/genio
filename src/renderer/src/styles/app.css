@@ -617,29 +617,32 @@ button.usage-toggle:hover { color: var(--text); }
 .sec-line.click:hover { background: rgba(255, 255, 255, 0.03); }
 .sec-dot { width: 6px; height: 6px; margin-top: 8px; }
 .sec-url { grid-column: 2; font-size: 11px; }
-.stats-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
-.character-sheet > * { flex-shrink: 0; }
-.character-sheet .stats-row > *, .character-sheet .replay { min-width: 0; }
+.character-sheet > * { flex-shrink: 0; min-width: 0; }
 .character-sheet .lv-hex { flex-shrink: 0; }
 .character-sheet .lv-meta { flex: 1; min-width: 0; max-width: 220px; }
 .character-sheet .card-head { flex-wrap: wrap; gap: 8px; }
 .character-sheet .replay-row { grid-template-columns: 120px 150px 160px minmax(120px, 1fr); }
-.stats-card { padding: 22px; display: flex; flex-direction: column; gap: 20px; }
-.level-big { display: flex; align-items: center; gap: 20px; }
+.stats-card { padding: 22px; display: flex; align-items: center; gap: 28px; }
+.stats-card .stat-tiles { flex: 1; min-width: 0; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+.level-big { display: flex; align-items: center; gap: 20px; flex: 0 0 300px; }
 .lv-hex { position: relative; width: 92px; height: 92px; filter: drop-shadow(0 0 10px rgba(198, 255, 61, 0.35)); }
 .lv-num { position: absolute; inset: 0; display: grid; place-items: center; font-size: 40px; color: var(--volt); }
 .stat-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
 .tile { padding: 10px 12px; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--line); }
 .tile-val { font-size: 26px; display: flex; align-items: center; gap: 6px; line-height: 1.1; }
 .card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-.achv-grid-card { padding: 18px 20px; }
-.achv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; max-height: 300px; overflow: auto; }
-.achv-tile { padding: 12px 10px; text-align: center; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.3); display: flex; flex-direction: column; align-items: center; gap: 5px; }
-.achv-tile.got { border-color: rgba(198, 255, 61, 0.4); background: linear-gradient(180deg, rgba(198, 255, 61, 0.1), transparent); }
+.achv-grid-card { padding: 20px 22px 22px; }
+.achv-count .num { font-size: 22px; color: var(--volt); }
+.achv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.achv-tile { padding: 18px 14px 16px; min-height: 140px; text-align: center; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.3); display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.achv-tile.got { border-color: rgba(198, 255, 61, 0.45); background: linear-gradient(180deg, rgba(198, 255, 61, 0.12), transparent); }
 .achv-tile.got .achv-ico { color: var(--volt); filter: drop-shadow(0 0 6px rgba(198, 255, 61, 0.6)); }
-.achv-tile.locked { opacity: 0.5; }
-.achv-tname { font-weight: 700; font-size: 12.5px; letter-spacing: 0.04em; }
-.achv-tdesc { font-size: 11px; color: var(--text-mute); line-height: 1.35; }
+.achv-tile.got .achv-tdesc { color: var(--volt); opacity: 0.8; }
+.achv-tile.locked { border-style: dashed; color: var(--text-dim); }
+.achv-tile.locked .achv-ico { color: var(--text-mute); opacity: 0.7; }
+.achv-ico { height: 28px; display: grid; place-items: center; }
+.achv-tname { font-weight: 700; font-size: 14px; letter-spacing: 0.04em; }
+.achv-tdesc { font-size: 12px; color: var(--text-mute); line-height: 1.4; }
 .replay { padding: 18px 20px; }
 .replay-list { max-height: 280px; overflow: auto; font-size: 11.5px; }
 .replay-row { display: grid; grid-template-columns: 120px 150px 160px 1fr; gap: 12px; padding: 5px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.03); white-space: nowrap; }
@@ -757,7 +760,10 @@ button.usage-toggle:hover { color: var(--text); }
   .view { padding: 22px 22px 30px; }
   .comms { grid-template-columns: minmax(0, 1fr); }
   .comms-side { display: none; }
-  .status-grid, .stats-row { grid-template-columns: minmax(0, 1fr); }
+  .status-grid { grid-template-columns: minmax(0, 1fr); }
+  .stats-card { flex-direction: column; align-items: stretch; gap: 20px; }
+  .level-big { flex-basis: auto; }
+  .achv-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
   .lore-layout { grid-template-columns: minmax(0, 1fr); }
   .detail-body { grid-template-columns: minmax(0, 1fr) 320px; }
   .unit-grid { grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); }

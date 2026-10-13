@@ -36,28 +36,30 @@ async function mount(component: React.ComponentType) {
   await act(async () => root.render(React.createElement(component)))
 }
 
-it('shows RPG stats, locked hints and loot, with no operational queue or report UI', async () => {
+it('shows RPG stats above the achievements grid, with no loot, operational queue or report UI', async () => {
   await mount(CharacterSheet)
-  for (const label of ['Character Sheet', '40 / 100 XP', 'Shipped today', 'Shipped total', 'Recons', 'Streak', '7d', 'Achievements', 'On a Roll', '1/2', 'Chat/review estimate today', '$1.25', 'Loot']) expect(host.textContent).toContain(label)
-  for (const label of ['Your Move', 'Up Next', 'In Progress', 'Include PRs', 'File report', 'Replay log']) expect(host.textContent).not.toContain(label)
+  for (const label of ['Character Sheet', '40 / 100 XP', 'Shipped today', 'Shipped total', 'Recons', 'Streak', '7d', 'Achievements', 'On a Roll', '1/2', 'Chat/review estimate today', '$1.25']) expect(host.textContent).toContain(label)
+  for (const label of ['Loot', 'Your Move', 'Up Next', 'In Progress', 'Include PRs', 'File report', 'Replay log']) expect(host.textContent).not.toContain(label)
+  const rows = [...host.querySelector('.character-sheet')!.children].filter((el) => el.tagName === 'SECTION')
+  expect(rows.map((el) => el.className)).toEqual(['panel stats-card ticks', 'panel achv-grid-card ticks'])
   expect(host.querySelector('.achv-tile.got')?.textContent).toContain('On a Roll')
   expect(host.querySelector('.achv-tile.locked')?.textContent).toContain('Keep playing.')
-  expect(host.textContent).toContain('No loot yet')
   expect(featureUsed).toHaveBeenCalledExactlyOnceWith('character-sheet')
 })
 
-it('updates loot and XP from real quest, task and stats events without refetching a report', async () => {
+it('updates XP and achievements from live events, ignoring completions, without refetching a report', async () => {
   await mount(CharacterSheet)
   await act(async () => {
     handleEvent({ type: 'backlog', items: [quest('First win', { state: 'done', doneAt: '2026-10-12T10:00:00Z' })] })
     handleEvent({ type: 'task', task: { id: 'recon', title: 'Map explored', kind: 'scout', state: 'done', updatedAt: '2026-10-13T10:00:00Z' } as Task })
-    handleEvent({ type: 'stats', stats: { ...getState().snap.stats, xp: 80 } })
+    const s = getState().snap.stats
+    handleEvent({ type: 'stats', stats: { ...s, xp: 80, achievements: s.achievements.map((a) => ({ ...a, unlockedAt: a.unlockedAt ?? '2026-10-13' })) } })
   })
-  const rows = host.querySelectorAll('.sec-line')
-  expect(rows[0].textContent).toContain('Map explored')
-  expect(rows[0].textContent).toContain('Recon report delivered')
-  expect(rows[1].textContent).toContain('First win')
+  expect(host.textContent).not.toContain('Map explored')
+  expect(host.textContent).not.toContain('First win')
   expect(host.textContent).toContain('80 / 100 XP')
+  expect(host.textContent).toContain('2/2')
+  expect(host.querySelectorAll('.achv-tile.got')).toHaveLength(2)
   expect(featureUsed).toHaveBeenCalledTimes(1)
 })
 

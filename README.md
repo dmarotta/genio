@@ -28,7 +28,7 @@ for the design and [docs/VOCABULARY.md](docs/VOCABULARY.md) for the terms.
   finishes, needs a choice, lags, or a PR changes state.
 - **Pending answers** — choice cards beside the current screen, with options, recommendations and free-text answers.
 - **Quest Log** — queued work with priorities, dependencies, holds and capacity.
-- **Character Sheet** (`/status`) — Level, XP, streaks, achievements and recent completion loot (Ctrl+5).
+- **Character Sheet** (`/status`) — Level, XP, streaks and stats above a large achievements grid (Ctrl+5).
 - **Presence** — Online, DND (routine events handled off-screen), AFK (the Bot
   plays for you and replays a welcome-back brief; optional desktop and webhook
   alerts).
