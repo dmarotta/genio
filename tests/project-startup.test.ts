@@ -14,6 +14,7 @@ import { ensureProjectBase, startProjectBase, stopProjectBase } from '../src/mai
 import { BUILTIN_HARNESSES } from '../src/main/harness'
 import type { AppCtx, HomeCtx } from '../src/main/services'
 import type { Task } from '../src/shared/types'
+import { answerChoice, clarifyChoice } from '../src/main/wksp-tools'
 
 let root: string, ctx: AppCtx, home: Home, hc: HomeCtx, cap: number
 let terminals: Map<string, { id: string; alive: boolean }>, extra: Task[]
@@ -67,6 +68,21 @@ async function open(): Promise<void> {
   await ensureProjectBase(ctx, 'world')
   await startProjectBase(ctx, 'world', 'world')
 }
+
+it('folds structured unit choices and preserves the open obligation during clarification', async () => {
+  unit('choices', 'blocked')
+  hc.crew.appendStatus('choices', 'needs-decision [key=scene]: May I close my test scene? || {"options":["Close it","Keep it"],"recommendation":"Close it","details":"PID 123; C:/test; check --scene","batch":"checks"}')
+  hc.crew.readNewStatus('choices')
+  const d = hc.decisions.list()[0]
+  expect(d).toMatchObject({ question: 'May I close my test scene?', options: ['Close it', 'Keep it'], recommendation: 'Close it', context: 'PID 123; C:/test; check --scene', batch: 'checks' })
+  expect((await clarifyChoice(ctx, d.id, 'Which copy?')).ok).toBe(true)
+  expect(hc.crew.openDecisionKeys('choices')).toEqual(['scene'])
+  expect(d.resolvedAt).toBeUndefined()
+  expect((await answerChoice(ctx, d.id, 'Keep it')).ok).toBe(true)
+  expect(d.answer).toBe('Keep it')
+  expect(hc.crew.openDecisionKeys('choices')).toEqual([])
+  expect(hc.crew.unreadInbox('choices')).toHaveLength(2)
+})
 
 describe('project window startup reconciliation', () => {
   it('deliberately relaunches detached units once, preserves their copies, and leaves the automatic retry available', async () => {

@@ -4,7 +4,8 @@ import path from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { Home } from '../src/main/home'
 import { createDecisionService } from '../src/main/decisions'
-import { answerChoice } from '../src/main/wksp-tools'
+import { answerChoice, clarifyChoice, applyRecommendations } from '../src/main/wksp-tools'
+import { reviewRecommendation, choiceGroup } from '../src/shared/choice'
 import { createAwayService } from '../src/main/away'
 import { projectSnapshot, routeProjectEvent } from '../src/main/project-windows'
 import type { AppCtx, HomeCtx } from '../src/main/services'
@@ -26,7 +27,7 @@ beforeEach(() => {
     settings: { get: () => ({ awayBatchSeconds: 90, alarm: 'off' }) }
   } as unknown as AppCtx
   hc = { home, decisions: createDecisionService(() => ctx, home),
-    crew: { get: () => ({ state: 'blocked', project: 'game' }), send },
+    crew: { get: () => ({ state: 'blocked', project: 'game' }), send, appendStatus: vi.fn() },
     backlog: { get: () => undefined }, wksp: { say, deliverWakes() {} }
   } as unknown as HomeCtx
   ctx.homes.set('one', hc)
@@ -36,7 +37,7 @@ afterEach(() => { fs.rmSync(root, { recursive: true, force: true }); vi.useRealT
 it('centrally claims simultaneous answers once, relays once and writes a receipt in the owner conversation', async () => {
   const d = hc.decisions.open({ question: 'Pick a route?', taskId: 'unit', source: 'unit' })
   const results = await Promise.all([answerChoice(ctx, d.id, ' A '), answerChoice(ctx, d.id, 'B')])
-  expect(results.every(r => r.ok)).toBe(true)
+  expect(results.map(r => r.ok)).toEqual([true, false])
   expect(d.answer).toBe('A')
   expect(send).toHaveBeenCalledTimes(1)
   expect(award).toHaveBeenCalledTimes(1)
@@ -84,4 +85,84 @@ it('quietly counts current choices on return rather than replaying stale choice 
   away.capture({ text: 'Private question?', severity: 'decision', wksp: 'one' })
   expect(away.takeReturnBrief()).not.toContain('choices waiting')
   away.set('online')
+})
+
+it('relays clarification without resolving the key or the quest, and persists its history', async () => {
+  const d = hc.decisions.open({ question: 'May I close my test scene?', taskId: 'unit', source: 'unit', options: ['Close it', 'Keep it'], recommendation: 'Close it' })
+  expect((await clarifyChoice(ctx, d.id, 'Which scene?')).ok).toBe(true)
+  expect(send).toHaveBeenCalledWith('unit', expect.stringContaining('not an answer or approval'), [])
+  expect(hc.crew.appendStatus).not.toHaveBeenCalled()
+  expect(d.resolvedAt).toBeUndefined()
+  expect(d.answer).toBeUndefined()
+  expect(award).not.toHaveBeenCalled()
+  expect(createDecisionService(() => ctx, hc.home).get(d.id)?.clarifications).toEqual([{ question: 'Which scene?', at: expect.any(String) }])
+  const updated = hc.decisions.openForTask('unit', d.key, 'May I close the isolated test scene?', 'unit', { context: 'PID 123; test copy only' })
+  expect(updated.id).toBe(d.id)
+  expect(updated.clarifications).toHaveLength(1)
+})
+
+it('keeps failed clarification and answer delivery pending', async () => {
+  const d = hc.decisions.open({ question: 'Pick a route?', taskId: 'unit' })
+  send.mockResolvedValue({ ok: false, message: 'Inbox unavailable' })
+  expect((await clarifyChoice(ctx, d.id, 'Why?')).ok).toBe(false)
+  expect((await answerChoice(ctx, d.id, 'A')).ok).toBe(false)
+  expect(d.resolvedAt).toBeUndefined()
+  expect(d.clarifications).toBeUndefined()
+  expect(say).not.toHaveBeenCalled()
+})
+
+it('applies only the captured related recommendations and reports changed and failed rows individually', async () => {
+  const a = hc.decisions.open({ question: 'Route A?', taskId: 'a', batch: 'routes', recommendation: 'Exact A' })
+  const b = hc.decisions.open({ question: 'Route B?', taskId: 'b', batch: 'routes', recommendation: 'Exact B' })
+  const c = hc.decisions.open({ question: 'Route C?', taskId: 'c', batch: 'routes', recommendation: 'Exact C' })
+  const review = [a, b, c].map(d => reviewRecommendation(d)!)
+  const newArrival = hc.decisions.open({ question: 'New route?', taskId: 'new', batch: 'routes', recommendation: 'New answer' })
+  hc.decisions.openForTask('b', b.key, 'Changed route B?', 'unit')
+  send.mockImplementation(async (task: string) => ({ ok: task !== 'c', message: 'Delivery failed' }))
+  const results = await applyRecommendations(ctx, review)
+  expect(results.map(r => [r.id, r.ok])).toEqual([[a.id, true], [b.id, false], [c.id, false]])
+  expect(a.answer).toBe('Exact A')
+  expect(b.resolvedAt).toBeUndefined()
+  expect(c.resolvedAt).toBeUndefined()
+  expect(newArrival.resolvedAt).toBeUndefined()
+  expect(send).toHaveBeenCalledTimes(2)
+  expect(award).toHaveBeenCalledTimes(1)
+})
+
+it('excludes guessed prose and rejects mixed groups, deferred and already answered snapshots', async () => {
+  const plain = hc.decisions.open({ question: 'Maybe close it (recommended) or keep it?' })
+  expect(reviewRecommendation(plain)).toBeUndefined()
+  const a = hc.decisions.open({ question: 'Route A?', taskId: 'a', recommendation: 'A' })
+  const b = hc.decisions.open({ question: 'Route B?', taskId: 'b', recommendation: 'B' })
+  expect(choiceGroup(a)).not.toBe(choiceGroup(b))
+  await expect(applyRecommendations(ctx, [reviewRecommendation(a)!, reviewRecommendation(b)!])).rejects.toThrow('one related group')
+  const review = reviewRecommendation(a)!
+  hc.decisions.defer(a.id, new Date(Date.now() + 60_000).toISOString())
+  expect((await applyRecommendations(ctx, [review]))[0].ok).toBe(false)
+  hc.decisions.defer(a.id, '')
+  hc.decisions.resolve(a.id, 'B')
+  expect((await applyRecommendations(ctx, [review]))[0].ok).toBe(false)
+  expect(a.answer).toBe('B')
+})
+
+it('invalidates a review even when a changed question returns to its original wording', async () => {
+  const d = hc.decisions.open({ taskId: 'unit', question: 'Pick a route?', recommendation: 'A' })
+  const review = reviewRecommendation(d)!
+  hc.decisions.openForTask('unit', d.key, 'A different question?', 'unit')
+  hc.decisions.openForTask('unit', d.key, 'Pick a route?', 'unit')
+  expect((await applyRecommendations(ctx, [review]))[0].ok).toBe(false)
+  expect(send).not.toHaveBeenCalled()
+  expect(createDecisionService(() => ctx, hc.home).get(d.id)?.revision).toBe(3)
+})
+
+it('routes a Genio clarification to its owning conversation without releasing its held quest', async () => {
+  hc.wksp.send = vi.fn().mockResolvedValue(undefined)
+  hc.backlog.get = vi.fn().mockReturnValue({ state: 'held' })
+  hc.backlog.answer = vi.fn()
+  const d = hc.decisions.open({ question: 'Which route?', backlogId: 'quest', source: 'genio' })
+  expect((await clarifyChoice(ctx, d.id, 'What changes?')).ok).toBe(true)
+  expect(hc.wksp.send).toHaveBeenCalledWith(expect.stringContaining(`choice ${d.id}`), 'player')
+  expect(hc.backlog.answer).not.toHaveBeenCalled()
+  expect(d.resolvedAt).toBeUndefined()
+  expect(say).not.toHaveBeenCalled()
 })

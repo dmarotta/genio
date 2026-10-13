@@ -113,6 +113,7 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
         source: input.source ?? 'genio',
         urgency: input.urgency ?? 'normal',
         createdAt: nowIso(),
+        revision: 1,
         ...(input.until ? { until: input.until } : {}),
         ...(input.action ? { action: input.action } : {})
       }
@@ -133,13 +134,16 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
         }
         if (extra) {
           for (const f of ['context', 'recommendation', 'options', 'urgency', 'batch'] as const) {
-            if (extra[f] !== undefined) {
+            if (extra[f] !== undefined && JSON.stringify(existing[f]) !== JSON.stringify(extra[f])) {
               ;(existing as unknown as Record<string, unknown>)[f] = extra[f]
               changed = true
             }
           }
         }
-        if (changed) save()
+        if (changed) {
+          existing.revision = (existing.revision ?? 0) + 1
+          save()
+        }
         return existing
       }
       return svc.open({ ...extra, taskId, key: k, question, source })
@@ -204,6 +208,7 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
       const d = load().find(x => x.id === id && !x.resolvedAt)
       if (!d) return
       d.clarifications = [...(d.clarifications ?? []), { question, at: nowIso() }]
+      d.revision = (d.revision ?? 0) + 1
       save()
     },
 
@@ -233,6 +238,8 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
       const d = load().find((x) => x.id === id)
       if (!d || d.resolvedAt) return
       if (until && !Number.isFinite(Date.parse(until))) throw new Error('Invalid deferral date.')
+      if ((d.until ?? '') === (until ?? '')) return
+      d.revision = (d.revision ?? 0) + 1
       if (until) d.until = until
       else delete d.until // resurface now
       save()

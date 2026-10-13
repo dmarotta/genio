@@ -10,6 +10,8 @@ import { navItems } from '../src/renderer/src/lib/railmenu'
 const initial = getState()
 const answerDecision = vi.fn()
 const deferDecision = vi.fn().mockResolvedValue(undefined)
+const clarifyDecision = vi.fn()
+const applyRecommendations = vi.fn()
 let host: HTMLDivElement
 let root: Root
 const choice = (id: string, patch: Partial<Decision> = {}): Decision => ({
@@ -18,8 +20,8 @@ const choice = (id: string, patch: Partial<Decision> = {}): Decision => ({
 })
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
-  Object.assign(window, { genio: { api: { answerDecision, deferDecision } } })
-  setState({ ...initial, answersOpen: true, view: 'worlds', snap: { ...initial.snap, decisions: [choice('one')] } })
+  Object.assign(window, { genio: { api: { answerDecision, deferDecision, clarifyDecision, applyRecommendations } } })
+  setState({ ...initial, answerHistory: undefined, answerTarget: undefined, answersOpen: true, view: 'worlds', snap: { ...initial.snap, decisions: [choice('one')] } })
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
 })
 afterEach(async () => {
@@ -112,4 +114,59 @@ it('notification targets reveal a specific answered choice without changing the 
   expect(host.querySelector('#answer-done')?.textContent).toContain('Question done')
   expect(getState().view).toBe('worlds')
   expect(answerDecision).not.toHaveBeenCalled()
+})
+
+async function type(text: string) {
+  const box = host.querySelector('textarea')!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, text)
+    box.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
+it('keeps diagnostics under Details and sends clarification through its own action', async () => {
+  setState({ snap: { ...getState().snap, decisions: [choice('one', { context: 'PID 123; C:/test; exact command' })] } })
+  clarifyDecision.mockResolvedValue({ ok: true, message: 'Question sent. The choice remains pending.' })
+  await mount()
+  expect(host.querySelector('details')?.open).toBe(false)
+  expect(host.querySelector('summary')?.textContent).toBe('Details')
+  await click('Ask for clarification')
+  expect(host.querySelector('textarea')?.getAttribute('aria-label')).toBe('Your clarification question')
+  await type('Which test scene?')
+  await click('Send question')
+  expect(clarifyDecision).toHaveBeenCalledExactlyOnceWith('one', 'Which test scene?')
+  expect(answerDecision).not.toHaveBeenCalled()
+  expect(host.textContent).toContain('Question one')
+  expect(host.textContent).toContain('choice remains pending')
+})
+
+it('reviews exact captured answers, excludes new arrivals and retains partial-failure results', async () => {
+  const a = choice('one', { taskId: 'task', recommendation: 'A' })
+  const b = choice('two', { taskId: 'task', recommendation: 'B' })
+  setState({ snap: { ...getState().snap, decisions: [a, b, choice('ambiguous', { taskId: 'task', question: 'Maybe A (recommended) or B?' })] } })
+  await mount()
+  const reviewButton = [...host.querySelectorAll('button')].find(b => b.textContent?.startsWith('Review recommendations'))!
+  await act(async () => reviewButton.click())
+  expect(host.querySelector('[aria-label="Review recommendations"]')?.textContent).toContain('Answer: A')
+  expect(host.querySelector('[aria-label="Review recommendations"]')?.textContent).toContain('Answer: B')
+  await act(async () => handleEvent({ type: 'decisions', decisions: [a, b, choice('new', { taskId: 'task', recommendation: 'A' })] }))
+  applyRecommendations.mockResolvedValue([{ id: a.id, ok: true, message: 'Applied' }, { id: b.id, ok: false, message: 'Changed since review' }])
+  await click('Apply recommendations (2)')
+  expect(applyRecommendations.mock.calls[0][0].map((r: { id: string }) => r.id)).toEqual(['one', 'two'])
+  expect(host.textContent).toContain('Not applied: Changed since review')
+  expect(answerDecision).not.toHaveBeenCalled()
+})
+
+it('retains the batch receipt after its final pending choice resolves', async () => {
+  setState({ snap: { ...getState().snap, decisions: [choice('one', { taskId: 'task', recommendation: 'A' }), choice('two', { taskId: 'task', recommendation: 'B' })] } })
+  await mount()
+  await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.startsWith('Review recommendations'))!.click())
+  applyRecommendations.mockImplementation(async () => {
+    handleEvent({ type: 'decisions', decisions: [] })
+    return [{ id: 'one', ok: true, message: 'Applied' }, { id: 'two', ok: true, message: 'Applied' }]
+  })
+  await click('Apply recommendations (2)')
+  expect(host.textContent).toContain('Close results')
+  await click('Close results')
+  expect(host.textContent).toBe('')
 })

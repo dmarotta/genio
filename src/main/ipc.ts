@@ -331,7 +331,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
             const ids = method === 'applyRecommendations' ? (args[0] as { id: string }[]).map(r => r.id) : [String(args[0])]
             for (const id of ids) {
               const found = findDecision(ctx(), id)
-              if (!found || !ownsDecision(found.d, binding)) throw new Error('Choice is outside this project.')
+              if ((!found && method !== 'applyRecommendations') || (found && !ownsDecision(found.d, binding))) throw new Error('Choice is outside this project.')
             }
           }
           if (method === 'readMemory') return ctx().memory.read(args[0] as Parameters<GenioApi['readMemory']>[0], ctx().home(binding.wksp).home)

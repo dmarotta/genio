@@ -607,7 +607,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       update(id, { inbox: { ...t.inbox, seq, rings: 0, lastRingAt: nowIso() } })
       bump(id, 'pings')
       safe(() => getCtx().notifier.sfx('send'))
-      const rang = await svc.ring(id)
+      // The inbox is already durable. A failed terminal nudge does not undo delivery.
+      const rang = await svc.ring(id).catch(() => false)
       return {
         ok: true,
         message: rang ? `Pinged ${id} (message ${seq}).` : `Saved ping ${seq} for ${id}; the unit is not running, so it will read it after a respawn.`

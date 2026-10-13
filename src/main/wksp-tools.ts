@@ -134,29 +134,22 @@ export async function applyRecommendations(ctx: AppCtx, review: RecommendationRe
 }
 
 async function sendChoiceAnswer(ctx: AppCtx, id: string, answer: string): Promise<{ ok: boolean; message: string }> {
+  answer = answer.trim()
   if (!answer.trim()) return { ok: false, message: 'Write an answer first.' }
   const found = findDecision(ctx, id)
   if (!found) return { ok: false, message: `no choice ${id}` }
   const { hc, d } = found
   if (d.resolvedAt) return { ok: true, message: 'already answered' }
+  if (d.until && Date.parse(d.until) > Date.now()) return { ok: false, message: 'This choice is deferred. Resume it before answering.' }
   let note = ''
   let recipient: ReturnType<typeof findTask>
   if (d.taskId) {
     const t = findTask(ctx, d.taskId, hc.home)
     if (!t || ['cleaned', 'done', 'merged'].includes(t.task.state)) return { ok: false, message: 'The originating unit is unavailable. The choice remains pending.' }
     recipient = t
-    if (t) {
-      const r = await t.hc.crew.send(d.taskId, `Answer to your open question (${d.key}): ${answer}`, [])
-      if (!r.ok) return { ok: false, message: `Ping failed: ${r.message}. The choice remains pending.` }
-      note = ' and pinged the unit'
-    }
-  }
-  if (d.backlogId && hc.backlog.get(d.backlogId)) {
-    try {
-      hc.backlog.answer(d.backlogId, answer, true)
-    } catch {
-      /* quest may already be closed */
-    }
+    const r = await t.hc.crew.send(d.taskId, `Answer to your open question (${d.key}): ${answer}`, [])
+    if (!r.ok) return { ok: false, message: `Ping failed: ${r.message}. The choice remains pending.` }
+    note = ' and pinged the unit'
   }
   hc.decisions.resolve(id, answer, { relay: false })
   if (recipient) recipient.hc.crew.appendStatus(d.taskId!, formatStatusLine('resolved', `answered: ${answer}`, { key: d.key }))

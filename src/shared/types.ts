@@ -244,6 +244,8 @@ export interface Decision {
   /** Explicit related batch, scoped to this base and project. */
   batch?: string
   clarifications?: { question: string; at: string }[]
+  /** Persisted content revision for reviewed recommendations. Legacy records start at zero. */
+  revision?: number
   source: DecisionSource
   urgency: 'normal' | 'urgent'
   createdAt: string

@@ -10,10 +10,11 @@ export function answerKey(e: { key: string; shiftKey?: boolean; isComposing?: bo
   return e.shiftKey ? 'newline' : 'submit'
 }
 
-/** Whether a choice option is the recommended one (exact, or the recommendation starts with it). */
+/** Legacy explanations may follow an option after a clear punctuation boundary. */
 export function isRecommended(option: string, recommendation?: string): boolean {
   if (!recommendation) return false
-  return recommendation === option || recommendation.toLowerCase().startsWith(option.toLowerCase())
+  if (recommendation === option) return true
+  return recommendation.toLowerCase().startsWith(option.toLowerCase()) && /^\s+(?:[—–:;]|-\s)/.test(recommendation.slice(option.length))
 }
 
 const REC_MARK = /[([]\s*recommended\s*[)\]]/i
@@ -41,7 +42,7 @@ export function recommendedFromQuestion(question: string): string | undefined {
  * its options (those get their own buttons), else a "(recommended)" option named in the question.
  */
 export function quickRecommendation(d: { question: string; options: string[]; recommendation?: string }): string | undefined {
-  if (d.recommendation) return d.options.some((o) => isRecommended(o, d.recommendation)) ? undefined : d.recommendation
+  if (d.recommendation) return d.options.filter((o) => isRecommended(o, d.recommendation)).length === 1 ? undefined : d.recommendation
   if (d.options.length) return undefined
   return recommendedFromQuestion(d.question)
 }

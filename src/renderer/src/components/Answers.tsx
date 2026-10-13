@@ -18,10 +18,12 @@ export function Answers() {
   const history = useStore(s => s.answerHistory)
   const target = useStore(s => s.answerTarget)
   const all = useStore(s => s.snap.decisions)
+  const [reviewing, setReviewing] = useState(false)
+  useEffect(() => { if (!open) setReviewing(false) }, [open])
   useEffect(() => {
     if (open && target) document.getElementById(`answer-${target}`)?.scrollIntoView?.({ block: 'nearest' })
   }, [open, target, history, all])
-  if (!open) return null
+  if (!open || (!decisions.length && !history && !reviewing)) return null
   const visible = history ? all.filter(d => history === 'answered' ? !!d.resolvedAt : !d.resolvedAt && !pendingDecision(d)) : decisions
   const sorted = [...visible].sort((a, b) => history === 'answered' ? (b.resolvedAt ?? '').localeCompare(a.resolvedAt ?? '') : a.urgency === b.urgency ? a.createdAt.localeCompare(b.createdAt) : a.urgency === 'urgent' ? -1 : 1)
   return (
@@ -35,7 +37,7 @@ export function Answers() {
         <button className="btn sm ghost" aria-pressed={history === 'answered'} onClick={() => setState({ answerHistory: 'answered' })}>Answered</button>
         <button className="btn sm ghost" aria-pressed={history === 'deferred'} onClick={() => setState({ answerHistory: 'deferred' })}>Deferred</button>
       </nav>
-      <div className="answers-list"><RecommendationBatches decisions={decisions} />{sorted.length ? sorted.map(d => history ?
+      <div className="answers-list"><RecommendationBatches decisions={history ? [] : decisions} onReview={setReviewing} />{sorted.length ? sorted.map(d => history ?
         <div className="choice panel" id={`answer-${d.id}`} key={d.id}>
           <div className="choice-q">{d.question}</div>
           {d.project && <span className="chip">{d.project}</span>}
@@ -46,8 +48,8 @@ export function Answers() {
   )
 }
 
-function RecommendationBatches({ decisions }: { decisions: Decision[] }) {
-  const [review, setReview] = useState<{ question: string; row: RecommendationReview }[]>([])
+function RecommendationBatches({ decisions, onReview }: { decisions: Decision[]; onReview: (reviewing: boolean) => void }) {
+  const [review, setReview] = useState<{ question: string; context?: string; scope: string; row: RecommendationReview }[]>([])
   const [results, setResults] = useState<RecommendationResult[] | null>(null)
   const [busy, setBusy] = useState(false)
   const sending = useRef(false)
@@ -70,19 +72,21 @@ function RecommendationBatches({ decisions }: { decisions: Decision[] }) {
   }
   if (review.length) return (
     <section className="panel choice" aria-label="Review recommendations">
-      <div className="label">Review recommendations · {review.length}</div>
+      <div className="label">Review recommendations · {review.length} · {review[0].scope}</div>
       <p>Only these choices will be applied. Changed choices stay pending.</p>
-      {review.map(({ question, row }) => <div key={row.id} className="choice-context">
+      {review.map(({ question, context, row }) => <div key={row.id} className="choice-context">
         <div>{question}</div><strong>Answer: {row.answer}</strong>
-        {results?.find(r => r.id === row.id) && <p role="status">{results.find(r => r.id === row.id)!.ok ? 'Applied' : 'Still pending'}: {results.find(r => r.id === row.id)!.message}</p>}
+        {context && <details><summary>Details</summary><Markdown text={context} className="md-compact" /></details>}
+        {results?.find(r => r.id === row.id) && <p role="status">{results.find(r => r.id === row.id)!.ok ? 'Applied' : 'Not applied'}: {results.find(r => r.id === row.id)!.message}</p>}
       </div>)}
       {!results && <button className="btn sm volt" disabled={busy} onClick={() => void apply()}>Apply recommendations ({review.length})</button>}
-      <button className="btn sm ghost" disabled={busy} onClick={() => { setReview([]); setResults(null) }}>{results ? 'Close results' : 'Cancel review'}</button>
+      <button className="btn sm ghost" disabled={busy} onClick={() => { setReview([]); setResults(null); onReview(false) }}>{results ? 'Close results' : 'Cancel review'}</button>
     </section>
   )
   return <>{[...groups].filter(([, rows]) => rows.length > 1).map(([key, rows]) => <button key={key} className="btn sm" onClick={() => {
     setResults(null)
-    setReview(rows.map(d => ({ question: d.question, row: reviewRecommendation(d)! })))
+    onReview(true)
+    setReview(rows.map(d => ({ question: d.question, context: d.context, scope: `${d.project ?? d.wksp} · ${d.batch ?? d.taskId ?? d.backlogId ?? d.id}`, row: reviewRecommendation(d)! })))
   }}>Review recommendations ({rows.length}) · {rows[0].project ?? rows[0].wksp} · {rows[0].batch ?? rows[0].taskId ?? rows[0].backlogId}</button>)}</>
 }
 
@@ -154,7 +158,7 @@ export function AnswerCard({ d }: { d: Decision }) {
       {!clarifying && d.options.length > 0 && (
         <div className="choice-options">
           {d.options.map((o, i) => {
-            const rec = isRecommended(o, d.recommendation)
+            const rec = isRecommended(o, d.recommendation) && d.options.filter(option => isRecommended(option, d.recommendation)).length === 1
             return (
               <button key={i} className={cx('option', rec && 'rec')} disabled={busy} title={rec ? `Recommended: ${d.recommendation}` : undefined} onClick={() => void submit(o)}>
                 <span className="option-key num">{i + 1}</span>
@@ -188,7 +192,7 @@ export function AnswerCard({ d }: { d: Decision }) {
         />
         <div className="choice-actions">
           <span className="choice-hint mute">
-            <kbd>Enter</kbd> lock in · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line
+            <kbd>Enter</kbd> {clarifying ? 'send question' : 'lock in'} · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line
           </span>
           {!clarifying && quickRec && (
             <button className="btn sm volt" disabled={busy} title={quickRec} onClick={() => void submit(quickRec)}>

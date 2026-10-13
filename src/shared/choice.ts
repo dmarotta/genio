@@ -11,7 +11,7 @@ export function choiceGroup(d: Decision): string {
 
 /** Content token: a changed question, answer, scope or deferral invalidates review. */
 export function choiceRevision(d: Decision): string {
-  return JSON.stringify([d.id, d.question, d.context, d.options, d.recommendation, d.wksp, d.project, d.taskId, d.backlogId, d.batch, d.until, d.resolvedAt, d.action, d.clarifications])
+  return JSON.stringify([d.id, d.revision ?? 0, d.question, d.context, d.options, d.recommendation, d.wksp, d.project, d.taskId, d.backlogId, d.batch, d.until, d.resolvedAt, d.action, d.clarifications])
 }
 
 export interface RecommendationReview {

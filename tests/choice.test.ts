@@ -42,4 +42,10 @@ describe('quickRecommendation', () => {
     expect(quickRecommendation({ question: 'X (recommended) or Y?', options: [] })).toBe('X')
     expect(quickRecommendation({ question: 'X or Y?', options: [] })).toBeUndefined()
   })
+  it('does not mistake a compound or prefix answer for a recommended option', () => {
+    expect(isRecommended('A', 'AB')).toBe(false)
+    expect(isRecommended('A', 'A and B')).toBe(false)
+    expect(quickRecommendation({ question: 'Which?', options: ['A', 'B'], recommendation: 'A and B' })).toBe('A and B')
+    expect(quickRecommendation({ question: 'Which?', options: ['A', 'A — cheaper'], recommendation: 'A — cheaper' })).toBe('A — cheaper')
+  })
 })
