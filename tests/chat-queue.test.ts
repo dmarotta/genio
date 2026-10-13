@@ -89,7 +89,7 @@ const ctx = {
   allies: { list: () => [] },
   projects: { list: () => [] },
   memory: { read: () => '' },
-  inventory: { thumbnail: async () => undefined },
+  inventory: { thumbnail: vi.fn(async (): Promise<string | undefined> => undefined) },
   stats: { unlock: vi.fn(), addCost: () => undefined, award: () => undefined },
   away: { state: () => ({ mode: 'online' }) },
   home: () => ({ wakes: { pending: () => [], drain: () => ({ text: '', ackThrough: -1, count: 0 }), ack: () => undefined }, crew: { list: () => [] }, decisions: { list: () => [] } }),
@@ -264,4 +264,21 @@ it('snapshots Inventory context in queued history and returns it intact for edit
   expect(fake.queries[0].received[1]).toContain('Assets/Audio/door.wav')
   expect(fake.queries[0].received[1]).not.toContain('elsewhere')
   expect(ctx.stats.unlock).toHaveBeenCalledWith('inventory-chat')
+})
+
+
+it('keeps send order while a preview thumbnail is loading and isolates later context changes', async () => {
+  const { svc } = chat('slow-preview')
+  let release!: (file: string | undefined) => void
+  ctx.inventory.thumbnail.mockImplementationOnce(() => new Promise(r => { release = r }))
+  const context = { world: 'forest', folder: 'Assets', preview: { path: 'Assets/tree.png', kind: 'image' as const, size: 123, mtimeMs: 1, generated: false } }
+  const first = svc.send('first with image', 'player', [], context)
+  const second = svc.send('second without image')
+  context.folder = 'later browsing'
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'))
+  expect(svc.history()).toHaveLength(0)
+  release(undefined)
+  await Promise.all([first, second])
+  expect(svc.history().filter(m => m.role === 'player').map(m => m.text)).toEqual(['first with image', 'second without image'])
+  expect(svc.history()[0].context?.folder).toBe('Assets')
 })

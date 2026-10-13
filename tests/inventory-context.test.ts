@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { chipKey, contextAsset, inventoryContextBlock, MAX_CONTEXT_SELECTION, toggleSelection, validateInventoryContext, visibleContext, type InventoryContext } from '../src/shared/inventory-context'
 import type { InventoryAsset } from '../src/shared/inventory'
 import type { ChatMessage } from '../src/shared/types'
@@ -15,7 +15,6 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-context-'))
 const thumb = path.join(dir, 'thumb.webp')
 fs.writeFileSync(thumb, 'RIFF0000WEBPthumbnail')
 afterEach(() => vi.restoreAllMocks())
-import { afterAll } from 'vitest'
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }))
 
 describe('visible Inventory chips', () => {

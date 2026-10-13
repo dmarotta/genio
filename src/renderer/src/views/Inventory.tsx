@@ -156,7 +156,7 @@ function AssetBrowser({ world, query, revision, list, tile, selected, select }: 
     return () => { alive = false; clearTimeout(t) }
   }, [world, query, revision, range.offset, range.limit])
   return <section className="inventory-browser">
-    <div className="inventory-result-count">{page ? `${page.total.toLocaleString()} matching assets` : 'Loading assets…'}<span className="dim">Ctrl/? click to select up to 20</span></div>
+    <div className="inventory-result-count">{page ? `${page.total.toLocaleString()} matching assets` : 'Loading assets…'}<span className="dim">Ctrl click to select up to 20</span></div>
     {list && <div className="inventory-list-head"><span>Name</span><span>Type</span><span>Size</span></div>}
     <div ref={ref} className="inventory-scroll" onScroll={e => { const top = e.currentTarget.scrollTop; setSize(s => ({ ...s, top })) }}>
       {error ? <p className="inventory-error" role="alert">{error}</p> : page?.total === 0 ? <div className="inventory-empty"><Search size={32} /><h3>No matching media</h3><p>Try another folder, scope or search.</p></div> : <div style={{ height: range.height, position: 'relative' }} role="group" aria-label="Assets">

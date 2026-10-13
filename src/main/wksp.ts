@@ -17,7 +17,7 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk'
 import type { Ally, ChatMessage, WkspActivity, WkspInfo, Settings, ToolTrace } from '@shared/types'
 import { userContent, type ChatImageInput } from '@shared/chat-images'
-import { inventoryContextBlock, type InventoryContext } from '@shared/inventory-context'
+import { inventoryContextBlock, validateInventoryContext, type InventoryContext } from '@shared/inventory-context'
 import { prepareInventoryContext } from './inventory-context'
 import { bus } from './bus'
 import { chatImageDir, loadChatImages, saveChatImages } from './chat-images'
@@ -884,64 +884,76 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
 
   // ---------------------------------------------------------- service
 
+  const performSend: WkspService['send'] = async (text, origin = 'player', images = [], context) => {
+    stopped = false
+    bootDone = true
+    const trimmed = text.trim()
+    if (!trimmed && !images.length) return
+    try {
+      if (origin === 'player' && !images.length && trimmed.startsWith('/') && (await slash(trimmed))) return
+    } catch (e) {
+      say(`Command failed: ${(e as Error).message}`, 'error')
+      return
+    }
+    // stored before anything else so a bad image fails the send (the composer keeps the draft)
+    const ctx = getCtx()
+    const prepared = await prepareInventoryContext(context, images, (world, asset) => ctx.inventory.thumbnail(world, asset),
+      () => loadHistory().filter(m => m.ts >= contextSessionStart))
+    const stored = saveChatImages(chatImageDir(home.data), prepared.images)
+    if (prepared.context?.thumbnail?.status === 'attached') prepared.context.thumbnail.image = stored.refs.at(-1)
+    let prompt = trimmed
+    // companion: the first ordinary player message after AFK ends it with a return brief
+    if (origin === 'player' && home.isMain && ctx.away.state().mode === 'afk') {
+      const brief = ctx.away.takeReturnBrief()
+      await ctx.away.set('online')
+      prompt = `${returnPrompt(gamertag(), brief)}\n\nThen handle ${gamertag()}'s new message:\n${trimmed || '(see the attached image)'}`
+    }
+    const m = inboundMessage(name, trimmed, origin)
+    if (stored.refs.length) m.images = stored.refs
+    if (prepared.context) m.context = prepared.context
+    const player = origin === 'player'
+    // mid-turn: the message waits in the log as queued until the session picks it up
+    if (player && !genio.idle) m.queue = 'queued'
+    record(m, true)
+    bus.publish({ type: 'sfx', sound: 'send' })
+    // the ids let Genio pass pasted images to generate_image as refs
+    prompt += inventoryContextBlock(m.context) + attachedIdsNote(stored.refs)
+    genio.enqueue({ kind: player ? 'player' : 'system', prompt, images: stored.send.length ? stored.send : undefined, msgId: player ? m.id : undefined })
+    if (m.context) ctx.stats.unlock('inventory-chat')
+    publishInfo()
+  }
+  let pendingSend: Promise<void> = Promise.resolve()
+
   const svc: WkspService = {
     info: () => ({ ...info, queued: genio.queued + (bot?.queued ?? 0) }),
     history(limit = 200) {
       const h = loadHistory()
       return h.slice(-limit)
     },
-    async send(text, origin = 'player', images = [], context) {
-      stopped = false
-      bootDone = true
-      const trimmed = text.trim()
-      if (!trimmed && !images.length) return
-      try {
-        if (origin === 'player' && !images.length && trimmed.startsWith('/') && (await slash(trimmed))) return
-      } catch (e) {
-        say(`Command failed: ${(e as Error).message}`, 'error')
-        return
-      }
-      // stored before anything else so a bad image fails the send (the composer keeps the draft)
-      const ctx = getCtx()
-      const prepared = await prepareInventoryContext(context, images, (world, asset) => ctx.inventory.thumbnail(world, asset),
-        () => loadHistory().filter(m => m.ts >= contextSessionStart))
-      const stored = saveChatImages(chatImageDir(home.data), prepared.images)
-      if (prepared.context?.thumbnail?.status === 'attached') prepared.context.thumbnail.image = stored.refs.at(-1)
-      let prompt = trimmed
-      // companion: the first ordinary player message after AFK ends it with a return brief
-      if (origin === 'player' && home.isMain && ctx.away.state().mode === 'afk') {
-        const brief = ctx.away.takeReturnBrief()
-        await ctx.away.set('online')
-        prompt = `${returnPrompt(gamertag(), brief)}\n\nThen handle ${gamertag()}'s new message:\n${trimmed || '(see the attached image)'}`
-      }
-      const m = inboundMessage(name, trimmed, origin)
-      if (stored.refs.length) m.images = stored.refs
-      if (prepared.context) m.context = prepared.context
-      const player = origin === 'player'
-      // mid-turn: the message waits in the log as queued until the session picks it up
-      if (player && !genio.idle) m.queue = 'queued'
-      record(m, true)
-      bus.publish({ type: 'sfx', sound: 'send' })
-      // the ids let Genio pass pasted images to generate_image as refs
-      prompt += inventoryContextBlock(m.context) + attachedIdsNote(stored.refs)
-      genio.enqueue({ kind: player ? 'player' : 'system', prompt, images: stored.send.length ? stored.send : undefined, msgId: player ? m.id : undefined })
-      if (m.context) ctx.stats.unlock('inventory-chat')
-      publishInfo()
+    send(text, origin = 'player', images = [], context) {
+      // Thumbnail decoding may be slow: retain click order and freeze the visible chips now.
+      const snapshot = context && validateInventoryContext(context)
+      const sending = pendingSend.then(() => performSend(text, origin, images, snapshot))
+      pendingSend = sending.catch(() => undefined)
+      return sending
     },
     unqueue(id) {
       const h = loadHistory()
       const m = h.find((x) => x.id === id)
       if (!m || (m.queue !== 'queued' && m.queue !== 'unsent')) return null
       const item = m.queue === 'queued' ? genio.cancel(id) : undefined
-      const images = item ? item.images : m.images?.length ? loadChatImages(chatImageDir(home.data), m.images) : undefined
+      // Filter stored refs before reading: a missing thumbnail must not drop a pasted image.
+      const automatic = m.context?.thumbnail?.status === 'attached'
+      const refs = automatic ? m.images?.filter(i => i.file !== m.context?.thumbnail?.image?.file) : m.images
+      const images = item ? (automatic ? item.images?.slice(0, -1) : item.images)
+        : refs?.length ? loadChatImages(chatImageDir(home.data), refs) : undefined
       history = h.filter((x) => x.id !== id)
       const gone: ChatMessage = { ...m, queue: 'cancelled' }
       appendJsonl(home.chatFile, gone)
       bus.publish({ type: 'chat', message: gone })
       publishInfo()
       // The automatic preview belongs to its chip, not the pasted-image draft.
-      const pasted = m.context?.thumbnail?.status === 'attached' ? images?.slice(0, -1) : images
-      return { text: m.text, ...(pasted?.length ? { images: pasted } : {}), ...(m.context ? { context: m.context } : {}) }
+      return { text: m.text, ...(images?.length ? { images } : {}), ...(m.context ? { context: m.context } : {}) }
     },
     deliverWakes() {
       if (stopped) return

@@ -383,8 +383,20 @@ function Composer({ wksp, busy, fill, context }: { wksp: string; busy: boolean; 
   useEffect(() => {
     const el = ta.current
     if (!el) return
-    el.style.height = 'auto'
-    el.style.height = Math.min(220, el.scrollHeight) + 'px'
+    const fit = (): void => {
+      el.style.height = 'auto'
+      el.style.height = Math.min(220, el.scrollHeight) + 'px'
+    }
+    fit()
+    // Floating/docked chat can change width without changing the draft text.
+    let width = el.clientWidth
+    const observer = new ResizeObserver(() => {
+      if (width === el.clientWidth) return
+      width = el.clientWidth
+      fit()
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
   }, [text, wksp])
 
   const localSystem = (t: string): void => {
@@ -451,6 +463,7 @@ function Composer({ wksp, busy, fill, context }: { wksp: string; busy: boolean; 
       toast('error', 'Message not sent', errText(e))
       update(t)
       att.set(images)
+      inventory.restore(inventory.context)
     }
   }
 

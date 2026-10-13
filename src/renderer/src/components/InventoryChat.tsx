@@ -14,7 +14,7 @@ export function InventoryChat({ context, inspector }: { context: InventoryContex
   const last = useStore(s => s.chats.main?.at(-1)?.id)
   const generating = useStore(s => (s.chats.main ?? []).reduce((n, m) => n + (m.generating ?? 0), 0))
   const seen = useRef(last)
-  if (!state.collapsed) seen.current = last
+  if (!state.collapsed && !(state.snapped && inspect)) seen.current = last
   useEffect(() => { sessionStorage.setItem('genio.inventory.chat', JSON.stringify(state)) }, [state])
   useLayoutEffect(() => {
     const host = panel.current!.parentElement!
@@ -44,6 +44,14 @@ export function InventoryChat({ context, inspector }: { context: InventoryContex
     if (gesture.current && !gesture.current.resize && e.clientX > (panel.current!.parentElement!.getBoundingClientRect().right - 90)) setState(s => ({ ...s, snapped: true }))
     gesture.current = null
   }
+  const nudge = (e: React.KeyboardEvent, resize: boolean) => {
+    const host = panel.current?.parentElement
+    if (state.snapped || !host || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return
+    e.preventDefault()
+    const dx = e.key === 'ArrowLeft' ? -20 : e.key === 'ArrowRight' ? 20 : 0
+    const dy = e.key === 'ArrowUp' ? -20 : e.key === 'ArrowDown' ? 20 : 0
+    setState(s => clampFloatingChat({ ...s, ...(resize ? { width: s.width + dx, height: s.height + dy } : { x: s.x + dx, y: s.y + dy }) }, host.clientWidth - 320, host.clientHeight))
+  }
   return <>
     <div className="inventory-right" style={{ visibility: state.snapped && !state.collapsed && !inspect ? 'hidden' : undefined, paddingTop: state.snapped && !state.collapsed ? 42 : 0 }}>{inspector}</div>
     <div ref={panel} className={`inventory-chat ${state.snapped ? 'snapped' : 'floating'} ${state.collapsed ? 'collapsed' : ''} ${inspect && state.snapped ? 'inspecting' : ''}`}
@@ -51,13 +59,13 @@ export function InventoryChat({ context, inspector }: { context: InventoryContex
       {state.collapsed && <button className="inventory-chat-pill" aria-label="Expand Genio chat" onClick={() => setState(s => ({ ...s, collapsed: false }))}><MessageCircle size={17} /><span className={`activity ${info?.activity}`}>●</span> Genio {seen.current !== last && <b>• New</b>}{info?.queued ? ` · ${info.queued} queued` : ''}{generating ? ` · ${generating} generating` : ''}<kbd>Ctrl Space</kbd></button>}
       <div className="inventory-chat-expanded" hidden={state.collapsed}>
         <header className="inventory-chat-bar">
-          <button className="inventory-chat-grip" aria-label="Move Genio chat" title="Drag to move; drag to the right edge to snap" onPointerDown={e => start(e, false)} onPointerMove={move} onPointerUp={end} onPointerCancel={() => { gesture.current = null }}><Move size={13} /> Genio · {context.world}</button>
+          <button className="inventory-chat-grip" aria-label="Move Genio chat" title="Drag or use arrow keys to move; drag to the right edge to snap" onKeyDown={e => nudge(e, false)} onPointerDown={e => start(e, false)} onPointerMove={move} onPointerUp={end} onPointerCancel={() => { gesture.current = null }}><Move size={13} /> Genio · {context.world}</button>
           {state.snapped && <button className="btn sm ghost" onClick={() => setInspect(!inspect)}>{inspect ? 'Chat' : 'Inspector'}</button>}
           <button className="btn sm ghost icon" aria-label={state.snapped ? 'Float Genio chat' : 'Snap Genio chat'} onClick={() => { setInspect(false); setState(s => ({ ...s, snapped: !s.snapped })) }}>{state.snapped ? <PanelRightClose size={15} /> : <Columns2 size={15} />}</button>
           <button className="btn sm ghost icon" aria-label="Collapse Genio chat" onClick={() => setState(s => ({ ...s, collapsed: true }))}><Minus size={15} /></button>
         </header>
         <div className="inventory-chat-content" hidden={state.snapped && inspect}><ChatPanel wksp="main" context={context} active={!state.collapsed && !(state.snapped && inspect)} /></div>
-        {!state.snapped && <button className="inventory-chat-resize" aria-label="Resize Genio chat" onPointerDown={e => start(e, true)} onPointerMove={move} onPointerUp={end} onPointerCancel={() => { gesture.current = null }} />}
+        {!state.snapped && <button className="inventory-chat-resize" aria-label="Resize Genio chat" title="Drag or use arrow keys to resize" onKeyDown={e => nudge(e, true)} onPointerDown={e => start(e, true)} onPointerMove={move} onPointerUp={end} onPointerCancel={() => { gesture.current = null }} />}
       </div>
     </div>
   </>
