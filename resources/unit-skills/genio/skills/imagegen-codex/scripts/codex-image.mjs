@@ -108,7 +108,7 @@ function gitAncestor(dir) {
 function scratchRoot(opts, world) {
   const genioHome = process.env.GENIO_HOME ? path.resolve(process.env.GENIO_HOME) : path.join(os.homedir(), '.genio')
   const root = path.resolve(typeof opts.scratch === 'string' ? opts.scratch : process.env.GENIO_CODEX_IMAGE_SCRATCH || path.join(genioHome, 'data', 'codex-image'))
-  if (world && (isUnder(root, world.root) || isUnder(world.root, root))) throw new Fail(`Refusing scratch folder ${root}: it overlaps the world. Codex runs only under Genio's data.`, EXIT.usage)
+  if (world && (isUnder(root, world.root) || isUnder(world.root, root))) throw new Fail(`Refusing scratch folder ${root}: it overlaps the project. Codex runs only under Genio's data.`, EXIT.usage)
   const repo = gitAncestor(root)
   if (repo) throw new Fail(`Refusing scratch folder ${root}: it is inside the git checkout ${repo}. Codex runs only under Genio's data.`, EXIT.usage)
   return root
@@ -227,7 +227,7 @@ async function main() {
     world = openWorld(String(opts.world))
     if (!codexEnabled(world.config)) {
       throw new Fail(
-        'This world opted out of Codex images (.genio/fal/config.json "providers": {"codex": {"enabled": false}}); units never edit that file. Use FAL, or append needs-decision and stop.',
+        'This project opted out of Codex images (.genio/fal/config.json "providers": {"codex": {"enabled": false}}); units never edit that file. Use FAL, or append needs-decision and stop.',
         EXIT.disabled
       )
     }
@@ -236,7 +236,7 @@ async function main() {
       if (rel === '.genio' || rel?.startsWith('.genio/')) throw new Fail(`${it.out}: images never go inside .genio/.`, EXIT.usage)
     }
   } else if (!opts['no-world']) {
-    throw new Fail('Pass --world <your worktree root> or, outside any world, an explicit --no-world.', EXIT.usage)
+    throw new Fail('Pass --world <your worktree root> or, outside any project, an explicit --no-world.', EXIT.usage)
   }
   const warnAt = opts['warn-at'] === undefined ? 80 : Number(opts['warn-at'])
   if (!Number.isFinite(warnAt)) throw new Fail('--warn-at must be a percentage.', EXIT.usage)
@@ -332,8 +332,8 @@ const USAGE = `Genio Codex image helper (uses your ChatGPT plan through Codex's 
   --batch <items.json>          instead of pairs: [{"prompt", "out", "transparent"?}, ...]
   --transparent                 transparent background for every --prompt item
   --ref <image> [--ref ...]     reference images attached to the run (for edits or consistency)
-  --world <worktree root>       world mode (on unless .genio/fal/config.json sets providers.codex.enabled false); writes provenance + spend
-  --no-world                    explicit run outside any world (no provenance, no spend line)
+  --world <worktree root>       project mode (on unless .genio/fal/config.json sets providers.codex.enabled false); writes provenance + spend
+  --no-world                    explicit run outside any project (no provenance, no spend line)
   [--overwrite] [--timeout <s>] [--warn-at <plan %, default 80>] [--scratch <dir under Genio's data>]`
 
 main().catch((e) => {

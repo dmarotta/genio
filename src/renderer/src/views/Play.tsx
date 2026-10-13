@@ -92,7 +92,7 @@ export function Play() {
       <label><input type="checkbox" checked={input} disabled={!playing || !status?.capabilities.input} onChange={e => setInput(e.target.checked)} />{live ? 'Capture keyboard, mouse and gamepad' : 'Forward clicks and keys'}</label>
     </div>
     <p className="dim">{status?.state ?? 'Connecting…'} · {playing && stats?.fps ? `${stats.fps.toFixed(1)} game fps` : 'Game FPS unavailable'} · {cpu !== undefined ? `${cpu.toFixed(1)} ms CPU` : 'CPU timing unavailable'} · {stats?.render?.drawCalls ?? '—'} draw calls · {stats?.render?.triangles ?? '—'} triangles · {stats?.memory ? `${(stats.memory.totalAllocatedBytes/1048576).toFixed(0)} MB` : '—'} · capture {frame ? `${frame.latencyMs} ms` : '—'}</p>
-    <p className="dim">Enable live streaming adds the Genio package tarball and one manifest entry to this world, left uncommitted. Live input supports Input System games; legacy input paths remain view-only. Click the view to focus; Escape releases input.</p>
+    <p className="dim">Enable live streaming adds the Genio package tarball and one manifest entry to this project, left uncommitted. Live input supports Input System games; legacy input paths remain view-only. Click the view to focus; Escape releases input.</p>
     {live && <p>Experimental input: release can lag under Editor load. Keep capture off to observe; stop the stream or Play Mode if input remains held.</p>}
     {status?.connected && !status.capabilities.input && <p>Legacy input is view-only. Use Unity for hands-on play.</p>}
     {status?.genioDriving && <p>Genio driving <button onClick={() => act({type:'stop'})}>Stop</button></p>}

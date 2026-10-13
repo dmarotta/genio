@@ -11,7 +11,7 @@ same durable batches as overwatch, and applies outcomes before deciding which
 units to resume. Detached unfinished units use the deliberate Respawn path:
 their copies and conversation survive, and startup does not consume the single
 automatic recovery attempt. Declared pauses, blockers and player decisions stay
-waiting. Global/world capacity, launch reservations, account quota and premium
+waiting. Global/project capacity, launch reservations, account quota and premium
 model consent still apply. Full capacity leaves excess units detached.
 
 Startup resumes existing units first, then deploys eligible queued quests in

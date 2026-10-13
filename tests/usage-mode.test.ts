@@ -72,7 +72,7 @@ describe('every preset x category', () => {
 
   it.each([['save', 4], ['balanced', 8], ['max', 16]] as const)('shows the %s cap in the summary and preview', (mode, cap) => {
     expect(modeSummary(mode)).toContain(`up to ${cap} units`)
-    expect(presetRows(mode)).toContainEqual({ label: 'Concurrent units (all worlds)', value: String(cap) })
+    expect(presetRows(mode)).toContainEqual({ label: 'Concurrent units (all projects)', value: String(cap) })
   })
 
   it('cheap models: Save first, Balanced after the plans, Max never, never for high-stakes work, never without the allowance', () => {
@@ -299,7 +299,7 @@ describe('concurrent unit cap across worlds', () => {
       const svc = service(mode, tasks)
       const last = await svc.reserve(ship('last'))
       expect(svc.capacity()).toEqual({ cap, used: cap })
-      await expect(svc.reserve(ship('over'))).rejects.toThrow(`allows ${cap} concurrent units across all worlds`)
+      await expect(svc.reserve(ship('over'))).rejects.toThrow(`allows ${cap} concurrent units across all projects`)
       last.release()
     }
     const ok = await service('balanced', [task('a'), task('b', 'done'), { ...task('c', 'ready'), pr: { url: 'x' } }]).reserve(ship('d'))
@@ -329,7 +329,7 @@ describe('concurrent unit cap across worlds', () => {
       svc.reserve({ ...ship('e'), harness: 'claude' })
     ])
     expect(attempts.map(r => r.status)).toEqual(['fulfilled', 'rejected'])
-    expect((attempts[1] as PromiseRejectedResult).reason.message).toContain('allows 4 concurrent units across all worlds')
+    expect((attempts[1] as PromiseRejectedResult).reason.message).toContain('allows 4 concurrent units across all projects')
     const slot = (attempts[0] as PromiseFulfilledResult<Awaited<ReturnType<typeof svc.reserve>>>).value
     slot.release()
     const next = await svc.reserve({ ...ship('e'), harness: 'claude' })

@@ -31,7 +31,7 @@ export function Onboarding() {
     await saveSettings({ firstRunDone: true, gamertag: tag.trim() || 'Player' })
   }
 
-  const steps = ['Player', 'Loadout', 'First world']
+  const steps = ['Player', 'Loadout', 'First project']
 
   return (
     <div className="modal-scrim strong">
@@ -56,7 +56,7 @@ export function Onboarding() {
             <>
               <div className="label">Step 1</div>
               <h2 className="modal-title">Choose your gamertag</h2>
-              <p className="dim">Genio addresses you by it. Change it anytime in Systems.</p>
+              <p className="dim">Genio addresses you by it. Change it anytime in Settings.</p>
               <Field label="Gamertag">
                 <input className="input big" autoFocus value={tag} placeholder="Player" maxLength={32} onChange={(e) => setTag(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && setStep(1)} />
               </Field>
@@ -111,7 +111,7 @@ export function Onboarding() {
           {step === 2 && (
             <>
               <div className="label">Step 3</div>
-              <h2 className="modal-title">Load your first world</h2>
+              <h2 className="modal-title">Load your first project</h2>
               <p className="dim">A git repo with your game: a URL, owner/repo, or a folder on disk. Genio detects the engine.</p>
               {projects.length > 0 ? (
                 <div className="tool-list">
@@ -153,16 +153,16 @@ export function Onboarding() {
                         try {
                           const isLocal = /^[a-zA-Z]:[\\/]|^[\\/]/.test(source.trim())
                           const p = await api().projectAdd({ source: source.trim(), inPlace: isLocal && inPlace })
-                          toast('success', 'World loaded', `${p.name} · ${p.engine}`)
+                          toast('success', 'Project loaded', `${p.name} · ${p.engine}`)
                           setSource('')
                         } catch (e) {
-                          toast('error', 'Could not add world', errText(e))
+                          toast('error', 'Could not add project', errText(e))
                         } finally {
                           setBusy(false)
                         }
                       }}
                     >
-                      Add world
+                      Add project
                     </button>
                   </div>
                 </>

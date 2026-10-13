@@ -18,7 +18,7 @@ export function noLinks(root: string, relative: string): void {
 }
 
 export function placementTarget(project: Pick<Project, 'path' | 'engine' | 'engineRoot'>, relative: string, agent = true): string {
-  if (!relative || /[\\:\x00-\x1f<>"|?*]/.test(relative) || relative.split('/').some(s => !s || s === '.' || s === '..' || /[. ]$/.test(s) || /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\.|$)/i.test(s))) throw new Error('Expected a safe world-relative media path')
+  if (!relative || /[\\:\x00-\x1f<>"|?*]/.test(relative) || relative.split('/').some(s => !s || s === '.' || s === '..' || /[. ]$/.test(s) || /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\.|$)/i.test(s))) throw new Error('Expected a safe project-relative media path')
   if (!MEDIA.test(relative)) throw new Error('Only generated media may be placed; no code, scenes, prefabs or .meta files')
   const parts = relative.split('/')
   if (parts.slice(0, -1).some(s => (FORBIDDEN.test(s) && (agent || !/^generated$/i.test(s))) || project.engine === 'unreal' && /^Content$/i.test(s))) throw new Error('Forbidden placement directory')

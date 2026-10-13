@@ -134,7 +134,7 @@ export function createUthanaService(getCtx: () => AppCtx, fetchFn: FetchFn = (u,
 
   const project = (name: string): Project => {
     const p = getCtx().projects.get(name)
-    if (!p) throw new Error(`No world named ${name}.`)
+    if (!p) throw new Error(`No project named ${name}.`)
     return p
   }
   const worldOf = (w?: string | null): string | undefined => {
@@ -143,7 +143,7 @@ export function createUthanaService(getCtx: () => AppCtx, fetchFn: FetchFn = (u,
     return name
   }
   const requireKey = (): void => {
-    if (!key()) throw new Error('No Uthana key set. Add one in Systems → Accounts.')
+    if (!key()) throw new Error('No Uthana key set. Add one in Settings → Accounts.')
   }
 
   const set = (id: string, patch: Partial<UthanaRun>): UthanaRun | undefined => {
@@ -367,7 +367,7 @@ export function createUthanaService(getCtx: () => AppCtx, fetchFn: FetchFn = (u,
     },
 
     saveWorldConfig(world: string | null, config: UthanaWorldConfig): UthanaWorldState {
-      if (!world) throw new Error('Pick a world: Scratch has no save folder.')
+      if (!world) throw new Error('Pick a project: Scratch has no save folder.')
       const p = project(world)
       const folder = String(config.folder ?? '').trim().replace(/\\/g, '/').replace(/^\/+/, '')
       if (folder) worldTarget(p.path, folder, 'probe') // refuses folders outside the world or in .git
@@ -505,7 +505,7 @@ export function createUthanaService(getCtx: () => AppCtx, fetchFn: FetchFn = (u,
     },
 
     async saveToWorld(req: UthanaExportRequest): Promise<UthanaExportResult> {
-      if (!req.project) throw new Error('Pick a world.')
+      if (!req.project) throw new Error('Pick a project.')
       const proj = project(req.project)
       const folder = req.folder ?? svc.world(proj.name).folder
       const target = worldTarget(proj.path, folder, req.fileName)

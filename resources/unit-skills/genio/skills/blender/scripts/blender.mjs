@@ -32,7 +32,7 @@ async function main() {
   }
   for (const root of [process.cwd(), world?.root].filter(Boolean)) {
     const rel = path.relative(canonical(root), canonical(scratch))
-    if (!rel || (!rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel))) throw new Error('Scratch logs must be outside the world/worktree')
+    if (!rel || (!rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel))) throw new Error('Scratch logs must be outside the project/worktree')
   }
   const blender = findBlender()
   if (!blender) throw new Error('Blender not found. Set GENIO_BLENDER to blender.exe (not blender-launcher.exe).')

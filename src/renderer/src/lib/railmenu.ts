@@ -19,11 +19,10 @@ export const RAIL: RailEntry[] = [
   view('squad', 'Squad', '2'),
   view('quests', 'Quests', '3'),
   view('status', 'Character Sheet', '5'),
-  view('worlds', 'Worlds', '6'),
   view('lore', 'Lore', '7'),
   view('inventory', 'Inventory', '9'),
   view('play', 'Play', '0'),
-  view('systems', 'Systems', '8')
+  view('systems', 'Settings', '8')
 ]
 
 /** Every screen in rail order, submenus flattened (command palette, shortcuts). */

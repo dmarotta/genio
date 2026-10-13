@@ -206,7 +206,7 @@ describe('OpenRouter gating', () => {
 
   it('needs the world not opted out, the key and OpenCode installed', () => {
     expect(cheapGate({ worldAllows: true, keySet: true, opencodeReady: true }).allowed).toBe(true)
-    expect(cheapGate({ worldAllows: false, keySet: true, opencodeReady: true })).toMatchObject({ allowed: false, why: expect.stringMatching(/off for this world/) })
+    expect(cheapGate({ worldAllows: false, keySet: true, opencodeReady: true })).toMatchObject({ allowed: false, why: expect.stringMatching(/off for this project/) })
     expect(cheapGate({ worldAllows: true, keySet: false, opencodeReady: true })).toMatchObject({ allowed: false, why: expect.stringMatching(/OpenRouter key/) })
     expect(cheapGate({ worldAllows: true, keySet: true, opencodeReady: false })).toMatchObject({ allowed: false, why: expect.stringMatching(/OpenCode/) })
   })
@@ -215,7 +215,7 @@ describe('OpenRouter gating', () => {
     const s = settings({ usageMode: 'save' })
     const closed = pickLoadout({ ...base, category: 'docs' }, s, env(ALL, { cheap: cheapGate({ worldAllows: false, keySet: true, opencodeReady: true }) }))
     expect(closed.harness).toBe('codex')
-    expect(closed.reasons.join('\n')).toMatch(/off for this world/)
+    expect(closed.reasons.join('\n')).toMatch(/off for this project/)
     // never in high-stakes categories
     expect(defaultCategoryPools().find((p) => p.category === 'feature')!.candidates.some((c) => c.cheap)).toBe(false)
   })

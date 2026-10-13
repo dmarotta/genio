@@ -86,7 +86,7 @@ describe('parsing', () => {
   it('turns FAL error bodies into readable messages', () => {
     const v = JSON.stringify({ detail: [{ loc: ['body', 'prompt'], msg: 'field required', type: 'missing' }] })
     expect(falErrorMessage(422, v)).toBe('FAL error 422: prompt: field required')
-    expect(falErrorMessage(401, JSON.stringify({ detail: 'No user found for Key ID and Secret' }))).toMatch(/rejected the key \(401\).*Systems → Accounts/)
+    expect(falErrorMessage(401, JSON.stringify({ detail: 'No user found for Key ID and Secret' }))).toMatch(/rejected the key \(401\).*Settings → Accounts/)
     expect(falErrorMessage(500, 'Internal Server Error')).toBe('FAL error 500: Internal Server Error')
   })
 })

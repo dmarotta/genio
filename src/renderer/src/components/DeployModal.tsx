@@ -169,7 +169,7 @@ export function DeployModal() {
           <Rocket size={18} />
           <div>
             <b>Build</b>
-            <span>Ships a change through the world's delivery mode</span>
+            <span>Ships a change through the project's delivery mode</span>
           </div>
         </button>
         <button className={cx('kind-opt violet', kind === 'scout' && 'on')} onClick={() => setKind('scout')}>
@@ -182,7 +182,7 @@ export function DeployModal() {
       </div>
 
       <div className="form-grid">
-        <Field label="World" hint={proj?.gitRepo === false ? "Unit creation needs a git repo" : undefined}>
+        <Field label="Project" hint={proj?.gitRepo === false ? "Unit creation needs a git repo" : undefined}>
           <select
             className="select"
             value={project}
@@ -192,7 +192,7 @@ export function DeployModal() {
               setYolo(p?.yolo ?? false)
             }}
           >
-            {!projects.length && <option value="">No worlds yet — add one in Worlds</option>}
+            {!projects.length && <option value="">No projects yet — add one in Projects</option>}
             {projects.map((p) => (
               <option key={p.name} value={p.name} disabled={p.gitRepo === false}>
                 {p.name}{p.gitRepo === false ? ' — needs a git repo' : ''}
@@ -227,9 +227,9 @@ export function DeployModal() {
 
       <div className="form-grid cols-3">
         {kind === 'ship' && (
-          <Field label="Delivery" hint={mode ? MODE_HINT[mode] : proj ? `World default: ${MODE_LABEL[proj.mode]}` : undefined}>
+          <Field label="Delivery" hint={mode ? MODE_HINT[mode] : proj ? `Project default: ${MODE_LABEL[proj.mode]}` : undefined}>
             <select className="select" value={mode} onChange={(e) => setMode(e.target.value as DeliveryMode | '')}>
-              <option value="">World default</option>
+              <option value="">Project default</option>
               {DELIVERY_MODES.map((m) => (
                 <option key={m} value={m}>
                   {MODE_LABEL[m]}
@@ -275,7 +275,7 @@ export function DeployModal() {
                 </span>
               </>
             ) : (
-              <span className="mute">Pick a world to see the loadout</span>
+              <span className="mute">Pick a project to see the loadout</span>
             )}
           </span>
           <button

@@ -33,17 +33,17 @@ export const genioPath = (root: string, ...parts: string[]): string => path.join
 
 const README = `# .genio
 
-Machine-readable data Genio keeps with this world. Small text only; safe to read and edit by hand.
+Machine-readable data Genio keeps with this project. Small text only; safe to read and edit by hand.
 
 - \`fal/config.json\`: save folders per output kind, the monthly budget and the shared paid-generation confirmation threshold.
-- \`fal/recipes.json\`: named generation presets (this world's favourites). Units read them.
-- \`fal/catalogue.json\` (optional): \`{"add": [...], "hide": [...]}\` to extend or trim Genio's curated FAL catalogue for this world.
-- \`uthana/config.json\`: the animation save folder for this world.
+- \`fal/recipes.json\`: named generation presets (this project's favourites). Units read them.
+- \`fal/catalogue.json\` (optional): \`{"add": [...], "hide": [...]}\` to extend or trim Genio's curated FAL catalogue for this project.
+- \`uthana/config.json\`: the animation save folder for this project.
 - \`provenance/<asset path>.json\`: how each saved generated asset was made (model, request id, input, estimated price, sha256).
 - \`spend.jsonl\`: one line per paid generation call (estimated USD). Merges with \`merge=union\`.
 - \`cache/\`: ignored, normally empty. Genio keeps run history and downloads in its own data folder.
 
-Genio writes here for guarded agent placement or explicit world settings changes, and never commits. Commit these files with the assets they describe.
+Genio writes here for guarded agent placement or explicit project settings changes, and never commits. Commit these files with the assets they describe.
 `
 
 /** Create .genio/ with its own README, .gitignore and .gitattributes (never overwrites them). */
@@ -201,8 +201,8 @@ export async function lfsWarnings(root: string, rel: string): Promise<string[]> 
   if (r.code !== 0) return []
   const ext = path.extname(rel) || path.basename(rel)
   if (!/:\s*filter:\s*lfs\s*$/m.test(r.stdout)) {
-    return [`This world uses Git LFS, but ${ext} files are not covered by its .gitattributes: committing ${rel} would store it as a regular blob.`]
+    return [`This project uses Git LFS, but ${ext} files are not covered by its .gitattributes: committing ${rel} would store it as a regular blob.`]
   }
   const lfs = await run('git', ['lfs', 'version'], { cwd: root, timeoutMs: 15_000 })
-  return lfs.code === 0 ? [] : ['This world tracks the file with Git LFS, but git-lfs is not installed: install it before committing.']
+  return lfs.code === 0 ? [] : ['This project tracks the file with Git LFS, but git-lfs is not installed: install it before committing.']
 }

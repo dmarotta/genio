@@ -129,7 +129,7 @@ export function createGauntlet(getCtx: () => AppCtx, home: Home): Gauntlet {
     if (t.kind !== 'ship') return { ok: false, message: 'Recon missions do not run the Gauntlet.' }
     if (!exists(t.worktree)) return { ok: false, message: 'The unit worktree is gone.' }
     const project = ctx.projects.get(t.project)
-    if (!project) return { ok: false, message: `World ${t.project} is not registered.` }
+    if (!project) return { ok: false, message: `Project ${t.project} is not registered.` }
     const settings = ctx.settings.get()
     const prev = t.validation
     const round = prev && prev.state === 'findings' ? prev.round + 1 : 1
@@ -273,9 +273,9 @@ export function createGauntlet(getCtx: () => AppCtx, home: Home): Gauntlet {
       const push = step('push')
       begin(push)
       if (!(await git.hasRemote(project.path))) {
-        end(push, 'failed', 'world has no remote')
+        end(push, 'failed', 'project has no remote')
         skipRest()
-        return infra(taskId, vr, `"${t.title}" passed the Gauntlet but ${t.project} has no remote to push to. Switch the world to Offline or add a remote.`, ['Switch to Offline and land locally', 'I will add a remote'])
+        return infra(taskId, vr, `"${t.title}" passed the Gauntlet but ${t.project} has no remote to push to. Switch the project to Offline or add a remote.`, ['Switch to Offline and land locally', 'I will add a remote'])
       }
       const pr = await git.push(t.worktree, t.branch)
       if (pr.code !== 0) {

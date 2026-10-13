@@ -20,7 +20,7 @@ export function GenerationCard({ card, wksp }: { card: Card; wksp: string }) {
     {card.outputs?.filter(o => o.url).map(o => <div key={o.name}>
       {o.kind === 'audio' ? <audio controls preload="none" src={o.url} /> : o.kind === 'video' ? <video controls preload="metadata" src={o.url} /> : o.kind === 'image' ? <img src={o.url} alt={o.name} /> : <span className="mute">{o.name}</span>}
     </div>)}
-    {card.paths.length > 0 && <div className="mute">Saved in the world, uncommitted.</div>}
+    {card.paths.length > 0 && <div className="mute">Saved in the project, uncommitted.</div>}
     {card.warnings.map((w, i) => <div className="mute" key={i}>{w}</div>)}
     {(card.error || error) && <div role="alert" className="alert-text">{card.error || error}</div>}
   </div>

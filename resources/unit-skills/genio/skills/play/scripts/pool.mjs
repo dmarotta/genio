@@ -96,7 +96,7 @@ export class PlayPool {
     const gitOptions = { windowsHide: true, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: path.join(this.dir, 'no-hooks') } }
     const git = async (cwd, args) => (await exec('git', args, { ...gitOptions, cwd })).stdout.trim()
     const common = async cwd => canonical(path.resolve(cwd, await git(cwd, ['rev-parse', '--git-common-dir'])))
-    if (await common(source) !== await common(this.world)) throw new Error('Play source must belong to the registered world')
+    if (await common(source) !== await common(this.world)) throw new Error('Play source must belong to the registered project')
     const revision = await git(source, ['rev-parse', '--verify', 'HEAD^{commit}'])
     const dest = path.join(this.dir, `slot-${id}`)
     const ready = await this.transaction(s => {

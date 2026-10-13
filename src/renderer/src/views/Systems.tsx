@@ -1,3 +1,4 @@
+import { ThisProjectSettings } from './ProjectSettings'
 import { ModelPicker, useModelCatalogue } from '../components/ModelPicker'
 import { Fragment, useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { ChevronDown, ChevronRight, ChevronUp, Copy, Download, KeyRound, Lock, LockOpen, LogIn, LogOut, Plus, RefreshCw, Trash, TriangleAlert, Users, Wrench, X } from 'lucide-react'
@@ -18,10 +19,11 @@ import { ago, clock, cx, dateShort, usd } from '../lib/format'
 import { playSfx } from '../lib/sfx'
 
 type Section =
-  | 'profile' | 'genio' | 'units' | 'overwatch' | 'gauntlet' | 'comms' | 'alerts' | 'mail' | 'memory'
+  | 'project' | 'profile' | 'genio' | 'units' | 'overwatch' | 'gauntlet' | 'comms' | 'alerts' | 'mail' | 'memory'
   | 'harnesses' | 'dispatch' | 'triggers' | 'toolchain' | 'accounts' | 'patch' | 'usage' | 'explorer'
 
 const SECTIONS: { id: Section; label: string; group: string }[] = [
+  { id: 'project', label: 'This project', group: 'Project' },
   { id: 'profile', label: 'Profile', group: 'Player' },
   { id: 'comms', label: 'Comms & FX', group: 'Player' },
   { id: 'alerts', label: 'Alerts', group: 'Player' },
@@ -42,8 +44,10 @@ const SECTIONS: { id: Section; label: string; group: string }[] = [
 ]
 
 let pendingSection: Section | null = null
+const sectionListeners = new Set<(section: Section) => void>()
 export function requestSystemsSection(s: Section): void {
-  pendingSection = s
+  pendingSection = sectionListeners.size ? null : s
+  for (const listener of sectionListeners) listener(s)
 }
 
 export function Systems() {
@@ -53,6 +57,10 @@ export function Systems() {
     pendingSection = null
     return p ?? 'profile'
   })
+  useEffect(() => {
+    sectionListeners.add(setSec)
+    return () => { sectionListeners.delete(setSec) }
+  }, [])
   const [home, setHome] = useState('')
   const [advanced, setAdvancedState] = useState<boolean>(() => {
     try {
@@ -83,7 +91,7 @@ export function Systems() {
         kicker={home ? `Base · ${home}` : 'Configuration'}
         title={
           <>
-            <span className="accent">Systems</span>
+            <span className="accent">Settings</span>
           </>
         }
       />
@@ -160,6 +168,8 @@ const num = (v: string, min = 0): number => Math.max(min, Number(v) || 0)
 
 function SectionBody({ sec, s, advanced, setAdvanced, open }: { sec: Section; s: Settings; advanced: boolean; setAdvanced: (v: boolean) => void; open: (s: Section) => void }) {
   switch (sec) {
+    case 'project':
+      return <ThisProjectSettings />
     case 'explorer':
       return <ExplorerIntegration />
     case 'usage':
@@ -401,8 +411,8 @@ function Usage({ s, advanced, setAdvanced, open }: { s: Settings; advanced: bool
       </div>
       <div className="usage-summary">
         <b>{modeSummary(mode, view?.chat)}</b>
-        {view && <span className="mute"> · {view.liveUnits} of {view.unitCap} unit places in use across all worlds</span>}
-        <div className="mute">Save allows up to {MODE_PRESETS.save.unitCap} concurrent units, Balanced {MODE_PRESETS.balanced.unitCap}, Max {MODE_PRESETS.max.unitCap}, shared across all worlds. * Balanced is the default. Max means higher ceilings, never permission to exhaust a plan.</div>
+        {view && <span className="mute"> · {view.liveUnits} of {view.unitCap} unit places in use across all projects</span>}
+        <div className="mute">Save allows up to {MODE_PRESETS.save.unitCap} concurrent units, Balanced {MODE_PRESETS.balanced.unitCap}, Max {MODE_PRESETS.max.unitCap}, shared across all projects. * Balanced is the default. Max means higher ceilings, never permission to exhaust a plan.</div>
       </div>
 
       <div className="usage-preview panel">
@@ -498,9 +508,9 @@ function pinnedOverrides(s: Settings, view: UsagePolicyView | null): Pin[] {
   for (const w of view?.worlds ?? []) {
     if (w.source === 'global') continue
     out.push({
-      label: `World ${w.name}`,
+      label: `Project ${w.name}`,
       value: `${USAGE_MODE_LABEL[w.mode]}${w.source === 'legacy-dial' ? ' (from its old cost dial)' : ''}`,
-      unpin: () => void op('World usage mode', () => api().projectUpdate(w.name, { usageMode: undefined, costDial: undefined }))
+      unpin: () => void op('Project usage mode', () => api().projectUpdate(w.name, { usageMode: undefined, costDial: undefined }))
     })
   }
   return out
@@ -528,8 +538,8 @@ function UsageAdvanced({ s, view, open }: { s: Settings; view: UsagePolicyView |
         <Toggle checked={!!s.cheapSpendAllowed} onChange={(v) => set({ cheapSpendAllowed: v })} />
         {view && <span className="mute">{view.cheap.why}</span>}
       </Row>
-      <div className="label" style={{ margin: '16px 0 6px' }}>Worlds</div>
-      <p className="mute">A world can use its own mode. Its unit cap can only be lower than the global {MODE_PRESETS[s.usageMode ?? 'balanced'].unitCap}.</p>
+      <div className="label" style={{ margin: '16px 0 6px' }}>Projects</div>
+      <p className="mute">A project can use its own mode. Its unit cap can only be lower than the global {MODE_PRESETS[s.usageMode ?? 'balanced'].unitCap}.</p>
       {projects.map((p) => {
         const w = view?.worlds.find((x) => x.name === p.name)
         return (
@@ -537,13 +547,13 @@ function UsageAdvanced({ s, view, open }: { s: Settings; view: UsagePolicyView |
             <select
               className="select"
               value={p.usageMode ?? ''}
-              onChange={(e) => void op('World usage mode', () => api().projectUpdate(p.name, { usageMode: (e.target.value || undefined) as UsageMode | undefined, costDial: undefined }))}
+              onChange={(e) => void op('Project usage mode', () => api().projectUpdate(p.name, { usageMode: (e.target.value || undefined) as UsageMode | undefined, costDial: undefined }))}
             >
               <option value="">Global ({USAGE_MODE_LABEL[s.usageMode ?? 'balanced']})</option>
               {USAGE_MODES.map((m) => <option key={m} value={m}>{USAGE_MODE_LABEL[m]}</option>)}
             </select>
             <span className="mute">capacity</span>
-            <CommitInput type="number" className="num-input" value={p.capacity ?? 0} onCommit={(v) => void op('World capacity', () => api().projectUpdate(p.name, { capacity: Math.max(0, parseInt(v, 10) || 0) }))} />
+            <CommitInput type="number" className="num-input" value={p.capacity ?? 0} onCommit={(v) => void op('Project capacity', () => api().projectUpdate(p.name, { capacity: Math.max(0, parseInt(v, 10) || 0) }))} />
           </Row>
         )
       })}
@@ -561,11 +571,11 @@ function WorldAttribution({ usage }: { usage: UsageReport }) {
   return (
     <div className="usage-block" style={{ margin: '10px 0 16px' }}>
       <div className="usage-head">
-        <b>Attributed to worlds</b>
+        <b>Attributed to projects</b>
         <span className="mute">project chat and unit tokens measured from local logs · shared account plans · legacy shared chat remains unattributed</span>
       </div>
       <div className="usage-tokens mono">
-        <span className="mute">world</span>
+        <span className="mute">project</span>
         <span className="mute">plan</span>
         <span className="mute">today</span>
         <span className="mute">7 days</span>
@@ -795,7 +805,7 @@ function Dispatch({ s }: { s: Settings }) {
                 <option value="scout">Recon</option>
               </select>
             </Field>
-            <Field label="World">
+            <Field label="Project">
               <select className="select" value={r.project ?? ''} onChange={(e) => upd(r.id, { project: e.target.value || undefined })}>
                 <option value="">Any</option>
                 {projects.map((p) => (
@@ -886,7 +896,7 @@ function CategoryTable({ s, scores }: { s: Settings; scores: DispatchScoresView 
       </div>
       <p className="mute">
         Genio passes the category at deploy; the Deploy window guesses it from keywords and lets you override. The first available candidate wins. Cheap OpenRouter models (OpenCode) are used only with
-        the OpenRouter key and in worlds that allow them.
+        the OpenRouter key and in projects that allow them.
       </p>
       <div className="cat-table">
         {s.categoryPools.map((p) => {
@@ -928,7 +938,7 @@ function CategoryTable({ s, scores }: { s: Settings; scores: DispatchScoresView 
                         </option>
                       ))}
                     </select>
-                    <button className={cx('chip', c.cheap && 'amber')} title="Cheap third-party model: needs the OpenRouter key; worlds can opt out" onClick={() => updC({ cheap: !c.cheap || undefined })}>
+                    <button className={cx('chip', c.cheap && 'amber')} title="Cheap third-party model: needs the OpenRouter key; projects can opt out" onClick={() => updC({ cheap: !c.cheap || undefined })}>
                       cheap
                     </button>
                     <span className="mono mute cat-score" title={sc ? `${sc.landed}/${sc.samples} landed` : 'no outcomes yet'}>
@@ -1271,7 +1281,7 @@ function Accounts() {
       <div className="label" style={{ margin: '22px 0 8px' }}>
         API keys
       </div>
-      <p className="mute">For services without a CLI login. Keys are encrypted with your OS keychain and stay in Genio's base; Genio shows only whether one is set. Units get a key only through their process environment: FAL as FAL_KEY, OpenRouter as OPENROUTER_API_KEY for OpenCode units in worlds that allow cheap third-party models. The Uthana key stays in Genio's core for the Animation screen.</p>
+      <p className="mute">For services without a CLI login. Keys are encrypted with your OS keychain and stay in Genio's base; Genio shows only whether one is set. Units get a key only through their process environment: FAL as FAL_KEY, OpenRouter as OPENROUTER_API_KEY for OpenCode units in projects that allow cheap third-party models. The Uthana key stays in Genio's core for the Animation screen.</p>
       {keys.map((k) => (
         <ApiKeyRow key={k.id} k={k} spend={k.id === 'fal' ? usage?.fal : undefined} onChange={() => void api().apiKeys().then(setKeys).catch(() => undefined)} />
       ))}
@@ -1458,7 +1468,7 @@ function Patch() {
   return (
     <>
       <h2 className="sys-title">Patch</h2>
-      <p className="mute">Fast-forward-only self update of Genio's own checkout. Never touches your worlds. Allies restart on the new build.</p>
+      <p className="mute">Fast-forward-only self update of Genio's own checkout. Never touches your projects. Allies restart on the new build.</p>
       <button className="btn" disabled={busy} onClick={() => void check()}>
         <RefreshCw size={13} className={busy ? 'spin' : ''} /> Check for patch
       </button>

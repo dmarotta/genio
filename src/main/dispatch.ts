@@ -112,7 +112,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
     const caps = unitCaps(globalMode(s), { mode: own && own.source !== 'global' ? own.mode : undefined, capacity: world?.capacity })
     const used = liveUnits(homes(), alive) + launchingCount()
     if (used >= caps.global)
-      throw new Error(`deferred: the ${USAGE_MODE_LABEL[globalMode(s)]} usage mode allows ${caps.global} concurrent unit${caps.global === 1 ? '' : 's'} across all worlds (${used} running or launching). The quest stays queued.`)
+      throw new Error(`deferred: the ${USAGE_MODE_LABEL[globalMode(s)]} usage mode allows ${caps.global} concurrent unit${caps.global === 1 ? '' : 's'} across all projects (${used} running or launching). The quest stays queued.`)
     if (caps.world !== undefined) {
       const mine = liveUnits(homes(), alive, project) + launchingCount(project)
       if (mine >= caps.world) throw new Error(`deferred: ${project} allows ${caps.world} concurrent unit${caps.world === 1 ? '' : 's'} (${mine} running or launching). The quest stays queued.`)
@@ -131,7 +131,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
     const gate = cheapGate({ worldAllows, keySet, opencodeReady: opencode })
     // A Usage mode never grants paid spend: that needs the explicit allowance.
     return gate.allowed && !ctx.settings.get().cheapSpendAllowed
-      ? { allowed: false, why: 'no paid-spend allowance for cheap models (Systems → Usage → Advanced)' }
+      ? { allowed: false, why: 'no paid-spend allowance for cheap models (Settings → Usage → Advanced)' }
       : gate
   }
 

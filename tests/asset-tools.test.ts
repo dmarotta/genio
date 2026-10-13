@@ -42,7 +42,7 @@ it('finds, inspects and locates without changing the world or opening a watcher'
   expect((await ctx.inventory.list('fixture')).state.watching).toBe(false)
   expect(execFileSync('git', ['status', '--porcelain', '-uall'], { cwd: root, encoding: 'utf8' })).toBe(before)
   await expect(assetInfo(ctx, 'fixture', '../secret.png')).rejects.toThrow('not found')
-  await expect(locateAsset(ctx, 'unknown', 'image')).rejects.toThrow('No world')
+  await expect(locateAsset(ctx, 'unknown', 'image')).rejects.toThrow('No project')
 })
 it('reads WAV duration cheaply and refreshes closed indexes', async () => {
   await ctx.inventory.refresh('fixture')

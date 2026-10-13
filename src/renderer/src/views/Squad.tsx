@@ -360,7 +360,7 @@ function UnitDetail({ id }: { id: string }) {
           </button>
         </div>
         <div className="tb-group">
-          <button className="btn sm volt" disabled={t.state === 'cleaned' || !project?.commands.run} title={project?.commands.run ? `Run: ${project.commands.run}` : 'Set a run command in Worlds'} onClick={() => void op('Playtest', () => api().playtest({ taskId: t.id }), (r) => (r ? 'Playtest launched in Sessions' : undefined))}>
+          <button className="btn sm volt" disabled={t.state === 'cleaned' || !project?.commands.run} title={project?.commands.run ? `Run: ${project.commands.run}` : 'Set a run command in Projects'} onClick={() => void op('Playtest', () => api().playtest({ taskId: t.id }), (r) => (r ? 'Playtest launched in Sessions' : undefined))}>
             <Play size={13} /> Playtest
           </button>
           {t.kind === 'ship' && (

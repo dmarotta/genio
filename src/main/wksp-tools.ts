@@ -1,3 +1,4 @@
+import { normalizeProjectArgs, projectAliasShape } from './project-tool-args'
 /**
  * App-owned Genio tool registry (mcp__genio__*). Every mechanic is a
  * deterministic service call; the agent only supplies judgment. Guards that
@@ -180,11 +181,12 @@ export function createToolRegistry(
     const paged = isPagedTool(name)
     const inputShape = paged ? { ...shape, ...pageShape } : shape
     tools.push({
-      name, description: desc + (paged ? ' Returns 2000-character pages by default; follow cursor with original arguments or request full=true.' : ''), shape: inputShape,
+      name, description: desc + (paged ? ' Returns 2000-character pages by default; follow cursor with original arguments or request full=true.' : ''), shape: projectAliasShape(inputShape),
       async invoke(args) {
         try {
-          const input = z.object(inputShape).parse(args)
-          const read = () => fn(z.object(shape).parse(args))
+          const normalized = normalizeProjectArgs(args, inputShape)
+          const input = z.object(inputShape).parse(normalized)
+          const read = () => fn(z.object(shape).parse(normalized))
           return paged ? await pages.read(name, input, read) : await read()
         } catch (e) {
           return fail(`${name} failed: ${(e as Error)?.message ?? String(e)}`)
@@ -203,11 +205,11 @@ export function createToolRegistry(
   const play = (world: string) => {
     if (!home.isMain) {
       const owner = getCtx().allies.list().find(a => a.name === home.name && !a.retiredAt)
-      if (!owner?.projects.includes(world)) throw new Error('Play world is outside this chat session')
+      if (!owner?.projects.includes(world)) throw new Error('Play project is outside this chat session')
     }
     return playService(getCtx())
   }
-  t('play_status', 'Observe the session world Unity editor. Never launch another editor or use a unit against the main editor.', { world: z.string() }, async ({ world }) => ok(json(await play(world).status(world))))
+  t('play_status', 'Observe the session project Unity editor. Never launch another editor or use a unit against the main editor.', { world: z.string() }, async ({ world }) => ok(json(await play(world).status(world))))
   t('play_console', 'Read recent Unity console entries, following cursor and session.', { world: z.string(), cursor: z.number().int().optional(), session: z.string().optional() }, async ({ world, cursor, session }) => ok(json(await play(world).adapter(world).console(cursor, session))))
   t('play_stats', 'Observe Unity performance statistics.', { world: z.string() }, async ({ world }) => ok(json(await play(world).adapter(world).stats())))
   t('play_frame', 'Observe a fresh game PNG in snapshot mode (about 1 fps).', { world: z.string() }, async ({ world }) => {
@@ -225,14 +227,14 @@ export function createToolRegistry(
     await play(world).act(world, action, 'genio', player_words)
     return ok('Play action completed')
   })
-  t('assets_find', 'Read-only world Inventory search. Supports browser syntax such as t:sfx, in:Audio, lfs:missing. Includes vendor assets; results never authorize writes.', {
+  t('assets_find', 'Read-only project Inventory search. Supports browser syntax such as t:sfx, in:Audio, lfs:missing. Includes vendor assets; results never authorize writes.', {
     world: z.string(), query: z.string().optional(), kind: assetKind.optional(), folder: z.string().optional(), generated: z.boolean().optional(), limit: z.number().int().min(1).max(200).optional()
   }, async ({ world, query, kind, folder, generated, limit }) => {
     const result = await findAssets(getCtx(), world, { query, kinds: kind ? [kind] : undefined, folder, generated, limit: limit ?? 50 })
     getCtx().stats.unlock('inventory-scout')
     return ok(json(result))
   })
-  t('asset_info', 'Read-only asset metadata, cheap dimensions/duration, LFS pointer state, provenance and neighbouring indexed media. Paths are world-relative.', {
+  t('asset_info', 'Read-only asset metadata, cheap dimensions/duration, LFS pointer state, provenance and neighbouring indexed media. Paths are project-relative.', {
     world: z.string(), path: z.string()
   }, async ({ world, path }) => ok(json(await assetInfo(getCtx(), world, path))))
   t('asset_locate', 'Suggest ranked safe locations for a NEW asset using engine root, configured folders and measured naming conventions. hint is a folder or subject. Read-only; creates nothing.', {
@@ -274,7 +276,7 @@ export function createToolRegistry(
     return { usageMode: s.usageMode, sound: s.sound, soundVolume: s.soundVolume, voice: s.voice,
       calm: s.calm, fx: s.fx, desktopNotifications: s.desktopNotifications }
   }
-  t('settings_read', 'Read supported chat/app preferences without secrets or large configuration skills. Advanced models, accounts and security settings are in Systems.', {}, () => ok(json(preferences())))
+  t('settings_read', 'Read supported chat/app preferences without secrets or large configuration skills. Advanced models, accounts and security settings are in Settings.', {}, () => ok(json(preferences())))
   t('settings_update', 'Change only these named preferences when the player requests it; quote their request. Does not change permissions, accounts or spending allowances.', {
     player_words: z.string().trim().min(1), patch: z.strictObject(preferenceShape)
   }, ({ patch }) => {
@@ -285,7 +287,7 @@ export function createToolRegistry(
     return ok(json(preferences()))
   })
 
-  t('fleet_view', 'Squad view: every unit in this base (state, world, PR, artifact), plus queued/held quests and open choices. Use at session start, on ticks, and before re-escalating anything.', {}, async () => {
+  t('fleet_view', 'Squad view: every unit in this base (state, project, PR, artifact), plus queued/held quests and open choices. Use at session start, on ticks, and before re-escalating anything.', {}, async () => {
     const h = hc()
     const view = await h.crew.fleetView()
     const choices = h.decisions.list(false).map((d) => ({ id: d.id, key: d.key, task: d.taskId, q: d.question, until: d.until }))
@@ -321,7 +323,7 @@ export function createToolRegistry(
 
   t(
     'deploy',
-    'Deploy a unit on a Build (kind=ship: produces a change) or Recon (kind=scout: produces a report) mission in an isolated copy of a world. intent = the player\'s own words (no speaker labels); spec = only the build instructions the ask requires. category = what kind of work it is (drives the category table). mode/auto_loot default to the world posture (resolve with world_posture first). Files a quest automatically unless quest_id is given. Omit harness/model/effort to let the loadout picker choose (rules, the Usage mode, category table, quota protection, learning); preview it with loadout_preview.',
+    'Deploy a unit on a Build (kind=ship: produces a change) or Recon (kind=scout: produces a report) mission in an isolated copy of a project. intent = the player\'s own words (no speaker labels); spec = only the build instructions the ask requires. category = what kind of work it is (drives the category table). mode/auto_loot default to the project posture (resolve with world_posture first). Files a quest automatically unless quest_id is given. Omit harness/model/effort to let the loadout picker choose (rules, the Usage mode, category table, quota protection, learning); preview it with loadout_preview.',
     {
       kind: z.enum(['ship', 'scout']),
       world: z.string(),
@@ -392,7 +394,7 @@ export function createToolRegistry(
 
   t(
     'merge',
-    "Merge a Build: its PR (guarded squash merge of a green, non-draft PR) or, for Offline worlds, a fast-forward of its ready branch. Without the world's Auto-loot, player_words must quote the player's explicit approval of this merge.",
+    "Merge a Build: its PR (guarded squash merge of a green, non-draft PR) or, for Offline projects, a fast-forward of its ready branch. Without the project's Auto-loot, player_words must quote the player's explicit approval of this merge.",
     { task: z.string(), player_words: z.string().optional() },
     async ({ task, player_words }) => {
       const ctx = getCtx()
@@ -402,7 +404,7 @@ export function createToolRegistry(
       const proj = ctx.projects.get(tk.project)
       const autoLoot = tk.yolo ?? proj?.yolo ?? false
       const words = role === 'bot' ? '' : (player_words ?? '').trim()
-      if (!autoLoot && !words) return fail('merge refused: this world has no Auto-loot, so it needs the player\'s explicit approval (pass their words as player_words, or open a choice)')
+      if (!autoLoot && !words) return fail('merge refused: this project has no Auto-loot, so it needs the player\'s explicit approval (pass their words as player_words, or open a choice)')
       const away = ctx.away.state().mode
       if (tk.mode === 'local-only' && away === 'afk') return fail('merge refused: Offline landings wait for the player to return from AFK')
       if (tk.pr?.url) {
@@ -423,7 +425,7 @@ export function createToolRegistry(
     return ok(`upgraded to Build ${nt.id} (${modeLabel(nt.mode)}, branch ${nt.branch})`)
   })
 
-  t('run_gauntlet', 'Run (or re-run) the Gauntlet on a Hardcore Build: review → fix rounds → world checks → push → PR → CI.', { task: z.string() }, async ({ task }) => {
+  t('run_gauntlet', 'Run (or re-run) the Gauntlet on a Hardcore Build: review → fix rounds → project checks → push → PR → CI.', { task: z.string() }, async ({ task }) => {
     const f = requireTask(task)
     const r = await f.hc.crew.validate(task)
     return r.ok ? ok(r.message || 'Gauntlet started') : fail(r.message)
@@ -457,7 +459,7 @@ export function createToolRegistry(
 
   t(
     'quest_update',
-    "Update a quest's notes/title/priority/dependencies/world. Inspect the current note first; replace the considered body rather than appending by default.",
+    "Update a quest's notes/title/priority/dependencies/project. Inspect the current note first; replace the considered body rather than appending by default.",
     {
       id: z.string(), title: z.string().optional(), notes: z.string().optional(),
       priority: z.enum(['low', 'normal', 'high', 'critical']).optional(), depends_on: z.array(z.string()).optional(),
@@ -531,17 +533,17 @@ export function createToolRegistry(
   })
 
   // ------------------------------------------------------------ worlds
-  t('world_list', 'Registered worlds (projects): path, engine, posture (mode, Auto-loot, branch prefix), capacity, commands.', {}, async () => {
+  t('world_list', 'Registered projects: path, engine, posture (mode, Auto-loot, branch prefix), capacity, commands.', {}, async () => {
     return ok(json(getCtx().projects.list().map((p) => ({ ...p, modeLabel: modeLabel(p.mode) }))))
   })
 
-  t('world_posture', 'Resolve the concrete delivery posture for a Build in a world. surface=product|internal matters for Hardcore (prod) worlds.', { world: z.string(), surface: z.enum(['product', 'internal']).optional() }, async ({ world, surface }) => {
+  t('world_posture', 'Resolve the concrete delivery posture for a Build in a project. surface=product|internal matters for Hardcore (prod) projects.', { world: z.string(), surface: z.enum(['product', 'internal']).optional() }, async ({ world, surface }) => {
     return ok(json(getCtx().projects.resolvePosture(world, { surface })))
   })
 
   t(
     'world_add',
-    'Register a world: clone a git URL / owner/repo, or register a local folder in place (in_place=true). Omit mode to let it follow the remote (none/other → Offline, GitHub → Standard); a mode you pass is pinned. Confirm name, source and posture with the player first.',
+    'Register a project: clone a git URL / owner/repo, or register a local folder in place (in_place=true). Omit mode to let it follow the remote (none/other → Offline, GitHub → Standard); a mode you pass is pinned. Confirm name, source and posture with the player first.',
     {
       source: z.string(), name: z.string().optional(),
       mode: z.enum(['no-mistakes', 'direct-PR', 'local-only', 'no-mistakes-prod-only']).optional(),
@@ -550,13 +552,13 @@ export function createToolRegistry(
     async (a) => {
       if (a.auto_loot && role === 'bot') return fail('Auto-loot is only granted by the player')
       const p = await getCtx().projects.add({ source: a.source, name: a.name, mode: a.mode, yolo: a.auto_loot, branchPrefix: a.branch_prefix, capacity: a.capacity, inPlace: a.in_place })
-      return ok(`world ${p.name} registered (${p.engine}, ${modeLabel(p.mode)}${p.yolo ? ' +auto-loot' : ''}) at ${p.path}`)
+      return ok(`project ${p.name} registered (${p.engine}, ${modeLabel(p.mode)}${p.yolo ? ' +auto-loot' : ''}) at ${p.path}`)
     }
   )
 
   t(
     'world_create',
-    'Create a new game world (git init with an engine scaffold). create_remote makes a GitHub repo too and REQUIRES player_words with their explicit consent to the name and visibility.',
+    'Create a new game project (git init with an engine scaffold). create_remote makes a GitHub repo too and REQUIRES player_words with their explicit consent to the name and visibility.',
     {
       name: z.string(), engine: z.enum(['godot', 'unity', 'unreal', 'bevy', 'web', 'love2d', 'gamemaker', 'defold', 'monogame', 'other']),
       description: z.string().optional(), mode: z.enum(['no-mistakes', 'direct-PR', 'local-only', 'no-mistakes-prod-only']).optional(),
@@ -565,13 +567,13 @@ export function createToolRegistry(
     async (a) => {
       if (a.create_remote && (role === 'bot' || !a.player_words?.trim())) return fail('creating a remote repo is outward-facing: it needs the player\'s explicit consent (player_words)')
       const p = await getCtx().projects.create({ name: a.name, engine: a.engine, description: a.description, mode: a.mode, createRemote: a.create_remote, privateRemote: a.private_remote })
-      return ok(`world ${p.name} created at ${p.path} (${p.engine}, ${modeLabel(p.mode)})`)
+      return ok(`project ${p.name} created at ${p.path} (${p.engine}, ${modeLabel(p.mode)})`)
     }
   )
 
   t(
     'world_update',
-    'Change a world\'s registry entry: mode (pins it; mode=auto makes it follow the remote again), Auto-loot (only on the player\'s word), branch prefix, capacity, engine commands (setup/build/test/lint/run), description.',
+    'Change a project\'s registry entry: mode (pins it; mode=auto makes it follow the remote again), Auto-loot (only on the player\'s word), branch prefix, capacity, engine commands (setup/build/test/lint/run), description.',
     {
       world: z.string(), mode: z.enum(['no-mistakes', 'direct-PR', 'local-only', 'no-mistakes-prod-only', 'auto']).optional(),
       auto_loot: z.boolean().optional(), player_words: z.string().optional(), branch_prefix: z.string().optional(),
@@ -592,25 +594,25 @@ export function createToolRegistry(
         patch.commands = { ...cur, ...a.commands }
       }
       const p = getCtx().projects.update(a.world, patch)
-      return ok(`world ${p.name} updated: ${modeLabel(p.mode)}${p.yolo ? ' +auto-loot' : ''}, prefix ${p.branchPrefix}`)
+      return ok(`project ${p.name} updated: ${modeLabel(p.mode)}${p.yolo ? ' +auto-loot' : ''}, prefix ${p.branchPrefix}`)
     }
   )
 
-  t('world_remove', 'Unregister a world (preflight refuses while units/quests are live or work is unlanded). delete_clone deletes Genio\'s clone and REQUIRES player_words.', { world: z.string(), delete_clone: z.boolean().default(false), player_words: z.string().optional() }, async (a) => {
-    if (role === 'bot') return fail('removing worlds waits for the player')
+  t('world_remove', 'Unregister a project (preflight refuses while units/quests are live or work is unlanded). delete_clone deletes Genio\'s clone and REQUIRES player_words.', { world: z.string(), delete_clone: z.boolean().default(false), player_words: z.string().optional() }, async (a) => {
+    if (role === 'bot') return fail('removing projects waits for the player')
     if (a.delete_clone && !a.player_words?.trim()) return fail('deleting a clone needs the player\'s explicit words')
     const r = await getCtx().projects.remove(a.world, a.delete_clone)
     return r.ok ? ok(r.message) : fail(r.message)
   })
 
-  t('world_sync', "Guarded sync of a world's main copy (re-detect the remote, fast-forward default branch, prune merged gone branches; Offline worlds only fetch). Omit world for all.", { world: z.string().optional() }, async ({ world }) => {
+  t('world_sync', "Guarded sync of a project's main copy (re-detect the remote, fast-forward default branch, prune merged gone branches; Offline projects only fetch). Omit project for all.", { world: z.string().optional() }, async ({ world }) => {
     const r = await getCtx().projects.sync(world)
     return r.ok ? ok(r.message) : fail(r.message)
   })
 
   t(
     'world_push',
-    "Push on demand for an Offline world with a remote: pushes the default branch (or `branch`) to origin, reporting ahead/behind first. A plain fast-forward push only: refuses when origin has diverged, never forces. Outward-facing: only on the player's request.",
+    "Push on demand for an Offline project with a remote: pushes the default branch (or `branch`) to origin, reporting ahead/behind first. A plain fast-forward push only: refuses when origin has diverged, never forces. Outward-facing: only on the player's request.",
     { world: z.string(), branch: z.string().optional() },
     async ({ world, branch }) => {
       if (role === 'bot') return fail('pushing waits for the player: it is outward-facing')
@@ -706,7 +708,7 @@ export function createToolRegistry(
 
   // ------------------------------------------------------------ allies
   if (home.isMain) {
-    t('ally_list', 'Registered allies (allied Genios with their own base): scope, charter, worlds.', {}, async () => ok(json(getCtx().allies.list().filter((a) => !a.retiredAt))))
+    t('ally_list', 'Registered allies (allied Genios with their own base): scope, charter, projects.', {}, async () => ok(json(getCtx().allies.list().filter((a) => !a.retiredAt))))
     t('ally_route', "Route a request to the ally whose scope fits. Its reply returns as an 'ally' event, not by reading its chat.", { name: z.string(), request: z.string().min(3) }, async ({ name, request }) => {
       const r = await getCtx().allies.route(name, request)
       return r.ok ? ok(r.message) : fail(r.message)
@@ -745,8 +747,8 @@ export function createToolRegistry(
     })
     t('fal_generate', 'Generate FAL media in the background. Follow assets skill: asset_locate, then pass place and the player request. Quote card above threshold; monthly cap is a hard stop. Up to four outputs, $2 maximum; delegate larger work.', falGenerateShape, async a => ok(json(await agentGeneration(getCtx()).fal(home.name, a, role))))
     t('uthana_motion', 'Generate a motion in the background. Stock Manny humanoid by default; FBX for Unity, GLB otherwise. Follow assets and uthana skills; no import settings are changed.', uthanaMotionShape, async a => ok(json(await agentGeneration(getCtx()).motion(home.name, a, role))))
-    t('uthana_character', 'Reuse an uploaded character by world source and sha256, or upload this world-relative FBX/GLB. Prefer stock humanoids; rigging can cost $0.15.', uthanaCharacterShape, async a => ok(json(await agentGeneration(getCtx()).character(home.name, a, role))))
-    t('asset_place', 'Place a generated run output in its world, uncommitted, with provenance. Media only. Never Bot, forbidden dirs or vendor packs. Requires player_words; overwriting additionally requires overwrite_words quoting explicit confirmation for that file.', assetPlaceShape, async a => ok(json(await agentGeneration(getCtx()).place(home.name, a, role))))
+    t('uthana_character', 'Reuse an uploaded character by project source and sha256, or upload this project-relative FBX/GLB. Prefer stock humanoids; rigging can cost $0.15.', uthanaCharacterShape, async a => ok(json(await agentGeneration(getCtx()).character(home.name, a, role))))
+    t('asset_place', 'Place a generated run output in its project, uncommitted, with provenance. Media only. Never Bot, forbidden dirs or vendor packs. Requires player_words; overwriting additionally requires overwrite_words quoting explicit confirmation for that file.', assetPlaceShape, async a => ok(json(await agentGeneration(getCtx()).place(home.name, a, role))))
     t('approve_run', 'Approve the exact pending quote in this chat only when the player agrees; quote their words. Cannot override the monthly cap.', { run: z.string(), player_words: z.string().trim().min(1) }, async a => ok(json(await agentGeneration(getCtx()).approve(a.run, home.name, a.player_words, role))))
     t('generation_status', 'Inspect a background generation and its saved paths or error. Never resubmit uncertain jobs.', { run: z.string() }, a => ok(json(agentGeneration(getCtx()).status(a.run, home.name))))
     t('generate_image', GENERATE_IMAGE_DESC, generateImageShape, async (a) => ok(json(await agentGeneration(getCtx()).image(home.name, a, role))))

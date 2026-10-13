@@ -20,7 +20,7 @@ for the design and [docs/VOCABULARY.md](docs/VOCABULARY.md) for the terms.
   Claude Code, Codex, Gemini CLI, OpenCode, Cursor Agent, Grok, Aider or your own.
 - **Missions** — *Build* missions deliver a change; *Recon* missions deliver a
   written report and can be upgraded to a Build in place.
-- **Delivery modes per world** — *Hardcore* runs the Gauntlet (lint, build,
+- **Delivery modes per project** — *Hardcore* runs the Gauntlet (lint, build,
   tests, AI review, fix rounds, PR, CI), *Standard* opens a PR directly,
   *Offline* leaves a clean local branch. *Auto-loot* lets Genio merge green,
   in-scope work on its own.
@@ -47,7 +47,7 @@ for the design and [docs/VOCABULARY.md](docs/VOCABULARY.md) for the terms.
 - Windows 10/11, macOS or Linux, Node.js 20+ and Git.
 - Claude Code installed and logged in (`claude`), used by Genio itself through
   the Claude Agent SDK and as the default unit runtime.
-- GitHub CLI (`gh`) authenticated for PR-based modes. Genio's Systems screen
+- GitHub CLI (`gh`) authenticated for PR-based modes. Genio's Settings screen
   can install missing tools after you click Install.
 
 ## Run it
@@ -92,7 +92,7 @@ ones it needs (`electron`, `esbuild`, `node-pty`) in `package.json`.
 ## Base layout
 
 Everything lives under `~/.genio` (override with `GENIO_HOME`): `config/`
-settings, `data/` durable records (worlds, quests, choices, briefs, reports,
+settings, `data/` durable records (projects, quests, choices, briefs, reports,
 profile, lore, replay log), `state/` runtime records (unit status logs, event
 queue, presence), `projects/` clones, `worktrees/` one per unit, and `wksps/`
 for project and ally bases. Registered projects own their units, quests and
@@ -105,8 +105,22 @@ MIT. Genio reimplements concepts from companion by The team (MIT).
 
 ### Open a project folder
 
+Project windows keep configuration in **Settings → This project**: delivery
+(Offline, Standard PRs, or the Hardcore Gauntlet), automatic remote following,
+engine and engine root, Auto-loot, branch prefix, capacity, usage mode,
+description, model opt-out, setup/build/test/lint/run commands and generation
+settings. Project actions include sync, push on demand, playtest and guarded
+unregistration. Removing a project still refuses live units, queued quests and
+unlanded work; an owned folder is never deleted.
+
+Existing stored keys and file formats remain compatible. MCP tools with a
+`world` argument also accept `project`; the original argument and tool names
+remain supported. Conflicting aliases are rejected before scoped calls run.
+Bundled unit CLI flags such as `--world` keep their existing spelling.
+
 Launching Genio without arguments opens a minimal project-selection Hub. Recent
-projects, **Open folder** and **New project** select a project. Waiting choice
+projects, **Open folder**, **New project** and **Add project** select a project. Search
+by name, folder or engine, sort the list, or sync registered projects from the Hub. Waiting choice
 counts and answer history remain available from the Hub.
 Selecting a project opens its own window on its main chat. Recent selections are
 remembered on this device; work controls and first-run setup live inside the
@@ -133,7 +147,7 @@ your account**, edit the user **Path**, and add the absolute path to Genio's
 terminal command. The shim runs a packaged `Genio.exe` beside `resources`, or the
 built development app in the parent folder. It does not change PATH itself.
 
-In a project window, **Systems → Explorer → Install** adds **Open with Genio**
+In a project window, **Settings → Explorer → Install** adds **Open with Genio**
 to folder and folder-background context menus for your Windows account. On
 Windows 11 it appears under **Show more options**. It uses the same folder-open
 path as `genio <folder>`, including focusing an already-open project. **Remove**

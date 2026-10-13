@@ -432,7 +432,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       const ctx = getCtx()
       const s = ctx.settings.get()
       const project = ctx.projects.get(req.project)
-      if (!project) throw new Error(`Unknown world "${req.project}". Add it in WORLDS first.`)
+      if (!project) throw new Error(`Unknown project "${req.project}". Add it in PROJECTS first.`)
       if (!exists(project.path)) throw new Error(`The clone of ${project.name} is missing at ${project.path}.`)
       if (!req.title?.trim()) throw new Error('A mission needs a title.')
       if (!req.intent?.trim()) throw new Error("A mission needs the player's intent.")
@@ -440,7 +440,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
 
       const posture = ctx.projects.resolvePosture(project.name, { mode: req.mode, yolo: req.yolo })
       if (req.kind === 'ship' && posture.mode !== 'local-only' && !(await git.hasRemote(project.path))) {
-        throw new Error(`${project.name} has no remote, so ${modeLabel(posture.mode)} mode cannot open a PR. Use Offline mode for this world.`)
+        throw new Error(`${project.name} has no remote, so ${modeLabel(posture.mode)} mode cannot open a PR. Use Offline mode for this project.`)
       }
 
       // capacity across every base
@@ -754,7 +754,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         }
         via = verdict.landed ? `landed (${verdict.via})` : 'forced by the player'
       } else if (!force) {
-        return { ok: false, message: `Cannot verify ${id}'s work: its world is not registered. Force only with the player's word.` }
+        return { ok: false, message: `Cannot verify ${id}'s work: its project is not registered. Force only with the player's word.` }
       }
       if (t.terminalId) ctx.terminals.kill(t.terminalId)
       if (repo && exists(t.worktree)) {
@@ -779,7 +779,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       if (t.kind !== 'ship') return { ok: false, message: 'Recon missions have nothing to merge.' }
       const ctx = getCtx()
       const project = ctx.projects.get(t.project)
-      if (!project) return { ok: false, message: `World ${t.project} is not registered.` }
+      if (!project) return { ok: false, message: `Project ${t.project} is not registered.` }
       let result: OpResult
       let mergeVia: 'pr' | 'local'
       if (t.pr?.url) {
@@ -809,7 +809,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       if (!exists(t.worktree)) throw new Error(`The worktree for ${id} is gone.`)
       const ctx = getCtx()
       const project = ctx.projects.get(t.project)
-      if (!project) throw new Error(`World ${t.project} is not registered.`)
+      if (!project) throw new Error(`Project ${t.project} is not registered.`)
       const posture = ctx.projects.resolvePosture(project.name)
       const report = readText(t.reportPath ?? home.reportFile(id))
       const oldBrief = readText(t.briefPath)
@@ -933,7 +933,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       lines.push(`## In Progress (base: ${home.name})`)
       if (!live.length) lines.push('(no units deployed)')
       else {
-        lines.push('| ID | Current | Kind | World | Mode | Terminal | Artifact | Worktree |')
+        lines.push('| ID | Current | Kind | Project | Mode | Terminal | Artifact | Worktree |')
         lines.push('|---|---|---|---|---|---|---|---|')
         for (const t of live) {
           const cs = (await svc.crewState(t.id)).replace(/\|/g, '/')
@@ -949,7 +949,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       lines.push('', '## Quest Log (queued)')
       if (!queued.length) lines.push('(nothing queued)')
       else {
-        lines.push('| ID | Title | World | Kind | Blocked by | Hold |')
+        lines.push('| ID | Title | Project | Kind | Blocked by | Hold |')
         lines.push('|---|---|---|---|---|---|')
         for (const b of queued) {
           lines.push(`| ${b.id} | ${b.title} | ${b.project ?? '-'} | ${b.kind} | ${b.dependsOn.join(', ') || '-'} | ${b.hold ? `${backlog.bucket(b)}: ${b.hold.reason}${b.hold.until ? ` until ${b.hold.until}` : ''}` : '-'} |`)
@@ -966,12 +966,12 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       const ctx = getCtx()
       const t = target.taskId ? get(target.taskId) : undefined
       const projectName = t?.project ?? target.project
-      if (!projectName) throw new Error('Pick a world or a unit to playtest.')
+      if (!projectName) throw new Error('Pick a project or a unit to playtest.')
       const project = ctx.projects.get(projectName)
-      if (!project) throw new Error(`Unknown world: ${projectName}`)
+      if (!project) throw new Error(`Unknown project: ${projectName}`)
       const cwd = t && exists(t.worktree) ? t.worktree : project.path
       const cmd = playCommandFor(project.engine, project.commands.run)
-      if (!cmd) throw new Error(`No run command for ${project.name}. Set one in WORLDS › Commands.`)
+      if (!cmd) throw new Error(`No run command for ${project.name}. Set one in PROJECTS › Commands.`)
       const sh = defaultShell(ctx.settings.get().shell)
       const base = path.basename(sh.file).toLowerCase()
       let args: string[]

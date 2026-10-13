@@ -26,16 +26,16 @@ export function Inventory() {
   useEffect(() => { if (world) localStorage.setItem('genio.inventory.world', world) }, [world])
   return <div className="inventory">
     <header className="inventory-head">
-      <div><div className="label">WORLD ASSETS</div><h1>Inventory</h1></div>
-      <select className="select" aria-label="Inventory world" value={world ?? ''} onChange={e => go('inventory', { world: e.target.value })}>
-        {!projects.length && <option value="">No worlds</option>}
+      <div><div className="label">PROJECT ASSETS</div><h1>Inventory</h1></div>
+      <select className="select" aria-label="Inventory project" value={world ?? ''} onChange={e => go('inventory', { world: e.target.value })}>
+        {!projects.length && <option value="">No projects</option>}
         {projects.map(p => <option key={p.name}>{p.name}</option>)}
       </select>
       {world && <button className="btn sm ghost" onClick={() => setState({ view: 'worlds', highlightWorld: world })}><Settings size={14} /> Generation settings</button>}
       <span className="dim">Explore · select · preview</span>
     </header>
     {world ? <WorldInventory key={world} world={world} root={projects.find(p => p.name === world)!.path} />
-      : <div className="inventory-empty"><FolderOpen size={42} /><h2>No worlds loaded</h2><p>Add a world to browse its media.</p><button className="btn" onClick={() => go('worlds')}>Open Worlds</button></div>}
+      : <div className="inventory-empty"><FolderOpen size={42} /><h2>No projects loaded</h2><p>Add a project to browse its media.</p><button className="btn" onClick={() => go('worlds')}>Open Projects</button></div>}
   </div>
 }
 
@@ -109,7 +109,7 @@ function WorldInventory({ world, root }: { world: string; root: string }) {
       <aside className="inventory-tree" aria-label="Asset folders">
         <div className="label">PROJECT HIERARCHY</div>
         <button className={cx('inventory-folder', !folder && 'on')} onClick={() => browseFolder('')}><FolderOpen size={15} /><span>All assets</span></button>
-        {state ? <FolderChildren key={filterKey} world={world} parent="" filters={filters} revision={revision} selected={folder} select={browseFolder} depth={0} /> : <p className="dim">Indexing world…</p>}
+        {state ? <FolderChildren key={filterKey} world={world} parent="" filters={filters} revision={revision} selected={folder} select={browseFolder} depth={0} /> : <p className="dim">Indexing project…</p>}
       </aside>
       {state ? <AssetBrowser key={filterKey + folder + list + tile} world={world} query={browseQuery} revision={revision} list={list} tile={tile} selected={selection.map(a => a.path)} select={select} /> : <div className="inventory-empty">Indexing supported media…</div>}
       <InventoryChat context={{ world, engine: state?.engine, engineRoot: state?.engineRoot, folder, preview: selected && contextAsset(selected), selection: selection.length > 1 ? selection.map(contextAsset) : undefined }} inspector={<Inspector key={selected?.path ?? 'empty'} world={world} root={root} asset={selected} revision={revision} />} />
@@ -208,7 +208,7 @@ function Inspector({ world, root, asset, revision }: { world: string; root: stri
       {error && <p className="inventory-error" role="alert">{error}</p>}
       {info ? <AssetPreview key={info.mediaUrl + info.mtimeMs} info={info} /> : !error && <p className="dim">Loading preview…</p>}
       <div className="inventory-path">{asset.path}</div>
-      <dl><dt>Type</dt><dd>{asset.kind} · {asset.ext.toUpperCase()}</dd><dt>Size</dt><dd>{assetBytes(asset.lfsSize ?? asset.size)}</dd><dt>Modified</dt><dd>{new Date(asset.mtimeMs).toLocaleString()}</dd><dt>Source</dt><dd>{asset.vendor ? 'Vendor pack' : 'World asset'} · {asset.tracked ? 'Tracked' : 'Untracked'}</dd>
+      <dl><dt>Type</dt><dd>{asset.kind} · {asset.ext.toUpperCase()}</dd><dt>Size</dt><dd>{assetBytes(asset.lfsSize ?? asset.size)}</dd><dt>Modified</dt><dd>{new Date(asset.mtimeMs).toLocaleString()}</dd><dt>Source</dt><dd>{asset.vendor ? 'Vendor pack' : 'Project asset'} · {asset.tracked ? 'Tracked' : 'Untracked'}</dd>
         {!!info?.tags.length && <><dt>Tags</dt><dd>{info.tags.join(', ')}</dd></>}
         {info?.meta?.importer && <><dt>Importer</dt><dd>{info.meta.importer}</dd></>}
       </dl>

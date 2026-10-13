@@ -189,7 +189,7 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
   const nameOf = (id: string): string => byId(id)?.name ?? s.harnesses.find((h) => h.id === id)?.name ?? id
   const mode: UsageMode = env.mode ?? globalMode(s)
   const preset = MODE_PRESETS[mode]
-  const modeName = `${USAGE_MODE_LABEL[mode]} mode${env.modeFromWorld ? ' (this world)' : ''}`
+  const modeName = `${USAGE_MODE_LABEL[mode]} mode${env.modeFromWorld ? ' (this project)' : ''}`
   const dial: CostDial = env.dial ?? preset.dial
   const plans = planStatuses(env.quota)
   const levelOf = (id: string): PlanLevel => (isPlan(id) ? plans[id].level : 'ok')
@@ -423,10 +423,10 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
  * A world that opts out never sends code to a third-party provider.
  */
 export function cheapGate(g: { worldAllows: boolean; keySet: boolean; opencodeReady: boolean }): { allowed: boolean; why: string } {
-  if (!g.worldAllows) return { allowed: false, why: 'cheap third-party models are off for this world' }
-  if (!g.keySet) return { allowed: false, why: 'no OpenRouter key in Systems → Accounts' }
+  if (!g.worldAllows) return { allowed: false, why: 'cheap third-party models are off for this project' }
+  if (!g.keySet) return { allowed: false, why: 'no OpenRouter key in Settings → Accounts' }
   if (!g.opencodeReady) return { allowed: false, why: 'OpenCode is not installed' }
-  return { allowed: true, why: 'allowed for this world' }
+  return { allowed: true, why: 'allowed for this project' }
 }
 
 /** pickLoadout against what is actually installed, enabled and verified on this machine, plus live dispatch signals. */

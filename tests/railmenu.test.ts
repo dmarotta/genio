@@ -10,6 +10,7 @@ describe('rail entries', () => {
     expect(top).not.toContain('animation')
     expect(top).toContain('inventory')
     expect(top).not.toContain('assets')
+    expect(top).not.toContain('worlds')
     expect(navItems().map((i) => i.id)).not.toContain('fal')
     expect(navItems().map((i) => i.id)).not.toContain('animation')
     expect(navItems().find(i => i.key === '0')?.id).toBe('play')
@@ -18,7 +19,7 @@ describe('rail entries', () => {
   it('keeps every screen and its shortcut reachable for the palette', () => {
     const keys = Object.fromEntries(navItems().map((n) => [n.id, n.key]))
     expect(keys).toEqual({
-      comms: '1', squad: '2', quests: '3', status: '5', worlds: '6', lore: '7', systems: '8', inventory: '9', play: '0'
+      comms: '1', squad: '2', quests: '3', status: '5', lore: '7', systems: '8', inventory: '9', play: '0'
     })
   })
 })

@@ -27,7 +27,7 @@ import {
 
 const EXIT = { usage: 2, nokey: 3, api: 4, pending: 5, budget: 6 }
 const MISSING_KEY =
-  'FAL key missing: FAL_KEY is not set for this unit. The player sets it in Genio under Systems -> Accounts (FAL.ai); units launched after that receive it automatically.'
+  'FAL key missing: FAL_KEY is not set for this unit. The player sets it in Genio under Settings -> Accounts (FAL.ai); units launched after that receive it automatically.'
 
 // Tests only: a loopback base stands in for both FAL hosts. Nothing else is accepted.
 const TEST_BASE = /^http:\/\/127\.0\.0\.1:\d+$/.test(process.env.GENIO_FAL_TEST_BASE ?? '') ? process.env.GENIO_FAL_TEST_BASE : ''
@@ -207,7 +207,7 @@ function needWorld(opts) {
 function target(opts, world) {
   let recipe = null
   if (opts.recipe !== undefined) {
-    if (!world) throw new Fail('--recipe needs --world: recipes live in the world\'s .genio/fal/recipes.json.', EXIT.usage)
+    if (!world) throw new Fail('--recipe needs --world: recipes live in the project\'s .genio/fal/recipes.json.', EXIT.usage)
     recipe = findRecipe(world, String(opts.recipe))
   }
   const endpoint = endpointOf(opts.endpoint === undefined && recipe ? { endpoint: recipe.endpoint } : opts)
@@ -264,7 +264,7 @@ async function submit(opts) {
   if (body.sync_mode) throw new Fail('Leave sync_mode off: queued output stays recoverable from the receipt.', EXIT.usage)
   const budget = opts.budget === undefined ? null : positive(opts, 'budget', true)
   const ledger = ledgerOf(opts, world)
-  if (budget != null && !ledger) throw new Fail('--budget outside world mode needs --ledger <spend.jsonl> to count what you already spent.', EXIT.usage)
+  if (budget != null && !ledger) throw new Fail('--budget outside project mode needs --ledger <spend.jsonl> to count what you already spent.', EXIT.usage)
   if (fs.existsSync(receipt)) {
     throw new Fail(`Receipt ${receipt} already exists. It records an earlier call; use status/result on it, or pick a new receipt name for a new paid call.`, EXIT.usage)
   }
@@ -433,7 +433,7 @@ async function download(opts) {
   const world = worldOf(opts)
   if (!world) return { dir, files: saved }
   const receipt = typeof opts.receipt === 'string' ? opts.receipt : resultFile.replace(/\.result\.json$/i, '.job.json')
-  if (!fs.existsSync(receipt)) throw new Fail(`World mode needs the receipt for provenance; pass --receipt <x.job.json> (looked for ${receipt}).`, EXIT.usage)
+  if (!fs.existsSync(receipt)) throw new Fail(`Project mode needs the receipt for provenance; pass --receipt <x.job.json> (looked for ${receipt}).`, EXIT.usage)
   const record = readJson(receipt)
   const seed = readJson(resultFile).seed
   for (const s of saved) {
@@ -485,7 +485,7 @@ async function run(opts) {
     const kind = opts.kind ?? (opts.recipe !== undefined ? findRecipe(world, String(opts.recipe)).save_to : undefined)
     dir = folderFor(world, typeof kind === 'string' ? kind : undefined)
   }
-  if (!dir) throw new Fail('Missing --dir (in world mode it can come from .genio/fal/config.json folders via --kind <image|audio|model|video> or a recipe\'s save_to).', EXIT.usage)
+  if (!dir) throw new Fail('Missing --dir (in project mode it can come from .genio/fal/config.json folders via --kind <image|audio|model|video> or a recipe\'s save_to).', EXIT.usage)
   needKey()
   let submitted
   if (fs.existsSync(receipt)) {
@@ -590,12 +590,12 @@ const USAGE = `Genio FAL helper (key from FAL_KEY only).
   result   --receipt <x.job.json> [--out <x.result.json>]
   download --result <x.result.json> --dir <out dir> [--name <base>] [--overwrite]
   cancel   --receipt <x.job.json>
-World mode (.genio/ in your worktree):
+Project mode (.genio/ in your worktree):
   world    --world <root> [--budget <usd>]           folders, budget and spend, defaults, recipes (no network)
   recipe   --world <root> --id <recipe> [--subject <text>]   a recipe with its prompt filled in (no network)
   run/submit ... --world <root> (--units <n>|--est-usd <n>) [--budget <usd>] [--recipe <id>] [--kind <image|audio|model|video>]
            priced and checked against the budgets first; logs .genio/spend.jsonl and writes .genio/provenance/
-  run/submit ... --budget <usd> --ledger <spend.jsonl> (--units <n>|--est-usd <n>)   the same budget stop outside a world`
+  run/submit ... --budget <usd> --ledger <spend.jsonl> (--units <n>|--est-usd <n>)   the same budget stop outside a project`
 
 function catalogue(opts) {
   const file = fileURLToPath(new URL('../references/catalogue.json', import.meta.url))

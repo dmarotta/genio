@@ -51,7 +51,7 @@ code comments that cite the original design.
 | captain inbox | **Mail** | |
 | calm mode | **Clean HUD** | |
 | fleet view | **Squad view** | |
-| projects | **Worlds** | the player's games/repos |
+| projects | **Projects** | the player's games/repos |
 | bridge (chat) | **Comms** | |
 | wedge alarm | **Alarm** | |
 | "Captain, shipshape." no-op | **"All clear."** | |

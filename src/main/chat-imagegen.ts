@@ -25,12 +25,12 @@ export const MAX_GENERATED = 4
 export const MAX_REFS = 8
 /** plan meter % at which the chat message warns */
 export const METER_WARN_AT = 80
-export const LOGIN_HINT = 'log in to Codex in Systems → Accounts'
+export const LOGIN_HINT = 'log in to Codex in Settings → Accounts'
 
 export const GENERATE_IMAGE_DESC =
   "Generate PNG image(s) with Codex's image_gen on the player's ChatGPT plan (no API cost; about a minute per call) and show them in this chat. " +
   'Use for concepts, sprites, icons, transparent cutouts, and edits or variations of an image: pass refs = chat image ids (shown as [attached image ids: ...] on pasted screenshots and returned by earlier generate_image calls) or absolute paths. ' +
-  'You get the images back to judge them, plus the plan meter. For world assets pass world, place from asset_locate, and player_words. Runs in the background; use generation_status to inspect completion. Without a world it stays in chat.'
+  'You get the images back to judge them, plus the plan meter. For project assets pass project, place from asset_locate, and player_words. Runs in the background; use generation_status to inspect completion. Without a project it stays in chat.'
 
 export const generateImageShape = {
   prompt: z.string().min(3).max(4000),
@@ -217,7 +217,7 @@ export async function generateChatImages(gen: ChatImageGen, a: GenerateImageArgs
     failed: errors.length ? errors : undefined,
     plan_meter_percent: typeof used === 'number' ? used : null,
     warning: warn ? `ChatGPT plan meter at ${used}%` : (result.warning ?? undefined),
-    note: 'Pass these ids as refs to edit or vary them. Chat-only: nothing was saved into a world.'
+    note: 'Pass these ids as refs to edit or vary them. Chat-only: nothing was saved into a project.'
   }
   const blocks: CallToolResult['content'] = [{ type: 'text', text: JSON.stringify(summary, null, 1) }]
   for (const m of made) {

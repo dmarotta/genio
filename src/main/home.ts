@@ -94,7 +94,7 @@ export class Home {
     if (!exists(this.playerFile)) {
       writeText(
         this.playerFile,
-        `# Player Profile\n\nHow the player likes to work. Genio reads this at every session start.\nEdit freely; Genio keeps it curated on /save.\n\n## Play style\n\n## Worlds & priorities\n\n## Don'ts\n`
+        `# Player Profile\n\nHow the player likes to work. Genio reads this at every session start.\nEdit freely; Genio keeps it curated on /save.\n\n## Play style\n\n## Projects & priorities\n\n## Don'ts\n`
       )
     }
     if (!exists(this.loreFile)) {

@@ -1,110 +1,26 @@
 import { GenerationSettings } from '../components/GenerationSettings'
-import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, FolderOpen, Gamepad2, Globe, MoreHorizontal, Package, Settings, Search, Play, Plus, RefreshCw, Rocket, Sparkles, Trash, Upload } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ChevronDown, ChevronRight, FolderOpen, Package, Play, RefreshCw, Rocket, Trash, Upload } from 'lucide-react'
 import type { PushStatus } from '@shared/api'
 import { modeSourceOf } from '@shared/vocab'
-import type { CostDial, Engine, Project, ProjectCommands, ProjectMode } from '@shared/types'
-import { DIAL_HINT, DIAL_LABEL, cheapModelsAllowed } from '@shared/dispatch'
+import type { Engine, Project, ProjectCommands, ProjectMode } from '@shared/types'
+import { cheapModelsAllowed } from '@shared/dispatch'
+import { requestSystemsSection } from './Systems'
+import { USAGE_MODES, USAGE_MODE_LABEL, type UsageMode } from '@shared/usage-mode'
 import { PROJECT_WINDOW, api, errText, go, hasView, op, openDeploy, setState, toast, useStore } from '../store'
-import { CommitInput, Confirm, Empty, Field, Modal, Toggle, ViewHeader } from '../components/ui'
-import { ENGINES, ENGINE_COLOR, ENGINE_LABEL, MODE_HINT, MODE_LABEL, PROJECT_MODES, isActive } from '../lib/vocab'
+import { CommitInput, Confirm, Field, Modal, Toggle } from '../components/ui'
+import { ENGINES, ENGINE_LABEL, MODE_HINT, MODE_LABEL, PROJECT_MODES, isActive } from '../lib/vocab'
 import { cx } from '../lib/format'
-import { worldList, worldPath, modifiedLabel, type WorldSort } from '../lib/worlds'
+import { worldPath, modifiedLabel } from '../lib/worlds'
 import type { WorldMetadata } from '@shared/api'
 
-export function Worlds() {
-  const projects = useStore((s) => s.snap.projects)
-  const highlight = useStore((s) => s.highlightWorld)
-  const [query, setQuery] = useState('')
-  const [sort, setSort] = useState<WorldSort>('modified')
-  const [metadata, setMetadata] = useState<Record<string, WorldMetadata>>({})
-  const landed = useStore((s) => s.snap.tasks.filter((t) => t.state === 'merged' || t.state === 'cleaned').length)
-  useEffect(() => {
-    let live = true
-    void Promise.all(projects.map(async (p) => [p.name, await api().projectMetadata(p.name)] as const))
-      .then((entries) => { if (live) setMetadata(Object.fromEntries(entries)) }).catch(() => undefined)
-    return () => { live = false }
-  }, [projects, landed])
-  const visible = worldList(projects, query, sort, metadata)
-  const [adding, setAdding] = useState(false)
-  const [creating, setCreating] = useState(false)
-  const [syncing, setSyncing] = useState(false)
-
-  return (
-    <div className="view worlds-view">
-      <ViewHeader
-        kicker={`${projects.length} world${projects.length === 1 ? '' : 's'} loaded`}
-        title={
-          <>
-            <span className="accent">Worlds</span>
-          </>
-        }
-      >
-        <button className="btn solid" onClick={() => void op('Open folder', async () => {
-          const folder = await api().pickDirectory()
-          if (folder) await api().projectOpen(folder)
-        })}><FolderOpen size={14} /> Open folder…</button>
-        <button
-          className="btn ghost"
-          disabled={syncing || !projects.some(p => p.gitRepo !== false)}
-          onClick={async () => {
-            setSyncing(true)
-            await op('Sync all', () => api().projectSync())
-            setSyncing(false)
-          }}
-        >
-          <RefreshCw size={14} className={syncing ? 'spin' : ''} /> Sync all
-        </button>
-        <button className="btn" onClick={() => setCreating(true)}>
-          <Sparkles size={14} /> New world
-        </button>
-        <button className="btn solid" onClick={() => setAdding(true)}>
-          <Plus size={14} /> Add world
-        </button>
-      </ViewHeader>
-
-      <div className="world-toolbar">
-        <label className="world-search"><Search size={15} /><input className="input" aria-label="Search worlds" placeholder="Search worlds by name, path or engine" value={query} onChange={(e) => setQuery(e.target.value)} /></label>
-        <select className="select" aria-label="Sort worlds" value={sort} onChange={(e) => setSort(e.target.value as WorldSort)}>
-          <option value="modified">Last modified</option><option value="name">Name</option><option value="engine">Engine</option>
-        </select>
-      </div>
-      {projects.length === 0 ? (
-        <Empty icon={<Globe size={44} className="neon-text" />} title="No worlds loaded">
-          Point Genio at a game repo — a URL, owner/repo, or a folder on disk — or start a fresh one.
-          <div style={{ marginTop: 16, display: 'flex', gap: 10, justifyContent: 'center' }}>
-            <button className="btn" onClick={() => setCreating(true)}>
-              New world
-            </button>
-            <button className="btn solid" onClick={() => setAdding(true)}>
-              Add world
-            </button>
-          </div>
-        </Empty>
-      ) : (
-        <div className="world-list">
-          <div className="world-columns" aria-hidden="true"><span>World</span><span>Engine</span><span>Last modified</span><span>Delivery</span><span>Actions</span></div>
-          {visible.map((p) => (
-            <WorldRow key={p.name} p={p} metadata={metadata[p.name]} highlight={highlight === p.name} />
-          ))}
-          {!visible.length && <p className="world-no-results dim">No worlds match "{query}". <button className="btn sm ghost" onClick={() => setQuery('')}>Clear search</button></p>}
-        </div>
-      )}
-      {adding && <AddWorld onClose={() => setAdding(false)} />}
-      {creating && <NewWorld onClose={() => setCreating(false)} />}
-    </div>
-  )
-}
-
-function WorldRow({ p, highlight, metadata }: { p: Project; highlight: boolean; metadata?: WorldMetadata }) {
-  const [settings, setSettings] = useState(false)
+export function ProjectSettingsRow({ p, metadata }: { p: Project; metadata?: WorldMetadata }) {
   const units = useStore((s) => s.snap.tasks.filter((t) => t.project === p.name && isActive(t.state)).length)
   const total = useStore((s) => s.snap.tasks.filter((t) => t.project === p.name && t.state !== 'cleaned').length)
   const [open, setOpen] = useState(false)
   const [confirmYolo, setConfirmYolo] = useState(false)
   const [remove, setRemove] = useState(false)
   const [delClone, setDelClone] = useState(false)
-  const ref = useRef<HTMLElement>(null)
   // Offline worlds with a remote push on demand: show what origin is missing.
   const pushable = p.mode === 'local-only' && !!p.remote
   const landed = useStore((s) => s.snap.tasks.filter((t) => t.project === p.name && (t.state === 'merged' || t.state === 'cleaned')).length)
@@ -126,40 +42,22 @@ function WorldRow({ p, highlight, metadata }: { p: Project; highlight: boolean; 
     }
   }, [pushable, p.name, p.defaultBranch, landed, pushTick])
 
-  useEffect(() => {
-    if (highlight && ref.current) {
-      setSettings(true)
-      ref.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      const t = window.setTimeout(() => setState({ highlightWorld: undefined }), 2000)
-      return () => window.clearTimeout(t)
-    }
-    return undefined
-  }, [highlight])
-
   const update = (patch: Partial<Project>): void => {
-    void op('World', () => api().projectUpdate(p.name, patch))
+    void op('Project', () => api().projectUpdate(p.name, patch))
   }
   const setCmd = (k: keyof ProjectCommands, v: string): void => {
     update({ commands: { ...p.commands, [k]: v.trim() || undefined } })
   }
 
   return (
-    <article ref={ref} className={cx('world-list-item', highlight && 'hl')} style={{ ['--eng' as string]: ENGINE_COLOR[p.engine] }}>
-      <div className="world-summary" onClick={() => setSettings((v) => !v)}>
-        <button className="world-identity" aria-expanded={settings} aria-controls={`settings-${p.name}`} onClick={(e) => { e.stopPropagation(); setSettings((v) => !v) }}>
-          <Gamepad2 className="world-engine-icon" size={22} />
-          <span><strong>{p.name}</strong><span className="world-root mono mute" title={worldPath(p)}>{worldPath(p)}</span></span>
-        </button>
-        <span className="world-engine-cell">{ENGINE_LABEL[p.engine]}<small className="mute">{metadata?.engineVersion ?? ''}</small></span>
-        <span className="dim world-modified" title={metadata?.lastCommitAt}>{modifiedLabel(metadata?.lastCommitAt)}</span>
-        <span className="world-delivery">{p.gitRepo === false && <small className="amber-text">Git actions need a git repo</small>}<span className="world-badge">{pushable ? 'Push on demand' : MODE_LABEL[p.mode]}</span>{pushable && <small className="mute">{push ? `${push.ahead} commits not pushed` : 'Checking...'}</small>}{!!push?.behind && <small className="amber-text">{push.behind} on origin not local</small>}</span>
-        <div className="world-actions" style={{ flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
+    <article className="project-settings">
+      <h3>{p.name}</h3>
+      <p className="mono mute" title={worldPath(p)}>{worldPath(p)}</p>
+      <p className="mute">{ENGINE_LABEL[p.engine]} {metadata?.engineVersion} · {modifiedLabel(metadata?.lastCommitAt)} · {units} active / {total} units · {p.defaultBranch} · {p.remote ?? 'No remote'}</p>
+      <p>{p.gitRepo === false ? 'Git actions need a git repo' : pushable ? 'Push on demand' : MODE_LABEL[p.mode]}{pushable && push && <span> · {push.ahead} commits not pushed{push.behind ? ` · ${push.behind} on origin not local` : ''}</span>}</p>
+      <div className="row" style={{ flexWrap: 'wrap', marginBottom: 20 }}>
           <button className="btn sm solid" onClick={() => void op('Open project', () => api().projectOpen(p.path))}><FolderOpen size={13} /> Open</button>
           <span title={hasView('inventory') ? `Open ${p.name} Inventory` : 'Inventory coming soon'}><button className="btn sm solid" disabled={!hasView('inventory')} onClick={() => go('inventory', { world: p.name })}><Package size={13} /> Inventory</button></span>
-          <details className="world-menu" onKeyDown={(e) => { if (e.key === 'Escape') { e.currentTarget.open = false; e.currentTarget.querySelector('summary')?.focus() } }}>
-            <summary className="btn sm ghost icon" aria-label={`Actions for ${p.name}`}><MoreHorizontal size={17} /></summary>
-            <div className="world-menu-items" onClick={(e) => { const menu = e.currentTarget.closest('details'); if (menu) menu.open = false }}>
-              <button className="btn sm ghost" onClick={() => setSettings(true)}><Settings size={13} /> Settings</button>
         <button className="btn sm solid" disabled={p.gitRepo === false} title={p.gitRepo === false ? "Needs a git repo" : undefined} onClick={() => openDeploy({ project: p.name })}>
           <Rocket size={12} /> Deploy
         </button>
@@ -188,17 +86,19 @@ function WorldRow({ p, highlight, metadata }: { p: Project; highlight: boolean; 
           <FolderOpen size={13} /> Reveal in Explorer
         </button>
         <span style={{ flex: 1 }} />
-        <button className="btn sm ghost alert" title="Remove world" onClick={() => setRemove(true)}>
+        <button className="btn sm ghost alert" title="Remove project" onClick={() => setRemove(true)}>
           <Trash size={13} /> Remove
         </button>
 
-            </div>
-          </details>
-        </div>
       </div>
-      {settings && <section className="world-details" id={`settings-${p.name}`} aria-label={`${p.name} settings`}>
-        <div className="world-details-heading"><h3>World settings</h3><span className="mute">{units} active / {total} units / {p.defaultBranch} / {p.remote ?? 'No remote'}</span><button className="btn sm ghost" onClick={() => setSettings(false)}>Close</button></div>
-        <Field label="Description"><CommitInput value={p.description ?? ''} placeholder="Describe this world" onCommit={(v) => update({ description: v })} /></Field>
+      <section className="world-details" aria-label={`${p.name} settings`}>
+        <Field label="Engine"><select className="select" value={p.engine} onChange={(e) => update({ engine: e.target.value as Engine })}>{ENGINES.map(engine => <option key={engine} value={engine}>{ENGINE_LABEL[engine]}</option>)}</select></Field>
+        <Field label="Engine root" hint="Relative to the project folder; leave empty for the root">
+          <CommitInput mono value={p.engineRoot ?? ''} onCommit={(v) => update({ engineRoot: v.trim() })} />
+          <button className="btn sm ghost" onClick={() => update({ engineRoot: undefined })}>Detect root automatically</button>
+        </Field>
+        <Field label="Usage mode" hint="Override the global usage mode for this project"><select className="select" value={p.usageMode ?? ''} onChange={(e) => update({ usageMode: (e.target.value || undefined) as UsageMode | undefined, costDial: undefined })}><option value="">Global setting</option>{USAGE_MODES.map(mode => <option key={mode} value={mode}>{USAGE_MODE_LABEL[mode]}</option>)}</select></Field>
+        <Field label="Description"><CommitInput value={p.description ?? ''} placeholder="Describe this project" onCommit={(v) => update({ description: v })} /></Field>
       <div className="world-controls">
         <Field label="Delivery" hint={modeSourceOf(p) === 'auto' ? `Follows the remote · ${MODE_HINT[p.mode]}` : MODE_HINT[p.mode]}>
           <select
@@ -232,16 +132,6 @@ function WorldRow({ p, highlight, metadata }: { p: Project; highlight: boolean; 
         <Field label="Branch prefix">
           <CommitInput mono value={p.branchPrefix} onCommit={(v) => update({ branchPrefix: v })} />
         </Field>
-        <Field label="Cost dial" hint={p.costDial ? DIAL_HINT[p.costDial] : 'Follows Systems → Dispatch'}>
-          <select className="select" value={p.costDial ?? ''} onChange={(e) => update({ costDial: (e.target.value || undefined) as CostDial | undefined })}>
-            <option value="">Global setting</option>
-            {(['quality', 'balanced', 'cost'] as CostDial[]).map((d) => (
-              <option key={d} value={d}>
-                {DIAL_LABEL[d]}
-              </option>
-            ))}
-          </select>
-        </Field>
         <Field label="Allow cheap third-party models" hint="On by default: OpenRouter models (DeepSeek, Qwen, GLM) via OpenCode for low-stakes work. Code is sent to the OpenRouter provider when used.">
           <Toggle
             checked={cheapModelsAllowed(p)}
@@ -271,14 +161,14 @@ function WorldRow({ p, highlight, metadata }: { p: Project; highlight: boolean; 
       )}
 
       <GenerationSettings world={p.name} />
-      </section>}
+      </section>
 
       {confirmYolo && (
         <Confirm
           title={`Enable Auto-loot for ${p.name}?`}
           tone="volt"
           confirmLabel="Enable Auto-loot"
-          body="Genio will merge green, in-scope Builds in this world without asking you first. Red, pending, draft and destructive work still waits for your word."
+          body="Genio will merge green, in-scope Builds in this project without asking you first. Red, pending, draft and destructive work still waits for your word."
           onConfirm={() => update({ yolo: true })}
           onClose={() => setConfirmYolo(false)}
         />
@@ -288,18 +178,18 @@ function WorldRow({ p, highlight, metadata }: { p: Project; highlight: boolean; 
           title={`Remove ${p.name}?`}
           tone="alert"
           typed={p.name}
-          confirmLabel="Remove world"
+          confirmLabel="Remove project"
           body={
             <>
               <p>Genio refuses while units are working, quests are queued, or any isolated copy holds unlanded work.</p>
               {p.managed && (
                 <Toggle checked={delClone} onChange={setDelClone} label="Also delete Genio's clone from disk" />
               )}
-              {!p.managed && <p className="mute">This world is your own folder; Genio never deletes it.</p>}
+              {!p.managed && <p className="mute">This project is your own folder; Genio never deletes it.</p>}
             </>
           }
           onConfirm={async () => {
-            await op('Remove world', () => api().projectRemove(p.name, p.managed && delClone))
+            await op('Remove project', () => api().projectRemove(p.name, p.managed && delClone))
           }}
           onClose={() => setRemove(false)}
         />
@@ -308,7 +198,7 @@ function WorldRow({ p, highlight, metadata }: { p: Project; highlight: boolean; 
   )
 }
 
-function AddWorld({ onClose }: { onClose: () => void }) {
+export function AddProject({ onClose, onAdded }: { onClose: () => void; onAdded?: (p: Project) => Promise<void> }) {
   const [source, setSource] = useState('')
   const [name, setName] = useState('')
   const [inPlace, setInPlace] = useState(true)
@@ -317,8 +207,8 @@ function AddWorld({ onClose }: { onClose: () => void }) {
   const isLocal = /^[a-zA-Z]:[\\/]|^[\\/]|^\./.test(source.trim())
   return (
     <Modal
-      kicker="Load world"
-      title="Add a world"
+      kicker="Load project"
+      title="Add a project"
       onClose={onClose}
       footer={
         <>
@@ -332,16 +222,17 @@ function AddWorld({ onClose }: { onClose: () => void }) {
               setBusy(true)
               try {
                 const p = await api().projectAdd({ source: source.trim(), name: name.trim() || undefined, inPlace: isLocal && inPlace, mode: mode || undefined })
-                toast('success', 'World loaded', `${p.name} · ${ENGINE_LABEL[p.engine]}`)
+                toast('success', 'Project loaded', `${p.name} · ${ENGINE_LABEL[p.engine]}`)
                 onClose()
+                await onAdded?.(p)
               } catch (e) {
-                toast('error', 'Could not add world', errText(e))
+                toast('error', 'Could not add project', errText(e))
               } finally {
                 setBusy(false)
               }
             }}
           >
-            {busy ? 'Loading…' : 'Add world'}
+            {busy ? 'Loading…' : 'Add project'}
           </button>
         </>
       }
@@ -385,7 +276,7 @@ function AddWorld({ onClose }: { onClose: () => void }) {
   )
 }
 
-export function NewWorld({ onClose, onCreated }: { onClose: () => void; onCreated?: (p: Project) => Promise<void> }) {
+export function NewProject({ onClose, onCreated }: { onClose: () => void; onCreated?: (p: Project) => Promise<void> }) {
   const [name, setName] = useState('')
   const [engine, setEngine] = useState<Engine>('godot')
   const [description, setDescription] = useState('')
@@ -411,11 +302,11 @@ export function NewWorld({ onClose, onCreated }: { onClose: () => void; onCreate
               setBusy(true)
               try {
                 const p = await api().projectCreate({ name, engine, description: description.trim() || undefined, createRemote: remote, privateRemote: priv })
-                toast('success', 'World created', p.name)
+                toast('success', 'Project created', p.name)
                 onClose()
                 await onCreated?.(p)
               } catch (e) {
-                toast('error', 'Could not create world', errText(e))
+                toast('error', 'Could not create project', errText(e))
               } finally {
                 setBusy(false)
               }
@@ -466,7 +357,20 @@ export function ProjectNotice() {
   return <div role="status" style={{ padding: '8px 18px', background: 'var(--panel)', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12 }}>
     <span>{registered ? `Registered ${project.name} · ${ENGINE_LABEL[project.engine]} · ${MODE_LABEL[project.mode]}` : project.name}
       {project.gitRepo === false ? ' · Git actions need a git repo' : !project.remote ? ' · No remote' : ''}</span>
-    {registered && <><button className="btn sm ghost" onClick={() => { setState({ highlightWorld: project.name }); go('worlds') }}>Change</button>
+    {registered && <><button className="btn sm ghost" onClick={() => { requestSystemsSection('project'); go('systems') }}>Change</button>
       <button className="btn sm ghost" aria-label="Dismiss registration" onClick={() => setState({ registeredProject: undefined })}>Dismiss</button></>}
   </div>
+}
+
+export function ThisProjectSettings() {
+  const project = useStore(s => s.snap.projects.find(p => p.name === PROJECT_WINDOW))
+  const landed = useStore(s => s.snap.tasks.filter(task => task.project === PROJECT_WINDOW && (task.state === 'merged' || task.state === 'cleaned')).length)
+  const [metadata, setMetadata] = useState<WorldMetadata>()
+  useEffect(() => {
+    let live = true
+    setMetadata(undefined)
+    if (project) void api().projectMetadata(project.name).then(value => { if (live) setMetadata(value) }).catch(() => undefined)
+    return () => { live = false }
+  }, [project, landed])
+  return <><h2 className="sys-title">This project</h2>{project ? <ProjectSettingsRow key={project.name} p={project} metadata={metadata} /> : <p className="mute">Open a project from the Hub to configure it.</p>}</>
 }

@@ -76,6 +76,17 @@ it('refreshes persisted engines on startup refresh and sync, and pins explicit u
   restarted.update('game', { engine: 'other' })
   await restarted.sync('game')
   expect(restarted.get('game')).toMatchObject({ engine: 'other', engineSource: 'manual', engineRoot: '' })
+  restarted.update('game', { engine: 'unity', engineRoot: 'Manual/Game' })
+  const pinned = createProjectsService(() => ctx)
+  await pinned.refreshRemotes()
+  expect(pinned.get('game')).toMatchObject({ engineRoot: 'Manual/Game', engineRootSource: 'manual' })
+  expect(() => pinned.update('game', { engineRoot: '../outside' })).toThrow('inside the project')
+  pinned.update('game', { engineRoot: '' })
+  await pinned.refreshRemotes()
+  expect(pinned.get('game')?.engineRoot).toBe('')
+  pinned.update('game', { engineRoot: undefined })
+  await pinned.refreshRemotes()
+  expect(pinned.get('game')?.engineRoot).toBe('FoundersOfAvalonUnity')
 })
 
 it('roots asset suggestions and persisted defaults while keeping explicit folders repo-relative', () => {

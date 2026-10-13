@@ -79,7 +79,7 @@ export function Quests() {
           onKeyDown={(e) => e.key === 'Enter' && void add()}
         />
         <select className="select compact" value={project} onChange={(e) => setProject(e.target.value)}>
-          <option value="">Any world</option>
+          <option value="">Any project</option>
           {projects.map((p) => (
             <option key={p.name} value={p.name}>
               {p.name}
@@ -249,9 +249,9 @@ function QuestEditor({ item, onClose }: { item: BacklogItem; onClose: () => void
         <Field label="Title" wide>
           <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
         </Field>
-        <Field label="World">
+        <Field label="Project">
           <select className="select" value={project} onChange={(e) => setProject(e.target.value)}>
-            <option value="">Any world</option>
+            <option value="">Any project</option>
             {projects.map((p) => (
               <option key={p.name} value={p.name}>
                 {p.name}

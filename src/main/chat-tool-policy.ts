@@ -40,7 +40,7 @@ export function decideTool(role: ToolRole, toolName: string, input: unknown, she
   if (ALLOWED.has(toolName)) return { behavior: 'allow' }
   if (toolName === 'Skill') return { behavior: 'deny', message: 'Use skill_read for a named bundled skill, procedure_read for Genio procedures, or settings_read/settings_update. Broad configuration skills are not loaded into chat.' }
   if (DISALLOWED.includes(toolName) || SUBAGENT_RE.test(toolName)) {
-    return { behavior: 'deny', message: 'Genio delegates work to units (deploy) and never writes worlds or spawns in-session subagents.' }
+    return { behavior: 'deny', message: 'Genio delegates work to units (deploy) and never writes projects or spawns in-session subagents.' }
   }
   if (toolName === 'Bash' || toolName === 'PowerShell') {
     const cmd = String((input as { command?: string } | undefined)?.command ?? '')

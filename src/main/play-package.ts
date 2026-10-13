@@ -5,7 +5,7 @@ import { noLinks } from './asset-placement'
 /** Explicit Play-screen install only, reusing the world's link/hardlink write guard. */
 export function installPlayPackage(appRoot: string, world: string, engineRoot: string): void {
   const relative = path.relative(world, engineRoot).replace(/\\/g, '/')
-  if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Unity root escapes this world')
+  if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Unity root escapes this project')
   const manifestRel = [relative, 'Packages/manifest.json'].filter(Boolean).join('/')
   const archiveRel = '.genio/unity/com.genio.play-0.1.0.tgz'
   noLinks(world, manifestRel); noLinks(world, archiveRel)

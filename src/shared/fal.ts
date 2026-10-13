@@ -108,7 +108,7 @@ export interface BudgetCheck {
   reasons: string[]
 }
 
-export function budgetCheck(spentUsd: number, estUsd: number | undefined, budget: FalBudget | undefined, worldLabel = 'this world'): BudgetCheck {
+export function budgetCheck(spentUsd: number, estUsd: number | undefined, budget: FalBudget | undefined, worldLabel = 'this project'): BudgetCheck {
   const reasons: string[] = []
   const cap = budget?.monthly_usd
   const over = budget?.confirm_over_usd

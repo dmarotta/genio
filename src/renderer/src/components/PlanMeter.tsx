@@ -86,7 +86,7 @@ export function PlanMeter({ view, error }: { view: UsagePolicyView | null; error
   if (!view) return <div className="bar indeterminate"><i /></div>
   return (
     <div className="plan-meter">
-      <div className="mute meter-caption">Plan remaining · shared across all worlds and other apps on the same accounts · never added together</div>
+      <div className="mute meter-caption">Plan remaining · shared across all projects and other apps on the same accounts · never added together</div>
       {view.meter.map((r) => <Row key={r.plan} r={r} />)}
     </div>
   )

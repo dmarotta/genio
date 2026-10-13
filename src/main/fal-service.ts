@@ -51,7 +51,7 @@ export function worldTarget(root: string, folder: string, fileName: string): str
   const name = safeFileName(fileName, '')
   if (!name) throw new Error('The file name is empty.')
   const dir = path.resolve(root, folder.trim().replace(/^[\\/]+/, ''))
-  if (!isSubPath(dir, root)) throw new Error('That folder is outside the world.')
+  if (!isSubPath(dir, root)) throw new Error('That folder is outside the project.')
   if (path.relative(path.resolve(root), dir).split(/[\\/]/)[0].toLowerCase() === '.git') throw new Error('Refusing to write inside .git.')
   return path.join(dir, name)
 }
@@ -174,7 +174,7 @@ export function createFalService(getCtx: () => AppCtx, fetchFn: FetchFn = (u, i)
 
   const project = (name: string): Project => {
     const p = getCtx().projects.get(name)
-    if (!p) throw new Error(`No world named ${name}.`)
+    if (!p) throw new Error(`No project named ${name}.`)
     return p
   }
   const scratchRecipes = (): string => path.join(falDir(), 'recipes.json')
@@ -299,7 +299,7 @@ export function createFalService(getCtx: () => AppCtx, fetchFn: FetchFn = (u, i)
       const endpoint = req.endpoint.trim().replace(/^https?:\/\/(?:queue\.)?fal\.run\//i, '').replace(/^\/+|\/+$/g, '')
       if (!validEndpoint(endpoint)) throw new Error(`Not a FAL endpoint id: "${req.endpoint}". Use the form owner/app[/path], e.g. fal-ai/flux/dev.`)
       if (!req.input || typeof req.input !== 'object' || Array.isArray(req.input)) throw new Error('Input must be a JSON object.')
-      if (!key()) throw new Error('No FAL.ai key set. Add one in Systems → Accounts.')
+      if (!key()) throw new Error('No FAL.ai key set. Add one in Settings → Accounts.')
       const world = req.world?.trim() || undefined
       if (world) project(world)
       // local files go up inline; history keeps the short @file: refs

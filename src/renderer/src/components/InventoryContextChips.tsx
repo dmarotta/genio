@@ -9,7 +9,7 @@ import '../styles/inventory-chat.css'
 export function InventoryContextChips({ context, remove, wksp }: { context?: InventoryContextReceipt; wksp?: string; remove?: (chip: ContextChip) => void }) {
   if (!context) return null
   const chips: { id: ContextChip; label: string; title: string; icon: typeof Folder }[] = []
-  if (context.folder !== undefined) chips.push({ id: 'folder', label: context.folder.split('/').pop() || 'World root', title: context.folder || '/', icon: Folder })
+  if (context.folder !== undefined) chips.push({ id: 'folder', label: context.folder.split('/').pop() || 'Project root', title: context.folder || '/', icon: Folder })
   if (context.preview) chips.push({ id: 'preview', label: context.preview.path.split('/').pop()!, title: context.preview.path, icon: FileImage })
   if (context.selection?.length) chips.push({ id: 'selection', label: `${context.selection.length} selected`, title: context.selection.map(a => a.path).join('\n'), icon: ListChecks })
   return <div className="inventory-context" aria-label={remove ? 'Context to send' : 'Sent Inventory context'}>

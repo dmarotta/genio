@@ -1,10 +1,10 @@
 # Agent generation
 
-Genio and allies use `assets` to select a provider and a world-relative location
+Genio and allies use `assets` to select a provider and a project-relative location
 from `asset_locate`. Paid requests use `fal_generate`, `uthana_motion`, or
 `uthana_character`; `generate_image` uses Codex on the ChatGPT plan. All return
 background job ids. `generation_status` returns progress, outputs, paths and
-errors. Generation runs through agent tools; the FAL and Animation screens have been removed. World details > Generation contains the shared monthly cap (a hard stop), per-run confirmation threshold (default $0.25), save folders and Codex opt-out. Settings use the existing `.genio/fal/config.json` and `.genio/uthana/config.json` files. Provider keys remain in Systems > Accounts.
+errors. Generation runs through agent tools; the FAL and Animation screens have been removed. Project details > Generation contains the shared monthly cap (a hard stop), per-run confirmation threshold (default $0.25), save folders and Codex opt-out. Settings use the existing `.genio/fal/config.json` and `.genio/uthana/config.json` files. Provider keys remain in Settings > Accounts.
 
 `AgentGeneration` owns durable jobs in `data/generation-jobs.json`, bound to the
 originating chat. It posts progress/result cards through the normal persisted
@@ -17,12 +17,12 @@ jobs and engine wiring belong to units.
 
 `generation-spend.ts` records provider reservations before submission in
 `data/spend.jsonl`, updating by run id as request ids and costs become known.
-The budget calculation unions this ledger, old provider histories and world
+The budget calculation unions this ledger, old provider histories and project
 receipts, deduplicated by provider/request. Deleting provider history does not
 erase spend. Failed or cancelled requests remain conservatively charged because
 submission or cancellation may have billed. Unknown prices cannot bypass a
 configured cap. Codex records zero-cost receipts and never needs a quote, but
-respects the world's Codex opt-out. Units still use their own worktree ledger;
+respects the project's Codex opt-out. Units still use their own worktree ledger;
 cross-unit shared budgeting is outside this migration step.
 
 `placeOutput` is the shared FAL/Uthana/Codex media copier and provenance writer.

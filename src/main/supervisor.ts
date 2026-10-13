@@ -379,7 +379,7 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
           if (v.checks === 'failing' && prevChecks !== 'failing') {
             enqueue('check', `${label(cur)}: PR checks failing`, cur.id, [url, ...v.failing.map((f) => `failing: ${f}`)], false)
           } else if (v.checks === 'passing' && prevChecks !== 'passing') {
-            const auto = cur.yolo ? ' (Auto-loot is on for this world)' : ''
+            const auto = cur.yolo ? ' (Auto-loot is on for this project)' : ''
             enqueue('check', `${label(cur)}: checks green${auto}`, cur.id, [url], false)
           }
         }
@@ -416,7 +416,7 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
     } catch (e) {
       cleanMsg = `despawn failed: ${(e as Error).message}`
     }
-    enqueue('check', `${label(t)}: PR merged`, t.id, [url, `world sync: ${syncMsg}`, cleanMsg], false)
+    enqueue('check', `${label(t)}: PR merged`, t.id, [url, `project sync: ${syncMsg}`, cleanMsg], false)
   }
 
   // ------------------------------------------------------------ (7) triggers

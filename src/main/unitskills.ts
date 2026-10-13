@@ -56,7 +56,7 @@ function copyTree(src: string, dest: string): void {
 export function installUnitPlugin(source: string, target: string, worlds: string[]): string {
   for (const w of worlds) {
     if (w && (isSubPath(target, w) || isSubPath(w, target))) {
-      throw new Error(`Refusing to install unit skills at ${target}: it overlaps the world at ${w}.`)
+      throw new Error(`Refusing to install unit skills at ${target}: it overlaps the project at ${w}.`)
     }
   }
   if (!fs.existsSync(path.join(source, '.claude-plugin', 'plugin.json'))) throw new Error(`Bundled unit skills are missing at ${source}.`)
@@ -110,12 +110,12 @@ export function unitToolsBrief(pluginDir: string): string {
   const blender = fwd(blenderSkillDir(pluginDir))
   return (
     `- Unity Play: read \`${fwd(path.join(pluginDir, 'skills/play/SKILL.md'))}\` and use its long-lived shared-slot helper. Never control the main editor from a unit; never touch Toolbox.\n` +
-    `- Assets: read \`${assets}/SKILL.md\` first for provider routing and world-type placement. Use asset_locate / the shared suggestLocation helper. Uthana motions use Genio tools described in \`${uthana}/SKILL.md\`; units have no Uthana CLI.\n` +
+    `- Assets: read \`${assets}/SKILL.md\` first for provider routing and project-type placement. Use asset_locate / the shared suggestLocation helper. Uthana motions use Genio tools described in \`${uthana}/SKILL.md\`; units have no Uthana CLI.\n` +
     `- Blender (batch modelling, validation, export and conversion): read \`${blender}/SKILL.md\` and use \`node "${blender}/scripts/blender.mjs"\`. Requires local Blender; no MCP or live session. Logs go to GENIO_BLENDER_SCRATCH.\n` +
-    `- Images (default): Codex images on the player's ChatGPT plan, on in every world unless it opted out. For concept art, sprites, icons, transparent cutouts and edits from references read \`${codex}/SKILL.md\` and use \`node "${codex}/scripts/codex-image.mjs"\`.\n` +
+    `- Images (default): Codex images on the player's ChatGPT plan, on in every project unless it opted out. For concept art, sprites, icons, transparent cutouts and edits from references read \`${codex}/SKILL.md\` and use \`node "${codex}/scripts/codex-image.mjs"\`.\n` +
     `- FAL.ai (specific needs: seamless/PBR textures, 3D, audio, music, video, pixel-art conversion, upscaling, background removal, exact size/seed/reproducibility): before any FAL work read \`${dir}/SKILL.md\` and use its helper \`node "${dir}/scripts/fal.mjs"\`. ` +
     'Every model run is a paid call: the USD budget stated in this brief or a ping is a hard stop; pass it as --budget and report what you spent. ' +
     'The key, when the player set one, is only in your FAL_KEY environment variable: never print or write it. ' +
-    "Generate with --world <your worktree root>: it follows the world's .genio/fal/ config and recipes and records provenance and spend lines in .genio/, which you commit with the assets; never edit .genio/fal/config.json or recipes.json."
+    "Generate with --world <your worktree root>: it follows the project's .genio/fal/ config and recipes and records provenance and spend lines in .genio/, which you commit with the assets; never edit .genio/fal/config.json or recipes.json."
   )
 }

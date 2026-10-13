@@ -45,7 +45,7 @@ const isNum = (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0
 /** Open a world (the unit's own worktree root) and read its FAL config and recipes. */
 export function openWorld(worldArg) {
   const root = path.resolve(worldArg)
-  if (!fs.statSync(root, { throwIfNoEntry: false })?.isDirectory()) throw new WorldError(`World folder not found: ${root}`)
+  if (!fs.statSync(root, { throwIfNoEntry: false })?.isDirectory()) throw new WorldError(`Project folder not found: ${root}`)
   const dir = path.join(root, '.genio')
   const config = readOptionalJson(path.join(dir, 'fal', 'config.json'), 'object')
   const recipes = readOptionalJson(path.join(dir, 'fal', 'recipes.json'), 'array') ?? []
@@ -151,10 +151,10 @@ export function checkBudget({ lines, by, estUsd, unitBudget, config, now = new D
     return { ...out, ok: false, reason: `Budget hard stop: this call (est. USD ${usd(estUsd)}) on top of USD ${spentByUnit} already spent exceeds your USD ${unitBudget} budget.` }
   }
   if (isNum(b.monthly_usd) && spentMonth + estUsd > b.monthly_usd + eps) {
-    return { ...out, ok: false, reason: `World budget: this call (est. USD ${usd(estUsd)}) on top of USD ${spentMonth} spent in ${month} exceeds the world's USD ${b.monthly_usd} monthly cap (.genio/fal/config.json).` }
+    return { ...out, ok: false, reason: `Project budget: this call (est. USD ${usd(estUsd)}) on top of USD ${spentMonth} spent in ${month} exceeds the project's USD ${b.monthly_usd} monthly cap (.genio/fal/config.json).` }
   }
   if (unitBudget == null && isNum(b.confirm_over_usd) && estUsd > b.confirm_over_usd + eps) {
-    return { ...out, ok: false, reason: `This call (est. USD ${usd(estUsd)}) is above the world's USD ${b.confirm_over_usd} confirm threshold and your brief states no budget that approves it.` }
+    return { ...out, ok: false, reason: `This call (est. USD ${usd(estUsd)}) is above the project's USD ${b.confirm_over_usd} confirm threshold and your brief states no budget that approves it.` }
   }
   return { ...out, ok: true }
 }
@@ -235,7 +235,7 @@ export function suggestLocation({ assets, kind, name = 'new asset', hint = '', e
   }
   const configured = config.folders?.[kind]
   if (typeof configured === 'string') {
-    add(configured, 90, 'World configured folder', conventions.find(c => c.folder === configured))
+    add(configured, 90, 'Project configured folder', conventions.find(c => c.folder === configured))
     if (!allowed(configured)) warnings.push('Configured folder is unsafe; ignored.')
   }
   if (hint && safeRelative(hint) && (hint.includes('/') || conventions.some(c => c.folder === hint))) {

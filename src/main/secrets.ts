@@ -14,7 +14,7 @@ import { nowIso, readJson, writeJson } from './util'
 
 export const SECRET_SERVICES = [
   { id: 'fal', label: 'FAL.ai', purpose: 'Generative media API (images, audio, video)' },
-  { id: 'openrouter', label: 'OpenRouter', purpose: 'Cheap third-party coding models for OpenCode units, only in worlds that allow them' },
+  { id: 'openrouter', label: 'OpenRouter', purpose: 'Cheap third-party coding models for OpenCode units, only in projects that allow them' },
   { id: 'uthana', label: 'Uthana', purpose: '3D character animation API for the Animation screen (text/video to motion, rigging, retargeting)' }
 ] as const
 export type SecretId = (typeof SECRET_SERVICES)[number]['id']

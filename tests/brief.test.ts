@@ -20,7 +20,7 @@ const base: BriefInput = {
 describe('renderBrief', () => {
   it('contains the core sections in order', () => {
     const b = renderBrief(base)
-    const order = ['# Mission', "## Player's intent", '## Genio spec', '# Setup', '# Rules', '# Genio ping inbox', '# World memory', '# Engine notes', '# Definition of done']
+    const order = ['# Mission', "## Player's intent", '## Genio spec', '# Setup', '# Rules', '# Genio ping inbox', '# Project memory', '# Engine notes', '# Definition of done']
     let last = -1
     for (const h of order) {
       const i = b.indexOf(h)

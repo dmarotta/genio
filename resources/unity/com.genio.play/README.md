@@ -2,7 +2,7 @@
 
 An opt-in media companion to Unity Pipeline, for Unity 6. It streams the rendered game screen as JPEG (up to 1920 × 1920, 30 fps, quality 75) using GPU readback and a worker encoder. There is no audio. The package is inert until `genio_stream_start` runs during Play Mode or in a running player with Pipeline enabled. It opens no listener: it dials a token-authenticated WebSocket on `127.0.0.1` only.
 
-Genio's Play screen installs the bundled tarball in the world's `.genio/unity/` folder and adds a relative `file:` dependency to the Unity manifest. These changes stay uncommitted. Commit them before preparing a branch slot. The install preserves unrelated packages and never changes Toolbox or the package lock directly. Wait for Unity to import the package, enter Play Mode, then start live streaming. Snapshot mode remains available without this package.
+Genio's Play screen installs the bundled tarball in the project's `.genio/unity/` folder and adds a relative `file:` dependency to the Unity manifest. These changes stay uncommitted. Commit them before preparing a branch slot. The install preserves unrelated packages and never changes Toolbox or the package lock directly. Wait for Unity to import the package, enter Play Mode, then start live streaming. Snapshot mode remains available without this package.
 
 ## Commands
 
@@ -25,7 +25,7 @@ The Editor tick pump uses the same `SignalTick` method validated by the throttle
 
 ## Shared instances
 
-The Play screen and the bundled unit `play` skill share per-world pool state under Genio's main data directory. The default cap is one, configurable from one to eight. Slots are independent local Git clones of committed revisions, with a Library seeded once from the main copy. They never share Assets, Packages or ProjectSettings through links. Pipeline credentials and editor instance metadata are not seeded.
+The Play screen and the bundled unit `play` skill share per-project pool state under Genio's main data directory. The default cap is one, configurable from one to eight. Slots are independent local Git clones of committed revisions, with a Library seeded once from the main copy. They never share Assets, Packages or ProjectSettings through links. Pipeline credentials and editor instance metadata are not seeded.
 
 An atomic directory mutex serializes state updates. Leases carry a random token, PID and 30-second deadline, renewed every five seconds; stale leases and queue entries are reclaimed. Requests queue FIFO. Player takeover rotates the lease token, fencing subsequent commands by the previous owner. It cannot undo a Unity command already executing. A slot's branch cannot change while its editor is open or its checkout has local changes. Returning to main releases the lease and leaves the slot editor warm.
 
@@ -37,4 +37,4 @@ Rebuild the deterministic tarball with `node scripts/pack-unity-play.mjs` from t
 
 `node --experimental-transform-types scripts/play-stream-smoke.mjs <scratch-project> <scratch-output>`
 
-Copy `scripts/unity-smoke/GenioInputProbe.cs` into the disposable fixture's Assets before launching. The probe records held input and a `<Keyboard>/w` action in gameplay updates; Editor callbacks can read a different input state buffer. It logs device identity, enabled state and received W state. The script verifies frame delivery, release/settings restoration, pause, step, resolution and stop, and separately records any input limitation (exit code 2). It saves a JPEG orientation fixture (green above blue) and a JSON report in scratch output. Never target a game world with this script.
+Copy `scripts/unity-smoke/GenioInputProbe.cs` into the disposable fixture's Assets before launching. The probe records held input and a `<Keyboard>/w` action in gameplay updates; Editor callbacks can read a different input state buffer. It logs device identity, enabled state and received W state. The script verifies frame delivery, release/settings restoration, pause, step, resolution and stop, and separately records any input limitation (exit code 2). It saves a JPEG orientation fixture (green above blue) and a JSON report in scratch output. Never target a game project with this script.

@@ -50,6 +50,8 @@ export interface Project {
   engine: Engine
   /** Repository-relative POSIX path; empty string means the repository root. */
   engineRoot?: string
+  /** Explicit root overrides survive automatic discovery; absent keeps legacy detection. */
+  engineRootSource?: 'auto' | 'manual'
   /** Explicit engine choices survive automatic discovery. */
   engineSource?: 'auto' | 'manual'
   commands: ProjectCommands

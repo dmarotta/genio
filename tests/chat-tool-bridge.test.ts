@@ -90,6 +90,20 @@ it('enforces Bot guards through a Codex app-server session and the real HTTP bri
 })
 
 describe('authenticated local MCP bridge', () => {
+  it('accepts project aliases in SDK handlers and checks connection scope before invoking them', async () => {
+    const tool = createToolRegistry(() => ctx, home, 'genio').find(t => t.name === 'world_posture')!
+    ctx.projects.resolvePosture = vi.fn(() => ({ mode: 'local-only' as const, yolo: false, branchPrefix: 'genio/' }))
+    expect(tool.shape.project).toBeDefined()
+    expect(await tool.invoke({ project: 'safe' })).not.toHaveProperty('isError')
+    expect(await tool.invoke({ world: 'safe' })).not.toHaveProperty('isError')
+    expect(await tool.invoke({ world: 'safe', project: 'outside' })).toMatchObject({ isError: true })
+    expect(await tool.invoke({})).toMatchObject({ isError: true })
+    const session = createChatToolSession(() => ctx, { home, role: 'genio', worlds: ['safe'], signal: abort.signal })
+    expect(await session.call('world_posture', { project: 'safe' })).not.toHaveProperty('isError')
+    expect(await session.call('world_posture', { project: 'outside' })).toMatchObject({ isError: true })
+    expect(await session.call('world_posture', { world: 'safe', project: 'outside' })).toMatchObject({ isError: true })
+    expect(ctx.projects.resolvePosture).toHaveBeenCalledTimes(3)
+  })
   it('binds only IPv4 loopback, rotates tokens, rejects missing/wrong tokens and browser origins', async () => {
     const a = await bridge(), b = await bridge()
     expect(new URL(a.env.GENIO_BRIDGE_URL).hostname).toBe('127.0.0.1')

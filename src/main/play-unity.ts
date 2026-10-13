@@ -82,7 +82,7 @@ export class UnityAdapter implements EngineAdapter {
     const identity = `${d.pid}:${d.port}:${d.evalToken}`
     if (identity !== this.identity) {
       const s = await pipelineRequest(d.port, d.evalToken, 'editor_status') as { projectPath?: string }
-      if (!s.projectPath || !samePath(s.projectPath, this.root)) throw new Error('Pipeline editor identity does not match this world')
+      if (!s.projectPath || !samePath(s.projectPath, this.root)) throw new Error('Pipeline editor identity does not match this project')
       this.identity = identity
     }
     await this.guard()

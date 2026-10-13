@@ -12,7 +12,7 @@ import { Squad } from './views/Squad'
 import { Quests } from './views/Quests'
 import { Answers } from './components/Answers'
 import { CharacterSheet } from './views/CharacterSheet'
-import { ProjectNotice, Worlds } from './views/Worlds'
+import { ProjectNotice } from './views/ProjectSettings'
 import { Lore } from './views/Lore'
 import { Systems } from './views/Systems'
 import { Inventory } from './views/Inventory'
@@ -24,7 +24,6 @@ const VIEW: Partial<Record<ViewId, ComponentType>> = {
   squad: Squad,
   quests: Quests,
   status: CharacterSheet,
-  worlds: Worlds,
   lore: Lore,
   systems: Systems,
   inventory: Inventory
@@ -53,7 +52,7 @@ export function App() {
     </div>
   )
 
-  const View = VIEW[view] ?? Worlds
+  const View = VIEW[view] ?? Systems
   return (
     <div className="app">
       <TitleBar />

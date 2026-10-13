@@ -135,14 +135,16 @@ export function detectEngine(dir: string): { engine: Engine; engineRoot: string;
 
 /** Legacy 'other' was the root-only detector's fallback; preserve specific legacy choices. */
 export function refreshEngine(p: Project): Project {
-  const det = detectEngine(p.path)
+  const root = p.engineRootSource === 'manual' ? p.engineRoot ?? '' : undefined
+  const det = root === undefined ? detectEngine(p.path) : { ...detectAtRoot(path.join(p.path, root)), engineRoot: root }
+  if (root !== undefined && det.engine === 'unity') det.commands.test = unityTestCommand(path.join(p.path, root), root)
   const manual = p.engineSource === 'manual' || (!p.engineSource && p.engine !== 'other')
   return {
     ...p,
     commands: det.engine === 'unity' && isDefaultUnityTest(p.commands.test) && det.commands.test ? { ...p.commands, test: det.commands.test } : p.commands,
     engine: manual ? p.engine : det.engine,
     engineSource: manual ? 'manual' : 'auto',
-    engineRoot: !manual || det.engine === p.engine ? det.engineRoot : p.engineRoot ?? ''
+    engineRoot: root ?? (!manual || det.engine === p.engine ? det.engineRoot : p.engineRoot ?? '')
   }
 }
 
@@ -209,7 +211,7 @@ function normaliseUrl(s: string): string {
 }
 
 function nameFromSource(s: string): string {
-  const base = s.replace(/[\\/]+$/, '').split(/[\\/:]/).pop() ?? 'world'
+  const base = s.replace(/[\\/]+$/, '').split(/[\\/:]/).pop() ?? 'project'
   return slugify(base.replace(/\.git$/i, ''), 48)
 }
 
@@ -304,7 +306,7 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
         if (req.inPlace === false && !(await git.isRepo(dir))) throw new Error('Cloning needs a git repo.')
         const top = await git.repoTop(dir)
         const name = req.name ? slugify(req.name, 48) : nameFromSource(top || dir)
-        if (svc.get(name)) throw new Error(`A world named "${name}" already exists.`)
+        if (svc.get(name)) throw new Error(`A project named "${name}" already exists.`)
         if (req.inPlace !== false) return register(top || dir, name, req, false)
         const dest = path.join(mainHome().projects, name)
         const c = await git.clone(dir, dest)
@@ -314,13 +316,13 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
       if (!looksLikeUrl(src)) throw new Error(`"${src}" is neither an existing folder nor a git URL.`)
       const url = normaliseUrl(src)
       const name = req.name ? slugify(req.name, 48) : nameFromSource(url)
-      if (svc.get(name)) throw new Error(`A world named "${name}" already exists.`)
+      if (svc.get(name)) throw new Error(`A project named "${name}" already exists.`)
       const dest = path.join(mainHome().projects, name)
       if (exists(dest)) {
         if (await git.isRepo(dest)) return register(dest, name, req, true)
         throw new Error(`${dest} exists and is not a git repository.`)
       }
-      bus.toast('info', 'Cloning world', url)
+      bus.toast('info', 'Cloning project', url)
       const c = await git.clone(url, dest)
       if (c.code !== 0) throw new Error(`Clone failed: ${c.stderr.trim()}`)
       return register(dest, name, req, true)
@@ -328,13 +330,13 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
 
     async create(req: ProjectCreateRequest) {
       const name = slugify(req.name, 48)
-      if (!name) throw new Error('A world needs a name.')
-      if (svc.get(name)) throw new Error(`A world named "${name}" already exists.`)
+      if (!name) throw new Error('A project needs a name.')
+      if (svc.get(name)) throw new Error(`A project named "${name}" already exists.`)
       const dir = path.join(mainHome().projects, name)
       if (exists(dir) && fs.readdirSync(dir).length) throw new Error(`${dir} already exists and is not empty.`)
       const init = await git.initRepo(dir, 'main')
       if (init.code !== 0) throw new Error(`git init failed: ${init.stderr.trim()}`)
-      writeText(path.join(dir, '.gitignore'), `# Genio world: ${name}\n${GITIGNORE[req.engine] ?? ''}`)
+      writeText(path.join(dir, '.gitignore'), `# Genio project: ${name}\n${GITIGNORE[req.engine] ?? ''}`)
       writeText(path.join(dir, 'README.md'), `# ${req.name}\n\n${req.description ?? ''}\n\nEngine: ${req.engine}\n`)
       writeText(
         path.join(dir, 'AGENTS.md'),
@@ -358,12 +360,21 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
     update(name, patch) {
       const list = load()
       const i = list.findIndex((p) => p.name === name)
-      if (i < 0) throw new Error(`Unknown world: ${name}`)
+      if (i < 0) throw new Error(`Unknown project: ${name}`)
       const next: Project = { ...list[i], ...patch, name: list[i].name, commands: { ...list[i].commands, ...(patch.commands ?? {}) } }
       if (patch.engine !== undefined) {
         next.engineSource = 'manual'
         const det = detectEngine(next.path)
         next.engineRoot = det.engine === next.engine ? det.engineRoot : ''
+        next.engineRootSource = 'auto'
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'engineRoot')) {
+        const root = patch.engineRoot?.replace(/\\/g, '/')
+        if (root !== undefined && (path.isAbsolute(root) || /^[A-Za-z]:/.test(root) || root.split('/').includes('..'))) {
+          throw new Error('Engine root must stay inside the project folder')
+        }
+        next.engineRoot = root
+        next.engineRootSource = root === undefined ? 'auto' : 'manual'
       }
       // Choosing a mode pins it; asking for 'auto' hands it back to the remote.
       if (patch.modeSource === 'auto') next.mode = autoModeFor(next.remote)
@@ -378,7 +389,7 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
 
     async remove(name, deleteClone): Promise<OpResult> {
       const p = svc.get(name)
-      if (!p) return { ok: false, message: `Unknown world: ${name}` }
+      if (!p) return { ok: false, message: `Unknown project: ${name}` }
       const ctx = getCtx()
       const reasons: string[] = []
       for (const h of ctx.homes.values()) {
@@ -441,7 +452,7 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
         } catch {
           /* ledger optional */
         }
-        bus.toast('info', 'World remote changed', change.notice)
+        bus.toast('info', 'Project remote changed', change.notice)
       }
       // An open/register/update can complete while git is being queried. Preserve those edits.
       if (notices.length || engineChanged) save(load().map(p => p === originals.get(p.name) ? list.find(x => x.name === p.name)! : p))
@@ -451,7 +462,7 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
     async sync(name): Promise<OpResult> {
       const notices = await svc.refreshRemotes(name)
       const targets = name ? load().filter((p) => p.name === name) : load()
-      if (name && !targets.length) return { ok: false, message: `Unknown world: ${name}` }
+      if (name && !targets.length) return { ok: false, message: `Unknown project: ${name}` }
       const lines: string[] = [...notices]
       let ok = true
       for (const p of targets) {
@@ -462,7 +473,7 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
           continue
         }
         if (!(await git.hasRemote(p.path))) {
-          lines.push(`${p.name}: offline world, nothing to sync`)
+          lines.push(`${p.name}: offline project, nothing to sync`)
           continue
         }
         if (p.mode === 'local-only') {
@@ -471,8 +482,8 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
           const st = f.code === 0 ? await git.pushStatus(p.path, p.defaultBranch) : undefined
           lines.push(
             f.code !== 0
-              ? `${p.name}: offline world; could not reach origin (${f.stderr.trim()})`
-              : `${p.name}: offline world; ${st && st.ahead ? `${st.ahead} commit(s) on ${p.defaultBranch} not pushed` : `${p.defaultBranch} has nothing to push`}${st && st.behind ? `, ${st.behind} on origin not local` : ''}`
+              ? `${p.name}: offline project; could not reach origin (${f.stderr.trim()})`
+              : `${p.name}: offline project; ${st && st.ahead ? `${st.ahead} commit(s) on ${p.defaultBranch} not pushed` : `${p.defaultBranch} has nothing to push`}${st && st.behind ? `, ${st.behind} on origin not local` : ''}`
           )
           continue
         }
@@ -481,7 +492,7 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
         lines.push(`${p.name}: ${r.message}${r.pruned.length ? ` (pruned ${r.pruned.join(', ')})` : ''}`)
       }
       await svc.refreshRemotes(name)
-      return { ok, message: lines.join('\n') || 'No worlds registered.' }
+      return { ok, message: lines.join('\n') || 'No projects registered.' }
     },
 
     async pushStatus(name) {
@@ -492,12 +503,12 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
 
     async push(name, branch): Promise<OpResult> {
       const p = svc.get(name)
-      if (!p) return { ok: false, message: `Unknown world: ${name}` }
+      if (!p) return { ok: false, message: `Unknown project: ${name}` }
       if (p.gitRepo === false) return { ok: false, message: `${name}: needs a git repo.` }
       if (!exists(p.path)) return { ok: false, message: `The clone of ${name} is missing at ${p.path}.` }
       if (!(await git.hasRemote(p.path))) return { ok: false, message: `${name} has no remote: work lands locally and there is nothing to push to.` }
       if (p.mode !== 'local-only') {
-        return { ok: false, message: `${name} is ${modeLabel(p.mode)}: work reaches origin through PRs. Push on demand is for Offline worlds.` }
+        return { ok: false, message: `${name} is ${modeLabel(p.mode)}: work reaches origin through PRs. Push on demand is for Offline projects.` }
       }
       const target = branch?.trim() || p.defaultBranch
       const r = await git.pushOnDemand(p.path, target)
@@ -517,7 +528,7 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
           mode: opts.mode ?? 'no-mistakes',
           yolo: opts.yolo ?? false,
           branchPrefix: DEFAULT_BRANCH_PREFIX,
-          warning: `World "${name}" is not registered: defaulting to Hardcore with Auto-loot off.`
+          warning: `Project "${name}" is not registered: defaulting to Hardcore with Auto-loot off.`
         }
       }
       let mode: DeliveryMode

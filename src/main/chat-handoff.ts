@@ -23,7 +23,7 @@ export function chatHandoff(input: {
       worlds: input.projects.filter(p => allowed(p.name)).slice(0, 30).map(p => ({ world: p.name.slice(0, 160), autoLoot: p.yolo === true, deliveryMode: p.mode })) },
     decisions, pendingWork: tasks.filter(t => !['merged', 'done', 'cleaned'].includes(t.state)),
     completedWork: tasks.filter(t => ['merged', 'done', 'cleaned'].includes(t.state)), recentMessages: messages,
-    privacy: blocked.size ? 'World opt-outs and ambiguous unscoped history were omitted.' : 'No opted-out world context included.'
+    privacy: blocked.size ? 'Project opt-outs and ambiguous unscoped history were omitted.' : 'No opted-out project context included.'
   }
   while (JSON.stringify(handoff).length > 17_500) {
     if (handoff.recentMessages.length) handoff.recentMessages.shift()

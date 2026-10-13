@@ -393,7 +393,7 @@ export function presetRows(mode: UsageMode): { label: string; value: string }[] 
   return [
     { label: 'Chat, including allies', value: cellLabel(p.chat) },
     ...UNIT_GROUPS.map((g) => ({ label: `Units: ${g.label}`, value: cellLabel(p.units[g.id]) })),
-    { label: 'Concurrent units (all worlds)', value: String(p.unitCap) },
+    { label: 'Concurrent units (all projects)', value: String(p.unitCap) },
     { label: 'Exploration', value: p.exploration ? `${Math.round(p.exploration * 100)}%, only with fresh evidence below 70% on both plans` : 'off' },
     { label: 'Cheap third-party models', value: p.cheap === 'first' ? 'first for low-stakes work' : p.cheap === 'fallback' ? 'fallback after the plans' : 'off' },
     { label: 'Routine wake batching', value: `${p.wakeBatchMinutes} min; heartbeat ${p.heartbeat.baseMinutes}/${p.heartbeat.maxMinutes} min` },

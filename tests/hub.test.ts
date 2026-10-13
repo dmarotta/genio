@@ -7,7 +7,7 @@ import { getState, setState } from '../src/renderer/src/store'
 import type { Project } from '../src/shared/types'
 
 let root: Root, host: HTMLDivElement
-const open = vi.fn(), pick = vi.fn(), create = vi.fn()
+const open = vi.fn(), pick = vi.fn(), create = vi.fn(), add = vi.fn(), sync = vi.fn()
 const project = (name: string): Project => ({ name, path: `C:/${name}`, addedAt: '2026-10-13', engine: 'godot',
   defaultBranch: 'main', mode: 'local-only', yolo: false, branchPrefix: 'genio/', forge: 'none', commands: {}, managed: false })
 beforeEach(() => {
@@ -17,7 +17,8 @@ beforeEach(() => {
   open.mockResolvedValue(undefined)
   pick.mockResolvedValue('C:/picked')
   create.mockResolvedValue(project('created'))
-  Object.assign(window, { genio: { api: { projectOpen: open, pickDirectory: pick, projectCreate: create } } })
+  add.mockResolvedValue(project('added'))
+  Object.assign(window, { genio: { api: { projectOpen: open, pickDirectory: pick, projectCreate: create, projectAdd: add, projectSync: sync, projectMetadata: async () => ({}) } } })
   const state = getState()
   setState({ booted: true, connected: true, view: 'worlds', settings: { ...state.settings, fx: false, firstRunDone: false } as typeof state.settings,
     snap: { ...state.snap, projects: [project('alpha'), project('beta')] }, toasts: [] })
@@ -33,7 +34,7 @@ async function click(text: string) {
 
 it('shows only project selection even on first run and ignores work shortcuts', async () => {
   await render()
-  expect([...host.querySelectorAll('button')].map(b => b.textContent)).toEqual([' Open folder…', ' New project', 'alphaC:/alphaGodot', 'betaC:/betaGodot'])
+  expect([...host.querySelectorAll('button')].map(b => b.textContent)).toEqual([' Open folder…', ' Add project', ' New project', ' Sync all', 'alphaC:/alphaGodot', 'betaC:/betaGodot'])
   await act(async () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))
     window.dispatchEvent(new KeyboardEvent('keydown', { key: '2', ctrlKey: true }))
@@ -62,7 +63,7 @@ it('opens a picked folder and does nothing when the picker is cancelled', async 
 
 it('creates a project and opens its project window', async () => {
   await render(); await click('New project')
-  const name = host.querySelector('input') as HTMLInputElement
+  const name = host.querySelector('.modal input') as HTMLInputElement
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, 'created')
     name.dispatchEvent(new Event('input', { bubbles: true }))
@@ -70,6 +71,38 @@ it('creates a project and opens its project window', async () => {
   await click('Create')
   expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: 'created', createRemote: false }))
   expect(open).toHaveBeenCalledWith('C:/created')
+})
+
+it('adds a repository from the Hub and opens the registered project', async () => {
+  await render(); await click('Add project')
+  const source = host.querySelector('.modal input') as HTMLInputElement
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(source, 'owner/repository')
+    source.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  const confirm = [...host.querySelectorAll('.modal button')].find(button => button.textContent?.includes('Add project')) as HTMLButtonElement
+  await act(async () => confirm.click())
+  expect(add).toHaveBeenCalledWith(expect.objectContaining({ source: 'owner/repository', mode: undefined }))
+  expect(open).toHaveBeenCalledWith('C:/added')
+})
+
+it('preserves project search, sorting and sync-all in the Hub', async () => {
+  await render()
+  const search = host.querySelector('input[aria-label="Search projects"]') as HTMLInputElement
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, 'beta')
+    search.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect([...host.querySelectorAll('.hub-project strong')].map(node => node.textContent)).toEqual(['beta'])
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, '')
+    search.dispatchEvent(new Event('input', { bubbles: true }))
+    const sort = host.querySelector('select[aria-label="Sort projects"]') as HTMLSelectElement
+    sort.value = 'name'; sort.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  expect([...host.querySelectorAll('.hub-project strong')].map(node => node.textContent)).toEqual(['alpha', 'beta'])
+  await click('Sync all')
+  expect(sync).toHaveBeenCalledWith()
 })
 
 it('keeps failed opens out of recents and leaves the selection usable', async () => {

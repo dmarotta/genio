@@ -115,8 +115,8 @@ describe('FAL service', () => {
     expect(fs.readFileSync(first.path!, 'utf8')).toBe('player edits')
     expect(await svc.save({ ...req, overwrite: true })).toMatchObject({ ok: true })
     expect(fs.readFileSync(first.path!, 'utf8')).toBe('RIFFfakewav')
-    await expect(svc.save({ ...req, folder: '../outside' })).rejects.toThrow(/outside the world/)
-    await expect(svc.save({ ...req, project: 'missing' })).rejects.toThrow(/No world/)
+    await expect(svc.save({ ...req, folder: '../outside' })).rejects.toThrow(/outside the project/)
+    await expect(svc.save({ ...req, project: 'missing' })).rejects.toThrow(/No project/)
   })
 
   it('deletes finished runs only', async () => {

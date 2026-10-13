@@ -30,7 +30,7 @@ export class PlayService {
   constructor(private ctx: AppCtx) {}
   private project(world: string, main = false) {
     const p = this.ctx.projects.get(world)
-    if (!p) throw new Error('Unknown Play world')
+    if (!p) throw new Error('Unknown Play project')
     const detected = detectEngine(p.path)
     if (detected.engine !== 'unity') throw new Error('Snapshot Play currently supports Unity projects')
     if (!main && this.lostSlots.has(world)) throw new Error('Play slot lease was taken over. Select main or lease a slot again.')

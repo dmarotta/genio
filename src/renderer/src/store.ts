@@ -187,6 +187,7 @@ export function registerViews(views: string[]): void { views.forEach((view) => r
 export function hasView(view: string): boolean { return registeredViews.has(view) }
 
 export function go(view: ViewId, context?: { world: string }): void {
+  if (view === 'worlds') view = 'systems'
   if (!PROJECT_WINDOW && ['comms', 'inventory', 'play'].includes(view)) {
     const project = state.snap.projects.find(p => p.name === context?.world)
     if (project) void op('Open project', () => api().projectOpen(project.path))

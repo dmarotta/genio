@@ -97,7 +97,7 @@ describe('Uthana GraphQL client', () => {
     await expect(client(gqlErr.fetch).ping()).rejects.toMatchObject({ message: 'Uthana: Maximum number of characters reached', code: 'LIMIT' })
     const unauthorized = fake(() => new Response(`invalid key ${KEY}`, { status: 401 }))
     const e = (await client(unauthorized.fetch).ping().catch((x) => x)) as UthanaError
-    expect(e.message).toMatch(/Systems → Accounts/)
+    expect(e.message).toMatch(/Settings → Accounts/)
     expect(e.message).not.toContain(KEY)
     // no key: nothing is sent
     const none = fake(() => json({}))

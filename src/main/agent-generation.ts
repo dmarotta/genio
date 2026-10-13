@@ -57,7 +57,7 @@ export class AgentGeneration {
   private save(): void { writeJson(this.file, this.jobs) }
   private project(world: string) {
     const p = this.ctx.projects.get(world)
-    if (!p) throw new Error(`No world named ${world}`)
+    if (!p) throw new Error(`No project named ${world}`)
     return p
   }
   private requirePlayer(role: string, words?: string): void {
@@ -145,11 +145,11 @@ export class AgentGeneration {
     if (a.video) {
       noLinks(p.path, a.video)
       const absolute = path.resolve(p.path, a.video)
-      if (!absolute.startsWith(path.resolve(p.path) + path.sep)) throw new Error('Video must be in this world')
+      if (!absolute.startsWith(path.resolve(p.path) + path.sep)) throw new Error('Video must be in this project')
       this.ctx.uthana.inspect(absolute, 'video', a.world)
       video = { path: absolute, motionName: a.prompt }
     }
-    if (a.model.startsWith('video-') !== !!video) throw new Error('Video models require a world-relative video; text models require a prompt')
+    if (a.model.startsWith('video-') !== !!video) throw new Error('Video models require a project-relative video; text models require a prompt')
     const usd = estimateUthana(a.model, { length: a.length }).usd
     if (usd === undefined) throw new Error('Unknown Uthana model')
     const target = await this.destination(a, 'animation', `${a.name ?? 'new motion'}.${format}`)
@@ -165,7 +165,7 @@ export class AgentGeneration {
   async character(wksp: string, a: z.infer<z.ZodObject<typeof uthanaCharacterShape>>, role = 'genio') {
     this.requirePlayer(role, a.player_words)
     const p = this.project(a.world), absolute = path.resolve(p.path, a.path)
-    if (!absolute.startsWith(path.resolve(p.path) + path.sep)) throw new Error('Character must be in this world')
+    if (!absolute.startsWith(path.resolve(p.path) + path.sep)) throw new Error('Character must be in this project')
     noLinks(p.path, path.relative(p.path, absolute).replace(/\\/g, '/'))
     this.ctx.uthana.inspect(absolute, 'character', a.world)
     const source = path.relative(p.path, absolute).replace(/\\/g, '/')
@@ -242,7 +242,7 @@ export class AgentGeneration {
   async place(wksp: string, a: z.infer<z.ZodObject<typeof assetPlaceShape>>, role = 'genio') {
     this.requirePlayer(role, a.player_words)
     const j = this.owned(a.run, wksp)
-    if (j.world !== a.world) throw new Error('Output belongs to another world')
+    if (j.world !== a.world) throw new Error('Output belongs to another project')
     const overwrite = !!a.overwrite_words?.trim()
     await this.guardTarget(a.world, a.path, overwrite)
     const by = wksp === 'main' ? 'genio' : `ally:${wksp}`
@@ -274,13 +274,13 @@ export class AgentGeneration {
   }
   async image(wksp: string, a: GenerateImageArgs, role = 'genio'): Promise<GenerationCard> {
     if (role === 'bot') throw new Error('Bot cannot generate images')
-    if (a.place && !a.world) throw new Error('A placement requires a world')
+    if (a.place && !a.world) throw new Error('A placement requires a project')
     let target: string | undefined
     if (a.world) {
       this.requirePlayer(role, a.player_words)
       const p = this.project(a.world)
       const codex = (readWorldConfig(p.path) as { providers?: { codex?: false | { enabled?: boolean } } }).providers?.codex
-      if (codex === false || codex?.enabled === false) throw new Error('Codex images are disabled in this world')
+      if (codex === false || codex?.enabled === false) throw new Error('Codex images are disabled in this project')
       target = await this.destination({ world: a.world, place: a.place, player_words: a.player_words! }, 'image', 'new image.png')
       if (path.extname(target).toLowerCase() !== '.png') throw new Error('Codex outputs PNG; choose a .png placement')
     }

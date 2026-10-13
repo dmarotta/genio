@@ -14,7 +14,7 @@ function safe(rel) {
   const p = path.join(root, rel), dir = path.dirname(p);
   let real = dirs.get(dir);
   if (!real) { real = fs.realpathSync(dir); dirs.set(dir, real); }
-  if (real !== root && !inside(real)) throw Error('Outside world');
+  if (real !== root && !inside(real)) throw Error('Outside project');
   if (!rel.toLowerCase().startsWith('.genio/') && path.relative(root, real).toLowerCase().split(path.sep).includes('.genio')) throw Error('Hidden folder');
   if (path.relative(root, real).split(path.sep).some(p => /^(?:\.git|\.godot|\.import|Library|Temp|Logs|obj|Build|Builds|BuildOutput|UserSettings|Intermediate|Saved|DerivedDataCache|Binaries|node_modules)$/i.test(p))) throw Error('Hidden folder');
   return p;

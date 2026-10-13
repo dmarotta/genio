@@ -136,10 +136,10 @@ describe('generate_image in the chat', () => {
   it('fails with an actionable error when Codex is missing', async () => {
     const r = await generateChatImages(make({ GENIO_CODEX_BIN: path.join(tmp, 'no-codex.exe') }), args.parse({ prompt: 'a gem' }))
     expect(r.isError).toBe(true)
-    expect((r.content[0] as { text: string }).text).toMatch(/Systems → Accounts/)
+    expect((r.content[0] as { text: string }).text).toMatch(/Settings → Accounts/)
     const last = posts.at(-1)!
     expect(last).toMatchObject({ persist: true, m: { id: posts[0].m.id, role: 'error' } })
-    expect(last.m.text).toMatch(/^Image generation failed: Codex is not installed.*log in to Codex in Systems → Accounts/)
+    expect(last.m.text).toMatch(/^Image generation failed: Codex is not installed.*log in to Codex in Settings → Accounts/)
     expect(fs.existsSync(gen.chatDir) ? fs.readdirSync(gen.chatDir) : []).toEqual([])
   })
 
@@ -166,8 +166,8 @@ describe('helpers', () => {
   })
 
   it('maps helper failures to short actionable errors', () => {
-    expect(friendlyError('Codex CLI not found on PATH. Install it')).toMatch(/not installed.*Systems → Accounts/)
-    expect(friendlyError('Codex gave no thread id (exit 1).')).toMatch(/logged in\?.*Systems → Accounts/)
+    expect(friendlyError('Codex CLI not found on PATH. Install it')).toMatch(/not installed.*Settings → Accounts/)
+    expect(friendlyError('Codex gave no thread id (exit 1).')).toMatch(/logged in\?.*Settings → Accounts/)
     expect(friendlyError('Codex made no image for this item.')).toMatch(/made no image/)
   })
 })

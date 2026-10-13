@@ -1,3 +1,4 @@
+import { normalizeProjectArgs } from './project-tool-args'
 import { z } from 'zod'
 import path from 'node:path'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
@@ -38,15 +39,15 @@ export function createChatToolSession(getCtx: () => AppCtx, binding: ChatToolBin
   const ctx = getCtx()
   if (ctx.home(home.name).home !== home) throw new Error('Unknown chat home')
   if ((role === 'ally' && home.isMain) || (role === 'genio' && !home.isMain)) throw new Error('Role does not match chat home')
-  if (binding.worlds === '*' && !home.isMain) throw new Error('Allies require an explicit world scope')
+  if (binding.worlds === '*' && !home.isMain) throw new Error('Allies require an explicit project scope')
   const worlds = binding.worlds === '*' ? undefined : new Set(binding.worlds)
   if (!home.isMain) {
     const ally = ctx.allies.list().find(a => a.name === home.name && !a.retiredAt)
-    if (!ally || [...worlds!].some(w => !ally.projects.includes(w))) throw new Error('World scope exceeds ally authority')
+    if (!ally || [...worlds!].some(w => !ally.projects.includes(w))) throw new Error('Project scope exceeds ally authority')
   }
   const within = (world: unknown) => typeof world === 'string' && (!worlds || worlds.has(world))
   const withinChoice = (d: { project?: string; wksp?: string }) => within(d.project) || (!d.project && d.wksp === home.name)
-  const checkWorld = (world: unknown) => { if (!within(world)) throw new Error('World is outside this connection scope') }
+  const checkWorld = (world: unknown) => { if (!within(world)) throw new Error('Project is outside this connection scope') }
   const checkTask = (id: unknown) => {
     const found = typeof id === 'string' ? findTask(getCtx(), id, home) : undefined
     if (!found) throw new Error('Task is outside this chat')
@@ -72,7 +73,8 @@ export function createChatToolSession(getCtx: () => AppCtx, binding: ChatToolBin
       if (!tool || signal.aborted) return fail('Unknown or unavailable tool, or chat closed')
       try {
         // Strict top-level validation rejects forged role/chat/scope fields.
-        const args = z.strictObject(tool.shape).parse(input) as Record<string, unknown>
+        const validated = z.strictObject(tool.shape).parse(input)
+        const args = (tool.shape.world ? normalizeProjectArgs(validated, { world: tool.shape.world }) : validated) as Record<string, unknown>
         if (role === 'bot' && name === 'status_report' && args.file) return fail('Bot reports are read-only')
         if (args.world !== undefined) checkWorld(args.world)
         if (worlds && name === 'generate_image' && Array.isArray(args.refs) && args.refs.some(ref => typeof ref === 'string' && path.isAbsolute(ref))) {
@@ -83,7 +85,7 @@ export function createChatToolSession(getCtx: () => AppCtx, binding: ChatToolBin
           const seqs = name === 'event_read' ? [args.seq] : args.seqs as number[]
           for (const seq of seqs) {
             const event = getCtx().home(home.name).wakes.get(Number(seq))
-            if (!event?.taskId) throw new Error('Event has no world-scoped task')
+            if (!event?.taskId) throw new Error('Event has no project-scoped task')
             checkTask(event.taskId)
           }
         }
@@ -102,8 +104,8 @@ export function createChatToolSession(getCtx: () => AppCtx, binding: ChatToolBin
           if (card.world) checkWorld(card.world)
           else if (worlds) throw new Error('Generation is outside this connection scope')
         }
-        if (worlds && name === 'world_sync' && args.world === undefined) throw new Error('Scoped sync requires a world')
-        if (worlds && name === 'quest_add' && args.world === undefined) throw new Error('Scoped quest requires a world')
+        if (worlds && name === 'world_sync' && args.world === undefined) throw new Error('Scoped sync requires a project')
+        if (worlds && name === 'quest_add' && args.world === undefined) throw new Error('Scoped quest requires a project')
         const d = await enforceTool({ role, chat: home.name, signal, permissions: getCtx().permissions,
           shellMode: () => chatControls(getCtx().settings.get(), getCtx().allies.list().find(a => a.name === home.name)).shellMode
         }, { runtime: 'bridge', name, input: args, registered })

@@ -14,7 +14,7 @@ const charges = (ctx: AppCtx) => new Map(readJsonl<Charge>(fileOf(ctx)).map(c =>
 export function generationBudget(ctx: AppCtx, world?: string): FalBudget | undefined {
   if (!world) return readJson<{ budget?: FalBudget }>(path.join(ctx.main.home.data, 'fal', 'scratch-config.json'), {}).budget
   const project = ctx.projects.get(world)
-  if (!project) throw new Error(`No world named ${world}`)
+  if (!project) throw new Error(`No project named ${world}`)
   noLinks(project.path, '.genio/fal/config.json')
   const file = path.join(project.path, '.genio/fal/config.json')
   const config = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {}

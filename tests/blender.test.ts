@@ -78,5 +78,5 @@ describe.skipIf(!blender)('Blender batch integration (local executable)', () => 
 
 it('rejects logs inside the world before launching Blender', async () => {
   await expect(run(process.execPath, [runner, '--script', helper, '--scratch', path.join(world, 'logs')], { cwd: world }))
-    .rejects.toMatchObject({ code: 1, stderr: expect.stringContaining('outside the world/worktree') })
+    .rejects.toMatchObject({ code: 1, stderr: expect.stringContaining('outside the project/worktree') })
 })

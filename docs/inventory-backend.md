@@ -1,18 +1,18 @@
 # Inventory backend
 
-Step 2 supplies a read-only per-world index and media transport. It does not add
+Step 2 supplies a read-only per-project index and media transport. It does not add
 the Inventory screen, generation, placement, drafts or undo.
 
 ## Screen contract
 
-- `inventoryOpen(world)` starts watching this world (closing any other world's
+- `inventoryOpen(world)` starts watching this project (closing any other project's
   watcher). It returns cached state immediately and reconciles in the background;
   without a cache it awaits the initial scan. State includes the registered engine
   and engine root, revision, counts, refresh/watch status and errors.
 - Subscribe to the `inventory` event and re-query when its revision changes.
   `inventoryList(world, query)` returns a paginated asset list, matching total and
   immediate child folders with recursive media counts. Paths remain relative to
-  the **world**, including a nested engine root.
+  the **project**, including a nested engine root.
 - Use `{folder, recursive: false}` for a folder listing. Omit `recursive` to search
   descendants. `kinds`, `tags`, `generated`, `scope` (`ours` by default), `sort`,
   `descending`, `offset` and `limit` are typed in `shared/inventory.ts` (limit caps
@@ -30,9 +30,9 @@ the Inventory screen, generation, placement, drafts or undo.
 
 ## Index and transport
 
-`git ls-files -z -t --cached --others --exclude-standard` is the sole world
+`git ls-files -z -t --cached --others --exclude-standard` is the sole project
 enumerator. Engine caches are explicitly excluded before stat/sidecar reads,
-including nested `Library`. No fallback disk walk occurs for a non-Git world.
+including nested `Library`. No fallback disk walk occurs for a non-Git project.
 Build output directories are excluded by exact names (`Build`, `Builds`,
 `BuildOutput`), preserving legitimate `Buildings` art. Other output follows
 `.gitignore`. Submodules are not recursively enumerated.
@@ -43,13 +43,13 @@ bounded to 64 KiB for sidecars and 256 KiB for provenance. `.meta`, `.import` an
 `.genio` files never become tiles. `.tres` files are checked for a material type.
 Vendor detection uses known folder names, configured prefixes and a conservative
 pack heuristic (documentation plus demos/scenes). `.genio/assets.json` accepts
-world-relative `vendor` and `ignore` prefix arrays; it is never written.
+project-relative `vendor` and `ignore` prefix arrays; it is never written.
 
 `data/inventory/<world>/index.json` is versioned and atomically replaced.
 `genio-media://world/<world>/<path>` supports nested paths and Range requests;
 guards reject traversal, Windows alternate streams, hidden control/cache folders,
-and symlinks/junctions escaping the world. `.gltf` companion buffers can use the
-same route. No route or index operation writes into a world.
+and symlinks/junctions escaping the project. `.gltf` companion buffers can use the
+same route. No route or index operation writes into a project.
 
 Request `genio-media://thumb/<world>/<path>` only for visible tiles. Native image
 formats decode via `createImageBitmap` and `OffscreenCanvas` in a Web Worker hosted
@@ -60,7 +60,7 @@ the screen can show a type icon. DCC/HDR decoding, waveforms, video posters and
 model snapshots belong to later preview steps.
 
 WebP thumbnails live in `data/thumbs/<world>/`, keyed by root/path/size/mtime with a
-1 GiB per-world LRU cap. Only Genio's thumbnail cache is walked for eviction.
+1 GiB per-project LRU cap. Only Genio's thumbnail cache is walked for eviction.
 
 ## Measurements (Windows, 2026-10-13)
 
@@ -73,7 +73,7 @@ Spike 0c used five real PNGs (78 B–1.67 MB): native worker thumbnail requests 
 **12–47 ms** after startup, **126 ms** for the first request including host creation,
 and **0.8 ms** for a cache hit. All five output WebPs were independently decoded
 and measured at no more than 256 px. Outputs ranged from 526 B to 10.4 KB. The
-world was read only; benchmark caches lived in the unit's Genio scratch data.
+project was read only; benchmark caches lived in the unit's Genio scratch data.
 
 ## Genio read tools
 
@@ -90,7 +90,7 @@ with units through `conventionsOf` / `suggestLocation` in
 `resources/unit-skills/genio/lib/genio-world.mjs`. Pass indexed assets, engine,
 engineRoot and optionally config and root to those helpers. A root enables disk
 collision and symlink/junction checks. Hints can be subject words or a
-world-relative folder. Configured folders outrank inferred folders; explicit
+project-relative folder. Configured folders outrank inferred folders; explicit
 folder hints outrank configuration. Unsafe destinations are discarded, even
 when configured or hinted. The fallback avoids generated directories too.
 
@@ -99,4 +99,4 @@ Suggestions are advisory: no directory or asset is created, and a future writer
 must revalidate containment and collisions. Unity GLB/glTF suggestions stay in
 source art outside Assets because importer support is not assumed. All three
 tools refresh the index without opening a watcher; only Genio's index cache and
-first-use achievement can be persisted, never world files.
+first-use achievement can be persisted, never project files.

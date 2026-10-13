@@ -7,7 +7,7 @@ Vocabulary is gaming, not nautical: see [VOCABULARY.md](VOCABULARY.md).
 
 - **One companion.** The Player talks only to Genio. Genio is a Claude Agent SDK
   session running in the main process with an in-process MCP toolbelt
-  (`mcp__genio__*`). It never edits worlds (projects) itself.
+  (`mcp__genio__*`). It never edits projects (projects) itself.
 - **A visible Squad.** Each unit is an autonomous coding-agent CLI (Claude Code,
   Codex, Gemini, OpenCode, Cursor, Grok, Aider, custom) running in a real PTY
   (node-pty) inside its own git worktree. The GUI shows every terminal live
@@ -24,7 +24,7 @@ Vocabulary is gaming, not nautical: see [VOCABULARY.md](VOCABULARY.md).
   count; ready, merged, done, failed and cleaned tasks release their slots even
   with an idle terminal. Respawn sets the task to working, including tasks with
   historical PRs. Dispatch owns each pending launch reservation until listing
-  or release and publishes pending counts to the Hub and scoped world windows.
+  or release and publishes pending counts to the Hub and scoped project windows.
 
 ## Concept map (companion → Genio)
 
@@ -40,7 +40,7 @@ Vocabulary is gaming, not nautical: see [VOCABULARY.md](VOCABULARY.md).
 | `fm-watch` wakes | `supervisor.ts` (overwatch) + durable `wakes.ts` | KILLFEED |
 | backlog + holds | `backlog.ts` | QUEST LOG |
 | keyed decisions / captain holds | `decisions.ts` + held quests | Pending answers / QUEST LOG |
-| project registry, modes, +yolo | `projects.ts` | WORLDS |
+| project registry, modes, +yolo | `projects.ts` | PROJECTS |
 | no-mistakes pipeline | `gauntlet.ts` | GAUNTLET |
 | `fm-pr-merge` / `fm-merge-local` / `fm-teardown` | `crew.merge()` / `crew.cleanup()` | MERGE / DESPAWN |
 | `/bearings` | `statusreport.ts` | Agent status report (`status_report`) |
@@ -128,7 +128,7 @@ fire the alarm.
 ## Delivery modes and merge authority
 
 - **Hardcore** (`no-mistakes`): the unit commits and declares `done:`; Genio runs
-  the **Gauntlet**: rebase check → world lint/build/test commands → AI review of
+  the **Gauntlet**: rebase check → project lint/build/test commands → AI review of
   the diff against the Player's intent → findings go back to the unit (up to
   `validationMaxRounds`) → push → PR (gh) → CI wait. Ask-user findings become
   Your Move choices.
@@ -136,7 +136,7 @@ fire the alarm.
   `done: PR <url>`.
 - **Offline** (`local-only`): the unit leaves a clean fast-forward branch:
   `done: ready in branch <b>`.
-- **Auto-loot** (`yolo`, per world, granted by the Player) lets Genio merge
+- **Auto-loot** (`yolo`, per project, granted by the Player) lets Genio merge
   green, in-scope work itself. Never merge red, pending or draft work.
   Destructive things always escalate.
 
@@ -154,13 +154,13 @@ The Hub opens one window per project. Comms and Inventory share the window's
 project wksp, with per-chat controls, queued-message editing, image attachments,
 and in-memory drafts. There are no chat tabs, splits or saved dock layouts.
 Both chat providers run from the project folder and use scoped tool sessions.
-Project windows and tool sessions include only records belonging to their world.
+Project windows and tool sessions include only records belonging to their project.
 Before services load, the versioned project-data migration transfers registered
-worlds' units, quests and decisions from main or multi-world bases to their
+projects' units, quests and decisions from main or multi-project bases to their
 single-project bases. Existing project bases and chat sessions are reused;
 retired bases remain archived. IDs, quest dependencies, holds, player answers,
 status cursors and unit session IDs survive. Unassigned records and records for
-unregistered worlds stay in their original bases. Quest mirrors are regenerated.
+unregistered projects stay in their original bases. Quest mirrors are regenerated.
 
 The migration records original file contents and complete replacements in
 `state/project-data-migration-v1.json` before changing authoritative files.
@@ -178,11 +178,11 @@ credentials, progression, profiles, Lore and archived transcripts remain intact.
 
 The old main chat is read-only. Opening the `genio` project imports its compacted
 transcript and image files once into that project's base without changing the
-source log or adopting the old cross-world provider session. Existing project
+source log or adopting the old cross-project provider session. Existing project
 messages win on duplicate IDs. Imported history supplies a bounded handoff on a
 new provider session; existing project provider sessions retain normal resume.
 Project agents and their Bot cannot wake while their project is closed. The
-main supervisor observes any units for unregistered worlds and forwards their
+main supervisor observes any units for unregistered projects and forwards their
 task wakes if the owning project is reopened. A close cancellation keeps units
 running; confirmation stops that project's terminals and preserves its worktrees.
 

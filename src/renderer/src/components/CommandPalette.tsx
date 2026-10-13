@@ -40,7 +40,7 @@ export function CommandPalette() {
       { id: 'dnd', label: 'Presence: DND', group: 'Presence', run: () => { close(); void op('Presence', () => api().setAway('dnd'), () => 'Do not disturb') } },
       { id: 'afk', label: 'Presence: AFK', group: 'Presence', run: () => { close(); void op('Presence', () => api().setAway('afk'), () => 'AFK — the Bot has the controls') } },
       ...NAV.map((n) => ({ id: `nav-${n.id}`, label: `Go to ${n.label}`, hint: n.key ? `Ctrl ${n.key}` : undefined, group: 'Navigate', run: () => go(n.id as ViewId) })),
-      ...projects.map((p) => ({ id: `world-${p.name}`, label: `World: ${p.name}`, hint: p.engine, group: 'Worlds', run: () => setState({ view: 'worlds', highlightWorld: p.name, palette: false }) })),
+      ...projects.map((p) => ({ id: `world-${p.name}`, label: `Project: ${p.name}`, hint: p.engine, group: 'Projects', run: () => void op('Open project', () => api().projectOpen(p.path)) })),
       ...tasks
         .filter((t) => t.state !== 'cleaned')
         .map((t) => ({ id: `task-${t.id}`, label: `Unit: ${t.title}`, hint: `${KIND_LABEL[t.kind]} · ${t.project}`, group: 'Squad', run: () => focusTask(t.id) }))
@@ -83,7 +83,7 @@ export function CommandPalette() {
           <input
             ref={input}
             value={q}
-            placeholder="Type a command, world or unit…"
+            placeholder="Type a command, project or unit…"
             onChange={(e) => {
               setQ(e.target.value)
               setSel(0)

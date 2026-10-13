@@ -47,7 +47,7 @@ export function engineHints(engine?: Engine): string {
     case 'godot':
       return `- Engine: Godot. Run headless with \`godot --headless --path . --quit\` to check the project loads; if GUT is installed run \`godot --headless -s addons/gut/gut_cmdln.gd\`.\n- Edit .tscn/.tres as text carefully; keep UIDs and resource ids stable.\n${common}`
     case 'unity':
-      return `- Engine: Unity. Resolve the editor binary for ProjectSettings/ProjectVersion.txt through Unity Hub; never use bare Unity -batchmode (it may resolve to the unrelated unity CLI). Run batch tests only on your isolated copy.\n- Units may control only their own copy or leased Play slot, never the player's main editor. Always pass --project-path to the unity CLI. Never read the main editor Pipeline token or save its scenes.\n- Never commit Library/, Temp/ or Logs/. Keep .meta files paired with their assets.\n${common}`
+      return `- Engine: Unity. Resolve the editor binary for ProjectSettings/ProjectVersion.txt through Unity Hub; never use bare Unity -batchmode (it may resolve to the unrelated unity CLI). Run batch tests only on your isolated copy.\n- Units may control only their own copy or leased Play slot, never the player's main editor. Always pass --world-path to the unity CLI. Never read the main editor Pipeline token or save its scenes.\n- Never commit Library/, Temp/ or Logs/. Keep .meta files paired with their assets.\n${common}`
     case 'unreal':
       return `- Engine: Unreal. Build with UnrealBuildTool / RunUAT when available; never commit Binaries/, Intermediate/, Saved/ or DerivedDataCache/.\n- .uasset/.umap are binary: do not modify them unless asked.\n${common}`
     case 'bevy':
@@ -131,7 +131,7 @@ export function renderBrief(i: BriefInput): string {
   out.push('')
   out.push('# Mission')
   out.push('')
-  out.push(`World: ${i.project} · Type: ${isShip ? 'BUILD' : 'RECON'}${isShip ? ` · Mode: ${MODE_LABEL[mode]}` : ''}`)
+  out.push(`Project: ${i.project} · Type: ${isShip ? 'BUILD' : 'RECON'}${isShip ? ` · Mode: ${MODE_LABEL[mode]}` : ''}`)
   out.push('')
   out.push("## Player's intent")
   out.push('')
@@ -185,9 +185,9 @@ export function renderBrief(i: BriefInput): string {
   out.push(`Genio sends instructions as files in \`${inbox}/\`. When your terminal shows a "Genio ping waiting" line (or whenever you are idle):`)
   out.push(`list \`${inbox}/*.msg\`, read and act on each in numeric order, then move each into \`${inbox}/handled/\`. The move is your acknowledgement.`)
   out.push('')
-  out.push('# World memory')
+  out.push('# Project memory')
   out.push('')
-  out.push("Edit the world's AGENTS.md or CLAUDE.md only to correct information that is factually wrong (including what your own change made wrong). Never add new knowledge to them.")
+  out.push("Edit the project's AGENTS.md or CLAUDE.md only to correct information that is factually wrong (including what your own change made wrong). Never add new knowledge to them.")
   out.push('')
   out.push('# Engine notes')
   out.push('')

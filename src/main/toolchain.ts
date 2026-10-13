@@ -22,7 +22,7 @@ interface ToolDef {
 
 const TOOLS: ToolDef[] = [
   { name: 'blender', purpose: 'Batch 3D modelling, mesh validation and export', required: false, versionArgs: ['--version'], winget: 'BlenderFoundation.Blender', probe: findBlender },
-  { name: 'git', purpose: 'Worktrees, branches and merges for every world', required: true, versionArgs: ['--version'], winget: 'Git.Git', brew: 'git' },
+  { name: 'git', purpose: 'Worktrees, branches and merges for every project', required: true, versionArgs: ['--version'], winget: 'Git.Git', brew: 'git' },
   { name: 'gh', purpose: 'GitHub pull requests, checks and merges', required: false, versionArgs: ['--version'], winget: 'GitHub.cli', brew: 'gh' },
   { name: 'glab', purpose: 'GitLab merge requests (best effort)', required: false, versionArgs: ['--version'], winget: 'GLab.GLab', brew: 'glab' },
   { name: 'claude', purpose: 'Claude Code units (default)', required: true, versionArgs: ['--version'], npm: '@anthropic-ai/claude-code' },

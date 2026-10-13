@@ -96,7 +96,7 @@ export function createInventoryService(getCtx: () => AppCtx, decode?: ThumbnailD
     w.once('exit', code => { workers.delete(w); if (code) reject(new Error(`Inventory worker exited (${code})`)) })
   })
   const cacheDir = (world: string, kind = 'inventory'): string => {
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(world)) throw new Error('Invalid world name')
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(world)) throw new Error('Invalid project name')
     return path.join(getCtx().main.home.data, kind, world)
   }
   const thumbCache = (dir: string): Promise<Map<string, { size: number; time: number }>> => {
@@ -143,7 +143,7 @@ export function createInventoryService(getCtx: () => AppCtx, decode?: ThumbnailD
   const get = async (world: string): Promise<WorldIndex> => {
     if (stopped) throw new Error('Inventory stopped')
     const proj = getCtx().projects.get(world)
-    if (!proj) throw new Error(`No world named ${world}.`)
+    if (!proj) throw new Error(`No project named ${world}.`)
     const dir = cacheDir(world)
     let w = worlds.get(world)
     if (w && w.root !== proj.path) { close(world); worlds.delete(world); w = undefined }

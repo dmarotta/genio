@@ -443,7 +443,7 @@ describe('codex-image.mjs', () => {
 
     const inside = await runNode(CODEX_IMAGE, ['--world', world, '--prompt', 'x', '--out', path.join(world, 'y.png'), '--scratch', path.join(world, 'tmp')], env)
     expect(inside.code).toBe(2)
-    expect(inside.stderr).toMatch(/overlaps the world/)
+    expect(inside.stderr).toMatch(/overlaps the project/)
     expect(fs.existsSync(path.join(world, 'tmp'))).toBe(false)
   })
 })

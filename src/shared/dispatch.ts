@@ -69,7 +69,7 @@ export const DIAL_LABEL: Record<CostDial, string> = { quality: 'Quality', balanc
 export const DIAL_HINT: Record<CostDial, string> = {
   quality: 'Stronger models and one step more effort; cheap models go last',
   balanced: 'The table as written',
-  cost: 'Cheap candidates first (where the world allows them) and one step less effort'
+  cost: 'Cheap candidates first (where the project allows them) and one step less effort'
 }
 
 export const EFFORT_LADDER = ['low', 'medium', 'high', 'xhigh', 'max']

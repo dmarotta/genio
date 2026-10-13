@@ -298,7 +298,7 @@ export function openProposals(decisions: DecisionService, proposals: DispatchPro
       decisions.open({
         key,
         question: proposalQuestion(p, s),
-        context: `Dispatch learning: ${p.evidence}.\n\nAccepting changes the dispatch table in Systems → Dispatch; locked rows and rules are never touched.`,
+        context: `Dispatch learning: ${p.evidence}.\n\nAccepting changes the dispatch table in Settings → Dispatch; locked rows and rules are never touched.`,
         options: PROPOSAL_OPTIONS,
         recommendation: PROPOSAL_OPTIONS[0],
         source: 'system',

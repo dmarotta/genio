@@ -53,7 +53,7 @@ export function GenerationSettings({ world }: { world: string }) {
       setState((s) => s && { ...s, fal })
       const uthana = await api().uthanaWorldConfig(world, { ...state.uthana.config, folder: animation })
       setState({ fal, uthana })
-      toast('success', 'Generation settings saved', `${world}: saved in the world, not committed`)
+      toast('success', 'Generation settings saved', `${world}: saved in the project, not committed`)
     } catch (e) {
       setError(`${falSaved ? 'Budget, asset folders and Codex settings saved; animation folder could not be saved. ' : ''}${errText(e)}`)
     } finally {
@@ -63,7 +63,7 @@ export function GenerationSettings({ world }: { world: string }) {
 
   return <section className="world-generation" aria-label="Generation settings">
     <h4>Generation</h4>
-    <p className="mute">Generate assets with Genio in Inventory chat. These settings apply to this world.</p>
+    <p className="mute">Generate assets with Genio in Inventory chat. These settings apply to this project.</p>
     {error && <p role="alert" className="alert-text">{error}</p>}
     {!state ? error ? <button className="btn sm" onClick={() => setRetry((n) => n + 1)}>Retry settings</button> : <p className="mute">Loading generation settings…</p> : <>
       <fieldset className="generation-fields form-grid" disabled={busy}>
@@ -74,12 +74,12 @@ export function GenerationSettings({ world }: { world: string }) {
           <input className="input" aria-label="Confirm runs over (USD)" inputMode="decimal" value={threshold} placeholder="0.25" aria-invalid={invalid(threshold)} onChange={(e) => setThreshold(e.target.value)} />
         </Field>
         <Field label="Codex images" hint="Use the ChatGPT plan for images. Enabled by default; no paid-run confirmation." wide>
-          <Toggle checked={codex} onChange={setCodex} label="Enable Codex images in this world" />
+          <Toggle checked={codex} onChange={setCodex} label="Enable Codex images in this project" />
         </Field>
-        {KINDS.map(([kind, label]) => <Field key={kind} label={`${label} folder`} hint="Relative to the world root. Blank uses the engine default.">
+        {KINDS.map(([kind, label]) => <Field key={kind} label={`${label} folder`} hint="Relative to the project root. Blank uses the engine default.">
           <input className="input mono" aria-label={`${label} folder`} value={folders[kind] ?? ''} placeholder={suggestFolder(state.fal.engine, kind, state.fal.engineRoot)} onChange={(e) => setFolders((f) => ({ ...f, [kind]: e.target.value }))} />
         </Field>)}
-        <Field label="Animations folder" hint="Relative to the world root. Blank uses the engine default.">
+        <Field label="Animations folder" hint="Relative to the project root. Blank uses the engine default.">
           <input className="input mono" aria-label="Animations folder" value={animation} placeholder={state.uthana.folder} onChange={(e) => setAnimation(e.target.value)} />
         </Field>
       </fieldset>

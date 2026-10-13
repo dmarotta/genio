@@ -70,7 +70,7 @@ export function PermissionPrompt() {
           {req.reason && <p className="dim">{req.reason}</p>}
           <pre className="perm-input selectable">{req.input}</pre>
           <p className="mute" style={{ fontSize: 12 }}>
-            Genio only reads your worlds on its own. Anything that could change them needs your word. {more > 0 && `${more} more waiting.`}
+            Genio only reads your projects on its own. Anything that could change them needs your word. {more > 0 && `${more} more waiting.`}
           </p>
         </div>
         <footer className="modal-foot">

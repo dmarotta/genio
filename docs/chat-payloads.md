@@ -68,7 +68,7 @@ the ally charter. `skill_read` loads one named bundled skill, with an optional
 Markdown `reference` inside its directory. These reads are paged. Claude's native
 Skill tool is disabled to prevent incidental bulk configuration injection.
 `settings_read`/`settings_update` expose only supported non-secret preferences;
-advanced/security/account configuration remains in Systems. Bot cannot change them.
+advanced/security/account configuration remains in Settings. Bot cannot change them.
 
 Recon reports default to the Usage-mode word target (800 words when unspecified)
 and 6,000 characters, with evidence in linked separate appendices. Explicitly

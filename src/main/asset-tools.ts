@@ -32,7 +32,7 @@ export async function findAssets(ctx: AppCtx, world: string, query: InventoryQue
 export async function assetInfo(ctx: AppCtx, world: string, asset: string) {
   await ctx.inventory.refresh(world)
   const info = await ctx.inventory.info(world, asset)
-  if (!info) throw new Error('Asset not found in world Inventory')
+  if (!info) throw new Error('Asset not found in project Inventory')
   const neighbours = await ctx.inventory.list(world, { folder: info.folder, recursive: false, scope: 'all', limit: 51 })
   const file = !info.lfs ? await ctx.inventory.mediaPath(world, asset) : undefined
   const metadata = file ? await cheapMediaInfo(file).catch(() => ({})) : {}
@@ -40,7 +40,7 @@ export async function assetInfo(ctx: AppCtx, world: string, asset: string) {
 }
 export async function locateAsset(ctx: AppCtx, world: string, kind: AssetKind, name?: string, hint?: string) {
   const project = ctx.projects.get(world)
-  if (!project) throw new Error(`No world named ${world}.`)
+  if (!project) throw new Error(`No project named ${world}.`)
   await ctx.inventory.refresh(world)
   const assets: InventoryAsset[] = []
   for (let offset = 0;; offset += 1000) {
@@ -51,7 +51,7 @@ export async function locateAsset(ctx: AppCtx, world: string, kind: AssetKind, n
   let config = {}
   const file = await guardedWorldFile(project.path, '.genio/fal/config.json', true)
   if (file) {
-    if ((await fs.stat(file)).size > 1024 * 1024) throw new Error('World config is too large')
+    if ((await fs.stat(file)).size > 1024 * 1024) throw new Error('Project config is too large')
     config = JSON.parse(await fs.readFile(file, 'utf8')) ?? {}
   }
   return suggestLocation({ assets, kind, name, hint, engine: project.engine, engineRoot: project.engineRoot ?? '', config, root: project.path })

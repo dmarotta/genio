@@ -44,7 +44,7 @@ function backlogRow(i: BacklogItem, deps: string[]): string {
   const done = i.state === 'done' || i.state === 'dropped'
   const bits: string[] = [`- [${done ? 'x' : ' '}] ${i.id} - ${i.title}`]
   if (deps.length && !done) bits.push(`[blocked-by: ${deps.join(', ')}]`)
-  if (i.project) bits.push(`(world: ${i.project})`)
+  if (i.project) bits.push(`(project: ${i.project})`)
   bits.push(`(kind: ${i.kind})`)
   if (i.priority !== 'normal') bits.push(`(priority: ${i.priority})`)
   if (i.taskId) bits.push(`(mission: ${i.taskId})`)

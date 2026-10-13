@@ -85,8 +85,8 @@ fresh 70/85/95% readings and rejections remains in place.
 
 # Usage mode and shared plan meter (stage 3)
 
-One control, Systems → Usage: **Usage mode [Save | Balanced* | Max] Advanced**.
-`src/shared/usage-mode.ts` holds the table; the Systems preview, the loadout
+One control, Settings → Usage: **Usage mode [Save | Balanced* | Max] Advanced**.
+`src/shared/usage-mode.ts` holds the table; the Settings preview, the loadout
 picker, the chat sessions, the supervisor and the dispatcher all read it.
 
 | | Save | Balanced (default) | Max |
@@ -97,7 +97,7 @@ picker, the chat sessions, the supervisor and the dispatcher all read it.
 | Units: recon/design, refactor, graphics | Codex / medium | Codex / high | Opus / xhigh |
 | Units: review, large-context | Codex / medium | Codex / high | Codex / xhigh |
 | Units: art (agent work) | Codex / low | Codex / medium | Codex / high |
-| Concurrent units across all worlds and bases | 1 | 2 | 4 |
+| Concurrent units across all projects and bases | 1 | 2 | 4 |
 | Exploration | 0 | 0 | 5%, only with fresh evidence below 70% on both plans |
 | Cheap third-party models (low-stakes only) | first | after the plans | off |
 | Routine wake batching; heartbeat base/max | 10 min; 30/120 | 5 min; 15/120 | 1 min; 10/120 |
@@ -120,8 +120,8 @@ Ordinary automatic routing uses Sol, Sonnet or Opus. Astra is normally reserved
 for heavy visual work and remains an explicitly chosen, explicitly approved
 exception. The broad art/graphics categories include audio and performance work,
 so those labels alone do not automatically select Astra.
-A world can carry its own mode (Advanced, or its legacy cost dial); the global
-mode sets the shared unit cap, and a world's mode or capacity can only lower it.
+A project can carry its own mode (Advanced, or its legacy cost dial); the global
+mode sets the shared unit cap, and a project's mode or capacity can only lower it.
 The cap is checked inside the serialized launch reservation, counting units that
 hold a place in every base plus launches reserved but not yet listed; a respawn
 keeps the place it already holds. Cheap models also need an explicit paid-spend
@@ -132,11 +132,11 @@ places, Balanced 8 and Max 16. Competing project launches reserve the last place
 atomically; a warm plan's one-unit limit also counts work in every project base.
 Finished units release their places even when their terminals remain alive.
 
-The meter's world attribution includes project chat and Bot session IDs (current
+The meter's project attribution includes project chat and Bot session IDs (current
 and recorded historical sessions), plus units under each base's worktrees.
 Session ownership takes precedence over cwd changes. Codex telemetry and native
 logs use the metadata session ID. Legacy main chat stays unattributed, since it
-can span worlds. These measured tokens are separate from shared account quotas;
+can span projects. These measured tokens are separate from shared account quotas;
 they do not represent a project's percentage of a plan.
 
 `tests/project-usage.test.ts` verifies both providers, historical sessions, cwd
@@ -145,7 +145,7 @@ drift, nested project worktrees, deduplication and legacy shared chat.
 
 **Pinned.** A non-empty chat/Bot/unit model or effort, an ally's own pick, a
 locked category row, a dispatch rule or an explicit deploy pick is Pinned: neither
-the mode nor protection changes it, and Systems → Usage lists it with Unpin.
+the mode nor protection changes it, and Settings → Usage lists it with Unpin.
 Migration keeps every explicit pick as written; only the old shipped chat default
 (`wkspEffort: 'high'` with no model) becomes Auto, and the old cost dial becomes
 the mode (Quality → Max, Cost → Save).
@@ -162,7 +162,7 @@ the mode (Quality → Max, Cost → Save).
   quests and, when no plan has headroom, all queued quests stay queued until
   reset ("Queued until reset" in Quests). Running work is never stopped.
 
-A one-line notice (toast and Systems → Usage) is emitted only when a plan's level
+A one-line notice (toast and Settings → Usage) is emitted only when a plan's level
 changes; its details give the cause and evidence age. Levels persist in
 `data/usage/policy-state.json`, so restarts do not repeat notices.
 
@@ -170,4 +170,4 @@ changes; its details give the cause and evidence age. Levels persist in
 row and a Codex row, never summed, each reported window with what is left, reset
 time, source and observation age. Expired or missing observations read "unknown",
 never "100% left"; missing standard windows read "not reported". Unit tokens per
-world are shown separately as measured consumption, not a share of the plan.
+project are shown separately as measured consumption, not a share of the plan.

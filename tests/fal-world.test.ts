@@ -74,7 +74,7 @@ describe('world-tied runs and Save to world', () => {
     expect(runs).toHaveLength(2)
     expect(runs.find((r) => r.id === a.id)?.world).toBe('golem')
     expect(runs.find((r) => r.id === b.id)?.world).toBeUndefined()
-    expect(() => svc.run({ endpoint: EP, input: { text: 'x' }, world: 'nowhere' })).toThrow(/No world/)
+    expect(() => svc.run({ endpoint: EP, input: { text: 'x' }, world: 'nowhere' })).toThrow(/No project/)
     // nothing was written into the world by running
     expect(fs.readdirSync(world)).toEqual([])
     expect(svc.world('golem').spentUsd).toBeCloseTo(0.04)

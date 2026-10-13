@@ -14,7 +14,7 @@ capacity, which could prevent deploying the fix needed to recover those units.
 
 Capacity now counts real live unfinished units plus launches in progress. It
 retains the existing release of completed/handed-over work. An absent-terminal
-restart reserves a new slot and observes global/world caps. Replacing a currently
+restart reserves a new slot and observes global/project caps. Replacing a currently
 live unit reuses its slot; it does not count as another unit on a warm plan. The
 replacement stays in `spawning` while its old terminal exits. Lifecycle actions
 for the same task cannot run concurrently.
