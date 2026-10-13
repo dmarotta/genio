@@ -385,6 +385,7 @@ export interface AppCtx {
   update: UpdateService
   permissions: PermissionBroker
   fal: FalService
+  sprites: import('./sprites').SpriteService
   dispatch: DispatchService
   main: HomeCtx
   homes: Map<string, HomeCtx>

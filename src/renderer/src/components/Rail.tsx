@@ -1,4 +1,4 @@
-import { BookOpen, Cpu, Crosshair, Gauge, Globe, MessageSquare, ScrollText, Sparkles, Swords, type LucideIcon } from 'lucide-react'
+import { BookOpen, Cpu, Crosshair, Gauge, Globe, MessageSquare, ScrollText, Sparkles, Swords, Film, type LucideIcon } from 'lucide-react'
 import { go, openDecisions, readyTasks, useStore, type ViewId } from '../store'
 import { cx } from '../lib/format'
 
@@ -11,6 +11,7 @@ export const NAV: { id: ViewId; label: string; icon: LucideIcon; key: string }[]
   { id: 'worlds', label: 'Worlds', icon: Globe, key: '6' },
   { id: 'lore', label: 'Lore', icon: BookOpen, key: '7' },
   { id: 'fal', label: 'FAL.ai', icon: Sparkles, key: '9' },
+  { id: 'sprites', label: 'Sprites', icon: Film, key: '0' },
   { id: 'systems', label: 'Systems', icon: Cpu, key: '8' }
 ]
 

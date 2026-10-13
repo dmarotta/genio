@@ -138,7 +138,7 @@ export interface Provenance {
   schema: 'genio.provenance.v1'
   path: string
   sha256: string
-  provider: 'fal'
+  provider: 'fal' | 'codex' | 'local'
   endpoint: string
   request_id: string | null
   input: Record<string, unknown>

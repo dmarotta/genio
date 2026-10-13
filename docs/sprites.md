@@ -1,0 +1,29 @@
+# Sprites studio
+
+Open **Sprites** in the main rail (Ctrl+0). Select a world or Scratch, paste/drop a character image, choose a local/world file or an earlier chat/FAL image, or generate a source on the ChatGPT plan. Each animation saves automatically in Genio's data under `sprites/<world hash>/<project id>.json`; use the project selector to reopen it. New animation saves the current draft first. Refresh projects updates the saved-project list.
+
+Choose an action, 1–16 frames per direction, a uniform cell size (8–1024 pixels), 1/4/8 directions, FPS, loop/ping-pong and HD/pixel style. Pixel palettes accept comma- or space-separated six-digit hex colors. Generated pixel art follows the prompt; it is not a guarantee of palette-perfect output. Inspect the preview before export.
+
+## Generation
+
+**Codex frames / grid** is the default: one reference-guided image per direction, with all poses composed together to improve identity, scale and palette consistency. Equal row-major cells are sliced automatically. Grid dimensions are `ceil(sqrt(frameCount))` columns and enough rows for all frames; final unused cells are discarded. Generated grids can have imperfect boundaries; inspect every pose. The selectable **frame by frame** method uses the source and previous completed pose as references and takes roughly a minute per frame. Regenerating a selected pose uses the source and its available same-direction neighbours.
+
+**Video → frames** uses FAL Veo 3.1 Lite (four seconds, 720p, audio disabled) once per direction. Genio samples evenly spaced timestamps, removes each background with BiRefNet v2, and optionally runs Image2Pixel for pixel art. A source is padded to 1280×720 before upload. A confirmation dialog prices the entire pipeline and shows the existing world's budget warnings before any paid call. Compute-time prices remain estimates, not invoices. Quotes expire before starting; changed world spend/budgets require a new quote. Each confirmed step can be submitted only once. No automatic paid retries occur. Completed/failed runs remain in FAL history; stopping or a decoding error prevents further submissions. Stop waits for the current provider call to finish. Jobs continue across view switches, but a full app restart does not automatically resume a sprite pipeline or spend more money; completed frame checkpoints can be reopened.
+
+FAL input definitions used by this integration: [Veo](https://fal.ai/models/fal-ai/veo3.1/lite/image-to-video/api), [BiRefNet](https://fal.ai/models/fal-ai/birefnet/v2/api), [Image2Pixel](https://fal.ai/models/fal-ai/image2pixel/api).
+
+## Editing and export
+
+Select a frame to pause on it, move it earlier/later, duplicate, delete, or regenerate it. Preview filters by direction and respects the frame strip's order. Onion skin overlays the preceding pose. Auto-align trims transparent margins, anchors the bottom-centre of each opaque bounding box to the editable pivot, and pads to the cell size. It refuses to silently clip opaque pixels: enlarge the cell or adjust the pivot. Changing cell dimensions requires alignment before export. The transparency check reports frames with no transparent pixels; it cannot recognize a painted checkerboard or certify that a generated background is clean.
+
+Export writes `<name>.png` and `<name>.json`, optionally `<name>-000.png`, etc. Padding is transparent space **between** cells, with no exterior border. Export refuses dimensions over 16384 pixels or 32 megapixels. Save to world uses `folders.sprite`, then `folders.image` in `.genio/fal/config.json`, then the existing engine-specific image-folder default. Files and provenance are checked for collisions together and need explicit confirmation before replacement. World exports write `genio.provenance.v1` records and deduplicated FAL spend lines; files are left uncommitted. Local folder export does not modify any world's `.genio/` files.
+
+## `genio.sprite-sheet.v1`
+
+The JSON includes image filename, sheet width/height, cell width/height, columns, rows, inter-cell padding, FPS, `loop: true`, `playback: "loop" | "ping-pong"`, normalized pivot and ordered frames. Each frame has a stable ID, direction label, `rect: {x,y,w,h}`, duration in **milliseconds**, and normalized pivot. General rectangles and pivot use a **top-left** origin (the default pivot is `{x: 0.5, y: 1}`). Ping-pong plays indices `0,1,...,N-1,N-2,...,1` before repeating, without duplicated endpoints. Direction order is south/west/north/east for four directions, or south/south-west/west/north-west/north/north-east/east/south-east for eight. A single direction preserves the source orientation.
+
+The **Unity metadata** option adds `unity: { origin: "bottom-left", pixelsPerUnit, sprites }`. Each sprite has a unique name, `rect: {x,y,width,height}` in pixels and normalized bottom-left pivot. Conversion is `unityY = sheetHeight - topY - frameHeight`, `unityPivotY = 1 - pivotY`. `pixelsPerUnit` defaults to cell height. A custom Unity importer can use these entries as SpriteRect data, set Multiple sprite mode, and choose Point filtering for pixel art. Alternatively slice by the documented cell size, padding and columns in Unity's Sprite Editor. This option is JSON metadata, not a Unity `.meta` file; no importer or engine automation is installed.
+
+Project schema `genio.sprite-project.v1` stores source/frame PNG data URIs, settings, frame IDs/order/directions, Codex generation records and referenced FAL run IDs. Frames and edits are saved after every completed generation step. Project files are limited to 96 MB, 128 frames and 32 megapixels of frame cells across the animation. Copying these JSON files between Genio installations preserves images and edits, but FAL history used for spend provenance is local to the originating installation.
+
+Validation uses mocked providers; no paid FAL calls or real Codex generations are required by the tests.

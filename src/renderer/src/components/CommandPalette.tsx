@@ -125,7 +125,7 @@ export function useGlobalKeys(): void {
         setState((s) => ({ palette: !s.palette }))
         return
       }
-      const n = parseInt(e.key, 10)
+      const n = e.key === '0' ? 10 : parseInt(e.key, 10)
       if (n >= 1 && n <= VIEWS.length && !e.shiftKey && !e.altKey) {
         e.preventDefault()
         go(VIEWS[n - 1])
