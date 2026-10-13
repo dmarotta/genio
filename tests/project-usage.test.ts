@@ -6,6 +6,9 @@ import { Home } from '../src/main/home'
 import type { AppCtx } from '../src/main/services'
 import { recordCodexChatUsage, usageReport } from '../src/main/usage'
 
+// Attribution uses local session logs; live plan refresh has separate coverage.
+vi.mock('../src/main/claude-usage-probe', () => ({ refreshClaudePlanUsage: async () => {}, claudeProbeError: () => undefined }))
+
 it('attributes project chats despite cwd drift, nested unit worktrees and old sessions without splitting legacy chat', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-project-usage-'))
   vi.stubEnv('CLAUDE_CONFIG_DIR', path.join(root, 'claude'))
@@ -41,7 +44,7 @@ it('attributes project chats despite cwd drift, nested unit worktrees and old se
     ].join('\n')
     fs.writeFileSync(path.join(codexDir, 'rollout-old.jsonl'), codexLog('codex-old', path.join(root, 'external')))
     fs.writeFileSync(path.join(codexDir, 'rollout-unit.jsonl'), codexLog('codex-unit', a.worktreeFor('world-a', 'unit')))
-    const ctx = { main: { home: main }, homes: new Map([['main', { home: main }], ['a', { home: a }], ['b', { home: b }]]),
+    const ctx = { settings: { get: () => ({}) }, main: { home: main }, homes: new Map([['main', { home: main }], ['a', { home: a }], ['b', { home: b }]]),
       allies: { list: () => [{ name: 'a', projects: ['world-a'] }, { name: 'b', projects: ['world-b'] }] } } as unknown as AppCtx
     const report = await usageReport(ctx)
     expect(report.tools.map(t => t.error)).toEqual([undefined, undefined])
