@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { ChevronDown, ChevronRight, CircleStop, Radar, RefreshCw, Rocket, Send, ShieldCheck, TriangleAlert, Wrench } from 'lucide-react'
 import type { ChatMessage, Settings, Task } from '@shared/types'
 import {
@@ -10,7 +10,7 @@ import { Chip, Dot, Toggle, useNow } from '../components/ui'
 import { KIND_LABEL, STATE_LABEL, isActive, stateTone } from '../lib/vocab'
 import { clock, cx, elapsed, trunc } from '../lib/format'
 import { playSfx } from '../lib/sfx'
-import { requestSystemsSection } from './Systems'
+import { EffortSelect, ModelSelect, requestSystemsSection } from './Systems'
 
 const SLASH: { cmd: string; hint: string }[] = [
   { cmd: '/recap', hint: 'Previously on… then your pending moves, one at a time' },
@@ -381,6 +381,7 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
       <div className="composer-hints mute">
         <span>
           <ShellModeButton />
+          <ChatModelControls disabled={disabled} />
           <kbd>Enter</kbd> send · <kbd>Shift</kbd>+<kbd>Enter</kbd> newline · <kbd>/</kbd> commands
         </span>
         <span className="quick">
@@ -418,6 +419,33 @@ function ShellModeButton() {
     >
       {auto ? <TriangleAlert size={12} /> : <ShieldCheck size={12} />} {m.label}
     </button>
+  )
+}
+
+const COMPACT_SELECT: CSSProperties = { width: 'auto', height: 26, padding: '0 6px', fontSize: 10.5, marginRight: 8, verticalAlign: 'middle' }
+const APPLY_HINT = 'Applies from the next turn; a turn in progress finishes first.'
+
+/** Genio model/effort for this chat: the same wkspModel/wkspEffort settings as Systems › Genio. */
+function ChatModelControls({ disabled }: { disabled: boolean }) {
+  const model = useStore((s) => s.settings?.wkspModel ?? '')
+  const effort = useStore((s) => s.settings?.wkspEffort ?? '')
+  return (
+    <>
+      <ModelSelect
+        value={model}
+        disabled={disabled}
+        title={`Genio model (blank = default). ${APPLY_HINT}`}
+        style={COMPACT_SELECT}
+        onChange={(v) => void saveSettings({ wkspModel: v })}
+      />
+      <EffortSelect
+        value={effort}
+        disabled={disabled}
+        title={`Genio effort. ${APPLY_HINT}`}
+        style={{ ...COMPACT_SELECT, marginRight: 12 }}
+        onChange={(v) => void saveSettings({ wkspEffort: v })}
+      />
+    </>
   )
 }
 

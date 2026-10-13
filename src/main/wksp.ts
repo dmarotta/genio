@@ -77,6 +77,37 @@ export function decideTool(role: ToolRole, toolName: string, input: unknown, she
   return { behavior: 'ask', input: truncate(JSON.stringify(input), 1500) }
 }
 
+const EFFORT_LEVELS: readonly string[] = ['low', 'medium', 'high', 'xhigh', 'max']
+
+export interface SessionConfig {
+  model?: string
+  effort?: EffortLevel
+}
+
+/** Model/effort for a session: allies keep their own overrides, the Bot keeps botModel at low effort. */
+export function sessionConfig(role: ToolRole, s: Pick<Settings, 'botModel' | 'wkspModel' | 'wkspEffort'>, ally?: Pick<Ally, 'model' | 'effort'>): SessionConfig {
+  const model = (role === 'bot' ? s.botModel : ally?.model || s.wkspModel)?.trim() || undefined
+  const effort = (role === 'bot' ? 'low' : ally?.effort || s.wkspEffort) || undefined
+  return { model, effort: effort && EFFORT_LEVELS.includes(effort) ? (effort as EffortLevel) : undefined }
+}
+
+const sameConfig = (a: SessionConfig, b: SessionConfig): boolean => a.model === b.model && a.effort === b.effort
+
+/** The live controls a running query exposes for model/effort changes. */
+export type LiveControls = Pick<Query, 'setModel' | 'applyFlagSettings'>
+
+/** Apply model/effort to a running session; false means the caller should restart it with resume. */
+export async function applyLiveConfig(q: LiveControls, from: SessionConfig, to: SessionConfig): Promise<boolean> {
+  try {
+    if (from.model !== to.model) await q.setModel(to.model)
+    // null clears the override back to the model's default effort
+    if (from.effort !== to.effort) await q.applyFlagSettings({ effortLevel: to.effort ?? null })
+    return true
+  } catch {
+    return false
+  }
+}
+
 const NOOP_RE = /^all clear[,!.]?(\s+[\w .'-]{0,40})?[.!]?$/i
 
 // ------------------------------------------------------------------ input queue
@@ -149,12 +180,15 @@ class AgentSession {
   private lastText = ''
   private stderrTail = ''
   private generation = 0
+  /** model/effort the running query was started with or last switched to */
+  private applied?: SessionConfig
 
   constructor(
     readonly label: string,
     private readonly build: (resume?: string) => Promise<Options>,
     private readonly hooks: SessionHooks,
-    private readonly wkspName: string
+    private readonly wkspName: string,
+    private readonly config: () => SessionConfig
   ) {}
 
   get queued(): number {
@@ -185,6 +219,7 @@ class AgentSession {
     this.lastText = ''
     this.hooks.onActivity('thinking')
     try {
+      await this.syncConfig()
       await this.ensureStarted()
       this.input!.push(next.prompt)
     } catch (e) {
@@ -204,11 +239,25 @@ class AgentSession {
     this.gotInit = false
     this.resumedFrom = this.sessionId
     const options = await this.build(this.sessionId)
+    this.applied = { model: options.model, effort: options.effort as EffortLevel | undefined }
     options.stderr = (d: string): void => {
       this.stderrTail = (this.stderrTail + d).slice(-2000)
     }
     this.q = sdk.query({ prompt: this.input, options })
     void this.consume(this.q, gen)
+  }
+
+  /**
+   * Bring a running session up to the current model/effort settings. Runs only between turns
+   * (from pump), so a turn in progress is never interrupted; if the live controls fail, the
+   * session is closed and the next start resumes the same conversation with the new options.
+   */
+  private async syncConfig(): Promise<void> {
+    if (!this.q || !this.applied) return
+    const want = this.config()
+    if (sameConfig(this.applied, want)) return
+    if (await applyLiveConfig(this.q, this.applied, want)) this.applied = want
+    else this.reset()
   }
 
   private async consume(q: Query, gen: number): Promise<void> {
@@ -489,8 +538,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
             sharedProfile: safeRead(() => mem.read('player-shared', home)),
             lore: safeRead(() => mem.read('lore', home))
           })
-    const model = (role === 'bot' ? s.botModel : ally?.model || s.wkspModel) || undefined
-    const effort = ((role === 'bot' ? 'low' : ally?.effort || s.wkspEffort) || undefined) as EffortLevel | undefined
+    const { model, effort } = sessionConfig(role, s, ally)
     const opts: Options = {
       systemPrompt: { type: 'preset', preset: 'claude_code', append },
       cwd: home.root,
@@ -502,7 +550,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       canUseTool: makePolicy(role),
       permissionMode: 'default',
       model,
-      effort: effort && ['low', 'medium', 'high', 'xhigh', 'max'].includes(effort) ? effort : undefined,
+      effort,
       resume,
       env: { ...process.env, CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION: 'false', CLAUDE_AGENT_SDK_CLIENT_APP: 'genio/0.1.0' }
     }
@@ -569,7 +617,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
         bus.publish({ type: 'sfx', sound: 'error' })
       }
     },
-    name
+    name,
+    () => sessionConfig('genio', settings(), ally)
   )
   genio.sessionId = persisted.sessionId
 
@@ -611,7 +660,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
           if (getCtx().away.state().mode === 'afk') safe(() => getCtx().away.capture({ wksp: name, text: `The Bot hit a problem: ${text}`, severity: 'failure' }))
         }
       },
-      name
+      name,
+      () => sessionConfig('bot', settings())
     )
     bot.sessionId = persisted.botSessionId
   }

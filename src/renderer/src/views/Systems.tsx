@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { Copy, Download, Plus, RefreshCw, Trash, TriangleAlert, Users, Wrench } from 'lucide-react'
 import type { DispatchRule, EventSource, HarnessAdapter, Settings, ToolStatus, UpdateInfo } from '@shared/types'
 import { api, errText, op, saveSettings, toast, useStore } from '../store'
@@ -323,9 +323,26 @@ function ModelRow({ label, hint, value, onCommit }: { label: string; hint?: stri
   )
 }
 
-function EffortSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+type SelectProps = { value: string; onChange: (v: string) => void; title?: string; disabled?: boolean; style?: CSSProperties }
+
+/** Compact model picker over the ModelRow choices; a custom model typed in Systems stays selectable. */
+export function ModelSelect({ value, onChange, ...rest }: SelectProps) {
+  const custom = value && !MODEL_SUGGESTIONS.includes(value) ? [value] : []
   return (
-    <select className="select" value={value} onChange={(e) => onChange(e.target.value)}>
+    <select className="select" value={value} onChange={(e) => onChange(e.target.value)} {...rest}>
+      <option value="">default</option>
+      {[...MODEL_SUGGESTIONS, ...custom].map((m) => (
+        <option key={m} value={m}>
+          {m.replace('claude-', '')}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+export function EffortSelect({ value, onChange, ...rest }: SelectProps) {
+  return (
+    <select className="select" value={value} onChange={(e) => onChange(e.target.value)} {...rest}>
       <option value="">(auto)</option>
       {EFFORTS.map((x) => (
         <option key={x} value={x}>
