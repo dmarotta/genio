@@ -7,6 +7,7 @@ import type { Home } from './home'
 import { agentGeneration } from './agent-generation'
 import { createToolRegistry, findTask, type ToolHooks, type ToolRole } from './wksp-tools'
 import { enforceTool } from './chat-tool-policy'
+import { ToolPages } from './tool-pages'
 
 export interface ChatToolBinding {
   home: Home
@@ -19,11 +20,12 @@ export interface ChatToolBinding {
 
 const BOT_READS = new Set(['play_status', 'play_console', 'play_stats', 'play_frame', 'assets_find', 'asset_info', 'asset_locate', 'fleet_view', 'unit_state', 'read_task_file',
   'terminal_tail', 'quest_list', 'choice_list', 'world_list', 'world_posture', 'status_report', 'memory_read',
-  'memory_report', 'mail_list', 'dispatch_profiles', 'loadout_preview', 'toolchain_check', 'ally_list', 'escalate'])
+  'memory_report', 'mail_list', 'dispatch_profiles', 'loadout_preview', 'toolchain_check', 'ally_list', 'escalate',
+  'procedure_read', 'skill_read', 'settings_read', 'event_read', 'events_ack'])
 // These services aggregate across worlds or create new authority. Until they
 // offer scoped APIs, limited-world connections cannot call them at all.
 const GLOBAL_ONLY = new Set(['fleet_view', 'status_report', 'dispatch_profiles', 'world_add', 'world_create',
-  'mail_list', 'mail_ack', 'mail_reply', 'ally_list', 'ally_route', 'presence_set'])
+  'mail_list', 'mail_ack', 'mail_reply', 'ally_list', 'ally_route', 'presence_set', 'settings_update'])
 const fail = (text: string): CallToolResult => ({ isError: true, content: [{ type: 'text', text }] })
 const result = (value: unknown): CallToolResult => ({ content: [{ type: 'text', text: JSON.stringify(value, null, 1) }] })
 
@@ -57,6 +59,7 @@ export function createChatToolSession(getCtx: () => AppCtx, binding: ChatToolBin
     (role !== 'bot' || BOT_READS.has(t.name)) && (!worlds || !GLOBAL_ONLY.has(t.name)))
   const byName = new Map(tools.map(t => [t.name, t]))
   const registered = new Set(byName.keys())
+  const pages = new ToolPages()
   const descriptors = tools.map(t => ({ name: t.name, description: t.description, inputSchema: z.toJSONSchema(z.strictObject(t.shape), { io: 'input' }) }))
   return {
     list() {
@@ -75,6 +78,14 @@ export function createChatToolSession(getCtx: () => AppCtx, binding: ChatToolBin
           throw new Error('Scoped image references must be attachments in this chat')
         }
         if (args.task !== undefined) checkTask(args.task)
+        if (worlds && (name === 'event_read' || name === 'events_ack')) {
+          const seqs = name === 'event_read' ? [args.seq] : args.seqs as number[]
+          for (const seq of seqs) {
+            const event = getCtx().home(home.name).wakes.get(Number(seq))
+            if (!event?.taskId) throw new Error('Event has no world-scoped task')
+            checkTask(event.taskId)
+          }
+        }
         if (args.quest_id !== undefined) checkQuest(args.quest_id)
         if (Array.isArray(args.depends_on)) for (const id of args.depends_on) checkQuest(id)
         if (name.startsWith('quest_') && args.id !== undefined) checkQuest(args.id)
@@ -97,9 +108,9 @@ export function createChatToolSession(getCtx: () => AppCtx, binding: ChatToolBin
         }, { runtime: 'bridge', name, input: args, registered })
         if (d.behavior === 'deny') return fail(d.message)
         if (signal.aborted) return fail('Chat closed')
-        if (worlds && name === 'world_list') return result(getCtx().projects.list().filter(p => within(p.name)))
-        if (worlds && name === 'quest_list') return result(getCtx().home(home.name).backlog.list().filter(q => within(q.project) && (args.include_done || !['done', 'dropped'].includes(q.state))))
-        if (worlds && name === 'choice_list') return result(getCtx().home(home.name).decisions.list(Boolean(args.include_resolved)).filter(d => within(d.project)))
+        if (worlds && name === 'world_list') return pages.read(name, args, () => result(getCtx().projects.list().filter(p => within(p.name))))
+        if (worlds && name === 'quest_list') return pages.read(name, args, () => result(getCtx().home(home.name).backlog.list().filter(q => within(q.project) && (args.include_done || !['done', 'dropped'].includes(q.state)))))
+        if (worlds && name === 'choice_list') return pages.read(name, args, () => result(getCtx().home(home.name).decisions.list(Boolean(args.include_resolved)).filter(d => within(d.project))))
         return await tool.invoke(args)
       } catch {
         // Do not reflect malformed arguments (which can contain credentials).

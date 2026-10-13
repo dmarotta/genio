@@ -192,6 +192,7 @@ export interface AlliesService {
 
 export interface MemoryService {
   read(which: MemoryFile, home?: Home): string
+  readVersion(which: MemoryFile, since?: string, home?: Home): import('./memory').MemoryRead
   write(which: MemoryFile, content: string, home?: Home): void
   /** budget + decay report used by /save */
   report(home?: Home): { tokens: number; budget: number; overBudget: boolean; stale: string[]; files: { file: string; tokens: number }[] }
@@ -370,9 +371,11 @@ export interface DecisionService {
 export interface WakeService {
   enqueue(w: { kind: WakeKind; reason: string; taskId?: string; lines?: string[]; routine?: boolean }): Wake
   pending(): Wake[]
-  /** drain: queued events + UNREAD STATUS + OPEN CHOICES + ACK REQUIRED */
+  /** Compact bounded batch; complete oversized events are available via get. */
   drain(): { text: string; ackThrough: number; count: number }
   ack(throughSeq: number): void
+  ackEvents(seqs: number[]): void
+  get(seq: number): Wake | undefined
   recent(n: number): Wake[]
 }
 

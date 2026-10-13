@@ -11,11 +11,13 @@ import type { Wake, WakeKind } from '@shared/types'
 import { bus } from './bus'
 import type { Home } from './home'
 import type { AppCtx, WakeService } from './services'
-import { appendJsonl, nowIso, readJson, readJsonl, writeJson, writeText } from './util'
+import { appendJsonl, nowIso, readJson, readJsonl, writeJsonAtomic, writeText } from './util'
 
 interface AckCursor {
   through: number
   at?: string
+  /** Out-of-order per-event acknowledgements, durable even if the turn fails. */
+  events?: Record<string, string>
 }
 
 const COMPACT_AFTER = 500
@@ -41,40 +43,59 @@ export function createWakeService(getCtx: () => AppCtx, home: Home): WakeService
 
   function pendingRows(): Wake[] {
     load()
-    return rows.filter((w) => w.seq > cursor.through)
+    return rows.filter((w) => !isAcked(w))
   }
 
+  const isAcked = (w: Wake): boolean => w.seq <= cursor.through || !!cursor.events?.[w.seq]
+
   function compactIfNeeded(): void {
-    const acked = rows.filter((w) => w.seq <= cursor.through)
+    const acked = rows.filter(isAcked)
     if (acked.length <= COMPACT_AFTER) return
-    const keep = [...acked.slice(-KEEP_ACKED), ...rows.filter((w) => w.seq > cursor.through)]
+    const keep = [...acked.slice(-KEEP_ACKED), ...rows.filter(w => !isAcked(w))].sort((a, b) => a.seq - b.seq)
     rows = keep
     writeText(home.wakesFile, keep.map((w) => JSON.stringify(w)).join('\n') + (keep.length ? '\n' : ''))
   }
 
   function withAck(w: Wake): Wake {
-    return w.seq <= cursor.through ? { ...w, ackedAt: w.ackedAt ?? cursor.at } : w
+    return isAcked(w) ? { ...w, ackedAt: w.ackedAt ?? cursor.events?.[w.seq] ?? cursor.at } : w
+  }
+
+  function acknowledge(seqs: number[]): void {
+    load()
+    const at = nowIso()
+    const events = { ...cursor.events }
+    for (const seq of seqs) {
+      if (!Number.isSafeInteger(seq) || !rows.some(w => w.seq === seq)) throw new Error(`Unknown event #${seq}`)
+      if (seq > cursor.through) events[seq] = at
+    }
+    let through = cursor.through
+    const firstPending = rows.find(w => w.seq > through && !events[w.seq])
+    through = firstPending ? firstPending.seq - 1 : maxSeq
+    for (const seq of Object.keys(events)) if (Number(seq) <= through) delete events[seq]
+    const next = { through, at, events }
+    // Persist before acknowledging in memory. A failed disk write must not
+    // claim an event was handled; replay after a crash remains safe.
+    writeJsonAtomic(home.wakesAckFile, next)
+    cursor = next
+    try { compactIfNeeded() } catch { /* compaction is an optimisation */ }
   }
 
   return {
     enqueue(input: { kind: WakeKind; reason: string; taskId?: string; lines?: string[]; routine?: boolean }): Wake {
       load()
       const wake: Wake = {
-        seq: ++maxSeq,
+        seq: maxSeq + 1,
         ts: nowIso(),
         wksp: home.name,
         kind: input.kind,
         reason: oneLine(input.reason),
-        lines: (input.lines ?? []).map((l) => oneLine(l)).slice(0, 40),
+        lines: [...new Set((input.lines ?? []).map((l) => oneLine(l)))],
         routine: input.routine ?? false,
         ...(input.taskId ? { taskId: input.taskId } : {})
       }
+      appendJsonl(home.wakesFile, wake)
+      maxSeq = wake.seq
       rows.push(wake)
-      try {
-        appendJsonl(home.wakesFile, wake)
-      } catch {
-        /* keep in memory; next compaction rewrites the file */
-      }
       bus.publish({ type: 'wake', wake })
       return wake
     },
@@ -86,60 +107,45 @@ export function createWakeService(getCtx: () => AppCtx, home: Home): WakeService
     drain(): { text: string; ackThrough: number; count: number } {
       const queued = pendingRows()
       const out: string[] = []
-      out.push(`EVENTS (${queued.length})`)
-      if (!queued.length) out.push('  (none queued)')
+      let size = 300
+      let count = 0
+      let ackThrough = cursor.through
       for (const w of queued) {
         const tag = w.routine ? ' [routine]' : ''
         const task = w.taskId ? ` {${w.taskId}}` : ''
-        out.push(`#${w.seq} ${w.kind}:${task} ${w.reason}${tag}`)
-        for (const l of w.lines) out.push(`    ${l}`)
+        const header = `#${w.seq} ${w.kind}:${task}${tag}`
+        const details = [...new Set([w.reason, ...w.lines])].join('\n  ')
+        // Large events keep their durable identity and an explicit continuation;
+        // event_read pages the complete details, including errors and URLs.
+        const block = details.length > 1200
+          ? `${header} details: event_read(seq=${w.seq}) REQUIRED before handling/ack`
+          : `${header} ${details}`
+        if (count && size + block.length > 2000) break
+        out.push(block)
+        size += block.length + 1
+        count++
+        ackThrough = w.seq
       }
-
-      // UNREAD STATUS: status lines newly surfaced through queued signal events.
-      const unread: string[] = []
-      for (const w of queued) {
-        if (w.kind !== 'signal') continue
-        for (const l of w.lines) unread.push(`${w.taskId ?? '?'}: ${l}`)
-      }
-      out.push('')
-      out.push(`UNREAD STATUS (${unread.length})`)
-      if (!unread.length) out.push('  (nothing new)')
-      for (const u of unread) out.push(`  ${u}`)
-
-      // OPEN CHOICES: every open decision in this base, even with no queued event.
-      let open: { id: string; taskId?: string; key: string; question: string; source: string }[] = []
-      try {
-        open = getCtx().home(home.name).decisions.list(false)
-      } catch {
-        open = []
-      }
-      out.push('')
-      out.push(`OPEN CHOICES (${open.length})`)
-      if (!open.length) out.push('  (none)')
-      for (const d of open) {
-        out.push(`  ${d.id} task=${d.taskId ?? '-'} key=${d.key} source=${d.source}: ${oneLine(d.question)}`)
-      }
-
-      const ackThrough = queued.length ? queued[queued.length - 1].seq : cursor.through
-      out.push('')
-      out.push(queued.length ? `ACK REQUIRED: through #${ackThrough}` : 'ACK REQUIRED: none')
-      return { text: out.join('\n'), ackThrough, count: queued.length }
+      out.unshift(`EVENTS (${count}; ${queued.length} pending)`)
+      if (!count) out.push('  (none queued)')
+      out.push('Open choices: choice_list when needed (not repeated here).')
+      out.push(count ? `ACK: events_ack(seqs=[handled IDs]) after each event; successful turn also acks through #${ackThrough}.` : 'ACK REQUIRED: none')
+      if (count < queued.length) out.push('Remaining events follow after this batch is handled.')
+      return { text: out.join('\n'), ackThrough, count }
     },
 
     ack(throughSeq: number): void {
       load()
-      if (!Number.isFinite(throughSeq) || throughSeq <= cursor.through) return
-      cursor = { through: Math.min(throughSeq, maxSeq), at: nowIso() }
-      try {
-        writeJson(home.wakesAckFile, cursor)
-      } catch {
-        /* cursor stays in memory; events are re-presented after restart (safe) */
-      }
-      try {
-        compactIfNeeded()
-      } catch {
-        /* compaction is an optimisation */
-      }
+      if (!Number.isSafeInteger(throughSeq) || throughSeq <= cursor.through) return
+      acknowledge(rows.filter(w => w.seq <= throughSeq && !isAcked(w)).map(w => w.seq))
+    },
+
+    ackEvents: acknowledge,
+
+    get(seq: number): Wake | undefined {
+      load()
+      const w = rows.find(w => w.seq === seq)
+      return w ? withAck(w) : undefined
     },
 
     recent(n: number): Wake[] {

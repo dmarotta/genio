@@ -23,7 +23,7 @@ const SUPPORTING_TOOLS = [
   'world_posture', 'world_update', 'world_remove', 'world_sync', 'status_report',
   'memory_read', 'memory_report', 'memory_archive', 'mail_list', 'mail_ack', 'mail_reply',
   'dispatch_profiles', 'toolchain_check', 'presence_set', 'ally_list', 'ally_route',
-  'report_to_main', 'escalate', 'asset_info'
+  'report_to_main', 'escalate', 'asset_info', 'procedure_read', 'skill_read', 'settings_read', 'settings_update', 'event_read', 'events_ack'
 ]
 
 const help = 'Add an achievement with this feature tag in src/main/stats.ts and wire its unlock to a real successful event.'

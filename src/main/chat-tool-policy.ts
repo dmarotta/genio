@@ -7,7 +7,7 @@ import { truncate } from './util'
 
 /** companion subagent guard: Genio delegates to units, never to in-session subagents. */
 const SUBAGENT_RE = /agent|subagent|^task$|^task(create|update|output|stop|get|list)?$|workflow|cron|schedul|worktree|delegate|spawn|dispatch|handoff|remote|sendmessage|monitor/i
-export const DISALLOWED = ['Agent', 'Task', 'Workflow', 'CronCreate', 'CronDelete', 'EnterWorktree', 'ExitWorktree', 'RemoteTrigger', 'SendMessage', 'Monitor', 'Write', 'Edit', 'NotebookEdit', 'MultiEdit']
+export const DISALLOWED = ['Skill', 'Agent', 'Task', 'Workflow', 'CronCreate', 'CronDelete', 'EnterWorktree', 'ExitWorktree', 'RemoteTrigger', 'SendMessage', 'Monitor', 'Write', 'Edit', 'NotebookEdit', 'MultiEdit']
 const ALLOWED = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebSearch', 'WebFetch', 'TodoWrite', 'ToolSearch'])
 
 const READ_ONLY_SEGMENTS: RegExp[] = [
@@ -38,6 +38,7 @@ export type ToolDecision = { behavior: 'allow' } | { behavior: 'deny'; message: 
 export function decideTool(role: ToolRole, toolName: string, input: unknown, shellMode: Settings['chatShellMode']): ToolDecision {
   if (toolName.startsWith('mcp__genio__')) return { behavior: 'allow' }
   if (ALLOWED.has(toolName)) return { behavior: 'allow' }
+  if (toolName === 'Skill') return { behavior: 'deny', message: 'Use skill_read for a named bundled skill, procedure_read for Genio procedures, or settings_read/settings_update. Broad configuration skills are not loaded into chat.' }
   if (DISALLOWED.includes(toolName) || SUBAGENT_RE.test(toolName)) {
     return { behavior: 'deny', message: 'Genio delegates work to units (deploy) and never writes worlds or spawns in-session subagents.' }
   }

@@ -18,7 +18,6 @@ import { recordCodexChatUsage, recordCodexChatLimits } from './usage'
  * Events from overwatch are drained into one turn and acknowledged only after
  * that turn completes, so a crash re-presents them.
  */
-import { unitPluginSource } from './unitskills'
 import path from 'node:path'
 import type {
   Options, CanUseTool, PermissionResult
@@ -34,13 +33,13 @@ import { buildTools, type ToolRole } from './wksp-tools'
 import { openChatToolBridge, closeChatToolBridges } from './chat-tool-bridge'
 import { formatNotification } from './notify-format'
 import {
-  HELP_TEXT, afkPrompt, botContract, eventsPrompt, genioContract, recapPrompt, returnPrompt, savePrompt, sessionStartPrompt,
+  HELP_TEXT, afkPrompt, customContract, eventsPrompt, recapPrompt, returnPrompt, savePrompt, sessionStartPrompt,
   statusPrompt
 } from './prompts'
 import { applyChatEvent, chatControls, compactChat, strandQueued } from '@shared/chat'
 import type { AppCtx, WkspService } from './services'
 import { claudeLimitsFile, recordClaudeRateLimit, type ClaudeRateLimitInfo } from './usage'
-import { appendJsonl, nowIso, readJson, readJsonl, readText, rid, truncate, writeJson } from './util'
+import { appendJsonl, nowIso, readJson, readJsonl, rid, truncate, writeJson } from './util'
 
 import { AgentSession, loadSdk, sessionConfig, inboundMessage, type TurnItem } from './claude-chat-driver'
 export { AgentSession, sessionConfig, applyLiveConfig, inboundMessage, sendPlayerChat, userMessage, decideTool, isReadOnlyCommand } from './claude-chat-driver'
@@ -137,28 +136,14 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
     const ctx = getCtx()
     const sdk = await loadSdk()
     const s = settings()
-    const mem = ctx.memory
     const toolDefs = buildTools(sdk.tool, getCtx, home, role, { escalate: (text, severity) => botEscalate(text, severity) })
     const server = sdk.createSdkMcpServer({ name: 'genio', version: '1.0.0', tools: toolDefs, alwaysLoad: true })
     const worlds = ctx.projects.list().map((p) => p.path)
-    const append =
-      role === 'bot'
-        ? `${botContract(gamertag())}\n\n${genioContract({ gamertag: gamertag(), base: name, isAlly: !home.isMain, charter: ally?.charter, scope: ally?.scope, playerProfile: safeRead(() => mem.read('player', home)), lore: safeRead(() => mem.read('lore', home)) })}`
-        : genioContract({
-            gamertag: gamertag(),
-            base: name,
-            isAlly: !home.isMain,
-            charter: ally ? readText(`${home.data}/charter.md`, ally.charter) : undefined,
-            scope: ally?.scope,
-            playerProfile: safeRead(() => mem.read('player', home)),
-            sharedProfile: safeRead(() => mem.read('player-shared', home)),
-            lore: safeRead(() => mem.read('lore', home))
-          })
     const { model, effort } = config ?? claudeConfig()
     const usage = role === 'bot' ? '' : `\n\n${chatUsageLine(globalMode(s), claudeStatus(ctx.main.home.data))}`
     const opts: Options = {
-      // settingSources is deliberately empty: inject the umbrella so skill discovery is not assumed.
-      systemPrompt: { type: 'preset', preset: 'claude_code', append: append + usage + (role === 'bot' || !ctx.appRoot ? '' : '\n\nAssets skill directory (resolve the following skill references relative to it): ' + path.join(unitPluginSource(ctx.appRoot), 'skills/assets') + '\n' + readText(path.join(unitPluginSource(ctx.appRoot), 'skills/assets/SKILL.md'))) },
+      // Load only the bounded rules. Skills, charter and versioned memory are tools.
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: customContract({ gamertag: gamertag(), base: name, isAlly: !home.isMain }, role === 'bot', usage) },
       cwd: home.root,
       additionalDirectories: worlds,
       settingSources: [],
@@ -216,9 +201,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
     return new CodexChatDriver({
       wksp: name, cwd: home.root,
       config: () => ({ model: config().model!, effort: config().effort }),
-      instructions: () => (role === 'bot' ? botContract(gamertag()) + '\n\n' : '') + genioContract({ gamertag: gamertag(), base: name,
-        isAlly: !home.isMain, charter: liveAlly()?.charter, scope: liveAlly()?.scope }) +
-        '\nUse only genio_ tools. Native shell, edits, agents and plugins are unavailable. Never replay completed mutations from a handoff.',
+      instructions: () => customContract({ gamertag: gamertag(), base: name, isAlly: !home.isMain }, role === 'bot',
+        `${chatUsageLine(globalMode(settings()))}\nUse only genio_ tools. Native shell, edits, agents and plugins are unavailable. Never replay completed mutations from a handoff.`),
       async bridge(signal) {
         const bridge = await openChatToolBridge(getCtx, { home, role: role === 'bot' ? 'bot' : home.isMain ? 'genio' : 'ally',
           worlds: home.isMain ? '*' : liveAlly()?.projects ?? [], signal, hooks: { escalate: botEscalate } })
@@ -672,10 +656,3 @@ function safeGet<T>(fn: () => T): T | undefined {
   }
 }
 
-function safeRead(fn: () => string): string {
-  try {
-    return fn()
-  } catch {
-    return ''
-  }
-}

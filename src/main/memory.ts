@@ -1,9 +1,21 @@
 import path from 'node:path'
+import { createHash } from 'node:crypto'
 import { bus } from './bus'
 import type { MemoryFile } from '@shared/api'
 import type { Home } from './home'
 import type { AppCtx, MemoryService } from './services'
-import { readText, todayStamp, writeText, exists } from './util'
+import { readText, readJson, writeJsonAtomic, todayStamp, writeText, exists } from './util'
+
+export interface MemoryRead {
+  which: MemoryFile
+  version: string
+  unchanged?: true
+  reset?: true
+  text?: string
+  /** UTF-16 character offsets, applied to the exact text of baseVersion. */
+  delta?: { baseVersion: string; start: number; deleteCount: number; insert: string }
+}
+export const memoryVersion = (text: string): string => createHash('sha256').update(text).digest('hex')
 
 /**
  * Memory (companion /stow, Genio /save). Three human-editable files:
@@ -78,6 +90,25 @@ export function createMemoryService(getCtx: () => AppCtx): MemoryService {
   const svc: MemoryService = {
     read(which, home = defaultHome()) {
       return readText(fileFor(home, which))
+    },
+    readVersion(which, since, home = defaultHome()): MemoryRead {
+      const text = svc.read(which, home)
+      const version = memoryVersion(text)
+      // Per-base snapshots also detect manual edits and shared-profile edits by
+      // the main base. Retain eight observed versions across app restarts.
+      const cacheFile = path.join(home.data, `memory-versions-${which}.json`)
+      const versions = readJson<{ version: string; text: string }[]>(cacheFile, [])
+      const prior = versions.find(v => v.version === since)
+      if (!versions.some(v => v.version === version)) {
+        writeJsonAtomic(cacheFile, [...versions, { version, text }].slice(-8))
+      }
+      if (since === version) return { which, version, unchanged: true }
+      if (!prior) return { which, version, text, ...(since ? { reset: true as const } : {}) }
+      let start = 0
+      while (start < text.length && start < prior.text.length && text[start] === prior.text[start]) start++
+      let tail = 0
+      while (tail < text.length - start && tail < prior.text.length - start && text[text.length - tail - 1] === prior.text[prior.text.length - tail - 1]) tail++
+      return { which, version, delta: { baseVersion: prior.version, start, deleteCount: prior.text.length - start - tail, insert: text.slice(start, text.length - tail) } }
     },
     write(which, content, home = defaultHome()) {
       if (which === 'player-shared' && !home.isMain) {

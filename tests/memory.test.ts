@@ -40,6 +40,35 @@ describe('memory markers', () => {
 })
 
 describe('memory service', () => {
+  it('returns unchanged versions and reconstructable deltas across manual edits and restart', () => {
+    const home = tmpHome(), mem = createMemoryService(noCtx)
+    mem.write('lore', 'prefix\nold fact\nsuffix', home)
+    const first = mem.readVersion('lore', undefined, home)
+    expect(mem.readVersion('lore', first.version, home)).toEqual({ which: 'lore', version: first.version, unchanged: true })
+    fs.writeFileSync(home.loreFile, 'prefix\nnew 😀 fact\nsuffix')
+    const next = createMemoryService(noCtx).readVersion('lore', first.version, home)
+    const d = next.delta!
+    expect(d.baseVersion).toBe(first.version)
+    expect(first.text!.slice(0, d.start) + d.insert + first.text!.slice(d.start + d.deleteCount)).toBe(mem.read('lore', home))
+    expect(mem.readVersion('lore', 'unknown', home)).toMatchObject({ reset: true, text: mem.read('lore', home) })
+    mem.write('lore', '', home)
+    const removed = mem.readVersion('lore', next.version, home)
+    expect(removed.delta!.deleteCount).toBeGreaterThan(0)
+    fs.rmSync(home.root, { recursive: true, force: true })
+  })
+
+  it('detects inherited shared-profile edits and resets evicted versions', () => {
+    const main = tmpHome(), mem = createMemoryService(noCtx)
+    const ally = new Home(path.join(main.root, 'wksps', 'art'), 'art', main)
+    ally.ensure()
+    const old = mem.readVersion('player-shared', undefined, ally)
+    mem.write('player-shared', 'new shared preference', main)
+    expect(mem.readVersion('player-shared', old.version, ally).delta).toBeDefined()
+    for (let i = 0; i < 9; i++) { mem.write('player-shared', `version ${i}`, main); mem.readVersion('player-shared', undefined, ally) }
+    expect(mem.readVersion('player-shared', old.version, ally)).toMatchObject({ reset: true, text: 'version 8\n' })
+    fs.rmSync(main.root, { recursive: true, force: true })
+  })
+
   it('reads, writes, reports and archives with provenance', () => {
     const home = tmpHome()
     const mem = createMemoryService(noCtx)

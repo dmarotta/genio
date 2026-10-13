@@ -11,7 +11,12 @@ import type { Decision, Task } from '@shared/types'
 import type { TaskFile } from '@shared/api'
 import type { AppCtx, HomeCtx } from './services'
 import type { Home } from './home'
-import { truncate } from './util'
+import { readText } from './util'
+import path from 'node:path'
+import { ToolPages, isPagedTool, pageShape } from './tool-pages'
+import { procedureText, PROCEDURES } from './prompts'
+import { unitPluginSource } from './unitskills'
+import { bus } from './bus'
 import { resolveLoadout } from './loadout'
 import { GENERATE_IMAGE_DESC, generateImageShape } from './chat-imagegen'
 import { findAssets, assetInfo, locateAsset } from './asset-tools'
@@ -105,14 +110,19 @@ export function createToolRegistry(
 ): AppTool[] {
   const hc = (): HomeCtx => getCtx().home(home.name)
   const tools: AppTool[] = []
+  const pages = new ToolPages()
 
   // Wrap every handler so a thrown error becomes a tool error, never a crash.
   function t<S extends z.ZodRawShape>(name: string, desc: string, shape: S, fn: (a: z.infer<z.ZodObject<S>>) => Promise<CallToolResult> | CallToolResult): void {
+    const paged = isPagedTool(name)
+    const inputShape = paged ? { ...shape, ...pageShape } : shape
     tools.push({
-      name, description: desc, shape,
+      name, description: desc + (paged ? ' Returns 2000-character pages by default; follow cursor with original arguments or request full=true.' : ''), shape: inputShape,
       async invoke(args) {
         try {
-          return await fn(z.object(shape).parse(args))
+          const input = z.object(inputShape).parse(args)
+          const read = () => fn(z.object(shape).parse(args))
+          return paged ? await pages.read(name, input, read) : await read()
         } catch (e) {
           return fail(`${name} failed: ${(e as Error)?.message ?? String(e)}`)
         }
@@ -170,10 +180,51 @@ export function createToolRegistry(
   })
 
   // ------------------------------------------------------------ squad
+  t('event_read', 'Complete durable details for one event, including errors and continuation links.', { seq: z.number().int().positive() }, ({ seq }) => {
+    const event = hc().wakes.get(seq)
+    return event ? ok(json(event)) : fail(`No retained event #${seq}`)
+  })
+  t('events_ack', 'Durably acknowledge only the specific event IDs you have finished handling. Call after each event, before proceeding to the next.', { seqs: z.array(z.number().int().positive()).min(1).max(100) }, ({ seqs }) => {
+    hc().wakes.ackEvents(seqs)
+    return ok(`Acknowledged events: ${seqs.join(', ')}`)
+  })
+
+  t('procedure_read', 'Load a named Genio procedure only when relevant. ally includes this base charter and routing scope.', { name: z.enum(PROCEDURES) }, ({ name }) => {
+    const a = home.isMain ? undefined : getCtx().allies.list().find(a => a.name === home.name && !a.retiredAt)
+    return ok(procedureText(name, { gamertag: getCtx().settings.get().gamertag, base: home.name, isAlly: !home.isMain,
+      charter: a ? readText(path.join(home.data, 'charter.md'), a.charter) : undefined, scope: a?.scope }))
+  })
+  t('skill_read', 'Load one bundled skill on demand. Follow pages before applying its instructions; directory identifies relative reference paths. Never preload configuration manuals.', {
+    name: z.enum(['assets', 'imagegen-codex', 'fal', 'uthana', 'blender'])
+  }, ({ name }) => {
+    const dir = path.join(unitPluginSource(getCtx().appRoot), 'skills', name)
+    const text = readText(path.join(dir, 'SKILL.md'))
+    if (!text) return fail(`Bundled skill ${name} is unavailable`)
+    return ok(`Skill directory: ${dir}\n\n${text.replace(/\{\{SKILL_DIR\}\}/g, dir.replace(/\\/g, '/'))}`)
+  })
+  const preferenceShape = { usageMode: z.enum(['save', 'balanced', 'max']).optional(), sound: z.boolean().optional(),
+    soundVolume: z.number().min(0).max(1).optional(), voice: z.boolean().optional(), calm: z.boolean().optional(),
+    fx: z.boolean().optional(), desktopNotifications: z.boolean().optional() }
+  const preferences = () => {
+    const s = getCtx().settings.get()
+    return { usageMode: s.usageMode, sound: s.sound, soundVolume: s.soundVolume, voice: s.voice,
+      calm: s.calm, fx: s.fx, desktopNotifications: s.desktopNotifications }
+  }
+  t('settings_read', 'Read supported chat/app preferences without secrets or large configuration skills. Advanced models, accounts and security settings are in Systems.', {}, () => ok(json(preferences())))
+  t('settings_update', 'Change only these named preferences when the player requests it; quote their request. Does not change permissions, accounts or spending allowances.', {
+    player_words: z.string().trim().min(1), patch: z.strictObject(preferenceShape)
+  }, ({ patch }) => {
+    if (role === 'bot' || !home.isMain) return fail('Global preferences require the player in main chat')
+    const previous = getCtx().settings.get().usageMode
+    getCtx().settings.save(patch)
+    if (patch.usageMode && patch.usageMode !== previous) bus.publish({ type: 'feature-used', feature: 'usage-mode' })
+    return ok(json(preferences()))
+  })
+
   t('fleet_view', 'Squad view: every unit in this base (state, world, PR, artifact), plus queued/held quests and open choices. Use at session start, on ticks, and before re-escalating anything.', {}, async () => {
     const h = hc()
     const view = await h.crew.fleetView()
-    const choices = h.decisions.list(false).map((d) => ({ id: d.id, key: d.key, task: d.taskId, q: truncate(d.question, 200), until: d.until }))
+    const choices = h.decisions.list(false).map((d) => ({ id: d.id, key: d.key, task: d.taskId, q: d.question, until: d.until }))
     return ok(`${view}\n\nOPEN CHOICES (${choices.length})\n${json(choices)}`)
   })
 
@@ -190,7 +241,7 @@ export function createToolRegistry(
     async ({ task, which }) => {
       const f = requireTask(task)
       const txt = await f.hc.crew.readFile(task, which as TaskFile)
-      return ok(truncate(txt || '(empty)', 60_000))
+      return ok(txt || '(empty)')
     }
   )
 
@@ -502,7 +553,7 @@ export function createToolRegistry(
   })
 
   const memEnum = home.isMain ? z.enum(['player', 'player-shared', 'lore']) : z.enum(['player', 'player-shared', 'lore'])
-  t('memory_read', 'Read a memory file: player (Player Profile), player-shared (inherited by allies), lore.', { which: memEnum }, async ({ which }) => ok(getCtx().memory.read(which, home) || '(empty)'))
+  t('memory_read', 'Read versioned memory. since=the previous version returns unchanged or a character splice (start, deleteCount, insert); apply it to that version. Unknown versions return a full snapshot with reset=true. Finish all pages before using a version. full=true ignores since.', { which: memEnum, since: z.string().optional(), full: pageShape.full }, async ({ which, since, full }) => ok(json(getCtx().memory.readVersion(which, full ? undefined : since, home))))
   t('memory_write', 'Replace a memory file with curated content (keep markers <!--P-->, <!--a:DATE-->, <!--p:DATE-->).', { which: memEnum, content: z.string() }, async ({ which, content }) => {
     getCtx().memory.write(which, content, home)
     return ok(`${which} saved`)

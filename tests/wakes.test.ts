@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Home } from '../src/main/home'
 import { createWakeService } from '../src/main/wakes'
 import type { AppCtx } from '../src/main/services'
@@ -21,11 +21,12 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
 describe('event queue', () => {
-  it('drains in companion shape and acks after handling', () => {
+  it('drains compact changes without repeating signal text or open choices', () => {
     const q = createWakeService(() => ctx, home)
     q.enqueue({ kind: 'signal', reason: 'BUILD "jump" reported done', taskId: 'fix-jump-1a2b', lines: ['done: PR https://github.com/x/y/pull/1'] })
     q.enqueue({ kind: 'stale', reason: 'lagging: escalation 1', taskId: 'fix-jump-1a2b', routine: true })
@@ -34,14 +35,14 @@ describe('event queue', () => {
     const d = q.drain()
     expect(d.count).toBe(3)
     expect(d.ackThrough).toBe(3)
-    expect(d.text).toContain('EVENTS (3)')
+    expect(d.text).toContain('EVENTS (3; 3 pending)')
     expect(d.text).toContain('#1 signal: {fix-jump-1a2b} BUILD "jump" reported done')
     expect(d.text).toContain('[routine]')
-    expect(d.text).toContain('UNREAD STATUS (1)')
-    expect(d.text).toContain('fix-jump-1a2b: done: PR https://github.com/x/y/pull/1')
-    expect(d.text).toContain('OPEN CHOICES (1)')
-    expect(d.text).toContain('ch-abc task=fix-jump-1a2b key=art')
-    expect(d.text).toContain('ACK REQUIRED: through #3')
+    expect(d.text.match(/done: PR https:\/\/github.com\/x\/y\/pull\/1/g)).toHaveLength(1)
+    expect(d.text).not.toContain('UNREAD STATUS')
+    expect(d.text).not.toContain('Pixel or vector?')
+    expect(d.text).toContain('choice_list')
+    expect(d.text).toContain('through #3')
 
     // draining again without ack re-presents everything (idempotent re-handling)
     expect(q.drain().count).toBe(3)
@@ -69,7 +70,7 @@ describe('event queue', () => {
     const q = createWakeService(() => ctx, home)
     const d = q.drain()
     expect(d.count).toBe(0)
-    expect(d.text).toContain('EVENTS (0)')
+    expect(d.text).toContain('EVENTS (0; 0 pending)')
     expect(d.text).toContain('ACK REQUIRED: none')
   })
 
@@ -82,5 +83,43 @@ describe('event queue', () => {
     expect(q.pending()).toHaveLength(5)
     const q2 = createWakeService(() => ctx, home)
     expect(q2.enqueue({ kind: 'check', reason: 'next' }).seq).toBe(621)
+  })
+
+  it('keeps out-of-order per-event acknowledgements across a failed turn and restart', () => {
+    const q = createWakeService(() => ctx, home)
+    for (const reason of ['first', 'second', 'third']) q.enqueue({ kind: 'check', reason })
+    q.drain()
+    q.ackEvents([2])
+    const restarted = createWakeService(() => ctx, home)
+    expect(restarted.pending().map(w => w.seq)).toEqual([1, 3])
+    expect(restarted.get(2)?.ackedAt).toBeTruthy()
+    restarted.ackEvents([1])
+    expect(createWakeService(() => ctx, home).pending().map(w => w.seq)).toEqual([3])
+    restarted.ackEvents([2]) // idempotent
+    expect(() => restarted.ackEvents([999])).toThrow('Unknown event')
+    expect(restarted.pending().map(w => w.seq)).toEqual([3])
+  })
+
+  it('does not acknowledge in memory when durable persistence fails', () => {
+    const q = createWakeService(() => ctx, home)
+    q.enqueue({ kind: 'check', reason: 'failure' })
+    vi.spyOn(fs, 'renameSync').mockImplementation(() => { throw new Error('disk failure') })
+    expect(() => q.ackEvents([1])).toThrow('disk failure')
+    expect(q.pending()).toHaveLength(1)
+    expect(createWakeService(() => ctx, home).pending()).toHaveLength(1)
+  })
+
+  it('bounds batches, preserves full large events and only acks delivered IDs', () => {
+    const q = createWakeService(() => ctx, home)
+    const lines = Array.from({ length: 60 }, (_, i) => `error-${i}: https://example.com/${i} ${'detail '.repeat(30)}`)
+    q.enqueue({ kind: 'signal', reason: 'failed', taskId: 'unit-id', lines })
+    for (let i = 0; i < 80; i++) q.enqueue({ kind: 'check', reason: `result-${i} ${'detail '.repeat(20)}` })
+    const d = q.drain()
+    expect(d.text.length).toBeLessThanOrEqual(2000)
+    expect(d.text).toContain('event_read(seq=1) REQUIRED')
+    expect(q.get(1)?.lines).toEqual(lines.map(l => l.trim()))
+    q.ack(d.ackThrough)
+    expect(q.pending()).toHaveLength(81 - d.count)
+    expect(q.drain().text).not.toContain('event_read(seq=1)')
   })
 })

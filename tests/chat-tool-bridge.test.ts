@@ -35,7 +35,7 @@ beforeEach(() => {
     wksp: { post: vi.fn() } }
   ctx = { appRoot: process.cwd(), main: hc, homes: new Map([['main', hc]]), home: () => hc,
     settings: { get: () => ({ chatShellMode: 'ask' }) }, permissions: { ask: vi.fn(async () => true) },
-    allies: { list: () => [] }, memory: { read: () => 'memory', write: vi.fn() },
+    allies: { list: () => [] }, memory: { read: () => 'memory', readVersion: () => ({ which: 'lore', version: 'v1', text: 'memory' }), write: vi.fn() },
     away: { state: () => ({ mode: 'online' }) },
     projects: { list: () => [{ name: 'safe', mode: 'local-only' }, { name: 'outside', mode: 'local-only' }],
       get: (name: string) => ({ name, path: root, engine: 'web', yolo: false }), update: vi.fn() },
@@ -170,7 +170,7 @@ describe('authenticated local MCP bridge', () => {
     await vi.waitFor(() => expect(replies.find(r => r.id === 10)?.result.serverInfo.name).toBe('genio'))
     child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n')
     child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 11, method: 'tools/call', params: { name: 'memory_read', arguments: { which: 'lore' } } }) + '\n')
-    await vi.waitFor(() => expect(replies.find(r => r.id === 11)?.result.content[0].text).toBe('memory'))
+    await vi.waitFor(() => expect(JSON.parse(replies.find(r => r.id === 11)?.result.content[0].text ?? '{}')).toMatchObject({ text: 'memory', version: 'v1' }))
     const ended = new Promise(resolve => child.once('exit', resolve))
     child.stdin.end()
     await ended
