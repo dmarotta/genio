@@ -70,8 +70,23 @@ picker, the chat sessions, the supervisor and the dispatcher all read it.
 | Routine wake batching; heartbeat base/max | 10 min; 30/120 | 5 min; 15/120 | 1 min; 10/120 |
 | Chat answer / Recon summary target | 150 / 400 words | 250 / 800 | 400 / 1,500 |
 
-Codex runs on its own default model. Each unit cell falls back at the same effort:
+Codex units explicitly use `gpt-6.1-sol` so a CLI default cannot silently select
+Astra. Unspecified Claude unit models resolve to Sonnet. Each unit cell falls back at the same effort:
 Codex ↔ Sonnet, Opus → Codex. Cells are final efforts; no dial shift is applied.
+
+Fable and Astra always require a fresh player approval at the central unit launch
+boundary. Deploy buttons, chat tools, queued dispatch, pins, rules, sticky
+follow-ups, automatic recovery, respawns and Recon upgrades all use the same
+Allow once / Deny permission prompt. Approval is never saved on a task or inferred
+from shell mode, YOLO, model selection or prior consent. Denial or the broker's
+ten-minute timeout prevents the launch. A respawn waits for approval before
+recalling its current process. Quota is checked again after approval and directly
+before process creation, and reservations are released on failure.
+
+Ordinary automatic routing uses Sol, Sonnet or Opus. Astra is normally reserved
+for heavy visual work and remains an explicitly chosen, explicitly approved
+exception. The broad art/graphics categories include audio and performance work,
+so those labels alone do not automatically select Astra.
 A world can carry its own mode (Advanced, or its legacy cost dial); the global
 mode sets the shared unit cap, and a world's mode or capacity can only lower it.
 The cap is checked inside the serialized launch reservation, counting units that

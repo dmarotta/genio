@@ -19,6 +19,7 @@ import { discoverCodexSession } from './codex-session'
 import { foldOpenDecisions, formatStatusLine, parseStatusLine, parseStatusLog } from './status'
 import { createGauntlet } from './gauntlet'
 import { relaunchPolicy } from './relaunch-policy'
+import { approvalModel, unitModel, UNIT_MODEL_APPROVAL_REASON } from '@shared/unit-model-policy'
 import { modeLabel } from '@shared/vocab'
 import { cheapModelsAllowed } from '@shared/dispatch'
 import { defaultShell } from './terminals'
@@ -219,12 +220,32 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     setTimeout(off, 90_000)
   }
 
-  const launch = async (t: Task, opts: { resume: boolean; prompt: string; check(): Promise<void> }): Promise<TerminalInfo> => {
+  const launch = async (t: Task, opts: { resume: boolean; prompt: string; check(): Promise<void>; prepare?(): Promise<void> }): Promise<TerminalInfo> => {
     const ctx = getCtx()
     const s = ctx.settings.get()
     const adapter = ctx.settings.harness(t.harness)
     if (!adapter) throw new Error(`Unknown unit runtime "${t.harness}". Pick one in SYSTEMS › Runtimes.`)
     if (!adapter.enabled) throw new Error(`Unit runtime "${adapter.name}" is disabled.`)
+    const model = unitModel(t.harness, t.model)
+    if ((t.harness === 'codex' || t.harness === 'claude') && !adapter.modelArgs?.some(arg => arg.includes('{model}'))) {
+      throw new Error(`Unit runtime "${adapter.name}" must pass an explicit model; restore its model arguments in SYSTEMS.`)
+    }
+    if (approvalModel(model)) {
+      await opts.check()
+      // Always the player-facing broker, never chat shell mode, a tool argument,
+      // a persisted pin or a previous launch's consent. No reusable grant exists.
+      const allowed = await ctx.permissions.ask({ wksp: home.name, tool: 'unit launch',
+        input: `${opts.resume ? 'Respawn' : 'Deploy'} ${t.kind === 'ship' ? 'Build' : 'Recon'} ${t.id}: ${t.title}\nWorld: ${t.project}\nRuntime: ${t.harness}\nModel: ${model}\nEffort: ${t.effort ?? 'default'}`,
+        reason: UNIT_MODEL_APPROVAL_REASON })
+      if (!allowed) throw new Error(`Launch refused: explicit approval for ${model} was denied or expired.`)
+    }
+    const current = get(t.id)
+    if (!current || current.state === 'cleaned' || current.harness !== t.harness || current.model !== t.model || current.effort !== t.effort || current.kind !== t.kind) {
+      throw new Error('Launch changed while awaiting approval; retry with the current loadout.')
+    }
+    await opts.check()
+    await opts.prepare?.()
+    if (model !== t.model) update(t.id, { model })
     const project = ctx.projects.get(t.project)
     const isClaude = adapter.id === 'claude'
     if (isClaude) setClaudeTrust([t.worktree], true)
@@ -236,7 +257,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     if (opts.resume && adapter.id === 'codex') update(t.id, { codexSessionId: sessionId })
     const args = [
       ...skills.args,
-      ...buildArgs(adapter, { model: t.model, effort: t.effort, prompt: opts.prompt, cwd: t.worktree, settings: settingsPath, resume: opts.resume, sessionId }, s)
+      ...buildArgs(adapter, { model, effort: t.effort, prompt: opts.prompt, cwd: t.worktree, settings: settingsPath, resume: opts.resume, sessionId }, s)
     ]
     const hookEnv = project ? await writeHooks(t, project.path) : {}
     let openRouterKey: string | undefined
@@ -655,15 +676,16 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           // Recheck after reservation acquisition: another caller may have relaunched meanwhile.
           const currentPolicy = relaunchPolicy(get(id)!, manual)
           if (!currentPolicy.allowed) return { ok: false, message: 'Held after one automatic relaunch. Use Respawn to resume manually.' }
-          update(id, { automaticRelaunches: currentPolicy.nextAttempts })
-          appendProgressNote(t.briefPath, note ?? '')
-          restarting.add(id)
-          update(id, { state: 'spawning', stateReason: 'restarting in the existing copy' })
-          reservation.listed()
-          await recall()
           const prompt = `Genio respawned you. Re-read your brief at ${fwd(t.briefPath)} (see the latest Progress note), check your ping inbox, then continue.`
           try {
-            const term = await launch(t, { resume: true, prompt, check: reservation.check })
+            const term = await launch(t, { resume: true, prompt, check: reservation.check, prepare: async () => {
+              update(id, { automaticRelaunches: currentPolicy.nextAttempts })
+              appendProgressNote(t.briefPath, note ?? '')
+              restarting.add(id)
+              update(id, { state: 'spawning', stateReason: 'restarting in the existing copy' })
+              reservation.listed()
+              await recall()
+            } })
             if (t.terminalId && t.terminalId !== term.id) terms.kill(t.terminalId)
             const keepState = t.state === 'ready' || t.state === 'merged' || t.state === 'done'
             update(id, {
@@ -679,6 +701,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
               message: `Respawned ${id}.`
             }
           } catch (e) {
+            if (!restarting.has(id)) return { ok: false, message: (e as Error).message }
             update(id, { state: terminalAlive(t) ? t.state : 'failed', stateReason: (e as Error).message,
               terminalId: terminalAlive(t) ? t.terminalId : undefined })
             return { ok: false, message: (e as Error).message }
@@ -813,7 +836,13 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       update(id, { kind: 'ship', mode: posture.mode, yolo: posture.yolo, promotedFrom: id, state: 'working', stateReason: 'upgraded to Build' })
       if (t.backlogId) safe(() => hc().backlog.update(t.backlogId!, { kind: 'ship', mode: posture.mode, yolo: posture.yolo }))
       const r = await svc.control(id, 'relaunch', 'Upgraded from Recon to Build: the brief now has a Build definition of done. Implement it.')
-      if (!r.ok) throw new Error(r.message)
+      if (!r.ok) {
+        writeText(t.briefPath, oldBrief)
+        update(id, { kind: t.kind, mode: t.mode, yolo: t.yolo, promotedFrom: t.promotedFrom,
+          state: terminalAlive(t) || get(id)!.state === 'working' ? t.state : get(id)!.state, stateReason: r.message })
+        if (t.backlogId) safe(() => hc().backlog.update(t.backlogId!, { kind: t.kind, mode: t.mode, yolo: t.yolo }))
+        throw new Error(r.message)
+      }
       return get(id)!
     },
 

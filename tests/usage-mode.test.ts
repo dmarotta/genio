@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UsageReport, UsageWindow } from '../src/shared/api'
 import type { BacklogItem, LoadoutInput, Settings, Task, TaskCategory } from '../src/shared/types'
 import { CATEGORY_IDS, CHEAP_MODELS } from '../src/shared/dispatch'
+import { CODEX_UNIT_MODEL } from '../src/shared/unit-model-policy'
 import {
   MODE_PRESETS, OPUS, SONNET, USAGE_MODES, meterRows, planStatus, quotaWait, resolveChat, unitCaps, type PlanStatus, type UsageMode
 } from '../src/shared/usage-mode'
@@ -39,7 +40,7 @@ const GROUP: Record<TaskCategory, string> = {
   chore: 'light', docs: 'light', tests: 'light', 'build-ci': 'light', feature: 'build', bugfix: 'build', ui: 'build',
   'recon-design': 'deep', refactor: 'deep', graphics: 'deep', review: 'review', 'large-context': 'review', art: 'art'
 }
-const SLOT = { S: { harness: 'claude', model: SONNET }, O: { harness: 'claude', model: OPUS }, C: { harness: 'codex', model: undefined } }
+const SLOT = { S: { harness: 'claude', model: SONNET }, O: { harness: 'claude', model: OPUS }, C: { harness: 'codex', model: CODEX_UNIT_MODEL } }
 const FALLBACK = { S: 'C', C: 'S', O: 'C' } as const
 
 describe('every preset x category', () => {
@@ -114,7 +115,7 @@ describe('pinned overrides', () => {
     expect(l).toMatchObject({ harness: 'claude', model: 'claude-fable-5-1', effort: 'max' })
     expect(l.reasons.join('\n')).toMatch(/Pinned default/)
     // the pinned model belongs to the default tool only
-    expect(pickLoadout(input('feature'), s, env(ALL))).toMatchObject({ harness: 'codex', model: undefined, effort: 'max' })
+    expect(pickLoadout(input('feature'), s, env(ALL))).toMatchObject({ harness: 'codex', model: CODEX_UNIT_MODEL, effort: 'max' })
     // a warm plan never lowers a pinned effort
     expect(pickLoadout(input('feature'), s, env(['codex'], { quota: { codex: [fresh(75)] } })).effort).toBe('max')
     expect(pickLoadout(input('feature', { harness: 'claude', model: 'm', effort: 'low' }), settings({ usageMode: 'max' }), env(ALL))).toMatchObject({ harness: 'claude', model: 'm', effort: 'low', source: 'player' })

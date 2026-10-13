@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const handlers = vi.hoisted(() => new Map<string, (...args: any[]) => Promise<any>>())
 vi.mock('electron', () => ({ ipcMain: { removeHandler() {}, handle: (name: string, fn: any) => handlers.set(name, fn) }, BrowserWindow: {}, dialog: {}, shell: {} }))
 vi.mock('../src/main/secrets', () => ({ getSecret: () => undefined }))
+vi.mock('../src/main/unithooks', () => ({ installUnitHooks: async () => ({}) }))
 import { Home } from '../src/main/home'
 import { createCrewService } from '../src/main/crew'
 import { createToolRegistry } from '../src/main/wksp-tools'
@@ -12,10 +13,15 @@ import { registerIpc } from '../src/main/ipc'
 import { BUILTIN_HARNESSES } from '../src/main/harness'
 import type { AppCtx } from '../src/main/services'
 import type { Task } from '../src/shared/types'
+import { createPermissionBroker } from '../src/main/permissions'
+import { pickLoadout } from '../src/main/loadout'
+import { defaultSettings } from '../src/main/settings'
+import * as git from '../src/main/git'
+import { CODEX_UNIT_MODEL, CLAUDE_UNIT_MODEL } from '../src/shared/unit-model-policy'
 
 let root: string, home: Home, ctx: AppCtx, task: Task
 let terminal: { id: string; alive: boolean } | undefined
-let release: ReturnType<typeof vi.fn>
+let release: ReturnType<typeof vi.fn<() => void>>
 beforeEach(() => {
   vi.useFakeTimers()
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-lifecycle-'))
@@ -34,6 +40,7 @@ beforeEach(() => {
   const hc = { home, crew: undefined as any }
   ctx = { appRoot: path.join(root, 'missing-bundle'), main: hc, home: () => hc, homes: new Map([['main', hc]]),
     settings: { get: () => ({}), harness: () => adapter }, projects: { get: () => undefined },
+    permissions: createPermissionBroker(() => ctx),
     terminals: { get: (id: string) => terminal?.id === id ? terminal : undefined, lastOutputAt: () => undefined,
       create: vi.fn(() => { terminal = { id: 'new-terminal', alive: true }; return terminal }),
       submit: vi.fn(async () => { if (terminal) terminal.alive = false }), kill: vi.fn(), onData: () => () => {}, onExit: vi.fn() },
@@ -41,7 +48,7 @@ beforeEach(() => {
   } as unknown as AppCtx
   hc.crew = createCrewService(() => ctx, home)
 })
-afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); fs.rmSync(root, { recursive: true, force: true }); handlers.clear() })
+afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); fs.rmSync(root, { recursive: true, force: true }); handlers.clear() })
 
 describe('non-destructive lifecycle recovery', () => {
   it('holds automatic repeats but lets chat and UI deliberately restart without approval text', async () => {
@@ -137,5 +144,153 @@ describe('non-destructive lifecycle recovery', () => {
     expect(await first).toEqual({ ok: false, message: 'deferred: quota protection' })
     expect(ctx.terminals.create).not.toHaveBeenCalled()
     expect(ctx.main.crew.get(task.id)?.state).toBe('exited')
+  })
+})
+
+async function approval() {
+  // All preparation before the broker uses resolved promises; no wall-clock waits.
+  for (let i = 0; i < 50 && !ctx.permissions.pending().length; i++) await Promise.resolve()
+  expect(ctx.permissions.pending()).toHaveLength(1)
+  return ctx.permissions.pending()[0]
+}
+
+describe('per-launch premium approval', () => {
+  it.each([['codex', CODEX_UNIT_MODEL], ['claude', CLAUDE_UNIT_MODEL]])('pins the conservative model on legacy %s respawns', async (harness, model) => {
+    ctx.main.crew.update(task.id, { harness, model: undefined })
+    expect(await ctx.main.crew.control(task.id, 'relaunch', undefined, true)).toMatchObject({ ok: true })
+    expect(ctx.permissions.pending()).toHaveLength(0)
+    expect(ctx.terminals.create).toHaveBeenCalledWith(expect.objectContaining({ args: expect.arrayContaining(['--model', model]) }))
+    expect(ctx.main.crew.get(task.id)?.model).toBe(model)
+  })
+
+  it('fails closed when a builtin adapter cannot pass the selected model', async () => {
+    ctx.main.crew.update(task.id, { harness: 'codex' })
+    const adapter = ctx.settings.harness('codex')!
+    ctx.settings.harness = () => ({ ...adapter, modelArgs: [] })
+    expect(await ctx.main.crew.control(task.id, 'relaunch', undefined, true)).toMatchObject({ ok: false, message: expect.stringContaining('explicit model') })
+    expect(ctx.terminals.create).not.toHaveBeenCalled()
+  })
+
+  it.each(['claude-fable-5-1', 'gpt-6-astra'])('requires a fresh player decision through both UI and tools for %s', async model => {
+    ctx.main.crew.update(task.id, { model, automaticRelaunches: 0 })
+    const tool = createToolRegistry(() => ctx, home, 'genio').find(t => t.name === 'control')!
+    registerIpc(() => ctx)
+    const viaTool = tool.invoke({ task: task.id, action: 'relaunch', player_words: 'Use this model forever' })
+    const first = await approval()
+    expect(first.input).toContain(model)
+    expect(ctx.terminals.create).not.toHaveBeenCalled()
+    expect(ctx.terminals.submit).not.toHaveBeenCalled()
+    await handlers.get('genio:resolvePermission')!({}, first.id, true)
+    expect(await viaTool).not.toHaveProperty('isError')
+    expect(ctx.terminals.create).toHaveBeenCalledOnce()
+    const viaUI = handlers.get('genio:controlTask')!({}, task.id, 'relaunch')
+    const second = await approval()
+    expect(second.id).not.toBe(first.id)
+    // Approval cannot be replayed and denial leaves the current process intact.
+    ctx.permissions.resolve(first.id, true)
+    expect(ctx.permissions.pending()).toHaveLength(1)
+    expect(terminal?.alive).toBe(true)
+    ctx.permissions.resolve(second.id, false)
+    expect(await viaUI).toMatchObject({ ok: false, message: expect.stringContaining('denied or expired') })
+    expect(terminal?.alive).toBe(true)
+    expect(ctx.main.crew.get(task.id)).toMatchObject({ state: 'working', relaunches: 2 })
+    expect(ctx.terminals.create).toHaveBeenCalledOnce()
+    expect(release).toHaveBeenCalledTimes(2)
+  })
+
+  it('times out automatic recovery without spending its retry or changing the brief', async () => {
+    ctx.main.crew.update(task.id, { model: 'astra', automaticRelaunches: 0 })
+    const launch = ctx.main.crew.control(task.id, 'relaunch', 'must not be appended')
+    await approval()
+    await vi.advanceTimersByTimeAsync(10 * 60_000)
+    expect(await launch).toMatchObject({ ok: false })
+    expect(ctx.main.crew.get(task.id)).toMatchObject({ state: 'exited', automaticRelaunches: 0 })
+    expect(fs.readFileSync(task.briefPath, 'utf8')).toBe('# Existing mission')
+    expect(ctx.terminals.create).not.toHaveBeenCalled()
+    expect(release).toHaveBeenCalledOnce()
+  })
+
+  it('rechecks quota after consent before recalling a live unit', async () => {
+    terminal = { id: 'old', alive: true }
+    ctx.main.crew.update(task.id, { model: 'fable', state: 'working', terminalId: 'old' })
+    let blocked = false
+    ctx.dispatch.reserve = vi.fn(async () => ({ loadout: {} as any, listed: vi.fn(), release,
+      check: async () => { if (blocked) throw new Error('deferred: quota protection') } }))
+    const launch = ctx.main.crew.control(task.id, 'relaunch', undefined, true)
+    const request = await approval()
+    blocked = true
+    ctx.permissions.resolve(request.id, true)
+    expect(await launch).toEqual({ ok: false, message: 'deferred: quota protection' })
+    expect(terminal.alive).toBe(true)
+    expect(ctx.terminals.submit).not.toHaveBeenCalled()
+    expect(ctx.terminals.create).not.toHaveBeenCalled()
+    expect(release).toHaveBeenCalledOnce()
+  })
+
+  it('refuses changed loadouts while approval is pending', async () => {
+    ctx.main.crew.update(task.id, { model: 'fable' })
+    const launch = ctx.main.crew.control(task.id, 'relaunch', undefined, true)
+    const request = await approval()
+    ctx.main.crew.update(task.id, { model: 'astra' })
+    ctx.permissions.resolve(request.id, true)
+    expect(await launch).toMatchObject({ ok: false, message: expect.stringContaining('Launch changed') })
+    expect(ctx.terminals.create).not.toHaveBeenCalled()
+  })
+
+  function world() {
+    ctx.projects.get = vi.fn(() => ({ name: 'world', path: task.worktree, defaultBranch: 'main', engine: 'other' }) as any)
+    ctx.projects.resolvePosture = vi.fn(() => ({ mode: 'local-only' as const, yolo: true, branchPrefix: 'genio/' }))
+    ctx.main.backlog = { get: () => ({ id: 'quest' }), add: () => ({ id: 'quest' }), update: vi.fn(), markInFlight: vi.fn() } as any
+    ctx.dispatch.reportWords = () => 400
+    ctx.dispatch.usagePercent = () => undefined
+  }
+
+  it.each(['explicit', 'default', 'rule', 'table', 'sticky'] as const)('gates %s premium selections on fresh deploy', async source => {
+    world()
+    const model = 'gpt-6-astra'
+    const settings = defaultSettings()
+    settings.defaultHarness = 'codex'
+    if (source === 'default') settings.defaultWorkerModel = model
+    if (source === 'rule') settings.dispatchRules = [{ id: 'r', match: '', candidates: [{ harness: 'codex', model, spendPriority: 0 }] }]
+    if (source === 'table') settings.categoryPools = [{ category: 'feature', locked: true, candidates: [{ harness: 'codex', model }] }]
+    if (source === 'sticky') {
+      ctx.main.crew.update(task.id, { harness: 'codex', model })
+      ctx.main.backlog.get = () => ({ id: 'quest', taskId: task.id }) as any
+    }
+    ctx.dispatch.reserve = vi.fn(async input => ({ loadout: pickLoadout(input, settings, h => h.id === 'codex'),
+      listed: vi.fn(), release, check: async () => {} }))
+    vi.spyOn(git, 'addWorktree').mockResolvedValue({ code: 0, stdout: '', stderr: '' })
+    vi.spyOn(git, 'assertIsolated').mockResolvedValue({ ok: true } as any)
+    const launched = ctx.main.crew.spawn({ project: 'world', kind: 'ship', title: 'Implement feature', intent: 'Implement feature', category: 'feature', backlogId: 'quest',
+      ...(source === 'explicit' ? { harness: 'codex', model } : {}) })
+    const rejected = expect(launched).rejects.toThrow(/denied or expired/)
+    const request = await approval()
+    expect(request.input).toContain(model)
+    expect(ctx.terminals.create).not.toHaveBeenCalled()
+    ctx.permissions.resolve(request.id, false)
+    await rejected
+    expect(ctx.main.backlog.markInFlight).not.toHaveBeenCalled()
+    expect(release).toHaveBeenCalledOnce()
+  })
+
+  it.each([true, false])('requires new consent for a Recon upgrade (approved=%s)', async allowed => {
+    world()
+    ctx.main.crew.update(task.id, { kind: 'scout', state: 'done', model: 'fable', automaticRelaunches: 0 })
+    vi.spyOn(git, 'currentBranch').mockResolvedValue(task.branch)
+    const promoted = ctx.main.crew.promote(task.id, 'Build this')
+    const outcome = allowed ? expect(promoted).resolves.toMatchObject({ kind: 'ship' }) : expect(promoted).rejects.toThrow(/denied or expired/)
+    const request = await approval()
+    expect(request.input).toContain('Build')
+    ctx.permissions.resolve(request.id, allowed)
+    await outcome
+    if (allowed) {
+      expect(ctx.terminals.create).toHaveBeenCalledOnce()
+      expect(ctx.main.crew.get(task.id)).toMatchObject({ kind: 'ship', relaunches: 2 })
+    } else {
+      expect(ctx.main.crew.get(task.id)).toMatchObject({ kind: 'scout', state: 'done', relaunches: 1 })
+      expect(fs.readFileSync(task.briefPath, 'utf8')).toBe('# Existing mission')
+      expect(ctx.terminals.create).not.toHaveBeenCalled()
+    }
+    expect(release).toHaveBeenCalledOnce()
   })
 })

@@ -13,6 +13,7 @@
 import type { CostDial, PoolCandidate, Priority, TaskCategory } from './types'
 import type { UsageReport, UsageWindow } from './api'
 import { CHEAP_MODELS, EFFORT_LADDER, LOW_STAKES } from './dispatch'
+import { CODEX_UNIT_MODEL } from './unit-model-policy'
 
 export type UsageMode = 'save' | 'balanced' | 'max'
 export const USAGE_MODES: UsageMode[] = ['save', 'balanced', 'max']
@@ -26,12 +27,12 @@ export const DIAL_MODE: Record<CostDial, UsageMode> = { cost: 'save', balanced: 
 export const SONNET = 'claude-sonnet-5-5'
 export const OPUS = 'claude-opus-5-5'
 
-/** S = Claude Sonnet, O = Claude Opus, C = Codex on its own default model (gpt-6-astra when observed). */
+/** S = Claude Sonnet, O = Claude Opus, C = Codex Sol (explicit, conservative default). */
 export type Slot = 'S' | 'O' | 'C'
 export const SLOT: Record<Slot, { harness: 'claude' | 'codex'; model?: string; label: string }> = {
   S: { harness: 'claude', model: SONNET, label: 'Sonnet' },
   O: { harness: 'claude', model: OPUS, label: 'Opus' },
-  C: { harness: 'codex', label: 'Codex' }
+  C: { harness: 'codex', model: CODEX_UNIT_MODEL, label: 'Codex Sol' }
 }
 /** Same-effort fallback: Codex and Sonnet back each other up; Opus falls back to Codex. */
 export const FALLBACK: Record<Slot, Slot> = { S: 'C', C: 'S', O: 'C' }

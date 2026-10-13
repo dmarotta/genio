@@ -14,6 +14,7 @@ import { Home } from '../src/main/home'
 import { CHEAP_MODELS, LEARNING, cheapModelsAllowed, defaultCategoryPools, type OutcomeRecord } from '../src/shared/dispatch'
 import type { AppCtx } from '../src/main/services'
 import type { CategoryPool, DispatchRule, LoadoutInput, Settings, Task } from '../src/shared/types'
+import { CODEX_UNIT_MODEL, CLAUDE_UNIT_MODEL } from '../src/shared/unit-model-policy'
 
 const base: LoadoutInput = { kind: 'ship', project: 'neon-runner', title: 'Add a grappling hook', intent: 'Add a grappling hook mechanic to the player' }
 
@@ -88,7 +89,7 @@ describe('precedence: explicit > rules > category table > default', () => {
   it('skips tools that are installed but logged out', () => {
     const l = pickLoadout({ ...base, category: 'tests' }, settings(), env(ALL, { loggedOut: (id) => id === 'codex' }))
     expect(l.harness).toBe('claude')
-    expect(l.reasons.join('\n')).toMatch(/Codex CLI skipped: not logged in/)
+    expect(l.reasons.join('\n')).toContain(`Codex CLI / ${CODEX_UNIT_MODEL} skipped: not logged in`)
   })
 })
 
@@ -114,7 +115,7 @@ describe('mode dial on locked (pinned) rows', () => {
 
   it('a world override wins over the global dial', () => {
     const l = pickLoadout({ ...base, category: 'feature' }, settings({ usageMode: 'save', categoryPools: lockedPools(), defaultWorkerEffort: 'high' }), env(ALL, { dial: 'balanced' }))
-    expect(l.model).toBeUndefined()
+    expect(l.model).toBe(CLAUDE_UNIT_MODEL)
     expect(l.effort).toBe('high')
   })
 
@@ -169,7 +170,7 @@ describe('stickiness', () => {
 describe('exploration gating', () => {
   // only Max explores (5%), and only with fresh evidence below 70% on both plans
   const s = settings({ usageMode: 'max' })
-  const stats = scoreTable(many(9, { category: 'tests', harness: 'codex' }))
+  const stats = scoreTable(many(9, { category: 'tests', harness: 'codex', model: CODEX_UNIT_MODEL }))
 
   it('about rate-share of picks try a less-proven candidate', () => {
     const l = pickLoadout({ ...base, category: 'tests' }, s, env(ALL, { rand: () => 0.01, stats, quota: coolQuota() }))

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { defaultSettings } from '../src/main/settings'
 import { classifyEffort, pickLoadout } from '../src/main/loadout'
 import type { DispatchRule, LoadoutInput, Settings } from '../src/shared/types'
+import { CODEX_UNIT_MODEL } from '../src/shared/unit-model-policy'
 
 const base: LoadoutInput = { kind: 'ship', project: 'neon-runner', title: 'Fix double jump', intent: 'Fix the double jump on slopes' }
 
@@ -58,7 +59,7 @@ describe('loadout picker', () => {
   it('applies the default model only to the default unit tool', () => {
     const rules: DispatchRule[] = [{ id: 'r', match: 'jump', candidates: [{ harness: 'codex', spendPriority: 0 }] }]
     const s = settings(rules, { defaultWorkerModel: 'opus' })
-    expect(pickLoadout(base, s, installed('claude', 'codex')).model).toBeUndefined()
+    expect(pickLoadout(base, s, installed('claude', 'codex')).model).toBe(CODEX_UNIT_MODEL)
     expect(pickLoadout({ ...base, intent: 'other', title: 'other' }, s, installed('claude')).model).toBe('opus')
   })
 })

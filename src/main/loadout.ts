@@ -28,6 +28,7 @@ import {
 import type { SettingsService } from './services'
 import { blockedWindow, explorationSafe, type QuotaWindow } from './quota-policy'
 import { globalMode } from './usage-policy'
+import { approvalModel, unitModel } from '@shared/unit-model-policy'
 export type { QuotaWindow } from './quota-policy'
 
 type RuleCandidate = DispatchRule['candidates'][number]
@@ -218,7 +219,9 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
       reasons.push(`${nameOf(st.harness)}: keeps the loadout of ${st.from} (follow-up on the same quest)`)
       if (st.model) reasons.push(`model ${st.model}: kept`)
       if (st.effort) reasons.push(`effort ${st.effort}: kept`)
-      return { harness: st.harness, model: st.model, effort: st.effort, source: 'sticky', category, reasons }
+      const model = unitModel(st.harness, st.model)
+      if (approvalModel(model)) reasons.push('Explicit approval required for this launch; previous approval does not carry over.')
+      return { harness: st.harness, model, effort: st.effort, source: 'sticky', category, reasons }
     }
     reasons.push(`${nameOf(st.harness)} from ${st.from} is not available now: picking again`)
   }
@@ -406,6 +409,8 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
     }
   }
 
+  model = unitModel(harness, model)
+  if (approvalModel(model)) reasons.push('Explicit approval required for this launch. Astra is normally reserved for heavy visual work.')
   return { harness, model, effort, source, ruleId, category, explored: explored || undefined, reasons }
 }
 
