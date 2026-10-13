@@ -100,7 +100,7 @@ async function reconcile(ctx: AppCtx, project: string, wksp: string, isOpen: () 
     section('Running', running.map(describe)), section('Blocked or waiting units', waiting.map(describe)),
     section('Ready outcomes', tasks.filter(t => t.state === 'ready' || t.state === 'done').map(describe)),
     section('Waiting for player decisions', decisions.map(d => `${d.id}: ${truncate(d.question, 240)}`)),
-    section('Held quests', quests.filter(q => q.state === 'held').map(q => `${q.id}: ${truncate(q.title, 120)}; ${truncate(q.hold?.reason ?? 'waiting', 180)}`)),
+    section('Quests waiting for the player', quests.filter(q => q.hold && q.state !== 'done' && q.state !== 'dropped').map(q => `${q.id}: ${truncate(q.title, 120)}; ${truncate(q.hold?.reason ?? 'waiting', 180)}`)),
     `Queued quests: ${quests.filter(q => q.state === 'queued').length}. Ready outcomes: ${tasks.filter(t => t.state === 'ready').length}.`,
     'Status events are historical; the snapshot above is current. Existing successful actions must not be repeated.'
   ].join('\n\n')

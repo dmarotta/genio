@@ -12,7 +12,8 @@ import type { Decision, Task } from '@shared/types'
 import type { TaskFile } from '@shared/api'
 import type { AppCtx, HomeCtx } from './services'
 import type { Home } from './home'
-import { readText } from './util'
+import { readText, slugify } from './util'
+import { questOrder } from '@shared/quest-board'
 import path from 'node:path'
 import fs from 'node:fs'
 import { ToolPages, isPagedTool, pageShape } from './tool-pages'
@@ -432,15 +433,15 @@ export function createToolRegistry(
   })
 
   // ------------------------------------------------------------ quest log
-  t('quest_list', 'Quest log for this base: queued, in-flight, held, blocked, done.', { include_done: z.boolean().default(false) }, async ({ include_done }) => {
+  t('quest_list', 'Quest log for this base in dispatch order (priority, manual rank, age): queued (waiting=the player must act, duplicate_of=flagged duplicate), in-flight, done.', { include_done: z.boolean().default(false) }, async ({ include_done }) => {
     const h = hc()
-    const items = h.backlog.list().filter((i) => include_done || !['done', 'dropped'].includes(i.state))
-    return ok(json(items.map((i) => ({ ...i, bucket: h.backlog.bucket(i) }))))
+    const items = h.backlog.list().filter((i) => include_done || !['done', 'dropped'].includes(i.state)).sort(questOrder)
+    return ok(json(items.map((i) => ({ ...i, bucket: h.backlog.bucket(i), ...(i.hold ? { waiting: 'for the player' } : {}) }))))
   })
 
   t(
     'quest_add',
-    'File a quest (work item). kind: ship (Build), scout (Recon), choice (a decision held for the player), program (umbrella).',
+    'File a quest (work item). kind: ship (Build), scout (Recon), choice (a decision waiting for the player). Programs are retired: kind=program files no quest and returns a label; put it in tags on the related quests.',
     {
       title: z.string().min(3),
       world: z.string().optional(),
@@ -452,39 +453,48 @@ export function createToolRegistry(
       tags: z.array(z.string()).default([])
     },
     async (a) => {
+      if (a.kind === 'program') {
+        const label = a.tags[0] || slugify(a.title, 32)
+        return ok(`programs are labels now: no quest filed. Tag the quests that belong to "${a.title}" with "${label}" (quest_add/quest_update tags).`)
+      }
       const it = hc().backlog.add({ title: a.title, project: a.world, kind: a.kind, notes: a.notes, priority: a.priority, dependsOn: a.depends_on, notBefore: a.not_before, tags: a.tags })
-      return ok(`quest ${it.id} filed (${it.state})`)
+      return ok(`quest ${it.id} filed (${it.state})${it.duplicateOf ? `; flagged as a duplicate of ${it.duplicateOf} and not dispatched until cleared (quest_update duplicate_of="")` : ''}`)
     }
   )
 
   t(
     'quest_update',
-    "Update a quest's notes/title/priority/dependencies/project. Inspect the current note first; replace the considered body rather than appending by default.",
+    "Update a quest's notes/title/priority/rank/dependencies/project/tags. rank orders quests within a priority (1 runs first). state=held flags it as waiting for the player (it stays queued). duplicate_of=\"\" clears a duplicate flag. Inspect the current note first; replace the considered body rather than appending by default.",
     {
       id: z.string(), title: z.string().optional(), notes: z.string().optional(),
-      priority: z.enum(['low', 'normal', 'high', 'critical']).optional(), depends_on: z.array(z.string()).optional(),
-      world: z.string().optional(), not_before: z.string().optional(), state: z.enum(['queued', 'blocked', 'dropped']).optional()
+      priority: z.enum(['low', 'normal', 'high', 'critical']).optional(), rank: z.number().int().min(1).optional(),
+      depends_on: z.array(z.string()).optional(), tags: z.array(z.string()).optional(),
+      world: z.string().optional(), not_before: z.string().optional(), duplicate_of: z.string().optional(),
+      state: z.enum(['queued', 'blocked', 'dropped', 'held']).optional()
     },
     async (a) => {
       const patch: Record<string, unknown> = {}
       if (a.title !== undefined) patch.title = a.title
       if (a.notes !== undefined) patch.notes = a.notes
       if (a.priority !== undefined) patch.priority = a.priority
+      if (a.rank !== undefined) patch.rank = a.rank
       if (a.depends_on !== undefined) patch.dependsOn = a.depends_on
+      if (a.tags !== undefined) patch.tags = a.tags
       if (a.world !== undefined) patch.project = a.world
       if (a.not_before !== undefined) patch.notBefore = a.not_before
+      if (a.duplicate_of !== undefined) patch.duplicateOf = a.duplicate_of
       if (a.state !== undefined) patch.state = a.state
       const it = questHome(a.id).backlog.update(a.id, patch)
-      return ok(`quest ${it.id} updated (${it.state})`)
+      return ok(`quest ${it.id} updated (${it.state}${it.hold ? ', waiting for the player' : ''})`)
     }
   )
 
-  t('quest_hold', 'Hold a quest for the player (a choice only they can make). until=YYYY-MM-DD defers it ("later").', { id: z.string(), reason: z.string().min(3), until: z.string().optional() }, async ({ id, reason, until }) => {
+  t('quest_hold', 'Flag a quest as waiting for the player (a choice only they can make); it stays queued, or in flight with its unit. until=YYYY-MM-DD defers it ("later").', { id: z.string(), reason: z.string().min(3), until: z.string().optional() }, async ({ id, reason, until }) => {
     const it = questHome(id).backlog.hold(id, reason, until)
-    return ok(`quest ${it.id} held: ${reason}${until ? ` until ${until}` : ''}`)
+    return ok(`quest ${it.id} ${it.state}, waiting for the player: ${reason}${until ? ` until ${until}` : ''}`)
   })
 
-  t("quest_answer", "Record the player's exact words on a held quest. release=true unholds the work so it proceeds; false closes it.", { id: z.string(), words: z.string().min(1), release: z.boolean().default(true) }, async ({ id, words, release }) => {
+  t("quest_answer", "Record the player's exact words on a quest waiting for them. release=true clears the wait so the work proceeds; false closes it.", { id: z.string(), words: z.string().min(1), release: z.boolean().default(true) }, async ({ id, words, release }) => {
     const it = questHome(id).backlog.answer(id, words, release)
     return ok(`answer recorded on ${it.id} (${it.state})`)
   })

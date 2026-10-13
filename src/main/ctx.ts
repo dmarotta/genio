@@ -260,8 +260,17 @@ export async function startApp(ctx: AppCtx): Promise<void> {
   ctx.uthana.resume()
   // a world's remote may have changed while Genio was closed: auto modes follow it
   void ctx.projects.refreshRemotes().catch(() => undefined)
+  for (const h of ctx.homes.values()) await h.crew.reconcileOnStart()
+  // quests drifted from their units (landed but still in flight, duplicates): fix before supervision reads them
   for (const h of ctx.homes.values()) {
-    await h.crew.reconcileOnStart()
+    try {
+      const fixed = h.backlog.reconcile()
+      if (fixed.length) ctx.ledger.record({ home: h.home.name, event: 'backlog.state', data: { reconciled: fixed } })
+    } catch {
+      /* the board derives the same columns from live units */
+    }
+  }
+  for (const h of ctx.homes.values()) {
     if (h.home.isMain || ctx.allies.list().find(a => a.name === h.home.name)?.projects.some(p => openProjects.get(ctx)?.has(p))) h.supervisor.start()
   }
 }

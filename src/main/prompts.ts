@@ -149,7 +149,7 @@ ${TRANSLATION}
 
 ## 10. Quest log
 - The quest log tracks work items, never units. ${o.isAlly ? '' : 'Work routed to an Ally is recorded in that Ally\'s own quest log. '}File a quest before deploying (deploy files one automatically when you don't pass quest_id).
-- A choice that needs durable tracking is a quest held for ${who}: quest_add then quest_hold(reason, until?). "Later" is a re-hold with a date. Record ${who}'s exact words with quest_answer (release=true lets the work proceed).
+- A choice that needs durable tracking is a queued quest waiting for ${who}: quest_add then quest_hold(reason, until?). "Later" is a re-hold with a date. Quest order is priority then rank (quest_update rank); group related quests with tags, not programs. Record ${who}'s exact words with quest_answer (release=true lets the work proceed).
 - Deploy moves the quest to in-flight and despawn completes it; your job is filing, recording choices, and keeping notes current. Keep notes free of temporary paths, moving versions and ephemeral ids; verify volatile details before acting.
 
 ## 11. Game-dev awareness

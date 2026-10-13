@@ -17,6 +17,19 @@ export function elapsed(iso?: string, now = Date.now()): string {
   return h ? `${h}:${p(m)}:${p(sec)}` : `${p(m)}:${p(sec)}`
 }
 
+/** "14m", "2h 05m", "3d 4h" between two instants */
+export function duration(fromIso?: string, toIso?: string): string {
+  const from = Date.parse(fromIso ?? '')
+  const to = Date.parse(toIso ?? '')
+  if (!from || !to) return ''
+  const m = Math.max(0, (to - from) / 60_000)
+  if (m < 1) return '<1m'
+  if (m < 60) return `${Math.round(m)}m`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ${String(Math.floor(m % 60)).padStart(2, '0')}m`
+  return `${Math.floor(h / 24)}d ${h % 24}h`
+}
+
 export function clock(iso?: string): string {
   if (!iso) return ''
   const d = new Date(iso)

@@ -200,6 +200,14 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
       return { ok: true, message: 'Genio is deploying this quest' }
     },
     backlogRemove: (id) => backlogHome(id).backlog.remove(id),
+    backlogReorder: (patches) => {
+      const byHome = new Map<HomeCtx, typeof patches>()
+      for (const p of patches) {
+        const h = backlogHome(p.id)
+        byHome.set(h, [...(byHome.get(h) ?? []), p])
+      }
+      return [...byHome].flatMap(([h, list]) => h.backlog.reorder(list))
+    },
 
     // ---- choices
     answerDecision: (id, answer) => answerChoice(ctx(), id, answer),
@@ -350,6 +358,11 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
             if (quest.hold) return { ok: false, message: 'Release this quest first.' }
             await ctx().home(binding.wksp).wksp.send(`Dispatch quest ${quest.id} (${quest.title}): ${quest.notes}`, 'system')
             return { ok: true, message: 'Sent to project chat.' }
+          }
+          if (method === 'backlogReorder') {
+            for (const p of args[0] as { id: string }[]) {
+              if (backlogHome(p.id).backlog.get(p.id)?.project !== binding.project) throw new Error('Quest is outside this project.')
+            }
           }
           if (method === 'spawnTask') args[0] = { ...(args[0] as object), project: binding.project, wksp: binding.wksp }
           if (method === 'backlogAdd') return ctx().home(binding.wksp).backlog.add({ ...(args[0] as Parameters<GenioApi['backlogAdd']>[0]), project: binding.project })

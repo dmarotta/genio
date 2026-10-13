@@ -168,7 +168,10 @@ describe('project window startup reconciliation', () => {
     expect(hc.backlog.get('eligible')?.state).toBe('in-flight')
     expect(hc.backlog.get('overflow')?.state).toBe('queued')
     expect(hc.backlog.get('deps')?.state).toBe('queued')
-    expect(hc.backlog.get('held')?.state).toBe('held')
+    // no held state: the quest stays queued, flagged as waiting for the player
+    expect(hc.backlog.get('held')?.state).toBe('queued')
+    expect(hc.backlog.get('held')?.hold?.reason).toBe('ask first')
+    expect(hc.backlog.get('held')?.taskId).toBeUndefined()
   })
 
   it('reports launch failures without consuming automatic retry or abandoning other unfinished work', async () => {

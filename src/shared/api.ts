@@ -501,6 +501,8 @@ export interface GenioApi {
   backlogRelease(id: string): Promise<BacklogItem>
   backlogDispatch(id: string): Promise<OpResult>
   backlogRemove(id: string): Promise<void>
+  /** persist a manual queue order: each quest's priority band and rank within it */
+  backlogReorder(patches: { id: string; priority: Priority; rank: number }[]): Promise<BacklogItem[]>
 
   // ---- decisions
   answerDecision(id: string, answer: string): Promise<OpResult>
@@ -615,6 +617,7 @@ export const API_METHODS = [
   'backlogRelease',
   'backlogDispatch',
   'backlogRemove',
+  'backlogReorder',
   'answerDecision',
   'clarifyDecision',
   'applyRecommendations',

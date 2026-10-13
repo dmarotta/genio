@@ -5,6 +5,7 @@
  */
 import path from 'node:path'
 import type { BacklogItem, Decision, StatusLine, StatusReport, Task } from '@shared/types'
+import { questOrder } from '@shared/quest-board'
 import type { AppCtx, HomeCtx, StatusReportService } from './services'
 import { nowIso, todayStamp, truncate, writeText } from './util'
 
@@ -53,7 +54,7 @@ export function createStatusReportService(getCtx: () => AppCtx): StatusReportSer
           yourMove.push({ text: `Choice${where}${base(h)}: ${d.question}${rec}`, decisionId: d.id, taskId: d.taskId, tone: 'amber' })
         }
         for (const q of quests) {
-          if (q.state !== 'held' || !q.hold) continue
+          if (!q.hold || q.state === 'done' || q.state === 'dropped') continue
           if (safe(() => h.backlog.bucket(q), 'none') !== 'live') continue
           yourMove.push({ text: `Quest "${q.title}"${base(h)} waits on you: ${q.hold.reason}`, backlogId: q.id, tone: 'amber' })
         }
@@ -127,19 +128,20 @@ export function createStatusReportService(getCtx: () => AppCtx): StatusReportSer
 
         // ---------------- Up Next
         const ready = new Set(safe(() => h.backlog.dispatchable().map((q) => q.id), [] as string[]))
-        for (const q of quests) {
-          if (q.state === 'queued' || q.state === 'blocked') {
+        for (const q of [...quests].sort(questOrder)) {
+          if ((q.state === 'queued' || q.state === 'blocked') && !q.hold) {
             const world = q.project ? ` (${q.project})` : ''
             let why = ''
             const wait = ready.has(q.id) ? undefined : safe(() => ctx.dispatch.quotaWait(q), undefined)
             if (ready.has(q.id)) why = ' — ready to deploy'
             else if (wait) why = ` — queued until reset: ${wait.reason}${wait.until ? ` (${shortDate(wait.until)})` : ''}`
+            else if (q.duplicateOf) why = ` — flagged as a duplicate of ${q.duplicateOf}`
             else if (q.dependsOn.length) why = ` — waiting on ${q.dependsOn.join(', ')}`
             else if (q.notBefore && Date.parse(q.notBefore) > Date.now()) why = ` — not before ${shortDate(q.notBefore)}`
             else if (q.project) why = ' — at capacity (project or Usage mode unit cap)'
             const prio = q.priority !== 'normal' ? ` [${q.priority}]` : ''
             upNext.push({ text: `Quest "${q.title}"${world}${base(h)}${prio}${why}`, backlogId: q.id, tone: ready.has(q.id) ? 'neon' : undefined })
-          } else if (q.state === 'held' && q.hold) {
+          } else if ((q.state === 'queued' || q.state === 'blocked') && q.hold) {
             const b = safe(() => h.backlog.bucket(q), 'none')
             if (b === 'live') continue
             const note =

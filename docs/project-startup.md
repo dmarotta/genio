@@ -26,7 +26,7 @@ reported in the recap and do not cause duplicate dispatch on repeated opens.
 
 The project wksp holds event delivery and early player sends until reconciliation
 finishes. Its first turn receives the real startup results, landed work since
-the previous visit, running/waiting units, ready outcomes, held quests and open
+the previous visit, running/waiting units, ready outcomes, quests waiting for the player and open
 decisions, plus a bounded durable event batch. Genio generates the greeting;
 there is no canned transcript message or synthetic player message. Even an
 empty project gets a greeting, visibly in DND/AFK too. Later event routing keeps

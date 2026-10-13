@@ -196,6 +196,7 @@ export interface StatusEvent {
   playerRelevant: boolean
 }
 
+/** 'held' is legacy input only: stored quests keep the hold as a flag on a queued (or in-flight) quest. */
 export type BacklogState = 'queued' | 'in-flight' | 'held' | 'blocked' | 'done' | 'dropped'
 export type Priority = 'low' | 'normal' | 'high' | 'critical'
 
@@ -205,6 +206,7 @@ export interface PlayerHold {
   until?: string
 }
 
+/** 'program' is legacy input only: an umbrella becomes a plain tag on its quests. */
 export type BacklogKind = TaskKind | 'choice' | 'program'
 
 export interface BacklogItem {
@@ -215,6 +217,10 @@ export interface BacklogItem {
   notes: string
   state: BacklogState
   priority: Priority
+  /** manual order within the same priority (lower runs first); unranked quests follow by age */
+  rank?: number
+  /** id of the quest this one duplicates (same title, created minutes apart or already finished) */
+  duplicateOf?: string
   dependsOn: string[]
   notBefore?: string
   hold?: PlayerHold

@@ -357,6 +357,12 @@ export interface BacklogService {
   bucket(item: BacklogItem): 'blocked' | 'dated' | 'aged' | 'live' | 'none'
   markInFlight(id: string, taskId: string): void
   markDone(id: string, outcome?: string): void
+  /** persist a manual queue order (priority band + rank) in one write */
+  reorder(patches: { id: string; priority: BacklogItem['priority']; rank: number }[]): BacklogItem[]
+  /** a quest follows its unit: a landed or finished unit closes the quest it is flying */
+  followUnit(task: import('@shared/types').Task): void
+  /** fix drift: in-flight quests whose unit landed or despawned, and unflagged duplicates; returns what changed */
+  reconcile(): string[]
 }
 
 export interface DecisionService {

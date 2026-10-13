@@ -904,3 +904,65 @@ ul.loadout-why li { margin: 1px 0; }
 .chip.blue { color: var(--blue); border-color: rgba(88, 166, 255, 0.35); background: rgba(88, 166, 255, 0.08); }
 .unit-card.tone-blue { --c: var(--blue); }
 .unit-card.tone-violet { --c: var(--violet); }
+
+/* ---------- quest log kanban: Queued / In flight / Done ---------- */
+.kanban.qk { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.qk .col-queued { --c: var(--neon); }
+.qk .col-in-flight { --c: var(--blue); }
+.qk .col-done { --c: var(--volt); }
+.qk .col-done .quest { opacity: 1; }
+.qk-empty { font-size: 12px; padding: 10px 2px; }
+.qk-ticket { gap: 7px; }
+.qk-ticket.dup { border-style: dashed; border-color: color-mix(in srgb, var(--amber) 45%, transparent); }
+.qk-flight, .qk-done { border-left: 3px solid var(--c); }
+.qk-flight.attention { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--amber) 35%, transparent); }
+.qk-flight.failed { background: color-mix(in srgb, var(--alert) 7%, var(--surface-1, transparent)); }
+.qk-state { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.qk-state .dot { --c: inherit; }
+.qk-state-label { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; }
+.qk-age { margin-left: auto; font-size: 11px; }
+.qk-progress { font-size: 12px; line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.qk-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11.5px; }
+.qk-foot .link-btn { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; }
+.qk-actions { margin-left: auto; display: inline-flex; gap: 6px; }
+.chip.qk-chip { text-transform: none; letter-spacing: 0.02em; font-size: 11px; font-weight: 500; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.chip.qk-tag { color: var(--text-dim); }
+.qk-outcome { font-size: 10.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; line-height: 1.6; min-width: 58px; }
+.qk-more { align-self: stretch; justify-content: center; }
+.qk-less { align-self: center; font-size: 11.5px; }
+
+.prio-wrap { position: relative; flex: none; }
+.prio-label {
+  --p: var(--neon);
+  display: inline-flex; align-items: center; height: 18px; padding: 0 7px; cursor: pointer;
+  font: inherit; font-size: 9.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--p); border: 1px solid color-mix(in srgb, var(--p) 50%, transparent); background: color-mix(in srgb, var(--p) 12%, transparent);
+}
+.prio-label.p-critical { --p: var(--alert); }
+.prio-label.p-high { --p: var(--amber); }
+.prio-label.p-normal { --p: var(--neon); }
+.prio-label.p-low { --p: var(--text-mute); }
+button.prio-label:hover { background: color-mix(in srgb, var(--p) 24%, transparent); }
+.prio-label.on { outline: 1px solid var(--p); }
+.prio-menu { position: absolute; z-index: 20; top: 22px; left: 0; display: flex; flex-direction: column; gap: 4px; padding: 6px; }
+
+.qk-band { display: flex; flex-direction: column; gap: 8px; padding: 6px 0 8px; border-top: 1px dashed transparent; }
+.qk-band-head { display: flex; align-items: center; justify-content: space-between; }
+.qk-band-head .prio-label { cursor: default; }
+.qk-band.empty .qk-band-head { opacity: 0.55; }
+.qk-drop { font-size: 11px; padding: 4px 2px; }
+.qk-band.drop-end { border-bottom: 2px solid var(--neon); }
+.qk-drag { cursor: grab; }
+.qk-drag.dragging { opacity: 0.4; }
+.qk-drag.drop-before { box-shadow: 0 -3px 0 0 var(--neon); }
+.qk-why { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.qk-history { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
+
+@media (max-width: 1280px) {
+  .kanban.qk { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+}
+@media (max-width: 900px) {
+  .kanban.qk { grid-template-columns: minmax(0, 1fr); }
+  .quest-add { flex-wrap: wrap; }
+  .quest-add .input.bare { flex-basis: 100%; }
+}

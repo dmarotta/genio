@@ -39,7 +39,7 @@ Vocabulary is gaming, not nautical: see [VOCABULARY.md](VOCABULARY.md).
 | `fm-control` interrupt/exit/relaunch | `crew.control()` | INTERRUPT / RECALL / RESPAWN |
 | `fm-watch` wakes | `supervisor.ts` (overwatch) + durable `wakes.ts` | KILLFEED |
 | backlog + holds | `backlog.ts` | QUEST LOG |
-| keyed decisions / captain holds | `decisions.ts` + held quests | Pending answers / QUEST LOG |
+| keyed decisions / captain holds | `decisions.ts` + quests waiting for the player | Pending answers / QUEST LOG |
 | project registry, modes, +yolo | `projects.ts` | PROJECTS |
 | no-mistakes pipeline | `gauntlet.ts` | GAUNTLET |
 | `fm-pr-merge` / `fm-merge-local` / `fm-teardown` | `crew.merge()` / `crew.cleanup()` | MERGE / DESPAWN |
@@ -188,8 +188,8 @@ running; confirmation stops that project's terminals and preserves its worktrees
 
 The standalone Your Move page has been removed. Pending choices appear in a
 non-modal answer panel beside the current screen; the title-bar count and desktop
-notifications reveal it without navigating away. Ready merges remain in Squad; completed units leave the active roster. Held
-quests remain in Quests. Existing `move` notification targets reveal the answer panel.
+notifications reveal it without navigating away. Ready merges remain in Squad; completed units leave the active roster for the Quest log's Done
+column; quests waiting for the player stay in its Queued column. Existing `move` notification targets reveal the answer panel.
 
 
 Choices retain their project and conversation ownership while a project is closed.

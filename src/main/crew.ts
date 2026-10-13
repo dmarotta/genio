@@ -22,6 +22,7 @@ import { relaunchPolicy } from './relaunch-policy'
 import { approvalModel, unitModel, UNIT_MODEL_APPROVAL_REASON } from '@shared/unit-model-policy'
 import { modeLabel } from '@shared/vocab'
 import { cheapModelsAllowed } from '@shared/dispatch'
+import { questOrder } from '@shared/quest-board'
 import { defaultShell } from './terminals'
 import { getSecret } from './secrets'
 import { installUnitHooks } from './unithooks'
@@ -99,6 +100,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       // scorecard: a unit that never launched says nothing about its tool
       const launched = Boolean(prev.terminalId || next.terminalId || next.relaunches)
       if (ENDED.includes(next.state) && (next.state !== 'failed' || launched)) safe(() => getCtx().dispatch.record(next))
+      // the quest follows its unit: landed, delivered or despawned closes it
+      if (next.backlogId) safe(() => hc().backlog.followUnit(next))
     }
     return next
   }
@@ -776,8 +779,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       if (repo && (await git.branchExists(repo, t.branch))) {
         await git.deleteBranch(repo, t.branch, t.kind === 'scout' || force)
       }
+      // update() closes the quest this unit was flying (followUnit); a re-queued follow-up stays queued
       update(id, { state: 'cleaned', cleanedAt: nowIso(), terminalId: undefined, stateReason: `despawned: ${via}` })
-      if (t.backlogId) safe(() => hc().backlog.markDone(t.backlogId!, t.pr?.url ?? t.stateReason ?? via))
       ledger('task.cleaned_up', t, { via })
       safe(() => ctx.stats.award('cleanup', id))
       return { ok: true, message: `Despawned ${id} (${via}).` }
@@ -955,14 +958,15 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         }
       }
       const backlog = hc().backlog
-      const queued = backlog.list().filter((b) => b.state === 'queued' || b.state === 'held' || b.state === 'blocked')
-      lines.push('', '## Quest Log (queued)')
+      const queued = backlog.list().filter((b) => b.state === 'queued' || b.state === 'blocked').sort(questOrder)
+      lines.push('', '## Quest Log (queued, in dispatch order)')
       if (!queued.length) lines.push('(nothing queued)')
       else {
-        lines.push('| ID | Title | Project | Kind | Blocked by | Hold |')
-        lines.push('|---|---|---|---|---|---|')
+        lines.push('| ID | Title | Project | Kind | Priority | Blocked by | Waiting for the player |')
+        lines.push('|---|---|---|---|---|---|---|')
         for (const b of queued) {
-          lines.push(`| ${b.id} | ${b.title} | ${b.project ?? '-'} | ${b.kind} | ${b.dependsOn.join(', ') || '-'} | ${b.hold ? `${backlog.bucket(b)}: ${b.hold.reason}${b.hold.until ? ` until ${b.hold.until}` : ''}` : '-'} |`)
+          const waits = b.hold ? `${backlog.bucket(b)}: ${b.hold.reason}${b.hold.until ? ` until ${b.hold.until}` : ''}` : b.duplicateOf ? `duplicate of ${b.duplicateOf}?` : '-'
+          lines.push(`| ${b.id} | ${b.title} | ${b.project ?? '-'} | ${b.kind} | ${b.priority}${b.rank ? ` #${b.rank}` : ''} | ${b.dependsOn.join(', ') || '-'} | ${waits} |`)
         }
       }
       const done = tasks.filter((t) => t.state === 'cleaned').slice(-10)

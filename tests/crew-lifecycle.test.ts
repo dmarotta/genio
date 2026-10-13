@@ -92,6 +92,21 @@ describe('non-destructive lifecycle recovery', () => {
     expect(release).toHaveBeenCalledOnce()
   })
 
+  it('moves the quest with its unit: every state change reaches the quest log, which closes it on landing', async () => {
+    const { createBacklogService } = await import('../src/main/backlog')
+    ;(ctx.main as any).backlog = createBacklogService(() => ctx, home)
+    ;(ctx as any).ledger = { record: () => undefined }
+    const quest = ctx.main.backlog.add({ title: 'Ship it', project: 'world' })
+    ctx.main.backlog.markInFlight(quest.id, task.id)
+    ctx.main.crew.update(task.id, { backlogId: quest.id })
+    ctx.main.crew.update(task.id, { state: 'ready' })
+    expect(ctx.main.backlog.get(quest.id)?.state).toBe('in-flight')
+    ctx.main.crew.update(task.id, { state: 'failed' })
+    expect(ctx.main.backlog.get(quest.id)?.state).toBe('in-flight')
+    ctx.main.crew.update(task.id, { state: 'merged', landedAt: '2026-10-13T12:00:00.000Z', pr: { url: 'https://example.com/pull/9' } })
+    expect(ctx.main.backlog.get(quest.id)).toMatchObject({ state: 'done', outcome: 'https://example.com/pull/9' })
+  })
+
   it('holds automatic repeats but lets chat and UI deliberately restart without approval text', async () => {
     const crew = ctx.main.crew
     expect((await crew.control(task.id, 'relaunch')).ok).toBe(false)
