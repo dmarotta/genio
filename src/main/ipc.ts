@@ -10,6 +10,7 @@ import { listAccounts, openAccountSession } from './accounts'
 import { answerChoice, findDecision, findTask } from './wksp-tools'
 import { resolveLoadout } from './loadout'
 import { clearSecret, secretStatus, setSecret } from './secrets'
+import { usageReport } from './usage'
 import { isSubPath } from './util'
 import type { AppCtx, HomeCtx } from './services'
 
@@ -53,6 +54,7 @@ export function registerIpc(getCtx: () => AppCtx): void {
     // ---- accounts
     accounts: () => listAccounts(),
     accountSession: (tool, action) => openAccountSession(ctx(), tool, action),
+    accountUsage: () => usageReport(ctx()),
     apiKeys: () => secretStatus(ctx().main.home.data),
     apiKeySet: (id, key) => {
       setSecret(id, key, ctx().main.home.data)

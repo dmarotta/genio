@@ -82,6 +82,89 @@ export interface AccountStatus {
   note?: string
 }
 
+/**
+ * Which session buttons an account row shows: only Log in when logged out, only Log out
+ * when logged in, and both when the state could not be read.
+ */
+export function accountActions(a: Pick<AccountStatus, 'installed' | 'state' | 'canLogin' | 'canLogout'>): { login: boolean; logout: boolean } {
+  if (!a.installed) return { login: false, logout: false }
+  return {
+    login: a.canLogin && a.state !== 'logged-in',
+    logout: a.canLogout && a.state !== 'logged-out'
+  }
+}
+
+/** One plan rate-limit window as the tool itself reported it. */
+export interface UsageWindow {
+  /** e.g. "5-hour", "weekly", "weekly (Opus)" */
+  label: string
+  /** 0-100; absent when the tool reported only a status */
+  usedPercent?: number
+  /** 'allowed' | 'allowed_warning' | 'rejected' (Claude Code only) */
+  status?: string
+  resetsAt?: string
+  /** the reset time has passed since this snapshot: the figure is out of date */
+  stale?: boolean
+}
+
+/** Plan / rate-limit status reported by the tool (never estimated by Genio). */
+export interface UsageLimits {
+  /** e.g. "reported by Codex" */
+  source: string
+  /** when the tool reported it */
+  updatedAt: string
+  /** limit bucket name when the tool has several (e.g. a model-specific limit) */
+  name?: string
+  plan?: string
+  windows: UsageWindow[]
+}
+
+export interface TokenTally {
+  /** uncached input (including cache writes) */
+  input: number
+  /** cache reads */
+  cached: number
+  output: number
+  total: number
+  sessions: number
+}
+
+/** Tokens Genio counted from the local session logs of its own units and chats. */
+export interface MeasuredUsage {
+  source: string
+  updatedAt: string
+  /** what was counted, e.g. "Genio units and chats (sessions under ~/.genio)" */
+  scope: string
+  today: TokenTally
+  week: TokenTally
+}
+
+export interface ToolUsage {
+  tool: string
+  limits: UsageLimits[]
+  measured?: MeasuredUsage
+  /** where Genio looked when it found nothing to report */
+  note?: string
+  error?: string
+}
+
+export interface FalSpend {
+  source: string
+  updatedAt: string
+  todayUsd: number
+  weekUsd: number
+  /** runs in the last 7 days, and how many of them have a cost recorded */
+  runs: number
+  costed: number
+}
+
+/** Systems → Accounts usage panel. Built from status output and local logs only. */
+export interface UsageReport {
+  generatedAt: string
+  tools: ToolUsage[]
+  fal: FalSpend
+}
+
 /** An API-key service; the key itself never crosses to the renderer. */
 export interface ApiKeyStatus {
   id: string
@@ -175,6 +258,8 @@ export interface GenioApi {
   accounts(): Promise<AccountStatus[]>
   /** runs the tool's own login/logout in a visible terminal */
   accountSession(tool: string, action: 'login' | 'logout'): Promise<TerminalInfo>
+  /** plan limits reported by the CLIs plus usage Genio measured from local session logs */
+  accountUsage(): Promise<UsageReport>
   apiKeys(): Promise<ApiKeyStatus[]>
   apiKeySet(id: string, key: string): Promise<OpResult>
   apiKeyClear(id: string): Promise<OpResult>
@@ -274,6 +359,7 @@ export const API_METHODS = [
   'openExternal',
   'accounts',
   'accountSession',
+  'accountUsage',
   'apiKeys',
   'apiKeySet',
   'apiKeyClear',

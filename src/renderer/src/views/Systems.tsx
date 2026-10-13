@@ -1,12 +1,12 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
-import { Copy, Download, KeyRound, LogIn, LogOut, Plus, RefreshCw, Trash, TriangleAlert, Users, Wrench, X } from 'lucide-react'
+import { Fragment, useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import { ChevronDown, ChevronRight, Copy, Download, KeyRound, LogIn, LogOut, Plus, RefreshCw, Trash, TriangleAlert, Users, Wrench, X } from 'lucide-react'
 import type { DispatchRule, EventSource, HarnessAdapter, Settings, ToolStatus, UpdateInfo } from '@shared/types'
-import type { AccountStatus, ApiKeyStatus } from '@shared/api'
+import { accountActions, type AccountStatus, type ApiKeyStatus, type FalSpend, type ToolUsage, type UsageReport } from '@shared/api'
 import { api, errText, op, saveSettings, toast, useStore } from '../store'
 import { CommitInput, Confirm, Field, Toggle, ViewHeader } from '../components/ui'
 import { TerminalView } from '../components/Terminal'
 import { EFFORTS, MODEL_SUGGESTIONS } from '../lib/vocab'
-import { cx, dateShort } from '../lib/format'
+import { ago, clock, cx, dateShort, usd } from '../lib/format'
 import { playSfx } from '../lib/sfx'
 
 type Section =
@@ -703,7 +703,10 @@ function Accounts() {
   const [keys, setKeys] = useState<ApiKeyStatus[]>([])
   const [session, setSession] = useState<string | null>(null)
   const [logout, setLogout] = useState<AccountStatus | null>(null)
+  const [usage, setUsage] = useState<UsageReport | null>(null)
+  const [open, setOpen] = useState<Record<string, boolean>>({})
   const sessionTerm = useStore((s) => (session ? s.terminals[session] : undefined))
+  // read on opening the screen and on Refresh only: no background polling
   const load = (): void => {
     setAccounts(null)
     void api().accounts().then(setAccounts).catch((e) => {
@@ -711,6 +714,10 @@ function Accounts() {
       setAccounts([])
     })
     void api().apiKeys().then(setKeys).catch(() => setKeys([]))
+    void api()
+      .accountUsage()
+      .then(setUsage)
+      .catch((e) => toast('error', 'Usage check failed', errText(e)))
   }
   useEffect(load, [])
   // the login/logout flow finished: re-read every status
@@ -739,7 +746,7 @@ function Accounts() {
           <RefreshCw size={12} /> Refresh
         </button>
       </h2>
-      <p className="mute">Sign in to the CLIs Genio and its units drive. Each login runs the tool's own flow; the tool keeps its credentials and Genio never reads them.</p>
+      <p className="mute">Sign in to the CLIs Genio and its units drive. Each login runs the tool's own flow; the tool keeps its credentials and Genio never reads them. Usage comes from what each tool reports and from local session logs.</p>
       {!accounts && (
         <div className="bar indeterminate">
           <i />
@@ -748,6 +755,8 @@ function Accounts() {
       <div className="tool-list account-list">
         {accounts?.map((a) => {
           const st = LOGIN_LABEL[a.state]
+          const actions = accountActions(a)
+          const u = a.installed ? usage?.tools.find((t) => t.tool === a.tool) : undefined
           return (
             <div key={a.tool} className="tool-row account-row">
               <span className="dot" style={{ ['--c' as string]: !a.installed ? 'var(--text-mute)' : a.state === 'logged-in' ? 'var(--volt)' : a.state === 'logged-out' ? 'var(--amber)' : 'var(--text-dim)' }} />
@@ -762,7 +771,14 @@ function Accounts() {
                   )}
                 </div>
                 {a.installed ? (
-                  <div className="mute tool-purpose">{a.detail ?? a.note ?? a.purpose}</div>
+                  <>
+                    <div className="mute tool-purpose">{a.detail ?? a.note ?? a.purpose}</div>
+                    {u && (
+                      <button className="usage-toggle mono" title="Plan limits and token usage" onClick={() => setOpen((o) => ({ ...o, [a.tool]: !o[a.tool] }))}>
+                        {open[a.tool] ? <ChevronDown size={11} /> : <ChevronRight size={11} />} Usage · {usageSummary(u)}
+                      </button>
+                    )}
+                  </>
                 ) : (
                   <div className="mute tool-purpose">
                     not installed{a.install && <> · <span className="mono selectable">{a.install}</span></>}
@@ -771,17 +787,18 @@ function Accounts() {
               </div>
               {a.installed ? <span className={cx('chip', st.tone)}>{st.text}</span> : <span />}
               <div className="row account-actions">
-                {a.installed && a.canLogin && (
+                {actions.login && (
                   <button className="btn sm" onClick={() => void start(a, 'login')}>
                     <LogIn size={12} /> Log in
                   </button>
                 )}
-                {a.installed && a.canLogout && (
-                  <button className="btn sm ghost" disabled={a.state === 'logged-out'} onClick={() => setLogout(a)}>
+                {actions.logout && (
+                  <button className="btn sm ghost" onClick={() => setLogout(a)}>
                     <LogOut size={12} /> Log out
                   </button>
                 )}
               </div>
+              {u && open[a.tool] && <UsageDetails u={u} />}
             </div>
           )
         })}
@@ -806,7 +823,7 @@ function Accounts() {
       </div>
       <p className="mute">For services without a CLI login. Keys are encrypted with your OS keychain and stay in Genio's base; Genio shows only whether one is set. Not passed to units yet.</p>
       {keys.map((k) => (
-        <ApiKeyRow key={k.id} k={k} onChange={() => void api().apiKeys().then(setKeys).catch(() => undefined)} />
+        <ApiKeyRow key={k.id} k={k} spend={k.id === 'fal' ? usage?.fal : undefined} onChange={() => void api().apiKeys().then(setKeys).catch(() => undefined)} />
       ))}
       {logout && (
         <Confirm
@@ -822,7 +839,95 @@ function Accounts() {
   )
 }
 
-function ApiKeyRow({ k, onChange }: { k: ApiKeyStatus; onChange: () => void }) {
+const tokens = (n: number): string => (n < 1000 ? String(n) : n < 1e6 ? `${(n / 1e3).toFixed(1)}k` : n < 1e9 ? `${(n / 1e6).toFixed(1)}M` : `${(n / 1e9).toFixed(2)}B`)
+const pct = (n: number): string => `${Math.round(n)}%`
+const resetTime = (iso: string): string => new Date(iso).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })
+
+/** One line for the collapsed row: current plan windows, else what Genio measured today. */
+function usageSummary(u: ToolUsage): string {
+  if (u.error) return 'could not read'
+  const live = (u.limits[0]?.windows ?? []).filter((w) => !w.stale && (w.usedPercent !== undefined || w.status === 'rejected'))
+  const parts = live.map((w) => `${w.label} ${w.usedPercent !== undefined ? pct(w.usedPercent) : 'limit reached'}`)
+  if (u.measured) parts.push(`Genio today ${tokens(u.measured.today.total)} tok`)
+  return parts.join(' · ') || 'details'
+}
+
+function UsageDetails({ u }: { u: ToolUsage }) {
+  return (
+    <div className="account-usage">
+      {u.error && <div className="alert-text">Could not read usage: {u.error}</div>}
+      {u.limits.map((l, i) => (
+        <div key={i} className="usage-block">
+          <div className="usage-head">
+            <b>{l.name ? `Plan limits · ${l.name}` : 'Plan limits'}</b>
+            {l.plan && <span className="chip">{l.plan}</span>}
+            <span className="mute">
+              {l.source} · updated {ago(l.updatedAt)} ago
+            </span>
+          </div>
+          {l.windows.map((w) => (
+            <div key={w.label} className={cx('usage-window', w.stale && 'stale')}>
+              <span className="mono">{w.label}</span>
+              {w.usedPercent !== undefined ? (
+                <div className="bar" title={`${w.usedPercent}% used`}>
+                  <i style={{ width: `${Math.min(100, w.usedPercent)}%`, ['--c' as string]: w.usedPercent >= 90 ? 'var(--alert)' : w.usedPercent >= 70 ? 'var(--amber)' : 'var(--volt)' }} />
+                </div>
+              ) : (
+                <span className="mute">{w.status === 'rejected' ? 'limit reached' : w.status === 'allowed_warning' ? 'nearing the limit' : 'within the limit'}</span>
+              )}
+              <span className="mono">{w.usedPercent !== undefined ? pct(w.usedPercent) : ''}</span>
+              <span className="mute">{w.resetsAt ? (w.stale ? `reset ${resetTime(w.resetsAt)}; no newer snapshot` : `resets ${resetTime(w.resetsAt)}`) : ''}</span>
+            </div>
+          ))}
+        </div>
+      ))}
+      {u.note && <div className="mute">{u.note}</div>}
+      {u.measured && (
+        <div className="usage-block">
+          <div className="usage-head">
+            <b>Tokens</b>
+            <span className="mute">
+              {u.measured.source} · {u.measured.scope} · updated {clock(u.measured.updatedAt)}
+            </span>
+          </div>
+          <div className="usage-tokens mono">
+            <span />
+            <span className="mute">total</span>
+            <span className="mute">input</span>
+            <span className="mute">cache read</span>
+            <span className="mute">output</span>
+            <span className="mute">sessions</span>
+            {(
+              [
+                ['today', u.measured.today],
+                ['7 days', u.measured.week]
+              ] as const
+            ).map(([label, t]) => (
+              <Fragment key={label}>
+                <span className="mute">{label}</span>
+                <b>{tokens(t.total)}</b>
+                <span>{tokens(t.input)}</span>
+                <span>{tokens(t.cached)}</span>
+                <span>{tokens(t.output)}</span>
+                <span>{t.sessions}</span>
+              </Fragment>
+            ))}
+          </div>
+          <div className="mute">Counted by Genio from local session logs; not the official plan figure.</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function falSpendLine(s: FalSpend): string {
+  if (!s.runs) return 'no FAL runs in the last 7 days'
+  if (!s.costed) return `${s.runs} run${s.runs === 1 ? '' : 's'} in 7 days; FAL reported no costs`
+  const partial = s.costed < s.runs ? ` (${s.costed} of ${s.runs} runs costed)` : ''
+  return `spend today ${usd(s.todayUsd)} · 7 days ${usd(s.weekUsd)}${partial} · ${s.source}`
+}
+
+function ApiKeyRow({ k, spend, onChange }: { k: ApiKeyStatus; spend?: FalSpend; onChange: () => void }) {
   const [v, setV] = useState('')
   const [clear, setClear] = useState(false)
   const save = async (): Promise<void> => {
@@ -839,6 +944,12 @@ function ApiKeyRow({ k, onChange }: { k: ApiKeyStatus; onChange: () => void }) {
           <br />
           <KeyRound size={11} style={{ verticalAlign: -1 }} /> {k.set ? <span className="volt-text">key set{k.last4 ? ` · ••••${k.last4}` : ''}</span> : 'no key'}
           {k.set && k.setAt && <> · {dateShort(k.setAt)}</>}
+          {spend && (
+            <>
+              <br />
+              {falSpendLine(spend)}
+            </>
+          )}
         </>
       }
     >

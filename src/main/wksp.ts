@@ -21,6 +21,7 @@ import {
   statusPrompt
 } from './prompts'
 import type { AppCtx, WkspService } from './services'
+import { claudeLimitsFile, recordClaudeRateLimit, type ClaudeRateLimitInfo } from './usage'
 import { appendJsonl, nowIso, readJson, readJsonl, readText, rid, truncate, writeJson } from './util'
 
 type Sdk = typeof import('@anthropic-ai/claude-agent-sdk')
@@ -160,6 +161,7 @@ interface SessionHooks {
   onTurnEnd(item: TurnItem | undefined, ok: boolean, lastText: string, costDelta: number): void
   onSessionId(id: string): void
   onError(text: string): void
+  onRateLimit(info: ClaudeRateLimitInfo): void
 }
 
 /** One SDK conversation (Genio or the Bot). */
@@ -421,7 +423,8 @@ class AgentSession {
         return
       }
       case 'rate_limit_event': {
-        const info = (m as { rate_limit_info?: { status?: string; resetsAt?: number } }).rate_limit_info
+        const info = (m as { rate_limit_info?: ClaudeRateLimitInfo }).rate_limit_info
+        if (info) this.hooks.onRateLimit(info)
         if (info?.status === 'rejected') {
           const when = info.resetsAt ? new Date(info.resetsAt * 1000).toLocaleTimeString() : 'later'
           this.hooks.onError(`Usage limit reached; Genio can act again around ${when}.`)
@@ -574,6 +577,9 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
 
   // ---------------------------------------------------------- sessions
 
+  // plan limits are per account: every base records into the main base (Systems → Accounts)
+  const rateLimit = (rl: ClaudeRateLimitInfo): void => safe(() => recordClaudeRateLimit(claudeLimitsFile(getCtx().main.home.data), rl))
+
   const genio = new AgentSession(
     'genio',
     (resume) => buildOptions('genio', resume),
@@ -616,7 +622,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
         info.lastError = text
         say(text, 'error')
         bus.publish({ type: 'sfx', sound: 'error' })
-      }
+      },
+      onRateLimit: rateLimit
     },
     name,
     () => sessionConfig('genio', settings(), ally)
@@ -659,7 +666,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
         onError(text) {
           appendJsonl(botFile, { ts: nowIso(), error: text })
           if (getCtx().away.state().mode === 'afk') safe(() => getCtx().away.capture({ wksp: name, text: `The Bot hit a problem: ${text}`, severity: 'failure' }))
-        }
+        },
+        onRateLimit: rateLimit
       },
       name,
       () => sessionConfig('bot', settings())

@@ -1,7 +1,28 @@
 import { describe, expect, it } from 'vitest'
+import { accountActions } from '@shared/api'
 import {
   parseClaudeAuth, parseCodexLogin, parseCursorStatus, parseGhAuth, parseGlabAuth, parseOpencodeAuth, scrubDetail
 } from '../src/main/accounts'
+
+describe('accountActions', () => {
+  const row = { installed: true, canLogin: true, canLogout: true }
+
+  it('shows only Log in when logged out and only Log out when logged in', () => {
+    expect(accountActions({ ...row, state: 'logged-out' })).toEqual({ login: true, logout: false })
+    expect(accountActions({ ...row, state: 'logged-in' })).toEqual({ login: false, logout: true })
+  })
+
+  it('shows both when the state is unknown', () => {
+    expect(accountActions({ ...row, state: 'unknown' })).toEqual({ login: true, logout: true })
+  })
+
+  it('respects missing commands and missing installs', () => {
+    // Gemini CLI: no status or logout command, so only Log in
+    expect(accountActions({ ...row, canLogout: false, state: 'unknown' })).toEqual({ login: true, logout: false })
+    expect(accountActions({ ...row, canLogout: false, state: 'logged-in' })).toEqual({ login: false, logout: false })
+    expect(accountActions({ ...row, installed: false, state: 'unknown' })).toEqual({ login: false, logout: false })
+  })
+})
 
 describe('parseClaudeAuth', () => {
   it('reads the JSON status', () => {
