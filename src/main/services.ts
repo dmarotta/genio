@@ -140,6 +140,7 @@ export interface StatsService {
   get(): FleetStats
   /** award xp for an event; unlocks achievements; publishes stats */
   award(event: 'spawn' | 'ship' | 'merge' | 'scout' | 'decision' | 'cleanup' | 'save', taskId?: string): void
+  /** Chat, Bot and review SDK estimates only; excludes units and subscription charges. */
   addCost(usd: number): void
   unlock(id: string): Achievement | undefined
 }

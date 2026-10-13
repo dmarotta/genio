@@ -102,6 +102,23 @@ describe('durable session policy', () => {
     expect(policy.notice('main', 'Usage limit reached')).toBe(true)
   })
 
+  it('only the reserved foreground probe can confirm recovery; another running turn cannot release it', () => {
+    const policy = new SessionQuotaPolicy(dir)
+    policy.observe({ status: 'rejected', rateLimitType: 'five_hour', resetsAt: now / 1000 }, now - 1000)
+    expect(policy.canStart(true, now, true, 'main:genio')).toBe(true)
+    policy.succeeded('other:genio')
+    expect(policy.canStart(true, now + 1)).toBe(false)
+    policy.succeeded('main:genio')
+    expect(policy.canStart(true, now + 2)).toBe(true)
+  })
+
+  it('accepts newer provider evidence persisted by another process without resetting the session', () => {
+    const policy = new SessionQuotaPolicy(dir)
+    policy.observe({ status: 'rejected', rateLimitType: 'five_hour' }, now - 1000)
+    recordClaudeRateLimit(claudeLimitsFile(dir), { status: 'allowed', rateLimitType: 'five_hour', utilization: 0.1 })
+    expect(new SessionQuotaPolicy(dir).canStart(false)).toBe(true)
+  })
+
   it('migrates rejection snapshots and does not let a cold different window clear them', () => {
     recordClaudeRateLimit(claudeLimitsFile(dir), { status: 'rejected', rateLimitType: 'seven_day', resetsAt: (now + 3600_000) / 1000 })
     const policy = new SessionQuotaPolicy(dir)

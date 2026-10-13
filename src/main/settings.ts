@@ -30,7 +30,7 @@ export function defaultSettings(): Settings {
     signalGraceSeconds: 30,
     inboxGraceSeconds: 90,
     inboxRingMax: 3,
-    maxRelaunches: 3,
+    maxRelaunches: 1,
     reviewModel: '',
     validationMaxRounds: 3,
     autoDispatchQueued: false,

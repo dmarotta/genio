@@ -18,7 +18,7 @@ import type { FalRun, FalSpend, MeasuredUsage, TokenTally, ToolUsage, UsageLimit
 import { FalHistory } from './fal-history'
 import { expireWindow, type QuotaWindow } from './quota-policy'
 import type { AppCtx } from './services'
-import { isSubPath, nowIso, readJson, writeJson } from './util'
+import { isSubPath, nowIso, readJson, writeJsonAtomic } from './util'
 
 const DAY = 86_400_000
 
@@ -293,7 +293,7 @@ export function claudeLimits(file: ClaudeLimitsFile | undefined, now = Date.now(
 export function recordClaudeRateLimit(file: string, info: ClaudeRateLimitInfo): void {
   const cur = readJson<ClaudeLimitsFile>(file, { windows: {} })
   const next = mergeClaudeRateLimit({ windows: obj(cur.windows) ? cur.windows : {} }, info)
-  if (next) writeJson(file, next)
+  if (next) writeJsonAtomic(file, next)
 }
 
 export const claudeLimitsFile = (dataDir: string): string => path.join(dataDir, 'usage', 'claude-limits.json')

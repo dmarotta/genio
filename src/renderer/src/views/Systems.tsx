@@ -244,8 +244,8 @@ function SectionBody({ sec, s }: { sec: Section; s: Settings }) {
           <Row label="Shell" hint="For Shell sessions and playtests.">
             <CommitInput mono value={s.shell} onCommit={(v) => set({ shell: v.trim() })} />
           </Row>
-          <Row label="Max respawns" hint="Automatic respawn attempts per unit.">
-            <CommitInput type="number" value={s.maxRelaunches} onCommit={(v) => set({ maxRelaunches: num(v) })} />
+          <Row label="Automatic respawns" hint="One attempt, then the unit waits for a manual Respawn from Squad.">
+            <span className="mono">1</span>
           </Row>
           <Row label="Strip AI commit trailers">
             <Toggle checked={s.stripAiTrailers} onChange={(v) => set({ stripAiTrailers: v })} />
@@ -1054,17 +1054,17 @@ function UsageDetails({ u }: { u: ToolUsage }) {
             </span>
           </div>
           {l.windows.map((w) => (
-            <div key={w.label} className={cx('usage-window', w.stale && 'stale')}>
+            <div key={w.label} className={cx('usage-window', w.stale && 'stale')} title={w.observedAt ? `Observed ${ago(w.observedAt)} ago` : 'Observation time unknown'}>
               <span className="mono">{w.label}</span>
               {w.usedPercent !== undefined ? (
                 <div className="bar" title={`${w.usedPercent}% used`}>
                   <i style={{ width: `${Math.min(100, w.usedPercent)}%`, ['--c' as string]: w.usedPercent >= 90 ? 'var(--alert)' : w.usedPercent >= 70 ? 'var(--amber)' : 'var(--volt)' }} />
                 </div>
               ) : (
-                <span className="mute">{w.status === 'rejected' ? 'limit reached' : w.status === 'allowed_warning' ? 'nearing the limit' : 'within the limit'}</span>
+                <span className="mute">{w.stale ? 'unknown (old observation)' : w.status === 'rejected' ? 'limit reached' : w.status === 'allowed_warning' ? 'nearing the limit' : w.status === 'allowed' ? 'within the limit' : 'unknown'}</span>
               )}
               <span className="mono">{w.usedPercent !== undefined ? pct(w.usedPercent) : ''}</span>
-              <span className="mute">{w.resetsAt ? (w.stale ? `reset ${resetTime(w.resetsAt)}; no newer snapshot` : `resets ${resetTime(w.resetsAt)}`) : ''}</span>
+              <span className="mute">{w.resetsAt ? (Date.parse(w.resetsAt) <= Date.now() ? `reset ${resetTime(w.resetsAt)}; no newer snapshot` : `resets ${resetTime(w.resetsAt)}`) : ''}</span>
             </div>
           ))}
         </div>

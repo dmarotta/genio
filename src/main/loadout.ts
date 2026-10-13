@@ -280,7 +280,7 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
       const before = reasons.length
       const pick = walk(ordered, label)
       if (pick) {
-          let chosen = pick
+        let chosen = pick
         const eligible = ordered.filter((o) => usable(o.c.harness) && explorationSafe(env.quota?.[o.c.harness]) && (!o.c.cheap || env.cheap?.allowed))
         const rate = Math.max(0, Math.min(1, s.explorationRate ?? 0))
         const canExplore = rate > 0 && eligible.includes(pick) && eligible.length >= 2 && !explicitModel && !explicitEffort && input.priority !== 'critical'

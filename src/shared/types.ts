@@ -537,6 +537,7 @@ export interface Settings {
   signalGraceSeconds: number
   inboxGraceSeconds: number
   inboxRingMax: number
+  /** Legacy stored preference; automatic relaunches now have a hard cap of one. */
   maxRelaunches: number
   /** reviewer model for the Gauntlet (no-mistakes validation pipeline) */
   reviewModel: string

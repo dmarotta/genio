@@ -198,6 +198,13 @@ export function writeJson(p: string, data: unknown): void {
   writeText(p, JSON.stringify(data, null, 2) + '\n')
 }
 
+/** Replace a durable checkpoint without exposing a partially written JSON file. */
+export function writeJsonAtomic(p: string, data: unknown): void {
+  const temp = `${p}.tmp`
+  writeJson(temp, data)
+  fs.renameSync(temp, p)
+}
+
 export function readJsonl<T>(p: string): T[] {
   const txt = readText(p)
   const out: T[] = []

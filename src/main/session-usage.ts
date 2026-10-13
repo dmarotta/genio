@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { readJson, writeJson } from './util'
+import { readJson, writeJsonAtomic } from './util'
 import { claudeLimits, claudeLimitsFile, type ClaudeLimitsFile, type ClaudeRateLimitInfo } from './usage'
 import { isClaudeLimit } from './claude-limit'
 
@@ -24,9 +24,19 @@ export class SessionQuotaPolicy {
     // Also migrate previously recorded SDK rejections, including after an app restart.
     const limits = readJson<ClaudeLimitsFile>(claudeLimitsFile(this.data), { windows: {} })
     for (const [key, w] of Object.entries(limits.windows ?? {})) {
+      const observed = Date.parse(w.observedAt ?? w.updatedAt)
+      if (w.status === 'allowed' || w.status === 'allowed_warning') {
+        for (const candidate of [key, 'error']) {
+          if (state.rejections[candidate] && observed > state.rejections[candidate].at) delete state.rejections[candidate]
+        }
+      }
       if (w.status === 'rejected' && !state.rejections[key] && !(Date.parse(w.observedAt ?? w.updatedAt) <= (state.acceptedAt ?? 0))) state.rejections[key] = {
         at: Date.parse(w.observedAt ?? w.updatedAt), reset: w.resetsAt ? w.resetsAt * 1000 : undefined
       }
+    }
+    if (!Object.keys(state.rejections).length) {
+      state.probeAt = undefined
+      state.probeOwner = undefined
     }
     return state
   }
@@ -36,7 +46,7 @@ export class SessionQuotaPolicy {
     const key = info.rateLimitType || 'unspecified'
     if (info.status === 'rejected') {
       const reset = info.resetsAt ? info.resetsAt * 1000 : state.rejections[key]?.reset
-      state.rejections[key] = { at: state.rejections[key]?.at ?? now, reset }
+      state.rejections[key] = { at: now, reset }
     } else if (info.status === 'allowed' || info.status === 'allowed_warning') {
       delete state.rejections[key]
       delete state.rejections.error
@@ -46,14 +56,14 @@ export class SessionQuotaPolicy {
         state.notices = {}
       }
     }
-    writeJson(this.file, state)
+    writeJsonAtomic(this.file, state)
   }
 
   rejectError(text: string, now = Date.now()): void {
     if (!isQuotaError(text)) return
     const state = this.read()
     if (!Object.keys(state.rejections).length) state.rejections.error = { at: now }
-    writeJson(this.file, state)
+    writeJsonAtomic(this.file, state)
   }
 
   canStart(player: boolean, now = Date.now(), claim = true, owner = 'foreground'): boolean {
@@ -62,7 +72,7 @@ export class SessionQuotaPolicy {
     if (rejections.length) {
       if (!player || state.probeAt !== undefined || rejections.some((r) => !r.reset || r.reset > now)) return false
       // After reset only one explicit foreground probe across all sessions is allowed.
-      if (claim) { state.probeAt = now; state.probeOwner = owner; writeJson(this.file, state) }
+      if (claim) { state.probeAt = now; state.probeOwner = owner; writeJsonAtomic(this.file, state) }
       return true
     }
     if (!player) {
@@ -88,7 +98,7 @@ export class SessionQuotaPolicy {
     const seen = state.notices[channel] ?? []
     if (seen.includes(key)) return false
     state.notices[channel] = [...seen, key].slice(-100)
-    writeJson(this.file, state)
+    writeJsonAtomic(this.file, state)
     return true
   }
 
@@ -103,7 +113,7 @@ export class SessionQuotaPolicy {
       state.probeAt = undefined
       state.probeOwner = undefined
     }
-    writeJson(this.file, state)
+    writeJsonAtomic(this.file, state)
   }
 }
 
@@ -129,7 +139,7 @@ export class SessionCostLedger {
     }
     if (result) epoch.results.push(result)
     state.sessions[session] = epoch
-    writeJson(this.file, state)
+    writeJsonAtomic(this.file, state)
     return { duplicate: false, delta }
   }
 }
