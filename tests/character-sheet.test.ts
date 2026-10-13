@@ -2,15 +2,20 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import type { BacklogItem } from '../src/shared/types'
+import type { BacklogItem, LedgerRecord } from '../src/shared/types'
 
 const fixture = vi.hoisted(() => ({
-  backlog: [] as Partial<BacklogItem>[], go: vi.fn(),
-  stats: { level: 3, xp: 40, xpNext: 100, shippedToday: 1, shippedTotal: 5, scoutsTotal: 2, streakDays: 7,
-    achievements: [{ id: 'on-a-roll', name: 'On a Roll', description: 'Play 7 days in a row.', unlockedAt: '2026-10-13' }] }
+  backlog: [] as Partial<BacklogItem>[], tasks: [], go: vi.fn(),
+  ledgerTail: vi.fn<() => Promise<LedgerRecord[]>>().mockResolvedValue([]),
+  stats: { level: 3, xp: 40, xpNext: 100, shippedToday: 1, shippedTotal: 5, scoutsTotal: 2, streakDays: 7, costTodayUsd: 1.25,
+    achievements: [
+      { id: 'on-a-roll', name: 'On a Roll', description: 'Play 7 days in a row.', unlockedAt: '2026-10-13' },
+      { id: 'locked', name: 'Still to come', description: 'Keep playing.', unlockedAt: undefined }
+    ] }
 }))
 vi.mock('../src/renderer/src/store', () => ({
-  useStore: (selector: (s: unknown) => unknown) => selector({ snap: fixture }), go: fixture.go
+  useStore: (selector: (s: unknown) => unknown) => selector({ snap: fixture }), go: fixture.go,
+  api: () => ({ ledgerTail: fixture.ledgerTail })
 }))
 import { CharacterSheet } from '../src/renderer/src/views/CharacterSheet'
 import { ComingNext } from '../src/renderer/src/components/ComingNext'
@@ -27,10 +32,38 @@ afterEach(async () => {
   root = undefined; document.body.innerHTML = ''; vi.clearAllMocks()
 })
 
-it('shows RPG progress and achievements without operational reports, costs or replay', async () => {
+it('restores all RPG stats and achievements without task or queue reports', async () => {
   await mount(CharacterSheet)
-  for (const label of ['Character Sheet', '40 / 100 XP', 'Streak', 'Achievements', 'On a Roll']) expect(host.textContent).toContain(label)
-  for (const label of ['Your Move', 'Up Next', 'In Progress', 'Include PRs', 'File report', 'Refresh', 'Replay log', 'Chat/review']) expect(host.textContent).not.toContain(label)
+  for (const label of ['Character Sheet', '40 / 100 XP', 'Shipped today', 'Shipped total', 'Recons', 'Streak', '7d', 'Achievements', 'On a Roll', '1/2', 'Chat/review estimate today', '$1.25', 'Replay log']) expect(host.textContent).toContain(label)
+  for (const label of ['Your Move', 'Loot', 'Up Next', 'In Progress', 'Include PRs', 'File report']) expect(host.textContent).not.toContain(label)
+  expect(host.querySelector('.achv-tile.got')?.textContent).toContain('On a Roll')
+  expect(host.querySelector('.achv-tile.locked')?.textContent).toContain('Keep playing.')
+  expect(host.textContent).toContain('Enable the Replay log in Systems')
+})
+
+it('restores newest-first replay details and refreshes after fleet updates', async () => {
+  const records: LedgerRecord[] = [
+    { v: 1, home: 'test', ts: '2026-10-12T10:00:00Z', event: 'project.added', project: 'world' },
+    { v: 1, home: 'test', ts: '2026-10-13T10:00:00Z', event: 'task.merged', task: 'quest', data: { xp: 40 } }
+  ]
+  fixture.ledgerTail.mockResolvedValueOnce(records)
+  await mount(CharacterSheet)
+  expect(fixture.ledgerTail).toHaveBeenCalledWith(60)
+  const rows = host.querySelectorAll('.replay-row')
+  expect(rows[0].textContent).toContain('task.mergedquest{"xp":40}')
+  expect(rows[1].textContent).toContain('project.addedworld')
+  expect(records[0].event).toBe('project.added')
+  expect(host.textContent).toContain('Newest first')
+  fixture.tasks = [...fixture.tasks]
+  await act(async () => root!.render(React.createElement(CharacterSheet)))
+  expect(fixture.ledgerTail).toHaveBeenCalledTimes(2)
+})
+
+it('keeps the sheet usable when the replay request fails', async () => {
+  fixture.ledgerTail.mockRejectedValueOnce(new Error('Unavailable'))
+  await mount(CharacterSheet)
+  expect(host.textContent).toContain('40 / 100 XP')
+  expect(host.querySelectorAll('.replay-row')).toHaveLength(0)
 })
 
 it('counts the queued board column and opens Quests, including an empty queue', async () => {

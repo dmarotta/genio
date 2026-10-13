@@ -1,16 +1,29 @@
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Flame, Lock, Trophy } from 'lucide-react'
-import { useStore } from '../store'
+import type { LedgerRecord } from '@shared/types'
+import { api, useStore } from '../store'
 import { ViewHeader } from '../components/ui'
-import { cx, dateShort } from '../lib/format'
+import { clock, cx, dateShort, usd } from '../lib/format'
 
 export function CharacterSheet() {
   const stats = useStore((s) => s.snap.stats)
+  const tasks = useStore((s) => s.snap.tasks)
+  const [ledger, setLedger] = useState<LedgerRecord[]>([])
+
+  useEffect(() => {
+    let active = true
+    void api().ledgerTail(60).then((records) => {
+      if (active) setLedger(records.slice().reverse())
+    }).catch(() => {
+      if (active) setLedger([])
+    })
+    return () => { active = false }
+  }, [tasks])
   const pct = stats.xpNext ? Math.min(100, (stats.xp / stats.xpNext) * 100) : 0
   const unlocked = stats.achievements.filter((a) => a.unlockedAt).length
 
   return (
-    <div className="view">
+    <div className="view character-sheet">
       <ViewHeader kicker="Level, XP & achievements" title={<>Character <span className="accent">Sheet</span></>} />
 
       <div className="stats-row">
@@ -24,7 +37,7 @@ export function CharacterSheet() {
             </div>
             <div className="lv-meta">
               <div className="label">Level</div>
-              <div className="bar" style={{ ['--c' as string]: 'var(--volt)', width: 220, marginTop: 8 }}>
+              <div className="bar" style={{ ['--c' as string]: 'var(--volt)', marginTop: 8 }}>
                 <i style={{ width: `${pct}%` }} />
               </div>
               <div className="mute mono" style={{ marginTop: 6, fontSize: 12 }}>
@@ -37,6 +50,7 @@ export function CharacterSheet() {
             <Tile label="Shipped total" value={stats.shippedTotal} tone="neon" />
             <Tile label="Recons" value={stats.scoutsTotal} tone="violet" />
             <Tile label="Streak" value={`${stats.streakDays}d`} tone="amber" icon={<Flame size={14} />} />
+            <Tile label="Chat/review estimate today" value={usd(stats.costTodayUsd)} tone="mute" />
           </div>
         </section>
         <section className="panel achv-grid-card">
@@ -59,6 +73,24 @@ export function CharacterSheet() {
         </section>
       </div>
 
+      <section className="panel replay">
+        <header className="card-head">
+          <span className="label">Replay log</span>
+          <span className="mute" style={{ fontSize: 12 }}>
+            {ledger.length ? 'Newest first' : 'Enable the Replay log in Systems to record squad activity'}
+          </span>
+        </header>
+        <div className="replay-list mono">
+          {ledger.map((r, i) => (
+            <div key={i} className="replay-row">
+              <span className="mute">{dateShort(r.ts)} {clock(r.ts)}</span>
+              <span className="replay-ev">{r.event}</span>
+              <span className="dim">{r.task ?? r.project ?? ''}</span>
+              <span className="mute replay-data">{r.data ? JSON.stringify(r.data).slice(0, 140) : ''}</span>
+            </div>
+          ))}
+        </div>
+      </section>
     </div>
   )
 }

@@ -687,6 +687,12 @@ button.usage-toggle:hover { color: var(--text); }
 .sec-dot { width: 6px; height: 6px; margin-top: 8px; }
 .sec-url { grid-column: 2; font-size: 11px; }
 .stats-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+.character-sheet > * { flex-shrink: 0; }
+.character-sheet .stats-row > *, .character-sheet .replay { min-width: 0; }
+.character-sheet .lv-hex { flex-shrink: 0; }
+.character-sheet .lv-meta { flex: 1; min-width: 0; max-width: 220px; }
+.character-sheet .card-head { flex-wrap: wrap; gap: 8px; }
+.character-sheet .replay-row { grid-template-columns: 120px 150px 160px minmax(120px, 1fr); }
 .stats-card { padding: 22px; display: flex; flex-direction: column; gap: 20px; }
 .level-big { display: flex; align-items: center; gap: 20px; }
 .lv-hex { position: relative; width: 92px; height: 92px; filter: drop-shadow(0 0 10px rgba(198, 255, 61, 0.35)); }

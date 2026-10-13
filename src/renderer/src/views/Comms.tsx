@@ -570,7 +570,6 @@ function Composer({ wksp, busy, fill, context }: { wksp: string; busy: boolean; 
         {isMain && (
           <span className="quick">
             <button className="link-btn" onClick={() => void op('Recap', () => api().recap())}>Recap</button>
-            <button className="link-btn" onClick={() => go('status')}>Character Sheet</button>
             <button className="link-btn" onClick={() => openDeploy()}>Deploy</button>
           </span>
         )}
