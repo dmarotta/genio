@@ -1,7 +1,8 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { ChevronDown, ChevronRight, CircleStop, Radar, RefreshCw, Rocket, Send, ShieldCheck, TriangleAlert, Wrench } from 'lucide-react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
+import { ChevronDown, ChevronRight, CircleStop, Pencil, Radar, RefreshCw, Rocket, Send, ShieldCheck, TriangleAlert, Wrench, X } from 'lucide-react'
 import type { Ally, ChatMessage, Settings, Task } from '@shared/types'
-import { chatControls, routedRequest, type ChatControls } from '@shared/chat'
+import { chatControls, routedRequest, splitQueued, type ChatControls, type UnqueuedChat } from '@shared/chat'
+import { MAX_IMAGES_PER_MESSAGE } from '@shared/chat-images'
 import {
   api, errText, focusTask, getState, go, liveTasks, loadChat, op, openDeploy, saveChatControls, saveSettings, setDock, setState, toast, useStore
 } from '../store'
@@ -13,7 +14,7 @@ import { KIND_LABEL, STATE_LABEL, isActive, stateTone } from '../lib/vocab'
 import { clock, cx, elapsed, trunc } from '../lib/format'
 import { playSfx } from '../lib/sfx'
 import { getDraft, setDraft } from '../drafts'
-import { AttachmentStrip, MessageImages, toSendable, useAttachments } from '../components/ChatImages'
+import { AttachmentStrip, MessageImages, fromSendable, toSendable, useAttachments } from '../components/ChatImages'
 import { MAIN_PANEL, markSeen } from '../lib/dock'
 import { EffortSelect, ModelSelect, requestSystemsSection } from './Systems'
 
@@ -76,6 +77,18 @@ function ChatPanel({ wksp }: { wksp: string }) {
 
   const visible = useMemo(() => (calm ? messages.filter((m) => m.role !== 'wake') : messages), [messages, calm])
 
+  // Edit / cancel a message the session has not picked up yet; edit puts it back in this chat's composer.
+  const fill = useRef<((c: UnqueuedChat) => void) | undefined>(undefined)
+  const takeBack = async (m: ChatMessage, edit: boolean): Promise<void> => {
+    try {
+      const got = await api().unqueueChat(wksp, m.id)
+      if (!got) toast('info', 'Already sent', `${isAlly ? wksp : 'Genio'} picked that message up before it could be changed.`)
+      else if (edit) fill.current?.(got)
+    } catch (e) {
+      toast('error', edit ? 'Message not editable' : 'Message not cancelled', errText(e))
+    }
+  }
+
   return (
     <div className="chat-panel">
       <header className="comms-head">
@@ -113,9 +126,9 @@ function ChatPanel({ wksp }: { wksp: string }) {
         </div>
       </header>
 
-      <ChatLog wksp={wksp} messages={visible} calm={calm} busy={busy} gamertag={gamertag} activityDetail={info?.activityDetail} lastError={info?.lastError} />
+      <ChatLog wksp={wksp} messages={visible} calm={calm} busy={busy} gamertag={gamertag} activityDetail={info?.activityDetail} lastError={info?.lastError} onTakeBack={takeBack} />
 
-      <Composer wksp={wksp} busy={busy} />
+      <Composer wksp={wksp} busy={busy} fill={fill} />
     </div>
   )
 }
@@ -137,13 +150,17 @@ function activityText(a?: string, detail?: string): string {
   }
 }
 
-function ChatLog({ wksp, messages, calm, busy, gamertag, activityDetail, lastError }: { wksp: string; messages: ChatMessage[]; calm: boolean; busy: boolean; gamertag: string; activityDetail?: string; lastError?: string }) {
+type TakeBack = (m: ChatMessage, edit: boolean) => Promise<void>
+
+function ChatLog({ wksp, messages: all, calm, busy, gamertag, activityDetail, lastError, onTakeBack }: { wksp: string; messages: ChatMessage[]; calm: boolean; busy: boolean; gamertag: string; activityDetail?: string; lastError?: string; onTakeBack: TakeBack }) {
   const ref = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
+  // queued messages wait under everything else, in send order, until the session picks them up
+  const { log: messages, queued } = useMemo(() => splitQueued(all), [all])
   useLayoutEffect(() => {
     const el = ref.current
     if (el && stick.current) el.scrollTop = el.scrollHeight
-  }, [messages, busy])
+  }, [all, busy])
   return (
     <div
       className="chat-log"
@@ -153,7 +170,7 @@ function ChatLog({ wksp, messages, calm, busy, gamertag, activityDetail, lastErr
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
       }}
     >
-      {messages.length === 0 && wksp !== MAIN_PANEL && (
+      {all.length === 0 && wksp !== MAIN_PANEL && (
         <div className="chat-empty rise">
           <GenioCore size={80} state={busy ? 'active' : 'idle'} />
           <h2 className="title" style={{ fontSize: 24 }}>
@@ -162,7 +179,7 @@ function ChatLog({ wksp, messages, calm, busy, gamertag, activityDetail, lastErr
           <p className="dim">Talk to it directly here, or let Genio route in-scope work to it. Both show up in this timeline; answers to Genio's requests also go back to Genio.</p>
         </div>
       )}
-      {messages.length === 0 && wksp === MAIN_PANEL && (
+      {all.length === 0 && wksp === MAIN_PANEL && (
         <div className="chat-empty rise">
           <GenioCore size={110} state={busy ? 'active' : 'idle'} />
           <h2 className="title" style={{ fontSize: 30 }}>
@@ -183,7 +200,7 @@ function ChatLog({ wksp, messages, calm, busy, gamertag, activityDetail, lastErr
         </div>
       )}
       {messages.map((m) => (
-        <Message key={m.id} m={m} calm={calm} gamertag={gamertag} />
+        <Message key={m.id} m={m} calm={calm} gamertag={gamertag} onTakeBack={onTakeBack} />
       ))}
       {busy && (
         <div className="msg genio working rise">
@@ -201,19 +218,43 @@ function ChatLog({ wksp, messages, calm, busy, gamertag, activityDetail, lastErr
         </div>
       )}
       {lastError && !busy && <div className="msg-error mono">{lastError}</div>}
+      {queued.map((m) => (
+        <Message key={m.id} m={m} calm={calm} gamertag={gamertag} onTakeBack={onTakeBack} />
+      ))}
     </div>
   )
 }
 
-function Message({ m, calm, gamertag }: { m: ChatMessage; calm: boolean; gamertag: string }) {
+function Message({ m, calm, gamertag, onTakeBack }: { m: ChatMessage; calm: boolean; gamertag: string; onTakeBack: TakeBack }) {
   const [open, setOpen] = useState(false)
   if (m.role === 'player') {
+    const waiting = m.queue === 'queued' || m.queue === 'unsent'
     return (
-      <div className="msg player rise">
+      <div className={cx('msg player rise', waiting && m.queue)}>
         {m.images?.length ? <MessageImages wksp={m.wksp} images={m.images} /> : null}
         {m.text && <div className="msg-bubble selectable">{m.text}</div>}
         <div className="msg-meta">
+          {m.queue === 'queued' && (
+            <span className="msg-queue" title="Sent while the session was busy: it reads this as soon as the current turn ends.">
+              Queued ·{' '}
+            </span>
+          )}
+          {m.queue === 'unsent' && (
+            <span className="msg-queue" title="Genio restarted before the session read this message. Edit to send it again.">
+              Not sent ·{' '}
+            </span>
+          )}
           {gamertag} · {clock(m.ts)}
+          {waiting && (
+            <span className="msg-acts">
+              <button className="msg-act" title="Edit: put it back in the composer" aria-label="Edit queued message" onClick={() => void onTakeBack(m, true)}>
+                <Pencil size={11} />
+              </button>
+              <button className="msg-act" title={m.queue === 'queued' ? 'Cancel: remove it from the queue' : 'Remove'} aria-label="Cancel queued message" onClick={() => void onTakeBack(m, false)}>
+                <X size={12} />
+              </button>
+            </span>
+          )}
         </div>
       </div>
     )
@@ -289,7 +330,7 @@ function Message({ m, calm, gamertag }: { m: ChatMessage; calm: boolean; gamerta
   )
 }
 
-function Composer({ wksp, busy }: { wksp: string; busy: boolean }) {
+function Composer({ wksp, busy, fill }: { wksp: string; busy: boolean; fill: RefObject<((c: UnqueuedChat) => void) | undefined> }) {
   // Client-side commands drive the whole app, so they live in the main chat; an ally gets its text (and its own /help, /status, /save) as typed.
   const isMain = wksp === MAIN_PANEL
   const [text, setText] = useState(() => getDraft(wksp))
@@ -312,6 +353,20 @@ function Composer({ wksp, busy }: { wksp: string; busy: boolean }) {
       el.setSelectionRange(d.length, d.length)
     }
   }, [wksp])
+  // A queued message taken back for editing: its text goes first (ahead of any draft), its images join the strip.
+  useEffect(() => {
+    fill.current = (c) => {
+      const draft = getDraft(wksp)
+      const next = [c.text, draft].filter((s) => s.trim()).join('\n\n')
+      update(next)
+      if (c.images?.length) att.set([...fromSendable(c.images), ...att.images].slice(0, MAX_IMAGES_PER_MESSAGE))
+      const el = ta.current
+      if (el) {
+        el.focus()
+        requestAnimationFrame(() => el.setSelectionRange(next.length, next.length))
+      }
+    }
+  })
   const settings = useStore((s) => s.settings)
   const showSlash = isMain && text.startsWith('/') && !text.includes(' ') && !text.includes('\n')
   const matches = showSlash ? SLASH.filter((s) => s.cmd.startsWith(text.toLowerCase())) : []
@@ -418,7 +473,7 @@ function Composer({ wksp, busy }: { wksp: string; busy: boolean }) {
           onPaste={att.onPaste}
           placeholder={
             busy
-              ? `${isMain ? 'Genio' : wksp} is working… you can still type; it will read this next.`
+              ? `${isMain ? 'Genio' : wksp} is working… you can still send; it queues and is read next.`
               : isMain
                 ? 'Message Genio  ·  / for commands'
                 : `Message ${wksp}  ·  it answers you here`

@@ -116,6 +116,7 @@ export function registerIpc(getCtx: () => AppCtx): void {
     // ---- comms
     chatHistory: (wksp, limit) => ctx().home(wksp).wksp.history(limit),
     sendChat: (wksp, text, images) => sendPlayerChat(ctx(), wksp, text, images),
+    unqueueChat: async (wksp, id) => ctx().home(wksp).wksp.unqueue(id),
     interruptWksp: (wksp) => ctx().home(wksp).wksp.interrupt(),
     restartWksp: (wksp, fresh) => ctx().home(wksp).wksp.restart(fresh),
     resolvePermission: (id, allow) => ctx().permissions.resolve(id, allow),

@@ -4,7 +4,7 @@ import type {
   TerminalInfo, Wake
 } from '@shared/types'
 import type { SpawnRequest } from '@shared/api'
-import { patchAllyControls, type AllyControlsPatch } from '@shared/chat'
+import { applyChatEvent, patchAllyControls, type AllyControlsPatch } from '@shared/chat'
 import { DOCK_STORAGE_KEY, closePanel, focusPanel, openPanel, parseDock, reconcileDock, serializeDock, spawnWorldAlly, type DockState } from './lib/dock'
 import { playSfx } from './lib/sfx'
 import { speak } from './lib/voice'
@@ -389,8 +389,7 @@ export function handleEvent(ev: GenioEvent): void {
       break
     case 'chat': {
       const m = ev.message
-      const list = s.chats[m.wksp] ?? []
-      setState({ chats: { ...s.chats, [m.wksp]: upsertBy(list, m, (x) => x.id) } })
+      setState({ chats: { ...s.chats, [m.wksp]: applyChatEvent(s.chats[m.wksp] ?? [], m) } })
       break
     }
     case 'chat-delta': {

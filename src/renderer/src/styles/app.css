@@ -365,6 +365,14 @@ button.usage-toggle:hover { color: var(--text); }
   border: 1px solid rgba(0, 229, 255, 0.3); color: var(--text);
   clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
 }
+.msg.player.queued .msg-bubble, .msg.player.unsent .msg-bubble { border-style: dashed; background: rgba(0, 229, 255, 0.04); color: var(--text-dim); clip-path: none; }
+.msg.player.unsent .msg-bubble { border-color: rgba(255, 182, 39, 0.55); }
+.msg.player.queued .msg-images, .msg.player.unsent .msg-images { opacity: 0.6; }
+.msg.player.queued .msg-queue { color: var(--neon); }
+.msg.player.unsent .msg-queue { color: var(--amber); }
+.msg-acts { display: inline-flex; gap: 2px; margin-left: 8px; vertical-align: middle; }
+.msg-act { display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 1px solid transparent; background: none; color: var(--text-mute); cursor: pointer; }
+.msg-act:hover { color: var(--text); border-color: var(--line-strong); }
 .msg.from-genio { align-items: flex-start; }
 .msg.from-genio .msg-bubble { white-space: normal; background: linear-gradient(135deg, var(--violet-soft), rgba(165, 107, 255, 0.04)); border-color: rgba(165, 107, 255, 0.4); }
 .msg-from { font-size: 10px; margin-bottom: 4px; }

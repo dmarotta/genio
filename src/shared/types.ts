@@ -251,7 +251,16 @@ export interface ChatMessage {
   images?: ChatImage[]
   /** in an ally's chat: a request main Genio routed to it (shown as from Genio) */
   from?: 'genio'
+  /** a player message not yet read by the session (see ChatQueueState) */
+  queue?: ChatQueueState
 }
+
+/**
+ * 'queued': sent while the session was mid-turn, waiting to be picked up (editable, cancellable).
+ * 'unsent': still queued when Genio restarted, so it never reached the session.
+ * 'cancelled': only a log tombstone; the message is gone.
+ */
+export type ChatQueueState = 'queued' | 'unsent' | 'cancelled'
 
 export type WkspActivity = 'offline' | 'starting' | 'idle' | 'thinking' | 'tool' | 'error'
 

@@ -15,7 +15,7 @@ import type {
 import type { Ally, ChatMessage, WkspActivity, WkspInfo, Settings, ToolTrace } from '@shared/types'
 import { userContent, type ChatImageInput } from '@shared/chat-images'
 import { bus } from './bus'
-import { chatImageDir, saveChatImages } from './chat-images'
+import { chatImageDir, loadChatImages, saveChatImages } from './chat-images'
 import type { Home } from './home'
 import { buildTools, type ToolRole } from './wksp-tools'
 import { formatNotification } from './notify-format'
@@ -23,7 +23,7 @@ import {
   HELP_TEXT, afkPrompt, botContract, eventsPrompt, genioContract, recapPrompt, returnPrompt, savePrompt, sessionStartPrompt,
   statusPrompt
 } from './prompts'
-import { chatControls } from '@shared/chat'
+import { chatControls, compactChat, strandQueued } from '@shared/chat'
 import type { AppCtx, WkspService } from './services'
 import { claudeLimitsFile, recordClaudeRateLimit, type ClaudeRateLimitInfo } from './usage'
 import { appendJsonl, nowIso, readJson, readJsonl, readText, rid, truncate, writeJson } from './util'
@@ -175,9 +175,13 @@ interface TurnItem {
   images?: ChatImageInput[]
   /** wake ack cursor to commit when the turn succeeds */
   ackThrough?: number
+  /** the player's chat message this turn carries (it shows as queued until the session picks it up) */
+  msgId?: string
 }
 
 interface SessionHooks {
+  /** the session picked this item up and is starting its turn */
+  onStart?(item: TurnItem): void
   onMessage(m: ChatMessage, final: boolean): void
   onDelta(id: string, text: string): void
   onActivity(a: WkspActivity, detail?: string): void
@@ -235,12 +239,29 @@ class AgentSession {
     return this.current?.kind === 'events' || this.pending.some((p) => p.kind === 'events')
   }
 
+  /** nothing running and nothing waiting: a new item starts right away */
+  get idle(): boolean {
+    return !this.busy && !this.pending.length
+  }
+
+  /** Take a waiting chat message's turn back out of the queue; undefined once the session picked it up. */
+  cancel(msgId: string): TurnItem | undefined {
+    const i = this.pending.findIndex((p) => p.msgId === msgId)
+    return i < 0 ? undefined : this.pending.splice(i, 1)[0]
+  }
+
+  /** the player's chat messages still waiting, in order */
+  waitingMessages(): TurnItem[] {
+    return this.pending.filter((p) => p.msgId)
+  }
+
   private async pump(): Promise<void> {
     if (this.busy) return
     const next = this.pending.shift()
     if (!next) return
     this.busy = true
     this.current = next
+    this.hooks.onStart?.(next)
     this.turnMsgIds = []
     this.lastText = ''
     this.hooks.onActivity('thinking')
@@ -525,7 +546,12 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
   }
 
   const loadHistory = (): ChatMessage[] => {
-    if (!history) history = readJsonl<ChatMessage>(home.chatFile).slice(-1000)
+    if (!history) {
+      // first read in this run: anything still queued was lost with the previous session
+      const { list, stranded } = strandQueued(compactChat(readJsonl<ChatMessage>(home.chatFile)).slice(-1000))
+      for (const m of stranded) appendJsonl(home.chatFile, m)
+      history = list
+    }
     return history
   }
   const record = (m: ChatMessage, persist: boolean): void => {
@@ -542,6 +568,16 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
     const m: ChatMessage = { id: `s-${rid(6)}`, wksp: name, role, text, ts: nowIso() }
     record(m, true)
     return m
+  }
+
+  /** The session picked a queued message up: it becomes a normal sent message at the end of the log. */
+  const delivered = (item: TurnItem): void => {
+    const h = loadHistory()
+    const i = item.msgId ? h.findIndex((x) => x.id === item.msgId) : -1
+    if (i < 0 || h[i].queue !== 'queued') return
+    const { queue: _was, ...sent } = h[i]
+    h.splice(i, 1)
+    record({ ...sent, ts: nowIso() }, true)
   }
 
   // ---------------------------------------------------------- options
@@ -609,6 +645,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
     'genio',
     (resume) => buildOptions('genio', resume),
     {
+      onStart: delivered,
       onMessage(m, final) {
         let msg = m
         if (final && msg.text && NOOP_RE.test(msg.text.trim()) && !(msg.tools ?? []).length) msg = { ...msg, role: 'system' }
@@ -866,10 +903,26 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       }
       const m = inboundMessage(name, trimmed, origin)
       if (stored.refs.length) m.images = stored.refs
+      const player = origin === 'player'
+      // mid-turn: the message waits in the log as queued until the session picks it up
+      if (player && !genio.idle) m.queue = 'queued'
       record(m, true)
       bus.publish({ type: 'sfx', sound: 'send' })
-      genio.enqueue({ kind: origin === 'player' ? 'player' : 'system', prompt, images: stored.send.length ? stored.send : undefined })
+      genio.enqueue({ kind: player ? 'player' : 'system', prompt, images: stored.send.length ? stored.send : undefined, msgId: player ? m.id : undefined })
       publishInfo()
+    },
+    unqueue(id) {
+      const h = loadHistory()
+      const m = h.find((x) => x.id === id)
+      if (!m || (m.queue !== 'queued' && m.queue !== 'unsent')) return null
+      const item = m.queue === 'queued' ? genio.cancel(id) : undefined
+      const images = item ? item.images : m.images?.length ? loadChatImages(chatImageDir(home.data), m.images) : undefined
+      history = h.filter((x) => x.id !== id)
+      const gone: ChatMessage = { ...m, queue: 'cancelled' }
+      appendJsonl(home.chatFile, gone)
+      bus.publish({ type: 'chat', message: gone })
+      publishInfo()
+      return images?.length ? { text: m.text, images } : { text: m.text }
     },
     deliverWakes() {
       if (stopped) return
@@ -900,6 +953,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       await bot?.interrupt()
     },
     async restart(fresh) {
+      // the player's queued messages survive a session restart and go to the new session
+      const waiting = genio.waitingMessages()
       genio.stop()
       bot?.stop()
       if (fresh) {
@@ -911,6 +966,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       info.activity = 'offline'
       info.activityDetail = undefined
       stopped = false
+      for (const item of waiting) genio.enqueue(item)
       publishInfo()
       setTimeout(() => svc.deliverWakes(), 500)
     },

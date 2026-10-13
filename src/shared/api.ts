@@ -1,4 +1,4 @@
-import type { AllyControlsPatch } from './chat'
+import type { AllyControlsPatch, UnqueuedChat } from './chat'
 import type {
   AwayMode, AwayState, BacklogItem, StatusReport, ChatMessage, DeliveryMode, Engine, FleetSnapshot,
   GenioEvent, LedgerRecord, Priority, Project, ProjectCommands, Ally, Settings, Task, TaskKind,
@@ -419,6 +419,8 @@ export interface GenioApi {
   chatHistory(wksp: string, limit?: number): Promise<ChatMessage[]>
   /** images go to the session as image blocks; text may be empty when images are attached */
   sendChat(wksp: string, text: string, images?: ChatImageInput[]): Promise<void>
+  /** take back a queued (or unsent) message for edit/cancel; null when the session already picked it up */
+  unqueueChat(wksp: string, id: string): Promise<UnqueuedChat | null>
   interruptWksp(wksp: string): Promise<void>
   restartWksp(wksp: string, fresh: boolean): Promise<void>
   resolvePermission(id: string, allow: boolean): Promise<void>
@@ -524,6 +526,7 @@ export const API_METHODS = [
   'falPickFile',
   'chatHistory',
   'sendChat',
+  'unqueueChat',
   'interruptWksp',
   'restartWksp',
   'resolvePermission',

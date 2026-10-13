@@ -104,6 +104,12 @@ export function useAttachments(wksp: string, disabled = false): Attachments {
 export const toSendable = (images: DraftImage[]): ChatImageInput[] =>
   images.map(({ mediaType, data, width, height }) => ({ mediaType, data, width, height }))
 
+let backSeq = 0
+
+/** Images of a message taken back for editing, as draft attachments again. */
+export const fromSendable = (images: readonly ChatImageInput[]): DraftImage[] =>
+  images.map((i) => ({ ...i, id: `img-back-${Date.now()}-${backSeq++}`, preview: `data:${i.mediaType};base64,${i.data}` }))
+
 /** Thumbnails above the composer input, each with a remove button. */
 export function AttachmentStrip({ att }: { att: Attachments }) {
   if (!att.images.length && !att.pending) return null

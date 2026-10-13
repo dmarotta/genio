@@ -1,3 +1,4 @@
+import type { ChatImageInput } from './chat-images'
 import type { Ally, ChatMessage, Settings } from './types'
 
 const ROUTED_RE = /^\[FROM GENIO MAIN corr=([\w-]+)\]\s*([\s\S]*?)(?:\n\nWhen finished \(or blocked\), answer with report_to_main[\s\S]*)?$/
@@ -42,6 +43,60 @@ export function chatControls(s: Pick<Settings, 'chatShellMode' | 'wkspModel' | '
     model: ally?.model || s?.wkspModel || '',
     effort: ally?.effort || s?.wkspEffort || ''
   }
+}
+
+// ------------------------------------------------------------------ queued messages
+
+/** A queued message taken back out of a chat: what goes back into the composer. */
+export interface UnqueuedChat {
+  text: string
+  images?: ChatImageInput[]
+}
+
+/**
+ * A chat log as written on disk (one line per write): the last write of an id
+ * wins and sets its place, and cancelled messages drop out.
+ */
+export function compactChat(lines: readonly ChatMessage[]): ChatMessage[] {
+  const byId = new Map<string, ChatMessage>()
+  for (const m of lines) {
+    byId.delete(m.id)
+    byId.set(m.id, m)
+  }
+  return [...byId.values()].filter((m) => m.queue !== 'cancelled')
+}
+
+/** After a restart nothing is waiting in any session: messages still queued are shown as not sent. */
+export function strandQueued(list: readonly ChatMessage[]): { list: ChatMessage[]; stranded: ChatMessage[] } {
+  const stranded: ChatMessage[] = []
+  const next = list.map((m) => {
+    if (m.queue !== 'queued') return m
+    const u: ChatMessage = { ...m, queue: 'unsent' }
+    stranded.push(u)
+    return u
+  })
+  return { list: next, stranded }
+}
+
+/**
+ * One chat event applied to a chat's messages. A cancelled message is removed;
+ * a queued message the session picked up moves to the end, which is where the
+ * log already showed it (queued bubbles sit under everything else).
+ */
+export function applyChatEvent(list: readonly ChatMessage[], m: ChatMessage): ChatMessage[] {
+  const i = list.findIndex((x) => x.id === m.id)
+  if (m.queue === 'cancelled') return i < 0 ? [...list] : list.filter((x) => x.id !== m.id)
+  if (i < 0) return [...list, m]
+  if (list[i].queue === 'queued' && !m.queue) return [...list.slice(0, i), ...list.slice(i + 1), m]
+  const copy = list.slice()
+  copy[i] = m
+  return copy
+}
+
+/** Split a chat for the log: what was said, then what is still waiting for the session (in send order). */
+export function splitQueued(list: readonly ChatMessage[]): { log: ChatMessage[]; queued: ChatMessage[] } {
+  const queued = list.filter((m) => m.queue === 'queued')
+  return { log: queued.length ? list.filter((m) => m.queue !== 'queued') : [...list], queued }
 }
 
 /** Apply an overrides patch to an ally record (pure: returns a new record). */

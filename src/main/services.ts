@@ -17,7 +17,7 @@ import type {
   OpResult, ProjectAddRequest, ProjectCreateRequest, AllyCreateRequest, SpawnRequest, TaskFile, MemoryFile,
   FalRun, FalRunRequest, FalSaveRequest, FalSaveResult, FalCatalogue, FalModelInfo, FalSearchHit, FalWorldState, FalWorldConfig, FalRecipe
 } from '@shared/api'
-import type { AllyControlsPatch } from '@shared/chat'
+import type { AllyControlsPatch, UnqueuedChat } from '@shared/chat'
 import type { ChatImageInput } from '@shared/chat-images'
 import type { Home } from './home'
 
@@ -311,6 +311,12 @@ export interface WkspService {
   history(limit?: number): ChatMessage[]
   /** player message from the GUI (or mail / recap / save synthesized prompts); 'genio' = routed by main Genio to an ally */
   send(text: string, origin?: 'player' | 'system' | 'genio', images?: ChatImageInput[]): Promise<void>
+  /**
+   * Take back a player message the session has not picked up yet (queued, or unsent after a restart):
+   * it leaves the queue and the log, and its text and images come back for the composer.
+   * null when the session already has it.
+   */
+  unqueue(id: string): UnqueuedChat | null
   /** deliver queued wakes (drain → one turn → ack after the turn completes) */
   deliverWakes(): void
   interrupt(): Promise<void>

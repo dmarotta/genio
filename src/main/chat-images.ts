@@ -34,6 +34,18 @@ export function saveChatImages(dir: string, inputs: readonly ChatImageInput[]): 
   return { refs, send }
 }
 
+/** Stored images read back as inputs (to put a message back in the composer); missing files are skipped. */
+export function loadChatImages(dir: string, refs: readonly ChatImage[]): ChatImageInput[] {
+  const out: ChatImageInput[] = []
+  for (const r of refs) {
+    const p = chatImagePath(dir, r.file)
+    if (!p) continue
+    const dims = r.width && r.height ? { width: r.width, height: r.height } : {}
+    out.push({ mediaType: r.mediaType, data: fs.readFileSync(p).toString('base64'), ...dims })
+  }
+  return out
+}
+
 /** Absolute path of a stored image, or undefined when the name is not one main wrote. */
 export function chatImagePath(dir: string, file: string): string | undefined {
   if (!validChatImageFile(file)) return undefined
