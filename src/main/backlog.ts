@@ -330,11 +330,13 @@ export function createBacklogService(getCtx: () => AppCtx, home: Home): BacklogS
       return it
     },
 
-    dispatchable() {
+    dispatchable(project, exclude) {
       const now = Date.now()
       const picked: BacklogItem[] = []
       const extra = new Map<string, number>()
       const candidates = load()
+        .filter(i => !project || i.project === project)
+        .filter(i => !exclude?.has(i.id))
         .filter((i) => i.kind === 'ship' || i.kind === 'scout')
         .filter((i) => i.state === 'queued' || (i.state === 'held' && i.hold?.until && Date.parse(i.hold.until) <= now))
         .sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || a.createdAt.localeCompare(b.createdAt))

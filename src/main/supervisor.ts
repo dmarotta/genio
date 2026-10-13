@@ -627,6 +627,15 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
       void pass()
     },
 
+    replayStatus(project) {
+      const now = Date.now()
+      for (const t of hc().crew.list().filter(t => t.project === project && t.state !== 'cleaned')) {
+        // Use the same persist-before-consume path as normal overwatch. Let a
+        // persistence error abort startup before any stale mission is resumed.
+        stepStatus(t, track(t), now)
+      }
+    },
+
     touch(taskId) {
       try {
         const t = hc().crew.get(taskId)

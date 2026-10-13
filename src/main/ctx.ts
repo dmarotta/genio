@@ -60,10 +60,12 @@ import { createDispatchService } from './dispatch'
 import { createInventoryService } from './inventory'
 import { createThumbnailDecoder } from './inventory-thumbnails'
 import { allyNameForWorld, worldAllyRequest, inheritMainHistory } from './project-chat'
+import { reconcileProjectOpen } from './project-startup'
 
 let current: AppCtx | undefined
 const openProjects = new WeakMap<AppCtx, Set<string>>()
 const startingUnits = new WeakMap<AppCtx, Map<string, Set<Promise<unknown>>>>()
+const projectStarts = new WeakMap<AppCtx, Map<string, Promise<void>>>()
 
 async function startProjectUnit<T>(project: string, start: () => Promise<T>): Promise<T> {
   assertProjectRunning(project)
@@ -112,6 +114,9 @@ export function makeHomeCtx(home: Home, ally?: Ally): HomeCtx {
     if (project && getCtx().projects.get(project)?.gitRepo === false) return { ok: false, message: 'Merge needs a git repo.' }
     return merge(id)
   }
+  // New project homes can start supervision inside allies.create, before
+  // ensureProjectBase returns. Hold their first turn at construction as well.
+  if (ally?.projects.some(p => openProjects.get(getCtx())?.has(p))) hc.wksp.prepareProjectOpen()
   return hc
 }
 
@@ -131,8 +136,19 @@ export async function ensureProjectBase(ctx: AppCtx, project: string): Promise<s
     ally = await ctx.allies.create(req)
   }
   if (project === 'genio') inheritMainHistory(ctx.main.home, ctx.home(ally.name).home)
-  ctx.home(ally.name).supervisor.start()
+  ctx.home(ally.name).wksp.prepareProjectOpen()
   return ally.name
+}
+
+/** Repeated focus/load requests reuse this open's reconciliation and first turn. */
+export function startProjectBase(ctx: AppCtx, project: string, wksp: string): Promise<void> {
+  let starts = projectStarts.get(ctx)
+  if (!starts) { starts = new Map(); projectStarts.set(ctx, starts) }
+  const existing = starts.get(project)
+  if (existing) return existing
+  const operation = reconcileProjectOpen(ctx, project, wksp, () => !!openProjects.get(ctx)?.has(project))
+  starts.set(project, operation)
+  return operation
 }
 
 export async function stopProjectBase(ctx: AppCtx, project: string, wksp: string): Promise<void> {
@@ -140,6 +156,8 @@ export async function stopProjectBase(ctx: AppCtx, project: string, wksp: string
   const home = ctx.home(wksp)
   home.supervisor.stop()
   await home.wksp.stop()
+  await projectStarts.get(ctx)?.get(project)?.catch(() => undefined)
+  projectStarts.get(ctx)?.delete(project)
   // A spawn may be preparing its worktree and not have a terminal yet.
   await Promise.allSettled([...(startingUnits.get(ctx)?.get(project) ?? [])])
   await Promise.all([...ctx.homes.values()].flatMap(h => h.crew.list()

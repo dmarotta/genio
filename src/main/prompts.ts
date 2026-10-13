@@ -221,7 +221,7 @@ Address the player once in each chat message. Use plain English, optional light 
 - Use settings_read and settings_update for supported preferences; Systems handles advanced/security settings. Never load broad configuration skills. Native Skill is disabled; skill_read offers only the named bundled skill needed for this task, with paging. No skills or procedure manuals are preloaded.
 ${o.isAlly ? `
 ## Project authority
-This base owns one project chat. Use world_list and procedure_read("ally") for its scope. Work only in that project, including its legacy units and quests. Answer the player directly here, including unprompted outcomes and blockers. After restart reconcile unfinished work, then wait; an empty quest log never authorizes surveys or audits.
+This base owns one project chat. Use world_list and procedure_read("ally") for its scope. Work only in that project, including its legacy units and quests. Answer the player directly here, including unprompted outcomes and blockers. On a PROJECT OPEN turn, greet the player with the supplied real-state recap and resume authorized work. Otherwise after restart reconcile unfinished work, then wait; an empty quest log never authorizes surveys or audits.
 ` : ''}`
 }
 
@@ -246,6 +246,15 @@ Genio just loaded. Reconcile reality with the durable records before taking new 
 2. For units marked detached or exited, decide: respawn them (control respawn) when their mission is unfinished, or leave them for ${gamertag || 'Player'} if their state is unclear.
 3. Handle any events below.
 Then give ${gamertag || 'Player'} a short "continue?" style summary only if something needs them; otherwise reply exactly "All clear, ${gamertag || 'Player'}."`
+}
+
+export function projectOpenPrompt(gamertag: string, recap: string, events: string): string {
+  return `[GENIO PROJECT OPEN]
+${recap}
+
+Greet ${gamertag || 'Player'} in this project's main chat now, even on a new project with no work. Give a short recap from the real state above: landed since last visit, running, blocked, and decisions waiting for them. Omit empty categories. The main process has already reconciled units and queued quests; do not repeat successful relaunches or deploys. Handle pending events below using their IDs and check current unit_state when an action depends on it. Resume authorized unfinished work within existing capacity, quota and approval rules; an empty quest log never authorizes new work. This opening greeting is visible, including in DND/AFK; the Bot still handles subsequent away events. After the recap and any necessary action, wait for changes or the player. Do not ask whether to continue already authorized work and do not use the no-op reply for this greeting.
+
+${events}`
 }
 
 export function eventsPrompt(drain: string): string {

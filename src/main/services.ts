@@ -331,7 +331,7 @@ export interface CrewService {
   statusEvents(id: string): StatusEvent[]
   openDecisionKeys(id: string): string[]
   /** session start: mark detached tasks, reconcile worktrees */
-  reconcileOnStart(): Promise<void>
+  reconcileOnStart(project?: string): Promise<void>
   /** number of live (not-yet-PR) tasks holding a capacity place for project */
   capacityUsed(project: string): number
   /** unhandled steering-inbox messages, oldest first */
@@ -352,7 +352,7 @@ export interface BacklogService {
   answer(id: string, words: string, release: boolean): BacklogItem
   release(id: string): BacklogItem
   /** items whose deps are Done, time gates passed, not held, capacity free */
-  dispatchable(): BacklogItem[]
+  dispatchable(project?: string, exclude?: ReadonlySet<string>): BacklogItem[]
   /** hold bucket per companion: blocked → dated → aged(14d) → live */
   bucket(item: BacklogItem): 'blocked' | 'dated' | 'aged' | 'live' | 'none'
   markInFlight(id: string, taskId: string): void
@@ -386,6 +386,8 @@ export interface SupervisorService {
   stop(): void
   /** run one supervision pass now */
   poke(): void
+  /** Replay unread status into durable batches without delivering a model turn. */
+  replayStatus(project: string): void
   /** mark that a task's terminal produced output (liveness) */
   touch(taskId: string): void
   /** Claude Stop-hook / turn-end marker observed */
@@ -405,6 +407,10 @@ export interface WkspService {
   unqueue(id: string): UnqueuedChat | null
   /** deliver queued wakes (drain → one turn → ack after the turn completes) */
   deliverWakes(): void
+  /** Hold event delivery until the main process has reconciled this window. */
+  prepareProjectOpen(): void
+  /** First visible turn, including the reconciled project recap and pending events. */
+  wakeProject(recap: string): void
   interrupt(): Promise<void>
   restart(fresh: boolean, role?: 'genio' | 'bot'): Promise<void>
   stop(): Promise<void>

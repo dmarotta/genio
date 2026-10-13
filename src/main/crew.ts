@@ -371,6 +371,9 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           break
         }
         if (e.fields.pr) {
+          // PR lookup is asynchronous. Persist the completed-work wait now so
+          // startup cannot mistake this replayed outcome for a detached unit.
+          update(t.id, { state: 'paused', stateReason: `Completion reported; refreshing PR status: ${e.fields.pr}` })
           void svc.registerPr(t.id, e.fields.pr)
           break
         }
@@ -384,6 +387,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           update(t.id, { state: 'validating', stateReason: 'Gauntlet starting' })
           void gauntlet.run(t.id).catch(() => undefined)
         } else {
+          update(t.id, { state: 'paused', stateReason: 'Completion reported; checking for a PR' })
           void (async () => {
             const url = await ctx.forge.findPrForBranch(t.worktree, t.branch).catch(() => undefined)
             if (url) await svc.registerPr(t.id, url)
@@ -1056,9 +1060,10 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     statusEvents: (id) => parseStatusLog(readText(home.statusFile(id)), id),
     openDecisionKeys: (id) => resolveKeysFor(id),
 
-    async reconcileOnStart() {
+    async reconcileOnStart(project) {
       const ctx = getCtx()
       for (const t of [...tasks]) {
+        if (project && t.project !== project) continue
         if (t.state === 'cleaned') continue
         const alive = t.terminalId ? ctx.terminals.get(t.terminalId)?.alive : false
         if (alive) continue
@@ -1068,7 +1073,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
             patch.state = 'failed'
             patch.stateReason = 'worktree missing after restart'
           }
-        } else if (ACTIVE.includes(t.state) || t.state === 'exited') {
+        } else if ((ACTIVE.includes(t.state) && !['blocked', 'needs-decision', 'paused'].includes(t.state)) || t.state === 'exited') {
           patch.state = 'detached'
           patch.stateReason = 'Genio restarted; respawn to resume'
         }

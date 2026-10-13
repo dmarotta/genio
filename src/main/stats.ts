@@ -23,6 +23,7 @@ const XP: Record<AwardEvent, number> = {
 export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'character-sheet-open', name: 'Know Your Character', description: 'Open your Character Sheet.', feature: 'status' },
   { id: 'project-window-open', name: 'Home Base', description: 'Open your first project window.', feature: 'project-window' },
+  { id: 'project-welcome', name: 'Welcome Back', description: 'Genio greets you with a project recap.', feature: 'comms' },
   { id: 'project-cli-open', name: 'Direct Entry', description: 'Open a project with genio <folder>.', feature: 'project-cli' },
   { id: 'play-first', name: 'Press Play', description: 'Start a Unity Play session.', feature: 'play' },
   { id: 'play-package', name: 'Live Link', description: 'Enable the Genio Play package in a world.', feature: 'play' },

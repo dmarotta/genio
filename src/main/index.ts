@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import { app, BrowserWindow, dialog, protocol, shell } from 'electron'
 import { EVENT_CHANNEL } from '@shared/api'
 import { bus } from './bus'
-import { createApp, ensureProjectBase, getCtx, startApp, stopApp, stopProjectBase } from './ctx'
+import { createApp, ensureProjectBase, getCtx, startApp, startProjectBase, stopApp, stopProjectBase } from './ctx'
 import { MEDIA_SCHEME, mediaResponse } from './fal-service'
 import { chatImageDir, chatImagePath } from './chat-images'
 import { defaultHomeRoot } from './home'
@@ -26,7 +26,7 @@ let openQueue: Promise<unknown> = Promise.resolve()
 const pendingLaunches: { argv: string[]; cwd: string }[] = []
 let ctx: AppCtx | undefined
 let quitting = false
-let started = false
+let startup: Promise<void> | undefined
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
@@ -159,6 +159,8 @@ export function openProject(folder: string): Promise<void> {
       win.webContents.once('did-fail-load', (_e, _code, message) => reject(new Error(message)))
     })
     ctx!.stats.unlock('project-window-open')
+    await startup
+    await startProjectBase(ctx!, project.name, wksp)
   })
   openQueue = operation.catch(() => undefined)
   return operation
@@ -210,9 +212,9 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
     win.webContents.send(EVENT_CHANNEL, { type: 'snapshot', data: projectSnapshot(ctx.snapshot(), binding) })
     win.webContents.send(EVENT_CHANNEL, { type: 'settings', settings: ctx.settings.get() })
     for (const p of ctx.permissions.pending()) if (!binding || p.wksp === binding.wksp) win.webContents.send(EVENT_CHANNEL, { type: 'permission', request: p })
-    if (!started) {
-      started = true
-      startApp(ctx).catch((e) => bus.toast('error', 'Startup problem', String((e as Error)?.message ?? e)))
+    if (!startup) {
+      startup = startApp(ctx)
+      void startup.catch((e) => bus.toast('error', 'Startup problem', String((e as Error)?.message ?? e)))
     }
     if (process.env.GENIO_CAPTURE_DIR) void captureTour(process.env.GENIO_CAPTURE_DIR, win, binding)
   })

@@ -1,0 +1,199 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+vi.mock('../src/main/secrets', () => ({ getSecret: () => undefined }))
+vi.mock('../src/main/unithooks', () => ({ installUnitHooks: async () => ({}) }))
+import { Home } from '../src/main/home'
+import { createCrewService } from '../src/main/crew'
+import { createBacklogService } from '../src/main/backlog'
+import { createDecisionService } from '../src/main/decisions'
+import { createWakeService } from '../src/main/wakes'
+import { createSupervisor } from '../src/main/supervisor'
+import { ensureProjectBase, startProjectBase, stopProjectBase } from '../src/main/ctx'
+import { BUILTIN_HARNESSES } from '../src/main/harness'
+import type { AppCtx, HomeCtx } from '../src/main/services'
+import type { Task } from '../src/shared/types'
+
+let root: string, ctx: AppCtx, home: Home, hc: HomeCtx, cap: number
+let terminals: Map<string, { id: string; alive: boolean }>, extra: Task[]
+beforeEach(() => {
+  vi.useFakeTimers()
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-project-start-'))
+  const mainHome = new Home(root); mainHome.ensure()
+  home = new Home(path.join(root, 'wksps', 'world'), 'world', mainHome); home.ensure()
+  cap = 2; terminals = new Map(); extra = []
+  hc = { home, wksp: { prepareProjectOpen: vi.fn(), wakeProject: vi.fn(), deliverWakes: vi.fn(), stop: vi.fn() } } as unknown as HomeCtx
+  const main = { home: mainHome, wksp: { deliverWakes: vi.fn() } } as unknown as HomeCtx
+  const adapter = { ...BUILTIN_HARNESSES.find(h => h.id === 'codex')!, id: 'test', enabled: true, command: 'fake-unit' }
+  const ally = { name: 'world', projects: ['world'], scope: 'world', home: home.root }
+  const world = { name: 'world', path: root, capacity: 2, gitRepo: true }
+  ctx = { appRoot: path.join(root, 'no-bundle'), main, home: (name: string) => name === 'main' ? main : hc,
+    homes: new Map([['main', main], ['world', hc]]),
+    settings: { get: () => ({ usageMode: 'save' }), harness: () => adapter },
+    allies: { list: () => [ally] }, projects: { get: () => world },
+    terminals: { get: (id: string) => terminals.get(id), lastOutputAt: () => undefined,
+      create: vi.fn(() => { const t = { id: `term-${terminals.size}`, alive: true }; terminals.set(t.id, t); return t }),
+      onData: () => () => {}, onExit: vi.fn(), kill: vi.fn(), submit: vi.fn() },
+    dispatch: { capacity: () => ({ cap, used: [...terminals.values()].filter(t => t.alive).length }), quotaWait: () => undefined,
+      reserve: vi.fn(async () => ({ loadout: {}, check: async () => {}, listed: vi.fn(), release: vi.fn() })), record: vi.fn() }
+  } as unknown as AppCtx
+  for (const base of [main, hc]) {
+    base.crew = createCrewService(() => ctx, base.home)
+    base.backlog = createBacklogService(() => ctx, base.home)
+    base.decisions = createDecisionService(() => ctx, base.home)
+    base.wakes = createWakeService(() => ctx, base.home)
+    base.supervisor = createSupervisor(() => ctx, base.home)
+  }
+})
+afterEach(() => {
+  for (const base of ctx.homes.values()) base.supervisor.stop()
+  vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks()
+  fs.rmSync(root, { recursive: true, force: true })
+})
+
+function unit(id: string, state: Task['state'] = 'detached', base = hc): Task {
+  const worktree = path.join(root, 'worktrees', id)
+  fs.mkdirSync(worktree, { recursive: true }); fs.mkdirSync(base.home.taskDir(id), { recursive: true })
+  fs.writeFileSync(base.home.briefFile(id), '# Mission')
+  const task = { id, title: id, project: 'world', wksp: base.home.name, state, mode: 'local-only', harness: 'test',
+    worktree, briefPath: base.home.briefFile(id), branch: `genio/${id}`, relaunches: 8, automaticRelaunches: 1,
+    createdAt: '2026-01-01', updatedAt: '2026-01-01', inbox: { seq: 0, acked: 0 }, statusOffset: 0 } as Task
+  fs.writeFileSync(base.home.tasksFile, JSON.stringify([...base.crew.list(), task]))
+  base.crew = createCrewService(() => ctx, base.home)
+  return task
+}
+async function open(): Promise<void> {
+  await ensureProjectBase(ctx, 'world')
+  await startProjectBase(ctx, 'world', 'world')
+}
+
+describe('project window startup reconciliation', () => {
+  it('deliberately relaunches detached units once, preserves their copies, and leaves the automatic retry available', async () => {
+    const task = unit('unfinished')
+    fs.writeFileSync(path.join(task.worktree, 'dirty.txt'), 'keep')
+    await open()
+    expect(hc.crew.get(task.id)).toMatchObject({ state: 'working', relaunches: 9, automaticRelaunches: 0, worktree: task.worktree })
+    expect(fs.readFileSync(path.join(task.worktree, 'dirty.txt'), 'utf8')).toBe('keep')
+    await Promise.all([startProjectBase(ctx, 'world', 'world'), startProjectBase(ctx, 'world', 'world')])
+    expect(ctx.terminals.create).toHaveBeenCalledOnce()
+    expect(hc.wksp.wakeProject).toHaveBeenCalledOnce()
+    expect(ctx.dispatch.reserve).toHaveBeenCalledOnce()
+  })
+
+  it('respects global and world caps across legacy and project-owned units', async () => {
+    unit('legacy', 'detached', ctx.main)
+    unit('first'); unit('second')
+    cap = 1
+    await open()
+    expect(ctx.terminals.create).toHaveBeenCalledOnce()
+    expect(ctx.main.crew.get('legacy')?.state).toBe('working')
+    expect(hc.crew.get('first')?.state).toBe('detached')
+    expect(hc.wksp.wakeProject).toHaveBeenCalledWith(expect.stringContaining('waiting for capacity'))
+  })
+
+  it('replays offline outcomes before relaunching and preserves declared blockers and waits', async () => {
+    unit('complete', 'working'); unit('choice', 'working'); unit('wait', 'paused')
+    hc.crew.appendStatus('complete', 'done: ready in branch genio/complete')
+    hc.crew.appendStatus('choice', 'needs-decision [key=api]: choose the API')
+    await open()
+    expect(ctx.terminals.create).not.toHaveBeenCalled()
+    expect(hc.crew.get('complete')?.state).toBe('ready')
+    expect(hc.crew.get('choice')?.state).toBe('needs-decision')
+    expect(hc.crew.get('wait')?.state).toBe('paused')
+    expect(hc.wakes.pending()).toHaveLength(2)
+    expect(hc.wksp.deliverWakes).not.toHaveBeenCalled()
+    expect(hc.wksp.wakeProject).toHaveBeenCalledWith(expect.stringContaining('choose the API'))
+    hc.supervisor.replayStatus('world')
+    expect(hc.wakes.pending()).toHaveLength(2)
+  })
+
+  it('respects a smaller world cap and resumes a final unread progress line', async () => {
+    cap = 4
+    vi.spyOn(ctx.projects, 'get').mockReturnValue({ name: 'world', path: root, capacity: 1, gitRepo: true } as never)
+    unit('progress'); unit('overflow')
+    hc.crew.appendStatus('progress', 'working: last offline progress')
+    await open()
+    expect(ctx.terminals.create).toHaveBeenCalledOnce()
+    expect(hc.crew.get('progress')?.state).toBe('working')
+    expect(hc.crew.get('overflow')?.state).toBe('detached')
+  })
+
+  it('does not relaunch a completed unit while its replayed PR lookup is in flight', async () => {
+    unit('pr-outcome', 'working')
+    let finish!: (value: unknown) => void
+    ctx.forge = { view: vi.fn(() => new Promise(resolve => { finish = resolve })) } as never
+    hc.crew.appendStatus('pr-outcome', 'done: pr=https://github.com/example/project/pull/1')
+    await open()
+    expect(ctx.terminals.create).not.toHaveBeenCalled()
+    expect(hc.crew.get('pr-outcome')?.state).toBe('paused')
+    finish({ ok: true, state: 'OPEN' })
+    await Promise.resolve(); await Promise.resolve()
+    expect(hc.crew.get('pr-outcome')?.state).toBe('ready')
+  })
+
+  it('starts eligible queued quests after resuming units, leaving dependencies, holds and overflow queued', async () => {
+    unit('resume')
+    const done = hc.backlog.add({ id: 'done', title: 'finished dependency', project: 'world', state: 'done' })
+    hc.backlog.add({ id: 'other', title: 'other project', project: 'other', priority: 'critical' })
+    hc.backlog.add({ id: 'eligible', title: 'accepted work', project: 'world', notes: 'implement the requested change', dependsOn: [done.id] })
+    hc.backlog.add({ id: 'overflow', title: 'overflow', project: 'world' })
+    hc.backlog.add({ id: 'deps', title: 'blocked by dependency', project: 'world', dependsOn: ['missing'] })
+    hc.backlog.add({ id: 'held', title: 'player hold', project: 'world', hold: { reason: 'ask first', since: '2026-01-01' } })
+    const originalList = hc.crew.list.bind(hc.crew)
+    vi.spyOn(hc.crew, 'list').mockImplementation(() => [...originalList(), ...extra])
+    const spawn = vi.spyOn(hc.crew, 'spawn').mockImplementation(async req => {
+      const terminal = ctx.terminals.create({} as never)
+      const task = { id: `task-${req.backlogId}`, title: req.title, project: req.project, state: 'working', terminalId: terminal.id } as Task
+      extra.push(task); hc.backlog.markInFlight(req.backlogId!, task.id); return task
+    })
+    await open()
+    expect(spawn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ backlogId: 'eligible', intent: 'implement the requested change' }))
+    expect(hc.backlog.get('eligible')?.state).toBe('in-flight')
+    expect(hc.backlog.get('overflow')?.state).toBe('queued')
+    expect(hc.backlog.get('deps')?.state).toBe('queued')
+    expect(hc.backlog.get('held')?.state).toBe('held')
+  })
+
+  it('reports launch failures without consuming automatic retry or abandoning other unfinished work', async () => {
+    unit('fails'); unit('continues')
+    vi.mocked(ctx.terminals.create).mockImplementationOnce(() => { throw new Error('launch unavailable') })
+    await open()
+    expect(hc.crew.get('fails')).toMatchObject({ state: 'failed', automaticRelaunches: 0 })
+    expect(hc.crew.get('continues')?.state).toBe('working')
+    expect(hc.wksp.wakeProject).toHaveBeenCalledWith(expect.stringContaining('launch unavailable'))
+  })
+
+  it('does not let a failed queued launch hide other eligible work behind the batch cap', async () => {
+    cap = 1
+    hc.backlog.add({ id: 'fails', title: 'first quest', project: 'world', priority: 'high' })
+    hc.backlog.add({ id: 'continues', title: 'second quest', project: 'world' })
+    const spawn = vi.spyOn(hc.crew, 'spawn').mockImplementation(async req => {
+      if (req.backlogId === 'fails') throw new Error('unavailable pinned tool')
+      ctx.terminals.create({} as never)
+      hc.backlog.markInFlight(req.backlogId!, 'new-task')
+      return { id: 'new-task' } as Task
+    })
+    await open()
+    expect(spawn).toHaveBeenCalledTimes(2)
+    expect(hc.backlog.get('fails')?.state).toBe('queued')
+    expect(hc.backlog.get('continues')?.state).toBe('in-flight')
+  })
+
+  it('reconciles once again after a project window closes and reopens', async () => {
+    await open()
+    await stopProjectBase(ctx, 'world', 'world')
+    await open()
+    expect(hc.wksp.wakeProject).toHaveBeenCalledTimes(2)
+  })
+
+  it('always wakes an empty project and scopes landed history to the previous visit', async () => {
+    const task = unit('landed', 'merged')
+    hc.crew.update(task.id, { landedAt: '2026-01-01T10:00:00Z' })
+    fs.writeFileSync(path.join(home.state, 'project-open.json'), JSON.stringify({ openedAt: '2026-01-02T10:00:00Z' }))
+    await open()
+    expect(hc.wksp.prepareProjectOpen).toHaveBeenCalledOnce()
+    expect(hc.wksp.wakeProject).toHaveBeenCalledWith(expect.stringContaining('Landed since last visit (0)'))
+    expect(ctx.terminals.create).not.toHaveBeenCalled()
+  })
+})

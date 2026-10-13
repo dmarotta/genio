@@ -1,10 +1,10 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { bus } from '../src/main/bus'
 
-const f = vi.hoisted(() => ({ windows: [] as any[], ctx: undefined as any, app: undefined as any, choice: 1, stop: vi.fn(async () => {}), terminalData: undefined as any }))
+const f = vi.hoisted(() => ({ windows: [] as any[], ctx: undefined as any, app: undefined as any, choice: 1, stop: vi.fn(async () => {}), start: vi.fn(async () => {}), terminalData: undefined as any }))
 vi.mock('../src/main/ctx', () => ({
   createApp: () => f.ctx, getCtx: () => f.ctx, startApp: async () => {}, stopApp: async () => {},
-  ensureProjectBase: async (_ctx: unknown, project: string) => `ally-${project}`, stopProjectBase: f.stop
+  ensureProjectBase: async (_ctx: unknown, project: string) => `ally-${project}`, startProjectBase: f.start, stopProjectBase: f.stop
 }))
 vi.mock('../src/main/ipc', () => ({ registerIpc: () => {} }))
 vi.mock('../src/main/win-identity', () => ({ ensureWindowsToastIdentity: () => {}, setWindowsAppId: () => {} }))
@@ -61,6 +61,7 @@ describe('project window lifecycle', () => {
     expect(f.windows[1].query).toEqual({ project: 'one', wksp: 'ally-one', registered: '1' })
     expect(f.windows[1].focus).toHaveBeenCalledOnce()
     expect(f.ctx.stats.unlock).toHaveBeenCalledWith('project-window-open')
+    expect(f.start).toHaveBeenCalledExactlyOnceWith(f.ctx, 'one', 'ally-one')
   })
   it('broadcasts globals while keeping another project chat out', async () => {
     await openProject('two')

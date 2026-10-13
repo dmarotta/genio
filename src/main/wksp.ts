@@ -34,7 +34,7 @@ import { openChatToolBridge, closeChatToolBridges } from './chat-tool-bridge'
 import { formatNotification } from './notify-format'
 import {
   HELP_TEXT, afkPrompt, customContract, eventsPrompt, recapPrompt, returnPrompt, savePrompt, sessionStartPrompt,
-  statusPrompt
+  statusPrompt, projectOpenPrompt
 } from './prompts'
 import { applyChatEvent, chatControls, compactChat, strandQueued } from '@shared/chat'
 import type { AppCtx, WkspService } from './services'
@@ -80,6 +80,10 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
   let batchTimer: ReturnType<typeof setTimeout> | undefined
   let bootDone = false
   let stopped = false
+  let projectOpening = false
+  let projectRecap: string | undefined
+  let projectReady: Promise<void> | undefined
+  let finishProjectOpen: (() => void) | undefined
 
   const settings = (): ReturnType<AppCtx['settings']['get']> => getCtx().settings.get()
   /** the ally record as saved now (its chat controls can change while the base runs) */
@@ -204,12 +208,14 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     const preparedEvents: ChatDriverEvents = { ...events, onStart(item) {
       // Drivers may retain a failed/limited turn for an explicit retry. Refresh
       // its event body at submission so durable per-event acks also apply there.
-      if (item.kind === 'events' && item.ackThrough !== undefined) {
+      if (item.kind === 'events' && (item.ackThrough !== undefined || item.prompt.includes('[GENIO PROJECT OPEN]'))) {
         const drain = getCtx().home(name).wakes.drain()
+        const opening = item.prompt.indexOf('[GENIO PROJECT OPEN]')
         const boot = item.prompt.indexOf('[GENIO SESSION START]')
-        const marker = boot >= 0 ? boot : item.prompt.indexOf('[GENIO EVENTS]')
+        const marker = opening >= 0 ? opening : boot >= 0 ? boot : item.prompt.indexOf('[GENIO EVENTS]')
         const handoff = marker >= 0 ? item.prompt.slice(0, marker) : ''
-        item.prompt = handoff + (boot >= 0 ? `${sessionStartPrompt(gamertag())}\n\n${drain.text}` : eventsPrompt(drain.text))
+        item.prompt = handoff + (opening >= 0 ? projectOpenPrompt(gamertag(), projectRecap ?? '', drain.text)
+          : boot >= 0 ? `${sessionStartPrompt(gamertag())}\n\n${drain.text}` : eventsPrompt(drain.text))
         item.ackThrough = drain.count ? drain.ackThrough : undefined
       }
       events.onStart?.(item)
@@ -296,6 +302,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
       onTurnEnd(item, ok, lastText, cost) {
         if (ok) {
           info.lastError = undefined
+          if (item?.prompt.includes('[GENIO PROJECT OPEN]') && lastText && !NOOP_RE.test(lastText.trim())) safe(() => getCtx().stats.unlock('project-welcome'))
           if (genio.currentProvider === 'codex') safe(() => getCtx().stats.unlock('codex-chat-turn'))
           else quotaPolicy().succeeded(name + ':genio')
         }
@@ -576,7 +583,13 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     send(text, origin = 'player', images = [], context) {
       // Thumbnail decoding may be slow: retain click order and freeze the visible chips now.
       const snapshot = context && validateInventoryContext(context)
-      const sending = pendingSend.then(() => performSend(text, origin, images, snapshot))
+      const sending = pendingSend.then(async () => {
+        if (projectOpening) {
+          await projectReady
+          if (stopped || !isOpen()) throw new Error('The project window closed before the message could be sent.')
+        }
+        return performSend(text, origin, images, snapshot)
+      })
       pendingSend = sending.catch(() => undefined)
       return sending
     },
@@ -600,7 +613,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
       return { text: m.text, ...(images?.length ? { images } : {}), ...(m.context ? { context: m.context } : {}) }
     },
     deliverWakes() {
-      if (readOnly || !isOpen() || stopped) return
+      if (readOnly || !isOpen() || stopped || projectOpening) return
       if (selectedProvider() === 'claude' && !quotaPolicy().canStart(false, Date.now(), false)) return
       try {
         if (Date.now() < eventsBackoffUntil) {
@@ -631,6 +644,28 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
         info.lastError = (e as Error).message
       }
     },
+    prepareProjectOpen() {
+      if (readOnly) return
+      projectOpening = true
+      projectReady ??= new Promise<void>(resolve => { finishProjectOpen = resolve })
+      bootDone = true
+      if (stopped) { genio.restart(false); bot?.restart(false) }
+      stopped = false
+      clearTimeout(batchTimer)
+    },
+    wakeProject(recap) {
+      if (readOnly || !isOpen() || stopped || !projectOpening) return
+      projectRecap = recap
+      const drain = getCtx().home(name).wakes.drain()
+      // Always the visible Genio session. Presence still governs later events.
+      genio.enqueue({ kind: 'events', prompt: projectOpenPrompt(gamertag(), recap, drain.text),
+        ackThrough: drain.count ? drain.ackThrough : undefined })
+      projectOpening = false
+      finishProjectOpen?.()
+      projectReady = undefined
+      finishProjectOpen = undefined
+      publishInfo()
+    },
     async interrupt() {
       await genio.interrupt()
       await bot?.interrupt()
@@ -653,6 +688,9 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     },
     async stop() {
       stopped = true
+      finishProjectOpen?.()
+      projectReady = undefined
+      finishProjectOpen = undefined
       await closeChatToolBridges(getCtx(), name)
       genio.stop()
       bot?.stop()
