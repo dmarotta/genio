@@ -15,6 +15,7 @@ import type { Home } from './home'
 import { truncate } from './util'
 import { resolveLoadout } from './loadout'
 import { GENERATE_IMAGE_DESC, chatImageGen, generateChatImages, generateImageShape } from './chat-imagegen'
+import { findAssets, assetInfo, locateAsset } from './asset-tools'
 import { CATEGORY_IDS } from '@shared/dispatch'
 
 type ToolFn = typeof import('@anthropic-ai/claude-agent-sdk').tool
@@ -118,6 +119,25 @@ export function buildTools(
     if (!f) throw new Error(`no unit/mission with id "${id}"`)
     return f
   }
+
+  const assetKind = z.enum(['image', 'audio', 'video', 'model', 'animation', 'material'])
+  t('assets_find', 'Read-only world Inventory search. Supports browser syntax such as t:sfx, in:Audio, lfs:missing. Includes vendor assets; results never authorize writes.', {
+    world: z.string(), query: z.string().optional(), kind: assetKind.optional(), folder: z.string().optional(), generated: z.boolean().optional(), limit: z.number().int().min(1).max(200).optional()
+  }, async ({ world, query, kind, folder, generated, limit }) => {
+    const result = await findAssets(getCtx(), world, { query, kinds: kind ? [kind] : undefined, folder, generated, limit: limit ?? 50 })
+    getCtx().stats.unlock('inventory-scout')
+    return ok(json(result))
+  })
+  t('asset_info', 'Read-only asset metadata, cheap dimensions/duration, LFS pointer state, provenance and neighbouring indexed media. Paths are world-relative.', {
+    world: z.string(), path: z.string()
+  }, async ({ world, path }) => ok(json(await assetInfo(getCtx(), world, path))))
+  t('asset_locate', 'Suggest ranked safe locations for a NEW asset using engine root, configured folders and measured naming conventions. hint is a folder or subject. Read-only; creates nothing.', {
+    world: z.string(), kind: assetKind, name: z.string().optional(), hint: z.string().optional()
+  }, async ({ world, kind, name, hint }) => {
+    const result = await locateAsset(getCtx(), world, kind, name, hint)
+    getCtx().stats.unlock('asset-pathfinder')
+    return ok(json(result))
+  })
 
   // ------------------------------------------------------------ squad
   t('fleet_view', 'Squad view: every unit in this base (state, world, PR, artifact), plus queued/held quests and open choices. Use at session start, on ticks, and before re-escalating anything.', {}, async () => {

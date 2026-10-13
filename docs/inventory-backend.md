@@ -74,3 +74,29 @@ Spike 0c used five real PNGs (78 B–1.67 MB): native worker thumbnail requests 
 and **0.8 ms** for a cache hit. All five output WebPs were independently decoded
 and measured at no more than 256 px. Outputs ranged from 526 B to 10.4 KB. The
 world was read only; benchmark caches lived in the unit's Genio scratch data.
+
+## Genio read tools
+
+`assets_find({ world, query?, kind?, folder?, generated?, limit? })` uses the
+Inventory search grammar and returns up to 50 assets by default (200 maximum),
+including flagged vendor assets. `asset_info({ world, path })` returns index
+metadata, provenance, LFS state and up to 50 neighbouring indexed media files.
+PNG/GIF dimensions and WAV duration are read from at most 64 KiB of headers;
+unsupported formats and LFS pointers omit those fields.
+
+`asset_locate({ world, kind, name?, hint? })` returns up to five ranked suggestions
+with confidence, reasons, naming style and sibling examples. Placement is shared
+with units through `conventionsOf` / `suggestLocation` in
+`resources/unit-skills/genio/lib/genio-world.mjs`. Pass indexed assets, engine,
+engineRoot and optionally config and root to those helpers. A root enables disk
+collision and symlink/junction checks. Hints can be subject words or a
+world-relative folder. Configured folders outrank inferred folders; explicit
+folder hints outrank configuration. Unsafe destinations are discarded, even
+when configured or hinted. The fallback avoids generated directories too.
+
+Naming measures case, majority -NN numbering and common art prefixes/suffixes.
+Suggestions are advisory: no directory or asset is created, and a future writer
+must revalidate containment and collisions. Unity GLB/glTF suggestions stay in
+source art outside Assets because importer support is not assumed. All three
+tools refresh the index without opening a watcher; only Genio's index cache and
+first-use achievement can be persisted, never world files.

@@ -8,7 +8,7 @@ const PLAYER_FACING_TOOLS: Record<string, string> = {
   deploy: 'deploy', merge: 'move', run_gauntlet: 'squad', quest_add: 'quests',
   world_add: 'worlds', world_create: 'worlds', world_push: 'world_push',
   memory_write: 'lore', generate_image: 'generate_image', rate_task: 'rate_task',
-  loadout_preview: 'loadout_preview'
+  loadout_preview: 'loadout_preview', assets_find: 'assets_find', asset_locate: 'asset_locate'
 }
 // Supporting reads, orchestration and maintenance. New tools must be classified
 // explicitly so adding a registration cannot silently bypass the coverage guard.
@@ -19,7 +19,7 @@ const SUPPORTING_TOOLS = [
   'world_posture', 'world_update', 'world_remove', 'world_sync', 'status_report',
   'memory_read', 'memory_report', 'memory_archive', 'mail_list', 'mail_ack', 'mail_reply',
   'dispatch_profiles', 'toolchain_check', 'presence_set', 'ally_list', 'ally_route',
-  'report_to_main', 'escalate'
+  'report_to_main', 'escalate', 'asset_info'
 ]
 
 const help = 'Add an achievement with this feature tag in src/main/stats.ts and wire its unlock to a real successful event.'

@@ -158,3 +158,116 @@ export function checkBudget({ lines, by, estUsd, unitBudget, config, now = new D
   }
   return { ...out, ok: true }
 }
+
+/** Read-only placement helpers. Inputs are world-relative POSIX paths from Inventory.
+ * No filesystem writes, directory creation, or asset decoding happens here.
+ */
+const placementKinds = ['image', 'audio', 'video', 'model', 'animation', 'material']
+const beneath = (p, base) => !base || p.toLowerCase() === base.toLowerCase() || p.toLowerCase().startsWith(base.toLowerCase() + '/')
+const safeRelative = p => typeof p === 'string' && !!p && !/[\\:\x00-\x1f]/.test(p) && p.split('/').every(s => s && s !== '.' && s !== '..' && !/[. ]$/.test(s))
+function allowedFolder(folder, engine, engineRoot, vendorFolders) {
+  return safeRelative(folder) && beneath(folder, engineRoot) && !folder.split('/').some(s =>
+    /^(?:\.git|\.genio|\.godot|\.import|Library|Temp|Logs|obj|Build.*|dist|out|UserSettings|ProjectSettings|Packages|Intermediate|Saved|DerivedDataCache|Binaries|node_modules|Editor|Resources|StreamingAssets|AddressableAssetsData|generated|third[-_ ]?party|plugins|textmesh pro|microsplatdata|addons)$/i.test(s) || engine === 'unreal' && /^Content$/i.test(s)) &&
+    !vendorFolders.some(v => beneath(folder, v))
+}
+const wordsOf = s => s.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().match(/[a-z0-9]+/g) ?? []
+
+/** Measure naming and kind folders from the world's own indexed media. */
+export function conventionsOf({ assets, kind, engine = 'other', engineRoot = '' }) {
+  if (!placementKinds.includes(kind)) throw new WorldError(`Unsupported asset kind: ${kind}`)
+  if (engineRoot && !safeRelative(engineRoot)) throw new WorldError('Invalid engine root')
+  const vendorFolders = [...new Set(assets.filter(a => a.vendor).map(a => a.folder))]
+  const groups = new Map()
+  for (const a of assets) {
+    if (a.kind !== kind || a.vendor || !allowedFolder(a.folder, engine, engineRoot, vendorFolders)) continue
+    const siblings = groups.get(a.folder) ?? []
+    siblings.push(a); groups.set(a.folder, siblings)
+  }
+  return [...groups].map(([folder, siblings]) => {
+    const stems = siblings.map(a => path.posix.basename(a.path, path.posix.extname(a.path)))
+    const styles = { 'kebab-case': 0, snake_case: 0, PascalCase: 0 }
+    for (const s of stems) {
+      if (s.includes('-')) styles['kebab-case']++
+      else if (/^[a-z0-9]+(?:_[a-z0-9]+)+$/.test(s)) styles.snake_case++
+      else if (/^[A-Z]/.test(s)) styles.PascalCase++
+    }
+    const style = Object.entries(styles).sort((a, b) => b[1] - a[1])[0]
+    const numbered = stems.filter(s => /-\d{2,}$/.test(s)).length > stems.length / 2
+    const suffixCounts = new Map(), prefixCounts = new Map()
+    for (const stem of stems) {
+      const suffix = /(_(?:BaseColor|Albedo|Normal|Roughness|Metallic|LOD\d+))$/.exec(stem)?.[1]
+      const prefix = /^(icon-|T_|SM_)/.exec(stem)?.[1]
+      if (suffix) suffixCounts.set(suffix, (suffixCounts.get(suffix) ?? 0) + 1)
+      if (prefix) prefixCounts.set(prefix, (prefixCounts.get(prefix) ?? 0) + 1)
+    }
+    const majority = counts => [...counts].find(([, n]) => n > stems.length / 2)?.[0] ?? ''
+    const suffix = majority(suffixCounts), prefix = majority(prefixCounts)
+    const extensions = [...new Set(siblings.map(a => path.posix.extname(a.path).toLowerCase()))]
+    return { folder, count: siblings.length, style: style[1] ? style[0] : 'kebab-case', numbered, prefix, suffix, extensions, examples: siblings.slice(0, 3).map(a => a.path) }
+  }).sort((a, b) => b.count - a.count || a.folder.localeCompare(b.folder))
+}
+
+/** Ranked, collision-free suggestions, never a write authorization. hint is folder/subject text. */
+export function suggestLocation({ assets, kind, name = 'new asset', hint = '', engine = 'other', engineRoot = '', config = {}, root }) {
+  const conventions = conventionsOf({ assets, kind, engine, engineRoot })
+  const vendorFolders = [...new Set(assets.filter(a => a.vendor).map(a => a.folder))]
+  const allowed = folder => {
+    if (!allowedFolder(folder, engine, engineRoot, vendorFolders)) return false
+    // Reject symlink/junction ancestors, even when they currently point inside the world.
+    if (root) {
+      let current = root
+      for (const part of folder.split('/')) {
+        current = path.join(current, part)
+        try { if (fs.lstatSync(current).isSymbolicLink()) return false } catch (e) { if (e.code !== 'ENOENT') return false }
+      }
+    }
+    return true
+  }
+  const candidates = new Map(), warnings = []
+  const add = (folder, score, reason, convention) => {
+    if (!allowed(folder)) return
+    if (!candidates.has(folder) || candidates.get(folder).score < score) candidates.set(folder, { folder, score, reason, convention })
+  }
+  const terms = wordsOf(hint + ' ' + name).filter(w => w.length > 2)
+  for (const c of conventions) {
+    const matches = terms.filter(w => wordsOf(c.folder).includes(w)).length
+    add(c.folder, 40 + Math.min(15, Math.log2(c.count + 1) * 3) + Math.min(25, matches * 10), `${c.count} existing ${kind} assets; ${c.style}${c.numbered ? ' with -NN numbering' : ''}${matches ? '; matches subject/hint' : ''}`, c)
+  }
+  const configured = config.folders?.[kind]
+  if (typeof configured === 'string') {
+    add(configured, 90, 'World configured folder', conventions.find(c => c.folder === configured))
+    if (!allowed(configured)) warnings.push('Configured folder is unsafe; ignored.')
+  }
+  if (hint && safeRelative(hint) && (hint.includes('/') || conventions.some(c => c.folder === hint))) {
+    // Only an exact existing folder or a path under the engine root is a path hint.
+    if (beneath(hint, engineRoot)) add(hint, 95, 'Explicit folder hint', conventions.find(c => c.folder === hint))
+  }
+  const dirs = { image: 'Textures', audio: 'Audio', video: 'Video', model: 'Models', animation: 'Animations', material: 'Materials' }
+  const base = engine === 'unity' ? 'Assets' : engine === 'unreal' ? 'SourceArt' : 'assets'
+  add([engineRoot, base, engine === 'godot' ? dirs[kind].toLowerCase() : dirs[kind]].filter(Boolean).join('/'), 20, `${engine} engine fallback under engine root`)
+  const defaults = { image: '.png', audio: '.wav', video: '.mp4', model: engine === 'unity' ? '.fbx' : '.glb', animation: engine === 'unity' ? '.fbx' : '.glb', material: engine === 'unity' ? '.mat' : '.tres' }
+  const requestedExt = path.posix.extname(name).toLowerCase()
+  const ext = requestedExt || defaults[kind]
+  if (!/^\.[a-z0-9]+$/.test(ext)) throw new WorldError('Invalid asset extension')
+  if (engine === 'unity' && ['.glb', '.gltf'].includes(ext)) {
+    candidates.clear()
+    add([engineRoot, 'ArtSource', '3D'].filter(Boolean).join('/'), 80, 'Unity glTF source kept outside Assets; importer support is not assumed')
+    warnings.push('Convert to FBX or verify a glTF importer before importing into Unity.')
+  }
+  const existing = new Set(assets.map(a => a.path.toLowerCase()))
+  const suggestions = [...candidates.values()].sort((a, b) => b.score - a.score || a.folder.localeCompare(b.folder)).slice(0, 5).map(c => {
+    const style = c.convention?.style ?? (engine === 'godot' ? 'snake_case' : 'kebab-case')
+    const words = wordsOf(requestedExt ? name.slice(0, -requestedExt.length) : name)
+    let stem = style === 'PascalCase' ? words.map(w => w[0].toUpperCase() + w.slice(1)).join('') : words.join(style === 'snake_case' ? '_' : '-')
+    stem ||= 'new-asset'
+    const prefix = c.convention?.prefix ?? '', suffix = c.convention?.suffix ?? ''
+    if (prefix && !stem.toLowerCase().startsWith(prefix.toLowerCase())) stem = prefix + stem
+    if (suffix && !stem.toLowerCase().endsWith(suffix.replace('_', '').toLowerCase()) && !stem.toLowerCase().endsWith(suffix.toLowerCase())) stem += suffix
+    let n = c.convention?.numbered ? 1 : 0
+    const make = () => `${c.folder}/${stem}${n ? '-' + String(n).padStart(2, '0') : ''}${ext}`
+    // The index is media-only; also check disk for unindexed collisions when a root is supplied.
+    while (existing.has(make().toLowerCase()) || root && fs.existsSync(path.join(root, make()))) n++
+    return { path: make(), folder: c.folder, confidence: c.score / 100, reason: c.reason, naming: style, examples: c.convention?.examples ?? [] }
+  })
+  return { engine, engineRoot, suggestions, warnings }
+}

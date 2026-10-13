@@ -21,6 +21,8 @@ const XP: Record<AwardEvent, number> = {
 }
 
 export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
+  { id: 'inventory-scout', name: 'Inventory Scout', description: 'Find an asset or locate a new asset destination.', feature: 'assets_find' },
+  { id: 'asset-pathfinder', name: 'Asset Pathfinder', description: 'Locate a new asset destination.', feature: 'asset_locate' },
   { id: 'screenshot', feature: 'comms', name: 'Show and Tell', description: 'Paste a screenshot into chat.' },
   { id: 'chat-image', feature: 'generate_image', name: 'Pixel Summoner', description: 'Generate an image in chat.' },
   { id: 'fal-first', feature: 'fal', name: 'Asset Alchemist', description: 'Complete a FAL run.' },
