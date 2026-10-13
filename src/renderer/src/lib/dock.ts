@@ -220,7 +220,7 @@ export function resizeSplit(state: DockState, splitId: string, sizes: number[]):
 // ------------------------------------------------------------------ layout metrics
 
 /** Smallest usable pane: room for the tab strip, the chat header, a little log and the composer. */
-export const MIN_PANE = { width: 260, height: 220 }
+export const MIN_PANE = { width: 260, height: 260 }
 /** Thickness of the resize sash between split children, in px (matches .dock-sash in app.css). */
 export const SASH_PX = 7
 

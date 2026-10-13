@@ -284,10 +284,19 @@ button.usage-toggle:hover { color: var(--text); }
 .comms-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .comms-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 8px 20px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .comms-status { display: flex; align-items: center; gap: 14px; }
-.chat-panel { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+.chat-panel { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; container: chat-panel / inline-size; }
 .chat-panel .chat-log { padding: 20px 20px 12px; }
 .chat-panel .composer { padding: 10px 20px 14px; }
 .chat-panel .slash-menu { left: 20px; right: 20px; }
+.chat-panel .toggle-label { white-space: nowrap; }
+/* A narrow dock pane keeps its controls on as few lines as it can: the key hints go, the gutters shrink. */
+@container chat-panel (max-width: 560px) {
+  .comms-head { padding: 8px 12px; gap: 6px 14px; }
+  .chat-panel .chat-log { padding: 16px 12px 10px; }
+  .chat-panel .composer { padding: 8px 12px 12px; }
+  .chat-panel .slash-menu { left: 12px; right: 12px; }
+  .composer-keys { display: none; }
+}
 .chat-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex: 1; }
 .chat-scope { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
@@ -304,9 +313,12 @@ button.usage-toggle:hover { color: var(--text); }
 .dock-sash { flex: none; position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; touch-action: none; }
 .dock-sash.dock-row { width: 7px; cursor: col-resize; }
 .dock-sash.dock-column { height: 7px; cursor: row-resize; }
-.dock-sash::after { content: ''; flex: none; background: var(--line-strong); transition: background 0.15s, box-shadow 0.15s, width 0.15s var(--ease), height 0.15s var(--ease); }
-.dock-sash.dock-row::after { width: 2px; height: 40px; }
-.dock-sash.dock-column::after { width: 40px; height: 2px; }
+.dock-sash::before { content: ''; position: absolute; background: var(--line); }
+.dock-sash.dock-row::before { top: 0; bottom: 0; left: 3px; width: 1px; }
+.dock-sash.dock-column::before { left: 0; right: 0; top: 3px; height: 1px; }
+.dock-sash::after { content: ''; position: relative; flex: none; background: var(--text-mute); transition: background 0.15s, box-shadow 0.15s, width 0.15s var(--ease), height 0.15s var(--ease); }
+.dock-sash.dock-row::after { width: 3px; height: 44px; }
+.dock-sash.dock-column::after { width: 44px; height: 3px; }
 .dock-sash:hover::after, .dock-sash.on::after { background: var(--neon); box-shadow: var(--glow); }
 .dock-sash.dock-row:hover::after, .dock-sash.dock-row.on::after { height: 100%; }
 .dock-sash.dock-column:hover::after, .dock-sash.dock-column.on::after { width: 100%; }

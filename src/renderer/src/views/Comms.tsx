@@ -526,7 +526,9 @@ function Composer({ wksp, busy, fill }: { wksp: string; busy: boolean; fill: Ref
         <span>
           <ShellModeButton wksp={wksp} />
           <ChatModelControls wksp={wksp} />
-          <kbd>Enter</kbd> send · <kbd>Shift</kbd>+<kbd>Enter</kbd> newline · <kbd>/</kbd> commands · <kbd>Ctrl</kbd>+<kbd>V</kbd> image
+          <span className="composer-keys">
+            <kbd>Enter</kbd> send · <kbd>Shift</kbd>+<kbd>Enter</kbd> newline · <kbd>/</kbd> commands · <kbd>Ctrl</kbd>+<kbd>V</kbd> image
+          </span>
         </span>
         {isMain && (
           <span className="quick">
