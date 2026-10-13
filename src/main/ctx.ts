@@ -237,7 +237,7 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
       tasks: all.flatMap((h) => h.crew.list()),
       pendingUnits: ctx.dispatch.pendingUnits(),
       backlog: all.flatMap((h) => h.backlog.list()),
-      decisions: all.flatMap((h) => h.decisions.list(false)),
+      decisions: all.flatMap((h) => h.decisions.list(true)),
       projects: ctx.projects.list(),
       wksps: all.map((h) => h.wksp.info()),
       allies: ctx.allies.list(),

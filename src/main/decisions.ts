@@ -54,11 +54,11 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
   }
 
   function publish(): void {
-    let merged: Decision[] = load().filter(isOpen)
+    let merged: Decision[] = load()
     try {
       const ctx = getCtx()
-      merged = [...ctx.homes.values()].flatMap((h) => (h.home.name === home.name ? load().filter(isOpen) : h.decisions.list(false)))
-      if (!ctx.homes.has(home.name)) merged = [...merged, ...load().filter(isOpen)]
+      merged = [...ctx.homes.values()].flatMap((h) => (h.home.name === home.name ? load() : h.decisions.list(true)))
+      if (!ctx.homes.has(home.name)) merged = [...merged, ...load()]
     } catch {
       /* not wired */
     }
@@ -70,12 +70,13 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
       const ctx = getCtx()
       ctx.notifier.sfx('decision')
       const mode = ctx.away.state().mode
+      const target = { view: 'move' as const, project: d.project, wksp: d.wksp, decisionId: d.id }
       const where = d.taskId ? ` (${d.taskId})` : ''
       if (mode === 'dnd' || mode === 'afk') {
-        ctx.away.capture({ wksp: home.name, text: `Your move${where}: ${d.question}`, severity: 'decision', where: d.project, target: { view: 'move' } })
+        ctx.away.capture({ wksp: home.name, text: `Your move${where}: ${d.question}`, severity: 'decision', where: d.project, target })
       } else {
         const { title, body } = formatNotification({ kind: 'decision', text: d.question, where: d.project ?? home.name })
-        ctx.notifier.notify(title, body, 'decision', { target: { view: 'move' } })
+        ctx.notifier.notify(title, body, 'decision', { target })
       }
       ctx.ledger.record({ home: home.name, event: 'decision.opened', task: d.taskId, project: d.project, data: { id: d.id, key: d.key, question: d.question, source: d.source } })
     } catch {
@@ -98,12 +99,12 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
 
     open(input) {
       const d: Decision = {
-        id: input.id && !load().some((x) => x.id === input.id) ? input.id : `ch-${rid(3)}`,
+        id: input.id && !load().some((x) => x.id === input.id) ? input.id : `ch-${rid(8)}`,
         key: (input.key ?? 'default').trim() || 'default',
         wksp: home.name,
         taskId: input.taskId,
         backlogId: input.backlogId,
-        project: input.project ?? projectOf(input.taskId),
+        project: input.project ?? projectOf(input.taskId) ?? questProject(input.backlogId) ?? ownerProject(),
         question: input.question.trim(),
         context: input.context,
         options: Array.isArray(input.options) ? input.options.filter(Boolean) : [],
@@ -147,6 +148,9 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
       const d = load().find((x) => x.id === id)
       if (!d) return undefined
       if (d.resolvedAt) return d
+      answer = answer.trim()
+      if (!answer) throw new Error('An answer is required.')
+      if (d.until && Date.parse(d.until) > Date.now()) throw new Error('This choice is deferred. Resume it before answering.')
       d.resolvedAt = nowIso()
       d.answer = answer
       delete d.until
@@ -158,6 +162,7 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
         ctx = undefined
       }
       if (ctx) {
+        try { receipt(ctx, d, answer) } catch { /* optional chat receipt */ }
         if (d.action) {
           try {
             ctx.dispatch.answered(d, answer)
@@ -166,10 +171,10 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
           }
         }
         // Relay the player's words to the unit that asked; closes the key.
-        if (d.taskId && (d.source === 'unit' || d.source === 'validation')) {
+        if (d.taskId) {
           const h = safeHome(ctx, home.name)
           const task = h?.crew.get(d.taskId)
-          if (h && task && task.state !== 'cleaned') {
+          if (h && task && !['cleaned', 'done', 'merged'].includes(task.state)) {
             void h.crew
               .send(d.taskId, `Answer to your open choice [key=${d.key}]: ${answer}`, [d.key])
               .catch(() => undefined)
@@ -202,6 +207,7 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
           d.resolvedAt = nowIso()
           d.answer = answer
           delete d.until
+          try { receipt(getCtx(), d, answer ?? '') } catch { /* not wired */ }
           changed = true
         }
       }
@@ -218,10 +224,26 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
     defer(id, until) {
       const d = load().find((x) => x.id === id)
       if (!d || d.resolvedAt) return
+      if (until && !Number.isFinite(Date.parse(until))) throw new Error('Invalid deferral date.')
       if (until) d.until = until
       else delete d.until // resurface now
       save()
     }
+  }
+
+  function questProject(id?: string): string | undefined {
+    try { return id ? getCtx().home(home.name).backlog.get(id)?.project : undefined }
+    catch { return undefined }
+  }
+
+  function ownerProject(): string | undefined {
+    try { return getCtx().allies.list().find(a => a.name === home.name && !a.retiredAt)?.projects[0] }
+    catch { return undefined }
+  }
+
+  function receipt(ctx: AppCtx, d: Decision, answer: string): void {
+    const owner = d.project ? ctx.allies.list().find(a => !a.retiredAt && a.projects.includes(d.project!))?.name : undefined
+    safeHome(ctx, owner ?? home.name)?.wksp.say(`Answered: ${d.question}\n\n${answer}`, 'system')
   }
 
   function projectOf(taskId?: string): string | undefined {

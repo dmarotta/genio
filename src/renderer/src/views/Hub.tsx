@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { ChevronRight, FolderOpen, Plus } from 'lucide-react'
-import { api, op, useStore } from '../store'
+import { api, op, openDecisions, useStore } from '../store'
 import { ENGINE_LABEL } from '../lib/vocab'
+import { useNow } from '../components/ui'
 import { NewWorld } from './Worlds'
 import '../styles/hub.css'
 
@@ -16,6 +17,8 @@ function readRecent(): string[] {
 
 /** The Hub selects projects; all work and controls live in the project window. */
 export function Hub() {
+  useNow(30_000)
+  const choices = useStore(s => openDecisions(s))
   const projects = useStore(s => s.snap.projects)
   const booted = useStore(s => s.booted)
   const connected = useStore(s => s.connected)
@@ -58,6 +61,7 @@ export function Hub() {
             <button key={p.name} className="hub-project" disabled={!available} onClick={() => void openProject(p.path)}>
               <FolderOpen size={20} className="neon-text" />
               <span className="hub-project-identity"><strong>{p.name}</strong><span className="mono mute hub-project-path" title={p.path}>{p.path}</span></span>
+              {choices.some(d => d.project === p.name) && <span className="chip amber">{choices.filter(d => d.project === p.name).length} choices waiting</span>}
               <span className="dim hub-project-engine">{ENGINE_LABEL[p.engine]}</span>
               <ChevronRight size={16} className="mute" />
             </button>

@@ -106,7 +106,7 @@ export function createAwayService(getCtx: () => AppCtx): AwayService {
       if (batch.length === 1) notifyEntry(top)
       else {
         const { title, body } = formatNotification({ kind: 'digest', count: batch.length, text: top.text })
-        getCtx().notifier.notify(title, body, worst, { target: worst === 'decision' ? { view: 'move' } : entryTarget(top) })
+        getCtx().notifier.notify(title, body, worst, { target: entryTarget(top) })
       }
       if (worst === 'decision' || worst === 'failure') getCtx().notifier.sfx('alert')
     } catch {
@@ -164,7 +164,7 @@ export function createAwayService(getCtx: () => AppCtx): AwayService {
     }
     // auto / default: desktop notification (forced) + alert sound + webhook
     const { title, body } = formatNotification({ kind: 'alarm', count: stuck.length, text: stuck[0]?.text })
-    const target: NotifyTarget = stuck.some((e) => e.severity === 'decision') ? { view: 'move' } : entryTarget(stuck[0])
+    const target: NotifyTarget = entryTarget(stuck.find(e => e.severity === 'decision') ?? stuck[0])
     try {
       ctx.notifier.sfx('alert')
       ctx.notifier.notify(title, body, 'failure', { target, force: true })
@@ -272,19 +272,19 @@ export function createAwayService(getCtx: () => AppCtx): AwayService {
     takeReturnBrief() {
       const s = load()
       const pending = s.held.filter((e) => !e.delivered)
-      if (!pending.length) return ''
+      const moves = [...getCtx().homes.values()].reduce((n, h) => n + h.decisions.list(false).length, 0)
+      if (!pending.length) return moves ? `${moves} choices waiting. Open Pending answers when ready.` : ''
       for (const e of pending) e.delivered = true
       s.returnSummaryPending = false
       persist()
       const order = pending.slice().sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity] || a.ts.localeCompare(b.ts))
       const where = s.since ? ` (since ${new Date(s.since).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})` : ''
       const lines = [`Welcome back, ${gamertag()}. ${pending.length} update(s) while you were away${where}:`]
-      for (const e of order) {
+      for (const e of order.filter(e => e.severity !== 'decision')) {
         const wksp = e.wksp && e.wksp !== 'main' ? ` [${e.wksp}]` : ''
         lines.push(`- [${SEVERITY_TAG[e.severity]}]${wksp} ${e.text}`)
       }
-      const moves = pending.filter((e) => e.severity === 'decision').length
-      if (moves) lines.push(`${moves} choice(s) still need your move — show Pending answers.`)
+      if (moves) lines.push(`${moves} choices waiting. Open Pending answers when ready.`)
       return lines.join('\n')
     }
   }

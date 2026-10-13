@@ -1,5 +1,5 @@
 import { Crosshair, Users } from 'lucide-react'
-import { PROJECT_WINDOW, api, go, op, openDecisions, runningUnits, setState, useStore } from '../store'
+import { PROJECT_WINDOW, api, go, op, openDecisions, runningUnits, setState, toggleAnswers, useStore } from '../store'
 import { useNow } from './ui'
 import { PRESENCE } from '../lib/vocab'
 import { cx, usd } from '../lib/format'
@@ -12,7 +12,7 @@ export function TitleBar() {
   const stats = useStore((s) => s.snap.stats)
   const units = useStore(runningUnits)
   const moves = useStore((s) => openDecisions(s).length)
-  const answersOpen = useStore(s => s.answersOpen)
+  const answersOpen = useStore(s => s.answersOpen && (openDecisions(s).length > 0 || !!s.answerHistory))
   const settings = useStore((s) => s.settings)
   const pct = stats.xpNext > 0 ? Math.min(100, (stats.xp / stats.xpNext) * 100) : 0
 
@@ -58,7 +58,7 @@ export function TitleBar() {
           <Users size={14} />
           <span className="num">{units}</span>
         </button>
-        <button className={cx('hud-stat', moves > 0 && 'amber')} title="Pending answers" aria-label="Pending answers" aria-controls="answers" aria-expanded={answersOpen && moves > 0} onClick={() => setState({ answersOpen: !answersOpen })}>
+        <button className={cx('hud-stat', moves > 0 && 'amber')} title="Pending answers" aria-label="Pending answers" aria-controls="answers" aria-expanded={answersOpen} onClick={toggleAnswers}>
           <Crosshair size={14} />
           <span className="num">{moves}</span>
         </button>

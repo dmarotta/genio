@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { ownsDecision } from '@shared/decisions'
 import type { FleetSnapshot, GenioEvent, TerminalInfo } from '@shared/types'
 import { normalisedProjectPath } from './projects'
 
@@ -27,7 +28,7 @@ export function projectSnapshot(s: FleetSnapshot, binding?: WindowBinding): Flee
     projects: s.projects.filter(p => p.name === binding.project),
     tasks: s.tasks.filter(t => t.project === binding.project),
     backlog: s.backlog.filter(t => t.project === binding.project),
-    decisions: s.decisions.filter(t => t.project === binding.project || (!t.project && t.wksp === binding.wksp)),
+    decisions: s.decisions.filter(t => ownsDecision(t, binding)),
     wksps: s.wksps.filter(m => m.name === binding.wksp),
     allies: s.allies.filter(a => a.name === binding.wksp)
   }
@@ -69,7 +70,8 @@ export function routeProjectEvent(ev: GenioEvent, binding: WindowBinding | undef
     case 'navigate':
       if (ev.target.view === 'comms') return wksp(ev.target.wksp)
       if (ev.target.view === 'squad') { const taskId = ev.target.taskId; return project(s.tasks.find(t => t.id === taskId)?.project) }
-      return ev
+      if (ev.target.view === 'move') return ev.target.project ? project(ev.target.project) : wksp(ev.target.wksp)
+      return undefined
     default: return ev
   }
 }

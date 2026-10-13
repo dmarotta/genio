@@ -38,13 +38,13 @@ async function desktopNotify(appRoot: string, title: string, body: string, sever
     const drop = (): void => void live.delete(n)
     n.on('click', () => {
       drop()
+      if (target) { bus.publish({ type: 'navigate', target }); return }
       const win = electron.BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
       if (win) {
         if (win.isMinimized()) win.restore()
         win.show()
         win.focus()
       }
-      if (target) bus.publish({ type: 'navigate', target })
     })
     n.on('close', drop)
     n.on('failed', drop)

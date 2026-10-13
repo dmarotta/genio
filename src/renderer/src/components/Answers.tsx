@@ -1,5 +1,6 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Clock, Sparkles, X } from 'lucide-react'
+import { pendingDecision } from '@shared/decisions'
 import type { Decision } from '@shared/types'
 import { api, focusTask, op, openDecisions, setState, useStore } from '../store'
 import { Markdown } from './Markdown'
@@ -13,15 +14,33 @@ export function Answers() {
   useNow(30_000)
   const decisions = useStore(s => openDecisions(s))
   const open = useStore(s => s.answersOpen)
-  if (!open || !decisions.length) return null
-  const sorted = [...decisions].sort((a, b) => a.urgency === b.urgency ? a.createdAt.localeCompare(b.createdAt) : a.urgency === 'urgent' ? -1 : 1)
+  const history = useStore(s => s.answerHistory)
+  const target = useStore(s => s.answerTarget)
+  const all = useStore(s => s.snap.decisions)
+  useEffect(() => {
+    if (open && target) document.getElementById(`answer-${target}`)?.scrollIntoView?.({ block: 'nearest' })
+  }, [open, target, history, all])
+  if (!open || (!decisions.length && !history)) return null
+  const visible = history ? all.filter(d => history === 'answered' ? !!d.resolvedAt : !d.resolvedAt && !pendingDecision(d)) : decisions
+  const sorted = [...visible].sort((a, b) => history === 'answered' ? (b.resolvedAt ?? '').localeCompare(a.resolvedAt ?? '') : a.urgency === b.urgency ? a.createdAt.localeCompare(b.createdAt) : a.urgency === 'urgent' ? -1 : 1)
   return (
     <aside className="answers" id="answers" aria-label="Pending answers">
       <header className="answers-head">
-        <span className="label amber-text">Pending answers &middot; {sorted.length}</span>
+        <span className="label amber-text">{history === 'answered' ? 'Answered' : history === 'deferred' ? 'Deferred' : 'Pending answers'} &middot; {sorted.length}</span>
         <button className="btn sm ghost icon" aria-label="Hide pending answers" onClick={() => setState({ answersOpen: false })}><X size={16} /></button>
       </header>
-      <div className="answers-list">{sorted.map(d => <AnswerCard key={d.id} d={d} />)}</div>
+      <nav className="choice-actions" aria-label="Answer history">
+        <button className="btn sm ghost" aria-pressed={!history} onClick={() => setState({ answerHistory: undefined })}>Pending ({decisions.length})</button>
+        <button className="btn sm ghost" aria-pressed={history === 'answered'} onClick={() => setState({ answerHistory: 'answered' })}>Answered</button>
+        <button className="btn sm ghost" aria-pressed={history === 'deferred'} onClick={() => setState({ answerHistory: 'deferred' })}>Deferred</button>
+      </nav>
+      <div className="answers-list">{sorted.length ? sorted.map(d => history ?
+        <div className="choice panel" id={`answer-${d.id}`} key={d.id}>
+          <div className="choice-q">{d.question}</div>
+          {d.project && <span className="chip">{d.project}</span>}
+          <p>{d.resolvedAt ? `Answered ${dateShort(d.resolvedAt)}: ${d.answer ?? ''}` : `Deferred until ${dateShort(d.until!)}`}</p>
+          {!d.resolvedAt && <button className="btn sm" onClick={() => void op('Resume choice', () => api().deferDecision(d.id, '')).then(() => setState({ answerHistory: undefined }))}>Resume</button>}
+        </div> : <AnswerCard key={d.id} d={d} />) : <p className="mute">No {history ?? 'pending'} choices.</p>}</div>
     </aside>
   )
 }
@@ -58,7 +77,7 @@ export function AnswerCard({ d }: { d: Decision }) {
   const sourceLabel: Record<Decision['source'], string> = { unit: 'From a unit', genio: 'From Genio', validation: 'From the Gauntlet', ally: 'From an ally', system: 'System' }
 
   return (
-    <div className={cx('choice panel rise', d.urgency === 'urgent' && 'urgent')}>
+    <div id={`answer-${d.id}`} className={cx('choice panel rise', d.urgency === 'urgent' && 'urgent')}>
       <div className="choice-meta">
         <span className="label amber-text">{sourceLabel[d.source]}</span>
         {d.urgency === 'urgent' && <Chip tone="alert">Urgent</Chip>}

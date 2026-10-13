@@ -89,3 +89,27 @@ it('sends a recommendation and a valid deferral through the existing APIs', asyn
   await click('Confirm')
   expect(deferDecision).toHaveBeenCalledWith('one', new Date(date).toISOString())
 })
+
+
+it('retrieves Answered and Deferred history and resumes a deferred choice', async () => {
+  const until = new Date(Date.now() + 86_400_000).toISOString()
+  setState({ snap: { ...getState().snap, decisions: [choice('pending'), choice('done', { resolvedAt: new Date().toISOString(), answer: 'A' }), choice('later', { until })] } })
+  await mount()
+  await click('Answered')
+  expect(host.textContent).toContain('Question done')
+  expect(host.textContent).not.toContain('Question pending')
+  await click('Deferred')
+  expect(host.textContent).toContain('Question later')
+  await click('Resume')
+  expect(deferDecision).toHaveBeenCalledWith('later', '')
+  expect(getState().answerHistory).toBeUndefined()
+})
+
+it('notification targets reveal a specific answered choice without changing the current screen', async () => {
+  setState({ answersOpen: false, snap: { ...getState().snap, decisions: [choice('done', { resolvedAt: new Date().toISOString(), answer: 'B' })] } })
+  await mount()
+  await act(async () => handleEvent({ type: 'navigate', target: { view: 'move', decisionId: 'done', wksp: 'main' } }))
+  expect(host.querySelector('#answer-done')?.textContent).toContain('Question done')
+  expect(getState().view).toBe('worlds')
+  expect(answerDecision).not.toHaveBeenCalled()
+})

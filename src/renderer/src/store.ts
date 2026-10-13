@@ -5,6 +5,7 @@ import type {
 } from '@shared/types'
 import type { SpawnRequest } from '@shared/api'
 import { applyChatEvent, patchAllyControls, type AllyControlsPatch } from '@shared/chat'
+import { pendingDecision } from '@shared/decisions'
 import { occupiedUnits } from '@shared/unit-capacity'
 import { playSfx } from './lib/sfx'
 import { speak } from './lib/voice'
@@ -49,6 +50,8 @@ export interface State {
   permissions: PermissionRequest[]
   achievements: Achievement[]
   answersOpen: boolean
+  answerHistory?: 'answered' | 'deferred'
+  answerTarget?: string
   view: ViewId
   focus: Focus
   deploy: Partial<SpawnRequest> | null
@@ -427,7 +430,10 @@ export function handleEvent(ev: GenioEvent): void {
     case 'navigate': {
       // a desktop notification was clicked
       const t = ev.target
-      if (t.view === 'move') setState({ answersOpen: true })
+      if (t.view === 'move') {
+        const d = s.snap.decisions.find(d => d.id === t.decisionId)
+        setState({ answersOpen: true, answerTarget: t.decisionId, answerHistory: d?.resolvedAt ? 'answered' : d?.until && Date.parse(d.until) > Date.now() ? 'deferred' : undefined })
+      }
       else if (t.view === 'squad') {
         if (t.taskId) focusTask(t.taskId)
         else go('squad')
@@ -486,5 +492,16 @@ export function liveTasks(s: State): FleetSnapshot['tasks'] {
 
 export function openDecisions(s: State): FleetSnapshot['decisions'] {
   const now = Date.now()
-  return s.snap.decisions.filter((d) => !d.resolvedAt && (!d.until || new Date(d.until).getTime() <= now))
+  return s.snap.decisions.filter(d => pendingDecision(d, now))
+}
+
+
+export function toggleAnswers(): void {
+  const pending = openDecisions(state).length > 0
+  const visible = state.answersOpen && (pending || !!state.answerHistory)
+  setState({
+    answersOpen: !visible,
+    answerTarget: undefined,
+    answerHistory: pending ? undefined : state.snap.decisions.some(d => d.resolvedAt) ? 'answered' : 'deferred'
+  })
 }

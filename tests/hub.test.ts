@@ -23,7 +23,7 @@ beforeEach(() => {
     snap: { ...state.snap, projects: [project('alpha'), project('beta')] }, toasts: [] })
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
 })
-afterEach(async () => { await act(async () => root.unmount()); host.remove() })
+afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers() })
 const render = async () => { await act(async () => root.render(React.createElement(App))) }
 async function click(text: string) {
   const button = [...host.querySelectorAll('button')].find(b => b.textContent?.includes(text))!
@@ -78,4 +78,39 @@ it('keeps failed opens out of recents and leaves the selection usable', async ()
   expect(host.textContent).toContain('Folder unavailable')
   expect(localStorage.getItem('genio.hub.recent-projects')).toBeNull()
   expect((host.querySelector('.hub-project') as HTMLButtonElement).disabled).toBe(false)
+})
+
+
+it('shows waiting counts for closed projects while keeping their persisted choices accessible', async () => {
+  const state = getState()
+  setState({ answersOpen: false, snap: { ...state.snap, decisions: [{ id: 'choice', key: 'k', project: 'beta', wksp: 'beta', question: 'Which route?', options: [], source: 'genio', urgency: 'normal', createdAt: new Date().toISOString() }] } })
+  await render()
+  expect(host.querySelectorAll('.hub-project')[1]?.textContent).toContain('1 choices waiting')
+  await click('Pending answers and history')
+  expect(host.textContent).toContain('Which route?')
+  expect(open).not.toHaveBeenCalled()
+  await act(async () => setState({ snap: { ...state.snap, decisions: [] }, answersOpen: true }))
+})
+
+
+it('opens history from the Hub even when all choices are already answered', async () => {
+  const state = getState()
+  setState({ answersOpen: true, answerHistory: undefined, snap: { ...state.snap, decisions: [{ id: 'answered', key: 'k', project: 'beta', wksp: 'beta', question: 'Old choice?', answer: 'Yes', resolvedAt: new Date().toISOString(), options: [], source: 'genio', urgency: 'normal', createdAt: new Date().toISOString() }] } })
+  await render()
+  expect(host.textContent).not.toContain('Old choice?')
+  await click('Pending answers and history')
+  expect(host.textContent).toContain('Old choice?')
+  await act(async () => setState({ snap: { ...state.snap, decisions: [] }, answerHistory: undefined, answersOpen: true }))
+})
+
+
+it('refreshes a closed project waiting count as its deferred choice becomes due', async () => {
+  vi.useFakeTimers()
+  const state = getState()
+  setState({ answersOpen: false, answerHistory: undefined, snap: { ...state.snap, decisions: [{ id: 'later', key: 'k', project: 'beta', wksp: 'beta', question: 'Deferred route?', until: new Date(Date.now() + 10_000).toISOString(), options: [], source: 'genio', urgency: 'normal', createdAt: new Date().toISOString() }] } })
+  await render()
+  expect(host.querySelectorAll('.hub-project')[1]?.textContent).not.toContain('choices waiting')
+  await act(async () => vi.advanceTimersByTime(30_000))
+  expect(host.querySelectorAll('.hub-project')[1]?.textContent).toContain('1 choices waiting')
+  await act(async () => setState({ snap: { ...state.snap, decisions: [] }, answersOpen: true }))
 })

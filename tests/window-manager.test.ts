@@ -18,7 +18,7 @@ vi.mock('electron', async () => {
   f.app = Object.assign(new EventEmitter(), { requestSingleInstanceLock: () => true, whenReady: async () => {}, isPackaged: true, getAppPath: () => '.', quit: vi.fn(), exit: vi.fn() })
   class Window extends EventEmitter {
     openHandler: any
-    webContents = Object.assign(new EventEmitter(), { id: f.windows.length + 1, send: vi.fn(), isDestroyed: () => false, getURL: () => 'file:///genio/index.html?project=one&wksp=ally-one', setWindowOpenHandler: (fn: any) => { this.openHandler = fn } })
+    webContents = Object.assign(new EventEmitter(), { id: f.windows.length + 1, send: vi.fn(), isDestroyed: () => false, isLoadingMainFrame: () => false, getURL: () => 'file:///genio/index.html?project=one&wksp=ally-one', setWindowOpenHandler: (fn: any) => { this.openHandler = fn } })
     destroyed = false
     query: any
     focus = vi.fn()
@@ -43,7 +43,7 @@ beforeAll(async () => {
   const snapshot = { tasks: [], projects: [], wksps: [], allies: [], backlog: [], decisions: [] }
   f.ctx = {
     snapshot: () => snapshot, settings: { get: () => ({}) }, permissions: { pending: () => [] },
-    projects: { openFolder: async (name: string) => ({ project: { name, path: name }, registered: true }) },
+    projects: { get: (name: string) => ({ name, path: name }), openFolder: async (name: string) => ({ project: { name, path: name }, registered: true }) },
     stats: { unlock: vi.fn() }, homes: new Map(),
     terminals: { get: (id: string) => ({ id, alive: true }), list: () => [], onAnyData: (fn: unknown) => { f.terminalData = fn } }
   }
@@ -112,5 +112,26 @@ describe('project window lifecycle', () => {
     expect(f.windows[0].destroyed).toBe(true)
     expect(f.windows[2].destroyed).toBe(false)
     expect(f.app.exit).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('notification click routing', () => {
+  it('reopens a closed owning project and reveals exactly its decision without navigating other windows', async () => {
+    const snapshot = f.ctx.snapshot()
+    snapshot.decisions = [{ id: 'choice-one', project: 'one', wksp: 'ally-one' }]
+    const target = { view: 'move', project: 'one', wksp: 'ally-one', decisionId: 'choice-one' } as const
+    for (const w of f.windows) { w.webContents.send.mockClear(); w.focus.mockClear() }
+    bus.publish({ type: 'navigate', target })
+    await vi.waitFor(() => expect(f.windows.find(w => !w.destroyed && w.query.project === 'one')?.webContents.send).toHaveBeenCalledWith('genio:event', { type: 'navigate', target }))
+    const owner = f.windows.find(w => !w.destroyed && w.query.project === 'one')
+    expect(owner.focus).toHaveBeenCalled()
+    expect(f.windows[2].focus).not.toHaveBeenCalled()
+    expect(f.windows[2].webContents.send).not.toHaveBeenCalledWith('genio:event', { type: 'navigate', target })
+    const count = f.windows.length
+    bus.publish({ type: 'navigate', target })
+    await vi.waitFor(() => expect(owner.webContents.send.mock.calls.filter((c: any[]) => c[1].type === 'navigate')).toHaveLength(2))
+    expect(f.windows).toHaveLength(count)
+    snapshot.decisions = []
   })
 })

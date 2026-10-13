@@ -81,28 +81,12 @@ export async function answerChoice(ctx: AppCtx, id: string, answer: string): Pro
   if (!found) return { ok: false, message: `no choice ${id}` }
   const { hc, d } = found
   if (d.resolvedAt) return { ok: true, message: 'already answered' }
-  let note = ''
-  if (d.taskId) {
-    const t = findTask(ctx, d.taskId, hc.home)
-    if (t && !['cleaned', 'done', 'merged'].includes(t.task.state)) {
-      const r = await t.hc.crew.send(d.taskId, `Answer to your open question (${d.key}): ${answer}`, [d.key])
-      note = r.ok ? ' and pinged the unit' : ` (ping failed: ${r.message})`
-    }
-  }
-  if (d.backlogId && hc.backlog.get(d.backlogId)) {
-    try {
-      hc.backlog.answer(d.backlogId, answer, true)
-    } catch {
-      /* quest may already be closed */
-    }
-  }
-  hc.decisions.resolve(id, answer)
   try {
-    ctx.stats.award('decision', d.taskId)
-  } catch {
-    /* stats optional */
+    hc.decisions.resolve(id, answer)
+    return { ok: true, message: 'choice answered' }
+  } catch (error) {
+    return { ok: false, message: (error as Error).message }
   }
-  return { ok: true, message: `choice answered${note}` }
 }
 
 function taskLine(t: Task): Record<string, unknown> {
@@ -469,6 +453,8 @@ export function createToolRegistry(
 
   t('choice_resolve', "Close a choice with the player's answer (pings the unit with resolve key and records it on a held quest).", { id: z.string(), answer: z.string().min(1) }, async ({ id, answer }) => {
     if (role === 'bot') return fail('only the player can answer a choice; it stays open until they return')
+    const found = findDecision(getCtx(), id)
+    if (!home.isMain && found?.hc.home.name !== home.name) return fail('Choice is outside this conversation.')
     const r = await answerChoice(getCtx(), id, answer)
     return r.ok ? ok(r.message) : fail(r.message)
   })

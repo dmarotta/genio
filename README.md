@@ -106,7 +106,8 @@ MIT. Genio reimplements concepts from companion by The team (MIT).
 ### Open a project folder
 
 Launching Genio without arguments opens a minimal project-selection Hub. Recent
-projects, **Open folder** and **New project** are its only controls.
+projects, **Open folder** and **New project** select a project. Waiting choice
+counts and answer history remain available from the Hub.
 Selecting a project opens its own window on its main chat. Recent selections are
 remembered on this device; work controls and first-run setup live inside the
 project window. **Open folder�** accepts any existing folder. Git subfolders resolve to

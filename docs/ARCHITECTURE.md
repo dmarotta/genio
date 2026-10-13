@@ -190,3 +190,15 @@ The standalone Your Move page has been removed. Pending choices appear in a
 non-modal answer panel beside the current screen; the title-bar count and desktop
 notifications reveal it without navigating away. Merges remain in Squad and held
 quests in Quests. Existing `move` notification targets reveal the answer panel.
+
+
+Choices retain their project and conversation ownership while a project is closed.
+Project windows show and answer only their own choices; the Hub provides waiting
+counts across projects and access to the fleet's answer history. Pending answers
+include Answered and Deferred filters, with Resume for deferred choices. Desktop
+notification clicks open or focus the owning project and reveal the exact choice,
+including its history if it has since been answered or deferred. Answer resolution
+claims the current record synchronously before side effects, so simultaneous
+answers relay and award once, and write an answer receipt in the owning chat.
+Returning from AFK or DND summarizes the current number of waiting choices without
+replaying each decision question.

@@ -1,5 +1,5 @@
 import { useEffect, type ComponentType } from 'react'
-import { PROJECT_WINDOW, registerViews, useStore, type ViewId } from './store'
+import { PROJECT_WINDOW, toggleAnswers, registerViews, useStore, type ViewId } from './store'
 import { Hub } from './views/Hub'
 import { TitleBar } from './components/TitleBar'
 import { Rail } from './components/Rail'
@@ -36,6 +36,7 @@ export function App() {
   const booted = useStore((s) => s.booted)
   const connected = useStore((s) => s.connected)
   const view = useStore((s) => s.view)
+  const hubChoices = useStore(s => s.snap.decisions.length)
   const fx = useStore((s) => s.settings?.fx)
   useGlobalKeys(!!PROJECT_WINDOW)
 
@@ -45,8 +46,8 @@ export function App() {
 
   if (!PROJECT_WINDOW) return (
     <div className="app hub-app">
-      <header className="titlebar hub-titlebar"><span className="wordmark-text">GENIO</span><span className="label dim">Hub</span></header>
-      <main className="stage"><Hub /></main>
+      <header className="titlebar hub-titlebar"><span className="wordmark-text">GENIO</span><span className="label dim">Hub</span>{hubChoices > 0 && <button className="btn sm ghost" onClick={toggleAnswers}>Pending answers and history</button>}</header>
+      <div className="app-body"><main className="stage"><Hub /></main><Answers /></div>
       <Toasts />
       <BootSplash ready={booted} />
     </div>

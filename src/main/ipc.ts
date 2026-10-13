@@ -18,6 +18,7 @@ import { sendPlayerChat } from './wksp'
 import { clearSecret, secretStatus, setSecret } from './secrets'
 import { usageReport } from './usage'
 import type { AppCtx, HomeCtx } from './services'
+import { ownsDecision } from '@shared/decisions'
 import { projectSnapshot, terminalProject, type WindowBinding } from './project-windows'
 
 type Handlers ={ [K in keyof GenioApi]: (...args: Parameters<GenioApi[K]>) => ReturnType<GenioApi[K]> | Awaited<ReturnType<GenioApi[K]>> }
@@ -323,6 +324,10 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
           return
         }
         if (method === 'playDetach' || method === 'playSelectSlot') playConnections.get(args[0] as string)?.()
+        if (binding && ['answerDecision', 'deferDecision'].includes(method)) {
+          const found = findDecision(ctx(), String(args[0]))
+          if (!found || !ownsDecision(found.d, binding)) throw new Error('Choice is outside this project.')
+        }
         if (binding) {
           if (method === 'readMemory') return ctx().memory.read(args[0] as Parameters<GenioApi['readMemory']>[0], ctx().home(binding.wksp).home)
           if (method === 'writeMemory') return ctx().memory.write(args[0] as Parameters<GenioApi['writeMemory']>[0], String(args[1]), ctx().home(binding.wksp).home)

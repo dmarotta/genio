@@ -288,7 +288,32 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
   return win
 }
 
+async function navigateNotification(target: Extract<GenioEvent, { type: 'navigate' }>['target']): Promise<void> {
+  if (!ctx) return
+  const snapshot = ctx.snapshot()
+  const decision = target.view === 'move' && target.decisionId ? snapshot.decisions.find(d => d.id === target.decisionId) : undefined
+  const wksp = target.view === 'comms' || target.view === 'move' ? target.wksp : undefined
+  const project = target.view === 'move' ? decision?.project ?? target.project :
+    target.view === 'squad' ? snapshot.tasks.find(t => t.id === target.taskId)?.project : undefined
+  const owner = project ?? snapshot.allies.find(a => !a.retiredAt && a.name === (decision?.wksp ?? wksp))?.projects[0]
+  if (owner) {
+    const p = ctx.projects.get(owner)
+    if (!p) throw new Error(`Project ${owner} is unavailable.`)
+    await openProject(p.path)
+  }
+  let win = [...windows].find(([, b]) => owner ? b?.project === owner : !b)?.[0]
+  if (!win && !owner) win = createWindow()
+  if (!win || win.isDestroyed()) return
+  if (win.webContents.isLoadingMainFrame()) await new Promise<void>(resolve => win!.webContents.once('did-finish-load', () => resolve()))
+  focusWindow(win)
+  win.webContents.send(EVENT_CHANNEL, { type: 'navigate', target })
+}
+
 function sendEvent(ev: GenioEvent): void {
+  if (ev.type === 'navigate') {
+    void navigateNotification(ev.target).catch(reportOpenError)
+    return
+  }
   const snapshot = ctx!.snapshot()
   if (ev.type === 'terminal') terminalOwners.set(ev.terminal.id, terminalProject(ev.terminal, snapshot))
   const owner = ev.type === 'terminal' ? terminalOwners.get(ev.terminal.id) : ev.type === 'terminal-removed' ? terminalOwners.get(ev.id) : undefined
