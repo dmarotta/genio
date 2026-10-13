@@ -72,7 +72,10 @@ const emptySnap: FleetSnapshot = {
     xp: 0,
     xpNext: 500,
     streakDays: 0,
-    achievements: []
+    achievements: [],
+    playstyle: { current: 'adventurer', shown: 'adventurer', why: '', samples: 0, counts: { builder: 0, scout: 0, artificer: 0, warden: 0 }, earned: [] },
+    landings: [],
+    pins: []
   }
 }
 

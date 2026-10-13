@@ -340,6 +340,8 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
       return { rows: scoreTable(scorecard().list()), recent, log: readLearning(dataDir()) }
     },
 
+    outcomes: () => scorecard().list(),
+
     learn() {
       const ctx = getCtx()
       const s = ctx.settings.get()

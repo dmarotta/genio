@@ -3,10 +3,17 @@
  * every award is triggered by an actual event (deploy, loot, merge, ...).
  * Persisted in the main base's data/stats.json.
  */
-import type { Achievement, FleetStats, Task } from '@shared/types'
+import type { Achievement, FleetStats, PlaystyleId, PlaystyleView, Task } from '@shared/types'
+import type { OpResult } from '@shared/api'
+import type { OutcomeRecord } from '@shared/dispatch'
+import { PLAYSTYLES, classifyPlaystyle, isPlaystyleId, titleName } from '@shared/playstyle'
 import { bus } from './bus'
+import { landedDaysInWeek, landingWindow, loadLandingLog, observeDay, recordLanding, type LandingLog } from './landings'
 import type { AppCtx, StatsService } from './services'
 import { nowIso, readJson, todayStamp, writeJson } from './util'
+
+/** trophies a player can pin to the front of the achievements grid */
+export const MAX_PINS = 3
 
 type AwardEvent = 'spawn' | 'ship' | 'merge' | 'scout' | 'decision' | 'cleanup' | 'save'
 
@@ -82,21 +89,24 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { feature: 'status', id: 'on-a-roll', name: 'On a Roll', description: 'Play 7 days in a row.' },
   { feature: 'squad', id: 'janitor', name: 'Janitor', description: 'Despawn 25 units cleanly.' },
   { feature: 'systems', id: 'big-spender', name: 'Big Spender', description: 'Spend $50 of model time in total.' },
-  { feature: 'squad', id: 'hardcore-hero', name: 'Hardcore Hero', description: 'Pass the Gauntlet 10 times.' }
+  { feature: 'squad', id: 'hardcore-hero', name: 'Hardcore Hero', description: 'Pass the Gauntlet 10 times.' },
+  { feature: 'status', id: 'title-earned', name: 'Found Your Style', description: 'Earn a playstyle title from your landed missions.' },
+  { feature: 'status', id: 'title-equip', name: 'Dress the Part', description: 'Equip an earned playstyle title.' },
+  { feature: 'status', id: 'trophy-pin', name: 'Trophy Case', description: 'Pin an achievement to your Character Sheet.' },
+  { feature: 'status', id: 'busy-week', name: 'Busy Week', description: 'Record landings on 5 different days in one week.' }
 ]
 
 interface StatsFile {
   totalXp: number
   xp: number
   level: number
-  shippedTotal: number
   scoutsTotal: number
+  /** the Shipped tiles: merged builds, not ready branches */
   mergesTotal: number
   despawnsTotal: number
   gauntletPasses: number
   costTotalUsd: number
   day: string
-  shippedToday: number
   mergesToday: number
   costTodayUsd: number
   activeDays: string[]
@@ -104,6 +114,12 @@ interface StatsFile {
   assetsTotal: number
   assetIds: Record<string, true>
   awarded: Record<string, string[]>
+  landings: LandingLog
+  /** playstyle titles ever earned -> when */
+  titles: Partial<Record<PlaystyleId, string>>
+  /** player preferences for the sheet */
+  equippedTitle?: PlaystyleId
+  pins: string[]
 }
 
 const LIVE_STATES = new Set<Task['state']>(['spawning', 'working', 'paused', 'blocked', 'needs-decision', 'validating', 'stale'])
@@ -115,21 +131,22 @@ function fresh(): StatsFile {
     totalXp: 0,
     xp: 0,
     level: 1,
-    shippedTotal: 0,
     scoutsTotal: 0,
     mergesTotal: 0,
     despawnsTotal: 0,
     gauntletPasses: 0,
     costTotalUsd: 0,
     day: todayStamp(),
-    shippedToday: 0,
     mergesToday: 0,
     costTodayUsd: 0,
     activeDays: [],
     achievements: {},
     assetsTotal: 0,
     assetIds: {},
-    awarded: {}
+    awarded: {},
+    landings: loadLandingLog(undefined),
+    titles: {},
+    pins: []
   }
 }
 
@@ -151,8 +168,14 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
       data.awarded = data.awarded ?? {}
       data.assetIds = data.assetIds ?? {}
       data.activeDays = Array.isArray(data.activeDays) ? data.activeDays : []
+      data.landings = loadLandingLog(raw.landings)
+      data.titles = data.titles && typeof data.titles === 'object' ? data.titles : {}
+      data.pins = Array.isArray(data.pins) ? [...new Set(data.pins.filter((id) => typeof id === 'string' && data!.achievements[id]))].slice(0, MAX_PINS) : []
+      if (!isPlaystyleId(data.equippedTitle) || !data.titles[data.equippedTitle]) delete data.equippedTitle
     }
     rollDay(data)
+    // Genio is running today: a quiet day reads as zero landings, not unknown.
+    if (observeDay(data.landings)) persist()
     return data
   }
 
@@ -160,18 +183,21 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
     const today = todayStamp()
     if (d.day !== today) {
       d.day = today
-      d.shippedToday = 0
       d.mergesToday = 0
       d.costTodayUsd = 0
     }
   }
 
-  function save(): void {
+  function persist(): void {
     try {
       writeJson(file(), data)
     } catch {
       /* stats are cosmetic */
     }
+  }
+
+  function save(): void {
+    persist()
     bus.publish({ type: 'stats', stats: svc.get() })
   }
 
@@ -236,6 +262,44 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
     }
   }
 
+  /** Scorecard outcomes, oldest first; none when dispatch is not wired. */
+  function outcomes(): OutcomeRecord[] {
+    try {
+      return getCtx().dispatch.outcomes()
+    } catch {
+      return []
+    }
+  }
+
+  function playstyle(d: StatsFile): PlaystyleView {
+    const reading = classifyPlaystyle(outcomes())
+    const earned = PLAYSTYLES.flatMap((p) => (d.titles[p.id] ? [{ id: p.id, at: d.titles[p.id] as string }] : []))
+    return {
+      current: reading.title,
+      shown: d.equippedTitle ?? reading.title,
+      ...(d.equippedTitle ? { equipped: d.equippedTitle } : {}),
+      why: reading.why,
+      samples: reading.samples,
+      counts: reading.counts,
+      earned
+    }
+  }
+
+  /** Keep a title the recent landings earn; earned titles are never taken away. */
+  function earnTitle(d: StatsFile): boolean {
+    const { title } = classifyPlaystyle(outcomes())
+    if (title === 'adventurer' || d.titles[title]) return false
+    d.titles[title] = nowIso()
+    bus.toast('success', `TITLE EARNED // ${titleName(title).toUpperCase()}`, 'Equip it on your Character Sheet.')
+    svc.unlock('title-earned')
+    return true
+  }
+
+  function land(d: StatsFile, kind: 'build' | 'recon', taskId?: string): void {
+    if (!recordLanding(d.landings, kind, { taskId, questId: findTask(taskId)?.backlogId })) return
+    if (landedDaysInWeek(d.landings) >= 5) svc.unlock('busy-week')
+  }
+
   function openChoices(): number {
     try {
       return [...getCtx().homes.values()].reduce((n, h) => n + h.decisions.list(false).length, 0)
@@ -248,16 +312,52 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
     get(): FleetStats {
       const d = load()
       return {
-        shippedToday: d.shippedToday,
-        shippedTotal: d.shippedTotal,
+        shippedToday: d.mergesToday,
+        shippedTotal: d.mergesTotal,
         scoutsTotal: d.scoutsTotal,
         costTodayUsd: Math.round(d.costTodayUsd * 10000) / 10000,
         level: d.level,
         xp: d.xp,
         xpNext: xpForLevel(d.level),
         streakDays: streak(d),
-        achievements: ACHIEVEMENTS.map((a) => ({ ...a, ...(d.achievements[a.id] ? { unlockedAt: d.achievements[a.id] } : {}) }))
+        achievements: ACHIEVEMENTS.map((a) => ({ ...a, ...(d.achievements[a.id] ? { unlockedAt: d.achievements[a.id] } : {}) })),
+        playstyle: playstyle(d),
+        landings: landingWindow(d.landings),
+        pins: d.pins.filter((id) => d.achievements[id])
       }
+    },
+
+    pin(id, pinned): OpResult {
+      const d = load()
+      const def = ACHIEVEMENTS.find((a) => a.id === id)
+      if (!def) return { ok: false, message: `Unknown achievement: ${id}` }
+      const pins = d.pins.filter((p) => d.achievements[p])
+      if (!pinned) {
+        d.pins = pins.filter((p) => p !== id)
+        save()
+        return { ok: true, message: `Unpinned ${def.name}.` }
+      }
+      if (!d.achievements[id]) return { ok: false, message: `${def.name} is still locked.` }
+      if (pins.includes(id)) return { ok: true, message: `${def.name} is already pinned.` }
+      if (pins.length >= MAX_PINS) return { ok: false, message: `Only ${MAX_PINS} trophies fit; unpin one first.` }
+      d.pins = [...pins, id]
+      svc.unlock('trophy-pin')
+      save()
+      return { ok: true, message: `Pinned ${def.name}.` }
+    },
+
+    equipTitle(id): OpResult {
+      const d = load()
+      if (id === null) {
+        delete d.equippedTitle
+        save()
+        return { ok: true, message: 'Title follows your playstyle.' }
+      }
+      if (!isPlaystyleId(id) || !d.titles[id]) return { ok: false, message: `${titleName(id)} has not been earned yet.` }
+      d.equippedTitle = id
+      svc.unlock('title-equip')
+      save()
+      return { ok: true, message: `Equipped ${titleName(id)}.` }
     },
 
     award(event, taskId) {
@@ -285,10 +385,11 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
         case 'scout':
           d.scoutsTotal++
           if (d.scoutsTotal >= 10) svc.unlock('recon-expert')
+          land(d, 'recon', taskId)
+          earnTitle(d)
           break
         case 'ship':
-          d.shippedTotal++
-          d.shippedToday++
+          // a ready branch or open PR earns XP; the Shipped tiles wait for the merge
           if (task && Date.now() - Date.parse(task.createdAt) < 15 * 60_000) svc.unlock('speedrunner')
           if (task?.mode === 'no-mistakes') {
             d.gauntletPasses++
@@ -302,6 +403,8 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
           const h = new Date().getHours()
           if (h >= 0 && h < 5) svc.unlock('night-owl')
           if (d.mergesToday >= 5) svc.unlock('combo-x5')
+          land(d, 'build', taskId)
+          earnTitle(d)
           break
         }
         case 'decision':
@@ -358,6 +461,8 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
         quest_add: 'quest-first', world_add: 'world-first', memory_write: 'lore-first', 'inventory-index': 'inventory-index'
       }
       if (ids[ev.feature]) svc.unlock(ids[ev.feature])
+      // titles earned by history from before this build show up on the next visit
+      if (ev.feature === 'character-sheet' && earnTitle(load())) save()
       if (ev.feature === 'unit-image' && ev.id) asset('unit-image', ev.id, ev.count)
       if (ev.feature === 'chat-image' && ev.id) asset('chat-image', ev.id, ev.count)
     } else if (ev.type === 'chat') {

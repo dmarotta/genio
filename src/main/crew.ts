@@ -1021,6 +1021,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         safe(() => ctx.stats.award('ship', id))
         safe(() => ctx.notifier.sfx('ready'))
       }
+      // An already-merged PR is a landing: the Shipped tiles and heatmap count merges, not readiness.
+      if (merged) safe(() => ctx.stats.award('merge', id))
       return { ok: true, message: `Registered ${url}` }
     },
 
