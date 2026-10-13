@@ -176,20 +176,21 @@ export function filterRuns(runs: FalRun[], world: string | null, scope: HistoryS
 const KIND_DIR: Record<FalOutputKind, string> = { image: 'Art', audio: 'Audio', model: 'Models', video: 'Video', other: 'Generated' }
 
 /** A sensible save folder for an output kind in this engine's layout. */
-export function suggestFolder(engine: Engine | undefined, kind: FalOutputKind): string {
+export function suggestFolder(engine: Engine | undefined, kind: FalOutputKind, engineRoot = ''): string {
   const d = KIND_DIR[kind]
+  const prefix = engineRoot && engineRoot !== '.' ? `${engineRoot.replace(/\\/g, '/').replace(/\/$/, '')}/` : ''
   switch (engine) {
     case 'unity':
-      return kind === 'other' ? 'Assets/Generated' : `Assets/${d}/Generated`
+      return prefix + (kind === 'other' ? 'Assets/Generated' : `Assets/${d}/Generated`)
     case 'godot':
-      return `assets/generated/${d.toLowerCase()}`
+      return prefix + `assets/generated/${d.toLowerCase()}`
     case 'unreal':
       // Content/ holds imported .uasset files: keep sources outside it
-      return `SourceArt/Generated/${d}`
+      return prefix + `SourceArt/Generated/${d}`
     case 'bevy':
-      return `assets/generated/${d.toLowerCase()}`
+      return prefix + `assets/generated/${d.toLowerCase()}`
     default:
-      return `assets/generated/${d.toLowerCase()}`
+      return prefix + `assets/generated/${d.toLowerCase()}`
   }
 }
 

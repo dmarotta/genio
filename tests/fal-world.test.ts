@@ -151,7 +151,7 @@ describe('world-tied runs and Save to world', () => {
       schema: 'genio.fal-config.v1',
       providers: { codex: { enabled: true } },
       budget: { monthly_usd: 20, confirm_over_usd: 0.5 },
-      folders: { image: 'assets/gen' }
+      folders: { image: 'assets/gen', audio: 'assets/generated/audio', model: 'assets/generated/models', video: 'assets/generated/video', other: 'assets/generated/generated' }
     })
   })
 

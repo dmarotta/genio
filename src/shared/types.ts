@@ -44,6 +44,10 @@ export interface Project {
   /** Max concurrent units for this world. 0/undefined = unbounded. */
   capacity?: number
   engine: Engine
+  /** Repository-relative POSIX path; empty string means the repository root. */
+  engineRoot?: string
+  /** Explicit engine choices survive automatic discovery. */
+  engineSource?: 'auto' | 'manual'
   commands: ProjectCommands
   description?: string
   /** this world's Quality / Balanced / Cost setting; unset = the global dial */

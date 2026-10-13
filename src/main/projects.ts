@@ -32,7 +32,7 @@ function readSafe(p: string): string {
 }
 
 /** Detect the game engine of a folder and propose default commands. */
-export function detectEngine(dir: string): { engine: Engine; commands: ProjectCommands } {
+function detectAtRoot(dir: string): { engine: Engine; commands: ProjectCommands } {
   const files = listDir(dir)
   const has = (f: string): boolean => files.includes(f)
   const any = (re: RegExp): string | undefined => files.find((f) => re.test(f))
@@ -83,6 +83,52 @@ export function detectEngine(dir: string): { engine: Engine; commands: ProjectCo
   }
   if (has('Cargo.toml')) return { engine: 'other', commands: { build: 'cargo build', test: 'cargo test', run: 'cargo run' } }
   return { engine: 'other', commands: {} }
+}
+
+// Breadth-first, stable ordering: the repository root wins, then the nearest project.
+// Do not traverse symlinks, dependencies, generated engine caches or hidden metadata.
+const ENGINE_SCAN_SKIP = new Set(['node_modules', 'Library', 'Temp', 'Obj', 'Build', 'Builds', 'Logs', 'UserSettings', 'Packages', 'Binaries', 'Intermediate', 'Saved', 'DerivedDataCache', 'vendor', 'target', 'dist'])
+export function detectEngine(dir: string): { engine: Engine; engineRoot: string; commands: ProjectCommands } {
+  const queue = [{ root: '', depth: 0 }]
+  for (const item of queue) {
+    const full = path.join(dir, item.root)
+    const detected = detectAtRoot(full)
+    if (['unity', 'godot', 'unreal'].includes(detected.engine)) {
+      const commands = { ...detected.commands }
+      if (item.root) {
+        // Commands execute from the checkout root. Quote the relative engine path.
+        const quoted = JSON.stringify(item.root)
+        if (commands.run) commands.run = `godot --path ${quoted}`
+        if (detected.engine === 'unity') commands.test = `Unity -batchmode -projectPath ${quoted} -runTests -testPlatform EditMode -logFile -`
+        if (detected.engine === 'godot') {
+          commands.build = `godot --headless --path ${quoted} --quit`
+          if (commands.test) commands.test = `godot --headless --path ${quoted} -s addons/gut/gut_cmdln.gd -gexit`
+        }
+      }
+      return { ...detected, engineRoot: item.root, commands }
+    }
+    if (item.depth === 2) continue
+    try {
+      for (const entry of fs.readdirSync(full, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name, 'en'))) {
+        if (entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith('.') && !ENGINE_SCAN_SKIP.has(entry.name)) {
+          queue.push({ root: item.root ? `${item.root}/${entry.name}` : entry.name, depth: item.depth + 1 })
+        }
+      }
+    } catch { /* Missing or unreadable checkout: leave fallback detection intact. */ }
+  }
+  return { ...detectAtRoot(dir), engineRoot: '' }
+}
+
+/** Legacy 'other' was the root-only detector's fallback; preserve specific legacy choices. */
+export function refreshEngine(p: Project): Project {
+  const det = detectEngine(p.path)
+  const manual = p.engineSource === 'manual' || (!p.engineSource && p.engine !== 'other')
+  return {
+    ...p,
+    engine: manual ? p.engine : det.engine,
+    engineSource: manual ? 'manual' : 'auto',
+    engineRoot: !manual || det.engine === p.engine ? det.engineRoot : p.engineRoot ?? ''
+  }
 }
 
 export function forgeFromRemote(remote?: string): Forge {
@@ -186,6 +232,8 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
       forge: req.forge ?? forgeFromRemote(remote),
       capacity: req.capacity,
       engine: det.engine,
+      engineRoot: det.engineRoot,
+      engineSource: 'auto',
       commands: det.commands,
       managed,
       addedAt: nowIso()
@@ -263,7 +311,8 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
         const r = await run(which('gh')!, ['repo', 'create', name, vis, '--source', '.', '--push'], { cwd: dir, timeoutMs: 300_000 })
         if (r.code !== 0) bus.toast('warn', 'GitHub repo not created', (r.stderr || r.stdout).trim())
       }
-      return register(dir, name, { mode: req.mode }, true)
+      await register(dir, name, { mode: req.mode }, true)
+      return svc.update(name, { engine: req.engine })
     },
 
     update(name, patch) {
@@ -271,6 +320,11 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
       const i = list.findIndex((p) => p.name === name)
       if (i < 0) throw new Error(`Unknown world: ${name}`)
       const next: Project = { ...list[i], ...patch, name: list[i].name, commands: { ...list[i].commands, ...(patch.commands ?? {}) } }
+      if (patch.engine !== undefined) {
+        next.engineSource = 'manual'
+        const det = detectEngine(next.path)
+        next.engineRoot = det.engine === next.engine ? det.engineRoot : ''
+      }
       // Choosing a mode pins it; asking for 'auto' hands it back to the remote.
       if (patch.modeSource === 'auto') next.mode = autoModeFor(next.remote)
       else if (patch.mode !== undefined) next.modeSource = 'manual'
@@ -329,10 +383,14 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
     async refreshRemotes(name) {
       const notices: string[] = []
       const list = [...load()]
+      let engineChanged = false
       for (let i = 0; i < list.length; i++) {
         const p = list[i]
         if ((name && p.name !== name) || !exists(p.path) || !(await git.isRepo(p.path))) continue
-        const change = applyRemoteChange(p, await git.remoteUrl(p.path))
+        const refreshed = refreshEngine(p)
+        if (JSON.stringify(refreshed) !== JSON.stringify(p)) engineChanged = true
+        list[i] = refreshed
+        const change = applyRemoteChange(refreshed, await git.remoteUrl(p.path))
         if (!change) continue
         list[i] = change.next
         notices.push(change.notice)
@@ -343,7 +401,7 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
         }
         bus.toast('info', 'World remote changed', change.notice)
       }
-      if (notices.length) save(list)
+      if (notices.length || engineChanged) save(list)
       return notices
     },
 
@@ -378,6 +436,7 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
         if (!r.ok) ok = false
         lines.push(`${p.name}: ${r.message}${r.pruned.length ? ` (pruned ${r.pruned.join(', ')})` : ''}`)
       }
+      await svc.refreshRemotes(name)
       return { ok, message: lines.join('\n') || 'No worlds registered.' }
     },
 

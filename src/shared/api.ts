@@ -364,6 +364,7 @@ export interface FalWorldState {
   month: string
   /** the world already has a .genio/ folder */
   hasGenioDir: boolean
+  engineRoot?: string
   engine?: Engine
 }
 

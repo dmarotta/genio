@@ -472,15 +472,16 @@ export interface UthanaWorldState {
 }
 
 /** A sensible animations folder in this engine's layout. */
-export function suggestAnimationFolder(engine: Engine | undefined): string {
+export function suggestAnimationFolder(engine: Engine | undefined, engineRoot = ''): string {
+  const prefix = engineRoot && engineRoot !== '.' ? `${engineRoot.replace(/\\/g, '/').replace(/\/$/, '')}/` : ''
   switch (engine) {
     case 'unity':
-      return 'Assets/Animations/Generated'
+      return prefix + 'Assets/Animations/Generated'
     case 'unreal':
       // Content/ holds imported .uasset files: keep sources outside it
-      return 'SourceArt/Generated/Animations'
+      return prefix + 'SourceArt/Generated/Animations'
     default:
-      return 'assets/generated/animations'
+      return prefix + 'assets/generated/animations'
   }
 }
 

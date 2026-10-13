@@ -707,8 +707,8 @@ function SaveToWorld({ run, index, activeWorld, onClose, onSaved }: { run: FalRu
     let live = true
     void api()
       .falWorld(project)
-      .then((w) => live && setFolder(w.config.folders?.[o.kind] ?? suggestFolder(w.engine, o.kind)))
-      .catch(() => live && setFolder(suggestFolder(proj?.engine, o.kind)))
+      .then((w) => live && setFolder(w.config.folders?.[o.kind] ?? suggestFolder(w.engine, o.kind, w.engineRoot)))
+      .catch(() => live && setFolder(suggestFolder(proj?.engine, o.kind, proj?.engineRoot)))
     return () => {
       live = false
     }
@@ -921,7 +921,7 @@ function WorldSettings({ world, state, onClose, onSaved }: { world: string | nul
               <input
                 className="input mono"
                 value={folders[k] ?? ''}
-                placeholder={suggestFolder(state?.engine, k)}
+                placeholder={suggestFolder(state?.engine, k, state?.engineRoot)}
                 spellCheck={false}
                 onChange={(e) => setFolders((f) => ({ ...f, [k]: e.target.value }))}
               />

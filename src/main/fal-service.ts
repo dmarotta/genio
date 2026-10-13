@@ -349,14 +349,15 @@ export function createFalService(getCtx: () => AppCtx, fetchFn: FetchFn = (u, i)
         spentUsd: worldSpend(readSpend(p.path), history().list(), world, month),
         month,
         hasGenioDir: exists(genioPath(p.path)),
-        engine: p.engine
+        engine: p.engine,
+        engineRoot: p.engineRoot
       }
     },
 
     saveWorldConfig(world: string | null, config: FalWorldConfig): FalWorldState {
       if (world) {
         const p = project(world)
-        writeWorldConfig(p.path, config, p.engine)
+        writeWorldConfig(p.path, config, p.engine, p.engineRoot)
       } else writeJson(scratchConfig(), cleanConfig(config))
       return svc.world(world)
     },

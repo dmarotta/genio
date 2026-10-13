@@ -21,7 +21,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { FalRecipe, FalWorldConfig } from '@shared/api'
-import type { SpendLine } from '@shared/fal'
+import { suggestFolder, type SpendLine } from '@shared/fal'
 import type { Engine } from '@shared/types'
 import type { WorldCatalogue } from './fal-catalogue'
 import { git } from './git'
@@ -80,10 +80,12 @@ export function cleanConfig(c: FalWorldConfig): FalWorldConfig {
   return out
 }
 
-export function writeWorldConfig(root: string, c: FalWorldConfig, engine?: Engine): FalWorldConfig {
+export function writeWorldConfig(root: string, c: FalWorldConfig, engine?: Engine, engineRoot = ''): FalWorldConfig {
   ensureGenioDir(root, engine)
   // merge over what is on disk so hand-edited keys (providers, ...) survive a save from the screen
-  const clean = cleanConfig({ ...readWorldConfig(root), ...c })
+  const defaults = Object.fromEntries((['image', 'audio', 'model', 'video', 'other'] as const).map((kind) => [kind, suggestFolder(engine, kind, engineRoot)]))
+  const merged = cleanConfig({ ...readWorldConfig(root), ...c })
+  const clean = { ...merged, folders: { ...defaults, ...merged.folders } }
   writeJson(genioPath(root, 'fal', 'config.json'), clean)
   return clean
 }
