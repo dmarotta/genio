@@ -12,7 +12,7 @@
 import type {
   Query, SDKMessage, SDKUserMessage, Options, CanUseTool, PermissionResult, EffortLevel
 } from '@anthropic-ai/claude-agent-sdk'
-import type { Ally, ChatMessage, WkspActivity, WkspInfo, ToolTrace } from '@shared/types'
+import type { Ally, ChatMessage, WkspActivity, WkspInfo, Settings, ToolTrace } from '@shared/types'
 import { bus } from './bus'
 import type { Home } from './home'
 import { buildTools, type ToolRole } from './wksp-tools'
@@ -54,6 +54,27 @@ export function isReadOnlyCommand(cmd: string): boolean {
   if (/>/.test(scrubbed)) return false
   const segments = scrubbed.split(/\s*(?:&&|\|\||;|\|)\s*/).filter(Boolean)
   return segments.every((s) => READ_ONLY_SEGMENTS.some((re) => re.test(s.trim())))
+}
+
+export type ToolDecision = { behavior: 'allow' } | { behavior: 'deny'; message: string } | { behavior: 'ask'; input: string; reason?: string }
+
+/** Pure tool policy for a Genio/Bot session; 'ask' goes to the player's permission prompt. */
+export function decideTool(role: ToolRole, toolName: string, input: unknown, shellMode: Settings['chatShellMode']): ToolDecision {
+  if (toolName.startsWith('mcp__genio__')) return { behavior: 'allow' }
+  if (ALLOWED.has(toolName)) return { behavior: 'allow' }
+  if (DISALLOWED.includes(toolName) || SUBAGENT_RE.test(toolName)) {
+    return { behavior: 'deny', message: 'Genio delegates work to units (deploy) and never writes worlds or spawns in-session subagents.' }
+  }
+  if (toolName === 'Bash' || toolName === 'PowerShell') {
+    const cmd = String((input as { command?: string } | undefined)?.command ?? '')
+    if (isReadOnlyCommand(cmd)) return { behavior: 'allow' }
+    // the Bot stays read-only whatever the chat's approval mode
+    if (role === 'bot') return { behavior: 'deny', message: 'The Bot only runs read-only commands while the player is away.' }
+    if (shellMode === 'auto-shell') return { behavior: 'allow' }
+    return { behavior: 'ask', input: cmd, reason: 'Not on the read-only list' }
+  }
+  if (role === 'bot') return { behavior: 'deny', message: 'Not available to the Bot.' }
+  return { behavior: 'ask', input: truncate(JSON.stringify(input), 1500) }
 }
 
 const NOOP_RE = /^all clear[,!.]?(\s+[\w .'-]{0,40})?[.!]?$/i
@@ -491,21 +512,14 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
 
   function makePolicy(role: ToolRole): CanUseTool {
     return async (toolName, input): Promise<PermissionResult> => {
-      if (toolName.startsWith('mcp__genio__')) return { behavior: 'allow', updatedInput: input }
-      if (ALLOWED.has(toolName)) return { behavior: 'allow', updatedInput: input }
-      if (DISALLOWED.includes(toolName) || SUBAGENT_RE.test(toolName)) {
-        return { behavior: 'deny', message: 'Genio delegates work to units (deploy) and never writes worlds or spawns in-session subagents.' }
-      }
-      if (toolName === 'Bash' || toolName === 'PowerShell') {
-        const cmd = String((input as { command?: string }).command ?? '')
-        if (isReadOnlyCommand(cmd)) return { behavior: 'allow', updatedInput: input }
-        if (role === 'bot') return { behavior: 'deny', message: 'The Bot only runs read-only commands while the player is away.' }
-        const allowed = await getCtx().permissions.ask({ wksp: name, tool: toolName, input: cmd, reason: 'Not on the read-only list' })
-        return allowed ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: `${gamertag()} declined this command.` }
-      }
-      if (role === 'bot') return { behavior: 'deny', message: 'Not available to the Bot.' }
-      const allowed = await getCtx().permissions.ask({ wksp: name, tool: toolName, input: truncate(JSON.stringify(input), 1500) })
-      return allowed ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: `${gamertag()} declined ${toolName}.` }
+      // read the mode at decision time so a switch applies without restarting the session
+      const d = decideTool(role, toolName, input, settings().chatShellMode ?? 'ask')
+      if (d.behavior === 'allow') return { behavior: 'allow', updatedInput: input }
+      if (d.behavior === 'deny') return d
+      const allowed = await getCtx().permissions.ask({ wksp: name, tool: toolName, input: d.input, reason: d.reason })
+      if (allowed) return { behavior: 'allow', updatedInput: input }
+      const shell = toolName === 'Bash' || toolName === 'PowerShell'
+      return { behavior: 'deny', message: shell ? `${gamertag()} declined this command.` : `${gamertag()} declined ${toolName}.` }
     }
   }
 

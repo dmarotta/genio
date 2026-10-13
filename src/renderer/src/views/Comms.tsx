@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, CircleStop, Radar, RefreshCw, Rocket, Send, Wrench } from 'lucide-react'
-import type { ChatMessage, Task } from '@shared/types'
+import { ChevronDown, ChevronRight, CircleStop, Radar, RefreshCw, Rocket, Send, ShieldCheck, TriangleAlert, Wrench } from 'lucide-react'
+import type { ChatMessage, Settings, Task } from '@shared/types'
 import {
   api, errText, focusTask, getState, go, liveTasks, loadChat, op, openDeploy, saveSettings, setState, toast, useStore
 } from '../store'
@@ -363,6 +363,11 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
                 return
               }
             }
+            if (e.key === 'Tab' && e.shiftKey) {
+              e.preventDefault()
+              cycleShellMode()
+              return
+            }
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
               void submit(text)
@@ -375,6 +380,7 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
       </div>
       <div className="composer-hints mute">
         <span>
+          <ShellModeButton />
           <kbd>Enter</kbd> send · <kbd>Shift</kbd>+<kbd>Enter</kbd> newline · <kbd>/</kbd> commands
         </span>
         <span className="quick">
@@ -384,6 +390,34 @@ function Composer({ wksp, disabled, busy }: { wksp: string; disabled: boolean; b
         </span>
       </div>
     </div>
+  )
+}
+
+const SHELL_MODES: { id: Settings['chatShellMode']; label: string; hint: string }[] = [
+  { id: 'ask', label: 'Ask', hint: 'Read-only commands run; anything else asks you first.' },
+  { id: 'auto-shell', label: 'Auto-approve shell', hint: 'Every Bash/PowerShell command in the Genio chat runs without asking. Other tools still ask; the Bot stays read-only.' }
+]
+
+function cycleShellMode(): void {
+  const cur = getState().settings?.chatShellMode ?? 'ask'
+  const i = SHELL_MODES.findIndex((m) => m.id === cur)
+  void saveSettings({ chatShellMode: SHELL_MODES[(i + 1) % SHELL_MODES.length].id })
+}
+
+/** Chat approval-mode switcher (click or Shift+Tab in the input), à la Claude Code. */
+function ShellModeButton() {
+  const mode = useStore((s) => s.settings?.chatShellMode ?? 'ask')
+  const m = SHELL_MODES.find((x) => x.id === mode) ?? SHELL_MODES[0]
+  const auto = mode === 'auto-shell'
+  return (
+    <button
+      className={cx('btn sm', auto ? 'amber' : 'ghost')}
+      style={{ marginRight: 12, verticalAlign: 'middle' }}
+      title={`${m.hint}\nClick or Shift+Tab to switch.`}
+      onClick={cycleShellMode}
+    >
+      {auto ? <TriangleAlert size={12} /> : <ShieldCheck size={12} />} {m.label}
+    </button>
   )
 }
 

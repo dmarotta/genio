@@ -16,6 +16,7 @@ export function defaultSettings(): Settings {
     defaultWorkerModel: '',
     defaultWorkerEffort: '',
     claudePermissionMode: 'bypass',
+    chatShellMode: 'ask',
     claudePath: '',
     shell: '',
     pollSeconds: 15,

@@ -408,6 +408,8 @@ export interface Settings {
   defaultWorkerEffort: string
   /** claude unit permission posture: bypass = --dangerously-skip-permissions (companion default) */
   claudePermissionMode: 'bypass' | 'auto' | 'acceptEdits'
+  /** Genio chat shell approvals: ask = only read-only commands run unprompted; auto-shell = every Bash/PowerShell command runs */
+  chatShellMode: 'ask' | 'auto-shell'
   /** blank = use the Agent SDK's bundled Claude Code */
   claudePath: string
   shell: string
