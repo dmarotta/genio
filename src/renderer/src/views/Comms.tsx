@@ -597,9 +597,10 @@ function ChatModelControls({ wksp }: { wksp: string }) {
         value={model}
         title={`${who} model (blank = default)${ally ? inherits(ally.model) : ''}. ${APPLY_HINT}`}
         style={COMPACT_SELECT}
-        onChange={(v) => void saveChatControls(wksp, { model: v })}
+        onChange={(v) => void saveChatControls(wksp, { model: v, effort: '' })}
       />
       <EffortSelect
+        model={model}
         value={effort}
         title={`${who} effort${ally ? inherits(ally.effort) : ''}. ${APPLY_HINT}`}
         style={{ ...COMPACT_SELECT, marginRight: 12 }}

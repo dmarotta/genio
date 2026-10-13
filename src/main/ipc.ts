@@ -1,3 +1,4 @@
+import { modelCatalogue, invalidateModelCatalogue } from './model-catalogue'
 import { readWorldMetadata } from './world-metadata'
 /**
  * IPC: one ipcMain.handle per GenioApi method ('genio:<method>'). The table is
@@ -55,13 +56,16 @@ export function registerIpc(getCtx: () => AppCtx): void {
       return info
     },
     featureUsed: async (feature) => {
-      if (feature === 'screenshot' || feature === 'dock-split') bus.publish({ type: 'feature-used', feature })
+      if (feature === 'screenshot' || feature === 'dock-split' || feature === 'model-picker') bus.publish({ type: 'feature-used', feature })
     },
     snapshot: () => ctx().snapshot(),
     homePath: () => ctx().main.home.root,
     getSettings: () => ctx().settings.get(),
     saveSettings: (patch) => {
+      const previousModel = ctx().settings.get().wkspModel
       const s = ctx().settings.save(patch)
+      if ('wkspModel' in patch && previousModel !== s.wkspModel) bus.publish({ type: 'feature-used', feature: 'model-switch' })
+      if ('claudePath' in patch) invalidateModelCatalogue()
       if ('inboxServer' in patch || 'inboxPort' in patch || 'inboxToken' in patch) ctx().inbox.configure()
       return s
     },
@@ -79,6 +83,7 @@ export function registerIpc(getCtx: () => AppCtx): void {
       if (/^https?:\/\//i.test(url)) await shell.openExternal(url)
     },
 
+    modelCatalogue: (refresh) => modelCatalogue(ctx().main.home.data, refresh, ctx().settings.get().claudePath),
     // ---- accounts
     accounts: async () => {
       const list = await listAccounts()
@@ -94,10 +99,12 @@ export function registerIpc(getCtx: () => AppCtx): void {
     apiKeys: () => secretStatus(ctx().main.home.data),
     apiKeySet: (id, key) => {
       setSecret(id, key, ctx().main.home.data)
+      invalidateModelCatalogue()
       return { ok: true, message: 'Key saved (encrypted).' }
     },
     apiKeyClear: (id) => {
       clearSecret(id, ctx().main.home.data)
+      invalidateModelCatalogue()
       return { ok: true, message: 'Key cleared.' }
     },
 
@@ -287,7 +294,12 @@ export function registerIpc(getCtx: () => AppCtx): void {
     // ---- allies
     allyCreate: (req) => ctx().allies.create(req),
     allyRetire: (name) => ctx().allies.retire(name),
-    allyUpdate: async (name, patch) => ctx().allies.update(name, patch),
+    allyUpdate: async (name, patch) => {
+      const previous = ctx().allies.list().find(a => a.name === name && !a.retiredAt)?.model
+      const ally = ctx().allies.update(name, patch)
+      if ('model' in patch && previous !== ally.model) bus.publish({ type: 'feature-used', feature: 'model-switch' })
+      return ally
+    },
 
     // ---- patch
     checkUpdate: () => ctx().update.check(),

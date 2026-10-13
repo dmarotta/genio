@@ -1,3 +1,4 @@
+import { registerModelQuery, supportedClaudeEfforts } from './model-discovery'
 /**
  * Genio agent sessions (companion's primary harness session, in-process).
  *
@@ -95,7 +96,8 @@ export interface SessionConfig {
 export function sessionConfig(role: ToolRole, s: Pick<Settings, 'botModel' | 'wkspModel' | 'wkspEffort'>, ally?: Pick<Ally, 'model' | 'effort'>): SessionConfig {
   const model = (role === 'bot' ? s.botModel : ally?.model || s.wkspModel)?.trim() || undefined
   const effort = (role === 'bot' ? 'low' : ally?.effort || s.wkspEffort) || undefined
-  return { model, effort: effort && EFFORT_LEVELS.includes(effort) ? (effort as EffortLevel) : undefined }
+  const allowed = role === 'bot' ? EFFORT_LEVELS : supportedClaudeEfforts(model) ?? EFFORT_LEVELS
+  return { model, effort: effort && allowed.includes(effort) ? (effort as EffortLevel) : undefined }
 }
 
 const sameConfig = (a: SessionConfig, b: SessionConfig): boolean => a.model === b.model && a.effort === b.effort
@@ -292,7 +294,8 @@ class AgentSession {
       this.stderrTail = (this.stderrTail + d).slice(-2000)
     }
     this.q = sdk.query({ prompt: this.input, options })
-    void this.consume(this.q, gen)
+    const unregister = registerModelQuery(this.q)
+    void this.consume(this.q, gen).finally(unregister)
   }
 
   /**

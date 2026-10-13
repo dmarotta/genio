@@ -107,6 +107,5 @@ export const PRIORITY_GLYPH: Record<Priority, { glyph: string; tone: Tone; label
 
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 
-export const MODEL_SUGGESTIONS = ['claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']
 
 export const toneVar = (t: Tone): string => (t === 'mute' ? 'var(--text-mute)' : `var(--${t})`)

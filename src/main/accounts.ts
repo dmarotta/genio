@@ -1,3 +1,4 @@
+import { invalidateModelCatalogue, modelCatalogue } from './model-catalogue'
 /**
  * Accounts: the login state of the CLIs Genio drives (unit harnesses and the
  * forge CLIs). Status comes only from each tool's own status command; login
@@ -195,6 +196,8 @@ export async function openAccountSession(ctx: AppCtx, tool: string, action: 'log
     file: t.path,
     args
   })
+  invalidateModelCatalogue()
+  ctx.terminals.onExit(terminal.id, () => { invalidateModelCatalogue(); void modelCatalogue(ctx.main.home.data, true, ctx.settings.get().claudePath).catch(() => {}) })
   if (action === 'login' && terminal.alive) {
     ctx.terminals.onExit(terminal.id, (code) => {
       if (code !== 0) return

@@ -1,3 +1,4 @@
+import type { ModelCatalogue } from './model-catalogue'
 export interface WorldMetadata { engineVersion?: string; lastCommitAt?: string }
 
 import type { AllyControlsPatch, UnqueuedChat } from './chat'
@@ -399,7 +400,7 @@ export interface GenioApi {
   inventoryRefresh(world: string): Promise<InventoryState>
   inventoryList(world: string, query?: InventoryQuery): Promise<InventoryResult>
   inventoryInfo(world: string, path: string, verifyHash?: boolean): Promise<InventoryInfo | null>
-  featureUsed(feature: 'screenshot' | 'dock-split'): Promise<void>
+  featureUsed(feature: 'screenshot' | 'dock-split' | 'model-picker'): Promise<void>
   snapshot(): Promise<FleetSnapshot>
   homePath(): Promise<string>
   getSettings(): Promise<Settings>
@@ -411,6 +412,7 @@ export interface GenioApi {
   openExternal(url: string): Promise<void>
 
   // ---- accounts
+  modelCatalogue(refresh?: boolean): Promise<ModelCatalogue>
   accounts(): Promise<AccountStatus[]>
   /** runs the tool's own login/logout in a visible terminal */
   accountSession(tool: string, action: 'login' | 'logout'): Promise<TerminalInfo>
@@ -569,6 +571,7 @@ export const API_METHODS = [
   'pickDirectory',
   'openPath',
   'openExternal',
+  'modelCatalogue',
   'accounts',
   'accountSession',
   'accountUsage',

@@ -1,3 +1,4 @@
+import { ModelPicker, useModelCatalogue } from '../components/ModelPicker'
 import { Fragment, useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { ChevronDown, ChevronRight, ChevronUp, Copy, Download, KeyRound, Lock, LockOpen, LogIn, LogOut, Plus, RefreshCw, Trash, TriangleAlert, Users, Wrench, X } from 'lucide-react'
 import type { CategoryPool, CostDial, DispatchRule, EventSource, HarnessAdapter, PoolCandidate, Settings, ToolStatus, UpdateInfo } from '@shared/types'
@@ -8,7 +9,7 @@ import { accountActions, type AccountStatus, type ApiKeyStatus, type FalSpend, t
 import { api, errText, op, saveSettings, toast, useStore } from '../store'
 import { CommitInput, Confirm, Field, Toggle, ViewHeader } from '../components/ui'
 import { TerminalView } from '../components/Terminal'
-import { EFFORTS, MODEL_SUGGESTIONS } from '../lib/vocab'
+import { EFFORTS } from '../lib/vocab'
 import { ago, clock, cx, dateShort, usd } from '../lib/format'
 import { playSfx } from '../lib/sfx'
 
@@ -187,11 +188,14 @@ function SectionBody({ sec, s }: { sec: Section; s: Settings }) {
       return (
         <>
           <h2 className="sys-title">Genio</h2>
-          <ModelRow label="Genio model" hint="Model for the companion you talk to." value={s.wkspModel} onCommit={(v) => set({ wkspModel: v })} />
+          <ModelRow label="Genio model" hint="Model for the companion you talk to." value={s.wkspModel} onCommit={(v) => set({ wkspModel: v, wkspEffort: '' })} />
           <Row label="Genio effort">
-            <EffortSelect value={s.wkspEffort} onChange={(v) => set({ wkspEffort: v })} />
+            <EffortSelect model={s.wkspModel} value={s.wkspEffort} onChange={(v) => set({ wkspEffort: v })} />
           </Row>
-          <ModelRow label="Bot model" hint="Handles events while you're DND/AFK. A cheaper model is fine." value={s.botModel} onCommit={(v) => set({ botModel: v })} />
+          <Row label="Bot model" hint="Handles events while you're DND/AFK. A cheaper model is fine.">
+            <CommitInput mono value={s.botModel} placeholder="(default)" onCommit={(v) => set({ botModel: v.trim() })} />
+            <div className="model-chips">{['claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', ''].map(m => <button key={m} className={cx('chip', s.botModel === m && 'neon')} onClick={() => set({ botModel: m })}>{m.replace('claude-', '') || 'default'}</button>)}</div>
+          </Row>
           <Row label="Claude Code path" hint="Blank uses the bundled Claude Code.">
             <CommitInput mono value={s.claudePath} placeholder="(bundled)" onCommit={(v) => set({ claudePath: v.trim() })} />
           </Row>
@@ -215,7 +219,7 @@ function SectionBody({ sec, s }: { sec: Section; s: Settings }) {
                 ))}
             </select>
           </Row>
-          <ModelRow label="Default model" value={s.defaultWorkerModel} onCommit={(v) => set({ defaultWorkerModel: v })} />
+          <ModelRow allowCustom label="Default model" value={s.defaultWorkerModel} onCommit={(v) => set({ defaultWorkerModel: v })} />
           <Row label="Default effort" hint="Blank lets Genio choose: low for clear work, higher for ambiguous design.">
             <EffortSelect value={s.defaultWorkerEffort} onChange={(v) => set({ defaultWorkerEffort: v })} />
           </Row>
@@ -276,7 +280,7 @@ function SectionBody({ sec, s }: { sec: Section; s: Settings }) {
         <>
           <h2 className="sys-title">Gauntlet</h2>
           <p className="mute">Hardcore validation: checks, AI review against your words, fix rounds, push, PR, CI.</p>
-          <ModelRow label="Reviewer model" value={s.reviewModel} onCommit={(v) => set({ reviewModel: v })} />
+          <ModelRow allowCustom label="Reviewer model" value={s.reviewModel} onCommit={(v) => set({ reviewModel: v })} />
           <NumRow label="Max fix rounds" value={s.validationMaxRounds} onCommit={(v) => set({ validationMaxRounds: num(v, 1) })} />
         </>
       )
@@ -319,46 +323,23 @@ function NumRow({ label, hint, value, onCommit }: { label: string; hint?: string
   )
 }
 
-function ModelRow({ label, hint, value, onCommit }: { label: string; hint?: string; value: string; onCommit: (v: string) => void }) {
-  return (
-    <Row label={label} hint={hint}>
-      <CommitInput mono value={value} placeholder="(default)" onCommit={(v) => onCommit(v.trim())} />
-      <div className="model-chips">
-        {MODEL_SUGGESTIONS.map((m) => (
-          <button key={m} className={cx('chip', value === m && 'neon')} onClick={() => onCommit(m)}>
-            {m.replace('claude-', '')}
-          </button>
-        ))}
-        <button className={cx('chip', !value && 'neon')} onClick={() => onCommit('')}>
-          default
-        </button>
-      </div>
-    </Row>
-  )
+function ModelRow({ label, hint, value, onCommit, allowCustom }: { label: string; hint?: string; value: string; onCommit: (v: string) => void; allowCustom?: boolean }) {
+  return <Row label={label} hint={hint}>{allowCustom && <CommitInput mono value={value} placeholder="(default)" onCommit={v => onCommit(v.trim())} />}<ModelSelect value={value} onChange={onCommit} /></Row>
 }
 
 type SelectProps = { value: string; onChange: (v: string) => void; title?: string; disabled?: boolean; style?: CSSProperties }
-
-/** Compact model picker over the ModelRow choices; a custom model typed in Systems stays selectable. */
-export function ModelSelect({ value, onChange, ...rest }: SelectProps) {
-  const custom = value && !MODEL_SUGGESTIONS.includes(value) ? [value] : []
-  return (
-    <select className="select" value={value} onChange={(e) => onChange(e.target.value)} {...rest}>
-      <option value="">default</option>
-      {[...MODEL_SUGGESTIONS, ...custom].map((m) => (
-        <option key={m} value={m}>
-          {m.replace('claude-', '')}
-        </option>
-      ))}
-    </select>
-  )
+export function ModelSelect(props: SelectProps) {
+  return <ModelPicker {...props} onAccounts={() => requestSystemsSection('accounts')} />
 }
 
-export function EffortSelect({ value, onChange, ...rest }: SelectProps) {
+export function EffortSelect({ value, onChange, model, ...rest }: SelectProps & { model?: string }) {
+  const catalogue = useModelCatalogue()
+  const selected = catalogue.routes.flatMap(r => r.models).find(m => m.runtime === 'claude' && (m.id === model || m.aliases.includes(model || 'default')))
+  const efforts = model === undefined ? EFFORTS : selected?.efforts || []
   return (
-    <select className="select" value={value} onChange={(e) => onChange(e.target.value)} {...rest}>
+    <select className="select" value={efforts.includes(value) ? value : ""} onChange={(e) => onChange(e.target.value)} {...rest}>
       <option value="">(auto)</option>
-      {EFFORTS.map((x) => (
+      {efforts.map((x) => (
         <option key={x} value={x}>
           {x}
         </option>
@@ -1240,12 +1221,7 @@ function Allies() {
           <input className="input mono" value={name} onChange={(e) => setName(e.target.value.toLowerCase())} placeholder="art-pipeline" />
         </Field>
         <Field label="Model">
-          <input className="input mono" value={model} list="ally-models" onChange={(e) => setModel(e.target.value)} placeholder="(default)" />
-          <datalist id="ally-models">
-            {MODEL_SUGGESTIONS.map((m) => (
-              <option key={m} value={m} />
-            ))}
-          </datalist>
+          <ModelSelect value={model} onChange={setModel} />
         </Field>
         <Field label="Scope" hint="What work routes to this ally" wide>
           <input className="input" value={scope} onChange={(e) => setScope(e.target.value)} placeholder="Shaders, VFX and the asset import pipeline" />

@@ -25,6 +25,8 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'asset-pathfinder', name: 'Asset Pathfinder', description: 'Locate a new asset destination.', feature: 'asset_locate' },
   { id: 'inventory-open', name: 'Open the Vault', description: 'Open a world Inventory.', feature: 'inventory' },
   { id: 'inventory-preview', name: 'Closer Look', description: 'Select an asset to preview in Inventory.', feature: 'inventory' },
+  { id: 'model-picker', feature: 'comms', name: 'Meet the Models', description: 'Open the live model picker.' },
+  { id: 'model-switch', feature: 'comms', name: 'Change of Mind', description: 'Switch a chat model in the picker.' },
   { id: 'screenshot', feature: 'comms', name: 'Show and Tell', description: 'Paste a screenshot into chat.' },
   { id: 'chat-image', feature: 'generate_image', name: 'Pixel Summoner', description: 'Generate an image in chat.' },
   { id: 'fal-first', feature: 'fal', name: 'Asset Alchemist', description: 'Complete a FAL run.' },
@@ -326,7 +328,7 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
   bus.onEvent((ev) => {
     if (ev.type === 'feature-used') {
       const ids: Record<string, string> = {
-        screenshot: 'screenshot', 'dock-split': 'dock-split', world_push: 'push-first',
+        'model-picker': 'model-picker', 'model-switch': 'model-switch', screenshot: 'screenshot', 'dock-split': 'dock-split', world_push: 'push-first',
         rate_task: 'rating-first', 'account-login': 'account-login', 'yolo-chat': 'yolo-chat',
         quest_add: 'quest-first', world_add: 'world-first', memory_write: 'lore-first', 'inventory-index': 'inventory-index'
       }
