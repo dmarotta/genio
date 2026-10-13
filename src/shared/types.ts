@@ -312,6 +312,8 @@ export interface WkspInfo {
   costUsd: number
   turns: number
   queued: number
+  limit?: { resetsAt?: number; restartRequired?: boolean }
+  botLimit?: { resetsAt?: number; restartRequired?: boolean }
   lastError?: string
 }
 

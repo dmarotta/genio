@@ -241,7 +241,7 @@ export function mergeClaudeRateLimit(file: ClaudeLimitsFile, info: ClaudeRateLim
   const prev = file.windows[type]
   const next: StoredWindow = {
     status: info.status,
-    utilization: typeof info.utilization === 'number' && Number.isFinite(info.utilization) ? info.utilization : prev?.utilization,
+    utilization: typeof info.utilization === 'number' && Number.isFinite(info.utilization) ? info.utilization : info.status === 'allowed' && prev?.status === 'rejected' ? undefined : prev?.utilization,
     resetsAt: typeof info.resetsAt === 'number' ? info.resetsAt : prev?.resetsAt,
     updatedAt: at
   }
@@ -273,7 +273,7 @@ export function claudeLimits(file: ClaudeLimitsFile | undefined, now = Date.now(
     ([type, w]): UsageWindow => ({
       label: CLAUDE_WINDOW_LABEL[type] ?? type.replace(/_/g, ' '),
       usedPercent: typeof w.utilization === 'number' ? claudePercent(w.utilization) : undefined,
-      status: w.status,
+      status: w.status === 'rejected' && w.resetsAt !== undefined && w.resetsAt * 1000 <= now ? undefined : w.status,
       resetsAt: w.resetsAt ? new Date(w.resetsAt * 1000).toISOString() : undefined,
       stale: w.resetsAt ? w.resetsAt * 1000 <= now : undefined
     })

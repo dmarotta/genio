@@ -437,7 +437,7 @@ export interface GenioApi {
   /** take back a queued (or unsent) message for edit/cancel; null when the session already picked it up */
   unqueueChat(wksp: string, id: string): Promise<UnqueuedChat | null>
   interruptWksp(wksp: string): Promise<void>
-  restartWksp(wksp: string, fresh: boolean): Promise<void>
+  restartWksp(wksp: string, fresh: boolean, role?: 'genio' | 'bot'): Promise<void>
   resolvePermission(id: string, allow: boolean): Promise<void>
   recap(): Promise<void>
   save(): Promise<void>

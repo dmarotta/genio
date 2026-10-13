@@ -25,7 +25,7 @@ const fake = vi.hoisted(() => {
         this.emit({ type: 'system', subtype: 'init', session_id: 'sess-1' })
       }
     }
-    private emit(m: unknown): void {
+    emit(m: unknown): void {
       this.out.push(m)
       const w = this.wake
       this.wake = undefined
@@ -52,11 +52,13 @@ const fake = vi.hoisted(() => {
     }
   }
   const queries: FakeQuery[] = []
-  return { queries, FakeQuery }
+  const resumes: (string | undefined)[] = []
+  return { queries, resumes, FakeQuery }
 })
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
-  query: ({ prompt }: { prompt: AsyncIterable<never> }) => {
+  query: ({ prompt, options }: { prompt: AsyncIterable<never>; options: { resume?: string } }) => {
+    fake.resumes.push(options.resume)
     const q = new fake.FakeQuery(prompt)
     fake.queries.push(q)
     return q
@@ -67,7 +69,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 vi.mock('../src/main/wksp-tools', () => ({ buildTools: () => [] }))
 
 const { Home } = await import('../src/main/home')
-const { createWkspService } = await import('../src/main/wksp')
+const { createWkspService, AgentSession } = await import('../src/main/wksp')
 const { bus } = await import('../src/main/bus')
 
 const PNG = 'iVBORw0KGgo='
@@ -77,10 +79,12 @@ let cleanup: (() => void)[] = []
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-chat-queue-'))
   fake.queries.length = 0
+  fake.resumes.length = 0
 })
 afterEach(() => {
   for (const c of cleanup) c()
   cleanup = []
+  vi.useRealTimers()
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
@@ -281,4 +285,147 @@ it('keeps send order while a preview thumbnail is loading and isolates later con
   await Promise.all([first, second])
   expect(svc.history().filter(m => m.role === 'player').map(m => m.text)).toEqual(['first with image', 'second without image'])
   expect(svc.history()[0].context?.folder).toBe('Assets')
+})
+
+
+const flush = async (): Promise<void> => { for (let i = 0; i < 60; i++) await Promise.resolve() }
+const limitResult = (text = "You've hit your session limit ? resets 2:30pm (Europe/Rome)") => ({ type: 'result', subtype: 'success', is_error: true, result: text })
+
+describe('Claude limit recovery through the SDK stream', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-13T13:32:00Z'))
+  })
+
+  it('silently resumes the same conversation and resends the failed message once, retaining images and the queue', async () => {
+    const c = chat('art')
+    await c.svc.send('first', 'player', [{ mediaType: 'image/png', data: PNG }])
+    await flush()
+    await c.svc.send('second')
+    const prompt = fake.queries[0].received[0]
+    fake.queries[0].emit(limitResult())
+    await flush()
+    expect(fake.queries).toHaveLength(2)
+    expect(fake.resumes).toEqual([undefined, 'sess-1'])
+    expect(fake.queries[1].received).toEqual([prompt])
+    expect(fake.queries[1].images).toEqual([[PNG]])
+    expect(c.view().queued.map(m => m.text)).toEqual(['second'])
+    expect(c.svc.info().limit).toBeUndefined()
+    expect(c.svc.history().filter(m => m.role === 'error')).toEqual([])
+    fake.queries[1].emit(limitResult())
+    await flush()
+    expect(fake.queries).toHaveLength(2)
+    expect(c.svc.info().limit?.restartRequired).toBe(true)
+    expect(c.view().queued.map(m => m.text)).toEqual(['first', 'second'])
+    expect(c.svc.history().filter(m => m.text === 'first')).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(fake.queries).toHaveLength(2)
+    await c.svc.restart(false)
+    await flush()
+    expect(fake.queries[2].received).toEqual([prompt])
+    fake.queries[2].finishTurn()
+    await flush()
+    expect(fake.queries[2].received[1]).toBe('second')
+    expect(c.svc.info().limit).toBeUndefined()
+  })
+
+  it('deduplicates rejected events and results, keeps messages visibly queued, then resumes at reset', async () => {
+    const c = chat('art')
+    await c.svc.send('one')
+    await flush()
+    const resetsAt = (Date.now() + 60_000) / 1000
+    const event = { type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt, rateLimitType: 'five_hour' } }
+    fake.queries[0].emit(event)
+    fake.queries[0].emit(event)
+    fake.queries[0].emit(limitResult("You've hit your session limit"))
+    await flush()
+    await c.svc.send('two')
+    expect(c.view().queued.map(m => m.text)).toEqual(['one', 'two'])
+    expect(c.svc.info().limit).toEqual({ resetsAt: resetsAt * 1000, restartRequired: false })
+    expect(c.svc.history().filter(m => m.role === 'error')).toEqual([])
+    await vi.advanceTimersByTimeAsync(59_999)
+    expect(fake.queries).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(102)
+    expect(fake.queries).toHaveLength(2)
+    expect(fake.queries[1].received).toEqual(['one'])
+    expect(c.svc.info().limit).toBeDefined()
+    fake.queries[1].finishTurn()
+    await flush()
+    expect(c.svc.info().limit).toBeUndefined()
+    expect(fake.queries[1].received).toEqual(['one', 'two'])
+  })
+
+  it('allowed with no reset recovers a cached error and hides assistant rate-limit errors', async () => {
+    const c = chat('art')
+    await c.svc.send('one')
+    await flush()
+    fake.queries[0].emit({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } })
+    fake.queries[0].emit({ type: 'assistant', error: 'rate_limit', message: { id: 'limit', content: [{ type: 'text', text: "You've hit your session limit" }] } })
+    fake.queries[0].emit(limitResult("You've hit your session limit"))
+    await flush()
+    expect(fake.queries).toHaveLength(2)
+    expect(c.svc.history().map(m => m.text)).toEqual(['one'])
+    expect(c.svc.info().lastError).toBeUndefined()
+  })
+
+  it('a later allowed event clears a genuine banner and restarts the waiting query', async () => {
+    const c = chat('art')
+    await c.svc.send('one')
+    await flush()
+    fake.queries[0].emit(limitResult("You've hit your session limit ? resets 7pm (Europe/Rome)"))
+    await flush()
+    expect(c.svc.info().limit).toBeDefined()
+    fake.queries[0].emit({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } })
+    await flush()
+    expect(c.svc.info().limit).toBeUndefined()
+    expect(fake.queries[1].received).toEqual(['one'])
+  })
+
+  it('Retry now restarts early without losing queued messages; stopping cancels scheduled recovery', async () => {
+    const c = chat('art')
+    await c.svc.send('one')
+    await flush()
+    const error = limitResult("You've hit your session limit ? resets 7pm (Europe/Rome)")
+    fake.queries[0].emit(error)
+    await flush()
+    await c.svc.send('two')
+    await c.svc.restart(false)
+    await flush()
+    expect(fake.queries[1].received).toEqual(['one'])
+    fake.queries[1].emit(error)
+    await flush()
+    await c.svc.stop()
+    await vi.advanceTimersByTimeAsync(24 * 3600_000)
+    expect(fake.queries).toHaveLength(2)
+  })
+
+  it('an ally limit does not pause another chat, and Bot recovery only restarts its own query', async () => {
+    const art = chat('art')
+    const audio = chat('audio')
+    await art.svc.send('art')
+    await flush()
+    fake.queries[0].emit(limitResult("You've hit your session limit ? resets 7pm (Europe/Rome)"))
+    await flush()
+    await audio.svc.send('audio')
+    await flush()
+    expect(fake.queries[1].received).toEqual(['audio'])
+    expect(audio.svc.info().limit).toBeUndefined()
+    const onTurnEnd = vi.fn()
+    const bot = new AgentSession('bot', async resume => ({ resume }), {
+      onMessage: vi.fn(), onDelta: vi.fn(), onActivity: vi.fn(), onTurnEnd,
+      onSessionId: vi.fn(), onError: vi.fn(), onRateLimit: vi.fn()
+    }, 'main', () => ({}))
+    cleanup.push(() => bot.stop())
+    bot.enqueue({ kind: 'events', prompt: 'wake events', ackThrough: 42 })
+    await flush()
+    fake.queries[2].emit(limitResult())
+    await flush()
+    expect(fake.queries[3].received).toEqual(['wake events'])
+    expect(onTurnEnd).toHaveBeenCalledWith(undefined, false, '', 0)
+    expect(art.svc.info().limit).toBeDefined()
+    expect(audio.svc.info().limit).toBeUndefined()
+    fake.queries[3].finishTurn()
+    await flush()
+    expect(onTurnEnd).toHaveBeenLastCalledWith(expect.objectContaining({ ackThrough: 42 }), true, '', 0)
+  })
 })

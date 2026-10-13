@@ -89,6 +89,13 @@ export function applyChatEvent(list: readonly ChatMessage[], m: ChatMessage): Ch
   const i = list.findIndex((x) => x.id === m.id)
   if (m.queue === 'cancelled') return i < 0 ? [...list] : list.filter((x) => x.id !== m.id)
   if (i < 0) return [...list, m]
+  // A rejected turn goes back to the front of the waiting queue.
+  if (m.queue === 'queued' && list[i].queue !== 'queued') {
+    const copy = list.filter(x => x.id !== m.id)
+    const first = copy.findIndex(x => x.queue === 'queued')
+    copy.splice(first < 0 ? copy.length : first, 0, m)
+    return copy
+  }
   if (list[i].queue === 'queued' && !m.queue) return [...list.slice(0, i), ...list.slice(i + 1), m]
   const copy = list.slice()
   copy[i] = m

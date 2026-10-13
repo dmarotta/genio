@@ -383,7 +383,7 @@ export interface WkspService {
   /** deliver queued wakes (drain → one turn → ack after the turn completes) */
   deliverWakes(): void
   interrupt(): Promise<void>
-  restart(fresh: boolean): Promise<void>
+  restart(fresh: boolean, role?: 'genio' | 'bot'): Promise<void>
   stop(): Promise<void>
   /** append a Genio-authored line to the bridge (no model turn) */
   say(text: string, role?: ChatMessage['role']): ChatMessage

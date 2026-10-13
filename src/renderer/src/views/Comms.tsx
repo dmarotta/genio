@@ -129,6 +129,18 @@ export function ChatPanel({ wksp, context, active = true }: { wksp: string; cont
         </div>
       </header>
 
+      {(['genio', 'bot'] as const).map(role => {
+        const limit = role === 'bot' ? info?.botLimit : info?.limit
+        if (!limit) return null
+        return <div className="chat-limit" role="status" key={role}>
+          <span>{role === 'bot' ? 'Bot: ' : ''}{limit.restartRequired
+            ? 'Claude still reports an expired limit. Restart the session to try again.'
+            : `Claude limit reached${limit.resetsAt ? ` ? back at ${new Date(limit.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ' ? waiting for reset'}`}</span>
+          {!limit.restartRequired && <button className="btn sm" onClick={() => void op('Retry', () => api().restartWksp(wksp, false, role))}>Retry now</button>}
+          <button className="btn sm ghost" onClick={() => void op('Restart', () => api().restartWksp(wksp, false, role))}>Restart session</button>
+        </div>
+      })}
+
       <ChatLog wksp={wksp} messages={visible} calm={calm} busy={busy} gamertag={gamertag} activityDetail={info?.activityDetail} lastError={info?.lastError} onTakeBack={takeBack} />
 
       <Composer wksp={wksp} busy={busy} fill={fill} context={context} />
@@ -220,7 +232,7 @@ function ChatLog({ wksp, messages: all, calm, busy, gamertag, activityDetail, la
           </div>
         </div>
       )}
-      {lastError && !busy && <div className="msg-error mono">{lastError}</div>}
+      {lastError && !busy && <div className="msg-error mono">{lastError} <button className="btn sm" onClick={() => void op('Restart', () => api().restartWksp(wksp, false))}>Restart session</button></div>}
       {queued.map((m) => (
         <Message key={m.id} m={m} calm={calm} gamertag={gamertag} onTakeBack={onTakeBack} />
       ))}

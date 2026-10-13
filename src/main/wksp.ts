@@ -1,3 +1,4 @@
+import { claudeLimitState, isClaudeLimit } from './claude-limit'
 import { registerModelQuery, supportedClaudeEfforts } from './model-discovery'
 /**
  * Genio agent sessions (companion's primary harness session, in-process).
@@ -29,7 +30,7 @@ import {
   HELP_TEXT, afkPrompt, botContract, eventsPrompt, genioContract, recapPrompt, returnPrompt, savePrompt, sessionStartPrompt,
   statusPrompt
 } from './prompts'
-import { chatControls, compactChat, strandQueued } from '@shared/chat'
+import { applyChatEvent, chatControls, compactChat, strandQueued } from '@shared/chat'
 import type { AppCtx, WkspService } from './services'
 import { claudeLimitsFile, recordClaudeRateLimit, type ClaudeRateLimitInfo } from './usage'
 import { appendJsonl, nowIso, readJson, readJsonl, readText, rid, truncate, writeJson } from './util'
@@ -175,6 +176,7 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
 }
 
 interface TurnItem {
+  limitRetried?: boolean
   kind: 'player' | 'events' | 'system'
   /** what the model receives */
   prompt: string
@@ -196,16 +198,23 @@ interface SessionHooks {
   onSessionId(id: string): void
   onError(text: string): void
   onRateLimit(info: ClaudeRateLimitInfo): void
+  onLimit?(limit: WkspInfo['limit']): void
+  onRequeue?(item: TurnItem): void
 }
 
 /** One SDK conversation (Genio or the Bot). */
-class AgentSession {
+export class AgentSession {
   q?: Query
   input?: InputQueue
   busy = false
   current?: TurnItem
   pending: TurnItem[] = []
   sessionId?: string
+  private limit?: WkspInfo['limit']
+  private limitPaused = false
+  private latestLimit?: ClaudeRateLimitInfo
+  private limitTimer?: ReturnType<typeof setTimeout>
+  private assistantLimit = ''
   private gotInit = false
   private resumedFrom?: string
   private lastTotalCost = 0
@@ -248,7 +257,7 @@ class AgentSession {
 
   /** nothing running and nothing waiting: a new item starts right away */
   get idle(): boolean {
-    return !this.busy && !this.pending.length
+    return !this.busy && !this.pending.length && !this.limitPaused
   }
 
   /** Take a waiting chat message's turn back out of the queue; undefined once the session picked it up. */
@@ -257,13 +266,8 @@ class AgentSession {
     return i < 0 ? undefined : this.pending.splice(i, 1)[0]
   }
 
-  /** the player's chat messages still waiting, in order */
-  waitingMessages(): TurnItem[] {
-    return this.pending.filter((p) => p.msgId)
-  }
-
   private async pump(): Promise<void> {
-    if (this.busy) return
+    if (this.busy || this.limitPaused) return
     const next = this.pending.shift()
     if (!next) return
     this.busy = true
@@ -271,6 +275,7 @@ class AgentSession {
     this.hooks.onStart?.(next)
     this.turnMsgIds = []
     this.lastText = ''
+    this.assistantLimit = ''
     this.hooks.onActivity('thinking')
     try {
       await this.syncConfig()
@@ -283,6 +288,72 @@ class AgentSession {
       this.hooks.onTurnEnd(next, false, '', 0)
       this.hooks.onActivity('error', (e as Error).message)
     }
+  }
+
+  private setLimit(limit?: WkspInfo['limit']): void {
+    if (limit) limit = { ...limit, restartRequired: !!limit.restartRequired }
+    if (this.limitTimer) clearTimeout(this.limitTimer)
+    this.limitTimer = undefined
+    const changed = JSON.stringify(this.limit) !== JSON.stringify(limit)
+    this.limit = limit
+    this.limitPaused = !!limit
+    if (changed) this.hooks.onLimit?.(limit)
+    if (limit?.resetsAt && !limit.restartRequired) {
+      const delay = limit.resetsAt - Date.now()
+      if (delay > 0) this.limitTimer = setTimeout(() => {
+        // A rate event can precede the result. Never interrupt a still-running turn.
+        if (this.limit?.resetsAt && this.limit.resetsAt > Date.now()) this.setLimit(this.limit)
+        else if (!this.busy) this.retryLimit()
+      }, Math.min(delay + 100, 2_147_483_647))
+    }
+  }
+
+  /** Recycle only this query, retaining its conversation and every queued turn. */
+  retryLimit(): void {
+    if (this.busy) return
+    this.reset()
+    if (this.limitTimer) clearTimeout(this.limitTimer)
+    this.limitTimer = undefined
+    this.limitPaused = false
+    void this.pump()
+  }
+
+  restart(fresh = false): void {
+    if (this.current && this.limit) {
+      this.pending.unshift(this.current)
+      this.hooks.onRequeue?.(this.current)
+    }
+    this.reset()
+    this.busy = false
+    this.current = undefined
+    for (const waiting of this.pending) waiting.limitRetried = false
+    this.latestLimit = undefined
+    this.setLimit()
+    if (fresh) this.sessionId = undefined
+    this.hooks.onActivity('offline')
+    void this.pump()
+  }
+
+  private limited(text: string): void {
+    const state = claudeLimitState(text, this.latestLimit)
+    if (state.resetsAt !== undefined && this.latestLimit?.status === 'rejected') {
+      this.hooks.onRateLimit({ ...this.latestLimit, resetsAt: state.resetsAt / 1000 })
+    }
+    const item = this.current
+    this.busy = false
+    this.current = undefined
+    if (item) {
+      this.pending.unshift(item)
+      this.hooks.onRequeue?.(item)
+    }
+    this.hooks.onActivity('idle')
+    if (state.stale && item && !item.limitRetried) {
+      this.setLimit()
+      item.limitRetried = true
+      this.retryLimit()
+      return
+    }
+    this.setLimit({ resetsAt: state.resetsAt, restartRequired: state.stale })
   }
 
   private async ensureStarted(): Promise<void> {
@@ -411,6 +482,11 @@ class AgentSession {
       case 'assistant': {
         if ((m as { parent_tool_use_id?: string | null }).parent_tool_use_id) return
         const am = m as { message?: { id?: string; content?: unknown[] }; error?: unknown }
+        const errorText = (am.message?.content ?? []).map(b => (b as { text?: string }).text ?? '').join(' ')
+        if (am.error && (isClaudeLimit(errorText) || isClaudeLimit(String(am.error)))) {
+          this.assistantLimit = errorText || String(am.error)
+          return
+        }
         const apiId = am.message?.id ?? rid(6)
         const cm = this.chatFor(apiId)
         const texts = this.blockText.get(cm.id) ?? []
@@ -450,6 +526,8 @@ class AgentSession {
       }
       case 'result': {
         const r = m as { is_error?: boolean; total_cost_usd?: number; result?: string; errors?: string[]; subtype?: string }
+        const errorText = (r.errors ?? []).join('; ') || r.result || this.assistantLimit
+        const limitError = (r.is_error && isClaudeLimit(errorText)) || !!this.assistantLimit
         const total = r.total_cost_usd ?? 0
         const delta = total >= this.lastTotalCost ? total - this.lastTotalCost : total
         this.lastTotalCost = total
@@ -463,7 +541,14 @@ class AgentSession {
           this.msgs.delete(id)
           this.blockText.delete(id)
         }
+        if (limitError) {
+          // Cost still belongs to this attempt, but failed wake events must not be acknowledged.
+          this.hooks.onTurnEnd(undefined, false, '', delta)
+          this.limited(errorText)
+          return
+        }
         const okTurn = !r.is_error
+        if (okTurn) this.setLimit()
         if (!okTurn) this.hooks.onError(`Turn ended with an error (${r.subtype ?? 'error'}): ${(r.errors ?? []).join('; ') || r.result || 'unknown'}`)
         const item = this.current
         this.busy = false
@@ -476,10 +561,17 @@ class AgentSession {
       }
       case 'rate_limit_event': {
         const info = (m as { rate_limit_info?: ClaudeRateLimitInfo }).rate_limit_info
-        if (info) this.hooks.onRateLimit(info)
-        if (info?.status === 'rejected') {
-          const when = info.resetsAt ? new Date(info.resetsAt * 1000).toLocaleTimeString() : 'later'
-          this.hooks.onError(`Usage limit reached; Genio can act again around ${when}.`)
+        if (info) {
+          this.latestLimit = info
+          this.hooks.onRateLimit(info)
+          if (info.status === 'allowed') {
+            const waiting = !!this.limit
+            this.setLimit()
+            if (waiting && !this.busy) this.retryLimit()
+          } else if (info.status === 'rejected') {
+            const state = claudeLimitState('', info)
+            if (!state.stale) this.setLimit({ resetsAt: state.resetsAt })
+          }
         }
         return
       }
@@ -498,6 +590,7 @@ class AgentSession {
   }
 
   stop(): void {
+    this.setLimit()
     this.pending = []
     this.reset()
     this.busy = false
@@ -656,6 +749,19 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
     (resume) => buildOptions('genio', resume),
     {
       onStart: delivered,
+      onRequeue(item) {
+        const m = loadHistory().find(m => m.id === item.msgId)
+        if (m) {
+          const queued: ChatMessage = { ...m, queue: 'queued' }
+          history = applyChatEvent(loadHistory(), queued)
+          record(queued, true)
+        }
+      },
+      onLimit(limit) {
+        info.limit = limit
+        info.lastError = undefined
+        publishInfo()
+      },
       onMessage(m, final) {
         let msg = m
         if (final && msg.text && NOOP_RE.test(msg.text.trim()) && !(msg.tools ?? []).length) msg = { ...msg, role: 'system' }
@@ -670,6 +776,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
         publishInfo()
       },
       onTurnEnd(item, ok, lastText, cost) {
+        if (ok) info.lastError = undefined
         info.turns++
         info.costUsd += cost
         if (cost > 0) safe(() => getCtx().stats.addCost(cost))
@@ -739,7 +846,11 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
           appendJsonl(botFile, { ts: nowIso(), error: text })
           if (getCtx().away.state().mode === 'afk') safe(() => getCtx().away.capture({ wksp: name, text: `The Bot hit a problem: ${text}`, severity: 'failure', target: { view: 'comms', wksp: name } }))
         },
-        onRateLimit: rateLimit
+        onRateLimit: rateLimit,
+        onLimit(limit) {
+          info.botLimit = limit
+          publishInfo()
+        }
       },
       name,
       () => sessionConfig('bot', settings())
@@ -983,22 +1094,16 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally)
       await genio.interrupt()
       await bot?.interrupt()
     },
-    async restart(fresh) {
-      if (fresh) contextSessionStart = nowIso()
-      // the player's queued messages survive a session restart and go to the new session
-      const waiting = genio.waitingMessages()
-      genio.stop()
-      bot?.stop()
-      if (fresh) {
-        genio.sessionId = undefined
-        if (bot) bot.sessionId = undefined
-        saveState()
-        say(`Fresh Genio session started, ${gamertag()}. Records on disk are intact.`, 'system')
-      } else say('Genio session restarted (conversation resumes on the next message).', 'system')
-      info.activity = 'offline'
-      info.activityDetail = undefined
+    async restart(fresh, role = 'genio') {
+      if (role === 'bot') {
+        bot?.restart(fresh)
+      } else {
+        if (fresh) contextSessionStart = nowIso()
+        genio.restart(fresh)
+        info.lastError = undefined
+      }
       stopped = false
-      for (const item of waiting) genio.enqueue(item)
+      saveState()
       publishInfo()
       setTimeout(() => svc.deliverWakes(), 500)
     },
