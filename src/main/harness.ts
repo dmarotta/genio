@@ -3,14 +3,14 @@
  * resumed (companion .agents/skills/harness-adapters + bin/fm-spawn.sh launch_template).
  *
  * Arg templates support tokens:
- *   {model} {effort} {prompt} {cwd} {settings}   simple substitution
+ *   {model} {effort} {prompt} {cwd} {settings} {sessionId}   simple substitution
  *   {permission}                                expands to claude permission args
  * A paired element is written as one string, `--model {model}`: it splits at
  * the first space into flag + value when filled and vanishes when empty.
  * A standalone token arg (`{prompt}`) that resolves empty is dropped alone.
  * modelArgs / effortArgs / resumeArgs are inserted before the first arg that
  * carries {prompt} (or at the end). resumeArgs that start with a bare word
- * (a subcommand such as codex `resume --last`) go first.
+ * (a subcommand such as codex `resume <session-id>`) go first.
  */
 import type { HarnessAdapter, Settings } from '@shared/types'
 
@@ -56,7 +56,7 @@ export const BUILTIN_HARNESSES: HarnessAdapter[] = [
     args: ['--dangerously-bypass-approvals-and-sandbox', '{prompt}'],
     modelArgs: ['--model {model}'],
     effortArgs: ['-c model_reasoning_effort="{effort}"'],
-    resumeArgs: ['resume', '--last'],
+    resumeArgs: ['resume', '{sessionId}'],
     exitSequence: '/quit',
     trustPatterns: ['Do you trust the contents of this directory'],
     role: 'any'
@@ -132,6 +132,7 @@ export interface LaunchVars {
   cwd?: string
   settings?: string
   resume?: boolean
+  sessionId?: string
 }
 
 function permissionArgs(mode: Settings['claudePermissionMode']): string[] {
@@ -143,7 +144,7 @@ function permissionArgs(mode: Settings['claudePermissionMode']): string[] {
 function substitute(arg: string, vars: LaunchVars): { value: string; hadToken: boolean; empty: boolean } {
   let hadToken = false
   let anyFilled = false
-  const value = arg.replace(/\{(model|effort|prompt|cwd|settings)\}/g, (_m, k: keyof LaunchVars) => {
+  const value = arg.replace(/\{(model|effort|prompt|cwd|settings|sessionId)\}/g, (_m, k: keyof LaunchVars) => {
     hadToken = true
     const v = vars[k]
     if (typeof v === 'string' && v) {
@@ -186,7 +187,11 @@ export function buildArgs(a: HarnessAdapter, vars: LaunchVars, settings: Pick<Se
     ...(vars.effort && a.effortArgs ? expand(a.effortArgs, v, perm).argv : [])
   ]
   let resumeFront: string[] = []
-  if (vars.resume && a.resumeArgs?.length) {
+  if (vars.resume && a.id === 'codex') {
+    // Persisted adapters can still contain --last. Never let Codex pick a
+    // conversation globally (or open its interactive session picker).
+    if (vars.sessionId) resumeFront = ['resume', vars.sessionId]
+  } else if (vars.resume && a.resumeArgs?.length) {
     const r = expand(a.resumeArgs, v, perm).argv
     if (r[0] && !r[0].startsWith('-')) resumeFront = r
     else extras.push(...r)

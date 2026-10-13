@@ -167,6 +167,8 @@ export interface Task {
   automaticRelaunches?: number
   /** Unit-reported session id so a respawn can resume the conversation. */
   sessionHint?: string
+  /** Codex session verified against this unit's worktree at relaunch. */
+  codexSessionId?: string
 }
 
 /** companion status verbs: `<verb> [key=k] [at=epoch]: note` appended to state/<id>.status */

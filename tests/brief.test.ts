@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { appendCommand, doorbellLine, kickoffPrompt, renderBrief, type BriefInput } from '../src/main/brief'
-import { buildArgs, BUILTIN_HARNESSES } from '../src/main/harness'
+import { buildArgs, BUILTIN_HARNESSES, mergeHarnesses } from '../src/main/harness'
 
 const base: BriefInput = {
   taskId: 'fix-jump-a1',
@@ -83,13 +83,28 @@ describe('buildArgs', () => {
 
   it('handles flag-paired prompts and subcommand resume', () => {
     expect(buildArgs(opencode, { prompt: 'go', model: 'x/y' }, { claudePermissionMode: 'bypass' })).toEqual(['--model', 'x/y', '--prompt', 'go'])
-    expect(buildArgs(codex, { resume: true, effort: 'low' }, { claudePermissionMode: 'bypass' })).toEqual([
+    expect(buildArgs(codex, { resume: true, sessionId: 'unit-session', effort: 'low' }, { claudePermissionMode: 'bypass' })).toEqual([
       'resume',
-      '--last',
+      'unit-session',
       '--dangerously-bypass-approvals-and-sandbox',
       '-c',
       'model_reasoning_effort="low"'
     ])
     expect(buildArgs(claude, { resume: true }, { claudePermissionMode: 'bypass' })).toEqual(['--dangerously-skip-permissions', '--continue'])
+  })
+
+  it('starts Codex fresh with the progress prompt when no session can be found', () => {
+    expect(buildArgs(codex, { resume: true, prompt: 'Read the latest Progress note', cwd: '/unit' }, { claudePermissionMode: 'bypass' }))
+      .toEqual(['--dangerously-bypass-approvals-and-sandbox', 'Read the latest Progress note'])
+  })
+
+  it('never uses a persisted Codex --last adapter when relaunching', () => {
+    const saved = mergeHarnesses([{ ...codex, resumeArgs: ['resume', '--last'] }]).find(h => h.id === 'codex')!
+    expect(buildArgs(saved, { resume: true, sessionId: 'own-session', prompt: 'continue' }, { claudePermissionMode: 'auto' }))
+      .toEqual(['resume', 'own-session', '--dangerously-bypass-approvals-and-sandbox', 'continue'])
+    expect(buildArgs(saved, { resume: true, prompt: 'continue' }, { claudePermissionMode: 'auto' }))
+      .toEqual(['--dangerously-bypass-approvals-and-sandbox', 'continue'])
+    expect(buildArgs(saved, { resume: false, sessionId: 'own-session', prompt: 'start' }, { claudePermissionMode: 'auto' }))
+      .toEqual(['--dangerously-bypass-approvals-and-sandbox', 'start'])
   })
 })

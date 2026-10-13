@@ -15,6 +15,7 @@ import * as git from './git'
 import { appendProgressNote, doorbellLine, engineHints, kickoffPrompt, renderBrief } from './brief'
 import { holdsCapacity } from './usage-policy'
 import { buildArgs, CLAUDE_BYPASS_DIALOG } from './harness'
+import { discoverCodexSession } from './codex-session'
 import { foldOpenDecisions, formatStatusLine, parseStatusLine, parseStatusLog } from './status'
 import { createGauntlet } from './gauntlet'
 import { relaunchPolicy } from './relaunch-policy'
@@ -227,9 +228,13 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     if (isClaude) setClaudeTrust([t.worktree], true)
     const settingsPath = isClaude ? writeClaudeSettings(t) : undefined
     const skills = skillExtras(t, adapter.id, project?.path)
+    const sessionId = opts.resume && adapter.id === 'codex'
+      ? await discoverCodexSession(t.worktree, skills.env.CODEX_HOME ?? adapter.env?.CODEX_HOME, t.codexSessionId)
+      : undefined
+    if (opts.resume && adapter.id === 'codex') update(t.id, { codexSessionId: sessionId })
     const args = [
       ...skills.args,
-      ...buildArgs(adapter, { model: t.model, effort: t.effort, prompt: opts.prompt, cwd: t.worktree, settings: settingsPath, resume: opts.resume }, s)
+      ...buildArgs(adapter, { model: t.model, effort: t.effort, prompt: opts.prompt, cwd: t.worktree, settings: settingsPath, resume: opts.resume, sessionId }, s)
     ]
     const hookEnv = project ? await writeHooks(t, project.path) : {}
     let openRouterKey: string | undefined
