@@ -11,7 +11,7 @@ import { openRouterEnv } from '../src/main/unitskills'
 import { quotaFromUsage } from '../src/main/usage'
 import { createDecisionService } from '../src/main/decisions'
 import { Home } from '../src/main/home'
-import { CHEAP_MODELS, LEARNING, defaultCategoryPools, type OutcomeRecord } from '../src/shared/dispatch'
+import { CHEAP_MODELS, LEARNING, cheapModelsAllowed, defaultCategoryPools, type OutcomeRecord } from '../src/shared/dispatch'
 import type { AppCtx } from '../src/main/services'
 import type { CategoryPool, DispatchRule, LoadoutInput, Settings, Task } from '../src/shared/types'
 
@@ -186,7 +186,14 @@ describe('exploration gating', () => {
 })
 
 describe('OpenRouter gating', () => {
-  it('needs the world opt-in, the key and OpenCode installed', () => {
+  it('worlds allow cheap models by default and can opt out', () => {
+    expect(cheapModelsAllowed({})).toBe(true)
+    expect(cheapModelsAllowed(undefined)).toBe(true)
+    expect(cheapModelsAllowed({ allowCheapModels: true })).toBe(true)
+    expect(cheapModelsAllowed({ allowCheapModels: false })).toBe(false)
+  })
+
+  it('needs the world not opted out, the key and OpenCode installed', () => {
     expect(cheapGate({ worldAllows: true, keySet: true, opencodeReady: true }).allowed).toBe(true)
     expect(cheapGate({ worldAllows: false, keySet: true, opencodeReady: true })).toMatchObject({ allowed: false, why: expect.stringMatching(/off for this world/) })
     expect(cheapGate({ worldAllows: true, keySet: false, opencodeReady: true })).toMatchObject({ allowed: false, why: expect.stringMatching(/OpenRouter key/) })

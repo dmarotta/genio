@@ -18,6 +18,7 @@ import { foldOpenDecisions, formatStatusLine, parseStatusLine, parseStatusLog } 
 import { createGauntlet } from './gauntlet'
 import { resolveLoadout } from './loadout'
 import { modeLabel } from '@shared/vocab'
+import { cheapModelsAllowed } from '@shared/dispatch'
 import { defaultShell } from './terminals'
 import { getSecret } from './secrets'
 import { installUnitHooks } from './unithooks'
@@ -231,7 +232,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     ]
     const hookEnv = project ? await writeHooks(t, project.path) : {}
     let openRouterKey: string | undefined
-    if (adapter.id === 'opencode' && project?.allowCheapModels) {
+    if (adapter.id === 'opencode' && cheapModelsAllowed(project)) {
       try {
         openRouterKey = getSecret('openrouter', mainHome.data)
       } catch {
@@ -242,7 +243,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       ...(adapter.env ?? {}),
       ...hookEnv,
       ...skills.env,
-      ...openRouterEnv(adapter.id, Boolean(project?.allowCheapModels), openRouterKey),
+      ...openRouterEnv(adapter.id, cheapModelsAllowed(project), openRouterKey),
       GENIO_TASK_ID: t.id,
       GENIO_STATUS_FILE: fwd(home.statusFile(t.id)),
       GENIO_TASK_INBOX: fwd(inboxDir(t.id)),

@@ -7,7 +7,7 @@
  */
 import type { AccountStatus, OpResult, UsageReport } from '@shared/api'
 import type { Decision, Task, Verdict } from '@shared/types'
-import type { DispatchScoresView } from '@shared/dispatch'
+import { cheapModelsAllowed, type DispatchScoresView } from '@shared/dispatch'
 import { bus } from './bus'
 import { listAccounts } from './accounts'
 import { cheapGate, type PickEnv, type QuotaWindow } from './loadout'
@@ -69,7 +69,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
       const env: Omit<PickEnv, 'available'> = {
         loggedOut: (id) => logins.get(ACCOUNT_OF[id] ?? id) === 'logged-out',
         quota,
-        cheap: cheapGate({ worldAllows: Boolean(world?.allowCheapModels), keySet, opencodeReady: opencode }),
+        cheap: cheapGate({ worldAllows: cheapModelsAllowed(world), keySet, opencodeReady: opencode }),
         dial: world?.costDial ?? s.costDial,
         dialFromWorld: Boolean(world?.costDial),
         stats: scoreTable(scorecard().list()),

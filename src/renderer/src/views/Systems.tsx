@@ -688,7 +688,7 @@ function CategoryTable({ s, scores }: { s: Settings; scores: DispatchScoresView 
                         </option>
                       ))}
                     </select>
-                    <button className={cx('chip', c.cheap && 'amber')} title="Cheap third-party model: needs the OpenRouter key and the world's opt-in" onClick={() => updC({ cheap: !c.cheap || undefined })}>
+                    <button className={cx('chip', c.cheap && 'amber')} title="Cheap third-party model: needs the OpenRouter key; worlds can opt out" onClick={() => updC({ cheap: !c.cheap || undefined })}>
                       cheap
                     </button>
                     <span className="mono mute cat-score" title={sc ? `${sc.landed}/${sc.samples} landed` : 'no outcomes yet'}>

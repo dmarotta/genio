@@ -43,7 +43,7 @@ export interface Project {
   description?: string
   /** this world's Quality / Balanced / Cost setting; unset = the global dial */
   costDial?: CostDial
-  /** opt-in: units may send this world's code to cheap third-party models (OpenRouter via OpenCode) */
+  /** on unless false: units may send this world's code to cheap third-party models (OpenRouter via OpenCode); false opts the world out */
   allowCheapModels?: boolean
   /** true when Genio cloned/created it under its home `projects/`. */
   managed: boolean
@@ -421,7 +421,7 @@ export interface PoolCandidate {
   harness: string
   model?: string
   effort?: string
-  /** a cheap third-party model (OpenRouter): only with the key, OpenCode and the world's opt-in */
+  /** a cheap third-party model (OpenRouter): only with the key, OpenCode and the world not opted out */
   cheap?: boolean
 }
 

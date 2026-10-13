@@ -10,7 +10,7 @@
  * category table (category from Genio or the keyword heuristic), then the
  * configured default. Inside a rule or the table, candidates whose tool is not
  * installed, enabled or logged in are skipped, cheap third-party models need
- * the world's opt-in, the cost dial reorders, and a tool above ~85% of a plan
+ * the world not opted out, the cost dial reorders, and a tool above ~85% of a plan
  * window is down-ranked. Exploration only ever happens inside the table.
  */
 import type {
@@ -129,7 +129,7 @@ export interface PickEnv {
   loggedOut?: (id: string) => boolean
   /** current plan windows per tool id */
   quota?: Record<string, QuotaWindow[]>
-  /** cheap third-party models: OpenRouter key + OpenCode installed + the world's opt-in */
+  /** cheap third-party models: OpenRouter key + OpenCode installed + the world not opted out */
   cheap?: { allowed: boolean; why: string }
   /** the world's dial override, else Settings.costDial */
   dial?: CostDial
@@ -382,8 +382,8 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
 
 /**
  * Cheap third-party models (OpenRouter through OpenCode) need all three: the
- * world's opt-in, an OpenRouter key and OpenCode installed. Code never goes to
- * a third-party provider without the player's per-world opt-in.
+ * world not opted out (on by default), an OpenRouter key and OpenCode installed.
+ * A world that opts out never sends code to a third-party provider.
  */
 export function cheapGate(g: { worldAllows: boolean; keySet: boolean; opencodeReady: boolean }): { allowed: boolean; why: string } {
   if (!g.worldAllows) return { allowed: false, why: 'cheap third-party models are off for this world' }

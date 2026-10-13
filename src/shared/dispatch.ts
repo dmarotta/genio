@@ -158,3 +158,8 @@ export interface DispatchScoresView {
 }
 
 export const candidateKey = (c: { harness: string; model?: string }): string => `${c.harness}/${c.model || 'default'}`
+
+/** Cheap third-party models are on in every world unless it opts out (allowCheapModels: false). */
+export function cheapModelsAllowed(p: { allowCheapModels?: boolean } | undefined): boolean {
+  return p?.allowCheapModels !== false
+}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, FolderOpen, Gamepad2, Globe, Play, Plus, RefreshCw, Rocket, Sparkles, Trash, Users } from 'lucide-react'
 import type { CostDial, Engine, Project, ProjectCommands, ProjectMode } from '@shared/types'
-import { DIAL_HINT, DIAL_LABEL } from '@shared/dispatch'
+import { DIAL_HINT, DIAL_LABEL, cheapModelsAllowed } from '@shared/dispatch'
 import { api, errText, op, openDeploy, setState, spawnWorldAllyChat, toast, useStore } from '../store'
 import { CommitInput, Confirm, Empty, Field, Modal, Toggle, ViewHeader } from '../components/ui'
 import { ENGINES, ENGINE_COLOR, ENGINE_LABEL, MODE_HINT, MODE_LABEL, PROJECT_MODES, isActive } from '../lib/vocab'
@@ -74,7 +74,6 @@ function WorldCard({ p, highlight }: { p: Project; highlight: boolean }) {
   const total = useStore((s) => s.snap.tasks.filter((t) => t.project === p.name && t.state !== 'cleaned').length)
   const [open, setOpen] = useState(false)
   const [confirmYolo, setConfirmYolo] = useState(false)
-  const [confirmCheap, setConfirmCheap] = useState(false)
   const [remove, setRemove] = useState(false)
   const [delClone, setDelClone] = useState(false)
   const ally = useStore((s) => allyForWorld(s.snap.allies, p.name))
@@ -153,14 +152,11 @@ function WorldCard({ p, highlight }: { p: Project; highlight: boolean }) {
             ))}
           </select>
         </Field>
-        <Field label="Allow cheap third-party models" hint="OpenRouter models (DeepSeek, Qwen, GLM) via OpenCode for low-stakes work">
+        <Field label="Allow cheap third-party models" hint="On by default: OpenRouter models (DeepSeek, Qwen, GLM) via OpenCode for low-stakes work. Code is sent to the OpenRouter provider when used.">
           <Toggle
-            checked={!!p.allowCheapModels}
-            onChange={(v) => {
-              if (v) setConfirmCheap(true)
-              else update({ allowCheapModels: false })
-            }}
-            label={p.allowCheapModels ? <span className="amber-text">On</span> : 'Off'}
+            checked={cheapModelsAllowed(p)}
+            onChange={(v) => update({ allowCheapModels: v })}
+            label={cheapModelsAllowed(p) ? <span className="amber-text">On</span> : 'Off'}
           />
         </Field>
       </div>
@@ -223,16 +219,6 @@ function WorldCard({ p, highlight }: { p: Project; highlight: boolean }) {
           body="Genio will merge green, in-scope Builds in this world without asking you first. Red, pending, draft and destructive work still waits for your word."
           onConfirm={() => update({ yolo: true })}
           onClose={() => setConfirmYolo(false)}
-        />
-      )}
-      {confirmCheap && (
-        <Confirm
-          title={`Allow cheap third-party models in ${p.name}?`}
-          tone="amber"
-          confirmLabel="Allow"
-          body="OpenCode units may send this world's code to third-party model providers through OpenRouter (for tests, small fixes, docs and build/CI work). It also needs an OpenRouter key in Systems → Accounts and OpenCode installed."
-          onConfirm={() => update({ allowCheapModels: true })}
-          onClose={() => setConfirmCheap(false)}
         />
       )}
       {remove && (
