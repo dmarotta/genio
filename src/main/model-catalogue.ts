@@ -1,4 +1,5 @@
-import { modelState, normalizeModels, type CatalogueRoute, type ModelCatalogue, type ModelRuntime, type RawModel } from '@shared/model-catalogue'
+import { modelState, normalizeModels, staticClaudeCatalogue, type CatalogueRoute, type ModelCatalogue, type ModelRuntime, type RawModel } from '@shared/model-catalogue'
+import { bus } from './bus'
 import { listAccounts, scrubDetail } from './accounts'
 import { claudeModels, codexModels, geminiModels, opencodeModels } from './model-discovery'
 import { getSecret } from './secrets'
@@ -9,7 +10,7 @@ let expires = 0
 let generation = 0
 let pending: Promise<ModelCatalogue> | undefined
 let pendingGeneration = 0
-export function invalidateModelCatalogue(): void { expires = 0; generation++ }
+export function invalidateModelCatalogue(): void { expires = 0; generation++; bus.publish({ type: 'model-catalogue-invalidated' }) }
 /** A failed chat route remains unavailable until an explicit Accounts refresh. */
 const unavailable = new Map<ModelRuntime, string>()
 export function markChatRouteUnavailable(runtime: ModelRuntime, reason: string): void {
@@ -32,7 +33,7 @@ export function modelCatalogue(dataDir: string, refresh = false, claudePath?: st
       const route: CatalogueRoute = { runtime, provider, state: modelState(!!account?.installed, account?.state || 'unknown'),
         accountLabel: runtime === 'codex' && /ChatGPT/i.test(account?.detail || '') ? 'ChatGPT' : undefined,
         checkedAt: new Date().toISOString(), lastResult: 'error', stale: !!previous?.models.length,
-        sourceAt: previous?.sourceAt, models: previous?.models || [] }
+        sourceAt: previous?.sourceAt, models: previous?.models.length ? previous.models : runtime === 'claude' ? staticClaudeCatalogue().routes[0].models : [] }
       if (unavailable.has(runtime)) { route.state = 'unavailable'; route.reason = unavailable.get(runtime); return route }
       if (!account?.installed) { route.reason = 'CLI is not installed'; return route }
       if (provider === 'OpenRouter' && !key) { route.state = 'sign-in-needed'; route.reason = 'Add an OpenRouter key in Accounts'; return route }
@@ -40,11 +41,12 @@ export function modelCatalogue(dataDir: string, refresh = false, claudePath?: st
         route.reason = route.state === 'sign-in-needed' ? 'Sign in through Accounts' : 'Account status could not be verified'; return route
       }
       try {
-        route.models = normalizeModels(runtime, provider, await probe())
+        const models = normalizeModels(runtime, provider, await probe())
+        if (!models.length) throw new Error('No models returned by this account')
+        route.models = models
         route.state = runtime === 'opencode' ? (provider === 'OpenCode' ? 'free-no-login' : 'connected') : 'connected'
         route.sourceAt = new Date().toISOString(); route.lastResult = 'ok'; route.stale = false
         if (provider === 'OpenRouter') route.reason = 'Stored key; catalogue candidates, inference not verified'
-        if (!route.models.length) route.reason = 'No models returned by this account'
       } catch (error) {
         const message = (error as Error).message
         route.state = modelState(true, account.state, message)
@@ -59,8 +61,12 @@ export function modelCatalogue(dataDir: string, refresh = false, claudePath?: st
     ])
     // A login/logout during a probe invalidates all its evidence, even if it succeeded.
     cached = { routes: started === generation ? routes : routes.map(r => ({ ...r, stale: true })) }
-    expires = started === generation ? Date.now() + CATALOGUE_TTL : 0
+    expires = started === generation ? Date.now() + (routes.some(r => r.lastResult === 'error') ? 60_000 : CATALOGUE_TTL) : 0
     return cached
-  })().finally(() => { pending = undefined })
+  })().catch(() => {
+    expires = Date.now() + 60_000
+    if (!cached.routes.some(r => r.models.length)) cached = staticClaudeCatalogue()
+    return cached
+  }).finally(() => { pending = undefined })
   return pending
 }

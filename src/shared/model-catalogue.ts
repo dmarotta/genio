@@ -25,6 +25,19 @@ export interface CatalogueRoute {
   models: CatalogueModel[]
 }
 export interface ModelCatalogue { routes: CatalogueRoute[] }
+/** Compatibility with main processes predating catalogue discovery. */
+export function staticClaudeCatalogue(): ModelCatalogue {
+  return { routes: [{ runtime: 'claude', provider: 'Anthropic', state: 'connected', checkedAt: '', lastResult: 'error', stale: false,
+    models: normalizeModels('claude', 'Anthropic', [
+      { id: 'claude-opus-5-5', value: 'opus' }, { id: 'claude-sonnet-5-5', value: 'sonnet' }
+    ]) }] }
+}
+export function modelDisabledReason(route: CatalogueRoute): string {
+  if (canDrive(route)) return ''
+  if (route.state === 'sign-in-needed') return 'sign in'
+  if (chatDriverCapabilities(route.runtime).mode !== 'driver') return 'soon'
+  return 'unavailable'
+}
 export interface RawModel {
   value?: string; resolvedModel?: string; id?: string; model?: string; modelId?: string
   displayName?: string; name?: string; hidden?: boolean
@@ -64,7 +77,7 @@ export function filterModels(models: CatalogueModel[], search: string, provider 
     words.every(word => `${m.name} ${m.id} ${m.provider} ${m.runtime} ${m.aliases.join(' ')}`.toLowerCase().includes(word)))
 }
 export function canDrive(route: CatalogueRoute): boolean {
-  return chatDriverCapabilities(route.runtime).mode === 'driver' && route.state === 'connected' && !route.stale
+  return chatDriverCapabilities(route.runtime).mode === 'driver' && (route.state === 'connected' || route.state === 'free-no-login') && !route.stale
 }
 
 export function providerTag(route: Pick<CatalogueRoute, 'runtime' | 'provider'>): string {
@@ -103,8 +116,4 @@ export function rankedModels(models: CatalogueModel[], showAll = false, limit = 
   if (showAll) return unique
   const newest = Math.max(0, ...unique.map(m => version(m)[0]))
   return unique.filter(m => !/\bdeprecated\b/i.test(m.name) && (version(m)[0] === newest || version(m)[0] === 0)).slice(0, Math.max(0, limit))
-}
-export function modelSelectionAction(route: CatalogueRoute): 'select' | 'accounts' | 'coming-soon' {
-  if (route.state !== 'connected' || route.stale) return 'accounts'
-  return canDrive(route) ? 'select' : 'coming-soon'
 }

@@ -721,6 +721,7 @@ export type GenioEvent =
   | { type: 'permission-resolved'; id: string }
   | { type: 'terminal'; terminal: TerminalInfo }
   | { type: 'terminal-removed'; id: string }
+  | { type: 'model-catalogue-invalidated' }
   | { type: 'settings'; settings: Settings }
   | { type: 'allies'; allies: Ally[] }
   | { type: 'sfx'; sound: SfxName }

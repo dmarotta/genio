@@ -58,3 +58,13 @@ it('rechecks credentials when a login completes during an outstanding discovery'
   expect((await fresh).routes[0]).toMatchObject({ stale: false, models: [{ id: 'claude-opus' }] })
   expect(probes.claude).toHaveBeenCalledTimes(2)
 })
+
+it('returns the static Claude list on first discovery failure and retries quietly', async () => {
+  const { modelCatalogue } = await import('../src/main/model-catalogue')
+  probes.claude.mockRejectedValue(new Error('offline'))
+  const first = await modelCatalogue('data')
+  expect(first.routes[0].models.map(m => m.id)).toContain('claude-sonnet-5-5')
+  expect(first.routes[0].state).toBe('unavailable')
+  probes.accounts.mockRejectedValue(new Error('offline'))
+  expect(await modelCatalogue('data', true)).toEqual(first)
+})

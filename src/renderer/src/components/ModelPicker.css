@@ -1,0 +1,7 @@
+.model-picker-backdrop { position: fixed; inset: 0; z-index: 10000; }
+.model-picker-list { position: fixed; width: 320px; max-width: calc(100vw - 24px); overflow: auto; padding: 6px; box-sizing: border-box; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); box-shadow: 0 8px 28px #0005; }
+.model-picker-provider { padding: 12px 8px 4px; color: var(--text-dim); font-size: 11px; }
+.model-picker-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 7px 8px; border: 0; border-radius: 4px; background: transparent; color: inherit; text-align: left; font: inherit; font-size: 12px; cursor: pointer; }
+.model-picker-row:not(:disabled):hover, .model-picker-row:focus-visible { background: var(--line); outline: none; }
+.model-picker-row:disabled { color: var(--text-dim); opacity: .55; cursor: default; }
+.model-picker-reason { flex-shrink: 0; font-size: 11px; }

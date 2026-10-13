@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canDrive, filterModels, rankedModels, modelRowLabel, modelSelectionAction, modelState, normalizeModels, type CatalogueRoute } from '@shared/model-catalogue'
+import { canDrive, filterModels, rankedModels, modelRowLabel, modelDisabledReason, modelState, normalizeModels, type CatalogueRoute } from '@shared/model-catalogue'
 import { parseOpenCodeModels } from '../src/main/model-discovery'
 
 describe('model catalogue normalization', () => {
@@ -33,7 +33,7 @@ describe('honest route states', () => {
     expect(modelState(true, 'logged-in')).toBe('connected')
     expect(modelState(true, 'logged-in', 'Timed out')).toBe('unavailable')
   })
-  it('allows only fresh authenticated Claude and Codex routes to drive chat', () => {
+  it('allows fresh authenticated routes with chat driver capabilities to drive chat', () => {
     const route: CatalogueRoute = { runtime: 'claude', provider: 'Anthropic', state: 'connected', stale: false, checkedAt: '', lastResult: 'ok', models: [] }
     expect(canDrive(route)).toBe(true)
     expect(canDrive({ ...route, runtime: 'codex' })).toBe(true)
@@ -90,12 +90,13 @@ describe('ranked picker rows', () => {
       ['opencode', 'OpenRouter', 'anthropic/claude-opus-5-5', 'openrouter / opus 5.5']
     ] as const) expect(modelRowLabel(normalizeModels(runtime, provider, [{ id }])[0])).toBe(label)
   })
-  it('routes unconnected, free and stale rows to accounts without switching', () => {
+  it('explains disabled rows without offering actions', () => {
     const route: CatalogueRoute = { runtime: 'claude', provider: 'Anthropic', state: 'connected', stale: false, checkedAt: '', lastResult: 'ok', models: [] }
-    expect(modelSelectionAction(route)).toBe('select')
-    expect(modelSelectionAction({ ...route, runtime: 'codex' })).toBe('select')
-    for (const state of ['sign-in-needed', 'free-no-login', 'unavailable'] as const)
-      expect(modelSelectionAction({ ...route, state })).toBe('accounts')
-    expect(modelSelectionAction({ ...route, stale: true })).toBe('accounts')
+    expect(modelDisabledReason(route)).toBe('')
+    expect(modelDisabledReason({ ...route, runtime: 'codex' })).toBe('')
+    expect(modelDisabledReason({ ...route, state: 'sign-in-needed' })).toBe('sign in')
+    expect(modelDisabledReason({ ...route, state: 'unavailable' })).toBe('unavailable')
+    expect(modelDisabledReason({ ...route, state: 'free-no-login' })).toBe('')
+    expect(modelDisabledReason({ ...route, stale: true })).toBe('unavailable')
   })
 })
