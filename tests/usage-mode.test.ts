@@ -171,7 +171,7 @@ describe('stale, unknown and rejected quota combinations', () => {
   it('Max explores only with fresh evidence below 70% on both plans', () => {
     const roll = { rand: () => 0 }
     expect(pickLoadout(input('feature'), settings({ usageMode: 'max' }), env(ALL, roll)).explored).toBe(true)
-    for (const quota of [{ claude: [fresh(20)], codex: [fresh(70)] }, { claude: [fresh(20)], codex: [stale(10)] }, { claude: [fresh(20)] }])
+    for (const quota of [{ claude: [fresh(20)], codex: [fresh(70)] }, { claude: [fresh(20)], codex: [stale(10)] }, { claude: [fresh(20)] }] as Record<string, UsageWindow[]>[])
       expect(pickLoadout(input('feature'), settings({ usageMode: 'max' }), env(ALL, { ...roll, quota })).explored).toBeUndefined()
     for (const mode of ['save', 'balanced'] as const) expect(pickLoadout(input('feature'), settings({ usageMode: mode }), env(ALL, roll)).explored).toBeUndefined()
   })
