@@ -8,6 +8,7 @@ import { chatHandoff } from './chat-handoff'
 import { chatRouteUnavailable, markChatRouteUnavailable } from './model-catalogue'
 import { recordCodexChatUsage, recordCodexChatLimits } from './usage'
 import { refreshClaudePlanUsage } from './claude-usage-probe'
+import { claudeLaunch } from './claude-home'
 /**
  * Genio agent sessions (companion's primary harness session, in-process).
  *
@@ -195,7 +196,9 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
       model,
       effort,
       resume,
-      env: { ...process.env, CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION: 'false', CLAUDE_AGENT_SDK_CLIENT_APP: 'genio/0.1.0' }
+      // Genio's own Claude home; a resumed conversation stays in the home that holds it.
+      env: { ...process.env, ...(await claudeLaunch(resume ? { sessionId: resume } : undefined)).env,
+        CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION: 'false', CLAUDE_AGENT_SDK_CLIENT_APP: 'genio/0.1.0' }
     }
     if (role === 'bot') {
       opts.tools = [] // All Bot tools, for either provider, go through the guarded bridge.

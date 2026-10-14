@@ -4,6 +4,7 @@ import type { Query } from '@anthropic-ai/claude-agent-sdk'
 import type { RawModel } from '@shared/model-catalogue'
 import { killTree, run, runShell, stripAnsi, which } from './util'
 import { CODEX_CHAT_DISABLED } from './codex-chat-driver'
+import { claudeEnv } from './claude-home'
 
 const queries = new Set<Query>()
 let claudeMetadata: RawModel[] = []
@@ -32,7 +33,8 @@ export async function claudeModels(executable?: string): Promise<RawModel[]> {
   let release!: () => void
   const hold = new Promise<void>(resolve => { release = resolve })
   async function* input(): AsyncGenerator<never> { await hold }
-  const q = query({ prompt: input(), options: { settingSources: [], tools: [], mcpServers: {},
+  const env = { ...process.env, ...(await claudeEnv()) }
+  const q = query({ prompt: input(), options: { settingSources: [], tools: [], mcpServers: {}, persistSession: false, env,
     ...(executable ? { pathToClaudeCodeExecutable: executable } : {}) } })
   const timer = setTimeout(() => { q.close(); release() }, 25_000)
   try { return await readClaudeModels(q) } finally { clearTimeout(timer); q.close(); release() }

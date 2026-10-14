@@ -32,6 +32,7 @@ import { agentGeneration } from './agent-generation'
 import type { FleetSnapshot, Ally, Project } from '@shared/types'
 import { Home, defaultHomeRoot } from './home'
 import { scrubInheritedSessionEnv } from './util'
+import { claudeHomeDir, configureClaudeHome } from './claude-home'
 import type { AppCtx, HomeCtx } from './services'
 import { createSettingsService } from './settings'
 import { createTerminalService } from './terminals'
@@ -208,6 +209,15 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
 
   ctx.main = makeHomeCtx(mainHome)
   homes.set('main', ctx.main)
+  // Every Claude process Genio starts runs in Genio's own Claude home (checked on first use).
+  configureClaudeHome({
+    dir: claudeHomeDir(mainHome.root),
+    executable: () => ctx.settings.get().claudePath?.trim() || 'claude',
+    warn: (message) => {
+      try { ctx.main.wksp.say(message, 'system') } catch { /* chat optional */ }
+      ctx.notifier.notify('Claude sessions may show in your Claude apps', message, 'info', { force: true })
+    }
+  })
   for (const sm of ctx.allies.list()) {
     if (sm.retiredAt) continue
     homes.set(sm.name, makeHomeCtx(new Home(sm.home, sm.name, mainHome), sm))

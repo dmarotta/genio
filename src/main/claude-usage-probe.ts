@@ -1,5 +1,6 @@
 import type { Query } from '@anthropic-ai/claude-agent-sdk'
 import { claudeLimitsFile, type ClaudeLimitsFile } from './usage'
+import { claudeEnv } from './claude-home'
 import { readJson, writeJsonAtomic } from './util'
 
 const PROBE_TTL = 60_000
@@ -52,8 +53,10 @@ export async function probeClaudePlanUsage(cwd: string, executable?: string): Pr
     return await Promise.race([
       (async () => {
         const { query } = await import('@anthropic-ai/claude-agent-sdk')
+        // Plan usage belongs to the account, so Genio's own Claude home reports the same windows.
+        const env = { ...process.env, ...(await claudeEnv()) }
         if (finished) throw new Error('Claude /usage cancelled')
-        q = query({ prompt: input(), options: { cwd, settingSources: [], tools: [], mcpServers: {}, persistSession: false,
+        q = query({ prompt: input(), options: { cwd, settingSources: [], tools: [], mcpServers: {}, persistSession: false, env,
           ...(executable ? { pathToClaudeCodeExecutable: executable } : {}) } })
         const usage = q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET
         if (typeof usage !== 'function') throw new Error('Structured Claude /usage unavailable')

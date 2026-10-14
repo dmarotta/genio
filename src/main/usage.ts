@@ -21,6 +21,7 @@ import { expireWindow, type QuotaWindow } from './quota-policy'
 import type { AppCtx } from './services'
 import { appendJsonl, isSubPath, nowIso, readJson, writeJsonAtomic } from './util'
 import { claudeProbeError, refreshClaudePlanUsage } from './claude-usage-probe'
+import { claudeProjectRoots } from './claude-home'
 import { codexProbeError, codexSnapshot, readCodexProbeLimits, refreshCodexPlanUsage } from './codex-usage-probe'
 
 const DAY = 86_400_000
@@ -402,7 +403,6 @@ export function quotaFromUsage(r: UsageReport): Record<string, QuotaWindow[]> {
 
 // ---------------------------------------------------------------- scanning
 
-const claudeHome = (): string => process.env.CLAUDE_CONFIG_DIR?.trim() || path.join(os.homedir(), '.claude')
 const codexHome = (): string => process.env.CODEX_HOME?.trim() || path.join(os.homedir(), '.codex')
 
 /** *.jsonl files under dir modified at or after `since` (no symlinks followed). */
@@ -577,11 +577,12 @@ export function usageAttribution(ctx: AppCtx): { sessions: Map<string, string | 
 
 async function claudeUsage(ctx: AppCtx, root: string, now: number): Promise<ToolUsage> {
   const { weekStart } = usageWindows(now)
-  const projects = path.join(claudeHome(), 'projects')
+  // Genio's own Claude home, plus the player's for Genio sessions from before it.
+  const roots = claudeProjectRoots()
   // Persisted session identity wins over cwd (which can change mid-conversation).
   const attribution = usageAttribution(ctx)
   const sessions = new Set(attribution.sessions.keys())
-  const files = recentJsonl(projects, weekStart)
+  const files = roots.flatMap(projects => recentJsonl(projects, weekStart))
   const seen = new Map<string, TokenRecord>()
   const worldByKey = new Map<string, string>()
   const inBase = cwdMemo((cwd) => isSubPath(cwd, root))

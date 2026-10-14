@@ -4,7 +4,6 @@
  * fm-crew-state, fm-fleet-view).
  */
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import type { DeliveryMode, LoadoutInput, Project, StatusEvent, Task, TaskCounters, TaskState, TerminalInfo } from '@shared/types'
 import type { OpResult, SpawnRequest, TaskFile } from '@shared/api'
@@ -16,6 +15,7 @@ import { appendProgressNote, doorbellLine, engineHints, kickoffPrompt, renderBri
 import { holdsCapacity } from './usage-policy'
 import { buildArgs, CLAUDE_BYPASS_DIALOG } from './harness'
 import { discoverCodexSession } from './codex-session'
+import { claudeLaunch, claudeTrustFiles, playerSkipsBypassPrompt, setClaudeTrust, UNIT_UNSET_ENV } from './claude-home'
 import { foldOpenDecisions, formatStatusLine, parseStatusLine, parseStatusLog } from './status'
 import { createGauntlet } from './gauntlet'
 import { relaunchPolicy } from './relaunch-policy'
@@ -177,41 +177,11 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     const p = home.taskStateFile(t.id, '.claude-settings.json')
     const marker = fwd(turnEndedFile(t.id))
     const command = `node -e "require('fs').writeFileSync('${marker}', String(Date.now()))"`
-    writeJson(p, { hooks: { Stop: [{ hooks: [{ type: 'command', command }] }] } })
+    // Genio's Claude home has no user settings of its own: carry over only the
+    // player's existing bypass consent. Genio never answers that dialog itself.
+    writeJson(p, { ...(playerSkipsBypassPrompt() ? { skipDangerousModePermissionPrompt: true } : {}),
+      hooks: { Stop: [{ hooks: [{ type: 'command', command }] }] } })
     return p
-  }
-
-  /**
-   * Pre-accept Claude Code's folder-trust prompt for a unit worktree, the way
-   * companion's fm-claude-trust.sh does: set hasTrustDialogAccepted for the path
-   * in ~/.claude.json (keys use forward slashes). Read-modify-write, atomic.
-   */
-  const setClaudeTrust = (dirs: string[], trusted: boolean): void => {
-    const cfg = path.join(os.homedir(), '.claude.json')
-    try {
-      const raw = readText(cfg)
-      if (!raw.trim()) return
-      const data = JSON.parse(raw) as { projects?: Record<string, Record<string, unknown>> }
-      data.projects ??= {}
-      let changed = false
-      for (const d of dirs) {
-        const key = fwd(path.resolve(d))
-        if (trusted) {
-          const cur = data.projects[key] ?? {}
-          if (cur.hasTrustDialogAccepted !== true) {
-            data.projects[key] = { ...cur, hasTrustDialogAccepted: true }
-            changed = true
-          }
-        } else if (data.projects[key]) {
-          // despawned worktree: drop the entry so ~/.claude.json does not accumulate dead paths
-          delete data.projects[key]
-          changed = true
-        }
-      }
-      if (changed) writeText(cfg, JSON.stringify(data, null, 2))
-    } catch {
-      /* fall back to the on-screen answer in watchConsent */
-    }
   }
 
   /** Watch early output: answer trust dialogs, flag the bypass dialog. */
@@ -286,7 +256,9 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     if (model !== t.model) update(t.id, { model })
     const project = ctx.projects.get(t.project)
     const isClaude = adapter.id === 'claude'
-    if (isClaude) setClaudeTrust([t.worktree], true)
+    // Genio's own Claude home keeps units out of the player's Claude apps; --continue follows the unit's conversation.
+    const claude = isClaude ? await claudeLaunch(opts.resume ? { cwd: t.worktree } : undefined) : undefined
+    if (claude) setClaudeTrust(claude.configFile, [t.worktree], true)
     const settingsPath = isClaude ? writeClaudeSettings(t) : undefined
     const skills = skillExtras(t, adapter.id, project?.path)
     const sessionId = opts.resume && adapter.id === 'codex'
@@ -307,6 +279,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       }
     }
     const env: Record<string, string> = {
+      ...(claude?.env ?? {}),
       ...(adapter.env ?? {}),
       ...hookEnv,
       ...skills.env,
@@ -317,7 +290,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       GENIO_BRIEF: fwd(t.briefPath)
     }
     await opts.check()
-    const term = ctx.terminals.create({ kind: 'worker', title: t.id, cwd: t.worktree, file: adapter.command, args, env, taskId: t.id })
+    const term = ctx.terminals.create({ kind: 'worker', title: t.id, cwd: t.worktree, file: adapter.command, args, env, taskId: t.id,
+      unsetEnv: isClaude ? UNIT_UNSET_ENV : undefined })
     if (!term.alive) throw new Error(`Could not start ${adapter.name} (${adapter.command}). Is it installed? Check SYSTEMS.`)
     watchConsent(t, term.id, adapter.trustPatterns, adapter.trustResponse, isClaude)
     ctx.terminals.onExit(term.id, (code) => {
@@ -813,7 +787,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         }
         if (exists(t.worktree)) leftover = ` Left the unregistered folder ${fwd(t.worktree)} untouched.`
       }
-      if (t.harness === 'claude') setClaudeTrust([t.worktree], false)
+      // despawned worktree: drop its trust entry so no .claude.json accumulates dead paths
+      if (t.harness === 'claude') for (const file of claudeTrustFiles()) setClaudeTrust(file, [t.worktree], false)
       if (repo && (await git.branchExists(repo, t.branch))) {
         await git.deleteBranch(repo, t.branch, t.kind === 'scout' || force)
       }

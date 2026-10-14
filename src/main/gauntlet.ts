@@ -12,11 +12,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { isDefaultUnityTest, unityTestCommand } from './play-editor'
 import { effectiveEngine } from '@shared/engine'
+import type { Options } from '@anthropic-ai/claude-agent-sdk'
 import type { Project, Task, ValidationRun, ValidationStep } from '@shared/types'
 import type { OpResult } from '@shared/api'
 import type { AppCtx } from './services'
 import type { Home } from './home'
 import * as git from './git'
+import { claudeEnv } from './claude-home'
 import { appendLine, exists, nowIso, readText, rid, runShell, truncate } from './util'
 
 export interface Gauntlet {
@@ -65,6 +67,23 @@ function extractJson(text: string): ReviewVerdict | undefined {
   return undefined
 }
 
+/** The reviewer: read-only tools, no saved session, in Genio's own Claude home. */
+export async function reviewOptions(cwd: string, s: { reviewModel?: string; claudePath?: string }, log: (s: string) => void): Promise<Options> {
+  return {
+    cwd,
+    model: s.reviewModel || undefined,
+    tools: ['Read', 'Grep', 'Glob'],
+    allowedTools: ['Read', 'Grep', 'Glob'],
+    permissionMode: 'dontAsk',
+    maxTurns: 40,
+    settingSources: [],
+    persistSession: false,
+    env: { ...process.env, ...(await claudeEnv()) },
+    pathToClaudeCodeExecutable: s.claudePath || undefined,
+    stderr: (d: string) => log(`[review stderr] ${d.trim()}`)
+  }
+}
+
 export function createGauntlet(getCtx: () => AppCtx, home: Home): Gauntlet {
   const active = new Set<string>()
 
@@ -92,21 +111,7 @@ export function createGauntlet(getCtx: () => AppCtx, home: Home): Gauntlet {
     ].join('\n')
     try {
       const sdk = await import('@anthropic-ai/claude-agent-sdk')
-      const q = sdk.query({
-        prompt,
-        options: {
-          cwd: t.worktree,
-          model: s.reviewModel || undefined,
-          tools: ['Read', 'Grep', 'Glob'],
-          allowedTools: ['Read', 'Grep', 'Glob'],
-          permissionMode: 'dontAsk',
-          maxTurns: 40,
-          settingSources: [],
-          persistSession: false,
-          pathToClaudeCodeExecutable: s.claudePath || undefined,
-          stderr: (d: string) => log(`[review stderr] ${d.trim()}`)
-        }
-      })
+      const q = sdk.query({ prompt, options: await reviewOptions(t.worktree, s, log) })
       let text = ''
       for await (const m of q) {
         if (m.type === 'result') {

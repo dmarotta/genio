@@ -53,6 +53,19 @@ export function resolveSpawn(file: string, args: string[]): { file: string; args
   return { file: resolved, args }
 }
 
+/** A child's environment: Genio's own, minus `unsetEnv` (a trailing * matches a prefix), plus `env`. */
+export function terminalEnv(opts: Pick<CreateTerminalOpts, 'env' | 'unsetEnv'>, base: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const [k, v] of Object.entries(base)) if (typeof v === 'string') env[k] = v
+  // never leak Electron's node-mode flag into children
+  delete env.ELECTRON_RUN_AS_NODE
+  for (const name of opts.unsetEnv ?? []) {
+    const prefix = name.endsWith('*') ? name.slice(0, -1) : undefined
+    for (const k of Object.keys(env)) if (prefix === undefined ? k === name : k.startsWith(prefix)) delete env[k]
+  }
+  return Object.assign(env, { TERM: 'xterm-256color', COLORTERM: 'truecolor', FORCE_COLOR: '1' }, opts.env ?? {})
+}
+
 export function createTerminalService(getCtx: () => AppCtx): TerminalService {
   const terms = new Map<string, Term>()
   const anyData = new Set<(id: string, data: string) => void>()
@@ -91,11 +104,7 @@ export function createTerminalService(getCtx: () => AppCtx): TerminalService {
       }
       const t: Term = { info, buf: [], bufLen: 0, dataFns: new Set(), exitFns: new Set() }
       terms.set(id, t)
-      const env: Record<string, string> = {}
-      for (const [k, v] of Object.entries(process.env)) if (typeof v === 'string') env[k] = v
-      // never leak Electron's node-mode flag into children
-      delete env.ELECTRON_RUN_AS_NODE
-      Object.assign(env, { TERM: 'xterm-256color', COLORTERM: 'truecolor', FORCE_COLOR: '1' }, opts.env ?? {})
+      const env = terminalEnv(opts)
       try {
         const sp = resolveSpawn(file, args)
         const proc = pty.spawn(sp.file, sp.args, {

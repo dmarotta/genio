@@ -78,6 +78,8 @@ export interface CreateTerminalOpts {
   file?: string
   args?: string[]
   env?: Record<string, string>
+  /** inherited variables to drop before `env` applies; a trailing * matches a prefix */
+  unsetEnv?: string[]
   taskId?: string
   cols?: number
   rows?: number

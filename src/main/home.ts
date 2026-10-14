@@ -29,6 +29,7 @@ import { ensureDir, exists, writeText } from './util'
  *     session.lock     single-writer lock
  *   projects/          clones (read-only to Genio itself)
  *   worktrees/         one isolated worktree per task
+ *   claude-home/       Genio's own Claude Code config folder (main only; claude-home.ts)
  *   wksps/<name>/      isolated ally bases (same layout)
  */
 export class Home {
