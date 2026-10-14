@@ -3,8 +3,9 @@
  * plan). The source lives in resources/unit-skills/genio, laid out as a Claude
  * Code plugin. At launch it is installed into the main base's skills/ folder,
  * never into a world: Claude Code units load it with --plugin-dir, every
- * runtime gets the SKILL.md paths in its brief and as GENIO_FAL_SKILL and
- * GENIO_IMAGEGEN_CODEX_SKILL. The FAL key reaches a unit only as the FAL_KEY
+ * runtime gets the SKILL.md paths in its brief and as GENIO_FAL_SKILL,
+ * GENIO_IMAGEGEN_CODEX_SKILL and the like, and the genio-unity wrapper as
+ * GENIO_UNITY. The FAL key reaches a unit only as the FAL_KEY
  * environment variable of its process.
  */
 import fs from 'node:fs'
@@ -13,6 +14,8 @@ import { ensureDir, fwd, isSubPath } from './util'
 
 export const UNIT_PLUGIN = 'genio'
 const SKILL_DIR_TOKEN = /\{\{SKILL_DIR\}\}/g
+/** Skills an earlier install left behind: the Play helper is now internal to genio-unity. */
+const RETIRED = ['skills/play/SKILL.md']
 
 export const unitPluginSource = (appRoot: string): string => path.join(appRoot, 'resources', 'unit-skills', UNIT_PLUGIN)
 export const unitPluginDir = (homeRoot: string): string => path.join(homeRoot, 'skills', UNIT_PLUGIN)
@@ -21,6 +24,9 @@ export const uthanaSkillDir = (pluginDir: string): string => path.join(pluginDir
 export const falSkillDir = (pluginDir: string): string => path.join(pluginDir, 'skills', 'fal')
 export const blenderSkillDir = (pluginDir: string): string => path.join(pluginDir, 'skills', 'blender')
 export const codexImageSkillDir = (pluginDir: string): string => path.join(pluginDir, 'skills', 'imagegen-codex')
+export const unitySkillDir = (pluginDir: string): string => path.join(pluginDir, 'skills', 'unity')
+/** The genio-unity wrapper: the only way a unit drives Unity. */
+export const genioUnityScript = (pluginDir: string): string => path.join(unitySkillDir(pluginDir), 'scripts', 'genio-unity.mjs')
 /** Scratch runs of the Codex image helper live in Genio's data, never in a world. */
 export const codexImageScratch = (dataDir: string): string => path.join(dataDir, 'codex-image')
 
@@ -61,6 +67,7 @@ export function installUnitPlugin(source: string, target: string, worlds: string
   }
   if (!fs.existsSync(path.join(source, '.claude-plugin', 'plugin.json'))) throw new Error(`Bundled unit skills are missing at ${source}.`)
   copyTree(source, target)
+  for (const file of RETIRED) fs.rmSync(path.join(target, file), { force: true })
   return target
 }
 
@@ -80,7 +87,8 @@ export function unitLaunchExtras(harnessId: string, opts: { pluginDir?: string; 
     env.GENIO_BLENDER_SKILL = fwd(blenderSkillDir(opts.pluginDir))
     if (opts.taskDataDir ?? opts.dataDir) env.GENIO_BLENDER_SCRATCH = fwd(path.join((opts.taskDataDir ?? opts.dataDir)!, 'blender'))
     env.GENIO_ASSETS_SKILL = fwd(assetsSkillDir(opts.pluginDir))
-    env.GENIO_PLAY_SKILL = fwd(path.join(opts.pluginDir, 'skills/play/SKILL.md'))
+    env.GENIO_UNITY_SKILL = fwd(unitySkillDir(opts.pluginDir))
+    env.GENIO_UNITY = fwd(genioUnityScript(opts.pluginDir))
     env.GENIO_UTHANA_SKILL = fwd(uthanaSkillDir(opts.pluginDir))
     env.GENIO_FAL_SKILL = fwd(falSkillDir(opts.pluginDir))
     env.GENIO_IMAGEGEN_CODEX_SKILL = fwd(codexImageSkillDir(opts.pluginDir))
@@ -108,8 +116,9 @@ export function unitToolsBrief(pluginDir: string): string {
   const dir = fwd(falSkillDir(pluginDir))
   const codex = fwd(codexImageSkillDir(pluginDir))
   const blender = fwd(blenderSkillDir(pluginDir))
+  const unity = fwd(unitySkillDir(pluginDir))
   return (
-    `- Unity Play: read \`${fwd(path.join(pluginDir, 'skills/play/SKILL.md'))}\` and use its long-lived shared-slot helper. Never control the main editor from a unit; never touch Toolbox.\n` +
+    `- Unity (Unity projects only): read \`${unity}/SKILL.md\`. Compile, test, import, build, play, send editor commands and read the console only with \`node "${unity}/scripts/genio-unity.mjs" <verb>\` (also in GENIO_UNITY). It targets only your own copy or your leased Play slot. Never start Unity.exe, Unity Hub or the \`unity\` CLI yourself, never control the main editor and never touch Toolbox.\n` +
     `- Assets: read \`${assets}/SKILL.md\` first for provider routing and project-type placement. Use asset_locate / the shared suggestLocation helper. Uthana motions use Genio tools described in \`${uthana}/SKILL.md\`; units have no Uthana CLI.\n` +
     `- Blender (batch modelling, validation, export and conversion): read \`${blender}/SKILL.md\` and use \`node "${blender}/scripts/blender.mjs"\`. Requires local Blender; no MCP or live session. Logs go to GENIO_BLENDER_SCRATCH.\n` +
     `- Images (default): Codex images on the player's ChatGPT plan, on in every project unless it opted out. For concept art, sprites, icons, transparent cutouts and edits from references read \`${codex}/SKILL.md\` and use \`node "${codex}/scripts/codex-image.mjs"\`.\n` +

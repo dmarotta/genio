@@ -7,7 +7,7 @@ import type { AppCtx } from '../src/main/services'
 import { effectiveEngine } from '../src/shared/engine'
 import { PlayService } from '../src/main/play'
 import type { UnityAdapter } from '../src/main/play-unity'
-import { unitPlayEnv } from '../src/main/crew'
+import { unityUnitConfig, unityUnitEnv } from '../src/main/unity-unit'
 import { unityTestRoot } from '../src/main/gauntlet'
 import { placementTarget } from '../src/main/asset-placement'
 import { PlayPool } from '../resources/unit-skills/genio/skills/play/scripts/pool.mjs'
@@ -39,22 +39,26 @@ describe('effectiveEngine', () => {
 })
 
 // The renderer half of this contract (playAvailable) runs on the same cases in play-availability.test.ts.
-describe('Play, the unit pool env, the test gate and asset placement resolve the same root', () => {
+describe('Play, the genio-unity config, the test gate and asset placement resolve the same root', () => {
   it.each(ENGINE_CASES)('$name', ({ stored, play: offered, root }) => {
     const p = engineProject(stored, world)
     expect(effectiveEngine(p).root).toBe(root)
-    const svc = play(p), env = unitPlayEnv(p, data, worktree)
+    const svc = play(p), unity = unityUnitConfig(p, { task: 'unit-a', worktree, data, taskDir: path.join(data, 'unit-a') })
     if (offered) {
       expect((svc.adapter('game') as UnityAdapter).root).toBe(path.resolve(world, root))
-      // A unit's Play skill builds its pool from this env: same slots, same root as the player's pool.
-      expect(env).toEqual({ GENIO_PLAY_DATA: data, GENIO_PLAY_WORLD: world, GENIO_PLAY_SOURCE: worktree, GENIO_PLAY_ENGINE_ROOT: root })
-      expect(new PlayPool(env.GENIO_PLAY_DATA, env.GENIO_PLAY_WORLD, env.GENIO_PLAY_ENGINE_ROOT).root(1)).toBe(svc.pool('game').root(1))
+      // genio-unity builds its Play pool from this config: same slots, same root as the player's pool.
+      expect(unity).toMatchObject({ worktree, engineRoot: root, play: { data, world } })
+      expect(new PlayPool(unity!.play.data, unity!.play.world, unity!.engineRoot).root(1)).toBe(svc.pool('game').root(1))
+      // The unit is told only its own targets, never the main checkout.
+      const env = unityUnitEnv(unity!, path.join(data, 'unit-a.unity.json'))
+      expect(env.GENIO_UNITY_PROJECT).toBe(path.join(worktree, root).replace(/\\/g, '/'))
+      expect(Object.values(env).some(v => v.toLowerCase().startsWith(world.replace(/\\/g, '/').toLowerCase()))).toBe(false)
       // The Unity test gate opens the worktree's copy of that root.
       expect(unityTestRoot(p, worktree)).toEqual({ dir: path.resolve(worktree, root || '.'), relative: root || '.' })
     } else {
       expect(() => svc.adapter('game')).toThrow('supports Unity')
       expect(() => svc.pool('game')).toThrow('supports Unity')
-      expect(env).toEqual({})
+      expect(unity).toBeUndefined()
       expect(unityTestRoot(p, worktree)).toBeUndefined()
     }
     // Asset placement keeps writes under that root.

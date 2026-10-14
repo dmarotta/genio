@@ -28,11 +28,11 @@ import { cheapModelsAllowed } from '@shared/dispatch'
 import { questOrder } from '@shared/quest-board'
 import { effectiveEngine } from '@shared/engine'
 import { engineBriefLine, engineEnv, engineFacts } from '@shared/engine-summary'
-import { supportsPlay } from '@shared/play'
 import { defaultShell } from './terminals'
 import { getSecret } from './secrets'
 import { installUnitHooks } from './unithooks'
 import { installUnitPlugin, openRouterEnv, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief } from './unitskills'
+import { findUnityCli, unityUnitConfig, unityUnitEnv } from './unity-unit'
 import {
   appendLine, ensureDir, exists, fwd, nowIso, readJson, readText, rid, slugify, stripAnsi, truncate, writeJson, writeText
 } from './util'
@@ -46,14 +46,6 @@ const ENDED: TaskState[] = ['merged', 'done', 'failed', 'cleaned']
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
-}
-
-/** A unit's Play skill shares the player's slot pool: same world, same data dir, same engine root as the Play screen. */
-export function unitPlayEnv(project: Project | undefined, data: string, worktree: string): Record<string, string> {
-  if (!project) return {}
-  const { engine, root } = effectiveEngine(project)
-  if (!supportsPlay(engine)) return {}
-  return { GENIO_PLAY_DATA: data, GENIO_PLAY_WORLD: project.path, GENIO_PLAY_SOURCE: worktree, GENIO_PLAY_ENGINE_ROOT: root }
 }
 
 export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService {
@@ -171,7 +163,18 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     }
     const extras = unitLaunchExtras(harnessId, { pluginDir: installed, falKey, dataDir: mainHome.data, taskDataDir: home.taskDir(t.id) })
     const project = getCtx().projects.get(t.project)
-    Object.assign(extras.env, project ? engineEnv(project) : {}, unitPlayEnv(project, mainHome.data, t.worktree))
+    Object.assign(extras.env, project ? engineEnv(project) : {})
+    // genio-unity shares the player's Play pool; the unit sees only its own targets.
+    const unity = unityUnitConfig(project, { task: t.id, worktree: t.worktree, data: mainHome.data, taskDir: home.taskDir(t.id), cli: findUnityCli() })
+    if (unity) {
+      const file = home.taskStateFile(t.id, '.unity.json')
+      try {
+        writeJson(file, unity)
+        Object.assign(extras.env, unityUnitEnv(unity, file))
+      } catch {
+        /* without its config genio-unity refuses to run; the launch goes on */
+      }
+    }
     return extras
   }
 

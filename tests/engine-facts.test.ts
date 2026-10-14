@@ -31,8 +31,8 @@ describe('unit brief and environment', () => {
       "# Engine notes
 
       - Project engine: Unity 6000.0.23f1 at FoundersOfAvalonUnity/ (detected). Run engine commands there.
-      - Engine: Unity. Resolve the editor binary for ProjectSettings/ProjectVersion.txt through Unity Hub; never use bare Unity -batchmode (it may resolve to the unrelated unity CLI). Run batch tests only on your isolated copy.
-      - Units may control only their own copy or leased Play slot, never the player's main editor. Always pass --world-path to the unity CLI. Never read the main editor Pipeline token or save its scenes.
+      - Engine: Unity. genio-unity (the unity skill under Tools, also in GENIO_UNITY) is the only way to compile, test, import, build, play, send editor commands and read the console. It targets only your own copy (GENIO_UNITY_PROJECT) or your leased Play slot and keeps a record of every run in GENIO_UNITY_RUNS.
+      - Never start Unity.exe, Unity Hub or the \`unity\` CLI yourself. Never open, read or write the main project folder, never read an editor's Pipeline token and never save the player's scenes.
       - Never commit Library/, Temp/ or Logs/. Keep .meta files paired with their assets.
       - Binary assets (textures, audio, models, scenes) may be tracked with Git LFS: never rewrite or re-encode assets you were not asked to touch.
       - Scene/prefab/level files merge badly: keep edits to them minimal and focused."

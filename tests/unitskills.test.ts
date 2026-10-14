@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { renderBrief, type BriefInput } from '../src/main/brief'
 import { assertIsolatedHomes } from './support/isolated-homes.mjs'
-import { blenderSkillDir, codexImageSkillDir, falSkillDir, installUnitPlugin, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief } from '../src/main/unitskills'
+import { blenderSkillDir, codexImageSkillDir, falSkillDir, genioUnityScript, installUnitPlugin, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief, unitySkillDir } from '../src/main/unitskills'
 
 const APP_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SCRIPT = path.join(unitPluginSource(APP_ROOT), 'skills', 'fal', 'scripts', 'fal.mjs')
@@ -45,7 +45,7 @@ describe('unit launch extras', () => {
   it('gives the plugin dir only to Claude Code, the skill path to every runtime', () => {
     const codex = unitLaunchExtras('codex', { pluginDir, falKey: KEY })
     expect(codex.args).toEqual([])
-    expect(codex.env).toEqual({ GENIO_PLAY_SKILL: 'C:/genio/skills/genio/skills/play/SKILL.md', GENIO_ASSETS_SKILL: 'C:/genio/skills/genio/skills/assets', GENIO_UTHANA_SKILL: 'C:/genio/skills/genio/skills/uthana', GENIO_BLENDER_SKILL: fwd(blenderSkillDir(pluginDir)), GENIO_FAL_SKILL: fwd(falSkillDir(pluginDir)), GENIO_IMAGEGEN_CODEX_SKILL: fwd(codexImageSkillDir(pluginDir)), FAL_KEY: KEY })
+    expect(codex.env).toEqual({ GENIO_UNITY_SKILL: 'C:/genio/skills/genio/skills/unity', GENIO_UNITY: 'C:/genio/skills/genio/skills/unity/scripts/genio-unity.mjs', GENIO_ASSETS_SKILL: 'C:/genio/skills/genio/skills/assets', GENIO_UTHANA_SKILL: 'C:/genio/skills/genio/skills/uthana', GENIO_BLENDER_SKILL: fwd(blenderSkillDir(pluginDir)), GENIO_FAL_SKILL: fwd(falSkillDir(pluginDir)), GENIO_IMAGEGEN_CODEX_SKILL: fwd(codexImageSkillDir(pluginDir)), FAL_KEY: KEY })
     expect(unitLaunchExtras('claude', { falKey: KEY })).toEqual({ args: [], env: { FAL_KEY: KEY } })
   })
 
@@ -89,8 +89,17 @@ describe('installUnitPlugin', () => {
     expect(codexSkill).toContain('uses your ChatGPT plan')
     expect(codexSkill).toContain(`${fwd(codexImageSkillDir(target))}/scripts/codex-image.mjs`)
     expect(fs.existsSync(path.join(target, 'lib', 'genio-world.mjs'))).toBe(true)
+    const unitySkill = fs.readFileSync(path.join(unitySkillDir(target), 'SKILL.md'), 'utf8')
+    expect(unitySkill).toMatch(/^---\nname: unity\n/)
+    expect(unitySkill).toContain(`node "${fwd(genioUnityScript(target))}" <verb>`)
+    expect(fs.existsSync(genioUnityScript(target))).toBe(true)
+    expect(fs.existsSync(path.join(target, 'lib', 'unity-editors.mjs'))).toBe(true)
+    // the Play helper stays (genio-unity runs it), its retired skill page does not
+    expect(fs.existsSync(path.join(target, 'skills', 'play', 'scripts', 'play.mjs'))).toBe(true)
+    fs.writeFileSync(path.join(target, 'skills', 'play', 'SKILL.md'), 'left by an older install')
     // idempotent refresh
     expect(() => installUnitPlugin(unitPluginSource(APP_ROOT), target, [world])).not.toThrow()
+    expect(fs.existsSync(path.join(target, 'skills', 'play', 'SKILL.md'))).toBe(false)
   })
 
   it('refuses a target inside a world', () => {
@@ -130,6 +139,9 @@ describe('brief tools section', () => {
     expect(b).toMatch(/FAL\.ai \(specific needs: seamless\/PBR textures, 3D, audio/)
     expect(b).not.toMatch(/only when the world enabled/)
     expect(renderBrief(base)).not.toContain('# Tools')
+    // Unity goes through genio-unity only; the retired Play page and flag are gone.
+    expect(b).toContain('node "C:/genio/skills/genio/skills/unity/scripts/genio-unity.mjs" <verb>')
+    expect(b).not.toMatch(/skills\/play\/SKILL\.md|--world-path|GENIO_PLAY_/)
   })
 })
 
