@@ -190,10 +190,14 @@ main supervisor observes any units for unregistered projects and forwards their
 task wakes if the owning project is reopened. A close cancellation keeps units
 running; confirmation stops that project's terminals and preserves its worktrees.
 
-The standalone Your Move page has been removed. Pending choices appear in a
-non-modal answer panel beside the current screen; the title-bar count and desktop
-notifications reveal it without navigating away. Ready merges remain in Squad; completed units leave the active roster for the Quest log's Done
-column; quests waiting for the player stay in its Queued column. Existing `move` notification targets reveal the answer panel.
+The standalone Your Move page has been removed. Pending choices float as non-modal
+cards over the right edge below the title bar, outside the layout, so the screen
+underneath never reflows. Only the oldest three show (urgent ones first, regardless
+of age); a "+K waiting" pill counts the rest, and answered or deferred cards animate
+out while the next one slides in. The title-bar count toggles them, Ctrl+J (Answer
+next) is the only thing that moves focus into them, and Escape hands it back.
+Ready merges remain in Squad; completed units leave the active roster for the Quest log's Done
+column; quests waiting for the player stay in its Queued column. Existing `move` notification targets bring that choice into view.
 
 
 Choices retain their project and conversation ownership while a project is closed.

@@ -46,7 +46,8 @@ export function App() {
   if (!PROJECT_WINDOW) return (
     <div className="app hub-app">
       <header className="titlebar hub-titlebar"><FileMenu /><span className="wordmark-text">GENIO</span><span className="label dim">Hub</span>{hubChoices > 0 && <button className="btn sm ghost" onClick={toggleAnswers}>Pending answers and history</button>}</header>
-      <div className="app-body"><main className="stage"><Hub /></main><Answers /></div>
+      <div className="app-body"><main className="stage"><Hub /></main></div>
+      <Answers />
       <Toasts />
       <BootSplash ready={booted} />
     </div>
@@ -74,8 +75,9 @@ export function App() {
           </main>
           <GenioPanel />
         </div>
-        <Answers />
       </div>
+      {/* Floating cards: overlaid on the right edge, outside the layout so they never reflow it. */}
+      <Answers />
       <DeployModal />
       <CommandPalette />
       <WelcomeBack />

@@ -60,7 +60,7 @@ export function TitleBar() {
           <Users size={14} />
           <span className="num">{units}</span>
         </button>
-        <button className={cx('hud-stat', moves > 0 && 'amber')} title="Pending answers" aria-label="Pending answers" aria-controls="answers" aria-expanded={answersOpen} onClick={toggleAnswers}>
+        <button className={cx('hud-stat', moves > 0 && 'amber')} title="Pending answers · Ctrl J answers next" aria-label="Pending answers" aria-controls="answers" aria-expanded={answersOpen} onClick={toggleAnswers}>
           <Crosshair size={14} />
           <span className="num">{moves}</span>
         </button>

@@ -563,13 +563,64 @@ button.usage-toggle:hover { color: var(--text); }
 .hold-box { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px 14px; background: var(--amber-soft); border-left: 2px solid var(--amber); }
 .hold-form { display: grid; grid-template-columns: 1fr 170px auto; gap: 12px; align-items: end; }
 
-/* ---------- non-modal answers ---------- */
-.answers { width: min(440px, 42vw); min-width: 0; flex: none; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--bg); }
-.answers-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; }
-.answers-list { overflow-y: auto; min-height: 0; padding: 0 12px 12px; display: flex; flex-direction: column; gap: 10px; }
-.answers .choice-meta { flex-wrap: wrap; white-space: normal; }
-.answers .choice-q, .answers .option-text { overflow-wrap: anywhere; }
-@media (max-width: 850px) { .app-body:has(.answers) { display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 45%); } .app-body:has(.answers) > .rail { grid-row: 1 / 3; } .answers { grid-column: 2; width: 100%; border-left: 0; border-top: 1px solid var(--line); } .hub-app .app-body:has(.answers) { grid-template-columns: minmax(0, 1fr); } .hub-app .answers { grid-column: 1; } }
+/* ---------- floating answer cards ----------
+   Overlaid at the right edge below the title bar, outside the layout: nothing underneath moves.
+   Above the rail, the Genio panel and usage popups; below modals, toasts and the achievement banner. */
+.answers-float {
+  position: fixed; top: calc(var(--hud) + 10px); right: 12px; z-index: 100;
+  width: min(380px, calc(100vw - 24px)); max-height: calc(100vh - var(--hud) - 20px);
+  display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+}
+.answers-float > *, .answer-stack > * { pointer-events: auto; }
+.answer-stack { position: relative; display: flex; flex-direction: column; gap: 8px; min-height: 0; pointer-events: none; }
+.answer-card { max-width: none; flex: none; background: var(--surface-3); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55); }
+.answer-card .choice-meta { flex-wrap: wrap; white-space: normal; }
+.answer-card .choice-q, .answer-card .option-text { overflow-wrap: anywhere; }
+.answer-card:not(.compact) .choice-q { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.answer-card.urgent { border-left-width: 3px; background: linear-gradient(90deg, var(--alert-soft), transparent 45%), var(--surface-3); box-shadow: var(--glow-alert), 0 10px 30px rgba(0, 0, 0, 0.55); }
+.answer-card.compact { padding: 8px 12px; gap: 2px; cursor: pointer; }
+.answer-card.compact:hover { border-color: var(--line-strong); }
+.choice-expand { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; width: 100%; padding: 0; border: 0; background: none; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.answer-card.out { position: absolute; left: 0; right: 0; margin: 0; pointer-events: none; animation: card-out 0.2s var(--ease) both; }
+.answer-card.in { animation: card-in 0.22s var(--ease) both; }
+@keyframes card-in { from { opacity: 0; transform: translateX(56px); } to { opacity: 1; transform: none; } }
+@keyframes card-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateX(56px); } }
+@keyframes card-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes card-fade-out { from { opacity: 1; } to { opacity: 0; } }
+/* Reduced motion: no slides, a plain fade (kept short but visible despite the global motion cut). */
+.answer-stack.reduced .answer-card.in { animation: card-fade-in 0.2s linear both; animation-duration: 0.2s !important; }
+.answer-stack.reduced .answer-card.out { animation: card-fade-out 0.2s linear both; animation-duration: 0.2s !important; }
+/* Toasts sit beside the cards while they float, never on them; on narrow windows at the bottom instead. */
+body:has(.answers-float .answer-card) .toasts { right: calc(min(380px, 100vw - 24px) + 24px); }
+@media (max-width: 780px) { body:has(.answers-float .answer-card) .toasts { right: 18px; top: auto; bottom: 18px; } }
+.answers-foot { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; flex: none; }
+.answers-foot > .btn { background: var(--surface-3); }
+.answers-pill { margin-right: auto; display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 1px solid rgba(255, 182, 39, 0.45); border-radius: 13px; background: var(--surface-3); color: var(--amber); font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5); cursor: default; }
+.answers-pill kbd { font-size: 9.5px; line-height: 14px; padding: 0 4px; min-width: 0; }
+.answers-history, .answers-review { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--surface-3); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55); min-height: 0; }
+.answers-review { max-height: 100%; overflow: hidden; }
+.answers-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.answers-tabs { justify-content: flex-start; }
+.answers-row { max-width: none; padding: 6px 10px; gap: 4px; }
+.answers-row p { margin: 0; font-size: 12.5px; }
+.answers-row .choice-q { font-size: 13px; overflow-wrap: anywhere; }
+/* Short windows: compact cards shrink to one line and the open card answers on a single row. */
+@media (max-height: 520px) {
+  .answers-float { top: calc(var(--hud) + 6px); right: 8px; gap: 6px; width: min(360px, calc(100vw - 16px)); max-height: calc(100vh - var(--hud) - 12px); }
+  .answer-stack { gap: 6px; }
+  .answer-card { padding: 6px 10px; gap: 5px; }
+  .answer-card .choice-meta { flex-wrap: nowrap; overflow: hidden; line-height: 16px; }
+  .answer-card.compact { padding: 5px 10px; }
+  .answer-card.compact .choice-meta { display: none; }
+  .answer-card .choice-expand { -webkit-line-clamp: 1; font-size: 12.5px; }
+  .answer-card:not(.compact) .choice-q { -webkit-line-clamp: 2; font-size: 13px; line-height: 1.35; }
+  .answer-card .option { padding: 3px 8px; font-size: 12px; }
+  .answer-card .choice-answer { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px; }
+  .answer-card .choice-answer .textarea { flex: 1 1 120px; min-width: 0; max-height: 52px; padding: 4px 8px; font-size: 12px; }
+  .answer-card .choice-actions { gap: 2px; margin-left: auto; }
+  .answer-card .choice-actions .btn-label, .answer-card .choice-hint { display: none; }
+  .answers-pill { height: 22px; }
+}
 
 .choice { max-width: 760px; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; border-left: 2px solid var(--amber); }
 .choice.urgent { border-left-color: var(--alert); }

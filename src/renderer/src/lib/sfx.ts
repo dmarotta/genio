@@ -106,14 +106,31 @@ const patches: Record<SfxName, (a: { ctx: AudioContext; out: GainNode }) => void
   error: (a) => {
     tone(a, 180, 0, 0.16, { wave: 'square', gain: 0.12, to: 90 })
     noise(a, 0, 0.1, 0.04, 800)
+  },
+  // a floating answer card slides in: a soft rising pair, quieter than 'decision'
+  'card-in': (a) => {
+    tone(a, 587, 0, 0.08, { wave: 'triangle', gain: 0.07, attack: 0.012 })
+    tone(a, 880, 0.07, 0.14, { wave: 'triangle', gain: 0.06, attack: 0.012 })
+  },
+  // a card dequeues: a short falling swish
+  'card-out': (a) => {
+    tone(a, 740, 0, 0.12, { wave: 'triangle', gain: 0.06, to: 440 })
+    noise(a, 0, 0.08, 0.015, 5000)
   }
 }
 
+/** A new choice brings both the core's 'decision' chime and the card's arrival cue: one is enough. */
+const ARRIVAL_COALESCE_MS = 1500
 let lastAt = 0
+let arrivalAt = -Infinity
 export function playSfx(name: SfxName, settings: Settings | null | undefined): void {
   if (!settings || !settings.sound) return
   const now = performance.now()
   if (name === 'blip' && now - lastAt < 60) return
+  if (name === 'card-in' || name === 'decision') {
+    if (now - arrivalAt < ARRIVAL_COALESCE_MS) return
+    arrivalAt = now
+  }
   lastAt = now
   const a = audio()
   if (!a) return

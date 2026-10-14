@@ -45,9 +45,12 @@ export interface State {
   toasts: Toast[]
   permissions: PermissionRequest[]
   achievements: Achievement[]
+  /** The floating answer cards are showing (the title bar badge toggles them). */
   answersOpen: boolean
   answerHistory?: 'answered' | 'deferred'
   answerTarget?: string
+  /** Bumped by Answer next: the cards take keyboard focus only on this request. */
+  answerFocus?: number
   view: ViewId
   focus: Focus
   deploy: Partial<SpawnRequest> | null
@@ -507,4 +510,9 @@ export function toggleAnswers(): void {
     answerTarget: undefined,
     answerHistory: pending ? undefined : state.snap.decisions.some(d => d.resolvedAt) ? 'answered' : 'deferred'
   })
+}
+
+/** Answer next (Ctrl+J): show the cards and move keyboard focus to the first one. */
+export function answerNext(): void {
+  setState(s => ({ answersOpen: true, answerHistory: undefined, answerTarget: undefined, answerFocus: (s.answerFocus ?? 0) + 1 }))
 }

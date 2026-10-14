@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Search } from 'lucide-react'
-import { PROJECT_WKSP, api, focusTask, getState, go, op, openDeploy, playAvailable, setState, useStore, type ViewId } from '../store'
+import { PROJECT_WKSP, answerNext, api, focusTask, getState, go, op, openDeploy, playAvailable, setState, useStore, type ViewId } from '../store'
 import { navFor, useNav } from './Rail'
 import { requestSystemsSection } from '../views/Systems'
 import { KIND_LABEL } from '../lib/vocab'
@@ -34,6 +34,7 @@ export function CommandPalette() {
     const close = (): void => setState({ palette: false })
     const list: Cmd[] = [
       { id: 'deploy', label: 'Deploy a unit', hint: 'New Build or Recon mission', group: 'Action', run: () => openDeploy() },
+      { id: 'answer-next', label: 'Answer next', hint: 'Ctrl J · focus the next pending choice', group: 'Action', run: () => { close(); answerNext() } },
       { id: 'recap', label: '/recap', hint: 'Previously on… and your pending moves', group: 'Action', run: () => { close(); go('comms'); void op('Recap', () => api().recap()) } },
       { id: 'status', label: '/status', hint: 'Character Sheet', group: 'Action', run: () => go('status') },
       { id: 'save', label: '/save', hint: 'Curate player profile & squad memory', group: 'Action', run: () => { close(); void op('Save', () => api().save(), () => 'Genio is curating memory') } },

@@ -852,4 +852,4 @@ export type GenioEvent =
 /** Notification destination; legacy `move` targets reveal pending answer cards. */
 export type NotifyTarget = { view: 'move'; project?: string; wksp?: string; decisionId?: string } | { view: 'squad'; taskId?: string } | { view: 'comms'; wksp?: string } | { view: 'accounts' }
 
-export type SfxName = 'blip' | 'spawn' | 'ready' | 'merge' | 'alert' | 'decision' | 'levelup' | 'send' | 'error'
+export type SfxName = 'blip' | 'spawn' | 'ready' | 'merge' | 'alert' | 'decision' | 'levelup' | 'send' | 'error' | 'card-in' | 'card-out'

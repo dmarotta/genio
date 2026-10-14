@@ -137,6 +137,21 @@ it('opens history from the Hub even when all choices are already answered', asyn
 })
 
 
+it('floats pending cards over the screen without changing the layout underneath', async () => {
+  const state = getState()
+  const decisions = [1, 2, 3, 4, 5, 6].map(i => ({ id: `c${i}`, key: 'k', wksp: 'main', question: `Route ${i}?`, options: ['A'], source: 'genio' as const, urgency: 'normal' as const, createdAt: `2026-10-13T10:0${i}:00Z` }))
+  setState({ answersOpen: false, answerHistory: undefined, snap: { ...state.snap, decisions } })
+  await render()
+  const body = host.querySelector('.app-body')!
+  const without = body.outerHTML
+  await act(async () => setState({ answersOpen: true }))
+  const lane = host.querySelector('.answers-float')!
+  expect(lane.querySelectorAll('.answer-card')).toHaveLength(3)
+  expect(body.contains(lane)).toBe(false)
+  expect(body.outerHTML).toBe(without)
+  await act(async () => setState({ snap: { ...state.snap, decisions: [] }, answersOpen: true }))
+})
+
 it('refreshes a closed project waiting count as its deferred choice becomes due', async () => {
   vi.useFakeTimers()
   const state = getState()

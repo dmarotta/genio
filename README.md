@@ -26,7 +26,7 @@ for the design and [docs/VOCABULARY.md](docs/VOCABULARY.md) for the terms.
   in-scope work on its own.
 - **Overwatch** — zero-token supervision: Genio only spends tokens when a unit
   finishes, needs a choice, lags, or a PR changes state.
-- **Pending answers** — choice cards beside the current screen, with options, recommendations and free-text answers.
+- **Pending answers** — floating choice cards over the right edge (oldest three, urgent first; Ctrl+J answers next), with options, recommendations and free-text answers.
 - **Quest Log** — queued work with priorities, dependencies, holds and capacity.
 - **Character Sheet** (`/status`) — Level, XP, streaks and stats above a large achievements grid (Ctrl+5).
 - **Presence** — Online, DND (routine events handled off-screen), AFK (the Bot
