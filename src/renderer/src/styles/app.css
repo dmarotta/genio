@@ -1106,7 +1106,7 @@ button.prio-label:hover { background: color-mix(in srgb, var(--p) 24%, transpare
   .view.detail { overflow: auto; }
   .detail-head { flex-wrap: wrap; }
   .tb-group + .tb-group { padding-left: 0; border-left: 0; }
-  .tabs { overflow-x: auto; scrollbar-width: thin; }
+  .tabs { overflow-x: auto; }
   .tab { flex: none; }
   .tab.on::after { bottom: 0; }
   .ping-box .textarea { flex: 1; min-width: 0; }
