@@ -1,3 +1,5 @@
+import { ASSISTANT_NAME } from '@shared/assistant'
+import { windowTitle } from '@shared/window-title'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { ExternalLink, MessageCircle, Minus, Move } from 'lucide-react'
 import { createPortal } from 'react-dom'
@@ -73,7 +75,7 @@ function ProjectGenioPanel({ wksp, project }: { wksp: string; project: string })
     pendingWindow.current = child
     const ready = (): void => {
       if (child.closed || pendingWindow.current !== child) return
-      child.document.title = `Genio chat · ${project}`
+      child.document.title = windowTitle(project, true)
       for (const style of document.querySelectorAll('style, link[rel="stylesheet"]')) child.document.head.append(style.cloneNode(true))
       const root = child.document.getElementById('root')!
       root.className = 'genio-panel popout'
@@ -139,7 +141,7 @@ function ProjectGenioPanel({ wksp, project }: { wksp: string; project: string })
       </button>}
       <div className="genio-panel-expanded" hidden={!expanded}>
         <header className="genio-panel-bar">
-          <button className="genio-panel-grip" aria-label="Move Genio chat" title="Drag anywhere, or use the arrow keys" {...handlers('move')}><Move size={13} /> Genio · {where}</button>
+          <button className="genio-panel-grip" aria-label="Move Genio chat" title="Drag anywhere, or use the arrow keys" {...handlers('move')}><Move size={13} /> {ASSISTANT_NAME} · {where}</button>
           {generating > 0 && <span className="genio-panel-busy">{generating} generating</span>}
           <button className="btn sm ghost icon" aria-label="Pop out Genio chat" title="Move chat outside Genio (always on top)" onClick={detach}><ExternalLink size={15} /></button>
           <button className="btn sm ghost icon" aria-label="Collapse Genio chat" title="Collapse (Ctrl+Space)" onClick={() => setState(s => ({ ...s, collapsed: true }))}><Minus size={15} /></button>
@@ -151,6 +153,6 @@ function ProjectGenioPanel({ wksp, project }: { wksp: string; project: string })
       </div>
     </div>
     {mounted && createPortal(<ChatDocument.Provider value={popout?.document}><ChatPanel wksp={wksp} context={context} surface="panel" active={!!popout || expanded} /></ChatDocument.Provider>, chatHost)}
-    {popout && createPortal(<header className="genio-panel-bar popout-bar"><span>Genio · {project} · {where} · Always on top</span><button className="btn sm ghost" onClick={dock}>Return chat</button></header>, popout.document.getElementById('root')!)}
+    {popout && createPortal(<header className="genio-panel-bar popout-bar"><span>{ASSISTANT_NAME} · {where} · Always on top</span><button className="btn sm ghost" onClick={dock}>Return chat</button></header>, popout.document.getElementById('root')!)}
   </>
 }

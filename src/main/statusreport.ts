@@ -38,7 +38,7 @@ export function createStatusReportService(getCtx: () => AppCtx): StatusReportSer
       const loot: StatusLine[] = []
       const inProgress: StatusLine[] = []
       const upNext: StatusLine[] = []
-      const base = (h: HomeCtx): string => (h.home.name === 'main' ? '' : ` [ally ${h.home.name}]`)
+      const base = (h: HomeCtx): string => (h.home.name === 'main' ? '' : ` [base ${h.home.name}]`)
 
       for (const h of homes) {
         const tasks = safe(() => h.crew.list(), [] as Task[])

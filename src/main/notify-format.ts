@@ -10,7 +10,7 @@ export interface NotifyInput {
   kind: NotifyKind
   /** free text from a unit, the Bot or a decision; cleaned and capped */
   text?: string
-  /** world or ally the outcome belongs to, shown as "Title · where" */
+  /** project or base the outcome belongs to, shown as "Title · where" */
   where?: string
   /** digest / alarm: how many items are waiting */
   count?: number

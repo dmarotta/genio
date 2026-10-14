@@ -1,3 +1,4 @@
+import { ASSISTANT_NAME } from '@shared/assistant'
 import { ComingNext } from '../components/ComingNext'
 import { GenerationCard } from '../components/GenerationCard'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
@@ -55,7 +56,6 @@ export function Comms() {
 /** The project chat: its own status bar, log and composer. */
 export function ChatPanel({ wksp, context, surface = 'screen', active: _active = true }: { wksp: string; context?: InventoryContext; surface?: 'screen' | 'panel'; active?: boolean }) {
   const info = useStore((s) => s.snap.wksps.find((m) => m.name === wksp))
-  const ally = useStore((s) => s.snap.allies.find((a) => a.name === wksp && !a.retiredAt))
   const messages = useStore((s) => s.chats[wksp] ?? [])
   const settings = useStore((s) => s.settings)
   const gamertag = settings?.gamertag || 'Player'
@@ -75,27 +75,18 @@ export function ChatPanel({ wksp, context, surface = 'screen', active: _active =
   const takeBack = useCallback(async (m: ChatMessage, edit: boolean): Promise<void> => {
     try {
       const got = await api().unqueueChat(wksp, m.id)
-      if (!got) toast('info', 'Already sent', `${isAlly ? wksp : 'Genio'} picked that message up before it could be changed.`)
+      if (!got) toast('info', 'Already sent', `${ASSISTANT_NAME} picked that message up before it could be changed.`)
       else if (edit) fill.current?.(got)
     } catch (e) {
       toast('error', edit ? 'Message not editable' : 'Message not cancelled', errText(e))
     }
-  }, [wksp, isAlly])
+  }, [wksp])
 
   return (
     <div className="chat-panel">
       <header className="comms-head">
         <div className="chat-title">
-          {isAlly ? (
-            <>
-              <span className="label neon-text">Genio</span>
-              <span className="mute chat-scope" title={ally?.scope}>
-                {ally?.scope}
-              </span>
-            </>
-          ) : (
-            <span className="label neon-text">Genio</span>
-          )}
+          <span className="label neon-text">{ASSISTANT_NAME}</span>
         </div>
         <div className="comms-status">
           <span className={cx('activity', info?.activity)}>
@@ -260,7 +251,7 @@ function ChatLog({ wksp, surface, messages: all, calm, busy, gamertag, activityD
           <div className="chat-empty rise">
             <GenioCore size={80} state={busy ? 'active' : 'idle'} />
             <h2 className="title" style={{ fontSize: 24 }}>
-              Genio <span className="accent">{wksp}</span>
+              {ASSISTANT_NAME}
             </h2>
             <p className="dim">Tell Genio what to build in this project. Your conversation and controls stay with this window.</p>
           </div>
@@ -294,7 +285,7 @@ function ChatLog({ wksp, surface, messages: all, calm, busy, gamertag, activityD
               <GenioCore size={34} state="active" />
             </div>
             <div className="working-line">
-              <span className="working-text">{activityDetail ? trunc(activityDetail, 60) : `${wksp === MAIN_PANEL ? 'Genio' : wksp} is on it`}</span>
+              <span className="working-text">{activityDetail ? trunc(activityDetail, 60) : `${ASSISTANT_NAME} is on it`}</span>
               <span className="working-dots">
                 <i />
                 <i />
@@ -378,7 +369,7 @@ const Message = memo(function Message({ m, calm, gamertag, onTakeBack }: { m: Ch
           <Markdown text={routed.text} />
         </div>
         <div className="msg-meta">
-          Genio → {m.wksp} · {clock(m.ts)}
+          {ASSISTANT_NAME} · {clock(m.ts)}
           {routed.corr ? ` · ${routed.corr}` : ''}
           <CopyMessageButton text={routed.text} />
         </div>
@@ -429,7 +420,7 @@ const Message = memo(function Message({ m, calm, gamertag, onTakeBack }: { m: Ch
           </div>
         )}
         <div className="msg-meta">
-          {m.wksp === MAIN_PANEL ? 'Genio' : m.wksp} · {clock(m.ts)}
+          {ASSISTANT_NAME} · {clock(m.ts)}
           {m.costUsd ? ` · $${m.costUsd.toFixed(3)}` : ''}
           <CopyMessageButton text={m.text} />
         </div>
@@ -452,7 +443,7 @@ function Composer({ wksp, busy, fill, context }: { wksp: string; busy: boolean; 
   const recapOff = !info || info.limit
     ? 'Chat unavailable'
     : busy || info.queued
-      ? `${isMain ? 'Genio' : wksp} is working`
+      ? `${ASSISTANT_NAME} is working`
       : ''
   const update = (v: string): void => {
     setText(v)
@@ -605,10 +596,10 @@ function Composer({ wksp, busy, fill, context }: { wksp: string; busy: boolean; 
           onPaste={att.onPaste}
           placeholder={
             busy
-              ? `${isMain ? 'Genio' : wksp} is working… you can still send; it queues and is read next.`
+              ? `${ASSISTANT_NAME} is working… you can still send; it queues and is read next.`
               : isMain
                 ? 'Message Genio  ·  / for commands'
-                : `Message ${wksp}  ·  it answers you here`
+                : `Message ${ASSISTANT_NAME}  ·  it answers you here`
           }
           onChange={(e) => {
             update(e.target.value)
@@ -724,7 +715,7 @@ const APPLY_HINT = 'Applies from the next turn; a turn in progress finishes firs
  */
 function ChatModelControls({ wksp }: { wksp: string }) {
   const { model, effort, ally } = useChatControls(wksp)
-  const who = ally ? ally.name : 'Genio'
+  const who = ASSISTANT_NAME
   return (
     <>
       <ModelSelect

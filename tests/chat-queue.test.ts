@@ -761,3 +761,13 @@ describe('automatic project opening turn', () => {
     expect(fake.queries[1].received[0]).toContain('Reopened with real state')
   })
 })
+
+it('keeps the service display identity Genio while retaining a non-genio project base key', async () => {
+  const name = 'founders-of-avalon'
+  const home = new Home(path.join(dir, 'wksps', name), name, new Home(dir))
+  const ally = { name, projects: [name], scope: `All work in ${name}`, charter: '', home: home.root, createdAt: '2026-10-14' }
+  ctx.main.home.data = path.join(dir, 'data')
+  const svc = createWkspService(() => ctx as never, home, ally)
+  try { expect(svc.info()).toMatchObject({ name, displayName: 'Genio' }) }
+  finally { await svc.stop() }
+})

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { customContract, CUSTOM_CONTRACT_BUDGET, procedureText, PROCEDURES } from '../src/main/prompts'
+import { customContract, CUSTOM_CONTRACT_BUDGET, procedureText, PROCEDURES, projectOpenPrompt } from '../src/main/prompts'
 import { chatUsageLine } from '../src/shared/usage-mode'
 
 describe('bounded custom contract and lazy procedures', () => {
@@ -50,4 +50,15 @@ describe('bounded custom contract and lazy procedures', () => {
     expect(customContract({ gamertag: 'x'.repeat(1000), base: 'b'.repeat(1000), isAlly: true }, true, 'u'.repeat(300)).length)
       .toBeLessThanOrEqual(CUSTOM_CONTRACT_BUDGET)
   })
+})
+
+it('keeps the assistant Genio in contracts and project-open greetings, naming the project separately', () => {
+  const project = 'founders-of-avalon'
+  const prompt = customContract({ gamertag: 'Dani', base: project, isAlly: true })
+  expect(prompt).toContain('You are Genio,')
+  expect(prompt).toContain('(workspace, never your name)')
+  expect(prompt).toContain(`Base: ${project} (workspace, never your name).`)
+  const opening = projectOpenPrompt('Dani', `Project: ${project}.`, '')
+  expect(opening).toContain(`Project: ${project}.`)
+  expect(opening).toContain('You are Genio; name the project from the recap separately, never as your own name.')
 })

@@ -43,7 +43,7 @@ export function createAlliesService(getCtx: () => AppCtx): AlliesService {
       const ctx = getCtx()
       const name = req.name.trim().toLowerCase()
       if (!NAME_RE.test(name) || name === 'main') throw new Error('ally names are 2-31 chars: lowercase letters, digits and dashes (not "main")')
-      if (load().some((a) => a.name === name && !a.retiredAt)) throw new Error(`an ally named ${name} already exists`)
+      if (load().some((a) => a.name === name && !a.retiredAt)) throw new Error(`A project chat already exists in base ${name}`)
       if (!req.scope.trim()) throw new Error('an ally needs a routing scope')
       const mainHome = ctx.main.home
       const root = mainHome.wkspHome(name)
@@ -64,30 +64,30 @@ export function createAlliesService(getCtx: () => AppCtx): AlliesService {
       await hc.crew.reconcileOnStart().catch(() => undefined)
       hc.supervisor.start()
       bus.publish({ type: 'wksp', wksp: hc.wksp.info() })
-      bus.toast('success', 'Ally recruited', `${name} joins the squad — scope: ${ally.scope}`)
+      bus.toast('success', 'Genio chat ready', `Genio is ready for ${ally.scope}.`)
       return ally
     },
 
     async retire(name) {
       const ctx = getCtx()
       const ally = load().find((a) => a.name === name && !a.retiredAt)
-      if (!ally) return { ok: false, message: `no active ally named ${name}` }
+      if (!ally) return { ok: false, message: `No active Genio chat in base ${name}` }
       const hc = ctx.homes.get(name)
       if (hc) {
         const live = hc.crew.list().filter((t) => !['cleaned', 'done'].includes(t.state))
-        if (live.length) return { ok: false, message: `${name} still has ${live.length} unit(s) in play (${live.map((t) => t.id).join(', ')}); despawn or finish them first` }
+        if (live.length) return { ok: false, message: `Base ${name} still has ${live.length} unit(s) in play (${live.map((t) => t.id).join(', ')}); despawn or finish them first` }
         hc.supervisor.stop()
         await hc.wksp.stop().catch(() => undefined)
         ctx.homes.delete(name)
       }
       ally.retiredAt = nowIso()
       persist()
-      return { ok: true, message: `${name} retired; its base is kept at ${ally.home}` }
+      return { ok: true, message: `Genio chat closed; base ${name} is kept at ${ally.home}` }
     },
 
     update(name, patch) {
       const i = load().findIndex((a) => a.name === name && !a.retiredAt)
-      if (i < 0) throw new Error(`no active ally named ${name}`)
+      if (i < 0) throw new Error(`No active Genio chat in base ${name}`)
       const enteredYolo = load()[i].shellMode !== 'all' && patch.shellMode === 'all'
       const next = patchAllyControls(load()[i], patch)
       // in place, so the running base's view of its ally record stays current
@@ -103,17 +103,17 @@ export function createAlliesService(getCtx: () => AppCtx): AlliesService {
     async route(name, request) {
       const ctx = getCtx()
       const hc = ctx.homes.get(name)
-      if (!hc) return { ok: false, message: `ally ${name} is not active` }
+      if (!hc) return { ok: false, message: `Genio chat in base ${name} is not active` }
       const corr = rid(8)
       await hc.wksp.send(`[FROM GENIO MAIN corr=${corr}] ${request}\n\nWhen finished (or blocked), answer with report_to_main and corr=${corr}.`, 'genio')
       ctx.ledger.record({ event: 'task.status', data: { routedTo: name, corr } })
-      return { ok: true, message: `routed to ${name} (corr=${corr}); its answer returns as an ally event` }
+      return { ok: true, message: `Routed to Genio in base ${name} (corr=${corr}); its answer returns as an ally event` }
     },
 
     reportToParent(from, verb, note, corr) {
       const ctx = getCtx()
       const routine = verb === 'note'
-      ctx.main.wakes.enqueue({ kind: 'check', reason: `ally ${from} ${verb}${corr ? ` [corr=${corr}]` : ''}: ${note}`, lines: [note], routine })
+      ctx.main.wakes.enqueue({ kind: 'check', reason: `Genio in base ${from} ${verb}${corr ? ` [corr=${corr}]` : ''}: ${note}`, lines: [note], routine })
       if (verb === 'needs-decision' || verb === 'blocked') ctx.notifier.sfx('decision')
       ctx.main.wksp.deliverWakes()
     }

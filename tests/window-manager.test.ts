@@ -29,11 +29,13 @@ vi.mock('electron', async () => {
     moveTop = vi.fn()
     setMenu = vi.fn((menu: unknown) => { this.menu = menu })
     restore = vi.fn(() => { this.minimized = false })
+    title: string
+    setTitle = vi.fn((title: string) => { this.title = title })
     destroy() { this.destroyed = true; this.emit('closed') }
     isMinimized = () => this.minimized
     isDestroyed = () => this.destroyed
     static getFocusedWindow() { return null }
-    constructor(_options: unknown) { super(); f.windows.push(this) }
+    constructor(options: { title: string }) { super(); this.title = options.title; f.windows.push(this) }
     async loadFile(_file: string, options: any) {
       this.query = options.query
       if (f.loadError) throw f.loadError
@@ -74,10 +76,16 @@ describe('project window lifecycle', () => {
   it('opens a Hub and reuses one project window for concurrent opens', async () => {
     expect(f.windows[0].query).toEqual({})
     expect(f.windows[0].menu).toBeNull()
+    expect(f.windows[0].title).toBe('Genio - Hub')
     await Promise.all([openProject('one'), openProject('one')])
     expect(f.windows).toHaveLength(2)
     expect(f.windows[1].query).toEqual({ project: 'one', wksp: 'ally-one', registered: '1' })
     expect(f.windows[1].setMenu).toHaveBeenCalledExactlyOnceWith(null)
+    expect(f.windows[1].title).toBe('Genio - one')
+    const preventDefault = vi.fn()
+    f.windows[1].emit('page-title-updated', { preventDefault }, 'Genio')
+    expect(preventDefault).toHaveBeenCalledOnce()
+    expect(f.windows[1].title).toBe('Genio - one')
     expect(f.windows[1].focus).toHaveBeenCalledOnce()
     expect(f.ctx.stats.unlock).toHaveBeenCalledWith('project-window-open')
     expect(f.start).toHaveBeenCalledExactlyOnceWith(f.ctx, 'one', 'ally-one')
@@ -103,15 +111,25 @@ describe('project window lifecycle', () => {
     const handler = owner.openHandler
     const url = owner.webContents.getURL() + '#genio-chat-panel'
     expect(handler({ url })).toMatchObject({ action: 'allow', overrideBrowserWindowOptions: {
-      alwaysOnTop: true, show: false, minWidth: 360, webPreferences: { nodeIntegration: false, contextIsolation: true }
+      title: 'Genio - one (Chat)', alwaysOnTop: true, show: false, minWidth: 360, webPreferences: { nodeIntegration: false, contextIsolation: true }
     } })
     expect(handler({ url: 'file:///other.html#genio-chat-panel' })).toEqual({ action: 'deny' })
     let bounds = { x: 2000, y: 100, width: 500, height: 600 }
     const child = Object.assign(new (await import('node:events')).EventEmitter(), {
       isDestroyed: () => false, isMinimized: () => false, isVisible: vi.fn(() => false), show: vi.fn(), showInactive: vi.fn(), moveTop: vi.fn(), focus: vi.fn(), destroy: vi.fn(),
+      setTitle: vi.fn(),
       getBounds: () => bounds, getNormalBounds: () => bounds, setBounds: vi.fn((b: typeof bounds) => { bounds = b }),
       webContents: { setWindowOpenHandler: vi.fn(), on: vi.fn(), once: vi.fn() } })
     owner.webContents.emit('did-create-window', child)
+    const preventTitle = vi.fn()
+    child.emit('page-title-updated', { preventDefault: preventTitle }, 'Genio')
+    expect(preventTitle).toHaveBeenCalledOnce()
+    bus.publish({ type: 'projects', projects: [{ name: 'Founders of Avalon', path: 'one' }] } as GenioEvent)
+    expect(owner.title).toBe('Genio - Founders of Avalon')
+    expect(child.setTitle).toHaveBeenLastCalledWith('Genio - Founders of Avalon (Chat)')
+    expect(f.windows[0].title).toBe('Genio - Hub')
+    expect(f.windows[2].title).toBe('Genio - two')
+    bus.publish({ type: 'projects', projects: [{ name: 'one', path: 'one' }] } as GenioEvent)
     const navigate = child.webContents.on.mock.calls[0][1]
     const prevented = vi.fn()
     navigate({ preventDefault: prevented }, url)

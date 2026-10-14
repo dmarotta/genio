@@ -1,3 +1,4 @@
+import { ASSISTANT_NAME } from '@shared/assistant'
 import { chatSettings, claudeStatus, globalMode, routineDelay, wakeBatchMs } from './usage-policy'
 import { chatUsageLine } from '@shared/usage-mode'
 import { SessionCostLedger, SessionQuotaPolicy } from './session-usage'
@@ -67,7 +68,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
   const persisted = readJson<WkspState>(home.wkspFile, {})
   const info: WkspInfo = {
     name,
-    displayName: ally ? ally.name : 'Genio',
+    displayName: ASSISTANT_NAME,
     scope: ally?.scope,
     charter: ally?.charter,
     model: ally?.model,

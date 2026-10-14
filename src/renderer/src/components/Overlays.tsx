@@ -1,3 +1,4 @@
+import { ASSISTANT_NAME } from '@shared/assistant'
 import { useEffect, useState } from 'react'
 import { ShieldCheck, Trophy, X } from 'lucide-react'
 import { api, dismissToast, getState, op, setState, useStore } from '../store'
@@ -58,7 +59,7 @@ export function PermissionPrompt() {
         <header className="modal-head">
           <div>
             <div className="label" style={{ color: 'var(--amber)' }}>
-              Access request · {req.wksp === 'main' ? 'Genio' : req.wksp}
+              Access request · {ASSISTANT_NAME}
             </div>
             <h2 className="modal-title">
               <ShieldCheck size={20} style={{ verticalAlign: -3, marginRight: 8, color: 'var(--amber)' }} />

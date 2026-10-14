@@ -20,6 +20,7 @@ import { createEventRouter, type RoutedWindow } from './event-router'
 import type { GenioEvent } from '@shared/types'
 import { fitInto, isChatPopoutUrl, POPOUT_MIN, visiblePopoutBounds, type Rect } from '@shared/chat-popout'
 import { captureUserData } from './capture-isolation'
+import { windowTitle } from '@shared/window-title'
 
 // Validate before single-instance locking, Base writes, or provider startup.
 const captureData = captureUserData()
@@ -207,13 +208,15 @@ function keepPopoutVisible(child: BrowserWindow): void {
 
 function createWindow(binding?: WindowBinding, registered = false): BrowserWindow {
   const isWin = process.platform === 'win32'
+  const projectPath = binding && ctx?.projects.get(binding.project)?.path
+  let projectName = binding && (ctx?.projects.get(binding.project)?.name ?? binding.project)
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 1100,
     minHeight: 700,
     show: false,
-    title: binding ? `${binding.project} · Genio` : 'Genio',
+    title: windowTitle(projectName),
     backgroundColor: '#07090e',
     autoHideMenuBar: true,
     titleBarStyle: 'hidden',
@@ -249,6 +252,19 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
 
   // external links open in the OS browser, never inside Genio
   let chatWindow: BrowserWindow | undefined
+  // HTML navigation must not replace the native title with the static "Genio".
+  win.on('page-title-updated', event => event.preventDefault())
+  const offTitles = bus.onEvent(event => {
+    if (event.type !== 'projects' || !binding) return
+    // The folder is stable even when a project's display name changes.
+    const project = event.projects.find(p => projectPath && p.path === projectPath)
+      ?? event.projects.find(p => p.name === binding.project)
+    if (!project) return
+    projectName = project.name
+    if (!win.isDestroyed()) win.setTitle(windowTitle(projectName))
+    if (chatWindow && !chatWindow.isDestroyed()) chatWindow.setTitle(windowTitle(projectName, true))
+  })
+  win.on('closed', offTitles)
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (binding && isChatPopoutUrl(url, win.webContents.getURL())) {
       if (chatWindow && !chatWindow.isDestroyed()) { focusWindow(chatWindow); return { action: 'deny' } }
@@ -258,7 +274,7 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
         minWidth: POPOUT_MIN.width, minHeight: POPOUT_MIN.height,
         // Shown inactive once painted, so popping out never steals focus from the game or editor.
         show: false,
-        title: `Genio chat · ${binding.project}`, alwaysOnTop: true,
+        title: windowTitle(projectName, true), alwaysOnTop: true,
         frame: true, titleBarStyle: 'default', titleBarOverlay: false,
         backgroundColor: '#07090e', autoHideMenuBar: true,
         webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
@@ -269,6 +285,7 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
   })
   win.webContents.on('did-create-window', child => {
     chatWindow = child
+    child.on('page-title-updated', event => event.preventDefault())
     child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     // window.open's initial navigation happens after did-create-window.
     let loaded = false
