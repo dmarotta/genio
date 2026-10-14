@@ -2,6 +2,7 @@ import { useEffect, type ComponentType } from 'react'
 import { PROJECT_WINDOW, toggleAnswers, registerViews, useStore, type ViewId } from './store'
 import { Hub } from './views/Hub'
 import { TitleBar } from './components/TitleBar'
+import { FileMenu } from './components/FileMenu'
 import { Rail } from './components/Rail'
 import { AchievementOverlay, BootSplash, PermissionPrompt, Toasts, WelcomeBack } from './components/Overlays'
 import { CommandPalette, useGlobalKeys } from './components/CommandPalette'
@@ -44,7 +45,7 @@ export function App() {
 
   if (!PROJECT_WINDOW) return (
     <div className="app hub-app">
-      <header className="titlebar hub-titlebar"><span className="wordmark-text">GENIO</span><span className="label dim">Hub</span>{hubChoices > 0 && <button className="btn sm ghost" onClick={toggleAnswers}>Pending answers and history</button>}</header>
+      <header className="titlebar hub-titlebar"><FileMenu /><span className="wordmark-text">GENIO</span><span className="label dim">Hub</span>{hubChoices > 0 && <button className="btn sm ghost" onClick={toggleAnswers}>Pending answers and history</button>}</header>
       <div className="app-body"><main className="stage"><Hub /></main><Answers /></div>
       <Toasts />
       <BootSplash ready={booted} />

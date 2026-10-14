@@ -25,6 +25,7 @@ let openQueue: Promise<unknown> = Promise.resolve()
 const pendingLaunches: { argv: string[]; cwd: string }[] = []
 let ctx: AppCtx | undefined
 let quitting = false
+let quitConfirmed = false
 let startup: Promise<void> | undefined
 
 if (!app.requestSingleInstanceLock()) {
@@ -73,9 +74,14 @@ async function boot(): Promise<void> {
   writeLock()
   if (!process.env.GENIO_CAPTURE_DIR) ensureWindowsToastIdentity(appRoot())
   ctx = createApp(appRoot())
+  const sender = (id: number): BrowserWindow | undefined => [...windows.keys()].find(w => !w.isDestroyed() && w.webContents.id === id)
   registerIpc(getCtx, {
     openProject,
-    binding: id => [...windows].find(([w]) => w.webContents.id === id)?.[1]
+    binding: id => [...windows].find(([w]) => w.webContents.id === id)?.[1],
+    list: id => [...windows].filter(([w]) => !w.isDestroyed()).map(([w, b]) => ({ project: b?.project ?? null, current: w.webContents.id === id })),
+    openHub,
+    close: id => sender(id)?.close(),
+    quit: () => app.quit()
   })
   registerMedia()
   wireEvents()
@@ -139,11 +145,13 @@ async function launch(argv: string[], cwd: string): Promise<void> {
   if (folder) {
     await openProject(folder)
     ctx!.stats.unlock('project-cli-open')
-  } else {
-    const hub = [...windows].find(([, binding]) => !binding)?.[0]
-    if (hub) focusWindow(hub)
-    else createWindow()
-  }
+  } else openHub()
+}
+
+function openHub(): void {
+  const hub = [...windows].find(([, binding]) => !binding)?.[0]
+  if (hub) focusWindow(hub)
+  else createWindow()
 }
 
 export function openProject(folder: string): Promise<void> {
@@ -158,6 +166,7 @@ export function openProject(folder: string): Promise<void> {
       win.webContents.once('did-fail-load', (_e, _code, message) => reject(new Error(message)))
     })
     ctx!.stats.unlock('project-window-open')
+    if ([...windows.values()].filter(Boolean).length >= 2) ctx!.stats.unlock('project-windows-two')
     await startup
     await startProjectBase(ctx!, project.name, wksp)
   })
@@ -279,16 +288,8 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
     if (!binding && !last) return
     e.preventDefault()
     if (closing) return
-    const live = [...ctx.homes.values()].flatMap(h => h.crew.list()).filter(t =>
-      (!binding || t.project === binding.project) && (t.state === 'spawning' || t.terminalId && ctx!.terminals.get(t.terminalId)?.alive))
-    if (live.length) {
-      const choice = dialog.showMessageBoxSync(win, {
-        type: 'warning', buttons: ['Stop units and close', 'Cancel'], defaultId: 1, cancelId: 1,
-        title: 'Units still in play', message: `${live.length} unit${live.length === 1 ? ' is' : 's are'} still running.`,
-        detail: 'Closing stops their terminals; worktrees are kept for respawn.'
-      })
-      if (choice !== 0) return
-    }
+    // An Exit the player already confirmed covers every window's units.
+    if (!quitConfirmed && !confirmStopUnits(win, liveUnits(binding?.project), 'close')) return
     closing = true
     void (async () => {
       try {
@@ -300,6 +301,7 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
         win.close()
       } catch (error) {
         closing = false
+        quitConfirmed = false
         reportOpenError(error)
       }
     })()
@@ -371,11 +373,33 @@ async function shutdown(): Promise<void> {
   app.exit(0)
 }
 
-app.on('before-quit', (event) => {
-  if (!quitting && windows.size) {
-    event.preventDefault()
-    for (const win of windows.keys()) win.close()
+/** Units still in play, in one project or (no project) across every window. */
+function liveUnits(project?: string): unknown[] {
+  if (!ctx) return []
+  return [...ctx.homes.values()].flatMap(h => h.crew.list()).filter(t =>
+    (!project || t.project === project) && (t.state === 'spawning' || t.terminalId && ctx!.terminals.get(t.terminalId)?.alive))
+}
+
+/** The quit-while-units-run warning; true when nothing runs or the player chose to stop them. */
+function confirmStopUnits(win: BrowserWindow | null, live: unknown[], action: 'close' | 'exit'): boolean {
+  if (!live.length) return true
+  const options = {
+    type: 'warning' as const, buttons: [`Stop units and ${action}`, 'Cancel'], defaultId: 1, cancelId: 1,
+    title: 'Units still in play', message: `${live.length} unit${live.length === 1 ? ' is' : 's are'} still running.`,
+    detail: `${action === 'exit' ? 'Exiting Genio' : 'Closing'} stops their terminals; worktrees are kept for respawn.`
   }
+  return (win ? dialog.showMessageBoxSync(win, options) : dialog.showMessageBoxSync(options)) === 0
+}
+
+// Exit asks once for units in any window, then closes every window without asking again.
+app.on('before-quit', (event) => {
+  if (quitting || !windows.size) return
+  event.preventDefault()
+  if (!quitConfirmed) {
+    if (!confirmStopUnits(BrowserWindow.getFocusedWindow(), liveUnits(), 'exit')) return
+    quitConfirmed = true
+  }
+  for (const win of windows.keys()) win.close()
 })
 
 app.on('window-all-closed', () => {

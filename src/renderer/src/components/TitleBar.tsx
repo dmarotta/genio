@@ -1,6 +1,7 @@
 import { Crosshair, Users } from 'lucide-react'
 import { PROJECT_WINDOW, api, go, op, openDecisions, runningUnits, setState, toggleAnswers, useStore } from '../store'
 import { useNow } from './ui'
+import { FileMenu } from './FileMenu'
 import { PRESENCE } from '../lib/vocab'
 import { cx, usd } from '../lib/format'
 import { playSfx } from '../lib/sfx'
@@ -24,6 +25,7 @@ export function TitleBar() {
 
   return (
     <div className="titlebar">
+      <FileMenu />
       <div className="wordmark" onClick={() => go('comms')} title="Genio">
         <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden>
           <polygon points="10,1 18,5.5 18,14.5 10,19 2,14.5 2,5.5" fill="none" stroke="var(--neon)" strokeWidth="1.6" />

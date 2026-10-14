@@ -5,17 +5,9 @@ import { ENGINE_LABEL } from '../lib/vocab'
 import { useNow } from '../components/ui'
 import { AddProject, NewProject } from './ProjectSettings'
 import { worldList, type WorldSort } from '../lib/worlds'
+import { byRecent, readRecent, rememberRecent } from '../lib/recent'
 import type { WorldMetadata } from '@shared/api'
 import '../styles/hub.css'
-
-const RECENT_KEY = 'genio.hub.recent-projects'
-
-function readRecent(): string[] {
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]')
-    return Array.isArray(value) ? value.filter((p): p is string => typeof p === 'string') : []
-  } catch { return [] }
-}
 
 /** The Hub selects projects; all work and controls live in the project window. */
 export function Hub() {
@@ -38,11 +30,14 @@ export function Hub() {
       .then(entries => { if (live) setMetadata(Object.fromEntries(entries)) }).catch(() => undefined)
     return () => { live = false }
   }, [projects])
+  // Project windows' File menus open projects too; follow their recents.
+  useEffect(() => {
+    const sync = (): void => setRecent(readRecent())
+    window.addEventListener('storage', sync)
+    return () => window.removeEventListener('storage', sync)
+  }, [])
   const available = booted && connected && !opening
-  const ordered = [...projects].sort((a, b) => {
-    const rank = (path: string) => { const i = recent.indexOf(path); return i < 0 ? recent.length : i }
-    return rank(a.path) - rank(b.path) || b.addedAt.localeCompare(a.addedAt) || a.name.localeCompare(b.name)
-  })
+  const ordered = byRecent(projects, recent)
   const matching = worldList(projects, query, sort === 'recent' ? 'name' : sort, metadata)
   const visible = sort === 'recent' ? ordered.filter(project => matching.includes(project)) : matching
 
@@ -50,9 +45,7 @@ export function Hub() {
     setOpening(true)
     await op('Open project', async () => {
       await api().projectOpen(path)
-      const next = [path, ...recent.filter(p => p !== path)].slice(0, 100)
-      setRecent(next)
-      try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)) } catch { /* Storage is optional. */ }
+      setRecent(rememberRecent(path))
     })
     setOpening(false)
   }

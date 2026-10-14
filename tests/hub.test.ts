@@ -34,7 +34,7 @@ async function click(text: string) {
 
 it('shows only project selection even on first run and ignores work shortcuts', async () => {
   await render()
-  expect([...host.querySelectorAll('button')].map(b => b.textContent)).toEqual([' Open folder…', ' Add project', ' New project', ' Sync all', 'alphaC:/alphaGodot', 'betaC:/betaGodot'])
+  expect([...host.querySelectorAll('button')].map(b => b.textContent)).toEqual(['File', ' Open folder…', ' Add project', ' New project', ' Sync all', 'alphaC:/alphaGodot', 'betaC:/betaGodot'])
   await act(async () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))
     window.dispatchEvent(new KeyboardEvent('keydown', { key: '2', ctrlKey: true }))

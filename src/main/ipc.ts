@@ -9,7 +9,7 @@ import { assertPlayWindow, playService } from './play'
 import { bus } from './bus'
 import { app, BrowserWindow, dialog, ipcMain, shell, MessageChannelMain } from 'electron'
 import { createExplorerIntegration, explorerCommand } from './explorer'
-import { API_PREFIX, type GenioApi } from '@shared/api'
+import { API_PREFIX, type GenioApi, type WindowList } from '@shared/api'
 import type { Task } from '@shared/types'
 import { listAccounts, openAccountSession } from './accounts'
 import { answerChoice, clarifyChoice, applyRecommendations, findDecision, findTask } from './wksp-tools'
@@ -23,7 +23,17 @@ import { projectSnapshot, terminalProject, type WindowBinding } from './project-
 
 type Handlers ={ [K in keyof GenioApi]: (...args: Parameters<GenioApi[K]>) => ReturnType<GenioApi[K]> | Awaited<ReturnType<GenioApi[K]>> }
 
-export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder: string): Promise<void>; binding(senderId: number): WindowBinding | undefined }): void {
+/** The window manager as IPC sees it; sender ids are the calling window's webContents id. */
+export interface IpcWindows {
+  openProject(folder: string): Promise<void>
+  binding(senderId: number): WindowBinding | undefined
+  list(senderId: number): WindowList['windows']
+  openHub(): void
+  close(senderId: number): void
+  quit(): void
+}
+
+export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
   const ctx = (): AppCtx => getCtx()
   const explorer = createExplorerIntegration(explorerCommand(process.execPath, process.defaultApp ? app.getAppPath() : undefined))
   const inventoryClients = new Map<number, Set<string>>()
@@ -102,6 +112,11 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
       const r = win ? await dialog.showOpenDialog(win, { properties: ['openDirectory'] }) : await dialog.showOpenDialog({ properties: ['openDirectory'] })
       return r.canceled || !r.filePaths[0] ? null : r.filePaths[0]
     },
+    // The caller's window is resolved from the IPC sender below.
+    windowList: () => ({ projects: ctx().projects.list().map(({ name, path, addedAt }) => ({ name, path, addedAt })), windows: [] }),
+    windowOpenHub: async () => windows?.openHub(),
+    windowClose: async () => { throw new Error('Closing requires the calling window') },
+    appQuit: async () => windows ? windows.quit() : app.quit(),
     openPath: async (p) => {
       await shell.openPath(p)
     },
@@ -287,6 +302,8 @@ export function registerIpc(getCtx: () => AppCtx, windows?: { openProject(folder
           catch (error) { worlds.delete(world); throw error }
           finally { closeUnusedInventory(world) }
         }
+        if (windows && method === 'windowList') return { ...(await h.windowList()), windows: windows.list(_e.sender.id) }
+        if (windows && method === 'windowClose') return windows.close(_e.sender.id)
         const binding = windows?.binding(_e.sender.id)
         if (windows && !binding && ['sendChat', 'recap', 'save', 'restartWksp', 'interruptWksp', 'unqueueChat', 'approveGeneration'].includes(method)) throw new Error('Open a project window to use its chat.')
         if (method.startsWith('play') && method !== 'playtest') {

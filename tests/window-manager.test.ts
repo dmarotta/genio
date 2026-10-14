@@ -2,12 +2,12 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { bus } from '../src/main/bus'
 import type { GenioEvent } from '../src/shared/types'
 
-const f = vi.hoisted(() => ({ windows: [] as any[], ctx: undefined as any, app: undefined as any, screen: undefined as any, popouts: undefined as any, choice: 1, stop: vi.fn(async () => {}), start: vi.fn(async () => {}), terminalData: undefined as any }))
+const f = vi.hoisted(() => ({ windows: [] as any[], ctx: undefined as any, app: undefined as any, screen: undefined as any, popouts: undefined as any, choice: 1, prompts: 0, ipc: undefined as any, stop: vi.fn(async () => {}), start: vi.fn(async () => {}), terminalData: undefined as any }))
 vi.mock('../src/main/ctx', () => ({
   createApp: () => f.ctx, getCtx: () => f.ctx, startApp: async () => {}, stopApp: async () => {},
   ensureProjectBase: async (_ctx: unknown, project: string) => `ally-${project}`, startProjectBase: f.start, stopProjectBase: f.stop
 }))
-vi.mock('../src/main/ipc', () => ({ registerIpc: () => {} }))
+vi.mock('../src/main/ipc', () => ({ registerIpc: (_ctx: unknown, windows: unknown) => { f.ipc = windows } }))
 vi.mock('../src/main/win-identity', () => ({ ensureWindowsToastIdentity: () => {}, setWindowsAppId: () => {} }))
 vi.mock('../src/main/fal-service', () => ({ MEDIA_SCHEME: 'genio-media', mediaResponse: () => {} }))
 vi.mock('../src/main/chat-images', () => ({ chatImageDir: () => '', chatImagePath: () => undefined }))
@@ -28,6 +28,7 @@ vi.mock('electron', async () => {
     destroy() { this.destroyed = true; this.emit('closed') }
     isMinimized = () => false
     isDestroyed = () => this.destroyed
+    static getFocusedWindow() { return null }
     constructor(_options: unknown) { super(); f.windows.push(this) }
     async loadFile(_file: string, options: any) { this.query = options.query; queueMicrotask(() => this.webContents.emit('did-finish-load')) }
     close() {
@@ -40,7 +41,7 @@ vi.mock('electron', async () => {
     displays: [{ workArea: { x: 0, y: 0, width: 1920, height: 1040 } }, { workArea: { x: 1920, y: 0, width: 1280, height: 984 } }],
     getAllDisplays() { return this.displays }, getPrimaryDisplay() { return this.displays[0] }
   })
-  return { app: f.app, BrowserWindow: Window, screen: f.screen, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, shell: {}, dialog: { showMessageBoxSync: () => f.choice, showErrorBox: vi.fn() } }
+  return { app: f.app, BrowserWindow: Window, screen: f.screen, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, shell: {}, dialog: { showMessageBoxSync: () => { f.prompts++; return f.choice }, showErrorBox: vi.fn() } }
 })
 
 let openProject: (folder: string) => Promise<void>
@@ -69,9 +70,11 @@ describe('project window lifecycle', () => {
     expect(f.windows[1].focus).toHaveBeenCalledOnce()
     expect(f.ctx.stats.unlock).toHaveBeenCalledWith('project-window-open')
     expect(f.start).toHaveBeenCalledExactlyOnceWith(f.ctx, 'one', 'ally-one')
+    expect(f.ctx.stats.unlock).not.toHaveBeenCalledWith('project-windows-two')
   })
   it('coalesces a chat stream for its project window and keeps chat traffic off the Hub and other projects', async () => {
     await openProject('two')
+    expect(f.ctx.stats.unlock).toHaveBeenCalledWith('project-windows-two')
     for (const w of f.windows) w.webContents.send.mockClear()
     bus.publish({ type: 'chat-delta', wksp: 'ally-one', id: 'chat', text: 'one ' })
     bus.publish({ type: 'chat-delta', wksp: 'ally-one', id: 'chat', text: 'only' })
@@ -156,5 +159,43 @@ describe('notification click routing', () => {
     await vi.waitFor(() => expect(owner.webContents.send.mock.calls.filter((c: any[]) => c[1].type === 'navigate')).toHaveLength(2))
     expect(f.windows).toHaveLength(count)
     snapshot.decisions = []
+  })
+})
+
+describe('File menu window controls', () => {
+  const open = () => f.windows.filter(w => !w.destroyed)
+  it('lists open windows for the caller, opens or focuses the Hub and closes only the calling window', async () => {
+    const [two, one] = open()
+    expect(f.ipc.list(two.webContents.id)).toEqual([{ project: 'two', current: true }, { project: 'one', current: false }])
+    f.ipc.openHub()
+    const hub = f.windows.at(-1)
+    expect(hub.query).toEqual({})
+    const count = f.windows.length
+    f.ipc.openHub()
+    expect(f.windows).toHaveLength(count)
+    expect(hub.focus).toHaveBeenCalledOnce()
+    expect(f.ipc.list(hub.webContents.id)).toEqual([{ project: 'two', current: false }, { project: 'one', current: false }, { project: null, current: true }])
+    f.ipc.close(hub.webContents.id)
+    expect(hub.destroyed).toBe(true)
+    expect(open()).toEqual([two, one])
+    f.ipc.quit()
+    expect(f.app.quit).toHaveBeenCalledOnce()
+  })
+  it('asks once before Exit stops units in any window, then closes every window without asking again', async () => {
+    f.stop.mockClear()
+    f.prompts = 0
+    f.choice = 1
+    const cancelled = { preventDefault: vi.fn() }
+    f.app.emit('before-quit', cancelled)
+    expect(cancelled.preventDefault).toHaveBeenCalledOnce()
+    expect(f.prompts).toBe(1)
+    expect(open()).toHaveLength(2)
+    expect(f.stop).not.toHaveBeenCalled()
+    f.choice = 0
+    f.app.emit('before-quit', { preventDefault: vi.fn() })
+    await vi.waitFor(() => expect(open()).toEqual([]))
+    expect(f.prompts).toBe(2)
+    expect(f.stop).toHaveBeenCalledWith(f.ctx, 'one', 'ally-one')
+    expect(f.stop).toHaveBeenCalledWith(f.ctx, 'two', 'ally-two')
   })
 })

@@ -437,6 +437,14 @@ export interface GenioApi {
   toolchain(): Promise<ToolStatus[]>
   installTool(name: string): Promise<OpResult>
   pickDirectory(): Promise<string | null>
+  /** File menu: registered projects and every open window (project null = the Hub) */
+  windowList(): Promise<WindowList>
+  /** File menu: focus the Hub, opening it when closed */
+  windowOpenHub(): Promise<void>
+  /** File menu: close the calling window through its usual unit guard */
+  windowClose(): Promise<void>
+  /** File menu: quit Genio after one confirmation when units run in any window */
+  appQuit(): Promise<void>
   openPath(path: string): Promise<void>
   openExternal(url: string): Promise<void>
 
@@ -554,6 +562,10 @@ export interface GenioApi {
 }
 
 export interface ExplorerStatus { available: boolean; installed: boolean; present: boolean }
+export interface WindowList {
+  projects: Pick<Project, 'name' | 'path' | 'addedAt'>[]
+  windows: { project: string | null; current: boolean }[]
+}
 export type MemoryFile = 'player' | 'lore' | 'player-shared'
 export interface MemoryReport { tokens: number; budget: number; overBudget: boolean; stale: string[]; files: { file: string; tokens: number }[] }
 
@@ -575,6 +587,10 @@ export const API_METHODS = [
   'toolchain',
   'installTool',
   'pickDirectory',
+  'windowList',
+  'windowOpenHub',
+  'windowClose',
+  'appQuit',
   'openPath',
   'openExternal',
   'modelCatalogue',
