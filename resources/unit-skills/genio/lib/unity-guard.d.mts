@@ -3,6 +3,7 @@ export const RULE: string
 export const GUARD_MATCHER: string
 export function canonicalPath(value: string, cwd?: string): string
 export function unityPoolPaths(config: UnityUnitConfig): { dir: string; copies: string }
+export function playerUnityRoots(config: UnityUnitConfig): string[]
 export function leasedUnityRoots(config: UnityUnitConfig, options?: { now?: number; isAlive?: (pid: number) => boolean }): string[]
 export function loadGuardConfig(file: string): UnityUnitConfig
 export function rawUnityReason(command: string): string | undefined

@@ -34,6 +34,14 @@ const tool = (name: string, args: Record<string, unknown>, extra = {}): string |
   guardTool({ tool_name: name, tool_input: args, cwd: c.worktree, ...extra }, c, { isAlive: pid => pid === 11 })
 
 describe('Claude PreToolUse denial', () => {
+  it('fences the player copy on any volume, even if a corrupt lease also names it', () => {
+    const player = path.join(tmp, 'placed-player/Game'), dir = path.join(c.play.data, 'player-copies', 'project')
+    fs.mkdirSync(dir, { recursive: true }); fs.mkdirSync(player, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'instance.json'), JSON.stringify({ version: 1, root: player }))
+    expect(tool('Read', { file_path: path.join(player, 'Assets/new.cs') })).toContain("player's Play copy")
+    expect(tool('PowerShell', { command: `Get-Content "${player}/Assets/new.cs"` })).toContain("player's Play copy")
+    expect(tool('Read', { file_path: path.join(tmp, 'placed-player-sibling/new.cs') })).toBeUndefined()
+  })
   it.each(['unity test', 'Unity status', '& unity test', 'cmd /c unity test', 'powershell -Command "unity test"', 'bash -lc "unity test"', 'echo $(unity test)', 'FOO=1 unity test',
     '"C:/Unity/Editor/Unity.exe" -projectPath "C:/main"', 'Start-Process "Unity Hub.exe"',
     'node -e "spawn(\'Unity.exe\')"', 'something -batchmode', 'something -runTests', 'something -executeMethod Foo'])('denies %s even in bypass mode', command => {
@@ -148,6 +156,15 @@ describe('process watch (fake process snapshots only)', () => {
   const watch = () => createUnityProcessWatch({ list: async () => [...snapshot], killVerified: async process => {
     killed.push(process.pid); snapshot = snapshot.filter(p => p.pid !== process.pid); return true
   } })
+
+  it('never allows a unit target that is registered as a player copy, while leaving the real player editor alone', async () => {
+    const player = path.join(c.worktree, 'Game'), dir = path.join(c.play.data, 'player-copies', 'project')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'instance.json'), JSON.stringify({ version: 1, root: player }))
+    snapshot.push(editor(20, 10, player), editor(21, 1, player))
+    await watch().poll([root], notify)
+    expect(killed).toEqual([20])
+  })
 
   it('stops only a proven unit editor on main/foreign targets, never player editors or Toolbox', async () => {
     snapshot.push(editor(20, 10, path.join(c.play.world, 'Game')), editor(21, 1, path.join(c.play.world, 'Game')),

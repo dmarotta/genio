@@ -3,17 +3,22 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { Project } from '../src/shared/types'
-import type { PlayPoolState } from '../src/shared/play'
+import type { PlayPoolState, PlayerInstanceStatus, PlayerMachineStatus } from '../src/shared/play'
 const fixture = vi.hoisted(() => ({
   projects: [] as Project[],
   pool: undefined as unknown as PlayPoolState,
-  playPool: vi.fn(), playPoolCap: vi.fn(), playPoolLaunch: vi.fn(), playPoolDisk: vi.fn(), playPoolEstimate: vi.fn(), playCloseSlotEditor: vi.fn()
+  playPool: vi.fn(), playPoolCap: vi.fn(), playPoolLaunch: vi.fn(), playPoolDisk: vi.fn(), playPoolEstimate: vi.fn(), playCloseSlotEditor: vi.fn(),
+  player: { state: 'idle', project: 'Zebra' } as PlayerInstanceStatus,
+  machine: { settings: { idleMinutes: 10, maxEditors: 2 }, playerEditors: 0, unitEditors: 1, batchEditors: 1, totalEditors: 2, workingSetBytes: 5 * 2 ** 30, freeBytes: 14 * 2 ** 30, totalBytes: 32 * 2 ** 30 } as PlayerMachineStatus,
+  playerInstanceSettings: vi.fn()
 }))
 vi.mock('../src/renderer/src/store', () => ({
   useStore: (selector: (s: unknown) => unknown) => selector({ settings: {}, snap: { projects: fixture.projects, tasks: [{ id: 'task-7', title: 'fix-jump', project: 'Zebra', state: 'working' }], allies: [], inbox: [] } }),
   PROJECT_WINDOW: 'Zebra', saveSettings: vi.fn(),
   api: () => ({ homePath: async () => '', falWorld: async () => ({ config: {} }), uthanaWorld: async () => ({ config: {} }), projectMetadata: async () => ({}), projectPushStatus: async () => ({ ahead: 0, behind: 0 }),
-    playPool: fixture.playPool, playPoolCap: fixture.playPoolCap, playPoolLaunch: fixture.playPoolLaunch, playPoolDisk: fixture.playPoolDisk, playPoolEstimate: fixture.playPoolEstimate, playCloseSlotEditor: fixture.playCloseSlotEditor }),
+    playPool: fixture.playPool, playPoolCap: fixture.playPoolCap, playPoolLaunch: fixture.playPoolLaunch, playPoolDisk: fixture.playPoolDisk, playPoolEstimate: fixture.playPoolEstimate, playCloseSlotEditor: fixture.playCloseSlotEditor,
+    playerInstanceStatus: async () => fixture.player, playerInstanceMachine: async () => fixture.machine, playerInstanceSettings: fixture.playerInstanceSettings,
+    playerCopySizes: async () => ({ totalBytes: 2 * 2 ** 30 }) }),
   hasView: () => false, go: vi.fn(), openDeploy: vi.fn(),
   op: async (_: string, fn: () => unknown) => fn(), setState: vi.fn(), toast: vi.fn(), errText: String
 }))
@@ -27,6 +32,7 @@ async function mount(engine: Project['engine']) {
   fixture.playPool.mockImplementation(async () => fixture.pool)
   fixture.playPoolDisk.mockResolvedValue({ 1: 2 * 1024 ** 3, 2: 1024 ** 3, 3: 3 * 1024 ** 3 })
   fixture.playPoolCap.mockImplementation(async (_: string, cap: number) => { fixture.pool = { ...fixture.pool, cap }; return { cap, draining: [] } })
+  fixture.playerInstanceSettings.mockImplementation(async (_: string, patch: object) => { fixture.machine.settings = { ...fixture.machine.settings, ...patch }; return fixture.machine.settings })
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
   await act(async () => root!.render(React.createElement(ThisProjectSettings)))
 }
@@ -34,6 +40,19 @@ afterEach(async () => { if (root) await act(async () => root!.unmount()); root =
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
 describe('Settings › This project › Unity slots', () => {
+  it('shows the player idle time, global editor limit, and machine RAM including batch editors', async () => {
+    fixture.pool = { cap: 1, queue: [], slots: [] }
+    await mount('unity')
+    expect(host.textContent).toContain('Genio Unity editors: 2 running (1 unit slots, 0 player, 1 batch)')
+    expect(host.textContent).toContain('5.0 GB · 14.0 GB free of 32.0 GB')
+    const idle = host.querySelector('[aria-label="Player idle minutes"]') as HTMLInputElement
+    expect(idle.value).toBe('10')
+    const cap = host.querySelector('[aria-label="Maximum player editors"]') as HTMLSelectElement
+    expect(cap.value).toBe('2')
+    await act(async () => { cap.value = '3'; cap.dispatchEvent(new Event('change', { bubbles: true })) })
+    expect(fixture.playerInstanceSettings).toHaveBeenCalledWith('Zebra', { maxEditors: 3 })
+    fixture.machine.settings.maxEditors = 2
+  })
   it('appears for Unity projects with the cap, every slot state, the queue and disk per slot', async () => {
     fixture.pool = { cap: 2, queue: ['unit:task-9'], slots: [
       slot(1, { owner: 'unit:task-7', expires: 1, editor: true }),

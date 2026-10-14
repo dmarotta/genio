@@ -34,6 +34,7 @@ export interface MirrorReport {
   elapsedMs: number; scanMs: number
 }
 export interface MirrorOptions {
+  beforeApply?: (restart: RestartAdvice) => Promise<void>
   signal?: AbortSignal
   onProgress?: (progress: MirrorProgress) => void
   /** Tests: a slow or failing copy. */

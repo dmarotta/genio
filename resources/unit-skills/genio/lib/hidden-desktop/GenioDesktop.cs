@@ -13,6 +13,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Management;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -49,6 +50,7 @@ static class GenioDesktop
     [DllImport("kernel32.dll")] static extern uint WaitForSingleObject(IntPtr handle, uint ms);
     [DllImport("kernel32.dll")] static extern bool GetExitCodeProcess(IntPtr process, out uint code);
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern bool TerminateProcess(IntPtr process, uint code);
 
     const uint GENERIC_ALL = 0x10000000;
     const uint WM_GETTEXT = 0x000D, WM_GETTEXTLENGTH = 0x000E, WM_CLOSE = 0x0010, BM_CLICK = 0x00F5;
@@ -97,10 +99,11 @@ static class GenioDesktop
     {
         string name = Arg(args, "desktop"), cwd = Arg(args, "cwd"), dir = Arg(args, "dir");
         string command = Encoding.UTF8.GetString(Convert.FromBase64String(Arg(args, "command")));
-        IntPtr desktop = CreateDesktop(name, IntPtr.Zero, IntPtr.Zero, 0, GENERIC_ALL, IntPtr.Zero);
+        bool visible = args.ContainsKey("visible") && args["visible"] == "true";
+        IntPtr desktop = visible ? OpenDesktop("Default", 0, false, GENERIC_ALL) : CreateDesktop(name, IntPtr.Zero, IntPtr.Zero, 0, GENERIC_ALL, IntPtr.Zero);
         if (desktop == IntPtr.Zero) return Fail("desktop", Marshal.GetLastWin32Error(), "CreateDesktop failed");
         string path = Station() + "\\" + name;
-        var startup = new STARTUPINFO(); startup.cb = Marshal.SizeOf(startup); startup.lpDesktop = path;
+        var startup = new STARTUPINFO(); startup.cb = Marshal.SizeOf(startup); startup.lpDesktop = visible ? null : path;
         PROCESS_INFORMATION info;
         // No inherited handles: the editor never holds Genio's pipes. A null environment inherits ours,
         // which is exactly the environment the caller gave this helper. CREATE_NO_WINDOW keeps a console
@@ -118,12 +121,84 @@ static class GenioDesktop
         Console.Out.Flush();
         // The caller stops reading after that line; nothing else is written to stdout.
         try { Console.Out.Close(); } catch { }
-        WaitForSingleObject(info.hProcess, 0xFFFFFFFF);
+        Process owner = null;
+        if (args.ContainsKey("owner") && args.ContainsKey("owner-created"))
+        {
+            try
+            {
+                owner = Process.GetProcessById(int.Parse(args["owner"]));
+                var pinned = owner.Handle; // Pin before reading creation time: PID reuse cannot inherit ownership.
+                if ((owner.StartTime.ToFileTimeUtc() / 10 * 10).ToString() != args["owner-created"]) { owner.Dispose(); owner = null; }
+            }
+            catch { if (owner != null) owner.Dispose(); owner = null; }
+        }
+        DateTime? missingSince = null;
+        while (WaitForSingleObject(info.hProcess, 1000) == 258)
+        {
+            if (!args.ContainsKey("owner")) continue; // Unit slots retain their existing ownership rules.
+            bool gone = owner == null;
+            if (owner != null) { try { gone = owner.HasExited; } catch { gone = true; } }
+            if (!gone) { missingSince = null; continue; }
+            if (!missingSince.HasValue) missingSince = DateTime.UtcNow;
+            if ((DateTime.UtcNow - missingSince.Value).TotalSeconds < 120) continue;
+            try { File.WriteAllText(Path.Combine(dir, "watchdog.json"), "{\"reason\":\"Genio owner exited\",\"pid\":" + info.dwProcessId + "}"); } catch { }
+            foreach (var hwnd in TopLevel(desktop))
+            {
+                uint pid; GetWindowThreadProcessId(hwnd, out pid);
+                if (pid == info.dwProcessId) PostMessage(hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+            }
+            if (WaitForSingleObject(info.hProcess, 30000) == 258)
+            {
+                StopWatchdogChildren(info.dwProcessId, creation);
+                // The original CreateProcess handle proves this is exactly the launched editor.
+                TerminateProcess(info.hProcess, 1);
+            }
+        }
+        if (owner != null) owner.Dispose();
         uint code; GetExitCodeProcess(info.hProcess, out code);
         CloseHandle(info.hProcess);
         try { File.WriteAllText(Path.Combine(dir, "exit.json"), "{\"pid\":" + info.dwProcessId + ",\"exitCode\":" + code + ",\"at\":" + Json(DateTime.UtcNow.ToString("o")) + "}"); } catch { }
         CloseDesktop(desktop);
         return 0;
+    }
+
+    // Snapshot descendant identities before stopping; handle-pinned StartTime checks protect against PID reuse.
+    // Never terminate a shared licence client or an editor naming another project.
+    static void StopWatchdogChildren(int root, long rootCreated)
+    {
+        var parents = new Dictionary<int, long>(); parents[root] = rootCreated;
+        var children = new List<Process>();
+        try
+        {
+            using (var search = new ManagementObjectSearcher("SELECT ProcessId,ParentProcessId,CreationDate,CommandLine FROM Win32_Process"))
+            using (var rows = search.Get())
+            {
+                bool grew = true;
+                while (grew)
+                {
+                    grew = false;
+                    foreach (ManagementObject row in rows)
+                    {
+                        int pid = Convert.ToInt32(row["ProcessId"]), parent = Convert.ToInt32(row["ParentProcessId"]);
+                        if (parents.ContainsKey(pid) || !parents.ContainsKey(parent)) continue;
+                        string cmd = Convert.ToString(row["CommandLine"]);
+                        if (cmd.IndexOf("Unity.Licensing.Client", StringComparison.OrdinalIgnoreCase) >= 0 || cmd.IndexOf("-projectPath", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                        try
+                        {
+                            long born = ManagementDateTimeConverter.ToDateTime(Convert.ToString(row["CreationDate"])).ToUniversalTime().ToFileTimeUtc();
+                            if (born / 10 < parents[parent] / 10) continue;
+                            var p = Process.GetProcessById(pid); var pinned = p.Handle;
+                            if (p.StartTime.ToFileTimeUtc() / 10 != born / 10) { p.Dispose(); continue; }
+                            parents[pid] = born; children.Add(p); grew = true;
+                        }
+                        catch { }
+                    }
+                }
+            }
+            for (int at = children.Count - 1; at >= 0; at--) { try { children[at].Kill(); } catch { } }
+        }
+        catch { }
+        finally { foreach (var child in children) child.Dispose(); }
     }
 
     static int Fail(string stage, int error, string message)

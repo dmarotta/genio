@@ -51,7 +51,7 @@ export async function helperExecutable(data, { source = HELPER_SOURCE, compiler 
 }
 
 function compileWithCsc(compiler, source, out) {
-  return new Promise((resolve, reject) => execFile(compiler, ['/nologo', '/target:winexe', '/optimize+', '/r:System.Drawing.dll', `/out:${out}`, source], { windowsHide: true, timeout: 120_000 },
+  return new Promise((resolve, reject) => execFile(compiler, ['/nologo', '/target:winexe', '/optimize+', '/r:System.Drawing.dll', '/r:System.Management.dll', `/out:${out}`, source], { windowsHide: true, timeout: 120_000 },
     (error, stdout) => error ? reject(new Error(`could not build the hidden-desktop helper: ${String(stdout).trim() || error.message}`)) : resolve()))
 }
 
@@ -92,11 +92,14 @@ export function createDesktopApi(data, { compiler = cscPath(), compile } = {}) {
   return {
     available: () => process.platform === 'win32' && !!compiler,
     /** Starts `command` on a new desktop; resolves {ok, pid, created, desktop, helper} or {ok: false, stage, message}. */
-    async launch({ name, command, cwd, env, dir }) {
+    async launch({ name, command, cwd, env, dir, owner, visible }) {
       const file = await helper()
       return new Promise(resolve => {
         // Detached: the helper owns the desktop for the editor's whole life, whoever launched it.
-        const child = spawn(file, ['launch', '--desktop', name, '--cwd', cwd, '--command', Buffer.from(command, 'utf8').toString('base64'), '--dir', dir], { detached: true, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'], env })
+        const args = ['launch', '--desktop', name, '--cwd', cwd, '--command', Buffer.from(command, 'utf8').toString('base64'), '--dir', dir]
+        if (owner?.pid && /^\d+$/.test(owner.created)) args.push('--owner', String(owner.pid), '--owner-created', owner.created)
+        if (visible) args.push('--visible', 'true')
+        const child = spawn(file, args, { detached: true, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'], env })
         let done = false
         const finish = v => { if (done) return; done = true; clearTimeout(timer); lines.close(); child.stdout.destroy(); child.unref(); resolve(v) }
         const timer = setTimeout(() => { try { child.kill() } catch { /* gone */ } finish({ ok: false, stage: 'helper', message: 'the hidden-desktop helper did not answer' }) }, LAUNCH_TIMEOUT_MS)
@@ -137,9 +140,9 @@ function pruneLaunches(data, now = Date.now()) {
  * arguments and environment either way. Resolves the editor identity the pool records:
  * { pid, created, hidden, desktop?, dir?, helper?, warning? }. created is '' when unknown.
  */
-export async function launchEditor({ file, args, cwd = process.cwd(), env = process.env, data, visible = false, label = 'slot', api, spawnVisible = defaultSpawnVisible }) {
+export async function launchEditor({ file, args, cwd = process.cwd(), env = process.env, data, visible = false, label = 'slot', api, spawnVisible = defaultSpawnVisible, owner }) {
   let warning
-  if (visible) return { pid: await spawnVisible(file, args, { env }), created: '', hidden: false }
+  if (visible && !owner) return { pid: await spawnVisible(file, args, { env, cwd }), created: '', hidden: false }
   api ??= createDesktopApi(data)
   if (!api.available()) warning = process.platform === 'win32' ? 'the .NET Framework C# compiler (csc.exe) is missing' : 'hidden desktops exist only on Windows'
   else {
@@ -148,13 +151,21 @@ export async function launchEditor({ file, args, cwd = process.cwd(), env = proc
     try {
       pruneLaunches(data)
       fs.mkdirSync(dir, { recursive: true })
-      const v = await api.launch({ name, command: windowsCommandLine(file, args), cwd, env, dir })
-      if (v?.ok && Number.isInteger(v.pid) && v.pid > 0) return { pid: v.pid, created: typeof v.created === 'string' && /^\d+$/.test(v.created) ? v.created : '', hidden: true, desktop: v.desktop || name, dir, helper: v.helper }
+      const v = await api.launch({ name, command: windowsCommandLine(file, args), cwd, env, dir, owner, visible })
+      if (v?.ok && Number.isInteger(v.pid) && v.pid > 0) return { pid: v.pid, created: typeof v.created === 'string' && /^\d+$/.test(v.created) ? v.created : '', hidden: !visible, ...(!visible ? { desktop: v.desktop || name } : {}), dir, helper: v.helper }
       warning = v?.message ?? 'the hidden-desktop helper failed'
     } catch (e) { warning = e.message }
+    // A player editor must retain its parent watchdog during visible recovery too.
+    if (owner && !visible) {
+      try {
+        const v = await api.launch({ name, command: windowsCommandLine(file, args), cwd, env, dir, owner, visible: true })
+        if (v?.ok && Number.isInteger(v.pid) && v.pid > 0 && /^\d+$/.test(v.created)) return { pid: v.pid, created: v.created, hidden: false, dir, helper: v.helper, warning: `Opened the player editor visibly: ${warning}.` }
+      } catch { /* Refuse an unwatched player editor below. */ }
+    }
     fs.rmSync(dir, { recursive: true, force: true })
   }
-  const pid = await spawnVisible(file, args, { env })
+  if (owner) throw new Error(`Cannot launch a watched player editor: ${warning ?? 'the desktop helper failed'}`)
+  const pid = await spawnVisible(file, args, { env, cwd })
   return { pid, created: '', hidden: false, warning: `Opened the slot editor visibly: ${warning}.` }
 }
 

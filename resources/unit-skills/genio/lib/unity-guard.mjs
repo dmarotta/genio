@@ -32,6 +32,18 @@ export function unityPoolPaths(c) {
   return { dir, copies }
 }
 
+/** All player copies are forbidden to units, including a copy placed on another volume. */
+export function playerUnityRoots(c) {
+  const dir = path.join(c.play.data, 'player-copies'), out = []
+  try {
+    for (const name of fs.readdirSync(dir)) {
+      const rec = read(path.join(dir, name, 'instance.json'))
+      if (rec?.version === 1 && typeof rec.root === 'string') out.push(canonicalPath(rec.root))
+    }
+  } catch { /* none yet */ }
+  return out
+}
+
 /** Read-only pool snapshot: no lease renewal, stale cleanup, or editor shutdown. */
 export function leasedUnityRoots(c, { now = Date.now(), isAlive = alive } = {}) {
   try {
@@ -39,7 +51,7 @@ export function leasedUnityRoots(c, { now = Date.now(), isAlive = alive } = {}) 
     const state = read(path.join(dir, 'state.json'))
     return (state?.slots ?? []).filter(s => Number.isInteger(s.id) && s.id >= 1 && s.id <= 8 &&
       !s.closing && !s.stuck && s.lease?.owner === `unit:${c.task}` && s.lease.expires > now && isAlive(s.lease.pid))
-      .map(s => canonicalPath(path.join(copies, `slot-${s.id}`, c.engineRoot)))
+      .map(s => canonicalPath(path.join(copies, `slot-${s.id}`, c.engineRoot))).filter(root => !playerUnityRoots(c).includes(root))
   } catch { return [] }
 }
 
@@ -84,10 +96,12 @@ export function guardTool(input, c, options = {}) {
   if (raw) return `${raw} ${RULE}`
   const main = canonicalPath(c.play.world), own = canonicalPath(c.worktree)
   const leases = leasedUnityRoots(c, options)
+  const players = playerUnityRoots(c)
   function denied(value, at = cwd, git = false) {
     if (typeof value !== 'string' || !value || value.startsWith('-') && !value.includes('=')) return undefined
     const name = value.includes('=') && value.startsWith('-') ? value.slice(value.indexOf('=') + 1) : value
     const p = canonicalPath(name, at)
+    if (players.some(root => inside(p, root))) return `The player's Play copy is forbidden to units. ${RULE}`
     if (/(?:^|\/)\.unity-pipeline-port$/i.test(p) && !leases.some(root => p === root + '/library/pipeline/.unity-pipeline-port' || p === root + '/Library/Pipeline/.unity-pipeline-port')) return `Pipeline descriptors may be read only in your live leased slot. ${RULE}`
     if (inside(p, own)) return undefined
     if (inside(p, main) && !(git && inside(p, main + '/.git'))) return `The main project folder is forbidden to units. ${RULE}`

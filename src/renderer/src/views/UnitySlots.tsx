@@ -3,6 +3,7 @@ import { ownerLabel, slotStatus, slotsInUse, UNITY_SLOTS_ANCHOR, type PlayPoolSt
 import type { Task } from '@shared/types'
 import { api, errText, useStore } from '../store'
 import { Confirm, Field } from '../components/ui'
+import { PlayerInstanceSettings } from './PlayerInstanceSettings'
 
 const CAPS = [1, 2, 3, 4, 5, 6, 7, 8]
 const gb = (bytes: number): string => bytes < 1024 ** 3 ? `${Math.round(bytes / 1024 ** 2)} MB` : `${(bytes / 1024 ** 3).toFixed(1)} GB`
@@ -98,6 +99,7 @@ export function UnitySlots({ world }: { world: string }) {
         {estimate !== undefined && <span className="mute">About {gb(estimate)} per new slot, plus future imports. Only committed files are copied; preparing can take several minutes.</span>}
       </div>
     </>}
+    <PlayerInstanceSettings world={world} />
     {closing && <Confirm
       title={`Close the Unity editor in slot ${closing.id}?`}
       tone="alert"

@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { createHash } from 'node:crypto'
 import type { UnityUnitConfig } from './unity-unit'
-import { GUARD_MATCHER, RULE, canonicalPath, leasedUnityRoots, loadGuardConfig, rawUnityReason, recordUnityIncident, unityPoolPaths } from '../../resources/unit-skills/genio/lib/unity-guard.mjs'
+import { GUARD_MATCHER, RULE, canonicalPath, leasedUnityRoots, loadGuardConfig, playerUnityRoots, rawUnityReason, recordUnityIncident, unityPoolPaths } from '../../resources/unit-skills/genio/lib/unity-guard.mjs'
 import { listProcesses } from '../../resources/unit-skills/genio/skills/play/scripts/pool.mjs'
 import { stripAnsi } from './util'
 
@@ -125,15 +125,17 @@ export function createUnityProcessWatch(system: UnityWatchSystem = windowsSystem
           const target = project && path.isAbsolute(project) ? canonicalPath(project) : undefined
           const main = canonicalPath(path.join(c.play.world, c.engineRoot))
           const own = canonicalPath(path.join(c.worktree, c.engineRoot))
-          if (target !== main && poolOwnsEditor(c, target, p)) continue
+          const player = target && playerUnityRoots(c).includes(target)
+          if (!player && target !== main && poolOwnsEditor(c, target, p)) continue
           const allowed = leasedUnityRoots(c, { isAlive: pid => byPid.has(pid) })
-          if (target && target !== main && (target === own || allowed.includes(target))) continue
+          if (!player && target && target !== main && (target === own || allowed.includes(target))) continue
           // Refresh before termination: a moved target or reused PID never inherits a kill decision.
           const refreshed = await system.list()
           const fresh = refreshed.find(q => q.pid === p.pid)
           if (stopped || current !== generation || !fresh || !sameProcess(fresh, p) || fresh.command !== p.command) continue
-          if (target !== main && poolOwnsEditor(c, target, fresh)) continue
-          if (target && target !== main && leasedUnityRoots(c, { isAlive: pid => refreshed.some(q => q.pid === pid) }).includes(target)) continue
+          const stillPlayer = target && playerUnityRoots(c).includes(target)
+          if (!stillPlayer && target !== main && poolOwnsEditor(c, target, fresh)) continue
+          if (!stillPlayer && target && target !== main && leasedUnityRoots(c, { isAlive: pid => refreshed.some(q => q.pid === pid) }).includes(target)) continue
           const killed = await system.killVerified(fresh)
           if (!killed) continue
           const reason = `Stopped unit-spawned Unity editor outside your allowed targets (PID ${p.pid}, project ${(project ?? 'unspecified').replace(/[\r\n]/g, ' ')}). ${RULE}`

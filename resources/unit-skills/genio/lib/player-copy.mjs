@@ -199,7 +199,7 @@ export class PlayerCopies {
         const seeding = !fs.existsSync(path.join(rec.root, 'Library')) && fs.existsSync(mainLibrary) && unityVersionOf(path.join(rec.project, rec.engineRoot)) === scanVersion(scan)
         const extraBytes = seeding ? (await treeStats(mainLibrary, { library: true, rejectLinks: false })).bytes : 0
         const onProgress = p => { Object.assign(progress, p); options.onProgress?.({ ...progress }) }
-        const report = await applyMirror(scan, rec.root, path.join(rec.dir, MANIFEST), { signal: controller.signal, onProgress, io: this.io, statfs: this.statfs, extraBytes, exclude: options.exclude, env: this.env })
+        const report = await applyMirror(scan, rec.root, path.join(rec.dir, MANIFEST), { signal: controller.signal, onProgress, beforeApply: options.beforeApply, io: this.io, statfs: this.statfs, extraBytes, exclude: options.exclude, env: this.env })
         onProgress({ phase: 'library', ...(extraBytes ? { bytes: { done: 0, total: extraBytes } } : {}) })
         report.library = await this.prepareLibrary(rec, controller.signal)
         if (controller.signal.aborted) { const e = new Error('Sync cancelled'); e.code = 'ABORT_ERR'; throw e }
@@ -412,11 +412,12 @@ export class PlayerCopies {
    * with it; a copy Unity still holds is left for build 2's sweep), and remove marked folders left without
    * a record. Runs in the background; returns what it started.
    */
-  async sweep() {
+  async sweep({ protectedKeys = [] } = {}) {
     const out = []
     let names = []
     try { names = fs.readdirSync(this.dir).filter(n => /^[0-9a-f]{24}$/.test(n)) } catch { return out }
     for (const k of names) {
+      if (protectedKeys.includes(k)) { out.push({ key: k, action: 'kept' }); continue }
       const rec = this.read(k)
       if (!rec) {
         const copy = path.join(this.dir, k, 'copy')

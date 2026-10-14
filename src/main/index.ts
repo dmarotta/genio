@@ -12,7 +12,7 @@ import { MEDIA_SCHEME, mediaResponse } from './fal-service'
 import { chatImageDir, chatImagePath } from './chat-images'
 import { defaultHomeRoot } from './home'
 import { registerIpc } from './ipc'
-import { playerCopyService } from './player-copy'
+import { playerInstanceService } from './player-instance'
 import type { AppCtx } from './services'
 import { nowIso, readJson, writeJson } from './util'
 import { afterFirstNotification, ensureWindowsToastIdentity, setWindowsAppId, windowAppDetails, windowIcon } from './win-identity'
@@ -90,7 +90,7 @@ async function boot(): Promise<void> {
   ctx = createApp(appRoot())
   // Background: finish pending player-copy deletions and remove copies an earlier session left behind.
   const started = ctx
-  void Promise.resolve().then(() => playerCopyService(started).sweep()).catch(() => {})
+  void playerInstanceService(started).start().catch(e => bus.toast('error', 'Player instance recovery', String(e)))
   const sender = (id: number): BrowserWindow | undefined => [...windows.keys()].find(w => !w.isDestroyed() && w.webContents.id === id)
   registerIpc(getCtx, {
     openProject,
@@ -366,7 +366,10 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
       }
     })()
   })
-  win.on('closed', () => { chatWindow?.destroy(); windows.delete(win) })
+  win.on('closed', () => {
+    chatWindow?.destroy(); windows.delete(win)
+    if (binding && ctx) void Promise.resolve().then(() => playerInstanceService(ctx!).quit(binding.project)).catch(() => {})
+  })
 
   const query: Record<string, string> = binding ? { project: binding.project, wksp: binding.wksp, ...(registered ? { registered: '1' } : {}) } : {}
   let loading: Promise<void>
@@ -427,7 +430,7 @@ function wireEvents(): void {
 
 async function shutdown(code = 0): Promise<void> {
   try {
-    if (ctx) await Promise.race([stopApp(ctx), new Promise((r) => setTimeout(r, 4000))])
+    if (ctx) await Promise.race([Promise.allSettled([stopApp(ctx), playerInstanceService(ctx).shutdown()]), new Promise((r) => setTimeout(r, 4000))])
   } catch {
     /* ignore */
   }

@@ -25,11 +25,10 @@ const POINTER_MAX = 1024
 // Never mirrored, never purged: the copy's own Library (and per-version stashes), editor and IDE output.
 const SKIP_TOP = new Set(['library', 'temp', 'logs', 'usersettings', 'obj', 'build', 'builds', '.vs', '.idea', '.gradle', 'memorycaptures'])
 const SKIP_ROOT_FILE = /\.(csproj|sln|slnx|user|suo|userprefs|pidb|unityproj)$/i
-/** Genio's own embedded package in the copy (build 3): never mirrored and never purged. */
+/** Genio's own embedded package in the copy: never mirrored and never purged. */
 export const GENIO_PACKAGE = 'Packages/com.genio.play'
-/** A change to any of these needs a fresh editor rather than a hot sync. */
+/** Common restart-sensitive files; every source change under Packages or ProjectSettings restarts. */
 export const RESTART_FILES = ['ProjectSettings/ProjectVersion.txt', 'Packages/manifest.json', 'Packages/packages-lock.json', 'ProjectSettings/ProjectSettings.asset']
-const RESTART_KEYS = new Set(RESTART_FILES.map(f => f.toLowerCase()))
 
 const posix = p => p.replace(/\\/g, '/')
 const join = (a, b) => a ? `${a}/${b}` : b
@@ -390,7 +389,7 @@ export async function applyMirror(scan, root, manifestFile, options = {}) {
     removals.push({ rel, kind: 'unityMadeDeleted', size: Math.max(0, d.size), exists: true })
   }
   const restart = new Set()
-  for (const c of [...copies.filter(c => c.kind !== 'restored'), ...removals.filter(r => r.kind === 'deleted')]) if (RESTART_KEYS.has(c.rel.toLowerCase())) restart.add(`${c.rel} changed`)
+  for (const c of [...copies.filter(c => c.kind !== 'restored'), ...removals.filter(r => r.kind === 'deleted')]) if (/^(packages|projectsettings)\//i.test(c.rel)) restart.add(`${c.rel} changed`)
 
   // Small files may be Git LFS pointers: read them first, so sizes and the space check use the real content.
   const readers = new Map()
@@ -407,6 +406,10 @@ export async function applyMirror(scan, root, manifestFile, options = {}) {
     const bytesTotal = copies.reduce((n, c) => n + sizeOf(c), 0)
     const need = bytesTotal + extraBytes - removals.reduce((n, r) => n + r.size, 0)
     if (need > 0) await checkFreeSpace(root, need, { statfs })
+
+    // Decide before writing restart-sensitive files or moving a live editor's Library.
+    await options.beforeApply?.({ needed: first || restart.size > 0, reasons: first ? ['first copy'] : [...restart] })
+    aborted()
 
     try {
       progress('deleting', 0, removals.length, 0, 0, true)

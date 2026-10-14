@@ -445,6 +445,18 @@ export interface GenioApi {
   playerCopyDelete(world: string): Promise<{ deleted: boolean; record?: import('./play').PlayerCopyRecord }>
   /** Disk the copy uses by part, or the first copy's estimate. */
   playerCopySizes(world: string): Promise<import('./play').PlayerCopySizes>
+  playerInstanceStatus(world: string): Promise<import('./play').PlayerInstanceStatus>
+  playerInstancePlay(world: string, source: import('./play').PlayerCopySource, options?: { startAnyway?: boolean; visible?: boolean; scene?: string }): Promise<import('./play').PlayerInstanceStatus>
+  playerInstanceStop(world: string): Promise<import('./play').PlayerInstanceStatus>
+  playerInstanceQuit(world: string): Promise<import('./play').PlayerInstanceStatus>
+  playerInstanceRestart(world: string, visible?: boolean): Promise<import('./play').PlayerInstanceStatus>
+  playerInstanceKeepAlive(world: string): Promise<import('./play').PlayerInstanceStatus>
+  playerInstanceDetach(world: string): Promise<import('./play').PlayerInstanceStatus>
+  playerInstanceSettings(world: string, patch: Partial<import('./play').PlayerSettings>): Promise<import('./play').PlayerSettings>
+  playerInstanceMachine(world: string): Promise<import('./play').PlayerMachineStatus>
+  playerInstanceConsole(world: string, cursor?: number, session?: string): Promise<import('./play').PlayConsole>
+  /** Transfers a frame/input MessagePort to the owning window. No Pipeline or WebSocket credentials cross IPC. */
+  playerInstanceStream(world: string, enabled: boolean, width?: number, height?: number): Promise<void>
   /** Open starts the watcher and returns the cache while reconciling in background. */
   inventoryOpen(world: string): Promise<InventoryState>
   inventoryClose(world: string): Promise<void>
@@ -633,6 +645,7 @@ export type ApiMethod = keyof GenioApi
 /** Every GenioApi method, as runtime data (contextBridge cannot clone a Proxy). */
 export const API_METHODS = [
   'playPool', 'playPoolCap', 'playPoolLaunch', 'playPoolEstimate', 'playPoolDisk', 'playCloseSlotEditor',
+  'playerInstanceStatus', 'playerInstancePlay', 'playerInstanceStop', 'playerInstanceQuit', 'playerInstanceRestart', 'playerInstanceKeepAlive', 'playerInstanceDetach', 'playerInstanceSettings', 'playerInstanceMachine', 'playerInstanceConsole', 'playerInstanceStream',
   'playerCopies', 'playerCopyStatus', 'playerCopyEnsure', 'playerCopySync', 'playerCopyCancel', 'playerCopyDelete', 'playerCopySizes',
   'inventoryOpen', 'inventoryClose', 'inventoryRefresh', 'inventoryList', 'inventoryInfo',
   'featureUsed',

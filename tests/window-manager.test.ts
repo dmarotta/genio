@@ -10,6 +10,7 @@ vi.mock('../src/main/ctx', () => ({
   ensureProjectBase: async (_ctx: unknown, project: string) => `ally-${project}`, startProjectBase: f.start, stopProjectBase: f.stop
 }))
 vi.mock('../src/main/ipc', () => ({ registerIpc: (_ctx: unknown, windows: unknown) => { f.ipc = windows } }))
+vi.mock('../src/main/player-instance', () => ({ playerInstanceService: () => ({ start: async () => {}, quit: async () => {}, shutdown: async () => {} }) }))
 vi.mock('../src/main/win-identity', async (actual) => ({ ...(await actual<object>()), ensureWindowsToastIdentity: () => {}, setWindowsAppId: () => {} }))
 vi.mock('../src/main/fal-service', () => ({ MEDIA_SCHEME: 'genio-media', mediaResponse: () => {} }))
 vi.mock('../src/main/chat-images', () => ({ chatImageDir: () => '', chatImagePath: () => undefined }))

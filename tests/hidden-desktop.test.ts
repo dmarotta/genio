@@ -49,6 +49,14 @@ describe('launchEditor', () => {
   beforeEach(() => spawnVisible.mockClear())
   const args = ['-automated', '-projectPath', 'C:\\slots\\slot-1']
 
+  it('passes a PID and creation-time watchdog owner for player launches, including visible recovery', async () => {
+    const api = fakeApi(), owner = { pid: 123, created: '134364707721328300' }
+    const launch = await launchEditor({ file: 'Unity.exe', args, data, api, owner, visible: true, spawnVisible })
+    expect(api.launch).toHaveBeenCalledWith(expect.objectContaining({ owner, visible: true }))
+    expect(launch.hidden).toBe(false); expect(launch.desktop).toBeUndefined()
+    expect(launch.created).toBe('134364707721328310'); expect(spawnVisible).not.toHaveBeenCalled()
+  })
+
   it('starts the editor on a fresh hidden desktop with the same arguments and environment, and returns its identity', async () => {
     const api = fakeApi(), env = { ...process.env, GENIO_TASK_ID: 'probe' }
     const launch = await launchEditor({ file: 'C:\\Unity\\Unity.exe', args, env, cwd: root, data, label: 'slot1', api, spawnVisible })

@@ -3,7 +3,7 @@ export interface DesktopLaunchResult { ok: boolean; pid?: number; created?: stri
 /** The Win32 primitives the helper executes; tests pass a fake. */
 export interface DesktopApi {
   available(): boolean
-  launch(options: { name: string; command: string; cwd: string; env?: NodeJS.ProcessEnv; dir: string }): Promise<DesktopLaunchResult>
+  launch(options: { name: string; command: string; cwd: string; env?: NodeJS.ProcessEnv; dir: string; owner?: { pid: number; created: string }; visible?: boolean }): Promise<DesktopLaunchResult>
   windows(desktop: string): Promise<DesktopWindow[] | null>
   click(desktop: string, hwnd: string, button: string): Promise<boolean>
   screenshot(desktop: string, file: string): Promise<string | undefined>
@@ -11,7 +11,7 @@ export interface DesktopApi {
 }
 /** The identity a pool records for a launched slot editor. created is '' when unknown. */
 export interface EditorLaunch { pid: number; created: string; hidden: boolean; desktop?: string; dir?: string; helper?: number; warning?: string }
-export type SpawnVisible = (file: string, args: string[], options: { env?: NodeJS.ProcessEnv }) => Promise<number>
+export type SpawnVisible = (file: string, args: string[], options: { env?: NodeJS.ProcessEnv; cwd?: string }) => Promise<number>
 export interface DialogRule { id: string; kind: 'ignore' | 'benign' | 'blocking'; title?: RegExp; match?: RegExp; button?: string[]; reason?: string; immediate?: boolean }
 export interface DialogBlock { hwnd: string; pid: number; process?: string; className?: string; title: string; text: string; buttons: string[]; rule: string; reason: string; screenshot?: string; message: string }
 export interface InspectResult { watched: boolean; gone?: boolean; clicked: { title: string; button: string; rule: string }[]; blocked?: DialogBlock }
@@ -23,6 +23,6 @@ export function helperExecutable(data: string, options?: { source?: string; comp
 export function quoteArg(arg: string): string
 export function windowsCommandLine(file: string, args: string[]): string
 export function createDesktopApi(data: string, options?: { compiler?: string; compile?: (compiler: string, source: string, out: string) => Promise<void> }): DesktopApi
-export function launchEditor(options: { file: string; args: string[]; cwd?: string; env?: NodeJS.ProcessEnv; data: string; visible?: boolean; label?: string; api?: DesktopApi; spawnVisible?: SpawnVisible }): Promise<EditorLaunch>
+export function launchEditor(options: { file: string; args: string[]; cwd?: string; env?: NodeJS.ProcessEnv; data: string; visible?: boolean; label?: string; api?: DesktopApi; spawnVisible?: SpawnVisible; owner?: { pid: number; created: string } }): Promise<EditorLaunch>
 export function classifyWindow(window: DesktopWindow, rules?: DialogRule[]): { kind: 'ignore' | 'benign' | 'blocking'; rule: string; button?: string; reason?: string; immediate?: boolean }
 export function inspectDesktop(api: DesktopApi, launch: { desktop?: string; dir?: string } | undefined, options?: { now?: number; graceMs?: number; benignOnly?: boolean; rules?: DialogRule[] }): Promise<InspectResult>

@@ -68,10 +68,11 @@ export class PlayerCopies {
   readonly dir: string
   policy: PlayerCopyPolicy
   keyOf(world: string): string
+  markerOk(record: PlayerCopyRecord): boolean
   list(): PlayerCopyRecord[]
   status(world: string): PlayerCopyRecord | undefined
   ensure(world: string, engineRoot?: string): Promise<PlayerCopyRecord>
-  sync(world: string, source: MirrorSource, options?: { signal?: AbortSignal; onProgress?: (p: NonNullable<PlayerCopyRecord['progress']>) => void; exclude?: string[] }): Promise<PlayerSyncReport>
+  sync(world: string, source: MirrorSource, options?: { signal?: AbortSignal; onProgress?: (p: NonNullable<PlayerCopyRecord['progress']>) => void; exclude?: string[]; beforeApply?: (restart: RestartAdvice) => Promise<void> }): Promise<PlayerSyncReport>
   cancel(world: string): boolean
   stopped(world: string, at?: number, idleMs?: number): Promise<PlayerCopyRecord | undefined>
   playing(world: string, at?: number): Promise<PlayerCopyRecord | undefined>
@@ -81,6 +82,6 @@ export class PlayerCopies {
   delete(world: string, options?: { reason?: string }): Promise<{ deleted: boolean; record?: PlayerCopyRecord }>
   editorPids(root: string): number[]
   settle(): Promise<void>
-  sweep(): Promise<SweepResult[]>
+  sweep(options?: { protectedKeys?: string[] }): Promise<SweepResult[]>
   sizes(world: string, engineRoot?: string): Promise<PlayerCopySizes>
 }

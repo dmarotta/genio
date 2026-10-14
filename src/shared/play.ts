@@ -1,4 +1,5 @@
 import type { Engine } from './types'
+import type { MirrorSource as PlayerCopySource } from '../../resources/unit-skills/genio/lib/git-mirror.mjs'
 
 /** Engines with shared Unity slots and Genio's editor tools. The single switch: Settings, units and the main-process service all read it. */
 export const UNITY_SLOT_ENGINES: readonly Engine[] = ['unity']
@@ -29,6 +30,23 @@ export type PlayAction =
   | { type: 'scene'; path: string }
   | { type: 'key'; key: string }
   | { type: 'pointer'; x: number; y: number }
+
+export type PlayInput = { type: 'release' } | { type: 'state'; keys: string[]; x: number; y: number; buttons: number; axes: number[]; gamepadButtons: number }
+
+export interface PlayerSettings { idleMinutes: number; maxEditors: number }
+export type PlayerState = 'idle' | 'copying' | 'starting' | 'syncing' | 'entering-play' | 'playing' | 'stopped-warm' | 'shutting-down' | 'crashed' | 'stuck-dialog' | 'close-stuck' | 'compile-errors' | 'low-memory' | 'missing-editor' | 'limit-reached' | 'error'
+export interface PlayerInstanceStatus {
+  state: PlayerState; project: string; root?: string; source?: PlayerCopySource
+  pid?: number; created?: string; desktop?: string; deadline?: number; stoppedAt?: number
+  unityVersion?: string; peakWorkingSet?: number; message?: string; startup?: string; exitCode?: number
+  dialog?: import('../../resources/unit-skills/genio/lib/hidden-desktop.mjs').DialogBlock
+  capabilities?: { input: boolean }
+  copy?: import('../../resources/unit-skills/genio/lib/player-copy.mjs').PlayerCopyRecord
+}
+export interface PlayerMachineStatus {
+  settings: PlayerSettings; playerEditors: number; unitEditors: number; batchEditors: number; totalEditors: number
+  workingSetBytes: number; freeBytes: number; totalBytes: number
+}
 
 /**
  * draining: above a lowered cap but still in use; retired: above the cap and idle, kept for reuse.

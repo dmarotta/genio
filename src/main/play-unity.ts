@@ -55,7 +55,7 @@ export function pipelineRequest(port: number, token: string, command: string, pa
 export class UnityAdapter implements EngineAdapter {
   private queue: Promise<unknown> = Promise.resolve()
   private pending = 0
-  constructor(readonly root: string, private guard: () => Promise<unknown> = async () => {}) {}
+  constructor(readonly root: string, private guard: () => Promise<unknown> = async () => {}, private expectedPid?: () => number | undefined) {}
   private supportsInput(): boolean {
     try { return !/activeInputHandler:\s*0\b/.test(fs.readFileSync(path.join(this.root, 'ProjectSettings/ProjectSettings.asset'), 'utf8')) }
     catch { return true } // Pipeline returns an explicit unavailable error if no Input System exists.
@@ -66,6 +66,7 @@ export class UnityAdapter implements EngineAdapter {
     try { d = JSON.parse(fs.readFileSync(path.join(this.root, 'Library/Pipeline/.unity-pipeline-port'), 'utf8')) }
     catch { throw new Error('No connected Unity editor. Open the project in Unity first.') }
     if (!d.projectPath || !samePath(d.projectPath, this.root) || d.mode !== 'editor' || (d.host && d.host !== '127.0.0.1')) throw new Error('Refusing a different, headless or non-local editor')
+    if (this.expectedPid && d.pid !== this.expectedPid()) throw new Error('Pipeline is not the recorded player editor')
     const age = Date.now() - Date.parse(d.lastHeartbeat)
     // Pipeline 0.8 writes this timestamp at server startup, not every tick.
     // Prove liveness by PID plus authenticated status instead of expiring a live editor.
@@ -93,6 +94,8 @@ export class UnityAdapter implements EngineAdapter {
     this.queue = next.catch(() => {})
     return next
   }
+  /** Fixed commands issued by the player instance owner, never a renderer-supplied command. */
+  request<T = unknown>(command: string, parameters: object = {}): Promise<T> { return this.serial(() => this.call<T>(command, parameters)) }
   async status(): Promise<PlayStatus> {
     return this.serial(async () => {
       try {

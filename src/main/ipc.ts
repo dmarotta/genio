@@ -3,12 +3,13 @@ import { agentGeneration } from './agent-generation'
 import { readWorldMetadata } from './world-metadata'
 import { assertProjectWindow, playService } from './play'
 import { playerCopyService } from './player-copy'
+import { playerInstanceService } from './player-instance'
 /**
  * IPC: one ipcMain.handle per GenioApi method ('genio:<method>'). The table is
  * typed against GenioApi so a missing or mistyped method fails the build.
  */
 import { bus } from './bus'
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell, MessageChannelMain } from 'electron'
 import { createExplorerIntegration, explorerCommand } from './explorer'
 import { API_PREFIX, type GenioApi, type WindowList } from '@shared/api'
 import type { Task } from '@shared/types'
@@ -38,6 +39,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
   const ctx = (): AppCtx => getCtx()
   const explorer = createExplorerIntegration(explorerCommand(process.execPath, process.defaultApp ? app.getAppPath() : undefined))
   const inventoryClients = new Map<number, Set<string>>()
+  const playConnections = new Map<string, () => void>()
   const closeUnusedInventory = (world: string): void => {
     if (![...inventoryClients.values()].some(worlds => worlds.has(world))) ctx().inventory.close(world)
   }
@@ -60,11 +62,22 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     playCloseSlotEditor: (world, id) => playService(ctx()).closeSlotEditor(world, id, 'player'),
     playerCopies: async () => playerCopyService(ctx()).list(),
     playerCopyStatus: async world => playerCopyService(ctx()).status(world),
-    playerCopyEnsure: world => playerCopyService(ctx()).ensure(world),
-    playerCopySync: (world, source) => playerCopyService(ctx()).sync(world, source),
+    playerCopyEnsure: world => playerInstanceService(ctx()).ensureCopy(world),
+    playerCopySync: (world, source) => playerInstanceService(ctx()).syncCopy(world, source),
     playerCopyCancel: async world => playerCopyService(ctx()).cancel(world),
-    playerCopyDelete: world => playerCopyService(ctx()).deleteInBackground(world),
+    playerCopyDelete: world => playerInstanceService(ctx()).deleteCopy(world),
     playerCopySizes: world => playerCopyService(ctx()).sizes(world),
+    playerInstanceStatus: async world => { await playerInstanceService(ctx()).start(); return playerInstanceService(ctx()).status(world) },
+    playerInstancePlay: (world, source, options) => playerInstanceService(ctx()).play(world, source, options),
+    playerInstanceStop: world => playerInstanceService(ctx()).stop(world),
+    playerInstanceQuit: world => playerInstanceService(ctx()).quit(world),
+    playerInstanceRestart: (world, visible) => playerInstanceService(ctx()).restart(world, visible),
+    playerInstanceKeepAlive: world => playerInstanceService(ctx()).keepAlive(world),
+    playerInstanceDetach: world => playerInstanceService(ctx()).detach(world),
+    playerInstanceSettings: (world, patch) => playerInstanceService(ctx()).configure(world, patch),
+    playerInstanceMachine: world => playerInstanceService(ctx()).machine(world),
+    playerInstanceConsole: (world, cursor, session) => playerInstanceService(ctx()).console(world, cursor, session),
+    playerInstanceStream: async () => { throw new Error('Streaming requires the owning project window') },
     inventoryOpen: async (world) => {
       const state = await ctx().inventory.open(world)
       ctx().stats.unlock('inventory-open')
@@ -312,6 +325,45 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
         const binding = windows?.binding(_e.sender.id)
         if (windows && !binding && ['sendChat', 'recap', 'save', 'restartWksp', 'interruptWksp', 'unqueueChat', 'approveGeneration'].includes(method)) throw new Error('Open a project window to use its chat.')
         if (method.startsWith('playPool') || method === 'playCloseSlotEditor' || method.startsWith('playerCopy')) assertProjectWindow(binding, args[0])
+        if (method.startsWith('playerInstance')) assertProjectWindow(binding, args[0])
+        if (['playerInstancePlay', 'playerInstanceStop', 'playerInstanceQuit', 'playerInstanceRestart', 'playerInstanceDetach'].includes(method)) playConnections.get(args[0] as string)?.()
+        if (method === 'playerInstanceStream') {
+          const [world, enabled, width = 1280, height = 720] = args as [string, boolean, number?, number?]
+          playConnections.get(world)?.()
+          if (!enabled) { await playerInstanceService(ctx()).detach(world); return }
+          const { port1, port2 } = new MessageChannelMain()
+          let credit = false, closed = false, latest: Buffer | undefined
+          const send = (): void => {
+            if (!credit || !latest || closed) return
+            credit = false; port1.postMessage({ type: 'frame', bytes: new Uint8Array(latest) }); latest = undefined
+          }
+          const close = (): void => {
+            if (closed) return
+            closed = true; latest = undefined
+            try { port1.postMessage({ type: 'closed' }); port1.close(); port2.close() } catch { /* window gone */ }
+            _e.sender.removeListener('destroyed', detach)
+            if (playConnections.get(world) === close) playConnections.delete(world)
+          }
+          const detach = (): void => { if (closed) return; close(); void playerInstanceService(ctx()).detach(world).catch(() => {}) }
+          playConnections.set(world, close)
+          port1.on('message', ({ data }) => {
+            if (closed) return
+            if (data?.type === 'ready') { credit = true; send() }
+            else if (data?.type === 'input') {
+              try { playerInstanceService(ctx()).input(world, data.input) } catch { detach() }
+            } else if (data?.type === 'release') {
+              try { playerInstanceService(ctx()).input(world, { type: 'release' }) } catch { /* stopped */ }
+            }
+          })
+          port1.on('close', detach); port1.start()
+          _e.sender.once('destroyed', detach)
+          try {
+            await playerInstanceService(ctx()).stream(world, width, height, frame => { latest = frame; send() }, detach)
+            if (closed || _e.sender.isDestroyed()) throw new Error('Play window closed')
+            _e.sender.postMessage('genio:play-port', { world }, [port2])
+          } catch (error) { close(); throw error }
+          return
+        }
         if (method === 'playerCopies' && binding) return playerCopyService(ctx()).list(binding.project)
         if (binding) {
           if (['answerDecision', 'clarifyDecision', 'deferDecision', 'applyRecommendations'].includes(method)) {
