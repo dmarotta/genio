@@ -21,6 +21,32 @@ export type Forge = 'github' | 'gitlab' | 'none'
 export type Engine =
   | 'godot' | 'unity' | 'unreal' | 'bevy' | 'web' | 'love2d' | 'gamemaker' | 'defold' | 'monogame' | 'other'
 
+/** strong: ProjectVersion.txt, project.godot, .uproject, .yyp, game.project (found to depth 3);
+ *  medium: Bevy Cargo.toml, MonoGame .csproj, web game dependencies (depth 2); weak: main.lua/conf.lua (root only). */
+export type EngineStrength = 'strong' | 'medium' | 'weak'
+
+export interface EngineCandidate {
+  engine: Engine
+  /** Repository-relative POSIX path; '' = the repository root. */
+  root: string
+  strength: EngineStrength
+  version?: string
+}
+
+export interface EngineDetection {
+  /** Every engine found, in tie-break order (strongest, shallowest, alphabetical); the first one won. */
+  candidates: EngineCandidate[]
+  /** The top two candidates tie on strength and depth, so the alphabetical order decided. */
+  ambiguous: boolean
+  /** The winning candidate's engine version, when its project files record one. */
+  version?: string
+  /** The winner was named by the repository's `.genio/project.json`. */
+  declared: boolean
+  /** Why a `.genio/project.json` declaration was ignored. */
+  warning?: string
+  scannedAt: string
+}
+
 export interface ProjectCommands {
   setup?: string
   build?: string
@@ -54,6 +80,8 @@ export interface Project {
   engineRootSource?: 'auto' | 'manual'
   /** Explicit engine choices survive automatic discovery. */
   engineSource?: 'auto' | 'manual'
+  /** What the last engine scan found, whatever `engine`/`engineRoot` say. Absent until the first scan. */
+  detected?: EngineDetection
   commands: ProjectCommands
   description?: string
   /** legacy per-world dial; read as the equivalent Usage mode when usageMode is unset */
@@ -415,7 +443,7 @@ export interface LedgerRecord {
   event:
     | 'task.dispatched' | 'task.status' | 'task.pr_ready' | 'task.merged' | 'task.cleaned_up' | 'task.relaunched'
     | 'decision.opened' | 'decision.resolved' | 'backlog.added' | 'backlog.state'
-    | 'project.added' | 'project.removed' | 'project.remote_changed' | 'project.pushed' | 'project.push_refused'
+    | 'project.added' | 'project.removed' | 'project.remote_changed' | 'project.engine_changed' | 'project.pushed' | 'project.push_refused'
     | 'presence.changed' | 'achievement'
   task?: string
   project?: string

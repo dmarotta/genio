@@ -4,13 +4,15 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import type { DeliveryMode, Engine, Forge, Project, ProjectCommands, ProjectMode } from '@shared/types'
+import type { DeliveryMode, Engine, EngineCandidate, Forge, Project, ProjectMode } from '@shared/types'
 import type { OpResult, ProjectAddRequest, ProjectCreateRequest } from '@shared/api'
+import { engineSummary } from '@shared/engine'
 import { modeLabel, modeSourceOf } from '@shared/vocab'
 import type { AppCtx, ProjectsService } from './services'
 import { bus } from './bus'
 import { Home, defaultHomeRoot } from './home'
-import { isDefaultUnityTest, unityTestCommand } from './play-editor'
+import { isDefaultUnityTest } from './play-editor'
+import { candidateAt, cleanRoot, commandsFor, detectProject } from './engine-detect'
 import * as git from './git'
 import { exists, nowIso, readJson, run, slugify, which, writeJson, writeText } from './util'
 
@@ -37,116 +39,36 @@ function listDir(dir: string): string[] {
   }
 }
 
-function readSafe(p: string): string {
-  try {
-    // Windows editors save a UTF-8 BOM, which JSON.parse rejects (a web game's package.json read as 'other').
-    return fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, '')
-  } catch {
-    return ''
-  }
+/** The engine as the project's own entry would read it: a manual engine with the root its candidates give. */
+function bestRootFor(candidates: EngineCandidate[], engine: Engine): string | undefined {
+  return candidates.find((c) => c.engine === engine)?.root
 }
 
-/** Detect the game engine of a folder and propose default commands. */
-function detectAtRoot(dir: string): { engine: Engine; commands: ProjectCommands } {
-  const files = listDir(dir)
-  const has = (f: string): boolean => files.includes(f)
-  const any = (re: RegExp): string | undefined => files.find((f) => re.test(f))
-  if (has('project.godot')) {
-    const gut = exists(path.join(dir, 'addons', 'gut'))
-    return {
-      engine: 'godot',
-      commands: {
-        build: 'godot --headless --path . --quit',
-        test: gut ? 'godot --headless -s addons/gut/gut_cmdln.gd -gexit' : undefined,
-        run: 'godot --path .'
-      }
-    }
-  }
-  if (exists(path.join(dir, 'ProjectSettings', 'ProjectVersion.txt'))) {
-    return { engine: 'unity', commands: { test: unityTestCommand(dir), run: undefined } }
-  }
-  const uproject = any(/\.uproject$/i)
-  if (uproject) return { engine: 'unreal', commands: {} }
-  if (has('Cargo.toml') && /bevy/i.test(readSafe(path.join(dir, 'Cargo.toml')))) {
-    return { engine: 'bevy', commands: { build: 'cargo build', test: 'cargo test', lint: 'cargo clippy -- -D warnings', run: 'cargo run' } }
-  }
-  if (has('main.lua') || has('conf.lua')) return { engine: 'love2d', commands: { run: 'love .' } }
-  if (any(/\.yyp$/i)) return { engine: 'gamemaker', commands: {} }
-  if (has('game.project')) return { engine: 'defold', commands: {} }
-  const csproj = any(/\.csproj$/i)
-  if (csproj && /MonoGame/i.test(readSafe(path.join(dir, csproj)))) {
-    return { engine: 'monogame', commands: { build: 'dotnet build', test: 'dotnet test', run: 'dotnet run' } }
-  }
-  if (has('package.json')) {
-    const pkgText = readSafe(path.join(dir, 'package.json'))
-    try {
-      const pkg = JSON.parse(pkgText) as { scripts?: Record<string, string>; dependencies?: Record<string, string>; devDependencies?: Record<string, string> }
-      const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) }
-      const scripts = pkg.scripts ?? {}
-      const isGame = Object.keys(deps).some((d) => /^(phaser|three|pixi\.js|@pixi\/|@babylonjs\/|babylonjs|kaplay|kaboom|excalibur|playcanvas|melonjs)/.test(d))
-      const cmds: ProjectCommands = {
-        setup: exists(path.join(dir, 'package-lock.json')) ? 'npm ci' : 'npm install',
-        build: scripts.build ? 'npm run build' : undefined,
-        test: scripts.test && !/no test specified/.test(scripts.test) ? 'npm test' : undefined,
-        lint: scripts.lint ? 'npm run lint' : undefined,
-        run: scripts.dev ? 'npm run dev' : scripts.start ? 'npm start' : undefined
-      }
-      return { engine: isGame ? 'web' : 'other', commands: cmds }
-    } catch {
-      return { engine: 'other', commands: {} }
-    }
-  }
-  if (has('Cargo.toml')) return { engine: 'other', commands: { build: 'cargo build', test: 'cargo test', run: 'cargo run' } }
-  return { engine: 'other', commands: {} }
-}
-
-// Breadth-first, stable ordering: the repository root wins, then the nearest project.
-// Do not traverse symlinks, dependencies, generated engine caches or hidden metadata.
-const ENGINE_SCAN_SKIP = new Set(['node_modules', 'Library', 'Temp', 'Obj', 'Build', 'Builds', 'Logs', 'UserSettings', 'Packages', 'Binaries', 'Intermediate', 'Saved', 'DerivedDataCache', 'vendor', 'target', 'dist'])
-export function detectEngine(dir: string): { engine: Engine; engineRoot: string; commands: ProjectCommands } {
-  const queue = [{ root: '', depth: 0 }]
-  for (const item of queue) {
-    const full = path.join(dir, item.root)
-    const detected = detectAtRoot(full)
-    if (['unity', 'godot', 'unreal'].includes(detected.engine)) {
-      const commands = { ...detected.commands }
-      if (item.root) {
-        // Commands execute from the checkout root. Quote the relative engine path.
-        const quoted = JSON.stringify(item.root)
-        if (commands.run) commands.run = `godot --path ${quoted}`
-        if (detected.engine === 'unity') commands.test = unityTestCommand(full, item.root)
-        if (detected.engine === 'godot') {
-          commands.build = `godot --headless --path ${quoted} --quit`
-          if (commands.test) commands.test = `godot --headless --path ${quoted} -s addons/gut/gut_cmdln.gd -gexit`
-        }
-      }
-      return { ...detected, engineRoot: item.root, commands }
-    }
-    if (item.depth === 2) continue
-    try {
-      for (const entry of fs.readdirSync(full, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name, 'en'))) {
-        if (entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith('.') && !ENGINE_SCAN_SKIP.has(entry.name)) {
-          queue.push({ root: item.root ? `${item.root}/${entry.name}` : entry.name, depth: item.depth + 1 })
-        }
-      }
-    } catch { /* Missing or unreadable checkout: leave fallback detection intact. */ }
-  }
-  return { ...detectAtRoot(dir), engineRoot: '' }
-}
-
-/** Legacy 'other' was the root-only detector's fallback; preserve specific legacy choices. */
-export function refreshEngine(p: Project): Project {
-  const root = p.engineRootSource === 'manual' ? p.engineRoot ?? '' : undefined
-  const det = root === undefined ? detectEngine(p.path) : { ...detectAtRoot(path.join(p.path, root)), engineRoot: root }
-  if (root !== undefined && det.engine === 'unity') det.commands.test = unityTestCommand(path.join(p.path, root), root)
+/**
+ * Re-detect a project's engine and record what the scan found in `detected`. Manual engines and roots
+ * are kept (until the picker is retired). When the engine or its root changes, only the commands the
+ * entry leaves unset are filled; a default Unity test command follows the editor version as before.
+ */
+export async function refreshEngine(p: Project): Promise<Project> {
+  const det = await detectProject(p.path)
+  const pinned = p.engineRootSource === 'manual' ? cleanRoot(p.engineRoot ?? '') ?? '' : undefined
   const manual = p.engineSource === 'manual' || (!p.engineSource && p.engine !== 'other')
-  return {
-    ...p,
-    commands: det.engine === 'unity' && isDefaultUnityTest(p.commands.test) && det.commands.test ? { ...p.commands, test: det.commands.test } : p.commands,
-    engine: manual ? p.engine : det.engine,
-    engineSource: manual ? 'manual' : 'auto',
-    engineRoot: root ?? (!manual || det.engine === p.engine ? det.engineRoot : p.engineRoot ?? '')
-  }
+  const atPin = pinned === undefined ? undefined : await candidateAt(p.path, pinned)
+  const engine = manual ? p.engine : pinned !== undefined ? atPin?.engine ?? 'other' : det.engine
+  const engineRoot = pinned ?? (manual ? bestRootFor(det.detected.candidates, p.engine) ?? (det.engine === p.engine ? det.engineRoot : p.engineRoot ?? '') : det.engineRoot)
+  const proposed = engine === det.engine && engineRoot === det.engineRoot ? det.commands : await commandsFor(p.path, engine, engineRoot)
+  const changed = engine !== p.engine || engineRoot !== (p.engineRoot ?? '')
+  let commands = p.commands
+  if (changed) commands = { ...Object.fromEntries(Object.entries(proposed).filter(([, v]) => v !== undefined)), ...Object.fromEntries(Object.entries(p.commands).filter(([, v]) => v !== undefined)) }
+  if (engine === 'unity' && isDefaultUnityTest(p.commands.test) && proposed.test) commands = { ...commands, test: proposed.test }
+  return { ...p, commands, engine, engineSource: manual ? 'manual' : 'auto', engineRoot, detected: det.detected }
+}
+
+/** A one-line toast when a refresh moved the engine or its root, undefined otherwise. */
+export function engineChangeNotice(prev: Project, next: Project): string | undefined {
+  if (prev.engine === next.engine && (prev.engineRoot ?? '') === (next.engineRoot ?? '')) return undefined
+  const version = next.detected?.candidates.find((c) => c.engine === next.engine && c.root === (next.engineRoot ?? ''))?.version
+  return `${next.name}: ${engineSummary(prev.engine, prev.engineRoot)} → ${engineSummary(next.engine, next.engineRoot, version)}.`
 }
 
 export function forgeFromRemote(remote?: string): Forge {
@@ -234,11 +156,25 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
     writeJson(mainHome().projectsFile, list)
     bus.publish({ type: 'projects', projects: list })
   }
+  /** Toast a saved refresh that moved the engine, or newly ignored the repository's declaration. */
+  const announceEngine = (prev: Project, next: Project): string | undefined => {
+    const warning = next.detected?.warning
+    if (warning && warning !== prev.detected?.warning) bus.toast('warn', 'Engine declaration ignored', `${next.name}: ${warning}`)
+    const notice = engineChangeNotice(prev, next)
+    if (!notice) return undefined
+    bus.toast('info', 'Project engine changed', notice)
+    try {
+      getCtx().ledger.record({ event: 'project.engine_changed', project: next.name, data: { from: prev.engine, to: next.engine, rootFrom: prev.engineRoot ?? '', root: next.engineRoot ?? '' } })
+    } catch {
+      /* ledger optional */
+    }
+    return notice
+  }
 
   const register = async (dir: string, name: string, req: Partial<ProjectAddRequest>, managed: boolean): Promise<Project> => {
     const gitRepo = await git.isRepo(dir)
     const remote = gitRepo ? await git.remoteUrl(dir) : undefined
-    const det = detectEngine(dir)
+    const det = await detectProject(dir)
     const p: Project = {
       name,
       path: path.resolve(dir),
@@ -254,6 +190,7 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
       engine: det.engine,
       engineRoot: det.engineRoot,
       engineSource: 'auto',
+      detected: det.detected,
       commands: det.commands,
       managed,
       addedAt: nowIso()
@@ -289,8 +226,9 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
         if (!known) return { project: await register(dir, uniqueProjectName(dir, load().map(p => p.name)), {}, false), registered: true }
         const remote = gitRepo ? await git.remoteUrl(dir) : undefined
         const mode = !gitRepo ? 'local-only' : modeSourceOf(known) === 'auto' ? autoModeFor(remote) : known.mode
-        const project = refreshEngine({ ...known, path: dir, gitRepo, remote, defaultBranch: gitRepo ? await git.defaultBranch(dir) : '', mode, forge: forgeFor(mode, remote) })
+        const project = await refreshEngine({ ...known, path: dir, gitRepo, remote, defaultBranch: gitRepo ? await git.defaultBranch(dir) : '', mode, forge: forgeFor(mode, remote) })
         save(load().map(p => p.name === known.name ? project : p))
+        announceEngine(known, project)
         return { project, registered: false }
       })
       opening = operation.catch(() => undefined)
@@ -362,11 +300,11 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
       const list = load()
       const i = list.findIndex((p) => p.name === name)
       if (i < 0) throw new Error(`Unknown project: ${name}`)
-      const next: Project = { ...list[i], ...patch, name: list[i].name, commands: { ...list[i].commands, ...(patch.commands ?? {}) } }
+      // Only detection writes what the scan found.
+      const next: Project = { ...list[i], ...patch, name: list[i].name, detected: list[i].detected, commands: { ...list[i].commands, ...(patch.commands ?? {}) } }
       if (patch.engine !== undefined) {
         next.engineSource = 'manual'
-        const det = detectEngine(next.path)
-        next.engineRoot = det.engine === next.engine ? det.engineRoot : ''
+        next.engineRoot = bestRootFor(next.detected?.candidates ?? [], next.engine) ?? ''
         next.engineRootSource = 'auto'
       }
       if (Object.prototype.hasOwnProperty.call(patch, 'engineRoot')) {
@@ -441,7 +379,7 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
       for (let i = 0; i < list.length; i++) {
         const p = list[i]
         if ((name && p.name !== name) || !exists(p.path)) continue
-        const refreshed = refreshEngine(p)
+        const refreshed = await refreshEngine(p)
         if (JSON.stringify(refreshed) !== JSON.stringify(p)) engineChanged = true
         list[i] = refreshed
         // Ordinary folders refresh their engine too; only git repos have a remote to follow.
@@ -458,8 +396,25 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
         bus.toast('info', 'Project remote changed', change.notice)
       }
       // An open/register/update can complete while git is being queried. Preserve those edits.
-      if (notices.length || engineChanged) save(load().map(p => p === originals.get(p.name) ? list.find(x => x.name === p.name)! : p))
+      const current = load()
+      if (notices.length || engineChanged) save(current.map(p => p === originals.get(p.name) ? list.find(x => x.name === p.name)! : p))
+      for (const p of current) {
+        const next = list.find(x => x.name === p.name)
+        const notice = next && p === originals.get(p.name) ? announceEngine(p, next) : undefined
+        if (notice) notices.push(notice)
+      }
       return notices
+    },
+
+    async rescan(name) {
+      if (name && !svc.get(name)) throw new Error(`Unknown project: ${name}`)
+      const before = load().filter(p => (!name || p.name === name) && exists(p.path))
+      const scanned = await Promise.all(before.map(refreshEngine))
+      // A scan is asynchronous: an entry edited meanwhile keeps the edit and is scanned next time.
+      const kept = new Map(scanned.filter((next, i) => load().includes(before[i])).map(next => [next.name, next]))
+      if (kept.size) save(load().map(p => kept.get(p.name) ?? p))
+      for (const [i, p] of before.entries()) if (kept.has(p.name)) announceEngine(p, scanned[i])
+      return [...kept.values()]
     },
 
     async sync(name): Promise<OpResult> {

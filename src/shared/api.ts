@@ -530,6 +530,8 @@ export interface GenioApi {
   projectUpdate(name: string, patch: Partial<Project> & { commands?: ProjectCommands }): Promise<Project>
   projectRemove(name: string, deleteClone: boolean): Promise<OpResult>
   projectSync(name?: string): Promise<OpResult>
+  /** re-detect the project's engine now (Rescan); the entry carries what the scan found in detected */
+  projectRescan(name: string): Promise<Project>
   /** commits on the local default branch not yet on origin (Offline worlds with a remote) */
   projectMetadata(name: string): Promise<WorldMetadata>
   projectPushStatus(name: string): Promise<PushStatus | undefined>
@@ -651,6 +653,7 @@ export const API_METHODS = [
   'projectUpdate',
   'projectRemove',
   'projectSync',
+  'projectRescan',
   'projectMetadata',
   'projectPushStatus',
   'projectPush',

@@ -2,7 +2,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
-import { detectEngine, refreshEngine, createProjectsService } from '../src/main/projects'
+import { refreshEngine, createProjectsService } from '../src/main/projects'
+import { detectProject } from '../src/main/engine-detect'
 import { Home } from '../src/main/home'
 import type { AppCtx } from '../src/main/services'
 import type { Project } from '@shared/types'
@@ -24,36 +25,36 @@ const project = (patch: Partial<Project> = {}): Project => ({
   mode: 'local-only', yolo: false, forge: 'none', branchPrefix: 'genio/', managed: false, addedAt: '', ...patch
 })
 
-it.each(['', 'FoundersOfAvalonUnity', 'games/My Game'])('finds Unity at %s with checkout-relative commands', (engineRoot) => {
+it.each(['', 'FoundersOfAvalonUnity', 'games/My Game'])('finds Unity at %s with checkout-relative commands', async (engineRoot) => {
   put(`${engineRoot ? engineRoot + '/' : ''}ProjectSettings/ProjectVersion.txt`)
-  const detected = detectEngine(root)
+  const detected = await detectProject(root)
   expect(detected).toMatchObject({ engine: 'unity', engineRoot })
   // No version or installed editor: never propose the colliding Unity CLI alias.
   expect(detected.commands.test).toBeUndefined()
 })
 
-it('finds nested Godot with GUT and Unreal', () => {
+it('finds nested Godot with GUT and Unreal', async () => {
   put('games/godot/project.godot')
   put('games/godot/addons/gut/gut_cmdln.gd')
-  expect(detectEngine(root)).toMatchObject({ engine: 'godot', engineRoot: 'games/godot', commands: {
+  expect(await detectProject(root)).toMatchObject({ engine: 'godot', engineRoot: 'games/godot', commands: {
     run: 'godot --path "games/godot"', test: 'godot --headless --path "games/godot" -s addons/gut/gut_cmdln.gd -gexit'
   } })
   put('unreal/Game.uproject')
-  expect(detectEngine(root)).toMatchObject({ engine: 'unreal', engineRoot: 'unreal' })
+  expect(await detectProject(root)).toMatchObject({ engine: 'unreal', engineRoot: 'unreal' })
   put('project.godot')
-  expect(detectEngine(root)).toMatchObject({ engine: 'godot', engineRoot: '' })
+  expect(await detectProject(root)).toMatchObject({ engine: 'godot', engineRoot: '' })
 })
 
-it('ignores caches, hidden directories and projects deeper than two levels', () => {
-  for (const dir of ['Library/game', 'node_modules/game', '.git/game', 'a/b/c']) put(`${dir}/project.godot`)
-  expect(detectEngine(root)).toEqual({ engine: 'other', engineRoot: '', commands: {} })
+it('ignores caches, build output, hidden directories and projects deeper than three levels', async () => {
+  for (const dir of ['Library/game', 'node_modules/game', '.git/game', 'bin/game', 'OBJ/game', 'Build/game', 'out/game', 'a/b/c/d']) put(`${dir}/project.godot`)
+  expect(await detectProject(root)).toMatchObject({ engine: 'other', engineRoot: '', commands: {}, detected: { candidates: [], ambiguous: false, declared: false } })
   put('package.json', JSON.stringify({ scripts: { build: 'vite build' }, dependencies: { phaser: '*' } }))
-  expect(detectEngine(root)).toMatchObject({ engine: 'web', engineRoot: '', commands: { build: 'npm run build' } })
+  expect(await detectProject(root)).toMatchObject({ engine: 'web', engineRoot: '', commands: { build: 'npm run build' } })
 })
 
-it('reads a package.json saved with a UTF-8 BOM', () => {
+it('reads a package.json saved with a UTF-8 BOM', async () => {
   put('package.json', '\uFEFF' + JSON.stringify({ scripts: { dev: 'vite' }, dependencies: { phaser: '*' } }))
-  expect(detectEngine(root)).toMatchObject({ engine: 'web', engineRoot: '', commands: { run: 'npm run dev' } })
+  expect(await detectProject(root)).toMatchObject({ engine: 'web', engineRoot: '', commands: { run: 'npm run dev' } })
 })
 
 it('refreshes ordinary folders on startup refresh and Sync, not only on window open', async () => {
@@ -71,15 +72,15 @@ it('refreshes ordinary folders on startup refresh and Sync, not only on window o
   expect(restarted.get(opened.name)).toMatchObject({ engine: 'other', engineRoot: '' })
 })
 
-it('upgrades legacy fallback engines, preserves manual and specific legacy choices and custom commands', () => {
+it('upgrades legacy fallback engines, preserves manual and specific legacy choices and custom commands', async () => {
   put('FoundersOfAvalonUnity/ProjectSettings/ProjectVersion.txt')
-  expect(refreshEngine(project())).toMatchObject({ engine: 'unity', engineRoot: 'FoundersOfAvalonUnity', engineSource: 'auto' })
+  expect(await refreshEngine(project())).toMatchObject({ engine: 'unity', engineRoot: 'FoundersOfAvalonUnity', engineSource: 'auto' })
   for (const engine of ['other', 'godot'] as const) {
-    expect(refreshEngine(project({ engine, engineSource: 'manual', commands: { test: 'custom' } })))
+    expect(await refreshEngine(project({ engine, engineSource: 'manual', commands: { test: 'custom' } })))
       .toMatchObject({ engine, engineSource: 'manual', commands: { test: 'custom' } })
   }
-  expect(refreshEngine(project({ engine: 'godot' })).engine).toBe('godot')
-  expect(refreshEngine(project({ engine: 'unity' })).engineRoot).toBe('FoundersOfAvalonUnity')
+  expect((await refreshEngine(project({ engine: 'godot' }))).engine).toBe('godot')
+  expect((await refreshEngine(project({ engine: 'unity' }))).engineRoot).toBe('FoundersOfAvalonUnity')
 })
 
 it('refreshes persisted engines on startup refresh and sync, and pins explicit updates', async () => {

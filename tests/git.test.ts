@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { expect, it } from 'vitest'
 import * as git from '../src/main/git'
-import { detectEngine } from '../src/main/projects'
+import { detectProject } from '../src/main/engine-detect'
 
 it('worktree + landed verdict + local ff merge', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-smoke-'))
@@ -13,7 +13,7 @@ it('worktree + landed verdict + local ff merge', async () => {
   await git.git(repo, ['config', 'user.name', 't'])
   fs.writeFileSync(path.join(repo, 'project.godot'), 'config_version=5\n')
   expect((await git.commitAll(repo, 'init')).code).toBe(0)
-  expect(detectEngine(repo).engine).toBe('godot')
+  expect((await detectProject(repo)).engine).toBe('godot')
   const wt = path.join(root, 'wt', 't1')
   const add = await git.addWorktree(repo, wt, 'genio/t1', 'main')
   expect(add.code, add.stderr).toBe(0)

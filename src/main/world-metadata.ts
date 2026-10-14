@@ -13,6 +13,9 @@ export async function readWorldMetadata(project?: Project): Promise<WorldMetadat
   if (project.engine === 'unity') {
     const version = await fs.readFile(path.join(enginePath, 'ProjectSettings', 'ProjectVersion.txt'), 'utf8').catch(() => '')
     result.engineVersion = /^m_EditorVersion:\s*(\S+)/m.exec(version)?.[1]
+  } else {
+    // Other engines: the version the last scan read from the project files at this root.
+    result.engineVersion = project.detected?.candidates.find(c => c.engine === project.engine && c.root === (root ?? ''))?.version
   }
   const commit = await git(project.path, ['log', '-1', '--format=%cI'], 5000).catch(() => undefined)
   if (commit?.code === 0 && Number.isFinite(Date.parse(commit.stdout.trim()))) result.lastCommitAt = commit.stdout.trim()

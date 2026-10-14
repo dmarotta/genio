@@ -27,6 +27,8 @@ let ctx: AppCtx | undefined
 let quitting = false
 let quitConfirmed = false
 let startup: Promise<void> | undefined
+/** At most one engine rescan per window this often on focus. */
+const FOCUS_RESCAN_MS = 30_000
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
@@ -218,6 +220,18 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
 
   windows.set(win, binding)
   win.on('ready-to-show', () => win.show())
+  // Coming back from the editor or a file manager: re-detect the engine (the Hub covers every project).
+  let focusScan: ReturnType<typeof setTimeout> | undefined
+  let lastFocusScan = 0
+  win.on('focus', () => {
+    if (!ctx || focusScan || Date.now() - lastFocusScan < FOCUS_RESCAN_MS) return
+    focusScan = setTimeout(() => {
+      focusScan = undefined
+      lastFocusScan = Date.now()
+      void ctx?.projects.rescan(binding?.project).catch(() => undefined)
+    }, 500)
+  })
+  win.on('closed', () => clearTimeout(focusScan))
 
   // external links open in the OS browser, never inside Genio
   let chatWindow: BrowserWindow | undefined

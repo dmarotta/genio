@@ -53,6 +53,8 @@ export interface ProjectsService {
   sync(name?: string): Promise<OpResult>
   /** re-detect each world's engine (git repos and ordinary folders) and re-read its remote; auto modes follow a changed remote (manual ones are kept). Returns notices. */
   refreshRemotes(name?: string): Promise<string[]>
+  /** re-detect the engine of one world (or every world) now: Rescan, window focus. Toasts a change; returns the entries it saved. */
+  rescan(name?: string): Promise<Project[]>
   /** unpushed/behind counts of the default branch for Offline worlds with a remote */
   pushStatus(name: string): Promise<PushStatus | undefined>
   /** guarded push on demand (Offline worlds): fast-forward only, never forced */

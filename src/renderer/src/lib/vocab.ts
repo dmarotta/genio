@@ -64,18 +64,7 @@ export function stateTone(s: TaskState): Tone {
 
 export const isActive = (s: TaskState): boolean => s === 'spawning' || s === 'working' || s === 'validating'
 
-export const ENGINE_LABEL: Record<Engine, string> = {
-  godot: 'Godot',
-  unity: 'Unity',
-  unreal: 'Unreal',
-  bevy: 'Bevy',
-  web: 'Web',
-  love2d: 'LÖVE',
-  gamemaker: 'GameMaker',
-  defold: 'Defold',
-  monogame: 'MonoGame',
-  other: 'Other'
-}
+export { ENGINE_LABEL } from '@shared/engine'
 
 export const ENGINE_COLOR: Record<Engine, string> = {
   godot: '#478cbf',

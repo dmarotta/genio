@@ -18,3 +18,23 @@ function engineRootOf(stored: string | undefined): string {
   if (root === '.' || root.startsWith('/') || /^[A-Za-z]:/.test(root) || /[\x00-\x1f]/.test(root) || root.split('/').includes('..')) return ''
   return root
 }
+
+
+export const ENGINE_LABEL: Record<Engine, string> = {
+  godot: 'Godot',
+  unity: 'Unity',
+  unreal: 'Unreal',
+  bevy: 'Bevy',
+  web: 'Web',
+  love2d: 'LÖVE',
+  gamemaker: 'GameMaker',
+  defold: 'Defold',
+  monogame: 'MonoGame',
+  other: 'Other'
+}
+
+/** One line for toasts, notices and briefs: `Unity 6000.0.23f1 at ./FoundersOfAvalonUnity`, `Godot at the repository root`, `no game engine`. */
+export function engineSummary(engine: Engine, root = '', version?: string): string {
+  if (engine === 'other') return 'no game engine'
+  return `${ENGINE_LABEL[engine]}${version ? ` ${version}` : ''} at ${root ? `./${root}` : 'the repository root'}`
+}

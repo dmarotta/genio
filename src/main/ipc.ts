@@ -247,6 +247,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     projectUpdate: (name, patch) => ctx().projects.update(name, patch),
     projectRemove: (name, deleteClone) => ctx().projects.remove(name, deleteClone),
     projectSync: (name) => ctx().projects.sync(name),
+    projectRescan: async (name) => (await ctx().projects.rescan(name))[0] ?? ctx().projects.get(name)!,
     projectMetadata: (name) => readWorldMetadata(ctx().projects.get(name)),
     projectPushStatus: (name) => ctx().projects.pushStatus(name),
     projectPush: (name, branch) => ctx().projects.push(name, branch),
