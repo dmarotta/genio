@@ -5,7 +5,7 @@ import type { AppCtx } from './services'
 import { detectEngine } from './projects'
 import { UnityAdapter, type EngineAdapter } from './play-unity'
 import { unityEditor } from './play-editor'
-import type { PlayAction, PlayInput, PlayScene } from '@shared/play'
+import { supportsPlay, type PlayAction, type PlayInput, type PlayScene } from '@shared/play'
 import { PlayStream } from './play-stream'
 import { installPlayPackage } from './play-package'
 import { PlayPool, type PoolLease } from '../../resources/unit-skills/genio/skills/play/scripts/pool.mjs'
@@ -32,7 +32,7 @@ export class PlayService {
     const p = this.ctx.projects.get(world)
     if (!p) throw new Error('Unknown Play project')
     const detected = detectEngine(p.path)
-    if (detected.engine !== 'unity') throw new Error('Snapshot Play currently supports Unity projects')
+    if (!supportsPlay(detected.engine)) throw new Error('Snapshot Play currently supports Unity projects')
     if (!main && this.lostSlots.has(world)) throw new Error('Play slot lease was taken over. Select main or lease a slot again.')
     return { p, root: !main && this.leases.has(world) ? this.leases.get(world)!.root : path.resolve(p.path, detected.engineRoot), engineRoot: detected.engineRoot }
   }

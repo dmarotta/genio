@@ -24,6 +24,24 @@ export const RAIL: RailEntry[] = [
   view('systems', 'Settings', '8')
 ]
 
+/** Screens that only exist inside a project window. */
+const PROJECT_VIEWS: ViewId[] = ['comms', 'inventory', 'play']
+
+/** Whether a window offers this screen: the Hub has no project screens; Play needs a supported engine (see supportsPlay). */
+export function viewAvailable(view: ViewId, projectWindow: boolean, play: boolean): boolean {
+  if (!projectWindow && PROJECT_VIEWS.includes(view)) return false
+  return view !== 'play' || play
+}
+
+/** The rail a window shows, keeping only the screens it offers. */
+export function windowRail(projectWindow: boolean, play: boolean, rail: RailEntry[] = RAIL): RailEntry[] {
+  return rail.flatMap((e): RailEntry[] => {
+    if (e.kind === 'view') return viewAvailable(e.item.id, projectWindow, play) ? [e] : []
+    const items = e.items.filter((i) => viewAvailable(i.id, projectWindow, play))
+    return items.length ? [{ ...e, items }] : []
+  })
+}
+
 /** Every screen in rail order, submenus flattened (command palette, shortcuts). */
 export function navItems(rail: RailEntry[] = RAIL): NavItem[] {
   return rail.flatMap((e) => (e.kind === 'view' ? [e.item] : e.items))

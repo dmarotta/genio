@@ -1,3 +1,13 @@
+import type { Engine } from './types'
+
+/** Engines the Play screen can drive. The single switch for Play: nav, routing and the main-process service all read it. */
+export const PLAY_ENGINES: readonly Engine[] = ['unity']
+
+/** True when a project with this engine gets the Play screen. Unset or unknown engines never do. */
+export function supportsPlay(engine: Engine | undefined): boolean {
+  return !!engine && PLAY_ENGINES.includes(engine)
+}
+
 export interface PlayScene { name: string; path: string; isDirty?: boolean; isActive?: boolean }
 export interface PlayStatus {
   connected: boolean

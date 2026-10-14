@@ -10,13 +10,15 @@ import { occupiedUnits } from '@shared/unit-capacity'
 import { squadSections, squadState } from '@shared/squad-display'
 import { playSfx } from './lib/sfx'
 import { speak } from './lib/voice'
-import type { ViewId } from './lib/railmenu'
+import { viewAvailable, type ViewId } from './lib/railmenu'
+import { supportsPlay } from '@shared/play'
 
 export type { ViewId }
 
 const windowParams = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search)
 export const PROJECT_WINDOW = windowParams.get('project') || undefined
 export const PROJECT_WKSP = PROJECT_WINDOW ? windowParams.get('wksp') || undefined : undefined
+const DEFAULT_VIEW: ViewId = PROJECT_WINDOW ? 'comms' : 'worlds'
 
 export interface Toast {
   id: number
@@ -92,7 +94,7 @@ let state: State = {
   toasts: [],
   permissions: [],
   achievements: [],
-  view: PROJECT_WINDOW ? 'comms' : 'worlds',
+  view: DEFAULT_VIEW,
   inventoryWorld: PROJECT_WINDOW,
   registeredProject: windowParams.has('registered') ? PROJECT_WINDOW : undefined,
   focus: null,
@@ -110,6 +112,9 @@ export function getState(): State {
 export function setState(patch: Partial<State> | ((s: State) => Partial<State>)): void {
   const p = typeof patch === 'function' ? patch(state) : patch
   state = { ...state, ...p }
+  // Every way into a screen (shortcut, palette, notification, an engine change) lands here:
+  // a screen this window does not offer falls back to the default one, quietly.
+  if (!viewAvailable(state.view, !!PROJECT_WINDOW, playAvailable(state))) state = { ...state, view: DEFAULT_VIEW }
   for (const l of listeners) l()
 }
 
@@ -466,6 +471,10 @@ export async function boot(): Promise<void> {
 }
 
 // ------------------------------------------------------------------ selectors
+
+/** Play is offered only in a project window whose project has a supported engine; follows engine changes live. */
+export const playAvailable = (s: State): boolean =>
+  !!PROJECT_WINDOW && supportsPlay(s.snap.projects.find((p) => p.name === PROJECT_WINDOW)?.engine)
 
 export const runningUnits = (s: State): number => occupiedUnits(s.snap.tasks, s.terminals) + (s.snap.pendingUnits?.length ?? 0)
 

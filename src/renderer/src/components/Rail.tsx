@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { FolderOpen, Cpu, Gauge, Globe, MessageSquare, ScrollText, Swords, Gamepad2, type LucideIcon } from 'lucide-react'
-import { PROJECT_WINDOW, go, useStore, runningUnits, type ViewId } from '../store'
+import { PROJECT_WINDOW, go, useStore, runningUnits, playAvailable, type ViewId } from '../store'
 import { cx } from '../lib/format'
-import { RAIL, entryActive, initialIndex, menuKey, navItems, opensMenu, type RailEntry } from '../lib/railmenu'
+import { entryActive, initialIndex, menuKey, navItems, opensMenu, windowRail, type NavItem, type RailEntry } from '../lib/railmenu'
 import '../styles/railmenu.css'
 import { RailMeter } from './PlanMeter'
 import { questCounts } from '@shared/quest-summary'
@@ -18,12 +18,17 @@ const ICON: Record<string, LucideIcon> = {
   inventory: FolderOpen
 }
 
-/** Every screen with its shortcut, submenus flattened (command palette). */
-const windowRail = PROJECT_WINDOW ? RAIL : RAIL.filter(e => e.kind === 'view' && !['comms', 'inventory', 'play'].includes(e.item.id))
-export const NAV = navItems(windowRail)
+/** This window's rail with and without Play, built once so selectors stay referentially stable. */
+const RAILS = { play: windowRail(!!PROJECT_WINDOW, true), noPlay: windowRail(!!PROJECT_WINDOW, false) }
+const NAVS = { play: navItems(RAILS.play), noPlay: navItems(RAILS.noPlay) }
+
+/** Every screen this window offers with its shortcut, submenus flattened (command palette, shortcuts). */
+export const navFor = (play: boolean): NavItem[] => (play ? NAVS.play : NAVS.noPlay)
+export const useNav = (): NavItem[] => navFor(useStore(playAvailable))
 
 export function Rail() {
   const view = useStore((s) => s.view)
+  const rail = useStore(playAvailable) ? RAILS.play : RAILS.noPlay
   const live = useStore(runningUnits)
   const mail = useStore((s) => s.snap.inbox.filter((n) => !n.ackedAt).length)
   const thinking = useStore((s) => s.snap.wksps.some((m) => m.activity === 'thinking' || m.activity === 'tool'))
@@ -34,7 +39,7 @@ export function Rail() {
   }
   return (
     <nav className="rail">
-      {windowRail.map((e) => {
+      {rail.map((e) => {
         if (e.kind === 'menu') return <RailMenu key={e.id} entry={e} view={view} />
         const n = e.item
         const b = badge[n.id]
