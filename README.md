@@ -148,8 +148,12 @@ running units offers **Stop units and close** or **Cancel**, retaining worktrees
 To enable `genio` in new terminals, open Windows **Edit environment variables for
 your account**, edit the user **Path**, and add the absolute path to Genio's
 `resources` folder (containing `genio.cmd`). Remove that entry to uninstall the
-terminal command. The shim runs a packaged `Genio.exe` beside `resources`, or the
-built development app in the parent folder. It does not change PATH itself.
+terminal command. The shim runs a packaged `Genio.exe` (it lives in
+`<install>\resources\app\resources`), or the built development app in the parent
+folder. It does not change PATH itself.
+
+`npm run dist` builds an unpacked, Genio-branded `release\win-unpacked\Genio.exe`
+(electron-builder, configured under `build` in `package.json`; nothing is published).
 
 In a project window, **Settings → Explorer → Install** adds **Open with Genio**
 to folder and folder-background context menus for your Windows account. On

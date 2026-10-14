@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { bus } from '../src/main/bus'
 import type { GenioEvent } from '../src/shared/types'
 import { WINDOW_MIN } from '../src/shared/window'
+import { APP_ID, windowAppDetails, windowIcon } from '../src/main/win-identity'
 
 const f = vi.hoisted(() => ({ windows: [] as any[], ctx: undefined as any, app: undefined as any, screen: undefined as any, popouts: undefined as any, choice: 1, prompts: 0, ipc: undefined as any, stop: vi.fn(async () => {}), start: vi.fn(async () => {}), terminalData: undefined as any, loadError: undefined as Error | undefined, loadGate: undefined as Promise<void> | undefined }))
 vi.mock('../src/main/ctx', () => ({
@@ -9,7 +10,7 @@ vi.mock('../src/main/ctx', () => ({
   ensureProjectBase: async (_ctx: unknown, project: string) => `ally-${project}`, startProjectBase: f.start, stopProjectBase: f.stop
 }))
 vi.mock('../src/main/ipc', () => ({ registerIpc: (_ctx: unknown, windows: unknown) => { f.ipc = windows } }))
-vi.mock('../src/main/win-identity', () => ({ ensureWindowsToastIdentity: () => {}, setWindowsAppId: () => {} }))
+vi.mock('../src/main/win-identity', async (actual) => ({ ...(await actual<object>()), ensureWindowsToastIdentity: () => {}, setWindowsAppId: () => {} }))
 vi.mock('../src/main/fal-service', () => ({ MEDIA_SCHEME: 'genio-media', mediaResponse: () => {} }))
 vi.mock('../src/main/chat-images', () => ({ chatImageDir: () => '', chatImagePath: () => undefined }))
 vi.mock('../src/main/util', () => ({ nowIso: () => '', writeJson: (p: string, data: unknown) => { if (p.endsWith('chat-popout.json')) f.popouts = data }, readJson: () => f.popouts ?? {} }))
@@ -30,6 +31,9 @@ vi.mock('electron', async () => {
     show = vi.fn(() => { this.visible = true })
     moveTop = vi.fn()
     setMenu = vi.fn((menu: unknown) => { this.menu = menu })
+    // Recorded as state: mock calls are cleared between tests, and the Hub is created in beforeAll.
+    appDetails: any[] = []
+    setAppDetails = vi.fn((details: unknown) => { this.appDetails.push({ details, shown: this.visible }) })
     restore = vi.fn(() => { this.minimized = false })
     title: string
     setTitle = vi.fn((title: string) => { this.title = title })
@@ -97,6 +101,18 @@ describe('project window lifecycle', () => {
     expect(WINDOW_MIN).toEqual({ width: 480, height: 360 })
     for (const w of f.windows.slice(0, 2)) expect(w.options).toMatchObject({ minWidth: WINDOW_MIN.width, minHeight: WINDOW_MIN.height })
   })
+  it.runIf(process.platform === 'win32')('gives the Hub and project windows Genio\'s taskbar identity and .ico before they show', () => {
+    const [hub, project] = f.windows
+    // Set once, before the window is first shown.
+    expect(hub.appDetails).toEqual([{ details: windowAppDetails('.'), shown: false }])
+    expect(hub.appDetails[0].details).toMatchObject({ appId: APP_ID, relaunchDisplayName: 'Genio', appIconIndex: 0 })
+    expect(hub.appDetails[0].details.relaunchCommand).not.toContain(' -- ')
+    // Relaunching (or a pinned) project window reopens its folder, as `genio <folder>` does.
+    expect(project.appDetails).toEqual([{ details: windowAppDetails('.', 'one'), shown: false }])
+    expect(project.appDetails[0].details.relaunchCommand).toMatch(/ -- ".*one"$/)
+    for (const w of [hub, project]) expect(w.options.icon).toBe(windowIcon('.', 'win32'))
+    expect(hub.options.icon).toMatch(/icon\.ico$/)
+  })
   it('coalesces a chat stream for its project window and keeps chat traffic off the Hub and other projects', async () => {
     await openProject('two')
     expect(f.ctx.stats.unlock).toHaveBeenCalledWith('project-windows-two')
@@ -117,16 +133,17 @@ describe('project window lifecycle', () => {
     const handler = owner.openHandler
     const url = owner.webContents.getURL() + '#genio-chat-panel'
     expect(handler({ url })).toMatchObject({ action: 'allow', overrideBrowserWindowOptions: {
-      title: 'Genio - one (Chat)', alwaysOnTop: true, show: false, minWidth: 360, webPreferences: { nodeIntegration: false, contextIsolation: true }
+      title: 'Genio - one (Chat)', alwaysOnTop: true, show: false, icon: windowIcon('.'), minWidth: 360, webPreferences: { nodeIntegration: false, contextIsolation: true }
     } })
     expect(handler({ url: 'file:///other.html#genio-chat-panel' })).toEqual({ action: 'deny' })
     let bounds = { x: 2000, y: 100, width: 500, height: 600 }
     const child = Object.assign(new (await import('node:events')).EventEmitter(), {
       isDestroyed: () => false, isMinimized: () => false, isVisible: vi.fn(() => false), show: vi.fn(), showInactive: vi.fn(), moveTop: vi.fn(), focus: vi.fn(), destroy: vi.fn(),
-      setTitle: vi.fn(),
+      setTitle: vi.fn(), setAppDetails: vi.fn(),
       getBounds: () => bounds, getNormalBounds: () => bounds, setBounds: vi.fn((b: typeof bounds) => { bounds = b }),
       webContents: { setWindowOpenHandler: vi.fn(), on: vi.fn(), once: vi.fn() } })
     owner.webContents.emit('did-create-window', child)
+    if (process.platform === 'win32') expect(child.setAppDetails).toHaveBeenCalledExactlyOnceWith(windowAppDetails('.', 'one'))
     const preventTitle = vi.fn()
     child.emit('page-title-updated', { preventDefault: preventTitle }, 'Genio')
     expect(preventTitle).toHaveBeenCalledOnce()

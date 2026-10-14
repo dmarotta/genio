@@ -21,6 +21,11 @@ const SEVERITY_ICON: Record<Severity, string> = {
 // Notification drops its click handler.
 const live = new Set<unknown>()
 
+type ShownHook = (shown: (done: () => void) => void) => void
+let shownHook: ShownHook | undefined
+/** Runs for every desktop notification shown; index.ts wires the Windows Start Menu repair here. */
+export function onNotificationShown(hook: ShownHook): void { shownHook = hook }
+
 async function desktopNotify(appRoot: string, title: string, body: string, severity: Severity, target?: NotifyTarget): Promise<void> {
   try {
     // Imported lazily so this module also loads outside Electron (tests).
@@ -50,6 +55,7 @@ async function desktopNotify(appRoot: string, title: string, body: string, sever
     n.on('failed', drop)
     live.add(n)
     n.show()
+    shownHook?.(done => n.once('show', done))
   } catch {
     /* not running inside Electron, or notifications unavailable */
   }

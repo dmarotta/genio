@@ -13,7 +13,7 @@
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
-    "dist": "electron-vite build && electron-builder --win --dir",
+    "dist": "electron-vite build && electron-builder --win --dir --publish never",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "perf": "vitest run --config vitest.perf.config.ts",
     "capture": "node scripts/capture.mjs"
@@ -27,6 +27,7 @@
     "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "^5.2.0",
     "electron": "^44.7.0",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "jsdom": "^30.1.2",
     "typescript": "^7.0.2",
@@ -53,6 +54,18 @@
     "electron@44.7.0": true,
     "esbuild@0.25.12": true,
     "esbuild@0.28.2": true,
-    "node-pty@1.1.0": true
+    "node-pty@1.1.0": true,
+    "electron-winstaller@5.4.0": false
+  },
+  "build": {
+    "appId": "dev.genio.app",
+    "productName": "Genio",
+    "directories": { "output": "release" },
+    "files": ["out/**/*", "resources/**/*", "package.json"],
+    "asar": false,
+    "npmRebuild": false,
+    "win": { "icon": "resources/icon.ico", "target": "nsis" },
+    "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true, "shortcutName": "Genio" },
+    "publish": null
   }
 }

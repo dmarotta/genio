@@ -14,7 +14,8 @@ import { defaultHomeRoot } from './home'
 import { registerIpc } from './ipc'
 import type { AppCtx } from './services'
 import { nowIso, readJson, writeJson } from './util'
-import { ensureWindowsToastIdentity, setWindowsAppId } from './win-identity'
+import { afterFirstNotification, ensureWindowsToastIdentity, setWindowsAppId, windowAppDetails, windowIcon } from './win-identity'
+import { onNotificationShown } from './notifier'
 import { projectFromArgv, projectSnapshot, terminalProject, type WindowBinding } from './project-windows'
 import { createEventRouter, type RoutedWindow } from './event-router'
 import type { GenioEvent } from '@shared/types'
@@ -83,6 +84,8 @@ function clearLock(): void {
 async function boot(): Promise<void> {
   writeLock()
   if (!process.env.GENIO_CAPTURE_DIR) ensureWindowsToastIdentity(appRoot())
+  // Electron writes Start Menu\Electron.lnk on an unpackaged run's first notification.
+  onNotificationShown(shown => afterFirstNotification(appRoot(), shown))
   ctx = createApp(appRoot())
   const sender = (id: number): BrowserWindow | undefined => [...windows.keys()].find(w => !w.isDestroyed() && w.webContents.id === id)
   registerIpc(getCtx, {
@@ -207,6 +210,11 @@ function keepPopoutVisible(child: BrowserWindow): void {
   if ((next.x !== current.x || next.y !== current.y || next.width !== current.width || next.height !== current.height)) child.setBounds(next)
 }
 
+/** Taskbar icon and relaunch target per window, set before it is first shown (relaunching a project window reopens its folder). */
+function brandTaskbar(win: BrowserWindow, folder?: string): void {
+  if (process.platform === 'win32') win.setAppDetails(windowAppDetails(appRoot(), folder))
+}
+
 function createWindow(binding?: WindowBinding, registered = false): BrowserWindow {
   const isWin = process.platform === 'win32'
   const projectPath = binding && ctx?.projects.get(binding.project)?.path
@@ -224,7 +232,7 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
     ...(isWin || process.platform === 'linux'
       ? { titleBarOverlay: { color: '#07090e', symbolColor: '#00e5ff', height: 44 } }
       : { trafficLightPosition: { x: 14, y: 14 } }),
-    icon: path.join(appRoot(), 'resources', 'icon.png'),
+    icon: windowIcon(appRoot()),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -236,6 +244,7 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
 
   // The renderer owns File; a hidden native menu would keep its old close/quit shortcuts.
   win.setMenu(null)
+  brandTaskbar(win, projectPath)
   windows.set(win, binding)
   win.on('ready-to-show', () => win.show())
   // Coming back from the editor or a file manager: re-detect the engine (the Hub covers every project).
@@ -277,7 +286,7 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
         show: false,
         title: windowTitle(projectName, true), alwaysOnTop: true,
         frame: true, titleBarStyle: 'default', titleBarOverlay: false,
-        backgroundColor: '#07090e', autoHideMenuBar: true,
+        backgroundColor: '#07090e', autoHideMenuBar: true, icon: windowIcon(appRoot()),
         webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
       } }
     }
@@ -286,6 +295,7 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
   })
   win.webContents.on('did-create-window', child => {
     chatWindow = child
+    brandTaskbar(child, projectPath)
     child.on('page-title-updated', event => event.preventDefault())
     child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     // window.open's initial navigation happens after did-create-window.

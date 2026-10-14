@@ -15,7 +15,7 @@ vi.mock('../../src/main/ctx', () => ({
   ensureProjectBase: async (_ctx: unknown, project: string) => project, startProjectBase: async () => {}, stopProjectBase: async () => {}
 }))
 vi.mock('../../src/main/ipc', () => ({ registerIpc: () => {} }))
-vi.mock('../../src/main/win-identity', () => ({ ensureWindowsToastIdentity: () => {}, setWindowsAppId: () => {} }))
+vi.mock('../../src/main/win-identity', async (actual) => ({ ...(await actual<object>()), ensureWindowsToastIdentity: () => {}, setWindowsAppId: () => {} }))
 vi.mock('../../src/main/fal-service', () => ({ MEDIA_SCHEME: 'genio-media', mediaResponse: () => {} }))
 vi.mock('../../src/main/chat-images', () => ({ chatImageDir: () => '', chatImagePath: () => undefined }))
 vi.mock('../../src/main/home', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../src/main/home')>()), defaultHomeRoot: () => f.ctx.main.home.root }))
@@ -28,7 +28,7 @@ vi.mock('electron', async () => {
       send: (channel: string, payload: unknown) => { f.sent.push({ channel, payload }) }, setWindowOpenHandler: () => {}
     })
     query: unknown
-    focus = vi.fn(); show = vi.fn(); restore = vi.fn(); moveTop = vi.fn(); setMenu = vi.fn(); isMinimized = () => false; isDestroyed = () => false
+    focus = vi.fn(); show = vi.fn(); restore = vi.fn(); moveTop = vi.fn(); setMenu = vi.fn(); setAppDetails = vi.fn(); isMinimized = () => false; isDestroyed = () => false
     constructor(_options: unknown) { super(); f.windows.push(this) }
     async loadFile(_file: string, options: { query: unknown }) { this.query = options.query; queueMicrotask(() => this.webContents.emit('did-finish-load')) }
     close() {}
