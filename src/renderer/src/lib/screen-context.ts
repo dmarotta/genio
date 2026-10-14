@@ -60,6 +60,6 @@ export function listFact(names: string[], total = names.length, max = 6): string
   return shown.join(', ') + (total > shown.length ? ` +${total - shown.length}` : '')
 }
 
-/** Ask the panel to expand (e.g. Play's "Ask Genio" button). */
+/** Ask the panel to expand (e.g. an "Ask Genio" button). */
 export const PANEL_OPEN_EVENT = 'genio-panel-open'
 export function openGenioPanel(): void { window.dispatchEvent(new Event(PANEL_OPEN_EVENT)) }

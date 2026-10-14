@@ -218,22 +218,21 @@ export function createToolRegistry(
   t('play_status', 'Observe the session project Unity editor. Never launch another editor or use a unit against the main editor.', { world: z.string() }, async ({ world }) => ok(json(await play(world).status(world))))
   t('play_console', 'Read recent Unity console entries, following cursor and session.', { world: z.string(), cursor: z.number().int().optional(), session: z.string().optional() }, async ({ world, cursor, session }) => ok(json(await play(world).adapter(world).console(cursor, session))))
   t('play_stats', 'Observe Unity performance statistics.', { world: z.string() }, async ({ world }) => ok(json(await play(world).adapter(world).stats())))
-  t('play_frame', 'Observe a fresh game PNG in snapshot mode (about 1 fps).', { world: z.string() }, async ({ world }) => {
-    const frame = await play(world).frame(world, 1280, 720, true)
+  t('play_frame', 'Observe a fresh game PNG of the session project Unity editor.', { world: z.string() }, async ({ world }) => {
+    const frame = await play(world).frame(world, 1280, 720)
     return { content: [{ type: 'image', data: frame.base64, mimeType: 'image/png' }, { type: 'text', text: `${frame.width}x${frame.height} captured ${frame.capturedAt}` }] }
   })
   t('play_control', 'Control Play only on the explicit player request quoted in player_words. Never save scenes or use eval. Units control only their own copy/slot.', {
     world: z.string(), player_words: z.string().trim().min(1), action: z.discriminatedUnion('type', [
-      z.object({ type: z.enum(['play', 'pause', 'stop', 'step']) }), z.object({ type: z.literal('scene'), path: z.string() }),
-      z.object({ type: z.literal('resolution'), width: z.number().int(), height: z.number().int() }),
+      z.object({ type: z.enum(['play', 'pause', 'stop']) }), z.object({ type: z.literal('scene'), path: z.string() }),
       z.object({ type: z.literal('key'), key: z.string() }), z.object({ type: z.literal('pointer'), x: z.number().nonnegative(), y: z.number().nonnegative() })
     ])
   }, async ({ world, player_words, action }) => {
     if (role === 'bot') return fail('Play control waits for the player')
-    await play(world).act(world, action, 'genio', player_words)
+    await play(world).act(world, action, player_words)
     return ok('Play action completed')
   })
-  t('play_slot_recover', 'Recover a shared Play slot a unit reported stuck, or one whose editor outlived its lease: closes only that slot\'s recorded Unity editor and child processes (graceful quit, then forced stop), never the main editor or Toolbox, and frees the slot. Refuses slots leased by a live unit or the player. Never stop Unity processes any other way.', {
+  t('play_slot_recover', 'Recover a shared Play slot a unit reported stuck, or one whose editor outlived its lease: closes only that slot\'s recorded Unity editor and child processes (graceful quit, then forced stop), never the main editor or Toolbox, and frees the slot. Refuses slots leased by a live unit. Never stop Unity processes any other way.', {
     world: z.string(), slot: z.number().int().min(1).max(8)
   }, async ({ world, slot }) => {
     await play(world).closeSlotEditor(world, slot, 'genio')

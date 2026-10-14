@@ -5,12 +5,10 @@ import type { PlayAction, PlayConsole, PlayFrame, PlayScene, PlayStats, PlayStat
 
 export interface EngineAdapter {
   status(): Promise<PlayStatus>
-  scenes(): Promise<PlayScene[]>
-  act(action: PlayAction, stillAllowed?: () => boolean): Promise<void>
+  act(action: PlayAction): Promise<void>
   frame(width: number, height: number): Promise<PlayFrame>
   console(cursor?: number, session?: string): Promise<PlayConsole>
   stats(): Promise<PlayStats>
-  stream?(session?: { port: number; token: string; width: number; height: number }): Promise<void>
 }
 interface Descriptor { port: number; pid: number; evalToken: string; projectPath: string; lastHeartbeat: string; mode: string; host?: string }
 const samePath = (a: string, b: string): boolean => {
@@ -95,38 +93,23 @@ export class UnityAdapter implements EngineAdapter {
     this.queue = next.catch(() => {})
     return next
   }
-  async scenes(): Promise<PlayScene[]> {
-    return this.serial(async () => (await this.call<{ scenes: PlayScene[] }>('list_open_scenes')).scenes)
-  }
   async status(): Promise<PlayStatus> {
     return this.serial(async () => {
       try {
         const s = await this.call<{ playMode: PlayStatus['state']; compiling: boolean; domainReloadInProgress: boolean }>('editor_status')
         const scenes = (await this.call<{ scenes: PlayScene[] }>('list_open_scenes')).scenes
-        return { connected: true, state: s.compiling ? 'compiling' : s.domainReloadInProgress ? 'reloading' : s.playMode, scenes, capabilities: { resolution: this.hasPackage(), input: this.supportsInput() } }
-      } catch (e) { return { connected: false, state: 'gone', scenes: [], capabilities: { resolution: false, input: false }, message: (e as Error).message } }
+        return { connected: true, state: s.compiling ? 'compiling' : s.domainReloadInProgress ? 'reloading' : s.playMode, scenes, capabilities: { input: this.supportsInput() } }
+      } catch (e) { return { connected: false, state: 'gone', scenes: [], capabilities: { input: false }, message: (e as Error).message } }
     })
   }
-  async act(a: PlayAction, stillAllowed: () => boolean = () => true): Promise<void> {
+  async act(a: PlayAction): Promise<void> {
     return this.serial(async () => {
-      if (!stillAllowed()) throw new Error('Player took control')
-      if (!a || !['play', 'pause', 'stop', 'step', 'scene', 'resolution', 'key', 'pointer'].includes(a.type)) throw new Error('Unknown Play action')
-      if (a.type === 'resolution' && !this.hasPackage()) throw new Error('Pipeline does not support Game view resolution. Presets change snapshot size only.')
+      if (!a || !['play', 'pause', 'stop', 'scene', 'key', 'pointer'].includes(a.type)) throw new Error('Unknown Play action')
       const s = await this.call<{ playMode: string; compiling: boolean; domainReloadInProgress: boolean }>('editor_status')
       if (s.compiling || s.domainReloadInProgress) throw new Error('Wait for Unity to finish compiling or reloading')
-      if (!stillAllowed()) throw new Error('Player took control')
-      if (a.type === 'step') {
-        if (s.playMode !== 'paused') throw new Error('Pause Play Mode before stepping')
-        await this.call('genio_step'); return
-      }
-      if (a.type === 'resolution') {
-        if (![a.width, a.height].every(n => Number.isInteger(n) && n >= 16 && n <= 3840)) throw new Error('Invalid game resolution')
-        await this.call('genio_set_resolution', { width: a.width, height: a.height }); return
-      }
       if (a.type === 'play' || a.type === 'scene') {
         const { scenes } = await this.call<{ scenes: PlayScene[] }>('list_open_scenes')
         if (!Array.isArray(scenes) || !scenes.length || scenes.some(s => s.isDirty !== false || !s.path)) throw new Error('Unsaved scenes: save or discard changes in Unity before continuing. Genio never saves scenes.')
-        if (!stillAllowed()) throw new Error('Player took control')
       }
       if (a.type === 'scene') {
         if (s.playMode !== 'stopped') throw new Error('Stop Play Mode before opening a scene')
@@ -145,19 +128,12 @@ export class UnityAdapter implements EngineAdapter {
           // from render pixels; Screen.width is unreliable in an editor callback.
           const viewport = await this.call<{ success: boolean; result: { x: number; y: number } }>('eval', { code: 'var t = typeof(UnityEditor.EditorApplication).Assembly.GetType("UnityEditor.PlayModeView"); var m = t.GetMethod("GetMainPlayModeViewTargetSize", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic); var s = (UnityEngine.Vector2)m.Invoke(null, null); return new { x = s.x, y = s.y };' })
           if (!viewport.success || !(viewport.result?.x > 0 && viewport.result?.y > 0)) throw new Error('Cannot determine Game view dimensions')
-          if (!stillAllowed()) throw new Error('Player took control')
           await this.call('simulate_pointer', { x: Math.min(viewport.result.x - 1, a.x * viewport.result.x), y: Math.min(viewport.result.y - 1, (1 - a.y) * viewport.result.y), action: 'click' })
         }
         return
       }
       await this.call(a.type === 'play' ? 'editor_play' : a.type === 'pause' ? 'editor_pause' : 'editor_stop')
     })
-  }
-  private hasPackage(): boolean {
-    try { return !!JSON.parse(fs.readFileSync(path.join(this.root, 'Packages/manifest.json'), 'utf8')).dependencies?.['com.genio.play'] } catch { return false }
-  }
-  stream(session?: { port: number; token: string; width: number; height: number }): Promise<void> {
-    return this.serial(async () => { await this.call(session ? 'genio_stream_start' : 'genio_stream_stop', session ?? {}) })
   }
   frame(width: number, height: number): Promise<PlayFrame> {
     if (![width, height].every(v => Number.isInteger(v) && v >= 1 && v <= 1920)) throw new Error('Snapshot dimensions must be 1–1920')

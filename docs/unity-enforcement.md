@@ -14,7 +14,7 @@ A stopped editor adds a `note [key=unity-guard]` to the unit status file and sen
 
 The final handle check compares birth times at [CIM's microsecond precision](https://learn.microsoft.com/en-us/windows/win32/wmisdk/cim-datetime), retaining all 64-bit digits with integer/decimal arithmetic. A Windows regression test runs that code against an in-memory fake process object, including the extra 100 ns digit returned by `StartTime`; it never queries real processes.
 
-A wrapper-recorded slot editor remains under the pool's authority after `--keep-editor` or a handoff to a player/another unit. The watch verifies its recorded PID, project and registration time and leaves it to the pool's existing lifecycle checks. It also defers while that pool snapshot is unreadable. An unregistered unit editor receives no such exception. This prevents a retained editor from being stopped after the player has acquired its slot.
+A wrapper-recorded slot editor remains under the pool's authority after `--keep-editor` or a handoff to another unit. The watch verifies its recorded PID, project and registration time and leaves it to the pool's existing lifecycle checks. It also defers while that pool snapshot is unreadable. An unregistered unit editor receives no such exception. This prevents a retained editor from being stopped after another owner has acquired its slot.
 
 Lease and pool editor checks read `placement.json` using the same mounted-volume fallback as the pool. Slots placed on the project's Dev Drive retain their allowed paths while lease state stays in Genio's data directory. These checks do not probe cloning capabilities or write pool state.
 

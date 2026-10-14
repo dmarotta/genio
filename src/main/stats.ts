@@ -44,17 +44,18 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'project-cli-open', name: 'Direct Entry', description: 'Open a project with genio <folder>.', feature: 'project-cli' },
   { id: 'project-windows-two', name: 'Split Screen', description: 'Have two project windows open at once.', feature: 'file-menu' },
   { id: 'play-first', name: 'Press Play', description: 'Start a Unity Play session.', feature: 'play' },
-  { id: 'play-package', name: 'Live Link', description: 'Enable the Genio Play package in a project.', feature: 'play' },
-  { id: 'play-stream', name: 'Motion Picture', description: 'Receive a live Unity frame.', feature: 'play' },
-  { id: 'play-input', name: 'Hands On', description: 'Control a live game with virtual input.', feature: 'play' },
-  { id: 'play-pool-configured', name: 'Room for the Crew', description: 'Configure the shared Unity instance cap.', feature: 'play' },
-  { id: 'play-slot', name: 'Shared Playground', description: 'Prepare and lease a shared Unity slot.', feature: 'play' },
-  { id: 'play-takeover', name: 'My Turn', description: 'Take over a shared Play slot.', feature: 'play' },
-  { id: 'play-step', name: 'One Frame at a Time', description: 'Step a paused Unity game.', feature: 'play' },
-  { id: 'play-resolution', name: 'New Perspective', description: 'Set the game rendering resolution.', feature: 'play' },
-  { id: 'play-fullscreen', name: 'Big Screen', description: 'Expand the live Game view to full screen.', feature: 'play' },
-  { id: 'play-snapshot', name: 'In the Frame', description: 'Capture a game snapshot.', feature: 'play' },
+  { id: 'play-pool-configured', name: 'Room for the Crew', description: 'Configure the shared Unity instance cap.', feature: 'systems' },
   { id: 'play-observed', name: 'Shared Sight', description: 'Let Genio observe a game frame.', feature: 'play_frame' },
+  // Retired with the Play screen and live streaming: earned dates stay in stats.json and on the sheet.
+  { id: 'play-package', name: 'Live Link', description: 'Enable the Genio Play package in a project.', feature: 'play', retired: true },
+  { id: 'play-stream', name: 'Motion Picture', description: 'Receive a live Unity frame.', feature: 'play', retired: true },
+  { id: 'play-input', name: 'Hands On', description: 'Control a live game with virtual input.', feature: 'play', retired: true },
+  { id: 'play-slot', name: 'Shared Playground', description: 'Prepare and lease a shared Unity slot.', feature: 'play', retired: true },
+  { id: 'play-takeover', name: 'My Turn', description: 'Take over a shared Play slot.', feature: 'play', retired: true },
+  { id: 'play-step', name: 'One Frame at a Time', description: 'Step a paused Unity game.', feature: 'play', retired: true },
+  { id: 'play-resolution', name: 'New Perspective', description: 'Set the game rendering resolution.', feature: 'play', retired: true },
+  { id: 'play-fullscreen', name: 'Big Screen', description: 'Expand the live Game view to full screen.', feature: 'play', retired: true },
+  { id: 'play-snapshot', name: 'In the Frame', description: 'Capture a game snapshot.', feature: 'play', retired: true },
   { id: 'chat-provider-switch', feature: 'comms', name: 'New Perspective', description: 'Switch the chat provider.' },
   { id: 'codex-chat-turn', feature: 'comms', name: 'Codex Companion', description: 'Complete a Codex-driven chat turn.' },
   { id: 'inventory-chat', name: 'Shared View', description: 'Send a message with Inventory context from the floating Genio panel.', feature: 'inventory-chat' },
@@ -331,7 +332,7 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
         xp: d.xp,
         xpNext: xpForLevel(d.level),
         streakDays: streak(d),
-        achievements: ACHIEVEMENTS.map((a) => ({ ...a, ...(d.achievements[a.id] ? { unlockedAt: d.achievements[a.id] } : {}) })),
+        achievements: ACHIEVEMENTS.flatMap((a) => (d.achievements[a.id] ? [{ ...a, unlockedAt: d.achievements[a.id] }] : a.retired ? [] : [a])),
         playstyle: playstyle(d),
         landings: landingWindow(d.landings),
         pins: d.pins.filter((id) => d.achievements[id])
@@ -443,7 +444,7 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
 
     unlock(id) {
       const def = ACHIEVEMENTS.find((a) => a.id === id)
-      if (!def) return undefined
+      if (!def || def.retired) return undefined
       const d = load()
       if (d.achievements[id]) return { ...def, unlockedAt: d.achievements[id] }
       const ach: Achievement = { ...def, unlockedAt: nowIso() }
@@ -466,7 +467,6 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
     if (ev.type === 'feature-used') {
       const ids: Record<string, string> = {
         'character-sheet': 'character-sheet-open',
-        'play-fullscreen': 'play-fullscreen',
         'model-picker': 'model-picker', 'model-switch': 'model-switch', screenshot: 'screenshot', world_push: 'push-first',
         rate_task: 'rating-first', 'account-login': 'account-login', 'yolo-chat': 'yolo-chat', 'usage-mode': 'usage-mode',
         quest_add: 'quest-first', world_add: 'world-first', memory_write: 'lore-first', 'inventory-index': 'inventory-index'

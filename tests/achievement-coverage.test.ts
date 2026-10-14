@@ -26,9 +26,21 @@ const SUPPORTING_TOOLS = [
   'report_to_main', 'escalate', 'asset_info', 'procedure_read', 'skill_read', 'settings_read', 'settings_update', 'event_read', 'events_ack'
 ]
 
+// Retired with the Play screen and live streaming. Their ids stay in ACHIEVEMENTS for saved stats; they never
+// unlock again and never cover a live feature. Retiring another achievement means adding it here explicitly.
+const RETIRED = [
+  'play-package', 'play-stream', 'play-input', 'play-slot', 'play-takeover',
+  'play-step', 'play-resolution', 'play-fullscreen', 'play-snapshot'
+]
+const LIVE = ACHIEVEMENTS.filter((a) => !a.retired)
+
 const help = 'Add an achievement with this feature tag in src/main/stats.ts and wire its unlock to a real successful event.'
 
 describe('achievement feature coverage', () => {
+  it('retires exactly the listed achievements and keeps their ids', () => {
+    expect(ACHIEVEMENTS.filter((a) => a.retired).map((a) => a.id).sort()).toEqual([...RETIRED].sort())
+    expect(navItems().map((v) => v.id as string)).not.toContain('play')
+  })
   it('keeps Character Sheet tied to the stable streak achievement and screen id', () => {
     expect(navItems().find((v) => v.label === 'Character Sheet')?.id).toBe('status')
     expect(ACHIEVEMENTS.find((a) => a.id === 'on-a-roll')?.feature).toBe('status')
@@ -36,12 +48,12 @@ describe('achievement feature coverage', () => {
     expect(navItems().some((v) => v.label === 'Status')).toBe(false)
   })
   it('covers every Rail view and submenu', () => {
-    const tags = new Set(ACHIEVEMENTS.map((a) => a.feature))
+    const tags = new Set(LIVE.map((a) => a.feature))
     const ids = new Set([...navItems().map((v) => v.id), ...RAIL.filter((e) => e.kind === 'menu').map((e) => e.id)])
     for (const id of ids) expect(tags.has(id), `${id}: ${help}`).toBe(true)
   })
   it('covers all explicitly player-facing Genio tools', () => {
-    const tags = new Set(ACHIEVEMENTS.map((a) => a.feature))
+    const tags = new Set(LIVE.map((a) => a.feature))
     const source = readFileSync('src/main/wksp-tools.ts', 'utf8')
     const registered = [...source.matchAll(/\bt\(\s*'([^']+)'/g)].map((m) => m[1])
     for (const tool of registered) {

@@ -65,6 +65,20 @@ describe('live achievement outcomes', () => {
     bus.removeAllListeners('event')
     expect(createStatsService(() => ctx).get().achievements.find((a) => a.id === 'screenshot')?.unlockedAt).toBeTruthy()
   })
+  it('keeps earned retired achievements in saved stats, hides unearned ones and never unlocks them again', () => {
+    const saved = { achievements: { 'play-stream': '2026-09-01', 'first-blood': '2026-09-02' }, pins: ['play-stream'] }
+    fs.writeFileSync(path.join(dir, 'stats.json'), JSON.stringify(saved))
+    const svc = createStatsService(() => ctx)
+    const shown = svc.get().achievements
+    expect(shown.find((a) => a.id === 'play-stream')).toMatchObject({ unlockedAt: '2026-09-01', retired: true })
+    expect(shown.some((a) => a.id === 'play-input')).toBe(false)
+    expect(svc.get().pins).toEqual(['play-stream'])
+    publish({ type: 'feature-used', feature: 'play-fullscreen' })
+    expect(svc.unlock('play-input')).toBeUndefined()
+    expect(svc.get().achievements.some((a) => a.id === 'play-input' || a.id === 'play-fullscreen')).toBe(false)
+    expect(svc.unlock('play-observed')?.unlockedAt).toBeTruthy()
+    expect(JSON.parse(fs.readFileSync(path.join(dir, 'stats.json'), 'utf8')).achievements).toMatchObject(saved.achievements)
+  })
   it('counts generated outputs once, including after restart, for 10 and 50 tiers', () => {
     let svc = createStatsService(() => ctx)
     const made = { type: 'feature-used', feature: 'chat-image', id: 'images', count: 9 }

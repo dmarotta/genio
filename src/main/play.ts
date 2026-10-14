@@ -1,250 +1,75 @@
-import fs from 'node:fs'
 import path from 'node:path'
-import { spawn } from 'node:child_process'
 import type { AppCtx } from './services'
 import { UnityAdapter, type EngineAdapter } from './play-unity'
-import { unityEditor } from './play-editor'
 import { effectiveEngine } from '@shared/engine'
-import { supportsPlay, type PlayAction, type PlayInput, type PlayScene } from '@shared/play'
-import { PlayStream } from './play-stream'
-import { installPlayPackage } from './play-package'
-import { PlayPool, stuckMessage, type PoolLease } from '../../resources/unit-skills/genio/skills/play/scripts/pool.mjs'
+import { supportsUnitySlots, type PlayAction } from '@shared/play'
+import { PlayPool, stuckMessage } from '../../resources/unit-skills/genio/skills/play/scripts/pool.mjs'
 
-export function assertPlayWindow(binding: { project: string } | undefined, world: unknown): void {
-  if (!binding || world !== binding.project) throw new Error('Play is bound to this project window; open the project first')
+export function assertProjectWindow(binding: { project: string } | undefined, world: unknown): void {
+  if (!binding || world !== binding.project) throw new Error('Unity slots are bound to this project window; open the project first')
 }
 
+/**
+ * The shared Unity slot pool (Settings › This project › Unity slots and Genio's slot recovery) and
+ * Genio's chat tools on the project's main editor (play_status, play_frame, play_console, play_stats, play_control).
+ */
 export class PlayService {
   private adapters = new Map<string, EngineAdapter>()
-  private opening = new Map<string, number>()
-  private generations = new Map<string, number>()
-  private driving = new Map<string, number>()
-  private streams = new Map<string, PlayStream>()
   private pools = new Map<string, PlayPool>()
-  private leases = new Map<string, PoolLease>()
-  private heartbeats = new Map<string, ReturnType<typeof setInterval>>()
-  private poolBusy = new Set<string>()
-  private streamHeartbeats = new Map<string, ReturnType<typeof setInterval>>()
-  /** Lost slot leases, with why (taken over, or a dialog blocked the hidden editor). */
-  private lostSlots = new Map<string, string>()
-  private pendingDetach = new Set<string>()
+  private closing = new Set<string>()
   constructor(private ctx: AppCtx) {}
-  private project(world: string, main = false) {
+  private project(world: string) {
     const p = this.ctx.projects.get(world)
-    if (!p) throw new Error('Unknown Play project')
+    if (!p) throw new Error('Unknown Unity project')
     const { engine, root: engineRoot } = effectiveEngine(p)
-    if (!supportsPlay(engine)) throw new Error('Snapshot Play currently supports Unity projects')
-    if (!main && this.lostSlots.has(world)) { const why = this.lostSlots.get(world)!; throw new Error(/lease lost/i.test(why) ? 'Play slot lease was taken over. Select main or lease a slot again.' : `${why} Select main or lease a slot again.`) }
-    return { p, root: !main && this.leases.has(world) ? this.leases.get(world)!.root : path.resolve(p.path, engineRoot), engineRoot }
+    if (!supportsUnitySlots(engine)) throw new Error('Unity slots and editor tools only support Unity projects')
+    return { p, root: path.resolve(p.path, engineRoot), engineRoot }
   }
   pool(world: string): PlayPool {
     let pool = this.pools.get(world)
-    if (!pool) { const { p, engineRoot } = this.project(world, true); pool = new PlayPool(this.ctx.main.home.data, p.path, engineRoot); this.pools.set(world, pool) }
+    if (!pool) { const { p, engineRoot } = this.project(world); pool = new PlayPool(this.ctx.main.home.data, p.path, engineRoot); this.pools.set(world, pool) }
     return pool
   }
-  async poolState(world: string) { return { ...await this.pool(world).state(), selected: this.leases.get(world)?.id } }
+  async poolState(world: string) { return this.pool(world).state() }
   /** Settings › This project › Unity slots. Never refuses and never closes anything: extra slots drain. */
   async configurePool(world: string, cap: number) { const result = await this.pool(world).configure(cap); this.ctx.stats.unlock('play-pool-configured'); return result }
   /** Settings › This project › Unity slots: hidden (default) or visible slot editor windows, from the next launch. */
   async configureLaunch(world: string, visible: boolean) { return this.pool(world).configureLaunch(visible) }
-  selectedSlot(world: string): number | undefined { return this.leases.get(world)?.id }
   /**
    * The supported recovery for a slot editor: graceful quit, timed wait, then a forced stop of
    * only that slot's verified processes. The player (confirmed in Settings › This project › Unity slots) may revoke
    * a live lease; Genio recovers only free, orphaned or stuck slots.
    */
   async closeSlotEditor(world: string, id: number, actor: 'player' | 'genio'): Promise<void> {
-    if (this.poolBusy.has(world)) throw new Error('Play slot preparation is already running')
-    this.poolBusy.add(world)
+    if (this.closing.has(world)) throw new Error('A slot editor is already closing; try again when it finishes')
+    this.closing.add(world)
     try {
-      if (this.leases.get(world)?.id === id) {
-        if (actor !== 'player') throw new Error('The player is using this Play slot')
-        await this.stopStream(world)
-        clearInterval(this.heartbeats.get(world)); this.heartbeats.delete(world); this.leases.delete(world)
-      }
       const result = await this.pool(world).closeSlot(id, { force: actor === 'player' })
       if (!result.closed) throw new Error(actor === 'player' ? `Slot ${id} editor could not be closed: ${result.reason}${result.pids.length ? ` (PIDs ${result.pids.join(', ')})` : ''}. Close that Unity window yourself, then use Close slot editor again.` : stuckMessage(id, result))
     } finally {
-      this.poolBusy.delete(world)
-      if (this.pendingDetach.delete(world)) await this.detach(world)
+      this.closing.delete(world)
     }
   }
-  async selectSlot(world: string, id?: number, takeover = false): Promise<void> {
-    if (this.poolBusy.has(world)) throw new Error('Play slot preparation is already running')
-    this.poolBusy.add(world)
-    try {
-      await this.stopStream(world)
-      this.lostSlots.delete(world)
-      const pool = this.pool(world), old = this.leases.get(world)
-      if (old && old.id === id) return
-      if (old) { await pool.release(old.id, old.token); this.leases.delete(world) }
-      clearInterval(this.heartbeats.get(world)); this.heartbeats.delete(world)
-      if (id === undefined) { await pool.cancel(`player:${process.pid}`); return }
-      const lease = await pool.acquire(`player:${process.pid}`, process.pid, id, takeover)
-      if (!lease) throw new Error(`Slot ${id} is busy, or units are waiting ahead of you. Take it over, or pick another slot.`)
-      this.leases.set(world, lease)
-      // Heartbeat plus the dialog watcher for the hidden slot editor; a blocking dialog fails the lease with its reason.
-      let beating = false
-      const timer = setInterval(() => {
-        if (beating) return
-        beating = true
-        void pool.check(lease.id, lease.token).then(() => pool.watchEditor(lease.id, lease.token)).catch((e: Error) => {
-          clearInterval(timer); this.lostSlots.set(world, e.message); this.leases.delete(world); this.stopStreamLocal(world)
-        }).finally(() => { beating = false })
-      }, 5000)
-      timer.unref(); this.heartbeats.set(world, timer)
-      try { if (!(await pool.state()).slots.find(s => s.id === lease.id)?.revision) await pool.prepare(lease.id, lease.token) }
-      catch (error) { clearInterval(timer); this.heartbeats.delete(world); this.leases.delete(world); await pool.release(lease.id, lease.token); throw error }
-      this.ctx.stats.unlock(takeover ? 'play-takeover' : 'play-slot')
-    } finally {
-      this.poolBusy.delete(world)
-      if (this.pendingDetach.delete(world)) await this.detach(world)
-    }
-  }
-  async enableStreaming(world: string) {
-    if (this.leases.has(world)) throw new Error('Enable the package on the main copy and commit it before preparing a slot')
-    const { p, root } = this.project(world, true)
-    installPlayPackage(this.ctx.appRoot, p.path, root)
-    this.ctx.stats.unlock('play-package')
-  }
-  async startStream(world: string, width: number, height: number, onFrame: (frame: Buffer) => void, onDisconnect: () => void): Promise<void> {
-    if (![width, height].every(n => Number.isInteger(n) && n >= 16 && n <= 1920)) throw new Error('Stream dimensions must be 16–1920')
-    await this.stopStream(world)
-    const stream = new PlayStream()
-    this.streams.set(world, stream)
-    stream.onFrame = frame => { this.ctx.stats.unlock('play-stream'); onFrame(frame) }
-    stream.onDisconnect = onDisconnect
-    try {
-      const credentials = await stream.listen()
-      if (this.streams.get(world) !== stream) throw new Error('Stream start cancelled')
-      const adapter = this.adapter(world)
-      if (!adapter.stream) throw new Error('Streaming is unavailable for this engine')
-      await adapter.stream({ ...credentials, width, height })
-      if (this.streams.get(world) !== stream) throw new Error('Stream start cancelled')
-      const lease = this.leases.get(world)
-      const heartbeat = setInterval(() => void (lease ? this.pool(world).check(lease.id, lease.token) : this.pool(world).mainControl()).catch(() => this.stopStreamLocal(world)), 5000)
-      heartbeat.unref(); this.streamHeartbeats.set(world, heartbeat)
-    } catch (e) { if (this.streams.get(world) === stream) this.stopStreamLocal(world); else stream.close(); throw e }
-  }
-  async input(world: string, input: PlayInput): Promise<void> {
-    const lease = this.leases.get(world)
-    if (lease) await this.pool(world).check(lease.id, lease.token)
-    else await this.pool(world).mainControl()
-    this.generations.set(world, (this.generations.get(world) ?? 0) + 1)
-    const stream = this.streams.get(world)
-    if (!stream) { if (input.type === 'release') return; throw new Error('Start live streaming first') }
-    stream.input(input)
-    if (input.type === 'state') this.ctx.stats.unlock('play-input')
-  }
-  private stopStreamLocal(world: string): void {
-    clearInterval(this.streamHeartbeats.get(world)); this.streamHeartbeats.delete(world)
-    const stream = this.streams.get(world); this.streams.delete(world); stream?.close()
-  }
-  async stopStream(world: string): Promise<void> {
-    if (!this.streams.has(world)) return
-    this.stopStreamLocal(world)
-    // Closing the socket tears down Unity's session and releases input. Do not send
-    // a delayed stop command: it could disconnect a successor's new stream.
-  }
-  async detach(world: string): Promise<void> {
-    if (this.poolBusy.has(world)) { this.pendingDetach.add(world); this.stopStreamLocal(world); return }
-    await this.selectSlot(world); await this.pool(world).releaseMain()
-  }
+  /** The project's main editor, coordinated between Genio processes by the pool's main lease. */
   adapter(world: string): EngineAdapter {
     const { root } = this.project(world)
-    const lease = this.leases.get(world)
-    const key = `${root}:${lease?.token ?? 'main'}`
-    let a = this.adapters.get(key)
-    if (!a) {
-      const guard = async () => {
-        if (lease) { if (this.leases.get(world)?.token !== lease.token) throw new Error('Play target changed'); await this.pool(world).check(lease.id, lease.token) }
-        else { if (this.leases.has(world) || this.lostSlots.has(world)) throw new Error('Play target changed'); await this.pool(world).mainControl() }
-      }
-      a = new UnityAdapter(root, guard); this.adapters.set(key, a)
-    }
+    let a = this.adapters.get(root)
+    if (!a) { a = new UnityAdapter(root, () => this.pool(world).mainControl()); this.adapters.set(root, a) }
     return a
   }
   async status(world: string) {
     const status = await this.adapter(world).status()
     if (status.connected && status.state === 'playing') this.ctx.stats.unlock('play-first')
-    return { ...status, genioDriving: (this.driving.get(world) ?? 0) > 0 }
+    return status
   }
-  async scenes(world: string): Promise<PlayScene[]> {
-    const { root } = this.project(world)
-    const open = await this.adapter(world).scenes()
-    const all = new Map(open.map(s => [s.path, s]))
-    const scan = async (dir: string): Promise<void> => {
-      for (const entry of await fs.promises.readdir(path.join(root, dir), { withFileTypes: true })) {
-        if (entry.isSymbolicLink()) continue
-        const rel = `${dir}/${entry.name}`
-        if (entry.isDirectory()) await scan(rel)
-        else if (entry.name.endsWith('.unity') && !all.has(rel)) all.set(rel, { name: entry.name.slice(0,-6), path: rel })
-      }
-    }
-    await scan('Assets')
-    return [...all.values()]
+  async act(world: string, action: PlayAction, words: string) {
+    if (!words?.trim()) throw new Error('Play control requires player_words quoting the explicit request')
+    await this.adapter(world).act(action)
   }
-  async act(world: string, action: PlayAction, actor: 'player' | 'genio', words?: string) {
-    if (actor === 'genio' && !words?.trim()) throw new Error('Play control requires player_words quoting the explicit request')
-    const version = this.generations.get(world) ?? 0
-    if (actor === 'player') this.generations.set(world, version + 1)
-    // Yield so already queued player input pre-empts chat actions.
-    await Promise.resolve()
-    if (actor === 'genio' && version !== (this.generations.get(world) ?? 0)) throw new Error('Player took control')
-    if (actor === 'genio') this.driving.set(world, (this.driving.get(world) ?? 0) + 1)
-    try {
-      await this.adapter(world).act(action, () => actor === 'player' || version === (this.generations.get(world) ?? 0))
-      if (action.type === 'step') this.ctx.stats.unlock('play-step')
-      if (action.type === 'resolution') this.ctx.stats.unlock('play-resolution')
-    } finally {
-      if (actor === 'genio') this.driving.set(world, Math.max(0, (this.driving.get(world) ?? 1) - 1))
-    }
-  }
-  async frame(world: string, width = 1280, height = 720, observed = false) {
+  async frame(world: string, width = 1280, height = 720) {
     const frame = await this.adapter(world).frame(width, height)
-    this.ctx.stats.unlock('play-snapshot')
-    if (observed) this.ctx.stats.unlock('play-observed')
+    this.ctx.stats.unlock('play-observed')
     return frame
-  }
-  async screenshot(world: string) {
-    const frame = await this.frame(world)
-    const dir = path.join(this.ctx.main.home.data, 'play-screenshots')
-    fs.mkdirSync(dir, { recursive: true })
-    const file = path.join(dir, `${Date.now()}-${Math.random().toString(36).slice(2,8)}.png`)
-    fs.writeFileSync(file, Buffer.from(frame.base64, 'base64'), { flag: 'wx' })
-    return file
-  }
-  async open(world: string) {
-    const { root } = this.project(world)
-    if ((await this.status(world)).connected) return
-    if (Date.now() - (this.opening.get(root) ?? 0) < 180000) throw new Error('Unity is already opening; wait for import')
-    // An editor without Pipeline must never trigger a second launch.
-    const lock = path.join(root, 'Temp/UnityLockfile')
-    if (fs.existsSync(lock)) throw new Error('Unity may already be open without Pipeline or waiting on a dialog. Focus Unity.')
-    let editorPid: number | undefined
-    try { editorPid = JSON.parse(fs.readFileSync(path.join(root, 'Library/EditorInstance.json'), 'utf8')).process_id } catch { /* No recorded editor. */ }
-    if (Number.isInteger(editorPid) && editorPid! > 0) {
-      let alive = false
-      try { process.kill(editorPid!, 0); alive = true } catch { /* Previous editor exited. */ }
-      if (alive) throw new Error('An editor process already owns this project. Focus Unity.')
-    }
-    const editor = unityEditor(root)
-    if (!editor) throw new Error('Install the project Unity version through Unity Hub first')
-    this.opening.set(root, Date.now())
-    const lease = this.leases.get(world)
-    if (lease) {
-      // A slot editor opens on Genio's hidden desktop (or visibly, per Settings › Unity slots) and is
-      // recorded so releasing the slot closes exactly this process tree.
-      try { await this.pool(world).launchEditor(lease.id, lease.token, editor) }
-      catch (e) { this.opening.delete(root); throw e }
-      return
-    }
-    // The player's own main editor stays an ordinary visible window.
-    await new Promise<number | undefined>((resolve, reject) => {
-      const child = spawn(editor, ['-projectPath', root], { detached: true, stdio: 'ignore', windowsHide: false })
-      child.once('error', () => { this.opening.delete(root); reject(new Error('Could not open Unity')) })
-      child.once('spawn', () => { child.unref(); resolve(child.pid) })
-    })
   }
 }
 const services = new WeakMap<AppCtx, PlayService>()

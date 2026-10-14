@@ -1,10 +1,9 @@
 # Hidden-desktop slot editors
 
-Every Play slot editor (a unit's `genio-unity play` session through `play.mjs`, and the
-player's "Open in Unity" on a leased slot) starts through `PlayPool.launchEditor`. On Windows it
-opens on a fresh hidden Win32 desktop: no splash, no editor window, no focus theft. Unity on
-that desktop believes it is focused, so it is not throttled, and Pipeline plus `com.genio.play`
-work unchanged (recon b801: 28 fps stream, input released in 170 ms). The player's own main
+Every Play slot editor (a unit's `genio-unity play` session through `play.mjs`) starts through
+`PlayPool.launchEditor`. On Windows it opens on a fresh hidden Win32 desktop: no splash, no editor
+window, no focus theft. Unity on that desktop believes it is focused, so it is not throttled, and
+Pipeline commands and `capture_game_view` work unchanged (recon b801). The player's own main
 editor stays an ordinary window. The Gauntlet runs batch editors only and opens no slot editor.
 
 ## Why a compiled helper
@@ -39,7 +38,7 @@ on the slot.
 
 ## Dialog watcher
 
-The lease holder's five-second heartbeat (`play.mjs` and the Play screen) runs
+The lease holder's five-second heartbeat (`play.mjs`) runs
 `PlayPool.watchEditor`. It lists the visible windows on the slot's desktop and logs each dialog
 once (title, text, buttons) to `<data>/hidden-desktop/launches/<desktop>/dialogs.jsonl`.
 

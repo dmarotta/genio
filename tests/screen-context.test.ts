@@ -45,7 +45,7 @@ describe('context serialization', () => {
     expect(c.screen?.facts?.[0]).toEqual({ label: 'Unit', value: 'Build HUD now' })
     expect(c.screen?.facts).toHaveLength(2)
     expect(c.screen?.facts?.[1].value.length).toBeLessThanOrEqual(300)
-    const many = screenContextFor('play', 'forest', { facts: Array.from({ length: 20 }, (_, i) => ({ label: `F${i}`, value: 'v' })) })
+    const many = screenContextFor('quests', 'forest', { facts: Array.from({ length: 20 }, (_, i) => ({ label: `F${i}`, value: 'v' })) })
     expect(many.screen?.facts).toHaveLength(MAX_SCREEN_FACTS)
     const block = inventoryContextBlock(validateInventoryContext(c))
     expect(block.startsWith('\n\n[screen: ')).toBe(true)

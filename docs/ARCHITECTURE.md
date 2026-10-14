@@ -60,8 +60,36 @@ Vocabulary is gaming, not nautical: see [VOCABULARY.md](VOCABULARY.md).
 
 Game-dev additions: engine detection (Godot, Unity, Unreal, Bevy, LÖVE,
 GameMaker, Defold, MonoGame, web), engine-aware command presets, a **PLAYTEST**
-button that launches the game from any unit's worktree before merging, XP,
-levels, achievements, sound effects and a HUD visual language.
+button that launches the game from any unit's worktree before merging, shared
+Unity slots for units, XP, levels, achievements, sound effects and a HUD visual
+language.
+
+## Unity slots and editor tools
+
+Genio has no Play screen and no live game stream; the player plays in their own
+Unity editor or through PLAYTEST. What remains serves units and Genio:
+
+- **Slot pool** (`resources/unit-skills/genio/skills/play/scripts/pool.mjs`):
+  per-project clones of committed revisions, each with its own editor, leased
+  with tokens, a FIFO queue, takeover fencing and a graceful-then-forced close.
+  Slot editors open on a hidden desktop ([hidden-desktop.md](hidden-desktop.md)).
+  Pool state lives in Genio's data folder and is never deleted by Genio.
+- **genio-unity** (`resources/unit-skills/genio/skills/unity`): the only way a
+  unit compiles, tests, imports, builds, plays and reads the console, on its own
+  copy or its leased slot. Guards and process watch: `unity-guards.ts`,
+  `unity-unit.ts`, [unity-enforcement.md](unity-enforcement.md); copies:
+  [unity-copies.md](unity-copies.md).
+- **Settings › This project › Unity slots** (`UnitySlots.tsx`): cap, hidden or
+  visible slot editor windows, slot states, disk use and Close slot editor,
+  through `PlayService` in `play.ts`.
+- **Genio's chat tools** `play_status`, `play_frame`, `play_console`,
+  `play_stats` and `play_control` (player's quoted words only) drive the
+  project's main editor through the Pipeline adapter (`play-unity.ts`) under the
+  pool's main lease; `play_slot_recover` closes a stuck slot editor.
+
+`supportsUnitySlots` (`shared/play.ts`) is the single engine gate for all of it.
+The Play screen's achievements are retired: earned dates stay in `stats.json`
+and on the Character Sheet, but they never unlock again or count toward totals.
 
 ## Process layout
 

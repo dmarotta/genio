@@ -5,7 +5,7 @@ export interface EffectiveEngine { engine: Engine; root: string }
 
 /**
  * The single source of truth for a project's engine. Detection writes `engine`/`engineRoot`
- * (register, window open, startup, Sync); Play, the renderer Play gate, units, the test gate,
+ * (register, window open, startup, Sync); Unity slots, the Settings slot gate, units, the test gate,
  * asset placement and Inventory read them through this and never re-detect on their own.
  */
 export function effectiveEngine(p: Pick<Project, 'engine' | 'engineRoot'>): EffectiveEngine {

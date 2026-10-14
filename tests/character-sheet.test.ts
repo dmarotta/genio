@@ -153,6 +153,20 @@ it('shows pinned trophies first with earned dates and pins or unpins from the ti
   expect(trophyPin).toHaveBeenCalledWith('c', false)
 })
 
+it('shows an earned retired trophy without counting retired ones toward the total', async () => {
+  withStats({ achievements: [
+    { id: 'a', feature: 'status', name: 'Alpha', description: 'First landing', unlockedAt: '2026-10-01T12:00:00Z' },
+    { id: 'b', feature: 'status', name: 'Bravo', description: 'Second landing' },
+    { id: 'play-stream', feature: 'play', name: 'Motion Picture', description: 'Receive a live Unity frame.', unlockedAt: '2026-09-01T12:00:00Z', retired: true }
+  ] })
+  await mount(CharacterSheet)
+  expect(host.querySelector('.achv-count')?.textContent).toContain('1/2')
+  const tiles = [...host.querySelectorAll<HTMLElement>('.achv-tile')]
+  expect(tiles.map((t) => t.className.includes('got'))).toEqual([true, false, true])
+  await act(async () => tiles[2].focus())
+  expect(document.querySelector('.achv-tip')?.textContent).toContain('retired')
+})
+
 it('keeps compact tiles to an inline icon and two lines, with the full hint in a hover or focus tip', async () => {
   const hint = 'Land a build, a recon and an art pass on the same day while keeping a seven-day streak alive.'
   withStats({ achievements: [

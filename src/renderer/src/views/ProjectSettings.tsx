@@ -12,7 +12,7 @@ import { CommitInput, Confirm, Field, Modal, Toggle } from '../components/ui'
 import { ENGINES, ENGINE_LABEL, MODE_HINT, MODE_LABEL, PROJECT_MODES, isActive } from '../lib/vocab'
 import { ago, cx } from '../lib/format'
 import { detectedLine, detectedView, effectiveEngine, proposalLine } from '@shared/engine'
-import { supportsPlay } from '@shared/play'
+import { supportsUnitySlots } from '@shared/play'
 import { UnitySlots } from './UnitySlots'
 import { worldPath, modifiedLabel } from '../lib/worlds'
 import type { WorldMetadata } from '@shared/api'
@@ -160,7 +160,7 @@ export function ProjectSettingsRow({ p, metadata }: { p: Project; metadata?: Wor
       )}
 
       <GenerationSettings world={p.name} />
-      {supportsPlay(effectiveEngine(p).engine) && <UnitySlots world={p.name} />}
+      {supportsUnitySlots(effectiveEngine(p).engine) && <UnitySlots world={p.name} />}
       </section>
 
       {confirmYolo && (
@@ -224,7 +224,6 @@ function EngineDetected({ p }: { p: Project }) {
         </button>
       </div>
       {v.others.length > 0 && <span className="field-hint">Also found: {v.others.join('; ')}.{v.ambiguous ? ' Ask Genio to pin one.' : ''}</span>}
-      {game && !supportsPlay(v.engine) && <span className="field-hint">Play is not available for {ENGINE_LABEL[v.engine]} yet; everything else works.</span>}
       {v.warning && <span className="field-hint amber-text">{v.warning}</span>}
       {proposal && (
         <span className="field-hint amber-text">

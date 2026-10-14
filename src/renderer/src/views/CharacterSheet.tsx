@@ -17,14 +17,16 @@ export function CharacterSheet() {
     void api().featureUsed('character-sheet').catch(() => {})
   }, [])
   const pct = stats.xpNext ? Math.min(100, (stats.xp / stats.xpNext) * 100) : 0
-  const unlocked = stats.achievements.filter((a) => a.unlockedAt).length
+  // Retired trophies stay on the grid once earned but never count toward the totals.
+  const counted = stats.achievements.filter((a) => !a.retired)
+  const unlocked = counted.filter((a) => a.unlockedAt).length
   const pins = stats.pins ?? []
   const pinned = pins.map((id) => stats.achievements.find((a) => a.id === id)).filter((a): a is Achievement => Boolean(a?.unlockedAt))
   const ordered = [...pinned, ...stats.achievements.filter((a) => !pinned.includes(a))]
   useScreenContext('status', { facts: [
     { label: 'Level', value: `${stats.level} · ${stats.xp}/${stats.xpNext} XP · ${stats.streakDays}-day streak` },
     { label: 'Playstyle', value: `${titleName(stats.playstyle.shown)}${stats.playstyle.why ? ` · ${stats.playstyle.why}` : ''}` },
-    { label: 'Achievements', value: `${unlocked} of ${stats.achievements.length} unlocked${pinned.length ? ` · pinned: ${pinned.map((a) => a.name).join(', ')}` : ''}` }
+    { label: 'Achievements', value: `${unlocked} of ${counted.length} unlocked${pinned.length ? ` · pinned: ${pinned.map((a) => a.name).join(', ')}` : ''}` }
   ] })
 
   return (
@@ -59,7 +61,7 @@ export function CharacterSheet() {
               <Pin size={12} aria-hidden /> <span className="num">{pinned.length}/{MAX_PINS}</span> pinned
             </span>
             <span className="achv-count">
-              <span className="num">{unlocked}/{stats.achievements.length}</span>
+              <span className="num">{unlocked}/{counted.length}</span>
               <span className="mute"> unlocked</span>
             </span>
           </span>
@@ -236,7 +238,7 @@ function AchievementTip({ a, anchor }: { a: Achievement; anchor: HTMLElement | n
     <div ref={ref} className="landings-tip achv-tip ticks" aria-hidden style={style}>
       <div className="landings-tip-date">{a.name}</div>
       <div className="achv-tip-desc">{a.description}</div>
-      <div className={cx('achv-tip-state', a.unlockedAt ? 'got' : 'mute')}>{a.unlockedAt ? `Earned ${dateShort(a.unlockedAt)}` : 'Locked'}</div>
+      <div className={cx('achv-tip-state', a.unlockedAt ? 'got' : 'mute')}>{a.unlockedAt ? `Earned ${dateShort(a.unlockedAt)}${a.retired ? ' · retired' : ''}` : 'Locked'}</div>
     </div>,
     document.body
   )

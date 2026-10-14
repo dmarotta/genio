@@ -1,6 +1,0 @@
-{
-  "name": "Genio.Play.Input",
-  "references": ["Genio.Play", "Unity.InputSystem"],
-  "defineConstraints": ["GENIO_INPUT_SYSTEM"],
-  "versionDefines": [{ "name": "com.unity.inputsystem", "expression": "1.0.0", "define": "GENIO_INPUT_SYSTEM" }]
-}

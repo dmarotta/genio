@@ -777,6 +777,8 @@ export interface Achievement {
   name: string
   description: string
   unlockedAt?: string
+  /** Its feature was removed: it never unlocks again, shows only once earned and is left out of totals. */
+  retired?: boolean
 }
 
 export interface TerminalInfo {

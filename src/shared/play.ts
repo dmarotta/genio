@@ -1,11 +1,11 @@
 import type { Engine } from './types'
 
-/** Engines the Play screen can drive. The single switch for Play: nav, routing and the main-process service all read it. */
-export const PLAY_ENGINES: readonly Engine[] = ['unity']
+/** Engines with shared Unity slots and Genio's editor tools. The single switch: Settings, units and the main-process service all read it. */
+export const UNITY_SLOT_ENGINES: readonly Engine[] = ['unity']
 
-/** True when a project with this engine gets the Play screen. Unset or unknown engines never do. */
-export function supportsPlay(engine: Engine | undefined): boolean {
-  return !!engine && PLAY_ENGINES.includes(engine)
+/** True when a project with this engine gets Unity slots. Unset or unknown engines never do. */
+export function supportsUnitySlots(engine: Engine | undefined): boolean {
+  return !!engine && UNITY_SLOT_ENGINES.includes(engine)
 }
 
 export interface PlayScene { name: string; path: string; isDirty?: boolean; isActive?: boolean }
@@ -13,9 +13,8 @@ export interface PlayStatus {
   connected: boolean
   state: 'stopped' | 'playing' | 'paused' | 'compiling' | 'reloading' | 'gone'
   message?: string
-  genioDriving?: boolean
   scenes: PlayScene[]
-  capabilities: { resolution: boolean; input: boolean }
+  capabilities: { input: boolean }
 }
 export interface PlayFrame { base64: string; width: number; height: number; capturedAt: string; latencyMs: number }
 export interface PlayConsole { entries: { message: string; level?: string; stackTrace?: string; seq?: number }[]; cursor?: number; session?: string; reset?: boolean }
@@ -26,13 +25,11 @@ export interface PlayStats {
   frameTiming?: { available: boolean; cpuFrameTimeMs: number; gpuFrameTimeMs: number }
 }
 export type PlayAction =
-  | { type: 'play' | 'pause' | 'stop' | 'step' }
+  | { type: 'play' | 'pause' | 'stop' }
   | { type: 'scene'; path: string }
-  | { type: 'resolution'; width: number; height: number }
   | { type: 'key'; key: string }
   | { type: 'pointer'; x: number; y: number }
 
-export type PlayInput = { type: 'release' } | { type: 'state'; keys: string[]; x: number; y: number; buttons: number; axes: number[]; gamepadButtons: number }
 /**
  * draining: above a lowered cap but still in use; retired: above the cap and idle, kept for reuse.
  * stuck: the slot editor would not close; nobody can lease the slot until Genio or the player recovers it.
@@ -50,9 +47,9 @@ export interface PlayPreparation {
  */
 export interface PlaySlot { id: number; root: string; revision?: string; owner?: string; expires?: number; preparing?: boolean; preparation?: PlayPreparation; editor?: boolean; closing?: boolean; stuck?: { reason: string; pids: number[]; at: number }; draining?: boolean; retired?: boolean; window?: 'hidden' | 'visible'; warning?: string; failure?: { message: string; at: number; screenshot?: string } }
 /** launch: slot editors open on a hidden desktop (default) or visibly, for debugging. */
-export interface PlayPoolState { cap: number; launch?: 'hidden' | 'visible'; slots: PlaySlot[]; queue: string[]; selected?: number }
+export interface PlayPoolState { cap: number; launch?: 'hidden' | 'visible'; slots: PlaySlot[]; queue: string[] }
 
-/** Deep-link target: the Play screen's "N of X slots in use" opens Settings › This project › Unity slots. */
+/** Deep-link target for Settings › This project › Unity slots. */
 export const UNITY_SLOTS_ANCHOR = 'unity-slots'
 
 /** Slots within the cap that are taken right now: leased, preparing, closing, stuck, or with an editor open. Draining slots are counted apart. */
@@ -60,9 +57,9 @@ export function slotsInUse(state: Pick<PlayPoolState, 'slots' | 'cap'>): number 
   return state.slots.filter(s => s.id <= state.cap && (s.owner || s.preparing || s.editor || s.closing || s.stuck)).length
 }
 
-/** "you" for the Play screen's lease, the unit's title for a unit lease. */
+/** "you" for a lease Genio took for the player, the unit's title for a unit lease. */
 export function ownerLabel(owner: string, tasks: { id: string; title: string }[]): string {
-  if (owner.startsWith('player:')) return 'you (Play screen)'
+  if (owner.startsWith('player:')) return 'you'
   const id = owner.startsWith('unit:') ? owner.slice(5) : owner
   const task = tasks.find(t => t.id === id)
   return task ? `unit ${task.title}` : `unit ${id}`
@@ -77,9 +74,4 @@ export function slotStatus(slot: PlaySlot | undefined): 'stuck' | 'closing' | 'p
   if (slot.owner) return 'leased'
   if (slot.editor) return 'editor'
   return slot.retired ? 'retired' : 'free'
-}
-
-/** Delay after completion: no overlapping captures or catch-up bursts. */
-export function snapshotDelay(latencyMs: number, failures = 0): number {
-  return failures ? Math.min(10000, 1000 * 2 ** Math.min(failures, 4)) : Math.max(200, 1000 - latencyMs)
 }

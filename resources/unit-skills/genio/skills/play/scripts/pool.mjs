@@ -278,7 +278,7 @@ export class PlayPool {
     })
   }
   /**
-   * The only way a slot editor is started, for units (play.mjs) and the player (Play screen) alike:
+   * The only way a slot editor is started (units' play.mjs sessions):
    * `-automated -projectPath <slot>`, on a hidden desktop unless the player chose visible windows in
    * Settings › Unity slots, or the hidden desktop is unavailable (then visible, with a warning).
    */

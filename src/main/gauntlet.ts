@@ -40,7 +40,7 @@ interface ReviewVerdict {
 
 const STEP_TIMEOUT_MS = 20 * 60_000
 
-/** The Unity test gate runs on the worktree's copy of the same engine root Play and placement use. */
+/** The Unity test gate runs on the worktree's copy of the same engine root Unity slots and placement use. */
 export function unityTestRoot(project: Pick<Project, 'engine' | 'engineRoot'>, worktree: string): { dir: string; relative: string } | undefined {
   const { engine, root } = effectiveEngine(project)
   return engine === 'unity' ? { dir: path.resolve(worktree, root || '.'), relative: root || '.' } : undefined

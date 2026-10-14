@@ -1,13 +1,13 @@
 import { modelCatalogue, invalidateModelCatalogue } from './model-catalogue'
 import { agentGeneration } from './agent-generation'
 import { readWorldMetadata } from './world-metadata'
-import { assertPlayWindow, playService } from './play'
+import { assertProjectWindow, playService } from './play'
 /**
  * IPC: one ipcMain.handle per GenioApi method ('genio:<method>'). The table is
  * typed against GenioApi so a missing or mistyped method fails the build.
  */
 import { bus } from './bus'
-import { app, BrowserWindow, dialog, ipcMain, shell, MessageChannelMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { createExplorerIntegration, explorerCommand } from './explorer'
 import { API_PREFIX, type GenioApi, type WindowList } from '@shared/api'
 import type { Task } from '@shared/types'
@@ -37,8 +37,6 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
   const ctx = (): AppCtx => getCtx()
   const explorer = createExplorerIntegration(explorerCommand(process.execPath, process.defaultApp ? app.getAppPath() : undefined))
   const inventoryClients = new Map<number, Set<string>>()
-  const playConnections = new Map<string, () => void>()
-  const playClients = new Map<number, string>()
   const closeUnusedInventory = (world: string): void => {
     if (![...inventoryClients.values()].some(worlds => worlds.has(world))) ctx().inventory.close(world)
   }
@@ -53,24 +51,12 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
   }
 
   const h: Handlers = {
-    playStatus: world => playService(ctx()).status(world),
-    playScenes: world => playService(ctx()).scenes(world),
-    playAction: (world, action) => playService(ctx()).act(world, action, 'player'),
-    playFrame: (world, width, height) => playService(ctx()).frame(world, width, height),
-    playConsole: (world, cursor, session) => playService(ctx()).adapter(world).console(cursor, session),
-    playStats: world => playService(ctx()).adapter(world).stats(),
-    playOpenUnity: world => playService(ctx()).open(world),
-    playScreenshot: world => playService(ctx()).screenshot(world),
-    playEnableStreaming: world => playService(ctx()).enableStreaming(world),
-    playStream: async () => { throw new Error('Streaming requires the owning window') },
     playPool: world => playService(ctx()).poolState(world),
     playPoolCap: (world, cap) => playService(ctx()).configurePool(world, cap),
     playPoolLaunch: (world, visible) => playService(ctx()).configureLaunch(world, visible),
     playPoolEstimate: world => playService(ctx()).pool(world).estimate(),
     playPoolDisk: world => playService(ctx()).pool(world).disk(),
-    playSelectSlot: (world, id, takeover) => playService(ctx()).selectSlot(world, id, takeover),
     playCloseSlotEditor: (world, id) => playService(ctx()).closeSlotEditor(world, id, 'player'),
-    playDetach: world => playService(ctx()).detach(world),
     inventoryOpen: async (world) => {
       const state = await ctx().inventory.open(world)
       ctx().stats.unlock('inventory-open')
@@ -85,7 +71,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
       return info
     },
     featureUsed: async (feature) => {
-      if (feature === 'screenshot' || feature === 'model-picker' || feature === 'character-sheet' || feature === 'play-fullscreen') bus.publish({ type: 'feature-used', feature })
+      if (feature === 'screenshot' || feature === 'model-picker' || feature === 'character-sheet') bus.publish({ type: 'feature-used', feature })
     },
     trophyPin: (id, pinned) => ctx().stats.pin(String(id), pinned === true),
     titleEquip: (id) => ctx().stats.equipTitle(id ?? null),
@@ -317,55 +303,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
         if (windows && method === 'windowClose') return windows.close(_e.sender.id)
         const binding = windows?.binding(_e.sender.id)
         if (windows && !binding && ['sendChat', 'recap', 'save', 'restartWksp', 'interruptWksp', 'unqueueChat', 'approveGeneration'].includes(method)) throw new Error('Open a project window to use its chat.')
-        if (method.startsWith('play') && method !== 'playtest') {
-          assertPlayWindow(binding, args[0])
-          if (!playClients.has(_e.sender.id)) {
-            const world = args[0] as string, sender = _e.sender
-            playClients.set(sender.id, world)
-            sender.once('destroyed', () => {
-              playClients.delete(sender.id); playConnections.get(world)?.()
-              void playService(ctx()).detach(world).catch(() => {})
-            })
-          }
-        }
-        if (method === 'playStream') {
-          const [world, enabled, width = 1280, height = 720] = args as [string, boolean, number?, number?]
-          playConnections.get(world)?.()
-          if (!enabled) { await playService(ctx()).stopStream(world); return }
-          const { port1, port2 } = new MessageChannelMain()
-          let credit = false, closed = false, latest: Buffer | undefined
-          let inputPending = false
-          const send = (): void => {
-            if (!credit || !latest || closed) return
-            credit = false
-            port1.postMessage({ type: 'frame', bytes: new Uint8Array(latest) }); latest = undefined
-          }
-          const close = (): void => {
-            if (closed) return
-            closed = true; port1.postMessage({ type: 'closed' }); port1.close(); latest = undefined
-            _e.sender.removeListener('destroyed', close)
-            if (playConnections.get(world) === close) { playConnections.delete(world); void playService(ctx()).stopStream(world) }
-          }
-          playConnections.set(world, close)
-          port1.on('message', ({ data }) => {
-            if (closed) return
-            if (data?.type === 'ready') { credit = true; send() }
-            else if (data?.type === 'input' && !inputPending) {
-              inputPending = true
-              void playService(ctx()).input(world, data.input).catch(() => close()).finally(() => { inputPending = false })
-            }
-            else if (data?.type === 'close') close()
-          })
-          port1.on('close', close); port1.start()
-          _e.sender.once('destroyed', close)
-          try {
-            await playService(ctx()).startStream(world, width, height, frame => { latest = frame; send() }, close)
-            if (closed || _e.sender.isDestroyed()) throw new Error('Play window closed')
-            _e.sender.postMessage('genio:play-port', { world }, [port2])
-          } catch (error) { close(); throw error }
-          return
-        }
-        if (method === 'playDetach' || method === 'playSelectSlot' || method === 'playCloseSlotEditor' && playService(ctx()).selectedSlot(args[0] as string) === args[1]) playConnections.get(args[0] as string)?.()
+        if (method.startsWith('playPool') || method === 'playCloseSlotEditor') assertProjectWindow(binding, args[0])
         if (binding) {
           if (['answerDecision', 'clarifyDecision', 'deferDecision', 'applyRecommendations'].includes(method)) {
             const ids = method === 'applyRecommendations' ? (args[0] as { id: string }[]).map(r => r.id) : [String(args[0])]

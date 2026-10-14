@@ -420,16 +420,7 @@ export interface FalSaveResult extends OpResult {
 }
 
 export interface GenioApi {
-  playStatus(world: string): Promise<import('./play').PlayStatus>
-  playScenes(world: string): Promise<import('./play').PlayScene[]>
-  playAction(world: string, action: import('./play').PlayAction): Promise<void>
-  playFrame(world: string, width?: number, height?: number): Promise<import('./play').PlayFrame>
-  playConsole(world: string, cursor?: number, session?: string): Promise<import('./play').PlayConsole>
-  playStats(world: string): Promise<import('./play').PlayStats>
-  playOpenUnity(world: string): Promise<void>
-  playScreenshot(world: string): Promise<string>
-  playEnableStreaming(world: string): Promise<void>
-  playStream(world: string, enabled: boolean, width?: number, height?: number): Promise<void>
+  /** Settings › This project › Unity slots: the shared slot pool. */
   playPool(world: string): Promise<import('./play').PlayPoolState>
   /** Applies at once; returns the slots left draining above a lowered cap. */
   playPoolCap(world: string, cap: number): Promise<{ cap: number; draining: number[] }>
@@ -438,10 +429,8 @@ export interface GenioApi {
   playPoolEstimate(world: string): Promise<number>
   /** Bytes each existing slot copy uses, by slot id. */
   playPoolDisk(world: string): Promise<Record<number, number>>
-  playSelectSlot(world: string, id?: number, takeover?: boolean): Promise<void>
   /** Close a slot's Unity editor safely; revokes a unit's lease on that slot (the player confirmed). */
   playCloseSlotEditor(world: string, id: number): Promise<void>
-  playDetach(world: string): Promise<void>
   /** Open starts the watcher and returns the cache while reconciling in background. */
   inventoryOpen(world: string): Promise<InventoryState>
   inventoryClose(world: string): Promise<void>
@@ -449,7 +438,7 @@ export interface GenioApi {
   inventoryRefresh(world: string): Promise<InventoryState>
   inventoryList(world: string, query?: InventoryQuery): Promise<InventoryResult>
   inventoryInfo(world: string, path: string, verifyHash?: boolean): Promise<InventoryInfo | null>
-  featureUsed(feature: 'screenshot' | 'model-picker' | 'character-sheet' | 'play-fullscreen'): Promise<void>
+  featureUsed(feature: 'screenshot' | 'model-picker' | 'character-sheet'): Promise<void>
   /** Character Sheet: pin an unlocked achievement to the front of the grid (three at most) */
   trophyPin(id: string, pinned: boolean): Promise<OpResult>
   /** Character Sheet: equip an earned playstyle title; null follows the current playstyle */
@@ -629,8 +618,7 @@ export interface MemoryReport { tokens: number; budget: number; overBudget: bool
 export type ApiMethod = keyof GenioApi
 /** Every GenioApi method, as runtime data (contextBridge cannot clone a Proxy). */
 export const API_METHODS = [
-  'playStatus', 'playScenes', 'playAction', 'playFrame', 'playConsole', 'playStats', 'playOpenUnity', 'playScreenshot',
-  'playEnableStreaming', 'playStream', 'playPool', 'playPoolCap', 'playPoolLaunch', 'playPoolEstimate', 'playPoolDisk', 'playSelectSlot', 'playCloseSlotEditor', 'playDetach',
+  'playPool', 'playPoolCap', 'playPoolLaunch', 'playPoolEstimate', 'playPoolDisk', 'playCloseSlotEditor',
   'inventoryOpen', 'inventoryClose', 'inventoryRefresh', 'inventoryList', 'inventoryInfo',
   'featureUsed',
   'trophyPin',

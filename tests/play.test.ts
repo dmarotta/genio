@@ -2,11 +2,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import http from 'node:http'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it } from 'vitest'
 import { UnityAdapter, pipelineRequest } from '../src/main/play-unity'
-import { snapshotDelay } from '../src/shared/play'
-import { unityEditor, unityVersion } from '../src/main/play-editor'
-import { assertPlayWindow, PlayService } from '../src/main/play'
+import { assertProjectWindow, PlayService } from '../src/main/play'
 import type { AppCtx } from '../src/main/services'
 
 let root: string; let server: http.Server; let port: number
@@ -83,60 +81,23 @@ it('serializes the safety preflight and control and maps normalized clicks to re
   await expect(adapter.act({type:'scene',path:'Assets/Game.unity'})).rejects.toThrow('Stop Play')
   await expect(adapter.act({type:'pointer',x:2,y:0})).rejects.toThrow('normalized')
 })
-it('slows captures adaptively with bounded retry backoff and no negative delay', () => {
-  expect(snapshotDelay(800)).toBe(200)
-  expect(snapshotDelay(100)).toBe(900)
-  expect(snapshotDelay(1500)).toBe(200)
-  expect(snapshotDelay(10,3)).toBe(8000)
-  expect(snapshotDelay(10,20)).toBe(10000)
-})
-it('binds Play to the owning project window and gates Genio actions on player words', async () => {
-  expect(() => assertPlayWindow(undefined, 'game')).toThrow('bound')
-  expect(() => assertPlayWindow({project:'game'}, 'other')).toThrow('bound')
-  expect(() => assertPlayWindow({project:'game'}, 'game')).not.toThrow()
+it('binds Unity slots to the owning project window and gates Genio actions on player words', async () => {
+  expect(() => assertProjectWindow(undefined, 'game')).toThrow('bound')
+  expect(() => assertProjectWindow({project:'game'}, 'other')).toThrow('bound')
+  expect(() => assertProjectWindow({project:'game'}, 'game')).not.toThrow()
   const svc = new PlayService({} as AppCtx)
-  await expect(svc.act('game', {type:'play'}, 'genio')).rejects.toThrow('player_words')
+  await expect(svc.act('game', {type:'play'}, ' ')).rejects.toThrow('player_words')
 })
-it('cancels queued chat actions when the player takes control', async () => {
-  const adapter = new UnityAdapter(root)
-  await expect(adapter.act({type:'play'}, () => false)).rejects.toThrow('Player took control')
-  expect(requests).toHaveLength(0)
-})
-it('refuses another editor when the project has a live editor without Pipeline', async () => {
-  fs.unlinkSync(path.join(root,'Library/Pipeline/.unity-pipeline-port'))
-  fs.mkdirSync(path.join(root,'ProjectSettings'))
-  fs.writeFileSync(path.join(root,'ProjectSettings/ProjectVersion.txt'),'m_EditorVersion: 6000.5.1f1')
-  fs.writeFileSync(path.join(root,'Library/EditorInstance.json'),JSON.stringify({process_id:process.pid}))
-  const ctx = { projects: { get: () => ({path:root,engine:'unity'}) } } as unknown as AppCtx
-  await expect(new PlayService(ctx).open('game')).rejects.toThrow('already owns')
-})
-it('resolves the installed editor for the exact project version, never PATH unity', () => {
-  const base = path.join(root,'Hub/Editor'); const version = '6000.5.1f1'
-  fs.mkdirSync(path.join(root,'ProjectSettings'))
-  fs.writeFileSync(path.join(root,'ProjectSettings/ProjectVersion.txt'), `m_EditorVersion: ${version}\n`)
-  const editor = path.join(base,version,process.platform === 'win32' ? 'Editor/Unity.exe' : process.platform === 'darwin' ? 'Unity.app/Contents/MacOS/Unity' : 'Editor/Unity')
-  fs.mkdirSync(path.dirname(editor),{recursive:true}); fs.writeFileSync(editor,'')
-  expect(unityVersion(root)).toBe(version)
-  expect(unityEditor(root,[base])).toBe(editor)
-  expect(unityEditor(root,[path.join(root,'missing')])).toBeUndefined()
-})
-it('releases a lease after preparation when its Play window closes during the copy', async () => {
-  const svc = new PlayService({stats:{unlock:vi.fn()}} as unknown as AppCtx)
-  let finish!: () => void, began!: () => void
-  const started = new Promise<void>(r => { began = r })
-  const copying = new Promise<void>(r => { finish = r })
-  const lease = {id:1,token:'lease',root}
-  const pool = {
-    acquire:vi.fn().mockResolvedValue(lease), check:vi.fn().mockResolvedValue(root),
-    state:vi.fn().mockResolvedValue({cap:1,slots:[{id:1,root}],queue:[]}),
-    prepare:vi.fn().mockImplementation(async () => { began(); await copying; return root }),
-    release:vi.fn().mockResolvedValue(undefined),cancel:vi.fn().mockResolvedValue(undefined),releaseMain:vi.fn().mockResolvedValue(undefined)
-  }
-  vi.spyOn(svc,'pool').mockReturnValue(pool as unknown as ReturnType<PlayService['pool']>)
-  const selecting = svc.selectSlot('game',1)
-  await started; await svc.detach('game')
-  expect(pool.release).not.toHaveBeenCalled()
-  finish(); await selecting
-  expect(pool.release).toHaveBeenCalledWith(1,'lease')
-  expect((await svc.poolState('game')).selected).toBeUndefined()
+it('drives the main editor for Genio under the main lease, with no stream, step or resolution commands', async () => {
+  const data = path.join(root, 'genio-data')
+  const unlocked: string[] = []
+  const ctx = { projects: { get: () => ({ path: root, engine: 'unity' }) }, main: { home: { data } }, stats: { unlock: (id: string) => unlocked.push(id) } } as unknown as AppCtx
+  const svc = new PlayService(ctx)
+  await svc.act('game', { type: 'play' }, 'press play')
+  expect((await svc.status('game')).state).toBe('playing')
+  expect((await svc.frame('game', 64, 36)).base64).toBe(png)
+  expect(unlocked).toEqual(['play-first', 'play-observed'])
+  expect(JSON.parse(fs.readFileSync(path.join(svc.pool('game').dir, 'state.json'), 'utf8')).main.pid).toBe(process.pid)
+  await expect(svc.act('game', { type: 'step' } as never, 'step')).rejects.toThrow('Unknown Play action')
+  expect(requests.some(r => /^genio_/.test(r.command))).toBe(false)
 })

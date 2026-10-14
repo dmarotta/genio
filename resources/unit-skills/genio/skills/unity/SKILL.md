@@ -60,7 +60,7 @@ Pipeline commands, including input and run_tests, reach only the leased slot. Us
 
 `play --stop` prints the release with `editor` set to `closed`, `kept` or `stuck` (a graceful quit, then a forced stop of only that slot's recorded editor processes). Never stop Unity, import workers or any other process yourself. If a slot is stuck (`play --stop` or `play --close` exit 6), append `blocked: Play slot <n> stuck` to your status with the reason and PIDs printed; Genio or the player recovers it.
 
-Screenshots come back as base64. Save reports and decoded images in your task's scratch data, never in the project. If a pool transaction lock survives a crashed process, report its path to Genio; never remove shared pool state yourself. This skill authorizes no stream package installation and no main-project writes.
+Screenshots come back as base64. Save reports and decoded images in your task's scratch data, never in the project. If a pool transaction lock survives a crashed process, report its path to Genio; never remove shared pool state yourself. This skill authorizes no package installation and no main-project writes.
 
 ## Exit codes
 

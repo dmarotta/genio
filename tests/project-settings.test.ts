@@ -60,7 +60,7 @@ describe('Project settings and registry helpers', () => {
     ['no game', { engine: 'other', engineRoot: '', detected: { candidates: [], ambiguous: false, declared: false, scannedAt: '' } },
       ['No game engine detected; Genio treats this as a code project'], ['Detected:', 'Play is not available']],
     ['unsupported engine', { engine: 'bevy', engineRoot: '', detected: { candidates: [{ engine: 'bevy', root: '', strength: 'medium' }], ambiguous: false, declared: false, version: '0.14', scannedAt: '' } },
-      ['Detected: Bevy 0.14 at the repository root', 'Play is not available for Bevy yet; everything else works.'], []],
+      ['Detected: Bevy 0.14 at the repository root'], ['Play is not available']],
     ['ignored declaration', { engine: 'unity', engineRoot: 'client', detected: { candidates: [{ engine: 'unity', root: 'client', strength: 'strong' }], ambiguous: false, declared: false, warning: 'Ignored .genio/project.json: no game engine marker in "docs".', scannedAt: '' } },
       ['Ignored .genio/project.json: no game engine marker in "docs".'], []]
   ] as [string, Partial<Project>, string[], string[]][])('shows the %s engine read-only', async (_, patch, shown, hidden) => {

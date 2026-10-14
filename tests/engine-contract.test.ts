@@ -38,9 +38,9 @@ describe('effectiveEngine', () => {
   })
 })
 
-// The renderer half of this contract (playAvailable) runs on the same cases in play-availability.test.ts.
-describe('Play, the genio-unity config, the test gate and asset placement resolve the same root', () => {
-  it.each(ENGINE_CASES)('$name', ({ stored, play: offered, root }) => {
+// The renderer half of this contract (the Settings Unity slots gate) runs on the same cases in unity-slot-gate.test.ts.
+describe('Unity slots, the genio-unity config, the test gate and asset placement resolve the same root', () => {
+  it.each(ENGINE_CASES)('$name', ({ stored, slots: offered, root }) => {
     const p = engineProject(stored, world)
     expect(effectiveEngine(p).root).toBe(root)
     const svc = play(p), unity = unityUnitConfig(p, { task: 'unit-a', worktree, data, taskDir: path.join(data, 'unit-a') })
@@ -56,8 +56,8 @@ describe('Play, the genio-unity config, the test gate and asset placement resolv
       // The Unity test gate opens the worktree's copy of that root.
       expect(unityTestRoot(p, worktree)).toEqual({ dir: path.resolve(worktree, root || '.'), relative: root || '.' })
     } else {
-      expect(() => svc.adapter('game')).toThrow('supports Unity')
-      expect(() => svc.pool('game')).toThrow('supports Unity')
+      expect(() => svc.adapter('game')).toThrow('only support Unity projects')
+      expect(() => svc.pool('game')).toThrow('only support Unity projects')
       expect(unity).toBeUndefined()
       expect(unityTestRoot(p, worktree)).toBeUndefined()
     }

@@ -19,7 +19,7 @@ function statusText(slot: PlaySlot | undefined, tasks: Pick<Task, 'id' | 'title'
   }
 }
 
-/** Settings › This project › Unity slots: the shared Play slot pool for Unity projects. */
+/** Settings › This project › Unity slots: the shared slot pool units play and test in, for Unity projects. */
 export function UnitySlots({ world }: { world: string }) {
   const tasks = useStore(s => s.snap.tasks)
   const [state, setState] = useState<PlayPoolState>()
@@ -56,7 +56,7 @@ export function UnitySlots({ world }: { world: string }) {
   const totalDisk = disk ? Object.values(disk).reduce((a, b) => a + b, 0) : undefined
   return <section id={UNITY_SLOTS_ANCHOR} tabIndex={-1} className="world-generation unity-slots" aria-label="Unity slots">
     <h4>Unity slots</h4>
-    <p className="mute">Separate copies of this project, each with its own Unity editor, so units and you can play different branches at once. Units wait in line when every slot is busy.</p>
+    <p className="mute">Separate copies of this project, each with its own Unity editor, so units can play different branches at once. Units wait in line when every slot is busy.</p>
     {error && <p role="alert" className="alert-text">{error}</p>}
     {!state ? <p className="mute">{error ? 'Unity slots are unavailable right now.' : 'Loading Unity slots…'}</p> : <>
       <div className="form-grid">

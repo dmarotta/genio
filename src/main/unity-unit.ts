@@ -10,7 +10,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Project } from '@shared/types'
 import { effectiveEngine } from '@shared/engine'
-import { supportsPlay } from '@shared/play'
+import { supportsUnitySlots } from '@shared/play'
 import { editorSeatsDir } from '../../resources/unit-skills/genio/lib/unity-editors.mjs'
 import { fwd } from './util'
 
@@ -30,7 +30,7 @@ export interface UnityUnitConfig {
   editor?: string
   /** Seats shared with the Gauntlet; `cap` overrides the RAM-based default. */
   editors: { dir: string; cap?: number }
-  /** The Play pool, exactly as the player's Play screen builds it. */
+  /** The Play pool, exactly as Genio's PlayService (Settings › Unity slots) builds it. */
   play: { data: string; world: string }
 }
 
@@ -48,7 +48,7 @@ export interface UnityUnitPaths {
 export function unityUnitConfig(project: Project | undefined, o: UnityUnitPaths): UnityUnitConfig | undefined {
   if (!project) return undefined
   const { engine, root } = effectiveEngine(project)
-  if (!supportsPlay(engine)) return undefined
+  if (!supportsUnitySlots(engine)) return undefined
   const runs = path.join(o.taskDir, 'unity')
   return {
     schema: UNITY_CONFIG_SCHEMA, task: o.task, worktree: o.worktree, engineRoot: root, runs,
