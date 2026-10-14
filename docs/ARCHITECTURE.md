@@ -75,9 +75,13 @@ src/preload/index.ts  exposes window.genio = { api, on, onTerminalData }
 src/renderer/src/     React UI
 ```
 
-Main → renderer push events go through `bus.publish(GenioEvent)`; `index.ts`
-forwards them on channel `genio:event`. Terminal output is batched separately on
-`genio:term-data`.
+Main → renderer push events go through `bus.publish(GenioEvent)`; `event-router.ts`
+forwards them on channel `genio:event`, building the fleet snapshot at most once
+per event and only for events routed by it, and coalescing chat deltas per
+message (flushed every 40 ms, ahead of any later event). Terminal output is
+batched separately on `genio:term-data`. The Hub receives fleet events only:
+chat, chat deltas, generation progress and terminal output go to the owning
+project window alone. See [performance.md](performance.md).
 
 ## Status protocol (companion grammar)
 

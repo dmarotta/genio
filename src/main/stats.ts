@@ -14,6 +14,15 @@ import { nowIso, readJson, todayStamp, writeJson } from './util'
 
 /** trophies a player can pin to the front of the achievements grid */
 export const MAX_PINS = 3
+/** Asset dedupe keys kept on disk (newest wins): bounds stats.json, which is rewritten on every award. */
+export const ASSET_IDS_KEEP = 2000
+
+/** Drop the oldest dedupe keys past the cap; insertion order is the order they were recorded in. */
+function pruneAssetIds(d: Pick<StatsFile, 'assetIds'>): void {
+  const keys = Object.keys(d.assetIds)
+  if (keys.length <= ASSET_IDS_KEEP) return
+  for (const k of keys.slice(0, keys.length - ASSET_IDS_KEEP)) delete d.assetIds[k]
+}
 
 type AwardEvent = 'spawn' | 'ship' | 'merge' | 'scout' | 'decision' | 'cleanup' | 'save'
 
@@ -167,6 +176,7 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
       data.achievements = data.achievements ?? {}
       data.awarded = data.awarded ?? {}
       data.assetIds = data.assetIds ?? {}
+      pruneAssetIds(data)
       data.activeDays = Array.isArray(data.activeDays) ? data.activeDays : []
       data.landings = loadLandingLog(raw.landings)
       data.titles = data.titles && typeof data.titles === 'object' ? data.titles : {}
@@ -485,6 +495,7 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
     const key = achievement + ':' + id
     if (d.assetIds[key]) return
     d.assetIds[key] = true
+    pruneAssetIds(d)
     d.assetsTotal += (Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0)
     svc.unlock(achievement)
     if (d.assetsTotal >= 10) svc.unlock('assets-10')

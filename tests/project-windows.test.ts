@@ -97,6 +97,20 @@ describe('window routing', () => {
     expect(routeProjectEvent({ type: 'chat-delta', wksp: 'main', id: 'm', text: 'private' }, binding, snapshot)).toBeUndefined()
     expect(routeProjectEvent({ type: 'permission', request: { wksp: 'ally-two' } } as GenioEvent, binding, snapshot)).toBeUndefined()
   })
+  it('keeps chat traffic off the Hub and builds the snapshot only for events that route by it', () => {
+    const chat = { type: 'chat', message: { wksp: 'ally-one' } } as GenioEvent
+    expect(routeProjectEvent(chat, undefined, snapshot)).toBeUndefined()
+    expect(routeProjectEvent({ type: 'chat-delta', wksp: 'ally-one', id: 'm', text: 'x' }, undefined, snapshot)).toBeUndefined()
+    expect(routeProjectEvent({ type: 'generation', wksp: 'ally-one', id: 'g', active: true }, undefined, snapshot)).toBeUndefined()
+    expect(routeProjectEvent(chat, binding, snapshot)).toBe(chat)
+    let built = 0
+    const lazy = (): FleetSnapshot => { built++; return snapshot }
+    expect(routeProjectEvent(chat, binding, lazy)).toBe(chat)
+    expect(routeProjectEvent({ type: 'wksp', wksp: { name: 'ally-one' } } as GenioEvent, binding, lazy)).toBeTruthy()
+    expect(built).toBe(0)
+    expect(routeProjectEvent({ type: 'status', event: { taskId: 'task-one' } } as GenioEvent, binding, lazy)).toBeTruthy()
+    expect(built).toBe(1)
+  })
   it('scopes pending unit counts on both snapshots and events, including clearing the count', () => {
     const pending = { ...snapshot, pendingUnits: ['one', 'two', 'one'] }
     expect(projectSnapshot(pending, binding).pendingUnits).toEqual(['one', 'one'])

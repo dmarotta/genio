@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { bus } from '../src/main/bus'
+import type { GenioEvent } from '../src/shared/types'
 
 const f = vi.hoisted(() => ({ windows: [] as any[], ctx: undefined as any, app: undefined as any, screen: undefined as any, popouts: undefined as any, choice: 1, stop: vi.fn(async () => {}), start: vi.fn(async () => {}), terminalData: undefined as any }))
 vi.mock('../src/main/ctx', () => ({
@@ -69,14 +70,19 @@ describe('project window lifecycle', () => {
     expect(f.ctx.stats.unlock).toHaveBeenCalledWith('project-window-open')
     expect(f.start).toHaveBeenCalledExactlyOnceWith(f.ctx, 'one', 'ally-one')
   })
-  it('broadcasts globals while keeping another project chat out', async () => {
+  it('coalesces a chat stream for its project window and keeps chat traffic off the Hub and other projects', async () => {
     await openProject('two')
     for (const w of f.windows) w.webContents.send.mockClear()
-    const event = { type: 'chat-delta', wksp: 'ally-one', id: 'chat', text: 'one only' } as const
-    bus.publish(event)
-    expect(f.windows[0].webContents.send).toHaveBeenCalledWith('genio:event', event)
-    expect(f.windows[1].webContents.send).toHaveBeenCalledWith('genio:event', event)
+    bus.publish({ type: 'chat-delta', wksp: 'ally-one', id: 'chat', text: 'one ' })
+    bus.publish({ type: 'chat-delta', wksp: 'ally-one', id: 'chat', text: 'only' })
+    expect(f.windows[1].webContents.send).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(f.windows[1].webContents.send).toHaveBeenCalledWith('genio:event', { type: 'chat-delta', wksp: 'ally-one', id: 'chat', text: 'one only' }))
+    expect(f.windows[1].webContents.send).toHaveBeenCalledTimes(1)
+    expect(f.windows[0].webContents.send).not.toHaveBeenCalled()
     expect(f.windows[2].webContents.send).not.toHaveBeenCalled()
+    const global = { type: 'settings', settings: {} } as GenioEvent
+    bus.publish(global)
+    for (const w of f.windows) expect(w.webContents.send).toHaveBeenCalledWith('genio:event', global)
   })
   it('allows only the bound same-page chat popup and closes it with its owner', async () => {
     const owner = f.windows[1]

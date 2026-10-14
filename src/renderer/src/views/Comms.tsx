@@ -1,6 +1,6 @@
 import { ComingNext } from '../components/ComingNext'
 import { GenerationCard } from '../components/GenerationCard'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { ChevronDown, ChevronRight, CircleStop, Pencil, RefreshCw, Rocket, Send, ShieldCheck, TriangleAlert, Wrench, X } from 'lucide-react'
 import type { Ally, ChatMessage, Settings } from '@shared/types'
 import { chatControls, routedRequest, splitQueued, type ChatControls, type UnqueuedChat } from '@shared/chat'
@@ -70,8 +70,9 @@ export function ChatPanel({ wksp, context, active: _active = true }: { wksp: str
   const visible = useMemo(() => (calm ? messages.filter((m) => !calmHidden(m)) : messages), [messages, calm])
 
   // Edit / cancel a message the session has not picked up yet; edit puts it back in this chat's composer.
+  // Stable across renders so memoised messages are not re-rendered by every streamed token.
   const fill = useRef<((c: UnqueuedChat) => void) | undefined>(undefined)
-  const takeBack = async (m: ChatMessage, edit: boolean): Promise<void> => {
+  const takeBack = useCallback(async (m: ChatMessage, edit: boolean): Promise<void> => {
     try {
       const got = await api().unqueueChat(wksp, m.id)
       if (!got) toast('info', 'Already sent', `${isAlly ? wksp : 'Genio'} picked that message up before it could be changed.`)
@@ -79,7 +80,7 @@ export function ChatPanel({ wksp, context, active: _active = true }: { wksp: str
     } catch (e) {
       toast('error', edit ? 'Message not editable' : 'Message not cancelled', errText(e))
     }
-  }
+  }, [wksp, isAlly])
 
   return (
     <div className="chat-panel">
@@ -240,7 +241,11 @@ function ChatLog({ wksp, messages: all, calm, busy, gamertag, activityDetail, la
   )
 }
 
-function Message({ m, calm, gamertag, onTakeBack }: { m: ChatMessage; calm: boolean; gamertag: string; onTakeBack: TakeBack }) {
+/**
+ * One message. Memoised: a streamed delta replaces only the message it belongs to, so the
+ * other messages of a long transcript keep their rendered output (and parsed Markdown).
+ */
+const Message = memo(function Message({ m, calm, gamertag, onTakeBack }: { m: ChatMessage; calm: boolean; gamertag: string; onTakeBack: TakeBack }) {
   const [open, setOpen] = useState(false)
   if (m.role === 'player') {
     const waiting = m.queue === 'queued' || m.queue === 'unsent'
@@ -353,7 +358,7 @@ function Message({ m, calm, gamertag, onTakeBack }: { m: ChatMessage; calm: bool
       </div>
     </div>
   )
-}
+})
 
 function Composer({ wksp, busy, fill, context }: { wksp: string; busy: boolean; context?: InventoryContext; fill: RefObject<((c: UnqueuedChat) => void) | undefined> }) {
   // Client-side commands drive the whole app, so they live in the main chat; an ally gets its text (and its own /help, /status, /save) as typed.

@@ -14,7 +14,6 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import readline from 'node:readline'
 import type { FalRun, FalSpend, MeasuredUsage, TokenTally, ToolUsage, UsageLimits, UsageReport, UsageWindow } from '@shared/api'
 import { FalHistory } from './fal-history'
 import { expireWindow, type QuotaWindow } from './quota-policy'
@@ -147,33 +146,37 @@ function codexWindow(v: unknown, eventMs: number): CodexWindow | undefined {
 /**
  * One Codex session log: its cwd, token deltas per API call (from the cumulative
  * total_token_usage, so repeated events don't double count) and its rate-limit snapshots.
+ * The parser keeps its cumulative counters, so an append-only log can be fed its new tail later.
  */
-export function parseCodexSession(lines: Iterable<string>, id: string): CodexSession {
-  const s: CodexSession = { id, records: [], snapshots: [] }
-  let prev = { input: 0, cached: 0, output: 0 }
-  for (const line of lines) {
-    if (!isCodexUsageLine(line)) continue
+export class CodexSessionParser {
+  readonly session: CodexSession
+  private prev = { input: 0, cached: 0, output: 0 }
+  constructor(id: string) { this.session = { id, records: [], snapshots: [] } }
+
+  feed(line: string): void {
+    const s = this.session
+    if (!isCodexUsageLine(line)) return
     const j = parseLine(line)
     const p = obj(j?.payload)
-    if (!j || !p) continue
+    if (!j || !p) return
     if (j.type === 'session_meta') {
       s.id = str(p.id) ?? s.id
       s.cwd = str(p.cwd) ?? s.cwd
-      continue
+      return
     }
-    if (p.type !== 'token_count') continue
+    if (p.type !== 'token_count') return
     const ts = str(j.timestamp) ?? ''
     const ms = Date.parse(ts)
     const total = obj(obj(p.info)?.total_token_usage)
     if (total && Number.isFinite(ms)) {
       const inputAll = num(total.input_tokens)
       const cur = { cached: num(total.cached_input_tokens), input: Math.max(0, inputAll - num(total.cached_input_tokens)), output: num(total.output_tokens) }
-      const d = { input: cur.input - prev.input, cached: cur.cached - prev.cached, output: cur.output - prev.output }
+      const d = { input: cur.input - this.prev.input, cached: cur.cached - this.prev.cached, output: cur.output - this.prev.output }
       // a smaller total means the counter restarted (new conversation in the same file)
       const reset = d.input < 0 || d.cached < 0 || d.output < 0
       const delta = reset ? cur : d
       if (delta.input || delta.cached || delta.output) s.records.push({ ts: ms, session: s.id, ...delta })
-      prev = cur
+      this.prev = cur
     }
     const rl = obj(p.rate_limits)
     if (rl && ts) {
@@ -181,7 +184,12 @@ export function parseCodexSession(lines: Iterable<string>, id: string): CodexSes
       if (windows.length) s.snapshots.push({ ts, limitId: str(rl.limit_id) ?? 'codex', name: str(rl.limit_name), plan: str(rl.plan_type), windows })
     }
   }
-  return s
+}
+
+export function parseCodexSession(lines: Iterable<string>, id: string): CodexSession {
+  const parser = new CodexSessionParser(id)
+  for (const line of lines) parser.feed(line)
+  return parser.session
 }
 
 /** The latest snapshot per limit bucket, main bucket first. */
@@ -418,22 +426,47 @@ function recentJsonl(dir: string, since: number, out: string[] = []): string[] {
   return out
 }
 
-/** Stream a log and keep what `pick` returns for each line (logs can be tens of MB). */
-async function pickLines<T>(file: string, pick: (line: string) => T | undefined): Promise<T[]> {
-  const out: T[] = []
-  const rl = readline.createInterface({ input: fs.createReadStream(file, { encoding: 'utf8' }), crlfDelay: Infinity })
-  for await (const line of rl) {
-    const v = pick(line)
-    if (v !== undefined) out.push(v)
+/** What the scan actually read from disk (tests and the perf harness). */
+export const scanDiagnostics = { bytesRead: 0, filesRead: 0 }
+
+/**
+ * Stream a log from `offset`, line by line (logs can be tens of MB). Returns the
+ * byte offset after the last complete line; a trailing partial line (a writer
+ * mid-record) is still offered to `onLine` but is read again on the next scan.
+ */
+export async function readLines(file: string, offset: number, onLine: (line: string) => void): Promise<number> {
+  let total = offset
+  let carry: Buffer = Buffer.alloc(0)
+  scanDiagnostics.filesRead++
+  for await (const chunk of fs.createReadStream(file, { start: offset }) as AsyncIterable<Buffer>) {
+    scanDiagnostics.bytesRead += chunk.length
+    total += chunk.length
+    const buf = carry.length ? Buffer.concat([carry, chunk]) : chunk
+    let from = 0
+    for (;;) {
+      const nl = buf.indexOf(0x0a, from)
+      if (nl < 0) break
+      onLine(buf.toString('utf8', from, nl > from && buf[nl - 1] === 0x0d ? nl - 1 : nl))
+      from = nl + 1
+    }
+    carry = buf.subarray(from)
   }
-  return out
+  if (carry.length) onLine(carry.toString('utf8'))
+  return total - carry.length
 }
 
-/** Parsed files, reused while their size and mtime are unchanged. */
-class FileCache<T> {
-  private map = new Map<string, { mtimeMs: number; size: number; data: T }>()
+interface Parsed<T, S> { data: T; state?: S; offset: number }
+interface Tail<T, S> { offset: number; data?: T; state?: S }
 
-  async get(file: string, parse: (file: string) => Promise<T>): Promise<T | undefined> {
+/**
+ * Parsed files, reused while their size and mtime are unchanged. A file that
+ * only grew (an append-only session log) is parsed from where the last scan
+ * stopped, continuing the previous data and parser state.
+ */
+class FileCache<T, S = undefined> {
+  private map = new Map<string, { mtimeMs: number; size: number } & Parsed<T, S>>()
+
+  async get(file: string, parse: (file: string, from: Tail<T, S>) => Promise<Parsed<T, S>>): Promise<T | undefined> {
     let st: fs.Stats
     try {
       st = fs.statSync(file)
@@ -443,10 +476,11 @@ class FileCache<T> {
     }
     const hit = this.map.get(file)
     if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.data
+    const from: Tail<T, S> = hit && st.size > hit.size ? { offset: hit.offset, data: hit.data, state: hit.state } : { offset: 0 }
     try {
-      const data = await parse(file)
-      this.map.set(file, { mtimeMs: st.mtimeMs, size: st.size, data })
-      return data
+      const parsed = await parse(file, from)
+      this.map.set(file, { mtimeMs: st.mtimeMs, size: st.size, ...parsed })
+      return parsed.data
     } catch {
       // locked or vanished mid-read: skip it this time
       return hit?.data
@@ -459,7 +493,36 @@ class FileCache<T> {
 }
 
 const claudeCache = new FileCache<ClaudeUsageLine[]>()
-const codexCache = new FileCache<CodexSession>()
+const codexCache = new FileCache<CodexSession, CodexSessionParser>()
+
+async function parseClaudeTail(file: string, from: Tail<ClaudeUsageLine[], undefined>): Promise<Parsed<ClaudeUsageLine[], undefined>> {
+  const data = from.data ? [...from.data] : []
+  const offset = await readLines(file, from.offset, (line) => {
+    const v = parseClaudeUsageLine(line)
+    if (v) data.push(v)
+  })
+  return { data, offset }
+}
+
+async function parseCodexTail(file: string, from: Tail<CodexSession, CodexSessionParser>): Promise<Parsed<CodexSession, CodexSessionParser>> {
+  const parser = from.state ?? new CodexSessionParser(path.basename(file, '.jsonl'))
+  const offset = await readLines(file, from.offset, (line) => parser.feed(line))
+  return { data: parser.session, state: parser, offset }
+}
+
+/** Memoised per scan: a cwd's ownership never changes within one scan, and path checks are not free. */
+function cwdMemo<T>(fn: (cwd: string) => T): (cwd: string | undefined) => T | undefined {
+  const memo = new Map<string, T>()
+  return (cwd) => {
+    if (!cwd) return undefined
+    let v = memo.get(cwd)
+    if (v === undefined) {
+      v = fn(cwd)
+      memo.set(cwd, v)
+    }
+    return v
+  }
+}
 
 /** The world a unit session belongs to: the first folder under Genio's worktrees/ (units run in worktrees/<world>/<task>). */
 export function worldOf(cwd: string | undefined, root: string): string | undefined {
@@ -473,7 +536,11 @@ function measured(source: string, scope: string, records: TokenRecord[], now: nu
   const { todayStart, weekStart } = usageWindows(now)
   const byWorld: NonNullable<MeasuredUsage['byWorld']> = {}
   const groups = new Map<string, TokenRecord[]>()
-  for (const [r, w] of worlds ?? []) groups.set(w, [...(groups.get(w) ?? []), r])
+  for (const [r, w] of worlds ?? []) {
+    const list = groups.get(w)
+    if (list) list.push(r)
+    else groups.set(w, [r])
+  }
   for (const [w, list] of groups) byWorld[w] = { today: tally(list, todayStart), week: tally(list, weekStart) }
   return { source, scope, updatedAt: new Date(now).toISOString(), today: tally(records, todayStart), week: tally(records, weekStart), byWorld }
 }
@@ -516,12 +583,14 @@ async function claudeUsage(ctx: AppCtx, root: string, now: number): Promise<Tool
   const files = recentJsonl(projects, weekStart)
   const seen = new Map<string, TokenRecord>()
   const worldByKey = new Map<string, string>()
+  const inBase = cwdMemo((cwd) => isSubPath(cwd, root))
+  const worldOfCwd = cwdMemo((cwd) => attribution.world(cwd) ?? '')
   for (const f of files) {
-    const lines = await claudeCache.get(f, (p) => pickLines(p, parseClaudeUsageLine))
+    const lines = await claudeCache.get(f, parseClaudeTail)
     for (const l of lines ?? []) {
-      if (!belongsToGenio(l, sessions, root)) continue
+      if (!(sessions.has(l.record.session) || inBase(l.cwd))) continue
       const key = `${l.record.session}:${l.key}`
-      const world = attribution.sessions.has(l.record.session) ? attribution.sessions.get(l.record.session) : attribution.world(l.cwd)
+      const world = attribution.sessions.has(l.record.session) ? attribution.sessions.get(l.record.session) : worldOfCwd(l.cwd) || undefined
       if (world) worldByKey.set(key, world)
       const prev = seen.get(key)
       // Streaming content blocks may repeat the request with larger output counters.
@@ -553,7 +622,7 @@ async function codexUsage(ctx: AppCtx, root: string, now: number, data: string):
   const worlds = new Map<TokenRecord, string>()
   const snapshots: CodexSnapshot[] = readJson(path.join(data, 'usage', 'codex-chat-limits.json'), [])
   for (const f of files) {
-    const s = await codexCache.get(f, async (p) => parseCodexSession(await pickLines(p, (l) => (isCodexUsageLine(l) ? l : undefined)), path.basename(p, '.jsonl')))
+    const s = await codexCache.get(f, parseCodexTail)
     if (!s) continue
     // plan limits are account-wide: every session's snapshot counts
     snapshots.push(...s.snapshots)

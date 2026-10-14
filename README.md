@@ -67,6 +67,8 @@ npm run typecheck
 npm test                 # unit tests (status protocol, briefs, git guards, quest log, events, memory)
 npm run test:e2e         # real end-to-end runs: a Claude unit ships an Offline Build, and Genio
                          # answers from its tools (spends a few cents; uses the haiku model)
+npm run perf             # performance harness: chat rendering, main-process event routing,
+                         # startup and the usage scan over a realistic Base (docs/performance.md)
 ```
 
 Dev-only visual check: set `GENIO_CAPTURE_DIR=<dir>` (optionally `GENIO_HOME`,

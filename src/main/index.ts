@@ -15,14 +15,12 @@ import { registerIpc } from './ipc'
 import type { AppCtx } from './services'
 import { nowIso, readJson, writeJson } from './util'
 import { ensureWindowsToastIdentity, setWindowsAppId } from './win-identity'
-import { projectFromArgv, projectSnapshot, routeProjectEvent, terminalProject, type WindowBinding } from './project-windows'
+import { projectFromArgv, projectSnapshot, terminalProject, type WindowBinding } from './project-windows'
+import { createEventRouter, type RoutedWindow } from './event-router'
 import type { GenioEvent } from '@shared/types'
 import { fitInto, isChatPopoutUrl, POPOUT_MIN, visiblePopoutBounds, type Rect } from '@shared/chat-popout'
 
-const TERM_CHANNEL = 'genio:term-data'
-
 const windows = new Map<BrowserWindow, WindowBinding | undefined>()
-const terminalOwners = new Map<string, string | undefined>()
 let openQueue: Promise<unknown> = Promise.resolve()
 const pendingLaunches: { argv: string[]; cwd: string }[] = []
 let ctx: AppCtx | undefined
@@ -340,50 +338,22 @@ async function navigateNotification(target: Extract<GenioEvent, { type: 'navigat
   win.webContents.send(EVENT_CHANNEL, { type: 'navigate', target })
 }
 
-function sendEvent(ev: GenioEvent): void {
-  if (ev.type === 'navigate') {
-    void navigateNotification(ev.target).catch(reportOpenError)
-    return
-  }
-  const snapshot = ctx!.snapshot()
-  if (ev.type === 'terminal') terminalOwners.set(ev.terminal.id, terminalProject(ev.terminal, snapshot))
-  const owner = ev.type === 'terminal' ? terminalOwners.get(ev.terminal.id) : ev.type === 'terminal-removed' ? terminalOwners.get(ev.id) : undefined
-  for (const [win, binding] of windows) {
-    if (win.isDestroyed() || win.webContents.isDestroyed()) continue
-    const routed = routeProjectEvent(ev, binding, snapshot, owner)
-    if (routed) win.webContents.send(EVENT_CHANNEL, routed)
-  }
-  // Retain ownership for terminal data already queued in the 16ms batch.
+/** Every open window as the router sees it: binding, liveness and a send. */
+function routedWindows(): RoutedWindow[] {
+  return [...windows].map(([win, binding]) => ({
+    binding,
+    alive: () => !win.isDestroyed() && !win.webContents.isDestroyed(),
+    send: (channel, payload) => win.webContents.send(channel, payload)
+  }))
 }
 
 function wireEvents(): void {
-  bus.onEvent(sendEvent)
-
-  // terminal output: batch every 16ms so a chatty unit can't flood IPC
-  let batch: { id: string; data: string; at: string }[] = []
-  let timer: NodeJS.Timeout | undefined
-  const flush = (): void => {
-    timer = undefined
-    if (!batch.length) return
-    // merge consecutive chunks per terminal
-    const merged = new Map<string, { data: string; at: string }>()
-    for (const b of batch) merged.set(b.id, { data: (merged.get(b.id)?.data ?? '') + b.data, at: b.at })
-    batch = []
-    const snapshot = ctx!.snapshot()
-    for (const [win, binding] of windows) {
-      if (win.isDestroyed() || win.webContents.isDestroyed()) continue
-      const chunks = [...merged.entries()].filter(([id]) => {
-        const t = ctx!.terminals.get(id)
-        const project = t ? terminalProject(t, snapshot) : terminalOwners.get(id)
-        return !binding || project === binding.project
-      }).map(([id, output]) => ({ id, ...output }))
-      if (chunks.length) win.webContents.send(TERM_CHANNEL, chunks)
-    }
-  }
-  ctx!.terminals.onAnyData((id, data) => {
-    batch.push({ id, data, at: new Date().toISOString() })
-    if (!timer) timer = setTimeout(flush, 16)
+  const router = createEventRouter({ snapshot: () => ctx!.snapshot(), terminal: (id) => ctx!.terminals.get(id), windows: routedWindows })
+  bus.onEvent((ev) => {
+    if (ev.type === 'navigate') void navigateNotification(ev.target).catch(reportOpenError)
+    else router.publish(ev)
   })
+  ctx!.terminals.onAnyData(router.terminalData)
 }
 
 async function shutdown(): Promise<void> {

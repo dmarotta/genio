@@ -44,9 +44,16 @@ export function terminalProject(t: TerminalInfo, s: FleetSnapshot): string | und
   })?.name
 }
 
-/** Hub observes the fleet; project windows receive only their own scoped events. */
-export function routeProjectEvent(ev: GenioEvent, binding: WindowBinding | undefined, s: FleetSnapshot, terminalOwner?: string): GenioEvent | undefined {
-  if (!binding) return ev
+/** Chat traffic belongs to a project window; the Hub has no chat screen and never carries it. */
+const CHAT_ONLY = new Set<GenioEvent['type']>(['chat', 'chat-delta', 'generation'])
+
+/**
+ * Hub observes the fleet; project windows receive only their own scoped events.
+ * The snapshot may be passed as a getter: it is only built for the few event kinds that need it.
+ */
+export function routeProjectEvent(ev: GenioEvent, binding: WindowBinding | undefined, s: FleetSnapshot | (() => FleetSnapshot), terminalOwner?: string): GenioEvent | undefined {
+  if (!binding) return CHAT_ONLY.has(ev.type) ? undefined : ev
+  const snap = (): FleetSnapshot => (typeof s === 'function' ? s() : s)
   const project = (name?: string): GenioEvent | undefined => name === binding.project ? ev : undefined
   const wksp = (name?: string): GenioEvent | undefined => name === binding.wksp ? ev : undefined
   switch (ev.type) {
@@ -54,7 +61,7 @@ export function routeProjectEvent(ev: GenioEvent, binding: WindowBinding | undef
     case 'snapshot': return { ...ev, data: projectSnapshot(ev.data, binding) }
     case 'task': return project(ev.task.project)
     case 'task-removed': return ev // deletion contains no content; may already be absent from snapshot
-    case 'status': return project(s.tasks.find(t => t.id === ev.event.taskId)?.project)
+    case 'status': return project(snap().tasks.find(t => t.id === ev.event.taskId)?.project)
     case 'chat': return wksp(ev.message.wksp)
     case 'chat-delta': case 'generation': return wksp(ev.wksp)
     case 'wksp': return wksp(ev.wksp.name)
@@ -62,14 +69,14 @@ export function routeProjectEvent(ev: GenioEvent, binding: WindowBinding | undef
     case 'wake': return wksp(ev.wake.wksp)
     case 'projects': return { ...ev, projects: ev.projects.filter(p => p.name === binding.project) }
     case 'allies': return { ...ev, allies: ev.allies.filter(a => a.name === binding.wksp) }
-    case 'backlog': case 'decisions': return { type: 'snapshot', data: projectSnapshot(s, binding) }
-    case 'terminal': return project(terminalOwner ?? terminalProject(ev.terminal, s))
+    case 'backlog': case 'decisions': return { type: 'snapshot', data: projectSnapshot(snap(), binding) }
+    case 'terminal': return project(terminalOwner ?? terminalProject(ev.terminal, snap()))
     case 'terminal-removed': return project(terminalOwner)
     case 'inventory': return project(ev.state.world)
     case 'fal-run': case 'uthana-run': return project(ev.run.world ?? undefined)
     case 'navigate':
       if (ev.target.view === 'comms') return wksp(ev.target.wksp)
-      if (ev.target.view === 'squad') { const taskId = ev.target.taskId; return project(s.tasks.find(t => t.id === taskId)?.project) }
+      if (ev.target.view === 'squad') { const taskId = ev.target.taskId; return project(snap().tasks.find(t => t.id === taskId)?.project) }
       if (ev.target.view === 'move') return ev.target.project ? project(ev.target.project) : wksp(ev.target.wksp)
       return undefined
     default: return ev

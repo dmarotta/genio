@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bus } from '../src/main/bus'
-import { createStatsService } from '../src/main/stats'
+import { ASSET_IDS_KEEP, createStatsService } from '../src/main/stats'
 import type { AppCtx } from '../src/main/services'
 import type { GenioEvent, Task } from '../src/shared/types'
 
@@ -78,6 +78,28 @@ describe('live achievement outcomes', () => {
     expect(svc.get().achievements.find((a) => a.id === 'assets-10')?.unlockedAt).toBeTruthy()
     publish({ type: 'feature-used', feature: 'chat-image', id: 'more', count: 40 })
     expect(svc.get().achievements.find((a) => a.id === 'assets-50')?.unlockedAt).toBeTruthy()
+  })
+  it('keeps the asset dedupe keys bounded on disk, newest first, including on load', () => {
+    const keys = (n: number): Record<string, true> => Object.fromEntries(Array.from({ length: n }, (_, i) => [`old:${i}`, true]))
+    const stored = (): { assetIds: Record<string, true>; assetsTotal: number } => JSON.parse(fs.readFileSync(path.join(dir, 'stats.json'), 'utf8'))
+    fs.writeFileSync(path.join(dir, 'stats.json'), JSON.stringify({ assetIds: keys(ASSET_IDS_KEEP - 2), assetsTotal: 40 }))
+    const svc = createStatsService(() => ctx)
+    for (let i = 0; i < 5; i++) publish({ type: 'feature-used', feature: 'chat-image', id: `img-${i}`, count: 2 })
+    expect(Object.keys(stored().assetIds)).toHaveLength(ASSET_IDS_KEEP)
+    expect(stored().assetIds['old:2']).toBeUndefined()
+    expect(stored().assetIds['old:3']).toBe(true)
+    expect(stored().assetIds['chat-image:img-4']).toBe(true)
+    expect(stored().assetsTotal).toBe(50)
+    publish({ type: 'feature-used', feature: 'chat-image', id: 'img-4', count: 2 }) // still deduped
+    expect(stored().assetsTotal).toBe(50)
+    expect(svc.get().achievements.find((a) => a.id === 'assets-50')?.unlockedAt).toBeTruthy()
+    fs.writeFileSync(path.join(dir, 'stats.json'), JSON.stringify({ assetIds: keys(ASSET_IDS_KEEP + 100) }))
+    bus.removeAllListeners('event')
+    createStatsService(() => ctx)
+    publish({ type: 'feature-used', feature: 'chat-image', id: 'after-reload', count: 1 })
+    expect(Object.keys(stored().assetIds)).toHaveLength(ASSET_IDS_KEEP)
+    expect(stored().assetIds[`old:${ASSET_IDS_KEEP + 99}`]).toBe(true)
+    expect(stored().assetIds['chat-image:after-reload']).toBe(true)
   })
   it('ignores failed assets, uploads, routed ally messages and previews', () => {
     const svc = createStatsService(() => ctx)
