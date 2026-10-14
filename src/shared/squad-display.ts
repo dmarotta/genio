@@ -21,15 +21,25 @@ export function squadState(task: Task, terminal?: TerminalInfo): SquadState {
   return 'READY TO MERGE'
 }
 
-export function squadTone(task: Task, terminal?: TerminalInfo, attention = false): SquadTone {
+/**
+ * The unit's color everywhere it appears (Squad rail, Squad page, Quest log):
+ * red for errors, green for ready or done, otherwise its kind at work, purple
+ * Recon or blue Build. Needing the player never repaints the unit; it is the
+ * separate yellow indicator from `squadAttention`.
+ */
+export function squadTone(task: Task, terminal?: TerminalInfo): SquadTone {
   const abnormalExit = task.state === 'exited' && (terminal?.exitCode !== undefined
     ? terminal.exitCode !== 0 : !/\bcode 0\b/.test(task.stateReason ?? ''))
   if (task.state === 'failed' || abnormalExit ||
       (terminal?.alive === false && terminal.exitCode !== undefined && terminal.exitCode !== 0)) return 'alert'
-  if (squadState(task, terminal) === 'DONE') return 'volt'
-  if (attention || task.state === 'needs-decision' || task.state === 'blocked') return 'amber'
-  if (squadState(task, terminal) === 'READY TO MERGE') return 'volt'
+  if (squadState(task, terminal) !== 'WORKING') return 'volt'
   return task.kind === 'scout' ? 'violet' : 'blue'
+}
+
+/** Yellow indicator: an active unit waits on the player (an open question, blocked, or a pending decision). */
+export function squadAttention(task: Task, terminal?: TerminalInfo, pending = false): boolean {
+  if (squadState(task, terminal) === 'DONE' || squadTone(task, terminal) === 'alert') return false
+  return pending || task.state === 'needs-decision' || task.state === 'blocked'
 }
 
 /** How a finished unit ended. The outcome recorded at finish time survives a later despawn. */

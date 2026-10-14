@@ -9,13 +9,13 @@ import type { TaskFile } from '@shared/api'
 import { api, errText, focusTask, op, openDeploy, setState, toast, liveTasks, useStore } from '../store'
 import { TerminalView } from '../components/Terminal'
 import { Markdown } from '../components/Markdown'
-import { Chip, Confirm, Dot, Empty, Modal, Field, Tabs, ViewHeader, useNow } from '../components/ui'
+import { Chip, Confirm, Dot, Empty, Modal, Field, NeedsYou, Tabs, ViewHeader, useNow } from '../components/ui'
 import { GenioCore } from '../components/GenioCore'
 import { LoadoutReasons, RATEABLE, VerdictButtons, VerdictPick, rateThenMerge } from '../components/Dispatch'
 import { KIND_LABEL, MODE_LABEL } from '../lib/vocab'
 import { ago, clock, cx, elapsed, shortPath } from '../lib/format'
 import { playSfx } from '../lib/sfx'
-import { squadState, squadTone } from '@shared/squad-display'
+import { squadAttention, squadState, squadTone } from '@shared/squad-display'
 import { pendingDecision } from '@shared/decisions'
 import { listFact, useScreenContext } from '../lib/screen-context'
 
@@ -96,11 +96,12 @@ function rank(t: Task): number {
 
 function UnitCard({ t, term }: { t: Task; term?: TerminalInfo }) {
   const now = useNow(1000)
-  const attention = useStore(s => s.snap.decisions.some(d => d.taskId === t.id && pendingDecision(d, now)))
-  const tone = squadTone(t, term, attention)
+  const pending = useStore(s => s.snap.decisions.some(d => d.taskId === t.id && pendingDecision(d, now)))
+  const tone = squadTone(t, term)
+  const attention = squadAttention(t, term, pending)
   const recon = t.kind === 'scout'
   return (
-    <article className={cx('unit-card panel', `tone-${tone}`, recon && 'recon')}>
+    <article className={cx('unit-card panel', `tone-${tone}`, recon && 'recon', attention && 'attention')}>
       <header className="unit-head" onClick={() => focusTask(t.id)}>
         <div className="unit-kind">
           {recon ? <Radar size={14} /> : <Rocket size={14} />}
@@ -118,6 +119,7 @@ function UnitCard({ t, term }: { t: Task; term?: TerminalInfo }) {
           <Chip tone={tone} pulse={squadState(t, term) === 'WORKING'}>
             {squadState(t, term)}
           </Chip>
+          {attention && <NeedsYou />}
           <span className="mono mute">{elapsed(t.createdAt, now)}</span>
         </div>
       </header>
@@ -257,7 +259,7 @@ function UnitDetail({ id }: { id: string }) {
     latest && { label: 'Last status', value: `${latest.kind}: ${latest.text}` }
   ] : [{ label: 'Unit', value: `${id} (gone)` }] })
 
-  const attention = useStore(s => s.snap.decisions.some(d => d.taskId === id && pendingDecision(d, now)))
+  const pending = useStore(s => s.snap.decisions.some(d => d.taskId === id && pendingDecision(d, now)))
 
   useEffect(() => {
     if (t?.kind === 'scout' && (t.state === 'done' || t.reportPath)) setTab('report')
@@ -289,7 +291,8 @@ function UnitDetail({ id }: { id: string }) {
     )
   }
 
-  const tone = squadTone(t, term, attention)
+  const tone = squadTone(t, term)
+  const attention = squadAttention(t, term, pending)
   const recon = t.kind === 'scout'
   const live = !!term?.alive
   const canMerge = t.kind === 'ship' && (t.state === 'ready' || !!t.pr?.url)
@@ -333,6 +336,7 @@ function UnitDetail({ id }: { id: string }) {
             <Chip tone={tone} pulse={squadState(t, term) === 'WORKING'}>
               {squadState(t, term)}
             </Chip>
+            {attention && <NeedsYou />}
             {t.mode && <span className="chip">{MODE_LABEL[t.mode]}</span>}
             {t.yolo && <span className="chip volt">Auto-loot</span>}
             {t.landedCommit && <span className="chip volt mono selectable" title={t.landedCommit}>commit {t.landedCommit.slice(0, 10)}</span>}

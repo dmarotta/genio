@@ -29,7 +29,10 @@ it('counts only active units and moves completed units into the done history wit
   })
   expect(host.querySelector('.num')?.textContent).toBe('2')
   expect([...host.querySelectorAll('.roster-active .roster-title')].map(n => n.textContent)).not.toContain('Build')
-  expect(host.querySelector('.roster-state')?.getAttribute('style')).toContain('--amber')
+  // the Recon asking the player keeps its purple and gains the yellow indicator
+  expect(host.querySelector('.roster-state')?.getAttribute('style')).toContain('--violet')
+  expect(host.querySelector('.roster-state')?.textContent).toBe('WORKING')
+  expect(host.querySelector('.roster-state .needs-you.amber')).not.toBeNull()
   expect(host.querySelector('.roster-divider')?.textContent).toBe('Recently done (1)')
   const done = host.querySelector('.roster-done .done-row')!
   expect(done.querySelector('.roster-title')?.textContent).toBe('Build')

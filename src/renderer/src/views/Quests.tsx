@@ -7,7 +7,7 @@ import {
 } from '@shared/quest-board'
 import type { SquadTone } from '@shared/squad-display'
 import { api, errText, focusTask, op, toast, useStore } from '../store'
-import { Confirm, Empty, Field, Modal, ViewHeader, useNow } from '../components/ui'
+import { Confirm, Empty, Field, Modal, NeedsYou, ViewHeader, useNow } from '../components/ui'
 import { KIND_LABEL } from '../lib/vocab'
 import { ago, clock, cx, dateInput, dateShort, duration, trunc } from '../lib/format'
 import { useUsagePolicy } from '../components/PlanMeter'
@@ -340,7 +340,7 @@ function FlightTicket({ c, now, events, onOpen }: { c: FlightCard; now: number; 
       <div className="qk-state">
         <span className="dot" style={{ ['--c' as string]: color }} />
         <span className="qk-state-label" style={{ color }}>{failed ? (t ? `UNIT ${t.state.toUpperCase()}` : 'UNIT MISSING') : c.state}</span>
-        {c.attention && <span className="chip amber qk-chip"><Hand size={10} /> needs you</span>}
+        {c.attention && <NeedsYou className="qk-chip" />}
         {t && <span className="mono mute qk-age">{duration(t.createdAt, new Date(now).toISOString())}</span>}
       </div>
       <div className="qk-progress mute" title={progressLine(t, events)}>

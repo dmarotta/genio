@@ -6,7 +6,7 @@
  */
 import type { BacklogItem, Decision, Priority, Task, TerminalInfo } from './types'
 import { pendingDecision } from './decisions'
-import { squadState, squadTone, type SquadState, type SquadTone } from './squad-display'
+import { squadAttention, squadState, squadTone, type SquadState, type SquadTone } from './squad-display'
 
 export const PRIORITY_ORDER: Priority[] = ['critical', 'high', 'normal', 'low']
 export const PRIORITY_RANK: Record<Priority, number> = { critical: 0, high: 1, normal: 2, low: 3 }
@@ -158,19 +158,19 @@ export function buildBoard({ backlog, tasks, terminals = {}, decisions = [], now
       continue
     }
     if (task) used.add(task.id)
-    const attention = !!q.hold || (!!task && asking.has(task.id))
     const running = task && live(task) ? task : undefined
+    const attention = !!q.hold || (running ? squadAttention(running, term(running), asking.has(running.id)) : !!task && asking.has(task.id))
     board.inFlight.push({
       key: `quest-${q.id}`, quest: q, task, attention,
       state: running ? squadState(running, term(running)) : 'FAILED',
-      tone: running ? squadTone(running, term(running), attention) : 'alert'
+      tone: running ? squadTone(running, term(running)) : 'alert'
     })
   }
   for (const t of tasks) {
     if (used.has(t.id)) continue
     if (live(t)) {
-      const attention = asking.has(t.id)
-      board.inFlight.push({ key: `unit-${t.id}`, task: t, attention, state: squadState(t, term(t)), tone: squadTone(t, term(t), attention) })
+      const attention = squadAttention(t, term(t), asking.has(t.id))
+      board.inFlight.push({ key: `unit-${t.id}`, task: t, attention, state: squadState(t, term(t)), tone: squadTone(t, term(t)) })
     } else board.done.push(doneEntry(t))
   }
 

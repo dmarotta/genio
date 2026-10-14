@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { Task, TaskState, TerminalInfo } from '../src/shared/types'
-import { DONE_HISTORY, finishedAt, outcomeTone, squadOutcome, squadSections, squadState, squadTone } from '../src/shared/squad-display'
+import {
+  DONE_HISTORY, finishedAt, outcomeTone, squadAttention, squadOutcome, squadSections, squadState, squadTone, type SquadTone
+} from '../src/shared/squad-display'
 
 const at = '2026-10-13T10:00:00Z'
 const task = (state: TaskState, patch: Partial<Task> = {}): Task => ({
@@ -28,7 +30,7 @@ describe('Squad display only', () => {
     expect(squadState({ ...t, state: 'working' }, term())).toBe('WORKING')
     expect(squadState({ ...t, lastOutputAt: '2026-10-13T10:00:02Z' }, term({ alive: false, exitCode: 0 }))).toBe('READY TO MERGE')
   })
-  it('uses blue Build, purple Recon, green ready/done, red error, yellow attention with WORKING unchanged', () => {
+  it('uses blue Build, purple Recon, green ready/done, red error, and a separate yellow attention indicator', () => {
     expect(squadTone(task('working'))).toBe('blue')
     expect(squadTone(task('working', { kind: 'scout' }))).toBe('violet')
     for (const state of ['ready', 'merged', 'done', 'cleaned'] as TaskState[]) expect(squadTone(task(state))).toBe('volt')
@@ -36,13 +38,34 @@ describe('Squad display only', () => {
     expect(squadTone(task('exited'), term({ alive: false, exitCode: 1 }))).toBe('alert')
     expect(squadTone(task('exited'), term({ alive: false, exitCode: 0 }))).toBe('volt')
     expect(squadTone(task('exited', { stateReason: 'unit process exited (code 0) without a final status' }))).toBe('volt')
-    expect(squadTone(task('working'), term({ alive: false, exitCode: 1 }), true)).toBe('alert')
+    expect(squadTone(task('working'), term({ alive: false, exitCode: 1 }))).toBe('alert')
+    expect(squadAttention(task('working'), term({ alive: false, exitCode: 1 }), true)).toBe(false)
     for (const state of ['blocked', 'needs-decision'] as TaskState[]) {
-      expect(squadTone(task(state, { kind: 'scout' }))).toBe('amber')
+      expect(squadTone(task(state, { kind: 'scout' }))).toBe('violet')
+      expect(squadAttention(task(state, { kind: 'scout' }))).toBe(true)
       expect(squadState(task(state))).toBe('WORKING')
     }
-    expect(squadTone(task('working', { kind: 'scout' }), undefined, true)).toBe('amber')
+    expect(squadTone(task('working', { kind: 'scout' }))).toBe('violet')
+    expect(squadAttention(task('working', { kind: 'scout' }), undefined, true)).toBe(true)
+    expect(squadAttention(task('done', { kind: 'scout' }), undefined, true)).toBe(false)
   })
+
+  // state -> [label, color, yellow indicator]; 'kind' is purple for a Recon, blue for a Build. Amber is never a unit's own color.
+  const table: Record<TaskState, [string, SquadTone | 'kind', boolean]> = {
+    spawning: ['WORKING', 'kind', false], working: ['WORKING', 'kind', false], paused: ['WORKING', 'kind', false],
+    stale: ['WORKING', 'kind', false], validating: ['WORKING', 'kind', false], detached: ['WORKING', 'kind', false],
+    blocked: ['WORKING', 'kind', true], 'needs-decision': ['WORKING', 'kind', true], ready: ['READY TO MERGE', 'volt', false],
+    merged: ['DONE', 'volt', false], done: ['DONE', 'volt', false], cleaned: ['DONE', 'volt', false],
+    failed: ['DONE', 'alert', false], exited: ['DONE', 'alert', false]
+  }
+  for (const kind of ['scout', 'ship'] as const) {
+    it.each(Object.entries(table))(`${kind} %s -> %j`, (state, [label, tone, attention]) => {
+      const t = task(state as TaskState, { kind })
+      expect(squadState(t)).toBe(label)
+      expect(squadTone(t)).toBe(tone === 'kind' ? (kind === 'scout' ? 'violet' : 'blue') : tone)
+      expect(squadAttention(t)).toBe(attention)
+    })
+  }
 })
 
 describe('Squad done history', () => {

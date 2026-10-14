@@ -1,9 +1,9 @@
 import { Radar, Rocket } from 'lucide-react'
-import { finishedAt, outcomeTone, squadOutcome, squadState, squadTone } from '@shared/squad-display'
+import { finishedAt, outcomeTone, squadAttention, squadOutcome, squadState, squadTone } from '@shared/squad-display'
 import { pendingDecision } from '@shared/decisions'
 import type { Task } from '@shared/types'
 import { focusTask, openDeploy, squadRoster, useStore } from '../store'
-import { Dot, useNow } from './ui'
+import { Dot, NeedsYou, useNow } from './ui'
 import { KIND_LABEL } from '../lib/vocab'
 import { clock, cx, dateShort, elapsed } from '../lib/format'
 
@@ -23,9 +23,10 @@ export function Roster() {
 
 function RosterRow({ t, now }: { t: Task; now: number }) {
   const terminal = useStore(s => t.terminalId ? s.terminals[t.terminalId] : undefined)
-  const attention = useStore(s => s.snap.decisions.some(d => d.taskId === t.id && pendingDecision(d, now)))
+  const pending = useStore(s => s.snap.decisions.some(d => d.taskId === t.id && pendingDecision(d, now)))
   const state = squadState(t, terminal)
-  const tone = squadTone(t, terminal, attention)
+  const tone = squadTone(t, terminal)
+  const attention = squadAttention(t, terminal, pending)
   return <button className="roster-row" onClick={() => focusTask(t.id)} title={t.stateReason}>
     <Dot tone={tone} pulse={state === 'WORKING'} />
     <div className="roster-main">
@@ -33,7 +34,7 @@ function RosterRow({ t, now }: { t: Task; now: number }) {
       <div className="roster-sub mute">{t.kind === 'scout' ? <Radar size={10} /> : <Rocket size={10} />} {KIND_LABEL[t.kind]} · {t.project}</div>
     </div>
     <div className="roster-right">
-      <span className="roster-state" style={{ color: `var(--${tone})` }}>{state}</span>
+      <span className="roster-state" style={{ color: `var(--${tone})` }}>{attention && <NeedsYou compact />}{state}</span>
       <span className="mono mute">{elapsed(t.createdAt, now)}</span>
     </div>
   </button>

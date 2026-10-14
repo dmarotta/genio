@@ -63,13 +63,17 @@ describe('column mapping', () => {
     const live = tasks.filter((t) => squadState(t) !== 'DONE').map((t) => t.id).sort()
     expect(board.inFlight.filter((c) => c.state !== 'FAILED').map((c) => c.task!.id).sort()).toEqual(live)
     const byUnit = Object.fromEntries(board.inFlight.map((c) => [c.task?.id, c]))
-    expect(byUnit.build).toMatchObject({ state: 'WORKING', tone: 'amber', attention: true })
-    expect(byUnit.recon).toMatchObject({ state: 'WORKING', tone: 'violet' })
+    // needing the player is the yellow indicator; the card keeps its kind color
+    expect(byUnit.build).toMatchObject({ state: 'WORKING', tone: 'blue', attention: true })
+    expect(byUnit.recon).toMatchObject({ state: 'WORKING', tone: 'violet', attention: false })
     expect(byUnit.recon.quest).toBeUndefined()
-    expect(byUnit.ready).toMatchObject({ state: 'READY TO MERGE', tone: 'volt' })
-    expect(byUnit.asks).toMatchObject({ state: 'WORKING', tone: 'amber' })
+    expect(byUnit.ready).toMatchObject({ state: 'READY TO MERGE', tone: 'volt', attention: false })
+    expect(byUnit.asks).toMatchObject({ state: 'WORKING', tone: 'blue', attention: true })
     expect(byUnit.crashed).toMatchObject({ state: 'FAILED', tone: 'alert' })
     expect(board.inFlight[0].task!.id).toBe('crashed') // errors first
+    const reconAsks = buildBoard({ backlog: [quest('q-r', { kind: 'scout', state: 'in-flight', taskId: 'r' })],
+      tasks: [unit('r', { kind: 'scout', state: 'needs-decision', backlogId: 'q-r' })] }).inFlight[0]
+    expect(reconAsks).toMatchObject({ state: 'WORKING', tone: 'violet', attention: true })
     expect(board.queued.map((q) => q.id)).toEqual(['q-next'])
     expect(board.done.map((d) => [d.key, d.outcome])).toEqual([['quest-q-landed', 'merged'], ['unit-old', 'done']])
   })

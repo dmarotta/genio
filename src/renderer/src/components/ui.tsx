@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { X } from 'lucide-react'
+import { Hand, X } from 'lucide-react'
 import { cx } from '../lib/format'
 import { toneVar, type Tone } from '../lib/vocab'
 
@@ -14,6 +14,15 @@ export function Chip({ tone, children, title, pulse }: { tone?: Tone; children: 
 
 export function Dot({ tone, pulse, size = 8 }: { tone: Tone; pulse?: boolean; size?: number }) {
   return <i className={cx('dot', pulse && 'pulse')} style={{ ['--c' as string]: toneVar(tone), width: size, height: size }} />
+}
+
+/** Yellow indicator beside a unit's own color: it waits on the player (see squadAttention). */
+export function NeedsYou({ compact, className }: { compact?: boolean; className?: string }) {
+  return (
+    <span className={cx('chip amber needs-you', compact && 'compact', className)} title="Waiting for your answer">
+      <Hand size={10} />{!compact && ' needs you'}
+    </span>
+  )
 }
 
 export function Toggle({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label?: ReactNode; disabled?: boolean }) {
