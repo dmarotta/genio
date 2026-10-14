@@ -2,12 +2,40 @@
 // in the stdin prompt, recorded in a session rollout under $CODEX_HOME the way
 // Codex 0.162 lays it out. FAKE_CODEX_MODE=no-image makes none; FAKE_CODEX_USED
 // sets the plan meter's used_percent.
+// `archive <id>` / `unarchive <id>` move the rollout between sessions/YYYY/MM/DD
+// and the flat archived_sessions/ like Codex does; a `live-<id>` marker file in
+// $CODEX_HOME makes archive refuse with exit 1 (a thread still open elsewhere).
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
 const PNG1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
 const home = process.env.CODEX_HOME
+const [command, id] = process.argv.slice(2)
+if (command === 'archive' || command === 'unarchive') {
+  fs.appendFileSync(path.join(home, 'fake-calls.jsonl'), JSON.stringify({ command, id }) + '\n')
+  const sessions = path.join(home, 'sessions')
+  const archived = path.join(home, 'archived_sessions')
+  const find = (dir) => {
+    try {
+      const rel = fs.readdirSync(dir, { recursive: true }).map(String).find((r) => r.endsWith(`-${id}.jsonl`))
+      return rel ? path.join(dir, rel) : null
+    } catch {
+      return null
+    }
+  }
+  const from = command === 'archive' ? find(sessions) : find(archived)
+  if (!from || (command === 'archive' && fs.existsSync(path.join(home, `live-${id}`)))) {
+    process.stderr.write(`Error: failed to ${command} session\n`)
+    process.exit(1)
+  }
+  const day = path.basename(from).match(/^rollout-(\d{4})-(\d{2})-(\d{2})/)
+  const dest = command === 'archive' ? archived : path.join(sessions, day[1], day[2], day[3])
+  fs.mkdirSync(dest, { recursive: true })
+  fs.renameSync(from, path.join(dest, path.basename(from)))
+  process.stdout.write(`${command === 'archive' ? 'Archived' : 'Unarchived'} session ${id}.\n`)
+  process.exit(0)
+}
 let prompt = ''
 process.stdin.on('data', (d) => (prompt += d))
 process.stdin.on('end', () => {

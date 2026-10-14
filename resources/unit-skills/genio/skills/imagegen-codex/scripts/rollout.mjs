@@ -107,7 +107,11 @@ const dayDirs = (sessions, d) => [
   path.join(sessions, String(d.getUTCFullYear()), pad(d.getUTCMonth() + 1), pad(d.getUTCDate()))
 ]
 
-/** The rollout file for a thread: the day folders around the run first, then a full scan. */
+/**
+ * The rollout file for a thread: the day folders around the run first, then a
+ * full scan, then the flat archived_sessions/ folder next to sessions/ (where
+ * `codex archive` moves it).
+ */
 export function findRollout(sessionsDir, threadId, around = [new Date()]) {
   const match = (name) => name.startsWith('rollout-') && name.endsWith(`-${threadId}.jsonl`)
   const seen = new Set()
@@ -125,7 +129,14 @@ export function findRollout(sessionsDir, threadId, around = [new Date()]) {
   }
   try {
     const hit = fs.readdirSync(sessionsDir, { recursive: true }).map(String).find((rel) => match(path.basename(rel)))
-    return hit ? path.join(sessionsDir, hit) : null
+    if (hit) return path.join(sessionsDir, hit)
+  } catch {
+    /* no sessions yet */
+  }
+  const archived = path.join(path.dirname(sessionsDir), 'archived_sessions')
+  try {
+    const hit = fs.readdirSync(archived).find(match)
+    return hit ? path.join(archived, hit) : null
   } catch {
     return null
   }

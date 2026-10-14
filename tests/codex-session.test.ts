@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { discoverCodexSession } from '../src/main/codex-session'
+import { codexRolloutState, discoverCodexSession, findCodexSessions } from '../src/main/codex-session'
 
 let home: string
 beforeEach(() => { home = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-codex-session-')) })
@@ -11,10 +11,10 @@ afterEach(() => {
   fs.rmSync(home, { recursive: true, force: true })
 })
 
-function session(id: string, cwd: string, timestamp = '2026-10-13T10:00:00Z'): string {
-  const dir = path.join(home, 'sessions', '2026', '10', '13')
+function session(id: string, cwd: string, timestamp = '2026-10-13T10:00:00Z', archived = false): string {
+  const dir = archived ? path.join(home, 'archived_sessions') : path.join(home, 'sessions', '2026', '10', '13')
   fs.mkdirSync(dir, { recursive: true })
-  const file = path.join(dir, `${id}.jsonl`)
+  const file = path.join(dir, `rollout-2026-10-13T10-00-00-${id}.jsonl`)
   fs.writeFileSync(file, JSON.stringify({ type: 'session_meta', payload: { id, cwd, timestamp } }) + '\n')
   return file
 }
@@ -61,6 +61,25 @@ it('uses CODEX_HOME and handles a missing session directory without resuming els
   session('own', '/unit')
   expect(await discoverCodexSession('/unit')).toBe('own')
   expect(await discoverCodexSession('/missing', home, 'own')).toBeUndefined()
+})
+
+it('discovers archived sessions too, so a resume can unarchive them', async () => {
+  session('old', '/unit', '2026-10-13T09:00:00Z')
+  session('archived', '/unit', '2026-10-13T11:00:00Z', true)
+  session('foreign', '/other', '2026-10-13T12:00:00Z', true)
+  expect(await discoverCodexSession('/unit', home)).toBe('archived')
+  expect(await discoverCodexSession('/unit', home, 'old')).toBe('old')
+  const all = await findCodexSessions('/unit', home)
+  expect(all.map(s => [s.id, s.archived]).sort()).toEqual([['archived', true], ['old', false]])
+})
+
+it('tells where a thread rollout lives now', async () => {
+  session('live', '/unit')
+  session('gone-by', '/unit', undefined, true)
+  expect(await codexRolloutState('live', home)).toBe('live')
+  expect(await codexRolloutState('gone-by', home)).toBe('archived')
+  expect(await codexRolloutState('missing', home)).toBe('missing')
+  expect(await codexRolloutState('live', path.join(home, 'nowhere'))).toBe('missing')
 })
 
 it('reads large metadata headers with UTF-8 paths and ignores transcript content', async () => {

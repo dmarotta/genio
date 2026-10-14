@@ -63,7 +63,7 @@ export function run(
 /** Run a command line through the platform shell (needed for .cmd shims and user-authored commands). */
 export function runShell(
   commandLine: string,
-  opts: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number; onData?: (s: string) => void } = {}
+  opts: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number; onData?: (s: string) => void; input?: string } = {}
 ): Promise<ExecResult> {
   return new Promise((resolve) => {
     const isWin = process.platform === 'win32'
@@ -73,6 +73,7 @@ export function runShell(
       windowsHide: true,
       windowsVerbatimArguments: isWin
     })
+    if (opts.input !== undefined) child.stdin.end(opts.input)
     let stdout = ''
     let stderr = ''
     const timer = opts.timeoutMs

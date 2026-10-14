@@ -59,6 +59,7 @@ import { createFalService } from './fal-service'
 import { createUthanaService } from './uthana-service'
 import { createDispatchService } from './dispatch'
 import { usageReport } from './usage'
+import { retryPendingArchives } from './codex-archive'
 import { createInventoryService } from './inventory'
 import { createThumbnailDecoder } from './inventory-thumbnails'
 import { allyNameForWorld, worldAllyRequest, inheritMainHistory } from './project-chat'
@@ -278,6 +279,8 @@ export async function startApp(ctx: AppCtx): Promise<void> {
   surface()
   stopEngineChoices = bus.onEvent((ev) => { if (ev.type === 'projects') surface(ev.projects) })
   for (const h of ctx.homes.values()) await h.crew.reconcileOnStart()
+  // despawned Codex units whose threads were still open last time: archive them now
+  void retryPendingArchives(ctx.main.home.data).catch(() => undefined)
   // quests drifted from their units (landed but still in flight, duplicates): fix before supervision reads them
   for (const h of ctx.homes.values()) {
     try {

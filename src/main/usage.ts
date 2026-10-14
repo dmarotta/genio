@@ -3,7 +3,8 @@
  *   - plan / rate-limit status the tool itself reports:
  *       Codex: a no-prompt app-server account/rateLimits/read (codex-usage-probe.ts,
  *       kept in data/usage/codex-limits.json) plus the rate_limits snapshot in
- *       token_count events of its session logs ($CODEX_HOME/sessions/**.jsonl);
+ *       token_count events of its session logs ($CODEX_HOME/sessions/**.jsonl and
+ *       archived_sessions/*.jsonl, where despawned units' threads go);
  *       Claude Code: a zero-prompt structured /usage account refresh plus SDK
  *       rate_limit_event messages, kept in data/usage/claude-limits.json;
  *   - tokens Genio measures from the session logs of its own units and chats (sessions whose
@@ -13,7 +14,6 @@
  * account probe; Genio never reads credentials or calls a private endpoint directly.
  */
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import type { FalRun, FalSpend, MeasuredUsage, TokenTally, ToolUsage, UsageLimits, UsageReport, UsageWindow } from '@shared/api'
 import { FalHistory } from './fal-history'
@@ -23,6 +23,7 @@ import { appendJsonl, isSubPath, nowIso, readJson, writeJsonAtomic } from './uti
 import { claudeProbeError, refreshClaudePlanUsage } from './claude-usage-probe'
 import { claudeProjectRoots } from './claude-home'
 import { codexProbeError, codexSnapshot, readCodexProbeLimits, refreshCodexPlanUsage } from './codex-usage-probe'
+import { CODEX_SESSION_DIRS, codexHomeDir } from './codex-session'
 
 const DAY = 86_400_000
 
@@ -403,8 +404,6 @@ export function quotaFromUsage(r: UsageReport): Record<string, QuotaWindow[]> {
 
 // ---------------------------------------------------------------- scanning
 
-const codexHome = (): string => process.env.CODEX_HOME?.trim() || path.join(os.homedir(), '.codex')
-
 /** *.jsonl files under dir modified at or after `since` (no symlinks followed). */
 function recentJsonl(dir: string, since: number, out: string[] = []): string[] {
   let entries: fs.Dirent[]
@@ -619,7 +618,9 @@ async function codexUsage(ctx: AppCtx, root: string, now: number, data: string):
   const { weekStart } = usageWindows(now)
   const chats = recentJsonl(path.join(data, 'usage', 'codex-chat'), weekStart)
   const chatIds = chats.map(f => path.basename(f, '.jsonl'))
-  const files = [...recentJsonl(path.join(codexHome(), 'sessions'), weekStart).filter(f => !chatIds.some(id => f.endsWith(`${id}.jsonl`))), ...chats]
+  // Despawned units' threads are archived (moved, mtime kept), so their week still counts.
+  const native = CODEX_SESSION_DIRS.flatMap(dir => recentJsonl(path.join(codexHomeDir(), dir), weekStart))
+  const files = [...native.filter(f => !chatIds.some(id => f.endsWith(`${id}.jsonl`))), ...chats]
   const records: TokenRecord[] = []
   const worlds = new Map<TokenRecord, string>()
   // The account probe, chat events and session logs all feed one latest-per-bucket view.

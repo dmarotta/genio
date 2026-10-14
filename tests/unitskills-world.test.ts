@@ -116,6 +116,12 @@ describe('Codex rollout parsing (recon evidence)', () => {
     expect(rollout.findRollout(sessions, id, [new Date(2026, 9, 13, 10, 50)])).toBe(file)
     expect(rollout.findRollout(sessions, id, [new Date(2025, 0, 1)])).toBe(file)
     expect(rollout.findRollout(sessions, 'missing', [new Date(2026, 9, 13)])).toBeNull()
+    // `codex archive` moves it into the flat archived_sessions/ next to sessions/
+    const archived = path.join(tmp, 'archived_sessions', path.basename(file))
+    fs.mkdirSync(path.dirname(archived))
+    fs.renameSync(file, archived)
+    expect(rollout.findRollout(sessions, id, [new Date(2026, 9, 13, 10, 50)])).toBe(archived)
+    expect(rollout.findRollout(sessions, 'missing', [new Date(2026, 9, 13)])).toBeNull()
   })
 })
 

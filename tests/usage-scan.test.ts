@@ -82,6 +82,18 @@ describe('usage scan over append-only session logs', () => {
     expect(grown.tools.find((t) => t.tool === 'codex')?.limits[0]?.windows[0]).toMatchObject({ usedPercent: 12 })
   })
 
+  it("keeps counting a despawned unit's Codex week after its thread is archived", async () => {
+    const before = await usageReport(ctx)
+    const archived = path.join(root, 'codex', 'archived_sessions', 'cx-1.jsonl')
+    fs.mkdirSync(path.dirname(archived))
+    fs.renameSync(codexFile, archived) // what `codex archive` does: same file, mtime kept
+    const after = await usageReport(ctx)
+    const week = (r: typeof before) => r.tools.find((t) => t.tool === 'codex')?.measured?.week
+    expect(week(after)).toEqual(week(before))
+    expect(week(after)).toMatchObject({ input: 1000, output: 50, sessions: 1 })
+    expect(after.tools.find((t) => t.tool === 'codex')?.limits[0]?.windows[0]).toMatchObject({ usedPercent: 11 })
+  })
+
   it('re-reads a log from the start when it was truncated or rewritten', async () => {
     await usageReport(ctx)
     const cwd = path.join(root, 'base', 'worktrees', 'world', 'unit')

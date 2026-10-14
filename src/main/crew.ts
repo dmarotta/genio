@@ -16,6 +16,7 @@ import { holdsCapacity } from './usage-policy'
 import { buildArgs, CLAUDE_BYPASS_DIALOG } from './harness'
 import { discoverCodexSession } from './codex-session'
 import { claudeLaunch, claudeTrustFiles, playerSkipsBypassPrompt, setClaudeTrust, UNIT_UNSET_ENV } from './claude-home'
+import { scheduleUnitArchive, unarchiveCodexThread } from './codex-archive'
 import { foldOpenDecisions, formatStatusLine, parseStatusLine, parseStatusLog } from './status'
 import { createGauntlet } from './gauntlet'
 import { relaunchPolicy } from './relaunch-policy'
@@ -261,9 +262,10 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     if (claude) setClaudeTrust(claude.configFile, [t.worktree], true)
     const settingsPath = isClaude ? writeClaudeSettings(t) : undefined
     const skills = skillExtras(t, adapter.id, project?.path)
-    const sessionId = opts.resume && adapter.id === 'codex'
-      ? await discoverCodexSession(t.worktree, skills.env.CODEX_HOME ?? adapter.env?.CODEX_HOME, t.codexSessionId)
-      : undefined
+    const codexHome = skills.env.CODEX_HOME ?? adapter.env?.CODEX_HOME
+    let sessionId = opts.resume && adapter.id === 'codex' ? await discoverCodexSession(t.worktree, codexHome, t.codexSessionId) : undefined
+    // Codex refuses to resume an archived thread; one it will not restore starts fresh instead.
+    if (sessionId && !(await unarchiveCodexThread(sessionId, { dataDir: mainHome.data, codexHome, task: t.id, cwd: t.worktree }))) sessionId = undefined
     if (opts.resume && adapter.id === 'codex') update(t.id, { codexSessionId: sessionId })
     const args = [
       ...skills.args,
@@ -789,6 +791,10 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       }
       // despawned worktree: drop its trust entry so no .claude.json accumulates dead paths
       if (t.harness === 'claude') for (const file of claudeTrustFiles()) setClaudeTrust(file, [t.worktree], false)
+      // Finished Codex units leave the player's Codex app: archive (never delete) their threads once the process is gone.
+      if (t.harness === 'codex') {
+        scheduleUnitArchive(t.worktree, { dataDir: mainHome.data, codexHome: ctx.settings.harness(t.harness)?.env?.CODEX_HOME, task: t.id })
+      }
       if (repo && (await git.branchExists(repo, t.branch))) {
         await git.deleteBranch(repo, t.branch, t.kind === 'scout' || force)
       }
