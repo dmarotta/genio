@@ -113,6 +113,8 @@ describe('genio-unity batch runs', () => {
     const rec = record(r)
     const copy = path.join(worktree, 'Game')
     expect(rec).toMatchObject({ schema: 'genio.unity-run.v1', verb: 'test', exitCode: 0, verdict: 'passed', target: { kind: 'copy', path: copy }, librarySeeded: true, head: git(worktree, ['rev-parse', 'HEAD']), dirty: false, cli: { mode: 'unity-cli', version: '1.0.0-beta.13' }, license: { ok: true }, tests: { total: 2, passed: 2, failed: 0 } })
+    expect(rec.librarySeed).toMatchObject({ seeded: true, bytes: 5, files: 1, method: process.platform === 'win32' ? 'robocopy' : 'fs.cp' })
+    expect(rec.librarySeed.elapsedMs).toBeGreaterThanOrEqual(0)
     expect(JSON.parse(fs.readFileSync(path.join(rec.dir, 'result.json'), 'utf8'))).toEqual(rec)
     for (const f of [rec.reports.nunit, rec.reports.junit, rec.editorLog]) expect(fs.existsSync(f)).toBe(true)
     expect(path.dirname(rec.dir)).toBe(config.runs)

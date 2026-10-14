@@ -37,7 +37,12 @@ export type PlayInput = { type: 'release' } | { type: 'state'; keys: string[]; x
  * draining: above a lowered cap but still in use; retired: above the cap and idle, kept for reuse.
  * stuck: the slot editor would not close; nobody can lease the slot until Genio or the player recovers it.
  */
-export interface PlaySlot { id: number; root: string; revision?: string; owner?: string; expires?: number; preparing?: boolean; editor?: boolean; closing?: boolean; stuck?: { reason: string; pids: number[]; at: number }; draining?: boolean; retired?: boolean }
+export interface PlayPreparation {
+  at: number; elapsedMs: number; preflightMs: number; gitMs: number; bytes: number; files: number
+  estimatedBytes: number; requiredBytes: number; availableBytes: number; lfsStorage: string
+  library: import('../../resources/unit-skills/genio/lib/unity-seed.mjs').SeedReport
+}
+export interface PlaySlot { id: number; root: string; revision?: string; owner?: string; expires?: number; preparing?: boolean; preparation?: PlayPreparation; editor?: boolean; closing?: boolean; stuck?: { reason: string; pids: number[]; at: number }; draining?: boolean; retired?: boolean }
 export interface PlayPoolState { cap: number; slots: PlaySlot[]; queue: string[]; selected?: number }
 
 /** Deep-link target: the Play screen's "N of X slots in use" opens Settings › This project › Unity slots. */

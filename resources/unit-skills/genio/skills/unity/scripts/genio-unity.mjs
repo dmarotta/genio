@@ -25,6 +25,7 @@ import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 import { acquireEditor, editorCap, editorHolders } from '../../../lib/unity-editors.mjs'
 import { PlayPool } from '../../play/scripts/pool.mjs'
+import { seedLibrary as seedCopyLibrary } from '../../../lib/unity-seed.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const PLAY_SCRIPT = path.join(HERE, '..', '..', 'play', 'scripts', 'play.mjs')
@@ -172,18 +173,9 @@ export function editorOpen(root) {
   try { fs.closeSync(fs.openSync(lock, 'r+')); return 0 } catch (e) { return e.code === 'ENOENT' ? 0 : -1 }
 }
 
-const SEED_SKIP = new Set(['Pipeline', 'EditorInstance.json', 'SourceAssetDB-lock', 'ArtifactDB-lock'])
-/** A copy without Library starts from the project's, minus editor credentials and locks (as Play slots do). */
+/** Compatibility API; all copying goes through the shared slot/worktree seed helper. */
 export async function seedLibrary(copy, source) {
-  const library = path.join(copy, 'Library')
-  if (fs.existsSync(library) || !fs.existsSync(source)) return false
-  // Assemble under Temp (ignored by Unity projects) and move in whole, so a crash never leaves half a Library.
-  const temp = path.join(copy, 'Temp', 'genio-library-seed')
-  fs.rmSync(temp, { recursive: true, force: true })
-  fs.mkdirSync(path.dirname(temp), { recursive: true })
-  await fs.promises.cp(source, temp, { recursive: true, filter: async p => !SEED_SKIP.has(path.basename(p)) && !(await fs.promises.lstat(p)).isSymbolicLink() })
-  fs.renameSync(temp, library)
-  return true
+  return (await seedCopyLibrary(copy, source)).seeded
 }
 
 /** The editor for the raw fallback: the config's, else the Hub install for the project's version. */
@@ -330,7 +322,8 @@ async function batch(verb, c, opts) {
     if (!license.ok) throw new UnityError(license.code === 3 ? EXIT.auth : EXIT.license, MESSAGES.license)
     const libraryFrom = path.join(c.play.world, c.engineRoot, 'Library')
     if (!fs.existsSync(path.join(target.copy, 'Library'))) say('seeding Library for your copy from the project (first run only)...')
-    record.librarySeeded = await seedLibrary(target.copy, libraryFrom)
+    record.librarySeed = await seedCopyLibrary(target.copy, libraryFrom)
+    record.librarySeeded = record.librarySeed.seeded
 
     let shown = 0
     seat = await acquireEditor(c.editors.dir, {

@@ -10,7 +10,7 @@ import type { AppCtx } from '../src/main/services'
 
 let root: string, world: string, data: string, pool: PlayPool
 beforeEach(() => { root=fs.mkdtempSync(path.join(os.tmpdir(),'genio-play-pool-')); world=path.join(root,'world');data=path.join(root,'data');fs.mkdirSync(world);pool=new PlayPool(data,world) })
-afterEach(() => fs.rmSync(root,{recursive:true,force:true}))
+afterEach(() => { vi.restoreAllMocks(); fs.rmSync(root,{recursive:true,force:true}) })
 it('shares the cap and FIFO queue, fences takeover tokens and preserves a successor on late release', async () => {
   const other=new PlayPool(data,world)
   const a=await pool.acquire('unit:a'); expect(a).not.toBeNull()
@@ -100,15 +100,19 @@ it('copies only a committed revision, seeds Library without credentials, clears 
   fs.mkdirSync(path.join(world,'Assets'));fs.writeFileSync(path.join(world,'Assets/game.txt'),'v1');fs.writeFileSync(path.join(world,'.gitignore'),'Library/\nTemp/\n')
   git(world,['add','.']);git(world,['commit','-qm','first'])
   fs.mkdirSync(path.join(world,'Library/Pipeline'),{recursive:true});fs.writeFileSync(path.join(world,'Library/Pipeline/.unity-pipeline-port'),'secret');fs.writeFileSync(path.join(world,'Library/warm'),'cache')
+  fs.mkdirSync(path.join(world,'Library/PackageCache'));fs.writeFileSync(path.join(world,'Library/PackageCache/package'),'UPM refills this')
   fs.writeFileSync(path.join(world,'uncommitted.txt'),'never copy')
   const a=(await pool.acquire('a'))!;await pool.prepare(a.id,a.token)
   expect(fs.readFileSync(path.join(a.root,'Assets/game.txt'),'utf8')).toBe('v1')
   expect(fs.existsSync(path.join(a.root,'uncommitted.txt'))).toBe(false)
   expect(fs.existsSync(path.join(a.root,'Library/Pipeline'))).toBe(false)
+  expect(fs.existsSync(path.join(a.root,'Library/PackageCache'))).toBe(false)
   expect(fs.readFileSync(path.join(a.root,'Library/warm'),'utf8')).toBe('cache')
+  expect((await pool.state()).slots[0].preparation).toMatchObject({ library: { seeded: true, bytes: 5, files: 1 }, lfsStorage: path.join(world,'.git/lfs') })
+  expect((await pool.state()).slots[0].preparation?.bytes).toBe((await pool.disk())[1])
   fs.writeFileSync(path.join(world,'Assets/game.txt'),'v2');git(world,['add','Assets']);git(world,['commit','-qm','second'])
   // A crashed editor leaves its lockfile and no live process: switching clears it instead of refusing.
-  fs.mkdirSync(path.join(a.root,'Temp'));fs.writeFileSync(path.join(a.root,'Temp/UnityLockfile'),'')
+  fs.mkdirSync(path.join(a.root,'Temp'),{recursive:true});fs.writeFileSync(path.join(a.root,'Temp/UnityLockfile'),'')
   await pool.prepare(a.id,a.token)
   expect(fs.readFileSync(path.join(a.root,'Assets/game.txt'),'utf8')).toBe('v2')
   expect(fs.existsSync(path.join(a.root,'Temp/UnityLockfile'))).toBe(false)
@@ -117,6 +121,40 @@ it('copies only a committed revision, seeds Library without credentials, clears 
   await expect(pool.prepare(a.id,a.token)).rejects.toThrow('local changes')
   expect(fs.readFileSync(path.join(a.root,'Assets/game.txt'),'utf8')).toBe('local')
 }, 30000)
+it('checks disk space before cloning and clears preparing after failure', async () => {
+  git(world,['init','-q']); git(world,['config','user.name','Test']); git(world,['config','user.email','test@example.invalid'])
+  fs.writeFileSync(path.join(world,'game.txt'),'content'); git(world,['add','.']); git(world,['commit','-qm','first'])
+  const a=(await pool.acquire('a'))!
+  vi.spyOn(fs.promises,'statfs').mockResolvedValue({ bavail: 1n, bsize: 4096n } as fs.BigIntStatsFs)
+  await expect(pool.prepare(a.id,a.token)).rejects.toThrow('Not enough free space')
+  expect(fs.existsSync(a.root)).toBe(false)
+  expect((await pool.state()).slots[0]).toMatchObject({ preparing: false })
+  vi.restoreAllMocks()
+  await expect(pool.prepare(a.id,a.token)).resolves.toBe(a.root)
+}, 30000)
+it('shares the effective project LFS store across slots, checks logical sizes and never duplicates LFS objects', async () => {
+  git(world,['init','-q']); git(world,['config','user.name','Test']); git(world,['config','user.email','test@example.invalid'])
+  const storage=path.join(root,'shared-lfs')
+  git(world,['config','lfs.storage',storage]); git(world,['lfs','install','--local'])
+  fs.mkdirSync(path.join(world,'Assets')); fs.writeFileSync(path.join(world,'Assets/large.bin'),Buffer.alloc(1024*1024,7))
+  fs.writeFileSync(path.join(world,'.gitattributes'),'*.bin filter=lfs diff=lfs merge=lfs -text\n')
+  git(world,['add','.']); git(world,['commit','-qm','LFS first'])
+  const a=(await pool.acquire('a'))!
+  // Enough room for a pointer and the reserve, insufficient for the smudged megabyte.
+  vi.spyOn(fs.promises,'statfs').mockResolvedValue({ bavail: 256n*1024n*1024n+100000n, bsize: 1n } as fs.BigIntStatsFs)
+  await expect(pool.prepare(a.id,a.token)).rejects.toThrow('Not enough free space')
+  expect(fs.existsSync(a.root)).toBe(false)
+  vi.restoreAllMocks()
+  expect(await pool.estimate()).toBeGreaterThanOrEqual(1024*1024)
+  await pool.configure(2); const b=(await pool.acquire('b'))!
+  for (const lease of [a,b]) {
+    await pool.prepare(lease.id,lease.token)
+    expect(fs.readFileSync(path.join(lease.root,'Assets/large.bin'))).toEqual(Buffer.alloc(1024*1024,7))
+    expect(git(lease.root,['config','--local','lfs.storage'])).toBe(storage)
+    expect(fs.existsSync(path.join(lease.root,'.git/lfs/objects'))).toBe(false)
+    expect((await pool.state()).slots.find(s=>s.id===lease.id)?.preparation?.estimatedBytes).toBeGreaterThanOrEqual(1024*1024)
+  }
+}, 60000)
 it('refuses links in Unity trees before an editor can import outside its slot', async () => {
   const lease=(await pool.acquire('a'))!
   fs.mkdirSync(path.join(lease.root,'Assets'),{recursive:true})

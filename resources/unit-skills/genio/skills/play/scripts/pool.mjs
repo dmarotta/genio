@@ -2,8 +2,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import http from 'node:http'
 import { createHash, randomUUID } from 'node:crypto'
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
+import { checkCopyPath, checkFreeSpace, seedLibrary, treeStats } from '../../../lib/unity-seed.mjs'
 const exec = promisify(execFile)
 const alive = pid => { try { process.kill(pid, 0); return true } catch (e) { return e.code !== 'ESRCH' } }
 const canonical = p => { const v = fs.realpathSync(p); return process.platform === 'win32' ? v.toLowerCase() : v }
@@ -41,6 +42,44 @@ async function bytesUnder(dir, skip = []) {
   const scan = async dir => { for (const e of await fs.promises.readdir(dir, { withFileTypes: true })) { if (e.isSymbolicLink() || skip.includes(e.name)) continue; const p = path.join(dir, e.name); if (e.isDirectory()) await scan(p); else if (e.isFile()) bytes += (await fs.promises.stat(p)).size } }
   await scan(dir)
   return bytes
+}
+/** Size the committed checkout, using LFS pointer sizes instead of the tiny Git blobs. */
+async function checkoutStats(cwd, revision, options) {
+  const { stdout } = await exec('git', ['ls-tree', '-r', '-l', '-z', revision], { ...options, cwd, maxBuffer: 64 * 1024 * 1024 })
+  let bytes = 0
+  const small = new Map()
+  for (const entry of stdout.split('\0').filter(Boolean)) {
+    const match = entry.match(/^(\d+) blob ([a-f0-9]+)\s+(\d+)\t/)
+    if (!match) continue
+    if (match[1] === '120000') throw new Error('Unity copies cannot contain symlinks, junctions or hardlinks')
+    const size = Number(match[3]); bytes += size
+    if (size <= 1024) {
+      const item = small.get(match[2]) ?? { size, count: 0 }
+      item.count++; small.set(match[2], item)
+    }
+  }
+  const lfs = []
+  if (small.size) {
+    const output = await new Promise((resolve, reject) => {
+      const child = spawn('git', ['cat-file', '--batch'], { ...options, cwd, stdio: ['pipe', 'pipe', 'pipe'] })
+      const chunks = []; let stderr = '', length = 0
+      child.on('error', reject); child.stdin.on('error', reject)
+      child.stdout.on('data', b => { length += b.length; if (length > 64 * 1024 * 1024) { child.kill(); reject(new Error('Git checkout size scan exceeded its buffer')) } else chunks.push(b) })
+      child.stderr.on('data', b => { stderr += b })
+      child.on('close', code => code === 0 ? resolve(Buffer.concat(chunks)) : reject(new Error(`Git checkout size scan failed: ${stderr}`)))
+      child.stdin.end([...small.keys()].join('\n') + '\n')
+    })
+    for (let at = 0; at < output.length;) {
+      const end = output.indexOf(10, at), header = output.subarray(at, end).toString().split(' ')
+      const size = Number(header[2])
+      if (end < at || header[1] !== 'blob' || !Number.isFinite(size)) throw new Error('Invalid Git checkout size response')
+      const body = output.subarray(end + 1, end + 1 + size).toString()
+      const pointer = body.match(/^version https:\/\/git-lfs.github.com\/spec\/v1\r?\n(?:.*\r?\n)*oid sha256:([a-f0-9]{64})\r?\nsize (\d+)\r?\n?$/)
+      if (pointer) { const logical = Number(pointer[2]); bytes += (logical - size) * small.get(header[0]).count; lfs.push({ oid: pointer[1], size: logical }) }
+      at = end + 1 + size + 1
+    }
+  }
+  return { bytes, lfs }
 }
 export function poolDirectory(data, world) { return path.join(data, 'play-pools', createHash('sha256').update(canonical(world)).digest('hex').slice(0, 24)) }
 export class PlayPool {
@@ -105,7 +144,7 @@ export class PlayPool {
     return this.transaction(s => ({ cap: s.cap, slots: s.slots.map(v => {
       const editor = this.editorRunning(v)
       const draining = this.draining(s, v, editor)
-      return { id: v.id, root: this.root(v.id), revision: v.revision, owner: v.lease?.owner, expires: v.lease?.expires, preparing: v.preparing, editor, closing: !!v.closing, stuck: v.stuck && { reason: v.stuck.reason, pids: v.stuck.pids, at: v.stuck.at }, draining, retired: v.id > s.cap && !draining }
+      return { id: v.id, root: this.root(v.id), revision: v.revision, owner: v.lease?.owner, expires: v.lease?.expires, preparing: v.preparing, preparation: v.preparation, editor, closing: !!v.closing, stuck: v.stuck && { reason: v.stuck.reason, pids: v.stuck.pids, at: v.stuck.at }, draining, retired: v.id > s.cap && !draining }
     }), queue: s.queue.map(q => q.owner) }))
   }
   /** Above the cap: draining while still in use, retired once idle (kept with its Library for reuse if the cap rises). */
@@ -311,7 +350,14 @@ export class PlayPool {
     })
   }
   async releaseMain() { return this.transaction(s => { if (s.main?.pid === process.pid) delete s.main }) }
-  async estimate() { return bytesUnder(path.join(this.world, this.engineRoot), ['.git', 'Temp', 'Logs']) }
+  async estimate() {
+    const options = { windowsHide: true, env: { ...process.env, GIT_CONFIG_COUNT: '0' } }
+    const { stdout } = await exec('git', ['rev-parse', '--git-common-dir'], { ...options, cwd: this.world })
+    const common = path.resolve(this.world, stdout.trim())
+    const checkout = await checkoutStats(this.world, 'HEAD', options)
+    const library = path.join(this.world, this.engineRoot, 'Library')
+    return checkout.bytes + (await treeStats(path.join(common, 'objects'), { rejectLinks: false })).bytes + (fs.existsSync(library) ? (await treeStats(library, { library: true })).bytes : 0)
+  }
   /** Disk each slot copy uses now, clone and Library included, by slot id. */
   async disk() {
     const out = {}
@@ -346,41 +392,57 @@ export class PlayPool {
       if (!closed.closed) throw new Error(stuckMessage(id, closed))
     }
     if (ready) return this.root(id)
+    const started = Date.now()
     try {
+      await checkCopyPath(dest)
+      await checkCopyPath(this.root(id))
+      const checkout = await checkoutStats(source, revision, gitOptions)
+      const commonDir = path.resolve(this.world, await git(this.world, ['rev-parse', '--git-common-dir']))
+      let lfsStorage = path.join(commonDir, 'lfs')
+      if (checkout.lfs.length) {
+        const env = await git(this.world, ['lfs', 'env'])
+        lfsStorage = env.match(/^LfsStorageDir=(.+)$/m)?.[1]?.trim()
+        if (!lfsStorage || !path.isAbsolute(lfsStorage)) throw new Error('Cannot resolve the project shared LFS store')
+      }
+      await checkCopyPath(lfsStorage)
+      const original = path.join(this.world, this.engineRoot, 'Library')
+      const libraryBytes = !fs.existsSync(path.join(this.root(id), 'Library')) && fs.existsSync(original) ? (await treeStats(original, { library: true })).bytes : 0
+      const gitBytes = !fs.existsSync(dest) ? (await treeStats(path.join(commonDir, 'objects'), { rejectLinks: false })).bytes : 0
+      const missingLfsBytes = checkout.lfs.filter(v => !fs.existsSync(path.join(lfsStorage, 'objects', v.oid.slice(0, 2), v.oid.slice(2, 4), v.oid))).reduce((sum, v) => sum + v.size, 0)
+      if (missingLfsBytes) await checkFreeSpace(lfsStorage, missingLfsBytes)
+      const space = await checkFreeSpace(dest, checkout.bytes + libraryBytes + gitBytes + missingLfsBytes)
+      const preflightMs = Date.now() - started, gitStarted = Date.now()
       if (!fs.existsSync(dest)) await exec('git', ['clone', '--no-hardlinks', '--no-checkout', '--', this.world, dest], gitOptions)
       if (await git(dest, ['status', '--porcelain', '--untracked-files=normal'])) {
         // A new --no-checkout clone has an empty index and appears entirely deleted.
         const populated = fs.existsSync(path.join(dest, '.git', 'genio-play-ready'))
         if (populated) throw new Error('Play slot has local changes; preserve them before switching branches')
       }
+      // Share bytes, not filesystem links. Configure before checkout so LFS smudge
+      // reads the project store rather than fetching another store per slot.
+      await git(dest, ['config', '--local', 'lfs.storage', lfsStorage])
       await git(dest, ['fetch', '--', source, revision])
       await this.check(id, token)
-      await git(dest, ['checkout', '--detach', revision])
+      await exec('git', [...(checkout.lfs.length ? ['-c', 'filter.lfs.process=git-lfs filter-process', '-c', 'filter.lfs.required=true'] : []), 'checkout', '--detach', revision], { ...gitOptions, cwd: dest, env: { ...gitOptions.env, GIT_LFS_SKIP_SMUDGE: '0' } })
+      const gitMs = Date.now() - gitStarted
       // A Unity import may write anywhere under these trees. Reject links before
       // opening the editor so a copied project's link cannot reach another world.
       await this.validateCopy(id)
-      const library = path.join(this.root(id), 'Library')
-      if (!fs.existsSync(library)) {
-        const original = path.join(this.world, this.engineRoot, 'Library')
-        if (fs.existsSync(original)) await fs.promises.cp(original, library, { recursive: true, filter: async p => !['Pipeline', 'EditorInstance.json', 'SourceAssetDB-lock', 'ArtifactDB-lock'].includes(path.basename(p)) && !(await fs.promises.lstat(p)).isSymbolicLink() })
-      }
+      const library = await seedLibrary(this.root(id), original)
       // Marker lives in .git, never dirties the copied project.
       fs.writeFileSync(path.join(dest, '.git', 'genio-play-ready'), revision)
-      await this.transaction(s => { const slot = s.slots.find(v => v.id === id); if (slot?.lease?.token !== token) throw new Error('Play lease lost'); slot.revision = revision; slot.preparing = false })
+      const size = await treeStats(dest)
+      const preparation = { at: Date.now(), elapsedMs: Date.now() - started, preflightMs, gitMs, ...size, estimatedBytes: checkout.bytes + libraryBytes + gitBytes + missingLfsBytes, ...space, lfsStorage, library }
+      await this.transaction(s => { const slot = s.slots.find(v => v.id === id); if (slot?.lease?.token !== token) throw new Error('Play lease lost'); slot.revision = revision; slot.preparing = false; slot.preparation = preparation })
       return this.root(id)
     } catch (e) { await this.transaction(s => { const slot = s.slots.find(v => v.id === id); if (slot?.lease?.token === token) slot.preparing = false }); throw e }
   }
   async validateCopy(id) {
     const slot = path.join(this.dir, `slot-${id}`)
-    const check = async p => {
-      const stat = await fs.promises.lstat(p)
-      if (stat.isSymbolicLink() || stat.isFile() && stat.nlink > 1) throw new Error('Play slots cannot contain symlinks, junctions or hardlinks')
-      if (stat.isDirectory()) for (const name of await fs.promises.readdir(p)) await check(path.join(p, name))
-    }
     let current = slot
     await checkParents(slot)
     for (const part of this.engineRoot.split(/[\\/]/).filter(Boolean)) { current = path.join(current, part); await checkParents(current) }
-    for (const name of ['Assets', 'Packages', 'ProjectSettings']) if (fs.existsSync(path.join(current, name))) await check(path.join(current, name))
+    for (const name of ['Assets', 'Packages', 'ProjectSettings', 'Library']) if (fs.existsSync(path.join(current, name))) await treeStats(path.join(current, name))
     async function checkParents(p) { if ((await fs.promises.lstat(p)).isSymbolicLink()) throw new Error('Play root cannot follow a link') }
   }
 }
