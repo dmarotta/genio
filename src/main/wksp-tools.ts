@@ -583,7 +583,7 @@ export function createToolRegistry(
 
   t(
     'world_create',
-    'Create a new game project (git init with an engine scaffold). create_remote makes a GitHub repo too and REQUIRES player_words with their explicit consent to the name and visibility.',
+    'Create a new game project (git init with an engine scaffold: .gitignore, README, AGENTS.md). The engine is not pinned: Genio detects it once its project files exist. create_remote makes a GitHub repo too and REQUIRES player_words with their explicit consent to the name and visibility.',
     {
       name: z.string(), engine: z.enum(['godot', 'unity', 'unreal', 'bevy', 'web', 'love2d', 'gamemaker', 'defold', 'monogame', 'other']),
       description: z.string().optional(), mode: z.enum(['no-mistakes', 'direct-PR', 'local-only', 'no-mistakes-prod-only']).optional(),
@@ -592,13 +592,13 @@ export function createToolRegistry(
     async (a) => {
       if (a.create_remote && (role === 'bot' || !a.player_words?.trim())) return fail('creating a remote repo is outward-facing: it needs the player\'s explicit consent (player_words)')
       const p = await getCtx().projects.create({ name: a.name, engine: a.engine, description: a.description, mode: a.mode, createRemote: a.create_remote, privateRemote: a.private_remote })
-      return ok(`project ${p.name} created at ${p.path} (${p.engine}, ${modeLabel(p.mode)})`)
+      return ok(`project ${p.name} created at ${p.path} (${a.engine} scaffold, detected engine ${p.engine}, ${modeLabel(p.mode)})`)
     }
   )
 
   t(
     'world_update',
-    'Change a project\'s registry entry: mode (pins it; mode=auto makes it follow the remote again), Auto-loot (only on the player\'s word), branch prefix, capacity, engine commands (setup/build/test/lint/run), description.',
+    'Change a project\'s registry entry: mode (pins it; mode=auto makes it follow the remote again), Auto-loot (only on the player\'s word), branch prefix, capacity, engine commands (setup/build/test/lint/run), description. The engine and its root are detected, never set here.',
     {
       world: z.string(), mode: z.enum(['no-mistakes', 'direct-PR', 'local-only', 'no-mistakes-prod-only', 'auto']).optional(),
       auto_loot: z.boolean().optional(), player_words: z.string().optional(), branch_prefix: z.string().optional(),

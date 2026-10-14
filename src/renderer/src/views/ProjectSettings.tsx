@@ -10,7 +10,9 @@ import { USAGE_MODES, USAGE_MODE_LABEL, type UsageMode } from '@shared/usage-mod
 import { PROJECT_WINDOW, api, errText, go, hasView, op, openDeploy, setState, toast, useStore } from '../store'
 import { CommitInput, Confirm, Field, Modal, Toggle } from '../components/ui'
 import { ENGINES, ENGINE_LABEL, MODE_HINT, MODE_LABEL, PROJECT_MODES, isActive } from '../lib/vocab'
-import { cx } from '../lib/format'
+import { ago, cx } from '../lib/format'
+import { detectedLine, detectedView, proposalLine } from '@shared/engine'
+import { supportsPlay } from '@shared/play'
 import { worldPath, modifiedLabel } from '../lib/worlds'
 import type { WorldMetadata } from '@shared/api'
 
@@ -92,11 +94,7 @@ export function ProjectSettingsRow({ p, metadata }: { p: Project; metadata?: Wor
 
       </div>
       <section className="world-details" aria-label={`${p.name} settings`}>
-        <Field label="Engine"><select className="select" value={p.engine} onChange={(e) => update({ engine: e.target.value as Engine })}>{ENGINES.map(engine => <option key={engine} value={engine}>{ENGINE_LABEL[engine]}</option>)}</select></Field>
-        <Field label="Engine root" hint="Relative to the project folder; leave empty for the root">
-          <CommitInput mono value={p.engineRoot ?? ''} onCommit={(v) => update({ engineRoot: v.trim() })} />
-          <button className="btn sm ghost" onClick={() => update({ engineRoot: undefined })}>Detect root automatically</button>
-        </Field>
+        <EngineDetected p={p} />
         <Field label="Usage mode" hint="Override the global usage mode for this project"><select className="select" value={p.usageMode ?? ''} onChange={(e) => update({ usageMode: (e.target.value || undefined) as UsageMode | undefined, costDial: undefined })}><option value="">Global setting</option>{USAGE_MODES.map(mode => <option key={mode} value={mode}>{USAGE_MODE_LABEL[mode]}</option>)}</select></Field>
         <Field label="Description"><CommitInput value={p.description ?? ''} placeholder="Describe this project" onCommit={(v) => update({ description: v })} /></Field>
       <div className="world-controls">
@@ -195,6 +193,44 @@ export function ProjectSettingsRow({ p, metadata }: { p: Project; metadata?: Wor
         />
       )}
     </article>
+  )
+}
+
+/** Genio infers the engine: a read-only Detected line, what else the scan found, and Rescan. No picker. */
+function EngineDetected({ p }: { p: Project }) {
+  const [scanning, setScanning] = useState(false)
+  const v = detectedView(p)
+  const game = v.engine !== 'other'
+  const proposal = proposalLine(p)
+  return (
+    <div className="field wide engine-detected" role="group" aria-label="Engine">
+      <span className="label">Engine</span>
+      <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+        <span>{game ? <>Detected: <strong>{v.summary}</strong>{v.declared && <span className="mute"> (set in .genio/project.json)</span>}</> : 'No game engine detected; Genio treats this as a code project'}</span>
+        <span className="mute">·</span>
+        <button
+          className="btn sm ghost"
+          disabled={scanning}
+          title={v.scannedAt ? `Last scanned ${ago(v.scannedAt)}` : 'Look for the engine again'}
+          onClick={async () => {
+            setScanning(true)
+            await op('Rescan', () => api().projectRescan(p.name))
+            setScanning(false)
+          }}
+        >
+          <RefreshCw size={12} /> {scanning ? 'Scanning…' : 'Rescan'}
+        </button>
+      </div>
+      {v.others.length > 0 && <span className="field-hint">Also found: {v.others.join('; ')}.{v.ambiguous ? ' Ask Genio to pin one.' : ''}</span>}
+      {game && !supportsPlay(v.engine) && <span className="field-hint">Play is not available for {ENGINE_LABEL[v.engine]} yet; everything else works.</span>}
+      {v.warning && <span className="field-hint amber-text">{v.warning}</span>}
+      {proposal && (
+        <span className="field-hint amber-text">
+          {proposal}{' '}
+          <button className="btn sm ghost" onClick={() => void op('Engine proposal', () => api().projectUpdate(p.name, { engineProposal: undefined }))}>Dismiss</button>
+        </span>
+      )}
+    </div>
   )
 }
 
@@ -321,7 +357,7 @@ export function NewProject({ onClose, onCreated }: { onClose: () => void; onCrea
         <Field label="Name" hint={name && !valid ? 'Letters, digits, . _ - only' : undefined}>
           <input className="input mono" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="space-goblins" />
         </Field>
-        <Field label="Engine">
+        <Field label="Scaffold for" hint="Sets up .gitignore and AGENTS.md. Genio detects the engine once its project files exist.">
           <select className="select" value={engine} onChange={(e) => setEngine(e.target.value as Engine)}>
             {ENGINES.map((x) => (
               <option key={x} value={x}>
@@ -353,12 +389,16 @@ export function NewProject({ onClose, onCreated }: { onClose: () => void; onCrea
 export function ProjectNotice() {
   const registered = useStore(s => s.registeredProject)
   const project = useStore(s => s.snap.projects.find(p => p.name === PROJECT_WINDOW))
-  if (!project || (!registered && project.gitRepo !== false)) return null
+  const proposal = project && proposalLine(project)
+  if (!project || (!registered && !proposal && project.gitRepo !== false)) return null
+  const view = detectedView(project)
   return <div role="status" style={{ padding: '8px 18px', background: 'var(--panel)', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12 }}>
-    <span>{registered ? `Registered ${project.name} · ${ENGINE_LABEL[project.engine]} · ${MODE_LABEL[project.mode]}` : project.name}
-      {project.gitRepo === false ? ' · Git actions need a git repo' : !project.remote ? ' · No remote' : ''}</span>
-    {registered && <><button className="btn sm ghost" onClick={() => { requestSystemsSection('project'); go('systems') }}>Change</button>
-      <button className="btn sm ghost" aria-label="Dismiss registration" onClick={() => setState({ registeredProject: undefined })}>Dismiss</button></>}
+    <span>{registered ? `Registered ${project.name} · ${detectedLine(view)}${view.ambiguous ? ' · ambiguous' : ''} · ${MODE_LABEL[project.mode]}` : project.name}
+      {project.gitRepo === false ? ' · Git actions need a git repo' : !project.remote ? ' · No remote' : ''}
+      {proposal && <span className="amber-text"> · {proposal}</span>}</span>
+    {(registered || proposal) && <button className="btn sm ghost" onClick={() => { requestSystemsSection('project'); go('systems') }}>{registered ? 'Change' : 'Settings'}</button>}
+    {registered && <button className="btn sm ghost" aria-label="Dismiss registration" onClick={() => setState({ registeredProject: undefined })}>Dismiss</button>}
+    {!registered && proposal && <button className="btn sm ghost" aria-label="Dismiss engine proposal" onClick={() => void op('Engine proposal', () => api().projectUpdate(project.name, { engineProposal: undefined }))}>Dismiss</button>}
   </div>
 }
 

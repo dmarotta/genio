@@ -109,7 +109,8 @@ MIT. Genio reimplements concepts from companion by The team (MIT).
 
 Project windows keep configuration in **Settings → This project**: delivery
 (Offline, Standard PRs, or the Hardcore Gauntlet), automatic remote following,
-engine and engine root, Auto-loot, branch prefix, capacity, usage mode,
+the detected engine and engine root (read-only, with Rescan; a repository pins
+its root in `.genio/project.json`), Auto-loot, branch prefix, capacity, usage mode,
 description, model opt-out, setup/build/test/lint/run commands and generation
 settings. Project actions include sync, push on demand, playtest and guarded
 unregistration. Removing a project still refuses live units, queued quests and

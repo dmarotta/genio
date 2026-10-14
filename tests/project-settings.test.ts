@@ -4,10 +4,10 @@ import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { Project } from '../src/shared/types'
 import { worldList, worldPath, modifiedLabel } from '../src/renderer/src/lib/worlds'
-const fixture = vi.hoisted(() => ({ projects: [] as Project[], tasks: [], allies: [], enabled: false, go: vi.fn(), deploy: vi.fn(), projectOpen: vi.fn(), update: vi.fn(), push: vi.fn(), sync: vi.fn(), openPath: vi.fn(), playtest: vi.fn(), remove: vi.fn(async () => ({ ok: false, message: 'Active units prevent removal' })) }))
+const fixture = vi.hoisted(() => ({ projects: [] as Project[], tasks: [], allies: [], enabled: false, go: vi.fn(), deploy: vi.fn(), projectOpen: vi.fn(), update: vi.fn(), rescan: vi.fn(), push: vi.fn(), sync: vi.fn(), openPath: vi.fn(), playtest: vi.fn(), remove: vi.fn(async () => ({ ok: false, message: 'Active units prevent removal' })) }))
 vi.mock('../src/renderer/src/store', () => ({
   useStore: (selector: (s: unknown) => unknown) => selector({ settings: {}, snap: { projects: fixture.projects, tasks: fixture.tasks, allies: fixture.allies, inbox: [] } }),
-  PROJECT_WINDOW: 'Zebra', saveSettings: vi.fn(), api: () => ({ homePath: async () => '', projectRemove: fixture.remove, projectOpen: fixture.projectOpen, falWorld: async () => ({ config: {} }), uthanaWorld: async () => ({ config: {} }), projectMetadata: async () => ({}), projectPushStatus: async () => ({ ahead: 2, behind: 0 }), projectUpdate: fixture.update, projectPush: fixture.push, projectSync: fixture.sync, openPath: fixture.openPath, playtest: fixture.playtest }),
+  PROJECT_WINDOW: 'Zebra', saveSettings: vi.fn(), api: () => ({ homePath: async () => '', projectRemove: fixture.remove, projectOpen: fixture.projectOpen, falWorld: async () => ({ config: {} }), uthanaWorld: async () => ({ config: {} }), projectMetadata: async () => ({}), projectPushStatus: async () => ({ ahead: 2, behind: 0 }), projectUpdate: fixture.update, projectRescan: fixture.rescan, projectPush: fixture.push, projectSync: fixture.sync, openPath: fixture.openPath, playtest: fixture.playtest }),
   hasView: () => fixture.enabled, go: fixture.go, openDeploy: fixture.deploy,
   op: async (_: string, fn: () => unknown) => fn(), setState: vi.fn(), toast: vi.fn(), errText: String
 }))
@@ -43,13 +43,43 @@ describe('Project settings and registry helpers', () => {
     expect(fixture.update).toHaveBeenLastCalledWith('Zebra', { modeSource: 'auto' })
     await act(async () => { select('Usage mode').value = 'save'; select('Usage mode').dispatchEvent(new Event('change', { bubbles: true })) })
     expect(fixture.update).toHaveBeenLastCalledWith('Zebra', { usageMode: 'save', costDial: undefined })
-    const input = [...host.querySelectorAll('label.field')].find(field => field.querySelector('.label')?.textContent === 'Engine root')!.querySelector('input')!
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Nested/Game')
-      input.dispatchEvent(new Event('input', { bubbles: true }))
-    })
-    await act(async () => input.dispatchEvent(new FocusEvent('focusout', { bubbles: true })))
-    expect(fixture.update).toHaveBeenLastCalledWith('Zebra', { engineRoot: 'Nested/Game' })
+    // Infer only: no engine picker, no root input.
+    expect([...host.querySelectorAll('label.field .label')].map(label => label.textContent)).not.toContain('Engine')
+    expect(host.textContent).not.toContain('Engine root')
+    await click('Rescan')
+    expect(fixture.rescan).toHaveBeenCalledWith('Zebra')
+    expect(fixture.update).not.toHaveBeenCalledWith('Zebra', expect.objectContaining({ engine: expect.anything() }))
+  })
+  it.each([
+    ['detected', { engine: 'unity', engineRoot: 'FoundersOfAvalonUnity', detected: { candidates: [{ engine: 'unity', root: 'FoundersOfAvalonUnity', strength: 'strong' }], ambiguous: false, declared: false, version: '6000.0.23f1', scannedAt: '' } },
+      ['Detected: Unity 6000.0.23f1 at ./FoundersOfAvalonUnity'], ['Also found', 'set in .genio/project.json', 'Play is not available']],
+    ['ambiguous', { engine: 'unity', engineRoot: 'client', detected: { candidates: [{ engine: 'unity', root: 'client', strength: 'strong' }, { engine: 'unity', root: 'editor', strength: 'strong' }], ambiguous: true, declared: false, scannedAt: '' } },
+      ['Detected: Unity at ./client', 'Also found: Unity at ./editor. Ask Genio to pin one.'], []],
+    ['declared', { engine: 'unity', engineRoot: 'tools/LevelEditor', detected: { candidates: [{ engine: 'unity', root: 'tools/LevelEditor', strength: 'strong' }, { engine: 'unity', root: 'client', strength: 'strong' }], ambiguous: false, declared: true, scannedAt: '' } },
+      ['Detected: Unity at ./tools/LevelEditor (set in .genio/project.json)', 'Also found: Unity at ./client.'], ['Ask Genio to pin one']],
+    ['no game', { engine: 'other', engineRoot: '', detected: { candidates: [], ambiguous: false, declared: false, scannedAt: '' } },
+      ['No game engine detected; Genio treats this as a code project'], ['Detected:', 'Play is not available']],
+    ['unsupported engine', { engine: 'bevy', engineRoot: '', detected: { candidates: [{ engine: 'bevy', root: '', strength: 'medium' }], ambiguous: false, declared: false, version: '0.14', scannedAt: '' } },
+      ['Detected: Bevy 0.14 at the repository root', 'Play is not available for Bevy yet; everything else works.'], []],
+    ['ignored declaration', { engine: 'unity', engineRoot: 'client', detected: { candidates: [{ engine: 'unity', root: 'client', strength: 'strong' }], ambiguous: false, declared: false, warning: 'Ignored .genio/project.json: no game engine marker in "docs".', scannedAt: '' } },
+      ['Ignored .genio/project.json: no game engine marker in "docs".'], []]
+  ] as [string, Partial<Project>, string[], string[]][])('shows the %s engine read-only', async (_, patch, shown, hidden) => {
+    fixture.projects = [{ ...project('Zebra'), ...patch }]
+    host = document.createElement('div'); document.body.append(host); root = createRoot(host)
+    await act(async () => root!.render(React.createElement(ThisProjectSettings)))
+    const engine = host.querySelector('[aria-label="Engine"]')!.textContent!
+    for (const text of shown) expect(engine).toContain(text)
+    for (const text of hidden) expect(engine).not.toContain(text)
+    expect(host.querySelectorAll('[aria-label="Engine"] select, [aria-label="Engine"] input')).toHaveLength(0)
+  })
+  it('shows a retired manual engine once as a proposal the player can dismiss', async () => {
+    fixture.projects = [{ ...project('Zebra'), engine: 'unity', engineRoot: 'client', detected: { candidates: [{ engine: 'unity', root: 'client', strength: 'strong' }, { engine: 'unity', root: 'tools/LevelEditor', strength: 'strong' }], ambiguous: false, declared: false, scannedAt: '' },
+      engineProposal: { engine: 'unity', engineRoot: 'tools/LevelEditor', declarable: true, notedAt: '' } }]
+    host = document.createElement('div'); document.body.append(host); root = createRoot(host)
+    await act(async () => root!.render(React.createElement(ThisProjectSettings)))
+    expect(host.textContent).toContain('You had set Unity at ./tools/LevelEditor by hand; Genio now infers the engine and uses Unity at ./client. To keep yours, ask Genio to pin it in .genio/project.json { "engineRoot": "tools/LevelEditor" }')
+    await click('Dismiss')
+    expect(fixture.update).toHaveBeenLastCalledWith('Zebra', { engineProposal: undefined })
   })
   it('deep-links to the Generation section of This project, scrolled into view and focused', async () => {
     const scrolled = vi.fn()
@@ -115,7 +145,7 @@ describe('Project settings and registry helpers', () => {
   })
   it('shows settings immediately and preserves project action handlers', async () => {
     await mount()
-    for (const label of ['Delivery', 'Auto-loot', 'Capacity', 'Branch prefix', 'Usage mode', 'Engine root', 'Allow cheap third-party models', 'Description', 'Generation']) expect(host.textContent).toContain(label)
+    for (const label of ['Delivery', 'Auto-loot', 'Capacity', 'Branch prefix', 'Usage mode', 'Engine', 'Rescan', 'Allow cheap third-party models', 'Description', 'Generation']) expect(host.textContent).toContain(label)
     const commands = [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('Commands'))!
     await act(async () => commands.click())
     expect(host.querySelectorAll('.world-cmds input')).toHaveLength(5)

@@ -47,6 +47,19 @@ export interface EngineDetection {
   scannedAt: string
 }
 
+/**
+ * The migration's leftover: the engine and root the player once set by hand, which detection does not pick.
+ * Genio never writes it into the repository; the player can ask Genio to pin it in `.genio/project.json`.
+ */
+export interface EngineProposal {
+  engine: Engine
+  /** Repository-relative POSIX path, '' = the repository root. */
+  engineRoot: string
+  /** `.genio/project.json` `{ "engineRoot": engineRoot }` would bring it back: that root holds this engine's marker. */
+  declarable: boolean
+  notedAt: string
+}
+
 export interface ProjectCommands {
   setup?: string
   build?: string
@@ -76,12 +89,14 @@ export interface Project {
   engine: Engine
   /** Repository-relative POSIX path; empty string means the repository root. */
   engineRoot?: string
-  /** Explicit root overrides survive automatic discovery; absent keeps legacy detection. */
+  /** @deprecated Retired: the engine is inferred only. Never written; read once to migrate a manual root. Drop after one release. */
   engineRootSource?: 'auto' | 'manual'
-  /** Explicit engine choices survive automatic discovery. */
+  /** @deprecated Retired: the engine is inferred only. Never written; read once to migrate a manual engine. Drop after one release. */
   engineSource?: 'auto' | 'manual'
-  /** What the last engine scan found, whatever `engine`/`engineRoot` say. Absent until the first scan. */
+  /** What the last engine scan found. Detection alone writes `engine`/`engineRoot` from it. Absent until the first scan. */
   detected?: EngineDetection
+  /** A manual engine/root from before the engine was inferred that differs from detection, kept once for the player. */
+  engineProposal?: EngineProposal
   commands: ProjectCommands
   description?: string
   /** legacy per-world dial; read as the equivalent Usage mode when usageMode is unset */

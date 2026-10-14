@@ -57,6 +57,7 @@ export interface PushStatus {
 
 export interface ProjectCreateRequest {
   name: string
+  /** the scaffold (.gitignore, README, AGENTS.md); the project's engine is detected once its project files exist */
   engine: Engine
   description?: string
   mode?: ProjectMode

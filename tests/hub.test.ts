@@ -147,3 +147,16 @@ it('refreshes a closed project waiting count as its deferred choice becomes due'
   expect(host.querySelectorAll('.hub-project')[1]?.textContent).toContain('1 choices waiting')
   await act(async () => setState({ snap: { ...state.snap, decisions: [] }, answersOpen: true }))
 })
+
+it('tags an ambiguous detection and names every candidate on hover', async () => {
+  const state = getState()
+  const tied: Project = { ...project('beta'), engine: 'unity', engineRoot: 'client', detected: { candidates: [{ engine: 'unity', root: 'client', strength: 'strong' }, { engine: 'unity', root: 'editor', strength: 'strong' }], ambiguous: true, declared: false, scannedAt: '' } }
+  setState({ snap: { ...state.snap, projects: [project('alpha'), tied] } })
+  await render()
+  const [alpha, beta] = [...host.querySelectorAll('.hub-project')]
+  expect(alpha.querySelector('.chip')).toBeNull()
+  const tag = beta.querySelector('.chip.amber')!
+  expect(tag.textContent).toBe('ambiguous')
+  expect(tag.getAttribute('title')).toBe('Unity at ./client. Also found: Unity at ./editor. Ask Genio to pin one.')
+  expect(beta.querySelector('.hub-project-engine')?.textContent).toBe('Unity')
+})

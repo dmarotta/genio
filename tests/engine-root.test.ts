@@ -72,18 +72,23 @@ it('refreshes ordinary folders on startup refresh and Sync, not only on window o
   expect(restarted.get(opened.name)).toMatchObject({ engine: 'other', engineRoot: '' })
 })
 
-it('upgrades legacy fallback engines, preserves manual and specific legacy choices and custom commands', async () => {
+it('detection alone sets the engine: retired manual flags and legacy entries follow it, custom commands stay', async () => {
   put('FoundersOfAvalonUnity/ProjectSettings/ProjectVersion.txt')
-  expect(await refreshEngine(project())).toMatchObject({ engine: 'unity', engineRoot: 'FoundersOfAvalonUnity', engineSource: 'auto' })
+  const auto = await refreshEngine(project({ engineSource: 'auto' }))
+  expect(auto).toMatchObject({ engine: 'unity', engineRoot: 'FoundersOfAvalonUnity' })
+  expect(auto).not.toHaveProperty('engineSource')
   for (const engine of ['other', 'godot'] as const) {
-    expect(await refreshEngine(project({ engine, engineSource: 'manual', commands: { test: 'custom' } })))
-      .toMatchObject({ engine, engineSource: 'manual', commands: { test: 'custom' } })
+    const migrated = await refreshEngine(project({ engine, engineSource: 'manual', commands: { test: 'custom' } }))
+    expect(migrated).toMatchObject({ engine: 'unity', engineRoot: 'FoundersOfAvalonUnity', commands: { test: 'custom' } })
+    expect(migrated).not.toHaveProperty('engineSource')
   }
-  expect((await refreshEngine(project({ engine: 'godot' }))).engine).toBe('godot')
-  expect((await refreshEngine(project({ engine: 'unity' }))).engineRoot).toBe('FoundersOfAvalonUnity')
+  // A legacy entry pinned only its engine: the root its candidates give is no proposal.
+  const legacy = await refreshEngine(project({ engine: 'unity' }))
+  expect(legacy).toMatchObject({ engineRoot: 'FoundersOfAvalonUnity' })
+  expect(legacy.engineProposal).toBeUndefined()
 })
 
-it('refreshes persisted engines on startup refresh and sync, and pins explicit updates', async () => {
+it('refreshes persisted engines on startup refresh and sync, and rejects engine patches', async () => {
   const home = new Home(path.join(root, 'home'))
   const dir = path.join(root, 'repo')
   await git.initRepo(dir, 'main')
@@ -94,20 +99,13 @@ it('refreshes persisted engines on startup refresh and sync, and pins explicit u
   const restarted = createProjectsService(() => ctx)
   await restarted.refreshRemotes()
   expect(restarted.get('game')).toMatchObject({ engine: 'unity', engineRoot: 'FoundersOfAvalonUnity' })
-  restarted.update('game', { engine: 'other' })
+  for (const patch of [{ engine: 'other' }, { engineRoot: 'Manual/Game' }, { engineRoot: undefined }, { engineSource: 'manual' }, { engineRootSource: 'manual' }] as Partial<Project>[]) {
+    expect(() => restarted.update('game', patch)).toThrow('The engine is detected, not set')
+  }
+  expect(() => restarted.update('game', { engineProposal: { engine: 'godot', engineRoot: '', declarable: false, notedAt: '' } })).toThrow('only be dismissed')
   await restarted.sync('game')
-  expect(restarted.get('game')).toMatchObject({ engine: 'other', engineSource: 'manual', engineRoot: '' })
-  restarted.update('game', { engine: 'unity', engineRoot: 'Manual/Game' })
-  const pinned = createProjectsService(() => ctx)
-  await pinned.refreshRemotes()
-  expect(pinned.get('game')).toMatchObject({ engineRoot: 'Manual/Game', engineRootSource: 'manual' })
-  expect(() => pinned.update('game', { engineRoot: '../outside' })).toThrow('inside the project')
-  pinned.update('game', { engineRoot: '' })
-  await pinned.refreshRemotes()
-  expect(pinned.get('game')?.engineRoot).toBe('')
-  pinned.update('game', { engineRoot: undefined })
-  await pinned.refreshRemotes()
-  expect(pinned.get('game')?.engineRoot).toBe('FoundersOfAvalonUnity')
+  expect(restarted.get('game')).toMatchObject({ engine: 'unity', engineRoot: 'FoundersOfAvalonUnity' })
+  expect(restarted.update('game', { description: 'still editable' })).toMatchObject({ description: 'still editable', engine: 'unity' })
 })
 
 it('roots asset suggestions and persisted defaults while keeping explicit folders repo-relative', () => {

@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { compareCandidates, detectProject, scanCandidates } from '../src/main/engine-detect'
-import { createProjectsService, engineChangeNotice, refreshEngine } from '../src/main/projects'
+import { createProjectsService, engineChangeNotice, engineProposalNotice, refreshEngine } from '../src/main/projects'
 import { bus } from '../src/main/bus'
 import { Home } from '../src/main/home'
 import { readWorldMetadata } from '../src/main/world-metadata'
@@ -24,7 +24,7 @@ const pkg = (at: string, deps: Record<string, string>, scripts: Record<string, s
   put(`${at ? at + '/' : ''}package.json`, JSON.stringify({ scripts, dependencies: deps }))
 const roots = (cs: EngineCandidate[]) => cs.map(c => `${c.engine}@${c.root}`)
 const project = (patch: Partial<Project> = {}): Project => ({
-  name: 'game', path: root, defaultBranch: 'main', engine: 'other', engineSource: 'auto', commands: {},
+  name: 'game', path: root, defaultBranch: 'main', engine: 'other', commands: {},
   mode: 'local-only', yolo: false, forge: 'none', branchPrefix: 'genio/', managed: false, addedAt: '', ...patch
 })
 
@@ -136,20 +136,89 @@ it('honours a valid .genio/project.json declaration and ignores an invalid one w
   expect((await detectProject(root)).detected.warning).toBeUndefined()
 })
 
-it('a refresh records what it found, fills only unset commands on an engine change and keeps manual engines', async () => {
+it('a refresh records what it found and fills only unset commands on an engine change', async () => {
   const p = project({ commands: { build: 'make game' } })
   expect(await refreshEngine(p)).toMatchObject({ engine: 'other', commands: { build: 'make game' }, detected: { candidates: [] } })
   put('game/project.godot')
   const moved = await refreshEngine(p)
-  expect(moved).toMatchObject({ engine: 'godot', engineRoot: 'game', engineSource: 'auto' })
+  expect(moved).toMatchObject({ engine: 'godot', engineRoot: 'game' })
   expect(moved.commands).toEqual({ build: 'make game', run: 'godot --path "game"' })
   expect(engineChangeNotice(p, moved)).toBe(`game: no game engine → ${engineSummary('godot', 'game')}.`)
   // Unchanged engine: the player's later edits are never refilled.
   expect((await refreshEngine({ ...moved, commands: {} })).commands).toEqual({})
   unity('a-unity')
-  const manual = await refreshEngine({ ...moved, engineSource: 'manual' })
-  expect(manual).toMatchObject({ engine: 'godot', engineRoot: 'game', engineSource: 'manual' })
-  expect(roots(manual.detected!.candidates)).toEqual(['unity@a-unity', 'godot@game'])
+  const next = await refreshEngine(moved)
+  expect(next).toMatchObject({ engine: 'unity', engineRoot: 'a-unity' })
+  expect(roots(next.detected!.candidates)).toEqual(['unity@a-unity', 'godot@game'])
+})
+
+it('migration: a manual engine equal to detection goes silently, a differing one is kept once as a proposal', async () => {
+  unity('client'); unity('tools/LevelEditor')
+  const equal = await refreshEngine(project({ engine: 'unity', engineRoot: 'client', engineSource: 'manual', engineRootSource: 'manual' }))
+  expect(equal).toMatchObject({ engine: 'unity', engineRoot: 'client' })
+  expect(equal).not.toHaveProperty('engineProposal')
+  expect(equal).not.toHaveProperty('engineSource')
+  expect(equal).not.toHaveProperty('engineRootSource')
+  // A manual root detection does not pick: kept as a declaration the player can ask Genio to write.
+  const kept = await refreshEngine(project({ engine: 'unity', engineRoot: 'tools/LevelEditor', engineSource: 'auto', engineRootSource: 'manual' }))
+  expect(kept).toMatchObject({ engine: 'unity', engineRoot: 'client', engineProposal: { engine: 'unity', engineRoot: 'tools/LevelEditor', declarable: true } })
+  expect(engineProposalNotice(kept)).toBe('game: You had set Unity at ./tools/LevelEditor by hand; Genio now infers the engine and uses Unity 6000.0.23f1 at ./client. To keep yours, ask Genio to pin it in .genio/project.json { "engineRoot": "tools/LevelEditor" }; Genio never writes it into the repository on its own.')
+  // Never written into the repository.
+  expect(fs.existsSync(path.join(kept.path, '.genio'))).toBe(false)
+  // Once: the next refresh keeps it without proposing again, and drops it when detection agrees.
+  const again = await refreshEngine(kept)
+  expect(again.engineProposal).toBe(kept.engineProposal)
+  put('.genio/project.json', JSON.stringify({ engineRoot: 'tools/LevelEditor' }))
+  const pinned = await refreshEngine(again)
+  expect(pinned).toMatchObject({ engineRoot: 'tools/LevelEditor', detected: { declared: true } })
+  expect(pinned).not.toHaveProperty('engineProposal')
+  // A manual engine no marker backs cannot be declared, only noted.
+  const godot = await refreshEngine(project({ engine: 'godot', engineRoot: '', engineSource: 'manual' }))
+  expect(godot.engineProposal).toMatchObject({ engine: 'godot', engineRoot: '', declarable: false })
+  expect(engineProposalNotice(godot)).not.toMatch(/project\.json/)
+  const none = await refreshEngine(project({ engine: 'other', engineSource: 'manual' }))
+  expect(none.engineProposal).toMatchObject({ engine: 'other', declarable: false })
+})
+
+it('migration notifies the player once and a dismissed proposal stays gone', async () => {
+  const home = new Home(path.join(root, 'home'))
+  const records: unknown[] = []
+  const ctx = { main: { home }, ledger: { record(r: unknown) { records.push(r) } } } as unknown as AppCtx
+  const toast = vi.spyOn(bus, 'toast').mockImplementation(() => undefined)
+  fs.mkdirSync(path.join(root, 'folder'))
+  put('folder/client/project.godot')
+  const svc = createProjectsService(() => ctx)
+  const { project: opened } = await svc.openFolder(path.join(root, 'folder'))
+  // An entry saved by the retired picker: Unity by hand.
+  const file = home.projectsFile
+  fs.writeFileSync(file, JSON.stringify([{ ...opened, engine: 'unity', engineRoot: '', engineSource: 'manual' }]))
+  const restarted = createProjectsService(() => ctx)
+  toast.mockClear()
+  await restarted.refreshRemotes()
+  expect(restarted.get(opened.name)).toMatchObject({ engine: 'godot', engineRoot: 'client', engineProposal: { engine: 'unity', declarable: false } })
+  expect(toast).toHaveBeenCalledTimes(1)
+  expect(toast).toHaveBeenCalledWith('warn', 'Engine set by hand retired', expect.stringMatching(/You had set Unity at the repository root by hand/))
+  expect(records).toContainEqual(expect.objectContaining({ event: 'project.engine_changed', data: expect.objectContaining({ proposal: expect.objectContaining({ engine: 'unity' }) }) }))
+  toast.mockClear()
+  await restarted.rescan(opened.name)
+  expect(toast).not.toHaveBeenCalled()
+  expect(restarted.update(opened.name, { engineProposal: undefined })).not.toHaveProperty('engineProposal')
+  await restarted.rescan(opened.name)
+  expect(restarted.get(opened.name)).not.toHaveProperty('engineProposal')
+  expect(JSON.parse(fs.readFileSync(file, 'utf8'))[0]).not.toHaveProperty('engineSource')
+  expect(fs.existsSync(path.join(root, 'folder', '.genio'))).toBe(false)
+})
+
+it('a new project is scaffolded for its engine but not pinned to it', async () => {
+  const home = new Home(path.join(root, 'home'))
+  const ctx = { main: { home }, ledger: { record() {} } } as unknown as AppCtx
+  const svc = createProjectsService(() => ctx)
+  const created = await svc.create({ name: 'space-goblins', engine: 'godot' })
+  expect(fs.readFileSync(path.join(created.path, '.gitignore'), 'utf8')).toMatch(/\.godot\//)
+  expect(created).toMatchObject({ engine: 'other', engineRoot: '' })
+  expect(created).not.toHaveProperty('engineSource')
+  fs.writeFileSync(path.join(created.path, 'project.godot'), '')
+  expect((await svc.rescan('space-goblins'))[0]).toMatchObject({ engine: 'godot', engineRoot: '' })
 })
 
 it('Rescan re-detects one project, toasts the change and keeps edits made during the scan', async () => {
@@ -169,15 +238,13 @@ it('Rescan re-detects one project, toasts the change and keeps edits made during
   toast.mockClear()
   await svc.rescan(opened.name)
   expect(toast).not.toHaveBeenCalled()
-  // The manual picker (until it is retired) takes its root from what the scan found.
-  expect(svc.update(opened.name, { engine: 'unity' }).engineRoot).toBe('Game')
+  // Only detection writes what the scan found.
   expect(svc.update(opened.name, { detected: undefined }).detected).toMatchObject({ candidates: [{ engine: 'unity', root: 'Game' }] })
   put('folder/.genio/project.json', JSON.stringify({ engineRoot: 'Docs' }))
   await svc.rescan()
   expect(toast).toHaveBeenCalledWith('warn', 'Engine declaration ignored', expect.stringMatching(/engineRoot "Docs"/))
   // Startup refresh and Sync report the change too.
   fs.rmSync(path.join(root, 'folder', 'Game'), { recursive: true })
-  svc.update(opened.name, { engineSource: 'auto' })
   expect(await svc.refreshRemotes(opened.name)).toEqual([`${opened.name}: Unity at ./Game → no game engine.`])
   expect((await readWorldMetadata(svc.get(opened.name))).engineVersion).toBeUndefined()
 })

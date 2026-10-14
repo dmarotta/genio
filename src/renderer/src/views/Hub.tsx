@@ -7,7 +7,19 @@ import { AddProject, NewProject } from './ProjectSettings'
 import { worldList, type WorldSort } from '../lib/worlds'
 import { byRecent, readRecent, rememberRecent } from '../lib/recent'
 import type { WorldMetadata } from '@shared/api'
+import type { Project } from '@shared/types'
+import { detectedLine, detectedView } from '@shared/engine'
 import '../styles/hub.css'
+
+/** The detected engine, the one-liner on hover, and an "ambiguous" tag when the top candidates tied. */
+function HubEngine({ p }: { p: Project }) {
+  const v = detectedView(p)
+  const title = `${detectedLine(v)}${v.others.length ? `. Also found: ${v.others.join('; ')}.${v.ambiguous ? ' Ask Genio to pin one.' : ''}` : ''}`
+  return <>
+    {v.ambiguous && <span className="chip amber" title={title}>ambiguous</span>}
+    <span className="dim hub-project-engine" title={title}>{v.engine === 'other' ? 'No game engine' : ENGINE_LABEL[v.engine]}</span>
+  </>
+}
 
 /** The Hub selects projects; all work and controls live in the project window. */
 export function Hub() {
@@ -82,7 +94,7 @@ export function Hub() {
               <FolderOpen size={20} className="neon-text" />
               <span className="hub-project-identity"><strong>{p.name}</strong><span className="mono mute hub-project-path" title={p.path}>{p.path}</span></span>
               {choices.some(d => d.project === p.name) && <span className="chip amber">{choices.filter(d => d.project === p.name).length} choices waiting</span>}
-              <span className="dim hub-project-engine">{ENGINE_LABEL[p.engine]}</span>
+              <HubEngine p={p} />
               <ChevronRight size={16} className="mute" />
             </button>
           )}</div> : <p className="mute">{query ? `No projects match "${query}".` : "No recent projects. Open a folder or create your first project."}</p>}

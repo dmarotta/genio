@@ -4,9 +4,9 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import type { DeliveryMode, Engine, EngineCandidate, Forge, Project, ProjectMode } from '@shared/types'
+import type { DeliveryMode, Engine, EngineCandidate, EngineProposal, Forge, Project, ProjectMode } from '@shared/types'
 import type { OpResult, ProjectAddRequest, ProjectCreateRequest } from '@shared/api'
-import { engineSummary } from '@shared/engine'
+import { engineSummary, proposalLine } from '@shared/engine'
 import { modeLabel, modeSourceOf } from '@shared/vocab'
 import type { AppCtx, ProjectsService } from './services'
 import { bus } from './bus'
@@ -39,29 +39,55 @@ function listDir(dir: string): string[] {
   }
 }
 
-/** The engine as the project's own entry would read it: a manual engine with the root its candidates give. */
-function bestRootFor(candidates: EngineCandidate[], engine: Engine): string | undefined {
-  return candidates.find((c) => c.engine === engine)?.root
+/**
+ * What an entry from before infer-only pinned by hand, and only that: a manual engine, a manual root,
+ * or both. An entry older than `engineSource` that names an engine and was never scanned pinned its
+ * engine (the old precedence).
+ */
+function manualPins(p: Project): { engine?: Engine; root?: string } | undefined {
+  const legacy = !p.engineSource && !p.detected && p.engine !== 'other'
+  const engine = p.engineSource === 'manual' || legacy ? p.engine : undefined
+  const root = p.engineRootSource === 'manual' ? cleanRoot(p.engineRoot ?? '') ?? '' : undefined
+  return engine === undefined && root === undefined ? undefined : { engine, root }
 }
 
 /**
- * Re-detect a project's engine and record what the scan found in `detected`. Manual engines and roots
- * are kept (until the picker is retired). When the engine or its root changes, only the commands the
- * entry leaves unset are filled; a default Unity test command follows the editor version as before.
+ * Migration: a manual engine or root that detection does not pick is kept once as a proposal for the
+ * player, never written into the repository. Equal to detection, it is dropped silently.
+ */
+async function proposalFor(p: Project, engine: Engine, engineRoot: string, candidates: EngineCandidate[]): Promise<EngineProposal | undefined> {
+  const pins = manualPins(p)
+  if (!pins || ((pins.engine ?? engine) === engine && (pins.root ?? engineRoot) === engineRoot)) return undefined
+  const atRoot = pins.root === undefined ? undefined : await candidateAt(p.path, pins.root)
+  const wanted = pins.engine ?? atRoot?.engine ?? p.engine
+  const root = pins.root ?? candidates.find((c) => c.engine === wanted)?.root ?? cleanRoot(p.engineRoot ?? '') ?? ''
+  const marker = pins.root === undefined ? candidates.find((c) => c.root === root) ?? await candidateAt(p.path, root) : atRoot
+  return { engine: wanted, engineRoot: root, declarable: wanted !== 'other' && marker?.engine === wanted, notedAt: nowIso() }
+}
+
+/**
+ * Re-detect a project's engine and record what the scan found in `detected`. Detection alone sets the
+ * engine and its root. When either changes, only the commands the entry leaves unset are filled; a
+ * default Unity test command follows the editor version as before. The retired manual flags are dropped.
  */
 export async function refreshEngine(p: Project): Promise<Project> {
   const det = await detectProject(p.path)
-  const pinned = p.engineRootSource === 'manual' ? cleanRoot(p.engineRoot ?? '') ?? '' : undefined
-  const manual = p.engineSource === 'manual' || (!p.engineSource && p.engine !== 'other')
-  const atPin = pinned === undefined ? undefined : await candidateAt(p.path, pinned)
-  const engine = manual ? p.engine : pinned !== undefined ? atPin?.engine ?? 'other' : det.engine
-  const engineRoot = pinned ?? (manual ? bestRootFor(det.detected.candidates, p.engine) ?? (det.engine === p.engine ? det.engineRoot : p.engineRoot ?? '') : det.engineRoot)
-  const proposed = engine === det.engine && engineRoot === det.engineRoot ? det.commands : await commandsFor(p.path, engine, engineRoot)
+  const { engine, engineRoot } = det
+  const proposal = await proposalFor(p, engine, engineRoot, det.detected.candidates)
   const changed = engine !== p.engine || engineRoot !== (p.engineRoot ?? '')
   let commands = p.commands
-  if (changed) commands = { ...Object.fromEntries(Object.entries(proposed).filter(([, v]) => v !== undefined)), ...Object.fromEntries(Object.entries(p.commands).filter(([, v]) => v !== undefined)) }
-  if (engine === 'unity' && isDefaultUnityTest(p.commands.test) && proposed.test) commands = { ...commands, test: proposed.test }
-  return { ...p, commands, engine, engineSource: manual ? 'manual' : 'auto', engineRoot, detected: det.detected }
+  if (changed) commands = { ...Object.fromEntries(Object.entries(det.commands).filter(([, v]) => v !== undefined)), ...Object.fromEntries(Object.entries(p.commands).filter(([, v]) => v !== undefined)) }
+  if (engine === 'unity' && isDefaultUnityTest(p.commands.test) && det.commands.test) commands = { ...commands, test: det.commands.test }
+  const { engineSource: _engine, engineRootSource: _root, engineProposal: kept, ...rest } = p
+  // A kept proposal goes once detection agrees with it (the player had Genio pin it).
+  const engineProposal = proposal ?? (kept && (kept.engine !== engine || kept.engineRoot !== engineRoot) ? kept : undefined)
+  return { ...rest, commands, engine, engineRoot, detected: det.detected, ...(engineProposal ? { engineProposal } : {}) }
+}
+
+/** The toast for a retired manual engine that differs from detection. */
+export function engineProposalNotice(p: Project): string | undefined {
+  const line = proposalLine(p)
+  return line && `${p.name}: ${line}`
 }
 
 /** A one-line toast when a refresh moved the engine or its root, undefined otherwise. */
@@ -156,15 +182,17 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
     writeJson(mainHome().projectsFile, list)
     bus.publish({ type: 'projects', projects: list })
   }
-  /** Toast a saved refresh that moved the engine, or newly ignored the repository's declaration. */
+  /** Toast a saved refresh that moved the engine, retired a differing manual engine, or newly ignored the repository's declaration. */
   const announceEngine = (prev: Project, next: Project): string | undefined => {
     const warning = next.detected?.warning
     if (warning && warning !== prev.detected?.warning) bus.toast('warn', 'Engine declaration ignored', `${next.name}: ${warning}`)
-    const notice = engineChangeNotice(prev, next)
+    const proposal = next.engineProposal && next.engineProposal !== prev.engineProposal ? engineProposalNotice(next) : undefined
+    const notice = proposal ?? engineChangeNotice(prev, next)
     if (!notice) return undefined
-    bus.toast('info', 'Project engine changed', notice)
+    if (proposal) bus.toast('warn', 'Engine set by hand retired', proposal)
+    else bus.toast('info', 'Project engine changed', notice)
     try {
-      getCtx().ledger.record({ event: 'project.engine_changed', project: next.name, data: { from: prev.engine, to: next.engine, rootFrom: prev.engineRoot ?? '', root: next.engineRoot ?? '' } })
+      getCtx().ledger.record({ event: 'project.engine_changed', project: next.name, data: { from: prev.engine, to: next.engine, rootFrom: prev.engineRoot ?? '', root: next.engineRoot ?? '', ...(proposal ? { proposal: next.engineProposal } : {}) } })
     } catch {
       /* ledger optional */
     }
@@ -189,7 +217,6 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
       capacity: req.capacity,
       engine: det.engine,
       engineRoot: det.engineRoot,
-      engineSource: 'auto',
       detected: det.detected,
       commands: det.commands,
       managed,
@@ -292,29 +319,23 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
         const r = await run(which('gh')!, ['repo', 'create', name, vis, '--source', '.', '--push'], { cwd: dir, timeoutMs: 300_000 })
         if (r.code !== 0) bus.toast('warn', 'GitHub repo not created', (r.stderr || r.stdout).trim())
       }
-      await register(dir, name, { mode: req.mode }, true)
-      return svc.update(name, { engine: req.engine })
+      // The engine choice is a scaffold, not a pin: detection takes over once the engine's project files exist.
+      return register(dir, name, { mode: req.mode }, true)
     },
 
     update(name, patch) {
       const list = load()
       const i = list.findIndex((p) => p.name === name)
       if (i < 0) throw new Error(`Unknown project: ${name}`)
+      const has = (k: keyof Project): boolean => Object.prototype.hasOwnProperty.call(patch, k)
+      // Genio infers the engine: only detection writes it. The repository's .genio/project.json is the one way to pin a root.
+      if ((['engine', 'engineRoot', 'engineSource', 'engineRootSource'] as const).some(has)) {
+        throw new Error('The engine is detected, not set: ask Genio to pin its root in the repository\'s .genio/project.json, then Rescan')
+      }
+      if (has('engineProposal') && patch.engineProposal !== undefined) throw new Error('An engine proposal can only be dismissed')
       // Only detection writes what the scan found.
       const next: Project = { ...list[i], ...patch, name: list[i].name, detected: list[i].detected, commands: { ...list[i].commands, ...(patch.commands ?? {}) } }
-      if (patch.engine !== undefined) {
-        next.engineSource = 'manual'
-        next.engineRoot = bestRootFor(next.detected?.candidates ?? [], next.engine) ?? ''
-        next.engineRootSource = 'auto'
-      }
-      if (Object.prototype.hasOwnProperty.call(patch, 'engineRoot')) {
-        const root = patch.engineRoot?.replace(/\\/g, '/')
-        if (root !== undefined && (path.isAbsolute(root) || /^[A-Za-z]:/.test(root) || root.split('/').includes('..'))) {
-          throw new Error('Engine root must stay inside the project folder')
-        }
-        next.engineRoot = root
-        next.engineRootSource = root === undefined ? 'auto' : 'manual'
-      }
+      if (has('engineProposal')) delete next.engineProposal
       // Choosing a mode pins it; asking for 'auto' hands it back to the remote.
       if (patch.modeSource === 'auto') next.mode = autoModeFor(next.remote)
       else if (patch.mode !== undefined) next.modeSource = 'manual'
