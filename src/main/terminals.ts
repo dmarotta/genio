@@ -63,7 +63,13 @@ export function terminalEnv(opts: Pick<CreateTerminalOpts, 'env' | 'unsetEnv'>, 
     const prefix = name.endsWith('*') ? name.slice(0, -1) : undefined
     for (const k of Object.keys(env)) if (prefix === undefined ? k === name : k.startsWith(prefix)) delete env[k]
   }
-  return Object.assign(env, { TERM: 'xterm-256color', COLORTERM: 'truecolor', FORCE_COLOR: '1' }, opts.env ?? {})
+  // Windows environment names are case-insensitive: a PATH shim must replace inherited Path too.
+  Object.assign(env, { TERM: 'xterm-256color', COLORTERM: 'truecolor', FORCE_COLOR: '1' })
+  for (const [key, value] of Object.entries(opts.env ?? {})) {
+    if (process.platform === 'win32') for (const inherited of Object.keys(env)) if (inherited.toLowerCase() === key.toLowerCase()) delete env[inherited]
+    env[key] = value
+  }
+  return env
 }
 
 export function createTerminalService(getCtx: () => AppCtx): TerminalService {
@@ -107,6 +113,7 @@ export function createTerminalService(getCtx: () => AppCtx): TerminalService {
       const env = terminalEnv(opts)
       try {
         const sp = resolveSpawn(file, args)
+        const processStartedAt = Date.now()
         const proc = pty.spawn(sp.file, sp.args, {
           name: 'xterm-256color',
           cols,
@@ -116,6 +123,9 @@ export function createTerminalService(getCtx: () => AppCtx): TerminalService {
           ...(process.platform === 'win32' ? { useConpty: true } : {})
         } as pty.IPtyForkOptions)
         t.proc = proc
+        t.info.pid = proc.pid
+        t.info.processStartedAt = processStartedAt
+        t.info.processSpawnedAt = Date.now()
         proc.onData((d) => {
           t.lastOutputAt = Date.now()
           t.info.lastOutputAt = new Date(t.lastOutputAt).toISOString()

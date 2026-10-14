@@ -31,6 +31,7 @@ import { engineBriefLine, engineEnv, engineFacts } from '@shared/engine-summary'
 import { defaultShell } from './terminals'
 import { getSecret } from './secrets'
 import { installUnitHooks } from './unithooks'
+import { installUnityShims, unityGuardScript, unityPreToolHook } from './unity-guards'
 import { installUnitPlugin, openRouterEnv, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief } from './unitskills'
 import { findUnityCli, unityUnitConfig, unityUnitEnv } from './unity-unit'
 import {
@@ -172,20 +173,20 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         writeJson(file, unity)
         Object.assign(extras.env, unityUnitEnv(unity, file))
       } catch {
-        /* without its config genio-unity refuses to run; the launch goes on */
+        /* launch below requires this config for a Unity project */
       }
     }
     return extras
   }
 
-  const writeClaudeSettings = (t: Task): string => {
+  const writeClaudeSettings = (t: Task, guard?: string): string => {
     const p = home.taskStateFile(t.id, '.claude-settings.json')
     const marker = fwd(turnEndedFile(t.id))
     const command = `node -e "require('fs').writeFileSync('${marker}', String(Date.now()))"`
     // Genio's Claude home has no user settings of its own: carry over only the
     // player's existing bypass consent. Genio never answers that dialog itself.
     writeJson(p, { ...(playerSkipsBypassPrompt() ? { skipDangerousModePermissionPrompt: true } : {}),
-      hooks: { Stop: [{ hooks: [{ type: 'command', command }] }] } })
+      hooks: { Stop: [{ hooks: [{ type: 'command', command }] }], ...(guard ? { PreToolUse: [unityPreToolHook(guard)] } : {}) } })
     return p
   }
 
@@ -264,8 +265,13 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     // Genio's own Claude home keeps units out of the player's Claude apps; --continue follows the unit's conversation.
     const claude = isClaude ? await claudeLaunch(opts.resume ? { cwd: t.worktree } : undefined) : undefined
     if (claude) setClaudeTrust(claude.configFile, [t.worktree], true)
-    const settingsPath = isClaude ? writeClaudeSettings(t) : undefined
     const skills = skillExtras(t, adapter.id, project?.path)
+    const unityProject = project && effectiveEngine(project).engine === 'unity'
+    const guard = unityProject ? unityGuardScript(pluginDir) : undefined
+    if (unityProject && (!skills.env.GENIO_UNITY_CONFIG || !skills.env.GENIO_UNITY)) throw new Error('Unity units require the installed genio-unity wrapper and guard config.')
+    const shimEnv = guard ? installUnityShims(path.join(home.taskDir(t.id), 'unit-bin'), skills.env.GENIO_UNITY, guard,
+      adapter.env?.PATH ?? adapter.env?.Path ?? process.env.PATH ?? process.env.Path ?? '') : {}
+    const settingsPath = isClaude ? writeClaudeSettings(t, guard) : undefined
     // Genio's own Codex home keeps units (and any Codex image run inside a unit) out of the player's Codex app.
     // A runtime with its own CODEX_HOME keeps it; a resume follows the unit's thread.
     const isCodex = adapter.id === 'codex'
@@ -296,6 +302,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       ...(adapter.env ?? {}),
       ...hookEnv,
       ...skills.env,
+      ...shimEnv,
       ...openRouterEnv(adapter.id, cheapModelsAllowed(project), openRouterKey),
       GENIO_TASK_ID: t.id,
       GENIO_STATUS_FILE: fwd(home.statusFile(t.id)),

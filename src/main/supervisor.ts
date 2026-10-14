@@ -25,6 +25,8 @@ import type { Home } from './home'
 import type { AppCtx, SupervisorService } from './services'
 import { runShell, truncate } from './util'
 import { heartbeatFor } from './usage-policy'
+import { createUnityProcessWatch, type UnityWatchRoot } from './unity-guards'
+import { loadGuardConfig } from '../../resources/unit-skills/genio/lib/unity-guard.mjs'
 
 interface Track {
   lastDeclaredAt: number
@@ -65,6 +67,8 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
   let running = false
   let pollMs = 15_000
   let unsub: (() => void) | undefined
+  let unityTimer: NodeJS.Timeout | undefined
+  const unityWatch = createUnityProcessWatch()
 
   // tick (heartbeat) state
   let nextTickAt = 0
@@ -79,6 +83,25 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
   const ctx = (): AppCtx => getCtx()
   const hc = () => ctx().home(home.name)
   const settings = () => ctx().settings.get()
+
+  async function watchUnity(): Promise<void> {
+    try {
+      const roots: UnityWatchRoot[] = []
+      for (const task of hc().crew.list()) {
+        if (!task.terminalId) continue
+        const terminal = ctx().terminals.get(task.terminalId)
+        if (!terminal?.alive || !terminal.pid || !terminal.processStartedAt || !terminal.processSpawnedAt) continue
+        try {
+          roots.push({ pid: terminal.pid, startedAt: terminal.processStartedAt, spawnedAt: terminal.processSpawnedAt,
+            config: loadGuardConfig(home.taskStateFile(task.id, '.unity.json')), statusFile: home.statusFile(task.id),
+            isLive: () => { const current = ctx().terminals.get(task.terminalId!); return !!current?.alive && current.pid === terminal.pid && current.processStartedAt === terminal.processStartedAt } })
+        } catch { /* non-Unity units have no guard config */ }
+      }
+      await unityWatch.poll(roots, (task, message) => { void hc().crew.send(task, message).catch(() => {}) })
+    } catch (e) {
+      if (process.env.GENIO_DEBUG) console.error(`[unity-watch:${home.name}]`, e)
+    }
+  }
 
   function track(t: Task): Track {
     let tr = tracks.get(t.id)
@@ -651,6 +674,10 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
     start() {
       if (timer) return
       schedule()
+      unityWatch.start()
+      unityTimer = setInterval(() => void watchUnity(), 5000)
+      unityTimer.unref?.()
+      void watchUnity()
       kick = setTimeout(() => void pass(), 2_000)
       kick.unref?.()
       unsub = bus.onEvent((ev) => {
@@ -661,6 +688,9 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
     },
 
     stop() {
+      unityWatch.stop()
+      if (unityTimer) clearInterval(unityTimer)
+      unityTimer = undefined
       if (timer) clearInterval(timer)
       if (kick) clearTimeout(kick)
       timer = undefined

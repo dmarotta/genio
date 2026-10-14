@@ -9,7 +9,9 @@ For every Unity action run genio-unity:
 
 `node "{{SKILL_DIR}}/scripts/genio-unity.mjs" <verb>`
 
-The same path is in `GENIO_UNITY`. Never start `Unity.exe`, Unity Hub or the `unity` CLI yourself. Never open, read or write the main project folder, and never read an editor's Pipeline token. genio-unity takes no project path: it always uses your own worktree copy (`GENIO_UNITY_PROJECT`) or your leased Play slot. This is a guardrail, not an OS sandbox. Never touch Toolbox, its processes or packages.
+The same path is in `GENIO_UNITY`, and `genio-unity <verb>` is available on your unit PATH. Never start `Unity.exe`, Unity Hub or the `unity` CLI yourself. Never open, read or write the main project folder, and never read an editor's Pipeline token. genio-unity takes no project path: it always uses your own worktree copy (`GENIO_UNITY_PROJECT`) or your leased Play slot. This is detection and denial, not a sandbox. Never touch Toolbox, its processes or packages.
+
+Bare `unity` exits 21. Claude's tool hook denies raw Unity calls and main-copy paths; the process watch stops only proven unit-spawned editors outside your allowed targets and sends you a note. The Gauntlet audits attempts. Follow the `genio-unity` rule when a guard rejects an action.
 
 | Verb | What it does |
 |---|---|

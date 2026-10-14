@@ -781,6 +781,10 @@ export interface Achievement {
 
 export interface TerminalInfo {
   id: string
+  /** Actual PTY root, used only to prove unit process ancestry. */
+  pid?: number
+  processStartedAt?: number
+  processSpawnedAt?: number
   taskId?: string
   title: string
   cwd: string

@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 vi.mock('../src/main/secrets', () => ({ getSecret: () => undefined }))
 vi.mock('../src/main/unithooks', () => ({ installUnitHooks: async () => ({}) }))
@@ -74,6 +75,26 @@ it('passes the bypass consent only when the player already gave it', async () =>
   await relaunch()
   const settings = JSON.parse(fs.readFileSync(launches[0].args![launches[0].args!.indexOf('--settings') + 1], 'utf8'))
   expect(settings).not.toHaveProperty('skipDangerousModePermissionPrompt')
+})
+
+it('a bypass-mode Unity unit keeps Stop and the blocking PreToolUse hook, with a decoy first on PATH', async () => {
+  configure()
+  const world = path.join(root, 'world')
+  fs.mkdirSync(world)
+  ctx.appRoot = fileURLToPath(new URL('..', import.meta.url))
+  ctx.projects.get = () => ({ name: 'world', path: world, engine: 'unity', engineRoot: '' } as any)
+  ctx.settings.get = () => ({ claudePermissionMode: 'bypass' } as any)
+  await relaunch()
+  const launch = launches[0]
+  expect(launch.args).toContain('--dangerously-skip-permissions')
+  const settings = JSON.parse(fs.readFileSync(launch.args![launch.args!.indexOf('--settings') + 1], 'utf8'))
+  expect(settings.hooks.Stop).toHaveLength(1)
+  expect(settings.hooks.PreToolUse[0]).toMatchObject({ matcher: expect.stringContaining('Bash|PowerShell|Read|Edit|Write'),
+    hooks: [{ type: 'command', command: 'node', args: [expect.stringContaining('unity-guard-hook.mjs')], timeout: 10, onFailure: 'block' }] })
+  const bin = launch.env!.PATH.split(path.delimiter)[0]
+  expect(fs.existsSync(path.join(bin, 'unity.cmd'))).toBe(true)
+  expect(fs.existsSync(path.join(bin, 'genio-unity.cmd'))).toBe(true)
+  expect(launch.env!.GENIO_UNITY_CONFIG).toBeDefined()
 })
 
 it("a respawn resumes the unit's conversation in Genio's home", async () => {

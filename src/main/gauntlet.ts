@@ -22,6 +22,7 @@ import type { AppCtx } from './services'
 import type { Home } from './home'
 import * as git from './git'
 import { claudeEnv } from './claude-home'
+import { unitUnityAudit } from './unity-guards'
 import { appendLine, exists, nowIso, readText, rid, runShell, truncate } from './util'
 
 export interface Gauntlet {
@@ -179,6 +180,7 @@ export function createGauntlet(getCtx: () => AppCtx, home: Home): Gauntlet {
     if (cmds.lint) stepNames.push({ name: 'lint', command: cmds.lint })
     if (cmds.build) stepNames.push({ name: 'build', command: cmds.build })
     if (cmds.test) stepNames.push({ name: 'test', command: cmds.test })
+    if (effectiveEngine(project).engine === 'unity') stepNames.push({ name: 'unity-guard' })
     stepNames.push({ name: 'review' }, { name: 'push' }, { name: 'pr' })
     const vr: ValidationRun = {
       id: rid(4),
@@ -258,6 +260,14 @@ export function createGauntlet(getCtx: () => AppCtx, home: Home): Gauntlet {
             if (st.name === 'setup') break
           }
         }
+      }
+
+      if (effectiveEngine(project).engine === 'unity') {
+        const audit = step('unity-guard')
+        begin(audit)
+        const violations = unitUnityAudit(home.taskStateFile(taskId, '.unity.json'), t.terminalId ? ctx.terminals.scrollback(t.terminalId) : '')
+        end(audit, violations.length ? 'failed' : 'passed', violations.join('\n') || 'No raw Unity attempts or guard incidents.')
+        if (violations.length) findings.push(`### Unity enforcement\n${violations.join('\n')}`)
       }
 
       if (findings.length) {
