@@ -3,8 +3,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFileSync, spawn } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { PlayPool } from '../resources/unit-skills/genio/skills/play/scripts/pool.mjs'
+import { PlayService } from '../src/main/play'
+import type { AppCtx } from '../src/main/services'
 
 let root: string, world: string, data: string, pool: PlayPool
 beforeEach(() => { root=fs.mkdtempSync(path.join(os.tmpdir(),'genio-play-pool-')); world=path.join(root,'world');data=path.join(root,'data');fs.mkdirSync(world);pool=new PlayPool(data,world) })
@@ -23,14 +25,58 @@ it('shares the cap and FIFO queue, fences takeover tokens and preserves a succes
   expect((await pool.state()).slots[0].owner).toBe('player')
   await expect(pool.configure(0)).rejects.toThrow('1–8')
 })
-it('reclaims expired leases, prunes stale queues, and refuses cap reduction across live leases', async () => {
+it('reclaims expired leases and prunes stale queues', async () => {
   await pool.configure(2); const a=await pool.acquire('a'); const b=await pool.acquire('b')
-  await expect(pool.configure(1)).rejects.toThrow('Release')
   const file=path.join(pool.dir,'state.json'), state=JSON.parse(fs.readFileSync(file,'utf8'))
   state.slots[0].lease.expires=0;state.queue=[{owner:'dead',pid:process.pid,expires:0}];fs.writeFileSync(file,JSON.stringify(state))
   const c=await pool.acquire('c');expect(c?.id).toBe(a?.id)
-  await pool.release(b!.id,b!.token); await pool.configure(1)
+  await pool.release(b!.id,b!.token)
   expect((await pool.state()).queue).toEqual([])
+})
+it('lowers the cap below live leases without refusing: the extra slot drains, takes no lease, and retires on release', async () => {
+  await pool.configure(2); const a=(await pool.acquire('a'))!; const b=(await pool.acquire('b'))!
+  expect(b.id).toBe(2)
+  expect(await pool.configure(1)).toEqual({ cap: 1, draining: [2] })
+  let state=await pool.state()
+  expect(state.cap).toBe(1)
+  expect(state.slots.find(s=>s.id===2)).toMatchObject({ owner:'b', draining:true, retired:false })
+  // The draining lease keeps working; nobody new lands on it, not even by preference or takeover.
+  expect(await pool.check(2,b.token)).toBe(b.root)
+  await expect(pool.acquire('c',process.pid,2,true)).rejects.toThrow('above the cap')
+  await pool.release(a.id,a.token)
+  expect((await pool.acquire('c'))?.id).toBe(1)
+  expect(await pool.acquire('d')).toBeNull()
+  await pool.release(2,b.token)
+  state=await pool.state()
+  expect(state.slots.find(s=>s.id===2)).toMatchObject({ draining:false, retired:true })
+  expect(await pool.acquire('d')).toBeNull()
+  expect(state.queue).toEqual(['d'])
+})
+it('raising the cap lets queued requests proceed, reusing a retired slot', async () => {
+  await pool.configure(2); const a=(await pool.acquire('a'))!; const b=(await pool.acquire('b'))!
+  await pool.configure(1); await pool.release(b.id,b.token)
+  expect(await pool.acquire('c')).toBeNull(); expect(await pool.acquire('d')).toBeNull()
+  expect((await pool.state()).queue).toEqual(['c','d'])
+  await pool.configure(3)
+  const c=await pool.acquire('c'), d=await pool.acquire('d')
+  expect(c?.id).toBe(2); expect(d?.id).toBe(3)
+  const state=await pool.state()
+  expect(state.queue).toEqual([]); expect(state.slots.every(s=>!s.draining&&!s.retired)).toBe(true)
+  expect(a.id).toBe(1)
+})
+it('marks a slot above the cap draining while only its editor is still running', async () => {
+  await pool.configure(2); await pool.acquire('a'); const b=(await pool.acquire('b'))!
+  await pool.release(b.id,b.token)
+  // An editor still open in the idle slot (one Genio did not launch).
+  fs.mkdirSync(path.join(b.root,'Temp'),{recursive:true}); fs.writeFileSync(path.join(b.root,'Temp/UnityLockfile'),'')
+  expect(await pool.configure(1)).toEqual({ cap: 1, draining: [2] })
+  expect((await pool.state()).slots.find(s=>s.id===2)).toMatchObject({ editor:true, draining:true })
+  expect(fs.existsSync(path.join(b.root,'Temp/UnityLockfile'))).toBe(true) // never closed by a cap change
+})
+it('reports disk used per existing slot copy', async () => {
+  const a=(await pool.acquire('a'))!
+  fs.mkdirSync(path.join(a.root,'Library'),{recursive:true}); fs.writeFileSync(path.join(a.root,'Library/cache'),'12345')
+  expect(await pool.disk()).toEqual({ 1: 5 })
 })
 it('allocates at most one lease across separate Node processes', async () => {
   const module=pathToFileURL(path.resolve('resources/unit-skills/genio/skills/play/scripts/pool.mjs')).href
@@ -40,6 +86,13 @@ it('allocates at most one lease across separate Node processes', async () => {
     const results=await Promise.all(children.map(c=>new Promise<unknown>((resolve,reject)=>{let out='';c.stdout.on('data',b=>{out+=b;if(out.includes('\n')) resolve(JSON.parse(out.trim()))});c.once('error',reject);c.stderr.on('data',b=>reject(new Error(String(b))))})))
     expect(results.filter(Boolean)).toHaveLength(1)
   } finally { await Promise.all(children.map(c=>new Promise<void>(r=>{c.once('exit',()=>r());c.kill()}))) }
+})
+it('configures the cap through the service, unlocking the achievement even below live leases', async () => {
+  const unlock=vi.fn()
+  const svc=new PlayService({ projects:{ get:()=>({ path:world, engine:'unity' }) }, main:{ home:{ data } }, stats:{ unlock } } as unknown as AppCtx)
+  await svc.configurePool('game',2); await pool.acquire('a'); await pool.acquire('b')
+  await expect(svc.configurePool('game',1)).resolves.toEqual({ cap:1, draining:[2] })
+  expect(unlock).toHaveBeenCalledWith('play-pool-configured')
 })
 function git(cwd: string, args: string[]) { return execFileSync('git',args,{cwd,encoding:'utf8',env:{...process.env,GIT_CONFIG_COUNT:'0'}}).trim() }
 it('copies only a committed revision, seeds Library without credentials, clears a crashed editor lock and protects dirty slots', async () => {

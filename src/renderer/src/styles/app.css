@@ -941,6 +941,13 @@ ul.loadout-why li { margin: 1px 0; }
 .world-generation:focus h4 { color: var(--neon); }
 .world-generation h4 { margin: 0; font-size: 13px; }
 .world-generation p, .world-no-results { font-size: 13px; }
+.unity-slot-list { list-style: none; margin: 12px 0; padding: 0; display: grid; gap: 6px; }
+.unity-slot { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
+.unity-slot.leased, .unity-slot.preparing { border-color: var(--neon); }
+.unity-slot.draining, .unity-slot.closing { border-color: var(--amber); }
+.unity-slot.stuck { border-color: var(--alert); }
+.unity-slot.retired { opacity: 0.7; }
+.unity-slots-count { font-size: 13px; }
 .world-no-results { padding: 20px; }
 @media (max-width: 1150px) {
   .world-columns, .world-summary { grid-template-columns: minmax(140px, 1fr) 90px 90px 125px 220px; gap: 10px; padding: 14px 12px; }

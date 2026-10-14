@@ -26,7 +26,8 @@ const minutes = ms => Math.max(1, Math.round(ms / 60000))
 function waitMessage(w) {
   const stuck = w.stuck.map(s => `Slot ${s.slot} is stuck (${s.reason}); report "blocked: Play slot ${s.slot} stuck" to Genio. Never stop Unity processes yourself.`)
   const place = w.position ? `Queued for a shared Play slot: position ${w.position} of ${w.length}${w.estimateMs === null ? '' : `, about ${minutes(w.estimateMs)} min (rough, from recent sessions)`}.` : 'Waiting for a shared Play slot.'
-  return [place, 'Keep this process running; it takes the slot automatically and you need no other step.', ...stuck].join(' ')
+  const capacity = `${w.inUse} of ${w.cap} slot${w.cap === 1 ? '' : 's'} in use.${w.draining.length ? ` Slot ${w.draining.join(', ')} ${w.draining.length === 1 ? 'is' : 'are'} draining above a lowered cap and take${w.draining.length === 1 ? 's' : ''} no new lease.` : ''}`
+  return [place, capacity, 'Keep this process running; it takes the slot automatically and you need no other step.', ...stuck].join(' ')
 }
 
 if (process.argv.includes('--close')) {
@@ -44,7 +45,7 @@ if (process.argv.includes('--close')) {
     let shown = '', shownAt = 0
     while (!(lease = await pool.acquire(owner))) {
       const w = await pool.waitInfo(owner), message = waitMessage(w)
-      if (message !== shown || Date.now() - shownAt > 30000) { output({ waiting: true, position: w.position, queue: w.length, estimatedWaitSeconds: w.estimateMs === null ? null : Math.round(w.estimateMs / 1000), stuck: w.stuck, message }); shown = message; shownAt = Date.now() }
+      if (message !== shown || Date.now() - shownAt > 30000) { output({ waiting: true, position: w.position, queue: w.length, estimatedWaitSeconds: w.estimateMs === null ? null : Math.round(w.estimateMs / 1000), cap: w.cap, inUse: w.inUse, draining: w.draining, stuck: w.stuck, message }); shown = message; shownAt = Date.now() }
       await new Promise(r => setTimeout(r, 1000))
     }
     timer = setInterval(() => void pool.check(lease.id, lease.token).catch(() => { lost = true; activeRequest?.destroy(); process.stdin.destroy() }), 5000)

@@ -11,8 +11,9 @@ import { PROJECT_WINDOW, api, errText, go, hasView, op, openDeploy, setState, to
 import { CommitInput, Confirm, Field, Modal, Toggle } from '../components/ui'
 import { ENGINES, ENGINE_LABEL, MODE_HINT, MODE_LABEL, PROJECT_MODES, isActive } from '../lib/vocab'
 import { ago, cx } from '../lib/format'
-import { detectedLine, detectedView, proposalLine } from '@shared/engine'
+import { detectedLine, detectedView, effectiveEngine, proposalLine } from '@shared/engine'
 import { supportsPlay } from '@shared/play'
+import { UnitySlots } from './UnitySlots'
 import { worldPath, modifiedLabel } from '../lib/worlds'
 import type { WorldMetadata } from '@shared/api'
 
@@ -159,6 +160,7 @@ export function ProjectSettingsRow({ p, metadata }: { p: Project; metadata?: Wor
       )}
 
       <GenerationSettings world={p.name} />
+      {supportsPlay(effectiveEngine(p).engine) && <UnitySlots world={p.name} />}
       </section>
 
       {confirmYolo && (

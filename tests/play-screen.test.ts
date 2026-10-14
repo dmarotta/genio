@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { beforeEach, afterEach, expect, it, vi } from 'vitest'
-vi.mock('../src/renderer/src/store', () => ({ PROJECT_WINDOW: 'game', PROJECT_WKSP:'game-wksp' }))
+import { beforeEach, afterEach, expect, it, onTestFinished, vi } from 'vitest'
+const nav = vi.hoisted(() => ({ go: vi.fn(), section: vi.fn() }))
+vi.mock('../src/renderer/src/store', () => ({ PROJECT_WINDOW: 'game', PROJECT_WKSP:'game-wksp', go: nav.go, useStore: (selector: (s: unknown) => unknown) => selector({ snap: { tasks: [{ id: 't1', title: 'fix-jump' }] } }) }))
 vi.mock('../src/renderer/src/views/Comms', () => ({ ChatPanel: () => null }))
+vi.mock('../src/renderer/src/views/Systems', () => ({ requestSystemsSection: nav.section }))
 import { Play } from '../src/renderer/src/views/Play'
 import { PlayLive } from '../src/renderer/src/views/PlayLive'
 let root: Root; let host: HTMLDivElement
@@ -24,12 +26,37 @@ it('polls only the bound world and stops scheduling when the view closes', async
   await act(async () => root.render(React.createElement(Play)))
   expect(api.playFrame).toHaveBeenCalledWith('game',1280,720)
   expect(host.textContent).toContain('Snapshot mode')
-  expect(host.querySelectorAll('select')).toHaveLength(2) // scenes and size, no world picker
+  expect(host.querySelectorAll('select')).toHaveLength(3) // target, scenes and size, no world picker
   await act(async () => vi.advanceTimersByTimeAsync(1000))
   expect(api.playFrame).toHaveBeenCalledTimes(2)
   await act(async () => root.render(null))
   await act(async () => vi.advanceTimersByTimeAsync(10000))
   expect(api.playFrame).toHaveBeenCalledTimes(2)
+})
+it('keeps only the slot picker and takeover; the pool is configured in Settings', async () => {
+  api.playPool.mockResolvedValue({cap:2,queue:['unit:t2'],slots:[{id:1,root:'r1',owner:'unit:t1',editor:true},{id:2,root:'r2'}]})
+  const select = vi.fn().mockResolvedValue(undefined)
+  Object.assign(api,{playSelectSlot:select})
+  onTestFinished(() => { api.playPool.mockResolvedValue({cap:1,slots:[],queue:[]}) })
+  await act(async () => root.render(React.createElement(Play)))
+  expect(host.textContent).not.toContain('Maximum')
+  expect(host.textContent).not.toContain('Save cap')
+  expect(host.textContent).not.toContain('Estimate disk')
+  expect(host.querySelector('input[type=number]')).toBeNull()
+  const target = host.querySelector('select[aria-label="Play target"]') as HTMLSelectElement
+  expect([...target.options].map(o => o.textContent)).toEqual(['Main editor','Slot 1 · unit fix-jump','Slot 2 · free'])
+  // A slot leased by someone else is never taken silently.
+  await act(async () => { target.value = '1'; target.dispatchEvent(new Event('change',{bubbles:true})) })
+  expect(select).not.toHaveBeenCalled()
+  expect(host.textContent).toContain('Slot 1 is leased by unit fix-jump.')
+  await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent === 'Take over slot 1')!.click())
+  expect(select).toHaveBeenCalledWith('game',1,true)
+  await act(async () => { target.value = '2'; target.dispatchEvent(new Event('change',{bubbles:true})) })
+  expect(select).toHaveBeenLastCalledWith('game',2)
+  const link = [...host.querySelectorAll('button')].find(b => b.textContent === '1 of 2 slots in use')!
+  await act(async () => link.click())
+  expect(nav.section).toHaveBeenCalledWith('project','unity-slots')
+  expect(nav.go).toHaveBeenCalledWith('systems')
 })
 it('requires explicit input capture and sends a discrete key only to its project', async () => {
   await act(async () => root.render(React.createElement(Play)))
@@ -51,20 +78,19 @@ it('does not overlap slow captures or keep showing a disconnected frame', async 
   await act(async () => vi.advanceTimersByTimeAsync(1000))
   expect(host.querySelector('img')).toBeNull()
 })
-it('warns about a stuck slot and closes its editor only after the player confirms', async () => {
+it('warns about a stuck slot and sends the player to Settings to close its editor', async () => {
   const pool = {cap:1,slots:[{id:1,root:'slot-1',editor:true,stuck:{reason:'its Unity processes survived a forced stop',pids:[41],at:1}}],queue:[]}
   api.playPool.mockResolvedValue(pool)
   const close = vi.fn().mockResolvedValue(undefined); Object.assign(api,{playCloseSlotEditor:close})
-  const confirm = vi.spyOn(window,'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
   try {
     await act(async () => root.render(React.createElement(Play)))
     expect(host.querySelector('[role=alert]')?.textContent).toContain('Slot 1 is stuck')
-    const button = [...host.querySelectorAll('button')].find(b => b.textContent === 'Close slot editor')!
-    await act(async () => button.click())
+    expect([...host.querySelectorAll('button')].some(b => b.textContent === 'Close slot editor')).toBe(false)
+    await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent === 'Open Unity slots')!.click())
+    expect(nav.section).toHaveBeenCalledWith('project','unity-slots')
+    expect(nav.go).toHaveBeenCalledWith('systems')
     expect(close).not.toHaveBeenCalled()
-    await act(async () => button.click())
-    expect(close).toHaveBeenCalledWith('game',1)
-  } finally { confirm.mockRestore(); api.playPool.mockResolvedValue({cap:1,slots:[],queue:[]}) }
+  } finally { api.playPool.mockResolvedValue({cap:1,slots:[],queue:[]}) }
 })
 it('decodes one live frame per credit, forwards held input only while focused, and releases on close', async () => {
   const bitmap = { close: vi.fn() }

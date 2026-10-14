@@ -33,9 +33,39 @@ export type PlayAction =
   | { type: 'pointer'; x: number; y: number }
 
 export type PlayInput = { type: 'release' } | { type: 'state'; keys: string[]; x: number; y: number; buttons: number; axes: number[]; gamepadButtons: number }
-/** stuck: the slot editor would not close; nobody can lease the slot until Genio or the player recovers it. */
-export interface PlaySlot { id: number; root: string; revision?: string; owner?: string; expires?: number; preparing?: boolean; editor?: boolean; closing?: boolean; stuck?: { reason: string; pids: number[]; at: number } }
+/**
+ * draining: above a lowered cap but still in use; retired: above the cap and idle, kept for reuse.
+ * stuck: the slot editor would not close; nobody can lease the slot until Genio or the player recovers it.
+ */
+export interface PlaySlot { id: number; root: string; revision?: string; owner?: string; expires?: number; preparing?: boolean; editor?: boolean; closing?: boolean; stuck?: { reason: string; pids: number[]; at: number }; draining?: boolean; retired?: boolean }
 export interface PlayPoolState { cap: number; slots: PlaySlot[]; queue: string[]; selected?: number }
+
+/** Deep-link target: the Play screen's "N of X slots in use" opens Settings › This project › Unity slots. */
+export const UNITY_SLOTS_ANCHOR = 'unity-slots'
+
+/** Slots counted against the cap right now: leased, preparing, or with an editor open. */
+export function slotsInUse(state: Pick<PlayPoolState, 'slots'>): number {
+  return state.slots.filter(s => s.owner || s.preparing || s.editor || s.closing || s.stuck).length
+}
+
+/** "you" for the Play screen's lease, the unit's title for a unit lease. */
+export function ownerLabel(owner: string, tasks: { id: string; title: string }[]): string {
+  if (owner.startsWith('player:')) return 'you (Play screen)'
+  const id = owner.startsWith('unit:') ? owner.slice(5) : owner
+  const task = tasks.find(t => t.id === id)
+  return task ? `unit ${task.title}` : `unit ${id}`
+}
+
+/** One plain status word for a slot, most urgent first. */
+export function slotStatus(slot: PlaySlot | undefined): 'stuck' | 'closing' | 'preparing' | 'leased' | 'editor' | 'retired' | 'free' {
+  if (!slot) return 'free'
+  if (slot.stuck) return 'stuck'
+  if (slot.closing) return 'closing'
+  if (slot.preparing) return 'preparing'
+  if (slot.owner) return 'leased'
+  if (slot.editor) return 'editor'
+  return slot.retired ? 'retired' : 'free'
+}
 
 /** Delay after completion: no overlapping captures or catch-up bursts. */
 export function snapshotDelay(latencyMs: number, failures = 0): number {

@@ -1,5 +1,8 @@
 .play-view { position: relative; padding: 24px; height: 100%; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
-.play-view header, .play-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.play-view header, .play-toolbar, .play-target { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.play-target label { display: flex; align-items: center; gap: 6px; }
+.play-target select { max-width: 280px; }
+.play-slots-link { margin-left: auto; }
 .play-view header { justify-content: space-between; }
 .play-view h1, .play-view p { margin: 0; }
 .play-toolbar label { display: flex; align-items: center; gap: 6px; }

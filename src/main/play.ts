@@ -42,11 +42,12 @@ export class PlayService {
     return pool
   }
   async poolState(world: string) { return { ...await this.pool(world).state(), selected: this.leases.get(world)?.id } }
-  async configurePool(world: string, cap: number) { await this.pool(world).configure(cap); this.ctx.stats.unlock('play-pool-configured') }
+  /** Settings › This project › Unity slots. Never refuses and never closes anything: extra slots drain. */
+  async configurePool(world: string, cap: number) { const result = await this.pool(world).configure(cap); this.ctx.stats.unlock('play-pool-configured'); return result }
   selectedSlot(world: string): number | undefined { return this.leases.get(world)?.id }
   /**
    * The supported recovery for a slot editor: graceful quit, timed wait, then a forced stop of
-   * only that slot's verified processes. The player (confirmed in the Play screen) may revoke
+   * only that slot's verified processes. The player (confirmed in Settings › This project › Unity slots) may revoke
    * a live lease; Genio recovers only free, orphaned or stuck slots.
    */
   async closeSlotEditor(world: string, id: number, actor: 'player' | 'genio'): Promise<void> {
@@ -77,7 +78,7 @@ export class PlayService {
       clearInterval(this.heartbeats.get(world)); this.heartbeats.delete(world)
       if (id === undefined) { await pool.cancel(`player:${process.pid}`); return }
       const lease = await pool.acquire(`player:${process.pid}`, process.pid, id, takeover)
-      if (!lease) throw new Error('All requested Play slots are leased; queued. Retry to keep your place, or take over explicitly.')
+      if (!lease) throw new Error(`Slot ${id} is busy, or units are waiting ahead of you. Take it over, or pick another slot.`)
       this.leases.set(world, lease)
       const timer = setInterval(() => void pool.check(lease.id, lease.token).catch(() => {
         clearInterval(timer); this.lostSlots.add(world); this.leases.delete(world); this.stopStreamLocal(world)

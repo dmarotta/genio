@@ -41,7 +41,7 @@ Commit the branch state you want to test in Play first: a slot copies only commi
 
 ## Play
 
-Run `play` in the background and wait for its `ready` record and the Unity import. The helper inside waits FIFO for a shared slot, seeds its Library once, and renews your lease while it runs. While queued it prints `waiting` records with your position and a rough wait: keep it running, it takes the slot by itself. The cap defaults to one; only the player's Play screen configures it. If the slot editor is open on another revision, it is closed before the branch switch; an editor on the same revision is reused. Branch changes are refused while the slot checkout has local changes. Do not delete those changes to continue.
+Run `play` in the background and wait for its `ready` record and the Unity import. The helper inside waits FIFO for a shared slot, seeds its Library once, and renews your lease while it runs. While queued it prints `waiting` records with your position, the cap, how many slots are in use or draining, and a rough wait: keep it running, it takes the slot by itself. The cap defaults to one; only the player configures it, in Settings › This project › Unity slots. A cap change applies at once and never stops a running session: a slot above a lowered cap is draining, keeps its current lease and editor until released, takes no new lease, and closes its editor on release. If the slot editor is open on another revision, it is closed before the branch switch; an editor on the same revision is reused. Branch changes are refused while the slot checkout has local changes. Do not delete those changes to continue.
 
 Then drive the slot, for example:
 

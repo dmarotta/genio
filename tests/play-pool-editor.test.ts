@@ -153,6 +153,44 @@ it('tells queued units their FIFO position and a rough wait with a cap of one', 
   expect((await pool.waitInfo('unit:c')).position).toBe(1)
 })
 
+it('lowering the cap never touches a leased slot editor; release of the draining slot closes it and retires the slot', async () => {
+  const pool = fast(); await pool.configure(2)
+  await pool.acquire('unit:a'); const b = (await pool.acquire('unit:b'))!
+  expect(b.id).toBe(2)
+  const editor = await fakeEditor(b.root, 'graceful')
+  await pool.recordEditor(2, b.token, editor.pid)
+  // No throw, nothing closed: the slot drains.
+  await expect(pool.configure(1)).resolves.toEqual({ cap: 1, draining: [2] })
+  expect(alive(editor.pid)).toBe(true)
+  expect((await pool.state()).slots[1]).toMatchObject({ owner: 'unit:b', editor: true, draining: true, retired: false })
+  expect(await pool.check(2, b.token)).toBe(b.root)
+  expect(await pool.acquire('unit:c')).toBeNull()
+  expect(await pool.waitInfo('unit:c')).toMatchObject({ position: 1, cap: 1, inUse: 1, draining: [2] })
+  // keepEditor cannot keep it: no lease may follow on a draining slot.
+  expect(await pool.release(2, b.token, { keepEditor: true })).toMatchObject({ closed: true })
+  expect(alive(editor.pid)).toBe(false); expect(alive(editor.worker)).toBe(false)
+  const retired = (await pool.state()).slots[1]
+  expect(retired).toMatchObject({ editor: false, draining: false, retired: true })
+  // Kept for cheap reuse: the copy and its Library stay on disk.
+  expect(fs.existsSync(b.root)).toBe(true)
+  expect(await pool.acquire('unit:c')).toBeNull()
+  await pool.configure(2)
+  expect((await pool.acquire('unit:c'))?.id).toBe(2)
+}, 60000)
+
+it('a cap change never stops a stubborn editor; only release runs the safe close', async () => {
+  const killed: number[] = [], terminated: number[] = []
+  const pool = fast({ system: { kill: async pid => { killed.push(pid); process.kill(pid, 'SIGKILL') }, terminate: async pid => { terminated.push(pid) } } })
+  await pool.configure(3); await pool.acquire('unit:a'); await pool.acquire('unit:b'); const c = (await pool.acquire('unit:c'))!
+  const editor = await fakeEditor(c.root, 'stubborn')
+  await pool.recordEditor(3, c.token, editor.pid)
+  for (const cap of [1, 2, 1]) await pool.configure(cap)
+  expect(killed).toEqual([]); expect(terminated).toEqual([])
+  expect(alive(editor.pid)).toBe(true)
+  expect(await pool.release(3, c.token)).toMatchObject({ closed: true, forced: true })
+  expect(killed).toEqual(expect.arrayContaining([editor.pid]))
+}, 90000)
+
 it('play.mjs exit closes the editor by default, keep_editor leaves it, and --close recovers it', async () => {
   commit('v1')
   const env = { ...process.env, GENIO_PLAY_DATA: data, GENIO_PLAY_WORLD: world, GENIO_PLAY_SOURCE: world, GENIO_PLAY_ENGINE_ROOT: '', GENIO_TASK_ID: 'probe' }

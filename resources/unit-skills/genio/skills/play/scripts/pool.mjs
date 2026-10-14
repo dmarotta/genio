@@ -36,6 +36,12 @@ const defaultSystem = {
 export function stuckMessage(id, result) {
   return `Play slot ${id} is stuck: ${result.reason}${result.pids?.length ? ` (PIDs ${result.pids.join(', ')})` : ''}. Report "blocked: Play slot ${id} stuck" to Genio; Genio or the player recovers it. Never stop Unity processes yourself.`
 }
+async function bytesUnder(dir, skip = []) {
+  let bytes = 0
+  const scan = async dir => { for (const e of await fs.promises.readdir(dir, { withFileTypes: true })) { if (e.isSymbolicLink() || skip.includes(e.name)) continue; const p = path.join(dir, e.name); if (e.isDirectory()) await scan(p); else if (e.isFile()) bytes += (await fs.promises.stat(p)).size } }
+  await scan(dir)
+  return bytes
+}
 export function poolDirectory(data, world) { return path.join(data, 'play-pools', createHash('sha256').update(canonical(world)).digest('hex').slice(0, 24)) }
 export class PlayPool {
   constructor(data, world, engineRoot = '', options = {}) {
@@ -96,13 +102,23 @@ export class PlayPool {
   }
   root(id) { if (!Number.isInteger(id) || id < 1 || id > 8) throw new Error('Invalid Play slot'); return path.join(this.dir, `slot-${id}`, this.engineRoot) }
   async state() {
-    return this.transaction(s => ({ cap: s.cap, slots: s.slots.map(v => ({ id: v.id, root: this.root(v.id), revision: v.revision, owner: v.lease?.owner, expires: v.lease?.expires, preparing: v.preparing, editor: this.editorRunning(v), closing: !!v.closing, stuck: v.stuck && { reason: v.stuck.reason, pids: v.stuck.pids, at: v.stuck.at } })), queue: s.queue.map(q => q.owner) }))
+    return this.transaction(s => ({ cap: s.cap, slots: s.slots.map(v => {
+      const editor = this.editorRunning(v)
+      const draining = this.draining(s, v, editor)
+      return { id: v.id, root: this.root(v.id), revision: v.revision, owner: v.lease?.owner, expires: v.lease?.expires, preparing: v.preparing, editor, closing: !!v.closing, stuck: v.stuck && { reason: v.stuck.reason, pids: v.stuck.pids, at: v.stuck.at }, draining, retired: v.id > s.cap && !draining }
+    }), queue: s.queue.map(q => q.owner) }))
   }
+  /** Above the cap: draining while still in use, retired once idle (kept with its Library for reuse if the cap rises). */
+  draining(s, v, editor = this.editorRunning(v)) { return v.id > s.cap && !!(v.lease || v.preparing || v.closing || editor) }
+  /**
+   * Applies at once and never refuses. Slots above a lowered cap drain: their leases and editors
+   * are left alone, they take no new lease, and release closes their editor (see release).
+   */
   async configure(cap) {
     if (!Number.isInteger(cap) || cap < 1 || cap > 8) throw new Error('Play cap must be 1–8')
     return this.transaction(s => {
-      if (s.slots.some(v => v.id > cap && (v.lease || v.closing || v.stuck || this.editorAlive(v.id)))) throw new Error('Release slots and close their editors before lowering the cap')
       s.cap = cap
+      return { cap, draining: s.slots.filter(v => this.draining(s, v)).map(v => v.id) }
     })
   }
   editorAlive(id) {
@@ -124,7 +140,7 @@ export class PlayPool {
     if (typeof owner !== 'string' || !owner || owner.length > 160 || !Number.isInteger(pid) || pid <= 0 || !alive(pid)) throw new Error('Invalid Play owner')
     if (preferred !== undefined) this.root(preferred)
     return this.transaction(s => {
-      if (preferred > s.cap) throw new Error('Slot exceeds pool cap')
+      if (preferred > s.cap) throw new Error(`Slot ${preferred} is above the cap of ${s.cap}; it takes no new leases`)
       const existing = s.slots.find(v => v.lease?.owner === owner && v.lease.pid === pid)
       if (existing) { existing.lease.expires = Date.now() + LEASE_MS; return { id: existing.id, token: existing.lease.token, root: this.root(existing.id) } }
       let request = s.queue.find(q => q.owner === owner && q.pid === pid)
@@ -153,7 +169,8 @@ export class PlayPool {
       const remaining = usable.map(v => v?.lease ? Math.max(0, average - (now - (v.lease.since ?? now))) : v?.closing ? 60000 : 0).sort((a, b) => a - b)
       const index = Math.max(0, position - 1)
       const estimateMs = remaining.length && position ? Math.round(remaining[index % remaining.length] + Math.floor(index / remaining.length) * average) : null
-      return { position, length: s.queue.length, estimateMs, holders: s.slots.filter(v => v.lease).map(v => ({ slot: v.id, owner: v.lease.owner })), stuck: s.slots.filter(v => v.stuck && v.id <= s.cap).map(v => ({ slot: v.id, reason: v.stuck.reason, pids: v.stuck.pids })) }
+      const inUse = Array.from({ length: s.cap }, (_, i) => s.slots.find(v => v.id === i + 1)).filter(v => v && (v.lease || v.preparing || v.closing || v.stuck)).length
+      return { position, length: s.queue.length, estimateMs, cap: s.cap, inUse, draining: s.slots.filter(v => this.draining(s, v)).map(v => v.id), holders: s.slots.filter(v => v.lease).map(v => ({ slot: v.id, owner: v.lease.owner })), stuck: s.slots.filter(v => v.stuck && v.id <= s.cap).map(v => ({ slot: v.id, reason: v.stuck.reason, pids: v.stuck.pids })) }
     })
   }
   async check(id, token) { return this.transaction(s => { const v = s.slots.find(v => v.id === id); if (!v?.lease || v.lease.token !== token) throw new Error('Play lease lost; stop controlling this editor'); v.lease.expires = Date.now() + LEASE_MS; return this.root(id) }) }
@@ -164,7 +181,8 @@ export class PlayPool {
   }
   /**
    * Release means the slot editor is gone: it is closed before the slot is free again.
-   * keepEditor leaves it running for the next lease of the same revision.
+   * keepEditor leaves it running for the next lease of the same revision, except on a draining
+   * slot (above a lowered cap): that one closes and retires, as no lease may follow there.
    * Returns undefined when the token no longer holds the slot (a successor keeps it).
    */
   async release(id, token, { keepEditor = false } = {}) {
@@ -175,7 +193,7 @@ export class PlayPool {
       this.endLease(s, v); v.preparing = false
       if (v.stuck) return { closed: false, pids: v.stuck.pids, reason: v.stuck.reason }
       if (!this.editorRunning(v)) return { closed: true, pids: [] }
-      if (keepEditor) { v.editor = { ...v.editor, owner }; return { closed: false, kept: true, pids: [] } }
+      if (keepEditor && v.id <= s.cap) { v.editor = { ...v.editor, owner }; return { closed: false, kept: true, pids: [] } }
       return this.markClosing(v)
     })
     return Array.isArray(mark) ? this.finishClose(...mark) : mark
@@ -293,11 +311,12 @@ export class PlayPool {
     })
   }
   async releaseMain() { return this.transaction(s => { if (s.main?.pid === process.pid) delete s.main }) }
-  async estimate() {
-    let bytes = 0
-    const scan = async dir => { for (const e of await fs.promises.readdir(dir, { withFileTypes: true })) { if (e.isSymbolicLink() || ['.git', 'Temp', 'Logs'].includes(e.name)) continue; const p = path.join(dir, e.name); if (e.isDirectory()) await scan(p); else if (e.isFile()) bytes += (await fs.promises.stat(p)).size } }
-    await scan(path.join(this.world, this.engineRoot))
-    return bytes
+  async estimate() { return bytesUnder(path.join(this.world, this.engineRoot), ['.git', 'Temp', 'Logs']) }
+  /** Disk each slot copy uses now, clone and Library included, by slot id. */
+  async disk() {
+    const out = {}
+    for (let id = 1; id <= 8; id++) { const dir = path.join(this.dir, `slot-${id}`); if (fs.existsSync(dir)) out[id] = await bytesUnder(dir) }
+    return out
   }
   async prepare(id, token, source = this.world) {
     await this.check(id, token)

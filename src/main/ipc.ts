@@ -66,6 +66,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     playPool: world => playService(ctx()).poolState(world),
     playPoolCap: (world, cap) => playService(ctx()).configurePool(world, cap),
     playPoolEstimate: world => playService(ctx()).pool(world).estimate(),
+    playPoolDisk: world => playService(ctx()).pool(world).disk(),
     playSelectSlot: (world, id, takeover) => playService(ctx()).selectSlot(world, id, takeover),
     playCloseSlotEditor: (world, id) => playService(ctx()).closeSlotEditor(world, id, 'player'),
     playDetach: world => playService(ctx()).detach(world),
