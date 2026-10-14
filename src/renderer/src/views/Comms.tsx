@@ -188,11 +188,29 @@ function ChatLog({ wksp, surface, messages: all, calm, busy, gamertag, activityD
   const follow = useRef(!scrollMemory.has(memoryKey))
   const [following, setFollowing] = useState(follow.current)
   const intent = useRef({ at: -Infinity, dragging: false })
+  const jumping = useRef(false)
   const setFollow = useCallback((v: boolean) => { follow.current = v; setFollowing(v) }, [])
   const pin = useCallback(() => {
     const el = ref.current
-    if (el && follow.current) el.scrollTop = el.scrollHeight
+    if (el && follow.current && !jumping.current) el.scrollTop = el.scrollHeight
   }, [])
+  const finishJump = useCallback(() => {
+    if (!jumping.current) return
+    jumping.current = false
+    pin()
+  }, [pin])
+  const jumpToLatest = useCallback(() => {
+    const el = ref.current
+    if (!el) return
+    // The click supersedes the wheel/key/drag that left us above the bottom. Otherwise a scroll
+    // event from late content-visibility layout can interpret that old intent as a new scroll-up.
+    intent.current = { at: -Infinity, dragging: false }
+    setFollow(true)
+    scrollMemory.delete(memoryKey)
+    jumping.current = true
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    if (el.scrollHeight - el.scrollTop - el.clientHeight <= 1) finishJump()
+  }, [memoryKey, setFollow, finishJump])
   // queued messages wait under everything else, in send order, until the session picks them up
   const { log: messages, queued } = useMemo(() => splitQueued(all), [all])
 
@@ -208,15 +226,22 @@ function ChatLog({ wksp, surface, messages: all, calm, busy, gamertag, activityD
     if (body.current) ro.observe(body.current)
     const key = (e: KeyboardEvent): void => {
       const t = e.target as HTMLElement | null
-      if (SCROLL_KEYS.has(e.key) && !t?.closest?.('input, textarea, select, [contenteditable="true"]')) intent.current.at = performance.now()
+      if (SCROLL_KEYS.has(e.key) && !t?.closest?.('input, textarea, select, [contenteditable="true"]')) {
+        intent.current.at = performance.now()
+        jumping.current = false
+      }
     }
     const release = (): void => { intent.current.dragging = false }
     const view = el.ownerDocument.defaultView ?? window
     view.addEventListener('keydown', key)
     view.addEventListener('pointerup', release)
     view.addEventListener('pointercancel', release)
+    // Do not snap each intermediate smooth-scroll event. Once it ends, catch the actual bottom
+    // (which may have grown since the click), then let the observer keep following late layout.
+    el.addEventListener('scrollend', finishJump)
     return () => {
       ro.disconnect()
+      el.removeEventListener('scrollend', finishJump)
       view.removeEventListener('keydown', key)
       view.removeEventListener('pointerup', release)
       view.removeEventListener('pointercancel', release)
@@ -227,18 +252,18 @@ function ChatLog({ wksp, surface, messages: all, calm, busy, gamertag, activityD
         if (at) scrollMemory.set(memoryKey, at)
       }
     }
-  }, [memoryKey, pin, setFollow])
+  }, [memoryKey, pin, setFollow, finishJump])
 
   useLayoutEffect(pin, [all, busy, pin])
 
-  const markIntent = (): void => { intent.current.at = performance.now() }
+  const markIntent = (): void => { intent.current.at = performance.now(); jumping.current = false }
   return (
     <div
       className="chat-log"
       ref={ref}
       onWheel={markIntent}
       onTouchMove={markIntent}
-      onPointerDown={() => { intent.current.dragging = true }}
+      onPointerDown={() => { intent.current.dragging = true; jumping.current = false }}
       onScroll={(e) => {
         const el = e.currentTarget
         if (el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM) { if (!follow.current) setFollow(true) }
@@ -301,7 +326,7 @@ function ChatLog({ wksp, surface, messages: all, calm, busy, gamertag, activityD
       </div>
       {!following && (
         <div className="chat-jump-dock">
-          <button className="btn sm chat-jump" onClick={() => { setFollow(true); pin() }}>
+          <button className="btn sm chat-jump" onClick={jumpToLatest}>
             <ArrowDown size={13} /> Jump to latest
           </button>
         </div>

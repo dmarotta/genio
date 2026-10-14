@@ -11,14 +11,20 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { ChatMessage } from '../src/shared/types'
 
 vi.mock('../src/renderer/src/views/Systems', () => ({ ModelSelect: () => null, EffortSelect: () => null, requestSystemsSection: () => undefined }))
+vi.mock('../src/renderer/src/store', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../src/renderer/src/store')>(),
+  PROJECT_WINDOW: 'scroll-fixture', PROJECT_WKSP: 'genio'
+}))
 
-import { ChatPanel } from '../src/renderer/src/views/Comms'
+import { ChatPanel, Comms } from '../src/renderer/src/views/Comms'
+import { GenioPanel } from '../src/renderer/src/components/GenioPanel'
 import { getState, handleEvent, setState } from '../src/renderer/src/store'
 
 const WKSP = 'genio'
 const VIEWPORT = 600, MSG = 72, LAID = 180
 const initial = getState()
 let root: Root, host: HTMLDivElement
+let mounted = false
 let height = MSG
 const tops = new WeakMap<Element, number>()
 const observers = new Set<() => void>()
@@ -41,13 +47,15 @@ async function settle(): Promise<void> {
     for (const fire of observers) fire()
   })
 }
-async function mount(): Promise<void> {
+async function mount(surface?: 'screen' | 'panel'): Promise<void> {
   height = MSG
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
-  await act(async () => { root.render(React.createElement(ChatPanel, { wksp: WKSP })) })
+  mounted = true
+  if (surface === 'panel') setState({ view: 'squad' })
+  await act(async () => { root.render(surface === 'panel' ? React.createElement(GenioPanel) : surface === 'screen' ? React.createElement(Comms) : React.createElement(ChatPanel, { wksp: WKSP })) })
 }
 async function unmount(): Promise<void> {
-  await act(async () => root.unmount()); host.remove()
+  await act(async () => root.unmount()); host.remove(); mounted = false
 }
 /** The player scrolls by hand (wheel), to `top`. */
 async function wheelTo(top: number): Promise<void> {
@@ -59,11 +67,15 @@ async function wheelTo(top: number): Promise<void> {
 }
 
 beforeEach(() => {
+  localStorage.clear()
   Object.assign(globalThis, {
     IS_REACT_ACT_ENVIRONMENT: true,
     ResizeObserver: class { cb: () => void; constructor(cb: () => void) { this.cb = cb } observe() { observers.add(this.cb) } disconnect() { observers.delete(this.cb) } }
   })
   const proto = HTMLElement.prototype
+  Object.defineProperty(proto, 'scrollTo', { configurable: true, value: vi.fn(function (this: HTMLElement, options: ScrollToOptions) {
+    this.scrollTop = options.top ?? this.scrollTop
+  }) })
   vi.spyOn(proto, 'scrollHeight', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('chat-log') ? Math.max(VIEWPORT, contentHeight(this)) : 0 })
   vi.spyOn(proto, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('chat-log') ? VIEWPORT : 0 })
   Object.defineProperty(proto, 'scrollTop', {
@@ -79,11 +91,82 @@ beforeEach(() => {
   setState({ ...initial, chats: { [WKSP]: transcript(300) }, chatLoaded: { [WKSP]: true }, settings: { gamertag: 'Dani', calm: false } as never,
     snap: { ...initial.snap, wksps: [{ name: WKSP, displayName: 'Genio', activity: 'idle', costUsd: 0, turns: 0, queued: 0 }] } })
 })
-afterEach(() => {
+afterEach(async () => {
+  if (mounted) {
+    // Failed assertions must not leave a mounted log or remembered scroll-up for the next case.
+    await act(async () => { log().scrollTop = log().scrollHeight; log().dispatchEvent(new Event('scroll')) })
+    await unmount()
+  }
   vi.restoreAllMocks()
   delete (HTMLElement.prototype as { scrollTop?: number }).scrollTop
+  delete (HTMLElement.prototype as { scrollTo?: unknown }).scrollTo
   observers.clear()
   setState(initial)
+})
+
+it.each(['screen', 'panel'] as const)('jumps to the latest in the %s host despite recent wheel input and late layout while streaming', async (surface) => {
+  await mount(surface)
+  await wheelTo(20 * MSG + 30)
+  const before = log().scrollTop
+  await act(async () => { handleEvent({ type: 'chat-delta', wksp: WKSP, id: 'm-stream', text: 'streaming ' }) })
+  expect(log().scrollTop).toBe(before)
+  expect(jump()).not.toBeNull()
+  const button = jump()!
+  await act(async () => {
+    button.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+    button.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }))
+    button.click()
+  })
+  await settle()
+  expect(log().scrollTop).toBe(maxTop(log()))
+  expect(jump()).toBeNull()
+  await act(async () => { handleEvent({ type: 'chat-delta', wksp: WKSP, id: 'm-stream', text: 'more tokens ' }) })
+  expect(log().scrollTop).toBe(maxTop(log()))
+  await unmount()
+})
+
+it.each(['screen', 'panel'] as const)('lets the %s jump animate, then catches the bottom after streaming and repeated layout changes', async (surface) => {
+  await mount(surface)
+  await wheelTo(20 * MSG)
+  // Model a browser smooth scroll: scrollTo returns before any intermediate scroll events.
+  const scroll = vi.spyOn(log(), 'scrollTo').mockImplementation(() => {})
+  await act(async () => jump()!.click())
+  expect(scroll).toHaveBeenCalledWith({ top: log().scrollHeight, behavior: 'smooth' })
+  const midway = maxTop(log()) / 2
+  await act(async () => { log().scrollTop = midway; log().dispatchEvent(new Event('scroll')) })
+  expect(log().scrollTop).toBe(midway)
+  await act(async () => { handleEvent({ type: 'chat-delta', wksp: WKSP, id: 'm-stream', text: 'arrives during jump ' }) })
+  await settle()
+  expect(log().scrollTop).toBe(midway)
+  // Chromium reports completion against the original (estimated) target, now short of the bottom.
+  await act(async () => { log().scrollTop = 300 * MSG - VIEWPORT; log().dispatchEvent(new Event('scrollend')) })
+  expect(log().scrollTop).toBe(maxTop(log()))
+  expect(jump()).toBeNull()
+  height += 30
+  await act(async () => {
+    log().dispatchEvent(new Event('scroll'))
+    for (const fire of observers) fire()
+  })
+  expect(log().scrollTop).toBe(maxTop(log()))
+  expect(jump()).toBeNull()
+  await unmount()
+})
+
+it.each(['screen', 'panel'] as const)('respects a new manual scroll-up during the %s jump', async (surface) => {
+  await mount(surface)
+  await wheelTo(20 * MSG)
+  vi.spyOn(log(), 'scrollTo').mockImplementation(() => {})
+  await act(async () => jump()!.click())
+  await wheelTo(10 * MSG)
+  const before = log().scrollTop
+  await settle()
+  await act(async () => {
+    log().dispatchEvent(new Event('scrollend'))
+    handleEvent({ type: 'chat-delta', wksp: WKSP, id: 'm-stream', text: 'still streaming ' })
+  })
+  expect(log().scrollTop).toBe(before)
+  expect(jump()).not.toBeNull()
+  // afterEach returns to the bottom before unmounting so this case does not retain scroll memory.
 })
 
 it('lands on the latest message of a long transcript once late layout settles', async () => {

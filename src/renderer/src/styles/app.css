@@ -314,7 +314,9 @@ button.usage-toggle:hover { color: var(--text); }
 .chat-log-body > * { width: 100%; }
 /* Zero-height dock: the jump button floats at the bottom of the scrolled-up log without adding scroll height. */
 .chat-jump-dock { position: sticky; bottom: 0; height: 0; display: flex; justify-content: center; overflow: visible; }
-.chat-jump { transform: translateY(calc(-100% - 10px)); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); }
+/* Position above the dock without a transform: the shared .btn:active press transform must not
+   move the button away from the pointer between pointerdown and pointerup and swallow the click. */
+.chat-jump { position: absolute; bottom: 10px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); }
 .chat-empty { margin: auto; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 14px; max-width: 520px; }
 .chat-empty p { margin: 0; line-height: 1.6; }
 .quick-chips { display: flex; gap: 10px; margin-top: 6px; }
