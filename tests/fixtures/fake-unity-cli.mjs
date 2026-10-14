@@ -2,6 +2,7 @@
 // appended to FAKE_UNITY_CALLS; FAKE_UNITY_* variables pick the outcome.
 import fs from 'node:fs'
 import path from 'node:path'
+import { editorHolders } from '../../resources/unit-skills/genio/lib/unity-editors.mjs'
 
 const argv = process.argv.slice(2)
 const env = process.env
@@ -9,13 +10,16 @@ const flag = name => { const i = argv.indexOf(name); return i < 0 ? undefined : 
 const after = argv.includes('--') ? argv.slice(argv.indexOf('--') + 1) : []
 const editorFlag = name => { const i = after.indexOf(name); return i < 0 ? undefined : after[i + 1] }
 const project = ['test', 'run', 'build'].includes(argv[0]) ? argv[1] : flag('--project-path')
-if (env.FAKE_UNITY_CALLS) fs.appendFileSync(env.FAKE_UNITY_CALLS, JSON.stringify({ argv, seeded: project ? fs.existsSync(path.join(project, 'Library', 'warm')) : undefined, credentials: project ? fs.existsSync(path.join(project, 'Library', 'Pipeline')) : undefined }) + '\n')
+if (env.FAKE_UNITY_CALLS) fs.appendFileSync(env.FAKE_UNITY_CALLS, JSON.stringify({ argv, seeded: project ? fs.existsSync(path.join(project, 'Library', 'warm')) : undefined, credentials: project ? fs.existsSync(path.join(project, 'Library', 'Pipeline')) : undefined,
+  seats: env.FAKE_UNITY_SEATS ? editorHolders(env.FAKE_UNITY_SEATS) : undefined }) + '\n')
 const json = (code, data, errors = []) => { process.stdout.write(JSON.stringify({ success: code === 0, command: argv[0], data, errors, warnings: [] }, null, 2) + '\n'); process.exit(code) }
 
 const NUNIT = {
   pass: '<?xml version="1.0"?><test-run id="2" testcasecount="2" result="Passed" total="2" passed="2" failed="0" inconclusive="0" skipped="0"><test-suite><test-case id="1" name="Jumps" fullname="Game.Tests.Jumps" result="Passed" duration="0.1"/><test-case id="2" name="Lands" fullname="Game.Tests.Lands" result="Passed" duration="0.2"/></test-suite></test-run>',
   fail: '<?xml version="1.0"?><test-run id="2" testcasecount="2" result="Failed(Child)" total="2" passed="1" failed="1" inconclusive="0" skipped="0"><test-suite><test-case id="1" name="Jumps" fullname="Game.Tests.Jumps" result="Passed" duration="0.1"/><test-case id="2" name="DoubleJump" fullname="Game.Tests.DoubleJump" result="Failed" duration="0.3"><failure><message><![CDATA[Expected 2 jumps & got 1]]></message></failure></test-case></test-suite></test-run>',
-  none: '<?xml version="1.0"?><test-run id="2" testcasecount="0" result="Passed" total="0" passed="0" failed="0" inconclusive="0" skipped="0"></test-run>'
+  none: '<?xml version="1.0"?><test-run id="2" testcasecount="0" result="Passed" total="0" passed="0" failed="0" inconclusive="0" skipped="0"></test-run>',
+  skipped: '<test-run total="2" passed="0" failed="0" skipped="2" inconclusive="0" result="Skipped"><test-case name="Ignored" result="Skipped"/></test-run>',
+  malformed: '<test-run total="2" passed="2" failed="bad" skipped="0" inconclusive="0"></test-run>'
 }
 
 switch (argv[0]) {
@@ -26,9 +30,9 @@ switch (argv[0]) {
   case 'test': {
     const scenario = env.FAKE_UNITY_TESTS ?? 'pass'
     fs.writeFileSync(editorFlag('-logFile'), `Running tests in ${project}\n`)
-    fs.writeFileSync(flag('--output'), NUNIT[scenario])
+    if (scenario !== 'missing') fs.writeFileSync(flag('--output'), NUNIT[scenario])
     fs.writeFileSync(flag('--junit-output'), '<testsuites/>')
-    json(scenario === 'fail' ? 8 : 0, { total: scenario === 'pass' ? 2 : scenario === 'fail' ? 2 : 0 })
+    json(Number(env.FAKE_UNITY_TEST_EXIT ?? (scenario === 'fail' ? 8 : 0)), { total: scenario === 'pass' ? 2 : scenario === 'fail' ? 2 : 0 })
   }
   case 'run': {
     const broken = env.FAKE_UNITY_COMPILE === 'error'

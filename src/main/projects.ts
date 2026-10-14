@@ -68,7 +68,7 @@ async function proposalFor(p: Project, engine: Engine, engineRoot: string, candi
 /**
  * Re-detect a project's engine and record what the scan found in `detected`. Detection alone sets the
  * engine and its root. When either changes, only the commands the entry leaves unset are filled; a
- * default Unity test command follows the editor version as before. The retired manual flags are dropped.
+ * default Unity test commands migrate to the managed wrapper. The retired manual flags are dropped.
  */
 export async function refreshEngine(p: Project): Promise<Project> {
   const det = await detectProject(p.path)

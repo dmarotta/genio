@@ -11,6 +11,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { isDefaultUnityTest, unityTestCommand } from './play-editor'
+import { runUnityGate } from './gauntlet-unity'
+import { findUnityCli, unityUnitConfig } from './unity-unit'
+import { unitPluginSource } from './unitskills'
 import { effectiveEngine } from '@shared/engine'
 import type { Options } from '@anthropic-ai/claude-agent-sdk'
 import type { Project, Task, ValidationRun, ValidationStep } from '@shared/types'
@@ -139,9 +142,13 @@ export function createGauntlet(getCtx: () => AppCtx, home: Home): Gauntlet {
     const t = crew.get(taskId)
     if (!t) return { ok: false, message: `Unknown unit: ${taskId}` }
     if (t.kind !== 'ship') return { ok: false, message: 'Recon missions do not run the Gauntlet.' }
-    if (!exists(t.worktree)) return { ok: false, message: 'The unit worktree is gone.' }
+    const refuse = (message: string): OpResult => {
+      if (t.state === 'validating') crew.update(taskId, { state: 'blocked', stateReason: message })
+      return { ok: false, message }
+    }
+    if (!exists(t.worktree)) return refuse('The unit worktree is gone.')
     const project = ctx.projects.get(t.project)
-    if (!project) return { ok: false, message: `Project ${t.project} is not registered.` }
+    if (!project) return refuse(`Project ${t.project} is not registered.`)
     const settings = ctx.settings.get()
     const prev = t.validation
     const round = prev && prev.state === 'findings' ? prev.round + 1 : 1
@@ -158,10 +165,9 @@ export function createGauntlet(getCtx: () => AppCtx, home: Home): Gauntlet {
     }
 
     const cmds = { ...project.commands }
-    const unity = isDefaultUnityTest(cmds.test) ? unityTestRoot(project, t.worktree) : undefined
+    const unity = !cmds.test || isDefaultUnityTest(cmds.test) ? unityTestRoot(project, t.worktree) : undefined
     if (unity) {
       const command = unityTestCommand(unity.dir, unity.relative)
-      if (!command) return { ok: false, message: 'The Unity version required by this worktree is not installed in Unity Hub.' }
       cmds.test = command
     }
     active.add(taskId)
@@ -228,6 +234,21 @@ export function createGauntlet(getCtx: () => AppCtx, home: Home): Gauntlet {
       if (!syncIssues.length) {
         for (const st of vr.steps.filter((x) => x.command)) {
           begin(st)
+          if (unity && st.name === 'test') {
+            const config = unityUnitConfig(project, { task: taskId, worktree: t.worktree, data: (home.parent ?? home).data,
+              taskDir: path.join(home.taskDir(taskId), 'gauntlet'), cli: findUnityCli() })!
+            const r = await runUnityGate(config, path.join(unitPluginSource(ctx.appRoot), 'skills/unity/scripts/genio-unity.mjs'),
+              home.taskStateFile(taskId, '.gauntlet-unity.json'), STEP_TIMEOUT_MS)
+            log(r.output)
+            end(st, r.outcome === 'passed' ? 'passed' : 'failed', r.output)
+            if (r.outcome === 'infra') {
+              skipRest()
+              return infra(taskId, vr, `Unity validation could not complete for "${t.title}". Retry after restoring the test environment, or drop the mission?`,
+                ['Retry the Gauntlet', 'Drop the mission'], r.output)
+            }
+            if (r.outcome === 'findings') findings.push(`### Unity tests failed (exit ${r.code})\n${r.output}`)
+            continue
+          }
           const r = await runShell(st.command!, { cwd: t.worktree, timeoutMs: STEP_TIMEOUT_MS, onData: (d) => fs.appendFileSync(logFile, d) })
           const outTail = (r.stdout + '\n' + r.stderr).trim().split(/\r?\n/).slice(-80).join('\n')
           if (r.code === 0) end(st, 'passed', outTail)
@@ -367,11 +388,12 @@ export function createGauntlet(getCtx: () => AppCtx, home: Home): Gauntlet {
     return { ok: false, message: r.ok ? `Gauntlet round ${round} found problems; pinged the unit with fixes.` : `Gauntlet found problems but the ping failed: ${r.message}` }
   }
 
-  function infra(taskId: string, vr: ValidationRun, question: string, options: string[]): OpResult {
+  function infra(taskId: string, vr: ValidationRun, question: string, options: string[], context?: string): OpResult {
     const t = hc().crew.get(taskId)
     vr.state = 'failed'
     vr.endedAt = nowIso()
-    hc().decisions.openForTask(taskId, 'gauntlet', question, 'validation', { project: t?.project, options })
+    hc().decisions.openForTask(taskId, 'gauntlet', question, 'validation', { project: t?.project, options, context,
+      ...(context ? { recommendation: options[0] } : {}) })
     hc().crew.update(taskId, { validation: { ...vr }, state: 'needs-decision', stateReason: 'Gauntlet needs the player' })
     return { ok: false, message: question }
   }

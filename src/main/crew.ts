@@ -405,7 +405,13 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           safe(() => ctx.notifier.sfx('ready'))
         } else if (mode === 'no-mistakes') {
           update(t.id, { state: 'validating', stateReason: 'Gauntlet starting' })
-          void gauntlet.run(t.id).catch(() => undefined)
+          void gauntlet.run(t.id).then(r => {
+            if (!r.ok && svc.get(t.id)?.state === 'validating' && !gauntlet.running(t.id)) {
+              update(t.id, { state: 'blocked', stateReason: r.message })
+            }
+          }).catch(e => {
+            update(t.id, { state: 'blocked', stateReason: `Gauntlet error: ${(e as Error).message}` })
+          })
         } else {
           update(t.id, { state: 'paused', stateReason: 'Completion reported; checking for a PR' })
           void (async () => {

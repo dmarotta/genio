@@ -168,6 +168,17 @@ describe('non-destructive lifecycle recovery', () => {
     expect(crew.get(task.id)).toMatchObject({ state: 'ready', automaticRelaunches: 0 })
   })
 
+  it.each(['missing', 'error'])('completion cannot leave validating behind when Gauntlet preflight has a project %s', async failure => {
+    const crew = ctx.main.crew
+    if (failure === 'error') vi.spyOn(ctx.projects, 'get').mockImplementation(() => { throw new Error('project lookup failed') })
+    crew.update(task.id, { state: 'working', mode: 'no-mistakes' })
+    crew.appendStatus(task.id, 'done: committed')
+    crew.readNewStatus(task.id)
+    await Promise.resolve(); await Promise.resolve()
+    expect(crew.get(task.id)).toMatchObject({ state: 'blocked' })
+    expect(crew.get(task.id)?.stateReason).toContain(failure === 'error' ? 'project lookup failed' : 'not registered')
+  })
+
   it('preserves work and resets retry history when deliberate restart fails, and releases phantom capacity', async () => {
     ctx.terminals.create = vi.fn(() => { throw new Error('terminal launch failed') })
     const result = await ctx.main.crew.control(task.id, 'relaunch', 'resume existing work', true)

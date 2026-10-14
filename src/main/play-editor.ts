@@ -18,17 +18,14 @@ export function unityEditor(root: string, bases?: string[]): string | undefined 
   }
   return bases.map(base => path.join(base, version, process.platform === 'darwin' ? 'Unity.app/Contents/MacOS/Unity' : process.platform === 'win32' ? 'Editor/Unity.exe' : 'Editor/Unity')).find(p => fs.existsSync(p))
 }
-export function unityTestCommand(root: string, relativeRoot = '.'): string | undefined {
-  const editor = unityEditor(root)
-  if (!editor) return undefined
-  // This command runs through cmd.exe (runShell), never the unity CLI alias.
-  if (/["%\r\n]/.test(editor + relativeRoot)) return undefined
-  const quote = (s: string) => process.platform === 'win32' ? `"${s}"` : `'${s.replace(/'/g, `'"'"'`)}'`
-  return `${quote(editor)} -batchmode -projectPath ${relativeRoot === '.' ? '.' : quote(relativeRoot)} -runTests -testPlatform EditMode -logFile -`
+/** Marker for the Gauntlet's managed test step; target and executable come from its config. */
+export function unityTestCommand(_root: string, _relativeRoot = '.'): string {
+  return 'genio-unity test --mode EditMode'
 }
 export function isLegacyUnityTest(command?: string): boolean {
   return !!command && /^Unity -batchmode -projectPath (?:\.|"[^"\r\n]+") -runTests -testPlatform EditMode -logFile -$/i.test(command)
 }
 export function isDefaultUnityTest(command?: string): boolean {
+  if (command === unityTestCommand('')) return true
   return isLegacyUnityTest(command) || !!command && /^(?:"[^"\r\n]+[\\/]Editor[\\/]Unity\.exe"|'[^'\r\n]+[\\/](?:Editor[\\/]Unity|Unity\.app[\\/]Contents[\\/]MacOS[\\/]Unity)') -batchmode -projectPath (?:\.|"[^"\r\n]+"|'[^'\r\n]+') -runTests -testPlatform EditMode -logFile -$/.test(command)
 }

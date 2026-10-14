@@ -29,8 +29,8 @@ it.each(['', 'FoundersOfAvalonUnity', 'games/My Game'])('finds Unity at %s with 
   put(`${engineRoot ? engineRoot + '/' : ''}ProjectSettings/ProjectVersion.txt`)
   const detected = await detectProject(root)
   expect(detected).toMatchObject({ engine: 'unity', engineRoot })
-  // No version or installed editor: never propose the colliding Unity CLI alias.
-  expect(detected.commands.test).toBeUndefined()
+  // Availability is checked by the managed gate, so a missing editor cannot silently skip testing.
+  expect(detected.commands.test).toBe('genio-unity test --mode EditMode')
 })
 
 it('finds nested Godot with GUT and Unreal', async () => {
@@ -86,6 +86,16 @@ it('detection alone sets the engine: retired manual flags and legacy entries fol
   const legacy = await refreshEngine(project({ engine: 'unity' }))
   expect(legacy).toMatchObject({ engineRoot: 'FoundersOfAvalonUnity' })
   expect(legacy.engineProposal).toBeUndefined()
+})
+
+it('migrates generated Unity test commands to the wrapper when the stored root is unchanged', async () => {
+  put('Game/ProjectSettings/ProjectVersion.txt')
+  for (const test of ['Unity -batchmode -projectPath "Game" -runTests -testPlatform EditMode -logFile -',
+    '"C:/Unity/Hub/Editor/6000.0.1f1/Editor/Unity.exe" -batchmode -projectPath "Game" -runTests -testPlatform EditMode -logFile -']) {
+    expect(await refreshEngine(project({ engine: 'unity', engineRoot: 'Game', commands: { test } }))).toMatchObject({
+      commands: { test: 'genio-unity test --mode EditMode' }
+    })
+  }
 })
 
 it('refreshes persisted engines on startup refresh and sync, and rejects engine patches', async () => {
