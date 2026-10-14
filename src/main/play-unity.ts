@@ -64,7 +64,7 @@ export class UnityAdapter implements EngineAdapter {
   private descriptor(): Descriptor {
     let d: Descriptor
     try { d = JSON.parse(fs.readFileSync(path.join(this.root, 'Library/Pipeline/.unity-pipeline-port'), 'utf8')) }
-    catch { throw new Error('No connected Unity editor. Open in Unity.') }
+    catch { throw new Error('No connected Unity editor. Open the project in Unity first.') }
     if (!d.projectPath || !samePath(d.projectPath, this.root) || d.mode !== 'editor' || (d.host && d.host !== '127.0.0.1')) throw new Error('Refusing a different, headless or non-local editor')
     const age = Date.now() - Date.parse(d.lastHeartbeat)
     // Pipeline 0.8 writes this timestamp at server startup, not every tick.
