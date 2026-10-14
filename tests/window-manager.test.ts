@@ -11,7 +11,6 @@ vi.mock('../src/main/ipc', () => ({ registerIpc: (_ctx: unknown, windows: unknow
 vi.mock('../src/main/win-identity', () => ({ ensureWindowsToastIdentity: () => {}, setWindowsAppId: () => {} }))
 vi.mock('../src/main/fal-service', () => ({ MEDIA_SCHEME: 'genio-media', mediaResponse: () => {} }))
 vi.mock('../src/main/chat-images', () => ({ chatImageDir: () => '', chatImagePath: () => undefined }))
-vi.mock('../src/main/home', () => ({ defaultHomeRoot: () => '/nonexistent-test-home' }))
 vi.mock('../src/main/util', () => ({ nowIso: () => '', writeJson: (p: string, data: unknown) => { if (p.endsWith('chat-popout.json')) f.popouts = data }, readJson: () => f.popouts ?? {} }))
 vi.mock('node:fs', () => ({ default: { mkdirSync: () => {}, unlinkSync: () => {} } }))
 vi.mock('electron', async () => {

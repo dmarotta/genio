@@ -19,6 +19,11 @@ import { projectFromArgv, projectSnapshot, terminalProject, type WindowBinding }
 import { createEventRouter, type RoutedWindow } from './event-router'
 import type { GenioEvent } from '@shared/types'
 import { fitInto, isChatPopoutUrl, POPOUT_MIN, visiblePopoutBounds, type Rect } from '@shared/chat-popout'
+import { captureUserData } from './capture-isolation'
+
+// Validate before single-instance locking, Base writes, or provider startup.
+const captureData = captureUserData()
+if (captureData) app.setPath('userData', captureData)
 
 const windows = new Map<BrowserWindow, WindowBinding | undefined>()
 let openQueue: Promise<unknown> = Promise.resolve()
@@ -372,7 +377,7 @@ function wireEvents(): void {
   ctx!.terminals.onAnyData(router.terminalData)
 }
 
-async function shutdown(): Promise<void> {
+async function shutdown(code = 0): Promise<void> {
   try {
     if (ctx) await Promise.race([stopApp(ctx), new Promise((r) => setTimeout(r, 4000))])
   } catch {
@@ -384,7 +389,7 @@ async function shutdown(): Promise<void> {
     /* ignore */
   }
   clearLock()
-  app.exit(0)
+  app.exit(code)
 }
 
 /** Units still in play, in one project or (no project) across every window. */
@@ -449,7 +454,7 @@ async function captureTour(dir: string, win: BrowserWindow, binding?: WindowBind
     await win.webContents.executeJavaScript(`window.dispatchEvent(new KeyboardEvent('keydown', { key: '1', ctrlKey: true, bubbles: true }))`)
     await wait(700)
     fs.writeFileSync(path.join(dir, `project-${binding.project}-chat.png`), (await win.webContents.capturePage()).toPNG())
-    if (![...windows.values()].some(b => !b)) { quitting = true; app.exit(0) }
+    if (![...windows.values()].some(b => !b)) { quitting = true; await shutdown() }
     return
   }
   fs.writeFileSync(path.join(dir, 'hub.png'), (await win.webContents.capturePage()).toPNG())
@@ -482,7 +487,7 @@ async function captureTour(dir: string, win: BrowserWindow, binding?: WindowBind
         console.error('[capture] failed', c.name, e)
         fs.writeFileSync(path.join(dir, 'scenario-failure.png'), (await win.webContents.capturePage()).toPNG())
         quitting = true
-        app.exit(1)
+        await shutdown(1)
         return
       }
       const img = await win.webContents.capturePage()
@@ -490,7 +495,7 @@ async function captureTour(dir: string, win: BrowserWindow, binding?: WindowBind
       console.log('[capture]', c.name)
     }
     quitting = true
-    app.exit(0)
+    await shutdown()
     return
   }
   const views = ['comms', 'squad', 'quests', 'yourmove', 'status', 'worlds', 'unbound', 'systems', 'inventory']
@@ -506,5 +511,5 @@ async function captureTour(dir: string, win: BrowserWindow, binding?: WindowBind
   }
   console.log('[capture] tour complete')
   quitting = true
-  app.exit(0)
+  await shutdown()
 }

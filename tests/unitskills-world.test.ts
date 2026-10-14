@@ -7,6 +7,7 @@ import { execFile } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { unitPluginSource } from '../src/main/unitskills'
+import { assertIsolatedHomes } from './support/isolated-homes.mjs'
 
 const APP_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const PLUGIN = unitPluginSource(APP_ROOT)
@@ -39,8 +40,9 @@ interface Run {
 
 function runNode(script: string, args: string[], env: Record<string, string | undefined> = {}): Promise<Run> {
   const childEnv: NodeJS.ProcessEnv = { ...process.env }
-  for (const k of ['FAL_KEY', 'GENIO_FAL_TEST_BASE', 'GENIO_TASK_ID', 'GENIO_CODEX_BIN', 'GENIO_CODEX_IMAGE_SCRATCH', 'CODEX_HOME', 'GENIO_HOME']) delete childEnv[k]
+  for (const k of ['FAL_KEY', 'GENIO_FAL_TEST_BASE', 'GENIO_TASK_ID', 'GENIO_CODEX_BIN', 'GENIO_CODEX_IMAGE_SCRATCH']) delete childEnv[k]
   Object.assign(childEnv, env)
+  assertIsolatedHomes(childEnv)
   return new Promise((resolve) => {
     execFile(process.execPath, [script, ...args], { cwd: tmp, env: childEnv }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 1) : 0

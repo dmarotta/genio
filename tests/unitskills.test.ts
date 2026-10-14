@@ -6,6 +6,7 @@ import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { renderBrief, type BriefInput } from '../src/main/brief'
+import { assertIsolatedHomes } from './support/isolated-homes.mjs'
 import { blenderSkillDir, codexImageSkillDir, falSkillDir, installUnitPlugin, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief } from '../src/main/unitskills'
 
 const APP_ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -143,6 +144,7 @@ function runScript(args: string[], env: Record<string, string | undefined>, cwd 
   delete childEnv.FAL_KEY
   delete childEnv.GENIO_FAL_TEST_BASE
   Object.assign(childEnv, env)
+  assertIsolatedHomes(childEnv)
   return new Promise((resolve) => {
     execFile(process.execPath, [SCRIPT, ...args], { cwd, env: childEnv }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? ((err as { code: number }).code) : 1) : 0

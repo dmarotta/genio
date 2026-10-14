@@ -12,6 +12,7 @@ import path from 'node:path'
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks'
 import type { BacklogItem, Decision, Task, Wake } from '../../src/shared/types'
 import { summarise, syntheticMessages, word } from './measure'
+import { assertIsolatedHomes } from '../support/isolated-homes.mjs'
 
 export { note, report, summarise, syntheticMessages, timeAsync, timeIt, type Stat } from './measure'
 
@@ -109,6 +110,16 @@ export function seedBase(root: string): SeededBase {
     const allies = JSON.parse(fs.readFileSync(alliesFile, 'utf8')) as { name: string; home: string }[]
     for (const a of allies) a.home = path.join(root, 'wksps', a.name)
     fs.writeFileSync(alliesFile, JSON.stringify(allies, null, 2))
+    // A copied player's harness must never override the worker's sandbox homes.
+    const settingsFile = path.join(root, 'config', 'settings.json')
+    const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8')) as { harnesses?: { env?: NodeJS.ProcessEnv }[] }
+    for (const harness of settings.harnesses ?? []) {
+      if (!harness.env) continue
+      for (const key of ['CODEX_HOME', 'CLAUDE_CONFIG_DIR', 'CLAUDE_SECURESTORAGE_CONFIG_DIR', 'GENIO_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'TEMP', 'TMP', 'TMPDIR', 'GENIO_TEST_RUN_ROOT', 'GENIO_TEST_SYSTEM_TMP'])
+        if (key in harness.env) harness.env[key] = process.env[key]
+      assertIsolatedHomes({ ...process.env, ...harness.env })
+    }
+    fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2))
     return { root, mainHome: root, projectHome, wksp, project }
   }
   const dirs = ['config', 'data', 'data/dispatch', 'state', path.join('wksps', wksp, 'data'), path.join('wksps', wksp, 'state'), path.join('wksps', wksp, 'config')]

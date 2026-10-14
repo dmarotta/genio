@@ -7,12 +7,20 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { createApp, startApp, stopApp } from '../../src/main/ctx'
 
-describe('Genio comms', () => {
+describe.skipIf(process.env.GENIO_E2E_REAL !== '1')('Genio comms', () => {
+  let root: string | undefined
+  let ctx: ReturnType<typeof createApp> | undefined
+  afterEach(async () => {
+    try { if (ctx) await stopApp(ctx) } finally {
+      for (const terminal of ctx?.terminals.list() ?? []) ctx?.terminals.kill(terminal.id)
+      if (root) fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 })
+    }
+  })
   it('answers from its own tools, by gamertag, in gaming vocabulary', async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-e2e-'))
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-e2e-'))
     const world = path.join(root, 'neon-runner')
     fs.mkdirSync(world)
     execFileSync('git', ['init', '-b', 'main'], { cwd: world })
@@ -20,12 +28,12 @@ describe('Genio comms', () => {
     execFileSync('git', ['add', '-A'], { cwd: world })
     execFileSync('git', ['-c', 'user.email=e2e@genio.local', '-c', 'user.name=E2E', 'commit', '-m', 'init'], { cwd: world })
 
-    const ctx = createApp(process.cwd(), path.join(root, 'base'))
+    ctx = createApp(process.cwd(), path.join(root, 'base'))
     ctx.settings.save({ firstRunDone: true, gamertag: 'Nova', wkspModel: process.env.GENIO_E2E_WKSP_MODEL ?? 'haiku', wkspEffort: 'low' })
     await startApp(ctx)
     await ctx.projects.add({ source: world, inPlace: true })
 
-    await ctx.main.wksp.send('Which worlds are registered, and what engine does each use? One short line.')
+    await ctx.main.wksp.send(`Which worlds are registered, and what engine does each use? One short line. Test run: ${path.basename(process.env.GENIO_TEST_RUN_ROOT!)}`)
     const deadline = Date.now() + 4 * 60_000
     let reply = ''
     let tools: string[] = []
@@ -49,6 +57,5 @@ describe('Genio comms', () => {
     expect(reply).not.toMatch(/captain|aye\b|shipshape|ahoy/i)
     expect(reply).not.toMatch(/local-only|no-mistakes|direct-PR/)
     expect(tools.some((t) => t.includes('world_list') || t.includes('fleet_view'))).toBe(true)
-    await stopApp(ctx)
   }, 6 * 60_000)
 })

@@ -9,5 +9,5 @@ import { defineConfig } from 'vitest/config'
  */
 export default defineConfig({
   resolve: { alias: { '@shared': resolve('src/shared') } },
-  test: { include: ['tests/perf/**/*.perf.ts'], environment: 'node', testTimeout: 300_000, hookTimeout: 120_000, fileParallelism: false }
+  test: { include: ['tests/perf/**/*.perf.ts'], environment: 'node', setupFiles: ['tests/support/setup.ts'], globalSetup: ['tests/support/global-setup.ts'], testTimeout: 300_000, hookTimeout: 120_000, fileParallelism: false }
 })

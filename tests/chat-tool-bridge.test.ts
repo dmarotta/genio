@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { Home } from '../src/main/home'
+import { assertIsolatedHomes } from './support/isolated-homes.mjs'
 import type { AppCtx } from '../src/main/services'
 import type { Task } from '../src/shared/types'
 import { buildTools } from '../src/main/wksp-tools'
@@ -172,7 +173,9 @@ describe('authenticated local MCP bridge', () => {
   })
   it('speaks stdio MCP from the shipped standalone entry and revokes on EOF', async () => {
     const b = await bridge()
-    const child = spawn(process.execPath, [b.entry], { env: { ...process.env, ...b.env }, windowsHide: true, stdio: 'pipe' })
+    const env = { ...process.env, ...b.env }
+    assertIsolatedHomes(env)
+    const child = spawn(process.execPath, [b.entry], { env, windowsHide: true, stdio: 'pipe' })
     children.push(child)
     const replies: any[] = []
     let data = '', stderr = ''

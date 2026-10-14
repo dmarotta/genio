@@ -8,16 +8,26 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { createApp, startApp, stopApp } from '../../src/main/ctx'
 import { bus } from '../../src/main/bus'
 
 const MODEL = process.env.GENIO_E2E_MODEL ?? 'haiku'
 const sh = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
 
-describe('deploy → overwatch → merge → despawn', () => {
+describe.skipIf(process.env.GENIO_E2E_REAL !== '1')('deploy → overwatch → merge → despawn', () => {
+  let root: string | undefined
+  let ctx: ReturnType<typeof createApp> | undefined
+  let unsubscribe: (() => void) | undefined
+  afterEach(async () => {
+    try { if (ctx) await stopApp(ctx) } finally {
+      for (const terminal of ctx?.terminals.list() ?? []) ctx?.terminals.kill(terminal.id)
+      unsubscribe?.()
+      if (root) fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 })
+    }
+  })
   it('runs a real Offline Build end to end', async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-e2e-'))
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-e2e-'))
     const world = path.join(root, 'tiny-game')
     fs.mkdirSync(world)
     sh(world, 'init', '-b', 'main')
@@ -29,12 +39,12 @@ describe('deploy → overwatch → merge → despawn', () => {
     sh(world, 'commit', '-m', 'init')
 
     const events: string[] = []
-    bus.onEvent((e) => {
+    unsubscribe = bus.onEvent((e) => {
       if (e.type === 'status') events.push(`status ${e.event.kind}: ${e.event.text}`)
       if (e.type === 'wake') events.push(`event ${e.wake.kind}: ${e.wake.reason}`)
     })
 
-    const ctx = createApp(process.cwd(), path.join(root, 'base'))
+    ctx = createApp(process.cwd(), path.join(root, 'base'))
     ctx.settings.save({ firstRunDone: true, pollSeconds: 3, signalGraceSeconds: 2, defaultWorkerModel: MODEL, defaultWorkerEffort: 'low' })
     // keep Genio itself idle: this test drives the squad directly
     ctx.main.wksp.deliverWakes = () => undefined
@@ -81,6 +91,5 @@ describe('deploy → overwatch → merge → despawn', () => {
       expect(c.ok).toBe(true)
     }
     expect(fs.existsSync(task.worktree)).toBe(false)
-    await stopApp(ctx)
   }, 8 * 60_000)
 })

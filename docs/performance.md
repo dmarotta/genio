@@ -13,6 +13,54 @@ renderer figures matter as ratios, not absolutes. Event-loop lag readings on
 Windows carry about 15 ms of timer-granularity noise; counts and wall time
 are the reliable columns.
 
+## Test and capture isolation
+
+Every unit, e2e and perf suite loads `tests/support/setup.ts` before its test
+modules. `tests/support/isolated-homes.mjs` creates private temporary
+`CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `CLAUDE_SECURESTORAGE_CONFIG_DIR` and
+`GENIO_HOME` directories. It also replaces `HOME`, `USERPROFILE`, AppData and
+XDG roots so a missing override falls back inside the sandbox. Child processes
+must inherit these overrides; never delete them from a child environment or
+point a test at the player's Base. An explicit fixture home must also be under
+the run's temp root, with no symlink or junction escaping that directory.
+Stop app contexts and children before removing fixtures, including on assertion
+failure. Temporary homes contain no copied credentials.
+
+The coordinator's `tests/support/global-setup.ts` gives every run a unique
+temporary root. Worker homes and `TEMP`/`TMP`/`TMPDIR` live under it, so test
+projects, working directories and provider prompts referencing those directories
+carry its unique token. A child probe proves the passed environment and native
+HOME resolution actually stay in the sandbox; hooks reject escaping home paths.
+The fallback-path test checks actual Genio, Codex and Claude HOME resolvers.
+Teardown scans the first 64 KiB of real Codex rollouts (live and archived) and
+Claude transcripts for that token, and queries only matching Codex `threads`
+rows in `state_5.sqlite` through a read-only connection. Missing folders and
+databases are skipped. It fails only on test-attributable artifacts; file counts,
+database bytes and modification times from concurrently running player apps,
+Genio units or chat are ignored. Never open the real database read-write.
+Run checks with inherited `GIT_CONFIG_*` variables removed; in PowerShell:
+`Get-ChildItem Env:GIT_CONFIG* | Remove-Item`.
+
+`npm run test:e2e` runs the unauthenticated real Codex archive check when the CLI
+is installed. Paid Claude checks require `GENIO_E2E_REAL=1` and credentials
+provided specifically for the test (for example `ANTHROPIC_API_KEY` in the
+environment). They never reuse the player's Claude config or secure-storage
+directory. Do not restore access to real homes to make an auth check pass.
+
+For visual-check units and manual capture tours, run `npm run build`, then
+`npm run capture -- <output-dir> [app arguments]`. The launcher uses the same
+helper and real-home guard, replaces inherited homes, clears renderer/node
+Electron overrides and Git config overrides, and passes an isolated Electron
+`--user-data-dir`, with a unique run token and the same attribution-based leak
+guard. Optional `GENIO_CAPTURE_PROMPT`, `GENIO_CAPTURE_SCRIPT`,
+`GENIO_CAPTURE_SCENARIOS` and `GENIO_CAPTURE_DELAY` still apply. Use
+`GENIO_CAPTURE_BASE` only for a purpose-built fixture Base with no real home
+paths or live units; the launcher copies it into the temporary Base. Output
+screenshots remain in the requested output directory after sandbox cleanup.
+Starting the app directly with `GENIO_CAPTURE_DIR` requires all sandbox paths
+and `GENIO_CAPTURE_ROOT`; the Electron entry rejects incomplete or escaping
+homes before it locks the profile or writes the Base.
+
 ## What made chat sluggish
 
 The chat log re-rendered every message on every streamed token. `Message`

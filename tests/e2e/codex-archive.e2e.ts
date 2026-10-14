@@ -35,7 +35,7 @@ describe.skipIf(!codex)('codex archive against the real CLI', () => {
   })
 
   it('archives a finished unit thread, keeps it discoverable, and unarchives it for a resume', async () => {
-    const r = await runCodexCli(['exec', '--skip-git-repo-check', '-C', cwd, '--json', 'hi'], codexHome)
+    const r = await runCodexCli(['exec', '--skip-git-repo-check', '-C', cwd, '--json', `hi-${path.basename(process.env.GENIO_TEST_RUN_ROOT!)}`], codexHome)
     const id = /"thread_id":"([^"]+)"/.exec(r.stdout)?.[1]
     expect(id, r.stderr).toBeTruthy()
     expect(await findCodexSessions(cwd, codexHome)).toMatchObject([{ id, archived: false }])

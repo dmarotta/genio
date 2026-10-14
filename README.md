@@ -65,15 +65,16 @@ npm run typecheck
 
 ```sh
 npm test                 # unit tests (status protocol, briefs, git guards, quest log, events, memory)
-npm run test:e2e         # real end-to-end runs: a Claude unit ships an Offline Build, and Genio
-                         # answers from its tools (spends a few cents; uses the haiku model)
+npm run test:e2e         # isolated CLI checks; paid Claude checks require GENIO_E2E_REAL=1
+                         # and test-only credentials (see docs/performance.md)
 npm run perf             # performance harness: chat rendering, main-process event routing,
                          # startup and the usage scan over a realistic Base (docs/performance.md)
 ```
 
-Dev-only visual check: set `GENIO_CAPTURE_DIR=<dir>` (optionally `GENIO_HOME`,
-`GENIO_CAPTURE_PROMPT` or `GENIO_CAPTURE_SCRIPT`) and launch the built app. Genio
-screenshots its own window on every view and quits.
+Dev-only visual check: build, then run `npm run capture -- <output-dir>`. Genio
+screenshots its own window on every view and quits, using temporary provider
+homes, a temporary Base and an isolated Electron profile. Capture options and
+the testing isolation rule are in [docs/performance.md](docs/performance.md).
 
 npm 11 blocks dependency install scripts by default. This repo allow-lists the
 ones it needs (`electron`, `esbuild`, `node-pty`) in `package.json`.

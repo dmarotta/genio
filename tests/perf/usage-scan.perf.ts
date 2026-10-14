@@ -17,6 +17,7 @@ import type { AppCtx } from '../../src/main/services'
 const FILES = 6
 const LINES_PER_FILE = 12_000
 let root: string
+const savedHomes = { claude: process.env.CLAUDE_CONFIG_DIR, codex: process.env.CODEX_HOME }
 let ctx: AppCtx
 let files: string[] = []
 
@@ -50,7 +51,7 @@ beforeAll(() => {
   const home = { root: base, data: path.join(base, 'data'), wkspFile: path.join(base, 'state', 'wksp.json'), name: 'main' }
   ctx = { main: { home }, homes: new Map([['main', { home }]]), allies: { list: () => [] }, settings: { get: () => ({}) } } as unknown as AppCtx
 })
-afterAll(() => { report(); delete process.env.CLAUDE_CONFIG_DIR; delete process.env.CODEX_HOME; fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 }) })
+afterAll(() => { report(); process.env.CLAUDE_CONFIG_DIR = savedHomes.claude; process.env.CODEX_HOME = savedHomes.codex; fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 }) })
 
 describe('usage scan over a week of session logs', () => {
   it('cold scan, warm scan, and a re-scan after one appended line per file', async () => {

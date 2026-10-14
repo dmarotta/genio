@@ -17,6 +17,7 @@ const sdk = vi.hoisted(() => ({ query: vi.fn() }))
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: sdk.query, tool: (name: string) => ({ name }), createSdkMcpServer: () => ({}) }))
 
 let root: string, genio: string, player: string
+const inheritedSecureStorage = process.env.CLAUDE_SECURESTORAGE_CONFIG_DIR
 let services: WkspService[] = []
 const preflight = (loggedIn = true): ClaudeRunner => async args =>
   ({ code: 0, stdout: args[0] === '--version' ? '2.1.299' : JSON.stringify({ loggedIn, configDirectory: genio }) })
@@ -67,7 +68,7 @@ it("one-shots fall back to the player's normal home when the preflight fails", a
   configureClaudeHome({ dir: genio, executable: () => process.execPath, warn: () => {}, runner: preflight(false) })
   await claudeModels()
   expect(envOf().CLAUDE_CONFIG_DIR).toBe(player)
-  expect(envOf()).not.toHaveProperty('CLAUDE_SECURESTORAGE_CONFIG_DIR')
+  expect(envOf().CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(inheritedSecureStorage)
 })
 
 function chat(sessionId?: string) {
@@ -109,5 +110,5 @@ it("a chat session from before Genio's home resumes where it lives", async () =>
   await chat('legacy-chat')
   expect(sdk.query.mock.calls[0][0].options).toMatchObject({ resume: 'legacy-chat' })
   expect(envOf().CLAUDE_CONFIG_DIR).toBe(player)
-  expect(envOf()).not.toHaveProperty('CLAUDE_SECURESTORAGE_CONFIG_DIR')
+  expect(envOf().CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(inheritedSecureStorage)
 })
