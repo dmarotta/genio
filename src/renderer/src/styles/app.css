@@ -1028,9 +1028,12 @@ button.prio-label:hover { background: color-mix(in srgb, var(--p) 24%, transpare
 .qk-band { display: flex; flex-direction: column; gap: 8px; padding: 6px 0 8px; border-top: 1px dashed transparent; }
 .qk-band-head { display: flex; align-items: center; justify-content: space-between; }
 .qk-band-head .prio-label { cursor: default; }
-.qk-band.empty .qk-band-head { opacity: 0.55; }
-.qk-drop { font-size: 11px; padding: 4px 2px; }
-.qk-band.drop-end { border-bottom: 2px solid var(--neon); }
+.qk-band.vacant { padding: 5px 6px; border: 1px dashed var(--line); }
+.qk-band.vacant .qk-band-head { opacity: 0.55; }
+.qk-band.vacant.drop-end { border: 1px solid var(--neon); background: color-mix(in srgb, var(--neon) 10%, transparent); }
+.qk-band.vacant.drop-end .qk-band-head { opacity: 1; }
+.qk-drop { font-size: 11px; }
+.qk-band.drop-end:not(.empty) { border-bottom: 2px solid var(--neon); }
 .qk-drag { cursor: grab; }
 .qk-drag.dragging { opacity: 0.4; }
 .qk-drag.drop-before { box-shadow: 0 -3px 0 0 var(--neon); }

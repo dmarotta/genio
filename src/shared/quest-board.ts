@@ -243,6 +243,11 @@ export function queueChips(q: BacklogItem, ctx: QueueContext): QueueChip[] {
 
 // ------------------------------------------------------------------ priority editing
 
+/** Priority bands the Queued column shows: only populated ones, or all four as drop targets while a ticket is dragged. */
+export function visibleBands(queue: Pick<BacklogItem, 'priority'>[], dragging: boolean): Priority[] {
+  return dragging ? PRIORITY_ORDER : PRIORITY_ORDER.filter((p) => queue.some((q) => q.priority === p))
+}
+
 export interface RankPatch { id: string; priority: Priority; rank: number }
 
 /**

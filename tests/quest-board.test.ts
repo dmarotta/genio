@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { BacklogItem, Decision, Task } from '../src/shared/types'
 import {
-  buildBoard, findDuplicate, migrateLegacyQuests, questColumn, questOrder, queueChips, reorderQueue
+  buildBoard, findDuplicate, migrateLegacyQuests, questColumn, questOrder, queueChips, reorderQueue, visibleBands
 } from '../src/shared/quest-board'
 import { squadState } from '../src/shared/squad-display'
 
@@ -112,6 +112,12 @@ describe('ordering, priorities and duplicates', () => {
     expect(reorderQueue(queue, 'b', 'high')).toEqual([{ id: 'h', priority: 'high', rank: 1 }, { id: 'b', priority: 'high', rank: 2 }])
     const ranked = [quest('a', { rank: 1 }), quest('b', { rank: 2 })]
     expect(reorderQueue(ranked, 'b', 'normal')).toEqual([])
+  })
+
+  it('shows only populated priority bands, and all four while a ticket is dragged', () => {
+    expect(visibleBands([], false)).toEqual([])
+    expect(visibleBands([quest('a', { priority: 'low' }), quest('b', { priority: 'critical' }), quest('c', { priority: 'low' })], false)).toEqual(['critical', 'low'])
+    expect(visibleBands([quest('a')], true)).toEqual(['critical', 'high', 'normal', 'low'])
   })
 
   it('flags same-title quests filed minutes apart, or already finished, but not closed ones', () => {

@@ -1,9 +1,9 @@
-import { useMemo, useState, type DragEvent } from 'react'
+import { useMemo, useRef, useState, type DragEvent } from 'react'
 import { Check, Clock, Copy, ExternalLink, GitMerge, Hand, Link2, Play, Plus, Radar, RotateCcw, Rocket, Trash, X } from 'lucide-react'
 import type { BacklogItem, BacklogKind, Priority, StatusEvent, Task } from '@shared/types'
 import { PRIORITIES } from '@shared/api'
 import {
-  buildBoard, PRIORITY_ORDER, queueChips, reorderQueue, type DoneEntry, type FlightCard, type QueueChip
+  buildBoard, PRIORITY_ORDER, queueChips, reorderQueue, visibleBands, type DoneEntry, type FlightCard, type QueueChip
 } from '@shared/quest-board'
 import type { SquadTone } from '@shared/squad-display'
 import { api, errText, focusTask, op, toast, useStore } from '../store'
@@ -180,16 +180,27 @@ export function Quests() {
 
 // ------------------------------------------------------------------ queued
 
-function QueuedColumn({ queue, chipsFor, now, onOpen }: {
+export function QueuedColumn({ queue, chipsFor, now, onOpen }: {
   queue: BacklogItem[]; chipsFor: (q: BacklogItem) => QueueChip[]; now: number; onOpen: (q: BacklogItem) => void
 }) {
   const [drag, setDrag] = useState<string | null>(null)
   const [over, setOver] = useState<{ band: Priority; before?: string } | null>(null)
+  // the ticket in hand; drag state is set a tick after dragstart because Chromium
+  // cancels a drag whose dragstart reflows the page (the empty bands appearing)
+  const held = useRef<string | null>(null)
 
-  const drop = (band: Priority, before?: string): void => {
-    const id = drag
+  const start = (id: string): void => {
+    held.current = id
+    window.setTimeout(() => { if (held.current === id) setDrag(id) })
+  }
+  const end = (): void => {
+    held.current = null
     setDrag(null)
     setOver(null)
+  }
+  const drop = (band: Priority, before?: string): void => {
+    const id = drag
+    end()
     if (!id || id === before) return
     const patches = reorderQueue(queue, id, band, before)
     if (patches.length) void op('Priority', () => api().backlogReorder(patches))
@@ -209,32 +220,32 @@ function QueuedColumn({ queue, chipsFor, now, onOpen }: {
       </header>
       <div className="kan-hint mute">Runs next, top first · drag to reorder or change priority</div>
       <div className="kan-list">
-        {PRIORITY_ORDER.map((band) => {
+        {queue.length === 0 && <div className="qk-empty mute">Nothing queued</div>}
+        {visibleBands(queue, !!drag).map((band) => {
           const list = queue.filter((q) => q.priority === band)
           return (
             <div
               key={band}
-              className={cx('qk-band', `p-${band}`, !list.length && 'empty', over?.band === band && !over.before && 'drop-end')}
+              className={cx('qk-band', `p-${band}`, !list.length && 'vacant', over?.band === band && !over.before && 'drop-end')}
               onDragOver={allow(band)}
               onDrop={(e) => { e.preventDefault(); drop(band, over?.band === band ? over.before : undefined) }}
             >
               <div className="qk-band-head">
                 <span className={cx('prio-label', `p-${band}`)}>{PRIORITY_LABEL[band]}</span>
-                <span className="mono mute">{list.length}</span>
+                {list.length ? <span className="mono mute">{list.length}</span> : <span className="qk-drop mute">Drop here</span>}
               </div>
               {list.map((q) => (
                 <div
                   key={q.id}
                   draggable
                   className={cx('qk-drag', drag === q.id && 'dragging', over?.before === q.id && 'drop-before')}
-                  onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', q.id); setDrag(q.id) }}
-                  onDragEnd={() => { setDrag(null); setOver(null) }}
+                  onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', q.id); start(q.id) }}
+                  onDragEnd={end}
                   onDragOver={allow(band, q.id)}
                 >
                   <QueueTicket q={q} chips={chipsFor(q)} now={now} onOpen={() => onOpen(q)} />
                 </div>
               ))}
-              {!list.length && <div className="qk-drop mute">{drag ? 'Drop here' : 'none'}</div>}
             </div>
           )
         })}
