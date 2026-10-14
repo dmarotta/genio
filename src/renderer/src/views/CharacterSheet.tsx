@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown, Compass, Flame, Hammer, Lock, Palette, Pin, Shield, Swords, Trophy, type LucideIcon } from 'lucide-react'
 import type { Achievement, LandingDay, PlaystyleId, PlaystyleTitleId, PlaystyleView } from '@shared/types'
@@ -64,12 +64,7 @@ export function CharacterSheet() {
             </span>
           </span>
         </header>
-        <div className="achv-grid">
-          {ordered.map((a) => (
-            <AchievementTile key={a.id} a={a} pinned={pinned.includes(a)} full={pinned.length >= MAX_PINS} />
-          ))}
-          {!stats.achievements.length && <div className="mute">No achievements defined.</div>}
-        </div>
+        <Achievements ordered={ordered} pinned={pinned} />
       </section>
     </div>
   )
@@ -93,7 +88,7 @@ function Playstyle({ p, pct, xp }: { p: PlaystyleView; pct: number; xp: string }
       .then((r) => { if (!r.ok) toast('warn', 'Title not equipped', r.message) })
       .catch((e) => toast('error', 'Title not equipped', errText(e)))
   }
-  const why = p.equipped && p.equipped !== p.current && p.why ? `Recent play: ${titleName(p.current)} Â· ${p.why}` : p.why
+  const why = p.equipped && p.equipped !== p.current && p.why ? `Recent play: ${titleName(p.current)} · ${p.why}` : p.why
   return (
     <div className="lv-meta">
       <div className="lv-line">
@@ -105,7 +100,7 @@ function Playstyle({ p, pct, xp }: { p: PlaystyleView; pct: number; xp: string }
             <select aria-label="Playstyle title" aria-describedby={whyId} value={p.equipped ?? ''} onChange={(e) => equip(e.target.value)}>
               <option value="">Follow playstyle ({titleName(p.current)})</option>
               {p.earned.map((t) => (
-                <option key={t.id} value={t.id}>{titleName(t.id)} Â· earned {dateShort(t.at)}</option>
+                <option key={t.id} value={t.id}>{titleName(t.id)} · earned {dateShort(t.at)}</option>
               ))}
             </select>
           </span>
@@ -122,7 +117,80 @@ function Playstyle({ p, pct, xp }: { p: PlaystyleView; pct: number; xp: string }
   )
 }
 
-function AchievementTile({ a, pinned, full }: { a: Achievement; pinned: boolean; full: boolean }) {
+// ------------------------------------------------------------------ achievements grid
+
+/** Compact tiles in reading order; one tab stop, arrows move between tiles and hover or focus shows the full hint. */
+function Achievements({ ordered, pinned }: { ordered: Achievement[]; pinned: Achievement[] }) {
+  const [focus, setFocus] = useState<number | null>(null)
+  const [tip, setTip] = useState<number | null>(null)
+  const grid = useRef<HTMLDivElement>(null)
+  const tiles = useRef<(HTMLDivElement | null)[]>([])
+  const last = ordered.length - 1
+  const tabStop = focus !== null && focus <= last ? focus : 0
+
+  if (!ordered.length) return <div className="mute">No achievements defined.</div>
+
+  const columns = (): number => {
+    const tpl = grid.current ? getComputedStyle(grid.current).gridTemplateColumns : ''
+    return Math.max(1, tpl.split(' ').filter(Boolean).length)
+  }
+  const move = (to: number): void => {
+    const i = Math.max(0, Math.min(last, to))
+    setFocus(i)
+    setTip(i)
+    tiles.current[i]?.focus()
+  }
+  const onKey = (e: KeyboardEvent, i: number): void => {
+    if (e.target !== e.currentTarget) return
+    if (e.key === 'ArrowLeft') move(i - 1)
+    else if (e.key === 'ArrowRight') move(i + 1)
+    else if (e.key === 'ArrowUp') move(i - columns())
+    else if (e.key === 'ArrowDown') move(i + columns())
+    else if (e.key === 'Home') move(0)
+    else if (e.key === 'End') move(last)
+    else if (e.key === 'Escape') setTip(null)
+    else return
+    e.preventDefault()
+  }
+
+  return (
+    <>
+      <div className="achv-grid" ref={grid} role="list" aria-label="Achievements">
+        {ordered.map((a, i) => (
+          <AchievementTile
+            key={a.id}
+            a={a}
+            pinned={pinned.includes(a)}
+            full={pinned.length >= MAX_PINS}
+            tileRef={(el) => { tiles.current[i] = el }}
+            tabIndex={i === tabStop ? 0 : -1}
+            onKeyDown={(e) => onKey(e, i)}
+            onEnter={() => setTip(i)}
+            onLeave={() => setTip((t) => (t === i && focus !== i ? null : t))}
+            onFocus={() => { setFocus(i); setTip(i) }}
+            onBlur={() => { setFocus(null); setTip((t) => (t === i ? null : t)) }}
+          />
+        ))}
+      </div>
+      {tip !== null && ordered[tip] && <AchievementTip a={ordered[tip]} anchor={tiles.current[tip] ?? null} />}
+    </>
+  )
+}
+
+type TileProps = {
+  a: Achievement
+  pinned: boolean
+  full: boolean
+  tileRef: (el: HTMLDivElement | null) => void
+  tabIndex: number
+  onKeyDown: (e: KeyboardEvent) => void
+  onEnter: () => void
+  onLeave: () => void
+  onFocus: () => void
+  onBlur: () => void
+}
+
+function AchievementTile({ a, pinned, full, tileRef, tabIndex, onKeyDown, onEnter, onLeave, onFocus, onBlur }: TileProps) {
   const toggle = (): void => {
     void api().trophyPin(a.id, !pinned)
       .then((r) => { if (!r.ok) toast('warn', pinned ? 'Trophy not unpinned' : 'Trophy not pinned', r.message) })
@@ -130,7 +198,17 @@ function AchievementTile({ a, pinned, full }: { a: Achievement; pinned: boolean;
   }
   const blocked = !pinned && full
   return (
-    <div className={cx('achv-tile', a.unlockedAt ? 'got' : 'locked', pinned && 'pinned ticks')} title={a.description}>
+    <div
+      ref={tileRef}
+      role="listitem"
+      tabIndex={tabIndex}
+      className={cx('achv-tile', a.unlockedAt ? 'got' : 'locked', pinned && 'pinned ticks')}
+      onKeyDown={onKeyDown}
+      onMouseEnter={onEnter}
+      onMouseLeave={onLeave}
+      onFocus={onFocus}
+      onBlur={onBlur}
+    >
       {a.unlockedAt && (
         <button
           type="button"
@@ -144,11 +222,41 @@ function AchievementTile({ a, pinned, full }: { a: Achievement; pinned: boolean;
           <Pin size={13} aria-hidden />
         </button>
       )}
-      <div className="achv-ico">{a.unlockedAt ? <Trophy size={24} /> : <Lock size={20} />}</div>
+      <div className="achv-ico" aria-hidden>{a.unlockedAt ? <Trophy size={17} /> : <Lock size={14} />}</div>
       <div className="achv-tname">{a.name}</div>
       <div className="achv-tdesc">{a.unlockedAt ? `${pinned ? 'Earned ' : ''}${dateShort(a.unlockedAt)}` : a.description}</div>
     </div>
   )
+}
+
+/** The tile already holds the full text for screen readers; the tip shows what the ellipsis cut. */
+function AchievementTip({ a, anchor }: { a: Achievement; anchor: HTMLElement | null }) {
+  const [ref, style] = useTipPosition(anchor, a.id)
+  return createPortal(
+    <div ref={ref} className="landings-tip achv-tip ticks" aria-hidden style={style}>
+      <div className="landings-tip-date">{a.name}</div>
+      <div className="achv-tip-desc">{a.description}</div>
+      <div className={cx('achv-tip-state', a.unlockedAt ? 'got' : 'mute')}>{a.unlockedAt ? `Earned ${dateShort(a.unlockedAt)}` : 'Locked'}</div>
+    </div>,
+    document.body
+  )
+}
+
+/** Fixed position above the anchor (below it when there is no room), clamped to the window. */
+function useTipPosition(anchor: HTMLElement | null, key: string): [RefObject<HTMLDivElement | null>, CSSProperties] {
+  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el || !anchor) return
+    const a = anchor.getBoundingClientRect()
+    const w = el.offsetWidth
+    const h = el.offsetHeight
+    const left = Math.max(8, Math.min(window.innerWidth - w - 8, a.left + a.width / 2 - w / 2))
+    const above = a.top - h - 8
+    setPos({ left, top: above >= 8 ? above : a.bottom + 8 })
+  }, [anchor, key])
+  return [ref, pos ? { left: pos.left, top: pos.top } : { left: -9999, top: -9999 }]
 }
 
 // ------------------------------------------------------------------ landings heatmap
@@ -202,7 +310,7 @@ function Landings({ days }: { days: LandingDay[] }) {
     <div className="landings" role="group" aria-labelledby={labelId}>
       <div className="landings-head">
         <span className="label" id={labelId}>Landings</span>
-        <span className="landings-total"><span className="num">{recorded ? total : 'â€“'}</span><span className="mute"> in {weeks} wk</span></span>
+        <span className="landings-total"><span className="num">{recorded ? total : '–'}</span><span className="mute"> in {weeks} wk</span></span>
       </div>
       <div className="landings-sub">Recorded activity</div>
       <div className="landings-map">
@@ -248,20 +356,9 @@ function Landings({ days }: { days: LandingDay[] }) {
 
 /** Hover or keyboard focus shows the day; the cell's own label carries the same text for screen readers. */
 function LandingTip({ day, anchor }: { day: LandingDay; anchor: HTMLElement | null }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
-  useLayoutEffect(() => {
-    const el = ref.current
-    if (!el || !anchor) return
-    const a = anchor.getBoundingClientRect()
-    const w = el.offsetWidth
-    const h = el.offsetHeight
-    const left = Math.max(8, Math.min(window.innerWidth - w - 8, a.left + a.width / 2 - w / 2))
-    const above = a.top - h - 8
-    setPos({ left, top: above >= 8 ? above : a.bottom + 8 })
-  }, [anchor, day.day])
+  const [ref, style] = useTipPosition(anchor, day.day)
   return createPortal(
-    <div ref={ref} className="landings-tip ticks" aria-hidden style={pos ? { left: pos.left, top: pos.top } : { left: -9999, top: -9999 }}>
+    <div ref={ref} className="landings-tip ticks" aria-hidden style={style}>
       <div className="landings-tip-date">{dayLabel(day.day)}</div>
       {day.state === 'unknown' ? (
         <div className="landings-tip-line mute">No recorded data for this day</div>

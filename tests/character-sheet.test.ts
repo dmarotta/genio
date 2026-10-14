@@ -153,6 +153,31 @@ it('shows pinned trophies first with earned dates and pins or unpins from the ti
   expect(trophyPin).toHaveBeenCalledWith('c', false)
 })
 
+it('keeps compact tiles to an inline icon and two lines, with the full hint in a hover or focus tip', async () => {
+  const hint = 'Land a build, a recon and an art pass on the same day while keeping a seven-day streak alive.'
+  withStats({ achievements: [
+    { id: 'a', feature: 'status', name: 'Alpha', description: 'First landing', unlockedAt: '2026-10-01T12:00:00Z' },
+    { id: 'b', feature: 'status', name: 'Long road', description: hint }
+  ] })
+  await mount(CharacterSheet)
+  const tiles = [...host.querySelectorAll<HTMLElement>('.achv-grid [role="listitem"]')]
+  expect(tiles.map((t) => [...t.children].map((c) => c.className))).toEqual([['achv-pin', 'achv-ico', 'achv-tname', 'achv-tdesc'], ['achv-ico', 'achv-tname', 'achv-tdesc']])
+  expect(tiles.map((t) => t.tabIndex)).toEqual([0, -1])
+  expect(tiles[1].querySelector('.achv-tdesc')?.textContent).toBe(hint)
+  await act(async () => tiles[0].focus())
+  expect(document.querySelector('.achv-tip')?.textContent).toContain('First landing')
+  await act(async () => tiles[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })))
+  expect(document.activeElement).toBe(tiles[1])
+  expect(tiles[1].tabIndex).toBe(0)
+  const tip = document.querySelector('.achv-tip')!
+  expect(tip.textContent).toContain(hint)
+  expect(tip.textContent).toContain('Locked')
+  await act(async () => tiles[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  expect(document.querySelector('.achv-tip')).toBeNull()
+  await act(async () => tiles[1].dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body })))
+  expect(document.querySelector('.achv-tip')?.textContent).toContain(hint)
+})
+
 it('updates the coming-next link from quest events and opens the unchanged board', async () => {
   await mount(ComingNext)
   expect(host.textContent).toBe('0 coming next')
