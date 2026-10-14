@@ -49,10 +49,60 @@ boolean. Play pool state.json and its state API expose `slot.preparation` with
 the Library report, total elapsed time, preflight and Git phase times, actual
 slot bytes/files, the preflight estimate/free space, and the shared LFS path.
 
+## Dev Drive block cloning
+
+`copyLibrary` runs behind `cloneOrCopyLibrary`
+(`resources/unit-skills/genio/skills/play/scripts/clone.mjs`). On Windows it first
+asks whether the source Library and the staging directory sit on one fixed volume
+that reports `FILE_SUPPORTS_BLOCK_REFCOUNTING` (ReFS, Dev Drive). The system drive
+is never ReFS, so a project on C: skips the probe and goes straight to robocopy:
+plain NTFS behaves exactly as above.
+
+- Windows 11 24H2 (build 26100) or later: Node's `fs.copyFile` uses `CopyFile`,
+  which clones by itself on ReFS.
+- Earlier builds: a small C# helper (compiled by Windows PowerShell `Add-Type`)
+  calls `FSCTL_DUPLICATE_EXTENTS_TO_FILE` per file, in cluster-aligned 1 GiB
+  ranges, keeping sparseness, integrity streams and write times. Files under
+  4 KB are copied normally. A file the volume refuses to clone is copied instead.
+- The first clone on each volume is checked once with
+  `fsutil file queryExtentsAndRefCounts` on the largest cloned file. The answer is
+  kept per volume GUID in `<data>/clone-volumes.json`; a volume that shows no
+  shared blocks, or refuses every clone, stays on robocopy from then on.
+- Any probe failure, clone failure (the partial staging copy is removed first) or
+  missing drive falls back to robocopy. The seed report adds `method`
+  (`clone:copyfile`, `clone:fsctl`, `robocopy`, ...) and `clone.reason` when the
+  clone path was not used.
+
+Cloning needs the copies on the project's volume. When a project's own drive block
+clones and Genio's base lives elsewhere, Play slots go to
+`<drive>\.genio\<key>\play-pools\<pool>` (decided once per pool, recorded in the
+pool folder's `placement.json`; lease state stays in Genio's data folder) and new
+unit worktrees go to `<drive>\.genio\<key>\worktrees\<world>\<id>`. A pool that
+already has slots keeps them where they are. Genio never creates, mounts, resizes
+or formats a volume. If a project's drive is not mounted (a Dev Drive VHDX not
+re-attached after a reboot), Genio says so and asks for Disk Management >
+Action > Attach VHD. Free-space prechecks still budget the full logical size,
+because clones reserve no space for later writes.
+
+### Final check on the real drive (manual)
+
+Fixtures cover the logic; the real-volume check needs the player's Dev Drive.
+Once the projects are on it, run from the Genio checkout:
+
+```text
+node scripts/dev-drive-check.mjs D:\git\lands-of-old --library D:\git\lands-of-old\Library
+```
+
+It prints the Windows build and clone method, where slots and worktrees will go,
+the volume's file system and cluster size, clones an 8 MiB scratch file, confirms
+shared blocks with fsutil, and (with `--library`) times a real Library seed
+through `seedLibrary`. It writes only under `<drive>\.genio\dev-drive-check-*` and
+deletes that again. `PASSED` (exit 0) means Genio will clone on that drive.
+
 Verification uses temporary repositories and trees only:
 
 ```text
-npx vitest run tests/unity-seed.test.ts tests/play-pool.test.ts tests/play-pool-editor.test.ts tests/genio-unity.test.ts --testTimeout=30000 --maxWorkers=2
+npx vitest run tests/unity-seed.test.ts tests/dev-drive-clone.test.ts tests/play-pool.test.ts tests/play-pool-editor.test.ts tests/genio-unity.test.ts --testTimeout=30000 --maxWorkers=2
 npm run typecheck
 ```
 

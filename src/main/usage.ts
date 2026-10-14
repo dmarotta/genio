@@ -9,7 +9,7 @@
  *       Claude Code: a zero-prompt structured /usage account refresh plus SDK
  *       rate_limit_event messages, kept in data/usage/claude-limits.json;
  *   - tokens Genio measures from the session logs of its own units and chats (sessions whose
- *     cwd is inside Genio's base): Claude Code transcripts and Codex session logs;
+ *     cwd is inside Genio's base or a unit worktree on a Dev Drive): Claude Code transcripts and Codex session logs;
  *   - FAL.ai spend recorded in the FAL screen's run history.
  * Genio reads only usage/session records. The SDK handles its own authenticated
  * account probe; Genio never reads credentials or calls a private endpoint directly.
@@ -26,6 +26,7 @@ import { claudeProjectRoots } from './claude-home'
 import { codexProbeError, codexSnapshot, readCodexProbeLimits, refreshCodexPlanUsage } from './codex-usage-probe'
 import { CODEX_SESSION_DIRS } from './codex-session'
 import { codexHomes } from './codex-home'
+import { volumeChild } from '../../resources/unit-skills/genio/skills/play/scripts/clone.mjs'
 
 const DAY = 86_400_000
 
@@ -526,11 +527,14 @@ function cwdMemo<T>(fn: (cwd: string) => T): (cwd: string | undefined) => T | un
   }
 }
 
-/** The world a unit session belongs to: the first folder under Genio's worktrees/ (units run in worktrees/<world>/<task>). */
+/**
+ * The world a unit session belongs to: the first folder under Genio's worktrees/ (units run in worktrees/<world>/<task>),
+ * or under the base's worktrees on a Dev Drive project's volume (placeWorktree).
+ */
 export function worldOf(cwd: string | undefined, root: string): string | undefined {
   if (!cwd) return undefined
   const rel = path.relative(path.join(root, 'worktrees'), cwd)
-  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return undefined
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return volumeChild(cwd, root, 'worktrees')
   return rel.split(/[\\/]/)[0] || undefined
 }
 
@@ -586,7 +590,7 @@ async function claudeUsage(ctx: AppCtx, root: string, now: number): Promise<Tool
   const files = roots.flatMap(projects => recentJsonl(projects, weekStart))
   const seen = new Map<string, TokenRecord>()
   const worldByKey = new Map<string, string>()
-  const inBase = cwdMemo((cwd) => isSubPath(cwd, root))
+  const inBase = cwdMemo((cwd) => isSubPath(cwd, root) || Boolean(attribution.world(cwd)))
   const worldOfCwd = cwdMemo((cwd) => attribution.world(cwd) ?? '')
   for (const f of files) {
     const lines = await claudeCache.get(f, parseClaudeTail)
@@ -634,7 +638,7 @@ async function codexUsage(ctx: AppCtx, root: string, now: number, data: string):
     // plan limits are account-wide: every session's snapshot counts
     snapshots.push(...s.snapshots)
     const owned = s.records.some(r => attribution.sessions.has(r.session))
-    if (chats.includes(f) || owned || s.cwd && isSubPath(s.cwd, root)) {
+    if (chats.includes(f) || owned || s.cwd && (isSubPath(s.cwd, root) || attribution.world(s.cwd))) {
       records.push(...s.records)
       for (const r of s.records) {
         const world = attribution.sessions.has(r.session) ? attribution.sessions.get(r.session) : attribution.world(s.cwd)

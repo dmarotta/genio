@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import { checkCopyPath, checkFreeSpace, seedLibrary, treeStats } from '../../../lib/unity-seed.mjs'
+import { assertMounted, volumeHome, volumeMissing, volumePlacement } from './clone.mjs'
 const exec = promisify(execFile)
 const alive = pid => { try { process.kill(pid, 0); return true } catch (e) { return e.code !== 'ESRCH' } }
 const canonical = p => { const v = fs.realpathSync(p); return process.platform === 'win32' ? v.toLowerCase() : v }
@@ -84,15 +85,51 @@ async function checkoutStats(cwd, revision, options) {
 export function poolDirectory(data, world) { return path.join(data, 'play-pools', createHash('sha256').update(canonical(world)).digest('hex').slice(0, 24)) }
 export class PlayPool {
   constructor(data, world, engineRoot = '', options = {}) {
+    assertMounted(world)
     this.world = fs.realpathSync(world)
     if (path.isAbsolute(engineRoot) || /[:\x00-\x1f]/.test(engineRoot) || engineRoot.split(/[\\/]/).includes('..')) throw new Error('Invalid Unity root')
     this.engineRoot = engineRoot
+    this.data = data
+    // Lease state always lives here; slot copies may live on the project's volume (placement.json).
     this.dir = poolDirectory(data, world)
     this.graceMs = options.graceMs ?? 60000
     this.forceMs = options.forceMs ?? 15000
     this.system = { ...defaultSystem, ...options.system }
+    this.clone = options.clone
     this.closes = new Set()
     fs.mkdirSync(this.dir, { recursive: true })
+  }
+  /** Folder holding slot-N copies. Decided once per pool by place(); until then, the pool folder. */
+  slots() {
+    if (this.slotsDir) return this.slotsDir
+    try {
+      const { dir } = JSON.parse(fs.readFileSync(path.join(this.dir, 'placement.json'), 'utf8'))
+      // A placement on a detached volume falls back to the pool folder rather than failing every call.
+      if (typeof dir === 'string' && path.isAbsolute(dir) && !volumeMissing(dir)) return (this.slotsDir = dir)
+    } catch { /* Not placed yet. */ }
+    return this.dir
+  }
+  slotDir(id) { return path.join(this.slots(), `slot-${id}`) }
+  /**
+   * Block cloning needs the copies on the project's volume. When the project sits on a Dev Drive (or other
+   * block-cloning volume) apart from Genio's data, slots go to <volume>/.genio/<key>/play-pools/<pool>.
+   * Decided once, before the first slot exists, and shared by every process through placement.json.
+   */
+  async place() {
+    const file = path.join(this.dir, 'placement.json')
+    if (fs.existsSync(file)) return this.slots()
+    // Probed once per process; an unplaced pool keeps using the pool folder.
+    return this.placing ??= (async () => {
+      let dir = this.dir
+      if (!fs.readdirSync(this.dir).some(n => /^slot-\d+$/.test(n))) {
+        const volume = await volumePlacement(this.world, this.dir, this.clone)
+        if (!volume) return this.dir
+        dir = path.join(volumeHome(this.data, volume), 'play-pools', path.basename(this.dir))
+        try { fs.mkdirSync(dir, { recursive: true }) } catch { dir = this.dir }
+      }
+      try { fs.writeFileSync(file, JSON.stringify({ dir, at: Date.now() }), { flag: 'wx' }) } catch (e) { if (e.code !== 'EEXIST') return this.dir }
+      return this.slots()
+    })()
   }
   async transaction(fn) {
     const lock = path.join(this.dir, 'mutex')
@@ -139,7 +176,7 @@ export class PlayPool {
     slot.closing = { pid: process.pid, token, expires: Date.now() + this.graceMs + this.forceMs + 120000 }
     return [slot.id, slot.editor?.pid, token]
   }
-  root(id) { if (!Number.isInteger(id) || id < 1 || id > 8) throw new Error('Invalid Play slot'); return path.join(this.dir, `slot-${id}`, this.engineRoot) }
+  root(id) { if (!Number.isInteger(id) || id < 1 || id > 8) throw new Error('Invalid Play slot'); return path.join(this.slotDir(id), this.engineRoot) }
   async state() {
     return this.transaction(s => ({ cap: s.cap, slots: s.slots.map(v => {
       const editor = this.editorRunning(v)
@@ -178,6 +215,7 @@ export class PlayPool {
   async acquire(owner, pid = process.pid, preferred, takeover = false) {
     if (typeof owner !== 'string' || !owner || owner.length > 160 || !Number.isInteger(pid) || pid <= 0 || !alive(pid)) throw new Error('Invalid Play owner')
     if (preferred !== undefined) this.root(preferred)
+    await this.place()
     return this.transaction(s => {
       if (preferred > s.cap) throw new Error(`Slot ${preferred} is above the cap of ${s.cap}; it takes no new leases`)
       const existing = s.slots.find(v => v.lease?.owner === owner && v.lease.pid === pid)
@@ -242,7 +280,7 @@ export class PlayPool {
     this.root(id)
     const mark = await this.transaction(s => {
       let v = s.slots.find(v => v.id === id)
-      if (!v) { if (!fs.existsSync(path.join(this.dir, `slot-${id}`))) return; v = { id }; s.slots.push(v) }
+      if (!v) { if (!fs.existsSync(this.slotDir(id))) return; v = { id }; s.slots.push(v) }
       if (v.closing) throw new Error(`Play slot ${id} editor is already closing`)
       if (v.preparing) throw new Error(`Play slot ${id} is preparing; wait for it to finish`)
       if (v.lease) { if (!force) throw new Error(`Play slot ${id} is leased by ${v.lease.owner}; it closes its editor on release`); this.endLease(s, v) }
@@ -372,7 +410,7 @@ export class PlayPool {
     const common = async cwd => canonical(path.resolve(cwd, await git(cwd, ['rev-parse', '--git-common-dir'])))
     if (await common(source) !== await common(this.world)) throw new Error('Play source must belong to the registered project')
     const revision = await git(source, ['rev-parse', '--verify', 'HEAD^{commit}'])
-    const dest = path.join(this.dir, `slot-${id}`)
+    const dest = this.slotDir(id)
     let ready
     for (let attempt = 0; ; attempt++) {
       ready = await this.transaction(s => {
@@ -428,7 +466,7 @@ export class PlayPool {
       // A Unity import may write anywhere under these trees. Reject links before
       // opening the editor so a copied project's link cannot reach another world.
       await this.validateCopy(id)
-      const library = await seedLibrary(this.root(id), original)
+      const library = await seedLibrary(this.root(id), original, { data: this.data, clone: this.clone })
       // Marker lives in .git, never dirties the copied project.
       fs.writeFileSync(path.join(dest, '.git', 'genio-play-ready'), revision)
       const size = await treeStats(dest)
@@ -438,7 +476,7 @@ export class PlayPool {
     } catch (e) { await this.transaction(s => { const slot = s.slots.find(v => v.id === id); if (slot?.lease?.token === token) slot.preparing = false }); throw e }
   }
   async validateCopy(id) {
-    const slot = path.join(this.dir, `slot-${id}`)
+    const slot = this.slotDir(id)
     let current = slot
     await checkParents(slot)
     for (const part of this.engineRoot.split(/[\\/]/).filter(Boolean)) { current = path.join(current, part); await checkParents(current) }

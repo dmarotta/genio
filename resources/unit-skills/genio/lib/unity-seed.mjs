@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { seedTree } from '../skills/play/scripts/clone.mjs'
 const exec = promisify(execFile)
 const SKIP_DIRS = ['PackageCache', 'Pipeline', 'Temp', 'Logs']
 const excluded = (name, directory) => directory ? SKIP_DIRS.some(v => v.toLowerCase() === name.toLowerCase()) : /^EditorInstance\.json$|.*-lock$/i.test(name)
@@ -56,6 +57,18 @@ export async function checkFreeSpace(target, bytes, { statfs = fs.promises.statf
   return { availableBytes, requiredBytes }
 }
 
+/**
+ * Block clones when source and dest share a Dev Drive (or other block-cloning volume); otherwise, and after
+ * any clone failure, the normal copy below. Returns the method plus the clone attempt's report.
+ */
+export async function cloneOrCopyLibrary(source, dest, options = {}) {
+  if ((options.platform ?? process.platform) !== 'win32' || options.clone === false) return { method: await copyLibrary(source, dest, options) }
+  let method
+  const clone = await seedTree(source, dest, { skip: excluded, data: options.data, system: options.clone?.system, fallback: async () => { method = await copyLibrary(source, dest, options) } })
+  // A volume that refused every clone already left a complete per-file copy.
+  return { method: clone.method === 'clone' ? `clone:${clone.via}` : method ?? 'clone-refused-copy', clone }
+}
+
 /** Robocopy uses codes 0–7 for success; 8 and above (and launch errors) are failures. */
 export async function copyLibrary(source, dest, { platform = process.platform, run = exec } = {}) {
   if (platform !== 'win32') {
@@ -92,10 +105,10 @@ export async function seedLibrary(copy, source, options = {}) {
   await fs.promises.mkdir(temp, { recursive: true })
   const staging = await fs.promises.mkdtemp(path.join(temp, 'genio-library-seed-'))
   try {
-    const method = await copyLibrary(source, staging, options)
+    const { method, clone } = await cloneOrCopyLibrary(source, staging, options)
     const actual = await treeStats(staging)
     await checkCopyPath(library)
     await fs.promises.rename(staging, library)
-    return { seeded: true, method, ...actual, estimatedBytes: planned.bytes, ...space, elapsedMs: Date.now() - started }
+    return { seeded: true, method, ...clone && { clone: { verified: clone.verified, reason: clone.reason } }, ...actual, estimatedBytes: planned.bytes, ...space, elapsedMs: Date.now() - started }
   } finally { await fs.promises.rm(staging, { recursive: true, force: true }) }
 }

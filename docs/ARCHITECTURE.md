@@ -33,7 +33,7 @@ Vocabulary is gaming, not nautical: see [VOCABULARY.md](VOCABULARY.md).
 | main agent session | `wksp.ts` Agent SDK session (main base) | COMMS |
 | teammate in a tmux window | `crew.ts` task + `terminals.ts` PTY | SQUAD |
 | ship / scout task | `kind: 'ship' \| 'scout'` | BUILD / RECON mission |
-| treehouse worktree | `git worktree add` under `worktrees/<world>/<id>` | — |
+| treehouse worktree | `git worktree add` under `worktrees/<world>/<id>`, or `<drive>/.genio/<key>/worktrees/<world>/<id>` for a project on a Dev Drive (`placeWorktree`) | — |
 | `state/<id>.status` verbs | same grammar, parsed by `status.ts` | timeline |
 | `ag-send` steering inbox | `state/<id>.inbox/NNN.msg` + typed doorbell | PING |
 | `fm-control` interrupt/exit/relaunch | `crew.control()` | INTERRUPT / RECALL / RESPAWN |

@@ -1,6 +1,7 @@
 import os from 'node:os'
 import path from 'node:path'
 import { ensureDir, exists, writeText } from './util'
+import { assertMounted, volumeHome, volumePlacement, type CloneOptions } from '../../resources/unit-skills/genio/skills/play/scripts/clone.mjs'
 
 /**
  * Base layout (companion's AG_HOME). Everything that matters lives
@@ -28,8 +29,8 @@ import { ensureDir, exists, writeText } from './util'
  *     wksp.json        agent session ids for resume
  *     session.lock     single-writer lock
  *   projects/          clones (read-only to Genio itself)
- *   worktrees/         one isolated worktree per task
- *   claude-home/       Genio's own Claude Code config folder (main only; claude-home.ts)
+ *   worktrees/         one isolated worktree per task (see placeWorktree)
+ *   claude-home/      Genio's own Claude Code config folder (main only; claude-home.ts)
  *   wksps/<name>/      isolated ally bases (same layout)
  */
 export class Home {
@@ -108,6 +109,16 @@ export class Home {
       writeText(this.playerSharedFile, `# Shared Player Profile\n\nInherited by every ally.\n\n`)
     }
   }
+}
+
+/**
+ * Where a unit worktree goes: on the project's own volume when that volume block clones (a Dev Drive)
+ * and this base lives elsewhere, as <volume>/.genio/<key>/worktrees/<world>/<id>; otherwise worktrees/.
+ */
+export async function placeWorktree(home: Home, project: { name: string; path: string }, id: string, options?: CloneOptions): Promise<string> {
+  assertMounted(project.path, options)
+  const volume = await volumePlacement(project.path, home.worktrees, options)
+  return volume ? path.join(volumeHome(home.root, volume), 'worktrees', project.name, id) : home.worktreeFor(project.name, id)
 }
 
 export function defaultHomeRoot(): string {

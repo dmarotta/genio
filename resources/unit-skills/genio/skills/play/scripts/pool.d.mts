@@ -1,7 +1,7 @@
 export interface PoolLease { id: number; token: string; root: string }
 export interface PoolProcess { pid: number; ppid: number; created: string; command: string }
 export interface PoolSystem { list(): Promise<PoolProcess[]>; terminate(pid: number): Promise<void>; kill(pid: number): Promise<void> }
-export interface PoolOptions { graceMs?: number; forceMs?: number; system?: Partial<PoolSystem> }
+export interface PoolOptions { graceMs?: number; forceMs?: number; system?: Partial<PoolSystem>; clone?: import('./clone.mjs').CloneOptions }
 /** closed: the editor and its children are gone. kept: release left it running. Otherwise the slot is stuck. */
 export interface CloseResult { closed: boolean; kept?: boolean; forced?: boolean; pids: number[]; reason?: string }
 /** inUse counts slots within the cap; draining lists slots above it that are still in use. */
@@ -10,6 +10,9 @@ export class PlayPool {
   constructor(data: string, world: string, engineRoot?: string, options?: PoolOptions)
   dir: string
   root(id: number): string
+  slots(): string
+  slotDir(id: number): string
+  place(): Promise<string>
   state(): Promise<import('../../../../../../src/shared/play').PlayPoolState>
   configure(cap: number): Promise<{ cap: number; draining: number[] }>
   acquire(owner: string, pid?: number, preferred?: number, takeover?: boolean): Promise<PoolLease | null>

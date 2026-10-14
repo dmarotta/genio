@@ -8,7 +8,7 @@ import path from 'node:path'
 import type { DeliveryMode, LoadoutInput, Project, StatusEvent, Task, TaskCounters, TaskState, TerminalInfo } from '@shared/types'
 import type { OpResult, SpawnRequest, TaskFile } from '@shared/api'
 import type { AppCtx, CrewService } from './services'
-import type { Home } from './home'
+import { placeWorktree, type Home } from './home'
 import { bus } from './bus'
 import * as git from './git'
 import { appendProgressNote, doorbellLine, engineHints, kickoffPrompt, renderBrief } from './brief'
@@ -513,7 +513,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         const id = uniqueId(req.title)
         const branch = `${posture.branchPrefix}${id}`
         const baseBranch = req.baseBranch?.trim() || project.defaultBranch
-        const wt = home.worktreeFor(project.name, id)
+        // A Dev Drive project keeps its worktrees on that drive, so copies there can block clone.
+        const wt = await placeWorktree(home, project, id)
         // Offline worlds land locally and push on demand: branch from the local default, not origin's.
         const add = await git.addWorktree(project.path, wt, branch, baseBranch, posture.mode === 'local-only')
         if (add.code !== 0) throw new Error(`Could not create the isolated worktree: ${add.stderr.trim()}`)

@@ -322,7 +322,7 @@ async function batch(verb, c, opts) {
     if (!license.ok) throw new UnityError(license.code === 3 ? EXIT.auth : EXIT.license, MESSAGES.license)
     const libraryFrom = path.join(c.play.world, c.engineRoot, 'Library')
     if (!fs.existsSync(path.join(target.copy, 'Library'))) say('seeding Library for your copy from the project (first run only)...')
-    record.librarySeed = await seedCopyLibrary(target.copy, libraryFrom)
+    record.librarySeed = await seedCopyLibrary(target.copy, libraryFrom, { data: c.play.data })
     record.librarySeeded = record.librarySeed.seeded
 
     let shown = 0
