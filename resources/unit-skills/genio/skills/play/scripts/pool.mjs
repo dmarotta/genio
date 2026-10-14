@@ -399,7 +399,7 @@ export class PlayPool {
   /** Disk each slot copy uses now, clone and Library included, by slot id. */
   async disk() {
     const out = {}
-    for (let id = 1; id <= 8; id++) { const dir = path.join(this.dir, `slot-${id}`); if (fs.existsSync(dir)) out[id] = await bytesUnder(dir) }
+    for (let id = 1; id <= 8; id++) { const dir = this.slotDir(id); if (fs.existsSync(dir)) out[id] = await bytesUnder(dir) }
     return out
   }
   async prepare(id, token, source = this.world) {
