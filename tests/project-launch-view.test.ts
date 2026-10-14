@@ -7,5 +7,5 @@ it('starts project windows on their own main chat, including newly registered pr
   const store = await import('../src/renderer/src/store')
   expect(store.PROJECT_WINDOW).toBe('alpha')
   expect(store.PROJECT_WKSP).toBe('ally-alpha')
-  expect(store.getState()).toMatchObject({ view: 'comms', inventoryWorld: 'alpha', registeredProject: 'alpha' })
+  expect(store.getState()).toMatchObject({ view: 'comms', registeredProject: 'alpha' })
 })

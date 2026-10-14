@@ -5,7 +5,10 @@ import { suggestFolder } from '@shared/fal'
 import { api, errText, toast } from '../store'
 import { Field, Toggle } from './ui'
 
-const KINDS: [FalOutputKind, string][] = [['image', 'Images'], ['audio', 'Audio'], ['video', 'Video'], ['model', '3D models'], ['other', 'Other assets']]
+/** Deep-link target: Settings › This project scrolls here and focuses it. */
+export const GENERATION_ANCHOR = 'generation-settings'
+
+const KINDS:[FalOutputKind, string][] = [['image', 'Images'], ['audio', 'Audio'], ['video', 'Video'], ['model', '3D models'], ['other', 'Other assets']]
 const amount = (s: string): number | undefined => s.trim() ? Number(s) : undefined
 const invalid = (s: string): boolean => !!s.trim() && (!Number.isFinite(Number(s)) || Number(s) < 0)
 
@@ -61,7 +64,7 @@ export function GenerationSettings({ world }: { world: string }) {
     }
   }
 
-  return <section className="world-generation" aria-label="Generation settings">
+  return <section id={GENERATION_ANCHOR} tabIndex={-1} className="world-generation" aria-label="Generation settings">
     <h4>Generation</h4>
     <p className="mute">Generate assets with Genio in Inventory chat. These settings apply to this project.</p>
     {error && <p role="alert" className="alert-text">{error}</p>}

@@ -51,6 +51,27 @@ describe('Project settings and registry helpers', () => {
     await act(async () => input.dispatchEvent(new FocusEvent('focusout', { bubbles: true })))
     expect(fixture.update).toHaveBeenLastCalledWith('Zebra', { engineRoot: 'Nested/Game' })
   })
+  it('deep-links to the Generation section of This project, scrolled into view and focused', async () => {
+    const scrolled = vi.fn()
+    Object.assign(Element.prototype, { scrollIntoView: scrolled })
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => setTimeout(() => cb(0), 0))
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => clearTimeout(id))
+    try {
+      await mount()
+      // As from Inventory: the request is made before Settings mounts.
+      requestSystemsSection('project', 'generation-settings')
+      await act(async () => root!.render(React.createElement(Systems)))
+      await act(async () => { await new Promise((r) => setTimeout(r, 30)) })
+      const section = host.querySelector('#generation-settings')!
+      expect(host.querySelector('.sys-link.on')?.textContent).toBe('This project')
+      expect(section.getAttribute('aria-label')).toBe('Generation settings')
+      expect(scrolled).toHaveBeenCalled()
+      expect(scrolled.mock.contexts.at(-1)).toBe(section)
+      expect(document.activeElement).toBe(section)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
   it('keeps removal typed and delegates to the existing guarded service without deleting owned folders', async () => {
     await mount()
     await click('Remove')
@@ -82,7 +103,7 @@ describe('Project settings and registry helpers', () => {
     expect(modifiedLabel('2026-10-12', Date.parse('2026-10-13'))).toBe('1 day ago')
     expect(modifiedLabel()).toBe('No commit yet')
   })
-  it('keeps Inventory disabled until registered, then passes the world to navigation', async () => {
+  it('keeps Inventory disabled until registered, then opens this window\'s Inventory', async () => {
     await mount()
     const button = [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('Inventory'))!
     expect(button.disabled).toBe(true)
@@ -90,7 +111,7 @@ describe('Project settings and registry helpers', () => {
     fixture.enabled = true
     await act(async () => root!.render(React.createElement(ThisProjectSettings)))
     await click('Inventory')
-    expect(fixture.go).toHaveBeenCalledWith('inventory', { world: 'Zebra' })
+    expect(fixture.go).toHaveBeenCalledWith('inventory')
   })
   it('shows settings immediately and preserves project action handlers', async () => {
     await mount()

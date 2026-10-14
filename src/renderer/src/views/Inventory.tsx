@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Box, ChevronDown, ChevronRight, FileImage, Film, Folder, FolderOpen, Grid2X2, List, Music, RefreshCw, Search, Settings } from 'lucide-react'
 import type { AssetKind, InventoryAsset, InventoryFolder, InventoryInfo, InventoryQuery, InventoryState } from '@shared/inventory'
-import { api, errText, go, op, setState, useStore } from '../store'
+import { PROJECT_WINDOW, api, errText, go, op, useStore } from '../store'
+import { GENERATION_ANCHOR } from '../components/GenerationSettings'
+import { requestSystemsSection } from './Systems'
 import { cx } from '../lib/format'
 import { assetBytes, breadcrumbs, previewKind, thumbnailUrl, virtualWindow } from '../lib/inventory'
 import { GlbViewer } from '../components/GlbViewer'
@@ -18,24 +20,17 @@ function inventoryLifecycle(fn: () => Promise<unknown>): Promise<unknown> {
   return lifecycle
 }
 
+/** Each project window is bound to one project; Inventory always browses that one. */
 export function Inventory() {
-  const projects = useStore(s => s.snap.projects)
-  const requested = useStore(s => s.inventoryWorld)
-  const world = projects.find(p => p.name === requested)?.name
-    ?? projects.find(p => p.name === localStorage.getItem('genio.inventory.world'))?.name ?? projects[0]?.name
-  useEffect(() => { if (world) localStorage.setItem('genio.inventory.world', world) }, [world])
+  const project = useStore(s => s.snap.projects.find(p => p.name === PROJECT_WINDOW))
   return <div className="inventory">
     <header className="inventory-head">
       <div><div className="label">PROJECT ASSETS</div><h1>Inventory</h1></div>
-      <select className="select" aria-label="Inventory project" value={world ?? ''} onChange={e => go('inventory', { world: e.target.value })}>
-        {!projects.length && <option value="">No projects</option>}
-        {projects.map(p => <option key={p.name}>{p.name}</option>)}
-      </select>
-      {world && <button className="btn sm ghost" onClick={() => setState({ view: 'worlds', highlightWorld: world })}><Settings size={14} /> Generation settings</button>}
+      {project && <button className="btn sm ghost" onClick={() => { requestSystemsSection('project', GENERATION_ANCHOR); go('systems') }}><Settings size={14} /> Generation settings</button>}
       <span className="dim">Explore · select · preview</span>
     </header>
-    {world ? <WorldInventory key={world} world={world} root={projects.find(p => p.name === world)!.path} />
-      : <div className="inventory-empty"><FolderOpen size={42} /><h2>No projects loaded</h2><p>Add a project to browse its media.</p><button className="btn" onClick={() => go('worlds')}>Open Projects</button></div>}
+    {project ? <WorldInventory key={project.name} world={project.name} root={project.path} />
+      : <div className="inventory-empty"><FolderOpen size={42} /><h2>Project not loaded</h2><p>Open this project from the Hub to browse its media.</p></div>}
   </div>
 }
 

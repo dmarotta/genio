@@ -932,7 +932,9 @@ ul.loadout-why li { margin: 1px 0; }
 .world-details-heading h3 { font-size: 15px; margin: 0; }
 .world-details-heading .mute { flex: 1; font-size: 12px; overflow-wrap: anywhere; }
 .world-controls { margin-top: 16px; }
-.world-generation { border-top: 1px solid var(--line); margin-top: 20px; padding-top: 12px; }
+.world-generation { border-top: 1px solid var(--line); margin-top: 20px; padding-top: 12px; scroll-margin-top: 12px; }
+.world-generation:focus { outline: none; }
+.world-generation:focus h4 { color: var(--neon); }
 .world-generation h4 { margin: 0; font-size: 13px; }
 .world-generation p, .world-no-results { font-size: 13px; }
 .world-no-results { padding: 20px; }

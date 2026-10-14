@@ -46,25 +46,59 @@ export const SECTIONS: { id: Section; label: string; group: string }[] = [
   { id: 'patch', label: 'Patch', group: 'Base' }
 ]
 
-let pendingSection: Section | null = null
-const sectionListeners = new Set<(section: Section) => void>()
-export function requestSystemsSection(s: Section): void {
-  pendingSection = sectionListeners.size ? null : s
-  for (const listener of sectionListeners) listener(s)
+interface SectionRequest { section: Section; anchor?: string }
+let pendingSection: SectionRequest | null = null
+const sectionListeners = new Set<(request: SectionRequest) => void>()
+/** Open a Settings section; with an anchor, also scroll that element into view and focus it. */
+export function requestSystemsSection(section: Section, anchor?: string): void {
+  const request = { section, anchor }
+  pendingSection = sectionListeners.size ? null : request
+  for (const listener of sectionListeners) listener(request)
+}
+
+/**
+ * The anchor may render a few frames late, then grow as its settings load: keep it aligned
+ * for a moment unless the player scrolls or clicks first. Gives up after about a second.
+ */
+function revealAnchor(id: string): () => void {
+  let frame = 0
+  let tries = 60
+  let stop = (): void => undefined
+  const seek = (): void => {
+    const el = document.getElementById(id)
+    if (!el) {
+      if (--tries > 0) frame = requestAnimationFrame(seek)
+      return
+    }
+    const align = (): void => el.scrollIntoView({ block: 'start' })
+    align()
+    el.focus({ preventScroll: true })
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(align)
+    ro.observe(el)
+    const timer = setTimeout(() => stop(), 1500)
+    stop = () => { ro.disconnect(); clearTimeout(timer); for (const e of ['wheel', 'pointerdown', 'keydown']) window.removeEventListener(e, stop) }
+    for (const e of ['wheel', 'pointerdown', 'keydown']) window.addEventListener(e, stop)
+  }
+  frame = requestAnimationFrame(seek)
+  return () => { cancelAnimationFrame(frame); stop() }
 }
 
 export function Systems() {
   const settings = useStore((s) => s.settings)
   const unread = useStore((s) => s.snap.inbox.filter((n) => !n.ackedAt).length)
-  const [sec, setSec] = useState<Section>(() => {
+  const [request, setRequest] = useState<SectionRequest | null>(() => {
     const p = pendingSection
     pendingSection = null
-    return p ?? 'profile'
+    return p
   })
+  const [sec, setSec] = useState<Section>(request?.section ?? 'profile')
   useEffect(() => {
-    sectionListeners.add(setSec)
-    return () => { sectionListeners.delete(setSec) }
+    const listener = (r: SectionRequest): void => { setSec(r.section); setRequest(r) }
+    sectionListeners.add(listener)
+    return () => { sectionListeners.delete(listener) }
   }, [])
+  useEffect(() => (request?.anchor && settings ? revealAnchor(request.anchor) : undefined), [request, !!settings])
   const [home, setHome] = useState('')
   const section = SECTIONS.find((s) => s.id === sec)
   useScreenContext('systems', { facts: [{ label: 'Section', value: section ? `${section.group} › ${section.label}` : sec }] })
@@ -816,9 +850,10 @@ function Dispatch({ s }: { s: Settings }) {
             <Field label="Project">
               <select className="select" value={r.project ?? ''} onChange={(e) => upd(r.id, { project: e.target.value || undefined })}>
                 <option value="">Any</option>
-                {projects.map((p) => (
-                  <option key={p.name} value={p.name}>
-                    {p.name}
+                {/* Rules are global; a window lists only its own project, so keep another project's scope visible. */}
+                {[...new Set([...projects.map((p) => p.name), ...(r.project ? [r.project] : [])])].map((name) => (
+                  <option key={name} value={name}>
+                    {name}
                   </option>
                 ))}
               </select>

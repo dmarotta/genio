@@ -13,7 +13,8 @@ export function DeployModal() {
   const projects = useStore((s) => s.snap.projects)
   const settings = useStore((s) => s.settings)
   const [kind, setKind] = useState<TaskKind>('ship')
-  const [project, setProject] = useState('')
+  // Units always deploy into this window's project (openDeploy prefills it; main enforces it).
+  const project = draft?.project ?? projects[0]?.name ?? ''
   const [title, setTitle] = useState('')
   const [intent, setIntent] = useState('')
   const [spec, setSpec] = useState('')
@@ -32,7 +33,6 @@ export function DeployModal() {
   useEffect(() => {
     if (!draft) return
     setKind(draft.kind ?? 'ship')
-    setProject(draft.project ?? projects[0]?.name ?? '')
     setTitle(draft.title ?? '')
     setIntent(draft.intent ?? '')
     setSpec(draft.spec ?? '')
@@ -44,8 +44,7 @@ export function DeployModal() {
     setCategory(draft.category ?? '')
     setBase(draft.baseBranch ?? '')
     setOverride(Boolean(draft.harness || draft.model || draft.effort))
-    const p = projects.find((x) => x.name === (draft.project ?? projects[0]?.name))
-    setYolo(draft.yolo ?? p?.yolo ?? false)
+    setYolo(draft.yolo ?? projects.find((x) => x.name === project)?.yolo ?? false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft])
 
@@ -182,25 +181,7 @@ export function DeployModal() {
       </div>
 
       <div className="form-grid">
-        <Field label="Project" hint={proj?.gitRepo === false ? "Unit creation needs a git repo" : undefined}>
-          <select
-            className="select"
-            value={project}
-            onChange={(e) => {
-              setProject(e.target.value)
-              const p = projects.find((x) => x.name === e.target.value)
-              setYolo(p?.yolo ?? false)
-            }}
-          >
-            {!projects.length && <option value="">No projects yet — add one in Projects</option>}
-            {projects.map((p) => (
-              <option key={p.name} value={p.name} disabled={p.gitRepo === false}>
-                {p.name}{p.gitRepo === false ? ' — needs a git repo' : ''}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Title">
+        <Field label="Title" hint={proj?.gitRepo === false ? 'Unit creation needs a git repo' : undefined}>
           <input className="input" value={title} placeholder="e.g. Fix double-jump on slopes" onChange={(e) => setTitle(e.target.value)} />
         </Field>
         <Field label="Your words" hint="Becomes the unit's acceptance criteria. Say it like you'd say it to a teammate." wide>

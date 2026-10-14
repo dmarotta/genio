@@ -17,7 +17,6 @@ interface Cmd {
 export function CommandPalette() {
   const open = useStore((s) => s.palette)
   const tasks = useStore((s) => s.snap.tasks)
-  const projects = useStore((s) => s.snap.projects)
   const nav = useNav()
   const [q, setQ] = useState('')
   const [sel, setSel] = useState(0)
@@ -44,13 +43,12 @@ export function CommandPalette() {
       { id: 'dnd', label: 'Presence: DND', group: 'Presence', run: () => { close(); void op('Presence', () => api().setAway('dnd'), () => 'Do not disturb') } },
       { id: 'afk', label: 'Presence: AFK', group: 'Presence', run: () => { close(); void op('Presence', () => api().setAway('afk'), () => 'AFK — the Bot has the controls') } },
       ...nav.map((n) => ({ id: `nav-${n.id}`, label: `Go to ${n.label}`, hint: n.key ? `Ctrl ${n.key}` : undefined, group: 'Navigate', run: () => go(n.id as ViewId) })),
-      ...projects.map((p) => ({ id: `world-${p.name}`, label: `Project: ${p.name}`, hint: p.engine, group: 'Projects', run: () => void op('Open project', () => api().projectOpen(p.path)) })),
       ...tasks
         .filter((t) => t.state !== 'cleaned')
         .map((t) => ({ id: `task-${t.id}`, label: `Unit: ${t.title}`, hint: `${KIND_LABEL[t.kind]} · ${t.project}`, group: 'Squad', run: () => focusTask(t.id) }))
     ]
     return PROJECT_WKSP ? list : list.filter(c => !['recap', 'save'].includes(c.id))
-  }, [tasks, projects, nav])
+  }, [tasks, nav])
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()

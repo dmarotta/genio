@@ -4,13 +4,15 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { InventoryInfo, InventoryQuery, InventoryState } from '../src/shared/inventory'
 vi.mock('../src/renderer/src/views/Comms', () => ({ ChatPanel: () => null }))
-const f = vi.hoisted(() => ({ world: 'alpha', open: vi.fn(), close: vi.fn(), list: vi.fn(), info: vi.fn(), go: vi.fn(), setState: vi.fn(), on: vi.fn() }))
+const f = vi.hoisted(() => ({ world: 'alpha', open: vi.fn(), close: vi.fn(), list: vi.fn(), info: vi.fn(), go: vi.fn(), request: vi.fn(), on: vi.fn() }))
 vi.mock('../src/renderer/src/store', () => ({
   PROJECT_WKSP: undefined,
-  useStore: (select: (s: unknown) => unknown) => select({ inventoryWorld: f.world, chats: {}, snap: { wksps: [], projects: [{ name: 'alpha', path: 'C:/alpha' }, { name: 'beta', path: 'C:/beta' }] } }),
+  get PROJECT_WINDOW() { return f.world },
+  useStore: (select: (s: unknown) => unknown) => select({ chats: {}, snap: { wksps: [], projects: [{ name: 'alpha', path: 'C:/alpha' }, { name: 'beta', path: 'C:/beta' }] } }),
   api: () => ({ inventoryOpen: f.open, inventoryClose: f.close, inventoryList: f.list, inventoryInfo: f.info, inventoryRefresh: f.open }),
-  go: f.go, setState: f.setState, op: async (_: string, fn: () => unknown) => fn(), errText: String
+  go: f.go, op: async (_: string, fn: () => unknown) => fn(), errText: String
 }))
+vi.mock('../src/renderer/src/views/Systems', () => ({ requestSystemsSection: f.request }))
 import { Inventory } from '../src/renderer/src/views/Inventory'
 const state = (world: string): InventoryState => ({ world, revision: 1, total: 20000, refreshing: false, watching: true })
 const item = (world: string, name = 'stone.psd'): InventoryInfo => ({ path: `Assets/${name}`, folder: 'Assets', name, ext: 'psd', kind: 'image', size: 1024, mtimeMs: 1, tracked: true, lfs: false, vendor: false, generated: false, tags: [], mediaUrl: `genio-media://world/${world}/Assets/${name}` })
@@ -29,15 +31,36 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.clearAllMocks() })
 
 describe('Inventory screen lifecycle', () => {
-  it('opens generation settings for the current world', async () => {
+  it('browses the window\'s own project with no project selector in the header', async () => {
+    f.world = 'beta'
     await render()
-    await click('.inventory-head button')
-    expect(f.setState).toHaveBeenCalledWith({ view: 'worlds', highlightWorld: 'alpha' })
+    const head = host.querySelector('.inventory-head')!
+    expect(head.querySelector('select')).toBeNull()
+    expect(head.textContent).not.toContain('alpha')
+    expect(head.querySelector('h1')?.textContent).toBe('Inventory')
+    expect(f.open.mock.calls.map(c => c[0])).toEqual(['beta', 'beta'])
+    expect(localStorage.length).toBe(0)
   })
 
-  it('honours world navigation, serializes StrictMode watchers and bounds list requests', async () => {
+  it('deep-links Generation settings to This project, scrolled to the Generation section', async () => {
     await render()
-    expect(host.querySelector('select')?.value).toBe('alpha')
+    const button = [...host.querySelectorAll('.inventory-head button')].find(b => b.textContent?.includes('Generation settings'))!
+    await act(async () => (button as HTMLButtonElement).click())
+    expect(f.request).toHaveBeenCalledWith('project', 'generation-settings')
+    expect(f.go).toHaveBeenCalledWith('systems')
+    expect(f.request.mock.invocationCallOrder[0]).toBeLessThan(f.go.mock.invocationCallOrder[0])
+  })
+
+  it('shows a plain empty state when the window project is not loaded', async () => {
+    f.world = 'missing'
+    await render()
+    expect(host.textContent).toContain('Project not loaded')
+    expect(host.querySelector('.inventory-head button')).toBeNull()
+    expect(f.open).not.toHaveBeenCalled()
+  })
+
+  it('serializes StrictMode watchers, remounts per project and bounds list requests', async () => {
+    await render()
     expect(f.open.mock.calls.map(c => c[0])).toEqual(['alpha', 'alpha'])
     expect(f.close).toHaveBeenCalledWith('alpha')
     expect(f.list.mock.calls.every(c => c[1].limit < 100)).toBe(true)
@@ -45,11 +68,10 @@ describe('Inventory screen lifecycle', () => {
     expect(host.querySelector('.inventory-inspector h2')?.textContent).toBe('stone.psd')
     expect(host.textContent).toContain('PSD · preview coming later')
     f.world = 'beta'; await render()
-    expect(host.querySelector('select')?.value).toBe('beta')
+    expect(f.open.mock.calls.at(-1)?.[0]).toBe('beta')
     expect(host.querySelector('.inventory-inspector h2')).toBeNull()
     const lastClose = f.close.mock.invocationCallOrder.at(-1)!
     expect(f.open.mock.invocationCallOrder.at(-1)!).toBeGreaterThan(lastClose)
-    expect(localStorage.getItem('genio.inventory.world')).toBe('beta')
   })
   it('ignores stale inspector responses after selecting another asset', async () => {
     let resolve!: (i: InventoryInfo) => void

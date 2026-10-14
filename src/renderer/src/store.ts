@@ -51,8 +51,6 @@ export interface State {
   focus: Focus
   deploy: Partial<SpawnRequest> | null
   palette: boolean
-  inventoryWorld?: string
-  highlightWorld?: string
   welcomeDismissedAt?: string
 }
 
@@ -95,7 +93,6 @@ let state: State = {
   permissions: [],
   achievements: [],
   view: DEFAULT_VIEW,
-  inventoryWorld: PROJECT_WINDOW,
   registeredProject: windowParams.has('registered') ? PROJECT_WINDOW : undefined,
   focus: null,
   deploy: null,
@@ -187,15 +184,11 @@ const registeredViews = new Set<string>()
 export function registerViews(views: string[]): void { views.forEach((view) => registeredViews.add(view)) }
 export function hasView(view: string): boolean { return registeredViews.has(view) }
 
-export function go(view: ViewId, context?: { world: string }): void {
+/** Project screens (Comms, Inventory, Play) always show this window's project; the Hub has none. */
+export function go(view: ViewId): void {
   if (view === 'worlds') view = 'systems'
-  if (!PROJECT_WINDOW && ['comms', 'inventory', 'play'].includes(view)) {
-    const project = state.snap.projects.find(p => p.name === context?.world)
-    if (project) void op('Open project', () => api().projectOpen(project.path))
-    else setState({ view: 'worlds', palette: false })
-    return
-  }
-  setState({ view, palette: false, ...(PROJECT_WINDOW ? { inventoryWorld: PROJECT_WINDOW } : context ? { inventoryWorld: context.world } : {}) })
+  if (!PROJECT_WINDOW && ['comms', 'inventory', 'play'].includes(view)) view = 'worlds'
+  setState({ view, palette: false })
 }
 
 export function focusTask(id: string): void {

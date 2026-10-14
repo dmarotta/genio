@@ -33,7 +33,6 @@ export function Quests() {
   const policy = useUsagePolicy()
   const now = useNow(30_000)
   const [title, setTitle] = useState('')
-  const [project, setProject] = useState('')
   const [kind, setKind] = useState<BacklogKind>('ship')
   const [priority, setPriority] = useState<Priority>('normal')
   const [openId, setOpenId] = useState<string | null>(null)
@@ -63,7 +62,8 @@ export function Quests() {
   const add = async (): Promise<void> => {
     if (!title.trim()) return
     try {
-      await api().backlogAdd({ title: title.trim(), project: project || undefined, kind, priority })
+      // The window's project is applied by the main process.
+      await api().backlogAdd({ title: title.trim(), kind, priority })
       setTitle('')
     } catch (e) {
       toast('error', 'Quest not added', errText(e))
@@ -103,14 +103,6 @@ export function Quests() {
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && void add()}
         />
-        <select className="select compact" value={project} onChange={(e) => setProject(e.target.value)}>
-          <option value="">Any project</option>
-          {projects.map((p) => (
-            <option key={p.name} value={p.name}>
-              {p.name}
-            </option>
-          ))}
-        </select>
         <select className="select compact" value={kind} onChange={(e) => setKind(e.target.value as BacklogKind)}>
           <option value="ship">Build</option>
           <option value="scout">Recon</option>
@@ -427,13 +419,11 @@ function DoneTicket({ d, onOpen }: { d: DoneEntry; onOpen: () => void }) {
 // ------------------------------------------------------------------ details
 
 function QuestDetails({ item, chips, onClose }: { item: BacklogItem; chips: QueueChip[]; onClose: () => void }) {
-  const projects = useStore((s) => s.snap.projects)
   const all = useStore((s) => s.snap.backlog)
   const tasks = useStore((s) => s.snap.tasks)
   const [title, setTitle] = useState(item.title)
   const [notes, setNotes] = useState(item.notes)
   const [priority, setPriority] = useState<Priority>(item.priority)
-  const [project, setProject] = useState(item.project ?? '')
   const [kind, setKind] = useState<BacklogKind>(item.kind === 'program' ? 'choice' : item.kind)
   const [tags, setTags] = useState(item.tags.join(', '))
   const [deps, setDeps] = useState<string[]>(item.dependsOn)
@@ -449,7 +439,6 @@ function QuestDetails({ item, chips, onClose }: { item: BacklogItem; chips: Queu
         title: title.trim() || item.title,
         notes,
         priority,
-        project: project || undefined,
         kind,
         tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
         dependsOn: deps,
@@ -523,16 +512,6 @@ function QuestDetails({ item, chips, onClose }: { item: BacklogItem; chips: Queu
       <div className="form-grid">
         <Field label="Title" wide>
           <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
-        </Field>
-        <Field label="Project">
-          <select className="select" value={project} onChange={(e) => setProject(e.target.value)}>
-            <option value="">Any project</option>
-            {projects.map((p) => (
-              <option key={p.name} value={p.name}>
-                {p.name}
-              </option>
-            ))}
-          </select>
         </Field>
         <Field label="Kind">
           <select className="select" value={kind} onChange={(e) => setKind(e.target.value as BacklogKind)}>
