@@ -150,7 +150,7 @@ function ProjectGenioPanel({ wksp, project }: { wksp: string; project: string })
         <button className="genio-panel-resize se" aria-label="Resize Genio chat" title="Drag or use arrow keys to resize" {...handlers('se')} />
       </div>
     </div>
-    {mounted && createPortal(<ChatDocument.Provider value={popout?.document}><ChatPanel wksp={wksp} context={context} active={!!popout || expanded} /></ChatDocument.Provider>, chatHost)}
+    {mounted && createPortal(<ChatDocument.Provider value={popout?.document}><ChatPanel wksp={wksp} context={context} surface="panel" active={!!popout || expanded} /></ChatDocument.Provider>, chatHost)}
     {popout && createPortal(<header className="genio-panel-bar popout-bar"><span>Genio · {project} · {where} · Always on top</span><button className="btn sm ghost" onClick={dock}>Return chat</button></header>, popout.document.getElementById('root')!)}
   </>
 }

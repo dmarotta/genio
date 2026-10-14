@@ -1,7 +1,7 @@
 import { ComingNext } from '../components/ComingNext'
 import { GenerationCard } from '../components/GenerationCard'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
-import { ChevronDown, ChevronRight, CircleStop, Pencil, RefreshCw, Rocket, Send, ShieldCheck, TriangleAlert, Wrench, X } from 'lucide-react'
+import { ArrowDown, ChevronDown, ChevronRight, CircleStop, Pencil, RefreshCw, Rocket, Send, ShieldCheck, TriangleAlert, Wrench, X } from 'lucide-react'
 import type { Ally, ChatMessage, Settings } from '@shared/types'
 import { chatControls, routedRequest, splitQueued, type ChatControls, type UnqueuedChat } from '@shared/chat'
 import { MAX_IMAGES_PER_MESSAGE } from '@shared/chat-images'
@@ -53,7 +53,7 @@ export function Comms() {
 }
 
 /** The project chat: its own status bar, log and composer. */
-export function ChatPanel({ wksp, context, active: _active = true }: { wksp: string; context?: InventoryContext; active?: boolean }) {
+export function ChatPanel({ wksp, context, surface = 'screen', active: _active = true }: { wksp: string; context?: InventoryContext; surface?: 'screen' | 'panel'; active?: boolean }) {
   const info = useStore((s) => s.snap.wksps.find((m) => m.name === wksp))
   const ally = useStore((s) => s.snap.allies.find((a) => a.name === wksp && !a.retiredAt))
   const messages = useStore((s) => s.chats[wksp] ?? [])
@@ -133,7 +133,7 @@ export function ChatPanel({ wksp, context, active: _active = true }: { wksp: str
         </div>
       })}
 
-      <ChatLog wksp={wksp} messages={visible} calm={calm} busy={busy} gamertag={gamertag} activityDetail={info?.activityDetail} lastError={info?.lastError} onTakeBack={takeBack} />
+      <ChatLog key={wksp} wksp={wksp} surface={surface} messages={visible} calm={calm} busy={busy} gamertag={gamertag} activityDetail={info?.activityDetail} lastError={info?.lastError} onTakeBack={takeBack} />
 
       <Composer wksp={wksp} busy={busy} fill={fill} context={context} />
     </div>
@@ -168,75 +168,153 @@ function calmHidden(m: ChatMessage): boolean {
 
 type TakeBack = (m: ChatMessage, edit: boolean) => Promise<void>
 
-function ChatLog({ wksp, messages: all, calm, busy, gamertag, activityDetail, lastError, onTakeBack }: { wksp: string; messages: ChatMessage[]; calm: boolean; busy: boolean; gamertag: string; activityDetail?: string; lastError?: string; onTakeBack: TakeBack }) {
+/**
+ * Where the player left each chat scrolled up (first visible message and its offset), keyed by
+ * chat and surface. Screens remount on every switch, so this is what lets returning to a chat land
+ * where it was left; no entry means "following the latest message".
+ */
+const scrollMemory = new Map<string, { id: string; offset: number }>()
+const NEAR_BOTTOM = 80
+const SCROLL_KEYS = new Set(['PageUp', 'PageDown', 'Home', 'End', 'ArrowUp', 'ArrowDown', ' '])
+
+/** The first message at or below the top edge of the log, with its distance from that edge. */
+function topMessage(el: HTMLElement): { id: string; offset: number } | undefined {
+  const top = el.getBoundingClientRect().top
+  for (const node of el.querySelectorAll<HTMLElement>('[data-msg]')) {
+    const r = node.getBoundingClientRect()
+    if (r.bottom > top) return { id: node.dataset.msg!, offset: r.top - top }
+  }
+  return undefined
+}
+
+function ChatLog({ wksp, surface, messages: all, calm, busy, gamertag, activityDetail, lastError, onTakeBack }: { wksp: string; surface: string; messages: ChatMessage[]; calm: boolean; busy: boolean; gamertag: string; activityDetail?: string; lastError?: string; onTakeBack: TakeBack }) {
   const ref = useRef<HTMLDivElement>(null)
-  const stick = useRef(true)
+  const body = useRef<HTMLDivElement>(null)
+  const memoryKey = `${wksp}:${surface}`
+  // Follow the latest message unless the player scrolled up by hand. Off-screen messages are laid
+  // out late (content-visibility), so the bottom keeps moving after a scroll: only wheel, touch,
+  // keys or a scrollbar drag count as the player leaving it, never a scroll caused by layout.
+  const follow = useRef(!scrollMemory.has(memoryKey))
+  const [following, setFollowing] = useState(follow.current)
+  const intent = useRef({ at: -Infinity, dragging: false })
+  const setFollow = useCallback((v: boolean) => { follow.current = v; setFollowing(v) }, [])
+  const pin = useCallback(() => {
+    const el = ref.current
+    if (el && follow.current) el.scrollTop = el.scrollHeight
+  }, [])
   // queued messages wait under everything else, in send order, until the session picks them up
   const { log: messages, queued } = useMemo(() => splitQueued(all), [all])
+
   useLayoutEffect(() => {
-    const el = ref.current
-    if (el && stick.current) el.scrollTop = el.scrollHeight
-  }, [all, busy])
+    const el = ref.current!
+    const saved = scrollMemory.get(memoryKey)
+    const anchor = saved && [...el.querySelectorAll<HTMLElement>('[data-msg]')].find((n) => n.dataset.msg === saved.id)
+    if (anchor) el.scrollTop += anchor.getBoundingClientRect().top - el.getBoundingClientRect().top - saved!.offset
+    else if (saved) setFollow(true)
+    // Re-pin while late layout, late history or a resize moves the bottom, as long as the player follows it.
+    const ro = new ResizeObserver(pin)
+    ro.observe(el)
+    if (body.current) ro.observe(body.current)
+    const key = (e: KeyboardEvent): void => {
+      const t = e.target as HTMLElement | null
+      if (SCROLL_KEYS.has(e.key) && !t?.closest?.('input, textarea, select, [contenteditable="true"]')) intent.current.at = performance.now()
+    }
+    const release = (): void => { intent.current.dragging = false }
+    const view = el.ownerDocument.defaultView ?? window
+    view.addEventListener('keydown', key)
+    view.addEventListener('pointerup', release)
+    view.addEventListener('pointercancel', release)
+    return () => {
+      ro.disconnect()
+      view.removeEventListener('keydown', key)
+      view.removeEventListener('pointerup', release)
+      view.removeEventListener('pointercancel', release)
+      // Remember a deliberate scroll-up for the next mount; a hidden log has no geometry to read.
+      if (follow.current) scrollMemory.delete(memoryKey)
+      else if (el.clientHeight > 0) {
+        const at = topMessage(el)
+        if (at) scrollMemory.set(memoryKey, at)
+      }
+    }
+  }, [memoryKey, pin, setFollow])
+
+  useLayoutEffect(pin, [all, busy, pin])
+
+  const markIntent = (): void => { intent.current.at = performance.now() }
   return (
     <div
       className="chat-log"
       ref={ref}
+      onWheel={markIntent}
+      onTouchMove={markIntent}
+      onPointerDown={() => { intent.current.dragging = true }}
       onScroll={(e) => {
         const el = e.currentTarget
-        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+        if (el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM) { if (!follow.current) setFollow(true) }
+        else if (intent.current.dragging || performance.now() - intent.current.at < 600) { if (follow.current) setFollow(false) }
+        else pin()
       }}
     >
-      {all.length === 0 && wksp !== MAIN_PANEL && (
-        <div className="chat-empty rise">
-          <GenioCore size={80} state={busy ? 'active' : 'idle'} />
-          <h2 className="title" style={{ fontSize: 24 }}>
-            Genio <span className="accent">{wksp}</span>
-          </h2>
-          <p className="dim">Tell Genio what to build in this project. Your conversation and controls stay with this window.</p>
+      <div className="chat-log-body" ref={body}>
+        {all.length === 0 && wksp !== MAIN_PANEL && (
+          <div className="chat-empty rise">
+            <GenioCore size={80} state={busy ? 'active' : 'idle'} />
+            <h2 className="title" style={{ fontSize: 24 }}>
+              Genio <span className="accent">{wksp}</span>
+            </h2>
+            <p className="dim">Tell Genio what to build in this project. Your conversation and controls stay with this window.</p>
+          </div>
+        )}
+        {all.length === 0 && wksp === MAIN_PANEL && (
+          <div className="chat-empty rise">
+            <GenioCore size={110} state={busy ? 'active' : 'idle'} />
+            <h2 className="title" style={{ fontSize: 30 }}>
+              Ready, <span className="accent">{gamertag}</span>
+            </h2>
+            <p className="dim">Tell Genio what to build. It deploys units, watches them, and only pings you for real choices.</p>
+            <div className="quick-chips">
+              <button className="btn" onClick={() => void op('Recap', () => api().recap())}>
+                Recap
+              </button>
+              <button className="btn" onClick={() => go('status')}>
+                Character Sheet
+              </button>
+              <button className="btn solid" onClick={() => openDeploy()}>
+                <Rocket size={14} /> Deploy
+              </button>
+            </div>
+          </div>
+        )}
+        {messages.map((m) => (
+          <Message key={m.id} m={m} calm={calm} gamertag={gamertag} onTakeBack={onTakeBack} />
+        ))}
+        {busy && (
+          <div className="msg genio working rise">
+            <div className="msg-avatar">
+              <GenioCore size={34} state="active" />
+            </div>
+            <div className="working-line">
+              <span className="working-text">{activityDetail ? trunc(activityDetail, 60) : `${wksp === MAIN_PANEL ? 'Genio' : wksp} is on it`}</span>
+              <span className="working-dots">
+                <i />
+                <i />
+                <i />
+              </span>
+            </div>
+          </div>
+        )}
+        {lastError && !busy && <div className="msg-error mono">{lastError} <button className="btn sm" onClick={() => void op('Restart', () => api().restartWksp(wksp, false))}>Restart session</button></div>}
+        {queued.map((m) => (
+          <Message key={m.id} m={m} calm={calm} gamertag={gamertag} onTakeBack={onTakeBack} />
+        ))}
+      </div>
+      {!following && (
+        <div className="chat-jump-dock">
+          <button className="btn sm chat-jump" onClick={() => { setFollow(true); pin() }}>
+            <ArrowDown size={13} /> Jump to latest
+          </button>
         </div>
       )}
-      {all.length === 0 && wksp === MAIN_PANEL && (
-        <div className="chat-empty rise">
-          <GenioCore size={110} state={busy ? 'active' : 'idle'} />
-          <h2 className="title" style={{ fontSize: 30 }}>
-            Ready, <span className="accent">{gamertag}</span>
-          </h2>
-          <p className="dim">Tell Genio what to build. It deploys units, watches them, and only pings you for real choices.</p>
-          <div className="quick-chips">
-            <button className="btn" onClick={() => void op('Recap', () => api().recap())}>
-              Recap
-            </button>
-            <button className="btn" onClick={() => go('status')}>
-              Character Sheet
-            </button>
-            <button className="btn solid" onClick={() => openDeploy()}>
-              <Rocket size={14} /> Deploy
-            </button>
-          </div>
-        </div>
-      )}
-      {messages.map((m) => (
-        <Message key={m.id} m={m} calm={calm} gamertag={gamertag} onTakeBack={onTakeBack} />
-      ))}
-      {busy && (
-        <div className="msg genio working rise">
-          <div className="msg-avatar">
-            <GenioCore size={34} state="active" />
-          </div>
-          <div className="working-line">
-            <span className="working-text">{activityDetail ? trunc(activityDetail, 60) : `${wksp === MAIN_PANEL ? 'Genio' : wksp} is on it`}</span>
-            <span className="working-dots">
-              <i />
-              <i />
-              <i />
-            </span>
-          </div>
-        </div>
-      )}
-      {lastError && !busy && <div className="msg-error mono">{lastError} <button className="btn sm" onClick={() => void op('Restart', () => api().restartWksp(wksp, false))}>Restart session</button></div>}
-      {queued.map((m) => (
-        <Message key={m.id} m={m} calm={calm} gamertag={gamertag} onTakeBack={onTakeBack} />
-      ))}
     </div>
   )
 }
@@ -250,7 +328,7 @@ const Message = memo(function Message({ m, calm, gamertag, onTakeBack }: { m: Ch
   if (m.role === 'player') {
     const waiting = m.queue === 'queued' || m.queue === 'unsent'
     return (
-      <div className={cx('msg player rise', waiting && m.queue)}>
+      <div data-msg={m.id} className={cx('msg player rise', waiting && m.queue)}>
         {m.images?.length ? <MessageImages wksp={m.wksp} images={m.images.filter(i => i.file !== m.context?.thumbnail?.image?.file)} /> : null}
         {m.text && <div className="msg-bubble selectable">{m.text}</div>}
         <InventoryContextChips context={m.context} wksp={m.wksp} />
@@ -283,7 +361,7 @@ const Message = memo(function Message({ m, calm, gamertag, onTakeBack }: { m: Ch
   }
   if (m.role === 'wake') {
     return (
-      <div className="msg-wake mono" title={m.text}>
+      <div data-msg={m.id} className="msg-wake mono" title={m.text}>
         <span className="msg-wake-text"><span className="neon-text">⚡</span> {trunc(m.text.split('\n')[0], 140)}
           <span className="mute"> · {clock(m.ts)}</span>
         </span>
@@ -294,7 +372,7 @@ const Message = memo(function Message({ m, calm, gamertag, onTakeBack }: { m: Ch
   const routed = m.wksp !== MAIN_PANEL ? routedRequest(m) : null
   if (routed) {
     return (
-      <div className="msg player from-genio rise">
+      <div data-msg={m.id} className="msg player from-genio rise">
         <div className="msg-from label neon-text">From Genio</div>
         <div className="msg-bubble selectable">
           <Markdown text={routed.text} />
@@ -309,19 +387,19 @@ const Message = memo(function Message({ m, calm, gamertag, onTakeBack }: { m: Ch
   }
   if (m.role === 'system') {
     return (
-      <div className="msg-system rise">
+      <div data-msg={m.id} className="msg-system rise">
         <Markdown text={m.text} />
         <CopyMessageButton text={m.text} />
       </div>
     )
   }
   if (m.role === 'error') {
-    return <div className="msg-error mono selectable">{m.text}<CopyMessageButton text={m.text} /></div>
+    return <div data-msg={m.id} className="msg-error mono selectable">{m.text}<CopyMessageButton text={m.text} /></div>
   }
   const noop = NOOP_RE.test(m.text) && m.text.length < 90
   const tools = m.tools ?? []
   return (
-    <div className={cx('msg genio rise', noop && 'noop', calm && noop && 'calm-noop')}>
+    <div data-msg={m.id} className={cx('msg genio rise', noop && 'noop', calm && noop && 'calm-noop')}>
       <div className="msg-avatar">
         <GenioCore size={34} state={m.partial ? 'active' : 'idle'} />
       </div>
