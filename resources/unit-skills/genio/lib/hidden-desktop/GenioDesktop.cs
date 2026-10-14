@@ -54,6 +54,7 @@ static class GenioDesktop
     const uint WM_GETTEXT = 0x000D, WM_GETTEXTLENGTH = 0x000E, WM_CLOSE = 0x0010, BM_CLICK = 0x00F5;
     const uint SMTO_ABORTIFHUNG = 0x0002;
     const uint GW_OWNER = 4;
+    const uint CREATE_NO_WINDOW = 0x08000000;
 
     static int Main(string[] argv)
     {
@@ -102,8 +103,9 @@ static class GenioDesktop
         var startup = new STARTUPINFO(); startup.cb = Marshal.SizeOf(startup); startup.lpDesktop = path;
         PROCESS_INFORMATION info;
         // No inherited handles: the editor never holds Genio's pipes. A null environment inherits ours,
-        // which is exactly the environment the caller gave this helper.
-        if (!CreateProcess(null, new StringBuilder(command), IntPtr.Zero, IntPtr.Zero, false, 0, IntPtr.Zero, cwd, ref startup, out info))
+        // which is exactly the environment the caller gave this helper. CREATE_NO_WINDOW keeps a console
+        // program's console off the player's desktop; GUI programs such as Unity ignore it.
+        if (!CreateProcess(null, new StringBuilder(command), IntPtr.Zero, IntPtr.Zero, false, CREATE_NO_WINDOW, IntPtr.Zero, cwd, ref startup, out info))
         {
             int error = Marshal.GetLastWin32Error(); CloseDesktop(desktop);
             return Fail("process", error, "CreateProcess failed");

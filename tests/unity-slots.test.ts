@@ -7,13 +7,13 @@ import type { PlayPoolState } from '../src/shared/play'
 const fixture = vi.hoisted(() => ({
   projects: [] as Project[],
   pool: undefined as unknown as PlayPoolState,
-  playPool: vi.fn(), playPoolCap: vi.fn(), playPoolDisk: vi.fn(), playPoolEstimate: vi.fn(), playCloseSlotEditor: vi.fn()
+  playPool: vi.fn(), playPoolCap: vi.fn(), playPoolLaunch: vi.fn(), playPoolDisk: vi.fn(), playPoolEstimate: vi.fn(), playCloseSlotEditor: vi.fn()
 }))
 vi.mock('../src/renderer/src/store', () => ({
   useStore: (selector: (s: unknown) => unknown) => selector({ settings: {}, snap: { projects: fixture.projects, tasks: [{ id: 'task-7', title: 'fix-jump', project: 'Zebra', state: 'working' }], allies: [], inbox: [] } }),
   PROJECT_WINDOW: 'Zebra', saveSettings: vi.fn(),
   api: () => ({ homePath: async () => '', falWorld: async () => ({ config: {} }), uthanaWorld: async () => ({ config: {} }), projectMetadata: async () => ({}), projectPushStatus: async () => ({ ahead: 0, behind: 0 }),
-    playPool: fixture.playPool, playPoolCap: fixture.playPoolCap, playPoolDisk: fixture.playPoolDisk, playPoolEstimate: fixture.playPoolEstimate, playCloseSlotEditor: fixture.playCloseSlotEditor }),
+    playPool: fixture.playPool, playPoolCap: fixture.playPoolCap, playPoolLaunch: fixture.playPoolLaunch, playPoolDisk: fixture.playPoolDisk, playPoolEstimate: fixture.playPoolEstimate, playCloseSlotEditor: fixture.playCloseSlotEditor }),
   hasView: () => false, go: vi.fn(), openDeploy: vi.fn(),
   op: async (_: string, fn: () => unknown) => fn(), setState: vi.fn(), toast: vi.fn(), errText: String
 }))
@@ -95,5 +95,23 @@ describe('Settings › This project › Unity slots', () => {
     const confirm = [...document.querySelectorAll('.modal button')].find(b => b.textContent === 'Close slot editor') as HTMLButtonElement
     await act(async () => confirm.click())
     expect(fixture.playCloseSlotEditor).toHaveBeenCalledWith('Zebra', 1)
+  })
+
+  it('switches slot editor windows between hidden and visible, and shows fallback warnings and dialog failures', async () => {
+    fixture.pool = { cap: 2, launch: 'hidden', queue: [], slots: [
+      slot(1, { editor: true, window: 'visible', warning: 'Opened the slot editor visibly: hidden desktops exist only on Windows.' }),
+      slot(2, { failure: { message: 'Play slot 2 editor is blocked by a Unity licence or sign-in prompt on its hidden desktop.', at: 1 } })
+    ] }
+    fixture.playPoolLaunch.mockImplementation(async (_: string, visible: boolean) => { fixture.pool = { ...fixture.pool, launch: visible ? 'visible' : 'hidden' }; return { launch: fixture.pool.launch } })
+    await mount('unity')
+    const select = host.querySelector('select[aria-label="Slot editor windows"]') as HTMLSelectElement
+    expect(select.value).toBe('hidden')
+    const rows = [...host.querySelectorAll('li.unity-slot')].map(li => li.textContent)
+    expect(rows[0]).toContain('· visible window')
+    expect(rows[0]).toContain('hidden desktops exist only on Windows')
+    expect(rows[1]).toContain('blocked by a Unity licence')
+    await act(async () => { select.value = 'visible'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+    expect(fixture.playPoolLaunch).toHaveBeenCalledWith('Zebra', true)
+    expect((host.querySelector('select[aria-label="Slot editor windows"]') as HTMLSelectElement).value).toBe('visible')
   })
 })

@@ -197,7 +197,7 @@ export function classifyWindow(w, rules = DIALOG_RULES) {
     }
     return { kind: 'blocking', rule: rule.id, reason: rule.reason, immediate: !!rule.immediate }
   }
-  return dialog ? { kind: 'blocking', rule: 'unknown', reason: 'an unexpected dialog' } : { kind: 'ignore', rule: 'window' }
+  return dialog ? { kind: 'blocking', rule: 'unknown', reason: 'an unexpected dialog', immediate: false } : { kind: 'ignore', rule: 'window' }
 }
 
 const readJson = (file, fallback) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return fallback } }

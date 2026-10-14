@@ -41,6 +41,8 @@ export interface PlayPreparation {
   at: number; elapsedMs: number; preflightMs: number; gitMs: number; bytes: number; files: number
   estimatedBytes: number; requiredBytes: number; availableBytes: number; lfsStorage: string
   library: import('../../resources/unit-skills/genio/lib/unity-seed.mjs').SeedReport
+  /** What the slot reset before this switch: files Unity created or changed in its own copy. */
+  reset?: { at: number; untracked: number; modified: number }
 }
 /**
  * window: where the running slot editor shows, 'hidden' on Genio's hidden desktop. warning: why a hidden

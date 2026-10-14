@@ -3,8 +3,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import { afterEach, beforeEach, expect, it } from 'vitest'
-import { PlayPool, mentionsRoot, type PoolOptions } from '../resources/unit-skills/genio/skills/play/scripts/pool.mjs'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { PlayPool, listProcesses, mentionsRoot, type PoolOptions } from '../resources/unit-skills/genio/skills/play/scripts/pool.mjs'
+import type { DesktopWindow } from '../resources/unit-skills/genio/lib/hidden-desktop.mjs'
 
 // Every editor here is tests/fixtures/fake-unity-editor.mjs in a temp dir; no real Unity is touched.
 const fixture = path.resolve('tests/fixtures/fake-unity-editor.mjs')
@@ -220,3 +221,97 @@ it('play.mjs exit closes the editor by default, keep_editor leaves it, and --clo
   expect(JSON.parse(out.trim().split('\n')[0])).toMatchObject({ released: true, slot: 1, editor: 'closed' })
   expect(alive(kept.editor.pid)).toBe(false)
 }, 120000)
+
+// ---------------------------------------------------------------- hidden desktop (fake desktop API, fake editors)
+
+function fakeDesktop(windows: () => DesktopWindow[] = () => []) {
+  const workers = new Map<number, number>()
+  const api = {
+    available: () => true,
+    launch: vi.fn(async ({ command }: { command: string }) => {
+      const m = command.match(/^"[^"]+" -automated -projectPath (?:"([^"]+)"|(\S+))$/)
+      if (!m) return { ok: false, stage: 'process', message: `unexpected command ${command}` }
+      const editor = await fakeEditor(m[1] ?? m[2], 'stubborn')
+      workers.set(editor.pid, editor.worker)
+      const created = (await listProcesses()).find(p => p.pid === editor.pid)?.created ?? ''
+      return { ok: true, pid: editor.pid, created, desktop: `WinSta0\\genio-fake-${editor.pid}`, helper: process.pid }
+    }),
+    windows: vi.fn(async () => windows()),
+    click: vi.fn(async () => true),
+    screenshot: vi.fn(async (_d: string, file: string) => { fs.writeFileSync(file, 'png'); return file }),
+    // Stands in for WM_CLOSE on the hidden desktop: the editor and its worker exit.
+    close: vi.fn(async (_d: string, pid: number) => { for (const p of [pid, workers.get(pid)]) try { process.kill(p!, 'SIGKILL') } catch { /* gone */ } return true })
+  }
+  return api
+}
+const stateFile = (pool: PlayPool) => JSON.parse(fs.readFileSync(path.join(pool.dir, 'state.json'), 'utf8'))
+
+it('launches the slot editor on a hidden desktop, records its identity, and closes it through that desktop', async () => {
+  const desktop = fakeDesktop(), terminated: number[] = []
+  const pool = fast({ desktop, system: { terminate: async pid => { terminated.push(pid) } } })
+  const a = (await pool.acquire('unit:a'))!
+  fs.mkdirSync(a.root, { recursive: true })
+  const launch = await pool.launchEditor(1, a.token, 'C:\\Hub\\Editor\\Unity.exe')
+  expect(launch).toMatchObject({ hidden: true, desktop: `WinSta0\\genio-fake-${launch.pid}` })
+  if (process.platform === 'win32') expect(launch.created).toMatch(/^\d+$/)
+  expect(stateFile(pool).slots[0].editor).toMatchObject({ pid: launch.pid, created: launch.created || undefined, desktop: launch.desktop, owner: 'unit:a' })
+  expect((await pool.state())).toMatchObject({ launch: 'hidden', slots: [{ editor: true, window: 'hidden' }] })
+  // No Pipeline answer: the polite close goes through the hidden desktop, never taskkill.
+  fs.rmSync(path.join(a.root, 'Library/Pipeline/.unity-pipeline-port'))
+  expect(await pool.release(1, a.token)).toMatchObject({ closed: true, forced: false })
+  expect(desktop.close).toHaveBeenCalledWith(launch.desktop, launch.pid)
+  expect(terminated).toEqual([])
+  expect(alive(launch.pid)).toBe(false)
+}, 60000)
+
+it('opens visibly when Settings › Unity slots says so', async () => {
+  const desktop = fakeDesktop()
+  const spawnVisible = vi.fn(async (_file: string, args: string[]) => (await fakeEditor(args[2], 'graceful')).pid)
+  const pool = fast({ desktop, spawnVisible })
+  expect(await pool.configureLaunch(true)).toEqual({ launch: 'visible' })
+  const a = (await pool.acquire('unit:a'))!
+  fs.mkdirSync(a.root, { recursive: true })
+  const launch = await pool.launchEditor(1, a.token, 'Unity.exe')
+  expect(launch).toMatchObject({ hidden: false, created: '' })
+  expect(desktop.launch).not.toHaveBeenCalled()
+  expect(spawnVisible).toHaveBeenCalledWith('Unity.exe', ['-automated', '-projectPath', a.root], expect.anything())
+  expect(await pool.state()).toMatchObject({ launch: 'visible', slots: [{ window: 'visible' }] })
+  expect(await pool.release(1, a.token)).toMatchObject({ closed: true })
+}, 60000)
+
+it('the dialog watcher presses safe buttons, and a blocking dialog fails the lease with a clear message and closes the editor', async () => {
+  let shown: DesktopWindow[] = [{ hwnd: '7', pid: 1, className: '#32770', title: 'Scene(s) Have Been Modified', texts: ['Save changes?'], buttons: ['Save', "Don't Save"] }]
+  const desktop = fakeDesktop(() => shown)
+  const pool = fast({ desktop })
+  const a = (await pool.acquire('unit:a'))!
+  fs.mkdirSync(a.root, { recursive: true })
+  const launch = await pool.launchEditor(1, a.token, 'Unity.exe')
+  expect(await pool.watchEditor(1, a.token)).toMatchObject({ clicked: [{ button: "Don't Save" }] })
+  expect(await pool.check(1, a.token)).toBe(a.root)
+  shown = [{ hwnd: '8', pid: 1, className: '#32770', title: 'Unity', texts: ['No valid Unity Editor license found.'], buttons: ['OK'] }]
+  await expect(pool.watchEditor(1, a.token)).rejects.toThrow(/^Play slot 1 editor is blocked by a Unity licence or sign-in prompt on its hidden desktop: "Unity" says "No valid Unity Editor license found\."/)
+  // Every later call from that holder gets the same reason, not a bare "lease lost".
+  await expect(pool.check(1, a.token)).rejects.toThrow('licence or sign-in prompt')
+  expect(alive(launch.pid)).toBe(false)
+  const slot = (await pool.state()).slots[0]
+  expect(slot).toMatchObject({ owner: undefined, editor: false, failure: { message: expect.stringContaining('Screenshot:') } })
+  expect(fs.existsSync(slot.failure!.screenshot!)).toBe(true)
+  // The slot is usable again; a new editor clears the failure.
+  const b = (await pool.acquire('unit:b'))!
+  expect(b.id).toBe(1)
+  shown = []
+  await pool.launchEditor(1, b.token, 'Unity.exe')
+  expect((await pool.state()).slots[0].failure).toBeUndefined()
+  expect(await pool.release(1, b.token)).toMatchObject({ closed: true })
+}, 90000)
+
+it.runIf(process.platform === 'win32')('never touches a recorded PID whose creation time no longer matches (PID reuse)', async () => {
+  const killed: number[] = [], terminated: number[] = []
+  const pool = fast({ system: { kill: async pid => { killed.push(pid) }, terminate: async pid => { terminated.push(pid) } } })
+  const a = (await pool.acquire('unit:a'))!
+  const editor = await fakeEditor(a.root, 'stubborn')
+  await pool.recordEditor(1, a.token, editor.pid, { created: '1', hidden: true, desktop: 'WinSta0\\genio-gone' })
+  await pool.release(1, a.token)
+  expect(killed).toEqual([]); expect(terminated).toEqual([])
+  expect(alive(editor.pid)).toBe(true)
+}, 60000)

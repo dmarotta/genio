@@ -193,6 +193,26 @@ describe('process watch (fake process snapshots only)', () => {
     expect(killed).toEqual([20])
   })
 
+  it('leaves a hidden-desktop slot editor (child of the desktop helper) alone by its recorded creation time', async () => {
+    // play.mjs -> genio-desktop.exe -> Unity on the hidden desktop; the helper itself is never an editor.
+    const born = time(100200)
+    snapshot.push(p(11, 10, 'play-helper'), p(12, 11, '"C:/data/hidden-desktop/bin/x/genio-desktop.exe" launch --desktop genio-slot1-ab --command QQ=='),
+      { ...editor(20, 12, slot), created: born })
+    lease()
+    const watcher = watch()
+    await watcher.poll([root], notify)
+    expect(killed).toEqual([])
+    // Kept after release: the recorded identity, not the registration time, proves it is the pool's editor.
+    const kept = { id: 1, editor: { pid: 20, created: born, desktop: 'WinSta0\\genio-slot1-ab', owner: `unit:${c.task}`, at: 100100 } }
+    fs.writeFileSync(path.join(pool, 'state.json'), JSON.stringify({ slots: [kept] }))
+    await watcher.poll([root], notify)
+    expect(killed).toEqual([])
+    // A different process on the same PID is not covered by that record.
+    snapshot = [p(10, 1, 'unit', 100000), p(12, 10, 'genio-desktop.exe', 100150), { ...editor(20, 12, slot), created: time(100300) }]
+    await watcher.poll([root], notify)
+    expect(killed).toEqual([20])
+  })
+
   it('also protects live leases and retained pool editors at the placed slot location', async () => {
     const copies = path.join(tmp, 'project-volume', 'slots'), moved = path.join(copies, 'slot-1', 'Game')
     fs.mkdirSync(moved, { recursive: true })

@@ -95,7 +95,7 @@ it('configures the cap through the service, unlocking the achievement even below
   expect(unlock).toHaveBeenCalledWith('play-pool-configured')
 })
 function git(cwd: string, args: string[]) { return execFileSync('git',args,{cwd,encoding:'utf8',env:{...process.env,GIT_CONFIG_COUNT:'0'}}).trim() }
-it('copies only a committed revision, seeds Library without credentials, clears a crashed editor lock and protects dirty slots', async () => {
+it('copies only a committed revision, seeds Library without credentials, clears a crashed editor lock and resets Unity-dirtied slots', async () => {
   git(world,['init','-q']);git(world,['config','user.name','Test']);git(world,['config','user.email','test@example.invalid'])
   fs.mkdirSync(path.join(world,'Assets'));fs.writeFileSync(path.join(world,'Assets/game.txt'),'v1');fs.writeFileSync(path.join(world,'.gitignore'),'Library/\nTemp/\n')
   git(world,['add','.']);git(world,['commit','-qm','first'])
@@ -117,9 +117,20 @@ it('copies only a committed revision, seeds Library without credentials, clears 
   expect(fs.readFileSync(path.join(a.root,'Assets/game.txt'),'utf8')).toBe('v2')
   expect(fs.existsSync(path.join(a.root,'Temp/UnityLockfile'))).toBe(false)
   fs.writeFileSync(path.join(world,'Assets/game.txt'),'v3');git(world,['add','Assets']);git(world,['commit','-qm','third'])
+  // Unity writes into a slot it opens: .meta files for assets the commit lacks, edits to tracked files.
+  // A Genio-owned slot resets itself (slot clone only) instead of refusing the next switch.
   fs.writeFileSync(path.join(a.root,'Assets/game.txt'),'local')
-  await expect(pool.prepare(a.id,a.token)).rejects.toThrow('local changes')
-  expect(fs.readFileSync(path.join(a.root,'Assets/game.txt'),'utf8')).toBe('local')
+  fs.writeFileSync(path.join(a.root,'Assets/game.txt.meta'),'guid: 1'); fs.mkdirSync(path.join(a.root,'Assets/New')); fs.writeFileSync(path.join(a.root,'Assets/New.meta'),'guid: 2')
+  fs.writeFileSync(path.join(world,'Assets/untracked-in-source.meta'),'keep me')
+  const sourceStatus=git(world,['status','--porcelain','--untracked-files=all'])
+  await pool.prepare(a.id,a.token)
+  expect(fs.readFileSync(path.join(a.root,'Assets/game.txt'),'utf8')).toBe('v3')
+  for (const f of ['Assets/game.txt.meta','Assets/New.meta','Assets/New']) expect(fs.existsSync(path.join(a.root,f))).toBe(false)
+  expect(fs.readFileSync(path.join(a.root,'Library/warm'),'utf8')).toBe('cache')
+  expect((await pool.state()).slots[0].preparation?.reset).toMatchObject({ untracked: 2, modified: 1 })
+  // The source is never cleaned.
+  expect(fs.readFileSync(path.join(world,'Assets/untracked-in-source.meta'),'utf8')).toBe('keep me')
+  expect(git(world,['status','--porcelain','--untracked-files=all'])).toBe(sourceStatus)
 }, 30000)
 it('checks disk space before cloning and clears preparing after failure', async () => {
   git(world,['init','-q']); git(world,['config','user.name','Test']); git(world,['config','user.email','test@example.invalid'])
