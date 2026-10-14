@@ -29,6 +29,7 @@ export function PlayPoolPanel({ world, onChange, onError }: { world: string; onC
   const target = wanted !== undefined ? state?.slots.find(s => s.id === wanted) : undefined
   const settings = () => { requestSystemsSection('project', UNITY_SLOTS_ANCHOR); go('systems') }
   const stuck = state?.slots.filter(s => s.stuck) ?? []
+  const draining = state?.slots.filter(s => s.draining).length ?? 0
   return <>
     {stuck.map(s => <p key={s.id} role="alert" className="alert-text">Slot {s.id} is stuck: its Unity editor would not close ({s.stuck!.reason}). Units cannot use it until it is closed. <button className="btn sm ghost" onClick={settings}>Open Unity slots</button></p>)}
     <div className="play-target">
@@ -45,7 +46,7 @@ export function PlayPoolPanel({ world, onChange, onError }: { world: string; onC
       <button className="btn" disabled={busy || target.preparing} onClick={() => void run(() => window.genio.api.playSelectSlot(world, target.id, true))}>Take over slot {target.id}</button>
       <button className="btn ghost" disabled={busy} onClick={() => setWanted(undefined)}>Cancel</button>
     </>}
-    {state && <button className="btn ghost play-slots-link" title="Unity slots in Settings › This project" onClick={settings}>{slotsInUse(state)} of {state.cap} slots in use</button>}
+    {state && <button className="btn ghost play-slots-link" title="Unity slots in Settings › This project" onClick={settings}>{slotsInUse(state)} of {state.cap} slots in use{draining ? ` · ${draining} draining` : ''}</button>}
   </div>
   </>
 }

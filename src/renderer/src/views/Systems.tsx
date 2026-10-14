@@ -79,6 +79,8 @@ function revealAnchor(id: string): () => void {
     if (typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(align)
     ro.observe(el)
+    // Sections above the anchor may finish loading later and push it down.
+    if (el.parentElement) ro.observe(el.parentElement)
     const timer = setTimeout(() => stop(), 1500)
     stop = () => { ro.disconnect(); clearTimeout(timer); for (const e of ['wheel', 'pointerdown', 'keydown']) window.removeEventListener(e, stop) }
     for (const e of ['wheel', 'pointerdown', 'keydown']) window.addEventListener(e, stop)

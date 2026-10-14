@@ -5,7 +5,7 @@ import { api, errText, useStore } from '../store'
 import { Confirm, Field } from '../components/ui'
 
 const CAPS = [1, 2, 3, 4, 5, 6, 7, 8]
-const gb = (bytes: number): string => `${(bytes / 1024 ** 3).toFixed(1)} GB`
+const gb = (bytes: number): string => bytes < 1024 ** 3 ? `${Math.round(bytes / 1024 ** 2)} MB` : `${(bytes / 1024 ** 3).toFixed(1)} GB`
 
 function statusText(slot: PlaySlot | undefined, tasks: Pick<Task, 'id' | 'title'>[]): string {
   switch (slotStatus(slot)) {
@@ -69,7 +69,7 @@ export function UnitySlots({ world }: { world: string }) {
           <span className="unity-slots-count">{used} of {state.cap} slots in use{draining.length ? ` · ${draining.length} draining` : ''}{state.queue.length ? ` · ${state.queue.length} waiting` : ''}</span>
         </Field>
       </div>
-      {draining.length > 0 && <p className="amber-text">Draining: slot {draining.map(s => s.id).join(', ')}. {draining.length === 1 ? 'It keeps' : 'They keep'} the current lease and editor, takes no new lease, and closes its editor when released.</p>}
+      {draining.length > 0 && <p className="amber-text">Draining: slot {draining.map(s => s.id).join(', ')}. {draining.length === 1 ? 'It keeps its current lease and editor, takes no new lease, and closes its editor when released.' : 'They keep their current leases and editors, take no new lease, and close their editors when released.'}</p>}
       <ul className="unity-slot-list" aria-label="Slots">
         {ids.map(id => {
           const slot = state.slots.find(s => s.id === id)

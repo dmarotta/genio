@@ -43,9 +43,9 @@ export interface PlayPoolState { cap: number; slots: PlaySlot[]; queue: string[]
 /** Deep-link target: the Play screen's "N of X slots in use" opens Settings › This project › Unity slots. */
 export const UNITY_SLOTS_ANCHOR = 'unity-slots'
 
-/** Slots counted against the cap right now: leased, preparing, or with an editor open. */
-export function slotsInUse(state: Pick<PlayPoolState, 'slots'>): number {
-  return state.slots.filter(s => s.owner || s.preparing || s.editor || s.closing || s.stuck).length
+/** Slots within the cap that are taken right now: leased, preparing, closing, stuck, or with an editor open. Draining slots are counted apart. */
+export function slotsInUse(state: Pick<PlayPoolState, 'slots' | 'cap'>): number {
+  return state.slots.filter(s => s.id <= state.cap && (s.owner || s.preparing || s.editor || s.closing || s.stuck)).length
 }
 
 /** "you" for the Play screen's lease, the unit's title for a unit lease. */

@@ -57,7 +57,7 @@ describe('Settings › This project › Unity slots', () => {
     expect(rows[3]).toContain('Retired')
     expect(rows[4]).toContain('Free · editor running · draining')
     expect(rows[5]).toContain('Stuck')
-    expect(section.textContent).toContain('5 of 2 slots in use · 2 draining · 1 waiting')
+    expect(section.textContent).toContain('2 of 2 slots in use · 2 draining · 1 waiting')
     expect(section.textContent).toContain('Draining: slot 3, 5.')
     expect(section.textContent).toContain('1. unit task-9')
     expect([...section.querySelectorAll('button')].filter(b => b.textContent === 'Close slot editor')).toHaveLength(4)
