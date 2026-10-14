@@ -13,6 +13,8 @@ import '../styles/inventory.css'
 
 const TYPES: [AssetKind, string][] = [['image', 'Image'], ['audio', 'Audio'], ['video', 'Video'], ['model', '3D'], ['animation', 'Animation'], ['material', 'Material']]
 const ICONS = { image: FileImage, audio: Music, video: Film, model: Box, animation: Box, material: Box }
+type AssetScope = 'all' | 'ours' | 'generated'
+const REFRESH_LABEL = 'Refresh the asset list (rescan, includes newly generated assets)'
 // Serialize watcher ownership, including React StrictMode's setup/cleanup/setup cycle.
 let lifecycle: Promise<unknown> = Promise.resolve()
 function inventoryLifecycle(fn: () => Promise<unknown>): Promise<unknown> {
@@ -41,9 +43,8 @@ function WorldInventory({ world, root }: { world: string; root: string }) {
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('')
   const [kinds, setKinds] = useState<AssetKind[]>([])
-  const [scope, setScope] = useState<InventoryQuery['scope']>('ours')
+  const [scope, setScope] = useState<AssetScope>('all')
   const [tags, setTags] = useState('')
-  const [generated, setGenerated] = useState(false)
   const [sort, setSort] = useState<InventoryQuery['sort']>('name')
   const [descending, setDescending] = useState(false)
   const [list, setList] = useState(false)
@@ -64,12 +65,12 @@ function WorldInventory({ world, root }: { world: string; root: string }) {
     window.addEventListener('focus', focus)
     return () => { alive = false; off(); window.removeEventListener('focus', focus); void inventoryLifecycle(() => api().inventoryClose(world)).catch(() => undefined) }
   }, [world])
-  const filters = useMemo<InventoryQuery>(() => ({ query, kinds, scope, tags: tags.split(',').map(t => t.trim()).filter(Boolean), generated: generated || undefined, sort, descending }), [query, kinds, scope, tags, generated, sort, descending])
+  const filters = useMemo<InventoryQuery>(() => ({ query, kinds, scope: scope === 'ours' ? 'ours' : 'all', tags: tags.split(',').map(t => t.trim()).filter(Boolean), generated: scope === 'generated' || undefined, sort, descending }), [query, kinds, scope, tags, sort, descending])
   const filterKey = JSON.stringify(filters)
   const browseQuery = useMemo(() => ({ ...filters, folder }), [filters, folder])
   const revision = state?.revision ?? 0
   const [visible, setVisible] = useState<{ names: string[]; total: number }>()
-  const filtered = [query && `search "${query}"`, kinds.length && kinds.join('/'), scope !== 'ours' && scope, generated && 'generated only', tags.trim() && `tags ${tags.trim()}`].filter(Boolean).join(', ')
+  const filtered = [query && `search "${query}"`, kinds.length && kinds.join('/'), scope === 'ours' && 'ours', scope === 'generated' && 'generated only', tags.trim() && `tags ${tags.trim()}`].filter(Boolean).join(', ')
   useScreenContext('inventory', { world, engine: state?.engine, engineRoot: state?.engineRoot, folder, preview: selected && contextAsset(selected), selection: selection.length > 1 ? selection.map(contextAsset) : undefined,
     facts: [visible && { label: 'Visible', value: `${visible.total} matching: ${listFact(visible.names, visible.total)}` }, !!filtered && { label: 'Filters', value: filtered }] })
   const selectedPaths = JSON.stringify(selection.map(a => a.path))
@@ -88,19 +89,19 @@ function WorldInventory({ world, root }: { world: string; root: string }) {
   return <>
     <div className="inventory-toolbar">
       <label className="inventory-search"><Search size={16} /><input aria-label="Search assets" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or path · t:sfx  ext:png  in:UI" /></label>
-      <select className="select compact" aria-label="Asset scope" value={scope} onChange={e => setScope(e.target.value as InventoryQuery['scope'])}><option value="ours">Ours</option><option value="all">All assets</option><option value="vendor">Vendor packs</option></select>
-      <button className={cx('btn sm', generated && 'on')} aria-pressed={generated} onClick={() => setGenerated(!generated)}>✦ Generated</button>
-      <button className="btn sm" aria-label="Refresh Inventory" disabled={state?.refreshing} onClick={() => { setError(''); void op('Refresh Inventory', () => api().inventoryRefresh(world)) }}><RefreshCw size={14} className={state?.refreshing ? 'spin' : ''} /></button>
+      <select className="select compact" aria-label="Asset scope" value={scope} onChange={e => setScope(e.target.value as AssetScope)}><option value="all">All</option><option value="ours">Ours</option><option value="generated">AI Generated</option></select>
+      <button className="btn sm" title={REFRESH_LABEL} aria-label={REFRESH_LABEL} disabled={state?.refreshing} onClick={() => { setError(''); void op('Refresh Inventory', () => api().inventoryRefresh(world)) }}><RefreshCw size={14} className={state?.refreshing ? 'spin' : ''} /></button>
     </div>
     <div className="inventory-toolbar inventory-filters">
       {TYPES.map(([kind, label]) => <button className={cx('btn sm ghost', kinds.includes(kind) && 'on')} key={kind} aria-pressed={kinds.includes(kind)} onClick={() => setKinds(kinds.includes(kind) ? kinds.filter(k => k !== kind) : [...kinds, kind])}>{label}</button>)}
       <input className="input inventory-tags" aria-label="Asset tags" placeholder="Tags: sfx, sprite…" value={tags} onChange={e => setTags(e.target.value)} />
-      <div className="inventory-spacer" />
-      <select className="select compact" aria-label="Sort assets" value={sort} onChange={e => setSort(e.target.value as InventoryQuery['sort'])}><option value="name">Name</option><option value="type">Type</option><option value="size">Size</option><option value="modified">Modified</option></select>
-      <button className="btn sm" aria-label="Reverse sort" aria-pressed={descending} onClick={() => setDescending(!descending)}>{descending ? '↓' : '↑'}</button>
-      <button className={cx('btn sm', !list && 'on')} aria-label="Grid view" aria-pressed={!list} onClick={() => setList(false)}><Grid2X2 size={15} /></button>
-      <button className={cx('btn sm', list && 'on')} aria-label="List view" aria-pressed={list} onClick={() => setList(true)}><List size={15} /></button>
-      {!list && <input className="inventory-size" type="range" min="120" max="220" step="10" aria-label="Thumbnail size" value={tile} onChange={e => setTile(Number(e.target.value))} />}
+      <div className="inventory-view-controls">
+        <select className="select compact" aria-label="Sort assets" value={sort} onChange={e => setSort(e.target.value as InventoryQuery['sort'])}><option value="name">Name</option><option value="type">Type</option><option value="size">Size</option><option value="modified">Modified</option></select>
+        <button className="btn sm" aria-label="Reverse sort" aria-pressed={descending} onClick={() => setDescending(!descending)}>{descending ? '↓' : '↑'}</button>
+        <button className={cx('btn sm', !list && 'on')} aria-label="Grid view" aria-pressed={!list} onClick={() => setList(false)}><Grid2X2 size={15} /></button>
+        <button className={cx('btn sm', list && 'on')} aria-label="List view" aria-pressed={list} onClick={() => setList(true)}><List size={15} /></button>
+        {!list && <input className="inventory-size" type="range" min="120" max="220" step="10" aria-label="Thumbnail size" value={tile} onChange={e => setTile(Number(e.target.value))} />}
+      </div>
     </div>
     {(error || state?.error) && <div className="inventory-error" role="alert">{error || state?.error}</div>}
     <nav className="inventory-breadcrumb" aria-label="Asset folder">{breadcrumbs(folder).map((b, i) => <span key={b.path}>{i > 0 && <ChevronRight size={12} />}<button onClick={() => browseFolder(b.path)}>{b.name}</button></span>)}</nav>
@@ -113,7 +114,7 @@ function WorldInventory({ world, root }: { world: string; root: string }) {
       {state ? <AssetBrowser key={filterKey + folder + list + tile} world={world} query={browseQuery} revision={revision} indexing={state.indexing} list={list} tile={tile} selected={selection.map(a => a.path)} select={select} onVisible={setVisible} /> : <div className="inventory-empty">Indexing supported media…</div>}
       <Inspector key={selected?.path ?? 'empty'} world={world} root={root} asset={selected} revision={revision} />
     </div>
-    <footer className="inventory-status"><span>{(state?.total ?? 0).toLocaleString()} indexed media</span><span>{state?.indexing ? indexingText(state.indexing) : state?.refreshing ? 'Refreshing…' : state?.watching ? '● Watching for changes' : 'Refreshes on focus'}</span><span>{state?.engine}{state?.engineRoot ? ` · ${state.engineRoot}` : ''}</span><span className="dim">Vendor packs excluded from Ours</span></footer>
+    <footer className="inventory-status"><span>{(state?.total ?? 0).toLocaleString()} indexed media</span><span>{state?.indexing ? indexingText(state.indexing) : state?.refreshing ? 'Refreshing…' : state?.watching ? '● Watching for changes' : 'Refreshes on focus'}</span><span>{state?.engine}{state?.engineRoot ? ` · ${state.engineRoot}` : ''}</span>{scope === 'ours' && <span className="dim">Vendor packs excluded from Ours</span>}</footer>
   </>
 }
 

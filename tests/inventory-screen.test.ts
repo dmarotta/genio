@@ -4,12 +4,12 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { InventoryInfo, InventoryQuery, InventoryState } from '../src/shared/inventory'
 vi.mock('../src/renderer/src/views/Comms', () => ({ ChatPanel: () => null }))
-const f = vi.hoisted(() => ({ world: 'alpha', open: vi.fn(), close: vi.fn(), list: vi.fn(), info: vi.fn(), go: vi.fn(), request: vi.fn(), on: vi.fn() }))
+const f = vi.hoisted(() => ({ world: 'alpha', open: vi.fn(), close: vi.fn(), refresh: vi.fn(), list: vi.fn(), info: vi.fn(), go: vi.fn(), request: vi.fn(), on: vi.fn() }))
 vi.mock('../src/renderer/src/store', () => ({
   PROJECT_WKSP: undefined,
   get PROJECT_WINDOW() { return f.world },
   useStore: (select: (s: unknown) => unknown) => select({ chats: {}, snap: { wksps: [], projects: [{ name: 'alpha', path: 'C:/alpha' }, { name: 'beta', path: 'C:/beta' }] } }),
-  api: () => ({ inventoryOpen: f.open, inventoryClose: f.close, inventoryList: f.list, inventoryInfo: f.info, inventoryRefresh: f.open }),
+  api: () => ({ inventoryOpen: f.open, inventoryClose: f.close, inventoryList: f.list, inventoryInfo: f.info, inventoryRefresh: f.refresh }),
   go: f.go, op: async (_: string, fn: () => unknown) => fn(), errText: String
 }))
 vi.mock('../src/renderer/src/views/Systems', () => ({ requestSystemsSection: f.request }))
@@ -23,6 +23,7 @@ beforeEach(() => {
   vi.useFakeTimers(); f.world = 'alpha'; localStorage.clear()
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true, ResizeObserver: class { observe() {} disconnect() {} }, IntersectionObserver: class { observe() {} disconnect() {} } })
   f.open.mockImplementation(async world => state(world)); f.close.mockResolvedValue(undefined)
+  f.refresh.mockImplementation(async world => state(world))
   f.list.mockImplementation(async (world, q: InventoryQuery) => ({ state: state(world), total: 20000, items: q.limit === 1 ? [] : [item(world), item(world, 'wood.psd')], folders: !q.folder ? [{ name: 'Assets', path: 'Assets', count: 20000, vendor: false }] : q.folder === 'Assets' ? [{ name: 'UI', path: 'Assets/UI', count: 2, vendor: false }] : [] }))
   f.info.mockImplementation(async (world, path: string) => item(world, path.split('/').pop()))
   f.on.mockReturnValue(() => undefined); Object.assign(window, { genio: { on: f.on } })
@@ -31,6 +32,33 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.clearAllMocks() })
 
 describe('Inventory screen lifecycle', () => {
+  it('defaults to All and maps the single scope dropdown onto the existing tree and grid queries', async () => {
+    await render()
+    const scope = host.querySelector<HTMLSelectElement>('[aria-label="Asset scope"]')!
+    expect([...scope.options].map(option => option.text)).toEqual(['All', 'Ours', 'AI Generated'])
+    expect(scope.value).toBe('all')
+    expect(f.list.mock.calls.every(c => c[1].scope === 'all' && c[1].generated === undefined)).toBe(true)
+    expect([...host.querySelectorAll('.inventory-toolbar button')].some(button => button.textContent?.includes('Generated'))).toBe(false)
+    for (const [value, queryScope, generated] of [['ours', 'ours', undefined], ['generated', 'all', true], ['all', 'all', undefined]] as const) {
+      f.list.mockClear()
+      await act(async () => { scope.value = value; scope.dispatchEvent(new Event('change', { bubbles: true })) })
+      await act(async () => { await vi.advanceTimersByTimeAsync(250) })
+      expect(f.list.mock.calls.some(c => c[1].limit === 1)).toBe(true)
+      expect(f.list.mock.calls.some(c => c[1].limit > 1)).toBe(true)
+      expect(f.list.mock.calls.every(c => c[1].scope === queryScope && c[1].generated === generated)).toBe(true)
+    }
+    expect(localStorage.length).toBe(0)
+  })
+
+  it('describes the refresh rescan in its tooltip and accessible label and refreshes the current project', async () => {
+    await render()
+    const label = 'Refresh the asset list (rescan, includes newly generated assets)'
+    const refresh = host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!
+    expect(refresh.title).toBe(label)
+    await click(`button[aria-label="${label}"]`)
+    expect(f.refresh).toHaveBeenCalledWith('alpha')
+  })
+
   it('browses the window\'s own project with no project selector in the header', async () => {
     f.world = 'beta'
     await render()
@@ -92,6 +120,6 @@ describe('Inventory screen lifecycle', () => {
     const calls = f.list.mock.calls.filter(c => c[1].kinds?.includes('image'))
     expect(calls.some(c => c[1].limit === 1)).toBe(true)
     expect(calls.some(c => c[1].limit > 1)).toBe(true)
-    expect(calls.every(c => c[1].scope === 'ours')).toBe(true)
+    expect(calls.every(c => c[1].scope === 'all')).toBe(true)
   })
 })

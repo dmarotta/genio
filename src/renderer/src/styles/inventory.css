@@ -9,7 +9,7 @@
 .inventory-filters { flex-wrap: wrap; }
 .inventory .btn.on { background: var(--neon-soft); border-color: var(--neon); color: var(--neon); }
 .inventory-tags { width: 160px; padding: 5px 8px; font-size: 12px; }
-.inventory-spacer { flex: 1; }
+.inventory-view-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .inventory-size { width: 70px; accent-color: var(--neon); }
 .inventory-breadcrumb { display: flex; flex-wrap: wrap; font-size: 12px; min-height: 24px; }
 .inventory-breadcrumb span { display: inline-flex; align-items: center; }
