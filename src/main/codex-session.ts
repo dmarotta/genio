@@ -29,7 +29,8 @@ export interface CodexSessionFile {
   file: string
 }
 
-async function readHeader(file: string): Promise<string> {
+/** A rollout's first line (its session_meta), however long. */
+export async function readHeader(file: string): Promise<string> {
   const handle = await fs.open(file, 'r')
   try {
     const chunks: Buffer[] = []

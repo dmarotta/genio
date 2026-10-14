@@ -48,5 +48,21 @@ thread at all. `tests/codex-one-shot-rule.test.ts` enforces this rule. It allows
 only the threads that must persist: the image helper reads its rollout, and the
 chat thread is resumed across restarts.
 
-Existing Genio threads in the player's home are left alone here. Migrating them is
-a separate build.
+## Older Genio sessions: Settings > Accounts > Housekeeping
+
+Threads and Claude folders Genio left before this are hidden only when the player
+clicks "Hide Genio's past sessions from the Codex and Claude apps"
+(`session-migration.ts`). It shows a preview first and never runs automatically.
+
+- What is Genio's comes from where it ran: Genio's bases, unit worktrees, data
+  folders and `genio-e2e-*` temp folders, plus Codex chat threads (originator
+  `genio_chat`). Codex threads are matched by the rollout's `session_meta.cwd`;
+  a Claude folder is matched only when every transcript's `cwd` is Genio's.
+- Running units, the current chat sessions and live Claude registry entries are
+  skipped.
+- Codex: one pilot thread is archived first. If Codex's `thread/list` still shows
+  it, nothing else is archived. Claude: folders move into `<base>/claude-home/projects`,
+  where Genio still resumes them.
+- Every item is written to `data/session-migration.json` (from, to, time) as it
+  happens. Undo unarchives and moves back everything there, and never overwrites a
+  file the player has again. `history.jsonl` and `session_index.jsonl` are never edited.

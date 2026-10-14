@@ -461,6 +461,13 @@ export interface GenioApi {
   apiKeys(): Promise<ApiKeyStatus[]>
   apiKeySet(id: string, key: string): Promise<OpResult>
   apiKeyClear(id: string): Promise<OpResult>
+  /** Housekeeping dry run: Genio's past Codex threads and Claude folders in the player's own homes */
+  sessionCleanupPreview(): Promise<SessionCleanupPreview>
+  /** archive / move the previewed items with these keys; never deletes, recorded for Undo */
+  sessionCleanupRun(keys: string[]): Promise<SessionCleanupResult>
+  sessionCleanupProgress(): Promise<SessionCleanupProgress>
+  /** restore everything the housekeeping manifest lists */
+  sessionCleanupUndo(): Promise<SessionCleanupResult>
 
   // ---- per-world generation settings
   falWorld(world: string | null): Promise<FalWorldState>
@@ -565,6 +572,30 @@ export interface GenioApi {
 }
 
 export interface ExplorerStatus { available: boolean; installed: boolean; present: boolean }
+export interface SessionCleanupItem { key: string; app: 'codex' | 'claude'; label: string; detail: string }
+export interface SessionCleanupPreview {
+  /** Codex threads to archive */
+  codex: SessionCleanupItem[]
+  /** Claude folders to move into Genio's own Claude folder */
+  claude: SessionCleanupItem[]
+  /** Genio's, but left alone (running now, or nowhere safe to move) */
+  skipped: (SessionCleanupItem & { reason: string })[]
+  /** manifest entries Undo would restore */
+  undoable: number
+  manifest: string
+}
+export interface SessionCleanupProgress { running: boolean; action?: 'hide' | 'undo'; step: string; done: number; total: number }
+export interface SessionCleanupResult {
+  ok: boolean
+  message: string
+  archived: number
+  moved: number
+  restored: number
+  skipped: { label: string; reason: string }[]
+  /** why the Codex part stopped early */
+  aborted?: string
+  manifest: string
+}
 export interface WindowList {
   projects: Pick<Project, 'name' | 'path' | 'addedAt'>[]
   windows: { project: string | null; current: boolean }[]
@@ -604,6 +635,10 @@ export const API_METHODS = [
   'apiKeys',
   'apiKeySet',
   'apiKeyClear',
+  'sessionCleanupPreview',
+  'sessionCleanupRun',
+  'sessionCleanupProgress',
+  'sessionCleanupUndo',
   'falWorld',
   'falWorldConfig',
   'uthanaWorld',

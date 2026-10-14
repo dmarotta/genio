@@ -24,12 +24,12 @@ export interface CodexWireEvents {
 }
 
 /** Bounded newline RPC transport. A timeout has an unknown outcome and is never retried. */
-export function spawnCodexChat(events: CodexWireEvents): CodexRpc {
+export function spawnCodexChat(events: CodexWireEvents, extraEnv: Record<string, string> = {}): CodexRpc {
   const file = which('codex')
   if (!file) throw new Error('Codex is not installed. Open Accounts.')
   const args = ['app-server', '--listen', 'stdio://', ...CODEX_CHAT_DISABLED.flatMap(name => ['--disable', name])]
   const shim = /\.(cmd|bat)$/i.test(file)
-  const env = { ...process.env }
+  const env = { ...process.env, ...extraEnv }
   delete env.ELECTRON_RUN_AS_NODE
   // Never turn a logged-out subscription session into API-credit billing.
   delete env.OPENAI_API_KEY
