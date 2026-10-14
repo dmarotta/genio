@@ -88,6 +88,8 @@ async function reconcile(ctx: AppCtx, project: string, wksp: string, isOpen: () 
     }
   }
   if (!isOpen()) return
+  // Choices answered while this chat was closed or down reach it once, in the opening turn's events.
+  for (const home of homes) home.decisions.deliverAnswers(project)
   // Legacy tasks keep their home; move their durable wakes to this project chat.
   ctx.main.wksp.deliverWakes()
   const tasks = homes.flatMap(h => h.crew.list()).filter(t => t.project === project)

@@ -373,15 +373,21 @@ export interface BacklogService {
   reconcile(): string[]
 }
 
+/** Where the player answered a choice: a UI surface (Your Move, Hub, inline card), or typed to a chat. */
+export type AnswerOrigin = { via: 'ui' } | { via: 'chat'; chat: string }
+
 export interface DecisionService {
   list(includeResolved?: boolean): Decision[]
   get(id: string): Decision | undefined
   open(d: Partial<Decision> & { question: string }): Decision
   /** idempotent: one open decision per (taskId,key) */
   openForTask(taskId: string, key: string, question: string, source: Decision['source'], extra?: Partial<Decision>): Decision
-  resolve(id: string, answer: string, options?: { relay?: boolean }): Decision | undefined
+  /** origin marks a player answer; it then wakes the owning chat unless typed there. */
+  resolve(id: string, answer: string, options?: { relay?: boolean; origin?: AnswerOrigin }): Decision | undefined
   clarify(id: string, question: string): void
   resolveKey(taskId: string, key: string, answer: string): void
+  /** Queue every player answer in this project the owning chat has not received yet; returns how many. */
+  deliverAnswers(project: string): number
   defer(id: string, until: string): void
 }
 

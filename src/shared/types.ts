@@ -173,6 +173,8 @@ export interface Task {
   cleanedAt?: string
   /** When the unit first finished (Squad DONE), kept through a later despawn; cleared on respawn. */
   finishedAt?: string
+  /** A finished Recon left with no choice or follow-up was surfaced once as needing the player's call. */
+  reconParkedAt?: string
   outcome?: TaskOutcome
   /** Final ready signal, unaffected by later notes or bookkeeping. */
   readyAt?: string
@@ -273,11 +275,13 @@ export interface Decision {
   until?: string
   /** what Genio does when the player accepts (the first option) */
   action?: DecisionAction
+  /** A player answer given outside the owning chat must reach it: pending until its event is queued there. */
+  followUp?: 'pending' | 'delivered'
 }
 
 export type DecisionAction = { kind: 'dispatch-proposal'; proposal: DispatchProposal }
 
-export type WakeKind = 'signal' | 'stale' | 'check' | 'heartbeat'
+export type WakeKind = 'signal' | 'stale' | 'check' | 'heartbeat' | 'answer'
 
 export interface Wake {
   seq: number

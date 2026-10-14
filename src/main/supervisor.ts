@@ -10,8 +10,10 @@
  *   signal    new player-relevant status lines (coalesced), or a turn that
  *             ended without a declared status
  *   stale     lagging unit (no output), dead process, unanswered ping
- *   check     PR merged/closed/red/green, paused wait expired, triggers
+ *   check     PR merged/closed/red/green, paused wait expired, triggers,
+ *             a finished Recon left without a choice or follow-up
  *   heartbeat tick: deferred choices resurfacing, quests ready to deploy
+ *   answer    the player answered a choice outside its chat (decisions.ts)
  *
  * Every step is wrapped: overwatch must never crash the app.
  */
@@ -50,9 +52,14 @@ const LIVE_FOR_STALE = new Set<Task['state']>(['working', 'spawning'])
 const EXIT_WATCH = new Set<Task['state']>(['working', 'spawning', 'paused', 'blocked', 'needs-decision', 'validating', 'stale'])
 const DECLARED = new Set<StatusEvent['kind']>(['done', 'failed', 'needs-decision', 'blocked', 'paused', 'player-held'])
 const TURN_END_SETTLE_MS = 20_000
+/** After a Recon's done event is handled, the chat gets this long to file a choice or follow-up. */
+const RECON_SETTLE_MS = 120_000
+const RECON_RECENT_MS = 24 * 3600_000
 
 export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorService {
   const tracks = new Map<string, Track>()
+  /** finished Recons whose follow-up was filed (in memory: rechecked once after restart) */
+  const reconSettled = new Set<string>()
   let timer: NodeJS.Timeout | undefined
   let kick: NodeJS.Timeout | undefined
   let running = false
@@ -419,6 +426,44 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
     enqueue('check', `${label(t)}: PR merged`, t.id, [url, `project sync: ${syncMsg}`, cleanMsg], false)
   }
 
+  // ------------------------------------------------------------ (6b) parked Recon
+
+  /**
+   * A finished Recon is never silently parked: once its done event was handled
+   * and the chat settled, if nothing followed (no choice, no quest or unit, no
+   * hold), surface it once as needing the player's call.
+   */
+  function stepReconParked(t: Task, now: number): void {
+    if (t.kind !== 'scout' || t.state !== 'done' || t.reconParkedAt || t.promotedTo || reconSettled.has(t.id)) return
+    const finished = Date.parse(t.finishedAt ?? t.updatedAt) || 0
+    // Recons finished before this check existed are history, not news.
+    if (!finished || now - finished > RECON_RECENT_MS) return
+    const h = hc()
+    if (h.wakes.pending().some(w => w.taskId === t.id)) return
+    const handledAt = h.wakes.recent(0).filter(w => w.taskId === t.id).map(w => Date.parse(w.ackedAt ?? '') || 0)
+    if (now - Math.max(finished, ...handledAt) < RECON_SETTLE_MS) return
+    const chat = h.wksp.info()
+    if (chat.queued || chat.activity === 'thinking' || chat.activity === 'tool') return
+    if (reconFollowedUp(t, finished)) {
+      reconSettled.add(t.id)
+      return
+    }
+    h.crew.update(t.id, { reconParkedAt: new Date(now).toISOString() })
+    enqueue('check', `${label(t)}: Recon done, report ready, needs the player's call`, t.id, [
+      ...(t.reportPath ? [`report: ${t.reportPath.replace(/\\/g, '/')}`] : []),
+      'No choice, quest or follow-up unit was filed for it. Relay the finding; deploy the follow-up only if the player\'s earlier words authorized it, otherwise open ONE choice (task=this Recon) with options and a recommendation.'
+    ], false)
+  }
+
+  function reconFollowedUp(t: Task, finished: number): boolean {
+    const after = (iso?: string): boolean => (Date.parse(iso ?? '') || 0) >= finished
+    const homes = [...ctx().homes.values()]
+    return homes.some(o =>
+      o.decisions.list(true).some(d => d.taskId === t.id || (d.project === t.project && after(d.createdAt))) ||
+      o.crew.list().some(x => x.id !== t.id && (x.promotedFrom === t.id || (x.project === t.project && after(x.createdAt)))) ||
+      o.backlog.list().some(q => q.origin === t.id || (q.project === t.project && (after(q.createdAt) || (q.id === t.backlogId && !!q.hold)))))
+  }
+
   // ------------------------------------------------------------ (7) triggers
 
   function stepTriggers(now: number, s: ReturnType<typeof settings>): void {
@@ -579,6 +624,7 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
         step('paused', () => stepPaused(t, tr, now, s))
         step('inbox', () => stepInbox(t, tr, now, s))
         step('pr', () => stepPr(t, tr, now, s))
+        step('recon', () => stepReconParked(t, now))
       }
       step('triggers', () => stepTriggers(now, s))
       step('tick', () => stepTick(now, s))

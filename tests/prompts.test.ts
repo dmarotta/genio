@@ -27,6 +27,25 @@ describe('bounded custom contract and lazy procedures', () => {
     expect(() => customContract(o, false, 'x'.repeat(10000))).toThrow('Custom contract exceeds')
   })
 
+  it('pins the Recon follow-through rules in the main and project contracts and the procedures', () => {
+    for (const isAlly of [false, true]) {
+      const o = { gamertag: 'Dani', base: 'world', isAlly }
+      const rule = customContract(o).split('\n').find(l => l.startsWith('- Recon ended:'))
+      expect(rule).toBe('- Recon ended: relay the finding; deploy the follow-up at once only if the player\'s earlier words authorized it (never the Recon alone; an "only" Recon stays report-only), else open ONE such choice (task=Recon) and wait. Its answer event: deploy the chosen work now (quests, dependencies, serial order; queue the rest), then report.')
+      expect(customContract(o)).toContain('Never merge without the player\'s explicit approval')
+      const intake = procedureText('intake', o)
+      expect(intake).toContain('**Recon follow-through.**')
+      expect(intake).toContain('open ONE choice with choice_open (task = the Recon, options, recommendation) rather than a wall of questions, and wait')
+      expect(intake).toContain('a Recon Dani ordered "only" stays report-only until they choose')
+      expect(intake).toContain('respect dependencies and serial order, deploy what is unblocked and queue the rest, then report')
+      expect(intake).toContain('merging still needs Dani\'s explicit approval or Auto-loot')
+      const events = procedureText('events', o)
+      expect(events).toContain('- **answer** (Dani answered a choice in the answer panel, the Hub or another chat): act on it now')
+      expect(events).toContain('do not echo the answer back')
+      expect(events).toContain('a finished Recon left without a choice or follow-up')
+    }
+  })
+
   it('leaves budget for provider instructions even with long identity fields', () => {
     expect(customContract({ gamertag: 'x'.repeat(1000), base: 'b'.repeat(1000), isAlly: true }, true, 'u'.repeat(300)).length)
       .toBeLessThanOrEqual(CUSTOM_CONTRACT_BUDGET)

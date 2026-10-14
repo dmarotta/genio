@@ -10,7 +10,7 @@ import { modeLabel } from '@shared/vocab'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { Decision, Task } from '@shared/types'
 import type { TaskFile } from '@shared/api'
-import type { AppCtx, HomeCtx } from './services'
+import type { AnswerOrigin, AppCtx, HomeCtx } from './services'
 import type { Home } from './home'
 import { readText, slugify } from './util'
 import { questOrder } from '@shared/quest-board'
@@ -88,8 +88,8 @@ async function withChoice(id: string, run: () => Promise<{ ok: boolean; message:
   try { return await run() } finally { activeChoices.delete(id) }
 }
 
-export function answerChoice(ctx: AppCtx, id: string, answer: string): Promise<{ ok: boolean; message: string }> {
-  return withChoice(id, () => sendChoiceAnswer(ctx, id, answer))
+export function answerChoice(ctx: AppCtx, id: string, answer: string, origin: AnswerOrigin = { via: 'ui' }): Promise<{ ok: boolean; message: string }> {
+  return withChoice(id, () => sendChoiceAnswer(ctx, id, answer, origin))
 }
 
 export function clarifyChoice(ctx: AppCtx, id: string, question: string): Promise<{ ok: boolean; message: string }> {
@@ -99,10 +99,10 @@ export function clarifyChoice(ctx: AppCtx, id: string, question: string): Promis
     if (!found || found.d.resolvedAt) return { ok: false, message: 'This choice is no longer pending.' }
     const { hc, d } = found
     const text = `Clarification requested for choice ${id} [key=${d.key}]: ${question.trim()}\nThis is a question, not an answer or approval. Keep the obligation open; reply with a clearer question, options and Details under the same key.`
-    if (d.taskId) {
-      const task = findTask(ctx, d.taskId, hc.home)
-      if (!task || ['cleaned', 'done', 'merged'].includes(task.task.state)) return { ok: false, message: 'The originating unit is unavailable.' }
-      const r = await task.hc.crew.send(d.taskId, text, [])
+    // A finished unit (a Recon with its report) cannot answer: its project chat does.
+    const task = d.taskId ? findTask(ctx, d.taskId, hc.home) : undefined
+    if (task && !['cleaned', 'done', 'merged'].includes(task.task.state)) {
+      const r = await task.hc.crew.send(d.taskId!, text, [])
       if (!r.ok) return r
     } else {
       await hc.wksp.send(text, 'player')
@@ -125,7 +125,7 @@ export async function applyRecommendations(ctx: AppCtx, review: RecommendationRe
         if (!d || d.resolvedAt || (d.until && Date.parse(d.until) > Date.now()) || choiceGroup(d) !== row.group || choiceRevision(d) !== row.revision || recommendationAnswer(d) !== row.answer) {
           return { ok: false, message: 'Choice changed since review. Review it again.' }
         }
-        return sendChoiceAnswer(ctx, row.id, row.answer)
+        return sendChoiceAnswer(ctx, row.id, row.answer, { via: 'ui' })
       })
       results.push({ id: row.id, ...result })
     } catch (error) {
@@ -135,7 +135,7 @@ export async function applyRecommendations(ctx: AppCtx, review: RecommendationRe
   return results
 }
 
-async function sendChoiceAnswer(ctx: AppCtx, id: string, answer: string): Promise<{ ok: boolean; message: string }> {
+async function sendChoiceAnswer(ctx: AppCtx, id: string, answer: string, origin: AnswerOrigin): Promise<{ ok: boolean; message: string }> {
   answer = answer.trim()
   if (!answer.trim()) return { ok: false, message: 'Write an answer first.' }
   const found = findDecision(ctx, id)
@@ -147,13 +147,17 @@ async function sendChoiceAnswer(ctx: AppCtx, id: string, answer: string): Promis
   let recipient: ReturnType<typeof findTask>
   if (d.taskId) {
     const t = findTask(ctx, d.taskId, hc.home)
-    if (!t || ['cleaned', 'done', 'merged'].includes(t.task.state)) return { ok: false, message: 'The originating unit is unavailable. The choice remains pending.' }
-    recipient = t
-    const r = await t.hc.crew.send(d.taskId, `Answer to your open question (${d.key}): ${answer}`, [])
-    if (!r.ok) return { ok: false, message: `Ping failed: ${r.message}. The choice remains pending.` }
-    note = ' and pinged the unit'
+    if (t && !['cleaned', 'done', 'merged'].includes(t.task.state)) {
+      recipient = t
+      const r = await t.hc.crew.send(d.taskId, `Answer to your open question (${d.key}): ${answer}`, [])
+      if (!r.ok) return { ok: false, message: `Ping failed: ${r.message}. The choice remains pending.` }
+      note = ' and pinged the unit'
+    } else {
+      // A finished unit (a Recon with its report) cannot act on it: the project chat follows through.
+      note = '; the unit has finished, so Genio follows through'
+    }
   }
-  hc.decisions.resolve(id, answer, { relay: false })
+  hc.decisions.resolve(id, answer, { relay: false, origin })
   if (recipient) recipient.hc.crew.appendStatus(d.taskId!, formatStatusLine('resolved', `answered: ${answer}`, { key: d.key }))
   return { ok: true, message: `choice answered${note}` }
 }
@@ -534,7 +538,7 @@ export function createToolRegistry(
     if (role === 'bot') return fail('only the player can answer a choice; it stays open until they return')
     const found = findDecision(getCtx(), id)
     if (!home.isMain && found?.hc.home.name !== home.name) return fail('Choice is outside this conversation.')
-    const r = await answerChoice(getCtx(), id, answer)
+    const r = await answerChoice(getCtx(), id, answer, { via: 'chat', chat: home.name })
     return r.ok ? ok(r.message) : fail(r.message)
   })
 
