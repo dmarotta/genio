@@ -301,6 +301,40 @@ export interface MeterRow {
   missing: string[]
   note?: string
   error?: string
+  /** the stable one-line shape for compact meters and hover popups */
+  summary: PlanUsageSummary
+}
+
+/**
+ * One plan at a glance, in a shape any meter UI can rely on. `usedPercent` is
+ * set only for a fresh report; `error` explains a failed read (shown with the
+ * last report when one is still fresh); `note` explains any other unknown.
+ */
+export interface PlanUsageSummary {
+  provider: PlanId
+  label: string
+  state: 'known' | 'limit' | 'unknown' | 'error'
+  usedPercent?: number
+  leftPercent?: number
+  /** e.g. "5-hour", "weekly" */
+  windowLabel?: string
+  resetsAt?: string
+  /** when the provider reported the headline window */
+  fetchedAt?: string
+  source?: string
+  error?: string
+  note?: string
+}
+
+export function usageSummary(r: Omit<MeterRow, 'summary'>): PlanUsageSummary {
+  const h = r.headline
+  const known = h && h.state !== 'unknown'
+  const note = known ? undefined : h ? `last ${h.label} report ${h.observedAt ? 'expired' : 'has no report time'}; current usage unknown` : r.note ?? 'no plan report yet'
+  return {
+    provider: r.plan, label: r.label, state: known ? h.state : r.error ? 'error' : 'unknown',
+    usedPercent: known ? (h.state === 'limit' ? 100 : h.usedPercent) : undefined, leftPercent: known ? h.leftPercent : undefined,
+    windowLabel: h?.label, resetsAt: h?.resetsAt, fetchedAt: h?.observedAt, source: r.source, error: r.error, note
+  }
 }
 
 export function meterWindow(raw: UsageWindow): MeterWindow {
@@ -319,7 +353,7 @@ export function meterRows(report: Pick<UsageReport, 'tools'> | undefined): Meter
     const windows = raw.map(meterWindow)
     const known = windows.filter((w) => w.state !== 'unknown').sort((a, b) => (a.leftPercent ?? 0) - (b.leftPercent ?? 0))
     const top = new Set(raw.map((w) => w.label))
-    return {
+    const row: Omit<MeterRow, 'summary'> = {
       plan: id,
       label,
       source: tool?.limits[0]?.source,
@@ -331,6 +365,7 @@ export function meterRows(report: Pick<UsageReport, 'tools'> | undefined): Meter
       note: tool?.note,
       error: tool?.error
     }
+    return { ...row, summary: usageSummary(row) }
   })
 }
 

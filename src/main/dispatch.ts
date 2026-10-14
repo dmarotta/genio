@@ -188,7 +188,8 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
       // The single main-process dispatcher owns selection + reservation. No await
       // separates the final policy evaluation (caps included) from claiming the slot.
       const result = launchQueue.then(async () => {
-        svc.noteUsage(await usageReport(getCtx(), { forceClaude: plansNow().claude.level !== 'ok' }))
+        const plans = plansNow()
+        svc.noteUsage(await usageReport(getCtx(), { forceClaude: plans.claude.level !== 'ok', forceCodex: plans.codex.level !== 'ok' }))
         const replacing = opts.respawn ? getCtx().homes.get(opts.respawn.wksp)?.crew.get(opts.respawn.id) : undefined
         if (opts.respawn && (!replacing || replacing.project !== input.project)) throw new Error('Unknown respawn target')
         const occupies = !!replacing && holdsCapacity(replacing, alive(replacing))
@@ -214,7 +215,8 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
           listed,
           async check() {
             if (released) throw new Error('Launch reservation was already released.')
-            svc.noteUsage(await usageReport(getCtx(), { forceClaude: plansNow().claude.level !== 'ok' }))
+            const plans = plansNow()
+            svc.noteUsage(await usageReport(getCtx(), { forceClaude: plans.claude.level !== 'ok', forceCodex: plans.codex.level !== 'ok' }))
             const env = { ...svc.signals(input.project), unavailable: (id: string) => unavailable(id, loadout.harness, replacing) }
             resolveLoadout({ ...input, harness: loadout.harness }, getCtx().settings, env)
             if (loadout.explored) {

@@ -1,8 +1,9 @@
 /**
  * Usage for Systems → Accounts, best source first:
  *   - plan / rate-limit status the tool itself reports:
- *       Codex: the rate_limits snapshot in token_count events of its session logs
- *       ($CODEX_HOME/sessions/**.jsonl);
+ *       Codex: a no-prompt app-server account/rateLimits/read (codex-usage-probe.ts,
+ *       kept in data/usage/codex-limits.json) plus the rate_limits snapshot in
+ *       token_count events of its session logs ($CODEX_HOME/sessions/**.jsonl);
  *       Claude Code: a zero-prompt structured /usage account refresh plus SDK
  *       rate_limit_event messages, kept in data/usage/claude-limits.json;
  *   - tokens Genio measures from the session logs of its own units and chats (sessions whose
@@ -20,6 +21,7 @@ import { expireWindow, type QuotaWindow } from './quota-policy'
 import type { AppCtx } from './services'
 import { appendJsonl, isSubPath, nowIso, readJson, writeJsonAtomic } from './util'
 import { claudeProbeError, refreshClaudePlanUsage } from './claude-usage-probe'
+import { codexProbeError, codexSnapshot, readCodexProbeLimits, refreshCodexPlanUsage } from './codex-usage-probe'
 
 const DAY = 86_400_000
 
@@ -91,6 +93,8 @@ export interface CodexSnapshot {
   name?: string
   plan?: string
   windows: CodexWindow[]
+  /** where the snapshot came from; session logs and chat events are "reported by Codex" */
+  source?: string
 }
 
 export interface CodexSession {
@@ -114,17 +118,14 @@ export function recordCodexChatUsage(data: string, cwd: string, thread: string, 
 export function recordCodexChatLimits(data: string, event: Record<string, any>): void {
   const limits = event.rateLimits
   if (!limits) return
-  const window = (w: any) => w ? { used_percent: w.usedPercent, window_minutes: w.windowDurationMins, resets_at: w.resetsAt } : undefined
-  const parsed = parseCodexSession([JSON.stringify({ timestamp: nowIso(), type: 'event_msg', payload: { type: 'token_count', rate_limits: {
-    limit_id: limits.limitId ?? 'codex', limit_name: limits.limitName, plan_type: limits.planType,
-    primary: window(limits.primary), secondary: window(limits.secondary)
-  } } })], 'chat-limits')
+  let parsed: CodexSnapshot | undefined
+  try { parsed = codexSnapshot(limits, nowIso()) } catch { return }
+  const snapshot = parsed
+  if (!snapshot) return
   const file = path.join(data, 'usage', 'codex-chat-limits.json')
   const prior = readJson<CodexSnapshot[]>(file, [])
-  for (const snapshot of parsed.snapshots) {
-    const i = prior.findIndex(p => p.limitId === snapshot.limitId)
-    if (i >= 0) prior[i] = snapshot; else prior.push(snapshot)
-  }
+  const i = prior.findIndex(p => p.limitId === snapshot.limitId)
+  if (i >= 0) prior[i] = snapshot; else prior.push(snapshot)
   writeJsonAtomic(file, prior)
 }
 
@@ -217,7 +218,7 @@ export function codexLimits(snapshots: Iterable<CodexSnapshot>, now = Date.now()
   return [...latest.values()]
     .sort((a, b) => (a.limitId === 'codex' ? -1 : b.limitId === 'codex' ? 1 : a.limitId.localeCompare(b.limitId)))
     .map((s) => ({
-      source: 'reported by Codex',
+      source: s.source ?? 'reported by Codex',
       updatedAt: s.ts,
       name: s.limitId === 'codex' ? undefined : (s.name ?? s.limitId),
       plan: s.limitId === 'codex' ? (s.plan ?? plan) : s.plan,
@@ -620,7 +621,8 @@ async function codexUsage(ctx: AppCtx, root: string, now: number, data: string):
   const files = [...recentJsonl(path.join(codexHome(), 'sessions'), weekStart).filter(f => !chatIds.some(id => f.endsWith(`${id}.jsonl`))), ...chats]
   const records: TokenRecord[] = []
   const worlds = new Map<TokenRecord, string>()
-  const snapshots: CodexSnapshot[] = readJson(path.join(data, 'usage', 'codex-chat-limits.json'), [])
+  // The account probe, chat events and session logs all feed one latest-per-bucket view.
+  const snapshots: CodexSnapshot[] = [...readJson<CodexSnapshot[]>(path.join(data, 'usage', 'codex-chat-limits.json'), []), ...readCodexProbeLimits(data)]
   for (const f of files) {
     const s = await codexCache.get(f, parseCodexTail)
     if (!s) continue
@@ -640,8 +642,9 @@ async function codexUsage(ctx: AppCtx, root: string, now: number, data: string):
   return {
     tool: 'codex',
     limits,
+    error: codexProbeError(data),
     measured: measured('measured by Genio', "Genio's units and chats (Codex plan tokens, not cash cost)", records, now, worlds),
-    note: limits.length ? undefined : 'No rate-limit snapshot in the last 7 days of Codex session logs.'
+    note: limits.length ? undefined : 'Codex reported no plan windows (account probe and the last 7 days of session logs).'
   }
 }
 
@@ -656,8 +659,12 @@ async function safely(tool: string, fn: () => Promise<ToolUsage>): Promise<ToolU
 let inFlight: Promise<UsageReport> | undefined
 
 /** Build the usage report (one scan at a time; parsed files are cached between calls). */
-export async function usageReport(ctx: AppCtx, options: { forceClaude?: boolean } = {}): Promise<UsageReport> {
-  await refreshClaudePlanUsage(ctx.main.home.data, ctx.main.home.root, ctx.settings.get().claudePath?.trim() || undefined, options.forceClaude)
+export async function usageReport(ctx: AppCtx, options: { forceClaude?: boolean; forceCodex?: boolean } = {}): Promise<UsageReport> {
+  // Both probes are bounded and never throw: a failed read leaves usage unknown, not blocked.
+  await Promise.all([
+    refreshClaudePlanUsage(ctx.main.home.data, ctx.main.home.root, ctx.settings.get().claudePath?.trim() || undefined, options.forceClaude),
+    refreshCodexPlanUsage(ctx.main.home.data, options.forceCodex)
+  ])
   inFlight ??= (async (): Promise<UsageReport> => {
     const root = ctx.main.home.root
     const now = Date.now()

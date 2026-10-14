@@ -8,6 +8,7 @@ import { recordCodexChatUsage, usageReport } from '../src/main/usage'
 
 // Attribution uses local session logs; live plan refresh has separate coverage.
 vi.mock('../src/main/claude-usage-probe', () => ({ refreshClaudePlanUsage: async () => {}, claudeProbeError: () => undefined }))
+vi.mock('../src/main/codex-usage-probe', async (original) => ({ ...await original<typeof import('../src/main/codex-usage-probe')>(), refreshCodexPlanUsage: async () => undefined }))
 
 it('attributes project chats despite cwd drift, nested unit worktrees and old sessions without splitting legacy chat', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-project-usage-'))

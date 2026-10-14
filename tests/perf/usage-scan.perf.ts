@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, it, vi } from 'vitest'
 import { note, perfRoot, report, timeAsync } from './support'
 
 vi.mock('../../src/main/claude-usage-probe', () => ({ refreshClaudePlanUsage: async () => undefined, claudeProbeError: () => undefined }))
+vi.mock('../../src/main/codex-usage-probe', async (original) => ({ ...await original<typeof import('../../src/main/codex-usage-probe')>(), refreshCodexPlanUsage: async () => undefined }))
 
 import { usageReport } from '../../src/main/usage'
 import type { AppCtx } from '../../src/main/services'
