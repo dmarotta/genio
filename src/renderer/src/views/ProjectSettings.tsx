@@ -1,6 +1,6 @@
 import { GenerationSettings } from '../components/GenerationSettings'
 import { useEffect, useState } from 'react'
-import { ChevronDown, ChevronRight, FolderOpen, Package, Play, RefreshCw, Rocket, Trash, Upload } from 'lucide-react'
+import { Backpack, ChevronDown, ChevronRight, FolderOpen, Play, RefreshCw, Rocket, Trash, Upload } from 'lucide-react'
 import type { PushStatus } from '@shared/api'
 import { modeSourceOf } from '@shared/vocab'
 import type { Engine, Project, ProjectCommands, ProjectMode } from '@shared/types'
@@ -60,7 +60,7 @@ export function ProjectSettingsRow({ p, metadata }: { p: Project; metadata?: Wor
       <p>{p.gitRepo === false ? 'Git actions need a git repo' : pushable ? 'Push on demand' : MODE_LABEL[p.mode]}{pushable && push && <span> · {push.ahead} commits not pushed{push.behind ? ` · ${push.behind} on origin not local` : ''}</span>}</p>
       <div className="row" style={{ flexWrap: 'wrap', marginBottom: 20 }}>
           <button className="btn sm solid" onClick={() => void op('Open project', () => api().projectOpen(p.path))}><FolderOpen size={13} /> Open</button>
-          <span title={hasView('inventory') ? `Open ${p.name} Inventory` : 'Inventory coming soon'}><button className="btn sm solid" disabled={!hasView('inventory')} onClick={() => go('inventory')}><Package size={13} /> Inventory</button></span>
+          <span title={hasView('inventory') ? `Open ${p.name} Inventory` : 'Inventory coming soon'}><button className="btn sm solid" disabled={!hasView('inventory')} onClick={() => go('inventory')}><Backpack size={13} /> Inventory</button></span>
         <button className="btn sm solid" disabled={p.gitRepo === false} title={p.gitRepo === false ? "Needs a git repo" : undefined} onClick={() => openDeploy({ project: p.name })}>
           <Rocket size={12} /> Deploy
         </button>

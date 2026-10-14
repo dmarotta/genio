@@ -32,6 +32,20 @@ describe('rail entries', () => {
   })
 })
 
+describe('rail icons', () => {
+  const rail = readFileSync('src/renderer/src/components/Rail.tsx', 'utf8')
+
+  it('uses game-metaphor glyphs: id card, backpack, gear', () => {
+    expect(rail).toMatch(/status: IdCard,/)
+    expect(rail).toMatch(/inventory: Backpack\b/)
+    expect(rail).toMatch(/systems: Settings,/)
+  })
+
+  it('leaves the gauge glyph to the usage meter and the chip to hardware', () => {
+    expect(rail).not.toMatch(/\b(Gauge|Cpu|FolderOpen)\b/)
+  })
+})
+
 describe('active state', () => {
   it('lights a submenu button while one of its screens is open', () => {
     expect(entryActive(MENU, 'inventory')).toBe(true)

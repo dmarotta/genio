@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Box, ChevronDown, ChevronRight, FileImage, Film, Folder, FolderOpen, Grid2X2, List, Music, RefreshCw, Search, Settings } from 'lucide-react'
+import { Backpack, Box, ChevronDown, ChevronRight, FileImage, Film, Folder, FolderOpen, Grid2X2, List, Music, RefreshCw, Search, Settings } from 'lucide-react'
 import type { AssetKind, InventoryAsset, InventoryFolder, InventoryInfo, InventoryQuery, InventoryState } from '@shared/inventory'
 import { PROJECT_WINDOW, api, errText, go, op, useStore } from '../store'
 import { GENERATION_ANCHOR } from '../components/GenerationSettings'
@@ -32,7 +32,7 @@ export function Inventory() {
       <span className="dim">Explore · select · preview</span>
     </header>
     {project ? <WorldInventory key={project.name} world={project.name} root={project.path} />
-      : <div className="inventory-empty"><FolderOpen size={42} /><h2>Project not loaded</h2><p>Open this project from the Hub to browse its media.</p></div>}
+      : <div className="inventory-empty"><Backpack size={42} /><h2>Project not loaded</h2><p>Open this project from the Hub to browse its media.</p></div>}
   </div>
 }
 

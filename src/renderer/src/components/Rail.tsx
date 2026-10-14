@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { FolderOpen, Cpu, Gauge, Globe, MessageSquare, ScrollText, Swords, Gamepad2, type LucideIcon } from 'lucide-react'
+import { Backpack, IdCard, Globe, MessageSquare, ScrollText, Settings, Swords, Gamepad2, type LucideIcon } from 'lucide-react'
 import { PROJECT_WINDOW, go, useStore, runningUnits, playAvailable, type ViewId } from '../store'
 import { cx } from '../lib/format'
 import { entryActive, initialIndex, menuKey, navItems, opensMenu, windowRail, type NavItem, type RailEntry } from '../lib/railmenu'
@@ -12,10 +12,10 @@ const ICON: Record<string, LucideIcon> = {
   comms: MessageSquare,
   squad: Swords,
   quests: ScrollText,
-  status: Gauge,
+  status: IdCard,
   worlds: Globe,
-  systems: Cpu,
-  inventory: FolderOpen
+  systems: Settings,
+  inventory: Backpack
 }
 
 /** This window's rail with and without Play, built once so selectors stay referentially stable. */
