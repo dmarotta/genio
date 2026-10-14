@@ -45,7 +45,7 @@ function finishLabel(iso: string, now: number): string {
 }
 
 /** A finished unit: title, outcome, finish time and duration. Opens its record (report, PR, commit). */
-export function DoneRow({ t, now }: { t: Task; now: number }) {
+function DoneRow({ t, now }: { t: Task; now: number }) {
   const terminal = useStore(s => t.terminalId ? s.terminals[t.terminalId] : undefined)
   const outcome = squadOutcome(t, terminal)
   const tone = outcomeTone(outcome)

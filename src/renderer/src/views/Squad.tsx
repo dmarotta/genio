@@ -6,8 +6,7 @@ import {
 import type { Task, TerminalInfo, ValidationStep, Verdict } from '@shared/types'
 import { categoryLabel } from '@shared/dispatch'
 import type { TaskFile } from '@shared/api'
-import { api, errText, focusTask, op, openDeploy, setState, toast, squadRoster, useStore } from '../store'
-import { DoneRow } from '../components/SquadPanel'
+import { api, errText, focusTask, op, openDeploy, setState, toast, liveTasks, useStore } from '../store'
 import { TerminalView } from '../components/Terminal'
 import { Markdown } from '../components/Markdown'
 import { Chip, Confirm, Dot, Empty, Modal, Field, Tabs, ViewHeader, useNow } from '../components/ui'
@@ -16,7 +15,7 @@ import { LoadoutReasons, RATEABLE, VerdictButtons, VerdictPick, rateThenMerge } 
 import { KIND_LABEL, MODE_LABEL } from '../lib/vocab'
 import { ago, clock, cx, elapsed, shortPath } from '../lib/format'
 import { playSfx } from '../lib/sfx'
-import { squadOutcome, squadState, squadTone } from '@shared/squad-display'
+import { squadState, squadTone } from '@shared/squad-display'
 import { pendingDecision } from '@shared/decisions'
 import { listFact, useScreenContext } from '../lib/screen-context'
 
@@ -28,9 +27,8 @@ export function Squad() {
 }
 
 function SquadGrid() {
-  const { active: tasks, done } = useStore(squadRoster)
+  const tasks = useStore(liveTasks)
   const terminals = useStore((s) => s.terminals)
-  const now = useNow(1000)
   const list = useMemo(
     () =>
       [...tasks]
@@ -40,8 +38,7 @@ function SquadGrid() {
   const sessions = Object.values(terminals).filter((t) => t.kind !== 'worker')
   useScreenContext('squad', { facts: [
     { label: 'Roster', value: `${list.length} active units` },
-    list.length > 0 && { label: 'Units', value: listFact(list.map((t) => `${t.title} (${squadState(t, t.terminalId ? terminals[t.terminalId] : undefined)})`), list.length, 5) },
-    done.length > 0 && { label: 'Recently done', value: listFact(done.map((t) => `${t.title} (${squadOutcome(t, t.terminalId ? terminals[t.terminalId] : undefined)})`), done.length, 5) }
+    list.length > 0 && { label: 'Units', value: listFact(list.map((t) => `${t.title} (${squadState(t, t.terminalId ? terminals[t.terminalId] : undefined)})`), list.length, 5) }
   ] })
   return (
     <div className="view">
@@ -76,17 +73,6 @@ function SquadGrid() {
             <UnitCard key={t.id} t={t} term={t.terminalId ? terminals[t.terminalId] : undefined} />
           ))}
         </div>
-      )}
-
-      {done.length > 0 && (
-        <>
-          <div className="section-label label">Recently done ({done.length})</div>
-          <div className="done-list panel">
-            {done.map((t) => (
-              <DoneRow key={t.id} t={t} now={now} />
-            ))}
-          </div>
-        </>
       )}
 
       {sessions.length > 0 && (
