@@ -462,8 +462,6 @@ export interface GenioApi {
   windowOpenHub(): Promise<void>
   /** File menu: close the calling window through its usual unit guard */
   windowClose(): Promise<void>
-  /** File menu: quit Genio after one confirmation when units run in any window */
-  appQuit(): Promise<void>
   openPath(path: string): Promise<void>
   openExternal(url: string): Promise<void>
 
@@ -642,7 +640,6 @@ export const API_METHODS = [
   'windowList',
   'windowOpenHub',
   'windowClose',
-  'appQuit',
   'openPath',
   'openExternal',
   'modelCatalogue',

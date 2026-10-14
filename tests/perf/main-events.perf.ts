@@ -28,7 +28,7 @@ vi.mock('electron', async () => {
       send: (channel: string, payload: unknown) => { f.sent.push({ channel, payload }) }, setWindowOpenHandler: () => {}
     })
     query: unknown
-    focus = vi.fn(); show = vi.fn(); restore = vi.fn(); isMinimized = () => false; isDestroyed = () => false
+    focus = vi.fn(); show = vi.fn(); restore = vi.fn(); moveTop = vi.fn(); setMenu = vi.fn(); isMinimized = () => false; isDestroyed = () => false
     constructor(_options: unknown) { super(); f.windows.push(this) }
     async loadFile(_file: string, options: { query: unknown }) { this.query = options.query; queueMicrotask(() => this.webContents.emit('did-finish-load')) }
     close() {}

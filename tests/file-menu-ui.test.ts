@@ -4,13 +4,17 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 import type { WindowList } from '../src/shared/api'
 
-// The store reads the window's project from its URL when first imported.
-window.history.replaceState(null, '', '/?project=one&wksp=ally-one')
 let FileMenu: typeof import('../src/renderer/src/components/FileMenu').FileMenu
-beforeAll(async () => { ({ FileMenu } = await import('../src/renderer/src/components/FileMenu')) })
+let Toasts: typeof import('../src/renderer/src/components/Overlays').Toasts
+let store: typeof import('../src/renderer/src/store')
+beforeAll(async () => {
+  ;({ FileMenu } = await import('../src/renderer/src/components/FileMenu'))
+  ;({ Toasts } = await import('../src/renderer/src/components/Overlays'))
+  store = await import('../src/renderer/src/store')
+})
 
 let root: Root, host: HTMLDivElement
-const api = { projectOpen: vi.fn(), pickDirectory: vi.fn(), windowList: vi.fn(), windowOpenHub: vi.fn(), windowClose: vi.fn(), appQuit: vi.fn() }
+const api = { projectOpen: vi.fn(), windowList: vi.fn(), windowOpenHub: vi.fn(), windowClose: vi.fn() }
 const list: WindowList = {
   projects: [{ name: 'one', path: 'C:/one', addedAt: '2026-10-01' }, { name: 'alpha', path: 'C:/alpha', addedAt: '2026-09-01' }, { name: 'beta', path: 'C:/beta', addedAt: '2026-08-01' }],
   windows: [{ project: 'one', current: true }, { project: null, current: false }, { project: 'beta', current: false }]
@@ -20,11 +24,11 @@ beforeEach(async () => {
   localStorage.clear()
   localStorage.setItem('genio.hub.recent-projects', JSON.stringify(['C:/beta', 'C:/alpha']))
   for (const fn of Object.values(api)) fn.mockReset().mockResolvedValue(undefined)
-  api.pickDirectory.mockResolvedValue('C:/picked')
   api.windowList.mockResolvedValue(list)
   Object.assign(window, { genio: { api } })
+  store.setState({ toasts: [] })
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
-  await act(async () => root.render(React.createElement(FileMenu)))
+  await act(async () => root.render(React.createElement(React.Fragment, null, React.createElement(FileMenu), React.createElement(Toasts))))
 })
 afterEach(async () => { await act(async () => root.unmount()); host.remove() })
 
@@ -35,78 +39,87 @@ const item = (text: string) => [...host.querySelectorAll('[role="menuitem"]')].f
 const press = async (key: string, target: Element = document.activeElement!, init: KeyboardEventInit = {}) =>
   act(async () => { target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })) })
 
-it('shows the File entries with their shortcuts, the recent projects and the open window count', async () => {
+it.each(['/', '/?project=one&wksp=ally-one'])('shows exactly three entries in window %s and opens or focuses recent projects', async url => {
+  window.history.replaceState(null, '', url)
   await act(async () => fileButton().click())
   expect(api.windowList).toHaveBeenCalledOnce()
-  expect(items()).toEqual(['Open project…Ctrl O', 'Open recent', 'New window / HubCtrl N', 'Open windows3', 'Close windowCtrl W', 'Exit GenioCtrl Q'])
-  await act(async () => item('Open recent').click())
-  expect(subItems().map(b => b.textContent)).toEqual(['betaOpen', 'alpha'])
-  await act(async () => item('alpha').click())
-  expect(api.projectOpen).toHaveBeenCalledExactlyOnceWith('C:/alpha')
-  expect(JSON.parse(localStorage.getItem('genio.hub.recent-projects')!)).toEqual(['C:/alpha', 'C:/beta'])
+  expect(items()).toEqual(['HubCtrl N', 'Open Recent', 'Exit'])
+  await act(async () => item('Open Recent').click())
+  expect(subItems().map(b => b.textContent)).toEqual(['betaOpen', 'alpha', 'oneOpen'])
+  await act(async () => item('beta').click())
+  expect(api.projectOpen).toHaveBeenCalledExactlyOnceWith('C:/beta')
   expect(host.querySelector('[role="menu"]')).toBeNull()
+  await act(async () => fileButton().click())
+  await act(async () => item('Open Recent').click())
+  await act(async () => item('alpha').click())
+  expect(api.projectOpen).toHaveBeenLastCalledWith('C:/alpha')
+  expect(JSON.parse(localStorage.getItem('genio.hub.recent-projects')!)).toEqual(['C:/alpha', 'C:/beta'])
 })
 
-it('opens a picked folder through projectOpen and opens nothing when the picker is cancelled', async () => {
-  await act(async () => fileButton().click())
-  await act(async () => item('Open project').click())
-  expect(api.pickDirectory).toHaveBeenCalledOnce()
-  expect(api.projectOpen).toHaveBeenCalledExactlyOnceWith('C:/picked')
-  api.pickDirectory.mockResolvedValueOnce(null)
-  await act(async () => fileButton().click())
-  await act(async () => item('Open project').click())
-  expect(api.projectOpen).toHaveBeenCalledOnce()
-})
-
-it('keeps a failed open out of the recent projects', async () => {
+it('keeps a failed project open out of recent history', async () => {
   api.projectOpen.mockRejectedValueOnce(new Error('Folder unavailable'))
   await act(async () => fileButton().click())
-  await act(async () => item('Open recent').click())
+  await act(async () => item('Open Recent').click())
   await act(async () => item('alpha').click())
   expect(JSON.parse(localStorage.getItem('genio.hub.recent-projects')!)).toEqual(['C:/beta', 'C:/alpha'])
 })
 
-it('is fully keyboard driven, including submenus', async () => {
+it('opens the Hub and shows a readable toast on failure', async () => {
+  await act(async () => fileButton().click())
+  await act(async () => item('Hub').click())
+  expect(api.windowOpenHub).toHaveBeenCalledOnce()
+  expect(host.querySelector('[role="menu"]')).toBeNull()
+  api.windowOpenHub.mockRejectedValueOnce(new Error("Error invoking remote method 'genio:windowOpenHub': Error: Hub page unavailable"))
+  await act(async () => fileButton().click())
+  await act(async () => item('Hub').click())
+  expect(host.querySelector('.toast.t-error .toast-title')?.textContent).toBe('Open Hub')
+  expect(host.querySelector('.toast-body')?.textContent).toBe('Hub page unavailable')
+})
+
+it('shows a Hub failure from Ctrl+N and closes the File menu', async () => {
+  api.windowOpenHub.mockRejectedValueOnce(new Error('Hub window manager is unavailable'))
+  await act(async () => fileButton().click())
+  await press('n', window as unknown as Element, { ctrlKey: true })
+  expect(api.windowOpenHub).toHaveBeenCalledOnce()
+  expect(host.querySelector('[role="menu"]')).toBeNull()
+  expect(host.querySelector('.toast-body')?.textContent).toBe('Hub window manager is unavailable')
+})
+
+it('supports keyboard navigation through Open Recent and back to Exit', async () => {
   fileButton().focus()
   await press('ArrowDown')
-  expect(document.activeElement?.textContent).toBe('Open project…Ctrl O')
-  await press('ArrowDown'); await press('ArrowDown'); await press('ArrowDown')
-  expect(document.activeElement?.textContent).toBe('Open windows3')
+  expect(document.activeElement?.textContent).toBe('HubCtrl N')
+  await press('ArrowDown')
+  expect(document.activeElement?.textContent).toBe('Open Recent')
   await press('ArrowRight')
-  expect(subItems().map(b => b.textContent)).toEqual(['oneThis window', 'Hub', 'beta'])
   expect(document.activeElement).toBe(subItems()[0])
   await press('ArrowLeft')
   expect(subItems()).toEqual([])
-  expect(document.activeElement?.textContent).toBe('Open windows3')
-  await press('Enter')
-  await press('ArrowDown')
-  await press('Enter')
-  expect(api.windowOpenHub).toHaveBeenCalledOnce()
-  expect(host.querySelector('[role="menu"]')).toBeNull()
+  expect(document.activeElement?.textContent).toBe('Open Recent')
+  await press('Enter'); await press('ArrowDown'); await press('Enter')
+  expect(api.projectOpen).toHaveBeenCalledExactlyOnceWith('C:/alpha')
   fileButton().focus()
   await press('ArrowDown'); await press('End')
-  expect(document.activeElement?.textContent).toBe('Exit GenioCtrl Q')
+  expect(document.activeElement?.textContent).toBe('Exit')
   await press('Escape')
   expect(host.querySelector('[role="menu"]')).toBeNull()
   expect(document.activeElement).toBe(fileButton())
-  expect(api.appQuit).not.toHaveBeenCalled()
+  expect(api.windowClose).not.toHaveBeenCalled()
 })
 
-it('runs Close window and Exit Genio from the menu and from their window-local accelerators', async () => {
+it('Exit closes only its caller and only Hub has an accelerator', async () => {
   await act(async () => fileButton().click())
-  await act(async () => item('Close window').click())
+  await act(async () => item('Exit').click())
   expect(api.windowClose).toHaveBeenCalledOnce()
-  await act(async () => fileButton().click())
-  await act(async () => item('Exit Genio').click())
-  expect(api.appQuit).toHaveBeenCalledOnce()
-  for (const [key, fn] of [['w', api.windowClose], ['q', api.appQuit], ['n', api.windowOpenHub], ['o', api.pickDirectory]] as const) {
-    await press(key, window as unknown as Element, { ctrlKey: true })
-    expect(fn).toHaveBeenCalledTimes(key === 'n' || key === 'o' ? 1 : 2)
-  }
-  // A field or terminal that already handled the key keeps it.
+  for (const key of ['w', 'q', 'o']) await press(key, window as unknown as Element, { ctrlKey: true })
+  expect(api.windowClose).toHaveBeenCalledOnce()
+  expect(api.projectOpen).not.toHaveBeenCalled()
+  expect(api.windowOpenHub).not.toHaveBeenCalled()
+  await press('n', window as unknown as Element, { ctrlKey: true })
+  expect(api.windowOpenHub).toHaveBeenCalledOnce()
   const field = document.createElement('input')
   field.addEventListener('keydown', e => e.preventDefault())
   host.append(field)
-  await press('w', field, { ctrlKey: true })
-  expect(api.windowClose).toHaveBeenCalledTimes(2)
+  await press('n', field, { ctrlKey: true })
+  expect(api.windowOpenHub).toHaveBeenCalledOnce()
 })

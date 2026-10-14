@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { bus } from '../src/main/bus'
 import type { GenioEvent } from '../src/shared/types'
 
-const f = vi.hoisted(() => ({ windows: [] as any[], ctx: undefined as any, app: undefined as any, screen: undefined as any, popouts: undefined as any, choice: 1, prompts: 0, ipc: undefined as any, stop: vi.fn(async () => {}), start: vi.fn(async () => {}), terminalData: undefined as any }))
+const f = vi.hoisted(() => ({ windows: [] as any[], ctx: undefined as any, app: undefined as any, screen: undefined as any, popouts: undefined as any, choice: 1, prompts: 0, ipc: undefined as any, stop: vi.fn(async () => {}), start: vi.fn(async () => {}), terminalData: undefined as any, loadError: undefined as Error | undefined, loadGate: undefined as Promise<void> | undefined }))
 vi.mock('../src/main/ctx', () => ({
   createApp: () => f.ctx, getCtx: () => f.ctx, startApp: async () => {}, stopApp: async () => {},
   ensureProjectBase: async (_ctx: unknown, project: string) => `ally-${project}`, startProjectBase: f.start, stopProjectBase: f.stop
@@ -20,16 +20,26 @@ vi.mock('electron', async () => {
     openHandler: any
     webContents = Object.assign(new EventEmitter(), { id: f.windows.length + 1, send: vi.fn(), isDestroyed: () => false, isLoadingMainFrame: () => false, getURL: () => 'file:///genio/index.html?project=one&wksp=ally-one', setWindowOpenHandler: (fn: any) => { this.openHandler = fn } })
     destroyed = false
+    minimized = false
+    visible = false
+    menu: unknown
     query: any
     focus = vi.fn()
-    show = vi.fn()
-    restore = vi.fn()
+    show = vi.fn(() => { this.visible = true })
+    moveTop = vi.fn()
+    setMenu = vi.fn((menu: unknown) => { this.menu = menu })
+    restore = vi.fn(() => { this.minimized = false })
     destroy() { this.destroyed = true; this.emit('closed') }
-    isMinimized = () => false
+    isMinimized = () => this.minimized
     isDestroyed = () => this.destroyed
     static getFocusedWindow() { return null }
     constructor(_options: unknown) { super(); f.windows.push(this) }
-    async loadFile(_file: string, options: any) { this.query = options.query; queueMicrotask(() => this.webContents.emit('did-finish-load')) }
+    async loadFile(_file: string, options: any) {
+      this.query = options.query
+      if (f.loadError) throw f.loadError
+      if (f.loadGate) await f.loadGate
+      this.webContents.emit('did-finish-load')
+    }
     close() {
       let prevented = false
       this.emit('close', { preventDefault: () => { prevented = true } })
@@ -63,9 +73,11 @@ beforeAll(async () => {
 describe('project window lifecycle', () => {
   it('opens a Hub and reuses one project window for concurrent opens', async () => {
     expect(f.windows[0].query).toEqual({})
+    expect(f.windows[0].menu).toBeNull()
     await Promise.all([openProject('one'), openProject('one')])
     expect(f.windows).toHaveLength(2)
     expect(f.windows[1].query).toEqual({ project: 'one', wksp: 'ally-one', registered: '1' })
+    expect(f.windows[1].setMenu).toHaveBeenCalledExactlyOnceWith(null)
     expect(f.windows[1].focus).toHaveBeenCalledOnce()
     expect(f.ctx.stats.unlock).toHaveBeenCalledWith('project-window-open')
     expect(f.start).toHaveBeenCalledExactlyOnceWith(f.ctx, 'one', 'ally-one')
@@ -96,7 +108,7 @@ describe('project window lifecycle', () => {
     expect(handler({ url: 'file:///other.html#genio-chat-panel' })).toEqual({ action: 'deny' })
     let bounds = { x: 2000, y: 100, width: 500, height: 600 }
     const child = Object.assign(new (await import('node:events')).EventEmitter(), {
-      isDestroyed: () => false, isMinimized: () => false, isVisible: vi.fn(() => false), show: vi.fn(), showInactive: vi.fn(), focus: vi.fn(), destroy: vi.fn(),
+      isDestroyed: () => false, isMinimized: () => false, isVisible: vi.fn(() => false), show: vi.fn(), showInactive: vi.fn(), moveTop: vi.fn(), focus: vi.fn(), destroy: vi.fn(),
       getBounds: () => bounds, getNormalBounds: () => bounds, setBounds: vi.fn((b: typeof bounds) => { bounds = b }),
       webContents: { setWindowOpenHandler: vi.fn(), on: vi.fn(), once: vi.fn() } })
     owner.webContents.emit('did-create-window', child)
@@ -122,17 +134,18 @@ describe('project window lifecycle', () => {
     // The following confirmed-close case must destroy this child, without stopping extra units.
     owner.chatChild = child
   })
-  it('cancels close without stopping units, then stops only the confirmed project', async () => {
+  it('guards File Exit for its project and stops only that project after confirmation', async () => {
     f.ctx.homes.set('main', { crew: { list: () => [{ project: 'one', terminalId: 'term' }] } })
-    f.windows[1].close()
+    f.ipc.close(f.windows[1].webContents.id)
     expect(f.windows[1].destroyed).toBe(false)
     expect(f.stop).not.toHaveBeenCalled()
     f.choice = 0
-    f.windows[1].close()
+    f.ipc.close(f.windows[1].webContents.id)
     await vi.waitFor(() => expect(f.windows[1].destroyed).toBe(true))
     expect(f.stop).toHaveBeenCalledWith(f.ctx, 'one', 'ally-one')
     expect(f.windows[1].chatChild.destroy).toHaveBeenCalledOnce()
     expect(f.windows[2].destroyed).toBe(false)
+    expect(f.windows[0].destroyed).toBe(false)
     f.windows[0].close()
     expect(f.windows[0].destroyed).toBe(true)
     expect(f.windows[2].destroyed).toBe(false)
@@ -166,21 +179,76 @@ describe('File menu window controls', () => {
   it('lists open windows for the caller, opens or focuses the Hub and closes only the calling window', async () => {
     const [two, one] = open()
     expect(f.ipc.list(two.webContents.id)).toEqual([{ project: 'two', current: true }, { project: 'one', current: false }])
-    f.ipc.openHub()
+    await f.ipc.openHub()
     const hub = f.windows.at(-1)
     expect(hub.query).toEqual({})
     const count = f.windows.length
-    f.ipc.openHub()
+    hub.focus.mockClear()
+    await f.ipc.openHub()
     expect(f.windows).toHaveLength(count)
     expect(hub.focus).toHaveBeenCalledOnce()
     expect(f.ipc.list(hub.webContents.id)).toEqual([{ project: 'two', current: false }, { project: 'one', current: false }, { project: null, current: true }])
     f.ipc.close(hub.webContents.id)
     expect(hub.destroyed).toBe(true)
     expect(open()).toEqual([two, one])
-    f.ipc.quit()
-    expect(f.app.quit).toHaveBeenCalledOnce()
   })
-  it('asks once before Exit stops units in any window, then closes every window without asking again', async () => {
+  it('waits for a new Hub to load and focuses a single instance for concurrent requests', async () => {
+    let ready!: () => void
+    f.loadGate = new Promise<void>(resolve => { ready = resolve })
+    try {
+      const count = f.windows.length
+      const first = f.ipc.openHub()
+      const second = f.ipc.openHub()
+      expect(f.windows).toHaveLength(count + 1)
+      const hub = f.windows.at(-1)
+      expect(hub.query).toEqual({})
+      expect(hub.focus).not.toHaveBeenCalled()
+      ready()
+      await Promise.all([first, second])
+      expect(hub.show).toHaveBeenCalled()
+      expect(hub.focus).toHaveBeenCalled()
+      expect(open().filter(w => !w.query.project)).toEqual([hub])
+      hub.destroy()
+    } finally { f.loadGate = undefined }
+  })
+  it('shows and raises a reused Hub and restores it before focusing when minimized', async () => {
+    await f.ipc.openHub()
+    const hub = f.windows.at(-1)
+    const count = f.windows.length
+    for (const minimized of [false, true]) {
+      hub.visible = false
+      hub.minimized = minimized
+      for (const fn of [hub.restore, hub.show, hub.moveTop, hub.focus]) fn.mockClear()
+      await f.ipc.openHub()
+      expect(f.windows).toHaveLength(count)
+      expect(hub.visible).toBe(true)
+      expect(hub.minimized).toBe(false)
+      expect(hub.show).toHaveBeenCalledOnce()
+      expect(hub.focus).toHaveBeenCalledOnce()
+      expect(hub.restore).toHaveBeenCalledTimes(minimized ? 1 : 0)
+      expect(hub.show.mock.invocationCallOrder[0]).toBeLessThan(hub.focus.mock.invocationCallOrder[0])
+      if (minimized) expect(hub.restore.mock.invocationCallOrder[0]).toBeLessThan(hub.show.mock.invocationCallOrder[0])
+      if (process.platform === 'win32') {
+        expect(hub.moveTop).toHaveBeenCalledOnce()
+        expect(hub.moveTop.mock.invocationCallOrder[0]).toBeLessThan(hub.focus.mock.invocationCallOrder[0])
+      }
+    }
+    hub.destroy()
+  })
+  it('rejects a failed Hub load, removes its hidden window and allows a retry', async () => {
+    f.loadError = new Error('Hub page unavailable')
+    try {
+      await expect(f.ipc.openHub()).rejects.toThrow('Hub page unavailable')
+      expect(f.windows.at(-1).destroyed).toBe(true)
+    } finally { f.loadError = undefined }
+    await f.ipc.openHub()
+    const hub = f.windows.at(-1)
+    expect(hub.destroyed).toBe(false)
+    expect(hub.visible).toBe(true)
+    expect(hub.focus).toHaveBeenCalledOnce()
+    hub.destroy()
+  })
+  it('asks once before application quit stops units, then closes every window without asking again', async () => {
     f.stop.mockClear()
     f.prompts = 0
     f.choice = 1
@@ -196,5 +264,16 @@ describe('File menu window controls', () => {
     expect(f.prompts).toBe(2)
     expect(f.stop).toHaveBeenCalledWith(f.ctx, 'one', 'ally-one')
     expect(f.stop).toHaveBeenCalledWith(f.ctx, 'two', 'ally-two')
+  })
+  it('reuses the Hub when it is the only window', async () => {
+    await f.ipc.openHub()
+    const hub = f.windows.at(-1)
+    const count = f.windows.length
+    await f.ipc.openHub()
+    expect(f.windows).toHaveLength(count)
+    expect(open()).toEqual([hub])
+    expect(hub.visible).toBe(true)
+    expect(hub.focus).toHaveBeenCalledTimes(2)
+    hub.destroy()
   })
 })

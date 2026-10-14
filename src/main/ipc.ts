@@ -29,9 +29,8 @@ export interface IpcWindows {
   openProject(folder: string): Promise<void>
   binding(senderId: number): WindowBinding | undefined
   list(senderId: number): WindowList['windows']
-  openHub(): void
+  openHub(): Promise<void>
   close(senderId: number): void
-  quit(): void
 }
 
 export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
@@ -115,9 +114,11 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     },
     // The caller's window is resolved from the IPC sender below.
     windowList: () => ({ projects: ctx().projects.list().map(({ name, path, addedAt }) => ({ name, path, addedAt })), windows: [] }),
-    windowOpenHub: async () => windows?.openHub(),
+    windowOpenHub: async () => {
+      if (!windows) throw new Error('Hub window manager is unavailable. Restart Genio and try again.')
+      await windows.openHub()
+    },
     windowClose: async () => { throw new Error('Closing requires the calling window') },
-    appQuit: async () => windows ? windows.quit() : app.quit(),
     openPath: async (p) => {
       await shell.openPath(p)
     },

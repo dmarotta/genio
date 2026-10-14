@@ -26,6 +26,7 @@ const captureData = captureUserData()
 if (captureData) app.setPath('userData', captureData)
 
 const windows = new Map<BrowserWindow, WindowBinding | undefined>()
+const windowLoads = new WeakMap<BrowserWindow, Promise<void>>()
 let openQueue: Promise<unknown> = Promise.resolve()
 const pendingLaunches: { argv: string[]; cwd: string }[] = []
 let ctx: AppCtx | undefined
@@ -87,8 +88,7 @@ async function boot(): Promise<void> {
     binding: id => [...windows].find(([w]) => w.webContents.id === id)?.[1],
     list: id => [...windows].filter(([w]) => !w.isDestroyed()).map(([w, b]) => ({ project: b?.project ?? null, current: w.webContents.id === id })),
     openHub,
-    close: id => sender(id)?.close(),
-    quit: () => app.quit()
+    close: id => sender(id)?.close()
   })
   registerMedia()
   wireEvents()
@@ -140,6 +140,8 @@ function chatMediaPath(wksp: string, file: string): string | undefined {
 function focusWindow(win: BrowserWindow): void {
   if (win.isMinimized()) win.restore()
   win.show()
+  // An explicit window switch must also raise a reused window on Windows.
+  if (process.platform === 'win32') win.moveTop()
   win.focus()
 }
 
@@ -152,13 +154,21 @@ async function launch(argv: string[], cwd: string): Promise<void> {
   if (folder) {
     await openProject(folder)
     ctx!.stats.unlock('project-cli-open')
-  } else openHub()
+  } else await openHub()
 }
 
-function openHub(): void {
-  const hub = [...windows].find(([, binding]) => !binding)?.[0]
-  if (hub) focusWindow(hub)
-  else createWindow()
+async function openHub(): Promise<void> {
+  // Register synchronously in createWindow so concurrent requests share the same Hub.
+  const hub = [...windows].find(([win, binding]) => !binding && !win.isDestroyed())?.[0] ?? createWindow()
+  try {
+    await windowLoads.get(hub)
+  } catch (error) {
+    // A failed hidden Hub must not be reused forever; let the next request retry.
+    if (!hub.isDestroyed()) hub.destroy()
+    throw error
+  }
+  if (hub.isDestroyed()) throw new Error('Hub closed before it could be shown. Try opening it again.')
+  focusWindow(hub)
 }
 
 export function openProject(folder: string): Promise<void> {
@@ -168,10 +178,7 @@ export function openProject(folder: string): Promise<void> {
     if (existing) { focusWindow(existing); return }
     const wksp = await ensureProjectBase(ctx!, project.name)
     const win = createWindow({ project: project.name, wksp }, registered)
-    await new Promise<void>((resolve, reject) => {
-      win.webContents.once('did-finish-load', () => resolve())
-      win.webContents.once('did-fail-load', (_e, _code, message) => reject(new Error(message)))
-    })
+    await windowLoads.get(win)
     ctx!.stats.unlock('project-window-open')
     if ([...windows.values()].filter(Boolean).length >= 2) ctx!.stats.unlock('project-windows-two')
     await startup
@@ -223,6 +230,8 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
     }
   })
 
+  // The renderer owns File; a hidden native menu would keep its old close/quit shortcuts.
+  win.setMenu(null)
   windows.set(win, binding)
   win.on('ready-to-show', () => win.show())
   // Coming back from the editor or a file manager: re-detect the engine (the Hub covers every project).
@@ -328,13 +337,17 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
   win.on('closed', () => { chatWindow?.destroy(); windows.delete(win) })
 
   const query: Record<string, string> = binding ? { project: binding.project, wksp: binding.wksp, ...(registered ? { registered: '1' } : {}) } : {}
+  let loading: Promise<void>
   if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
     const url = new URL(process.env.ELECTRON_RENDERER_URL)
     for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value)
-    void win.loadURL(url.toString())
+    loading = win.loadURL(url.toString())
   } else {
-    void win.loadFile(path.join(__dirname, '../renderer/index.html'), { query })
+    loading = win.loadFile(path.join(__dirname, '../renderer/index.html'), { query })
   }
+  windowLoads.set(win, loading)
+  // Opening callers await the original promise and report failure in their own UI.
+  void loading.catch(() => undefined)
   return win
 }
 
@@ -352,7 +365,10 @@ async function navigateNotification(target: Extract<GenioEvent, { type: 'navigat
     await openProject(p.path)
   }
   let win = [...windows].find(([, b]) => owner ? b?.project === owner : !b)?.[0]
-  if (!win && !owner) win = createWindow()
+  if (!win && !owner) {
+    await openHub()
+    win = [...windows].find(([, b]) => !b)?.[0]
+  }
   if (!win || win.isDestroyed()) return
   if (win.webContents.isLoadingMainFrame()) await new Promise<void>(resolve => win!.webContents.once('did-finish-load', () => resolve()))
   focusWindow(win)

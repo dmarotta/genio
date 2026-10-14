@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { ChevronRight } from 'lucide-react'
-import { PROJECT_WINDOW, api, op } from '../store'
+import { api, op } from '../store'
 import { cx } from '../lib/format'
 import { fileKeyAction, fileMenu, type FileAction, type FileEntry, type FileItem } from '../lib/filemenu'
 import { menuKey } from '../lib/railmenu'
@@ -15,22 +15,13 @@ export async function runFileAction(a: FileAction): Promise<void> {
     rememberRecent(path)
   }
   switch (a.type) {
-    case 'open-folder':
-      await op('Open project', async () => {
-        const folder = await api().pickDirectory()
-        if (folder) await open(folder)
-      })
-      return
     case 'open-project': await op('Open project', () => open(a.path)); return
-    case 'hub': await op('Hub', () => api().windowOpenHub()); return
-    case 'close': await op('Close window', () => api().windowClose()); return
-    case 'quit': await op('Exit Genio', () => api().appQuit())
+    case 'hub': await op('Open Hub', () => api().windowOpenHub()); return
+    case 'exit': await op('Exit', () => api().windowClose())
   }
 }
 
-type Row = Exclude<FileEntry, { kind: 'separator' }>
-
-/** File menu at the left of the header: open, switch and close windows, or exit Genio. */
+/** File menu at the left of the header: Hub, recent projects, and exit this window. */
 export function FileMenu() {
   const [open, setOpen] = useState(false)
   const [list, setList] = useState<WindowList>({ projects: [], windows: [] })
@@ -41,8 +32,7 @@ export function FileMenu() {
   const btn = useRef<HTMLButtonElement>(null)
   const items = useRef<(HTMLButtonElement | null)[]>([])
   const subItems = useRef<(HTMLButtonElement | null)[]>([])
-  const entries = fileMenu(PROJECT_WINDOW, list, open ? readRecent() : [])
-  const rows = entries.filter((e): e is Row => e.kind !== 'separator')
+  const rows: FileEntry[] = fileMenu(list, open ? readRecent() : [])
   const submenu = sub === null ? undefined : rows[sub]
   const subRows = submenu?.kind === 'submenu' ? submenu.items : []
 
@@ -82,7 +72,7 @@ export function FileMenu() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.defaultPrevented) return
-      const a = fileKeyAction(e, !!PROJECT_WINDOW)
+      const a = fileKeyAction(e)
       if (!a) return
       e.preventDefault()
       close(false)
@@ -134,9 +124,7 @@ export function FileMenu() {
               else close(e.key !== 'Tab')
             }}
           >
-            {entries.map((row) => {
-              if (row.kind === 'separator') return <div key={row.id} className="file-menu-sep" role="separator" />
-              const i = rows.indexOf(row)
+            {rows.map((row, i) => {
               return (
                 <button
                   key={row.id}
@@ -150,10 +138,7 @@ export function FileMenu() {
                   onClick={() => pick(i)}
                 >
                   <span className="file-menu-label">{row.label}</span>
-                  {row.kind === 'submenu' ? <>
-                    {row.count !== undefined && <span className="file-menu-count num">{row.count}</span>}
-                    <ChevronRight size={14} />
-                  </> : row.key && <kbd>Ctrl {row.key}</kbd>}
+                  {row.kind === 'submenu' ? <ChevronRight size={14} /> : row.key && <kbd>Ctrl {row.key}</kbd>}
                 </button>
               )
             })}
@@ -174,7 +159,7 @@ export function FileMenu() {
                   role="menuitem"
                   tabIndex={j === subSel ? 0 : -1}
                   title={it.title}
-                  className={cx('file-menu-item', j === subSel && 'sel', it.on && 'on')}
+                  className={cx('file-menu-item', j === subSel && 'sel')}
                   onMouseEnter={() => setSubSel(j)}
                   onClick={() => run(it.action)}
                 >
