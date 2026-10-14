@@ -399,7 +399,8 @@ button.usage-toggle:hover { color: var(--text); }
 .image-viewer .image-viewer-nav.next { right: 16px; }
 .image-viewer .image-viewer-count { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); color: rgba(255, 255, 255, 0.75); font-size: 12px; pointer-events: none; }
 .composer-hints { display: flex; justify-content: space-between; margin-top: 8px; font-size: 11px; }
-.composer-hints .quick { display: flex; gap: 14px; }
+.composer-hints .quick { display: flex; gap: 14px; margin-left: auto; }
+.composer-hints .quick .link-btn:disabled { opacity: 0.4; cursor: default; text-shadow: none; }
 .composer-hints .quick .link-btn { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; }
 .slash-menu { position: absolute; left: 28px; right: 28px; bottom: calc(100% - 4px); max-width: 860px; margin: 0 auto; padding: 6px; z-index: 30; }
 .slash-item { width: 100%; display: grid; grid-template-columns: 110px 1fr; gap: 14px; padding: 8px 12px; background: none; border: 0; text-align: left; cursor: pointer; color: var(--text); }

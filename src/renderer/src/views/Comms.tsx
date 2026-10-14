@@ -364,6 +364,13 @@ function Composer({ wksp, busy, fill, context }: { wksp: string; busy: boolean; 
   const att = useAttachments(wksp)
   const inventory = useInventoryContext(wksp, context)
   const canSend = !!text.trim() || att.images.length > 0
+  // Recap runs as its own turn: hold it while one runs or messages wait, and when the chat cannot take a turn.
+  const info = useStore((s) => s.snap.wksps.find((m) => m.name === wksp))
+  const recapOff = !info || info.limit
+    ? 'Chat unavailable'
+    : busy || info.queued
+      ? `${isMain ? 'Genio' : wksp} is working`
+      : ''
   const update = (v: string): void => {
     setText(v)
     setDraft(wksp, v)
@@ -570,12 +577,17 @@ function Composer({ wksp, busy, fill, context }: { wksp: string; busy: boolean; 
             <kbd>Enter</kbd> send · <kbd>Shift</kbd>+<kbd>Enter</kbd> newline · <kbd>/</kbd> commands
           </span>
         </span>
-        {isMain && (
-          <span className="quick">
-            <button className="link-btn" onClick={() => void op('Recap', () => api().recap())}>Recap</button>
-            <button className="link-btn" onClick={() => openDeploy()}>Deploy</button>
-          </span>
-        )}
+        <span className="quick">
+          <button
+            className="link-btn"
+            disabled={!!recapOff}
+            title={recapOff || 'Previously on… then your pending moves'}
+            onClick={() => void op('Recap', () => api().recap())}
+          >
+            Recap
+          </button>
+          {isMain && <button className="link-btn" onClick={() => openDeploy()}>Deploy</button>}
+        </span>
       </div>
     </div>
   )
