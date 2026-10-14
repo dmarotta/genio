@@ -4,6 +4,31 @@ The Codex desktop app lists every thread in `$CODEX_HOME` that is not archived,
 ephemeral, a sub-agent or an `exec` run. Genio's Codex units are `cli` threads,
 so without help each one stays in the player's sidebar forever.
 
+## Genio's own Codex home
+
+- Every Codex process Genio starts (units and Recons, the Codex chat, the usage
+  probe, model discovery and image runs) uses `CODEX_HOME=<base>/codex-home`
+  (`codex-home.ts`), so nothing lists in the player's Codex or ChatGPT apps, even
+  while it runs. Non-Codex units get it too, for their Codex image runs.
+- The player signs that home in once from Settings > Accounts > "Sign in Genio's
+  Codex (same account)": `codex login` with that `CODEX_HOME`, with their usual
+  ChatGPT account (same plan, no second subscription). It is an independent
+  login; the player's `auth.json` is never copied or linked. "Sign out" runs
+  `codex logout` there only.
+- Genio seeds only `config.toml` with `model = "gpt-6.1-sol"`. Sandbox and
+  approvals come from launch flags. A unit's worktree (and its project) is
+  trusted there at launch, and the worktree entry is dropped at despawn.
+- `codex login status` in that home must report ChatGPT. Until it does (not
+  signed in, an API key, an error), every process falls back to the player's
+  `$CODEX_HOME` and despawned units are archived there as below. Units and the
+  chat then post one notice per Genio start that links to Accounts.
+- A unit records the home it ran in (`Task.codexHome`); respawns, discovery and
+  archiving use it, so a unit that started in the player's home keeps resuming
+  there. A chat thread the current home does not hold is left where it is; a
+  fresh thread gets the bounded chat handoff.
+- Usage reads `sessions/` and `archived_sessions/` of both homes. Plan limits
+  belong to the account, so the probe reads the same plan from either home.
+
 ## Despawned units are archived
 
 - When a Codex unit is despawned, `crew.ts` schedules `codex-archive.ts`. It waits

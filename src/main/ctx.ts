@@ -33,6 +33,7 @@ import type { FleetSnapshot, Ally, Project } from '@shared/types'
 import { Home, defaultHomeRoot } from './home'
 import { scrubInheritedSessionEnv } from './util'
 import { claudeHomeDir, configureClaudeHome } from './claude-home'
+import { configureCodexHome, genioCodexHomeDir } from './codex-home'
 import type { AppCtx, HomeCtx } from './services'
 import { createSettingsService } from './settings'
 import { createTerminalService } from './terminals'
@@ -217,6 +218,14 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
     warn: (message) => {
       try { ctx.main.wksp.say(message, 'system') } catch { /* chat optional */ }
       ctx.notifier.notify('Claude sessions may show in your Claude apps', message, 'info', { force: true })
+    }
+  })
+  // Every Codex process too, once the player has signed Genio's Codex home in (Accounts).
+  configureCodexHome({
+    dir: genioCodexHomeDir(mainHome.root),
+    warn: (message) => {
+      try { ctx.main.wksp.say(message, 'system') } catch { /* chat optional */ }
+      ctx.notifier.notify('Codex units may show in your Codex app', message, 'info', { force: true, target: { view: 'accounts' } })
     }
   })
   for (const sm of ctx.allies.list()) {

@@ -9,6 +9,7 @@ import { chatRouteUnavailable, markChatRouteUnavailable } from './model-catalogu
 import { recordCodexChatUsage, recordCodexChatLimits } from './usage'
 import { refreshClaudePlanUsage } from './claude-usage-probe'
 import { claudeLaunch } from './claude-home'
+import { codexLaunch } from './codex-home'
 /**
  * Genio agent sessions (companion's primary harness session, in-process).
  *
@@ -258,6 +259,12 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
       { ...preparedEvents, onRateLimit: rateLimit }, name, claudeTurnConfig, quotaPolicy, costs)
     return new CodexChatDriver({
       wksp: name, cwd: chatCwd(),
+      // Genio's own Codex home keeps the chat thread out of the player's Codex app.
+      home: async () => {
+        const launch = await codexLaunch({ visible: true })
+        return { env: launch.env, codexHome: launch.codexHome }
+      },
+      handoff: () => handoffContext(),
       config: () => ({ model: config().model!, effort: config().effort }),
       instructions: () => customContract({ gamertag: gamertag(), base: name, isAlly: !home.isMain }, role === 'bot',
         `${chatUsageLine(globalMode(settings()))}\nUse only genio_ tools. Native shell, edits, agents and plugins are unavailable. Never replay completed mutations from a handoff.`),

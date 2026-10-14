@@ -3,6 +3,7 @@ import { createInterface } from 'node:readline'
 import type { ChatMessage } from '@shared/types'
 import type { RawModel } from '@shared/model-catalogue'
 import { killTree, nowIso, which } from './util'
+import { codexRolloutState } from './codex-session'
 import type { ChatDriver, ChatDriverEvents, ChatTurn } from './chat-driver'
 
 // These are chat restrictions, deliberately independent of harness.ts.
@@ -96,7 +97,11 @@ export interface CodexDriverOptions {
   usage?(thread: string, usage: RpcValue): void
   rateLimits?(limits: RpcValue): void
   unavailable?(reason: string): void
-  wire?(events: CodexWireEvents): CodexRpc
+  /** The Codex home this connection runs in (Genio's own when signed in); absent = the inherited one. */
+  home?(): Promise<{ env: Record<string, string>; codexHome: string }>
+  /** Bounded context for a fresh thread that replaces one the home does not hold. */
+  handoff?(): string
+  wire?(events: CodexWireEvents, env: Record<string, string>): CodexRpc
 }
 
 export function codexEffort(model: RawModel, desired?: string): string | undefined {
@@ -129,6 +134,8 @@ export class CodexChatDriver implements ChatDriver {
   private calls = new Map<string, Promise<unknown>>()
   private toolNames = new Set<string>()
   private generation = 0
+  /** handoff for the first turn of a thread that replaced one from another home */
+  private carry?: string
 
   constructor(private readonly options: CodexDriverOptions, private readonly events: ChatDriverEvents) {}
   get queued(): number { return this.pending.length }
@@ -155,11 +162,20 @@ export class CodexChatDriver implements ChatDriver {
     this.closed = false
     const lifetime = this.lifetime = new AbortController()
     const checkLive = (): void => { if (lifetime.signal.aborted || generation !== this.generation) throw new Error('Chat closed') }
+    const home = await this.options.home?.()
+    checkLive()
+    // A thread only resumes in the home that holds it. One from another home (the chat
+    // moved into Genio's own) is left there; a fresh thread here carries the handoff.
+    if (this.sessionId && home && await codexRolloutState(this.sessionId, home.codexHome) !== 'live') {
+      this.sessionId = undefined
+      this.carry = this.options.handoff?.() || undefined
+    }
+    checkLive()
     const rpc = this.rpc = (this.options.wire ?? spawnCodexChat)({
       notification: (method, params) => { if (generation === this.generation) this.notification(method, params) },
       request: (method, params) => generation === this.generation ? this.serverRequest(method, params) : Promise.reject(new Error('Stale session')),
       closed: () => { if (!this.closed && generation === this.generation) this.fail('Codex disconnected. Open Accounts, then resume deliberately.') }
-    })
+    }, home?.env ?? {})
     await rpc.request('initialize', { clientInfo: { name: 'genio_chat', version: '1.0' }, capabilities: { experimentalApi: true } })
     checkLive()
     rpc.notify('initialized', {})
@@ -232,9 +248,11 @@ export class CodexChatDriver implements ChatDriver {
       this.events.onStart?.(turn)
       this.events.onActivity('thinking')
       this.submitted = true
+      const text = this.carry ? `${this.carry}\n\nCurrent request:\n${turn.prompt}` : turn.prompt
       const result = await this.rpc!.request('turn/start', { threadId: this.sessionId,
         model: wanted.model, effort: codexEffort(model, wanted.effort),
-        input: [{ type: 'text', text: turn.prompt }, ...(turn.images ?? []).map(i => ({ type: 'image', url: `data:${i.mediaType};base64,${i.data}` }))] })
+        input: [{ type: 'text', text }, ...(turn.images ?? []).map(i => ({ type: 'image', url: `data:${i.mediaType};base64,${i.data}` }))] })
+      this.carry = undefined
       if (this.current === turn && !this.closed) this.turnId = result.turn.id
     } catch (error) { if (this.current === turn && !this.closed) this.fail((error as Error).message) }
   }

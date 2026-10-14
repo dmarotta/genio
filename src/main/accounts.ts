@@ -7,11 +7,12 @@ import { invalidateModelCatalogue, modelCatalogue } from './model-catalogue'
  * account name / auth method and scrub anything token-shaped.
  */
 import { bus } from './bus'
-import type { AccountStatus, LoginState } from '@shared/api'
+import { GENIO_CODEX, type AccountStatus, type LoginState } from '@shared/api'
 import type { TerminalInfo } from '@shared/types'
 import type { AppCtx } from './services'
 import { toolStatus } from './toolchain'
 import { run, runShell, stripAnsi } from './util'
+import { codexHomeReady, genioCodexHome, readCodexAccount, resetCodexHome, seedCodexHome } from './codex-home'
 
 export interface AuthParse {
   state: LoginState
@@ -29,6 +30,18 @@ interface AccountDef {
   /** commands checked against the installed CLI's --help (else wired from its docs) */
   verified: boolean
   note?: string
+  /** the executable, when the row is not named after it */
+  cli?: string
+  /** extra environment for status, login and logout; undefined hides the row */
+  env?(): Record<string, string> | undefined
+  /** replaces `status` + `parse`: the row's state, detail and warning */
+  check?(): Promise<Pick<AccountStatus, 'state'> & Partial<Pick<AccountStatus, 'detail' | 'warning' | 'stateLabel'>>>
+  /** runs before a login (seeding the home it signs in) */
+  prepare?(): void
+  /** runs when a login or logout terminal ends */
+  ended?(): void
+  loginLabel?: string
+  logoutLabel?: string
 }
 
 // Tokens and secrets never leave a parser, even masked ones (gh prints "gho_****").
@@ -141,11 +154,45 @@ export const ACCOUNTS: AccountDef[] = [
     note: 'No auth subcommand: Log in opens Gemini CLI, where /auth picks the sign-in method.'
   },
   { tool: 'opencode', label: 'OpenCode', status: ['auth', 'list'], login: ['auth', 'login'], logout: ['auth', 'logout'], parse: parseOpencodeAuth, verified: false },
-  { tool: 'cursor-agent', label: 'Cursor Agent', status: ['status'], login: ['login'], logout: ['logout'], parse: parseCursorStatus, verified: false }
+  { tool: 'cursor-agent', label: 'Cursor Agent', status: ['status'], login: ['login'], logout: ['logout'], parse: parseCursorStatus, verified: false },
+  {
+    tool: GENIO_CODEX,
+    cli: 'codex',
+    label: "Genio's Codex",
+    login: ['login'],
+    logout: ['logout'],
+    verified: true,
+    env: () => {
+      const dir = genioCodexHome()
+      return dir ? { CODEX_HOME: dir } : undefined
+    },
+    check: genioCodexCheck,
+    prepare: () => {
+      const dir = genioCodexHome()
+      if (dir) seedCodexHome(dir)
+    },
+    ended: () => { genioAccount = undefined; resetCodexHome() },
+    loginLabel: "Sign in Genio's Codex (same account)",
+    logoutLabel: 'Sign out'
+  }
 ]
 
-async function runTool(file: string, args: string[]): Promise<{ code: number; out: string }> {
-  const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1' }
+const GENIO_CODEX_PURPOSE = "Genio's own Codex home: units, chat and image runs stay out of your Codex app, even while they run. Sign in with your usual ChatGPT account (same plan, no second subscription)."
+const GENIO_CODEX_FALLBACK = 'Until then, Codex units and chats use your normal Codex home and can show in your Codex app while they run.'
+let genioAccount: { email?: string; plan?: string } | undefined
+
+async function genioCodexCheck(): ReturnType<NonNullable<AccountDef['check']>> {
+  const dir = genioCodexHome()
+  const s = await codexHomeReady(true)
+  if (s.state === 'signed-out') return { state: 'logged-out', stateLabel: 'not signed in', warning: GENIO_CODEX_FALLBACK }
+  if (!s.ok || !dir) return { state: 'unknown', stateLabel: 'error', warning: `${s.reason ?? 'Sign-in could not be checked'}. ${GENIO_CODEX_FALLBACK}` }
+  genioAccount ??= await readCodexAccount(dir)
+  const who = scrubDetail(genioAccount.email)
+  return { state: 'logged-in', stateLabel: 'signed in', detail: scrubDetail(['ChatGPT', who ? `signed in as ${who}` : '', genioAccount.plan].filter(Boolean).join(' · ')) }
+}
+
+async function runTool(file: string, args: string[], extra: Record<string, string> = {}): Promise<{ code: number; out: string }> {
+  const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1', ...extra }
   delete env.ELECTRON_RUN_AS_NODE
   const r = /\.(cmd|bat)$/i.test(file)
     ? await runShell(`"${file}" ${args.join(' ')}`, { timeoutMs: 20_000, env })
@@ -155,11 +202,11 @@ async function runTool(file: string, args: string[]): Promise<{ code: number; ou
 }
 
 async function accountStatus(def: AccountDef): Promise<AccountStatus> {
-  const t = await toolStatus(def.tool)
+  const t = await toolStatus(def.cli ?? def.tool)
   const st: AccountStatus = {
     tool: def.tool,
     label: def.label,
-    purpose: t?.purpose ?? '',
+    purpose: def.tool === GENIO_CODEX ? GENIO_CODEX_PURPOSE : t?.purpose ?? '',
     installed: Boolean(t?.found),
     version: t?.version,
     install: t?.install,
@@ -167,37 +214,47 @@ async function accountStatus(def: AccountDef): Promise<AccountStatus> {
     canLogin: true,
     canLogout: Boolean(def.logout),
     verified: def.verified,
-    note: def.note
+    note: def.note,
+    loginLabel: def.loginLabel,
+    logoutLabel: def.logoutLabel
   }
-  if (!t?.found || !t.path || !def.status || !def.parse) return st
-  const r = await runTool(t.path, def.status)
+  if (!t?.found || !t.path) return st
+  if (def.check) return { ...st, ...(await def.check()) }
+  if (!def.status || !def.parse) return st
+  const r = await runTool(t.path, def.status, def.env?.() ?? {})
   const p = def.parse(r.out, r.code)
   st.state = p.state
   st.detail = p.detail
   return st
 }
 
+/** Rows whose home Genio has not set up (no env) are left out. */
 export function listAccounts(): Promise<AccountStatus[]> {
-  return Promise.all(ACCOUNTS.map(accountStatus))
+  return Promise.all(ACCOUNTS.filter(def => !def.env || def.env()).map(accountStatus))
 }
 
 /** Run the tool's own login/logout in a visible terminal so the player can finish prompts. */
-export async function openAccountSession(ctx: AppCtx, tool: string, action: 'login' | 'logout'): Promise<TerminalInfo> {
+export async function openAccountSession(ctx: AppCtx, tool: string, action: 'login' | 'logout', cwd = ctx.main.home.root): Promise<TerminalInfo> {
   const def = ACCOUNTS.find((a) => a.tool === tool)
   if (!def) throw new Error(`Unknown account tool: ${tool}`)
   const args = action === 'login' ? def.login : def.logout
   if (!args) throw new Error(`${def.label} has no ${action} command`)
-  const t = await toolStatus(def.tool)
+  const t = await toolStatus(def.cli ?? def.tool)
   if (!t?.found || !t.path) throw new Error(`${def.label} is not installed${t?.install ? ` (${t.install})` : ''}`)
+  const env = def.env?.()
+  if (def.env && !env) throw new Error(`${def.label} is not set up`)
+  if (action === 'login') def.prepare?.()
+  // A login with its own home (Genio's Codex) signs in only that home: the player's own login is never touched.
   const terminal = ctx.terminals.create({
     kind: 'shell',
     title: `${action === 'login' ? 'Log in' : 'Log out'} · ${def.label}`,
-    cwd: ctx.main.home.root,
+    cwd,
     file: t.path,
-    args
+    args,
+    ...(env ? { env } : {})
   })
   invalidateModelCatalogue()
-  ctx.terminals.onExit(terminal.id, () => { invalidateModelCatalogue(); void modelCatalogue(ctx.main.home.data, true, ctx.settings.get().claudePath).catch(() => {}) })
+  ctx.terminals.onExit(terminal.id, () => { def.ended?.(); invalidateModelCatalogue(); void modelCatalogue(ctx.main.home.data, true, ctx.settings.get().claudePath).catch(() => {}) })
   if (action === 'login' && terminal.alive) {
     ctx.terminals.onExit(terminal.id, (code) => {
       if (code !== 0) return

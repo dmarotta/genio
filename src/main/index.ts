@@ -449,6 +449,30 @@ async function captureTour(dir: string, win: BrowserWindow, binding?: WindowBind
   const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
   fs.mkdirSync(dir, { recursive: true })
   await wait(Number(process.env.GENIO_CAPTURE_DELAY ?? 3500))
+  // Optional UI scenarios: each renderer script settles its own state before capture.
+  // This exercises real IPC/media while keeping fixture setup outside the application.
+  const runScenarios = async (file: string): Promise<void> => {
+    const cases = JSON.parse(fs.readFileSync(file, 'utf8')) as { name: string; script: string }[]
+    for (const c of cases) {
+      try {
+        await win.webContents.executeJavaScript(`(async () => { ${c.script}\n })()`)
+      } catch (e) {
+        console.error('[capture] failed', c.name, e)
+        fs.writeFileSync(path.join(dir, 'scenario-failure.png'), (await win.webContents.capturePage()).toPNG())
+        quitting = true
+        await shutdown(1)
+        return
+      }
+      const img = await win.webContents.capturePage()
+      fs.writeFileSync(path.join(dir, `${c.name.replace(/[^a-zA-Z0-9_-]/g, '_')}.png`), img.toPNG())
+      console.log('[capture]', c.name)
+    }
+    quitting = true
+    await shutdown()
+  }
+  const scenarios = process.env.GENIO_CAPTURE_SCENARIOS
+  // A project window runs the scenarios when one is opened (Settings live there, not in the Hub).
+  if (binding && scenarios && !win.isDestroyed()) return runScenarios(scenarios)
   if (binding) {
     fs.writeFileSync(path.join(dir, `project-${binding.project}.png`), (await win.webContents.capturePage()).toPNG())
     await win.webContents.executeJavaScript(`window.dispatchEvent(new KeyboardEvent('keydown', { key: '1', ctrlKey: true, bubbles: true }))`)
@@ -475,29 +499,10 @@ async function captureTour(dir: string, win: BrowserWindow, binding?: WindowBind
     await win.webContents.executeJavaScript(`(async () => { ${body}
  })()`).catch((e) => console.error('[capture] script failed', e))
   }
-  // Optional UI scenarios: each renderer script settles its own state before capture.
-  // This exercises real IPC/media while keeping fixture setup outside the application.
-  const scenarios = process.env.GENIO_CAPTURE_SCENARIOS
-  if (scenarios && win && !win.isDestroyed()) {
-    const cases = JSON.parse(fs.readFileSync(scenarios, 'utf8')) as { name: string; script: string }[]
-    for (const c of cases) {
-      try {
-        await win.webContents.executeJavaScript(`(async () => { ${c.script}\n })()`)
-      } catch (e) {
-        console.error('[capture] failed', c.name, e)
-        fs.writeFileSync(path.join(dir, 'scenario-failure.png'), (await win.webContents.capturePage()).toPNG())
-        quitting = true
-        await shutdown(1)
-        return
-      }
-      const img = await win.webContents.capturePage()
-      fs.writeFileSync(path.join(dir, `${c.name.replace(/[^a-zA-Z0-9_-]/g, '_')}.png`), img.toPNG())
-      console.log('[capture]', c.name)
-    }
-    quitting = true
-    await shutdown()
-    return
-  }
+  // With a project window open, it runs the scenarios; the Hub only takes its own shot.
+  const projectOpen = [...windows.values()].some(Boolean)
+  if (scenarios && win && !win.isDestroyed() && !projectOpen) return runScenarios(scenarios)
+  if (scenarios && projectOpen) return
   const views = ['comms', 'squad', 'quests', 'yourmove', 'status', 'worlds', 'unbound', 'systems', 'inventory']
   focusWindow(win)
   for (let i = 0; i < views.length; i++) {

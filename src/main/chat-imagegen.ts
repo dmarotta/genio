@@ -16,6 +16,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { MAX_IMAGE_BYTES, validChatImageFile, type ChatImage } from '@shared/chat-images'
 import type { ChatMessage } from '@shared/types'
 import { chatImageDir, chatImagePath } from './chat-images'
+import { codexEnv } from './codex-home'
 import type { AppCtx } from './services'
 import type { Home } from './home'
 import { codexImageScratch, codexImageSkillDir, installUnitPlugin, unitPluginDir, unitPluginSource } from './unitskills'
@@ -188,7 +189,8 @@ export async function generateChatImages(gen: ChatImageGen, a: GenerateImageArgs
     ensureDir(gen.chatDir)
     ensureDir(gen.run.scratch)
     const outs = Array.from({ length: count }, () => path.join(gen.chatDir, `${Date.now().toString(36)}-${rid(4)}.png`))
-    ran = await runCodexImage(gen.run, outs, prompt, !!a.transparent, refs)
+    // Genio's own Codex home when signed in: the run never reaches the player's Codex folder.
+    ran = await runCodexImage({ ...gen.run, env: { ...(await codexEnv()), ...gen.run.env } }, outs, prompt, !!a.transparent, refs)
   } catch (e) {
     return failed((e as Error).message)
   }

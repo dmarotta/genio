@@ -101,6 +101,24 @@ export interface AccountStatus {
   /** auth commands checked against the installed CLI's --help (else wired from its docs) */
   verified: boolean
   note?: string
+  /** row-specific wording: chip text, button labels, and a warning shown under the row */
+  stateLabel?: string
+  loginLabel?: string
+  logoutLabel?: string
+  warning?: string
+}
+
+/** The Accounts row of Genio's own Codex home (signed in once more with the player's ChatGPT account). */
+export const GENIO_CODEX = 'codex-genio'
+
+/**
+ * The login each runtime actually uses: Codex runs in Genio's own home once it
+ * is signed in, so that row stands in for the player's own Codex login.
+ */
+export function runtimeAccounts(list: AccountStatus[]): AccountStatus[] {
+  const genio = list.find(a => a.tool === GENIO_CODEX)
+  if (genio?.state !== 'logged-in') return list
+  return list.map(a => (a.tool === 'codex' ? { ...a, state: genio.state, detail: genio.detail } : a))
 }
 
 /**

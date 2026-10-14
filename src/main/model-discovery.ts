@@ -5,6 +5,7 @@ import type { RawModel } from '@shared/model-catalogue'
 import { killTree, run, runShell, stripAnsi, which } from './util'
 import { CODEX_CHAT_DISABLED } from './codex-chat-driver'
 import { claudeEnv } from './claude-home'
+import { codexEnv } from './codex-home'
 
 const queries = new Set<Query>()
 let claudeMetadata: RawModel[] = []
@@ -46,7 +47,8 @@ async function rpcModels(tool: 'codex' | 'gemini'): Promise<RawModel[]> {
   if (!file) throw new Error('CLI is not installed')
   const args = tool === 'codex' ? ['app-server', '--listen', 'stdio://', ...CODEX_CHAT_DISABLED.flatMap(name => ['--disable', name])] : ['--acp']
   const shim = /\.(cmd|bat)$/i.test(file)
-  const env: NodeJS.ProcessEnv = { ...process.env, NO_BROWSER: 'true', NO_COLOR: '1' }
+  // Codex reads its catalogue in Genio's own home when signed in.
+  const env: NodeJS.ProcessEnv = { ...process.env, NO_BROWSER: 'true', NO_COLOR: '1', ...(tool === 'codex' ? await codexEnv() : {}) }
   delete env.ELECTRON_RUN_AS_NODE
   const child = spawn(shim ? 'cmd.exe' : file, shim ? ['/d', '/s', '/c', `"${file}" ${args.join(' ')}`] : args,
     { windowsHide: true, windowsVerbatimArguments: shim, detached: process.platform !== 'win32', env })

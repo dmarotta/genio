@@ -17,6 +17,7 @@ import { buildArgs, CLAUDE_BYPASS_DIALOG } from './harness'
 import { discoverCodexSession } from './codex-session'
 import { claudeLaunch, claudeTrustFiles, playerSkipsBypassPrompt, setClaudeTrust, UNIT_UNSET_ENV } from './claude-home'
 import { scheduleUnitArchive, unarchiveCodexThread } from './codex-archive'
+import { codexLaunch, genioCodexHome, setCodexTrust } from './codex-home'
 import { foldOpenDecisions, formatStatusLine, parseStatusLine, parseStatusLog } from './status'
 import { createGauntlet } from './gauntlet'
 import { relaunchPolicy } from './relaunch-policy'
@@ -262,11 +263,17 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     if (claude) setClaudeTrust(claude.configFile, [t.worktree], true)
     const settingsPath = isClaude ? writeClaudeSettings(t) : undefined
     const skills = skillExtras(t, adapter.id, project?.path)
-    const codexHome = skills.env.CODEX_HOME ?? adapter.env?.CODEX_HOME
-    let sessionId = opts.resume && adapter.id === 'codex' ? await discoverCodexSession(t.worktree, codexHome, t.codexSessionId) : undefined
+    // Genio's own Codex home keeps units (and any Codex image run inside a unit) out of the player's Codex app.
+    // A runtime with its own CODEX_HOME keeps it; a resume follows the unit's thread.
+    const isCodex = adapter.id === 'codex'
+    const codex = adapter.env?.CODEX_HOME ? undefined
+      : await codexLaunch({ resume: isCodex && opts.resume ? { cwd: t.worktree, home: t.codexHome } : undefined, visible: isCodex })
+    const codexHome = adapter.env?.CODEX_HOME ?? codex?.codexHome
+    if (isCodex && codex?.isolated) setCodexTrust(codex.codexHome, [t.worktree, project?.path ?? ''], true)
+    let sessionId = opts.resume && isCodex ? await discoverCodexSession(t.worktree, codexHome, t.codexSessionId) : undefined
     // Codex refuses to resume an archived thread; one it will not restore starts fresh instead.
     if (sessionId && !(await unarchiveCodexThread(sessionId, { dataDir: mainHome.data, codexHome, task: t.id, cwd: t.worktree }))) sessionId = undefined
-    if (opts.resume && adapter.id === 'codex') update(t.id, { codexSessionId: sessionId })
+    if (isCodex) update(t.id, { codexHome, ...(opts.resume ? { codexSessionId: sessionId } : {}) })
     const args = [
       ...skills.args,
       ...buildArgs(adapter, { model, effort: t.effort, prompt: opts.prompt, cwd: t.worktree, settings: settingsPath, resume: opts.resume, sessionId }, s)
@@ -282,6 +289,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     }
     const env: Record<string, string> = {
       ...(claude?.env ?? {}),
+      ...(codex?.env ?? {}),
       ...(adapter.env ?? {}),
       ...hookEnv,
       ...skills.env,
@@ -793,7 +801,9 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       if (t.harness === 'claude') for (const file of claudeTrustFiles()) setClaudeTrust(file, [t.worktree], false)
       // Finished Codex units leave the player's Codex app: archive (never delete) their threads once the process is gone.
       if (t.harness === 'codex') {
-        scheduleUnitArchive(t.worktree, { dataDir: mainHome.data, codexHome: ctx.settings.harness(t.harness)?.env?.CODEX_HOME, task: t.id })
+        const genioHome = genioCodexHome()
+        if (genioHome) setCodexTrust(genioHome, [t.worktree], false)
+        scheduleUnitArchive(t.worktree, { dataDir: mainHome.data, codexHome: t.codexHome ?? ctx.settings.harness(t.harness)?.env?.CODEX_HOME, task: t.id })
       }
       if (repo && (await git.branchExists(repo, t.branch))) {
         await git.deleteBranch(repo, t.branch, t.kind === 'scout' || force)

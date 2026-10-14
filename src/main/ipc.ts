@@ -377,6 +377,8 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
           if (method === 'addDecision') args[0] = { ...(args[0] as object), project: binding.project, wksp: binding.wksp }
           if (method === 'snapshot') return projectSnapshot(ctx().snapshot(), binding)
           if (method === 'terminals') return ctx().terminals.list().filter(t => terminalProject(t, ctx().snapshot()) === binding.project)
+          // A login started in a project window runs in that project's folder, so its terminal is routed back to it.
+          if (method === 'accountSession') return openAccountSession(ctx(), String(args[0]), args[1] as 'login' | 'logout', ctx().projects.get(binding.project)?.path)
           if (method === 'recap' || method === 'save') return ctx().home(binding.wksp).wksp.send('/' + method, 'player')
           if (method === 'backlogDispatch') {
             const quest = backlogHome(String(args[0])).backlog.get(String(args[0]))!

@@ -11,7 +11,7 @@ import {
 } from '@shared/usage-mode'
 import { PlanMeter, useUsagePolicyState } from '../components/PlanMeter'
 import {
-  accountActions, type AccountStatus, type ApiKeyStatus, type ExplorerStatus, type FalSpend, type SessionCleanupPreview, type SessionCleanupProgress,
+  accountActions, GENIO_CODEX, type AccountStatus, type ApiKeyStatus, type ExplorerStatus, type FalSpend, type SessionCleanupPreview, type SessionCleanupProgress,
   type SessionCleanupResult, type ToolUsage, type UsageReport
 } from '@shared/api'
 import { api, errText, op, saveSettings, toast, useStore } from '../store'
@@ -1279,6 +1279,7 @@ function Accounts() {
                 {a.installed ? (
                   <>
                     <div className="mute tool-purpose">{a.detail ?? a.note ?? a.purpose}</div>
+                    {a.warning && <div className="tool-purpose account-warning">{a.warning}</div>}
                     {u && (
                       <button className="usage-toggle mono" title="Plan limits and token usage" onClick={() => setOpen((o) => ({ ...o, [a.tool]: !o[a.tool] }))}>
                         {open[a.tool] ? <ChevronDown size={11} /> : <ChevronRight size={11} />} Usage · {usageSummary(u)}
@@ -1291,16 +1292,16 @@ function Accounts() {
                   </div>
                 )}
               </div>
-              {a.installed ? <span className={cx('chip', st.tone)}>{st.text}</span> : <span />}
+              {a.installed ? <span className={cx('chip', a.stateLabel === 'error' ? 'alert' : st.tone)}>{a.stateLabel ?? st.text}</span> : <span />}
               <div className="row account-actions">
                 {actions.login && (
                   <button className="btn sm" onClick={() => void start(a, 'login')}>
-                    <LogIn size={12} /> Log in
+                    <LogIn size={12} /> {a.loginLabel ?? 'Log in'}
                   </button>
                 )}
                 {actions.logout && (
                   <button className="btn sm ghost" onClick={() => setLogout(a)}>
-                    <LogOut size={12} /> Log out
+                    <LogOut size={12} /> {a.logoutLabel ?? 'Log out'}
                   </button>
                 )}
               </div>
@@ -1334,10 +1335,12 @@ function Accounts() {
       <Housekeeping />
       {logout && (
         <Confirm
-          title={`Log out of ${logout.label}?`}
+          title={logout.tool === GENIO_CODEX ? `Sign out ${logout.label}?` : `Log out of ${logout.label}?`}
           tone="amber"
-          confirmLabel="Log out"
-          body={`Runs ${logout.tool}'s own logout. Units using ${logout.label} will need you to log in again.`}
+          confirmLabel={logout.logoutLabel ?? 'Log out'}
+          body={logout.tool === GENIO_CODEX
+            ? "Signs out only Genio's own Codex home; your own Codex login is untouched. Codex units and chats go back to your normal Codex home, where they can show in your Codex app."
+            : `Runs ${logout.tool}'s own logout. Units using ${logout.label} will need you to log in again.`}
           onConfirm={() => start(logout, 'logout')}
           onClose={() => setLogout(null)}
         />

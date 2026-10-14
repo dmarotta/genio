@@ -78,6 +78,8 @@ export function routeProjectEvent(ev: GenioEvent, binding: WindowBinding | undef
       if (ev.target.view === 'comms') return wksp(ev.target.wksp)
       if (ev.target.view === 'squad') { const taskId = ev.target.taskId; return project(snap().tasks.find(t => t.id === taskId)?.project) }
       if (ev.target.view === 'move') return ev.target.project ? project(ev.target.project) : wksp(ev.target.wksp)
+      // Settings › Accounts lives in every project window and holds nothing project-specific.
+      if (ev.target.view === 'accounts') return ev
       return undefined
     default: return ev
   }

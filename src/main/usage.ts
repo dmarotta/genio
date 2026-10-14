@@ -3,8 +3,9 @@
  *   - plan / rate-limit status the tool itself reports:
  *       Codex: a no-prompt app-server account/rateLimits/read (codex-usage-probe.ts,
  *       kept in data/usage/codex-limits.json) plus the rate_limits snapshot in
- *       token_count events of its session logs ($CODEX_HOME/sessions/**.jsonl and
- *       archived_sessions/*.jsonl, where despawned units' threads go);
+ *       token_count events of its session logs (sessions/**.jsonl and
+ *       archived_sessions/*.jsonl, where despawned units' threads go, in Genio's
+ *       own Codex home and in the player's $CODEX_HOME);
  *       Claude Code: a zero-prompt structured /usage account refresh plus SDK
  *       rate_limit_event messages, kept in data/usage/claude-limits.json;
  *   - tokens Genio measures from the session logs of its own units and chats (sessions whose
@@ -23,7 +24,8 @@ import { appendJsonl, isSubPath, nowIso, readJson, writeJsonAtomic } from './uti
 import { claudeProbeError, refreshClaudePlanUsage } from './claude-usage-probe'
 import { claudeProjectRoots } from './claude-home'
 import { codexProbeError, codexSnapshot, readCodexProbeLimits, refreshCodexPlanUsage } from './codex-usage-probe'
-import { CODEX_SESSION_DIRS, codexHomeDir } from './codex-session'
+import { CODEX_SESSION_DIRS } from './codex-session'
+import { codexHomes } from './codex-home'
 
 const DAY = 86_400_000
 
@@ -619,7 +621,8 @@ async function codexUsage(ctx: AppCtx, root: string, now: number, data: string):
   const chats = recentJsonl(path.join(data, 'usage', 'codex-chat'), weekStart)
   const chatIds = chats.map(f => path.basename(f, '.jsonl'))
   // Despawned units' threads are archived (moved, mtime kept), so their week still counts.
-  const native = CODEX_SESSION_DIRS.flatMap(dir => recentJsonl(path.join(codexHomeDir(), dir), weekStart))
+  // Genio's own Codex home, plus the player's for Genio threads from before it (or from a fallback).
+  const native = codexHomes().flatMap(home => CODEX_SESSION_DIRS.flatMap(dir => recentJsonl(path.join(home, dir), weekStart)))
   const files = [...native.filter(f => !chatIds.some(id => f.endsWith(`${id}.jsonl`))), ...chats]
   const records: TokenRecord[] = []
   const worlds = new Map<TokenRecord, string>()

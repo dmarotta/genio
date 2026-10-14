@@ -6,6 +6,7 @@
  */
 import path from 'node:path'
 import { spawnCodexChat, type CodexRpc, type CodexWireEvents } from './codex-chat-driver'
+import { codexEnv } from './codex-home'
 import type { CodexSnapshot, CodexWindow } from './usage'
 import { readJson, writeJsonAtomic } from './util'
 
@@ -57,8 +58,16 @@ export function parseCodexRateLimits(result: unknown, at: string): CodexSnapshot
   return buckets.map((b) => codexSnapshot(b, at, CODEX_PROBE_SOURCE)).filter((s): s is CodexSnapshot => Boolean(s))
 }
 
-/** initialize → account/read → account/rateLimits/read on a short-lived app-server. */
-export async function probeCodexRateLimits(wire: (events: CodexWireEvents) => CodexRpc = spawnCodexChat): Promise<unknown> {
+/**
+ * initialize → account/read → account/rateLimits/read on a short-lived app-server,
+ * in Genio's own Codex home when signed in (plan limits belong to the account,
+ * so either home reports the same plan).
+ */
+export async function probeCodexRateLimits(wire?: (events: CodexWireEvents) => CodexRpc): Promise<unknown> {
+  if (!wire) {
+    const env = await codexEnv()
+    wire = events => spawnCodexChat(events, env)
+  }
   let rpc: CodexRpc
   try {
     rpc = wire({ notification() {}, request: () => Promise.reject(new Error('unsupported')), closed() {} })

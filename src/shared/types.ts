@@ -228,6 +228,8 @@ export interface Task {
   sessionHint?: string
   /** Codex session verified against this unit's worktree at relaunch. */
   codexSessionId?: string
+  /** The Codex home this unit last ran in (Genio's own, or the player's as a fallback). */
+  codexHome?: string
 }
 
 /** companion status verbs: `<verb> [key=k] [at=epoch]: note` appended to state/<id>.status */
@@ -848,6 +850,6 @@ export type GenioEvent =
   | { type: 'generation'; wksp: string; id: string; active: boolean }
 
 /** Notification destination; legacy `move` targets reveal pending answer cards. */
-export type NotifyTarget = { view: 'move'; project?: string; wksp?: string; decisionId?: string } | { view: 'squad'; taskId?: string } | { view: 'comms'; wksp?: string }
+export type NotifyTarget = { view: 'move'; project?: string; wksp?: string; decisionId?: string } | { view: 'squad'; taskId?: string } | { view: 'comms'; wksp?: string } | { view: 'accounts' }
 
 export type SfxName = 'blip' | 'spawn' | 'ready' | 'merge' | 'alert' | 'decision' | 'levelup' | 'send' | 'error'

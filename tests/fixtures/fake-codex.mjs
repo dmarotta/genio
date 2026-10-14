@@ -5,13 +5,64 @@
 // `archive <id>` / `unarchive <id>` move the rollout between sessions/YYYY/MM/DD
 // and the flat archived_sessions/ like Codex does; a `live-<id>` marker file in
 // $CODEX_HOME makes archive refuse with exit 1 (a thread still open elsewhere).
+// `login` / `logout` / `login status` keep a fake-login marker in $CODEX_HOME
+// (never an auth.json). `app-server` answers the metadata calls Genio makes
+// (account/read, account/rateLimits/read, config/read, model/list) and logs
+// the CODEX_HOME it ran in to $FAKE_CODEX_LOG.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import readline from 'node:readline'
 
 const PNG1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
 const home = process.env.CODEX_HOME
 const [command, id] = process.argv.slice(2)
+const loginFile = path.join(home ?? '', 'fake-login')
+if (command === '--version') {
+  process.stdout.write('codex-cli 0.162.1 (fake)\n')
+  process.exit(0)
+}
+if (command === 'login' || command === 'logout') {
+  if (command === 'logout') fs.rmSync(loginFile, { force: true })
+  else if (id === 'status') {
+    // Codex prints its login state on stderr; exit 1 when signed out.
+    const state = fs.existsSync(loginFile) ? fs.readFileSync(loginFile, 'utf8') : 'Not logged in'
+    process.stderr.write(`${state}\n`)
+    process.exit(fs.existsSync(loginFile) ? 0 : 1)
+  } else {
+    // FAKE_CODEX_LOGIN_DELAY_MS stands in for the browser round trip (screenshots).
+    process.stdout.write('Starting local login server on http://localhost:1455.\nIf your browser did not open, navigate to this URL to authenticate.\n')
+    const delay = Number(process.env.FAKE_CODEX_LOGIN_DELAY_MS ?? 0)
+    if (delay) await new Promise((r) => setTimeout(r, delay))
+    fs.writeFileSync(loginFile, 'Logged in using ChatGPT')
+    process.stdout.write('Successfully logged in\n')
+  }
+  process.exit(0)
+}
+if (command === 'app-server') {
+  if (process.env.FAKE_CODEX_LOG) fs.appendFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify({ command, CODEX_HOME: home }) + '\n')
+  const argv = process.argv.slice(2)
+  const disabled = argv.flatMap((a, i) => (argv[i - 1] === '--disable' ? [a] : []))
+  const chatgpt = fs.existsSync(loginFile) && /ChatGPT/.test(fs.readFileSync(loginFile, 'utf8'))
+  const used = Number(process.env.FAKE_CODEX_USED ?? 7)
+  const bucket = { limitId: 'codex', limitName: null, primary: { usedPercent: used, windowDurationMins: 10080, resetsAt: 1792480369 }, secondary: null, planType: 'pro' }
+  const results = {
+    initialize: {},
+    'account/read': { account: chatgpt ? { type: 'chatgpt', email: 'player@example.com', planType: 'pro' } : null },
+    'account/rateLimits/read': { rateLimits: bucket, rateLimitsByLimitId: { codex: bucket } },
+    'config/read': { config: { features: Object.fromEntries(disabled.map((n) => [n, false])), mcp_servers: {} } },
+    'model/list': { data: [{ id: 'gpt-6.1-sol', model: 'gpt-6.1-sol', displayName: 'GPT-6.1 Sol', inputModalities: ['text'] }] }
+  }
+  readline.createInterface({ input: process.stdin }).on('line', (line) => {
+    const m = JSON.parse(line)
+    if (m.id === undefined) return
+    process.stdout.write(JSON.stringify(m.method in results ? { id: m.id, result: results[m.method] } : { id: m.id, error: { message: 'unsupported' } }) + '\n')
+  })
+  process.stdin.on('end', () => process.exit(0))
+} else main()
+
+// archive / unarchive, and `exec --json` (image runs)
+function main() {
 if (command === 'archive' || command === 'unarchive') {
   fs.appendFileSync(path.join(home, 'fake-calls.jsonl'), JSON.stringify({ command, id }) + '\n')
   const sessions = path.join(home, 'sessions')
@@ -71,3 +122,4 @@ process.stdin.on('end', () => {
   const ev = [{ type: 'thread.started', thread_id: thread }, { type: 'turn.started' }, { type: 'item.completed', item: { id: 'item_0', type: 'agent_message', text: 'done' } }, { type: 'turn.completed' }]
   process.stdout.write(ev.map((e) => JSON.stringify(e)).join('\n') + '\n')
 })
+}

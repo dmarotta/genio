@@ -5,7 +5,7 @@
  * (scorecard.ts). Previews use a background cache; launches scan local evidence,
  * claim a provider reservation and recheck immediately before terminal creation.
  */
-import type { AccountStatus, OpResult, UsageReport } from '@shared/api'
+import { runtimeAccounts, type AccountStatus, type OpResult, type UsageReport } from '@shared/api'
 import type { BacklogItem, Decision, Task, Verdict } from '@shared/types'
 import { cheapModelsAllowed, type DispatchScoresView } from '@shared/dispatch'
 import {
@@ -309,7 +309,8 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
     },
 
     noteLogins(list: AccountStatus[]) {
-      logins = new Map(list.filter((a) => a.installed).map((a) => [a.tool, a.state]))
+      // Codex units run in Genio's own home once it is signed in: that login is the one that counts.
+      logins = new Map(runtimeAccounts(list).filter((a) => a.installed).map((a) => [a.tool, a.state]))
       loginsAt = Date.now()
     },
 

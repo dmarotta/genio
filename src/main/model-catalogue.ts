@@ -1,4 +1,5 @@
 import { modelState, normalizeModels, staticClaudeCatalogue, type CatalogueRoute, type ModelCatalogue, type ModelRuntime, type RawModel } from '@shared/model-catalogue'
+import { runtimeAccounts } from '@shared/api'
 import { bus } from './bus'
 import { listAccounts, scrubDetail } from './accounts'
 import { claudeModels, codexModels, geminiModels, opencodeModels } from './model-discovery'
@@ -25,7 +26,7 @@ export function modelCatalogue(dataDir: string, refresh = false, claudePath?: st
   const started = generation
   pendingGeneration = started
   pending = (async () => {
-    const accounts = await listAccounts()
+    const accounts = runtimeAccounts(await listAccounts())
     const key = getSecret('openrouter', dataDir)
     const discover = async (runtime: ModelRuntime, provider: string, probe: () => Promise<RawModel[]>): Promise<CatalogueRoute> => {
       const account = accounts.find(a => a.tool === runtime)
