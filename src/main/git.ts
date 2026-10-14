@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { run, exists, ensureDir, type ExecResult } from './util'
+import { initSubmodules, type SubmoduleReport } from '../../resources/unit-skills/genio/lib/git-submodules.mjs'
 
 export async function git(cwd: string, args: string[], timeoutMs = 120_000): Promise<ExecResult> {
   return run('git', args, { cwd, timeoutMs, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } })
@@ -79,6 +80,14 @@ export async function addWorktree(repo: string, wtPath: string, branch: string, 
     return git(repo, ['worktree', 'add', wtPath, branch])
   }
   return git(repo, ['worktree', 'add', '-b', branch, wtPath, from])
+}
+
+/**
+ * `git worktree add` leaves submodule folders empty: check them out from the main checkout's own
+ * submodule git dirs (local only, hooks off). The main checkout and its submodules are only read.
+ */
+export async function initWorktreeSubmodules(repo: string, wtPath: string): Promise<SubmoduleReport> {
+  return initSubmodules(wtPath, { source: repo })
 }
 
 /** Assert that a path is a linked worktree of repo, not the primary checkout. */

@@ -530,10 +530,15 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           await git.removeWorktree(project.path, wt, true)
           throw new Error(`Isolation check failed (${iso.reason}); the mission was stopped.`)
         }
+        // Never fatal: a missing submodule is a warning in the brief and the status log.
+        const submodules = await git.initWorktreeSubmodules(project.path, wt).catch((e) => ({ submodules: [], problems: [(e as Error).message], ok: false, elapsedMs: 0 }))
 
         ensureDir(home.taskDir(id))
         ensureDir(path.join(inboxDir(id), 'handled'))
         if (!exists(home.statusFile(id))) writeText(home.statusFile(id), '')
+        if (submodules.problems.length) {
+          appendLine(home.statusFile(id), formatStatusLine('note', `git submodules missing from the worktree: ${truncate(submodules.problems.join('; '), 400)}`, { key: 'submodules' }))
+        }
         const reportPath = req.kind === 'scout' ? home.reportFile(id) : undefined
         const briefPath = home.briefFile(id)
         writeText(
@@ -558,7 +563,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
             engineHints: engineHints(effectiveEngine(project).engine),
             briefInclude: s.briefInclude,
             summaryWords: req.kind === 'scout' ? ctx.dispatch.reportWords(project.name, loadout.harness) : undefined,
-            tools: toolsBrief()
+            tools: toolsBrief(),
+            submodules
           })
         )
 

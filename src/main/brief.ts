@@ -6,6 +6,7 @@
 import fs from 'node:fs'
 import type { DeliveryMode, Engine, TaskKind } from '@shared/types'
 import { fwd, nowIso } from './util'
+import type { SubmoduleReport } from '../../resources/unit-skills/genio/lib/git-submodules.mjs'
 
 export interface BriefInput {
   taskId: string
@@ -33,6 +34,18 @@ export interface BriefInput {
   tools?: string
   /** Recon: the report summary's word target from the Usage mode */
   summaryWords?: number
+  /** Submodules Genio checked out in the worktree (initWorktreeSubmodules) */
+  submodules?: SubmoduleReport
+}
+
+/** Setup lines on the worktree's submodules: none without any, a visible warning when some are missing. */
+export function submoduleLines(r?: SubmoduleReport): string[] {
+  if (!r?.submodules.length && !r?.problems.length) return []
+  const ready = r.submodules.filter((s) => s.action !== 'failed' && s.action !== 'skipped').map((s) => `\`${s.path}\``)
+  const out: string[] = []
+  if (ready.length) out.push(`- Genio checked out the git submodules ${ready.join(', ')} at this branch's commits, from the main checkout's local copies. Never run \`git submodule init\`, \`update\` or \`sync\` yourself: they write the main checkout's shared config and may reach the network.`)
+  if (r.problems.length) out.push(`- WARNING: Genio could not initialise these git submodules, so their files are missing from your worktree: ${r.problems.join('; ')}. If your mission needs them (a Unity package there will not resolve), append \`blocked: git submodules missing\` and stop.`)
+  return out
 }
 
 export const MODE_LABEL: Record<DeliveryMode, string> = {
@@ -155,6 +168,7 @@ export function renderBrief(i: BriefInput): string {
   out.push(`- Genio already created and checked out the branch \`${i.branch}\` from \`${i.baseBranch}\`.`)
   out.push('- ISOLATION ASSERTION (do this first): run `git rev-parse --show-toplevel`. It must resolve to the worktree path above.')
   out.push(`  If it does not, run \`${appendCommand(i.statusFile, 'blocked: launched outside the isolated worktree')}\` and stop immediately.`)
+  out.push(...submoduleLines(i.submodules))
   out.push('')
   out.push('# Rules')
   out.push('')

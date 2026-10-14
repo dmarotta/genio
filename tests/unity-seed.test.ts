@@ -39,6 +39,16 @@ it('uses the same exclusions on the non-Windows fallback', async () => {
   expect(fs.readdirSync(path.join(copy, 'Library'))).toEqual(['warm'])
 })
 
+it('never seeds from or into a tree whose submodule packages are not checked out', async () => {
+  file('warm', '123')
+  const tree = path.dirname(source)
+  fs.mkdirSync(path.join(tree, '.git')); fs.mkdirSync(path.join(tree, 'Packages', 'hhg-core'), { recursive: true })
+  fs.writeFileSync(path.join(tree, '.gitmodules'), '[submodule "Packages/hhg-core"]\n\tpath = Packages/hhg-core\n\turl = https://example.invalid/core.git\n')
+  expect(await seedLibrary(copy, source)).toMatchObject({ seeded: false, reason: 'source-submodules-missing', missing: ['Packages/hhg-core'] })
+  fs.writeFileSync(path.join(tree, 'Packages', 'hhg-core', '.git'), 'gitdir: ../../.git/modules/Packages/hhg-core\n')
+  expect(await seedLibrary(copy, source)).toMatchObject({ seeded: true })
+})
+
 it('skips missing Libraries and refuses an overlapping destination', async () => {
   expect(await seedLibrary(copy, path.join(root, 'missing'))).toMatchObject({ seeded: false, reason: 'missing' })
   await expect(seedLibrary(path.join(source, 'nested'), source)).rejects.toThrow('overlaps')

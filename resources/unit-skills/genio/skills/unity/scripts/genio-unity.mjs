@@ -324,6 +324,7 @@ async function batch(verb, c, opts) {
     if (!fs.existsSync(path.join(target.copy, 'Library'))) say('seeding Library for your copy from the project (first run only)...')
     record.librarySeed = await seedCopyLibrary(target.copy, libraryFrom, { data: c.play.data })
     record.librarySeeded = record.librarySeed.seeded
+    if (record.librarySeed.reason === 'submodules-missing') say(`WARNING: git submodules are missing from your worktree (${record.librarySeed.missing.join(', ')}), so Unity will not resolve those packages. Never run git submodule yourself; append "blocked: git submodules missing" to your status if your mission needs them.`)
 
     let shown = 0
     seat = await acquireEditor(c.editors.dir, {

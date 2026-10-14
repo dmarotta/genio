@@ -42,7 +42,9 @@ switching their configuration; this change does not delete old caches. Shared
 LFS storage follows the project's lifetime and pruning policy.
 
 `seedLibrary` returns `{ seeded, elapsedMs }`, with `reason: 'exists' | 'missing'`
-when skipped. A completed seed also reports `method`, `bytes`, `files`,
+when skipped, or `'submodules-missing' | 'source-submodules-missing'` (with the
+`missing` paths) when the copy or the source project declares git submodules
+under the Unity root that are not checked out. A completed seed also reports `method`, `bytes`, `files`,
 `estimatedBytes`, `requiredBytes`, and `availableBytes`. `genio-unity` records
 this as `librarySeed` in result.json and keeps the existing `librarySeeded`
 boolean. Play pool state.json and its state API expose `slot.preparation` with

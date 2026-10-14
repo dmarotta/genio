@@ -40,6 +40,8 @@ export interface PlayPreparation {
   library: import('../../resources/unit-skills/genio/lib/unity-seed.mjs').SeedReport
   /** What the slot reset before this switch: files Unity created or changed in its own copy. */
   reset?: { at: number; untracked: number; modified: number }
+  /** The slot's git submodules, checked out from the source's local copies; only changed ones are touched. */
+  submodules?: { elapsedMs: number; entries: { path: string; action?: string }[]; problems?: string[] }
 }
 /**
  * window: where the running slot editor shows, 'hidden' on Genio's hidden desktop. warning: why a hidden

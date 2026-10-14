@@ -4,6 +4,7 @@ import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { seedTree } from '../skills/play/scripts/clone.mjs'
+import { missingSubmodules } from './git-submodules.mjs'
 const exec = promisify(execFile)
 const SKIP_DIRS = ['PackageCache', 'Pipeline', 'Temp', 'Logs']
 const excluded = (name, directory) => directory ? SKIP_DIRS.some(v => v.toLowerCase() === name.toLowerCase()) : /^EditorInstance\.json$|.*-lock$/i.test(name)
@@ -94,6 +95,12 @@ export async function seedLibrary(copy, source, options = {}) {
   if (fs.existsSync(library)) return { seeded: false, reason: 'exists', elapsedMs: Date.now() - started }
   await checkCopyPath(source)
   if (!fs.existsSync(source)) return { seeded: false, reason: 'missing', elapsedMs: Date.now() - started }
+  // Only Library is copied, never packages: a tree whose submodule packages are not checked out, on either
+  // side, would pair a Library with a different package set. Unity then imports from scratch instead.
+  for (const [reason, root] of [['submodules-missing', copy], ['source-submodules-missing', path.dirname(path.resolve(source))]]) {
+    const missing = missingSubmodules(root)
+    if (missing.length) return { seeded: false, reason, missing, elapsedMs: Date.now() - started }
+  }
   const relative = path.relative(path.resolve(source), path.resolve(library))
   const reverse = path.relative(path.resolve(library), path.resolve(source))
   const inside = rel => !rel || !rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel)

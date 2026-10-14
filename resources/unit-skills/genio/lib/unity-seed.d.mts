@@ -3,7 +3,9 @@ export type SeedMethod = 'robocopy' | 'fs.cp' | 'clone:copyfile' | 'clone:fsctl'
 export interface TreeStats { bytes: number; files: number }
 export interface CopySpace { availableBytes: number; requiredBytes: number }
 export interface SeedReport extends Partial<TreeStats>, Partial<CopySpace> {
-  seeded: boolean; reason?: 'exists' | 'missing'; method?: SeedMethod; estimatedBytes?: number; elapsedMs: number
+  seeded: boolean; reason?: 'exists' | 'missing' | 'submodules-missing' | 'source-submodules-missing'; method?: SeedMethod; estimatedBytes?: number; elapsedMs: number
+  /** Declared submodules (from the repository top) left unchecked-out under the copy or the source project. */
+  missing?: string[]
   /** The block-clone attempt: verified sharing, or why the normal copy ran instead. */
   clone?: { verified?: boolean | null; reason?: string }
 }

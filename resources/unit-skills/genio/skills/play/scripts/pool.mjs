@@ -7,6 +7,7 @@ import { promisify } from 'node:util'
 import { checkCopyPath, checkFreeSpace, seedLibrary, treeStats } from '../../../lib/unity-seed.mjs'
 import { assertMounted, volumeHome, volumeMissing, volumePlacement } from './clone.mjs'
 import { createDesktopApi, inspectDesktop, launchEditor } from '../../../lib/hidden-desktop.mjs'
+import { initSubmodules, noHooksPath } from '../../../lib/git-submodules.mjs'
 const exec = promisify(execFile)
 const alive = pid => { try { process.kill(pid, 0); return true } catch (e) { return e.code !== 'ESRCH' } }
 const canonical = p => { const v = fs.realpathSync(p); return process.platform === 'win32' ? v.toLowerCase() : v }
@@ -472,7 +473,10 @@ export class PlayPool {
   async prepare(id, token, source = this.world) {
     await this.check(id, token)
     // Source must be the registered repository or one of its git worktrees.
-    const gitOptions = { windowsHide: true, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: path.join(this.dir, 'no-hooks') } }
+    // Not a plain empty folder: git-lfs would install its hooks there and every later checkout would run them.
+    // Submodules are checked out by prepareSubmodules alone: a fetch recursing into them would reach their network origin.
+    const hooksPath = noHooksPath(this.dir)
+    const gitOptions = { windowsHide: true, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, GIT_CONFIG_COUNT: '3', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: hooksPath, GIT_CONFIG_KEY_1: 'fetch.recurseSubmodules', GIT_CONFIG_VALUE_1: 'false', GIT_CONFIG_KEY_2: 'submodule.recurse', GIT_CONFIG_VALUE_2: 'false' } }
     const git = async (cwd, args) => (await exec('git', args, { ...gitOptions, cwd })).stdout.trim()
     const common = async cwd => canonical(path.resolve(cwd, await git(cwd, ['rev-parse', '--git-common-dir'])))
     if (await common(source) !== await common(this.world)) throw new Error('Play source must belong to the registered project')
@@ -527,6 +531,7 @@ export class PlayPool {
       await this.check(id, token)
       // --force: the slot is Genio's own copy; edits Unity made to tracked files never block a switch.
       await exec('git', [...(checkout.lfs.length ? ['-c', 'filter.lfs.process=git-lfs filter-process', '-c', 'filter.lfs.required=true'] : []), 'checkout', '--force', '--detach', revision], { ...gitOptions, cwd: dest, env: { ...gitOptions.env, GIT_LFS_SKIP_SMUDGE: '0' } })
+      const submodules = await this.prepareSubmodules(id, dest, source, gitOptions)
       const gitMs = Date.now() - gitStarted
       // A Unity import may write anywhere under these trees. Reject links before
       // opening the editor so a copied project's link cannot reach another world.
@@ -535,10 +540,26 @@ export class PlayPool {
       // Marker lives in .git, never dirties the copied project.
       fs.writeFileSync(path.join(dest, '.git', 'genio-play-ready'), revision)
       const size = await treeStats(dest)
-      const preparation = { at: Date.now(), elapsedMs: Date.now() - started, preflightMs, gitMs, ...size, estimatedBytes: checkout.bytes + libraryBytes + gitBytes + missingLfsBytes, ...space, lfsStorage, library, ...(reset ? { reset } : {}) }
+      const preparation = { at: Date.now(), elapsedMs: Date.now() - started, preflightMs, gitMs, ...size, estimatedBytes: checkout.bytes + libraryBytes + gitBytes + missingLfsBytes, ...space, lfsStorage, library, ...(reset ? { reset } : {}), ...(submodules ? { submodules } : {}) }
       await this.transaction(s => { const slot = s.slots.find(v => v.id === id); if (slot?.lease?.token !== token) throw new Error('Play lease lost'); slot.revision = revision; slot.preparing = false; slot.preparation = preparation })
       return this.root(id)
     } catch (e) { await this.transaction(s => { const slot = s.slots.find(v => v.id === id); if (slot?.lease?.token === token) slot.preparing = false }); throw e }
+  }
+  /**
+   * A clone leaves submodule folders empty (lands-of-old keeps packages there). Check them out from the
+   * source's own submodule git dirs; a branch switch touches only submodules whose commit changed. A
+   * submodule Unity needs (under the Unity root) that cannot be checked out fails the preparation, so a
+   * Library is never seeded into a copy missing packages. undefined when the project has no submodules.
+   */
+  async prepareSubmodules(id, dest, source, gitOptions) {
+    // A removed submodule leaves an untracked checkout behind after a switch: clean it (-ff), never Library.
+    if (fs.existsSync(path.join(dest, '.git', 'modules'))) await exec('git', ['clean', '-ffdq', '-e', 'Library/', '-e', 'Temp/', '-e', 'Logs/', '-e', 'UserSettings/'], { ...gitOptions, cwd: dest })
+    const report = await initSubmodules(dest, { source, force: true, hooksPath: noHooksPath(this.dir), env: gitOptions.env })
+    if (!report.submodules.length && report.ok) return undefined
+    const root = this.root(id)
+    const needed = report.submodules.filter(s => (s.action === 'failed' || s.action === 'skipped') && path.relative(root, path.join(dest, s.path)).split(/[\\/]/)[0] !== '..')
+    if (needed.length) throw new Error(`Play slot ${id} cannot check out the git submodules Unity needs: ${needed.map(s => `${s.path}: ${s.reason}`).join('; ')}`)
+    return { elapsedMs: report.elapsedMs, entries: report.submodules.map(s => ({ path: s.path, action: s.action })), ...(report.problems.length ? { problems: report.problems } : {}) }
   }
   /**
    * Unity writes into a slot it opens (.meta files for assets a commit lacks, packages-lock, upgraded
