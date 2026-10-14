@@ -87,8 +87,13 @@ namespace Genio.Play
             while (socket != null && socket.State == WebSocketState.Open)
             {
                 yield return endOfFrame;
-                if (pending || Time.realtimeSinceStartup < next || target == null) continue;
-                next = Time.realtimeSinceStartup + 1f / 30f;
+                // A fixed 30 fps cadence with a quarter-frame tolerance. Gating on "now + 1/30" skipped every
+                // other frame of a 30 fps game whose frames land a hair early (about 20 fps streamed).
+                const float interval = 1f / 30f;
+                float now = Time.realtimeSinceStartup;
+                if (pending || now < next - interval * 0.25f || target == null) continue;
+                // After a stall, restart the cadence from now instead of bursting to catch up.
+                next = next + interval < now ? now + interval : next + interval;
                 pending = true;
                 if (screen == null || screen.width != Screen.width || screen.height != Screen.height)
                 {

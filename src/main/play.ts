@@ -25,7 +25,8 @@ export class PlayService {
   private heartbeats = new Map<string, ReturnType<typeof setInterval>>()
   private poolBusy = new Set<string>()
   private streamHeartbeats = new Map<string, ReturnType<typeof setInterval>>()
-  private lostSlots = new Set<string>()
+  /** Lost slot leases, with why (taken over, or a dialog blocked the hidden editor). */
+  private lostSlots = new Map<string, string>()
   private pendingDetach = new Set<string>()
   constructor(private ctx: AppCtx) {}
   private project(world: string, main = false) {
@@ -33,7 +34,7 @@ export class PlayService {
     if (!p) throw new Error('Unknown Play project')
     const { engine, root: engineRoot } = effectiveEngine(p)
     if (!supportsPlay(engine)) throw new Error('Snapshot Play currently supports Unity projects')
-    if (!main && this.lostSlots.has(world)) throw new Error('Play slot lease was taken over. Select main or lease a slot again.')
+    if (!main && this.lostSlots.has(world)) { const why = this.lostSlots.get(world)!; throw new Error(/lease lost/i.test(why) ? 'Play slot lease was taken over. Select main or lease a slot again.' : `${why} Select main or lease a slot again.`) }
     return { p, root: !main && this.leases.has(world) ? this.leases.get(world)!.root : path.resolve(p.path, engineRoot), engineRoot }
   }
   pool(world: string): PlayPool {
@@ -44,6 +45,8 @@ export class PlayService {
   async poolState(world: string) { return { ...await this.pool(world).state(), selected: this.leases.get(world)?.id } }
   /** Settings › This project › Unity slots. Never refuses and never closes anything: extra slots drain. */
   async configurePool(world: string, cap: number) { const result = await this.pool(world).configure(cap); this.ctx.stats.unlock('play-pool-configured'); return result }
+  /** Settings › This project › Unity slots: hidden (default) or visible slot editor windows, from the next launch. */
+  async configureLaunch(world: string, visible: boolean) { return this.pool(world).configureLaunch(visible) }
   selectedSlot(world: string): number | undefined { return this.leases.get(world)?.id }
   /**
    * The supported recovery for a slot editor: graceful quit, timed wait, then a forced stop of
@@ -80,9 +83,15 @@ export class PlayService {
       const lease = await pool.acquire(`player:${process.pid}`, process.pid, id, takeover)
       if (!lease) throw new Error(`Slot ${id} is busy, or units are waiting ahead of you. Take it over, or pick another slot.`)
       this.leases.set(world, lease)
-      const timer = setInterval(() => void pool.check(lease.id, lease.token).catch(() => {
-        clearInterval(timer); this.lostSlots.add(world); this.leases.delete(world); this.stopStreamLocal(world)
-      }), 5000)
+      // Heartbeat plus the dialog watcher for the hidden slot editor; a blocking dialog fails the lease with its reason.
+      let beating = false
+      const timer = setInterval(() => {
+        if (beating) return
+        beating = true
+        void pool.check(lease.id, lease.token).then(() => pool.watchEditor(lease.id, lease.token)).catch((e: Error) => {
+          clearInterval(timer); this.lostSlots.set(world, e.message); this.leases.delete(world); this.stopStreamLocal(world)
+        }).finally(() => { beating = false })
+      }, 5000)
       timer.unref(); this.heartbeats.set(world, timer)
       try { if (!(await pool.state()).slots.find(s => s.id === lease.id)?.revision) await pool.prepare(lease.id, lease.token) }
       catch (error) { clearInterval(timer); this.heartbeats.delete(world); this.leases.delete(world); await pool.release(lease.id, lease.token); throw error }
@@ -223,14 +232,19 @@ export class PlayService {
     if (!editor) throw new Error('Install the project Unity version through Unity Hub first')
     this.opening.set(root, Date.now())
     const lease = this.leases.get(world)
-    if (lease) { await this.pool(world).validateCopy(lease.id); await this.pool(world).check(lease.id, lease.token) }
-    const pid = await new Promise<number | undefined>((resolve, reject) => {
-      const child = spawn(editor, [...(lease ? ['-automated'] : []), '-projectPath', root], { detached: true, stdio: 'ignore', windowsHide: !!lease })
+    if (lease) {
+      // A slot editor opens on Genio's hidden desktop (or visibly, per Settings › Unity slots) and is
+      // recorded so releasing the slot closes exactly this process tree.
+      try { await this.pool(world).launchEditor(lease.id, lease.token, editor) }
+      catch (e) { this.opening.delete(root); throw e }
+      return
+    }
+    // The player's own main editor stays an ordinary visible window.
+    await new Promise<number | undefined>((resolve, reject) => {
+      const child = spawn(editor, ['-projectPath', root], { detached: true, stdio: 'ignore', windowsHide: false })
       child.once('error', () => { this.opening.delete(root); reject(new Error('Could not open Unity')) })
       child.once('spawn', () => { child.unref(); resolve(child.pid) })
     })
-    // A slot editor is recorded so releasing the slot closes exactly this process tree.
-    if (lease && pid) await this.pool(world).recordEditor(lease.id, lease.token, pid)
   }
 }
 const services = new WeakMap<AppCtx, PlayService>()

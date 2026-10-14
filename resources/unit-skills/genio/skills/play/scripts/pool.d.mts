@@ -1,7 +1,7 @@
 export interface PoolLease { id: number; token: string; root: string }
 export interface PoolProcess { pid: number; ppid: number; created: string; command: string }
 export interface PoolSystem { list(): Promise<PoolProcess[]>; terminate(pid: number): Promise<void>; kill(pid: number): Promise<void> }
-export interface PoolOptions { graceMs?: number; forceMs?: number; system?: Partial<PoolSystem>; clone?: import('./clone.mjs').CloneOptions }
+export interface PoolOptions { graceMs?: number; forceMs?: number; system?: Partial<PoolSystem>; clone?: import('./clone.mjs').CloneOptions; desktop?: import('../../../lib/hidden-desktop.mjs').DesktopApi; spawnVisible?: import('../../../lib/hidden-desktop.mjs').SpawnVisible }
 /** closed: the editor and its children are gone. kept: release left it running. Otherwise the slot is stuck. */
 export interface CloseResult { closed: boolean; kept?: boolean; forced?: boolean; pids: number[]; reason?: string }
 /** inUse counts slots within the cap; draining lists slots above it that are still in use. */
@@ -18,7 +18,12 @@ export class PlayPool {
   acquire(owner: string, pid?: number, preferred?: number, takeover?: boolean): Promise<PoolLease | null>
   waitInfo(owner: string, pid?: number): Promise<PoolWait>
   check(id: number, token: string): Promise<string>
-  recordEditor(id: number, token: string, pid: number): Promise<void>
+  recordEditor(id: number, token: string, pid: number, launch?: Partial<import('../../../lib/hidden-desktop.mjs').EditorLaunch>): Promise<void>
+  /** Starts the slot editor (hidden desktop unless configured visible or unavailable) and records it. */
+  launchEditor(id: number, token: string, executable: string, options?: { env?: NodeJS.ProcessEnv; cwd?: string }): Promise<import('../../../lib/hidden-desktop.mjs').EditorLaunch>
+  /** Dialog watcher pass for the lease holder; throws (and ends the lease) when a dialog blocks the editor. */
+  watchEditor(id: number, token: string, options?: { now?: number; graceMs?: number }): Promise<import('../../../lib/hidden-desktop.mjs').InspectResult & { error?: string }>
+  configureLaunch(visible: boolean): Promise<{ launch: 'hidden' | 'visible' }>
   release(id: number, token: string, options?: { keepEditor?: boolean }): Promise<CloseResult | undefined>
   closeSlot(id: number, options?: { force?: boolean }): Promise<CloseResult>
   closeOwned(owner: string): Promise<(CloseResult & { slot: number })[]>

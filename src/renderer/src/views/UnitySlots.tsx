@@ -65,6 +65,12 @@ export function UnitySlots({ world }: { world: string }) {
             {CAPS.map(n => <option key={n} value={n}>{n}</option>)}
           </select>
         </Field>
+        <Field label="Slot editor windows" hint="Hidden keeps every slot editor off your screen and never steals focus. Visible opens the next slot editors as normal windows, to see a stuck dialog while debugging.">
+          <select className="select" aria-label="Slot editor windows" disabled={busy} value={state.launch ?? 'hidden'} onChange={(e) => { const visible = e.target.value === 'visible'; void run(() => api().playPoolLaunch(world, visible)) }}>
+            <option value="hidden">Hidden (recommended)</option>
+            <option value="visible">Visible, for debugging</option>
+          </select>
+        </Field>
         <Field label="In use" hint={totalDisk !== undefined ? `${gb(totalDisk)} on disk across all slot copies` : undefined}>
           <span className="unity-slots-count">{used} of {state.cap} slots in use{draining.length ? ` · ${draining.length} draining` : ''}{state.queue.length ? ` · ${state.queue.length} waiting` : ''}</span>
         </Field>
@@ -76,8 +82,10 @@ export function UnitySlots({ world }: { world: string }) {
           const status = slotStatus(slot)
           return <li key={id} className={`unity-slot ${status}${slot?.draining ? ' draining' : ''}`} data-status={status}>
             <strong>Slot {id}</strong>
-            <span>{statusText(slot, tasks)}{slot?.draining ? ' · draining' : ''}{slot?.editor && status !== 'editor' && status !== 'closing' ? ' · editor running' : ''}</span>
+            <span>{statusText(slot, tasks)}{slot?.draining ? ' · draining' : ''}{slot?.editor && status !== 'editor' && status !== 'closing' ? ' · editor running' : ''}{slot?.window === 'visible' ? ' · visible window' : ''}</span>
             <span className="mute mono">{slot?.revision?.slice(0, 8) ?? 'not prepared'}{disk?.[id] !== undefined ? ` · ${gb(disk[id])}` : ''}</span>
+            {slot?.warning && <span className="amber-text">{slot.warning}</span>}
+            {slot?.failure && !slot.owner && <span className="alert-text">{slot.failure.message}</span>}
             {slot && (slot.editor || slot.stuck) && <button className="btn sm ghost alert" disabled={busy || slot.preparing || slot.closing} onClick={() => setClosing(slot)}>Close slot editor</button>}
           </li>
         })}

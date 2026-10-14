@@ -6,6 +6,7 @@ import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import { checkCopyPath, checkFreeSpace, seedLibrary, treeStats } from '../../../lib/unity-seed.mjs'
 import { assertMounted, volumeHome, volumeMissing, volumePlacement } from './clone.mjs'
+import { createDesktopApi, inspectDesktop, launchEditor } from '../../../lib/hidden-desktop.mjs'
 const exec = promisify(execFile)
 const alive = pid => { try { process.kill(pid, 0); return true } catch (e) { return e.code !== 'ESRCH' } }
 const canonical = p => { const v = fs.realpathSync(p); return process.platform === 'win32' ? v.toLowerCase() : v }
@@ -96,6 +97,9 @@ export class PlayPool {
     this.forceMs = options.forceMs ?? 15000
     this.system = { ...defaultSystem, ...options.system }
     this.clone = options.clone
+    // Slot editors open on a hidden desktop (lib/hidden-desktop.mjs); tests inject a fake desktop and spawn.
+    this.desktop = options.desktop ?? createDesktopApi(data)
+    this.spawnVisible = options.spawnVisible
     this.closes = new Set()
     fs.mkdirSync(this.dir, { recursive: true })
   }
@@ -162,9 +166,10 @@ export class PlayPool {
     } finally { fs.rmSync(lock, { recursive: true }) }
     // Closing takes far longer than a transaction may hold the lock. The slot stays
     // marked closing, so nobody leases it until the editor is gone or marked stuck.
-    for (const mark of reclaimed) { const p = this.finishClose(...mark).catch(() => {}); this.closes.add(p); p.finally(() => this.closes.delete(p)) }
+    for (const mark of reclaimed) this.closeInBackground(mark)
     return result
   }
+  closeInBackground(mark) { const p = this.finishClose(...mark).catch(() => {}); this.closes.add(p); p.finally(() => this.closes.delete(p)) }
   /** Waits for background closes this process started (reclaimed slots). */
   async settle() { while (this.closes.size) await Promise.all([...this.closes]) }
   endLease(state, slot) {
@@ -174,15 +179,21 @@ export class PlayPool {
   markClosing(slot) {
     const token = randomUUID()
     slot.closing = { pid: process.pid, token, expires: Date.now() + this.graceMs + this.forceMs + 120000 }
-    return [slot.id, slot.editor?.pid, token]
+    return [slot.id, slot.editor?.pid, token, slot.editor]
   }
   root(id) { if (!Number.isInteger(id) || id < 1 || id > 8) throw new Error('Invalid Play slot'); return path.join(this.slotDir(id), this.engineRoot) }
   async state() {
-    return this.transaction(s => ({ cap: s.cap, slots: s.slots.map(v => {
+    return this.transaction(s => ({ cap: s.cap, launch: s.launch ?? 'hidden', slots: s.slots.map(v => {
       const editor = this.editorRunning(v)
       const draining = this.draining(s, v, editor)
-      return { id: v.id, root: this.root(v.id), revision: v.revision, owner: v.lease?.owner, expires: v.lease?.expires, preparing: v.preparing, preparation: v.preparation, editor, closing: !!v.closing, stuck: v.stuck && { reason: v.stuck.reason, pids: v.stuck.pids, at: v.stuck.at }, draining, retired: v.id > s.cap && !draining }
+      return { id: v.id, root: this.root(v.id), revision: v.revision, owner: v.lease?.owner, expires: v.lease?.expires, preparing: v.preparing, preparation: v.preparation, editor, closing: !!v.closing, stuck: v.stuck && { reason: v.stuck.reason, pids: v.stuck.pids, at: v.stuck.at }, draining, retired: v.id > s.cap && !draining,
+        ...(editor && v.editor ? { window: v.editor.desktop ? 'hidden' : 'visible', ...(v.editor.warning ? { warning: v.editor.warning } : {}) } : {}),
+        ...(v.failure ? { failure: { message: v.failure.message, at: v.failure.at, screenshot: v.failure.screenshot } } : {}) }
     }), queue: s.queue.map(q => q.owner) }))
+  }
+  /** Settings › Unity slots: hidden (default) or visible slot editor windows, for every later launch. */
+  async configureLaunch(visible) {
+    return this.transaction(s => { s.launch = visible ? 'visible' : 'hidden'; return { launch: s.launch } })
   }
   /** Above the cap: draining while still in use, retired once idle (kept with its Library for reuse if the cap rises). */
   draining(s, v, editor = this.editorRunning(v)) { return v.id > s.cap && !!(v.lease || v.preparing || v.closing || editor) }
@@ -250,11 +261,55 @@ export class PlayPool {
       return { position, length: s.queue.length, estimateMs, cap: s.cap, inUse, draining: s.slots.filter(v => this.draining(s, v)).map(v => v.id), holders: s.slots.filter(v => v.lease).map(v => ({ slot: v.id, owner: v.lease.owner })), stuck: s.slots.filter(v => v.stuck && v.id <= s.cap).map(v => ({ slot: v.id, reason: v.stuck.reason, pids: v.stuck.pids })) }
     })
   }
-  async check(id, token) { return this.transaction(s => { const v = s.slots.find(v => v.id === id); if (!v?.lease || v.lease.token !== token) throw new Error('Play lease lost; stop controlling this editor'); v.lease.expires = Date.now() + LEASE_MS; return this.root(id) }) }
-  /** Records the editor this lease launched, so a later close stops exactly that process tree. */
-  async recordEditor(id, token, pid) {
+  /** A lease the dialog watcher failed reports why, instead of a bare "lease lost". */
+  lost(v, token) { return new Error(v?.failure?.token === token ? v.failure.message : 'Play lease lost; stop controlling this editor') }
+  async check(id, token) { return this.transaction(s => { const v = s.slots.find(v => v.id === id); if (!v?.lease || v.lease.token !== token) throw this.lost(v, token); v.lease.expires = Date.now() + LEASE_MS; return this.root(id) }) }
+  /**
+   * Records the editor this lease launched, so a later close stops exactly that process tree.
+   * launch (from launchEditor) adds its creation time and, for a hidden launch, its desktop.
+   */
+  async recordEditor(id, token, pid, launch = {}) {
     if (!Number.isInteger(pid) || pid <= 0) throw new Error('Invalid editor process')
-    return this.transaction(s => { const v = s.slots.find(v => v.id === id); if (v?.lease?.token !== token) throw new Error('Play lease lost'); v.editor = { pid, owner: v.lease.owner, at: Date.now() } })
+    return this.transaction(s => {
+      const v = s.slots.find(v => v.id === id); if (v?.lease?.token !== token) throw new Error('Play lease lost')
+      v.editor = { pid, owner: v.lease.owner, at: Date.now(), ...(/^\d+$/.test(launch.created ?? '') ? { created: launch.created } : {}),
+        ...(launch.hidden && launch.desktop ? { desktop: launch.desktop, dir: launch.dir, helper: launch.helper } : {}), ...(launch.warning ? { warning: launch.warning } : {}) }
+      delete v.failure
+    })
+  }
+  /**
+   * The only way a slot editor is started, for units (play.mjs) and the player (Play screen) alike:
+   * `-automated -projectPath <slot>`, on a hidden desktop unless the player chose visible windows in
+   * Settings › Unity slots, or the hidden desktop is unavailable (then visible, with a warning).
+   */
+  async launchEditor(id, token, executable, { env = process.env, cwd } = {}) {
+    await this.validateCopy(id)
+    const visible = await this.transaction(s => { const v = s.slots.find(v => v.id === id); if (v?.lease?.token !== token) throw this.lost(v, token); return s.launch === 'visible' })
+    const launch = await launchEditor({ file: executable, args: ['-automated', '-projectPath', this.root(id)], cwd, env, data: this.data, visible, label: `slot${id}`, api: this.desktop, ...(this.spawnVisible ? { spawnVisible: this.spawnVisible } : {}) })
+    await this.recordEditor(id, token, launch.pid, launch)
+    return launch
+  }
+  /**
+   * The dialog watcher, run by the lease holder's heartbeat. Safe buttons are pressed; a blocking dialog
+   * fails the lease with a clear message (also what check() answers from then on) and closes the editor.
+   * A watcher error never ends a lease.
+   */
+  async watchEditor(id, token, options = {}) {
+    const editor = await this.transaction(s => { const v = s.slots.find(v => v.id === id); if (v?.lease?.token !== token) throw this.lost(v, token); return v.editor })
+    if (!editor?.desktop || !this.editorRunning({ id, editor })) return { watched: false, clicked: [] }
+    let result
+    try { result = await inspectDesktop(this.desktop, editor, options) } catch (e) { return { watched: false, clicked: [], error: e.message } }
+    if (!result.blocked) return result
+    const message = `Play slot ${id} editor ${result.blocked.message}`
+    const mark = await this.transaction(s => {
+      const v = s.slots.find(v => v.id === id)
+      if (v?.lease?.token !== token) return
+      v.failure = { token, message, at: Date.now(), screenshot: result.blocked.screenshot, dialog: { title: result.blocked.title, text: result.blocked.text, buttons: result.blocked.buttons, rule: result.blocked.rule } }
+      this.endLease(s, v); v.preparing = false
+      return this.markClosing(v)
+    })
+    if (mark) await this.finishClose(...mark)
+    throw new Error(message)
   }
   /**
    * Release means the slot editor is gone: it is closed before the slot is free again.
@@ -298,9 +353,9 @@ export class PlayPool {
     }))
     return Promise.all(marks.map(async mark => ({ slot: mark[0], ...await this.finishClose(...mark) })))
   }
-  async finishClose(id, launched, token) {
+  async finishClose(id, launched, token, editor) {
     let result
-    try { result = await this.closeEditor(id, launched) } catch (e) { result = { closed: false, pids: [], reason: `could not inspect slot processes (${e.message})` } }
+    try { result = await this.closeEditor(id, launched, editor) } catch (e) { result = { closed: false, pids: [], reason: `could not inspect slot processes (${e.message})` } }
     await this.transaction(s => {
       const v = s.slots.find(v => v.id === id)
       if (v?.closing?.token !== token) return
@@ -314,7 +369,7 @@ export class PlayPool {
    * stop of only this slot's verified editor and its children. A recorded PID counts only
    * while its command line opens this slot root: never the main editor or another Unity.
    */
-  async closeEditor(id, launched) {
+  async closeEditor(id, launched, editor) {
     const root = this.root(id)
     const main = path.join(this.world, this.engineRoot)
     const guard = new Set([process.pid, process.ppid, ...this.recordedPids(main)])
@@ -325,6 +380,8 @@ export class PlayPool {
     for (const pid of recorded) {
       const p = before.find(p => p.pid === pid)
       if (!p) continue
+      // A recorded launch identity rules out a reused PID before its command line is even read.
+      if (pid === launched && editor?.created && p.created && p.created !== editor.created) continue
       if (!p.command) unknown.push(pid)
       else if (mentionsRoot(p.command, root)) editors.push(p)
     }
@@ -332,8 +389,13 @@ export class PlayPool {
     if (!editors.length && unknown.length) return { closed: false, pids: unknown, reason: 'a recorded process could not be verified as this slot editor' }
     if (!editors.length) return this.clearEditorFiles(root, [], false)
     let targets = this.tree(before, editors, root, guard)
-    if (!await this.quitViaPipeline(root, editors.map(e => e.pid))) for (const e of editors) await this.system.terminate(e.pid).catch(() => {})
-    if (await this.gone(targets, this.graceMs)) return this.clearEditorFiles(root, targets.map(t => t.pid), false)
+    // taskkill's polite close cannot reach windows on another desktop; the helper posts WM_CLOSE there.
+    const hidden = editor?.desktop ? editor : undefined
+    const polite = hidden ? async pid => { if (!await this.desktop.close(hidden.desktop, pid).catch(() => false)) await this.system.terminate(pid) } : this.system.terminate
+    if (!await this.quitViaPipeline(root, editors.map(e => e.pid))) for (const e of editors) await polite(e.pid).catch(() => {})
+    // Nobody sees "save changes?" on a hidden desktop: dismiss safe dialogs while waiting.
+    const tick = hidden && (() => inspectDesktop(this.desktop, hidden, { benignOnly: true }).catch(() => {}))
+    if (await this.gone(targets, this.graceMs, tick)) return this.clearEditorFiles(root, targets.map(t => t.pid), false)
     // Late children (import workers) appear after the first listing; adopt only descendants
     // of the verified editors, matched by PID and creation time.
     const after = await this.system.list()
@@ -358,9 +420,14 @@ export class PlayPool {
     }
     return [...out.values()]
   }
-  async gone(targets, ms) {
+  async gone(targets, ms, tick) {
     const deadline = Date.now() + ms
-    while (targets.some(t => alive(t.pid))) { if (Date.now() >= deadline) return false; await sleep(250) }
+    let next = Date.now() + 2000
+    while (targets.some(t => alive(t.pid))) {
+      if (Date.now() >= deadline) return false
+      if (tick && Date.now() >= next) { await tick(); next = Date.now() + 2000 }
+      await sleep(250)
+    }
     return true
   }
   async quitViaPipeline(root, editors) {
@@ -451,17 +518,15 @@ export class PlayPool {
       const space = await checkFreeSpace(dest, checkout.bytes + libraryBytes + gitBytes + missingLfsBytes)
       const preflightMs = Date.now() - started, gitStarted = Date.now()
       if (!fs.existsSync(dest)) await exec('git', ['clone', '--no-hardlinks', '--no-checkout', '--', this.world, dest], gitOptions)
-      if (await git(dest, ['status', '--porcelain', '--untracked-files=normal'])) {
-        // A new --no-checkout clone has an empty index and appears entirely deleted.
-        const populated = fs.existsSync(path.join(dest, '.git', 'genio-play-ready'))
-        if (populated) throw new Error('Play slot has local changes; preserve them before switching branches')
-      }
+      // A new --no-checkout clone has an empty index and appears entirely deleted; only a populated slot resets.
+      const reset = fs.existsSync(path.join(dest, '.git', 'genio-play-ready')) ? await this.resetSlot(dest, git) : undefined
       // Share bytes, not filesystem links. Configure before checkout so LFS smudge
       // reads the project store rather than fetching another store per slot.
       await git(dest, ['config', '--local', 'lfs.storage', lfsStorage])
       await git(dest, ['fetch', '--', source, revision])
       await this.check(id, token)
-      await exec('git', [...(checkout.lfs.length ? ['-c', 'filter.lfs.process=git-lfs filter-process', '-c', 'filter.lfs.required=true'] : []), 'checkout', '--detach', revision], { ...gitOptions, cwd: dest, env: { ...gitOptions.env, GIT_LFS_SKIP_SMUDGE: '0' } })
+      // --force: the slot is Genio's own copy; edits Unity made to tracked files never block a switch.
+      await exec('git', [...(checkout.lfs.length ? ['-c', 'filter.lfs.process=git-lfs filter-process', '-c', 'filter.lfs.required=true'] : []), 'checkout', '--force', '--detach', revision], { ...gitOptions, cwd: dest, env: { ...gitOptions.env, GIT_LFS_SKIP_SMUDGE: '0' } })
       const gitMs = Date.now() - gitStarted
       // A Unity import may write anywhere under these trees. Reject links before
       // opening the editor so a copied project's link cannot reach another world.
@@ -470,10 +535,24 @@ export class PlayPool {
       // Marker lives in .git, never dirties the copied project.
       fs.writeFileSync(path.join(dest, '.git', 'genio-play-ready'), revision)
       const size = await treeStats(dest)
-      const preparation = { at: Date.now(), elapsedMs: Date.now() - started, preflightMs, gitMs, ...size, estimatedBytes: checkout.bytes + libraryBytes + gitBytes + missingLfsBytes, ...space, lfsStorage, library }
+      const preparation = { at: Date.now(), elapsedMs: Date.now() - started, preflightMs, gitMs, ...size, estimatedBytes: checkout.bytes + libraryBytes + gitBytes + missingLfsBytes, ...space, lfsStorage, library, ...(reset ? { reset } : {}) }
       await this.transaction(s => { const slot = s.slots.find(v => v.id === id); if (slot?.lease?.token !== token) throw new Error('Play lease lost'); slot.revision = revision; slot.preparing = false; slot.preparation = preparation })
       return this.root(id)
     } catch (e) { await this.transaction(s => { const slot = s.slots.find(v => v.id === id); if (slot?.lease?.token === token) slot.preparing = false }); throw e }
+  }
+  /**
+   * Unity writes into a slot it opens (.meta files for assets a commit lacks, packages-lock, upgraded
+   * ProjectSettings). A Genio-owned slot resets itself instead of refusing the next switch: untracked
+   * files are cleaned in the slot's own clone (never the source, never Library/Temp/Logs/UserSettings),
+   * and the checkout that follows is forced. Returns what was reset, or undefined when it was clean.
+   */
+  async resetSlot(dest, git) {
+    const changes = (await git(dest, ['status', '--porcelain', '--untracked-files=normal'])).split('\n').filter(Boolean)
+    if (!changes.length) return undefined
+    // Never a parent repository: the slot must be the top of its own clone.
+    if (!fs.existsSync(path.join(dest, '.git')) || canonical(await git(dest, ['rev-parse', '--show-toplevel'])) !== canonical(dest)) throw new Error('Play slot is not its own clone; report it to Genio')
+    await git(dest, ['clean', '-fdq', '-e', 'Library/', '-e', 'Temp/', '-e', 'Logs/', '-e', 'UserSettings/'])
+    return { at: Date.now(), untracked: changes.filter(l => l.startsWith('??')).length, modified: changes.filter(l => !l.startsWith('??')).length }
   }
   async validateCopy(id) {
     const slot = this.slotDir(id)

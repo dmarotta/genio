@@ -65,6 +65,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     playStream: async () => { throw new Error('Streaming requires the owning window') },
     playPool: world => playService(ctx()).poolState(world),
     playPoolCap: (world, cap) => playService(ctx()).configurePool(world, cap),
+    playPoolLaunch: (world, visible) => playService(ctx()).configureLaunch(world, visible),
     playPoolEstimate: world => playService(ctx()).pool(world).estimate(),
     playPoolDisk: world => playService(ctx()).pool(world).disk(),
     playSelectSlot: (world, id, takeover) => playService(ctx()).selectSlot(world, id, takeover),

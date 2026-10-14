@@ -3,7 +3,6 @@ import fs from 'node:fs'
 import path from 'node:path'
 import http from 'node:http'
 import { createInterface } from 'node:readline'
-import { spawn } from 'node:child_process'
 import { PlayPool, stuckMessage } from './pool.mjs'
 
 const { GENIO_PLAY_DATA: data, GENIO_PLAY_WORLD: world, GENIO_PLAY_SOURCE: source, GENIO_PLAY_ENGINE_ROOT: engineRoot = '', GENIO_TASK_ID: task } = process.env
@@ -48,7 +47,14 @@ if (process.argv.includes('--close')) {
       if (message !== shown || Date.now() - shownAt > 30000) { output({ waiting: true, position: w.position, queue: w.length, estimatedWaitSeconds: w.estimateMs === null ? null : Math.round(w.estimateMs / 1000), cap: w.cap, inUse: w.inUse, draining: w.draining, stuck: w.stuck, message }); shown = message; shownAt = Date.now() }
       await new Promise(r => setTimeout(r, 1000))
     }
-    timer = setInterval(() => void pool.check(lease.id, lease.token).catch(() => { lost = true; activeRequest?.destroy(); process.stdin.destroy() }), 5000)
+    // Heartbeat plus the dialog watcher: an invisible blocking dialog on the hidden desktop fails the lease with its reason.
+    let beating = false
+    timer = setInterval(() => {
+      if (beating) return
+      beating = true
+      void pool.check(lease.id, lease.token).then(() => pool.watchEditor(lease.id, lease.token)).then(r => { for (const c of r.clicked ?? []) output({ dialog: c.title, pressed: c.button }) })
+        .catch(e => { if (!lost) output({ error: e.message }); lost = true; activeRequest?.destroy(); process.stdin.destroy() }).finally(() => { beating = false })
+    }, 5000)
     // Another revision open in the slot is closed automatically before switching branches.
     await pool.prepare(lease.id, lease.token, source)
     await pool.validateCopy(lease.id)
@@ -57,10 +63,9 @@ if (process.argv.includes('--close')) {
       if (!version || !/^[\w.]+$/.test(version)) throw new Error('Invalid Unity version')
       const executable = path.join(process.env.ProgramFiles || 'C:/Program Files', 'Unity/Hub/Editor', version, 'Editor/Unity.exe')
       if (!fs.existsSync(executable)) throw new Error('Install the slot Unity version with Hub first')
-      await pool.check(lease.id, lease.token)
-      const child = spawn(executable, ['-automated', '-projectPath', lease.root], { detached: true, stdio: 'ignore', windowsHide: true })
-      await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject) }); child.unref()
-      await pool.recordEditor(lease.id, lease.token, child.pid)
+      // Hidden desktop: the editor never shows a window or takes focus. Same arguments and environment as before.
+      const launch = await pool.launchEditor(lease.id, lease.token, executable)
+      if (launch.warning) output({ warning: launch.warning })
     }
     output({ ready: true, slot: lease.id, project: lease.root })
     for await (const line of createInterface({ input: process.stdin })) {

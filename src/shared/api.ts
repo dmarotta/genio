@@ -433,6 +433,8 @@ export interface GenioApi {
   playPool(world: string): Promise<import('./play').PlayPoolState>
   /** Applies at once; returns the slots left draining above a lowered cap. */
   playPoolCap(world: string, cap: number): Promise<{ cap: number; draining: number[] }>
+  /** Slot editors on Genio's hidden desktop (default) or as visible windows, for debugging; applies to the next launch. */
+  playPoolLaunch(world: string, visible: boolean): Promise<{ launch: 'hidden' | 'visible' }>
   playPoolEstimate(world: string): Promise<number>
   /** Bytes each existing slot copy uses, by slot id. */
   playPoolDisk(world: string): Promise<Record<number, number>>
@@ -628,7 +630,7 @@ export type ApiMethod = keyof GenioApi
 /** Every GenioApi method, as runtime data (contextBridge cannot clone a Proxy). */
 export const API_METHODS = [
   'playStatus', 'playScenes', 'playAction', 'playFrame', 'playConsole', 'playStats', 'playOpenUnity', 'playScreenshot',
-  'playEnableStreaming', 'playStream', 'playPool', 'playPoolCap', 'playPoolEstimate', 'playPoolDisk', 'playSelectSlot', 'playCloseSlotEditor', 'playDetach',
+  'playEnableStreaming', 'playStream', 'playPool', 'playPoolCap', 'playPoolLaunch', 'playPoolEstimate', 'playPoolDisk', 'playSelectSlot', 'playCloseSlotEditor', 'playDetach',
   'inventoryOpen', 'inventoryClose', 'inventoryRefresh', 'inventoryList', 'inventoryInfo',
   'featureUsed',
   'trophyPin',

@@ -78,7 +78,10 @@ function poolOwnsEditor(c: UnityUnitConfig, target: string | undefined, p: Unity
     catch (e) { return (e as NodeJS.ErrnoException).code !== 'ENOENT' } // A busy/corrupt pool snapshot cannot justify stopping its editor.
     if (!state || !Array.isArray(state.slots)) return true
     const slot = state.slots?.find((s: { id: number }) => s.id === id)
-    return slot?.editor?.pid === p.pid && Number.isFinite(slot.editor.at) && born(p)! <= fileTime(slot.editor.at + 1)
+    if (slot?.editor?.pid !== p.pid) return false
+    // A launch recorded with its creation time (hidden-desktop launches) must be that exact process.
+    if (typeof slot.editor.created === 'string' && /^\d+$/.test(slot.editor.created)) return slot.editor.created === p.created
+    return Number.isFinite(slot.editor.at) && born(p)! <= fileTime(slot.editor.at + 1)
   } catch { return false }
 }
 

@@ -42,8 +42,13 @@ export interface PlayPreparation {
   estimatedBytes: number; requiredBytes: number; availableBytes: number; lfsStorage: string
   library: import('../../resources/unit-skills/genio/lib/unity-seed.mjs').SeedReport
 }
-export interface PlaySlot { id: number; root: string; revision?: string; owner?: string; expires?: number; preparing?: boolean; preparation?: PlayPreparation; editor?: boolean; closing?: boolean; stuck?: { reason: string; pids: number[]; at: number }; draining?: boolean; retired?: boolean }
-export interface PlayPoolState { cap: number; slots: PlaySlot[]; queue: string[]; selected?: number }
+/**
+ * window: where the running slot editor shows, 'hidden' on Genio's hidden desktop. warning: why a hidden
+ * launch fell back to a visible window. failure: the dialog that blocked the last lease, with its screenshot.
+ */
+export interface PlaySlot { id: number; root: string; revision?: string; owner?: string; expires?: number; preparing?: boolean; preparation?: PlayPreparation; editor?: boolean; closing?: boolean; stuck?: { reason: string; pids: number[]; at: number }; draining?: boolean; retired?: boolean; window?: 'hidden' | 'visible'; warning?: string; failure?: { message: string; at: number; screenshot?: string } }
+/** launch: slot editors open on a hidden desktop (default) or visibly, for debugging. */
+export interface PlayPoolState { cap: number; launch?: 'hidden' | 'visible'; slots: PlaySlot[]; queue: string[]; selected?: number }
 
 /** Deep-link target: the Play screen's "N of X slots in use" opens Settings › This project › Unity slots. */
 export const UNITY_SLOTS_ANCHOR = 'unity-slots'
