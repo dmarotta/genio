@@ -18,5 +18,6 @@ export interface SubmoduleOptions {
 }
 export function noHooksPath(dir: string): string
 export function declaredSubmodules(top: string): DeclaredSubmodule[]
+export function parseGitmodules(text: string): DeclaredSubmodule[]
 export function missingSubmodules(projectRoot: string): string[]
 export function initSubmodules(dir: string, options?: SubmoduleOptions): Promise<SubmoduleReport>

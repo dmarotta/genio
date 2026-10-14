@@ -431,6 +431,20 @@ export interface GenioApi {
   playPoolDisk(world: string): Promise<Record<number, number>>
   /** Close a slot's Unity editor safely; revokes a unit's lease on that slot (the player confirmed). */
   playCloseSlotEditor(world: string, id: number): Promise<void>
+  /** The player's own Play copies, one per project (no Play screen yet); a project window sees only its own. */
+  playerCopies(): Promise<import('./play').PlayerCopyRecord[]>
+  /** This project's copy record, or null. */
+  playerCopyStatus(world: string): Promise<import('./play').PlayerCopyRecord | null>
+  /** Create (or revive a copy waiting to be deleted); the first sync seeds it. */
+  playerCopyEnsure(world: string): Promise<import('./play').PlayerCopyRecord>
+  /** Mirror a checkout of the project or a branch into the copy; reports changes and whether Unity must restart. */
+  playerCopySync(world: string, source: import('./play').PlayerCopySource): Promise<import('./play').PlayerSyncReport>
+  /** Stop a running sync between files; true when one was running. */
+  playerCopyCancel(world: string): Promise<boolean>
+  /** Delete the copy in the background; it stays 'pending-delete' while Unity holds it. */
+  playerCopyDelete(world: string): Promise<{ deleted: boolean; record?: import('./play').PlayerCopyRecord }>
+  /** Disk the copy uses by part, or the first copy's estimate. */
+  playerCopySizes(world: string): Promise<import('./play').PlayerCopySizes>
   /** Open starts the watcher and returns the cache while reconciling in background. */
   inventoryOpen(world: string): Promise<InventoryState>
   inventoryClose(world: string): Promise<void>
@@ -619,6 +633,7 @@ export type ApiMethod = keyof GenioApi
 /** Every GenioApi method, as runtime data (contextBridge cannot clone a Proxy). */
 export const API_METHODS = [
   'playPool', 'playPoolCap', 'playPoolLaunch', 'playPoolEstimate', 'playPoolDisk', 'playCloseSlotEditor',
+  'playerCopies', 'playerCopyStatus', 'playerCopyEnsure', 'playerCopySync', 'playerCopyCancel', 'playerCopyDelete', 'playerCopySizes',
   'inventoryOpen', 'inventoryClose', 'inventoryRefresh', 'inventoryList', 'inventoryInfo',
   'featureUsed',
   'trophyPin',

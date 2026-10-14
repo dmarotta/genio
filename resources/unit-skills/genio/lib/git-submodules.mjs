@@ -36,6 +36,11 @@ export function noHooksPath(dir) {
 export function declaredSubmodules(top) {
   let text
   try { text = fs.readFileSync(path.join(top, '.gitmodules'), 'utf8') } catch { return [] }
+  return parseGitmodules(text)
+}
+
+/** Submodules declared by a .gitmodules text, such as one read from a commit. */
+export function parseGitmodules(text) {
   const out = []
   let current
   for (const line of text.split(/\r?\n/)) {

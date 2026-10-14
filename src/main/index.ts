@@ -12,6 +12,7 @@ import { MEDIA_SCHEME, mediaResponse } from './fal-service'
 import { chatImageDir, chatImagePath } from './chat-images'
 import { defaultHomeRoot } from './home'
 import { registerIpc } from './ipc'
+import { playerCopyService } from './player-copy'
 import type { AppCtx } from './services'
 import { nowIso, readJson, writeJson } from './util'
 import { afterFirstNotification, ensureWindowsToastIdentity, setWindowsAppId, windowAppDetails, windowIcon } from './win-identity'
@@ -87,6 +88,9 @@ async function boot(): Promise<void> {
   // Electron writes Start Menu\Electron.lnk on an unpackaged run's first notification.
   onNotificationShown(shown => afterFirstNotification(appRoot(), shown))
   ctx = createApp(appRoot())
+  // Background: finish pending player-copy deletions and remove copies an earlier session left behind.
+  const started = ctx
+  void Promise.resolve().then(() => playerCopyService(started).sweep()).catch(() => {})
   const sender = (id: number): BrowserWindow | undefined => [...windows.keys()].find(w => !w.isDestroyed() && w.webContents.id === id)
   registerIpc(getCtx, {
     openProject,

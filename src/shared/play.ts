@@ -51,6 +51,11 @@ export interface PlaySlot { id: number; root: string; revision?: string; owner?:
 /** launch: slot editors open on a hidden desktop (default) or visibly, for debugging. */
 export interface PlayPoolState { cap: number; launch?: 'hidden' | 'visible'; slots: PlaySlot[]; queue: string[] }
 
+/** The player's own Play copy (one per project, outside the slot pool): records, sync reports and sizes. */
+export type { PlayerCopyRecord, PlayerSyncReport, PlayerCopySizes } from '../../resources/unit-skills/genio/lib/player-copy.mjs'
+/** A checkout of the project ({ path }) or a branch, tag or commit without one ({ ref }). */
+export type { MirrorSource as PlayerCopySource } from '../../resources/unit-skills/genio/lib/git-mirror.mjs'
+
 /** Deep-link target for Settings › This project › Unity slots. */
 export const UNITY_SLOTS_ANCHOR = 'unity-slots'
 

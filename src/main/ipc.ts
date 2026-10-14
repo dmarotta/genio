@@ -2,6 +2,7 @@ import { modelCatalogue, invalidateModelCatalogue } from './model-catalogue'
 import { agentGeneration } from './agent-generation'
 import { readWorldMetadata } from './world-metadata'
 import { assertProjectWindow, playService } from './play'
+import { playerCopyService } from './player-copy'
 /**
  * IPC: one ipcMain.handle per GenioApi method ('genio:<method>'). The table is
  * typed against GenioApi so a missing or mistyped method fails the build.
@@ -57,6 +58,13 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     playPoolEstimate: world => playService(ctx()).pool(world).estimate(),
     playPoolDisk: world => playService(ctx()).pool(world).disk(),
     playCloseSlotEditor: (world, id) => playService(ctx()).closeSlotEditor(world, id, 'player'),
+    playerCopies: async () => playerCopyService(ctx()).list(),
+    playerCopyStatus: async world => playerCopyService(ctx()).status(world),
+    playerCopyEnsure: world => playerCopyService(ctx()).ensure(world),
+    playerCopySync: (world, source) => playerCopyService(ctx()).sync(world, source),
+    playerCopyCancel: async world => playerCopyService(ctx()).cancel(world),
+    playerCopyDelete: world => playerCopyService(ctx()).deleteInBackground(world),
+    playerCopySizes: world => playerCopyService(ctx()).sizes(world),
     inventoryOpen: async (world) => {
       const state = await ctx().inventory.open(world)
       ctx().stats.unlock('inventory-open')
@@ -303,7 +311,8 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
         if (windows && method === 'windowClose') return windows.close(_e.sender.id)
         const binding = windows?.binding(_e.sender.id)
         if (windows && !binding && ['sendChat', 'recap', 'save', 'restartWksp', 'interruptWksp', 'unqueueChat', 'approveGeneration'].includes(method)) throw new Error('Open a project window to use its chat.')
-        if (method.startsWith('playPool') || method === 'playCloseSlotEditor') assertProjectWindow(binding, args[0])
+        if (method.startsWith('playPool') || method === 'playCloseSlotEditor' || method.startsWith('playerCopy')) assertProjectWindow(binding, args[0])
+        if (method === 'playerCopies' && binding) return playerCopyService(ctx()).list(binding.project)
         if (binding) {
           if (['answerDecision', 'clarifyDecision', 'deferDecision', 'applyRecommendations'].includes(method)) {
             const ids = method === 'applyRecommendations' ? (args[0] as { id: string }[]).map(r => r.id) : [String(args[0])]
