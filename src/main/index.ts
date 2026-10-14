@@ -19,6 +19,7 @@ import { projectFromArgv, projectSnapshot, terminalProject, type WindowBinding }
 import { createEventRouter, type RoutedWindow } from './event-router'
 import type { GenioEvent } from '@shared/types'
 import { fitInto, isChatPopoutUrl, POPOUT_MIN, visiblePopoutBounds, type Rect } from '@shared/chat-popout'
+import { WINDOW_MIN } from '@shared/window'
 import { captureUserData } from './capture-isolation'
 import { windowTitle } from '@shared/window-title'
 
@@ -213,8 +214,8 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
-    minWidth: 1100,
-    minHeight: 700,
+    minWidth: WINDOW_MIN.width,
+    minHeight: WINDOW_MIN.height,
     show: false,
     title: windowTitle(projectName),
     backgroundColor: '#07090e',
@@ -481,6 +482,9 @@ async function captureTour(dir: string, win: BrowserWindow, binding?: WindowBind
   const fs = await import('node:fs')
   const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
   fs.mkdirSync(dir, { recursive: true })
+  // GENIO_CAPTURE_SIZE=<width>x<height> shoots at that window size (never below the window minimum).
+  const size = /^(\d+)x(\d+)$/.exec(process.env.GENIO_CAPTURE_SIZE ?? '')
+  if (size) win.setSize(Number(size[1]), Number(size[2]))
   await wait(Number(process.env.GENIO_CAPTURE_DELAY ?? 3500))
   // Optional UI scenarios: each renderer script settles its own state before capture.
   // This exercises real IPC/media while keeping fixture setup outside the application.
@@ -488,7 +492,9 @@ async function captureTour(dir: string, win: BrowserWindow, binding?: WindowBind
     const cases = JSON.parse(fs.readFileSync(file, 'utf8')) as { name: string; script: string }[]
     for (const c of cases) {
       try {
-        await win.webContents.executeJavaScript(`(async () => { ${c.script}\n })()`)
+        // A scenario may return findings (e.g. layout overflow); they are printed beside its screenshot.
+        const found: unknown = await win.webContents.executeJavaScript(`(async () => { ${c.script}\n })()`)
+        if (found !== undefined && found !== null) console.log('[capture]', c.name, JSON.stringify(found))
       } catch (e) {
         console.error('[capture] failed', c.name, e)
         fs.writeFileSync(path.join(dir, 'scenario-failure.png'), (await win.webContents.capturePage()).toPNG())

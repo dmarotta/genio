@@ -36,7 +36,7 @@ export function TitleBar() {
         </span>
       </div>
 
-      <span className="label dim" style={{ maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={PROJECT_WINDOW}>{PROJECT_WINDOW ?? 'Hub'}</span>
+      <span className="label dim tb-project" title={PROJECT_WINDOW}>{PROJECT_WINDOW ?? 'Hub'}</span>
       <div className="presence" role="radiogroup" aria-label="Presence">
         {PRESENCE.map((p) => (
           <button
@@ -56,7 +56,7 @@ export function TitleBar() {
       <div className="tb-spacer" />
 
       <div className="hud-stats">
-        <button className="hud-stat" title="Units in action" onClick={() => go('squad')}>
+        <button className="hud-stat hud-units" title="Units in action" onClick={() => go('squad')}>
           <Users size={14} />
           <span className="num">{units}</span>
         </button>
@@ -64,7 +64,7 @@ export function TitleBar() {
           <Crosshair size={14} />
           <span className="num">{moves}</span>
         </button>
-        <div className="hud-stat" title="Estimated chat, Bot and review cost today; excludes unit costs and is not subscription spend">
+        <div className="hud-stat hud-cost" title="Estimated chat, Bot and review cost today; excludes unit costs and is not subscription spend">
           <span className="mute label" style={{ letterSpacing: '0.1em' }}>
             Chat/review
           </span>

@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { bus } from '../src/main/bus'
 import type { GenioEvent } from '../src/shared/types'
+import { WINDOW_MIN } from '../src/shared/window'
 
 const f = vi.hoisted(() => ({ windows: [] as any[], ctx: undefined as any, app: undefined as any, screen: undefined as any, popouts: undefined as any, choice: 1, prompts: 0, ipc: undefined as any, stop: vi.fn(async () => {}), start: vi.fn(async () => {}), terminalData: undefined as any, loadError: undefined as Error | undefined, loadGate: undefined as Promise<void> | undefined }))
 vi.mock('../src/main/ctx', () => ({
@@ -24,6 +25,7 @@ vi.mock('electron', async () => {
     visible = false
     menu: unknown
     query: any
+    options: any
     focus = vi.fn()
     show = vi.fn(() => { this.visible = true })
     moveTop = vi.fn()
@@ -35,7 +37,7 @@ vi.mock('electron', async () => {
     isMinimized = () => this.minimized
     isDestroyed = () => this.destroyed
     static getFocusedWindow() { return null }
-    constructor(options: { title: string }) { super(); this.title = options.title; f.windows.push(this) }
+    constructor(options: { title: string }) { super(); this.title = options.title; this.options = options; f.windows.push(this) }
     async loadFile(_file: string, options: any) {
       this.query = options.query
       if (f.loadError) throw f.loadError
@@ -90,6 +92,10 @@ describe('project window lifecycle', () => {
     expect(f.ctx.stats.unlock).toHaveBeenCalledWith('project-window-open')
     expect(f.start).toHaveBeenCalledExactlyOnceWith(f.ctx, 'one', 'ally-one')
     expect(f.ctx.stats.unlock).not.toHaveBeenCalledWith('project-windows-two')
+  })
+  it('lets the Hub and project windows resize down to the same small minimum', () => {
+    expect(WINDOW_MIN).toEqual({ width: 480, height: 360 })
+    for (const w of f.windows.slice(0, 2)) expect(w.options).toMatchObject({ minWidth: WINDOW_MIN.width, minHeight: WINDOW_MIN.height })
   })
   it('coalesces a chat stream for its project window and keeps chat traffic off the Hub and other projects', async () => {
     await openProject('two')

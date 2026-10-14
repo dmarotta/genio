@@ -1,6 +1,6 @@
 /** The floating Genio panel's geometry, relative to the project window's stage. */
 export interface FloatingPanelState { x: number; y: number; width: number; height: number; collapsed: boolean }
-export const PANEL_MIN = { width: 360, height: 320 }
+export const PANEL_MIN = { width: 300, height: 240 }
 
 /**
  * Fit the panel inside the stage so it can never be lost: shrink to the stage when it is smaller,

@@ -392,8 +392,8 @@ export function ProjectNotice() {
   const proposal = project && proposalLine(project)
   if (!project || (!registered && !proposal && project.gitRepo !== false)) return null
   const view = detectedView(project)
-  return <div role="status" style={{ padding: '8px 18px', background: 'var(--panel)', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12 }}>
-    <span>{registered ? `Registered ${project.name} · ${detectedLine(view)}${view.ambiguous ? ' · ambiguous' : ''} · ${MODE_LABEL[project.mode]}` : project.name}
+  return <div role="status" className="project-notice">
+    <span className="project-notice-text">{registered ? `Registered ${project.name} · ${detectedLine(view)}${view.ambiguous ? ' · ambiguous' : ''} · ${MODE_LABEL[project.mode]}` : project.name}
       {project.gitRepo === false ? ' · Git actions need a git repo' : !project.remote ? ' · No remote' : ''}
       {proposal && <span className="amber-text"> · {proposal}</span>}</span>
     {(registered || proposal) && <button className="btn sm ghost" onClick={() => { requestSystemsSection('project'); go('systems') }}>{registered ? 'Change' : 'Settings'}</button>}

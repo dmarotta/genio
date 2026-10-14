@@ -68,3 +68,24 @@
 .inventory-status span:last-child { margin-left: auto; }
 .inventory-error { color: var(--amber); padding: 8px 12px; font-size: 12px; }
 @media (max-width: 1200px) { .inventory { padding: 16px 14px 10px; } .inventory-body { grid-template-columns: 190px minmax(250px, 1fr) 270px; } .inventory-head > .dim { display: none; } .inventory-status { gap: 10px; } }
+.inventory-toolbar { flex-wrap: wrap; }
+.inventory-search { min-width: 160px; }
+@media (max-width: 900px) {
+  .inventory-head { flex-wrap: wrap; gap: 6px 16px; }
+  .inventory-head h1 { font-size: 26px; }
+  .inventory-body { grid-template-columns: 170px minmax(0, 1fr); grid-template-rows: minmax(150px, 1fr) minmax(0, 42%); }
+  .inventory-inspector { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); }
+  .inventory-status { flex-wrap: wrap; gap: 2px 10px; }
+  .inventory-status span:last-child { margin-left: 0; }
+}
+@media (max-width: 560px) {
+  .inventory-body { grid-template-columns: 112px minmax(0, 1fr); }
+  .inventory-tree { padding: 10px 2px; }
+  .inventory-tags { width: 120px; }
+}
+/* Short windows: the Inventory scrolls as a page and the browser keeps a usable height. */
+@media (max-height: 640px) {
+  .inventory { height: auto; flex: 1; overflow-y: auto; padding-top: 12px; gap: 8px; }
+  .inventory-head h1 { font-size: 22px; }
+  .inventory-body { flex: 1 0 300px; }
+}

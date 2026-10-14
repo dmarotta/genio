@@ -53,7 +53,9 @@ helper and real-home guard, replaces inherited homes, clears renderer/node
 Electron overrides and Git config overrides, and passes an isolated Electron
 `--user-data-dir`, with a unique run token and the same attribution-based leak
 guard. Optional `GENIO_CAPTURE_PROMPT`, `GENIO_CAPTURE_SCRIPT`,
-`GENIO_CAPTURE_SCENARIOS` and `GENIO_CAPTURE_DELAY` still apply. Use
+`GENIO_CAPTURE_SCENARIOS` and `GENIO_CAPTURE_DELAY` still apply;
+`GENIO_CAPTURE_SIZE=<width>x<height>` shoots at that window size (e.g. the
+480x360 minimum), and a scenario's return value is printed beside its shot. Use
 `GENIO_CAPTURE_BASE` only for a purpose-built fixture Base with no real home
 paths or live units; the launcher copies it into the temporary Base. Output
 screenshots remain in the requested output directory after sandbox cleanup.
