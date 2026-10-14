@@ -2,12 +2,12 @@
  * The shared plan meter: one row per plan (Claude, Codex), never summed. Each
  * reported window shows what is left, its reset time, source and observation
  * age; an expired or missing observation reads "unknown", never "100% left".
- * Used full-size in Systems (Accounts, Usage) and compact in the rail.
+ * Used full-size in Systems (Accounts, Usage); the rail shows one gauge icon
+ * with the same details in a hover/focus popup.
  */
 import { useEffect, useState } from 'react'
-import { leftText, type MeterRow, type MeterWindow, type UsagePolicyView } from '@shared/usage-mode'
-import { api, go, useStore } from '../store'
-import { requestSystemsSection } from '../views/Systems'
+import { leftText, USAGE_MODE_LABEL, type MeterRow, type MeterWindow, type UsagePolicyView } from '@shared/usage-mode'
+import { api, useStore } from '../store'
 import { ago, cx } from '../lib/format'
 
 const REFRESH_MS = 60_000
@@ -92,26 +92,127 @@ export function PlanMeter({ view, error }: { view: UsagePolicyView | null; error
   )
 }
 
-/** Compact rail version: one bar per plan; click opens Systems → Usage. */
+// ------------------------------------------------------------- rail gauge
+
+/** ok: under 70% used · warm: 70-84% · hot: 85% and over · unknown: no current reading */
+export type GaugeTone = 'ok' | 'warm' | 'hot' | 'unknown'
+const GAUGE_RANK: Record<GaugeTone, number> = { ok: 0, unknown: 1, warm: 2, hot: 3 }
+const GAUGE_TEXT: Record<GaugeTone, string> = { ok: 'under 70% used', warm: '70% or more used', hot: '85% or more used', unknown: 'unknown' }
+
+/** Fields a newer usage report may carry on the row itself; read only when the window lacks them. */
+type RowExtras = Partial<{ usedPercent: number; windowLabel: string; resetsAt: string; fetchedAt: string }>
+
+export interface GaugeLine {
+  plan: string
+  label: string
+  tone: GaugeTone
+  usedPercent?: number
+  window?: string
+  resetsAt?: string
+  fetchedAt?: string
+  source?: string
+  /** why the value is unknown; set only when it is */
+  error?: string
+  /** a refresh failed but an earlier reading is still shown */
+  warning?: string
+}
+
+/** One provider's line for the rail gauge. Missing fields degrade to "unknown" with a reason, never a bare "?". */
+export function gaugeLine(r: MeterRow): GaugeLine {
+  const x = r as MeterRow & RowExtras
+  const h = r.headline
+  const usedPercent = !h ? x.usedPercent : h.state === 'limit' ? 100 : h.state === 'known' ? h.usedPercent ?? x.usedPercent : undefined
+  const known = usedPercent !== undefined
+  const tone: GaugeTone = r.level === 'hot' || r.level === 'out' || h?.state === 'limit' ? 'hot' : r.level === 'warm' ? 'warm' : known ? 'ok' : 'unknown'
+  const why = r.error ? `Could not read usage: ${r.error}` : r.note ? r.note : h ? `No current reading for the ${h.label} window (last report expired).` : 'No usage report yet.'
+  return {
+    plan: r.plan,
+    label: r.label,
+    tone,
+    usedPercent: usedPercent === undefined ? undefined : Math.round(usedPercent),
+    window: h?.label ?? x.windowLabel,
+    resetsAt: h?.resetsAt ?? x.resetsAt,
+    fetchedAt: h?.observedAt ?? x.fetchedAt,
+    source: r.source,
+    error: known ? undefined : why,
+    warning: known && r.error ? `Last refresh failed: ${r.error}. Showing the previous reading.` : undefined
+  }
+}
+
+/** The worst provider decides the icon colour; an unknown provider outranks "ok" so the icon never claims green without data. */
+export function gaugeTone(lines: GaugeLine[]): GaugeTone {
+  if (!lines.length) return 'unknown'
+  return lines.reduce<GaugeTone>((worst, l) => (GAUGE_RANK[l.tone] > GAUGE_RANK[worst] ? l.tone : worst), 'ok')
+}
+
+const GAUGE_ARC = 2 * Math.PI * 8
+
+/** A small ring gauge filled to the worst known used share. */
+function GaugeGlyph({ percent }: { percent?: number }) {
+  const fill = percent === undefined ? 0 : Math.min(100, Math.max(0, percent)) / 100
+  return (
+    <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+      <circle className="gauge-track" cx="11" cy="11" r="8" />
+      {fill > 0 && <circle className="gauge-fill" cx="11" cy="11" r="8" strokeDasharray={`${GAUGE_ARC * fill} ${GAUGE_ARC}`} transform="rotate(-90 11 11)" />}
+      <circle className="gauge-core" cx="11" cy="11" r="2.2" />
+    </svg>
+  )
+}
+
+function GaugeRow({ l }: { l: GaugeLine }) {
+  return (
+    <div className={cx('gauge-row', `tone-${l.tone}`)}>
+      <div className="gauge-row-head">
+        <b>{l.label}</b>
+        <span className="mono gauge-pct">{l.usedPercent !== undefined ? `${l.usedPercent}% used` : 'unknown'}</span>
+      </div>
+      <div className="bar">{l.usedPercent !== undefined && <i style={{ width: `${l.usedPercent}%` }} />}</div>
+      {l.error && <div className="gauge-error">{l.error}</div>}
+      {l.warning && <div className="gauge-error">{l.warning}</div>}
+      <div className="mute gauge-meta">
+        {[l.window ? `${l.window} window` : '', resetText(l.resetsAt)].filter(Boolean).join(' · ') || 'window not reported'}
+      </div>
+      <div className="mute gauge-meta">
+        {l.fetchedAt ? `fetched ${ago(l.fetchedAt)} ago` : 'fetch time unknown'} · {l.source ?? 'no report source'}
+      </div>
+    </div>
+  )
+}
+
+/** Rail plan usage: one icon coloured by the worst plan, details in a popup on hover or keyboard focus. Not clickable. */
 export function RailMeter() {
   const { view, error } = useUsagePolicyState()
-  if (error) return <div role="status" className="mute" title={error}>Usage unknown</div>
-  if (!view) return null
-  const title = view.meter
-    .map((r) => `${r.label}: ${leftText(r.headline)}${r.headline ? ` (${r.headline.label}; ${r.headline.usedPercent ?? '?'}% used; ${r.headline.observedAt ? ago(r.headline.observedAt) + ' ago' : 'age unknown'})` : ''}; ${r.source ?? 'no report source'}`)
-    .join('\n')
+  const [open, setOpen] = useState(false)
+  const lines = view ? view.meter.map(gaugeLine) : []
+  const tone = gaugeTone(lines)
+  const worst = Math.max(-1, ...lines.map((l) => l.usedPercent ?? -1))
+  const summary = error ? 'unknown' : !view ? 'loading' : lines.map((l) => `${l.label} ${l.usedPercent !== undefined ? `${l.usedPercent}% used` : 'unknown'}`).join(', ')
   return (
-    <button className="rail-meter" title={`${title}\nClick for Usage`} aria-label="Plan remaining" onClick={() => {
-      requestSystemsSection('usage')
-      go('systems')
-    }}>
-      {view.meter.map((r) => (
-        <div key={r.plan} className={cx('rail-meter-row', `lvl-${r.level}`)}>
-          <span className="rail-meter-name">{r.label.slice(0, 2).toUpperCase()}</span>
-          <span className="rail-meter-val mono">{!r.headline || r.headline.state === 'unknown' ? '?' : `${r.headline.leftPercent}`}</span>
-          <div className="bar">{r.headline && r.headline.state !== 'unknown' && <i style={{ width: `${r.headline.leftPercent ?? 0}%`, ['--c' as string]: tone(r.headline) }} />}</div>
+    <div
+      className={cx('rail-gauge', `tone-${tone}`, open && 'open')}
+      tabIndex={0}
+      aria-label={`Plan usage, ${GAUGE_TEXT[tone]}: ${summary}`}
+      aria-describedby={open ? 'rail-gauge-pop' : undefined}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onBlur={() => setOpen(false)}
+      onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false) }}
+    >
+      <GaugeGlyph percent={worst < 0 ? undefined : worst} />
+      {open && (
+        <div id="rail-gauge-pop" className="rail-gauge-pop panel" role="tooltip">
+          <div className="label rail-gauge-title">Plan usage</div>
+          {error && <div className="gauge-error">{error}</div>}
+          {!error && !view && <div className="mute">Reading plan usage…</div>}
+          {lines.map((l) => <GaugeRow key={l.plan} l={l} />)}
+          {view && (
+            <div className="gauge-foot mono">
+              Usage mode {USAGE_MODE_LABEL[view.mode] ?? view.mode} · unit cap {view.unitCap}
+            </div>
+          )}
         </div>
-      ))}
-    </button>
+      )}
+    </div>
   )
 }

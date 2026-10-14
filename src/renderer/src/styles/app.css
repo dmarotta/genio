@@ -985,14 +985,34 @@ ul.loadout-why li { margin: 1px 0; }
   .meter-meta { grid-column: 1 / -1; }
   .usage-preview-grid { grid-template-columns: minmax(0, 1fr); }
 }
-.rail-meter { margin-top: auto; width: 52px; padding: 6px 4px; display: flex; flex-direction: column; gap: 5px; background: none; border: 0; border-top: 1px solid var(--line); color: var(--text-mute); cursor: pointer; }
-.rail-meter:hover { color: var(--text); }
-.rail-meter-row { display: grid; grid-template-columns: 14px 1fr; grid-template-rows: auto auto; column-gap: 3px; align-items: center; font-size: 8.5px; letter-spacing: 0.04em; }
-.rail-meter-row .bar { grid-column: 1 / -1; height: 3px; }
-.rail-meter-val { justify-self: end; }
-.rail-meter-row.lvl-warm .rail-meter-val { color: var(--amber); }
-.rail-meter-row.lvl-hot .rail-meter-val, .rail-meter-row.lvl-out .rail-meter-val { color: var(--alert); }
-.rail-meter + .rail-foot { margin-top: 6px; }
+/* rail plan-usage gauge: one icon, details on hover/focus, never clickable */
+:is(.rail-gauge, .gauge-row).tone-ok { --c: var(--volt); }
+:is(.rail-gauge, .gauge-row).tone-warm { --c: var(--amber); }
+:is(.rail-gauge, .gauge-row).tone-hot { --c: var(--alert); }
+:is(.rail-gauge, .gauge-row).tone-unknown { --c: var(--text-mute); }
+.rail-gauge { position: relative; margin-top: auto; width: 46px; height: 36px; display: grid; place-items: center; color: var(--c); cursor: default; outline: none; }
+.rail-gauge:focus-visible { box-shadow: inset 0 0 0 1px var(--line-strong); }
+.rail-gauge svg { fill: none; stroke-width: 2.4; filter: drop-shadow(0 0 4px var(--c)); }
+.rail-gauge.tone-unknown svg { filter: none; }
+.rail-gauge .gauge-track { stroke: currentColor; opacity: 0.25; }
+.rail-gauge.tone-unknown .gauge-track { opacity: 0.8; stroke-dasharray: 2.5 2.5; }
+.rail-gauge .gauge-fill { stroke: currentColor; stroke-linecap: round; }
+.rail-gauge .gauge-core { fill: currentColor; stroke: none; }
+.rail-gauge + .rail-foot { margin-top: 4px; }
+.rail-gauge-pop {
+  position: absolute; left: calc(100% + 12px); bottom: 0; z-index: 60; width: 280px;
+  display: flex; flex-direction: column; gap: 10px; padding: 10px 12px;
+  background: var(--surface-3); border: 1px solid var(--line-strong); color: var(--text);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); font-size: 11.5px; cursor: default;
+  animation: rail-menu-in 0.12s ease-out;
+}
+.rail-gauge-title { font-size: 10px; }
+.gauge-row { display: flex; flex-direction: column; gap: 4px; }
+.gauge-row-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.gauge-pct { color: var(--c); }
+.gauge-meta { font-size: 10.5px; }
+.gauge-error { font-size: 10.5px; color: var(--amber); }
+.gauge-foot { padding-top: 8px; border-top: 1px solid var(--line); font-size: 10.5px; color: var(--text-dim); }
 .quest-hold.quota-wait { flex-direction: column; gap: 2px; }
 
 /* Squad Build work uses blue; ready and done share the same green. */
