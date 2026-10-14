@@ -8,7 +8,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Decision, Project } from '@shared/types'
 import { effectiveEngine, ENGINE_LABEL } from '@shared/engine'
-import { engineAmbiguityChoice, engineFacts, engineSummaryLine } from '@shared/engine-summary'
+import { engineAmbiguityChoice, engineFacts, engineProposalChoice, engineSummaryLine, PROPOSAL_KEY } from '@shared/engine-summary'
 import type { AppCtx } from './services'
 import type { ToolRole } from './wksp-tools'
 import { candidateAt, cleanRoot, DECLARATION_FILE } from './engine-detect'
@@ -70,10 +70,13 @@ export async function declareEngineRoot(ctx: AppCtx, a: DeclareRequest): Promise
 
 const safeHome = (ctx: AppCtx, name: string) => { try { return ctx.home(name) } catch { return undefined } }
 
-/** Open the ambiguity choice once per tied candidate set, in the chat that owns the project. */
+/**
+ * Open the ambiguity choice once per tied candidate set, in the chat that owns the project. A retired
+ * manual root that detection does not pick (the migration's proposal) is asked first, once.
+ */
 export function surfaceEngineAmbiguity(ctx: AppCtx, projects: Project[] = ctx.projects.list()): void {
   for (const p of projects) {
-    const choice = engineAmbiguityChoice(p)
+    const choice = engineProposalChoice(p) ?? engineAmbiguityChoice(p)
     if (!choice) continue
     const owner = ctx.allies.list().find(a => !a.retiredAt && a.projects.includes(p.name))?.name
     const h = safeHome(ctx, owner ?? 'main') ?? ctx.main
@@ -89,6 +92,10 @@ export function surfaceEngineAmbiguity(ctx: AppCtx, projects: Project[] = ctx.pr
 /** The player's answer to the ambiguity choice is their explicit word: pin the root they picked. */
 export async function answerEngineChoice(ctx: AppCtx, d: Decision, answer: string): Promise<string | undefined> {
   if (d.action?.kind !== 'engine-root') return undefined
+  // Either answer settles the migration's proposal: pinned, detection agrees; kept detecting, it is done.
+  if (d.key?.startsWith(PROPOSAL_KEY)) {
+    try { ctx.projects.update(d.action.project, { engineProposal: undefined }) } catch { /* project gone */ }
+  }
   const root = Object.prototype.hasOwnProperty.call(d.action.roots, answer.trim()) ? d.action.roots[answer.trim()] : undefined
   if (root === undefined) return undefined
   return declareEngineRoot(ctx, { world: d.action.project, root, playerWords: answer, actor: 'player' })

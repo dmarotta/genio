@@ -79,6 +79,28 @@ export interface EngineChoice {
   roots: Record<string, string>
 }
 
+export const PROPOSAL_KEY = 'engine-proposal:'
+
+/**
+ * The one-time choice for a manual engine root retired by infer-only that detection does not pick
+ * (`engineProposal`). Only a declarable one asks: its root holds that engine's marker.
+ */
+export function engineProposalChoice(p: Pick<Project, 'name' | 'engine' | 'engineRoot' | 'detected' | 'engineProposal'>): EngineChoice | undefined {
+  const x = p.engineProposal
+  if (!x?.declarable || x.engine === 'other') return undefined
+  const f = engineFacts(p)
+  const mine = named({ engine: x.engine, root: x.engineRoot })
+  const pin = `Pin ${mine}`
+  return {
+    key: `${PROPOSAL_KEY}${x.engine}@${x.engineRoot || '.'}`,
+    question: `${p.name} was set to ${mine} by hand. Should Genio keep working there?`,
+    options: [pin, KEEP_DETECTING],
+    recommendation: pin,
+    context: `Genio now infers the engine and detects ${label(f)} at ${at(f.root)}. Pinning saves your earlier choice in the project as .genio/project.json; commit it so every copy agrees. Genio does not write it unless you pick it.`,
+    roots: { [pin]: x.engineRoot }
+  }
+}
+
 /**
  * The one-time choice for an ambiguous detection. Its key names the tied candidates, so the same
  * ambiguity is asked once and a different one asks again. A declared root is never ambiguous.

@@ -8,7 +8,7 @@ import { Home } from '../src/main/home'
 import { renderBrief, type BriefInput } from '../src/main/brief'
 import { createToolRegistry } from '../src/main/wksp-tools'
 import { answerEngineChoice, declareEngineRoot, projectEngineSummary, surfaceEngineAmbiguity } from '../src/main/engine-facts'
-import { engineAmbiguityChoice, engineBriefLine, engineEnv, engineFacts, engineSummaryLine, KEEP_DETECTING } from '../src/shared/engine-summary'
+import { engineAmbiguityChoice, engineBriefLine, engineEnv, engineFacts, engineProposalChoice, engineSummaryLine, KEEP_DETECTING } from '../src/shared/engine-summary'
 
 const brief: BriefInput = {
   taskId: 'fix-jump-a1', kind: 'ship', project: 'avalon', worktree: 'C:\\w', branch: 'genio/fix-jump-a1', baseBranch: 'main',
@@ -162,6 +162,34 @@ describe('engine root declaration', () => {
     expect(fs.existsSync(path.join(dir, '.genio', 'project.json'))).toBe(false)
     expect(await answerEngineChoice(ctx, d, 'Unity at tools/LevelEditor/')).toContain('Pinned Unity at tools/LevelEditor/')
     expect(declared()).toEqual({ engineRoot: 'tools/LevelEditor' })
+  })
+
+  it('asks once about a retired manual root, before the ambiguity, and either answer settles the proposal', async () => {
+    const update = vi.fn((name: string, patch: Partial<Project>) => { projects[0] = { ...project(), ...patch }; if (!patch.engineProposal) delete projects[0].engineProposal; return projects[0] })
+    Object.assign(ctx.projects, { update })
+    projects[0] = { ...project(), engineProposal: { engine: 'unity', engineRoot: 'tools/LevelEditor', declarable: true, notedAt: 'now' } }
+    surfaceEngineAmbiguity(ctx)
+    surfaceEngineAmbiguity(ctx)
+    expect(decisions).toHaveLength(1)
+    const d = decisions[0]
+    expect(d).toMatchObject({
+      project: 'game', key: 'engine-proposal:unity@tools/LevelEditor', question: 'game was set to Unity at tools/LevelEditor/ by hand. Should Genio keep working there?',
+      options: ['Pin Unity at tools/LevelEditor/', KEEP_DETECTING], recommendation: 'Pin Unity at tools/LevelEditor/',
+      action: { kind: 'engine-root', project: 'game', roots: { 'Pin Unity at tools/LevelEditor/': 'tools/LevelEditor' } }
+    })
+    expect(d.context).toContain('Genio does not write it unless you pick it')
+    expect(fs.existsSync(path.join(dir, '.genio'))).toBe(false)
+    expect(await answerEngineChoice(ctx, d, KEEP_DETECTING)).toBeUndefined()
+    expect(update).toHaveBeenCalledWith('game', { engineProposal: undefined })
+    expect(fs.existsSync(path.join(dir, '.genio'))).toBe(false)
+    // With the proposal settled, the tie asks next.
+    d.resolvedAt = 'now'
+    surfaceEngineAmbiguity(ctx)
+    expect(decisions.map(x => x.key)).toEqual(['engine-proposal:unity@tools/LevelEditor', 'engine-root:unity@client|unity@tools/LevelEditor'])
+    expect(await answerEngineChoice(ctx, d, 'Pin Unity at tools/LevelEditor/')).toContain('Pinned Unity at tools/LevelEditor/')
+    expect(declared()).toEqual({ engineRoot: 'tools/LevelEditor' })
+    // A proposal no declaration can restore is only noted, never asked.
+    expect(engineProposalChoice({ name: 'g', ...twoUnity, engineProposal: { engine: 'godot', engineRoot: '', declarable: false, notedAt: 'now' } })).toBeUndefined()
   })
 
   it('asks nothing for declared, unambiguous or unscanned projects', () => {
