@@ -4,7 +4,7 @@ import { api, errText } from '../store'
 import { Field } from '../components/ui'
 
 const gb = (n: number) => `${(n / 2 ** 30).toFixed(1)} GB`
-/** Lifecycle settings only; the source picker and live Play surface arrive in build 3. */
+/** Lifecycle settings only; the source picker and the live game are on the Play screen. */
 export function PlayerInstanceSettings({ world }: { world: string }) {
   const [instance, setInstance] = useState<PlayerInstanceStatus>()
   const [machine, setMachine] = useState<PlayerMachineStatus>()

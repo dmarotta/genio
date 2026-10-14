@@ -1,4 +1,4 @@
-﻿import { readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { ACHIEVEMENTS } from '../src/main/stats'
 import { RAIL, navItems } from '../src/renderer/src/lib/railmenu'
@@ -26,12 +26,12 @@ const SUPPORTING_TOOLS = [
   'report_to_main', 'escalate', 'asset_info', 'procedure_read', 'skill_read', 'settings_read', 'settings_update', 'event_read', 'events_ack'
 ]
 
-// Retired with the Play screen and live streaming. Their ids stay in ACHIEVEMENTS for saved stats; they never
-// unlock again and never cover a live feature. Retiring another achievement means adding it here explicitly.
-const RETIRED = [
-  'play-package', 'play-stream', 'play-input', 'play-slot', 'play-takeover',
-  'play-step', 'play-resolution', 'play-fullscreen', 'play-snapshot'
-]
+// Retired with the old Play screen (package install, snapshots, slot takeover, step, resolution). Their ids stay in
+// ACHIEVEMENTS for saved stats; they never unlock again and never cover a live feature. Retiring another achievement
+// means adding it here explicitly.
+const RETIRED = ['play-package', 'play-slot', 'play-takeover', 'play-step', 'play-resolution', 'play-snapshot']
+// Un-retired by the new Play screen: same ids, so earned dates carry over.
+const UNRETIRED = ['play-stream', 'play-input', 'play-fullscreen']
 const LIVE = ACHIEVEMENTS.filter((a) => !a.retired)
 
 const help = 'Add an achievement with this feature tag in src/main/stats.ts and wire its unlock to a real successful event.'
@@ -39,7 +39,14 @@ const help = 'Add an achievement with this feature tag in src/main/stats.ts and 
 describe('achievement feature coverage', () => {
   it('retires exactly the listed achievements and keeps their ids', () => {
     expect(ACHIEVEMENTS.filter((a) => a.retired).map((a) => a.id).sort()).toEqual([...RETIRED].sort())
-    expect(navItems().map((v) => v.id as string)).not.toContain('play')
+    for (const id of UNRETIRED) expect(LIVE.find((a) => a.id === id)?.feature, id).toBe('play')
+  })
+  it('ties the Play screen to live Play achievements wired in the main process', () => {
+    expect(navItems().find((v) => v.id === 'play')?.label).toBe('Play')
+    const ipc = readFileSync('src/main/ipc.ts', 'utf8'), instance = readFileSync('src/main/player-instance.ts', 'utf8'), stats = readFileSync('src/main/stats.ts', 'utf8')
+    expect(instance).toContain("unlock('play-first')")
+    for (const id of ['play-stream', 'play-input', 'play-unit']) expect(ipc, id).toMatch(new RegExp(`unlock\\w*\\('${id}'\\)`))
+    expect(stats).toContain("'play-fullscreen': 'play-fullscreen'")
   })
   it('keeps Character Sheet tied to the stable streak achievement and screen id', () => {
     expect(navItems().find((v) => v.label === 'Character Sheet')?.id).toBe('status')

@@ -4,6 +4,7 @@ import { readWorldMetadata } from './world-metadata'
 import { assertProjectWindow, playService } from './play'
 import { playerCopyService } from './player-copy'
 import { playerInstanceService } from './player-instance'
+import { playerSources, sourceUnit } from './player-sources'
 /**
  * IPC: one ipcMain.handle per GenioApi method ('genio:<method>'). The table is
  * typed against GenioApi so a missing or mistyped method fails the build.
@@ -40,6 +41,8 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
   const explorer = createExplorerIntegration(explorerCommand(process.execPath, process.defaultApp ? app.getAppPath() : undefined))
   const inventoryClients = new Map<number, Set<string>>()
   const playConnections = new Map<string, () => void>()
+  // Play achievements are best effort: a stats problem never breaks a stream, input or a Play.
+  const unlockQuietly = (id: string): void => { try { ctx().stats.unlock(id) } catch { /* stats unavailable */ } }
   const closeUnusedInventory = (world: string): void => {
     if (![...inventoryClients.values()].some(worlds => worlds.has(world))) ctx().inventory.close(world)
   }
@@ -68,7 +71,11 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     playerCopyDelete: world => playerInstanceService(ctx()).deleteCopy(world),
     playerCopySizes: world => playerCopyService(ctx()).sizes(world),
     playerInstanceStatus: async world => { await playerInstanceService(ctx()).start(); return playerInstanceService(ctx()).status(world) },
-    playerInstancePlay: (world, source, options) => playerInstanceService(ctx()).play(world, source, options),
+    playerInstancePlay: async (world, source, options) => {
+      const status = await playerInstanceService(ctx()).play(world, source, options)
+      try { if (sourceUnit(ctx(), world, source)) unlockQuietly('play-unit') } catch { /* achievements never fail a Play */ }
+      return status
+    },
     playerInstanceStop: world => playerInstanceService(ctx()).stop(world),
     playerInstanceQuit: world => playerInstanceService(ctx()).quit(world),
     playerInstanceRestart: (world, visible) => playerInstanceService(ctx()).restart(world, visible),
@@ -78,6 +85,8 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     playerInstanceMachine: world => playerInstanceService(ctx()).machine(world),
     playerInstanceConsole: (world, cursor, session) => playerInstanceService(ctx()).console(world, cursor, session),
     playerInstanceStream: async () => { throw new Error('Streaming requires the owning project window') },
+    playerInstanceDialogShot: async world => playerInstanceService(ctx()).dialogScreenshot(world),
+    playerSources: world => playerSources(ctx(), world),
     inventoryOpen: async (world) => {
       const state = await ctx().inventory.open(world)
       ctx().stats.unlock('inventory-open')
@@ -92,7 +101,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
       return info
     },
     featureUsed: async (feature) => {
-      if (feature === 'screenshot' || feature === 'model-picker' || feature === 'character-sheet') bus.publish({ type: 'feature-used', feature })
+      if (feature === 'screenshot' || feature === 'model-picker' || feature === 'character-sheet' || feature === 'play-fullscreen') bus.publish({ type: 'feature-used', feature })
     },
     trophyPin: (id, pinned) => ctx().stats.pin(String(id), pinned === true),
     titleEquip: (id) => ctx().stats.equipTitle(id ?? null),
@@ -325,17 +334,18 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
         const binding = windows?.binding(_e.sender.id)
         if (windows && !binding && ['sendChat', 'recap', 'save', 'restartWksp', 'interruptWksp', 'unqueueChat', 'approveGeneration'].includes(method)) throw new Error('Open a project window to use its chat.')
         if (method.startsWith('playPool') || method === 'playCloseSlotEditor' || method.startsWith('playerCopy')) assertProjectWindow(binding, args[0])
-        if (method.startsWith('playerInstance')) assertProjectWindow(binding, args[0])
+        if (method.startsWith('playerInstance') || method === 'playerSources') assertProjectWindow(binding, args[0])
         if (['playerInstancePlay', 'playerInstanceStop', 'playerInstanceQuit', 'playerInstanceRestart', 'playerInstanceDetach'].includes(method)) playConnections.get(args[0] as string)?.()
         if (method === 'playerInstanceStream') {
           const [world, enabled, width = 1280, height = 720] = args as [string, boolean, number?, number?]
           playConnections.get(world)?.()
           if (!enabled) { await playerInstanceService(ctx()).detach(world); return }
           const { port1, port2 } = new MessageChannelMain()
-          let credit = false, closed = false, latest: Buffer | undefined
+          let credit = false, closed = false, latest: Buffer | undefined, framed = false, handsOn = false
           const send = (): void => {
             if (!credit || !latest || closed) return
             credit = false; port1.postMessage({ type: 'frame', bytes: new Uint8Array(latest) }); latest = undefined
+            if (!framed) { framed = true; unlockQuietly('play-stream') }
           }
           const close = (): void => {
             if (closed) return
@@ -350,7 +360,11 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
             if (closed) return
             if (data?.type === 'ready') { credit = true; send() }
             else if (data?.type === 'input') {
-              try { playerInstanceService(ctx()).input(world, data.input) } catch { detach() }
+              try {
+                playerInstanceService(ctx()).input(world, data.input)
+                const held = data.input?.type === 'state' && (data.input.keys?.length || data.input.buttons || data.input.gamepadButtons)
+                if (held && !handsOn) { handsOn = true; unlockQuietly('play-input') }
+              } catch { detach() }
             } else if (data?.type === 'release') {
               try { playerInstanceService(ctx()).input(world, { type: 'release' }) } catch { /* stopped */ }
             }

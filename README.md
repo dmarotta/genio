@@ -37,11 +37,13 @@ for the design and [docs/VOCABULARY.md](docs/VOCABULARY.md) for the terms.
 - **Project windows** - open a folder for its own chat, Inventory and squad.
   Closing warns before stopping running units; non-git folders keep git actions disabled.
 - **Playtest** — launch the game from any unit's worktree before you merge.
+- **Play** (Unity projects, Ctrl 0) — play the main checkout, any worktree, a
+  unit's worktree or a branch in your own hidden Unity instance, streamed into
+  Genio with keyboard, mouse and gamepad. Stop keeps Unity warm; it quits after
+  10 idle minutes by default. See [docs/play.md](docs/play.md).
 - **Unity slots** (Settings → This project) — units compile, test and play Unity
-  projects in their own copies and in shared slot editors. The player's separate
-  instance keeps Unity warm after Stop and quits after 10 idle minutes by default.
-  [Lifecycle and stream services](docs/player-instance.md) are ready for the next
-  Play-screen build; Genio can also look at your open editor in chat.
+  projects in their own copies and in shared slot editors. Genio can also look
+  at your open editor in chat.
 - **Engine aware** — Godot, Unity, Unreal, Bevy, LÖVE, GameMaker, Defold,
   MonoGame and web engines get sensible build, test and run presets.
 - **Progression** — XP, levels, streaks and achievements for shipping.

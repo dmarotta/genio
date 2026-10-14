@@ -431,7 +431,7 @@ export interface GenioApi {
   playPoolDisk(world: string): Promise<Record<number, number>>
   /** Close a slot's Unity editor safely; revokes a unit's lease on that slot (the player confirmed). */
   playCloseSlotEditor(world: string, id: number): Promise<void>
-  /** The player's own Play copies, one per project (no Play screen yet); a project window sees only its own. */
+  /** The player's own Play copies, one per project; a project window sees only its own. */
   playerCopies(): Promise<import('./play').PlayerCopyRecord[]>
   /** This project's copy record, or null. */
   playerCopyStatus(world: string): Promise<import('./play').PlayerCopyRecord | null>
@@ -457,6 +457,10 @@ export interface GenioApi {
   playerInstanceConsole(world: string, cursor?: number, session?: string): Promise<import('./play').PlayConsole>
   /** Transfers a frame/input MessagePort to the owning window. No Pipeline or WebSocket credentials cross IPC. */
   playerInstanceStream(world: string, enabled: boolean, width?: number, height?: number): Promise<void>
+  /** The hidden desktop's screenshot taken when a dialog blocked the player editor (PNG data URL), if any. */
+  playerInstanceDialogShot(world: string): Promise<string | undefined>
+  /** The Play screen's sources: main checkout, worktrees, units' worktrees by name, branches. */
+  playerSources(world: string): Promise<import('./play').PlayerSourceOption[]>
   /** Open starts the watcher and returns the cache while reconciling in background. */
   inventoryOpen(world: string): Promise<InventoryState>
   inventoryClose(world: string): Promise<void>
@@ -464,7 +468,7 @@ export interface GenioApi {
   inventoryRefresh(world: string): Promise<InventoryState>
   inventoryList(world: string, query?: InventoryQuery): Promise<InventoryResult>
   inventoryInfo(world: string, path: string, verifyHash?: boolean): Promise<InventoryInfo | null>
-  featureUsed(feature: 'screenshot' | 'model-picker' | 'character-sheet'): Promise<void>
+  featureUsed(feature: 'screenshot' | 'model-picker' | 'character-sheet' | 'play-fullscreen'): Promise<void>
   /** Character Sheet: pin an unlocked achievement to the front of the grid (three at most) */
   trophyPin(id: string, pinned: boolean): Promise<OpResult>
   /** Character Sheet: equip an earned playstyle title; null follows the current playstyle */
@@ -645,7 +649,7 @@ export type ApiMethod = keyof GenioApi
 /** Every GenioApi method, as runtime data (contextBridge cannot clone a Proxy). */
 export const API_METHODS = [
   'playPool', 'playPoolCap', 'playPoolLaunch', 'playPoolEstimate', 'playPoolDisk', 'playCloseSlotEditor',
-  'playerInstanceStatus', 'playerInstancePlay', 'playerInstanceStop', 'playerInstanceQuit', 'playerInstanceRestart', 'playerInstanceKeepAlive', 'playerInstanceDetach', 'playerInstanceSettings', 'playerInstanceMachine', 'playerInstanceConsole', 'playerInstanceStream',
+  'playerInstanceStatus', 'playerInstancePlay', 'playerInstanceStop', 'playerInstanceQuit', 'playerInstanceRestart', 'playerInstanceKeepAlive', 'playerInstanceDetach', 'playerInstanceSettings', 'playerInstanceMachine', 'playerInstanceConsole', 'playerInstanceStream', 'playerInstanceDialogShot', 'playerSources',
   'playerCopies', 'playerCopyStatus', 'playerCopyEnsure', 'playerCopySync', 'playerCopyCancel', 'playerCopyDelete', 'playerCopySizes',
   'inventoryOpen', 'inventoryClose', 'inventoryRefresh', 'inventoryList', 'inventoryInfo',
   'featureUsed',

@@ -14,14 +14,13 @@ describe('rail entries', () => {
     expect(top).not.toContain('worlds')
     expect(navItems().map((i) => i.id)).not.toContain('fal')
     expect(navItems().map((i) => i.id)).not.toContain('animation')
-    expect(top).not.toContain('play')
-    expect(navItems().find(i => i.key === '0')).toBeUndefined()
+    expect(navItems().find(i => i.key === '0')?.id).toBe('play')
   })
 
   it('keeps every screen and its shortcut reachable for the palette', () => {
     const keys = Object.fromEntries(navItems().map((n) => [n.id, n.key]))
     expect(keys).toEqual({
-      comms: '1', squad: '2', quests: '3', status: '5', systems: '8', inventory: '9'
+      comms: '1', squad: '2', quests: '3', status: '5', systems: '8', inventory: '9', play: '0'
     })
   })
 

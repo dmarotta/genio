@@ -122,6 +122,30 @@ export async function isWorktreeOf(repo: string, wtPath: string): Promise<boolea
   return list.split(/\r?\n/).some((l) => l.startsWith('worktree ') && samePath(l.slice('worktree '.length)) === want)
 }
 
+/** The repository's checkouts: the main one first, then linked worktrees. Prunable (missing) entries are left out. */
+export async function worktreeList(repo: string): Promise<{ path: string; head?: string; branch?: string }[]> {
+  const list = await out(repo, ['worktree', 'list', '--porcelain'])
+  return list.split(/\r?\n\r?\n/).flatMap((block) => {
+    const lines = block.split(/\r?\n/)
+    const at = lines.find((l) => l.startsWith('worktree '))
+    if (!at || lines.some((l) => l === 'bare' || l.startsWith('prunable'))) return []
+    const head = lines.find((l) => l.startsWith('HEAD '))?.slice(5)
+    const branch = lines.find((l) => l.startsWith('branch '))?.slice(7).replace(/^refs\/heads\//, '')
+    return [{ path: path.resolve(at.slice('worktree '.length)), ...(head ? { head } : {}), ...(branch ? { branch } : {}) }]
+  })
+}
+
+/** Local branches, most recently committed first. */
+export async function localBranches(repo: string, limit = 60): Promise<{ name: string; head: string }[]> {
+  const s = await out(repo, ['for-each-ref', '--sort=-committerdate', `--count=${limit}`, '--format=%(refname:short)%09%(objectname)', 'refs/heads'])
+  return s.split(/\r?\n/).filter(Boolean).map((l) => { const [name, head] = l.split('\t'); return { name, head } })
+}
+
+/** Two paths name the same folder (case-insensitive on Windows, links resolved). */
+export function sameFolder(a: string, b: string): boolean {
+  return samePath(a) === samePath(b)
+}
+
 export async function pruneWorktrees(repo: string): Promise<ExecResult> {
   return git(repo, ['worktree', 'prune'])
 }

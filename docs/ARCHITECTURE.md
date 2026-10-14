@@ -66,8 +66,9 @@ language.
 
 ## Unity slots and editor tools
 
-Genio has no Play screen and no live game stream; the player plays in their own
-Unity editor or through PLAYTEST. What remains serves units and Genio:
+The player plays on the **Play screen** (`Play.tsx`, [play.md](play.md)) in their
+own player instance: one copy and editor per project window, outside the slot
+pool ([player-instance.md](player-instance.md)). The rest serves units and Genio:
 
 - **Slot pool** (`resources/unit-skills/genio/skills/play/scripts/pool.mjs`):
   per-project clones of committed revisions, each with its own editor, leased
@@ -87,9 +88,11 @@ Unity editor or through PLAYTEST. What remains serves units and Genio:
   project's main editor through the Pipeline adapter (`play-unity.ts`) under the
   pool's main lease; `play_slot_recover` closes a stuck slot editor.
 
-`supportsUnitySlots` (`shared/play.ts`) is the single engine gate for all of it.
-The Play screen's achievements are retired: earned dates stay in `stats.json`
-and on the Character Sheet, but they never unlock again or count toward totals.
+`supportsUnitySlots` (`shared/play.ts`) is the single engine gate for all of it,
+the Play rail entry included. The old Play screen's package, snapshot, slot,
+takeover, step and resolution achievements stay retired: earned dates stay in
+`stats.json` and on the Character Sheet, but they never unlock again or count
+toward totals. Stream, input and full screen came back with the new screen.
 
 ## Process layout
 

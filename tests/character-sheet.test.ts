@@ -157,7 +157,7 @@ it('shows an earned retired trophy without counting retired ones toward the tota
   withStats({ achievements: [
     { id: 'a', feature: 'status', name: 'Alpha', description: 'First landing', unlockedAt: '2026-10-01T12:00:00Z' },
     { id: 'b', feature: 'status', name: 'Bravo', description: 'Second landing' },
-    { id: 'play-stream', feature: 'play', name: 'Motion Picture', description: 'Receive a live Unity frame.', unlockedAt: '2026-09-01T12:00:00Z', retired: true }
+    { id: 'play-snapshot', feature: 'play', name: 'In the Frame', description: 'Capture a game snapshot.', unlockedAt: '2026-09-01T12:00:00Z', retired: true }
   ] })
   await mount(CharacterSheet)
   expect(host.querySelector('.achv-count')?.textContent).toContain('1/2')

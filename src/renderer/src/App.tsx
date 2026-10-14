@@ -16,9 +16,11 @@ import { CharacterSheet } from './views/CharacterSheet'
 import { ProjectNotice } from './views/ProjectSettings'
 import { Systems } from './views/Systems'
 import { Inventory } from './views/Inventory'
+import { Play } from './views/Play'
 import { GenioPanel } from './components/GenioPanel'
 
 const VIEW: Partial<Record<ViewId, ComponentType>> = {
+  play: Play,
   comms: Comms,
   squad: Squad,
   quests: Quests,

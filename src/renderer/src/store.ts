@@ -11,6 +11,8 @@ import { squadSections, squadState } from '@shared/squad-display'
 import { playSfx } from './lib/sfx'
 import { speak } from './lib/voice'
 import { viewAvailable, type ViewId } from './lib/railmenu'
+import { supportsUnitySlots } from '@shared/play'
+import { effectiveEngine } from '@shared/engine'
 
 export type { ViewId }
 
@@ -113,7 +115,7 @@ export function setState(patch: Partial<State> | ((s: State) => Partial<State>))
   state = { ...state, ...p }
   // Every way into a screen (shortcut, palette, notification, an engine change) lands here:
   // a screen this window does not offer falls back to the default one, quietly.
-  if (!viewAvailable(state.view, !!PROJECT_WINDOW)) state = { ...state, view: DEFAULT_VIEW }
+  if (!viewAvailable(state.view, !!PROJECT_WINDOW, playAvailable(state))) state = { ...state, view: DEFAULT_VIEW }
   for (const l of listeners) l()
 }
 
@@ -186,10 +188,10 @@ const registeredViews = new Set<string>()
 export function registerViews(views: string[]): void { views.forEach((view) => registeredViews.add(view)) }
 export function hasView(view: string): boolean { return registeredViews.has(view) }
 
-/** Project screens (Comms, Inventory) always show this window's project; the Hub has none. */
+/** Project screens (Comms, Inventory, Play) always show this window's project; the Hub has none. */
 export function go(view: ViewId): void {
   if (view === 'worlds') view = 'systems'
-  if (!PROJECT_WINDOW && ['comms', 'inventory'].includes(view)) view = 'worlds'
+  if (!PROJECT_WINDOW && ['comms', 'inventory', 'play'].includes(view)) view = 'worlds'
   setState({ view, palette: false })
 }
 
@@ -469,6 +471,12 @@ export async function boot(): Promise<void> {
 }
 
 // ------------------------------------------------------------------ selectors
+
+/** Play is offered only in a project window whose project has a supported engine; follows engine changes live. */
+export const playAvailable = (s: State): boolean => {
+  const project = PROJECT_WINDOW ? s.snap.projects.find((p) => p.name === PROJECT_WINDOW) : undefined
+  return !!project && supportsUnitySlots(effectiveEngine(project).engine)
+}
 
 export const runningUnits = (s: State): number => occupiedUnits(s.snap.tasks, s.terminals) + (s.snap.pendingUnits?.length ?? 0)
 

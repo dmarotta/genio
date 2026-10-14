@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Search } from 'lucide-react'
-import { PROJECT_WKSP, answerNext, api, focusTask, go, op, openDeploy, setState, useStore, type ViewId } from '../store'
-import { WINDOW_NAV } from './Rail'
+import { PROJECT_WKSP, answerNext, api, focusTask, getState, go, op, openDeploy, playAvailable, setState, useStore, type ViewId } from '../store'
+import { navFor, useNav } from './Rail'
 import { requestSystemsSection } from '../views/Systems'
 import { KIND_LABEL } from '../lib/vocab'
 import { cx } from '../lib/format'
@@ -17,6 +17,7 @@ interface Cmd {
 export function CommandPalette() {
   const open = useStore((s) => s.palette)
   const tasks = useStore((s) => s.snap.tasks)
+  const nav = useNav()
   const [q, setQ] = useState('')
   const [sel, setSel] = useState(0)
   const input = useRef<HTMLInputElement>(null)
@@ -42,13 +43,13 @@ export function CommandPalette() {
       { id: 'online', label: 'Presence: Online', group: 'Presence', run: () => { close(); void op('Presence', () => api().setAway('online'), () => 'Online') } },
       { id: 'dnd', label: 'Presence: DND', group: 'Presence', run: () => { close(); void op('Presence', () => api().setAway('dnd'), () => 'Do not disturb') } },
       { id: 'afk', label: 'Presence: AFK', group: 'Presence', run: () => { close(); void op('Presence', () => api().setAway('afk'), () => 'AFK — the Bot has the controls') } },
-      ...WINDOW_NAV.map((n) => ({ id: `nav-${n.id}`, label: `Go to ${n.label}`, hint: n.key ? `Ctrl ${n.key}` : undefined, group: 'Navigate', run: () => go(n.id as ViewId) })),
+      ...nav.map((n) => ({ id: `nav-${n.id}`, label: `Go to ${n.label}`, hint: n.key ? `Ctrl ${n.key}` : undefined, group: 'Navigate', run: () => go(n.id as ViewId) })),
       ...tasks
         .filter((t) => t.state !== 'cleaned')
         .map((t) => ({ id: `task-${t.id}`, label: `Unit: ${t.title}`, hint: `${KIND_LABEL[t.kind]} · ${t.project}`, group: 'Squad', run: () => focusTask(t.id) }))
     ]
     return PROJECT_WKSP ? list : list.filter(c => !['recap', 'save'].includes(c.id))
-  }, [tasks])
+  }, [tasks, nav])
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
@@ -128,7 +129,7 @@ export function useGlobalKeys(enabled = true): void {
         setState((s) => ({ palette: !s.palette }))
         return
       }
-      const item = WINDOW_NAV.find(n => n.key === e.key)
+      const item = navFor(playAvailable(getState())).find(n => n.key === e.key)
       if (item && !e.shiftKey && !e.altKey) {
         e.preventDefault()
         go(item.id)

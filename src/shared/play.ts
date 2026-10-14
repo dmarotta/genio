@@ -43,6 +43,37 @@ export interface PlayerInstanceStatus {
   capabilities?: { input: boolean }
   copy?: import('../../resources/unit-skills/genio/lib/player-copy.mjs').PlayerCopyRecord
 }
+/** One choice in the Play screen's source picker: the main checkout, a worktree, a unit's worktree (by name) or a branch. */
+export interface PlayerSourceOption {
+  id: string
+  group: 'main' | 'worktree' | 'unit' | 'branch'
+  label: string
+  source: PlayerCopySource
+  branch?: string
+  head?: string
+  /** Uncommitted files in a checkout (tracked and untracked), when git answered in time. */
+  dirty?: number
+  /** Unit sources: the unit's task id. */
+  task?: string
+}
+
+/** Same checkout folder or the same ref; folder case and slashes are ignored. */
+export function sameSource(a: PlayerCopySource | undefined, b: PlayerCopySource | undefined): boolean {
+  if (!a || !b) return false
+  const folder = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+  if ('path' in a && 'path' in b) return folder(a.path) === folder(b.path)
+  return 'ref' in a && 'ref' in b && a.ref === b.ref
+}
+
+/** Measured first-copy speed on the player's SSD (Recon, 2026-10-14): 47–73 MB/s. */
+export const COPY_MB_PER_SECOND = { slow: 47, fast: 73 } as const
+
+/** A first copy's duration range in whole minutes (at least 1). */
+export function copyMinutes(bytes: number): { min: number; max: number } {
+  const minutes = (mbps: number): number => Math.max(1, Math.round(bytes / (mbps * 1e6) / 60))
+  return { min: minutes(COPY_MB_PER_SECOND.fast), max: minutes(COPY_MB_PER_SECOND.slow) }
+}
+
 export interface PlayerMachineStatus {
   settings: PlayerSettings; playerEditors: number; unitEditors: number; batchEditors: number; totalEditors: number
   workingSetBytes: number; freeBytes: number; totalBytes: number

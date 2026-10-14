@@ -117,7 +117,7 @@ it('is hidden on the main Chat screen only, and Ctrl+Space toggles it elsewhere'
   expect(host.querySelector('.genio-panel-content')?.childElementCount ?? 0).toBe(0)
   await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { ctrlKey: true, code: 'Space' })))
   expect(panel().classList.contains('collapsed')).toBe(false)
-  for (const view of ['squad', 'quests', 'systems', 'inventory', 'status']) {
+  for (const view of ['squad', 'quests', 'systems', 'play', 'inventory', 'status']) {
     await render(view)
     expect(panel().hidden, view).toBe(false)
   }

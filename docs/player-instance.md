@@ -1,6 +1,6 @@
 # Player instance lifecycle (build 2)
 
-The main process owns one player copy and editor per project window. They live outside the units' slot pool, leases, queue and cap. Build 3 adds the Play screen; this build supplies its service, IPC, frame/input MessagePort and Settings → Unity slots controls.
+The main process owns one player copy and editor per project window. They live outside the units' slot pool, leases, queue and cap. This is the service behind the [Play screen](play.md): IPC, frame/input MessagePort and Settings → Unity slots controls.
 
 The final quest decisions supersede the Recon's earlier cap: the global player limit defaults to **2**, adjustable from 1–8. Idle time defaults to **10 minutes**, adjustable from 0–60. Lowering the cap leaves current editors alone. A start at the limit can close the oldest stopped, warm instance; it refuses while all instances are playing or busy. Units' slots are untouched.
 
@@ -28,7 +28,7 @@ Genio exit requests all player editors to quit and shares the existing four-seco
 
 Every start checks free physical RAM against the project's recorded peak (6 GiB initially) plus 2 GiB reserve. `startAnyway: true` explicitly overrides RAM refusal, while retaining the cap. The five-second monitor saves observed peaks. Settings displays player, unit-slot and running batch editor counts, working sets, and machine free/total RAM.
 
-`playerInstanceStream` transfers one MessagePort to the owning project window. Unity credentials stay in main. The loopback WebSocket accepts one authenticated client, validates JPEG frames and complete input packets, and retains one latest frame. The MessagePort sends one frame per renderer credit. Port replacement cannot stop a successor session. Legacy input is view-only; Input System virtual keyboard/mouse/gamepad support and the corrected 30 fps cadence are restored from `4d08711^`. Audio and the Play screen are outside this build.
+`playerInstanceStream` transfers one MessagePort to the owning project window. Unity credentials stay in main. The loopback WebSocket accepts one authenticated client, validates JPEG frames and complete input packets, and retains one latest frame. The MessagePort sends one frame per renderer credit. Port replacement cannot stop a successor session. Legacy input is view-only; Input System virtual keyboard/mouse/gamepad support and the corrected 30 fps cadence are restored from `4d08711^`. Audio is not streamed yet.
 
 Unit tool guards forbid player roots, including copies placed on another volume. Raw copy IPC cannot mirror under a running player editor; it must use lifecycle Play.
 

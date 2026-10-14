@@ -441,6 +441,12 @@ export class PlayerInstanceService {
     if (input.type !== 'release' && !this.supportsInput(i)) throw new Error('Legacy input is view-only')
     this.local(i).input(input)
   }
+  /** The hidden desktop's screenshot taken when a dialog blocked this instance, as a PNG data URL. */
+  dialogScreenshot(world: string): string | undefined {
+    const i = this.instances.get(this.project(world).project), file = i?.dialog?.screenshot, dir = i?.launch?.dir
+    if (!file || !dir || path.dirname(path.resolve(file)) !== path.resolve(dir) || !/^blocked-\d+\.png$/.test(path.basename(file))) return undefined
+    try { const bytes = fs.readFileSync(file); return bytes.length <= 16 * 2 ** 20 ? `data:image/png;base64,${bytes.toString('base64')}` : undefined } catch { return undefined }
+  }
   detach(world: string) { return this.stop(world) }
   /** Cancel copies now; close editors in parallel. Deletion is already a background job and is never awaited. */
   async shutdown() {
