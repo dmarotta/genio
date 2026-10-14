@@ -24,6 +24,8 @@ export interface BriefInput {
   reportPath?: string
   engine?: Engine
   engineHints?: string
+  /** Opens the Engine notes: the project's engine, version and root (see engineBriefLine). */
+  engineLine?: string
   briefInclude?: string
   /** Recon report carried into an upgraded Build brief */
   carriedReport?: string
@@ -191,6 +193,7 @@ export function renderBrief(i: BriefInput): string {
   out.push('')
   out.push('# Engine notes')
   out.push('')
+  if (i.engineLine?.trim()) out.push(i.engineLine.trim())
   out.push((i.engineHints ?? engineHints(i.engine)).trim())
   out.push('')
   if (i.tools?.trim()) {

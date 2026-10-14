@@ -103,6 +103,18 @@ describe('a player answer wakes the owning chat', () => {
     expect(answers()[0].lines.join('\n')).toContain('The unit was pinged with this answer')
   })
 
+  it('pins a picked engine root itself and tells the chat to deploy nothing', async () => {
+    fs.mkdirSync(path.join(root, 'client', 'ProjectSettings'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'client', 'ProjectSettings', 'ProjectVersion.txt'), 'm_EditorVersion: 6000.0.1f1\n')
+    Object.assign(ctx.projects, { rescan: vi.fn(async () => []) })
+    const d = hc.decisions.open({ question: 'Which game?', options: ['Unity at client/', 'Keep detecting automatically'], project: 'world', key: 'engine-root:x',
+      action: { kind: 'engine-root', project: 'world', roots: { 'Unity at client/': 'client' } } })
+    await answerChoice(ctx, d.id, 'Unity at client/')
+    expect(answers()[0].lines.join('\n')).toContain('deploy nothing')
+    await vi.waitFor(() => expect(say).toHaveBeenCalledWith(expect.stringContaining('Pinned Unity at client/'), 'system'))
+    expect(JSON.parse(fs.readFileSync(path.join(root, '.genio', 'project.json'), 'utf8'))).toEqual({ engineRoot: 'client' })
+  })
+
   it('skips the wake for an answer typed into the owning chat, but not one typed elsewhere', async () => {
     unit('recon', 'done')
     const own = hc.decisions.openForTask('recon', 'a', 'First?', 'genio', { project: 'world' })

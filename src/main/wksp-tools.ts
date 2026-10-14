@@ -27,6 +27,7 @@ import { agentGeneration, falGenerateShape, uthanaMotionShape, uthanaCharacterSh
 import { CATEGORY_IDS } from '@shared/dispatch'
 import { playService } from './play'
 import { formatStatusLine } from './status'
+import { declareEngineRoot, projectEngineSummary } from './engine-facts'
 import { choiceGroup, choiceRevision, recommendationAnswer, type RecommendationReview, type RecommendationResult } from '@shared/choice'
 
 export type ToolRole = 'genio' | 'ally' | 'bot'
@@ -547,9 +548,19 @@ export function createToolRegistry(
   })
 
   // ------------------------------------------------------------ worlds
-  t('world_list', 'Registered projects: path, engine, posture (mode, Auto-loot, branch prefix), capacity, commands.', {}, async () => {
-    return ok(json(getCtx().projects.list().map((p) => ({ ...p, modeLabel: modeLabel(p.mode) }))))
+  t('world_list', 'Registered projects: path, engine, engineSummary (engine, version, root, other candidates, ambiguity), posture (mode, Auto-loot, branch prefix), capacity, commands.', {}, async () => {
+    return ok(json(getCtx().projects.list().map((p) => ({ ...p, modeLabel: modeLabel(p.mode), engineSummary: projectEngineSummary(p) }))))
   })
+
+  t(
+    'world_engine_root',
+    "Pin which folder holds the project's game by writing .genio/project.json { engineRoot } in the repo (uncommitted). The escape hatch for monorepos, ambiguous detection and false positives. ONLY on the player's explicit instruction: player_words must quote it. root is repository-relative ('' = the repository root) and must hold an engine marker. Never on your own judgment, never for the Bot.",
+    { world: z.string(), root: z.string(), player_words: z.string().trim().min(1) },
+    async (a) => {
+      if (role === 'bot') return fail('pinning the engine root waits for the player')
+      return ok(await declareEngineRoot(getCtx(), { world: a.world, root: a.root, playerWords: a.player_words, actor: role }))
+    }
+  )
 
   t('world_posture', 'Resolve the concrete delivery posture for a Build in a project. surface=product|internal matters for Hardcore (prod) projects.', { world: z.string(), surface: z.enum(['product', 'internal']).optional() }, async ({ world, surface }) => {
     return ok(json(getCtx().projects.resolvePosture(world, { surface })))

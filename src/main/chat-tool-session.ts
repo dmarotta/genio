@@ -9,6 +9,7 @@ import { agentGeneration } from './agent-generation'
 import { createToolRegistry, findTask, findDecision, type ToolHooks, type ToolRole } from './wksp-tools'
 import { enforceTool } from './chat-tool-policy'
 import { ToolPages } from './tool-pages'
+import { projectEngineSummary } from './engine-facts'
 
 export interface ChatToolBinding {
   home: Home
@@ -119,7 +120,7 @@ export function createChatToolSession(getCtx: () => AppCtx, binding: ChatToolBin
             choices: homes.flatMap(h => h.decisions.list(false)).filter(withinChoice)
           })
         })
-        if (worlds && name === 'world_list') return pages.read(name, args, () => result(getCtx().projects.list().filter(p => within(p.name))))
+        if (worlds && name === 'world_list') return pages.read(name, args, () => result(getCtx().projects.list().filter(p => within(p.name)).map(p => ({ ...p, engineSummary: projectEngineSummary(p) }))))
         if (worlds && name === 'quest_list') return pages.read(name, args, () => result([...getCtx().homes.values()].flatMap(h => h.backlog.list()).filter(q => within(q.project) && (args.include_done || !['done', 'dropped'].includes(q.state)))))
         if (worlds && name === 'choice_list') return pages.read(name, args, () => result([...getCtx().homes.values()].flatMap(h => h.decisions.list(Boolean(args.include_resolved))).filter(withinChoice)))
         return await tool.invoke(args)

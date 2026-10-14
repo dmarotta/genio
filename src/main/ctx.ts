@@ -29,7 +29,7 @@
  *   dispatch.ts     createDispatchService(getCtx)
  */
 import { agentGeneration } from './agent-generation'
-import type { FleetSnapshot, Ally } from '@shared/types'
+import type { FleetSnapshot, Ally, Project } from '@shared/types'
 import { Home, defaultHomeRoot } from './home'
 import { scrubInheritedSessionEnv } from './util'
 import type { AppCtx, HomeCtx } from './services'
@@ -63,8 +63,11 @@ import { createThumbnailDecoder } from './inventory-thumbnails'
 import { allyNameForWorld, worldAllyRequest, inheritMainHistory } from './project-chat'
 import { reconcileProjectOpen } from './project-startup'
 import { migrateProjectData } from './project-data-migration'
+import { surfaceEngineAmbiguity } from './engine-facts'
+import { bus } from './bus'
 
 let current: AppCtx | undefined
+let stopEngineChoices = (): void => undefined
 const openProjects = new WeakMap<AppCtx, Set<string>>()
 const startingUnits = new WeakMap<AppCtx, Map<string, Set<Promise<unknown>>>>()
 const projectStarts = new WeakMap<AppCtx, Map<string, Promise<void>>>()
@@ -260,6 +263,10 @@ export async function startApp(ctx: AppCtx): Promise<void> {
   ctx.uthana.resume()
   // a world's remote may have changed while Genio was closed: auto modes follow it
   void ctx.projects.refreshRemotes().catch(() => undefined)
+  // an ambiguous engine detection reaches the player once, whenever detection reports it
+  const surface = (projects?: Project[]): void => { try { surfaceEngineAmbiguity(ctx, projects) } catch { /* optional */ } }
+  surface()
+  stopEngineChoices = bus.onEvent((ev) => { if (ev.type === 'projects') surface(ev.projects) })
   for (const h of ctx.homes.values()) await h.crew.reconcileOnStart()
   // quests drifted from their units (landed but still in flight, duplicates): fix before supervision reads them
   for (const h of ctx.homes.values()) {
@@ -276,6 +283,7 @@ export async function startApp(ctx: AppCtx): Promise<void> {
 }
 
 export async function stopApp(ctx: AppCtx): Promise<void> {
+  stopEngineChoices()
   agentGeneration(ctx).stop()
   ctx.inventory.stop()
   for (const h of ctx.homes.values()) {

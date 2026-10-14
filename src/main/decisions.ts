@@ -12,6 +12,7 @@
  */
 import type { Decision } from '@shared/types'
 import { bus } from './bus'
+import { answerEngineChoice } from './engine-facts'
 import type { Home } from './home'
 import { formatNotification } from './notify-format'
 import type { AppCtx, DecisionService } from './services'
@@ -174,7 +175,12 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
       save()
       if (ctx) {
         try { receipt(ctx, d, answer) } catch { /* optional chat receipt */ }
-        if (d.action) {
+        if (d.action?.kind === 'engine-root') {
+          const c = ctx
+          void answerEngineChoice(c, d, answer)
+            .then((message) => { if (message) safeHome(c, ownerName(c, d))?.wksp.say(message, 'system') })
+            .catch((e: Error) => safeHome(c, ownerName(c, d))?.wksp.say(`Could not pin the engine root: ${e.message}`, 'system'))
+        } else if (d.action) {
           try {
             ctx.dispatch.answered(d, answer)
           } catch {
@@ -317,7 +323,9 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
         ...(d.recommendation ? [`Recommendation: ${d.recommendation}`] : []),
         ...(found ? [`Unit ${found.id} (${found.state})${found.reportPath ? `; report: ${found.reportPath.replace(/\\/g, '/')}` : ''}`] : []),
         ...(quest ? [`Quest ${quest.id}: ${quest.title} (${quest.state})`] : []),
-        found && !unitDone
+        d.action?.kind === 'engine-root'
+          ? 'Genio pins a picked engine root itself in .genio/project.json (uncommitted); deploy nothing. Tell the player to commit it; "Keep detecting automatically" needs nothing.'
+          : found && !unitDone
           ? 'The unit was pinged with this answer and carries on; act only where the answer needs other work.'
           : 'Follow through now: carry out the chosen option (file and deploy the work, respecting dependencies and serial order; queue the rest) with the player\'s words as intent, then report.',
         'The player already sees an "Answered" receipt in this chat; do not echo the answer back.'

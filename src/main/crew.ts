@@ -25,6 +25,7 @@ import { DONE_STATES, squadOutcome } from '@shared/squad-display'
 import { cheapModelsAllowed } from '@shared/dispatch'
 import { questOrder } from '@shared/quest-board'
 import { effectiveEngine } from '@shared/engine'
+import { engineBriefLine, engineEnv, engineFacts } from '@shared/engine-summary'
 import { supportsPlay } from '@shared/play'
 import { defaultShell } from './terminals'
 import { getSecret } from './secrets'
@@ -167,7 +168,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       /* no OS encryption: the skill reports the key as missing */
     }
     const extras = unitLaunchExtras(harnessId, { pluginDir: installed, falKey, dataDir: mainHome.data, taskDataDir: home.taskDir(t.id) })
-    Object.assign(extras.env, unitPlayEnv(getCtx().projects.get(t.project), mainHome.data, t.worktree))
+    const project = getCtx().projects.get(t.project)
+    Object.assign(extras.env, project ? engineEnv(project) : {}, unitPlayEnv(project, mainHome.data, t.worktree))
     return extras
   }
 
@@ -550,8 +552,9 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
             inboxDir: inboxDir(id),
             taskDataDir: home.taskDir(id),
             reportPath,
-            engine: project.engine,
-            engineHints: engineHints(project.engine),
+            engine: effectiveEngine(project).engine,
+            engineLine: engineBriefLine(engineFacts(project)),
+            engineHints: engineHints(effectiveEngine(project).engine),
             briefInclude: s.briefInclude,
             summaryWords: req.kind === 'scout' ? ctx.dispatch.reportWords(project.name, loadout.harness) : undefined,
             tools: toolsBrief()

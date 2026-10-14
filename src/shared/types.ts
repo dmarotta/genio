@@ -86,7 +86,7 @@ export interface Project {
   description?: string
   /** legacy per-world dial; read as the equivalent Usage mode when usageMode is unset */
   costDial?: CostDial
-  /** this world's Usage mode override (Systems → Usage → Advanced); unset = the global mode. Cannot raise the global unit cap. */
+  /** this world's Usage mode override (Systems â†’ Usage â†’ Advanced); unset = the global mode. Cannot raise the global unit cap. */
   usageMode?: UsageMode
   /** on unless false: units may send this world's code to cheap third-party models (OpenRouter via OpenCode); false opts the world out */
   allowCheapModels?: boolean
@@ -307,7 +307,10 @@ export interface Decision {
   followUp?: 'pending' | 'delivered'
 }
 
-export type DecisionAction = { kind: 'dispatch-proposal'; proposal: DispatchProposal }
+export type DecisionAction =
+  | { kind: 'dispatch-proposal'; proposal: DispatchProposal }
+  /** an ambiguous engine detection: the picked option's root is pinned in the repo's .genio/project.json */
+  | { kind: 'engine-root'; project: string; roots: Record<string, string> }
 
 export type WakeKind = 'signal' | 'stale' | 'check' | 'heartbeat' | 'answer'
 
@@ -443,7 +446,7 @@ export interface LedgerRecord {
   event:
     | 'task.dispatched' | 'task.status' | 'task.pr_ready' | 'task.merged' | 'task.cleaned_up' | 'task.relaunched'
     | 'decision.opened' | 'decision.resolved' | 'backlog.added' | 'backlog.state'
-    | 'project.added' | 'project.removed' | 'project.remote_changed' | 'project.engine_changed' | 'project.pushed' | 'project.push_refused'
+    | 'project.added' | 'project.removed' | 'project.remote_changed' | 'project.engine_changed' | 'project.pushed' | 'project.push_refused' | 'project.engine_declared'
     | 'presence.changed' | 'achievement'
   task?: string
   project?: string
@@ -792,7 +795,7 @@ export interface UpdateInfo {
   error?: string
 }
 
-/** Push events main → renderer */
+/** Push events main â†’ renderer */
 export type GenioEvent =
   | { type: 'pending-units'; projects: string[] }
   | { type: 'inventory'; state: import('./inventory').InventoryState }
