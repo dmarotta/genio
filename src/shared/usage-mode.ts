@@ -301,8 +301,8 @@ export interface MeterRow {
   missing: string[]
   note?: string
   error?: string
-  /** the stable one-line shape for compact meters and hover popups */
-  summary: PlanUsageSummary
+  /** the stable one-line shape for compact meters and hover popups; meterRows always sets it */
+  summary?: PlanUsageSummary
 }
 
 /**
