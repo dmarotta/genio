@@ -42,7 +42,7 @@ it('allocates at most one lease across separate Node processes', async () => {
   } finally { await Promise.all(children.map(c=>new Promise<void>(r=>{c.once('exit',()=>r());c.kill()}))) }
 })
 function git(cwd: string, args: string[]) { return execFileSync('git',args,{cwd,encoding:'utf8',env:{...process.env,GIT_CONFIG_COUNT:'0'}}).trim() }
-it('copies only a committed revision, seeds Library without credentials, and protects dirty or open slots', async () => {
+it('copies only a committed revision, seeds Library without credentials, clears a crashed editor lock and protects dirty slots', async () => {
   git(world,['init','-q']);git(world,['config','user.name','Test']);git(world,['config','user.email','test@example.invalid'])
   fs.mkdirSync(path.join(world,'Assets'));fs.writeFileSync(path.join(world,'Assets/game.txt'),'v1');fs.writeFileSync(path.join(world,'.gitignore'),'Library/\nTemp/\n')
   git(world,['add','.']);git(world,['commit','-qm','first'])
@@ -54,12 +54,16 @@ it('copies only a committed revision, seeds Library without credentials, and pro
   expect(fs.existsSync(path.join(a.root,'Library/Pipeline'))).toBe(false)
   expect(fs.readFileSync(path.join(a.root,'Library/warm'),'utf8')).toBe('cache')
   fs.writeFileSync(path.join(world,'Assets/game.txt'),'v2');git(world,['add','Assets']);git(world,['commit','-qm','second'])
+  // A crashed editor leaves its lockfile and no live process: switching clears it instead of refusing.
   fs.mkdirSync(path.join(a.root,'Temp'));fs.writeFileSync(path.join(a.root,'Temp/UnityLockfile'),'')
-  await expect(pool.prepare(a.id,a.token)).rejects.toThrow('Close')
-  fs.unlinkSync(path.join(a.root,'Temp/UnityLockfile'));fs.writeFileSync(path.join(a.root,'Assets/game.txt'),'local')
+  await pool.prepare(a.id,a.token)
+  expect(fs.readFileSync(path.join(a.root,'Assets/game.txt'),'utf8')).toBe('v2')
+  expect(fs.existsSync(path.join(a.root,'Temp/UnityLockfile'))).toBe(false)
+  fs.writeFileSync(path.join(world,'Assets/game.txt'),'v3');git(world,['add','Assets']);git(world,['commit','-qm','third'])
+  fs.writeFileSync(path.join(a.root,'Assets/game.txt'),'local')
   await expect(pool.prepare(a.id,a.token)).rejects.toThrow('local changes')
   expect(fs.readFileSync(path.join(a.root,'Assets/game.txt'),'utf8')).toBe('local')
-})
+}, 30000)
 it('refuses links in Unity trees before an editor can import outside its slot', async () => {
   const lease=(await pool.acquire('a'))!
   fs.mkdirSync(path.join(lease.root,'Assets'),{recursive:true})

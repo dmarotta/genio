@@ -8,7 +8,7 @@ import { effectiveEngine } from '@shared/engine'
 import { supportsPlay, type PlayAction, type PlayInput, type PlayScene } from '@shared/play'
 import { PlayStream } from './play-stream'
 import { installPlayPackage } from './play-package'
-import { PlayPool, type PoolLease } from '../../resources/unit-skills/genio/skills/play/scripts/pool.mjs'
+import { PlayPool, stuckMessage, type PoolLease } from '../../resources/unit-skills/genio/skills/play/scripts/pool.mjs'
 
 export function assertPlayWindow(binding: { project: string } | undefined, world: unknown): void {
   if (!binding || world !== binding.project) throw new Error('Play is bound to this project window; open the project first')
@@ -43,6 +43,28 @@ export class PlayService {
   }
   async poolState(world: string) { return { ...await this.pool(world).state(), selected: this.leases.get(world)?.id } }
   async configurePool(world: string, cap: number) { await this.pool(world).configure(cap); this.ctx.stats.unlock('play-pool-configured') }
+  selectedSlot(world: string): number | undefined { return this.leases.get(world)?.id }
+  /**
+   * The supported recovery for a slot editor: graceful quit, timed wait, then a forced stop of
+   * only that slot's verified processes. The player (confirmed in the Play screen) may revoke
+   * a live lease; Genio recovers only free, orphaned or stuck slots.
+   */
+  async closeSlotEditor(world: string, id: number, actor: 'player' | 'genio'): Promise<void> {
+    if (this.poolBusy.has(world)) throw new Error('Play slot preparation is already running')
+    this.poolBusy.add(world)
+    try {
+      if (this.leases.get(world)?.id === id) {
+        if (actor !== 'player') throw new Error('The player is using this Play slot')
+        await this.stopStream(world)
+        clearInterval(this.heartbeats.get(world)); this.heartbeats.delete(world); this.leases.delete(world)
+      }
+      const result = await this.pool(world).closeSlot(id, { force: actor === 'player' })
+      if (!result.closed) throw new Error(actor === 'player' ? `Slot ${id} editor could not be closed: ${result.reason}${result.pids.length ? ` (PIDs ${result.pids.join(', ')})` : ''}. Close that Unity window yourself, then use Close slot editor again.` : stuckMessage(id, result))
+    } finally {
+      this.poolBusy.delete(world)
+      if (this.pendingDetach.delete(world)) await this.detach(world)
+    }
+  }
   async selectSlot(world: string, id?: number, takeover = false): Promise<void> {
     if (this.poolBusy.has(world)) throw new Error('Play slot preparation is already running')
     this.poolBusy.add(world)
@@ -201,11 +223,13 @@ export class PlayService {
     this.opening.set(root, Date.now())
     const lease = this.leases.get(world)
     if (lease) { await this.pool(world).validateCopy(lease.id); await this.pool(world).check(lease.id, lease.token) }
-    await new Promise<void>((resolve, reject) => {
+    const pid = await new Promise<number | undefined>((resolve, reject) => {
       const child = spawn(editor, [...(lease ? ['-automated'] : []), '-projectPath', root], { detached: true, stdio: 'ignore', windowsHide: !!lease })
       child.once('error', () => { this.opening.delete(root); reject(new Error('Could not open Unity')) })
-      child.once('spawn', () => { child.unref(); resolve() })
+      child.once('spawn', () => { child.unref(); resolve(child.pid) })
     })
+    // A slot editor is recorded so releasing the slot closes exactly this process tree.
+    if (lease && pid) await this.pool(world).recordEditor(lease.id, lease.token, pid)
   }
 }
 const services = new WeakMap<AppCtx, PlayService>()

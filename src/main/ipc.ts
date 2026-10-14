@@ -67,6 +67,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     playPoolCap: (world, cap) => playService(ctx()).configurePool(world, cap),
     playPoolEstimate: world => playService(ctx()).pool(world).estimate(),
     playSelectSlot: (world, id, takeover) => playService(ctx()).selectSlot(world, id, takeover),
+    playCloseSlotEditor: (world, id) => playService(ctx()).closeSlotEditor(world, id, 'player'),
     playDetach: world => playService(ctx()).detach(world),
     inventoryOpen: async (world) => {
       const state = await ctx().inventory.open(world)
@@ -362,7 +363,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
           } catch (error) { close(); throw error }
           return
         }
-        if (method === 'playDetach' || method === 'playSelectSlot') playConnections.get(args[0] as string)?.()
+        if (method === 'playDetach' || method === 'playSelectSlot' || method === 'playCloseSlotEditor' && playService(ctx()).selectedSlot(args[0] as string) === args[1]) playConnections.get(args[0] as string)?.()
         if (binding) {
           if (['answerDecision', 'clarifyDecision', 'deferDecision', 'applyRecommendations'].includes(method)) {
             const ids = method === 'applyRecommendations' ? (args[0] as { id: string }[]).map(r => r.id) : [String(args[0])]

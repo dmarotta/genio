@@ -51,6 +51,21 @@ it('does not overlap slow captures or keep showing a disconnected frame', async 
   await act(async () => vi.advanceTimersByTimeAsync(1000))
   expect(host.querySelector('img')).toBeNull()
 })
+it('warns about a stuck slot and closes its editor only after the player confirms', async () => {
+  const pool = {cap:1,slots:[{id:1,root:'slot-1',editor:true,stuck:{reason:'its Unity processes survived a forced stop',pids:[41],at:1}}],queue:[]}
+  api.playPool.mockResolvedValue(pool)
+  const close = vi.fn().mockResolvedValue(undefined); Object.assign(api,{playCloseSlotEditor:close})
+  const confirm = vi.spyOn(window,'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
+  try {
+    await act(async () => root.render(React.createElement(Play)))
+    expect(host.querySelector('[role=alert]')?.textContent).toContain('Slot 1 is stuck')
+    const button = [...host.querySelectorAll('button')].find(b => b.textContent === 'Close slot editor')!
+    await act(async () => button.click())
+    expect(close).not.toHaveBeenCalled()
+    await act(async () => button.click())
+    expect(close).toHaveBeenCalledWith('game',1)
+  } finally { confirm.mockRestore(); api.playPool.mockResolvedValue({cap:1,slots:[],queue:[]}) }
+})
 it('decodes one live frame per credit, forwards held input only while focused, and releases on close', async () => {
   const bitmap = { close: vi.fn() }
   const drawImage = vi.fn()

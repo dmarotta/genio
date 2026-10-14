@@ -15,7 +15,7 @@ const PLAYER_FACING_TOOLS: Record<string, string> = {
 // Supporting reads, orchestration and maintenance. New tools must be classified
 // explicitly so adding a registration cannot silently bypass the coverage guard.
 const SUPPORTING_TOOLS = [
-  'play_status', 'play_console', 'play_stats',
+  'play_status', 'play_console', 'play_stats', 'play_slot_recover',
   'fal_models', 'approve_run', 'generation_status',
   'fleet_view', 'unit_state', 'read_task_file', 'terminal_tail', 'ping', 'control',
   'despawn', 'upgrade_recon', 'quest_list', 'quest_update', 'quest_hold', 'quest_release',

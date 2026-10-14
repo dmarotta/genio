@@ -33,7 +33,8 @@ export type PlayAction =
   | { type: 'pointer'; x: number; y: number }
 
 export type PlayInput = { type: 'release' } | { type: 'state'; keys: string[]; x: number; y: number; buttons: number; axes: number[]; gamepadButtons: number }
-export interface PlaySlot { id: number; root: string; revision?: string; owner?: string; expires?: number; preparing?: boolean }
+/** stuck: the slot editor would not close; nobody can lease the slot until Genio or the player recovers it. */
+export interface PlaySlot { id: number; root: string; revision?: string; owner?: string; expires?: number; preparing?: boolean; editor?: boolean; closing?: boolean; stuck?: { reason: string; pids: number[]; at: number } }
 export interface PlayPoolState { cap: number; slots: PlaySlot[]; queue: string[]; selected?: number }
 
 /** Delay after completion: no overlapping captures or catch-up bursts. */

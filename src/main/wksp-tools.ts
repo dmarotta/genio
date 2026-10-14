@@ -233,6 +233,12 @@ export function createToolRegistry(
     await play(world).act(world, action, 'genio', player_words)
     return ok('Play action completed')
   })
+  t('play_slot_recover', 'Recover a shared Play slot a unit reported stuck, or one whose editor outlived its lease: closes only that slot\'s recorded Unity editor and child processes (graceful quit, then forced stop), never the main editor or Toolbox, and frees the slot. Refuses slots leased by a live unit or the player. Never stop Unity processes any other way.', {
+    world: z.string(), slot: z.number().int().min(1).max(8)
+  }, async ({ world, slot }) => {
+    await play(world).closeSlotEditor(world, slot, 'genio')
+    return ok(`Play slot ${slot} editor closed; the slot is free`)
+  })
   t('assets_find', 'Read-only project Inventory search. Supports browser syntax such as t:sfx, in:Audio, lfs:missing. Includes vendor assets; results never authorize writes.', {
     world: z.string(), query: z.string().optional(), kind: assetKind.optional(), folder: z.string().optional(), generated: z.boolean().optional(), limit: z.number().int().min(1).max(200).optional()
   }, async ({ world, query, kind, folder, generated, limit }) => {

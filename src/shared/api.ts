@@ -434,6 +434,8 @@ export interface GenioApi {
   playPoolCap(world: string, cap: number): Promise<void>
   playPoolEstimate(world: string): Promise<number>
   playSelectSlot(world: string, id?: number, takeover?: boolean): Promise<void>
+  /** Close a slot's Unity editor safely; revokes a unit's lease on that slot (the player confirmed). */
+  playCloseSlotEditor(world: string, id: number): Promise<void>
   playDetach(world: string): Promise<void>
   /** Open starts the watcher and returns the cache while reconciling in background. */
   inventoryOpen(world: string): Promise<InventoryState>
@@ -623,7 +625,7 @@ export type ApiMethod = keyof GenioApi
 /** Every GenioApi method, as runtime data (contextBridge cannot clone a Proxy). */
 export const API_METHODS = [
   'playStatus', 'playScenes', 'playAction', 'playFrame', 'playConsole', 'playStats', 'playOpenUnity', 'playScreenshot',
-  'playEnableStreaming', 'playStream', 'playPool', 'playPoolCap', 'playPoolEstimate', 'playSelectSlot', 'playDetach',
+  'playEnableStreaming', 'playStream', 'playPool', 'playPoolCap', 'playPoolEstimate', 'playSelectSlot', 'playCloseSlotEditor', 'playDetach',
   'inventoryOpen', 'inventoryClose', 'inventoryRefresh', 'inventoryList', 'inventoryInfo',
   'featureUsed',
   'trophyPin',
