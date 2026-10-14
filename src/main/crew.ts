@@ -6,7 +6,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { DeliveryMode, LoadoutInput, StatusEvent, Task, TaskCounters, TaskState, TerminalInfo } from '@shared/types'
+import type { DeliveryMode, LoadoutInput, Project, StatusEvent, Task, TaskCounters, TaskState, TerminalInfo } from '@shared/types'
 import type { OpResult, SpawnRequest, TaskFile } from '@shared/api'
 import type { AppCtx, CrewService } from './services'
 import type { Home } from './home'
@@ -24,6 +24,8 @@ import { modeLabel } from '@shared/vocab'
 import { DONE_STATES, squadOutcome } from '@shared/squad-display'
 import { cheapModelsAllowed } from '@shared/dispatch'
 import { questOrder } from '@shared/quest-board'
+import { effectiveEngine } from '@shared/engine'
+import { supportsPlay } from '@shared/play'
 import { defaultShell } from './terminals'
 import { getSecret } from './secrets'
 import { installUnitHooks } from './unithooks'
@@ -41,6 +43,14 @@ const ENDED: TaskState[] = ['merged', 'done', 'failed', 'cleaned']
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
+}
+
+/** A unit's Play skill shares the player's slot pool: same world, same data dir, same engine root as the Play screen. */
+export function unitPlayEnv(project: Project | undefined, data: string, worktree: string): Record<string, string> {
+  if (!project) return {}
+  const { engine, root } = effectiveEngine(project)
+  if (!supportsPlay(engine)) return {}
+  return { GENIO_PLAY_DATA: data, GENIO_PLAY_WORLD: project.path, GENIO_PLAY_SOURCE: worktree, GENIO_PLAY_ENGINE_ROOT: root }
 }
 
 export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService {
@@ -157,11 +167,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       /* no OS encryption: the skill reports the key as missing */
     }
     const extras = unitLaunchExtras(harnessId, { pluginDir: installed, falKey, dataDir: mainHome.data, taskDataDir: home.taskDir(t.id) })
-    const project = getCtx().projects.get(t.project)
-    if (project?.engine === 'unity') Object.assign(extras.env, {
-      GENIO_PLAY_DATA: mainHome.data, GENIO_PLAY_WORLD: project.path,
-      GENIO_PLAY_SOURCE: t.worktree, GENIO_PLAY_ENGINE_ROOT: project.engineRoot ?? ''
-    })
+    Object.assign(extras.env, unitPlayEnv(getCtx().projects.get(t.project), mainHome.data, t.worktree))
     return extras
   }
 

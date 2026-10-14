@@ -1,4 +1,4 @@
-﻿import fs from 'node:fs'
+import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
@@ -49,6 +49,26 @@ it('ignores caches, hidden directories and projects deeper than two levels', () 
   expect(detectEngine(root)).toEqual({ engine: 'other', engineRoot: '', commands: {} })
   put('package.json', JSON.stringify({ scripts: { build: 'vite build' }, dependencies: { phaser: '*' } }))
   expect(detectEngine(root)).toMatchObject({ engine: 'web', engineRoot: '', commands: { build: 'npm run build' } })
+})
+
+it('reads a package.json saved with a UTF-8 BOM', () => {
+  put('package.json', '\uFEFF' + JSON.stringify({ scripts: { dev: 'vite' }, dependencies: { phaser: '*' } }))
+  expect(detectEngine(root)).toMatchObject({ engine: 'web', engineRoot: '', commands: { run: 'npm run dev' } })
+})
+
+it('refreshes ordinary folders on startup refresh and Sync, not only on window open', async () => {
+  const home = new Home(path.join(root, 'home'))
+  const ctx = { main: { home }, ledger: { record() {} } } as unknown as AppCtx
+  fs.mkdirSync(path.join(root, 'folder'))
+  const { project: opened } = await createProjectsService(() => ctx).openFolder(path.join(root, 'folder'))
+  expect(opened).toMatchObject({ gitRepo: false, engine: 'other', engineRoot: '' })
+  put('folder/FoundersOfAvalonUnity/ProjectSettings/ProjectVersion.txt')
+  const restarted = createProjectsService(() => ctx)
+  await restarted.refreshRemotes()
+  expect(restarted.get(opened.name)).toMatchObject({ gitRepo: false, mode: 'local-only', engine: 'unity', engineRoot: 'FoundersOfAvalonUnity' })
+  fs.rmSync(path.join(root, 'folder', 'FoundersOfAvalonUnity'), { recursive: true })
+  await restarted.sync(opened.name)
+  expect(restarted.get(opened.name)).toMatchObject({ engine: 'other', engineRoot: '' })
 })
 
 it('upgrades legacy fallback engines, preserves manual and specific legacy choices and custom commands', () => {

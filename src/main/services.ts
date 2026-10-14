@@ -51,7 +51,7 @@ export interface ProjectsService {
   remove(name: string, deleteClone: boolean): Promise<OpResult>
   /** guarded fleet sync (fast-forward default branch, prune merged gone branches) */
   sync(name?: string): Promise<OpResult>
-  /** re-read each world's remote; auto modes follow a changed remote (manual ones are kept). Returns notices. */
+  /** re-detect each world's engine (git repos and ordinary folders) and re-read its remote; auto modes follow a changed remote (manual ones are kept). Returns notices. */
   refreshRemotes(name?: string): Promise<string[]>
   /** unpushed/behind counts of the default branch for Offline worlds with a remote */
   pushStatus(name: string): Promise<PushStatus | undefined>

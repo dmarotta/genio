@@ -107,7 +107,7 @@ it('refuses another editor when the project has a live editor without Pipeline',
   fs.mkdirSync(path.join(root,'ProjectSettings'))
   fs.writeFileSync(path.join(root,'ProjectSettings/ProjectVersion.txt'),'m_EditorVersion: 6000.5.1f1')
   fs.writeFileSync(path.join(root,'Library/EditorInstance.json'),JSON.stringify({process_id:process.pid}))
-  const ctx = { projects: { get: () => ({path:root}) } } as unknown as AppCtx
+  const ctx = { projects: { get: () => ({path:root,engine:'unity'}) } } as unknown as AppCtx
   await expect(new PlayService(ctx).open('game')).rejects.toThrow('already owns')
 })
 it('resolves the installed editor for the exact project version, never PATH unity', () => {

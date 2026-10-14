@@ -5,6 +5,7 @@ import { Worker } from 'node:worker_threads'
 import { createHash } from 'node:crypto'
 import type { InventoryAsset, InventoryInfo, InventoryQuery, InventoryResult, InventoryState } from '@shared/inventory'
 import { inventoryMediaUrl, NATIVE_THUMB_EXTS, THUMB_MAX_BYTES } from '@shared/inventory'
+import { effectiveEngine } from '@shared/engine'
 import { assetKind, assetTags, ignoredAssetPath, matchInventory, pageInventory, under, vendorPath, type InventoryMatch } from './inventory-query'
 import { INVENTORY_WORKER } from './inventory-worker'
 import { bus } from './bus'
@@ -189,8 +190,9 @@ export function createInventoryService(getCtx: () => AppCtx, decode?: ThumbnailD
       })()
     }
     await w.loading
-    w.state.engine = proj.engine
-    w.state.engineRoot = proj.engineRoot
+    const { engine, root } = effectiveEngine(proj)
+    w.state.engine = engine
+    w.state.engineRoot = root
     return w
   }
   const readConfig = async (w: WorldIndex, files: Map<string, boolean>): Promise<{ vendor: string[]; ignore: string[] }> => {

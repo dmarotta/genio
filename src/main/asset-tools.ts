@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import type { AppCtx } from './services'
 import type { AssetKind, InventoryAsset, InventoryQuery } from '@shared/inventory'
+import { effectiveEngine } from '@shared/engine'
 import { suggestLocation } from '../../resources/unit-skills/genio/lib/genio-world.mjs'
 import { guardedWorldFile } from './inventory'
 
@@ -54,5 +55,6 @@ export async function locateAsset(ctx: AppCtx, world: string, kind: AssetKind, n
     if ((await fs.stat(file)).size > 1024 * 1024) throw new Error('Project config is too large')
     config = JSON.parse(await fs.readFile(file, 'utf8')) ?? {}
   }
-  return suggestLocation({ assets, kind, name, hint, engine: project.engine, engineRoot: project.engineRoot ?? '', config, root: project.path })
+  const { engine, root: engineRoot } = effectiveEngine(project)
+  return suggestLocation({ assets, kind, name, hint, engine, engineRoot, config, root: project.path })
 }

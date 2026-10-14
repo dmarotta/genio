@@ -2,9 +2,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import type { AppCtx } from './services'
-import { detectEngine } from './projects'
 import { UnityAdapter, type EngineAdapter } from './play-unity'
 import { unityEditor } from './play-editor'
+import { effectiveEngine } from '@shared/engine'
 import { supportsPlay, type PlayAction, type PlayInput, type PlayScene } from '@shared/play'
 import { PlayStream } from './play-stream'
 import { installPlayPackage } from './play-package'
@@ -31,10 +31,10 @@ export class PlayService {
   private project(world: string, main = false) {
     const p = this.ctx.projects.get(world)
     if (!p) throw new Error('Unknown Play project')
-    const detected = detectEngine(p.path)
-    if (!supportsPlay(detected.engine)) throw new Error('Snapshot Play currently supports Unity projects')
+    const { engine, root: engineRoot } = effectiveEngine(p)
+    if (!supportsPlay(engine)) throw new Error('Snapshot Play currently supports Unity projects')
     if (!main && this.lostSlots.has(world)) throw new Error('Play slot lease was taken over. Select main or lease a slot again.')
-    return { p, root: !main && this.leases.has(world) ? this.leases.get(world)!.root : path.resolve(p.path, detected.engineRoot), engineRoot: detected.engineRoot }
+    return { p, root: !main && this.leases.has(world) ? this.leases.get(world)!.root : path.resolve(p.path, engineRoot), engineRoot }
   }
   pool(world: string): PlayPool {
     let pool = this.pools.get(world)

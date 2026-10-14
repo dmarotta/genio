@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Project } from '@shared/types'
 import type { SpendLine } from '@shared/fal'
+import { effectiveEngine } from '@shared/engine'
 import { appendSpend, lfsWarnings, provenancePath, sha256File, writeProvenance, type Provenance } from './fal-world'
 
 const MEDIA = /\.(png|jpe?g|webp|gif|tga|tiff?|exr|bmp|psd|wav|ogg|mp3|flac|m4a|aac|mp4|webm|mov|glb|gltf|fbx|obj|bvh)$/i
@@ -21,10 +22,10 @@ export function placementTarget(project: Pick<Project, 'path' | 'engine' | 'engi
   if (!relative || /[\\:\x00-\x1f<>"|?*]/.test(relative) || relative.split('/').some(s => !s || s === '.' || s === '..' || /[. ]$/.test(s) || /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\.|$)/i.test(s))) throw new Error('Expected a safe project-relative media path')
   if (!MEDIA.test(relative)) throw new Error('Only generated media may be placed; no code, scenes, prefabs or .meta files')
   const parts = relative.split('/')
-  if (parts.slice(0, -1).some(s => (FORBIDDEN.test(s) && (agent || !/^generated$/i.test(s))) || project.engine === 'unreal' && /^Content$/i.test(s))) throw new Error('Forbidden placement directory')
-  const engineRoot = (project.engineRoot ?? '').replace(/\\/g, '/').replace(/\/$/, '')
+  const { engine, root: engineRoot } = effectiveEngine(project)
+  if (parts.slice(0, -1).some(s => (FORBIDDEN.test(s) && (agent || !/^generated$/i.test(s))) || engine === 'unreal' && /^Content$/i.test(s))) throw new Error('Forbidden placement directory')
   if (engineRoot && !relative.toLowerCase().startsWith(engineRoot.toLowerCase() + '/')) throw new Error('Placement must stay under the engine root')
-  if (agent && project.engine === 'unity' && /\.(glb|gltf)$/i.test(relative) && parts.some(s => /^Assets$/i.test(s))) throw new Error('Unity glTF sources must stay outside Assets; use asset_locate')
+  if (agent && engine === 'unity' && /\.(glb|gltf)$/i.test(relative) && parts.some(s => /^Assets$/i.test(s))) throw new Error('Unity glTF sources must stay outside Assets; use asset_locate')
   noLinks(project.path, relative)
   // Match Inventory's inferred pack roots, including new sibling folders with no media yet.
   let ancestor = project.path

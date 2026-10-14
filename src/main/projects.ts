@@ -39,7 +39,8 @@ function listDir(dir: string): string[] {
 
 function readSafe(p: string): string {
   try {
-    return fs.readFileSync(p, 'utf8')
+    // Windows editors save a UTF-8 BOM, which JSON.parse rejects (a web game's package.json read as 'other').
+    return fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, '')
   } catch {
     return ''
   }
@@ -439,10 +440,12 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
       let engineChanged = false
       for (let i = 0; i < list.length; i++) {
         const p = list[i]
-        if ((name && p.name !== name) || !exists(p.path) || !(await git.isRepo(p.path))) continue
+        if ((name && p.name !== name) || !exists(p.path)) continue
         const refreshed = refreshEngine(p)
         if (JSON.stringify(refreshed) !== JSON.stringify(p)) engineChanged = true
         list[i] = refreshed
+        // Ordinary folders refresh their engine too; only git repos have a remote to follow.
+        if (!(await git.isRepo(p.path))) continue
         const change = applyRemoteChange(refreshed, await git.remoteUrl(p.path))
         if (!change) continue
         list[i] = change.next

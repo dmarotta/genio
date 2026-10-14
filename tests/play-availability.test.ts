@@ -12,6 +12,7 @@ import { PLAY_ENGINES, supportsPlay } from '../src/shared/play'
 import { RAIL, navItems, viewAvailable, windowRail } from '../src/renderer/src/lib/railmenu'
 import { getState, go, handleEvent, playAvailable, setState } from '../src/renderer/src/store'
 import { Rail, navFor } from '../src/renderer/src/components/Rail'
+import { ENGINE_CASES, engineProject } from './engine-cases'
 
 const project = (engine?: Engine): Project => ({ name: 'game', path: '/game', engine } as Project)
 const withEngine = (engine?: Engine): void => handleEvent({ type: 'projects', projects: engine === undefined ? [] : [project(engine)] })
@@ -47,6 +48,15 @@ describe('window rail', () => {
     const menu = { kind: 'menu' as const, id: 'game', label: 'Game', items: [{ id: 'play' as const, label: 'Play', key: '0' }] }
     expect(windowRail(true, false, [menu])).toEqual([])
     expect(windowRail(true, true, [menu])).toEqual([menu])
+  })
+})
+
+// Same stored entries as the main-process contract in engine-contract.test.ts: the rail offers Play exactly when PlayService accepts it.
+describe('Play gate agrees with the main process', () => {
+  afterEach(() => setState({ view: 'comms' }))
+  it.each(ENGINE_CASES)('$name', ({ stored, play }) => {
+    handleEvent({ type: 'projects', projects: [engineProject(stored, '/game')] })
+    expect(playAvailable(getState())).toBe(play)
   })
 })
 

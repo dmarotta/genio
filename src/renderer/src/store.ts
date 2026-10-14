@@ -12,6 +12,7 @@ import { playSfx } from './lib/sfx'
 import { speak } from './lib/voice'
 import { viewAvailable, type ViewId } from './lib/railmenu'
 import { supportsPlay } from '@shared/play'
+import { effectiveEngine } from '@shared/engine'
 
 export type { ViewId }
 
@@ -466,8 +467,10 @@ export async function boot(): Promise<void> {
 // ------------------------------------------------------------------ selectors
 
 /** Play is offered only in a project window whose project has a supported engine; follows engine changes live. */
-export const playAvailable = (s: State): boolean =>
-  !!PROJECT_WINDOW && supportsPlay(s.snap.projects.find((p) => p.name === PROJECT_WINDOW)?.engine)
+export const playAvailable = (s: State): boolean => {
+  const project = PROJECT_WINDOW ? s.snap.projects.find((p) => p.name === PROJECT_WINDOW) : undefined
+  return !!project && supportsPlay(effectiveEngine(project).engine)
+}
 
 export const runningUnits = (s: State): number => occupiedUnits(s.snap.tasks, s.terminals) + (s.snap.pendingUnits?.length ?? 0)
 

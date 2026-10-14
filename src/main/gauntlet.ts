@@ -11,7 +11,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { isDefaultUnityTest, unityTestCommand } from './play-editor'
-import type { Task, ValidationRun, ValidationStep } from '@shared/types'
+import { effectiveEngine } from '@shared/engine'
+import type { Project, Task, ValidationRun, ValidationStep } from '@shared/types'
 import type { OpResult } from '@shared/api'
 import type { AppCtx } from './services'
 import type { Home } from './home'
@@ -32,6 +33,12 @@ interface ReviewVerdict {
 }
 
 const STEP_TIMEOUT_MS = 20 * 60_000
+
+/** The Unity test gate runs on the worktree's copy of the same engine root Play and placement use. */
+export function unityTestRoot(project: Pick<Project, 'engine' | 'engineRoot'>, worktree: string): { dir: string; relative: string } | undefined {
+  const { engine, root } = effectiveEngine(project)
+  return engine === 'unity' ? { dir: path.resolve(worktree, root || '.'), relative: root || '.' } : undefined
+}
 
 function section(md: string, heading: string): string {
   const i = md.indexOf(heading)
@@ -146,9 +153,9 @@ export function createGauntlet(getCtx: () => AppCtx, home: Home): Gauntlet {
     }
 
     const cmds = { ...project.commands }
-    if (project.engine === 'unity' && isDefaultUnityTest(cmds.test)) {
-      const engineRoot = project.engineRoot || '.'
-      const command = unityTestCommand(path.resolve(t.worktree, engineRoot), engineRoot)
+    const unity = isDefaultUnityTest(cmds.test) ? unityTestRoot(project, t.worktree) : undefined
+    if (unity) {
+      const command = unityTestCommand(unity.dir, unity.relative)
       if (!command) return { ok: false, message: 'The Unity version required by this worktree is not installed in Unity Hub.' }
       cmds.test = command
     }
