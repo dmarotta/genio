@@ -50,10 +50,26 @@ export function chatSettings(s: Settings, dataDir: string): Settings {
   return { ...s, wkspModel: chat.model, wkspEffort: chat.effort, botModel: s.botModel?.trim() || SONNET }
 }
 
+/** Units in play (the cap's definition), in one project or across every base. */
+export function unitsInPlay(homes: Iterable<{ crew: { list(): Task[] } }>, alive: (t: Task) => boolean, project?: string): Task[] {
+  const out: Task[] = []
+  for (const h of homes) out.push(...h.crew.list().filter((t) => holdsCapacity(t, alive(t)) && (!project || t.project === project)))
+  return out
+}
+
 export function liveUnits(homes: Iterable<{ crew: { list(): Task[] } }>, alive: (t: Task) => boolean, project?: string): number {
-  let n = 0
-  for (const h of homes) n += h.crew.list().filter((t) => holdsCapacity(t, alive(t)) && (!project || t.project === project)).length
-  return n
+  return unitsInPlay(homes, alive, project).length
+}
+
+/** The quit/close warning for units still in play, naming them so the player sees what runs. */
+export function stopUnitsDialog(units: Pick<Task, 'title' | 'state'>[], action: 'close' | 'exit'): { buttons: string[]; message: string; detail: string } {
+  const shown = units.slice(0, 8).map((t) => `• ${t.title} (${t.state})`)
+  if (units.length > shown.length) shown.push(`• and ${units.length - shown.length} more`)
+  return {
+    buttons: [`Stop units and ${action}`, 'Cancel'],
+    message: `${units.length} unit${units.length === 1 ? ' is' : 's are'} still running.`,
+    detail: `${shown.join('\n')}\n\n${action === 'exit' ? 'Exiting Genio' : 'Closing'} stops their terminals; worktrees are kept for respawn.`
+  }
 }
 
 export function heartbeatFor(s: Pick<Settings, 'usageMode'>): { baseMs: number; maxMs: number } {

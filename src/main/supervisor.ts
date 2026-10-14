@@ -57,6 +57,8 @@ const TURN_END_SETTLE_MS = 20_000
 /** After a Recon's done event is handled, the chat gets this long to file a choice or follow-up. */
 const RECON_SETTLE_MS = 120_000
 const RECON_RECENT_MS = 24 * 3600_000
+/** A finished unit's idle terminal is closed after this long without output. */
+export const IDLE_CLOSE_MS = 120_000
 
 export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorService {
   const tracks = new Map<string, Track>()
@@ -478,6 +480,29 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
     ], false)
   }
 
+  // ------------------------------------------------------------ (6c) idle finished terminal
+
+  /**
+   * A finished unit's harness sits idle at its prompt: a Recon whose report
+   * exists, or a Build that is ready or merged. Once it has been quiet for the
+   * grace period and nothing for it is pending (ping, choice, wake), stop its
+   * process. The worktree, status log and session id stay, so a relaunch resumes.
+   */
+  function stepIdleClose(t: Task, tr: Track, now: number): void {
+    if (!t.terminalId) return
+    const finished = t.kind === 'scout'
+      ? t.state === 'done' && fs.existsSync(t.reportPath ?? home.reportFile(t.id))
+      : t.state === 'ready' || t.state === 'merged'
+    if (!finished || !ctx().terminals.get(t.terminalId)?.alive) return
+    if (now - lastOutput(t, tr) < IDLE_CLOSE_MS) return
+    const h = hc()
+    if (h.crew.unreadInbox(t.id).length) return
+    if (h.decisions.list(false).some(d => d.taskId === t.id)) return
+    if (h.wakes.pending().some(w => w.taskId === t.id)) return
+    ctx().terminals.kill(t.terminalId)
+    h.crew.update(t.id, { terminalId: undefined })
+  }
+
   function reconFollowedUp(t: Task, finished: number): boolean {
     const after = (iso?: string): boolean => (Date.parse(iso ?? '') || 0) >= finished
     const homes = [...ctx().homes.values()]
@@ -648,6 +673,7 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
         step('inbox', () => stepInbox(t, tr, now, s))
         step('pr', () => stepPr(t, tr, now, s))
         step('recon', () => stepReconParked(t, now))
+        step('idle-close', () => stepIdleClose(hc().crew.get(t0.id) ?? t, tr, now))
       }
       step('triggers', () => stepTriggers(now, s))
       step('tick', () => stepTick(now, s))

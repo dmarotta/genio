@@ -177,7 +177,7 @@ describe('project window lifecycle', () => {
     owner.chatChild = child
   })
   it('guards File Exit for its project and stops only that project after confirmation', async () => {
-    f.ctx.homes.set('main', { crew: { list: () => [{ project: 'one', terminalId: 'term' }] } })
+    f.ctx.homes.set('main', { crew: { list: () => [{ project: 'one', title: 'Fix lighting', state: 'working', terminalId: 'term' }] } })
     f.ipc.close(f.windows[1].webContents.id)
     expect(f.windows[1].destroyed).toBe(false)
     expect(f.stop).not.toHaveBeenCalled()

@@ -19,7 +19,8 @@ import { afterFirstNotification, ensureWindowsToastIdentity, setWindowsAppId, wi
 import { onNotificationShown } from './notifier'
 import { projectFromArgv, projectSnapshot, terminalProject, type WindowBinding } from './project-windows'
 import { createEventRouter, type RoutedWindow } from './event-router'
-import type { GenioEvent } from '@shared/types'
+import type { GenioEvent, Task } from '@shared/types'
+import { stopUnitsDialog, unitsInPlay } from './usage-policy'
 import { fitInto, isChatPopoutUrl, POPOUT_MIN, visiblePopoutBounds, type Rect } from '@shared/chat-popout'
 import { WINDOW_MIN } from '@shared/window'
 import { captureUserData } from './capture-isolation'
@@ -443,21 +444,16 @@ async function shutdown(code = 0): Promise<void> {
   app.exit(code)
 }
 
-/** Units still in play, in one project or (no project) across every window. */
-function liveUnits(project?: string): unknown[] {
+/** Units still in play (the unit cap's definition), in one project or (no project) across every window. */
+function liveUnits(project?: string): Task[] {
   if (!ctx) return []
-  return [...ctx.homes.values()].flatMap(h => h.crew.list()).filter(t =>
-    (!project || t.project === project) && (t.state === 'spawning' || t.terminalId && ctx!.terminals.get(t.terminalId)?.alive))
+  return unitsInPlay(ctx.homes.values(), t => !!t.terminalId && !!ctx!.terminals.get(t.terminalId)?.alive, project)
 }
 
 /** The quit-while-units-run warning; true when nothing runs or the player chose to stop them. */
-function confirmStopUnits(win: BrowserWindow | null, live: unknown[], action: 'close' | 'exit'): boolean {
+function confirmStopUnits(win: BrowserWindow | null, live: Task[], action: 'close' | 'exit'): boolean {
   if (!live.length) return true
-  const options = {
-    type: 'warning' as const, buttons: [`Stop units and ${action}`, 'Cancel'], defaultId: 1, cancelId: 1,
-    title: 'Units still in play', message: `${live.length} unit${live.length === 1 ? ' is' : 's are'} still running.`,
-    detail: `${action === 'exit' ? 'Exiting Genio' : 'Closing'} stops their terminals; worktrees are kept for respawn.`
-  }
+  const options = { type: 'warning' as const, defaultId: 1, cancelId: 1, title: 'Units still in play', ...stopUnitsDialog(live, action) }
   return (win ? dialog.showMessageBoxSync(win, options) : dialog.showMessageBoxSync(options)) === 0
 }
 

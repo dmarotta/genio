@@ -7,7 +7,7 @@ vi.mock('../src/main/secrets', () => ({ getSecret: () => undefined }))
 import { Home } from '../src/main/home'
 import { createCrewService } from '../src/main/crew'
 import { createWakeService } from '../src/main/wakes'
-import { createSupervisor } from '../src/main/supervisor'
+import { IDLE_CLOSE_MS, createSupervisor } from '../src/main/supervisor'
 import { liveUnits } from '../src/main/usage-policy'
 import type { AppCtx } from '../src/main/services'
 import type { Task } from '../src/shared/types'
@@ -77,5 +77,63 @@ describe('durable unit status supervision', () => {
     createSupervisor(() => ctx, home).poke()
     expect(ctx.main.crew.capacityUsed('world')).toBe(0)
     expect(liveUnits(ctx.homes.values(), () => true)).toBe(0)
+  })
+})
+
+describe('closing a finished unit\'s idle terminal', () => {
+  let kill: ReturnType<typeof vi.fn>, quietFor: number, decisions: { taskId: string }[]
+  beforeEach(() => {
+    kill = vi.fn(); quietFor = IDLE_CLOSE_MS + 1_000; decisions = []
+    Object.assign(ctx.terminals, { kill, lastOutputAt: () => Date.now() - quietFor })
+    Object.assign(ctx.main, { decisions: { list: () => decisions } })
+  })
+  const finish = (kind: Task['kind'], state: Task['state']): void => {
+    ctx.main.crew.update('unit', { kind, state, sessionHint: 'session-1' })
+    if (kind === 'scout') { fs.mkdirSync(path.dirname(home.reportFile('unit')), { recursive: true }); fs.writeFileSync(home.reportFile('unit'), '# report') }
+  }
+
+  it.each([['scout', 'done'], ['ship', 'ready'], ['ship', 'merged']] as const)('closes a %s left %s after the grace period and keeps what a relaunch needs', (kind, state) => {
+    finish(kind, state)
+    createSupervisor(() => ctx, home).poke()
+    expect(kill).toHaveBeenCalledWith('terminal')
+    expect(ctx.main.crew.get('unit')).toMatchObject({ state, terminalId: undefined, sessionHint: 'session-1', worktree: root })
+  })
+
+  it('waits for the grace period', () => {
+    finish('scout', 'done'); quietFor = 30_000
+    createSupervisor(() => ctx, home).poke()
+    expect(kill).not.toHaveBeenCalled()
+  })
+
+  it('keeps a Recon open until its report exists', () => {
+    ctx.main.crew.update('unit', { kind: 'scout', state: 'done' })
+    createSupervisor(() => ctx, home).poke()
+    expect(kill).not.toHaveBeenCalled()
+  })
+
+  it.each(['working', 'paused', 'blocked', 'needs-decision', 'validating', 'stale'] as const)('never closes a %s unit', (state) => {
+    finish('ship', state)
+    createSupervisor(() => ctx, home).poke()
+    expect(kill).not.toHaveBeenCalled()
+  })
+
+  it('never closes while a choice for the unit is open', () => {
+    finish('scout', 'done'); decisions = [{ taskId: 'unit' }]
+    createSupervisor(() => ctx, home).poke()
+    expect(kill).not.toHaveBeenCalled()
+  })
+
+  it('never closes while a ping for the unit is unread', async () => {
+    finish('ship', 'ready')
+    await ctx.main.crew.send('unit', 'one more thing')
+    createSupervisor(() => ctx, home).poke()
+    expect(kill).not.toHaveBeenCalled()
+  })
+
+  it('never closes while a wake about the unit is pending', () => {
+    finish('ship', 'ready')
+    ctx.main.wakes.enqueue({ kind: 'signal', reason: 'done', taskId: 'unit', lines: [], routine: false })
+    createSupervisor(() => ctx, home).poke()
+    expect(kill).not.toHaveBeenCalled()
   })
 })
