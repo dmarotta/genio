@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AppCtx } from '../src/main/services'
 import { PlayerInstanceService, type PlayerRuntime } from '../src/main/player-instance'
-import { closePlayerRoot, type PlayerProcess, type PlayerSystem } from '../src/main/player-process'
+import { biggestConsumers, closePlayerRoot, type MemoryProcess, type PlayerProcess, type PlayerSystem } from '../src/main/player-process'
 import { PlayerCopies } from '../resources/unit-skills/genio/lib/player-copy.mjs'
 import type { DesktopApi, DesktopWindow } from '../resources/unit-skills/genio/lib/hidden-desktop.mjs'
 
@@ -17,6 +17,8 @@ let scratch: string, data: string, clock: number, free: number, processes: Playe
 let system: PlayerSystem, desktop: DesktopApi, copies: PlayerCopies, svc: PlayerInstanceService, ctx: AppCtx
 let projects: Map<string, { path: string; engine: string }>, events: string[], modes: Map<string, string>, dialogs: DesktopWindow[]
 let graceful: boolean, killed: boolean, compilerErrors: boolean, installed: boolean
+let commit: number | undefined, usage: MemoryProcess[], slots: { label: string; close(): Promise<unknown> }[]
+const GiB = 2 ** 30
 const services: PlayerInstanceService[] = []
 function project(name: string) {
   const root = path.join(scratch, name); fs.mkdirSync(root, { recursive: true })
@@ -29,7 +31,7 @@ function project(name: string) {
   projects.set(name, { path: root, engine: 'unity' }); return root
 }
 function service() {
-  const r = new PlayerInstanceService(ctx, { copies, system, desktop, ownerCreated: async () => '100', executable: () => installed ? 'FakeUnity.exe' : undefined, graceMs: 500, forceMs: 500, readyMs: 2000,
+  const r = new PlayerInstanceService(ctx, { copies, system, desktop, ownerCreated: async () => '100', executable: () => installed ? 'FakeUnity.exe' : undefined, graceMs: 500, forceMs: 500, readyMs: 2000, idleSlots: async () => slots,
     runtime: root => ({
       async request(command: string, parameters?: object) {
         events.push(command)
@@ -50,9 +52,9 @@ function service() {
 beforeEach(() => {
   scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-player-instance-')); data = path.join(scratch, 'data')
   clock = Date.now(); free = 20 * 2 ** 30; processes = []; nextPid = 1000; projects = new Map(); events = []; modes = new Map(); dialogs = []
-  graceful = true; killed = true; compilerErrors = false; installed = true
+  graceful = true; killed = true; compilerErrors = false; installed = true; commit = undefined; usage = []; slots = []
   system = { list: async () => processes.map(p => ({ ...p })), killVerified: vi.fn(async p => { events.push(`kill:${p.pid}`); if (killed) processes = processes.filter(q => !(q.pid === p.pid && q.created === p.created)); return killed }),
-    memory: () => ({ freeBytes: free, totalBytes: 32 * 2 ** 30 }), sleep: async ms => { clock += ms }, now: () => clock }
+    memory: () => ({ freeBytes: free, totalBytes: 32 * 2 ** 30 }), commit: async () => commit, usage: async () => usage, sleep: async ms => { clock += ms }, now: () => clock }
   desktop = { available: () => true,
     launch: vi.fn(async options => {
       const pid = nextPid++, created = String(200 + pid)
@@ -133,14 +135,66 @@ it('serializes parallel launches under the cap and evicts only a warm editor', a
   expect(svc.status('A').pid).toBeUndefined(); expect(svc.status('B').state).toBe('playing')
   expect((await svc.machine('C')).playerEditors).toBe(2)
 })
-it('refuses low memory, permits an explicit override, and records the peak for the next start', async () => {
-  free = 7 * 2 ** 30
-  await expect(svc.play('A', { path: projects.get('A')!.path })).rejects.toThrow('memory')
-  expect(svc.status('A').state).toBe('low-memory'); expect(processes).toHaveLength(0)
-  await svc.play('A', { path: projects.get('A')!.path }, { startAnyway: true })
-  processes[0].workingSet = 9 * 2 ** 30; await svc.poll(); await svc.quit('A'); await copies.settle()
-  free = 10 * 2 ** 30
-  await expect(svc.play('A', { path: projects.get('A')!.path })).rejects.toThrow('9.0 GB expected')
+it('starts when available memory covers the 6 GiB first-run estimate plus a 1 GiB reserve, closing nothing', async () => {
+  free = 7 * GiB
+  const close = vi.fn(async () => {}); slots = [{ label: 'A slot 1 editor', close }]
+  expect((await svc.play('A', { path: projects.get('A')!.path })).state).toBe('playing')
+  expect(close).not.toHaveBeenCalled()
+})
+it('closes Genio\'s warm player and idle slot editors before refusing, never the player\'s own editor', async () => {
+  project('B'); await svc.play('B', { path: projects.get('B')!.path }); await svc.stop('B')
+  processes.push({ pid: 50, ppid: 1, created: '1', command: 'Unity.exe -projectPath "C:/games/lands-of-old"', workingSet: 9 * GiB })
+  free = 5 * GiB
+  const close = vi.fn(async () => { free += 2 * GiB }); slots = [{ label: 'B slot 1 editor', close }]
+  expect((await svc.play('A', { path: projects.get('A')!.path })).state).toBe('playing')
+  expect(svc.status('B').pid).toBeUndefined(); expect(close).toHaveBeenCalledOnce()
+  expect(processes.some(p => p.pid === 50)).toBe(true); expect(events).not.toContain('kill:50')
+})
+it('asks before copying, naming the biggest consumers, then Cancel dismisses and Start anyway plays', async () => {
+  const p = (pid: number, ppid: number, name: string, gib: number, command = name) => ({ pid, ppid, name, command, workingSet: gib * GiB })
+  usage = [p(27424, 1, 'Unity.exe', 9.4, 'Unity.exe -projectpath C:\\Users\\p\\git\\lands-of-old'), p(22508, 27424, 'Unity.exe', 2.2, 'Unity.exe -batchMode -name AssetImportWorker0'),
+    p(34152, 27424, 'Unity.exe', 1.9), ...[1, 2, 3].map(n => p(60 + n, 1, 'claude.exe', 0.7)), p(70, 1, 'ChatGPT.exe', 1.5), p(71, 1, 'Discord.exe', 0.6)]
+  free = 3.3 * GiB
+  await expect(svc.play('A', { path: projects.get('A')!.path })).rejects.toThrow('3.3 GB available; Unity needs about 6.0 GB. Biggest: lands-of-old editor 13.5 GB, claude 2.1 GB, ChatGPT 1.5 GB.')
+  expect(svc.status('A')).toMatchObject({ state: 'low-memory', lowMemory: { hard: false, neededBytes: 6 * GiB, closed: [] } })
+  expect(copies.status(projects.get('A')!.path)).toBeUndefined(); expect(events).not.toContain('launch')
+  const cancelled = await svc.stop('A')
+  expect(cancelled.state).toBe('idle'); expect(cancelled.lowMemory).toBeUndefined(); expect(cancelled.message).toBeUndefined()
+  expect((await svc.play('A', { path: projects.get('A')!.path }, { startAnyway: true })).state).toBe('playing')
+  expect(svc.status('A').lowMemory).toBeUndefined()
+})
+it('blocks even Start anyway when Windows cannot commit the estimate', async () => {
+  commit = 5 * GiB
+  await expect(svc.play('A', { path: projects.get('A')!.path })).rejects.toThrow('commit')
+  await expect(svc.play('A', { path: projects.get('A')!.path }, { startAnyway: true })).rejects.toThrow('5.0 GB left to commit')
+  expect(svc.status('A')).toMatchObject({ state: 'low-memory', lowMemory: { hard: true, commitBytes: 5 * GiB } }); expect(events).not.toContain('launch')
+  commit = 8 * GiB
+  expect((await svc.play('A', { path: projects.get('A')!.path })).state).toBe('playing')
+})
+it('learns the steady working set from the last session instead of the import peak', async () => {
+  compilerErrors = true
+  await expect(svc.play('A', { path: projects.get('A')!.path })).rejects.toThrow('compile errors')
+  processes[0].workingSet = 12 * GiB; await svc.poll()
+  compilerErrors = false; await svc.play('A', { path: projects.get('A')!.path })
+  processes[0].workingSet = 3 * GiB; await svc.poll()
+  expect(svc.status('A')).toMatchObject({ peakWorkingSet: 12 * GiB, steadyWorkingSet: 3 * GiB })
+  await svc.quit('A'); await copies.settle()
+  free = 4.5 * GiB
+  expect((await svc.play('A', { path: projects.get('A')!.path })).state).toBe('playing')
+  processes[0].workingSet = 5 * GiB; await svc.poll(); processes[0].workingSet = 2 * GiB; await svc.poll()
+  expect(svc.status('A').steadyWorkingSet).toBe(5 * GiB)
+})
+it('gives a copy refused for low memory the idle deadline, then deletes it', async () => {
+  await svc.ensureCopy('A'); free = 3 * GiB
+  await expect(svc.play('A', { path: projects.get('A')!.path })).rejects.toThrow('available')
+  expect(copies.status(projects.get('A')!.path)?.deadline).toBe(clock + 10 * 60000)
+  clock += 10 * 60000; await svc.poll(); await copies.settle()
+  expect(copies.status(projects.get('A')!.path)).toBeUndefined()
+})
+it('groups a Unity editor\'s children under its project and other programs by name', () => {
+  expect(biggestConsumers([{ pid: 1, ppid: 0, name: 'Unity.exe', command: 'Unity.exe -projectPath "D:/w/Game/"', workingSet: 2 }, { pid: 2, ppid: 1, name: 'dotnet.exe', command: 'dotnet VBCSCompiler.dll', workingSet: 1 },
+    { pid: 3, ppid: 0, name: 'Code.exe', command: '', workingSet: 1 }, { pid: 4, ppid: 0, name: 'code.exe', command: '', workingSet: 1 }, { pid: 5, ppid: 0, name: 'x', command: '', workingSet: 0 }], 5))
+    .toEqual([{ name: 'Game editor', bytes: 3 }, { name: 'Code', bytes: 2 }])
 })
 it('reports missing editors and compile errors with a warm error deadline', async () => {
   installed = false

@@ -8,13 +8,20 @@ import { inspectDesktop, type DesktopApi, type EditorLaunch } from '../../resour
 
 const exec = promisify(execFile)
 export interface PlayerProcess extends UnityProcess { workingSet?: number }
+/** Any process on the machine with its working set, only to name what uses the memory. */
+export interface MemoryProcess { pid: number; ppid: number; name: string; command: string; workingSet: number }
 export interface PlayerSystem {
   list(): Promise<PlayerProcess[]>
   killVerified(p: PlayerProcess): Promise<boolean>
+  /** freeBytes is the OS's available memory (on Windows free plus standby pages), never only the free pages. */
   memory(): { freeBytes: number; totalBytes: number }
+  /** Available commit (commit limit minus committed bytes); undefined where the OS does not report it. */
+  commit(): Promise<number | undefined>
+  usage(): Promise<MemoryProcess[]>
   sleep(ms: number): Promise<void>
   now(): number
 }
+const powershell = (script: string) => exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { windowsHide: true, timeout: 15000, maxBuffer: 64 * 1024 * 1024 })
 export const playerSystem: PlayerSystem = {
   async list() {
     const procs = await listProcesses()
@@ -30,8 +37,44 @@ export const playerSystem: PlayerSystem = {
     const { stdout } = await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(unityVerifiedKillScript(p), 'utf16le').toString('base64')], { windowsHide: true, timeout: 10000 })
     return stdout.trim() === 'killed'
   },
+  // libuv reads GlobalMemoryStatusEx().ullAvailPhys on Windows: available memory, standby included.
   memory: () => ({ freeBytes: os.freemem(), totalBytes: os.totalmem() }),
+  async commit() {
+    if (process.platform !== 'win32') return undefined
+    const { stdout } = await powershell('(Get-CimInstance Win32_OperatingSystem).FreeVirtualMemory')
+    const kb = Number(stdout.trim())
+    return Number.isFinite(kb) && kb > 0 ? kb * 1024 : undefined
+  },
+  async usage() {
+    if (process.platform === 'win32') {
+      const { stdout } = await powershell("[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-CimInstance Win32_Process | ForEach-Object { @($_.ProcessId, $_.ParentProcessId, $_.WorkingSetSize, $_.Name, $_.CommandLine) -join [char]9 }")
+      return stdout.split(/\r?\n/).filter(Boolean).map(line => { const [pid, ppid, bytes, name, ...command] = line.split('\t'); return { pid: Number(pid), ppid: Number(ppid), workingSet: Number(bytes) || 0, name: name ?? '', command: command.join('\t') } }).filter(p => p.pid > 0)
+    }
+    const { stdout } = await exec('ps', ['-A', '-o', 'pid=,ppid=,rss=,args='], { maxBuffer: 64 * 1024 * 1024 })
+    return stdout.split('\n').map(line => line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s?(.*)$/)).filter((m): m is RegExpMatchArray => !!m)
+      .map(m => ({ pid: Number(m[1]), ppid: Number(m[2]), workingSet: Number(m[3]) * 1024, name: path.basename(m[4].split(' ')[0] ?? ''), command: m[4] }))
+  },
   sleep: ms => new Promise(r => setTimeout(r, ms)), now: Date.now
+}
+/**
+ * The biggest memory users by plain name: a Unity editor and everything it started (import workers, compilers)
+ * count as "<project> editor", other processes add up by program name ("claude" for seven sessions).
+ */
+export function biggestConsumers(procs: MemoryProcess[], count = 3): { name: string; bytes: number }[] {
+  const byPid = new Map(procs.map(p => [p.pid, p])), groups = new Map<string, { name: string; bytes: number }>()
+  const editorOf = (p: MemoryProcess) => {
+    for (let q: MemoryProcess | undefined = p, seen = new Set<number>(); q && !seen.has(q.pid); seen.add(q.pid), q = byPid.get(q.ppid)) {
+      const project = /^unity(\.exe)?$/i.test(q.name) ? unityEditorProject(q.command) : undefined
+      if (project) return project
+    }
+  }
+  for (const p of procs) {
+    if (!p.workingSet) continue
+    const project = editorOf(p), name = project ? `${path.basename(project.replace(/[\\/]+$/, ''))} editor` : p.name.replace(/\.exe$/i, '')
+    const key = project ? `unity:${canonical(project)}` : name.toLowerCase()
+    const g = groups.get(key) ?? { name, bytes: 0 }; g.bytes += p.workingSet; groups.set(key, g)
+  }
+  return [...groups.values()].sort((a, b) => b.bytes - a.bytes).slice(0, count)
 }
 const canonical = (p: string) => path.resolve(p).replace(/\\/g, '/').toLowerCase()
 export const sameProcess = (a: PlayerProcess, b: { pid: number; created: string }) => a.pid === b.pid && !!b.created && a.created === b.created

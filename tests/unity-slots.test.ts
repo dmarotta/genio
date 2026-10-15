@@ -44,7 +44,7 @@ describe('Settings › This project › Unity slots', () => {
     fixture.pool = { cap: 1, queue: [], slots: [] }
     await mount('unity')
     expect(host.textContent).toContain('Genio Unity editors: 2 running (1 unit slots, 0 player, 1 batch)')
-    expect(host.textContent).toContain('5.0 GB · 14.0 GB free of 32.0 GB')
+    expect(host.textContent).toContain('5.0 GB · 14.0 GB available of 32.0 GB')
     const idle = host.querySelector('[aria-label="Player idle minutes"]') as HTMLInputElement
     expect(idle.value).toBe('10')
     const cap = host.querySelector('[aria-label="Maximum player editors"]') as HTMLSelectElement

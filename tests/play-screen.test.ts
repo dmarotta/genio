@@ -93,12 +93,20 @@ describe('Play screen', () => {
     expect(api.playerInstanceQuit).toHaveBeenCalledWith('game')
   })
 
-  it('offers Start anyway on low memory and Open this instance visibly on a stuck dialog', async () => {
-    status = { state: 'low-memory', project: 'C:/games/game', copy: copy() as never, message: 'Not enough memory to start Unity: 3.1 GB free; 6.0 GB expected plus 2 GB reserve. Close an editor or choose Start anyway.' }
+  it('turns the Unity button into Start anyway on low memory, with Cancel, and Open this instance visibly on a stuck dialog', async () => {
+    const lowMemory = { availableBytes: 3.3 * 2 ** 30, neededBytes: 6 * 2 ** 30, hard: false, consumers: [{ name: 'lands-of-old editor', bytes: 13.5 * 2 ** 30 }], closed: [] }
+    status = { state: 'low-memory', project: 'C:/games/game', copy: copy() as never, lowMemory, message: '3.3 GB available; Unity needs about 6.0 GB. Biggest: lands-of-old editor 13.5 GB. Close something, or Start anyway.' }
     await mount()
-    expect(host.querySelector('[role=alert]')?.textContent).toContain('Not enough memory')
+    expect(host.querySelector('[role=alert]')?.textContent).toContain('Biggest: lands-of-old editor 13.5 GB')
+    expect(host.querySelector('.play-buttons')?.textContent).toContain('Start anyway')
+    await click('Cancel')
+    expect(api.playerInstanceStop).toHaveBeenCalledWith('game')
     await click('Start anyway')
     expect(api.playerInstancePlay).toHaveBeenCalledWith('game', { path: 'C:/games/game' }, { startAnyway: true })
+
+    status = { ...status, lowMemory: { ...lowMemory, hard: true, commitBytes: 5 * 2 ** 30 }, message: 'Windows cannot commit enough memory for Unity' }
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
+    expect(host.querySelector('.play-buttons')?.textContent).not.toContain('Start anyway')
 
     status = { state: 'stuck-dialog', project: 'C:/games/game', source: { ref: 'develop' }, pid: 9, copy: copy() as never, message: 'Unity is waiting on a licence prompt',
       dialog: { hwnd: '1', pid: 9, title: 'Unity Licensing', text: 'Sign in to continue', buttons: ['OK', 'Cancel'], rule: 'licence', reason: 'licence', screenshot: 'D:/x/blocked-1.png', message: 'Unity is waiting on a licence prompt' } }

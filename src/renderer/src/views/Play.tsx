@@ -128,6 +128,8 @@ function PlayScreen({ world }: { world: string }) {
 
   const working = !!busy || (!!state && WORKING.has(state))
   const warm = state === 'stopped-warm'
+  // Low memory asks first, before copying: the Unity button itself becomes the one-click override.
+  const startAnyway = state === 'low-memory' && !status?.lowMemory?.hard
   const countdown = warm && status?.deadline ? status.deadline - now : undefined
   const keepMinutes = status?.deadline && status.stoppedAt ? Math.round((status.deadline - status.stoppedAt) / 60000) : idleMinutes
   const progress = progressText(status?.copy?.progress, now)
@@ -165,7 +167,9 @@ function PlayScreen({ world }: { world: string }) {
         <button className="btn sm icon ghost" title="Refresh sources" aria-label="Refresh sources" onClick={() => void loadSources()}><RefreshCw size={13} /></button>
       </label>
       <div className="play-buttons">
-        <button className="btn solid" disabled={!option || working || state === 'close-stuck'} onClick={() => play()}><PlayIcon size={14} /> Play</button>
+        {startAnyway
+          ? <button className="btn solid amber" disabled={!option || working} onClick={() => play({ startAnyway: true, confirmed: true })}><PlayIcon size={14} /> Start anyway</button>
+          : <button className="btn solid" disabled={!option || working || state === 'close-stuck'} onClick={() => play()}><PlayIcon size={14} /> Play</button>}
         <button className="btn" disabled={!(playing || working) || busy === 'stop'} onClick={stop}><Square size={13} /> Stop</button>
         <button className="btn" disabled={!status?.source || working} title="Quit Unity and start it again on the same source" onClick={() => restart()}><RotateCcw size={13} /> Restart Unity</button>
       </div>
@@ -196,7 +200,7 @@ function PlayScreen({ world }: { world: string }) {
     {!confirmCopy && !hasCopy && estimate !== undefined && state === 'idle' && <p className="mute">First Play copies about {bytes(estimate)} of this project; later Plays sync only what changed.</p>}
 
     <Problem status={status} shot={shot} busy={working}
-      startAnyway={() => play({ startAnyway: true, confirmed: true })} restart={restart} quit={quit} settings={settings} showConsole={() => setDrawer(true)} />
+      cancel={stop} restart={restart} quit={quit} settings={settings} showConsole={() => setDrawer(true)} />
     {error && !(state && PROBLEMS.has(state) && status?.message === error) && <p role="alert" className="alert-text">{error}</p>}
 
     {countdown !== undefined && <div className="play-callout" aria-label="Idle countdown">
@@ -244,15 +248,15 @@ function ProgressBar({ text, done, total }: { text: string; done?: number; total
 }
 
 /** Each problem state with its one clear action. */
-function Problem({ status, shot, busy, startAnyway, restart, quit, settings, showConsole }: {
+function Problem({ status, shot, busy, cancel, restart, quit, settings, showConsole }: {
   status?: PlayerInstanceStatus; shot?: string; busy: boolean
-  startAnyway: () => void; restart: (visible?: boolean) => void; quit: () => void; settings: () => void; showConsole: () => void
+  cancel: () => void; restart: (visible?: boolean) => void; quit: () => void; settings: () => void; showConsole: () => void
 }) {
   if (!status || !PROBLEMS.has(status.state)) return null
   const message = status.message ?? STATE_LABEL[status.state]
   const body = (() => {
     switch (status.state) {
-      case 'low-memory': return <button className="btn sm amber" disabled={busy} onClick={startAnyway}>Start anyway</button>
+      case 'low-memory': return <button className="btn sm ghost" disabled={busy} onClick={cancel}>Cancel</button>
       case 'missing-editor': return <span className="mute">Install that version in Unity Hub, then press Play again.</span>
       case 'limit-reached': return <button className="btn sm" onClick={settings}>Open the editor limit</button>
       case 'compile-errors': return <button className="btn sm" onClick={showConsole}>Show the console</button>

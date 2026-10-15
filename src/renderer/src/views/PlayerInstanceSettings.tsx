@@ -52,7 +52,7 @@ export function PlayerInstanceSettings({ world }: { world: string }) {
           </select>
         </Field>
       </div>
-      <p className="mute">Genio Unity editors: {machine.totalEditors} running ({machine.unitEditors} unit slots, {machine.playerEditors} player, {machine.batchEditors} batch) · {gb(machine.workingSetBytes)} · {gb(machine.freeBytes)} free of {gb(machine.totalBytes)}</p>
+      <p className="mute">Genio Unity editors: {machine.totalEditors} running ({machine.unitEditors} unit slots, {machine.playerEditors} player, {machine.batchEditors} batch) · {gb(machine.workingSetBytes)} · {gb(machine.freeBytes)} available of {gb(machine.totalBytes)}</p>
     </>}
     {instance && <p>{instance.state.replace(/-/g, ' ')}{source ? ` · ${source.kind === 'checkout' ? source.branch ?? source.path : source.ref}` : ''}{instance.deadline ? ` · quits in ${Math.max(0, Math.ceil((instance.deadline - Date.now()) / 60000))} min` : ''}{size !== undefined ? ` · ${gb(size)} on disk` : ''}{instance.copy?.state === 'pending-delete' || instance.copy?.state === 'deleting' ? ' · deleting copy in the background' : ''}</p>}
     {instance?.message && <p className="alert-text">{instance.message}</p>}

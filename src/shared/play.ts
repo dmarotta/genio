@@ -35,10 +35,23 @@ export type PlayInput = { type: 'release' } | { type: 'state'; keys: string[]; x
 
 export interface PlayerSettings { idleMinutes: number; maxEditors: number }
 export type PlayerState = 'idle' | 'copying' | 'starting' | 'syncing' | 'entering-play' | 'playing' | 'stopped-warm' | 'shutting-down' | 'crashed' | 'stuck-dialog' | 'close-stuck' | 'compile-errors' | 'low-memory' | 'missing-editor' | 'limit-reached' | 'error'
+/**
+ * A Play refused for memory, asked before copying. consumers: the biggest users by plain name. closed: Genio's own
+ * idle editors closed first. hard: Windows cannot commit the estimate, so Start anyway is not offered.
+ */
+export interface PlayerLowMemory {
+  availableBytes: number; neededBytes: number; commitBytes?: number; hard: boolean
+  consumers: { name: string; bytes: number }[]; closed: string[]
+}
+/**
+ * steadyWorkingSet: the editor tree's working set once idle in Play or ready, learned from the last session; the next
+ * start's memory estimate. peakWorkingSet: the import peak, kept apart.
+ */
 export interface PlayerInstanceStatus {
   state: PlayerState; project: string; root?: string; source?: PlayerCopySource
   pid?: number; created?: string; desktop?: string; deadline?: number; stoppedAt?: number
-  unityVersion?: string; peakWorkingSet?: number; message?: string; startup?: string; exitCode?: number
+  unityVersion?: string; peakWorkingSet?: number; steadyWorkingSet?: number; lowMemory?: PlayerLowMemory
+  message?: string; startup?: string; exitCode?: number
   dialog?: import('../../resources/unit-skills/genio/lib/hidden-desktop.mjs').DialogBlock
   capabilities?: { input: boolean }
   copy?: import('../../resources/unit-skills/genio/lib/player-copy.mjs').PlayerCopyRecord
