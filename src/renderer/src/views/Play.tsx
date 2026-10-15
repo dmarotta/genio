@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bug, ChevronDown, ChevronRight, Play as PlayIcon, RefreshCw, RotateCcw, Square } from 'lucide-react'
-import { PLAYER_INSTANCE_ANCHOR, sameSource, type PlayConsole, type PlayerInstanceStatus, type PlayerSourceOption } from '@shared/play'
+import { AlertTriangle, ChevronDown, GitBranch, MoreHorizontal, Pause, Play as PlayIcon, Power, RotateCcw, Square, StepForward, X } from 'lucide-react'
+import { PLAYER_INSTANCE_ANCHOR, sameSource, type PlayConsole, type PlayerInstanceStatus, type PlayerScene, type PlayerSourceOption } from '@shared/play'
+import { controls, type PlayButtonAction, type UnityAction } from '@shared/play-controls'
 import { PROJECT_WINDOW, api, errText, go } from '../store'
 import { cx } from '../lib/format'
-import { openGenioPanel, useScreenContext } from '../lib/screen-context'
-import { PROBLEMS, SOURCE_GROUPS, STATE_LABEL, STEPS, WORKING, bytes, clock, deletionText, firstCopyWarning, playedText, progressText, sourceText, stepIndex, syncSummary } from '../lib/play-screen'
+import { useScreenContext } from '../lib/screen-context'
+import { DEFAULT_RESOLUTION, PROBLEMS, RESOLUTIONS, SOURCE_GROUPS, STATE_LABEL, WORKING, chipText, clock, deletionText, firstCopyText, playedText, progressText, sourceText, statusText, syncSummary } from '../lib/play-screen'
 import { requestSystemsSection } from './Systems'
 import { PlayLive } from './PlayLive'
 import '../styles/play.css'
 
-const STREAM = { width: 1280, height: 720 }
 type Entry = PlayConsole['entries'][number]
+const REFRESH = '__refresh'
+const LIVE_SCENES = new Set(['idle', 'ready', 'playing', 'paused', 'compile-errors', 'crashed', 'error'])
 
 /** The Play screen: your own Unity instance for this project, playing any source (main, worktrees, units, branches). */
 export function Play() {
@@ -18,13 +20,33 @@ export function Play() {
   return <PlayScreen world={PROJECT_WINDOW} />
 }
 
+// The chosen resolution, per project: a per-viewer convenience, so a missing or blocked store falls back to 720p.
+const resolutionKey = (world: string): string => `genio.play.resolution.${world}`
+function savedResolution(world: string): string {
+  try { return localStorage.getItem(resolutionKey(world)) ?? DEFAULT_RESOLUTION.id } catch { return DEFAULT_RESOLUTION.id }
+}
+
+/** ≤ 520 px wide or ≤ 420 px tall: the narrow pop-out layout with short labels. */
+function useNarrow(): boolean {
+  const query = '(max-width: 520px), (max-height: 420px)'
+  const [narrow, setNarrow] = useState(() => !!window.matchMedia?.(query).matches)
+  useEffect(() => {
+    const m = window.matchMedia?.(query)
+    if (!m) return
+    const on = (): void => setNarrow(m.matches)
+    m.addEventListener?.('change', on)
+    return () => m.removeEventListener?.('change', on)
+  }, [])
+  return narrow
+}
+
 function PlayScreen({ world }: { world: string }) {
   const [status, setStatus] = useState<PlayerInstanceStatus>()
   const [sources, setSources] = useState<PlayerSourceOption[]>()
   const [choice, setChoice] = useState<string>()
+  const [scenes, setScenes] = useState<PlayerScene[]>([])
+  const [resolutionId, setResolutionId] = useState(() => savedResolution(world))
   const [estimate, setEstimate] = useState<number>()
-  const [idleMinutes, setIdleMinutes] = useState(10)
-  const [confirmCopy, setConfirmCopy] = useState(false)
   const [busy, setBusy] = useState<string>()
   const [error, setError] = useState('')
   const [now, setNow] = useState(() => Date.now())
@@ -34,7 +56,7 @@ function PlayScreen({ world }: { world: string }) {
   const [streamEnded, setStreamEnded] = useState<string>()
   const [shot, setShot] = useState<string>()
   const fast = useRef(false)
-  const confirmBox = useRef<HTMLDivElement>(null)
+  const narrow = useNarrow()
 
   // Instance status: every second while something runs, every three otherwise; the countdown ticks locally.
   useEffect(() => {
@@ -53,16 +75,21 @@ function PlayScreen({ world }: { world: string }) {
   const loadSources = async (): Promise<void> => {
     try { setSources(await api().playerSources(world)) } catch (e) { setError(errText(e)) }
   }
-  useEffect(() => {
-    void loadSources()
-    void api().playerInstanceMachine(world).then(m => setIdleMinutes(m.settings.idleMinutes)).catch(() => {})
-  }, [world])
+  useEffect(() => { void loadSources() }, [world])
   // Preselect what the instance plays, else the main checkout.
   useEffect(() => {
     if (!sources || (choice && sources.some(o => o.id === choice))) return
     setChoice((sources.find(o => sameSource(o.source, status?.source)) ?? sources[0])?.id)
   }, [sources, status?.source])
-  // The first Play copies the whole project: measure it once while no copy exists.
+  // The scene list: from the files while Unity is off, from Unity once it answers; re-read when it settles.
+  const sceneMoment = state && LIVE_SCENES.has(state) ? `${state}:${status?.pid ?? ''}` : 'busy'
+  useEffect(() => {
+    if (sceneMoment === 'busy') return
+    let live = true
+    void api().playerInstanceScenes(world).then(s => { if (live) setScenes(s) }).catch(() => {})
+    return () => { live = false }
+  }, [world, sceneMoment])
+  // What the first start copies, for Genio's screen context only: measured once while no copy exists.
   const hasCopy = !!status?.copy
   useEffect(() => {
     if (!status || hasCopy || estimate !== undefined) return
@@ -75,7 +102,6 @@ function PlayScreen({ world }: { world: string }) {
   useEffect(() => { if (playing) setStreamEnded(undefined) }, [playing])
   // Compile errors open the console; a stuck dialog fetches its screenshot.
   useEffect(() => { if (state === 'compile-errors') setDrawer(true) }, [state])
-  useEffect(() => { if (confirmCopy) confirmBox.current?.scrollIntoView?.({ block: 'nearest' }) }, [confirmCopy])
   const dialogAt = status?.dialog?.screenshot
   useEffect(() => {
     setShot(undefined)
@@ -114,169 +140,216 @@ function PlayScreen({ world }: { world: string }) {
       try { setStatus(await api().playerInstanceStatus(world)) } catch { /* next poll */ }
     }
   }
-  const play = (opts: { startAnyway?: boolean; confirmed?: boolean } = {}): void => {
-    if (!option) return
-    if (!hasCopy && !opts.confirmed) { setConfirmCopy(true); return }
-    setConfirmCopy(false)
-    void run('play', () => api().playerInstancePlay(world, option.source, opts.startAnyway ? { startAnyway: true } : {}))
+  const scene = status?.scene ?? scenes.find(s => s.active)?.path
+  const sceneName = scenes.find(s => s.path === scene)?.name ?? scene?.replace(/^.*\/|\.unity$/g, '')
+  const resolution = RESOLUTIONS.find(r => r.id === resolutionId) ?? DEFAULT_RESOLUTION
+
+  const bar = controls(state, { hard: !!status?.lowMemory?.hard })
+  // Cancel, Stop and Exit Play interrupt a call in flight; every other press waits for it.
+  const usable = (c: { enabled: boolean; action: string }): boolean => c.enabled && (!busy || (['cancel', 'stop', 'close-again', 'exit'].includes(c.action) && busy !== c.action))
+  const unityPress = (action: UnityAction): void => {
+    switch (action) {
+      case 'start': case 'start-anyway': if (option) void run(action, () => api().playerInstanceStartUnity(world, option.source, action === 'start-anyway' ? { startAnyway: true } : {})); return
+      case 'cancel': case 'stop': case 'close-again': void run(action, () => api().playerInstanceStopUnity(world)); return
+      case 'restart': void run(action, () => api().playerInstanceRestart(world)); return
+    }
   }
-  const stop = (): void => void run('stop', () => api().playerInstanceStop(world))
+  const playPress = (action: PlayButtonAction): void => {
+    if (action === 'exit') { void run('exit', () => api().playerInstanceExitPlay(world)); return }
+    if (option) void run(action, () => api().playerInstanceEnterPlay(world, option.source, action === 'enter-anyway' ? { startAnyway: true } : {}))
+  }
+  const pause = (): void => void run('pause', () => api().playerInstancePause(world))
+  const step = (): void => void run('step', () => api().playerInstanceStep(world))
   const restart = (visible = false): void => void run(visible ? 'visible' : 'restart', () => api().playerInstanceRestart(world, visible))
-  const quit = (): void => void run('quit', () => api().playerInstanceQuit(world))
   const keep = (): void => void run('keep', () => api().playerInstanceKeepAlive(world))
   const settings = (): void => { requestSystemsSection('play', PLAYER_INSTANCE_ANCHOR); go('systems') }
+  // A new source applies on the next ▶; while playing it re-plays at once.
+  const chooseSource = (id: string): void => {
+    if (id === REFRESH) { void loadSources(); return }
+    setChoice(id)
+    const next = sources?.find(o => o.id === id)
+    if (next && playing && !sameSource(next.source, status?.source)) void run('enter', () => api().playerInstanceEnterPlay(world, next.source))
+  }
+  // Off: kept for the next Play; ready: opened; playing: Genio exits, opens it and enters again.
+  const chooseScene = (path: string): void => void run('scene', () => api().playerInstanceSetScene(world, path))
+  const chooseResolution = (id: string): void => {
+    setResolutionId(id)
+    try { localStorage.setItem(resolutionKey(world), id) } catch { /* per-viewer convenience only */ }
+  }
+
+  // Unity's shortcuts while the game does not hold the keyboard: Ctrl+P Play, Ctrl+Shift+P pause, Ctrl+Alt+P step.
+  const keys = useRef({ bar, usable, playPress, pause, step })
+  keys.current = { bar, usable, playPress, pause, step }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!e.ctrlKey || e.code !== 'KeyP' || e.metaKey || (e.target as HTMLElement | null)?.tagName === 'CANVAS') return
+      const k = keys.current
+      const target = e.altKey ? (k.usable(k.bar.step) && k.step) : e.shiftKey ? (k.usable(k.bar.pause) && k.pause) : (k.usable(k.bar.play) && (() => k.playPress(k.bar.play.action)))
+      e.preventDefault()
+      if (target) target()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   const working = !!busy || (!!state && WORKING.has(state))
-  const warm = state === 'ready'
-  // Low memory asks first, before copying: the Unity button itself becomes the one-click override.
-  const startAnyway = state === 'low-memory' && !status?.lowMemory?.hard
-  const countdown = warm && status?.deadline ? status.deadline - now : undefined
-  const keepMinutes = status?.deadline && status.stoppedAt ? Math.round((status.deadline - status.stoppedAt) / 60000) : idleMinutes
+  const countdown = state === 'ready' && status?.deadline ? status.deadline - now : undefined
+  const copyDeadline = !status?.pid && status?.copy?.deadline ? status.copy.deadline - now : undefined
   const progress = progressText(status?.copy?.progress, now)
-  const deletion = deletionText(status?.copy)
+  const copyBar = (state === 'copying' || state === 'syncing') && progress ? progress : undefined
   const synced = syncSummary(status?.copy)
   const played = playedText(status)
-  const step = stepIndex(state)
   const lastError = [...logs].reverse().find(l => /error|exception|assert/i.test(l.level ?? ''))
   const grouped = useMemo(() => SOURCE_GROUPS.map(g => ({ ...g, options: (sources ?? []).filter(o => o.group === g.group) })).filter(g => g.options.length), [sources])
 
+  // Everything the page no longer shows stays visible to the floating Genio chat.
   useScreenContext('play', { facts: [
     { label: 'Instance', value: `${state ? STATE_LABEL[state] : 'loading'}${status?.message ? ` · ${status.message}` : ''}` },
     option && { label: 'Source', value: sourceText(option) },
     !!played && { label: 'Playing from', value: `${played}${synced ? ` · ${synced}` : ''}` },
-    countdown !== undefined && { label: 'Idle', value: `Unity quits and the copy is deleted in ${clock(countdown)}` },
-    !!progress && { label: 'Copy', value: progress },
+    !!sceneName && { label: 'Scene', value: scene ?? sceneName },
+    { label: 'Resolution', value: `${resolution.width} × ${resolution.height}` },
+    !!status?.unityVersion && { label: 'Unity', value: status.unityVersion },
+    countdown !== undefined && { label: 'Idle', value: `Unity quits and the copy is deleted in ${clock(countdown)} if idle` },
+    copyDeadline !== undefined && { label: 'Copy', value: `Kept for a quick start; deleted in ${clock(copyDeadline)}` },
+    !!progress && { label: 'Copy progress', value: progress },
+    !hasCopy && estimate !== undefined && { label: 'First start', value: `Copies the project first: ${firstCopyText(estimate)}` },
+    !!deletionText(status?.copy) && { label: 'Deletion', value: deletionText(status?.copy)! },
+    state === 'starting' && !!status?.startup && { label: 'Unity log', value: status.startup.split('\n').filter(Boolean).slice(-3).join(' · ') },
+    status?.lowMemory && { label: 'Memory', value: status.message ?? 'Not enough memory' },
     status?.dialog && { label: 'Blocking dialog', value: `${status.dialog.title}: ${status.dialog.text}` },
+    playing && status?.capabilities?.input === false && { label: 'Input', value: 'This game reads legacy input, so the stream is view-only' },
     !!error && { label: 'Error', value: error },
     lastError && { label: 'Last console error', value: lastError.message }
   ] })
 
-  return <div className="view play-view">
-    <header className="play-head">
-      <div><div className="label">YOUR UNITY INSTANCE</div><h1 className="title">Play <span className="dim">· {world}</span></h1></div>
-      <button className="btn sm ghost" onClick={openGenioPanel}>Ask Genio</button>
-    </header>
+  const tone = error || (state && PROBLEMS.has(state)) ? (state === 'low-memory' || state === 'stuck-dialog') && !error ? 'amber-text' : 'alert-text' : undefined
+  const UnityIcon = { start: Power, 'start-anyway': AlertTriangle, cancel: X, stop: Power, restart: RotateCcw, 'close-again': Power }[bar.unity.action]
 
-    <div className="play-controls">
-      <label className="play-source">
-        <span className="label">Source</span>
-        <select className="select" aria-label="Play source" value={choice ?? ''} disabled={!sources?.length} onChange={e => { setChoice(e.target.value); setConfirmCopy(false) }}>
+  return <div className={cx('view play-view', narrow && 'narrow')}>
+    <header className="play-head">
+      <h1 className="title">Play{!narrow && <span className="dim play-world"> {world}</span>}</h1>
+      <label className="play-chip" title={option ? sourceText(option) : 'Play source'}>
+        <GitBranch size={12} aria-hidden /><span>{option ? chipText(option) : 'Loading…'}</span><ChevronDown size={12} aria-hidden />
+        <select aria-label="Play source" value={choice ?? ''} disabled={!sources?.length} onChange={e => chooseSource(e.target.value)}>
           {!sources && <option value="">Loading sources…</option>}
           {grouped.map(g => <optgroup key={g.group} label={g.label}>{g.options.map(o => <option key={o.id} value={o.id}>{sourceText(o)}</option>)}</optgroup>)}
+          {!!sources && <option value={REFRESH}>Refresh sources</option>}
         </select>
-        <button className="btn sm icon ghost" title="Refresh sources" aria-label="Refresh sources" onClick={() => void loadSources()}><RefreshCw size={13} /></button>
       </label>
-      <div className="play-buttons">
-        {startAnyway
-          ? <button className="btn solid amber" disabled={!option || working} onClick={() => play({ startAnyway: true, confirmed: true })}><PlayIcon size={14} /> Start anyway</button>
-          : <button className="btn solid" disabled={!option || working || state === 'close-stuck'} onClick={() => play()}><PlayIcon size={14} /> Play</button>}
-        <button className="btn" disabled={!(playing || working) || busy === 'stop'} onClick={stop}><Square size={13} /> Stop</button>
-        <button className="btn" disabled={!status?.source || working} title="Quit Unity and start it again on the same source" onClick={() => restart()}><RotateCcw size={13} /> Restart Unity</button>
+      <Overflow items={[
+        { label: 'Restart Unity', disabled: !status?.source || working, run: () => restart() },
+        { label: 'Open Unity visibly (debug)', disabled: !status?.source || working, run: () => restart(true) },
+        { label: 'Unity console', run: () => setDrawer(true) },
+        { label: 'Idle time and editor limit…', run: settings }
+      ]} />
+    </header>
+
+    <div className="play-toolbar" role="toolbar" aria-label="Play controls">
+      <button className={cx('btn sm play-unity', bar.unity.warn && 'amber solid', bar.unity.action === 'start' && 'solid')} disabled={!usable(bar.unity) || ((bar.unity.action === 'start' || bar.unity.action === 'start-anyway') && !option)}
+        title={bar.unity.label} aria-label={bar.unity.label} onClick={() => unityPress(bar.unity.action)}>
+        <UnityIcon size={13} aria-hidden /><span className="play-unity-label">{bar.unity.label}</span>
+      </button>
+      <div className="play-transport">
+        <button className={cx('btn sm icon', bar.play.active && 'on', bar.play.action === 'enter-anyway' && 'amber')} disabled={!usable(bar.play) || (bar.play.action !== 'exit' && !option)}
+          title={`${bar.play.label} (Ctrl+P)`} aria-label={bar.play.label} aria-pressed={!!bar.play.active} onClick={() => playPress(bar.play.action)}>
+          {bar.play.action === 'exit' ? <Square size={12} aria-hidden /> : <PlayIcon size={13} aria-hidden />}
+        </button>
+        <button className={cx('btn sm icon', bar.pause.active && 'on')} disabled={!usable(bar.pause)} title={`${bar.pause.label} (Ctrl+Shift+P)`} aria-label={bar.pause.label} aria-pressed={!!bar.pause.active} onClick={pause}><Pause size={13} aria-hidden /></button>
+        <button className="btn sm icon" disabled={!usable(bar.step)} title="Step one frame (Ctrl+Alt+P)" aria-label={bar.step.label} onClick={step}><StepForward size={13} aria-hidden /></button>
       </div>
+      <span className="play-toolbar-gap" />
+      <label className="play-pick" title={scene}>
+        {!narrow && <span className="label">Scene</span>}
+        <select className="select" aria-label="Scene" value={scene ?? ''} disabled={!bar.scene.enabled || !!busy || !scenes.length} onChange={e => chooseScene(e.target.value)}>
+          {!scene && <option value="">{scenes.length ? 'Choose a scene' : 'No scenes'}</option>}
+          {scene && !scenes.some(s => s.path === scene) && <option value={scene}>{sceneName}</option>}
+          {scenes.map(s => <option key={s.path} value={s.path} title={s.path}>{s.name}</option>)}
+        </select>
+      </label>
+      <select className="select play-res" aria-label="Resolution" value={resolution.id} disabled={!bar.resolution.enabled} onChange={e => chooseResolution(e.target.value)}>
+        {RESOLUTIONS.map(r => <option key={r.id} value={r.id}>{narrow ? r.short : r.label}</option>)}
+      </select>
     </div>
 
-    <ol className="play-steps" aria-label="Instance lifecycle">
-      {STEPS.map((s, i) => <li key={s.label} className={cx(i === step && 'on', step > i && 'done')}>{s.label}</li>)}
-    </ol>
-
-    <p className={cx('play-status', state && PROBLEMS.has(state) && 'alert-text')} role="status">
-      <span className={cx('play-dot', state)} aria-hidden />
-      <strong>{state ? STATE_LABEL[state] : 'Loading'}</strong>
-      {played && state !== 'idle' && <span className="dim"> · {played}</span>}
-      {synced && (playing || warm) && <span className="dim"> · {synced}</span>}
-      {status?.unityVersion && state !== 'idle' && <span className="mute"> · Unity {status.unityVersion}</span>}
-    </p>
-    {progress && <ProgressBar text={progress} done={status?.copy?.progress?.bytes?.done} total={status?.copy?.progress?.bytes?.total} />}
-    {state === 'starting' && status?.startup && <pre className="play-startup mute">{status.startup}</pre>}
-    {deletion && <p className="mute">{deletion}</p>}
-
-    {confirmCopy && <div ref={confirmBox} className="play-callout amber" role="alertdialog" aria-label="First copy">
-      <p>{estimate !== undefined ? firstCopyWarning(estimate, idleMinutes) : 'The first Play of this project copies all of it before Unity opens. Measuring its size…'}</p>
-      <div className="play-callout-actions">
-        <button className="btn sm solid amber" onClick={() => play({ confirmed: true })}>Copy and Play</button>
-        <button className="btn sm ghost" onClick={() => setConfirmCopy(false)}>Cancel</button>
-      </div>
-    </div>}
-    {!confirmCopy && !hasCopy && estimate !== undefined && state === 'idle' && <p className="mute">First Play copies about {bytes(estimate)} of this project; later Plays sync only what changed.</p>}
-
-    <Problem status={status} shot={shot} busy={working}
-      cancel={stop} restart={restart} quit={quit} settings={settings} showConsole={() => setDrawer(true)} />
-    {error && !(state && PROBLEMS.has(state) && status?.message === error) && <p role="alert" className="alert-text">{error}</p>}
-
-    {countdown !== undefined && <div className="play-callout" aria-label="Idle countdown">
-      <p>Stopped. Unity stays warm for a quick replay of any source; the instance is deleted in <strong className="num">{clock(countdown)}</strong>.</p>
-      <div className="play-callout-actions">
-        <button className="btn sm" disabled={!!busy} onClick={keep}>Keep {keepMinutes} more min</button>
-        <button className="btn sm ghost alert" disabled={!!busy} onClick={quit}>Quit now</button>
-      </div>
-    </div>}
+    {copyBar || state === 'starting'
+      ? <ProgressBar text={copyBar ?? 'Starting Unity…'} title={state === 'starting' ? status?.startup?.trim().split('\n').pop() : undefined}
+        done={copyBar ? status?.copy?.progress?.bytes?.done : undefined} total={copyBar ? status?.copy?.progress?.bytes?.total : undefined} />
+      : <p className={cx('play-status', tone)} role="status">
+        <span className={cx('play-dot', state)} aria-hidden />
+        {state === 'low-memory' && <AlertTriangle size={12} aria-hidden />}
+        <span className="play-status-text" title={error || status?.message}>{error || statusText(status, sceneName)}</span>
+        {state === 'compile-errors' && <button className="play-link" onClick={() => setDrawer(true)}>Show console</button>}
+        {state === 'limit-reached' && <button className="play-link" onClick={settings}>Settings</button>}
+        {countdown !== undefined && <button className="play-link play-idle" title="Keep Unity open longer" onClick={keep} disabled={!!busy}>quits in {clock(countdown)} if idle</button>}
+      </p>}
 
     <div className="play-screen">
       {playing && !streamEnded
-        ? <PlayLive world={world} width={STREAM.width} height={STREAM.height} input={status?.capabilities?.input !== false} onClosed={setStreamEnded} />
-        : <div className="play-screen-empty">
-          {playing ? <><span>{streamEnded}</span><button className="btn sm" onClick={() => setStreamEnded(undefined)}>Reconnect</button></>
-            : <span className="mute">{working ? 'The game appears here once Unity enters Play.' : warm ? 'Unity is warm: press Play to replay any source quickly.' : 'Choose a source and press Play.'}</span>}
-        </div>}
+        ? <PlayLive world={world} width={resolution.width} height={resolution.height} input={status?.capabilities?.input !== false} onClosed={setStreamEnded} onError={setError} />
+        : state === 'stuck-dialog' && status?.dialog
+          ? <div className="play-dialog">
+            <strong>{status.dialog.title || 'Untitled dialog'}</strong>
+            {status.dialog.text && <span>{status.dialog.text}</span>}
+            {status.dialog.buttons.length > 0 && <span className="mute">Buttons: {status.dialog.buttons.join(' · ')}</span>}
+            {shot && <img src={shot} alt="Screenshot of the hidden desktop when the dialog blocked Unity" />}
+            <button className="btn sm amber" disabled={working || !status.source} onClick={() => restart(true)}>Open Unity visibly</button>
+          </div>
+          : <div className="play-screen-empty">
+            {playing ? <><span>{streamEnded}</span><button className="btn sm" onClick={() => setStreamEnded(undefined)}>Reconnect</button></>
+              : <span className="mute">{emptyText(state)}</span>}
+          </div>}
     </div>
-    {playing && status?.capabilities?.input === false && <p className="amber-text">This game reads legacy input, so it is view-only here. Input System games take keyboard, mouse and gamepad.</p>}
 
-    <section className={cx('play-console', drawer && 'open')}>
-      <button className="play-console-toggle" aria-expanded={drawer} onClick={() => setDrawer(d => !d)}>
-        {drawer ? <ChevronDown size={14} /> : <ChevronRight size={14} />} Unity console{logs.length ? ` (${logs.length})` : ''}
-      </button>
-      {drawer && <div className="play-console-body" aria-label="Unity console">
+    {drawer && <section className="play-console" aria-label="Unity console">
+      <header className="play-console-head">
+        <span>Unity console{logs.length ? ` (${logs.length})` : ''}</span>
+        <button className="btn sm icon ghost" aria-label="Close the console" title="Close" onClick={() => setDrawer(false)}><X size={13} /></button>
+      </header>
+      <div className="play-console-body">
         {consoleNote && <p className="mute">{consoleNote}</p>}
         {logs.map((l, i) => <pre key={`${l.seq ?? 'x'}-${i}`} className={cx(/error|exception|assert/i.test(l.level ?? '') && 'alert-text', /warn/i.test(l.level ?? '') && 'amber-text')}>{l.message}{l.stackTrace ? `\n${l.stackTrace}` : ''}</pre>)}
         {!consoleNote && !logs.length && <p className="mute">No console entries yet.</p>}
-      </div>}
-    </section>
-
-    <footer className="play-foot">
-      <button className="btn sm ghost" disabled={!status?.source || working} title="Restart this instance as a normal window to see what Unity shows" onClick={() => restart(true)}><Bug size={13} /> Open this instance visibly</button>
-      <button className="btn sm ghost" onClick={settings}>Idle time and editor limit</button>
-    </footer>
+      </div>
+    </section>}
   </div>
 }
 
-function ProgressBar({ text, done, total }: { text: string; done?: number; total?: number }) {
+function emptyText(state: PlayerInstanceStatus['state'] | undefined): string {
+  switch (state) {
+    case 'copying': case 'syncing': return 'Copying…'
+    case 'starting': return 'Starting Unity…'
+    case 'entering-play': return 'Entering Play…'
+    case 'ready': return 'Press ▶ to enter Play.'
+    case 'exiting-play': case 'shutting-down': return ''
+    default: return 'Press ▶ to play, or start Unity first.'
+  }
+}
+
+function ProgressBar({ text, title, done, total }: { text: string; title?: string; done?: number; total?: number }) {
   const pct = total ? Math.min(100, Math.round(((done ?? 0) / total) * 100)) : undefined
-  return <div className="play-progress">
+  return <div className="play-progress" role="status" title={title}>
     <div className="play-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}><span style={{ width: `${pct ?? 100}%` }} className={cx(pct === undefined && 'indeterminate')} /></div>
     <span className="mute">{text}</span>
   </div>
 }
 
-/** Each problem state with its one clear action. */
-function Problem({ status, shot, busy, cancel, restart, quit, settings, showConsole }: {
-  status?: PlayerInstanceStatus; shot?: string; busy: boolean
-  cancel: () => void; restart: (visible?: boolean) => void; quit: () => void; settings: () => void; showConsole: () => void
-}) {
-  if (!status || !PROBLEMS.has(status.state)) return null
-  const message = status.message ?? STATE_LABEL[status.state]
-  const body = (() => {
-    switch (status.state) {
-      case 'low-memory': return <button className="btn sm ghost" disabled={busy} onClick={cancel}>Cancel</button>
-      case 'missing-editor': return <span className="mute">Install that version in Unity Hub, then press Play again.</span>
-      case 'limit-reached': return <button className="btn sm" onClick={settings}>Open the editor limit</button>
-      case 'compile-errors': return <button className="btn sm" onClick={showConsole}>Show the console</button>
-      case 'crashed': return <span className="mute">{status.exitCode !== undefined ? `Exit code ${status.exitCode}. ` : ''}Press Play to start it again.</span>
-      case 'close-stuck': return <button className="btn sm alert" disabled={busy} onClick={quit}>Close again</button>
-      case 'stuck-dialog': return <>
-        <button className="btn sm" disabled={busy || !status.source} onClick={() => restart()}>Restart Unity</button>
-        <button className="btn sm amber" disabled={busy || !status.source} onClick={() => restart(true)}>Open this instance visibly</button>
-      </>
-      default: return null
-    }
-  })()
-  return <div className={cx('play-callout', status.state === 'low-memory' || status.state === 'stuck-dialog' ? 'amber' : 'alert')} role="alert">
-    <p>{message}</p>
-    {status.state === 'stuck-dialog' && status.dialog && <div className="play-dialog">
-      <strong>{status.dialog.title || 'Untitled dialog'}</strong>
-      {status.dialog.text && <span>{status.dialog.text}</span>}
-      {status.dialog.buttons.length > 0 && <span className="mute">Buttons: {status.dialog.buttons.join(' · ')}</span>}
-      {shot && <img src={shot} alt="Screenshot of the hidden desktop when the dialog blocked Unity" />}
+/** The ⋯ menu: the rare actions (Restart Unity, Open visibly, console, settings). */
+function Overflow({ items }: { items: { label: string; disabled?: boolean; run: () => void }[] }) {
+  const [open, setOpen] = useState(false)
+  const wrap = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const away = (e: PointerEvent): void => { if (!wrap.current?.contains(e.target as Node)) setOpen(false) }
+    const esc = (e: KeyboardEvent): void => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('pointerdown', away); document.addEventListener('keydown', esc)
+    wrap.current?.querySelector<HTMLButtonElement>('[role=menuitem]:not(:disabled)')?.focus()
+    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc) }
+  }, [open])
+  return <div className="play-menu" ref={wrap}>
+    <button className="btn sm icon ghost" aria-label="More Play actions" title="More" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(o => !o)}><MoreHorizontal size={15} /></button>
+    {open && <div className="play-menu-panel" role="menu" aria-label="More Play actions">
+      {items.map(it => <button key={it.label} role="menuitem" className="play-menu-item" disabled={it.disabled} onClick={() => { setOpen(false); it.run() }}>{it.label}</button>)}
     </div>}
-    {body && <div className="play-callout-actions">{body}</div>}
   </div>
 }

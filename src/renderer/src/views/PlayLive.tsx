@@ -4,19 +4,23 @@ import type { PlayInput } from '@shared/play'
 
 // A stop scheduled by an unmount, per project: a remount right after it (React StrictMode in development) cancels it.
 const leaving = new Map<string, ReturnType<typeof setTimeout>>()
+const message = (e: unknown): string => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
 /**
  * The player instance's live Game view: one JPEG frame per credit over the MessagePort main transfers, drawn on a
- * canvas; keyboard, mouse and gamepad state goes back while the canvas has focus. Restored from the removed Play
- * screen (4d08711^) on the player instance's stream. Unmounting closes the port; unless main closed it first (Stop,
- * a new Play), that also stops Play and starts the idle timer.
+ * canvas; keyboard, mouse and gamepad state goes back while the canvas has focus. A new width or height resizes
+ * Unity's stream behind the same port, so Play continues. Unmounting closes the port; unless main closed it first
+ * (Stop, a new Play), that also exits Play and starts the idle timer.
  */
-export function PlayLive({ world, width, height, input, onClosed }: { world: string; width: number; height: number; input: boolean; onClosed: (message: string) => void }) {
+export function PlayLive({ world, width, height, input, onClosed, onError }: {
+  world: string; width: number; height: number; input: boolean; onClosed: (message: string) => void; onError?: (message: string) => void
+}) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const port = useRef<MessagePort | undefined>(undefined)
   const keys = useRef(new Set<string>())
   const pointer = useRef({ x: 0.5, y: 0.5, buttons: 0 })
   const enabled = useRef(input)
+  const size = useRef({ width, height })
   const [received, setReceived] = useState(false)
   const [stalled, setStalled] = useState(false)
   const release = (): void => {
@@ -41,7 +45,7 @@ export function PlayLive({ world, width, height, input, onClosed }: { world: str
         decoding = true
         try {
           const bitmap = await createImageBitmap(new Blob([new Uint8Array(data.bytes).buffer], { type: 'image/jpeg' }))
-          try { if (!closed && canvas.current) { canvas.current.getContext('2d')?.drawImage(bitmap, 0, 0, width, height); setReceived(true); setStalled(false); clearTimeout(deadline) } }
+          try { const c = canvas.current; if (!closed && c) { c.getContext('2d')?.drawImage(bitmap, 0, 0, c.width, c.height); setReceived(true); setStalled(false); clearTimeout(deadline) } }
           finally { bitmap.close() }
         } catch { end('Could not decode the Unity stream.') }
         finally { decoding = false; if (!closed && port.current === channel) channel.postMessage({ type: 'ready' }) }
@@ -52,7 +56,7 @@ export function PlayLive({ world, width, height, input, onClosed }: { world: str
     window.addEventListener('message', connect); window.addEventListener('blur', blur)
     document.addEventListener('visibilitychange', blur)
     deadline = setTimeout(() => setStalled(true), 15000)
-    void window.genio.api.playerInstanceStream(world, true, width, height).catch(e => end(String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')))
+    void window.genio.api.playerInstanceStream(world, true, size.current.width, size.current.height).catch(e => end(message(e)))
     const timer = setInterval(() => {
       if (!enabled.current || document.hidden || document.activeElement !== canvas.current || !port.current) return
       const pad = navigator.getGamepads?.()[0]
@@ -71,11 +75,17 @@ export function PlayLive({ world, width, height, input, onClosed }: { world: str
       // Leaving while the stream is ours stops Play (and starts the idle timer); after main closed it, nothing to do.
       if (open || !ended) leaving.set(world, setTimeout(() => { leaving.delete(world); void window.genio.api.playerInstanceStream(world, false).catch(() => {}) }, 0))
     }
+  }, [world])
+  // A new resolution swaps Unity's stream session behind the same port: no reconnect, Play keeps running.
+  useEffect(() => {
+    if (size.current.width === width && size.current.height === height) return
+    size.current = { width, height }
+    void window.genio.api.playerInstanceResize(world, width, height).catch(e => onError?.(message(e)))
   }, [world, width, height])
   const key = (code: string): string => code.startsWith('Key') ? code.slice(3) : ({ ArrowLeft: 'LeftArrow', ArrowRight: 'RightArrow', ArrowUp: 'UpArrow', ArrowDown: 'DownArrow', ControlLeft: 'LeftCtrl', ControlRight: 'RightCtrl', ShiftLeft: 'LeftShift', ShiftRight: 'RightShift', AltLeft: 'LeftAlt', AltRight: 'RightAlt' } as Record<string, string>)[code] ?? code
   return <div className="play-live">
     <div className="play-canvas-wrap">
-      <canvas ref={canvas} width={width} height={height} tabIndex={0} aria-label="Live Unity Game view"
+      <canvas ref={canvas} width={width} height={height} tabIndex={0} aria-label="Live Unity Game view" style={{ aspectRatio: `${width} / ${height}` }}
         onBlur={release} onContextMenu={e => { if (input) e.preventDefault() }}
         onPointerMove={e => {
           const r = e.currentTarget.getBoundingClientRect()
@@ -88,12 +98,13 @@ export function PlayLive({ world, width, height, input, onClosed }: { world: str
         onKeyDown={e => { if (e.key === 'Escape') { enabled.current = false; release(); e.currentTarget.blur(); return }; if (!input || e.metaKey) return; enabled.current = true; e.preventDefault(); if (keys.current.size < 32) keys.current.add(key(e.code)) }}
         onFocus={() => { enabled.current = input }}
         onKeyUp={e => { keys.current.delete(key(e.code)); if (input) e.preventDefault() }} />
-      {!received && <span className="play-canvas-note">{stalled ? 'No frames yet. Unity may be busy; check the console below.' : 'Connecting the live stream…'}</span>}
+      {!received && <span className="play-canvas-note">{stalled ? 'No frames yet. Unity may be busy; the Unity console is in the ⋯ menu.' : 'Connecting the live stream…'}</span>}
     </div>
+    {/* Left-aligned: the floating Genio chat sits over the bottom-right corner. */}
     <div className="play-live-bar">
-      <span className="mute">{input ? 'Click the game to control it · Esc releases' : 'View only'}</span>
-      <button className="btn sm ghost" disabled={!input} onClick={() => { canvas.current?.focus(); void canvas.current?.requestPointerLock() }}><Lock size={13} /> Lock pointer</button>
-      <button className="btn sm ghost" onClick={() => { if (canvas.current) void canvas.current.requestFullscreen().then(() => window.genio.api.featureUsed('play-fullscreen')).catch(() => {}) }}><Maximize size={13} /> Full screen</button>
+      <button className="btn sm ghost" disabled={!input} title="Lock pointer" aria-label="Lock pointer" onClick={() => { canvas.current?.focus(); void canvas.current?.requestPointerLock() }}><Lock size={13} /><span className="play-live-label">Lock</span></button>
+      <button className="btn sm ghost" title="Full screen" aria-label="Full screen" onClick={() => { if (canvas.current) void canvas.current.requestFullscreen().then(() => window.genio.api.featureUsed('play-fullscreen')).catch(() => {}) }}><Maximize size={13} /><span className="play-live-label">Full screen</span></button>
+      <span className="mute">{input ? 'Click the game to control it · Esc releases' : 'View only: this game reads legacy input'}</span>
     </div>
   </div>
 }
