@@ -192,7 +192,7 @@ export class PlayPool {
         ...(v.failure ? { failure: { message: v.failure.message, at: v.failure.at, screenshot: v.failure.screenshot } } : {}) }
     }), queue: s.queue.map(q => q.owner) }))
   }
-  /** Settings › Unity slots: hidden (default) or visible slot editor windows, for every later launch. */
+  /** Settings › This project › Unity slots: hidden (default) or visible slot editor windows, for every later launch. */
   async configureLaunch(visible) {
     return this.transaction(s => { s.launch = visible ? 'visible' : 'hidden'; return { launch: s.launch } })
   }
@@ -281,7 +281,7 @@ export class PlayPool {
   /**
    * The only way a slot editor is started (units' play.mjs sessions):
    * `-automated -projectPath <slot>`, on a hidden desktop unless the player chose visible windows in
-   * Settings › Unity slots, or the hidden desktop is unavailable (then visible, with a warning).
+   * Settings › This project › Unity slots, or the hidden desktop is unavailable (then visible, with a warning).
    */
   async launchEditor(id, token, executable, { env = process.env, cwd } = {}) {
     await this.validateCopy(id)

@@ -4,6 +4,15 @@
  * rewritten in Genio's gaming vocabulary (docs/VOCABULARY.md).
  * Tools are exposed as mcp__genio__<name>; prompts refer to them by <name>.
  */
+import { settingsPath } from '@shared/settings-pages'
+
+/** How Genio names places in Settings: plain names, game term as a hint, all from settingsPath(). */
+const SETTINGS_EXAMPLES = [
+  settingsPath('project-delivery', 'Merge finished work automatically (Auto-loot)'),
+  settingsPath('project', 'Max units at once'),
+  settingsPath('gauntlet'),
+  settingsPath('toolchain')
+].join(', ')
 
 export interface ContractOpts {
   gamertag: string
@@ -28,6 +37,7 @@ When evidence uses an internal label, translate it before it reaches the player:
 - harness, backend, runtime, adapter → the unit's tool, only when the tool choice itself blocks work
 - status file, metadata, state, task id, raw path → the record, or omit it unless the player needs the path to act
 - fail-closed / refuses loudly → "stops safely when something is wrong" / "refuses rather than proceeding"
+- a place in Settings → its plain path with the game term as a hint, e.g. ${SETTINGS_EXAMPLES}; never old page names such as Systems, Loadout, Patch, Overwatch or Harnesses on their own
 - fail-open → "steps aside and lets the work continue"
 Never relay unit reports, status lines, tool output or choice records verbatim. Read them as evidence, then say the outcome and consequence in plain English.`
 

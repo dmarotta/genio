@@ -55,64 +55,63 @@ const ROWS: Partial<Record<SettingsPageId, RowSpec[]>> = {
   project: [
     ['Engine', ['Rescan', 'Detected engine', 'Unity version'], 'settings-engine'],
     ['Description', ['Pitch']],
-    ['Usage mode', ['Usage mode for this project', 'Project usage mode']],
-    ['Capacity', ['Max units at once', 'Cap']],
-    ['Allow cheap third-party models', ['OpenRouter', 'DeepSeek', 'Qwen']],
+    ['Usage mode for this project', ['Usage mode', 'Project usage mode']],
+    ['Max units at once', ['Capacity', 'Cap', 'Unit limit']],
+    ['Allow OpenRouter models for low-stakes work', ['Allow cheap third-party models', 'Cheap models', 'OpenRouter', 'DeepSeek', 'Qwen']],
     ['Remove project from Genio', ['Delete project', 'Danger zone'], 'settings-danger']
   ],
   'project-delivery': [
     ['Delivery', ['Delivery mode', 'Hardcore', 'Standard', 'Offline']],
     ['Merge finished work automatically', ['Auto-loot', 'Yolo', 'Auto merge']],
-    ['Branch prefix', ['Branch name prefix']],
+    ['Branch name prefix', ['Branch prefix']],
     ['Main branch', ['Sync', 'Push'], 'settings-main-branch']
   ],
   'project-commands': [['Commands', ['setup', 'build', 'test', 'lint'], 'settings-commands']],
-  'project-assets': [['Generation settings', ['Monthly budget', 'Ask above', 'Codex images', 'Asset folders'], 'generation-settings']],
-  'project-unity': [['Unity slots for units', ['Maximum slots', 'Slot windows'], 'unity-slots']],
+  'project-assets': [['Generation settings', ['Monthly budget', 'Ask before runs over', 'Confirm runs over', 'Codex images', 'Asset folders'], 'generation-settings']],
+  'project-unity': [['Unity slots for units', ['Maximum slots', 'Slot editor windows', 'Slot windows'], 'unity-slots']],
   general: [
     ['Gamertag', ['Name']],
-    ['Voice', ['Read aloud', 'Speech']],
-    ['Visual FX', ['Scanlines', 'Grid', 'Effects']],
-    ['Clean HUD', ['Clean chat', 'Calm', 'Tool chatter']],
-    ['Replay onboarding', ['First run', 'Intro', 'Setup again']]
+    ['Read replies aloud', ['Voice', 'Speech']],
+    ['Scanlines and grid', ['Visual FX', 'Effects']],
+    ['Clean chat', ['Clean HUD', 'Calm', 'Tool chatter']],
+    ['Replay the intro', ['Replay onboarding', 'Onboarding', 'First run', 'Setup again']]
   ],
   notifications: [
     ['Desktop notifications', ['Toasts', 'Notify']],
-    ['Sound effects', ['Sounds', 'SFX']],
+    ['Sounds', ['Sound effects', 'SFX']],
     ['Volume'],
     ["While you're away", ['AFK', 'DND', 'Away', 'Alerts'], 'settings-away'],
-    ['Webhook kind', ['Discord', 'Slack', 'JSON']],
-    ['Webhook URL', ['Send away alerts to']],
-    ['Alarm', ["If you don't respond", 'Command']],
-    ['Alarm after (min)'],
-    ['AFK digest window (s)', ['Bundle away alerts', 'Digest']]
+    ['Send away alerts to', ['Webhook', 'Webhook kind', 'Webhook URL', 'Discord', 'Slack', 'JSON']],
+    ["If you don't respond", ['Alarm', 'Run a command']],
+    ['Raise the alarm after', ['Alarm after (min)', 'Alarm after']],
+    ['Bundle away alerts for', ['AFK digest window (s)', 'AFK digest', 'Digest']]
   ],
   usage: [
     ['Usage mode', ['Save', 'Balanced', 'Max'], 'settings-usage-mode'],
-    ['Paid spend on cheap models', ['OpenRouter spend', 'Cheap models']],
+    ['Allow paid OpenRouter spend', ['Paid spend on cheap models', 'OpenRouter spend', 'Cheap models']],
     ['Chat model', ['Pin models and effort', 'Pinned']],
     ['Chat effort'],
     ['Unit model'],
     ['Unit effort'],
-    ['Category table, rules, scorecard', ['Model routing']]
+    ['Model routing', ['Category table, rules, scorecard', 'Dispatch']]
   ],
   accounts: [['API keys', ['FAL', 'OpenRouter key', 'Uthana', 'Key'], 'settings-api-keys']],
-  memory: [['Memory budget (tokens)', ['Memory size']]],
+  memory: [['Memory size limit', ['Memory budget (tokens)', 'Memory budget', 'Memory size', 'Curate now', '/save']]],
   units: [
-    ['Default harness', ['Default agent tool']],
-    ['Claude permission posture', ['Claude unit permissions', 'Bypass', 'Accept edits']],
-    ['Auto-dispatch queued quests', ['Start queued quests automatically']],
-    ['Brief additions', ['Instructions for every unit', 'Brief include']],
-    ['Strip AI commit trailers', ['Commit attribution', 'Co-author lines']],
-    ['Co-authored by Genio'],
-    ['Genio trailer identity']
+    ['Default agent tool', ['Default harness', 'Harness']],
+    ['Claude unit permissions', ['Claude permission posture', 'Bypass', 'Accept edits']],
+    ['Start queued quests automatically', ['Auto-dispatch queued quests', 'Auto-dispatch']],
+    ['Instructions for every unit', ['Brief additions', 'Brief include']],
+    ['Remove AI co-author lines from commits', ['Strip AI commit trailers', 'Commit attribution', 'Co-author lines']],
+    ['Credit Genio as co-author', ['Co-authored by Genio']],
+    ['Genio co-author name', ['Genio trailer identity']]
   ],
-  play: [['Play editor idle time and limit', ['Close your Play editor after', 'Play editors open at once', 'Quit after idle', 'Maximum player editors'], 'player-instance']],
+  play: [['Your Play editor', ['Close your Play editor after', 'Play editors open at once', 'Quit after idle', 'Maximum player editors', 'Idle time and editor limit'], 'player-instance']],
   inbox: [
-    ['Mail HTTP intake', ['Accept notes from scripts and your phone', 'Mail']],
+    ['Accept notes from scripts and your phone', ['Mail HTTP intake', 'Mail', 'HTTP']],
     ['Port'],
     ['Token'],
-    ['Replay log', ['Activity log', 'Ledger', 'fleet-ledger.jsonl']],
+    ['Keep an activity log file', ['Replay log', 'Activity log', 'Ledger', 'fleet-ledger.jsonl']],
     ['Scheduled checks', ['Triggers', 'Timer', 'Cron'], 'settings-triggers']
   ],
   system: [
@@ -120,8 +119,8 @@ const ROWS: Partial<Record<SettingsPageId, RowSpec[]>> = {
     ['Windows integration', ['Explorer', 'Context menu'], 'settings-explorer'],
     ['Open with Genio', ['Explorer menu']],
     ['Terminal command', ['genio .', 'PATH']],
-    ['Updates', ['Patch', 'Check for updates', 'Update and restart'], 'settings-updates'],
-    ['Base', ['Genio data folder']]
+    ['Updates', ['Patch', 'Check for updates', 'Update and restart', 'Check for patch', 'Apply patch'], 'settings-updates'],
+    ['Data folder', ['Base', 'Genio data folder']]
   ],
   dispatch: [['Learn the order automatically', ['Auto reorder', 'Learning']]],
   harnesses: [
@@ -129,17 +128,17 @@ const ROWS: Partial<Record<SettingsPageId, RowSpec[]>> = {
     ['Shell']
   ],
   gauntlet: [
-    ['Reviewer model', ['Review model']],
+    ['Review model', ['Reviewer model']],
     ['Max fix rounds', ['Validation rounds']]
   ],
   overwatch: [
-    ['Poll every (s)', ['Check units every']],
-    ['Lagging after (s)', ['Call a unit lagging after', 'Stale']],
-    ['Lag escalations', ['Lag warnings before a deep check']],
-    ['Paused resurface (h)', ['Bring paused units back after']],
-    ['PR poll (min)', ['Check pull requests every']],
-    ['Ping re-ring (s)', ['Re-send a ping after']],
-    ['Ping rings before escalating', ['Re-sends before escalating']]
+    ['Check units every', ['Poll every (s)', 'Poll']],
+    ['Call a unit lagging after', ['Lagging after (s)', 'Stale']],
+    ['Lag warnings before a deep check', ['Lag escalations']],
+    ['Bring paused units back after', ['Paused resurface (h)']],
+    ['Check pull requests every', ['PR poll (min)', 'PR poll']],
+    ['Re-send a ping after', ['Ping re-ring (s)', 'Ping re-ring']],
+    ['Re-sends before escalating', ['Ping rings before escalating']]
   ],
   maintenance: [["Hide Genio's past sessions from the Codex and Claude apps", ['Housekeeping', 'Archive sessions', 'Undo']]]
 }

@@ -56,6 +56,18 @@ code comments that cite the original design.
 | wedge alarm | **Alarm** | |
 | "Captain, shipshape." no-op | **"All clear."** | |
 
+## Settings: plain names, game term as a hint
+
+The rest of the app speaks the vocabulary above. Settings is the exception: its
+pages and fields use plain names, and the game term follows as a hint where the
+app uses it elsewhere, e.g. **Merge finished work automatically** (Auto-loot),
+**Clean chat** (Clean HUD), **Checks & review (Gauntlet)**, **Timing (Overwatch)**,
+**Agent tools (Harnesses)**, **Installed tools (Loadout)**, **Updates (Patch)**.
+Text that sends the player to a setting names its path through `settingsPath()`
+(`src/shared/settings-pages.ts`), e.g. "Settings → Advanced → Checks & review
+(Gauntlet)"; a test checks every such path in the source. Settings search keeps
+the old names as synonyms.
+
 Seasoning: light gamer slang (`GG`, `on it`, `queued`, `loot secured`, `respawning`)
 is allowed when it fits, never obscures technical content, and is dropped
 entirely for bad news or failures.

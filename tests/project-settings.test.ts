@@ -38,7 +38,7 @@ describe('Project settings and registry helpers', () => {
     expect(host.querySelector('h1')?.textContent).toBe('Settings')
     expect(host.querySelector('.sys-link.on')?.textContent).toBe('Delivery')
     expect(host.textContent).not.toContain('C:/games/Other')
-    expect(host.textContent).toContain('Saved with Zebra.')
+    expect(host.textContent).toContain('Settings saved with Zebra.')
     const select = (label: string) => [...host.querySelectorAll('label.field')].find(field => field.querySelector('.label')?.textContent === label)!.querySelector('select')!
     await act(async () => { select('Delivery').value = 'direct-PR'; select('Delivery').dispatchEvent(new Event('change', { bubbles: true })) })
     expect(fixture.update).toHaveBeenLastCalledWith('Zebra', { mode: 'direct-PR' })
@@ -46,7 +46,7 @@ describe('Project settings and registry helpers', () => {
     expect(fixture.update).toHaveBeenLastCalledWith('Zebra', { modeSource: 'auto' })
     await act(async () => requestSystemsSection('project'))
     expect(host.querySelector('.sys-link.on')?.textContent).toBe('General')
-    await act(async () => { select('Usage mode').value = 'save'; select('Usage mode').dispatchEvent(new Event('change', { bubbles: true })) })
+    await act(async () => { select('Usage mode for this project').value = 'save'; select('Usage mode for this project').dispatchEvent(new Event('change', { bubbles: true })) })
     expect(fixture.update).toHaveBeenLastCalledWith('Zebra', { usageMode: 'save', costDial: undefined })
     // Infer only: no engine picker, no root input.
     expect([...host.querySelectorAll('label.field .label')].map(label => label.textContent)).not.toContain('Engine')
@@ -147,20 +147,20 @@ describe('Project settings and registry helpers', () => {
   })
   it('splits This project into General and Delivery and keeps their handlers', async () => {
     await mount()
-    for (const label of ['Usage mode', 'Engine', 'Rescan', 'Allow cheap third-party models', 'Description', 'Capacity', 'Danger zone']) expect(host.textContent).toContain(label)
-    for (const label of ['Delivery', 'Auto-loot', 'Branch prefix', 'Generation']) expect(host.textContent).not.toContain(label)
+    for (const label of ['Usage mode for this project', 'Engine', 'Rescan', 'Allow OpenRouter models for low-stakes work', 'Description', 'Max units at once', 'Danger zone']) expect(host.textContent).toContain(label)
+    for (const label of ['Delivery', 'Auto-loot', 'Branch name prefix', 'Generation', 'Capacity', 'cheap third-party']) expect(host.textContent).not.toContain(label)
     expect(host.querySelector('.world-details')).not.toBeNull()
     await click('Reveal in Explorer'); expect(fixture.openPath).toHaveBeenCalledWith('C:/games/Zebra')
     await click('Remove'); expect(document.body.textContent).toContain('Remove Zebra?')
     await act(async () => root!.unmount()); document.body.innerHTML = ''
 
     await mount('project-delivery')
-    for (const label of ['Delivery', 'Merge finished work automatically', 'Auto-loot', 'Branch prefix', '2 commits not pushed']) expect(host.textContent).toContain(label)
+    for (const label of ['Delivery', 'Merge finished work automatically', 'Auto-loot', 'Branch name prefix', '2 commits not pushed']) expect(host.textContent).toContain(label)
     expect(host.textContent).not.toContain('Usage mode')
     await click('Sync'); expect(fixture.sync).toHaveBeenCalledWith('Zebra')
     await click('Push'); expect(fixture.push).toHaveBeenCalledWith('Zebra')
     await act(async () => host.querySelector<HTMLInputElement>('.toggle input')!.click())
-    expect(document.body.textContent).toContain('Enable Auto-loot for Zebra?')
+    expect(document.body.textContent).toContain('Merge finished work automatically in Zebra?')
   })
   it('shows Commands open, without the Playtest-only run row, and keeps a stored run command', async () => {
     await mount('project-commands')

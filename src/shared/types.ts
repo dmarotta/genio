@@ -101,7 +101,7 @@ export interface Project {
   description?: string
   /** legacy per-world dial; read as the equivalent Usage mode when usageMode is unset */
   costDial?: CostDial
-  /** this world's Usage mode override (Systems â†’ Usage â†’ Advanced); unset = the global mode. Cannot raise the global unit cap. */
+  /** this world's Usage mode override (Settings → This project → General); unset = the global mode. Cannot raise the global unit cap. */
   usageMode?: UsageMode
   /** on unless false: units may send this world's code to cheap third-party models (OpenRouter via OpenCode); false opts the world out */
   allowCheapModels?: boolean

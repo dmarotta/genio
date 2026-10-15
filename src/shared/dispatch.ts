@@ -1,7 +1,7 @@
 /**
  * Smart dispatch data shared by main and renderer: the fixed category list,
  * the default category table, the cheap OpenRouter models and the scorecard
- * shapes. The table ships as editable data (Systems → Dispatch); this file is
+ * shapes. The table ships as editable data (Settings → Advanced → Model routing (Dispatch)); this file is
  * only the starting point and the "reset" target.
  */
 import type { CategoryPool, CostDial, PoolCandidate, TaskCategory, Verdict } from './types'
@@ -88,7 +88,7 @@ export const COST_MODEL: Record<string, string> = { claude: 'claude-sonnet-5-5' 
 /** Plan usage at or above this share of a 5-hour or weekly window down-ranks the tool. */
 export const QUOTA_HOT_PERCENT = 85
 
-/** Learning thresholds (documented in Systems → Dispatch). */
+/** Learning thresholds (documented in Settings → Advanced → Model routing (Dispatch)). */
 export const LEARNING = {
   /** recency half-life of an outcome, in days */
   halfLifeDays: 30,
@@ -155,7 +155,7 @@ export interface LearningEvent {
   text: string
 }
 
-/** Systems → Dispatch: scores, recent outcomes and what the learning loop did. */
+/** Settings → Advanced → Model routing (Dispatch): scores, recent outcomes and what the learning loop did. */
 export interface DispatchScoresView {
   rows: ScoreRow[]
   recent: OutcomeRecord[]

@@ -4,12 +4,13 @@ import type { MemoryFile, MemoryReport } from '@shared/api'
 import { api, errText, op, toast } from '../store'
 import { Markdown } from './Markdown'
 import { Confirm, Tabs } from './ui'
+import { SettingsTitle } from './SettingsTitle'
 import { cx } from '../lib/format'
 
 /** The memory files Genio reads at session start. `lore` stays the stored id and file name. */
 export const MEMORY_FILES: { id: MemoryFile; file: string; label: string; hint: string }[] = [
   { id: 'player', file: 'player.md', label: 'Player profile', hint: 'How you like to work. Genio reads this at every session start.' },
-  { id: 'lore', file: 'lore.md', label: 'Squad memory', hint: 'Curated squad knowledge. <!--P--> pinned · <!--a:DATE--> aging (30 days) · <!--p:DATE--> perishable (7 days)' },
+  { id: 'lore', file: 'lore.md', label: 'Squad memory', hint: 'What Genio has learned with you. Entries can be pinned (<!--P-->), or expire after 30 days (<!--a:DATE-->) or 7 days (<!--p:DATE-->).' },
   { id: 'player-shared', file: 'player-shared.md', label: 'Shared profile', hint: 'Inherited by every ally base.' }
 ]
 
@@ -74,18 +75,16 @@ export function Memory({ budget }: { budget: number }) {
 
   return (
     <>
-      <h2 className="sys-title">
-        Memory
+      <SettingsTitle page="memory">
         <button
           className="btn sm solid"
           style={{ marginLeft: 'auto' }}
-          onClick={() => void op('Save game', () => api().save(), () => 'Genio is curating your profile and squad memory')}
-          title="Genio sweeps the session for durable knowledge, archives expired entries and enforces the budget"
+          onClick={() => void op('Curate now', () => api().save(), () => 'Genio is curating your profile and squad memory')}
+          title="Genio tidies your profile and squad memory (/save): keeps what lasts, archives expired entries and stays under the size limit"
         >
-          <Save size={12} /> /save
+          <Save size={12} /> Curate now
         </button>
-      </h2>
-      <p className="mute">What Genio remembers between sessions. It reads these files at every session start and curates them on /save.</p>
+      </SettingsTitle>
 
       <section className="memory-editor">
         <div className="memory-top">

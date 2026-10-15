@@ -51,9 +51,9 @@ describe('Settings › Unity & Play', () => {
     expect(host.textContent).toContain('This project: idle')
     expect(host.textContent).toContain('Genio Unity editors: 2 running (1 unit slots, 0 player, 1 batch)')
     expect(host.textContent).toContain('5.0 GB · 14.0 GB available of 32.0 GB')
-    const idle = host.querySelector('[aria-label="Player idle minutes"]') as HTMLInputElement
+    const idle = host.querySelector('[aria-label="Close your Play editor after (minutes)"]') as HTMLInputElement
     expect(idle.value).toBe('10')
-    const cap = host.querySelector('[aria-label="Maximum player editors"]') as HTMLSelectElement
+    const cap = host.querySelector('[aria-label="Play editors open at once"]') as HTMLSelectElement
     expect(cap.value).toBe('2')
     await act(async () => { cap.value = '3'; cap.dispatchEvent(new Event('change', { bubbles: true })) })
     expect(fixture.playerInstanceSettings).toHaveBeenCalledWith('Zebra', { maxEditors: 3 })
@@ -65,8 +65,8 @@ describe('Settings › This project › Unity slots', () => {
   it('no longer holds the global Play editor settings and links to Unity & Play instead', async () => {
     fixture.pool = { cap: 1, queue: [], slots: [] }
     await mount('unity')
-    expect(host.querySelector('[aria-label="Player idle minutes"]')).toBeNull()
-    expect(host.querySelector('[aria-label="Maximum player editors"]')).toBeNull()
+    expect(host.querySelector('[aria-label="Close your Play editor after (minutes)"]')).toBeNull()
+    expect(host.querySelector('[aria-label="Play editors open at once"]')).toBeNull()
     expect([...host.querySelectorAll('button')].some(b => b.textContent === 'Unity & Play →')).toBe(true)
   })
   it('appears for Unity projects with the cap, every slot state, the queue and disk per slot', async () => {
@@ -82,7 +82,7 @@ describe('Settings › This project › Unity slots', () => {
     const section = host.querySelector('[aria-label="Unity slots"]')!
     expect(section).not.toBeNull()
     expect(section.id).toBe('unity-slots')
-    expect((section.querySelector('select[aria-label="Maximum Unity slots"]') as HTMLSelectElement).value).toBe('2')
+    expect((section.querySelector('select[aria-label="Unity slots for units"]') as HTMLSelectElement).value).toBe('2')
     const rows = [...section.querySelectorAll('li.unity-slot')].map(li => li.textContent)
     expect(rows).toHaveLength(6)
     expect(rows[0]).toContain('Leased by unit fix-jump')
@@ -111,7 +111,7 @@ describe('Settings › This project › Unity slots', () => {
     fixture.pool = { cap: 2, queue: [], slots: [slot(1, { owner: 'unit:task-7' }), slot(2, { owner: 'unit:task-8' })] }
     await mount('unity')
     fixture.playPoolCap.mockImplementationOnce(async () => { fixture.pool = { ...fixture.pool, cap: 1, slots: [fixture.pool.slots[0], { ...fixture.pool.slots[1], draining: true }] }; return { cap: 1, draining: [2] } })
-    const select = host.querySelector('select[aria-label="Maximum Unity slots"]') as HTMLSelectElement
+    const select = host.querySelector('select[aria-label="Unity slots for units"]') as HTMLSelectElement
     await act(async () => { select.value = '1'; select.dispatchEvent(new Event('change', { bubbles: true })) })
     expect(fixture.playPoolCap).toHaveBeenCalledWith('Zebra', 1)
     expect(host.querySelector('[role=alert]')).toBeNull()

@@ -118,9 +118,9 @@ describe('Settings → Memory', () => {
     expect(button('Archive all')!.disabled).toBe(true)
   })
 
-  it('keeps /save reachable from the section', async () => {
+  it('keeps /save reachable from the section as Curate now', async () => {
     await open('memory')
-    await act(async () => button('/save')!.click())
+    await act(async () => button('Curate now')!.click())
     expect(f.api.save).toHaveBeenCalled()
   })
 })

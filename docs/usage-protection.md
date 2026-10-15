@@ -145,7 +145,7 @@ drift, nested project worktrees, deduplication and legacy shared chat.
 
 **Pinned.** A non-empty chat/Bot/unit model or effort, an ally's own pick, a
 locked category row, a dispatch rule or an explicit deploy pick is Pinned: neither
-the mode nor protection changes it, and Settings → Usage lists it with Unpin.
+the mode nor protection changes it, and Settings → Usage & limits lists it with Unpin.
 Migration keeps every explicit pick as written; only the old shipped chat default
 (`wkspEffort: 'high'` with no model) becomes Auto, and the old cost dial becomes
 the mode (Quality → Max, Cost → Save).
@@ -162,7 +162,7 @@ the mode (Quality → Max, Cost → Save).
   quests and, when no plan has headroom, all queued quests stay queued until
   reset ("Queued until reset" in Quests). Running work is never stopped.
 
-A one-line notice (toast and Settings → Usage) is emitted only when a plan's level
+A one-line notice (toast and Settings → Usage & limits) is emitted only when a plan's level
 changes; its details give the cause and evidence age. Levels persist in
 `data/usage/policy-state.json`, so restarts do not repeat notices.
 

@@ -27,7 +27,7 @@ import {
 
 const EXIT = { usage: 2, nokey: 3, api: 4, pending: 5, budget: 6 }
 const MISSING_KEY =
-  'FAL key missing: FAL_KEY is not set for this unit. The player sets it in Genio under Settings -> Accounts (FAL.ai); units launched after that receive it automatically.'
+  'FAL key missing: FAL_KEY is not set for this unit. The player sets it in Genio under Settings -> Accounts & keys -> API keys (FAL.ai); units launched after that receive it automatically.'
 
 // Tests only: a loopback base stands in for both FAL hosts. Nothing else is accepted.
 const TEST_BASE = /^http:\/\/127\.0\.0\.1:\d+$/.test(process.env.GENIO_FAL_TEST_BASE ?? '') ? process.env.GENIO_FAL_TEST_BASE : ''

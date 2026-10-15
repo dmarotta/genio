@@ -20,7 +20,7 @@ Every command prints JSON on stdout (progress on stderr). Exit codes: 0 ok, 2 us
 ## Key
 
 - The key reaches you only as the `FAL_KEY` environment variable, set by Genio when the player stored one. Never print, echo, log or commit it, never put it in a command line, a file, a status line or a report. The helper reads it itself.
-- Run `node "{{SKILL_DIR}}/scripts/fal.mjs" check` first (no network). If it exits 3 the key is missing: the player sets it in Genio under **Settings → Accounts**. Append `blocked: FAL key missing (set it in Systems → Accounts, then respawn me)` to your status file and stop. Do not look for keys elsewhere.
+- Run `node "{{SKILL_DIR}}/scripts/fal.mjs" check` first (no network). If it exits 3 the key is missing: the player sets it in Genio under **Settings → Accounts & keys → API keys**. Append `blocked: FAL key missing (set it in Settings → Accounts & keys → API keys, then respawn me)` to your status file and stop. Do not look for keys elsewhere.
 
 ## Spending
 

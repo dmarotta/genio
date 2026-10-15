@@ -1,5 +1,6 @@
 import { modelState, normalizeModels, staticClaudeCatalogue, type CatalogueRoute, type ModelCatalogue, type ModelRuntime, type RawModel } from '@shared/model-catalogue'
 import { runtimeAccounts } from '@shared/api'
+import { settingsPath } from '@shared/settings-pages'
 import { bus } from './bus'
 import { listAccounts, scrubDetail } from './accounts'
 import { claudeModels, codexModels, geminiModels, opencodeModels } from './model-discovery'
@@ -37,9 +38,9 @@ export function modelCatalogue(dataDir: string, refresh = false, claudePath?: st
         sourceAt: previous?.sourceAt, models: previous?.models.length ? previous.models : runtime === 'claude' ? staticClaudeCatalogue().routes[0].models : [] }
       if (unavailable.has(runtime)) { route.state = 'unavailable'; route.reason = unavailable.get(runtime); return route }
       if (!account?.installed) { route.reason = 'CLI is not installed'; return route }
-      if (provider === 'OpenRouter' && !key) { route.state = 'sign-in-needed'; route.reason = 'Add an OpenRouter key in Accounts'; return route }
+      if (provider === 'OpenRouter' && !key) { route.state = 'sign-in-needed'; route.reason = `Add an OpenRouter key in ${settingsPath('accounts', 'API keys')}`; return route }
       if ((runtime === 'claude' || runtime === 'codex') && route.state !== 'connected') {
-        route.reason = route.state === 'sign-in-needed' ? 'Sign in through Accounts' : 'Account status could not be verified'; return route
+        route.reason = route.state === 'sign-in-needed' ? `Sign in through ${settingsPath('accounts')}` : 'Account status could not be verified'; return route
       }
       try {
         const models = normalizeModels(runtime, provider, await probe())

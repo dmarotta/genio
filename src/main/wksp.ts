@@ -11,6 +11,7 @@ import { recordCodexChatUsage, recordCodexChatLimits } from './usage'
 import { refreshClaudePlanUsage } from './claude-usage-probe'
 import { claudeLaunch } from './claude-home'
 import { codexLaunch } from './codex-home'
+import { settingsPath } from '@shared/settings-pages'
 /**
  * Genio agent sessions (companion's primary harness session, in-process).
  *
@@ -316,7 +317,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     provider === 'claude' && !quotaPolicy().canStartTurn(item.kind, Date.now(), false) ? quotaPolicy().limitState() : undefined
   const costs = new SessionCostLedger(path.join(home.data, 'usage', 'session-costs.json'))
 
-  // plan limits are per account: every base records into the main base (Systems → Accounts)
+  // plan limits are per account: every base records into the main base (Settings → Accounts & keys)
   const rateLimit = (rl: ClaudeRateLimitInfo): void => {
     recordClaudeRateLimit(claudeLimitsFile(getCtx().main.home.data), rl)
     quotaPolicy().observe(rl)
@@ -595,7 +596,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     if (readOnly) throw new Error('The main chat is archived. Open the Genio project to continue.')
     if (!isOpen()) throw new Error('Open the project window before using its chat.')
     const unavailable = chatRouteUnavailable(selectedProvider())
-    if (unavailable) throw new Error(`${unavailable} Open Accounts and refresh before sending. Your draft has been kept.`)
+    if (unavailable) throw new Error(`${unavailable} Open ${settingsPath('accounts')} and refresh before sending. Your draft has been kept.`)
   }
 
   /** A player's message, on screen as queued the moment it is submitted: before slow thumbnails, an opening project or earlier sends. */

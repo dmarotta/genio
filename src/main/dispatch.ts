@@ -94,7 +94,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
   const queued = (): BacklogItem[] =>
     homes().flatMap((h) => h.backlog.list()).filter((i) => (i.kind === 'ship' || i.kind === 'scout') && i.state === 'queued')
 
-  /** One notice per policy transition (toast + Systems → Usage, with cause and evidence age). */
+  /** One notice per policy transition (toast + Settings → Usage & limits, with cause and evidence age). */
   const transitions = (): void => {
     try {
       const low = queued().filter((i) => i.priority === 'low').length

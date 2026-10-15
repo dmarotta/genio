@@ -78,7 +78,7 @@ Three main-process habits added load that grows with the number of agents:
   thousands of `chat-delta` and `wksp` activity events per reply;
 - the Hub window received every chat delta, chat message and terminal chunk of
   every project although it has no screen for them;
-- the usage scan (Systems › Accounts, dispatch signals, every 5 minutes and at
+- the usage scan (Settings › Accounts & keys, dispatch signals, every 5 minutes and at
   startup) re-parsed the whole transcript of every running unit each time one
   grew, then grouped records per project with an O(n²) copy.
 

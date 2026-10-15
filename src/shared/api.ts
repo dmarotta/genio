@@ -85,7 +85,7 @@ export interface OpResult {
 
 export type LoginState = 'logged-in' | 'logged-out' | 'unknown'
 
-/** A CLI with its own login (Systems → Accounts). Genio never holds its credentials. */
+/** A CLI with its own login (Settings → Accounts & keys). Genio never holds its credentials. */
 export interface AccountStatus {
   tool: string
   label: string
@@ -204,7 +204,7 @@ export interface FalSpend {
   costed: number
 }
 
-/** Systems → Accounts usage panel. Built from status output and local logs only. */
+/** Settings → Accounts & keys usage panel. Built from status output and local logs only. */
 export interface UsageReport {
   generatedAt: string
   tools: ToolUsage[]
@@ -560,7 +560,7 @@ export interface GenioApi {
   previewLoadout(req: LoadoutInput): Promise<Loadout>
   /** the player's 👍/👎 on a unit (scorecard) */
   rateTask(id: string, verdict: Verdict, note?: string): Promise<OpResult>
-  /** Systems → Dispatch: learned scores, recent outcomes, learning log */
+  /** Settings → Advanced → Model routing (Dispatch): learned scores, recent outcomes, learning log */
   dispatchScores(): Promise<DispatchScoresView>
   sendToTask(id: string, text: string, resolveKey?: string): Promise<OpResult>
   controlTask(id: string, action: 'interrupt' | 'exit' | 'relaunch'): Promise<OpResult>

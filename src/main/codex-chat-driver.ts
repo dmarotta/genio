@@ -5,6 +5,9 @@ import type { RawModel } from '@shared/model-catalogue'
 import { killTree, nowIso, which } from './util'
 import { codexRolloutState } from './codex-session'
 import type { ChatDriver, ChatDriverEvents, ChatTurn } from './chat-driver'
+import { settingsPath } from '@shared/settings-pages'
+
+const OPEN_ACCOUNTS = `Open ${settingsPath('accounts')}`
 
 // These are chat restrictions, deliberately independent of harness.ts.
 export const CODEX_CHAT_DISABLED = ['shell_tool', 'unified_exec', 'multi_agent', 'multi_agent_v2',
@@ -27,7 +30,7 @@ export interface CodexWireEvents {
 /** Bounded newline RPC transport. A timeout has an unknown outcome and is never retried. */
 export function spawnCodexChat(events: CodexWireEvents, extraEnv: Record<string, string> = {}): CodexRpc {
   const file = which('codex')
-  if (!file) throw new Error('Codex is not installed. Open Accounts.')
+  if (!file) throw new Error(`Codex is not installed. ${OPEN_ACCOUNTS}.`)
   const args = ['app-server', '--listen', 'stdio://', ...CODEX_CHAT_DISABLED.flatMap(name => ['--disable', name])]
   const shim = /\.(cmd|bat)$/i.test(file)
   const env = { ...process.env, ...extraEnv }
@@ -174,14 +177,14 @@ export class CodexChatDriver implements ChatDriver {
     const rpc = this.rpc = (this.options.wire ?? spawnCodexChat)({
       notification: (method, params) => { if (generation === this.generation) this.notification(method, params) },
       request: (method, params) => generation === this.generation ? this.serverRequest(method, params) : Promise.reject(new Error('Stale session')),
-      closed: () => { if (!this.closed && generation === this.generation) this.fail('Codex disconnected. Open Accounts, then resume deliberately.') }
+      closed: () => { if (!this.closed && generation === this.generation) this.fail(`Codex disconnected. ${OPEN_ACCOUNTS}, then resume deliberately.`) }
     }, home?.env ?? {})
     await rpc.request('initialize', { clientInfo: { name: 'genio_chat', version: '1.0' }, capabilities: { experimentalApi: true } })
     checkLive()
     rpc.notify('initialized', {})
     const account = await rpc.request('account/read', { refreshToken: true })
     checkLive()
-    if (!['chatgpt', 'chatgptAuthTokens'].includes(account.account?.type)) throw new Error('Codex ChatGPT login required. Open Accounts.')
+    if (!['chatgpt', 'chatgptAuthTokens'].includes(account.account?.type)) throw new Error(`Codex ChatGPT login required. ${OPEN_ACCOUNTS}.`)
     const config = (await rpc.request('config/read', { includeLayers: false })).config
     checkLive()
     if (CODEX_CHAT_DISABLED.some(name => config?.features?.[name] !== false)) throw new Error('Codex cannot verify chat tool confinement; route unavailable.')
@@ -206,7 +209,7 @@ export class CodexChatDriver implements ChatDriver {
     } while (cursor)
     const wanted = this.options.config()
     const model = this.models.find(m => (m.model ?? m.id) === wanted.model && !m.hidden)
-    if (!model) throw new Error('Selected model unavailable in the signed-in Codex catalogue. Open Accounts.')
+    if (!model) throw new Error(`Selected model unavailable in the signed-in Codex catalogue. ${OPEN_ACCOUNTS}.`)
     overrides.model_reasoning_effort = codexEffort(model, wanted.effort)
     const bridge = await this.options.bridge(lifetime.signal)
     if (lifetime.signal.aborted) { await bridge.close(); checkLive() }
@@ -243,7 +246,7 @@ export class CodexChatDriver implements ChatDriver {
       if (this.current !== turn || this.closed) return
       const wanted = this.options.config()
       const model = this.models.find(m => (m.model ?? m.id) === wanted.model && !m.hidden)
-      if (!model) throw new Error('Selected Codex model is unavailable. Open Accounts.')
+      if (!model) throw new Error(`Selected Codex model is unavailable. ${OPEN_ACCOUNTS}.`)
       if (turn.images?.length && !model.inputModalities?.includes('image')) throw new Error('This model does not support the attached images. Remove them or select an image-capable model.')
       this.events.onStart?.(turn)
       this.events.onActivity('thinking')
@@ -267,9 +270,9 @@ export class CodexChatDriver implements ChatDriver {
     this.current = undefined; this.busy = false
     this.events.onLimit?.({ restartRequired: true, provider: 'codex', reason })
     this.options.unavailable?.(reason)
-    if (!this.notice) { this.notice = true; this.events.onError(`${reason} Execution paused; open Accounts and restart to resume. No provider or paid fallback was used.`) }
+    if (!this.notice) { this.notice = true; this.events.onError(`${reason} Execution paused; open ${settingsPath('accounts')} and restart to resume. No provider or paid fallback was used.`) }
     this.disconnect()
-    this.events.onActivity('error', 'Codex unavailable — Accounts')
+    this.events.onActivity('error', 'Codex unavailable — Accounts & keys')
   }
   private finishMessages(): string {
     let text = ''

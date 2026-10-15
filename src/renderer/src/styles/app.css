@@ -897,6 +897,13 @@ body:has(.answers-float .answer-card) .toasts { right: calc(min(380px, 100vw - 2
 .sys-group-name { text-transform: none; letter-spacing: 0; color: var(--text-dim); }
 .sys-advanced { margin: 18px 0 0; padding: 12px 10px 0; border-top: 1px solid var(--line); font-size: 13px; color: var(--text-dim); }
 .sys-scope { margin: 0 0 12px; font-size: 13px; }
+.sys-intro { margin: 0 0 12px; font-size: 13px; }
+.sys-more { margin: -4px 0 12px; font-size: 12.5px; }
+.sys-more > summary { cursor: pointer; color: var(--text-dim); width: max-content; }
+.sys-more > div { margin-top: 6px; line-height: 1.5; max-width: 72ch; }
+.num-unit { display: flex; align-items: center; gap: 8px; }
+.alarm-ctl { display: flex; gap: 8px; flex-wrap: wrap; }
+.alarm-ctl > .input { flex: 1; min-width: 180px; }
 .sys-part { margin-top: 26px; padding-top: 14px; border-top: 1px solid var(--line); scroll-margin-top: 12px; }
 .sys-part:focus { outline: none; }
 .sys-part:focus > .sys-subtitle { color: var(--neon); }
@@ -1044,6 +1051,7 @@ ul.loadout-why li { margin: 1px 0; }
 .world-menu-items { position: absolute; right: 0; top: 32px; z-index: 5; min-width: 185px; padding: 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px #0008; display: flex; flex-direction: column; gap: 4px; }
 .world-menu-items .btn { justify-content: flex-start; }
 .world-details { padding: 20px 24px; border-top: 1px solid var(--line); background: #ffffff03; }
+.world-details > .engine-detected { margin-bottom: 14px; }
 .world-details-heading { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
 .world-details-heading h3 { font-size: 15px; margin: 0; }
 .world-details-heading .mute { flex: 1; font-size: 12px; overflow-wrap: anywhere; }

@@ -56,12 +56,12 @@ export function UnitySlots({ world }: { world: string }) {
   const ids = state ? [...new Set([...CAPS.slice(0, state.cap), ...state.slots.map(s => s.id)])].sort((a, b) => a - b) : []
   const totalDisk = disk ? Object.values(disk).reduce((a, b) => a + b, 0) : undefined
   return <section id={UNITY_SLOTS_ANCHOR} tabIndex={-1} className="world-generation unity-slots" aria-label="Unity slots">
-    <p className="mute">Separate copies of this project, each with its own Unity editor, so units can play different branches at once. Units wait in line when every slot is busy.</p>
+    <p className="mute">Units wait in line when every slot is busy.</p>
     {error && <p role="alert" className="alert-text">{error}</p>}
     {!state ? <p className="mute">{error ? 'Unity slots are unavailable right now.' : 'Loading Unity slots…'}</p> : <>
       <div className="form-grid">
-        <Field label="Maximum slots" hint="Applies at once. Lowering it never closes anything: slots above the new cap finish their current work, then close and stay on disk for reuse.">
-          <select className="select" aria-label="Maximum Unity slots" disabled={busy} value={state.cap} onChange={(e) => { const cap = Number(e.target.value); void run(() => api().playPoolCap(world, cap)) }}>
+        <Field label="Unity slots for units" hint="Each slot is a full copy of the project with its own editor. Lowering it closes nothing: extra slots finish their work first.">
+          <select className="select" aria-label="Unity slots for units" disabled={busy} value={state.cap} onChange={(e) => { const cap = Number(e.target.value); void run(() => api().playPoolCap(world, cap)) }}>
             {CAPS.map(n => <option key={n} value={n}>{n}</option>)}
           </select>
         </Field>
@@ -71,7 +71,7 @@ export function UnitySlots({ world }: { world: string }) {
             <option value="visible">Visible, for debugging</option>
           </select>
         </Field>
-        <Field label="In use" hint={totalDisk !== undefined ? `${gb(totalDisk)} on disk across all slot copies` : undefined}>
+        <Field label="In use" hint={totalDisk !== undefined ? `${gb(totalDisk)} on disk across all slot copies` : 'Slots leased by units right now.'}>
           <span className="unity-slots-count">{used} of {state.cap} slots in use{draining.length ? ` · ${draining.length} draining` : ''}{state.queue.length ? ` · ${state.queue.length} waiting` : ''}</span>
         </Field>
       </div>

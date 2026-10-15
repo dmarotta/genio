@@ -30,7 +30,7 @@ export interface UnityUnitConfig {
   editor?: string
   /** Seats shared with the Gauntlet; `cap` overrides the RAM-based default. */
   editors: { dir: string; cap?: number }
-  /** The Play pool, exactly as Genio's PlayService (Settings › Unity slots) builds it. */
+  /** The Play pool, exactly as Genio's PlayService (Settings › This project › Unity slots) builds it. */
   play: { data: string; world: string }
 }
 

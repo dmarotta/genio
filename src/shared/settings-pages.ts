@@ -22,7 +22,11 @@ export interface SettingsPage {
   synonyms?: string[]
   /** Shown only for Unity projects (project page) or when a Unity project is registered (Genio page). */
   unity?: boolean
+  /** One sentence under the page title saying what the page is for. */
+  intro?: string
 }
+
+const ADVANCED_INTRO = 'For troubleshooting and fine-tuning. Defaults suit most players.'
 
 export const SETTINGS_GROUP_LABEL: Record<SettingsGroup, string> = {
   project: 'This project',
@@ -32,25 +36,41 @@ export const SETTINGS_GROUP_LABEL: Record<SettingsGroup, string> = {
 
 export const SETTINGS_PAGES: SettingsPage[] = [
   { id: 'project', label: 'General', group: 'project', synonyms: ['This project'] },
-  { id: 'project-delivery', label: 'Delivery', group: 'project', synonyms: ['Auto-loot', 'Sync', 'Push', 'Branch prefix'] },
-  { id: 'project-commands', label: 'Commands', group: 'project' },
-  { id: 'project-assets', label: 'Asset generation', group: 'project', synonyms: ['Generation'] },
-  { id: 'project-unity', label: 'Unity slots', group: 'project', unity: true },
-  { id: 'general', label: 'General', group: 'genio', synonyms: ['Profile', 'Comms & FX', 'Clean HUD', 'Gamertag'] },
-  { id: 'notifications', label: 'Notifications', group: 'genio', synonyms: ['Alerts', 'Comms & FX', 'Alarm', 'Webhook'] },
-  { id: 'usage', label: 'Usage & limits', group: 'genio', synonyms: ['Usage'] },
-  { id: 'accounts', label: 'Accounts & keys', group: 'genio', synonyms: ['Accounts', 'API keys'] },
-  { id: 'memory', label: 'Memory', group: 'genio' },
-  { id: 'units', label: 'Units', group: 'genio', synonyms: ['Genio', 'Brief additions'] },
-  { id: 'play', label: 'Unity & Play', group: 'genio', unity: true, synonyms: ['Your Play instance'] },
-  { id: 'inbox', label: 'Inbox & automation', group: 'genio', synonyms: ['Mail & replay', 'Mail', 'Triggers'] },
-  { id: 'system', label: 'System', group: 'genio', synonyms: ['Loadout', 'Explorer', 'Patch'] },
-  { id: 'dispatch', label: 'Model routing', group: 'advanced', term: 'Dispatch', synonyms: ['Dispatch'] },
-  { id: 'harnesses', label: 'Agent tools', group: 'advanced', term: 'Harnesses', synonyms: ['Harnesses'] },
-  { id: 'gauntlet', label: 'Checks & review', group: 'advanced', term: 'Gauntlet', synonyms: ['Gauntlet'] },
-  { id: 'overwatch', label: 'Timing', group: 'advanced', term: 'Overwatch', synonyms: ['Overwatch'] },
-  { id: 'maintenance', label: 'Maintenance', group: 'advanced', synonyms: ['Housekeeping'] }
+  { id: 'project-delivery', label: 'Delivery', group: 'project', synonyms: ['Auto-loot', 'Sync', 'Push', 'Branch prefix'], intro: 'How finished work reaches your main branch.' },
+  { id: 'project-commands', label: 'Commands', group: 'project', intro: 'The setup, build, test and lint commands units and checks use here.' },
+  { id: 'project-assets', label: 'Asset generation', group: 'project', synonyms: ['Generation'], intro: 'Budget and folders for images, audio, video, 3D and animation made in Inventory.' },
+  { id: 'project-unity', label: 'Unity slots', group: 'project', unity: true, intro: 'Extra copies of this project where units can play and test in Unity at the same time.' },
+  { id: 'general', label: 'General', group: 'genio', synonyms: ['Profile', 'Comms & FX', 'Clean HUD', 'Gamertag'], intro: 'How Genio looks and talks to you.' },
+  { id: 'notifications', label: 'Notifications', group: 'genio', synonyms: ['Alerts', 'Comms & FX', 'Alarm', 'Webhook'], intro: 'When and how Genio gets your attention.' },
+  { id: 'usage', label: 'Usage & limits', group: 'genio', synonyms: ['Usage'], intro: 'How much of your Claude and Codex plans Genio may use.' },
+  { id: 'accounts', label: 'Accounts & keys', group: 'genio', synonyms: ['Accounts', 'API keys'], intro: 'Sign-ins and keys Genio uses. Credentials stay with each tool or in your OS keychain.' },
+  { id: 'memory', label: 'Memory', group: 'genio', intro: 'What Genio remembers between sessions.' },
+  { id: 'units', label: 'Units', group: 'genio', synonyms: ['Genio', 'Brief additions'], intro: 'Defaults for every unit Genio deploys.' },
+  { id: 'play', label: 'Unity & Play', group: 'genio', unity: true, synonyms: ['Your Play instance'], intro: 'Your own Play editor, in every Unity project.' },
+  { id: 'inbox', label: 'Inbox & automation', group: 'genio', synonyms: ['Mail & replay', 'Mail', 'Triggers'], intro: 'Notes for Genio, and checks Genio runs on a timer.' },
+  { id: 'system', label: 'System', group: 'genio', synonyms: ['Loadout', 'Explorer', 'Patch'], intro: 'Tools on this PC, Windows integration and updates.' },
+  { id: 'dispatch', label: 'Model routing', group: 'advanced', term: 'Dispatch', synonyms: ['Dispatch'], intro: ADVANCED_INTRO },
+  { id: 'harnesses', label: 'Agent tools', group: 'advanced', term: 'Harnesses', synonyms: ['Harnesses'], intro: ADVANCED_INTRO },
+  { id: 'gauntlet', label: 'Checks & review', group: 'advanced', term: 'Gauntlet', synonyms: ['Gauntlet'], intro: ADVANCED_INTRO },
+  { id: 'overwatch', label: 'Timing', group: 'advanced', term: 'Overwatch', synonyms: ['Overwatch'], intro: ADVANCED_INTRO },
+  { id: 'maintenance', label: 'Maintenance', group: 'advanced', synonyms: ['Housekeeping'], intro: ADVANCED_INTRO }
 ]
+
+/**
+ * Titled parts of a page that other text names: an old page that merged into a part keeps its game
+ * term as the hint ("Updates (Patch)"). Keyed by the part's DOM anchor.
+ */
+export const SETTINGS_PARTS: Record<string, { label: string; term?: string }> = {
+  'settings-away': { label: "While you're away" },
+  'settings-triggers': { label: 'Scheduled checks', term: 'Triggers' },
+  'settings-tools': { label: 'Installed tools', term: 'Loadout' },
+  'settings-explorer': { label: 'Windows integration' },
+  'settings-updates': { label: 'Updates', term: 'Patch' },
+  'settings-api-keys': { label: 'API keys' }
+}
+
+/** A plain name with its game term as a hint: "Checks & review (Gauntlet)". */
+export const withTerm = ({ label, term }: { label: string; term?: string }): string => (term ? `${label} (${term})` : label)
 
 /** Retired page ids: each still opens its new home, at the anchor of the part it became. */
 export const SETTINGS_ALIASES: Record<string, { page: SettingsPageId; anchor?: string }> = {
@@ -91,9 +111,15 @@ export function resolveSettingsPage(id: string, anchor?: string): { page: Settin
 
 export const settingsPage = (id: SettingsPageId): SettingsPage => SETTINGS_PAGES.find((p) => p.id === id)!
 
-/** "Settings → Accounts & keys", or "Settings → This project → Delivery"; optional sub-parts follow. */
+/**
+ * The one way text names a place in Settings, with the game term as a hint: "Settings → Accounts & keys",
+ * "Settings → Advanced → Checks & review (Gauntlet)". A retired id that became a part adds it
+ * ("patch" → "Settings → System → Updates (Patch)"); optional sub-parts follow.
+ */
 export function settingsPath(id: string, ...parts: string[]): string {
-  const page = settingsPage(resolveSettingsPage(id).page)
+  const { page: pageId, anchor } = resolveSettingsPage(id)
+  const page = settingsPage(pageId)
   const scope = page.group === 'project' ? ['This project'] : page.group === 'advanced' ? ['Advanced'] : []
-  return ['Settings', ...scope, page.label, ...parts].join(' → ')
+  const part = anchor && SETTINGS_PARTS[anchor] ? [withTerm(SETTINGS_PARTS[anchor])] : []
+  return ['Settings', ...scope, withTerm(page), ...part, ...parts].join(' → ')
 }

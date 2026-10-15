@@ -45,7 +45,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'project-cli-open', name: 'Direct Entry', description: 'Open a project with genio <folder>.', feature: 'project-cli' },
   { id: 'project-windows-two', name: 'Split Screen', description: 'Have two project windows open at once.', feature: 'file-menu' },
   { id: 'play-first', name: 'Press Play', description: 'Start a Unity Play session.', feature: 'play' },
-  { id: 'play-pool-configured', name: 'Room for the Crew', description: 'Configure the shared Unity instance cap.', feature: 'systems' },
+  { id: 'play-pool-configured', name: 'Room for the Crew', description: `Set the Unity slots for units in ${settingsPath('project-unity')}.`, feature: 'systems' },
   { id: 'play-observed', name: 'Shared Sight', description: 'Let Genio observe a game frame.', feature: 'play_frame' },
   // The new Play screen brought these back; their ids (and any earned dates) are unchanged.
   { id: 'play-stream', name: 'Motion Picture', description: 'Receive a live Unity frame on the Play screen.', feature: 'play' },
@@ -82,7 +82,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'reaction-dislike', feature: 'comms', name: 'Hold Up', description: 'Dislike a Genio message so it pauses and asks what is wrong.' },
   { id: 'yolo-chat', feature: 'comms', name: 'No Safety Wheels', description: 'Switch chat to YOLO mode.' },
   { id: 'account-login', feature: 'systems', name: 'Signed In', description: `Log in from ${settingsPath('accounts')}.` },
-  { id: 'usage-mode', feature: 'systems', name: 'Gear Shift', description: 'Switch the Usage mode between Save, Balanced and Max.' },
+  { id: 'usage-mode', feature: 'systems', name: 'Gear Shift', description: `Switch the Usage mode between Save, Balanced and Max in ${settingsPath('usage')}.` },
   { id: 'cheap-unit', feature: 'deploy', name: 'Budget Build', description: 'Deploy an OpenCode unit.' },
   { id: 'agent-asset-first', feature: 'agent_generation', name: 'Made to Order', description: 'Generate your first asset through Genio.' },
   { id: 'asset-placed-first', feature: 'asset_place', name: 'Loot Delivered', description: 'Place an agent-generated asset in a project.' },

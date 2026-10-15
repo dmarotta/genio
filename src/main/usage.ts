@@ -1,5 +1,5 @@
 /**
- * Usage for Systems → Accounts, best source first:
+ * Usage for Settings → Accounts & keys, best source first:
  *   - plan / rate-limit status the tool itself reports:
  *       Codex: a no-prompt app-server account/rateLimits/read (codex-usage-probe.ts,
  *       kept in data/usage/codex-limits.json) plus the rate_limits snapshot in

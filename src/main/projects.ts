@@ -8,6 +8,7 @@ import type { DeliveryMode, Engine, EngineCandidate, EngineProposal, Forge, Proj
 import type { OpResult, ProjectAddRequest, ProjectCreateRequest } from '@shared/api'
 import { engineSummary, proposalLine } from '@shared/engine'
 import { modeLabel, modeSourceOf } from '@shared/vocab'
+import { settingsPath } from '@shared/settings-pages'
 import type { AppCtx, ProjectsService } from './services'
 import { bus } from './bus'
 import { Home, defaultHomeRoot } from './home'
@@ -520,7 +521,7 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
       } else if (mode !== 'local-only' && p.forge === 'none') {
         warning = `${p.name} has no supported forge (GitHub/GitLab); PR steps may fail.`
       } else if (mode !== 'local-only' && !getCtx().forge.available()) {
-        warning = 'The gh CLI is not installed: PR steps will fail until it is (SYSTEMS › Install).'
+        warning = `The gh CLI is not installed: PR steps will fail until it is (${settingsPath('toolchain', 'Install')}).`
       }
       return { mode, yolo: opts.yolo ?? p.yolo, branchPrefix: p.branchPrefix ?? DEFAULT_BRANCH_PREFIX, warning }
     },

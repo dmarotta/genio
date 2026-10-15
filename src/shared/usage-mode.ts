@@ -397,7 +397,7 @@ export interface WorldUsage {
   cap?: number
 }
 
-/** Systems → Usage, the plan meter and the quest list. Built from cached local evidence only. */
+/** Settings → Usage & limits, the plan meter and the quest list. Built from cached local evidence only. */
 export interface UsagePolicyView {
   generatedAt: string
   mode: UsageMode

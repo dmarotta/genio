@@ -47,11 +47,11 @@ export function PlayerInstanceSettings({ world, own }: { world: string; own?: bo
     {error && <p role="alert" className="alert-text">{error}</p>}
     {machine && <>
       <div className="form-grid">
-        <Field label="Quit after idle" hint="Minutes after Stop. 0 quits immediately. Applies to warm editors already open.">
-          <input className="input" aria-label="Player idle minutes" type="number" min={0} max={60} value={machine.settings.idleMinutes} disabled={busy} onChange={e => { const n = Number(e.target.value); if (e.target.value && Number.isInteger(n) && n >= 0 && n <= 60) void change({ idleMinutes: n }) }} />
+        <Field label="Close your Play editor after (minutes)" hint="Minutes idle after Stop, e.g. 10; 0 closes at once.">
+          <input className="input" aria-label="Close your Play editor after (minutes)" type="number" min={0} max={60} value={machine.settings.idleMinutes} disabled={busy} onChange={e => { const n = Number(e.target.value); if (e.target.value && Number.isInteger(n) && n >= 0 && n <= 60) void change({ idleMinutes: n }) }} />
         </Field>
-        <Field label="Maximum player editors" hint="Across all project windows. Idle editors can be closed to make room; playing editors are kept. Each start also checks free memory.">
-          <select className="select" aria-label="Maximum player editors" value={machine.settings.maxEditors} disabled={busy} onChange={e => void change({ maxEditors: Number(e.target.value) })}>
+        <Field label="Play editors open at once" hint="Across all project windows. Idle editors close to make room; playing ones are kept. Each start also checks free memory.">
+          <select className="select" aria-label="Play editors open at once" value={machine.settings.maxEditors} disabled={busy} onChange={e => void change({ maxEditors: Number(e.target.value) })}>
             {[1, 2, 3, 4, 5, 6, 7, 8].map(n => <option key={n} value={n}>{n}</option>)}
           </select>
         </Field>

@@ -10,7 +10,7 @@ so without help each one stays in the player's sidebar forever.
   probe, model discovery and image runs) uses `CODEX_HOME=<base>/codex-home`
   (`codex-home.ts`), so nothing lists in the player's Codex or ChatGPT apps, even
   while it runs. Non-Codex units get it too, for their Codex image runs.
-- The player signs that home in once from Settings > Accounts > "Sign in Genio's
+- The player signs that home in once from Settings > Accounts & keys > "Sign in Genio's
   Codex (same account)": `codex login` with that `CODEX_HOME`, with their usual
   ChatGPT account (same plan, no second subscription). It is an independent
   login; the player's `auth.json` is never copied or linked. "Sign out" runs

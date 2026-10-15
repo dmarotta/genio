@@ -23,6 +23,7 @@ import { InventoryContextChips, useInventoryContext } from '../components/Invent
 const MAIN_PANEL = 'main'
 import { EffortSelect, ModelSelect } from './Systems'
 import { openSettings } from '../lib/settings-nav'
+import { settingsPath } from '@shared/settings-pages'
 
 const SLASH: { cmd: string; hint: string }[] = [
   { cmd: '/recap', hint: 'Previously on… then your pending moves, one at a time' },
@@ -116,10 +117,10 @@ export function ChatPanel({ wksp, context, surface = 'screen', active: _active =
         const limit = role === 'bot' ? info?.botLimit : info?.limit
         if (!limit) return null
         return <div className="chat-limit" role="status" key={role}>
-          <span>{role === 'bot' ? 'Bot: ' : ''}{limit.provider === 'codex' ? `${limit.reason || 'Codex unavailable'} Open Accounts, then resume the session.` : limit.reason || (limit.restartRequired
+          <span>{role === 'bot' ? 'Bot: ' : ''}{limit.provider === 'codex' ? `${limit.reason || 'Codex unavailable'} Open ${settingsPath('accounts')}, then resume the session.` : limit.reason || (limit.restartRequired
             ? 'Claude still reports an expired limit. Restart the session to try again.'
             : `Claude limit reached${limit.resetsAt ? ` ? back at ${new Date(limit.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ' ? waiting for reset'}`)}</span>
-          {limit.provider === 'codex' && <button className="btn sm" onClick={() => openSettings('accounts')}>Accounts</button>}
+          {limit.provider === 'codex' && <button className="btn sm" onClick={() => openSettings('accounts')}>Accounts &amp; keys</button>}
           {!limit.restartRequired && <button className="btn sm" onClick={() => void op('Retry', () => api().restartWksp(wksp, false, role))}>Retry now</button>}
           <button className="btn sm ghost" onClick={() => void op('Restart', () => api().restartWksp(wksp, false, role))}>Restart session</button>
         </div>
@@ -796,7 +797,7 @@ const COMPACT_SELECT: CSSProperties = { width: 'auto', height: 26, padding: '0 6
 const APPLY_HINT = 'Applies from the next turn; a turn in progress finishes first.'
 
 /**
- * Model/effort for this chat. Genio: the same wkspModel/wkspEffort settings as Systems › Genio.
+ * Model/effort for this chat. Genio: the same wkspModel/wkspEffort settings as Settings › Usage & limits › Pin models and effort.
  * An ally: its own saved values, following Genio's until changed here.
  */
 function ChatModelControls({ wksp }: { wksp: string }) {

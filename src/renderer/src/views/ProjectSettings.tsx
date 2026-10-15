@@ -9,7 +9,7 @@ import { openSettings } from '../lib/settings-nav'
 import { settingAnchor } from '@shared/settings-index'
 import type { SettingsPageId } from '@shared/settings-pages'
 import { SettingsTitle } from '../components/SettingsTitle'
-import { USAGE_MODES, USAGE_MODE_LABEL, type UsageMode } from '@shared/usage-mode'
+import { MODE_PRESETS, USAGE_MODES, USAGE_MODE_LABEL, type UsageMode } from '@shared/usage-mode'
 import { PROJECT_WINDOW, api, errText, op, setState, toast, useStore } from '../store'
 import { CommitInput, Confirm, Field, Modal, Toggle } from '../components/ui'
 import { ENGINES, ENGINE_LABEL, MODE_HINT, MODE_LABEL, PROJECT_MODES, isActive } from '../lib/vocab'
@@ -24,13 +24,28 @@ export type ProjectPageId = Extract<SettingsPageId, 'project' | 'project-deliver
 
 /** Commands units and checks run. The run command (Playtest only) is no longer shown; a stored one is kept as is. */
 const COMMANDS: (keyof ProjectCommands)[] = ['setup', 'build', 'test', 'lint']
+const COMMAND_HINT: Record<string, string> = {
+  setup: 'Prepares a fresh copy, e.g. npm ci.',
+  build: 'Builds the project, e.g. dotnet build.',
+  test: 'The test suite, e.g. npm test.',
+  lint: 'Style and static checks, e.g. eslint .'
+}
 
-const projectUpdate = (p: Project, patch: Partial<Project>): void => { void op('Project', () => api().projectUpdate(p.name, patch)) }
+/** Delivery choices keep the game name first, then say what it does. */
+const DELIVERY_OPTION: Record<ProjectMode, string> = {
+  'no-mistakes': 'Hardcore: full checks and review, then a PR',
+  'direct-PR': 'Standard: the unit opens a PR itself',
+  'local-only': 'Offline: a local branch, merged on your word',
+  'no-mistakes-prod-only': 'Hardcore (prod): Hardcore for product work, Standard for tooling'
+}
+
+const projectUpdate =(p: Project, patch: Partial<Project>): void => { void op('Project', () => api().projectUpdate(p.name, patch)) }
 
 /** This project › General: what the project is, how it counts against limits, and removal. */
 function ProjectGeneral({ p, metadata }: { p: Project; metadata?: WorldMetadata }) {
   const units = useStore((s) => s.snap.tasks.filter((t) => t.project === p.name && isActive(t.state)).length)
   const total = useStore((s) => s.snap.tasks.filter((t) => t.project === p.name && t.state !== 'cleaned').length)
+  const globalMode: UsageMode = useStore((s) => s.settings?.usageMode) ?? 'balanced'
   const [remove, setRemove] = useState(false)
   const [delClone, setDelClone] = useState(false)
   const update = (patch: Partial<Project>): void => projectUpdate(p, patch)
@@ -46,13 +61,13 @@ function ProjectGeneral({ p, metadata }: { p: Project; metadata?: WorldMetadata 
     </div>
     <section className="world-details" aria-label={`${p.name} settings`}>
       <EngineDetected p={p} />
-      <Field label="Description" id={settingAnchor('Description')}><CommitInput value={p.description ?? ''} placeholder="Describe this project" onCommit={(v) => update({ description: v })} /></Field>
+      <Field label="Description" id={settingAnchor('Description')} hint="A one-liner about the game. Genio and units read it for context."><CommitInput value={p.description ?? ''} placeholder="Describe this project" onCommit={(v) => update({ description: v })} /></Field>
       <div className="world-controls">
-        <Field label="Usage mode" id={settingAnchor('Usage mode')} hint="Override the global usage mode for this project"><select className="select" value={p.usageMode ?? ''} onChange={(e) => update({ usageMode: (e.target.value || undefined) as UsageMode | undefined, costDial: undefined })}><option value="">Global setting</option>{USAGE_MODES.map(mode => <option key={mode} value={mode}>{USAGE_MODE_LABEL[mode]}</option>)}</select></Field>
-        <Field label="Capacity" id={settingAnchor('Capacity')} hint="Max units at once (0 = no cap)">
+        <Field label="Usage mode for this project" id={settingAnchor('Usage mode for this project')} hint="How much of your plans units here may use."><select className="select" value={p.usageMode ?? ''} onChange={(e) => update({ usageMode: (e.target.value || undefined) as UsageMode | undefined, costDial: undefined })}><option value="">Same as Genio ({USAGE_MODE_LABEL[globalMode]})</option>{USAGE_MODES.map(mode => <option key={mode} value={mode}>{USAGE_MODE_LABEL[mode]}</option>)}</select></Field>
+        <Field label="Max units at once" id={settingAnchor('Max units at once')} hint={`0 = only the global limit (${MODE_PRESETS[globalMode].unitCap} in ${USAGE_MODE_LABEL[globalMode]}).`}>
           <CommitInput type="number" value={p.capacity ?? 0} onCommit={(v) => update({ capacity: Math.max(0, parseInt(v, 10) || 0) })} />
         </Field>
-        <Field label="Allow cheap third-party models" id={settingAnchor('Allow cheap third-party models')} hint="On by default: OpenRouter models (DeepSeek, Qwen, GLM) via OpenCode for low-stakes work. Code is sent to the OpenRouter provider when used.">
+        <Field label="Allow OpenRouter models for low-stakes work" id={settingAnchor('Allow OpenRouter models for low-stakes work')} hint="Code is sent to OpenRouter when used. Also needs an OpenRouter key and paid spend in Usage & limits.">
           <Toggle
             checked={cheapModelsAllowed(p)}
             onChange={(v) => update({ allowCheapModels: v })}
@@ -137,12 +152,12 @@ function ProjectDelivery({ p }: { p: Project }) {
           <option value="auto">Auto · {MODE_LABEL[p.mode]} (follows the remote)</option>
           {PROJECT_MODES.map((m) => (
             <option key={m} value={m} disabled={m !== 'local-only' && !p.remote}>
-              {MODE_LABEL[m]}
+              {DELIVERY_OPTION[m]}
             </option>
           ))}
         </select>
       </Field>
-      <Field label="Merge finished work automatically" id={settingAnchor('Merge finished work automatically')} hint="Auto-loot: Genio merges green, in-scope work itself">
+      <Field label="Merge finished work automatically" id={settingAnchor('Merge finished work automatically')} hint="Genio merges green, in-scope Builds without asking (Auto-loot). Red, draft or risky work still waits for you.">
         <Toggle
           checked={p.yolo}
           onChange={(v) => {
@@ -152,7 +167,7 @@ function ProjectDelivery({ p }: { p: Project }) {
           label={p.yolo ? <span className="volt-text">On</span> : 'Off'}
         />
       </Field>
-      <Field label="Branch prefix" id={settingAnchor('Branch prefix')}>
+      <Field label="Branch name prefix" id={settingAnchor('Branch name prefix')} hint="Unit branches start with this, e.g. genio/fix-jump.">
         <CommitInput mono value={p.branchPrefix} onCommit={(v) => update({ branchPrefix: v })} />
       </Field>
     </div>
@@ -182,9 +197,9 @@ function ProjectDelivery({ p }: { p: Project }) {
     </div>
     {confirmYolo && (
       <Confirm
-        title={`Enable Auto-loot for ${p.name}?`}
+        title={`Merge finished work automatically in ${p.name}?`}
         tone="volt"
-        confirmLabel="Enable Auto-loot"
+        confirmLabel="Turn on Auto-loot"
         body="Genio will merge green, in-scope Builds in this project without asking you first. Red, pending, draft and destructive work still waits for your word."
         onConfirm={() => update({ yolo: true })}
         onClose={() => setConfirmYolo(false)}
@@ -198,7 +213,7 @@ function ProjectCommandsPage({ p }: { p: Project }) {
   const setCmd = (k: keyof ProjectCommands, v: string): void => projectUpdate(p, { commands: { ...p.commands, [k]: v.trim() || undefined } })
   return <div className="world-cmds" id="settings-commands" tabIndex={-1}>
     {COMMANDS.map((k) => (
-      <Field key={k} label={k}>
+      <Field key={k} label={k} hint={COMMAND_HINT[k]}>
         <CommitInput mono value={p.commands[k] ?? ''} placeholder="—" onCommit={(v) => setCmd(k, v)} />
       </Field>
     ))}
@@ -233,6 +248,7 @@ function EngineDetected({ p }: { p: Project }) {
           <RefreshCw size={12} /> {scanning ? 'Scanning…' : 'Rescan'}
         </button>
       </div>
+      <span className="field-hint">Read from the project's files. Rescan after an engine upgrade.</span>
       {v.others.length > 0 && <span className="field-hint">Also found: {v.others.join('; ')}.{v.ambiguous ? ' Ask Genio to pin one.' : ''}</span>}
       {v.warning && <span className="field-hint amber-text">{v.warning}</span>}
       {proposal && (
@@ -429,7 +445,7 @@ export function ThisProjectSettings({ page = 'project' }: { page?: ProjectPageId
   if (!project) return <>{heading}<p className="mute">Open a project from the Hub to configure it.</p></>
   return <article className="project-settings" key={project.name}>
     {heading}
-    <p className="mute sys-scope">Saved with {project.name}. Your other projects are not affected.</p>
+    <p className="mute sys-scope">Settings saved with {project.name}. They don't affect your other projects.</p>
     {page === 'project' && <ProjectGeneral p={project} metadata={metadata} />}
     {page === 'project-delivery' && <ProjectDelivery p={project} />}
     {page === 'project-commands' && <ProjectCommandsPage p={project} />}

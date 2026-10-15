@@ -1,6 +1,6 @@
 # Player instance lifecycle (build 2)
 
-The main process owns one player copy and editor per project window. They live outside the units' slot pool, leases, queue and cap. This is the service behind the [Play screen](play.md): IPC, frame/input MessagePort and Settings → Unity slots controls.
+The main process owns one player copy and editor per project window. They live outside the units' slot pool, leases, queue and cap. This is the service behind the [Play screen](play.md): IPC, frame/input MessagePort and the Settings → Unity & Play controls.
 
 The final quest decisions supersede the Recon's earlier cap: the global player limit defaults to **2**, adjustable from 1–8. Idle time defaults to **10 minutes**, adjustable from 0–60. Lowering the cap leaves current editors alone. A start at the limit can close the oldest stopped, warm instance; it refuses while all instances are playing or busy. Units' slots are untouched.
 

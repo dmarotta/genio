@@ -49,7 +49,7 @@ import { SETTINGS_INDEX, searchSettings, settingAnchor } from '../src/shared/set
 import type { Settings } from '../src/shared/types'
 import { Systems, readAdvanced, requestSystemsSection, startPage, visiblePages } from '../src/renderer/src/views/Systems'
 import { isSettingsShortcut, listKey, openSettings, readLastPage } from '../src/renderer/src/lib/settings-nav'
-import { go } from '../src/renderer/src/store'
+import { go, saveSettings } from '../src/renderer/src/store'
 
 // Main-process code is outside the web typecheck, so its defaults load untyped by path. They never
 // need the Claude SDK that the usage probe imports lazily.
@@ -107,9 +107,35 @@ describe('page registry', () => {
   it('names Settings paths in one place for the main process', () => {
     expect(settingsPath('accounts')).toBe('Settings → Accounts & keys')
     expect(settingsPath('usage')).toBe('Settings → Usage & limits')
-    expect(settingsPath('dispatch')).toBe('Settings → Advanced → Model routing')
+    expect(settingsPath('dispatch')).toBe('Settings → Advanced → Model routing (Dispatch)')
     expect(settingsPath('project-delivery')).toBe('Settings → This project → Delivery')
-    expect(settingsPath('patch', 'Updates')).toBe('Settings → System → Updates')
+    expect(settingsPath('patch')).toBe('Settings → System → Updates (Patch)')
+    expect(settingsPath('project-delivery', 'Merge finished work automatically')).toBe('Settings → This project → Delivery → Merge finished work automatically')
+  })
+
+  it('gives every page an intro, and every renamed field its old label as a search synonym', () => {
+    for (const p of SETTINGS_PAGES.filter((p) => p.id !== 'project')) expect(p.intro, p.id).toBeTruthy()
+    const renamed: Record<string, string> = {
+      'Auto-loot': 'Merge finished work automatically', Capacity: 'Max units at once', 'Default harness': 'Default agent tool',
+      'Brief additions': 'Instructions for every unit', 'Clean HUD': 'Clean chat', 'Branch prefix': 'Branch name prefix',
+      'Allow cheap third-party models': 'Allow OpenRouter models for low-stakes work', 'Claude permission posture': 'Claude unit permissions',
+      'Auto-dispatch queued quests': 'Start queued quests automatically', 'Strip AI commit trailers': 'Remove AI co-author lines from commits',
+      'Co-authored by Genio': 'Credit Genio as co-author', 'Genio trailer identity': 'Genio co-author name', 'Visual FX': 'Scanlines and grid',
+      Voice: 'Read replies aloud', 'Replay onboarding': 'Replay the intro', 'Sound effects': 'Sounds', 'Webhook URL': 'Send away alerts to',
+      'Webhook kind': 'Send away alerts to', Alarm: "If you don't respond", 'Alarm after (min)': 'Raise the alarm after',
+      'AFK digest window (s)': 'Bundle away alerts for', 'Paid spend on cheap models': 'Allow paid OpenRouter spend',
+      'Memory budget (tokens)': 'Memory size limit', 'Mail HTTP intake': 'Accept notes from scripts and your phone', 'Replay log': 'Keep an activity log file',
+      Base: 'Data folder', 'Reviewer model': 'Review model', 'Poll every (s)': 'Check units every', 'Lagging after (s)': 'Call a unit lagging after',
+      'Lag escalations': 'Lag warnings before a deep check', 'Paused resurface (h)': 'Bring paused units back after', 'PR poll (min)': 'Check pull requests every',
+      'Ping re-ring (s)': 'Re-send a ping after', 'Ping rings before escalating': 'Re-sends before escalating', 'Maximum slots': 'Unity slots for units',
+      'Quit after idle': 'Your Play editor', 'Maximum player editors': 'Your Play editor', 'Check for patch': 'Updates'
+    }
+    for (const [old, now] of Object.entries(renamed)) {
+      const row = SETTINGS_INDEX.find((e) => e.label === now)
+      expect(row, now).toBeDefined()
+      expect(row!.synonyms, `${now} answers to ${old}`).toContain(old)
+      expect(searchSettings(old).map((h) => h.label), old).toContain(now)
+    }
   })
 
   it('shows project pages per engine and Unity & Play only while a Unity project is registered', () => {
@@ -133,7 +159,7 @@ describe('Settings navigation', () => {
     expect(groups()).toEqual(['This project · Zebra', 'Genio · all projects'])
     expect(navLabels()).toEqual(['General', 'Delivery', 'Commands', 'Asset generation', 'Unity slots', 'General', 'Notifications', 'Usage & limits', 'Accounts & keys', 'Memory', 'Units', 'Unity & Play', 'Inbox & automation1', 'System'])
     expect(active()).toBe('General')
-    expect(host.textContent).toContain('Saved with Zebra.')
+    expect(host.textContent).toContain('Settings saved with Zebra.')
     await toggleAdvanced()
     expect(groups()).toEqual(['This project · Zebra', 'Genio · all projects', 'Advanced'])
     expect(navLabels().slice(-5)).toEqual(['Model routing', 'Agent tools', 'Checks & review', 'Timing', 'Maintenance'])
@@ -215,14 +241,14 @@ describe('Settings navigation', () => {
   it('moves the Play editor settings off the project page and checks for updates only on a click', async () => {
     await mount()
     await open('project-unity')
-    expect(host.querySelector('[aria-label="Player idle minutes"]')).toBeNull()
+    expect(host.querySelector('[aria-label="Close your Play editor after (minutes)"]')).toBeNull()
     await open('play')
-    expect(host.querySelector('[aria-label="Player idle minutes"]')).not.toBeNull()
+    expect(host.querySelector('[aria-label="Close your Play editor after (minutes)"]')).not.toBeNull()
     await open('system')
     for (const part of ['Installed tools(Loadout)', 'Windows integration', 'Updates(Patch)', 'Genio data folder']) expect([...host.querySelectorAll('.sys-subtitle')].map((h) => h.textContent)).toContain(part)
     expect(host.textContent).toContain('C:/genio-base')
     expect(f.calls).not.toContain('checkUpdate')
-    await act(async () => [...host.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes('Check for patch'))!.click())
+    await act(async () => [...host.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes('Check for updates'))!.click())
     expect(f.calls).toContain('checkUpdate')
   })
 })
@@ -257,7 +283,7 @@ describe('search index', () => {
   })
 
   it('searches rows across both scopes with a scope chip, and only the pages a window offers', () => {
-    expect(searchSettings('webhook url')[0]).toMatchObject({ page: 'notifications', anchor: 'setting-webhook-url', path: 'Notifications › Webhook URL', scope: 'All projects' })
+    expect(searchSettings('webhook url')[0]).toMatchObject({ page: 'notifications', anchor: 'setting-send-away-alerts-to', path: 'Notifications › Send away alerts to', scope: 'All projects', via: 'Webhook URL' })
     const usage = searchSettings('usage mode')
     expect(usage.slice(0, 2).map((h) => [h.page, h.scope])).toEqual([['project', 'This project'], ['usage', 'All projects']])
     expect(searchSettings('reviewer')[0].scope).toBe('Advanced')
@@ -279,6 +305,36 @@ describe('search index', () => {
     }
     // Each page is in the index once, under its own name.
     expect(SETTINGS_PAGES.every((p) => SETTINGS_INDEX.filter((e) => !e.anchor && e.page === p.id).length === 1)).toBe(true)
+  })
+
+  it('shows a help text under every field on every page', async () => {
+    f.settings = { ...defaultSettings(), eventSources: [{ id: 't', name: 'Nightly', command: 'git log -1', intervalSec: 3600, trigger: 'match', enabled: true }],
+      dispatchRules: [{ id: 'r', match: 'shader', kind: 'any', candidates: [{ harness: 'claude', spendPriority: 0 }] }] }
+    await mount()
+    for (const page of SETTINGS_PAGES) {
+      await open(page.id)
+      const fields = [...host.querySelectorAll('.sys-body .sys-row, .sys-body .field')]
+      expect(fields.length, page.id).toBeGreaterThan(page.id === 'accounts' ? -1 : 0)
+      for (const el of fields) {
+        const label = el.querySelector('.sys-row-title, .label')?.textContent
+        expect(el.querySelector('.sys-row-hint, .field-hint'), `${page.label} › ${label}`).not.toBeNull()
+      }
+    }
+  })
+
+  it('shows the alarm as a choice plus a command box, saving the same stored string', async () => {
+    f.settings = { ...defaultSettings(), alarm: 'command:notify.cmd' }
+    await mount()
+    await open('notifications')
+    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Alarm"]')!
+    expect(select.value).toBe('command')
+    expect(host.querySelector<HTMLInputElement>('#setting-if-you-don-t-respond input')!.value).toBe('notify.cmd')
+    vi.mocked(saveSettings).mockClear()
+    await act(async () => { select.value = 'off'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+    expect(saveSettings).toHaveBeenLastCalledWith({ alarm: 'off' })
+    expect(host.querySelector('#setting-if-you-don-t-respond input')).toBeNull()
+    await act(async () => { select.value = 'auto'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+    expect(saveSettings).toHaveBeenLastCalledWith({ alarm: 'auto' })
   })
 })
 
@@ -368,14 +424,14 @@ describe('keyboard and memory', () => {
     await press(document.body, '/')
     expect(document.activeElement).toBe(search())
     await type('webhook')
-    expect([...host.querySelectorAll('.sys-result')].map((r) => r.querySelector('.sys-result-label')?.textContent)).toEqual(['Webhook kind', 'Webhook URL', 'Notifications'])
+    expect([...host.querySelectorAll('.sys-result')].map((r) => r.querySelector('.sys-result-label')?.textContent)).toEqual(['Notifications', 'Send away alerts to'])
     await press(search(), 'ArrowDown')
-    expect(host.querySelector('.sys-result.on .sys-result-label')?.textContent).toBe('Webhook URL')
+    expect(host.querySelector('.sys-result.on .sys-result-label')?.textContent).toBe('Send away alerts to')
     expect(search().getAttribute('aria-activedescendant')).toBe('sys-result-1')
     await press(search(), 'Enter')
     await settle()
     expect(active()).toBe('Notifications')
-    expect(document.activeElement).toBe(host.querySelector('#setting-webhook-url'))
+    expect(document.activeElement).toBe(host.querySelector('#setting-send-away-alerts-to'))
     await type('zzz')
     expect(host.textContent).toContain('No settings match “zzz”.')
     await press(search(), 'Escape')

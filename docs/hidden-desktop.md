@@ -47,8 +47,8 @@ once (title, text, buttons) to `<data>/hidden-desktop/launches/<desktop>/dialogs
 - **Blocking** dialogs fail the lease: licence or sign-in prompts, crash reporters and version
   prompts at once; import errors and unknown dialogs after 10 s. A screenshot of the hidden desktop
   is saved next to the log, the editor is closed, and the lease ends with a message naming the
-  dialog and the screenshot. `check()` keeps answering that message to the old holder; Settings ›
-  This project › Unity slots shows it on the slot.
+  dialog and the screenshot. `check()` keeps answering that message to the old holder; the slot
+  shows it in Settings › This project › Unity slots.
 
 ## Visible windows and fallback
 

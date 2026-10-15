@@ -2,7 +2,7 @@
  * The shared plan meter: one row per plan (Claude, Codex), never summed. Each
  * reported window shows what is left, its reset time, source and observation
  * age; an expired or missing observation reads "unknown", never "100% left".
- * Used full-size in Systems (Accounts, Usage); the rail shows one gauge icon
+ * Used full-size in Settings → Usage & limits; the rail shows one gauge icon
  * with the same details in a hover/focus popup.
  */
 import { useEffect, useState } from 'react'

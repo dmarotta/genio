@@ -10,7 +10,7 @@ import {
 import {
   MODE_PRESETS, USAGE_MODES, USAGE_MODE_LABEL, modeSummary, pctText, planLabel, presetRows, type UsageMode, type UsagePolicyView
 } from '@shared/usage-mode'
-import { SETTINGS_GROUP_LABEL, SETTINGS_PAGES, settingsPage, type SettingsPage, type SettingsPageId } from '@shared/settings-pages'
+import { SETTINGS_GROUP_LABEL, SETTINGS_PAGES, settingsPage, settingsPath, type SettingsPage, type SettingsPageId } from '@shared/settings-pages'
 import { effectiveEngine } from '@shared/engine'
 import { supportsUnitySlots } from '@shared/play'
 import { PlanMeter, useUsagePolicyState } from '../components/PlanMeter'
@@ -20,7 +20,7 @@ import {
 } from '@shared/api'
 import { PROJECT_WINDOW, api, errText, op, saveSettings, toast, useStore } from '../store'
 import { CommitInput, Confirm, Field, Toggle, ViewHeader } from '../components/ui'
-import { SettingsTitle } from '../components/SettingsTitle'
+import { LearnMore, SettingsTitle } from '../components/SettingsTitle'
 import { TerminalView } from '../components/Terminal'
 import { Memory } from '../components/Memory'
 import { Mailbox } from '../components/Mailbox'
@@ -357,13 +357,13 @@ function SectionBody({ sec, s, setAdvanced, open }: { sec: SettingsPageId; s: Se
       return (
         <>
           <SettingsTitle page="general" />
-          <Row label="Gamertag" hint="How Genio addresses you.">
+          <Row label="Gamertag" hint="The name Genio calls you, e.g. Ace.">
             <CommitInput value={s.gamertag} onCommit={(v) => set({ gamertag: v.trim() || 'Player' })} />
           </Row>
-          <Row label="Voice" hint="Genio reads its replies aloud.">
+          <Row label="Read replies aloud" hint="Genio speaks its chat replies with your system voice.">
             <Toggle checked={s.voice} onChange={(v) => set({ voice: v })} />
           </Row>
-          <Row label="Visual FX" hint="Scanlines and the tactical grid.">
+          <Row label="Scanlines and grid" hint="The retro screen effects behind every screen. Turn off for a plainer look.">
             <Toggle
               checked={s.fx}
               onChange={(v) => {
@@ -372,10 +372,10 @@ function SectionBody({ sec, s, setAdvanced, open }: { sec: SettingsPageId; s: Se
               }}
             />
           </Row>
-          <Row label="Clean HUD" hint="Hide tool chatter and routine events in Comms.">
+          <Row label="Clean chat" hint="Hide tool chatter and routine events (Clean HUD).">
             <Toggle checked={s.calm} onChange={(v) => set({ calm: v })} />
           </Row>
-          <Row label="Replay onboarding" hint="Show the first-run setup again.">
+          <Row label="Replay the intro" hint="Shows the first-run setup again, as on your first launch.">
             <button className="btn sm" onClick={() => set({ firstRunDone: false })}>
               Replay
             </button>
@@ -386,13 +386,13 @@ function SectionBody({ sec, s, setAdvanced, open }: { sec: SettingsPageId; s: Se
       return (
         <>
           <SettingsTitle page="notifications" />
-          <Row label="Desktop notifications" hint="Ready Builds, choices and failures when Genio is in the background.">
+          <Row label="Desktop notifications" hint="Ready Builds, choices and failures while Genio is in the background.">
             <Toggle checked={s.desktopNotifications} onChange={(v) => set({ desktopNotifications: v })} />
           </Row>
-          <Row label="Sound effects" hint="Synthesized blips for deploys, merges, choices.">
+          <Row label="Sounds" hint="Short blips for deploys, merges and choices.">
             <Toggle checked={s.sound} onChange={(v) => set({ sound: v })} />
           </Row>
-          <Row label="Volume">
+          <Row label="Volume" hint="Plays a sample when you let go.">
             <input
               type="range"
               className="range"
@@ -405,26 +405,18 @@ function SectionBody({ sec, s, setAdvanced, open }: { sec: SettingsPageId; s: Se
             />
           </Row>
           <Part id="settings-away" title="While you're away">
-            <p className="mute">While you're DND or AFK, outcomes that need you are pushed here too.</p>
-            <Row label="Webhook kind">
-              <select className="select" value={s.webhookKind} onChange={(e) => set({ webhookKind: e.target.value as Settings['webhookKind'] })}>
+            <p className="mute">While you're on Do not disturb or away (DND or AFK), what needs you is also sent here.</p>
+            <Row label="Send away alerts to" hint="Discord, Slack or any JSON webhook. Blank = off.">
+              <select className="select" aria-label="Webhook kind" value={s.webhookKind} onChange={(e) => set({ webhookKind: e.target.value as Settings['webhookKind'] })}>
                 <option value="discord">Discord</option>
                 <option value="slack">Slack</option>
-                <option value="generic">Generic JSON</option>
+                <option value="generic">Any JSON webhook</option>
               </select>
-            </Row>
-            <Row label="Webhook URL" hint="Leave blank to disable.">
               <CommitInput mono value={s.webhookUrl} placeholder="https://discord.com/api/webhooks/…" onCommit={(v) => set({ webhookUrl: v.trim() })} />
             </Row>
-            <Row label="Alarm" hint={<>off · auto (desktop + sound) · <span className="mono">command:&lt;cmd&gt;</span> (summary as $1 and stdin)</>}>
-              <CommitInput mono value={s.alarm} onCommit={(v) => set({ alarm: v.trim() || 'auto' })} />
-            </Row>
-            <Row label="Alarm after (min)" hint="An AFK escalation unseen this long re-alerts.">
-              <CommitInput type="number" value={s.alarmMinutes} onCommit={(v) => set({ alarmMinutes: num(v, 1) })} />
-            </Row>
-            <Row label="AFK digest window (s)" hint="Batch escalations before pushing.">
-              <CommitInput type="number" value={s.awayBatchSeconds} onCommit={(v) => set({ awayBatchSeconds: num(v) })} />
-            </Row>
+            <AlarmRow value={s.alarm} />
+            <NumRow label="Raise the alarm after" unit="minutes" hint="How long an away alert can go unseen before the alarm. Default 5." value={s.alarmMinutes} onCommit={(v) => set({ alarmMinutes: num(v, 1) })} />
+            <NumRow label="Bundle away alerts for" unit="seconds" hint="Alerts within this window go out as one message. Default 90; 0 sends each at once." value={s.awayBatchSeconds} onCommit={(v) => set({ awayBatchSeconds: num(v) })} />
           </Part>
         </>
       )
@@ -436,14 +428,14 @@ function SectionBody({ sec, s, setAdvanced, open }: { sec: SettingsPageId; s: Se
       return (
         <>
           <Memory budget={s.memoryBudgetTokens} />
-          <NumRow label="Memory budget (tokens)" hint="Player profile + squad memory kept under this on /save." value={s.memoryBudgetTokens} onCommit={(v) => set({ memoryBudgetTokens: num(v, 500) })} />
+          <NumRow label="Memory size limit" unit="tokens" hint="Curate now (/save) keeps your profile and squad memory under this. Default 7500." value={s.memoryBudgetTokens} onCommit={(v) => set({ memoryBudgetTokens: num(v, 500) })} />
         </>
       )
     case 'units':
       return (
         <>
           <SettingsTitle page="units" />
-          <Row label="Default harness">
+          <Row label="Default agent tool" hint="The coding CLI a unit runs unless Genio picks another.">
             <select className="select" value={s.defaultHarness} onChange={(e) => set({ defaultHarness: e.target.value })}>
               {s.harnesses
                 .filter((h) => h.enabled)
@@ -455,11 +447,11 @@ function SectionBody({ sec, s, setAdvanced, open }: { sec: SettingsPageId; s: Se
             </select>
           </Row>
           <Row
-            label="Claude permission posture"
+            label="Claude unit permissions"
             hint={
               s.claudePermissionMode === 'bypass' ? (
                 <span className="amber-text">
-                  <TriangleAlert size={12} style={{ verticalAlign: -2 }} /> Bypass lets Claude units run any command without asking, inside their isolated copy. Fast, autonomous, and trusting.
+                  <TriangleAlert size={12} style={{ verticalAlign: -2 }} /> Claude units run any command without asking, inside their own copy of the project. Fast and autonomous.
                 </span>
               ) : (
                 'Units may stop to ask for permission in their terminal.'
@@ -467,28 +459,28 @@ function SectionBody({ sec, s, setAdvanced, open }: { sec: SettingsPageId; s: Se
             }
           >
             <select className="select" value={s.claudePermissionMode} onChange={(e) => set({ claudePermissionMode: e.target.value as Settings['claudePermissionMode'] })}>
-              <option value="bypass">Bypass (autonomous)</option>
-              <option value="auto">Auto (classifier)</option>
-              <option value="acceptEdits">Accept edits only</option>
+              <option value="bypass">Run any command in its copy (fastest)</option>
+              <option value="auto">Let a safety check decide</option>
+              <option value="acceptEdits">Ask before commands</option>
             </select>
           </Row>
-          <Row label="Auto-dispatch queued quests" hint="Genio deploys queued quests as soon as deps, gates and capacity clear.">
+          <Row label="Start queued quests automatically" hint="When their dependencies, checks and a free unit place allow.">
             <Toggle checked={s.autoDispatchQueued} onChange={(v) => set({ autoDispatchQueued: v })} />
           </Row>
-          <div className="sys-row col" id={settingAnchor('Brief additions')} tabIndex={-1}>
-            <div className="sys-row-title">Brief additions</div>
-            <div className="mute sys-row-hint">Appended to every unit brief.</div>
+          <div className="sys-row col" id={settingAnchor('Instructions for every unit')} tabIndex={-1}>
+            <div className="sys-row-title">Instructions for every unit</div>
+            <div className="mute sys-row-hint">Added to every unit's brief.</div>
             <BriefInclude value={s.briefInclude} />
           </div>
           <details className="sys-fold">
             <summary className="sys-subtitle">Commit attribution</summary>
-            <Row label="Strip AI commit trailers">
+            <Row label="Remove AI co-author lines from commits" hint="Strips Co-authored-by lines that agent tools add for themselves.">
               <Toggle checked={s.stripAiTrailers} onChange={(v) => set({ stripAiTrailers: v })} />
             </Row>
-            <Row label="Co-authored by Genio" hint="Adds a Co-authored-by trailer for Genio to every unit commit.">
+            <Row label="Credit Genio as co-author" hint="Adds a Co-authored-by line for Genio to every unit commit.">
               <Toggle checked={s.genioCoAuthor} onChange={(v) => set({ genioCoAuthor: v })} />
             </Row>
-            <Row label="Genio trailer identity" hint="Name <email>. The .invalid domain never links to a real account.">
+            <Row label="Genio co-author name" hint="Name <email>, e.g. Genio <noreply@genio.invalid>. The .invalid domain never links to a real account.">
               <CommitInput mono value={s.genioCoAuthorIdentity} onCommit={(v) => set({ genioCoAuthorIdentity: v.trim() })} />
             </Row>
           </details>
@@ -508,23 +500,23 @@ function SectionBody({ sec, s, setAdvanced, open }: { sec: SettingsPageId; s: Se
       return (
         <>
           <SettingsTitle page="gauntlet" />
-          <p className="mute">Hardcore validation: checks, AI review against your words, fix rounds, push, PR, CI.</p>
-          <ModelRow allowCustom label="Reviewer model" value={s.reviewModel} onCommit={(v) => set({ reviewModel: v })} />
-          <NumRow label="Max fix rounds" value={s.validationMaxRounds} onCommit={(v) => set({ validationMaxRounds: num(v, 1) })} />
+          <LearnMore>The Gauntlet: on every Hardcore Build, an AI review against your words, then fix rounds, the project's checks, push, PR and CI.</LearnMore>
+          <ModelRow allowCustom label="Review model" hint="The model that reviews a Build against your words. Blank uses Claude's default." value={s.reviewModel} onCommit={(v) => set({ reviewModel: v })} />
+          <NumRow label="Max fix rounds" hint="Review-and-fix cycles before Genio asks you. Default 3." value={s.validationMaxRounds} onCommit={(v) => set({ validationMaxRounds: num(v, 1) })} />
         </>
       )
     case 'overwatch':
       return (
         <>
           <SettingsTitle page="overwatch" />
-          <p className="mute">Zero-token supervision timings. Genio only wakes when something is actionable. Routine heartbeat and wake batching follow the Usage mode.</p>
-          <NumRow label="Poll every (s)" value={s.pollSeconds} onCommit={(v) => set({ pollSeconds: num(v, 3) })} />
-          <NumRow label="Lagging after (s)" hint="Idle with no declared wait." value={s.staleSeconds} onCommit={(v) => set({ staleSeconds: num(v, 30) })} />
-          <NumRow label="Lag escalations" hint="Before deep inspection." value={s.staleEscalations} onCommit={(v) => set({ staleEscalations: num(v, 1) })} />
-          <NumRow label="Paused resurface (h)" value={s.pausedResurfaceHours} onCommit={(v) => set({ pausedResurfaceHours: num(v, 1) })} />
-          <NumRow label="PR poll (min)" value={s.prPollMinutes} onCommit={(v) => set({ prPollMinutes: num(v, 1) })} />
-          <NumRow label="Ping re-ring (s)" value={s.inboxGraceSeconds} onCommit={(v) => set({ inboxGraceSeconds: num(v, 10) })} />
-          <NumRow label="Ping rings before escalating" value={s.inboxRingMax} onCommit={(v) => set({ inboxRingMax: num(v, 1) })} />
+          <LearnMore>These checks cost no tokens: Genio only wakes when something needs it. Routine heartbeat and wake batching follow the Usage mode.</LearnMore>
+          <NumRow label="Check units every" unit="seconds" hint="How often Genio looks at every unit's status. Default 15." value={s.pollSeconds} onCommit={(v) => set({ pollSeconds: num(v, 3) })} />
+          <NumRow label="Call a unit lagging after" unit="seconds" hint="Idle this long with no declared wait. Default 240." value={s.staleSeconds} onCommit={(v) => set({ staleSeconds: num(v, 30) })} />
+          <NumRow label="Lag warnings before a deep check" hint="Nudges before Genio inspects the unit closely. Default 3." value={s.staleEscalations} onCommit={(v) => set({ staleEscalations: num(v, 1) })} />
+          <NumRow label="Bring paused units back after" unit="hours" hint="A paused unit with no end time comes back to your attention. Default 4." value={s.pausedResurfaceHours} onCommit={(v) => set({ pausedResurfaceHours: num(v, 1) })} />
+          <NumRow label="Check pull requests every" unit="minutes" hint="For CI results, reviews and merges. Default 3." value={s.prPollMinutes} onCommit={(v) => set({ prPollMinutes: num(v, 1) })} />
+          <NumRow label="Re-send a ping after" unit="seconds" hint="When a unit has not read Genio's message. Default 90." value={s.inboxGraceSeconds} onCommit={(v) => set({ inboxGraceSeconds: num(v, 10) })} />
+          <NumRow label="Re-sends before escalating" hint="Then Genio treats the unit as stuck. Default 3." value={s.inboxRingMax} onCommit={(v) => set({ inboxRingMax: num(v, 1) })} />
         </>
       )
     case 'maintenance':
@@ -565,7 +557,7 @@ function SystemPage() {
       <ExplorerIntegration />
       <Patch />
       <Part title="Genio data folder">
-        <Row label="Base" hint="Settings, memory and logs Genio keeps on this PC.">
+        <Row label="Data folder" hint="Settings, memory and logs Genio keeps on this PC (the Base).">
           <span className="mono selectable">{home || '…'}</span>
           {home && (
             <button className="btn sm ghost" title="Reveal in Explorer" onClick={() => void api().openPath(home)}>
@@ -597,14 +589,15 @@ function ExplorerIntegration() {
     } finally { setBusy(false) }
   }
   return <Part id="settings-explorer" title="Windows integration">
-    <Row label="Open with Genio" hint="Open or focus a project from a folder or folder background. Installs for your Windows account only; no administrator rights required.">
+    <Row label="Open with Genio" hint="Adds Open with Genio to the right-click menu of folders. Installs for your Windows account only; no administrator rights needed.">
       <button className="btn sm" disabled={busy || state?.available === false || state?.installed === true} onClick={() => void change(true)}>Install</button>
       <button className="btn sm" disabled={busy || state?.available === false} onClick={() => void change(false)}>Remove</button>
     </Row>
     <p className="mute">{busy ? 'Updating Explorer…' : state?.available === false ? 'Available on Windows only.' : state?.installed ? 'Installed for this Genio location.' : state?.present ? 'A partial or older installation exists. Install to update it, or Remove to clean it up.' : 'Not installed.'}</p>
     {error && <p role="alert">{error}</p>}
     <p className="dim">On Windows 11, use Show more options in the context menu. Moving Genio requires installing again from its new location.</p>
-    <Row label="Terminal command" hint="Add the Genio resources folder to your user PATH to use the genio.cmd shim. See README → Open a project folder.">
+    <Row label="Terminal command" hint="Type genio . in a project folder to open it. Needs Genio's resources folder on your user PATH (README → Open a project folder).">
+
       <code>genio .</code>
     </Row>
   </Part>
@@ -729,7 +722,7 @@ function Usage({ s, open, openAdvanced }: { s: Settings; open: (s: SettingsPageI
       <PlanMeter view={view} error={usageError} />
       {usage && <WorldAttribution usage={usage} />}
 
-      <Row label="Paid spend on cheap models" hint="Lets low-stakes units use OpenRouter models through OpenCode, billed to your OpenRouter key. A mode never turns this on.">
+      <Row label="Allow paid OpenRouter spend" hint="Low-stakes units may use OpenRouter models through OpenCode, billed to your OpenRouter key. A mode never turns this on.">
         <Toggle checked={!!s.cheapSpendAllowed} onChange={(v) => set({ cheapSpendAllowed: v })} />
         {view && <span className="mute">{view.cheap.why}</span>}
         {view && /OpenRouter key/.test(view.cheap.why) && (
@@ -738,8 +731,8 @@ function Usage({ s, open, openAdvanced }: { s: Settings; open: (s: SettingsPageI
       </Row>
       <UsagePins s={s} />
       <UsageProjects s={s} view={view} open={open} />
-      <Row label="Category table, rules, scorecard" hint="Locked rows and rules are Pinned; unlocked rows follow the mode.">
-        <button className="btn sm" onClick={() => openAdvanced('dispatch')}>Model routing</button>
+      <Row label="Model routing" hint="Category table, rules and scorecard (Dispatch). Locked rows and rules are Pinned; unlocked rows follow the mode.">
+        <button className="btn sm" onClick={() => openAdvanced('dispatch')}>Open</button>
       </Row>
     </>
   )
@@ -778,7 +771,7 @@ function UsagePins({ s }: { s: Settings }) {
       <summary className="sys-subtitle">Pin models and effort</summary>
       <p className="mute">Any value set here is Pinned: the mode and protection leave it alone. Blank or (auto) follows the mode.</p>
       <ModelRow label="Chat model" hint="Default for project chats without their own pick." value={s.wkspModel} onCommit={(v) => set({ wkspModel: v })} />
-      <Row label="Chat effort">
+      <Row label="Chat effort" hint="How hard the chat model thinks. (auto) follows the mode.">
         <EffortSelect model={s.wkspModel} value={s.wkspEffort} onChange={(v) => set({ wkspEffort: v })} />
       </Row>
       <ModelRow allowCustom label="Unit model" hint={`Applies to ${s.defaultHarness} units.`} value={s.defaultWorkerModel} onCommit={(v) => set({ defaultWorkerModel: v })} />
@@ -796,13 +789,13 @@ function UsageProjects({ s, view, open }: { s: Settings; view: UsagePolicyView |
   return (
     <div className="usage-projects">
       <div className="label" style={{ margin: '16px 0 6px' }}>Projects</div>
-      <p className="mute">A project can use its own mode. Its unit cap can only be lower than the global {MODE_PRESETS[s.usageMode ?? 'balanced'].unitCap}. Change them in each project's Settings.</p>
+      <p className="mute">A project can use its own mode. Its max units at once can only be lower than the global {MODE_PRESETS[s.usageMode ?? 'balanced'].unitCap}. Change them in each project window, in {settingsPath('project')}.</p>
       {projects.map((p) => {
         const w = view?.worlds.find((x) => x.name === p.name)
         return (
-          <Row key={p.name} label={p.name} hint={w?.cap !== undefined ? `at most ${w.cap} unit${w.cap === 1 ? '' : 's'} here` : undefined}>
+          <Row key={p.name} label={p.name} hint={w?.cap !== undefined ? `at most ${w.cap} unit${w.cap === 1 ? '' : 's'} here` : p.usageMode ? 'Uses its own mode.' : 'Follows the global mode.'}>
             <span className="mono">{p.usageMode ? USAGE_MODE_LABEL[p.usageMode] : `Global (${USAGE_MODE_LABEL[s.usageMode ?? 'balanced']})`}</span>
-            <span className="mute">{p.capacity ? `capacity ${p.capacity}` : 'no own cap'}</span>
+            <span className="mute">{p.capacity ? `max ${p.capacity} at once` : 'no own limit'}</span>
             {p.name === PROJECT_WINDOW
               ? <button className="btn sm ghost" onClick={() => open('project')}>Change</button>
               : <button className="btn sm ghost" title={`Open ${p.name} to change its settings`} onClick={() => void op('Open project', () => api().projectOpen(p.path))}>Open</button>}
@@ -845,10 +838,47 @@ function WorldAttribution({ usage }: { usage: UsageReport }) {
   )
 }
 
-function NumRow({ label, hint, value, onCommit }: { label: string; hint?: string; value: number; onCommit: (v: string) => void }) {
+/** A number setting; `unit` (seconds, minutes, …) sits beside the box so the label stays plain. */
+function NumRow({ label, hint, unit, value, onCommit }: { label: string; hint: string; unit?: string; value: number; onCommit: (v: string) => void }) {
   return (
     <Row label={label} hint={hint}>
-      <CommitInput type="number" value={value} onCommit={onCommit} className="num-input" />
+      <span className="num-unit">
+        <CommitInput type="number" value={value} onCommit={onCommit} className="num-input" />
+        {unit && <span className="mute">{unit}</span>}
+      </span>
+    </Row>
+  )
+}
+
+/** The stored alarm string stays 'off' | 'auto' | 'command:<cmd>'; the row shows it as a choice plus a command box. */
+export function AlarmRow({ value }: { value: string }) {
+  const stored = (value || 'auto').trim()
+  const command = stored.startsWith('command:') ? stored.slice('command:'.length).trim() : null
+  const [kind, setKind] = useState<'off' | 'auto' | 'command'>(command !== null ? 'command' : stored === 'off' ? 'off' : 'auto')
+  useEffect(() => setKind(command !== null ? 'command' : stored === 'off' ? 'off' : 'auto'), [stored])
+  return (
+    <Row label="If you don't respond" hint={kind === 'command' ? 'Runs your command with the summary as $1 and on stdin, e.g. a script that texts your phone.' : 'What Genio does when an away alert stays unseen.'}>
+      <div className="alarm-ctl">
+        <select
+          className="select"
+          aria-label="Alarm"
+          value={kind}
+          onChange={(e) => {
+            const next = e.target.value as typeof kind
+            setKind(next)
+            // A command is saved once it is typed; switching back keeps nothing half-set.
+            if (next !== 'command') set({ alarm: next })
+            else if (command) set({ alarm: `command:${command}` })
+          }}
+        >
+          <option value="off">Off</option>
+          <option value="auto">Desktop + sound</option>
+          <option value="command">Run a command</option>
+        </select>
+        {kind === 'command' && (
+          <CommitInput mono value={command ?? ''} placeholder="e.g. C:\scripts\notify.cmd" onCommit={(v) => set({ alarm: v.trim() ? `command:${v.trim()}` : 'auto' })} />
+        )}
+      </div>
     </Row>
   )
 }
@@ -899,13 +929,11 @@ function Inbox({ s }: { s: Settings }) {
     <>
       <SettingsTitle page="inbox" />
       <Mailbox />
-      <Row label="Mail HTTP intake" hint="Send Genio notes from your phone or scripts. Localhost only, token protected.">
+      <Row label="Accept notes from scripts and your phone" hint="Local only, needs the token.">
         <Toggle checked={s.inboxServer} onChange={(v) => set({ inboxServer: v })} />
       </Row>
-      <Row label="Port">
-        <CommitInput type="number" value={s.inboxPort} onCommit={(v) => set({ inboxPort: num(v, 1024) })} />
-      </Row>
-      <Row label="Token">
+      <NumRow label="Port" hint="Where notes arrive on this PC. Default 47821." value={s.inboxPort} onCommit={(v) => set({ inboxPort: num(v, 1024) })} />
+      <Row label="Token" hint="Send it as a Bearer token with every note. Made when you first turn notes on.">
         <div className="row">
           <input className="input mono" readOnly value={s.inboxToken ? s.inboxToken.replace(/.(?=.{4})/g, '•') : '(generated on enable)'} />
           <button
@@ -925,7 +953,7 @@ function Inbox({ s }: { s: Settings }) {
           {`curl -X POST http://127.0.0.1:${s.inboxPort}/inbox \\\n  -H "Authorization: Bearer <token>" \\\n  -H "Content-Type: application/json" \\\n  -d '{"text":"add a pause menu","from":"phone"}'`}
         </pre>
       )}
-      <Row label="Replay log" hint="Append-only activity ledger other tools can read (fleet-ledger.jsonl).">
+      <Row label="Keep an activity log file" hint="fleet-ledger.jsonl, for other tools to read (Replay log).">
         <Toggle checked={s.ledger} onChange={(v) => set({ ledger: v })} />
       </Row>
       <Triggers s={s} />
@@ -940,11 +968,11 @@ function Harnesses({ s }: { s: Settings }) {
   return (
     <>
       <SettingsTitle page="harnesses" />
-      <p className="mute">The coding-agent CLIs units run. Unverified adapters are allowed but may need a hand in their terminal.</p>
-      <Row label="Claude Code path" hint="Blank uses the bundled Claude Code.">
+      <LearnMore>The coding-agent CLIs units run (Harnesses). Unverified ones are allowed but may need a hand in their terminal.</LearnMore>
+      <Row label="Claude Code path" hint="Blank uses the bundled Claude Code, e.g. C:\tools\claude.exe.">
         <CommitInput mono value={s.claudePath} placeholder="(bundled)" onCommit={(v) => set({ claudePath: v.trim() })} />
       </Row>
-      <Row label="Shell" hint="For Shell sessions.">
+      <Row label="Shell" hint="The shell for Shell sessions, e.g. pwsh. Blank uses the system default.">
         <CommitInput mono value={s.shell} onCommit={(v) => set({ shell: v.trim() })} />
       </Row>
       <div className="harness-list">
@@ -964,19 +992,19 @@ function Harnesses({ s }: { s: Settings }) {
               )}
             </div>
             <div className="harness-fields">
-              <Field label="Command">
+              <Field label="Command" hint="The program to run, e.g. claude.">
                 <CommitInput mono value={h.command} onCommit={(v) => upd(h.id, { command: v.trim() })} />
               </Field>
-              <Field label="Args" hint="Tokens: {model} {effort} {prompt} {cwd}">
+              <Field label="Arguments" hint="Placeholders: {model} {effort} {prompt} {cwd}">
                 <CommitInput mono value={h.args.join(' ')} onCommit={(v) => upd(h.id, { args: v.split(/\s+/).filter(Boolean) })} />
               </Field>
-              <Field label="Resume args">
+              <Field label="Resume arguments" hint="Used to continue an earlier session.">
                 <CommitInput mono value={(h.resumeArgs ?? []).join(' ')} onCommit={(v) => upd(h.id, { resumeArgs: v.split(/\s+/).filter(Boolean) })} />
               </Field>
-              <Field label="Exit">
+              <Field label="Exit command" hint="Typed to end a session, e.g. /exit.">
                 <CommitInput mono value={h.exitSequence} onCommit={(v) => upd(h.id, { exitSequence: v })} />
               </Field>
-              <Field label="Models">
+              <Field label="Models" hint="Comma-separated, e.g. opus, sonnet.">
                 <CommitInput mono value={h.models.join(', ')} onCommit={(v) => upd(h.id, { models: v.split(/[,\s]+/).filter(Boolean) })} />
               </Field>
             </div>
@@ -1031,14 +1059,15 @@ function Dispatch({ s }: { s: Settings }) {
   return (
     <>
       <SettingsTitle page="dispatch" />
-      <p className="mute">
-        How Genio picks a unit tool, model and effort. Precedence: your (or Genio's) explicit per-mission pick, then a follow-up's original loadout, then the best-fit rule below, then the
-        category table, then the Units default. Unlocked table rows follow the Usage mode; a locked row is Pinned and used as written. Tools that aren't installed or logged in are skipped, and a subscription at
+      <p className="mute">How Genio picks a unit's tool, model and effort.</p>
+      <LearnMore>
+        Precedence: your (or Genio's) explicit per-mission pick, then a follow-up's original loadout, then the best-fit rule below, then the
+        category table, then the default agent tool in Units. Unlocked table rows follow the Usage mode; a locked row is Pinned and used as written. Tools that aren't installed or logged in are skipped, and a subscription at
         {' '}{QUOTA_HOT_PERCENT}% or more of its 5-hour or weekly window is excluded. Exploration is set by the Usage mode.
-      </p>
+      </LearnMore>
       <Row
         label="Learn the order automatically"
-        hint={`Swaps two neighbouring candidates when both have ${LEARNING.minSamples}+ outcomes and the lower one scores ${LEARNING.reorderMargin} higher (scores 0-1, recency half-life ${LEARNING.halfLifeDays} days). Adding or removing candidates always waits for your OK in Pending answers. Locked rows and rules are never touched.`}
+        hint={`Swaps two neighbouring candidates when both have ${LEARNING.minSamples}+ outcomes and the lower one scores ${LEARNING.reorderMargin} higher. Adding or removing candidates always waits for your OK. Locked rows and rules are never touched.`}
       >
         <Toggle checked={s.autoReorder} onChange={(v) => set({ autoReorder: v })} />
       </Row>
@@ -1053,17 +1082,17 @@ function Dispatch({ s }: { s: Settings }) {
       {s.dispatchRules.map((r) => (
         <div key={r.id} className="rule panel">
           <div className="rule-head locks">
-            <Field label="When the mission mentions">
+            <Field label="When the mission mentions" hint="e.g. shader. Blank = always.">
               <CommitInput value={r.match} placeholder="(always)" onCommit={(v) => upd(r.id, { match: v })} />
             </Field>
-            <Field label="Kind">
+            <Field label="Kind" hint="Build, Recon or any.">
               <select className="select" value={r.kind ?? 'any'} onChange={(e) => upd(r.id, { kind: e.target.value as DispatchRule['kind'] })}>
                 <option value="any">Any</option>
                 <option value="ship">Build</option>
                 <option value="scout">Recon</option>
               </select>
             </Field>
-            <Field label="Project">
+            <Field label="Project" hint="Rules apply to every project unless set.">
               <select className="select" value={r.project ?? ''} onChange={(e) => upd(r.id, { project: e.target.value || undefined })}>
                 <option value="">Any</option>
                 {/* Rules are global; a window lists only its own project, so keep another project's scope visible. */}
@@ -1293,18 +1322,18 @@ function Triggers({ s }: { s: Settings }) {
   const upd = (id: string, patch: Partial<EventSource>): void => save(s.eventSources.map((e) => (e.id === id ? { ...e, ...patch } : e)))
   return (
     <Part id="settings-triggers" title="Scheduled checks" term="Triggers">
-      <p className="mute">Commands Overwatch runs on a timer. When one fires, Genio gets an event — e.g. a nightly build check, an itch.io butler status, a Steam depot poll.</p>
+      <p className="mute">Commands Genio runs on a timer. When one fires, Genio gets an event, e.g. a nightly build check, an itch.io butler status, a Steam depot poll.</p>
       {s.eventSources.map((e) => (
         <div key={e.id} className="rule panel">
           <div className="rule-head">
             <Toggle checked={e.enabled} onChange={(v) => upd(e.id, { enabled: v })} />
-            <Field label="Name">
+            <Field label="Name" hint="Shown in Genio's events.">
               <CommitInput value={e.name} onCommit={(v) => upd(e.id, { name: v })} />
             </Field>
-            <Field label="Every (s)">
+            <Field label="Every (seconds)" hint="e.g. 3600 = hourly.">
               <CommitInput type="number" value={e.intervalSec} onCommit={(v) => upd(e.id, { intervalSec: num(v, 10) })} />
             </Field>
-            <Field label="Fire when">
+            <Field label="Fire when" hint="What counts as news.">
               <select className="select" value={e.trigger} onChange={(ev) => upd(e.id, { trigger: ev.target.value as EventSource['trigger'] })}>
                 <option value="nonzero">Exit code ≠ 0</option>
                 <option value="change">Output changes</option>
@@ -1316,14 +1345,15 @@ function Triggers({ s }: { s: Settings }) {
             </button>
           </div>
           <div className="trigger-fields">
-            <Field label="Command">
+            <Field label="Command" hint="e.g. git log -1 --format=%cd">
               <CommitInput mono value={e.command} onCommit={(v) => upd(e.id, { command: v })} />
             </Field>
-            <Field label="Working dir">
+            <Field label="Run in folder" hint="Blank = Genio's data folder.">
               <CommitInput mono value={e.cwd ?? ''} placeholder="(base)" onCommit={(v) => upd(e.id, { cwd: v.trim() || undefined })} />
             </Field>
             {e.trigger === 'match' && (
-              <Field label="Pattern (regex)">
+              <Field label="Pattern (regex)" hint="e.g. FAILED|error">
+
                 <CommitInput mono value={e.pattern ?? ''} onCommit={(v) => upd(e.id, { pattern: v })} />
               </Field>
             )}
@@ -1347,7 +1377,7 @@ function Toolchain() {
   const load = (): void => {
     setTools(null)
     void api().toolchain().then(setTools).catch((e) => {
-      toast('error', 'Loadout check failed', errText(e))
+      toast('error', 'Could not check installed tools', errText(e))
       setTools([])
     })
   }
@@ -1459,7 +1489,7 @@ function Accounts() {
           <RefreshCw size={12} /> Refresh
         </button>
       </SettingsTitle>
-      <p className="mute">Sign in to the CLIs Genio and its units drive. Each login runs the tool's own flow; the tool keeps its credentials and Genio never reads them. Usage comes from what each tool reports and from local session logs; the shared plan meter is in Usage &amp; limits.</p>
+      <LearnMore>Each login runs the tool's own flow; the tool keeps its credentials and Genio never reads them. Usage comes from what each tool reports and from local session logs; the shared plan meter is in Usage &amp; limits.</LearnMore>
       {!accounts && (
         <div className="bar indeterminate">
           <i />
@@ -1535,7 +1565,8 @@ function Accounts() {
       <div className="label" id="settings-api-keys" tabIndex={-1} style={{ margin: '22px 0 8px' }}>
         API keys
       </div>
-      <p className="mute">For services without a CLI login. Keys are encrypted with your OS keychain and stay in Genio's base; Genio shows only whether one is set. Units get a key only through their process environment: FAL as FAL_KEY, OpenRouter as OPENROUTER_API_KEY for OpenCode units in projects that allow cheap third-party models. The Uthana key stays in Genio's core for the Animation screen.</p>
+      <p className="mute">For services without a sign-in. Genio shows only whether a key is set.</p>
+      <LearnMore>Keys are encrypted with your OS keychain and stay in Genio's data folder. Units get a key only through their process environment: FAL as FAL_KEY, OpenRouter as OPENROUTER_API_KEY for OpenCode units in projects that allow OpenRouter models. The Uthana key stays in Genio itself, for animation tools.</LearnMore>
       {keys.map((k) => (
         <ApiKeyRow key={k.id} k={k} spend={k.id === 'fal' ? usage?.fal : undefined} onChange={() => void api().apiKeys().then(setKeys).catch(() => undefined)} />
       ))}
@@ -1586,7 +1617,7 @@ function Housekeeping() {
       setResult(r)
       toast(r.ok ? 'success' : 'warn', action === 'hide' ? 'Past sessions hidden' : 'Past sessions restored', r.message)
     } catch (e) {
-      toast('error', 'Housekeeping failed', errText(e))
+      toast('error', action === 'hide' ? 'Could not hide past sessions' : 'Could not restore past sessions', errText(e))
     } finally {
       setProgress(null)
       await load()
@@ -1840,7 +1871,7 @@ function Patch() {
     try {
       setInfo(await api().checkUpdate())
     } catch (e) {
-      toast('error', 'Patch check failed', errText(e))
+      toast('error', 'Update check failed', errText(e))
     } finally {
       setBusy(false)
     }
@@ -1848,14 +1879,14 @@ function Patch() {
   // Checks only on a click: opening Settings never runs git fetch.
   return (
     <Part id="settings-updates" title="Updates" term="Patch">
-      <p className="mute">Fast-forward-only self update of Genio's own checkout. Never touches your projects. Allies restart on the new build.</p>
+      <p className="mute">Updates Genio itself, never your projects. Allies restart on the new version.</p>
       <button className="btn" disabled={busy} onClick={() => void check()}>
-        <RefreshCw size={13} className={busy ? 'spin' : ''} /> Check for patch
+        <RefreshCw size={13} className={busy ? 'spin' : ''} /> Check for updates
       </button>
       {info && (
         <div className="patch panel" style={{ marginTop: 14 }}>
           {!info.isGitCheckout ? (
-            <div className="mute">This install is not a git checkout; patch by reinstalling.</div>
+            <div className="mute">This install is not a git checkout; update by reinstalling.</div>
           ) : (
             <>
               <div className="patch-stats">
@@ -1895,7 +1926,7 @@ function Patch() {
                 </div>
               ) : (
                 <button className="btn solid" style={{ marginTop: 12 }} disabled={!info.canFastForward} onClick={() => setConfirm(true)}>
-                  Apply patch & restart
+                  Update and restart
                 </button>
               )}
               {info.behind > 0 && !info.canFastForward && <div className="amber-text" style={{ marginTop: 8 }}>Cannot fast-forward cleanly (local changes or divergence).</div>}
@@ -1905,12 +1936,12 @@ function Patch() {
       )}
       {confirm && (
         <Confirm
-          title="Apply patch?"
+          title="Update Genio?"
           tone="neon"
-          confirmLabel="Patch & restart"
-          body="Genio fast-forwards, reinstalls dependencies if needed and restarts. Units keep their isolated copies and respawn on the new build."
+          confirmLabel="Update and restart"
+          body="Genio fast-forwards, reinstalls dependencies if needed and restarts. Units keep their isolated copies and respawn on the new version."
           onConfirm={async () => {
-            await op('Patch', () => api().applyUpdate())
+            await op('Update', () => api().applyUpdate())
           }}
           onClose={() => setConfirm(false)}
         />

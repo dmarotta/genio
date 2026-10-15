@@ -27,6 +27,7 @@ import { agentGeneration, falGenerateShape, uthanaMotionShape, uthanaCharacterSh
 import { CATEGORY_IDS } from '@shared/dispatch'
 import { playService } from './play'
 import { formatStatusLine } from './status'
+import { settingsPath } from '@shared/settings-pages'
 import { declareEngineRoot, projectEngineSummary } from './engine-facts'
 import { choiceGroup, choiceRevision, recommendationAnswer, type RecommendationReview, type RecommendationResult } from '@shared/choice'
 
@@ -303,7 +304,7 @@ export function createToolRegistry(
     return { usageMode: s.usageMode, sound: s.sound, soundVolume: s.soundVolume, voice: s.voice,
       calm: s.calm, fx: s.fx, desktopNotifications: s.desktopNotifications }
   }
-  t('settings_read', 'Read supported chat/app preferences without secrets or large configuration skills. Advanced models, accounts and security settings are in Settings.', {}, () => ok(json(preferences())))
+  t('settings_read', `Read supported chat/app preferences without secrets or large configuration skills. Where the player sees them: usageMode in ${settingsPath('usage')}; calm is Clean chat (Clean HUD), fx is Scanlines and grid, voice is Read replies aloud, all in ${settingsPath('general')}; sound, soundVolume and desktopNotifications in ${settingsPath('notifications')}. Advanced models, accounts and security settings are elsewhere in Settings, e.g. ${settingsPath('accounts')} or ${settingsPath('dispatch')}.`, {}, () => ok(json(preferences())))
   t('settings_update', 'Change only these named preferences when the player requests it; quote their request. Does not change permissions, accounts or spending allowances.', {
     player_words: z.string().trim().min(1), patch: z.strictObject(preferenceShape)
   }, ({ patch }) => {
@@ -648,7 +649,7 @@ export function createToolRegistry(
 
   t(
     'world_update',
-    'Change a project\'s registry entry: mode (pins it; mode=auto makes it follow the remote again), Auto-loot (only on the player\'s word), branch prefix, capacity, engine commands (setup/build/test/lint), description. The engine and its root are detected, never set here.',
+    `Change a project's registry entry: mode (pins it; mode=auto makes it follow the remote again), Auto-loot (only on the player's word), branch prefix, capacity, engine commands (setup/build/test/lint), description. The engine and its root are detected, never set here. The player sees these under Settings → This project: capacity is Max units at once (General), Auto-loot is Merge finished work automatically and the prefix is Branch name prefix (Delivery), commands are on Commands.`,
     {
       world: z.string(), mode: z.enum(['no-mistakes', 'direct-PR', 'local-only', 'no-mistakes-prod-only', 'auto']).optional(),
       auto_loot: z.boolean().optional(), player_words: z.string().optional(), branch_prefix: z.string().optional(),

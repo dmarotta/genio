@@ -93,8 +93,8 @@ export function GenerationSettings({ world }: { world: string }) {
         <Field label="Monthly budget (USD)" hint="Shared paid-generation cap. Runs above it stop. Blank means no cap.">
           <input className="input" aria-label="Monthly budget (USD)" inputMode="decimal" value={cap} placeholder="No cap" aria-invalid={invalid(cap)} onChange={(e) => setCap(e.target.value)} {...commit} />
         </Field>
-        <Field label="Confirm runs over (USD)" hint="Ask before a paid run above this amount. Blank uses $0.25; 0 asks for every paid run.">
-          <input className="input" aria-label="Confirm runs over (USD)" inputMode="decimal" value={threshold} placeholder="0.25" aria-invalid={invalid(threshold)} onChange={(e) => setThreshold(e.target.value)} {...commit} />
+        <Field label="Ask before runs over (USD)" hint="Ask before a paid run above this amount. Blank uses $0.25; 0 asks for every paid run.">
+          <input className="input" aria-label="Ask before runs over (USD)" inputMode="decimal" value={threshold} placeholder="0.25" aria-invalid={invalid(threshold)} onChange={(e) => setThreshold(e.target.value)} {...commit} />
         </Field>
         <Field label="Codex images" hint="Use the ChatGPT plan for images. Enabled by default; no paid-run confirmation." wide>
           <Toggle checked={codex} onChange={(v) => { setCodex(v); saveFal({ ...draft, codex: v }) }} label="Enable Codex images in this project" />

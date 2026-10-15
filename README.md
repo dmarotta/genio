@@ -40,7 +40,7 @@ for the design and [docs/VOCABULARY.md](docs/VOCABULARY.md) for the terms.
   unit's worktree or a branch in your own hidden Unity instance, streamed into
   Genio with keyboard, mouse and gamepad. Stop keeps Unity warm; it quits after
   10 idle minutes by default. See [docs/play.md](docs/play.md).
-- **Unity slots** (Settings → This project) — units compile, test and play Unity
+- **Unity slots** (Settings → This project → Unity slots) — units compile, test and play Unity
   projects in their own copies and in shared slot editors. Genio can also look
   at your open editor in chat.
 - **Engine aware** — Godot, Unity, Unreal, Bevy, LÖVE, GameMaker, Defold,
@@ -116,12 +116,15 @@ MIT. Genio reimplements concepts from companion by The team (MIT).
 
 Project windows keep configuration in **Settings → This project**: General (the
 detected engine and engine root, read-only with Rescan, a repository pins its root
-in `.genio/project.json`; description, usage mode, capacity, model opt-out and
-guarded removal), Delivery (Offline, Standard PRs, or the Hardcore Gauntlet,
-automatic remote following, Auto-loot, branch prefix, sync and push on demand),
+in `.genio/project.json`; description, usage mode for this project, max units at
+once, the OpenRouter opt-out and guarded removal), Delivery (Offline, Standard PRs,
+or the Hardcore Gauntlet, automatic remote following, merge finished work
+automatically (Auto-loot), branch name prefix, sync and push on demand),
 Commands (setup/build/test/lint), Asset generation and, for Unity, Unity slots.
 Settings stored for every project are under **Genio · all projects**, and expert
-pages under **Show advanced settings**. Removing a project still refuses live units, queued quests and
+pages under **Show advanced settings**. Pages and fields use plain names with the
+game term as a hint, such as **Checks & review (Gauntlet)** or **Installed tools
+(Loadout)**, and Settings search still finds the old names. Removing a project still refuses live units, queued quests and
 unlanded work; an owned folder is never deleted.
 
 Existing stored keys and file formats remain compatible. MCP tools with a
