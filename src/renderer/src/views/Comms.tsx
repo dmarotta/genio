@@ -2,8 +2,8 @@ import { ASSISTANT_NAME } from '@shared/assistant'
 import { ComingNext } from '../components/ComingNext'
 import { GenerationCard } from '../components/GenerationCard'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
-import { ArrowDown, ChevronDown, ChevronRight, CircleStop, Pencil, RefreshCw, Rocket, Send, ShieldCheck, TriangleAlert, Wrench, X } from 'lucide-react'
-import type { Ally, ChatMessage, Settings } from '@shared/types'
+import { ArrowDown, ChevronDown, ChevronRight, CircleStop, Pencil, RefreshCw, Rocket, Send, ShieldCheck, ThumbsDown, ThumbsUp, TriangleAlert, Wrench, X } from 'lucide-react'
+import type { Ally, ChatMessage, ReactionKind, Settings } from '@shared/types'
 import { chatControls, routedRequest, splitQueued, type ChatControls, type UnqueuedChat } from '@shared/chat'
 import { MAX_IMAGES_PER_MESSAGE } from '@shared/chat-images'
 import {
@@ -448,15 +448,72 @@ const Message = memo(function Message({ m, calm, gamertag, onTakeBack }: { m: Ch
             )}
           </div>
         )}
+        {!m.partial && <ReactionNote m={m} />}
         <div className="msg-meta">
           {ASSISTANT_NAME} · {clock(m.ts)}
           {m.costUsd ? ` · $${m.costUsd.toFixed(3)}` : ''}
           <CopyMessageButton text={m.text} />
+          {!m.partial && (m.text || m.generation) && <Reactions m={m} />}
         </div>
       </div>
     </div>
   )
 })
+
+const REACTION_HINT = {
+  like: 'Like: this is the right path. Genio proceeds confidently (never approves a merge). Click again to undo.',
+  dislike: 'Dislike: something is wrong. Genio pauses what this message started and asks you. Click again within a second to cancel, or later to resume.'
+}
+
+/** Clicking the reaction already set removes it; the other one replaces it. */
+async function react(m: ChatMessage, kind: ReactionKind, settings: Settings | null | undefined): Promise<void> {
+  const next = m.reaction?.kind === kind ? null : kind
+  try {
+    await api().reactToMessage(m.wksp, m.id, next)
+    playSfx(next ? 'card-in' : 'card-out', settings)
+  } catch (e) {
+    toast('error', 'Reaction not saved', errText(e))
+  }
+}
+
+/** Like / dislike on a Genio message: shown on hover or focus, and always once set. */
+function Reactions({ m }: { m: ChatMessage }) {
+  const settings = useStore((s) => s.settings)
+  const [pending, setPending] = useState(false)
+  const current = m.reaction?.kind
+  const click = async (kind: ReactionKind): Promise<void> => {
+    setPending(true)
+    try { await react(m, kind, settings) } finally { setPending(false) }
+  }
+  return (
+    <span className={cx('msg-acts msg-react', current && 'set')} role="group" aria-label="React to this message">
+      <button type="button" className={cx('msg-act msg-like', current === 'like' && 'on')} aria-pressed={current === 'like'}
+        aria-label={current === 'like' ? 'Remove like' : 'Like'} title={REACTION_HINT.like} disabled={pending} onClick={() => void click('like')}>
+        <ThumbsUp size={12} />
+      </button>
+      <button type="button" className={cx('msg-act msg-dislike', current === 'dislike' && 'on')} aria-pressed={current === 'dislike'}
+        aria-label={current === 'dislike' ? 'Remove dislike' : 'Dislike'} title={REACTION_HINT.dislike} disabled={pending} onClick={() => void click('dislike')}>
+        <ThumbsDown size={12} />
+      </button>
+    </span>
+  )
+}
+
+/** What a dislike paused (or an undo resumed), with a one-click undo while the dislike stands. */
+function ReactionNote({ m }: { m: ChatMessage }) {
+  const settings = useStore((s) => s.settings)
+  const grace = m.reaction?.kind === 'dislike' && m.reaction.pause === 'grace'
+  const text = grace ? 'Pausing what this started…' : m.reactionNote
+  if (!text) return null
+  return (
+    <div className={cx('msg-reaction-note', m.reaction?.kind === 'dislike' && 'dislike')} role="status">
+      <ThumbsDown size={11} aria-hidden /> {text}
+      {m.reaction?.kind === 'dislike' && (
+        <button type="button" className="link-btn" onClick={() => void react(m, 'dislike', settings)}>Undo</button>
+      )}
+    </div>
+  )
+}
 
 function Composer({ wksp, busy, fill, context }: { wksp: string; busy: boolean; context?: InventoryContext; fill: RefObject<((c: UnqueuedChat) => void) | undefined> }) {
   // Client-side commands drive the whole app, so they live in the main chat; an ally gets its text (and its own /help, /status, /save) as typed.

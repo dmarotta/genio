@@ -131,6 +131,8 @@ export interface OutcomeRecord {
   costUsd?: number
   verdict?: Verdict
   note?: string
+  /** liked Genio messages that covered this unit: a small positive, below a verdict */
+  likes?: number
   endedAt: string
 }
 

@@ -26,7 +26,7 @@ import path from 'node:path'
 import type {
   Options, CanUseTool, PermissionResult
 } from '@anthropic-ai/claude-agent-sdk'
-import type { Ally, ChatMessage, WkspInfo } from '@shared/types'
+import type { Ally, ChatMessage, WkspInfo, MessageActions } from '@shared/types'
 import { hasInventoryChips, inventoryContextBlock, validateInventoryContext, type InventoryContext } from '@shared/inventory-context'
 import type { ChatImageInput } from '@shared/chat-images'
 import { prepareInventoryContext } from './inventory-context'
@@ -34,7 +34,7 @@ import { bus } from './bus'
 import { chatImageDir, loadChatImages, saveChatImages } from './chat-images'
 import { attachedIdsNote } from './chat-imagegen'
 import type { Home } from './home'
-import { buildTools, type ToolRole } from './wksp-tools'
+import { buildTools, type ToolHooks, type ToolRole } from './wksp-tools'
 import { openChatToolBridge, closeChatToolBridges } from './chat-tool-bridge'
 import { formatNotification } from './notify-format'
 import {
@@ -135,6 +135,17 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     return m
   }
 
+  /**
+   * What the visible Genio turn in progress started, from its tool calls (deploy, control, quests, merge,
+   * choices, settings). Every final message of the turn carries it, so a reaction covers exactly that.
+   */
+  let turnActions: MessageActions = {}
+  const recordAction = (kind: keyof MessageActions, id: string): void => {
+    const ids = turnActions[kind] ?? []
+    if (!ids.includes(id)) turnActions = { ...turnActions, [kind]: [...ids, id] }
+  }
+  const hasActions = (): boolean => Object.values(turnActions).some(v => v?.length)
+
   /** Player messages already shown as queued whose turn is still being prepared (images, project opening). */
   const preparing = new Set<string>()
   const waiting = (id: string): boolean => loadHistory().find((x) => x.id === id)?.queue === 'queued'
@@ -179,7 +190,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     const ctx = getCtx()
     const sdk = await loadSdk()
     const s = settings()
-    const toolDefs = buildTools(sdk.tool, getCtx, home, role, { escalate: (text, severity) => botEscalate(text, severity) }, home.isMain || role === 'bot' ? undefined : liveAlly()?.projects ?? [])
+    const toolDefs = buildTools(sdk.tool, getCtx, home, role, toolHooks(role), home.isMain || role === 'bot' ? undefined : liveAlly()?.projects ?? [])
     const server = sdk.createSdkMcpServer({ name: 'genio', version: '1.0.0', tools: toolDefs, alwaysLoad: true })
     const worlds = ctx.projects.list().filter(p => liveAlly()?.projects.includes(p.name)).map((p) => p.path)
     const { model, effort } = config ?? claudeConfig()
@@ -205,12 +216,17 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     if (role === 'bot') {
       opts.tools = [] // All Bot tools, for either provider, go through the guarded bridge.
       const bridge = await openChatToolBridge(getCtx, { home, role: 'bot', worlds: home.isMain ? '*' : liveAlly()?.projects ?? [], signal: new AbortController().signal,
-        hooks: { escalate: botEscalate } })
+        hooks: toolHooks('bot') })
       opts.mcpServers = { genio: { command: process.execPath, args: [bridge.entry],
         env: { ...bridge.env, ELECTRON_RUN_AS_NODE: '1' } } }
     }
     if (s.claudePath?.trim()) opts.pathToClaudeCodeExecutable = s.claudePath.trim()
     return opts
+  }
+
+  /** The Bot's turns are off-screen: only the visible chat records what its turn started. */
+  function toolHooks(role: ToolRole): ToolHooks {
+    return { escalate: botEscalate, ...(role === 'bot' ? {} : { action: recordAction }) }
   }
 
   function makePolicy(role: ToolRole): CanUseTool {
@@ -271,7 +287,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
         `${chatUsageLine(globalMode(settings()))}\nUse only genio_ tools. Native shell, edits, agents and plugins are unavailable. Never replay completed mutations from a handoff.`),
       async bridge(signal) {
         const bridge = await openChatToolBridge(getCtx, { home, role: role === 'bot' ? 'bot' : home.isMain ? 'genio' : 'ally',
-          worlds: home.isMain ? '*' : liveAlly()?.projects ?? [], signal, hooks: { escalate: botEscalate } })
+          worlds: home.isMain ? '*' : liveAlly()?.projects ?? [], signal, hooks: toolHooks(role) })
         let id = 0
         const request = async (method: string, params?: unknown) => {
           const response = await fetch(bridge.env.GENIO_BRIDGE_URL, { method: 'POST', signal,
@@ -313,7 +329,10 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     create: (provider, events, config) => createDriver(provider, 'genio', events, config),
     persisted: persisted.providers, handoff: handoffContext, switched: providerChanged,
     events: {
-      onStart: delivered,
+      onStart(item) {
+        turnActions = {}
+        delivered(item)
+      },
       onRequeue(item) {
         const m = loadHistory().find(m => m.id === item.msgId)
         if (m) {
@@ -330,6 +349,11 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
       onMessage(m, final) {
         let msg = m
         if (final && msg.text && NOOP_RE.test(msg.text.trim()) && !(msg.tools ?? []).length) msg = { ...msg, role: 'system' }
+        // every tool of the turn has run by the time its messages are final
+        if (final && msg.role === 'genio' && hasActions()) msg = { ...msg, actions: turnActions }
+        // a reaction the player already gave survives a late rewrite of the same message
+        const shown = loadHistory().find(x => x.id === msg.id)
+        if (shown?.reaction && !msg.reaction) msg = { ...msg, reaction: shown.reaction, ...(shown.reactionNote ? { reactionNote: shown.reactionNote } : {}) }
         record(msg, final)
       },
       onDelta(id, text) {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Hand, X } from 'lucide-react'
+import { Hand, ThumbsDown, X } from 'lucide-react'
 import { cx } from '../lib/format'
 import { toneVar, type Tone } from '../lib/vocab'
 
@@ -21,6 +21,15 @@ export function NeedsYou({ compact, className }: { compact?: boolean; className?
   return (
     <span className={cx('chip amber needs-you', compact && 'compact', className)} title="Waiting for your answer">
       <Hand size={10} />{!compact && ' needs you'}
+    </span>
+  )
+}
+
+/** A unit or quest your dislike on a Genio message paused; undo the dislike (or answer its choice) to resume. */
+export function DislikeMarker() {
+  return (
+    <span className="chip alert dislike-marker" title="Paused by your dislike on a Genio message. Undo the dislike, or answer its choice, to resume.">
+      <ThumbsDown size={10} /> paused by your dislike
     </span>
   )
 }

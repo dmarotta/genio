@@ -356,6 +356,17 @@ button.usage-toggle:hover { color: var(--text); }
 .msg-copy { width: 26px; height: 26px; border-radius: 4px; }
 .msg-copy:focus-visible { outline: 2px solid var(--neon); outline-offset: 2px; }
 .msg-copy:disabled { opacity: 0.5; cursor: default; }
+/* Reactions: hidden until the message is hovered or focused, always shown once set; keyboard reachable throughout. */
+.msg-react { opacity: 0; transition: opacity 0.15s var(--ease); }
+.msg.genio:hover .msg-react, .msg-react:focus-within, .msg-react.set { opacity: 1; }
+@media (hover: none) { .msg-react { opacity: 1; } }
+.msg-react .msg-act { width: 24px; height: 24px; border-radius: 4px; }
+.msg-react .msg-act:focus-visible { outline: 2px solid var(--neon); outline-offset: 2px; }
+.msg-react .msg-act:disabled { opacity: 0.5; cursor: default; }
+.msg-react .msg-like.on { color: var(--volt); background: var(--volt-soft); }
+.msg-react .msg-dislike.on { color: var(--alert); background: var(--alert-soft); }
+.msg-reaction-note { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 6px; font-size: 11.5px; color: var(--text-dim); }
+.msg-reaction-note.dislike { color: var(--amber); }
 .msg-acts .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .msg.from-genio { align-items: flex-start; }
 .msg.from-genio .msg-bubble { white-space: normal; background: linear-gradient(135deg, var(--violet-soft), rgba(165, 107, 255, 0.04)); border-color: rgba(165, 107, 255, 0.4); }

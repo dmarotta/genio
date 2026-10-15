@@ -35,6 +35,9 @@ async function reconcile(ctx: AppCtx, project: string, wksp: string, isOpen: () 
   const results: string[] = []
   const homes = [...ctx.homes.values()]
 
+  // A dislike whose grace period ran out while Genio was down pauses its work now, before anything is resumed.
+  for (const home of homes) await home.reactions?.recover().catch(() => 0)
+
   // Unread done/blocked/paused lines must be applied before deciding to resume.
   // This is overwatch's durable status batch path, without scheduling a turn.
   for (const home of homes) {

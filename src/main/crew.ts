@@ -706,7 +706,9 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         if (action === 'exit') {
           const was = t.state
           await recall()
-          if (ACTIVE.includes(was)) update(id, { state: 'exited', stateReason: 'recalled' })
+          // a recalled unit is no longer held by a dislike: it is stopped
+          if (ACTIVE.includes(was)) update(id, { state: 'exited', stateReason: 'recalled', dislikePause: undefined })
+          else if (t.dislikePause) update(id, { dislikePause: undefined })
           return { ok: true, message: `Recalled ${id}.` }
         }
         // respawn
@@ -744,7 +746,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
               state: 'working',
               stateReason: 'respawned',
               relaunches: t.relaunches + 1,
-              automaticRelaunches: currentPolicy.nextAttempts
+              automaticRelaunches: currentPolicy.nextAttempts,
+              dislikePause: undefined
             })
             ledger('task.relaunched', t, { relaunches: t.relaunches + 1 })
             return {

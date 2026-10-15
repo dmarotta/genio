@@ -77,6 +77,8 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'rating-first', feature: 'rate_task', name: 'GG or Go Again', description: 'Rate a unit on the scorecard.' },
   { id: 'smart-pick', feature: 'loadout_preview', name: 'Adaptive Build', description: 'Deploy an exploration or quota-based pick.' },
   { id: 'queue-edit', feature: 'comms', name: 'Second Thoughts', description: 'Edit or cancel a queued message.' },
+  { id: 'reaction-like', feature: 'comms', name: 'Right Track', description: 'Like a Genio message to confirm the path.' },
+  { id: 'reaction-dislike', feature: 'comms', name: 'Hold Up', description: 'Dislike a Genio message so it pauses and asks what is wrong.' },
   { id: 'yolo-chat', feature: 'comms', name: 'No Safety Wheels', description: 'Switch chat to YOLO mode.' },
   { id: 'account-login', feature: 'systems', name: 'Signed In', description: 'Log in from Settings Accounts.' },
   { id: 'usage-mode', feature: 'systems', name: 'Gear Shift', description: 'Switch the Usage mode between Save, Balanced and Max.' },

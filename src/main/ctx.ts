@@ -14,6 +14,7 @@
  *   wakes.ts        createWakeService(getCtx, home)
  *   supervisor.ts   createSupervisor(getCtx, home)
  *   wksp.ts         createWkspService(getCtx, home, ally?)
+ *   reactions.ts    createReactionService(getCtx, home)
  *   away.ts         createAwayService(getCtx)
  *   notifier.ts     createNotifierService(getCtx)
  *   inbox.ts        createInboxService(getCtx)
@@ -46,6 +47,7 @@ import { createDecisionService } from './decisions'
 import { createWakeService } from './wakes'
 import { createSupervisor } from './supervisor'
 import { createWkspService } from './wksp'
+import { createReactionService } from './reactions'
 import { createAwayService } from './away'
 import { createNotifierService } from './notifier'
 import { createInboxService } from './inbox'
@@ -106,7 +108,8 @@ export function makeHomeCtx(home: Home, ally?: Ally): HomeCtx {
     decisions: createDecisionService(getCtx, home),
     wakes: createWakeService(getCtx, home),
     supervisor: createSupervisor(getCtx, home),
-    wksp: createWkspService(getCtx, home, ally, home.isMain, () => !!ally?.projects.some(p => openProjects.get(getCtx())?.has(p)))
+    wksp: createWkspService(getCtx, home, ally, home.isMain, () => !!ally?.projects.some(p => openProjects.get(getCtx())?.has(p))),
+    reactions: createReactionService(getCtx, home)
   }
   // Guard service calls as well as buttons: chat tools and queued quests also spawn units.
   const spawn = hc.crew.spawn
@@ -310,6 +313,8 @@ export async function stopApp(ctx: AppCtx): Promise<void> {
   ctx.inventory.stop()
   for (const h of ctx.homes.values()) {
     h.supervisor.stop()
+    // a dislike still in its grace period is paused on the next project open
+    h.reactions?.stop()
     await h.wksp.stop().catch(() => undefined)
   }
 }

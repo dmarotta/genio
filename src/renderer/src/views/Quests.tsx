@@ -7,7 +7,7 @@ import {
 } from '@shared/quest-board'
 import type { SquadTone } from '@shared/squad-display'
 import { api, errText, focusTask, op, toast, useStore } from '../store'
-import { Confirm, Empty, Field, Modal, NeedsYou, ViewHeader, useNow } from '../components/ui'
+import { Confirm, DislikeMarker, Empty, Field, Modal, NeedsYou, ViewHeader, useNow } from '../components/ui'
 import { KIND_LABEL } from '../lib/vocab'
 import { ago, clock, cx, dateInput, dateShort, duration, trunc } from '../lib/format'
 import { useUsagePolicy } from '../components/PlanMeter'
@@ -259,7 +259,8 @@ function QueueTicket({ q, chips, now, onOpen }: { q: BacklogItem; chips: QueueCh
           {chips.map((c, i) => <ReasonChip key={i} c={c} />)}
         </div>
       )}
-      {q.hold && !q.hold.until && <div className="quest-hold"><Hand size={11} /> {trunc(q.hold.reason, 120)}</div>}
+      {q.hold?.reaction ? <div className="quest-hold"><DislikeMarker /></div>
+        : q.hold && !q.hold.until && <div className="quest-hold"><Hand size={11} /> {trunc(q.hold.reason, 120)}</div>}
       {q.answer && <div className="quest-outcome mute">Your words: “{trunc(q.answer, 100)}”</div>}
       <div className="qk-foot mute">
         <span title={q.createdAt}>age {ago(q.createdAt, now)}</span>
@@ -349,7 +350,8 @@ function FlightTicket({ c, now, events, onOpen }: { c: FlightCard; now: number; 
           : trunc(progressLine(t, events), 140)}
       </div>
       <TicketMeta q={q} task={t} />
-      {q?.hold && <div className="quest-hold"><Hand size={11} /> {trunc(q.hold.reason, 120)}</div>}
+      {(t?.dislikePause || q?.hold?.reaction) ? <div className="quest-hold"><DislikeMarker /></div>
+        : q?.hold && <div className="quest-hold"><Hand size={11} /> {trunc(q.hold.reason, 120)}</div>}
       <div className="qk-foot">
         {t && (
           <button className="link-btn" onClick={(e) => { e.stopPropagation(); focusTask(t.id) }}>
@@ -487,7 +489,7 @@ function QuestDetails({ item, chips, onClose }: { item: BacklogItem; chips: Queu
           {item.hold && (
             <div className="hold-box">
               <div>
-                <div className="label amber-text">{item.hold.until ? `Later · ${dateShort(item.hold.until)}` : 'Waiting for you'}</div>
+                <div className="label amber-text">{item.hold.reaction ? <DislikeMarker /> : item.hold.until ? `Later · ${dateShort(item.hold.until)}` : 'Waiting for you'}</div>
                 <div>{item.hold.reason}</div>
                 {item.answer && <div className="mute">Your words: “{item.answer}”</div>}
               </div>

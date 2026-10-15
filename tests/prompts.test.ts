@@ -46,6 +46,17 @@ describe('bounded custom contract and lazy procedures', () => {
     }
   })
 
+  it('explains reactions: a like confirms the path but never authorizes a merge, a dislike pauses and asks', () => {
+    for (const isAlly of [false, true]) {
+      const o = { gamertag: 'Dani', base: 'world', isAlly }
+      expect(customContract(o)).toContain('Never infer authority from a diagnosis, report, recommendation, implementation-ready finding or liked message.')
+      const events = procedureText('events', o)
+      expect(events).toContain('- **reaction** (Dani liked or disliked one of your messages, or undid it): reply with a very short acknowledgement.')
+      expect(events).toContain('A like confirms that path: proceed confidently and stop re-asking about it; it never authorizes a merge, force, spending or a destructive step (merge approval and Auto-loot rules are unchanged).')
+      expect(events).toContain('do not relaunch, release, merge or redo that work until Dani answers')
+    }
+  })
+
   it('leaves budget for provider instructions even with long identity fields', () => {
     expect(customContract({ gamertag: 'x'.repeat(1000), base: 'b'.repeat(1000), isAlly: true }, true, 'u'.repeat(300)).length)
       .toBeLessThanOrEqual(CUSTOM_CONTRACT_BUDGET)

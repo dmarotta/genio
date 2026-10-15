@@ -63,6 +63,7 @@ export function buildOutcome(t: Task, outcome: OutcomeRecord['outcome'], now = D
     planUsage: t.usageAtStart !== undefined || usageEnd !== undefined ? { start: t.usageAtStart, end: usageEnd } : undefined,
     verdict: t.verdict,
     note: t.verdictNote,
+    likes: t.likes || undefined,
     endedAt: new Date(now).toISOString()
   }
 }
@@ -142,6 +143,8 @@ export function scoreOutcome(r: OutcomeRecord): number {
     s -= Math.min(0.3, (r.fixRounds ?? 0) * 0.1)
     s -= Math.min(0.15, (r.lagging + r.stopped) * 0.03)
   }
+  // a liked path is a confidence signal: it lifts the score a little, never past a verdict
+  if (r.likes) s += Math.min(0.1, r.likes * 0.05)
   if (r.verdict === 'up') s = Math.max(0.6, s + 0.25)
   if (r.verdict === 'down') s = Math.min(0.3, s) - 0.1
   return Math.max(0, Math.min(1, s))

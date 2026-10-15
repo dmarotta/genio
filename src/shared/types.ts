@@ -230,6 +230,21 @@ export interface Task {
   codexSessionId?: string
   /** The Codex home this unit last ran in (Genio's own, or the player's as a fallback). */
   codexHome?: string
+  /** Held by the player's dislike on the Genio message that started it: Genio's own merge and relaunch wait for their answer. */
+  dislikePause?: DislikePause
+  /** Genio messages the player liked that covered this unit: a positive on the dispatch scorecard. */
+  likes?: number
+}
+
+/** What a dislike paused on a unit, so an undo restores exactly that. */
+export interface DislikePause {
+  /** the disliked chat message and the chat that owns it */
+  message: string
+  wksp: string
+  at: string
+  /** the state before the pause; an interrupted unit is relaunched, a ready one keeps its state */
+  prevState: TaskState
+  interrupted: boolean
 }
 
 /** companion status verbs: `<verb> [key=k] [at=epoch]: note` appended to state/<id>.status */
@@ -259,6 +274,8 @@ export interface PlayerHold {
   reason: string
   since: string
   until?: string
+  /** placed by the player's dislike on this chat message (released when it is undone) */
+  reaction?: string
 }
 
 /** 'program' is legacy input only: an umbrella becomes a plain tag on its quests. */
@@ -328,8 +345,10 @@ export type DecisionAction =
   | { kind: 'dispatch-proposal'; proposal: DispatchProposal }
   /** an ambiguous engine detection: the picked option's root is pinned in the repo's .genio/project.json */
   | { kind: 'engine-root'; project: string; roots: Record<string, string> }
+  /** what is wrong with a disliked Genio message: "keep going" resumes what the dislike paused */
+  | { kind: 'reaction'; wksp: string; message: string }
 
-export type WakeKind = 'signal' | 'stale' | 'check' | 'heartbeat' | 'answer'
+export type WakeKind = 'signal' | 'stale' | 'check' | 'heartbeat' | 'answer' | 'reaction'
 
 export interface Wake {
   seq: number
@@ -377,6 +396,39 @@ export interface ChatMessage {
   queue?: ChatQueueState
   /** a Genio image being generated: how many are on the way (the placeholder resolves into images or an error) */
   generating?: number
+  /** what this Genio turn started, captured from its tool calls */
+  actions?: MessageActions
+  /** the player's like or dislike on a Genio message */
+  reaction?: MessageReaction
+  /** one short line under the message: what a dislike paused or an undo resumed */
+  reactionNote?: string
+}
+
+/** What one Genio turn started (ids from its tool calls), so a reaction covers exactly that and nothing else. */
+export interface MessageActions {
+  /** units deployed, relaunched, interrupted, upgraded or sent to the Gauntlet */
+  units?: string[]
+  /** quests filed, edited, held or released */
+  quests?: string[]
+  /** units whose work the turn merged */
+  merges?: string[]
+  /** choices opened */
+  choices?: string[]
+  /** preferences and project registry entries changed (names only) */
+  settings?: string[]
+}
+
+export type ReactionKind = 'like' | 'dislike'
+
+export interface MessageReaction {
+  kind: ReactionKind
+  at: string
+  /** dislike: 'grace' during the undo window, then 'paused' (or 'asked' when nothing was paused), 'resumed' after "keep going" */
+  pause?: 'grace' | 'paused' | 'asked' | 'resumed'
+  /** the choice the dislike opened */
+  choice?: string
+  /** the reaction log entry that set it (data/reactions.jsonl) */
+  event?: string
 }
 
 /**

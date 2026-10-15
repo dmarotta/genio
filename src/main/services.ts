@@ -12,7 +12,7 @@ import type {
   AwayMode, AwayEntry, AwayState, BacklogItem, StatusReport, ChatMessage, Decision, FleetSnapshot,
   FleetStats, HarnessAdapter, InboxNote, LedgerRecord, WkspInfo, PermissionRequest, Project, Ally,
   Settings, StatusEvent, Task, TerminalInfo, ToolStatus, UpdateInfo, Wake, WakeKind, Achievement,
-  DeliveryMode, SfxName, NotifyTarget, Verdict, TaskCounters, PlaystyleId
+  DeliveryMode, SfxName, NotifyTarget, Verdict, TaskCounters, PlaystyleId, ReactionKind
 } from '@shared/types'
 import type {
   OpResult, ProjectAddRequest, ProjectCreateRequest, AllyCreateRequest, SpawnRequest, TaskFile, MemoryFile,
@@ -445,6 +445,19 @@ export interface WkspService {
   post(m: ChatMessage, persist: boolean): void
 }
 
+/** The player's like/dislike on this chat's Genio messages (reactions.ts). */
+export interface ReactionService {
+  /** like or dislike sets the reaction, null removes it; returns the message as now shown */
+  react(messageId: string, kind: ReactionKind | null): Promise<ChatMessage>
+  /** a dislike's choice was answered: "keep going" resumes what it paused */
+  answered(d: Decision, answer: string): Promise<void>
+  /** finish dislikes whose grace period ran out while Genio was down; returns how many */
+  recover(): Promise<number>
+  /** the durable reaction log, oldest first */
+  log(): import('./reactions').ReactionEvent[]
+  stop(): void
+}
+
 export interface HomeCtx {
   home: Home
   crew: CrewService
@@ -453,6 +466,7 @@ export interface HomeCtx {
   wakes: WakeService
   supervisor: SupervisorService
   wksp: WkspService
+  reactions: ReactionService
 }
 
 export interface AppCtx {

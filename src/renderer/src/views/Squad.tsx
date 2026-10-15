@@ -9,7 +9,7 @@ import type { TaskFile } from '@shared/api'
 import { api, errText, focusTask, op, openDeploy, setState, toast, liveTasks, useStore } from '../store'
 import { TerminalView } from '../components/Terminal'
 import { Markdown } from '../components/Markdown'
-import { Chip, Confirm, Dot, Empty, Modal, Field, NeedsYou, Tabs, ViewHeader, useNow } from '../components/ui'
+import { Chip, Confirm, DislikeMarker, Dot, Empty, Modal, Field, NeedsYou, Tabs, ViewHeader, useNow } from '../components/ui'
 import { GenioCore } from '../components/GenioCore'
 import { LoadoutReasons, RATEABLE, VerdictButtons, VerdictPick, rateThenMerge } from '../components/Dispatch'
 import { KIND_LABEL, MODE_LABEL } from '../lib/vocab'
@@ -120,6 +120,7 @@ function UnitCard({ t, term }: { t: Task; term?: TerminalInfo }) {
             {squadState(t, term)}
           </Chip>
           {attention && <NeedsYou />}
+          {t.dislikePause && <DislikeMarker />}
           <span className="mono mute">{elapsed(t.createdAt, now)}</span>
         </div>
       </header>
@@ -337,6 +338,7 @@ function UnitDetail({ id }: { id: string }) {
               {squadState(t, term)}
             </Chip>
             {attention && <NeedsYou />}
+            {t.dislikePause && <DislikeMarker />}
             {t.mode && <span className="chip">{MODE_LABEL[t.mode]}</span>}
             {t.yolo && <span className="chip volt">Auto-loot</span>}
             {t.landedCommit && <span className="chip volt mono selectable" title={t.landedCommit}>commit {t.landedCommit.slice(0, 10)}</span>}

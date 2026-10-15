@@ -7,7 +7,8 @@ import type { AllyControlsPatch, UnqueuedChat } from './chat'
 import type {
   AwayMode, AwayState, BacklogItem, StatusReport, ChatMessage, DeliveryMode, Engine, FleetSnapshot,
   GenioEvent, LedgerRecord, Priority, Project, ProjectCommands, Ally, Settings, Task, TaskKind,
-  TerminalInfo, ToolStatus, UpdateInfo, Wake, Forge, Decision, InboxNote, ProjectMode, Loadout, LoadoutInput, TaskCategory, Verdict, PlaystyleId
+  TerminalInfo, ToolStatus, UpdateInfo, Wake, Forge, Decision, InboxNote, ProjectMode, Loadout, LoadoutInput, TaskCategory, Verdict, PlaystyleId,
+  ReactionKind
 } from './types'
 import type { DispatchScoresView } from './dispatch'
 import type { ChatImageInput } from './chat-images'
@@ -524,6 +525,8 @@ export interface GenioApi {
   sendChat(wksp: string, text: string, images?: ChatImageInput[], context?: InventoryContext): Promise<void>
   /** take back a queued (or unsent) message for edit/cancel; null when the session already picked it up */
   unqueueChat(wksp: string, id: string): Promise<UnqueuedChat | null>
+  /** like/dislike a Genio message (null removes it); a dislike pauses what that message started after a short grace period */
+  reactToMessage(wksp: string, id: string, kind: ReactionKind | null): Promise<ChatMessage>
   interruptWksp(wksp: string): Promise<void>
   restartWksp(wksp: string, fresh: boolean, role?: 'genio' | 'bot'): Promise<void>
   resolvePermission(id: string, allow: boolean): Promise<void>
@@ -689,6 +692,7 @@ export const API_METHODS = [
   'chatHistory',
   'sendChat',
   'unqueueChat',
+  'reactToMessage',
   'interruptWksp',
   'restartWksp',
   'resolvePermission',

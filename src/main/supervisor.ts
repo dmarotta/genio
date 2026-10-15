@@ -14,6 +14,7 @@
  *             a finished Recon left without a choice or follow-up
  *   heartbeat tick: deferred choices resurfacing, quests ready to deploy
  *   answer    the player answered a choice outside its chat (decisions.ts)
+ *   reaction  the player liked or disliked a Genio message, or undid it (reactions.ts)
  *
  * Every step is wrapped: overwatch must never crash the app.
  */

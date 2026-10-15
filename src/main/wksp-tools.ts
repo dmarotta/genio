@@ -8,7 +8,7 @@ import { normalizeProjectArgs, projectAliasShape } from './project-tool-args'
 import { z } from 'zod'
 import { modeLabel } from '@shared/vocab'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import type { Decision, Task } from '@shared/types'
+import type { Decision, MessageActions, Task } from '@shared/types'
 import type { TaskFile } from '@shared/api'
 import type { AnswerOrigin, AppCtx, HomeCtx } from './services'
 import type { Home } from './home'
@@ -42,6 +42,16 @@ export interface AppTool {
 export interface ToolHooks {
   /** Bot only: surface something the player must see */
   escalate?: (text: string, severity: 'info' | 'decision' | 'failure' | 'ready') => void
+  /** Visible chat only: what this turn started, recorded on its messages so a reaction covers exactly that */
+  action?: (kind: keyof MessageActions, id: string) => void
+}
+
+/** A unit or quest held by the player's dislike waits for their answer to the choice it opened. */
+function dislikeHold(ctx: AppCtx, message: string | undefined): string | undefined {
+  if (!message) return undefined
+  const open = [...ctx.homes.values()].flatMap(h => h.decisions.list(true)).filter(c => !c.resolvedAt)
+    .find(c => c.action?.kind === 'reaction' && c.action.message === message)
+  return open ? `paused by the player's dislike; wait for their answer to choice ${open.id}` : undefined
 }
 
 const ok = (text: string): CallToolResult => ({ content: [{ type: 'text', text }] })
@@ -181,6 +191,12 @@ export function createToolRegistry(
   const questHome = (id: string): HomeCtx => [...getCtx().homes.values()].find(h => h.backlog.get(id)) ?? hc()
   const tools: AppTool[] = []
   const pages = new ToolPages()
+  /** Record what this turn started; never fails the tool. */
+  const did = (kind: keyof MessageActions, id: string | undefined): void => {
+    if (!id) return
+    try { hooks.action?.(kind, id) } catch { /* the record is a convenience for reactions */ }
+  }
+  const questHeld = (id: string): string | undefined => dislikeHold(getCtx(), questHome(id).backlog.get(id)?.hold?.reaction)
 
   // Wrap every handler so a thrown error becomes a tool error, never a crash.
   function t<S extends z.ZodRawShape>(name: string, desc: string, shape: S, fn: (a: z.infer<z.ZodObject<S>>) => Promise<CallToolResult> | CallToolResult): void {
@@ -294,6 +310,7 @@ export function createToolRegistry(
     if (role === 'bot' || !home.isMain) return fail('Global preferences require the player in main chat')
     const previous = getCtx().settings.get().usageMode
     getCtx().settings.save(patch)
+    for (const key of Object.keys(patch)) did('settings', key)
     if (patch.usageMode && patch.usageMode !== previous) bus.publish({ type: 'feature-used', feature: 'usage-mode' })
     return ok(json(preferences()))
   })
@@ -352,12 +369,16 @@ export function createToolRegistry(
     },
     async (a) => {
       if (/^\s*(captain|player|boss)\b[:,]/i.test(a.intent)) return fail('intent must be the player\'s words without a speaker label or direct address')
+      const held = a.quest_id ? questHeld(a.quest_id) : undefined
+      if (held) return fail(`deploy refused: quest ${a.quest_id} is ${held}`)
       try {
         const owner = a.quest_id ? questHome(a.quest_id) : hc()
         const task = await owner.crew.spawn({
           kind: a.kind, project: a.world, title: a.title, intent: a.intent, spec: a.spec, mode: a.mode, yolo: a.auto_loot,
           baseBranch: a.base_branch, harness: a.harness, model: a.model, effort: a.effort, category: a.category, backlogId: a.quest_id, wksp: owner.home.name
         })
+        did('units', task.id)
+        did('quests', task.backlogId)
         return ok(`deployed ${task.id}: ${task.kind === 'ship' ? 'Build' : 'Recon'} "${task.title}" in ${task.project} (unit tool ${task.harness}${task.model ? ` / ${task.model}` : ''}${task.effort ? ` / ${task.effort}` : ''}, mode ${modeLabel(task.mode)}, branch ${task.branch})${task.loadout?.length ? `\nloadout reasons:\n- ${task.loadout.join('\n- ')}` : ''}`)
       } catch (e) {
         const msg = (e as Error).message ?? String(e)
@@ -386,7 +407,10 @@ export function createToolRegistry(
     async ({ task, action, note, player_words }) => {
       if (role === 'bot' && player_words) return fail('The Bot cannot authorize a manual restart')
       const f = requireTask(task)
+      const held = action === 'relaunch' ? dislikeHold(getCtx(), f.task.dislikePause?.message) : undefined
+      if (held) return fail(`relaunch refused: ${task} is ${held}`)
       const r = await f.hc.crew.control(task, action, note, role !== 'bot')
+      if (r.ok && action !== 'exit') did('units', task)
       return r.ok ? ok(r.message || `${action} done`) : fail(r.message)
     }
   )
@@ -412,6 +436,8 @@ export function createToolRegistry(
       const f = requireTask(task)
       const tk = f.task
       if (tk.kind !== 'ship') return fail('only Build missions can be merged')
+      const held = dislikeHold(ctx, tk.dislikePause?.message)
+      if (held) return fail(`merge refused: ${task} is ${held}`)
       const proj = ctx.projects.get(tk.project)
       const autoLoot = tk.yolo ?? proj?.yolo ?? false
       const words = role === 'bot' ? '' : (player_words ?? '').trim()
@@ -426,6 +452,7 @@ export function createToolRegistry(
         if (v.checks === 'pending') return fail(`merge refused: checks still running (${v.pending.join(', ') || 'pending'})`)
       }
       const r = await f.hc.crew.merge(task)
+      if (r.ok) did('merges', task)
       return r.ok ? ok(r.message || 'merged') : fail(`merge refused: ${r.message}`)
     }
   )
@@ -433,12 +460,14 @@ export function createToolRegistry(
   t('upgrade_recon', 'Upgrade a finished Recon into a Build in place (the report becomes context). intent = the player\'s words for what to build.', { task: z.string(), intent: z.string().optional() }, async ({ task, intent }) => {
     const f = requireTask(task)
     const nt = await f.hc.crew.promote(task, intent)
+    did('units', nt.id)
     return ok(`upgraded to Build ${nt.id} (${modeLabel(nt.mode)}, branch ${nt.branch})`)
   })
 
   t('run_gauntlet', 'Run (or re-run) the Gauntlet on a Hardcore Build: review → fix rounds → project checks → push → PR → CI.', { task: z.string() }, async ({ task }) => {
     const f = requireTask(task)
     const r = await f.hc.crew.validate(task)
+    if (r.ok) did('units', task)
     return r.ok ? ok(r.message || 'Gauntlet started') : fail(r.message)
   })
 
@@ -468,6 +497,7 @@ export function createToolRegistry(
         return ok(`programs are labels now: no quest filed. Tag the quests that belong to "${a.title}" with "${label}" (quest_add/quest_update tags).`)
       }
       const it = hc().backlog.add({ title: a.title, project: a.world, kind: a.kind, notes: a.notes, priority: a.priority, dependsOn: a.depends_on, notBefore: a.not_before, tags: a.tags })
+      did('quests', it.id)
       return ok(`quest ${it.id} filed (${it.state})${it.duplicateOf ? `; flagged as a duplicate of ${it.duplicateOf} and not dispatched until cleared (quest_update duplicate_of="")` : ''}`)
     }
   )
@@ -494,23 +524,33 @@ export function createToolRegistry(
       if (a.not_before !== undefined) patch.notBefore = a.not_before
       if (a.duplicate_of !== undefined) patch.duplicateOf = a.duplicate_of
       if (a.state !== undefined) patch.state = a.state
+      const held = a.state === 'queued' ? questHeld(a.id) : undefined
+      if (held) return fail(`quest ${a.id} is ${held}`)
       const it = questHome(a.id).backlog.update(a.id, patch)
+      did('quests', it.id)
       return ok(`quest ${it.id} updated (${it.state}${it.hold ? ', waiting for the player' : ''})`)
     }
   )
 
   t('quest_hold', 'Flag a quest as waiting for the player (a choice only they can make); it stays queued, or in flight with its unit. until=YYYY-MM-DD defers it ("later").', { id: z.string(), reason: z.string().min(3), until: z.string().optional() }, async ({ id, reason, until }) => {
     const it = questHome(id).backlog.hold(id, reason, until)
+    did('quests', it.id)
     return ok(`quest ${it.id} ${it.state}, waiting for the player: ${reason}${until ? ` until ${until}` : ''}`)
   })
 
   t("quest_answer", "Record the player's exact words on a quest waiting for them. release=true clears the wait so the work proceeds; false closes it.", { id: z.string(), words: z.string().min(1), release: z.boolean().default(true) }, async ({ id, words, release }) => {
+    const held = release ? questHeld(id) : undefined
+    if (held) return fail(`quest ${id} is ${held}`)
     const it = questHome(id).backlog.answer(id, words, release)
+    did('quests', it.id)
     return ok(`answer recorded on ${it.id} (${it.state})`)
   })
 
   t('quest_release', 'Release a player hold so the quest can be dispatched.', { id: z.string() }, async ({ id }) => {
+    const held = questHeld(id)
+    if (held) return fail(`quest ${id} is ${held}`)
     const it = questHome(id).backlog.release(id)
+    did('quests', it.id)
     return ok(`quest ${it.id} released (${it.state})`)
   })
 
@@ -536,6 +576,7 @@ export function createToolRegistry(
             options: a.options, recommendation: a.recommendation, batch: a.batch, context: a.context, urgency: a.urgency, backlogId: a.quest_id
           })
         : h.decisions.open({ question: a.question, options: a.options, recommendation: a.recommendation, batch: a.batch, context: a.context, urgency: a.urgency, backlogId: a.quest_id, project, key: a.key, source: 'genio', wksp: home.name })
+      did('choices', d.id)
       return ok(`choice ${d.id} opened`)
     }
   )
@@ -563,7 +604,9 @@ export function createToolRegistry(
     { world: z.string(), root: z.string(), player_words: z.string().trim().min(1) },
     async (a) => {
       if (role === 'bot') return fail('pinning the engine root waits for the player')
-      return ok(await declareEngineRoot(getCtx(), { world: a.world, root: a.root, playerWords: a.player_words, actor: role }))
+      const r = await declareEngineRoot(getCtx(), { world: a.world, root: a.root, playerWords: a.player_words, actor: role })
+      did('settings', `project ${a.world}`)
+      return ok(r)
     }
   )
 
@@ -582,6 +625,7 @@ export function createToolRegistry(
     async (a) => {
       if (a.auto_loot && role === 'bot') return fail('Auto-loot is only granted by the player')
       const p = await getCtx().projects.add({ source: a.source, name: a.name, mode: a.mode, yolo: a.auto_loot, branchPrefix: a.branch_prefix, capacity: a.capacity, inPlace: a.in_place })
+      did('settings', `project ${p.name}`)
       return ok(`project ${p.name} registered (${p.engine}, ${modeLabel(p.mode)}${p.yolo ? ' +auto-loot' : ''}) at ${p.path}`)
     }
   )
@@ -597,6 +641,7 @@ export function createToolRegistry(
     async (a) => {
       if (a.create_remote && (role === 'bot' || !a.player_words?.trim())) return fail('creating a remote repo is outward-facing: it needs the player\'s explicit consent (player_words)')
       const p = await getCtx().projects.create({ name: a.name, engine: a.engine, description: a.description, mode: a.mode, createRemote: a.create_remote, privateRemote: a.private_remote })
+      did('settings', `project ${p.name}`)
       return ok(`project ${p.name} created at ${p.path} (${a.engine} scaffold, detected engine ${p.engine}, ${modeLabel(p.mode)})`)
     }
   )
@@ -624,6 +669,7 @@ export function createToolRegistry(
         patch.commands = { ...cur, ...a.commands }
       }
       const p = getCtx().projects.update(a.world, patch)
+      did('settings', `project ${p.name}`)
       return ok(`project ${p.name} updated: ${modeLabel(p.mode)}${p.yolo ? ' +auto-loot' : ''}, prefix ${p.branchPrefix}`)
     }
   )

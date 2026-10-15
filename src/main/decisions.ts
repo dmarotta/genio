@@ -180,6 +180,10 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
           void answerEngineChoice(c, d, answer)
             .then((message) => { if (message) safeHome(c, ownerName(c, d))?.wksp.say(message, 'system') })
             .catch((e: Error) => safeHome(c, ownerName(c, d))?.wksp.say(`Could not pin the engine root: ${e.message}`, 'system'))
+        } else if (d.action?.kind === 'reaction') {
+          // "keep going" resumes what the dislike paused; any other answer leaves it paused for Genio
+          const owner = safeHome(ctx, d.action.wksp)
+          void owner?.reactions?.answered(d, answer).catch(() => undefined)
         } else if (d.action) {
           try {
             ctx.dispatch.answered(d, answer)
@@ -325,6 +329,8 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
         ...(quest ? [`Quest ${quest.id}: ${quest.title} (${quest.state})`] : []),
         d.action?.kind === 'engine-root'
           ? 'Genio pins a picked engine root itself in .genio/project.json (uncommitted); deploy nothing. Tell the player to commit it; "Keep detecting automatically" needs nothing.'
+          : d.action?.kind === 'reaction'
+          ? 'This asks what is wrong with a Genio message the player disliked. "Keep going": Genio already resumed the paused work; carry on. "Stop this work": keep it stopped: recall the paused units (control exit) and drop the held quests; never despawn or discard work without the player\'s words. "Let me explain" or other words: follow their explanation; nothing paused resumes until it says so.'
           : found && !unitDone
           ? 'The unit was pinged with this answer and carries on; act only where the answer needs other work.'
           : 'Follow through now: carry out the chosen option (file and deploy the work, respecting dependencies and serial order; queue the rest) with the player\'s words as intent, then report.',

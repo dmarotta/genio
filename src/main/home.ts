@@ -17,6 +17,7 @@ import { assertMounted, volumeHome, volumePlacement, type CloneOptions } from '.
  *     player-shared.md preferences inherited by allies (main only)
  *     lore.md          curated squad knowledge (Squad memory)
  *     chat.jsonl       Comms transcript
+ *     reactions.jsonl  the player's likes/dislikes on Genio messages
  *     inbox.jsonl      Mail from the player
  *     fleet-ledger.jsonl opt-in Replay log
  *     stats.json       xp, achievements

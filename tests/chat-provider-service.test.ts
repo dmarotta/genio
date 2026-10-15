@@ -142,6 +142,43 @@ it('Codex shows messages sent mid-turn as queued at once and sends each exactly 
   expect(shown.filter(m => m.role === 'player').map(m => m.text)).toEqual(['first', 'second', 'third'])
 })
 
+it('stamps what a Codex turn started on its final messages, from the tool calls alone', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-codex-actions-'))
+  const home = new Home(root)
+  let quests = 0
+  const hc = { home, crew: { list: () => [] }, decisions: { list: () => [], open: (d: object) => ({ id: 'ch-1', ...d }) },
+    backlog: { list: () => [], add: (q: object) => ({ id: `q-${++quests}`, state: 'queued', ...q }) },
+    wakes: { pending: () => [], drain: () => ({ text: '', count: 0, ackThrough: -1 }), ack: () => undefined } }
+  const ctx = { appRoot: process.cwd(), main: hc, home: () => hc, homes: new Map([['main', hc]]),
+    settings: { get: () => ({ wkspModel: 'codex:OpenAI:gpt-test', wkspEffort: 'high', chatShellMode: 'all' }) },
+    away: { state: () => ({ mode: 'online' }) }, allies: { list: () => [] }, projects: { list: () => [] },
+    stats: { unlock: vi.fn(), addCost: vi.fn() }, inventory: { thumbnail: vi.fn() }, memory: { read: () => '' }, permissions: { ask: vi.fn(async () => true) }
+  } as unknown as AppCtx
+  const service = createWkspService(() => ctx, home)
+  cleanup.push(async () => { await service.stop(); fs.rmSync(root, { recursive: true, force: true }) })
+  const turns = () => peers[0]?.requests.filter(r => r.method === 'turn/start') ?? []
+  const say = (id: string, text: string) => peers[0].events.notification('item/completed', { threadId: 'session-1', item: { id, type: 'agentMessage', text } })
+  const complete = () => peers[0].events.notification('turn/completed', { threadId: 'session-1', turn: { id: 'turn', status: 'completed' } })
+  const call = (callId: string, tool: string, args: object) =>
+    peers[0].events.request('item/tool/call', { threadId: 'session-1', turnId: 'turn', callId, tool, arguments: args })
+  await service.send('file the polish work')
+  await vi.waitFor(() => expect(turns()).toHaveLength(1))
+  say('plan', 'Filing it now.')
+  expect(await call('c1', 'genio_quest_add', { title: 'Polish the HUD' })).toMatchObject({ success: true })
+  expect(await call('c2', 'genio_choice_open', { question: 'Which art style?', options: ['Pixel', 'Painted'] })).toMatchObject({ success: true })
+  say('done', 'Filed the quest and asked about the art style.')
+  complete()
+  for (const text of ['Filing it now.', 'Filed the quest and asked about the art style.']) {
+    expect(service.history().find(m => m.text === text)).toMatchObject({ actions: { quests: ['q-1'], choices: ['ch-1'] } })
+  }
+  // the next turn starts with an empty record
+  await service.send('thanks')
+  await vi.waitFor(() => expect(turns()).toHaveLength(2))
+  say('reply', 'Any time.')
+  complete()
+  expect(service.history().find(m => m.text === 'Any time.')?.actions).toBeUndefined()
+})
+
 it('leaves the archived main log and session state untouched and cannot start a provider', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-archive-'))
   const home = new Home(root); home.ensure()
