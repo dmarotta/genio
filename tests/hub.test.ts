@@ -34,14 +34,33 @@ async function click(text: string) {
 
 it('shows only project selection even on first run and ignores work shortcuts', async () => {
   await render()
-  expect([...host.querySelectorAll('button')].map(b => b.textContent)).toEqual(['File', ' Open folder…', ' Add project', ' New project', ' Sync all', 'alphaC:/alphaGodot', 'betaC:/betaGodot'])
+  expect([...host.querySelectorAll('button')].map(b => b.textContent)).toEqual(['File', ' Settings', ' Open folder…', ' Add project', ' New project', ' Sync all', 'alphaC:/alphaGodot', 'betaC:/betaGodot'])
   await act(async () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))
     window.dispatchEvent(new KeyboardEvent('keydown', { key: '2', ctrlKey: true }))
-    setState({ view: 'systems' })
   })
   expect(host.querySelector('h1')?.textContent).toBe('Choose a project')
   expect(host.querySelector('.rail, .palette, .onboard, .presence, .hud-stats')).toBeNull()
+})
+
+it('has Settings with only the global pages, from its gear button and Ctrl+,', async () => {
+  await render()
+  await click('Settings')
+  expect(getState().view).toBe('systems')
+  expect([...host.querySelectorAll('.sys-group')].map(g => g.textContent)).toEqual(['Genio · all projects'])
+  expect(host.querySelector('.sys-link.on')?.textContent).toBe('General')
+  expect(host.querySelector('.sys-in-project')).toBeNull()
+  expect(host.querySelector('h1')?.textContent).not.toBe('Choose a project')
+  await click('Projects')
+  expect(host.querySelector('h1')?.textContent).toBe('Choose a project')
+  // Ctrl+, reopens the last page; a project page asked for in the Hub falls back to General.
+  localStorage.setItem('genio.settings.last', 'notifications')
+  await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', ctrlKey: true })) })
+  expect(host.querySelector('.sys-link.on')?.textContent).toBe('Notifications')
+  const nav = await import('../src/renderer/src/lib/settings-nav')
+  await act(async () => nav.openSettings('project-delivery'))
+  expect(host.querySelector('.sys-link.on')?.textContent).toBe('General')
+  expect(host.textContent).not.toContain('Delivery')
 })
 
 it('opens selected projects and restores their order on the next Hub mount', async () => {

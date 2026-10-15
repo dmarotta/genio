@@ -21,7 +21,8 @@ import { AttachmentStrip, GeneratingImages, MessageImages, fromSendable, toSenda
 import type { InventoryContext } from '@shared/inventory-context'
 import { InventoryContextChips, useInventoryContext } from '../components/InventoryContextChips'
 const MAIN_PANEL = 'main'
-import { EffortSelect, ModelSelect, requestSystemsSection } from './Systems'
+import { EffortSelect, ModelSelect } from './Systems'
+import { openSettings } from '../lib/settings-nav'
 
 const SLASH: { cmd: string; hint: string }[] = [
   { cmd: '/recap', hint: 'Previously on… then your pending moves, one at a time' },
@@ -118,7 +119,7 @@ export function ChatPanel({ wksp, context, surface = 'screen', active: _active =
           <span>{role === 'bot' ? 'Bot: ' : ''}{limit.provider === 'codex' ? `${limit.reason || 'Codex unavailable'} Open Accounts, then resume the session.` : limit.reason || (limit.restartRequired
             ? 'Claude still reports an expired limit. Restart the session to try again.'
             : `Claude limit reached${limit.resetsAt ? ` ? back at ${new Date(limit.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ' ? waiting for reset'}`)}</span>
-          {limit.provider === 'codex' && <button className="btn sm" onClick={() => requestSystemsSection('accounts')}>Accounts</button>}
+          {limit.provider === 'codex' && <button className="btn sm" onClick={() => openSettings('accounts')}>Accounts</button>}
           {!limit.restartRequired && <button className="btn sm" onClick={() => void op('Retry', () => api().restartWksp(wksp, false, role))}>Retry now</button>}
           <button className="btn sm ghost" onClick={() => void op('Restart', () => api().restartWksp(wksp, false, role))}>Restart session</button>
         </div>
@@ -631,8 +632,7 @@ function Composer({ wksp, busy, fill, context }: { wksp: string; busy: boolean; 
           await op('Save', () => api().save(), () => 'Genio is curating memory')
           return
         case '/patch':
-          requestSystemsSection('system', 'settings-updates')
-          go('systems')
+          openSettings('system', 'settings-updates')
           return
         case '/help':
           localSystem(['**Commands**', ...SLASH.map((s) => `- \`${s.cmd}\` — ${s.hint}`), '', 'Shortcuts: `Ctrl+K` palette · `Ctrl+1…8` views'].join('\n'))

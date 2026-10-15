@@ -5,11 +5,12 @@ import type { PushStatus } from '@shared/api'
 import { modeSourceOf } from '@shared/vocab'
 import type { Engine, Project, ProjectCommands, ProjectMode } from '@shared/types'
 import { cheapModelsAllowed } from '@shared/dispatch'
-import { requestSystemsSection } from '../lib/settings-nav'
+import { openSettings } from '../lib/settings-nav'
+import { settingAnchor } from '@shared/settings-index'
 import type { SettingsPageId } from '@shared/settings-pages'
 import { SettingsTitle } from '../components/SettingsTitle'
 import { USAGE_MODES, USAGE_MODE_LABEL, type UsageMode } from '@shared/usage-mode'
-import { PROJECT_WINDOW, api, errText, go, op, setState, toast, useStore } from '../store'
+import { PROJECT_WINDOW, api, errText, op, setState, toast, useStore } from '../store'
 import { CommitInput, Confirm, Field, Modal, Toggle } from '../components/ui'
 import { ENGINES, ENGINE_LABEL, MODE_HINT, MODE_LABEL, PROJECT_MODES, isActive } from '../lib/vocab'
 import { ago, cx } from '../lib/format'
@@ -45,13 +46,13 @@ function ProjectGeneral({ p, metadata }: { p: Project; metadata?: WorldMetadata 
     </div>
     <section className="world-details" aria-label={`${p.name} settings`}>
       <EngineDetected p={p} />
-      <Field label="Description"><CommitInput value={p.description ?? ''} placeholder="Describe this project" onCommit={(v) => update({ description: v })} /></Field>
+      <Field label="Description" id={settingAnchor('Description')}><CommitInput value={p.description ?? ''} placeholder="Describe this project" onCommit={(v) => update({ description: v })} /></Field>
       <div className="world-controls">
-        <Field label="Usage mode" hint="Override the global usage mode for this project"><select className="select" value={p.usageMode ?? ''} onChange={(e) => update({ usageMode: (e.target.value || undefined) as UsageMode | undefined, costDial: undefined })}><option value="">Global setting</option>{USAGE_MODES.map(mode => <option key={mode} value={mode}>{USAGE_MODE_LABEL[mode]}</option>)}</select></Field>
-        <Field label="Capacity" hint="Max units at once (0 = no cap)">
+        <Field label="Usage mode" id={settingAnchor('Usage mode')} hint="Override the global usage mode for this project"><select className="select" value={p.usageMode ?? ''} onChange={(e) => update({ usageMode: (e.target.value || undefined) as UsageMode | undefined, costDial: undefined })}><option value="">Global setting</option>{USAGE_MODES.map(mode => <option key={mode} value={mode}>{USAGE_MODE_LABEL[mode]}</option>)}</select></Field>
+        <Field label="Capacity" id={settingAnchor('Capacity')} hint="Max units at once (0 = no cap)">
           <CommitInput type="number" value={p.capacity ?? 0} onCommit={(v) => update({ capacity: Math.max(0, parseInt(v, 10) || 0) })} />
         </Field>
-        <Field label="Allow cheap third-party models" hint="On by default: OpenRouter models (DeepSeek, Qwen, GLM) via OpenCode for low-stakes work. Code is sent to the OpenRouter provider when used.">
+        <Field label="Allow cheap third-party models" id={settingAnchor('Allow cheap third-party models')} hint="On by default: OpenRouter models (DeepSeek, Qwen, GLM) via OpenCode for low-stakes work. Code is sent to the OpenRouter provider when used.">
           <Toggle
             checked={cheapModelsAllowed(p)}
             onChange={(v) => update({ allowCheapModels: v })}
@@ -60,7 +61,7 @@ function ProjectGeneral({ p, metadata }: { p: Project; metadata?: WorldMetadata 
         </Field>
       </div>
     </section>
-    <section className="danger-zone" aria-label="Danger zone">
+    <section className="danger-zone" id="settings-danger" tabIndex={-1} aria-label="Danger zone">
       <div className="label">Danger zone</div>
       <div className="sys-row">
         <div className="sys-row-label">
@@ -125,7 +126,7 @@ function ProjectDelivery({ p }: { p: Project }) {
   const noRepo = p.gitRepo === false
   return <>
     <div className="world-controls">
-      <Field label="Delivery" hint={modeSourceOf(p) === 'auto' ? `Follows the remote · ${MODE_HINT[p.mode]}` : MODE_HINT[p.mode]}>
+      <Field label="Delivery" id={settingAnchor('Delivery')} hint={modeSourceOf(p) === 'auto' ? `Follows the remote · ${MODE_HINT[p.mode]}` : MODE_HINT[p.mode]}>
         <select
           className="select"
           disabled={noRepo}
@@ -141,7 +142,7 @@ function ProjectDelivery({ p }: { p: Project }) {
           ))}
         </select>
       </Field>
-      <Field label="Merge finished work automatically" hint="Auto-loot: Genio merges green, in-scope work itself">
+      <Field label="Merge finished work automatically" id={settingAnchor('Merge finished work automatically')} hint="Auto-loot: Genio merges green, in-scope work itself">
         <Toggle
           checked={p.yolo}
           onChange={(v) => {
@@ -151,11 +152,11 @@ function ProjectDelivery({ p }: { p: Project }) {
           label={p.yolo ? <span className="volt-text">On</span> : 'Off'}
         />
       </Field>
-      <Field label="Branch prefix">
+      <Field label="Branch prefix" id={settingAnchor('Branch prefix')}>
         <CommitInput mono value={p.branchPrefix} onCommit={(v) => update({ branchPrefix: v })} />
       </Field>
     </div>
-    <div className="project-git" aria-label="Main branch">
+    <div className="project-git" id="settings-main-branch" tabIndex={-1} aria-label="Main branch">
       <div className="label">Main branch</div>
       <p>{noRepo ? 'Git actions need a git repo' : pushable ? 'Push on demand' : MODE_LABEL[p.mode]}{pushable && push && <span> · {push.ahead} commits not pushed{push.behind ? ` · ${push.behind} on origin not local` : ''}</span>}</p>
       <div className="row" style={{ flexWrap: 'wrap' }}>
@@ -195,7 +196,7 @@ function ProjectDelivery({ p }: { p: Project }) {
 /** This project › Commands: what units and the Gauntlet run. Commits keep any stored run command. */
 function ProjectCommandsPage({ p }: { p: Project }) {
   const setCmd = (k: keyof ProjectCommands, v: string): void => projectUpdate(p, { commands: { ...p.commands, [k]: v.trim() || undefined } })
-  return <div className="world-cmds">
+  return <div className="world-cmds" id="settings-commands" tabIndex={-1}>
     {COMMANDS.map((k) => (
       <Field key={k} label={k}>
         <CommitInput mono value={p.commands[k] ?? ''} placeholder="—" onCommit={(v) => setCmd(k, v)} />
@@ -214,7 +215,7 @@ function EngineDetected({ p }: { p: Project }) {
   const game = v.engine !== 'other'
   const proposal = proposalLine(p)
   return (
-    <div className="field wide engine-detected" role="group" aria-label="Engine">
+    <div className="field wide engine-detected" id="settings-engine" tabIndex={-1} role="group" aria-label="Engine">
       <span className="label">Engine</span>
       <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
         <span>{game ? <>Detected: <strong>{v.summary}</strong>{v.declared && <span className="mute"> (set in .genio/project.json)</span>}</> : 'No game engine detected; Genio treats this as a code project'}</span>
@@ -406,7 +407,7 @@ export function ProjectNotice() {
     <span className="project-notice-text">{registered ? `Registered ${project.name} · ${detectedLine(view)}${view.ambiguous ? ' · ambiguous' : ''} · ${MODE_LABEL[project.mode]}` : project.name}
       {project.gitRepo === false ? ' · Git actions need a git repo' : !project.remote ? ' · No remote' : ''}
       {proposal && <span className="amber-text"> · {proposal}</span>}</span>
-    {(registered || proposal) && <button className="btn sm ghost" onClick={() => { requestSystemsSection('project'); go('systems') }}>{registered ? 'Change' : 'Settings'}</button>}
+    {(registered || proposal) && <button className="btn sm ghost" onClick={() => openSettings('project', 'settings-engine')}>{registered ? 'Change' : 'Settings'}</button>}
     {registered && <button className="btn sm ghost" aria-label="Dismiss registration" onClick={() => setState({ registeredProject: undefined })}>Dismiss</button>}
     {!registered && proposal && <button className="btn sm ghost" aria-label="Dismiss engine proposal" onClick={() => void op('Engine proposal', () => api().projectUpdate(project.name, { engineProposal: undefined }))}>Dismiss</button>}
   </div>

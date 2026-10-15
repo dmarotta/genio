@@ -1,8 +1,8 @@
 import { ThisProjectSettings, type ProjectPageId } from './ProjectSettings'
 import { PlayerInstanceSettings } from './PlayerInstanceSettings'
 import { ModelPicker, useModelCatalogue } from '../components/ModelPicker'
-import { Fragment, useEffect, useState, type CSSProperties, type ReactNode } from 'react'
-import { ChevronDown, ChevronRight, ChevronUp, Copy, Download, FolderOpen, KeyRound, Lock, LockOpen, LogIn, LogOut, Plus, RefreshCw, Trash, TriangleAlert, Users, Wrench, X } from 'lucide-react'
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
+import { ChevronDown, ChevronRight, ChevronUp, Copy, Download, FolderOpen, KeyRound, Lock, LockOpen, LogIn, LogOut, Plus, RefreshCw, Search, Trash, TriangleAlert, Users, Wrench, X } from 'lucide-react'
 import type { CategoryPool, DispatchRule, EventSource, HarnessAdapter, PoolCandidate, Project, Settings, ToolStatus, UpdateInfo } from '@shared/types'
 import {
   CATEGORIES, LEARNING, QUOTA_HOT_PERCENT, categoryLabel, defaultCategoryPools, type DispatchScoresView, type ScoreRow
@@ -28,9 +28,10 @@ import { EFFORTS } from '../lib/vocab'
 import { ago, clock, cx, dateShort, usd } from '../lib/format'
 import { playSfx } from '../lib/sfx'
 import { useScreenContext } from '../lib/screen-context'
-import { onSectionRequest, requestSystemsSection, takePendingSection, type SettingsRequest } from '../lib/settings-nav'
+import { settingAnchor, searchSettings, type SettingsHit } from '@shared/settings-index'
+import { listKey, onSectionRequest, openSettings, readLastPage, rememberPage, requestSystemsSection, takePendingSection, type SettingsRequest } from '../lib/settings-nav'
 
-export { requestSystemsSection }
+export { openSettings, requestSystemsSection }
 /** Settings pages, in nav order. Kept under its old name for callers that list sections. */
 export const SECTIONS = SETTINGS_PAGES
 export type Section = SettingsPageId
@@ -72,6 +73,23 @@ export function visiblePages(opts: { project?: Project; projects: Project[]; adv
 }
 
 /**
+ * The page Settings opens on: a deep link's page, else the last page viewed while this window
+ * still lists it, else General. The Hub never shows a project page, even when asked for one.
+ */
+export function startPage(opts: { project?: Project; projects: Project[]; requested?: SettingsPageId; last?: SettingsPageId }): SettingsPageId {
+  const fallback: SettingsPageId = opts.project ? 'project' : 'general'
+  if (opts.requested) return settingsPage(opts.requested).group === 'project' && !opts.project ? fallback : opts.requested
+  const listed = visiblePages({ project: opts.project, projects: opts.projects, advanced: true })
+  return opts.last && listed.some((p) => p.id === opts.last) ? opts.last : fallback
+}
+
+/** Where a page sits, for the narrow picker: "This project › General". */
+const SCOPE_SHORT: Record<SettingsPage['group'], string> = { project: 'This project', genio: 'Genio', advanced: 'Advanced' }
+
+const typing = (t: EventTarget | null): boolean =>
+  t instanceof HTMLElement && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || !!t.closest('.xterm'))
+
+/**
  * The anchor may render a few frames late, then grow as its settings load: keep it aligned
  * for a moment unless the player scrolls or clicks first. Gives up after about a second.
  */
@@ -90,6 +108,9 @@ function revealAnchor(id: string): () => void {
     const align = (): void => el.scrollIntoView({ block: 'start' })
     align()
     el.focus({ preventScroll: true })
+    // A brief highlight shows which row a link or search result meant.
+    el.classList.add('sys-hit')
+    setTimeout(() => el.classList.remove('sys-hit'), 1600)
     if (typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(align)
     ro.observe(el)
@@ -109,9 +130,36 @@ export function Systems() {
   const projects = useStore((s) => s.snap.projects)
   const project = projects.find((p) => p.name === PROJECT_WINDOW)
   const [request, setRequest] = useState<SettingsRequest | null>(takePendingSection)
-  const [sec, setSec] = useState<SettingsPageId>(request?.page ?? (project ? 'project' : 'general'))
-  useEffect(() => onSectionRequest((r) => { setSec(r.page); setRequest(r) }), [])
+  const [sec, setSecState] = useState<SettingsPageId>(() => startPage({ project, projects, requested: request?.page, last: readLastPage() }))
+  const [sheet, setSheet] = useState(false)
+  const [query, setQuery] = useState('')
+  const [hit, setHit] = useState(0)
+  const [focused, setFocused] = useState<SettingsPageId | null>(null)
+  const search = useRef<HTMLInputElement>(null)
+  const picker = useRef<HTMLButtonElement>(null)
+  const links = useRef<(HTMLButtonElement | null)[]>([])
+  const setSec = (id: SettingsPageId): void => { setSecState(id); setSheet(false) }
+  useEffect(() => onSectionRequest((r) => {
+    const page = startPage({ project, projects, requested: r.page })
+    setSec(page)
+    setRequest(page === r.page ? r : { page })
+  }), [project, projects])
   useEffect(() => (request?.anchor && settings ? revealAnchor(request.anchor) : undefined), [request, !!settings])
+  useEffect(() => rememberPage(sec), [sec])
+  // Ctrl+F, or / outside a field, focuses the search box (opening the picker sheet at narrow widths).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.defaultPrevented) return
+      const find = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'f'
+      if (!find && !(e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !typing(e.target))) return
+      e.preventDefault()
+      setSheet(true)
+      search.current?.focus()
+      search.current?.select()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   const page = settingsPage(sec)
   useScreenContext('systems', { facts: [{ label: 'Section', value: `${page.group === 'project' ? 'This project' : SETTINGS_GROUP_LABEL[page.group]} › ${page.label}` }] })
   const [advanced, setAdvancedState] = useState<boolean>(readAdvanced)
@@ -119,15 +167,44 @@ export function Systems() {
     setAdvancedState(v)
     writeAdvanced(v)
   }
+  // Advanced pages are always searchable; this window's other rules (no project pages in the Hub) still apply.
+  const searchable = visiblePages({ project, projects, advanced: true })
+  const hits = searchSettings(query, (id) => searchable.some((p) => p.id === id))
   if (!settings) return <div className="view"><div className="bar indeterminate"><i /></div></div>
 
   const visible = visiblePages({ project, projects, advanced, current: sec })
   const groupLabel = (g: SettingsPage['group']): ReactNode => g === 'project'
     ? <>This project <span className="sys-group-name">· {project?.name ?? PROJECT_WINDOW}</span></>
     : SETTINGS_GROUP_LABEL[g]
+  const openHit = (h: SettingsHit | undefined): void => {
+    if (!h) return
+    setSec(h.page)
+    setRequest({ page: h.page, anchor: h.anchor })
+    setQuery('')
+    setHit(0)
+  }
+  const searchKey = (e: ReactKeyboardEvent<HTMLInputElement>): void => {
+    if (e.key === 'Escape') {
+      if (query) { e.stopPropagation(); setQuery(''); setHit(0) }
+      return
+    }
+    if (e.key === 'Enter') { e.preventDefault(); openHit(hits[hit]); return }
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+    e.preventDefault()
+    if (query) setHit(listKey(e.key, hit, hits.length) ?? 0)
+    else if (e.key === 'ArrowDown') links.current[Math.max(0, visible.findIndex((p) => p.id === sec))]?.focus()
+  }
+  const linkKey = (e: ReactKeyboardEvent<HTMLButtonElement>, i: number): void => {
+    const to = listKey(e.key, i, visible.length)
+    if (to === null) return
+    e.preventDefault()
+    if (e.key === 'ArrowUp' && i === 0) search.current?.focus()
+    else links.current[to]?.focus()
+  }
+  const tabStop = focused && visible.some((p) => p.id === focused) ? focused : sec
   let lastGroup = ''
   return (
-    <div className="view">
+    <div className="view sys-view">
       <ViewHeader
         kicker="Configuration"
         title={
@@ -136,23 +213,101 @@ export function Systems() {
           </>
         }
       />
-      <div className="sys-layout">
+      <div className={cx('sys-layout', sheet && 'sheet-open')}>
         <nav className="sys-nav" aria-label="Settings pages">
-          {visible.map((s) => {
-            const head = s.group !== lastGroup
-            lastGroup = s.group
-            return (
-              <div key={s.id} className={cx('sys-nav-item', `sys-in-${s.group}`)}>
-                {head && <div className="label sys-group">{groupLabel(s.group)}</div>}
-                <button className={cx('sys-link', sec === s.id && 'on')} aria-current={sec === s.id ? 'page' : undefined} title={s.term} onClick={() => setSec(s.id)}>
-                  {s.label}
-                  {s.id === 'inbox' && unread > 0 && <span className="sys-badge">{unread}</span>}
-                </button>
+          <button
+            ref={picker}
+            className="sys-picker"
+            aria-expanded={sheet}
+            aria-controls="sys-nav-list"
+            onClick={() => {
+              setSheet(!sheet)
+              if (!sheet) setTimeout(() => search.current?.focus(), 0)
+            }}
+          >
+            <span className="sys-picker-scope">{SCOPE_SHORT[page.group]} ›</span> <b>{page.label}</b>
+            <ChevronDown size={14} />
+          </button>
+          <div
+            id="sys-nav-list"
+            className="sys-nav-list"
+            onKeyDown={(e) => {
+              if (e.key !== 'Escape' || !sheet) return
+              setSheet(false)
+              picker.current?.focus()
+            }}
+          >
+            <div className="sys-search">
+              <Search size={13} className="mute" />
+              <input
+                ref={search}
+                className="input"
+                type="search"
+                role="combobox"
+                aria-label="Search settings"
+                aria-expanded={!!query}
+                aria-controls="sys-results"
+                aria-activedescendant={query && hits[hit] ? `sys-result-${hit}` : undefined}
+                aria-keyshortcuts="Control+F /"
+                placeholder="Search settings"
+                title="Search settings (Ctrl+F or /)"
+                value={query}
+                onChange={(e) => { setQuery(e.target.value); setHit(0) }}
+                onKeyDown={searchKey}
+              />
+            </div>
+            {query ? (
+              <div id="sys-results" className="sys-results" role="listbox" aria-label="Matching settings">
+                {hits.map((h, i) => (
+                  <button
+                    key={`${h.page}:${h.label}`}
+                    id={`sys-result-${i}`}
+                    role="option"
+                    tabIndex={-1}
+                    aria-selected={i === hit}
+                    className={cx('sys-result', i === hit && 'on')}
+                    onMouseEnter={() => setHit(i)}
+                    onClick={() => openHit(h)}
+                  >
+                    <span className="sys-result-label">{h.label}</span>
+                    <span className="sys-result-meta">
+                      <span className={cx('chip', 'sys-chip', `sys-chip-${settingsPage(h.page).group}`)}>{h.scope}</span>
+                      <span className="sys-result-path mute">
+                        {h.anchor ? settingsPage(h.page).label : 'Page'}
+                        {h.via && <> · “{h.via}”</>}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+                {!hits.length && <div className="mute sys-noresult">No settings match “{query}”.</div>}
               </div>
-            )
-          })}
-          <div className="sys-advanced">
-            <Toggle checked={advanced} onChange={setAdvanced} label="Show advanced settings" />
+            ) : (
+              visible.map((s, i) => {
+                const head = s.group !== lastGroup
+                lastGroup = s.group
+                return (
+                  <div key={s.id} className={cx('sys-nav-item', `sys-in-${s.group}`)}>
+                    {head && <div className="label sys-group">{groupLabel(s.group)}</div>}
+                    <button
+                      ref={(el) => { links.current[i] = el }}
+                      className={cx('sys-link', sec === s.id && 'on')}
+                      aria-current={sec === s.id ? 'page' : undefined}
+                      tabIndex={s.id === tabStop ? 0 : -1}
+                      title={s.term}
+                      onFocus={() => setFocused(s.id)}
+                      onKeyDown={(e) => linkKey(e, i)}
+                      onClick={() => setSec(s.id)}
+                    >
+                      {s.label}
+                      {s.id === 'inbox' && unread > 0 && <span className="sys-badge">{unread}</span>}
+                    </button>
+                  </div>
+                )
+              })
+            )}
+            <div className="sys-advanced">
+              <Toggle checked={advanced} onChange={setAdvanced} label="Show advanced settings" />
+            </div>
           </div>
         </nav>
         <div className="sys-body panel">
@@ -163,9 +318,10 @@ export function Systems() {
   )
 }
 
+/** A setting row; its id comes from the label so search and deep links can reveal it. */
 function Row({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
   return (
-    <div className="sys-row">
+    <div className="sys-row" id={settingAnchor(label)} tabIndex={-1}>
       <div className="sys-row-label">
         <div className="sys-row-title">{label}</div>
         {hint && <div className="mute sys-row-hint">{hint}</div>}
@@ -319,7 +475,7 @@ function SectionBody({ sec, s, setAdvanced, open }: { sec: SettingsPageId; s: Se
           <Row label="Auto-dispatch queued quests" hint="Genio deploys queued quests as soon as deps, gates and capacity clear.">
             <Toggle checked={s.autoDispatchQueued} onChange={(v) => set({ autoDispatchQueued: v })} />
           </Row>
-          <div className="sys-row col">
+          <div className="sys-row col" id={settingAnchor('Brief additions')} tabIndex={-1}>
             <div className="sys-row-title">Brief additions</div>
             <div className="mute sys-row-hint">Appended to every unit brief.</div>
             <BriefInclude value={s.briefInclude} />
@@ -475,7 +631,7 @@ function Usage({ s, open, openAdvanced }: { s: Settings; open: (s: SettingsPageI
   return (
     <>
       <SettingsTitle page="usage" />
-      <div className="usage-mode-bar">
+      <div className="usage-mode-bar" id="settings-usage-mode" tabIndex={-1}>
         <span className="label">Usage mode</span>
         <div className="seg" role="radiogroup" aria-label="Usage mode">
           {USAGE_MODES.map((m) => (
@@ -576,6 +732,9 @@ function Usage({ s, open, openAdvanced }: { s: Settings; open: (s: SettingsPageI
       <Row label="Paid spend on cheap models" hint="Lets low-stakes units use OpenRouter models through OpenCode, billed to your OpenRouter key. A mode never turns this on.">
         <Toggle checked={!!s.cheapSpendAllowed} onChange={(v) => set({ cheapSpendAllowed: v })} />
         {view && <span className="mute">{view.cheap.why}</span>}
+        {view && /OpenRouter key/.test(view.cheap.why) && (
+          <button className="link-btn" onClick={() => requestSystemsSection('accounts', 'settings-api-keys')}>Add the key in Accounts &amp; keys →</button>
+        )}
       </Row>
       <UsagePins s={s} />
       <UsageProjects s={s} view={view} open={open} />
@@ -700,7 +859,7 @@ function ModelRow({ label, hint, value, onCommit, allowCustom }: { label: string
 
 type SelectProps = { value: string; onChange: (v: string) => void; title?: string; disabled?: boolean; style?: CSSProperties }
 export function ModelSelect(props: SelectProps) {
-  return <ModelPicker {...props} onAccounts={() => requestSystemsSection('accounts')} />
+  return <ModelPicker {...props} onAccounts={() => openSettings('accounts', 'settings-api-keys')} />
 }
 
 export function EffortSelect({ value, onChange, model, ...rest }: SelectProps & { model?: string }) {
@@ -1373,7 +1532,7 @@ function Accounts() {
           </div>
         </div>
       )}
-      <div className="label" style={{ margin: '22px 0 8px' }}>
+      <div className="label" id="settings-api-keys" tabIndex={-1} style={{ margin: '22px 0 8px' }}>
         API keys
       </div>
       <p className="mute">For services without a CLI login. Keys are encrypted with your OS keychain and stay in Genio's base; Genio shows only whether one is set. Units get a key only through their process environment: FAL as FAL_KEY, OpenRouter as OPENROUTER_API_KEY for OpenCode units in projects that allow cheap third-party models. The Uthana key stays in Genio's core for the Animation screen.</p>

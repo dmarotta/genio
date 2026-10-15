@@ -12,7 +12,7 @@ vi.mock('../src/renderer/src/store', () => ({
   api: () => ({ inventoryOpen: f.open, inventoryClose: f.close, inventoryList: f.list, inventoryInfo: f.info, inventoryRefresh: f.refresh }),
   go: f.go, op: async (_: string, fn: () => unknown) => fn(), errText: String
 }))
-vi.mock('../src/renderer/src/views/Systems', () => ({ requestSystemsSection: f.request }))
+vi.mock('../src/renderer/src/lib/settings-nav', () => ({ openSettings: f.request }))
 import { Inventory } from '../src/renderer/src/views/Inventory'
 const state = (world: string): InventoryState => ({ world, revision: 1, total: 20000, refreshing: false, watching: true })
 const item = (world: string, name = 'stone.psd'): InventoryInfo => ({ path: `Assets/${name}`, folder: 'Assets', name, ext: 'psd', kind: 'image', size: 1024, mtimeMs: 1, tracked: true, lfs: false, vendor: false, generated: false, tags: [], mediaUrl: `genio-media://world/${world}/Assets/${name}` })
@@ -75,8 +75,6 @@ describe('Inventory screen lifecycle', () => {
     const button = [...host.querySelectorAll('.inventory-head button')].find(b => b.textContent?.includes('Generation settings'))!
     await act(async () => (button as HTMLButtonElement).click())
     expect(f.request).toHaveBeenCalledWith('project-assets', 'generation-settings')
-    expect(f.go).toHaveBeenCalledWith('systems')
-    expect(f.request.mock.invocationCallOrder[0]).toBeLessThan(f.go.mock.invocationCallOrder[0])
   })
 
   it('shows a plain empty state when the window project is not loaded', async () => {

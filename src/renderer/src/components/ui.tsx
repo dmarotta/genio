@@ -87,9 +87,10 @@ export function Modal({
   )
 }
 
-export function Field({ label, hint, children, wide }: { label: string; hint?: ReactNode; children: ReactNode; wide?: boolean }) {
+/** A labelled control; with an id it is also a target that Settings search and deep links can reveal. */
+export function Field({ label, hint, children, wide, id }: { label: string; hint?: ReactNode; children: ReactNode; wide?: boolean; id?: string }) {
   return (
-    <label className={cx('field', wide && 'wide')}>
+    <label className={cx('field', wide && 'wide')} id={id} tabIndex={id ? -1 : undefined}>
       <span className="label">{label}</span>
       {children}
       {hint && <span className="field-hint">{hint}</span>}

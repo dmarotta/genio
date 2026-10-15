@@ -411,8 +411,7 @@ export function handleEvent(ev: GenioEvent): void {
         if (t.taskId) focusTask(t.taskId)
         else go('squad')
       } else if (t.view === 'accounts') {
-        go('systems')
-        void import('./views/Systems').then((m) => m.requestSystemsSection('accounts'))
+        void import('./lib/settings-nav').then((m) => m.openSettings('accounts'))
       } else {
         const known = t.wksp === 'main' || s.snap.allies.some((a) => a.name === t.wksp && !a.retiredAt)
         if (t.wksp && known) openChat(t.wksp)

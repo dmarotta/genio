@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Search } from 'lucide-react'
 import { PROJECT_WKSP, answerNext, api, focusTask, getState, go, op, openDeploy, playAvailable, setState, useStore, type ViewId } from '../store'
 import { navFor, useNav } from './Rail'
-import { requestSystemsSection } from '../views/Systems'
+import { isSettingsShortcut, openSettings } from '../lib/settings-nav'
+import { SETTINGS_INDEX } from '@shared/settings-index'
+import { SETTINGS_GROUP_LABEL, settingsPage } from '@shared/settings-pages'
 import { KIND_LABEL } from '../lib/vocab'
 import { cx } from '../lib/format'
 
@@ -38,22 +40,35 @@ export function CommandPalette() {
       { id: 'recap', label: '/recap', hint: 'Previously on… and your pending moves', group: 'Action', run: () => { close(); go('comms'); void op('Recap', () => api().recap()) } },
       { id: 'status', label: '/status', hint: 'Character Sheet', group: 'Action', run: () => go('status') },
       { id: 'save', label: '/save', hint: 'Curate player profile & squad memory', group: 'Action', run: () => { close(); void op('Save', () => api().save(), () => 'Genio is curating memory') } },
-      { id: 'memory', label: 'Go to Memory', hint: 'Settings · player profile, squad memory, archive', group: 'Navigate', run: () => { requestSystemsSection('memory'); go('systems') } },
-      { id: 'mail', label: 'Go to Mail', hint: 'Settings · Inbox & automation · notes for Genio', group: 'Navigate', run: () => { requestSystemsSection('inbox'); go('systems') } },
+      { id: 'memory', label: 'Go to Memory', hint: 'Settings · player profile, squad memory, archive', group: 'Navigate', run: () => openSettings('memory') },
+      { id: 'mail', label: 'Go to Mail', hint: 'Settings · Inbox & automation · notes for Genio', group: 'Navigate', run: () => openSettings('inbox') },
       { id: 'online', label: 'Presence: Online', group: 'Presence', run: () => { close(); void op('Presence', () => api().setAway('online'), () => 'Online') } },
       { id: 'dnd', label: 'Presence: DND', group: 'Presence', run: () => { close(); void op('Presence', () => api().setAway('dnd'), () => 'Do not disturb') } },
       { id: 'afk', label: 'Presence: AFK', group: 'Presence', run: () => { close(); void op('Presence', () => api().setAway('afk'), () => 'AFK — the Bot has the controls') } },
       ...nav.map((n) => ({ id: `nav-${n.id}`, label: `Go to ${n.label}`, hint: n.key ? `Ctrl ${n.key}` : undefined, group: 'Navigate', run: () => go(n.id as ViewId) })),
       ...tasks
         .filter((t) => t.state !== 'cleaned')
-        .map((t) => ({ id: `task-${t.id}`, label: `Unit: ${t.title}`, hint: `${KIND_LABEL[t.kind]} · ${t.project}`, group: 'Squad', run: () => focusTask(t.id) }))
+        .map((t) => ({ id: `task-${t.id}`, label: `Unit: ${t.title}`, hint: `${KIND_LABEL[t.kind]} · ${t.project}`, group: 'Squad', run: () => focusTask(t.id) })),
+      // Every Settings page and row from the search index, old names included in the hint.
+      ...SETTINGS_INDEX.map((e) => {
+        const page = settingsPage(e.page)
+        const where = page.group === 'project' ? 'This project' : SETTINGS_GROUP_LABEL[page.group]
+        return {
+          id: `settings-${e.page}-${e.anchor ?? ''}`,
+          label: e.anchor ? `Setting: ${e.label}` : `Settings: ${where} › ${page.label}`,
+          hint: [e.anchor ? `${where} › ${page.label}` : '', ...(e.synonyms ?? [])].filter(Boolean).join(' · '),
+          group: 'Settings',
+          run: () => openSettings(e.page, e.anchor)
+        }
+      })
     ]
     return PROJECT_WKSP ? list : list.filter(c => !['recap', 'save'].includes(c.id))
   }, [tasks, nav])
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
-    if (!needle) return cmds.slice(0, 40)
+    // Settings rows are many: they join the list once the player types.
+    if (!needle) return cmds.filter((c) => c.group !== 'Settings').slice(0, 40)
     return cmds
       .map((c) => {
         const hay = `${c.label} ${c.hint ?? ''} ${c.group}`.toLowerCase()
@@ -119,11 +134,17 @@ export function CommandPalette() {
   )
 }
 
+/** Window shortcuts. Ctrl+, (Settings, last page) works everywhere; the rest only in project windows. */
 export function useGlobalKeys(enabled = true): void {
   useEffect(() => {
-    if (!enabled) return
     const onKey = (e: KeyboardEvent): void => {
-      if (!(e.ctrlKey || e.metaKey)) return
+      if (isSettingsShortcut(e)) {
+        e.preventDefault()
+        setState({ palette: false })
+        openSettings()
+        return
+      }
+      if (!enabled || !(e.ctrlKey || e.metaKey)) return
       if (e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setState((s) => ({ palette: !s.palette }))

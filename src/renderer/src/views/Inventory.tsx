@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Backpack, Box, ChevronDown, ChevronRight, FileImage, Film, Folder, FolderOpen, Grid2X2, List, Music, RefreshCw, Search, Settings } from 'lucide-react'
 import type { AssetKind, InventoryAsset, InventoryFolder, InventoryInfo, InventoryQuery, InventoryState } from '@shared/inventory'
-import { PROJECT_WINDOW, api, errText, go, op, useStore } from '../store'
+import { PROJECT_WINDOW, api, errText, op, useStore } from '../store'
 import { GENERATION_ANCHOR } from '../components/GenerationSettings'
-import { requestSystemsSection } from './Systems'
+import { openSettings } from '../lib/settings-nav'
 import { cx } from '../lib/format'
 import { assetBytes, breadcrumbs, previewKind, thumbnailUrl, virtualWindow } from '../lib/inventory'
 import { GlbViewer } from '../components/GlbViewer'
@@ -28,7 +28,7 @@ export function Inventory() {
   return <div className="inventory">
     <header className="inventory-head">
       <div><div className="label">PROJECT ASSETS</div><h1>Inventory</h1></div>
-      {project && <button className="btn sm ghost" onClick={() => { requestSystemsSection('project-assets', GENERATION_ANCHOR); go('systems') }}><Settings size={14} /> Generation settings</button>}
+      {project && <button className="btn sm ghost" onClick={() => openSettings('project-assets', GENERATION_ANCHOR)}><Settings size={14} /> Generation settings</button>}
       <span className="dim">Explore · select · preview</span>
     </header>
     {project ? <WorldInventory key={project.name} world={project.name} root={project.path} />

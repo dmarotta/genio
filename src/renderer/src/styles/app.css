@@ -864,8 +864,29 @@ body:has(.answers-float .answer-card) .toasts { right: calc(min(380px, 100vw - 2
 /* ---------- systems ---------- */
 .sys-layout { flex: 1; display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 22px; align-items: start; }
 .sys-nav { position: sticky; top: 0; display: flex; flex-direction: column; }
+.sys-nav-list { display: flex; flex-direction: column; }
+.sys-picker { display: none; }
 .sys-group { margin: 16px 0 6px 10px; font-size: 10px; }
-.sys-nav > div:first-child .sys-group { margin-top: 0; }
+.sys-search + .sys-nav-item .sys-group { margin-top: 4px; }
+.sys-search { position: relative; margin-bottom: 10px; }
+.sys-search > svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+.sys-search .input { width: 100%; padding-left: 28px; font-size: 13px; }
+.sys-results { display: flex; flex-direction: column; gap: 2px; }
+.sys-result { display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left; background: none; border: 0; border-left: 2px solid transparent; padding: 6px 8px 6px 10px; cursor: pointer; color: var(--text-dim); }
+.sys-result.on, .sys-result:hover { color: var(--text); background: var(--neon-soft); border-left-color: var(--neon); }
+.sys-result-label { font-size: 13.5px; line-height: 1.3; }
+.sys-result-meta { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.sys-result-path { min-width: 0; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip.sys-chip { height: 18px; padding: 0 6px; font-size: 10px; }
+.chip.sys-chip-project { color: var(--volt); border-color: var(--volt-soft); }
+.chip.sys-chip-advanced { color: var(--amber); border-color: var(--amber-soft); }
+.sys-noresult { padding: 8px 10px; font-size: 13px; }
+.sys-link:focus-visible, .sys-result:focus-visible { outline: 1px solid var(--line-strong); outline-offset: -1px; }
+.sys-row:focus, .field:focus, .sys-part:focus, [id^='settings-']:focus { outline: none; }
+.sys-hit { animation: sys-hit 1.6s var(--ease); }
+/* The bar sits left of the row, so it never covers the label. */
+@keyframes sys-hit { 0%, 40% { background: var(--neon-soft); box-shadow: -8px 0 0 0 var(--neon-soft), -10px 0 0 0 var(--neon); } 100% { background: transparent; box-shadow: none; } }
+.hub-settings-btn.on { color: var(--neon); }
 .sys-link { width: 100%; text-align: left; background: none; border: 0; padding: 7px 10px; cursor: pointer; color: var(--text-dim); font-size: 14px; border-left: 2px solid transparent; }
 .sys-link:hover { color: var(--text); }
 .sys-link.on { color: var(--neon); border-left-color: var(--neon); background: var(--neon-soft); }
@@ -1104,7 +1125,7 @@ ul.loadout-why li { margin: 1px 0; }
 :is(.rail-gauge, .gauge-row).tone-warm { --c: var(--amber); }
 :is(.rail-gauge, .gauge-row).tone-hot { --c: var(--alert); }
 :is(.rail-gauge, .gauge-row).tone-unknown { --c: var(--text-mute); }
-.rail-gauge { position: relative; margin-top: auto; width: 46px; height: 36px; display: grid; place-items: center; color: var(--c); cursor: default; outline: none; }
+.rail-gauge { position: relative; margin-top: auto; width: 46px; height: 36px; display: grid; place-items: center; color: var(--c); cursor: pointer; outline: none; }
 .rail-gauge:focus-visible { box-shadow: inset 0 0 0 1px var(--line-strong); }
 .rail-gauge svg { fill: none; stroke-width: 2.4; filter: drop-shadow(0 0 4px var(--c)); }
 .rail-gauge.tone-unknown svg { filter: none; }
@@ -1254,13 +1275,23 @@ button.prio-label:hover { background: color-mix(in srgb, var(--p) 24%, transpare
   /* icon-only toolbar; the label stays the button's accessible name */
   .detail-toolbar .tb-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .comms-head { padding: 8px 12px; }
-  .sys-layout { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .sys-nav { position: static; flex-direction: row; align-items: center; overflow-x: auto; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
-  .sys-nav > div { display: flex; align-items: center; flex: none; }
-  .sys-group, .sys-nav > div:first-child .sys-group { margin: 0 4px 0 10px; }
-  .sys-link { width: auto; white-space: nowrap; border-left: 0; border-bottom: 2px solid transparent; }
-  .sys-link.on { border-bottom-color: var(--neon); }
-  .sys-advanced { margin: 0 0 0 10px; padding: 0; border-top: 0; white-space: nowrap; }
+  /* Narrow: a sticky one-line picker ("This project › General ▾") opens the search and page list as a sheet. */
+  /* The bottom inset keeps the collapsed Genio pill off the last field. */
+  .sys-view { gap: 10px; padding-bottom: 64px; }
+  .sys-view .view-head .label { display: none; }
+  .sys-view .view-head .title { font-size: 20px; margin-top: 0; }
+  .sys-layout { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  /* Sticks below the view's top padding; the shadow paints over that strip so nothing shows above it. */
+  .sys-nav { position: sticky; top: 0; z-index: 6; background: var(--bg); padding-bottom: 2px; box-shadow: 0 -16px 0 0 var(--bg); }
+  /* Revealed rows land below the sticky picker, not under it. */
+  .sys-body [id] { scroll-margin-top: 58px; }
+  .sys-picker { display: flex; align-items: center; gap: 6px; width: 100%; padding: 8px 10px; background: var(--surface-2); border: 1px solid var(--line-strong); color: var(--text); font: inherit; font-size: 14px; cursor: pointer; text-align: left; }
+  .sys-picker > svg { margin-left: auto; flex: none; color: var(--text-dim); transition: transform 0.15s var(--ease); }
+  .sys-picker[aria-expanded='true'] > svg { transform: rotate(180deg); }
+  .sys-picker-scope { color: var(--text-dim); white-space: nowrap; }
+  .sys-picker b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sys-nav-list { display: none; }
+  .sheet-open .sys-nav-list { display: flex; position: absolute; left: 0; right: 0; top: calc(100% + 2px); max-height: calc(100vh - 150px); min-height: 120px; overflow: auto; padding: 10px; background: var(--surface); border: 1px solid var(--line-strong); box-shadow: 0 12px 28px rgba(0, 0, 0, 0.55); }
   .sys-body { padding: 16px 14px 20px; min-height: 0; }
   .sys-title { font-size: 20px; }
   .usage-window { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px; }

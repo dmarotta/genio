@@ -45,8 +45,16 @@ vi.mock('../src/renderer/src/components/PlanMeter', () => ({ PlanMeter: () => Re
 vi.mock('../src/renderer/src/components/ModelPicker', () => ({ ModelPicker: () => null, useModelCatalogue: () => ({ routes: [] }) }))
 
 import { SETTINGS_ALIASES, SETTINGS_PAGES, resolveSettingsPage, settingsPage, settingsPath } from '../src/shared/settings-pages'
-import { defaultSettings } from '../src/main/settings'
-import { Systems, readAdvanced, requestSystemsSection, visiblePages } from '../src/renderer/src/views/Systems'
+import { SETTINGS_INDEX, searchSettings, settingAnchor } from '../src/shared/settings-index'
+import type { Settings } from '../src/shared/types'
+import { Systems, readAdvanced, requestSystemsSection, startPage, visiblePages } from '../src/renderer/src/views/Systems'
+import { isSettingsShortcut, listKey, openSettings, readLastPage } from '../src/renderer/src/lib/settings-nav'
+import { go } from '../src/renderer/src/store'
+
+// Main-process code is outside the web typecheck, so its defaults load untyped by path. They never
+// need the Claude SDK that the usage probe imports lazily.
+vi.mock('../src/main/claude-usage-probe', () => ({}))
+const { defaultSettings } = await vi.importActual<{ defaultSettings: () => Settings }>('../src/main/settings')
 
 const project = (name: string, engine: Project['engine']): Project => ({ name, path: `C:/games/${name}`, engine, commands: {}, defaultBranch: 'main', mode: 'local-only', forge: 'none', yolo: false, branchPrefix: 'genio/', managed: false, addedAt: '' })
 /** Every section id Settings has used, with the page it opens now. */
@@ -216,5 +224,179 @@ describe('Settings navigation', () => {
     expect(f.calls).not.toContain('checkUpdate')
     await act(async () => [...host.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes('Check for patch'))!.click())
     expect(f.calls).toContain('checkUpdate')
+  })
+})
+
+/** Every place outside Settings that links into it, read from the source so a new link cannot skip this test. */
+const SOURCES = import.meta.glob<string>('../src/renderer/src/**/*.{ts,tsx}', { query: '?raw', import: 'default', eager: true })
+function deepLinks(): { file: string; page: string; anchor?: string }[] {
+  const consts: Record<string, string> = { GENERATION_ANCHOR: 'generation-settings', PLAYER_INSTANCE_ANCHOR: 'player-instance', UNITY_SLOTS_ANCHOR: 'unity-slots' }
+  const arg = (a?: string): string | undefined => a === undefined ? undefined : /^'.*'$/.test(a) ? a.slice(1, -1) : consts[a]
+  const out: { file: string; page: string; anchor?: string }[] = []
+  for (const [file, text] of Object.entries(SOURCES)) {
+    for (const m of text.matchAll(/(?:openSettings|requestSystemsSection)\(('[^']*'|\w+)(?:, ('[^']*'|\w+))?\)/g)) {
+      const page = arg(m[1])
+      // Variables (the palette's index entries, a page id passed through) are covered by the index tests.
+      if (page !== undefined && (m[2] === undefined || arg(m[2]) !== undefined)) out.push({ file: file.split('/').pop()!, page, anchor: arg(m[2]) })
+    }
+  }
+  return out
+}
+
+describe('search index', () => {
+  it('finds every old page name and game term on its new page, saying which name matched', () => {
+    const old: Record<string, string> = {
+      Gauntlet: 'gauntlet', Overwatch: 'overwatch', Harnesses: 'harnesses', Dispatch: 'dispatch', Loadout: 'system', Patch: 'system', Explorer: 'system', Triggers: 'inbox',
+      'Mail & replay': 'inbox', 'Comms & FX': 'general', Profile: 'general', Alerts: 'notifications', 'Auto-loot': 'project-delivery', 'Clean HUD': 'general', Housekeeping: 'maintenance',
+      'Your Play instance': 'play', Genio: 'units', Generation: 'project-assets'
+    }
+    for (const [name, page] of Object.entries(old)) expect(searchSettings(name)[0]?.page, name).toBe(page)
+    expect(searchSettings('gauntlet')[0]).toMatchObject({ label: 'Checks & review', via: 'Gauntlet', scope: 'Advanced' })
+    expect(searchSettings('loadout').map((h) => h.label)).toEqual(expect.arrayContaining(['System', 'Installed tools']))
+    expect(searchSettings('auto-loot')[1]).toMatchObject({ label: 'Merge finished work automatically', anchor: settingAnchor('Merge finished work automatically'), scope: 'This project' })
+  })
+
+  it('searches rows across both scopes with a scope chip, and only the pages a window offers', () => {
+    expect(searchSettings('webhook url')[0]).toMatchObject({ page: 'notifications', anchor: 'setting-webhook-url', path: 'Notifications › Webhook URL', scope: 'All projects' })
+    const usage = searchSettings('usage mode')
+    expect(usage.slice(0, 2).map((h) => [h.page, h.scope])).toEqual([['project', 'This project'], ['usage', 'All projects']])
+    expect(searchSettings('reviewer')[0].scope).toBe('Advanced')
+    const hub = (id: string) => !id.startsWith('project')
+    expect(searchSettings('delivery', hub)).toEqual([])
+    expect(searchSettings('branch', hub)).toEqual([])
+    expect(searchSettings('   ')).toEqual([])
+    expect(searchSettings('no such setting anywhere')).toEqual([])
+  })
+
+  it('keeps every index anchor rendering on its page, so the index cannot drift from the screens', async () => {
+    await mount()
+    const anchors = SETTINGS_INDEX.filter((e) => e.anchor)
+    expect(anchors.length).toBeGreaterThan(60)
+    for (const e of anchors) {
+      await open(e.page, e.anchor)
+      expect(active()?.replace(/\d+$/, ''), e.label).toBe(settingsPage(e.page).label)
+      expect(host.querySelector(`#${e.anchor}`), `${e.page} › ${e.label} (#${e.anchor})`).not.toBeNull()
+    }
+    // Each page is in the index once, under its own name.
+    expect(SETTINGS_PAGES.every((p) => SETTINGS_INDEX.filter((e) => !e.anchor && e.page === p.id).length === 1)).toBe(true)
+  })
+})
+
+describe('deep links', () => {
+  it('opens every link into Settings on an existing page, with its anchor shown and focused', async () => {
+    const links = deepLinks()
+    const files = new Set(links.map((l) => l.file))
+    for (const f of ['PlanMeter.tsx', 'Inventory.tsx', 'Play.tsx', 'UnitySlots.tsx', 'ProjectSettings.tsx', 'Comms.tsx', 'CommandPalette.tsx', 'Systems.tsx']) expect(files, f).toContain(f)
+    await mount()
+    for (const link of links) {
+      vi.mocked(go).mockClear()
+      await act(async () => openSettings(link.page, link.anchor))
+      await settle()
+      if (link.file !== 'Systems.tsx') expect(go, `${link.file} → ${link.page}`).toHaveBeenCalledWith('systems')
+      const page = resolveSettingsPage(link.page, link.anchor).page
+      expect(active()?.replace(/\d+$/, ''), `${link.file} → ${link.page}`).toBe(settingsPage(page).label)
+      if (link.anchor) {
+        const el = host.querySelector(`#${link.anchor}`)
+        expect(el, `${link.file} → #${link.anchor}`).not.toBeNull()
+        expect(document.activeElement, `${link.file} → #${link.anchor} focused`).toBe(el)
+      }
+    }
+    expect(links).toEqual(expect.arrayContaining([
+      { file: 'PlanMeter.tsx', page: 'usage' },
+      { file: 'Comms.tsx', page: 'accounts' },
+      { file: 'ProjectSettings.tsx', page: 'project', anchor: 'settings-engine' },
+      { file: 'Play.tsx', page: 'play', anchor: 'player-instance' },
+      { file: 'Inventory.tsx', page: 'project-assets', anchor: 'generation-settings' }
+    ]))
+  })
+
+  it('asks for the page before switching screens, so Settings mounts on it', async () => {
+    openSettings('patch')
+    expect(go).toHaveBeenLastCalledWith('systems')
+    await mount()
+    expect(active()).toBe('System')
+    expect(host.querySelector('#settings-updates')).not.toBeNull()
+  })
+})
+
+describe('keyboard and memory', () => {
+  const search = () => host.querySelector<HTMLInputElement>('.sys-search input')!
+  async function type(text: string) {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search(), text)
+      search().dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+  const press = (el: Element | Window, key: string, init: KeyboardEventInit = {}) => act(async () => { el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })) })
+  const links = () => [...host.querySelectorAll<HTMLButtonElement>('.sys-link')]
+
+  it('moves through the page list with arrow keys, Home and End, keeping one tab stop', async () => {
+    await mount()
+    expect(links().filter((b) => b.tabIndex === 0).map((b) => b.textContent)).toEqual(['General'])
+    links()[0].focus()
+    await press(document.activeElement!, 'ArrowDown')
+    expect(document.activeElement?.textContent).toBe('Delivery')
+    expect(links().filter((b) => b.tabIndex === 0).map((b) => b.textContent)).toEqual(['Delivery'])
+    await press(document.activeElement!, 'End')
+    expect(document.activeElement?.textContent).toBe('System')
+    await press(document.activeElement!, 'Home')
+    expect(document.activeElement?.textContent).toBe('General')
+    await press(document.activeElement!, 'ArrowUp')
+    expect(document.activeElement).toBe(search())
+    await press(search(), 'ArrowDown')
+    expect(document.activeElement?.textContent).toBe('General')
+    expect(listKey('ArrowDown', 2, 3)).toBe(2)
+    expect(listKey('ArrowUp', 0, 3)).toBe(0)
+    expect(listKey('Tab', 0, 3)).toBeNull()
+  })
+
+  it('searches with Ctrl+F or /, picks a result with the arrows and Enter, and clears with Esc', async () => {
+    await mount()
+    await press(window, 'f', { ctrlKey: true })
+    expect(document.activeElement).toBe(search())
+    await type('gauntlet')
+    expect(host.querySelectorAll('.sys-link')).toHaveLength(0)
+    const first = host.querySelector('.sys-result')!
+    expect(first.textContent).toContain('Checks & review')
+    expect(first.textContent).toContain('Advanced')
+    expect(first.textContent).toContain('“Gauntlet”')
+    await press(search(), 'Enter')
+    await settle()
+    expect(active()).toBe('Checks & review')
+    expect(search().value).toBe('')
+    search().blur()
+    await press(document.body, '/')
+    expect(document.activeElement).toBe(search())
+    await type('webhook')
+    expect([...host.querySelectorAll('.sys-result')].map((r) => r.querySelector('.sys-result-label')?.textContent)).toEqual(['Webhook kind', 'Webhook URL', 'Notifications'])
+    await press(search(), 'ArrowDown')
+    expect(host.querySelector('.sys-result.on .sys-result-label')?.textContent).toBe('Webhook URL')
+    expect(search().getAttribute('aria-activedescendant')).toBe('sys-result-1')
+    await press(search(), 'Enter')
+    await settle()
+    expect(active()).toBe('Notifications')
+    expect(document.activeElement).toBe(host.querySelector('#setting-webhook-url'))
+    await type('zzz')
+    expect(host.textContent).toContain('No settings match “zzz”.')
+    await press(search(), 'Escape')
+    expect(search().value).toBe('')
+    expect(links().length).toBeGreaterThan(0)
+  })
+
+  it('reopens on the last page viewed, but never on a page this window does not offer', async () => {
+    await mount()
+    await open('memory')
+    expect(readLastPage()).toBe('memory')
+    await act(async () => root.unmount())
+    root = createRoot(host)
+    await mount()
+    expect(active()).toBe('Memory')
+    const zebra = project('Zebra', 'unity')
+    expect(startPage({ projects: [], last: 'project-delivery' })).toBe('general')
+    expect(startPage({ projects: [], requested: 'project-assets' })).toBe('general')
+    expect(startPage({ project: zebra, projects: [zebra], last: 'gauntlet' })).toBe('gauntlet')
+    expect(startPage({ project: project('Alpha', 'godot'), projects: [], last: 'project-unity' })).toBe('project')
+    expect(isSettingsShortcut({ key: ',', ctrlKey: true, metaKey: false, altKey: false, shiftKey: false })).toBe(true)
+    expect(isSettingsShortcut({ key: ',', ctrlKey: false, metaKey: false, altKey: false, shiftKey: false })).toBe(false)
   })
 })

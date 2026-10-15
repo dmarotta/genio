@@ -387,6 +387,12 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
   return win
 }
 
+function accountsWindow(): BrowserWindow | undefined {
+  const open = [...windows].filter(([w]) => !w.isDestroyed())
+  const focused = BrowserWindow.getFocusedWindow()
+  return open.find(([w]) => w === focused)?.[0] ?? open.find(([, b]) => b)?.[0] ?? open[0]?.[0]
+}
+
 async function navigateNotification(target: Extract<GenioEvent, { type: 'navigate' }>['target']): Promise<void> {
   if (!ctx) return
   const snapshot = ctx.snapshot()
@@ -400,7 +406,8 @@ async function navigateNotification(target: Extract<GenioEvent, { type: 'navigat
     if (!p) throw new Error(`Project ${owner} is unavailable.`)
     await openProject(p.path)
   }
-  let win = [...windows].find(([, b]) => owner ? b?.project === owner : !b)?.[0]
+  // Accounts are global: open them in the window the player is in, else a project window, else the Hub (which has Settings too).
+  let win = target.view === 'accounts' ? accountsWindow() : [...windows].find(([, b]) => owner ? b?.project === owner : !b)?.[0]
   if (!win && !owner) {
     await openHub()
     win = [...windows].find(([, b]) => !b)?.[0]

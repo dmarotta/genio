@@ -10,7 +10,7 @@ vi.mock('../src/renderer/src/store', () => ({
   PROJECT_WINDOW: 'game', go: nav.go, api: () => (window as unknown as { genio: { api: unknown } }).genio.api,
   errText: (e: unknown) => (e instanceof Error ? e.message : String(e))
 }))
-vi.mock('../src/renderer/src/views/Systems', () => ({ requestSystemsSection: nav.section }))
+vi.mock('../src/renderer/src/lib/settings-nav', () => ({ openSettings: nav.section }))
 import { Play } from '../src/renderer/src/views/Play'
 import { PlayLive } from '../src/renderer/src/views/PlayLive'
 import { getScreenContext } from '../src/renderer/src/lib/screen-context'
@@ -190,7 +190,6 @@ describe('Play screen', () => {
     await click('More Play actions')
     await click('Idle time and editor limit…')
     expect(nav.section).toHaveBeenCalledWith('play', 'player-instance')
-    expect(nav.go).toHaveBeenCalledWith('systems')
   })
 
   it('pauses, steps, resizes without reconnecting, re-plays on a new scene or source, and exits Play', async () => {

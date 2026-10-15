@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react'
 import { leftText, USAGE_MODE_LABEL, type MeterRow, type MeterWindow, type UsagePolicyView } from '@shared/usage-mode'
 import { api, useStore } from '../store'
 import { ago, cx } from '../lib/format'
+import { openSettings } from '../lib/settings-nav'
 
 const REFRESH_MS = 60_000
 
@@ -179,7 +180,7 @@ function GaugeRow({ l }: { l: GaugeLine }) {
   )
 }
 
-/** Rail plan usage: one icon coloured by the worst plan, details in a popup on hover or keyboard focus. Not clickable. */
+/** Rail plan usage: one icon coloured by the worst plan, details in a popup on hover or keyboard focus; a click opens Usage & limits. */
 export function RailMeter() {
   const { view, error } = useUsagePolicyState()
   const [open, setOpen] = useState(false)
@@ -191,13 +192,18 @@ export function RailMeter() {
     <div
       className={cx('rail-gauge', `tone-${tone}`, open && 'open')}
       tabIndex={0}
+      role="button"
       aria-label={`Plan usage, ${GAUGE_TEXT[tone]}: ${summary}`}
       aria-describedby={open ? 'rail-gauge-pop' : undefined}
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
       onFocus={() => setOpen(true)}
       onBlur={() => setOpen(false)}
-      onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false) }}
+      onClick={() => openSettings('usage')}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') setOpen(false)
+        else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSettings('usage') }
+      }}
     >
       <GaugeGlyph percent={worst < 0 ? undefined : worst} />
       {open && (

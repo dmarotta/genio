@@ -3,6 +3,8 @@ import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MeterRow, UsagePolicyView } from '../src/shared/usage-mode'
+const nav = vi.hoisted(() => ({ open: vi.fn() }))
+vi.mock('../src/renderer/src/lib/settings-nav', () => ({ openSettings: nav.open }))
 import { RailMeter, gaugeLine, gaugeTone } from '../src/renderer/src/components/PlanMeter'
 
 const now = new Date().toISOString()
@@ -70,11 +72,17 @@ describe('rail usage gauge', () => {
     host.remove()
   })
 
-  it('is one focusable, non-clickable icon coloured by the worst plan', async () => {
+  it('is one focusable icon coloured by the worst plan that opens Usage & limits', async () => {
     const g = await mount(view([row('claude', 88), row('codex', 20)]))
     expect(host.querySelectorAll('button')).toHaveLength(0)
     expect(g.tagName).toBe('DIV')
+    expect(g.getAttribute('role')).toBe('button')
     expect(g.tabIndex).toBe(0)
+    nav.open.mockClear()
+    await act(async () => g.click())
+    expect(nav.open).toHaveBeenCalledWith('usage')
+    await act(async () => g.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
+    expect(nav.open).toHaveBeenCalledTimes(2)
     expect(g.className).toContain('tone-hot')
     expect(g.getAttribute('aria-label')).toBe('Plan usage, 85% or more used: Claude 88% used, Codex 20% used')
     expect(host.querySelector('[role="tooltip"]')).toBeNull()

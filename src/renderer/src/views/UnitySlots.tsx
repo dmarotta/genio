@@ -3,7 +3,7 @@ import { ownerLabel, PLAYER_INSTANCE_ANCHOR, slotStatus, slotsInUse, UNITY_SLOTS
 import type { Task } from '@shared/types'
 import { api, errText, useStore } from '../store'
 import { Confirm, Field } from '../components/ui'
-import { requestSystemsSection } from '../lib/settings-nav'
+import { openSettings } from '../lib/settings-nav'
 
 const CAPS = [1, 2, 3, 4, 5, 6, 7, 8]
 const gb = (bytes: number): string => bytes < 1024 ** 3 ? `${Math.round(bytes / 1024 ** 2)} MB` : `${(bytes / 1024 ** 3).toFixed(1)} GB`
@@ -100,7 +100,7 @@ export function UnitySlots({ world }: { world: string }) {
     </>}
     <p className="mute unity-play-link">
       Your own Play editor settings apply to all projects.{' '}
-      <button className="link-btn" onClick={() => requestSystemsSection('play', PLAYER_INSTANCE_ANCHOR)}>Unity &amp; Play →</button>
+      <button className="link-btn" onClick={() => openSettings('play', PLAYER_INSTANCE_ANCHOR)}>Unity &amp; Play →</button>
     </p>
     {closing && <Confirm
       title={`Close the Unity editor in slot ${closing.id}?`}

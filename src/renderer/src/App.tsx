@@ -1,5 +1,7 @@
 import { useEffect, type ComponentType } from 'react'
-import { PROJECT_WINDOW, toggleAnswers, registerViews, useStore, type ViewId } from './store'
+import { FolderOpen, Settings as SettingsIcon } from 'lucide-react'
+import { PROJECT_WINDOW, go, setState, toggleAnswers, registerViews, useStore, type ViewId } from './store'
+import { cx } from './lib/format'
 import { Hub } from './views/Hub'
 import { TitleBar } from './components/TitleBar'
 import { FileMenu } from './components/FileMenu'
@@ -43,10 +45,18 @@ export function App() {
     document.body.classList.toggle('fx-off', fx === false)
   }, [fx])
 
+  // The Hub has Settings too (Genio and Advanced pages only): accounts, keys and updates need no open project.
+  const hubSettings = view === 'systems'
   if (!PROJECT_WINDOW) return (
     <div className="app hub-app">
-      <header className="titlebar hub-titlebar"><FileMenu /><span className="wordmark-text">GENIO</span><span className="label dim">Hub</span>{hubChoices > 0 && <button className="btn sm ghost" onClick={toggleAnswers}>Pending answers and history</button>}</header>
-      <div className="app-body"><main className="stage"><Hub /></main></div>
+      <header className="titlebar hub-titlebar">
+        <FileMenu />
+        <button className={cx('btn sm ghost hub-settings-btn', hubSettings && 'on')} aria-pressed={hubSettings} title="Settings (Ctrl+,)" onClick={() => (hubSettings ? setState({ view: 'worlds' }) : go('systems'))}>
+          {hubSettings ? <><FolderOpen size={13} /> Projects</> : <><SettingsIcon size={13} /> Settings</>}
+        </button>
+        <span className="wordmark-text">GENIO</span><span className="label dim">Hub</span>{hubChoices > 0 && <button className="btn sm ghost" onClick={toggleAnswers}>Pending answers and history</button>}
+      </header>
+      <div className="app-body"><main className="stage" key={hubSettings ? 'systems' : 'hub'}>{hubSettings ? <Systems /> : <Hub />}</main></div>
       <Answers />
       <Toasts />
       <BootSplash ready={booted} />

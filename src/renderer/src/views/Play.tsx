@@ -2,11 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ChevronDown, GitBranch, MoreHorizontal, Pause, Play as PlayIcon, Power, RotateCcw, Square, StepForward, X } from 'lucide-react'
 import { PLAYER_INSTANCE_ANCHOR, sameSource, type PlayConsole, type PlayerInstanceStatus, type PlayerScene, type PlayerSourceOption } from '@shared/play'
 import { controls, type PlayButtonAction, type UnityAction } from '@shared/play-controls'
-import { PROJECT_WINDOW, api, errText, go } from '../store'
+import { PROJECT_WINDOW, api, errText } from '../store'
 import { cx } from '../lib/format'
 import { useScreenContext } from '../lib/screen-context'
 import { DEFAULT_RESOLUTION, PROBLEMS, RESOLUTIONS, SOURCE_GROUPS, STATE_LABEL, WORKING, chipText, clock, deletionText, firstCopyText, playedText, progressText, sourceText, statusText, syncSummary } from '../lib/play-screen'
-import { requestSystemsSection } from './Systems'
+import { openSettings } from '../lib/settings-nav'
 import { PlayLive } from './PlayLive'
 import '../styles/play.css'
 
@@ -162,7 +162,7 @@ function PlayScreen({ world }: { world: string }) {
   const step = (): void => void run('step', () => api().playerInstanceStep(world))
   const restart = (visible = false): void => void run(visible ? 'visible' : 'restart', () => api().playerInstanceRestart(world, visible))
   const keep = (): void => void run('keep', () => api().playerInstanceKeepAlive(world))
-  const settings = (): void => { requestSystemsSection('play', PLAYER_INSTANCE_ANCHOR); go('systems') }
+  const settings = (): void => openSettings('play', PLAYER_INSTANCE_ANCHOR)
   // A new source applies on the next ▶; while playing it re-plays at once.
   const chooseSource = (id: string): void => {
     if (id === REFRESH) { void loadSources(); return }
