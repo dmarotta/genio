@@ -257,72 +257,76 @@ function ChatLog({ wksp, surface, messages: all, calm, busy, gamertag, activityD
   useLayoutEffect(pin, [all, busy, pin])
 
   const markIntent = (): void => { intent.current.at = performance.now(); jumping.current = false }
+  // The jump control overlays the viewport as the scroller's sibling, so it never takes part in
+  // (or scrolls with) the log's flow, whatever late layout or streaming does to the content.
   return (
-    <div
-      className="chat-log"
-      ref={ref}
-      onWheel={markIntent}
-      onTouchMove={markIntent}
-      onPointerDown={() => { intent.current.dragging = true; jumping.current = false }}
-      onScroll={(e) => {
-        const el = e.currentTarget
-        if (el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM) { if (!follow.current) setFollow(true) }
-        else if (intent.current.dragging || performance.now() - intent.current.at < 600) { if (follow.current) setFollow(false) }
-        else pin()
-      }}
-    >
-      <div className="chat-log-body" ref={body}>
-        {all.length === 0 && wksp !== MAIN_PANEL && (
-          <div className="chat-empty rise">
-            <GenioCore size={80} state={busy ? 'active' : 'idle'} />
-            <h2 className="title" style={{ fontSize: 24 }}>
-              {ASSISTANT_NAME}
-            </h2>
-            <p className="dim">Tell Genio what to build in this project. Your conversation and controls stay with this window.</p>
-          </div>
-        )}
-        {all.length === 0 && wksp === MAIN_PANEL && (
-          <div className="chat-empty rise">
-            <GenioCore size={110} state={busy ? 'active' : 'idle'} />
-            <h2 className="title" style={{ fontSize: 30 }}>
-              Ready, <span className="accent">{gamertag}</span>
-            </h2>
-            <p className="dim">Tell Genio what to build. It deploys units, watches them, and only pings you for real choices.</p>
-            <div className="quick-chips">
-              <button className="btn" onClick={() => void op('Recap', () => api().recap())}>
-                Recap
-              </button>
-              <button className="btn" onClick={() => go('status')}>
-                Character Sheet
-              </button>
-              <button className="btn solid" onClick={() => openDeploy()}>
-                <Rocket size={14} /> Deploy
-              </button>
+    <div className="chat-viewport">
+      <div
+        className="chat-log"
+        ref={ref}
+        onWheel={markIntent}
+        onTouchMove={markIntent}
+        onPointerDown={() => { intent.current.dragging = true; jumping.current = false }}
+        onScroll={(e) => {
+          const el = e.currentTarget
+          if (el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM) { if (!follow.current) setFollow(true) }
+          else if (intent.current.dragging || performance.now() - intent.current.at < 600) { if (follow.current) setFollow(false) }
+          else pin()
+        }}
+      >
+        <div className="chat-log-body" ref={body}>
+          {all.length === 0 && wksp !== MAIN_PANEL && (
+            <div className="chat-empty rise">
+              <GenioCore size={80} state={busy ? 'active' : 'idle'} />
+              <h2 className="title" style={{ fontSize: 24 }}>
+                {ASSISTANT_NAME}
+              </h2>
+              <p className="dim">Tell Genio what to build in this project. Your conversation and controls stay with this window.</p>
             </div>
-          </div>
-        )}
-        {messages.map((m) => (
-          <Message key={m.id} m={m} calm={calm} gamertag={gamertag} onTakeBack={onTakeBack} />
-        ))}
-        {busy && (
-          <div className="msg genio working rise">
-            <div className="msg-avatar">
-              <GenioCore size={34} state="active" />
+          )}
+          {all.length === 0 && wksp === MAIN_PANEL && (
+            <div className="chat-empty rise">
+              <GenioCore size={110} state={busy ? 'active' : 'idle'} />
+              <h2 className="title" style={{ fontSize: 30 }}>
+                Ready, <span className="accent">{gamertag}</span>
+              </h2>
+              <p className="dim">Tell Genio what to build. It deploys units, watches them, and only pings you for real choices.</p>
+              <div className="quick-chips">
+                <button className="btn" onClick={() => void op('Recap', () => api().recap())}>
+                  Recap
+                </button>
+                <button className="btn" onClick={() => go('status')}>
+                  Character Sheet
+                </button>
+                <button className="btn solid" onClick={() => openDeploy()}>
+                  <Rocket size={14} /> Deploy
+                </button>
+              </div>
             </div>
-            <div className="working-line">
-              <span className="working-text">{activityDetail ? trunc(activityDetail, 60) : `${ASSISTANT_NAME} is on it`}</span>
-              <span className="working-dots">
-                <i />
-                <i />
-                <i />
-              </span>
+          )}
+          {messages.map((m) => (
+            <Message key={m.id} m={m} calm={calm} gamertag={gamertag} onTakeBack={onTakeBack} />
+          ))}
+          {busy && (
+            <div className="msg genio working rise">
+              <div className="msg-avatar">
+                <GenioCore size={34} state="active" />
+              </div>
+              <div className="working-line">
+                <span className="working-text">{activityDetail ? trunc(activityDetail, 60) : `${ASSISTANT_NAME} is on it`}</span>
+                <span className="working-dots">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+              </div>
             </div>
-          </div>
-        )}
-        {lastError && !busy && <div className="msg-error mono">{lastError} <button className="btn sm" onClick={() => void op('Restart', () => api().restartWksp(wksp, false))}>Restart session</button></div>}
-        {queued.map((m) => (
-          <Message key={m.id} m={m} calm={calm} gamertag={gamertag} onTakeBack={onTakeBack} />
-        ))}
+          )}
+          {lastError && !busy && <div className="msg-error mono">{lastError} <button className="btn sm" onClick={() => void op('Restart', () => api().restartWksp(wksp, false))}>Restart session</button></div>}
+          {queued.map((m) => (
+            <Message key={m.id} m={m} calm={calm} gamertag={gamertag} onTakeBack={onTakeBack} />
+          ))}
+        </div>
       </div>
       {!following && (
         <div className="chat-jump-dock">

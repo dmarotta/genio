@@ -18,7 +18,7 @@ const messages = Array.from({ length: 320 }, (_, i) => ({ id: 'm-' + i, wksp: 'g
 setState({ booted: true, connected: true, chats: { genio: messages }, chatLoaded: { genio: true },
   settings: { gamertag: 'Test', calm: false, fx: false },
   snap: { ...getState().snap, wksps: [{ name: 'genio', displayName: 'Genio', activity: 'idle', costUsd: 0, turns: 0, queued: 0 }] } })
-window.fixture = { setState, handleEvent }
+window.fixture = { getState, setState, handleEvent }
 function Fixture() {
   const view = useStore(s => s.view)
   return React.createElement('div', { className: 'stage-shell', style: { width: '100vw', height: '100vh' } },
@@ -28,6 +28,8 @@ createRoot(document.getElementById('root')).render(React.createElement(Fixture))
 </script></body></html>`
 
 const resultFile = process.argv[2]
+// The Chromium driver to run against the fixture: the scroll test by default, or a layout check.
+const driver = path.resolve(process.argv[3] ?? 'tests/support/chat-scroll-electron.cjs')
 const root = path.dirname(resultFile)
 const server = await createServer({
   configFile: false, root: process.cwd(),
@@ -53,9 +55,9 @@ try {
   for (const key of Object.keys(env)) if (key.startsWith('GIT_CONFIG_')) delete env[key]
   assertChildHomes(env)
   const require = createRequire(import.meta.url)
-  child = spawn(require('electron'), [path.resolve('tests/support/chat-scroll-electron.cjs'), '--user-data-dir=' + path.join(root, 'profile')], { env, windowsHide: true, stdio: 'inherit' })
+  child = spawn(require('electron'), [driver, '--user-data-dir=' + path.join(root, 'profile')], { env, windowsHide: true, stdio: 'inherit' })
   process.exitCode = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { child.kill(); reject(new Error('Chromium scroll test timed out')) }, 45000)
+    const timer = setTimeout(() => { child.kill(); reject(new Error('Chromium scroll test timed out')) }, Number(process.env.CHAT_BROWSER_TIMEOUT) || 45000)
     child.once('error', error => { clearTimeout(timer); reject(error) })
     child.once('exit', code => { clearTimeout(timer); resolve(code ?? 1) })
   })

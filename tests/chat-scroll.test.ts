@@ -125,6 +125,26 @@ it.each(['screen', 'panel'] as const)('jumps to the latest in the %s host despit
   await unmount()
 })
 
+it.each(['screen', 'panel'] as const)('overlays the %s jump on the chat viewport as the scroller\'s sibling, not in its flow', async (surface) => {
+  const style = document.createElement('style')
+  // Read from disk: vitest blanks CSS imports (even ?raw), and this project has no Node types.
+  const { readFileSync } = await import('node:fs' as string) as { readFileSync(file: string, encoding: 'utf8'): string }
+  style.textContent = readFileSync('src/renderer/src/styles/app.css', 'utf8')
+  document.head.append(style)
+  try {
+    await mount(surface)
+    await wheelTo(20 * MSG)
+    const button = jump()!, dock = button.parentElement!, viewport = log().parentElement!
+    expect(log().contains(button)).toBe(false)
+    expect(viewport.classList.contains('chat-viewport')).toBe(true)
+    expect(dock.parentElement).toBe(viewport)
+    expect(getComputedStyle(viewport).position).toBe('relative')
+    expect(getComputedStyle(dock).position).toBe('absolute')
+    expect(getComputedStyle(dock).pointerEvents).toBe('none')
+    expect(getComputedStyle(button).pointerEvents).toBe('auto')
+  } finally { style.remove() }
+})
+
 it.each(['screen', 'panel'] as const)('lets the %s jump animate, then catches the bottom after streaming and repeated layout changes', async (surface) => {
   await mount(surface)
   await wheelTo(20 * MSG)
