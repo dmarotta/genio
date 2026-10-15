@@ -20,7 +20,8 @@ const model: ModelLoaded = {
   stats: { triangles: 348, vertices: 219, meshes: 1, materials: 1, textures: 1, bones: 3, size: [0.6, 2, 0.6] },
   clips: [{ name: 'Bend', duration: 1.71 }, { name: 'Wave', duration: 1.71 }],
   textures: [{ id: 0, name: 'robot_checker.png', uses: ['Robot · base colour'], width: 2048, height: 2048, original: { width: 4096, height: 4096 }, compressed: false }],
-  missing: [], clayFallback: 0, animationOnly: false, loadMs: 24
+  missing: [], clayFallback: 0, animationOnly: false, loadMs: 24,
+  format: 'GLB', units: 'Metres', upAxis: 'y', unityClips: false
 }
 const TOKEN_URL = `genio-media://model/${'a'.repeat(32)}/robot.glb`
 let root: Root, host: HTMLDivElement
@@ -124,6 +125,30 @@ describe('Inventory 3D preview (app side of the sandboxed frame)', () => {
     expect(text()).toContain('Too large to preview: 76.2 MB (limit 64.0 MB)')
     expect(button('Open in default app')).toBeTruthy()
     expect(button('Reveal')).toBeTruthy()
+  })
+
+  it('shows the format, the file\'s units and axis, Unity clip names and why each texture is missing', async () => {
+    await render(asset('robot.fbx'))
+    await fromFrame({ type: 'ready' })
+    await fromFrame({ type: 'loaded', model: { ...model, format: 'FBX binary', units: 'Centimetres, shown in metres; Z-up in the file, turned upright', unityClips: true, missing: ['wood.psd', 'bark.png'], clayFallback: 2 } })
+    for (const s of ['FormatFBX binary', 'UnitsCentimetres, shown in metres; Z-up in the file, turned upright', 'Clip names and frame ranges come from the model\'s Unity .meta.', '2 materials shown in clay']) expect(text()).toContain(s)
+    await act(async () => button('Z-up').click())
+    expect(text()).toContain('turned upright; turned from Z-up')
+    await act(async () => [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')][1].click())
+    expect(text()).toContain('wood.psdGenio\'s viewer cannot decode .psd images')
+    expect(text()).toContain('bark.pngNot found beside or below the model')
+  })
+
+  it('takes the up axis the viewer chose for a file (3DS is Z-up by convention)', async () => {
+    await render(asset('crate.3ds'))
+    await fromFrame({ type: 'ready' })
+    const posted = vi.spyOn(frame()!.contentWindow!, 'postMessage')
+    await fromFrame({ type: 'loaded', model: { ...model, format: '3DS', units: 'No unit in the file, read as metres; Z-up by convention, turned upright', upAxis: 'z', clips: [] } })
+    expect(button('Z-up').getAttribute('aria-pressed')).toBe('true')
+    expect(text()).not.toContain('turned from Z-up')
+    await act(async () => button('Z-up').click())
+    expect(posted.mock.calls.at(-1)?.[0]).toMatchObject({ type: 'settings', settings: { upAxis: 'y' } })
+    expect(text()).toContain('turned upright; shown as stored')
   })
 
   it('reports a grant failure in plain words', async () => {

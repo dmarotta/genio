@@ -2,8 +2,8 @@
  * Inventory's sandboxed 3D viewer: genio-viewer://app serves the viewer frame (its page, chunks and
  * decoders) and genio-media://model/<token>/ serves one granted model with its side files. The frame's
  * CSP admits only those two hosts, so it reaches neither IPC nor genio-media://world nor the network;
- * a token covers one model's folder (and below), the model itself plus glTF side-file types, each under
- * the size cap, behind the same path guard as every other Inventory file.
+ * a token covers one model's folder (and below): the model itself, its Unity .meta and side-file types,
+ * each under the size cap, behind the same path guard as every other Inventory file.
  */
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
@@ -12,14 +12,23 @@ import { randomBytes } from 'node:crypto'
 import { Readable } from 'node:stream'
 import { MODEL_PREVIEW_EXTS, MODEL_PREVIEW_MAX_BYTES, MODEL_SIDE_FILE_EXTS, VIEWER_DECODERS, VIEWER_SCHEME } from '@shared/model-viewer'
 import { guardedWorldFile } from './inventory'
+import { ignoredAssetPath } from './inventory-query'
 import { MEDIA_SCHEME } from './fal-service'
 
 const TYPES: Record<string, string> = {
   html: 'text/html; charset=utf-8', js: 'text/javascript', css: 'text/css', wasm: 'application/wasm',
   glb: 'model/gltf-binary', gltf: 'model/gltf+json', bin: 'application/octet-stream',
-  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', avif: 'image/avif', ktx2: 'image/ktx2'
+  fbx: 'application/octet-stream', obj: 'model/obj', mtl: 'model/mtl', stl: 'model/stl', ply: 'application/octet-stream',
+  dae: 'model/vnd.collada+xml', bvh: 'text/plain; charset=utf-8', usda: 'model/vnd.usda', usd: 'application/octet-stream', '3ds': 'application/x-3ds',
+  meta: 'text/plain; charset=utf-8',
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', avif: 'image/avif', ktx2: 'image/ktx2',
+  tga: 'image/x-tga', bmp: 'image/bmp', gif: 'image/gif'
 }
+const TEXTURE_EXTS = new Set(['png', 'jpg', 'jpeg', 'webp', 'avif', 'ktx2', 'tga', 'bmp', 'gif'])
 const MAX_GRANTS = 16
+/** The same-name texture search below a model's folder stops after this many entries or levels. */
+const FIND_ENTRIES = 5000
+const FIND_DEPTH = 4
 const MODELS = `${MEDIA_SCHEME}://model`
 
 /**
@@ -39,7 +48,30 @@ export function viewerCsp(dev: boolean): string {
   ].join('; ')
 }
 
-interface Grant { root: string; dir: string; name: string }
+interface Grant { root: string; dir: string; name: string; textures?: Promise<Map<string, string>> }
+
+/**
+ * Texture files below a model's folder by lower-case name, nearest first. FBX, OBJ and Collada files
+ * often store the artist's own disk path, which the frame reduces to the file name; Unity keeps such
+ * textures in a Textures folder beside the model.
+ */
+async function texturesBelow(root: string, dir: string): Promise<Map<string, string>> {
+  const found = new Map<string, string>()
+  const queue = [dir]
+  let seen = 0
+  for (let i = 0; i < queue.length && seen < FIND_ENTRIES; i++) {
+    const rel = queue[i]
+    let entries: fs.Dirent[]
+    try { entries = await fsp.readdir(path.join(root, rel), { withFileTypes: true }) } catch { continue }
+    for (const e of entries) {
+      if (++seen > FIND_ENTRIES) break
+      const child = rel ? `${rel}/${e.name}` : e.name
+      if (e.isFile() && TEXTURE_EXTS.has(path.posix.extname(e.name).slice(1).toLowerCase()) && !found.has(e.name.toLowerCase())) found.set(e.name.toLowerCase(), child)
+      else if (e.isDirectory() && !ignoredAssetPath(child) && child.split('/').length - (dir ? dir.split('/').length : 0) <= FIND_DEPTH) queue.push(child)
+    }
+  }
+  return found
+}
 export interface ModelViewerFilesOptions {
   /** A project's folder by its Inventory world name. */
   projectRoot(world: string): string | undefined
@@ -51,6 +83,8 @@ export interface ModelViewerFilesOptions {
   devUrl?: string
   fetch?: (url: string) => Promise<Response>
   maxBytes?: number
+  /** Live grants; older ones expire as new ones are made. */
+  maxGrants?: number
 }
 
 export type ModelViewerFiles = ReturnType<typeof modelViewerFiles>
@@ -105,8 +139,14 @@ export function modelViewerFiles(opts: ModelViewerFilesOptions) {
     try { rel = parts.map(decodeURIComponent).join('/') } catch { return fail(400, 'bad path') }
     const e = ext(rel)
     if (!rel || rel.includes('\\') || rel.split('/').some(s => !s || s === '.' || s === '..')) return fail(400, 'bad path')
-    if (rel !== grant.name && !(MODEL_SIDE_FILE_EXTS as readonly string[]).includes(e)) return fail(403, 'not a model side file')
-    const p = await guardedWorldFile(grant.root, grant.dir ? `${grant.dir}/${rel}` : rel)
+    if (rel !== grant.name && rel !== `${grant.name}.meta` && !(MODEL_SIDE_FILE_EXTS as readonly string[]).includes(e)) return fail(403, 'not a model side file')
+    const inFolder = (r: string): string => grant.dir ? `${grant.dir}/${r}` : r
+    let p = await guardedWorldFile(grant.root, inFolder(rel))
+    if (!p && TEXTURE_EXTS.has(e)) {
+      grant.textures ??= texturesBelow(grant.root, grant.dir)
+      const near = (await grant.textures).get(path.posix.basename(rel).toLowerCase())
+      if (near) p = await guardedWorldFile(grant.root, near)
+    }
     if (!p) return fail(404, 'not found')
     const size = (await fsp.stat(p)).size
     if (size > maxBytes) return fail(413, `${path.posix.basename(rel)} is ${size} bytes; the preview limit is ${maxBytes}`)
@@ -120,13 +160,13 @@ export function modelViewerFiles(opts: ModelViewerFilesOptions) {
     async grant(world: string, asset: string): Promise<string> {
       const root = opts.projectRoot(world)
       if (!root) throw new Error(`Project ${world} is not loaded.`)
-      if (!(MODEL_PREVIEW_EXTS as readonly string[]).includes(ext(asset))) throw new Error('Only glTF and GLB files can be previewed.')
+      if (!(MODEL_PREVIEW_EXTS as readonly string[]).includes(ext(asset))) throw new Error(`Genio's 3D viewer cannot read .${ext(asset)} files.`)
       if (!await guardedWorldFile(root, asset)) throw new Error('This asset is no longer available.')
       const token = randomBytes(16).toString('hex')
       const dir = path.posix.dirname(asset)
       const name = path.posix.basename(asset)
       grants.set(token, { root, dir: dir === '.' ? '' : dir, name })
-      while (grants.size > MAX_GRANTS) grants.delete(grants.keys().next().value!)
+      while (grants.size > (opts.maxGrants ?? MAX_GRANTS)) grants.delete(grants.keys().next().value!)
       return `${MODELS}/${token}/${encodeURIComponent(name)}`
     },
     /** genio-viewer://app/... and genio-media://model/<token>/...; anything else is not found. */

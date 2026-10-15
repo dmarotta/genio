@@ -12,9 +12,13 @@ export const MODEL_PREVIEW_MAX_BYTES = 64 * 1024 * 1024
 export const MODEL_PREVIEW_TIMEOUT_MS = 30_000
 /** Larger textures are downscaled before upload, so 4K maps cannot exhaust GPU memory. */
 export const MODEL_PREVIEW_MAX_TEXTURE = 2048
-export const MODEL_PREVIEW_EXTS = ['glb', 'gltf'] as const
-/** Side files a glTF may reference, beside or below it; nothing else is ever served to the frame. */
-export const MODEL_SIDE_FILE_EXTS = ['bin', 'png', 'jpg', 'jpeg', 'webp', 'avif', 'ktx2'] as const
+/** What three r186 reads. USDZ and USDC (binary USD) fail in its USD reader, and .blend needs Blender. */
+export const MODEL_PREVIEW_EXTS = ['glb', 'gltf', 'fbx', 'obj', 'stl', 'ply', 'dae', 'bvh', 'usda', 'usd', '3ds'] as const
+/**
+ * Side files a model may reference, beside or below it (glTF buffers, OBJ materials, textures); nothing
+ * else is ever served to the frame, except the model's own Unity .meta (its clip names).
+ */
+export const MODEL_SIDE_FILE_EXTS = ['bin', 'mtl', 'png', 'jpg', 'jpeg', 'webp', 'avif', 'ktx2', 'tga', 'bmp', 'gif'] as const
 /**
  * Built viewers use the Draco/KTX2 decoders Vite emits from three's own files (out/renderer/assets).
  * Against the dev server, whose prebundled deps lose those relative URLs, main serves these from
@@ -35,7 +39,7 @@ export interface ViewerSettings {
   skeleton: boolean
   clay: boolean
   background: ViewerBackground
-  /** Z-up files are turned to the viewer's Y-up. glTF is Y-up by specification. */
+  /** Turns a Z-up model upright. glTF is Y-up by specification; FBX, Collada and USD say their axis and are turned on load. */
   upAxis: 'y' | 'z'
 }
 export const DEFAULT_VIEWER_SETTINGS: ViewerSettings = { wireframe: false, grid: true, bounds: false, skeleton: false, clay: false, background: 'dark', upAxis: 'y' }
@@ -47,7 +51,7 @@ export interface ModelStats {
   materials: number
   textures: number
   bones: number
-  /** Bounds in metres (glTF units), after the up-axis turn: width (X), height (Y), depth (Z). */
+  /** Bounds in metres (file units converted where the file states them), after the up-axis turn: width (X), height (Y), depth (Z). */
   size: [number, number, number]
 }
 export interface ModelClip { name: string; duration: number }
@@ -73,6 +77,14 @@ export interface ModelLoaded {
   /** No meshes: the skeleton is drawn instead. */
   animationOnly: boolean
   loadMs: number
+  /** "FBX binary", "OBJ", "glTF"... */
+  format: string
+  /** The file's units and axis in words: "Centimetres, shown in metres; Z-up turned upright". */
+  units: string
+  /** The up-axis setting the viewer chose for this file (3DS is Z-up by convention). */
+  upAxis: 'y' | 'z'
+  /** Clip names and ranges come from the model's Unity .meta. */
+  unityClips: boolean
 }
 export type ModelFailure = 'too-large' | 'timeout' | 'unreadable' | 'no-webgl'
 export interface ModelPlayback { clip: number; playing: boolean; time: number; speed: number; loop: boolean; follow: boolean }
@@ -120,12 +132,14 @@ export function readViewerMessage(data: unknown): FromViewer | undefined {
       if (!Array.isArray(model.clips) || model.clips.length > 512 || !model.clips.every(c => c && isStr(c.name) && isNum(c.duration))) return
       if (!Array.isArray(model.textures) || model.textures.length > 512 || !model.textures.every(t => t && isNum(t.id) && isStr(t.name) && strings(t.uses, 64) && isNum(t.width) && isNum(t.height) && typeof t.compressed === 'boolean' && (t.original === undefined || isNum(t.original?.width) && isNum(t.original?.height)))) return
       if (!strings(model.missing, 512) || !isNum(model.clayFallback) || typeof model.animationOnly !== 'boolean' || !isNum(model.loadMs)) return
+      if (!isStr(model.format, 40) || !isStr(model.units, 200) || !['y', 'z'].includes(model.upAxis as string) || typeof model.unityClips !== 'boolean') return
       const stats = s as unknown as ModelStats
       return { type: 'loaded', model: {
         stats: { triangles: stats.triangles, vertices: stats.vertices, meshes: stats.meshes, materials: stats.materials, textures: stats.textures, bones: stats.bones, size: [stats.size[0], stats.size[1], stats.size[2]] },
         clips: (model.clips as ModelClip[]).map(c => ({ name: c.name, duration: c.duration })),
         textures: (model.textures as ModelTexture[]).map(t => ({ id: t.id, name: t.name, uses: [...t.uses], width: t.width, height: t.height, compressed: t.compressed, ...(t.original ? { original: { width: t.original.width, height: t.original.height } } : {}) })),
-        missing: [...model.missing as string[]], clayFallback: model.clayFallback, animationOnly: model.animationOnly, loadMs: model.loadMs
+        missing: [...model.missing as string[]], clayFallback: model.clayFallback, animationOnly: model.animationOnly, loadMs: model.loadMs,
+        format: model.format, units: model.units, upAxis: model.upAxis as 'y' | 'z', unityClips: model.unityClips
       } }
     }
   }

@@ -1,27 +1,28 @@
 /**
  * Inventory's 3D viewer core (runs only inside the sandboxed viewer frame): one WebGL context per
- * frame, glTF/GLB with Draco, meshopt and KTX2, orbit/pan/zoom, framing, view toggles, clips and a
- * full dispose of everything a load created.
+ * frame, every format in formats.ts (glTF/GLB with Draco, meshopt and KTX2; FBX, OBJ, STL, PLY,
+ * Collada, BVH, USDA, 3DS), orbit/pan/zoom, framing, view toggles, clips and a full dispose of
+ * everything a load created.
  */
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
-import { DEFAULT_VIEWER_SETTINGS, MODEL_PREVIEW_MAX_BYTES, MODEL_PREVIEW_MAX_TEXTURE, formatLength, type ModelFailure, type ModelLoaded, type ModelPlayback, type ModelTexture, type ViewerSettings } from '@shared/model-viewer'
+import { DEFAULT_VIEWER_SETTINGS, MODEL_PREVIEW_MAX_BYTES, MODEL_PREVIEW_MAX_TEXTURE, formatLength, type ModelLoaded, type ModelPlayback, type ModelTexture, type ViewerSettings } from '@shared/model-viewer'
 import { collectResources, disposeResources, materialTextures, type Disposable } from './resources'
+import { FORMAT_NAMES, ViewerError, loadFormat, sideFileUrl, type Parsed } from './formats'
+import { TextureDecoder, flippedBitmaps, hasImage, prepareTextures } from './textures'
 
-export class ViewerError extends Error {
-  constructor(readonly code: ModelFailure | 'cancelled', message: string) { super(message) }
-}
+export { ViewerError }
 
 const SLOTS: Record<string, string> = {
   map: 'base colour', normalMap: 'normal', roughnessMap: 'roughness', metalnessMap: 'metalness', aoMap: 'occlusion', emissiveMap: 'emission',
   alphaMap: 'alpha', bumpMap: 'bump', displacementMap: 'displacement', lightMap: 'light map', clearcoatMap: 'clearcoat',
   clearcoatNormalMap: 'clearcoat normal', clearcoatRoughnessMap: 'clearcoat roughness', sheenColorMap: 'sheen colour', sheenRoughnessMap: 'sheen roughness',
-  transmissionMap: 'transmission', thicknessMap: 'thickness', specularColorMap: 'specular colour', specularIntensityMap: 'specular',
+  transmissionMap: 'transmission', thicknessMap: 'thickness', specularColorMap: 'specular colour', specularIntensityMap: 'specular', specularMap: 'specular',
   iridescenceMap: 'iridescence', iridescenceThicknessMap: 'iridescence thickness', anisotropyMap: 'anisotropy'
 }
 const CLAY = 0x9ea3aa
@@ -80,7 +81,8 @@ const fileName = (url: string): string => {
 }
 
 /** Why a load failed, in the player's words. `failed` maps each URL the loader could not fetch to its file name. */
-async function loadError(e: unknown, failed: Map<string, string>, url: string, model: string): Promise<ViewerError> {
+async function loadError(e: unknown, failed: Map<string, string>, url: string, model: string, format: string): Promise<ViewerError> {
+  if (e instanceof ViewerError) return e
   const status = (e as { response?: { status?: number } } | undefined)?.response?.status
   const sides = [...failed].filter(([u]) => u !== url && !u.startsWith('blob:') && !u.startsWith('data:'))
   // GLTFLoader reports a failed .bin or image without its HTTP status, so ask the server (main answers HEAD).
@@ -89,8 +91,20 @@ async function loadError(e: unknown, failed: Map<string, string>, url: string, m
   if (big) return new ViewerError('too-large', `${big} is larger than the ${MODEL_PREVIEW_MAX_BYTES / 1024 / 1024} MB preview limit.`)
   if (sides.length) return new ViewerError('unreadable', `A file this model needs did not load: ${sides.slice(0, 3).map(([, n]) => n).join(', ')}. It must sit beside the model or in a folder below it.`)
   if (status) return new ViewerError('unreadable', 'The model file could not be read.')
-  const message = (e instanceof Error ? e.message : String(e)).replace(/^THREE\.GLTFLoader: /, '')
-  return new ViewerError('unreadable', `The file could not be read as glTF: ${message}`)
+  const message = (e instanceof Error ? e.message : String(e)).replace(/^(?:THREE\.)?\w+Loader: /, '')
+  return new ViewerError('unreadable', `The file could not be read as ${format}: ${message}`)
+}
+
+/** Resolves once every request the manager started has ended (loaders fetch textures after parsing). */
+function settled(manager: THREE.LoadingManager): () => Promise<void> {
+  let active = 0, wake: (() => void) | undefined
+  const start = manager.itemStart.bind(manager), end = manager.itemEnd.bind(manager)
+  manager.itemStart = (u: string) => { active++; start(u) }
+  manager.itemEnd = (u: string) => { active--; end(u); if (active <= 0) wake?.() }
+  return () => new Promise<void>(resolve => {
+    wake = () => setTimeout(() => { if (active <= 0) resolve() })
+    if (active <= 0) wake()
+  })
 }
 
 /** Lines between each joint and its parent joint, plus joint dots, drawn over the model. */
@@ -150,7 +164,7 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
   let settings: ViewerSettings = { ...DEFAULT_VIEWER_SETTINGS }
   let model: Loaded | undefined
   let generation = 0
-  let draco: DRACOLoader | undefined, ktx2: KTX2Loader | undefined
+  let draco: DRACOLoader | undefined, ktx2: KTX2Loader | undefined, decoder: TextureDecoder | undefined
   let dirty = true, raf = 0, last = performance.now(), lastReport = 0, width = 0, height = 0
   const labelEls = opts.labels ? (['width', 'height', 'depth'] as const).map(axis => {
     const el = document.createElement('span'); el.dataset.axis = axis; el.hidden = true; opts.labels!.append(el); return el
@@ -304,22 +318,37 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
     placeLabels()
   }
 
-  /** Downscale oversized images once per source before their first upload. */
-  async function downscale(textures: THREE.Texture[]): Promise<Map<THREE.Texture['source'], { width: number; height: number }>> {
-    const done = new Map<THREE.Texture['source'], { width: number; height: number }>()
-    for (const t of textures) {
-      if ((t as THREE.CompressedTexture).isCompressedTexture || (t as THREE.DataTexture).isDataTexture || done.has(t.source)) continue
-      const image = t.image as ImageBitmap | HTMLImageElement | HTMLCanvasElement | undefined
-      const w = image?.width ?? 0, h = image?.height ?? 0
-      if (!image || !w || !h || Math.max(w, h) <= maxTexture) continue
-      const k = maxTexture / Math.max(w, h)
-      const resized = await createImageBitmap(image, { resizeWidth: Math.max(1, Math.round(w * k)), resizeHeight: Math.max(1, Math.round(h * k)), resizeQuality: 'high', premultiplyAlpha: 'none', colorSpaceConversion: 'none' })
-      if (image instanceof ImageBitmap) image.close()
-      t.image = resized
-      t.needsUpdate = true
-      done.set(t.source, { width: w, height: h })
+  /**
+   * Clay fallback: a material whose texture did not load drops that slot (an empty texture samples
+   * black), and one that lost its base colour shows clay instead of a flat white. Returns how many did.
+   */
+  function fallBack(parsed: Parsed, materials: Set<THREE.Material>): number {
+    let count = 0
+    if (parsed.gltf) {
+      // GLTFLoader leaves a failed map unassigned, so the file's own record says which had one.
+      const json = parsed.gltf.parser.json as { materials?: { pbrMetallicRoughness?: { baseColorTexture?: unknown } }[] }
+      for (const m of materials) {
+        const index = (parsed.gltf.parser.associations.get(m) as { materials?: number } | undefined)?.materials
+        const standard = m as THREE.MeshStandardMaterial
+        if (index !== undefined && json.materials?.[index]?.pbrMetallicRoughness?.baseColorTexture && !standard.map && standard.color) {
+          standard.color.set(CLAY); standard.roughness = 0.85; standard.metalness = 0; count++
+        }
+      }
+      return count
     }
-    return done
+    for (const m of materials) {
+      const slots = m as unknown as Record<string, THREE.Texture | null>
+      let lostBase = false
+      for (const [slot, value] of Object.entries(slots)) {
+        if (!value?.isTexture || hasImage(value)) continue
+        slots[slot] = null
+        m.needsUpdate = true
+        if (slot === 'map') lostBase = true
+      }
+      const coloured = m as THREE.MeshPhongMaterial
+      if (lostBase && coloured.color) { coloured.color.set(CLAY); count++ }
+    }
+    return count
   }
 
   function clear(): void {
@@ -337,14 +366,7 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
     dirty = true
   }
 
-  async function open(url: string): Promise<ModelLoaded> {
-    clear()
-    const gen = generation
-    const started = performance.now()
-    const name = fileName(url)
-    const manager = new THREE.LoadingManager()
-    const failed = new Map<string, string>()
-    manager.onError = u => { failed.set(u, fileName(u)) }
+  function gltfLoader(manager: THREE.LoadingManager): GLTFLoader {
     if (!draco) {
       draco = new DRACOLoader()
       if (opts.decoderPath) draco.setDecoderPath(opts.decoderPath)
@@ -353,23 +375,57 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
       ktx2 = new KTX2Loader().detectSupport(renderer)
       if (opts.decoderPath) ktx2.setTranscoderPath(opts.decoderPath)
     }
-    const loader = new GLTFLoader(manager).setDRACOLoader(draco).setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder)
-    let gltf: GLTF
-    try { gltf = await loader.loadAsync(url) } catch (e) { throw gen === generation ? await loadError(e, failed, url, name) : new ViewerError('cancelled', 'Superseded') }
+    return new GLTFLoader(manager).setDRACOLoader(draco).setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder)
+  }
+
+  async function open(url: string): Promise<ModelLoaded> {
+    clear()
+    const gen = generation
+    const started = performance.now()
+    const name = fileName(url)
+    const ext = name.slice(name.lastIndexOf('.') + 1).toLowerCase()
+    const format = FORMAT_NAMES[ext] ?? ext.toUpperCase()
+    const folder = url.slice(0, url.lastIndexOf('/') + 1)
+    const manager = new THREE.LoadingManager()
+    const failed = new Map<string, string>()
+    manager.onError = u => { failed.set(u, fileName(u)) }
+    manager.setURLModifier(u => sideFileUrl(u, folder))
+    const idle = settled(manager)
+    const textures = decoder ??= new TextureDecoder(maxTexture)
+    const made = new Set<THREE.Texture>()
+    let parsed: Parsed
+    try {
+      parsed = await loadFormat(ext, { url, folder, manager, decoder: textures, made, gltfLoader })
+      // Textures and other side files arrive after parsing.
+      await idle()
+    } catch (e) {
+      disposeResources(made)
+      throw gen === generation ? await loadError(e, failed, url, name, format) : new ViewerError('cancelled', 'Superseded')
+    }
+    for (const blob of parsed.blobs ?? []) URL.revokeObjectURL(blob)
+    const root = parsed.root
+    if (!parsed.gltf) {
+      // A file's own lights and cameras would relight or crowd the preview.
+      const strays: THREE.Object3D[] = []
+      root.traverse(o => { if ((o as THREE.Light).isLight || (o as THREE.Camera).isCamera) strays.push(o) })
+      for (const o of strays) { o.removeFromParent(); (o as THREE.Light).dispose?.() }
+    }
     // Everything the load made, attached or not: unreferenced textures leaked 86 per 100 opens otherwise.
-    const resources = collectResources(gltf.scene, gltf.parser.associations.keys())
+    const resources = collectResources(root, [...parsed.extra, ...made])
     const cancelled = (): boolean => {
       if (gen === generation) return false
       disposeResources(resources)
       return true
     }
     if (cancelled()) throw new ViewerError('cancelled', 'Superseded')
-    const root = gltf.scene
     const meshes: THREE.Mesh[] = [], bones = new Set<THREE.Object3D>(), materials = new Set<THREE.Material>()
     let triangles = 0, vertices = 0, drawables = 0
     root.traverse(o => {
       if ((o as THREE.Bone).isBone) bones.add(o)
-      if ((o as THREE.Line).isLine || (o as THREE.Points).isPoints) drawables++
+      if ((o as THREE.Line).isLine || (o as THREE.Points).isPoints) {
+        drawables++
+        if ((o as THREE.Points).isPoints) vertices += (o as THREE.Points).geometry.attributes.position?.count ?? 0
+      }
       const mesh = o as THREE.Mesh
       if (!mesh.isMesh) return
       meshes.push(mesh); drawables++
@@ -381,21 +437,15 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
       }
       for (const m of [mesh.material].flat()) materials.add(m)
     })
-    const animationOnly = !drawables && (bones.size > 0 || gltf.animations.length > 0)
+    const animationOnly = !drawables && (bones.size > 0 || parsed.clips.length > 0)
     if (!drawables && !animationOnly) { disposeResources(resources); throw new ViewerError('unreadable', 'The file holds no meshes, skeleton or animation to show.') }
-    // Clay fallback: a material whose base colour texture did not resolve shows clay, not a flat white.
-    const json = gltf.parser.json as { materials?: { pbrMetallicRoughness?: { baseColorTexture?: unknown } }[] }
-    let clayFallback = 0
-    for (const m of materials) {
-      const index = (gltf.parser.associations.get(m) as { materials?: number } | undefined)?.materials
-      const standard = m as THREE.MeshStandardMaterial
-      if (index !== undefined && json.materials?.[index]?.pbrMetallicRoughness?.baseColorTexture && !standard.map && standard.color) {
-        standard.color.set(CLAY); standard.roughness = 0.85; standard.metalness = 0; clayFallback++
-      }
-    }
     const textureList = [...new Set([...materials].flatMap(materialTextures))]
-    const originals = await downscale(textureList)
+    let prepared: Awaited<ReturnType<typeof prepareTextures>>
+    try { prepared = await prepareTextures(textureList, maxTexture, textures) } catch (e) { disposeResources(resources); throw e }
     if (cancelled()) throw new ViewerError('cancelled', 'Superseded')
+    const { originals } = prepared
+    for (const name of prepared.failed) failed.set(`undecoded:${name}`, name)
+    const clayFallback = fallBack(parsed, materials)
     const bySource = new Map<THREE.Texture['source'], { info: ModelTexture; texture: THREE.Texture }>()
     for (const m of materials) for (const [slot, value] of Object.entries(m)) {
       const t = value as THREE.Texture
@@ -405,7 +455,7 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
         const image = t.image as { width?: number; height?: number; src?: string } | undefined
         const mip = (t as THREE.CompressedTexture).mipmaps?.[0] as { width?: number; height?: number } | undefined
         entry = { texture: t, info: {
-          id: bySource.size, name: t.name || (image?.src && !image.src.startsWith('blob:') ? fileName(image.src) : '') || `Texture ${bySource.size + 1}`,
+          id: bySource.size, name: t.name || (t.userData.file as string | undefined) || (image?.src && !image.src.startsWith('blob:') ? fileName(image.src) : '') || `Texture ${bySource.size + 1}`,
           uses: [], width: image?.width ?? mip?.width ?? 0, height: image?.height ?? mip?.height ?? 0,
           compressed: !!(t as THREE.CompressedTexture).isCompressedTexture, ...(originals.get(t.source) ? { original: originals.get(t.source) } : {})
         } }
@@ -414,8 +464,12 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
       const use = `${m.name || 'Material'} · ${SLOTS[slot] ?? slot}`
       if (!entry.info.uses.includes(use) && entry.info.uses.length < 64) entry.info.uses.push(use)
     }
-    const pivot = new THREE.Group()
-    pivot.add(root)
+    // pivot (up-axis turn) > units (file units to metres) > the file's root.
+    const pivot = new THREE.Group(), units = new THREE.Group()
+    units.scale.setScalar(parsed.scale)
+    units.add(root)
+    pivot.add(units)
+    if (parsed.zUp) settings = { ...settings, upAxis: 'z' }
     const joints = bones.size ? [...bones] : animationOnly ? (() => { const all: THREE.Object3D[] = []; root.traverse(o => { if (o !== root) all.push(o) }); return all })() : []
     const loaded: Loaded = {
       pivot, root, resources, meshes, joints, animationOnly,
@@ -426,10 +480,10 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
       box: new THREE.Box3(),
       followNode: joints.find(j => !j.parent || !joints.includes(j.parent))
     }
-    if (gltf.animations.length) {
+    if (parsed.clips.length) {
       const mixer = new THREE.AnimationMixer(root)
       loaded.mixer = mixer
-      loaded.actions = gltf.animations.map(c => mixer.clipAction(c))
+      loaded.actions = parsed.clips.map(c => mixer.clipAction(c))
       loaded.actions[0].play()
       mixer.update(0)
       mixer.addEventListener('finished', () => { if (model === loaded) { loaded.playback.playing = false; report() } })
@@ -449,10 +503,13 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
         triangles, vertices, meshes: meshes.length, materials: materials.size, textures: bySource.size,
         bones: bones.size, size: model.box.getSize(new THREE.Vector3()).toArray() as [number, number, number]
       },
-      clips: gltf.animations.slice(0, 512).map(c => ({ name: c.name || 'Clip', duration: c.duration })),
+      clips: parsed.clips.slice(0, 512).map(c => ({ name: c.name || 'Clip', duration: c.duration })),
       textures: loaded.textures.map(t => t.info),
       missing: [...new Set(failed.values())].slice(0, 64), clayFallback, animationOnly,
-      loadMs: Math.round(performance.now() - started)
+      loadMs: Math.round(performance.now() - started),
+      format: parsed.format,
+      units: `${parsed.units}${parsed.turned ? '; Z-up in the file, turned upright' : parsed.zUp ? '; Z-up by convention, turned upright' : ''}`,
+      upAxis: settings.upAxis, unityClips: !!parsed.unityClips
     }
   }
 
@@ -514,7 +571,12 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
       if (info.compressed || !image?.width || !image.height) continue
       const k = size / Math.max(image.width, image.height)
       c.width = Math.max(1, Math.round(image.width * k)); c.height = Math.max(1, Math.round(image.height * k))
-      try { ctx.clearRect(0, 0, c.width, c.height); ctx.drawImage(image, 0, 0, c.width, c.height) } catch { continue }
+      // Bitmaps flipped for WebGL are turned back for the preview.
+      const flipped = image instanceof ImageBitmap && flippedBitmaps.has(image)
+      try {
+        ctx.setTransform(1, 0, 0, flipped ? -1 : 1, 0, flipped ? c.height : 0)
+        ctx.clearRect(0, 0, c.width, c.height); ctx.drawImage(image, 0, 0, c.width, c.height)
+      } catch { continue }
       const url = c.toDataURL('image/webp', 0.85)
       out.push({ id: info.id, url: url.startsWith('data:image/webp') ? url : c.toDataURL('image/png') })
     }
@@ -533,7 +595,7 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
       controls.dispose()
       clay.dispose()
       environment.dispose()
-      draco?.dispose(); ktx2?.dispose()
+      draco?.dispose(); ktx2?.dispose(); decoder?.dispose()
       for (const el of labelEls) el.remove()
       renderer.dispose()
     }

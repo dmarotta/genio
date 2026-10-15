@@ -486,7 +486,7 @@ export interface GenioApi {
   inventoryRefresh(world: string): Promise<InventoryState>
   inventoryList(world: string, query?: InventoryQuery): Promise<InventoryResult>
   inventoryInfo(world: string, path: string, verifyHash?: boolean): Promise<InventoryInfo | null>
-  /** A capability URL (genio-media://model/<token>/<file>) for the sandboxed 3D viewer: this glTF/GLB and its side files only. */
+  /** A capability URL (genio-media://model/<token>/<file>) for the sandboxed 3D viewer: this model, its side files and its Unity .meta only. */
   inventoryModelUrl(world: string, path: string): Promise<string>
   featureUsed(feature: 'screenshot' | 'model-picker' | 'character-sheet' | 'play-fullscreen'): Promise<void>
   /** Character Sheet: pin an unlocked achievement to the front of the grid (three at most) */

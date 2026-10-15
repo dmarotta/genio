@@ -19,6 +19,13 @@ const TOGGLES: [Toggle, string, string][] = [
 // View toggles carry over from model to model; the up axis belongs to each file.
 let remembered: ViewerSettings = { ...DEFAULT_VIEWER_SETTINGS }
 const count = (n: number, one: string, many = `${one}s`): string => `${n.toLocaleString()} ${n === 1 ? one : many}`
+/** Image types models reference that the viewer does not decode (it reads PNG, JPEG, TGA, BMP, GIF, WebP, AVIF and KTX2). */
+const UNDECODED = ['psd', 'tif', 'tiff', 'exr', 'hdr', 'dds', 'iff', 'sgi', 'rgb']
+function missingReason(name: string): string {
+  const ext = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1).toLowerCase() : ''
+  if (name === 'embedded image') return 'Could not be decoded'
+  return UNDECODED.includes(ext) ? `Genio's viewer cannot decode .${ext} images` : 'Not found beside or below the model, or not a readable image'
+}
 
 /**
  * Inventory's 3D preview. Three.js runs in a sandboxed frame (genio-viewer://app) with its own CSP;
@@ -57,7 +64,12 @@ export function ModelViewer({ world, info, path }: { world: string; info: Invent
         send({ type: 'open', url, name: info.name })
         clearTimeout(timer)
         timer = setTimeout(() => setFailure({ title: `${FAILED.timeout} after ${MODEL_PREVIEW_TIMEOUT_MS / 1000} s`, reason: 'The model took too long to load, so loading was cancelled. Open it in your 3D app instead.' }), MODEL_PREVIEW_TIMEOUT_MS)
-      } else if (m?.type === 'loaded') { clearTimeout(timer); setModel(m.model); setPlayback(p => ({ ...p, follow: !m.model.animationOnly })) }
+      } else if (m?.type === 'loaded') {
+        clearTimeout(timer)
+        // The viewer starts some files turned (3DS is Z-up by convention).
+        if (m.model.upAxis !== current.current.upAxis) { current.current = { ...current.current, upAxis: m.model.upAxis }; setSettings(current.current) }
+        setModel(m.model); setPlayback(p => ({ ...p, follow: !m.model.animationOnly }))
+      }
       else if (m?.type === 'failed') { clearTimeout(timer); setFailure({ title: FAILED[m.code], reason: m.reason }) }
       else if (m?.type === 'time') setPlayback(p => ({ ...p, clip: m.clip, time: m.time, playing: m.playing }))
       else if (m?.type === 'texture-previews') setPreviews(Object.fromEntries(m.previews.map(p => [p.id, p.url])))
@@ -107,7 +119,7 @@ export function ModelViewer({ world, info, path }: { world: string; info: Invent
           {TOGGLES.filter(([k]) => k !== 'skeleton' || model.stats.bones > 0 && !model.animationOnly).map(([k, label, title]) =>
             <button key={k} className={cx('btn sm ghost', settings[k] && 'on')} title={title} aria-pressed={settings[k]} onClick={() => change({ [k]: !settings[k] })}>{label}</button>)}
           <button className="btn sm ghost" title="Background" onClick={() => change({ background: BACKGROUNDS[(BACKGROUNDS.indexOf(settings.background) + 1) % BACKGROUNDS.length] })}>BG: {settings.background[0].toUpperCase() + settings.background.slice(1)}</button>
-          <button className={cx('btn sm ghost', settings.upAxis === 'z' && 'on')} title="Turn a Z-up model upright (glTF files are Y-up)" aria-pressed={settings.upAxis === 'z'} onClick={() => change({ upAxis: settings.upAxis === 'z' ? 'y' : 'z' })}>Z-up</button>
+          <button className={cx('btn sm ghost', settings.upAxis === 'z' && 'on')} title="Turn a Z-up model upright (glTF is Y-up; FBX, Collada and USD files that state Z-up are turned already)" aria-pressed={settings.upAxis === 'z'} onClick={() => change({ upAxis: settings.upAxis === 'z' ? 'y' : 'z' })}>Z-up</button>
         </div>
         {clip && <div className="model-viewer-player">
           <button className="btn sm ghost icon" title={playback.playing ? 'Pause' : 'Play'} aria-label={playback.playing ? 'Pause' : 'Play'} onClick={() => play({ playing: !playback.playing })}>{playback.playing ? <Pause size={13} /> : <Play size={13} />}</button>
@@ -119,6 +131,7 @@ export function ModelViewer({ world, info, path }: { world: string; info: Invent
           <button className={cx('btn sm ghost icon', playback.follow && 'on')} title={playback.follow ? 'Camera follows the root (click to let it travel)' : 'Camera fixed (click to follow the root)'} aria-label="Follow the root" aria-pressed={playback.follow} onClick={() => play({ follow: !playback.follow })}><Crosshair size={13} /></button>
         </div>}
         {model.animationOnly && <p className="model-viewer-note">No meshes in this file: showing its skeleton{model.clips.length ? ' and animation' : ''}.</p>}
+        {model.unityClips && <p className="model-viewer-note">Clip names and frame ranges come from the model's Unity .meta.</p>}
         {model.missing.length > 0 && <p className="model-viewer-note warn">{count(model.missing.length, 'file')} did not load: {model.missing.slice(0, 4).join(', ')}{model.missing.length > 4 ? '…' : ''}</p>}
         {model.clayFallback > 0 && <p className="model-viewer-note warn">{count(model.clayFallback, 'material')} shown in clay because {model.clayFallback === 1 ? 'its texture' : 'their textures'} did not load.</p>}
         <div className="model-viewer-tabs" role="tablist" aria-label="Model details">
@@ -134,7 +147,8 @@ export function ModelViewer({ world, info, path }: { world: string; info: Invent
           <dt>Bones</dt><dd>{model.stats.bones.toLocaleString()}</dd>
           <dt>Clips</dt><dd>{model.clips.length ? model.clips.map(c => `${c.name} (${c.duration.toFixed(2)} s)`).join(', ') : 'None'}</dd>
           <dt>Size</dt><dd>{formatLength(w)} × {formatLength(h)} × {formatLength(d)}</dd>
-          <dt>Units</dt><dd>Metres, {settings.upAxis === 'z' ? 'turned from Z-up' : 'Y-up'} (glTF)</dd>
+          <dt>Format</dt><dd>{model.format}</dd>
+          <dt>Units</dt><dd>{model.units}{settings.upAxis !== model.upAxis ? settings.upAxis === 'z' ? '; turned from Z-up' : '; shown as stored' : ''}</dd>
           <dt>Loaded in</dt><dd>{model.loadMs.toLocaleString()} ms</dd>
         </dl> : <ul className="model-viewer-textures">
           {model.textures.map(t => <li key={t.id}>
@@ -143,7 +157,7 @@ export function ModelViewer({ world, info, path }: { world: string; info: Invent
               <small>{t.width} × {t.height}{t.compressed ? ' · KTX2' : ''}{t.original ? ` · downscaled from ${t.original.width} × ${t.original.height}` : ''}</small>
               <small>{t.uses.join(', ')}</small></div>
           </li>)}
-          {model.missing.map(name => <li key={`missing-${name}`} className="missing"><span className="model-viewer-thumb">?</span><div><strong>{name}</strong><small>{name === 'embedded image' ? 'Could not be decoded' : 'Not found beside or below the model'}</small></div></li>)}
+          {model.missing.map(name => <li key={`missing-${name}`} className="missing"><span className="model-viewer-thumb">?</span><div><strong>{name}</strong><small>{missingReason(name)}</small></div></li>)}
           {!model.textures.length && !model.missing.length && <li className="dim">This model has no textures.</li>}
         </ul>}
       </div>}

@@ -21,6 +21,13 @@ beforeEach(() => {
   write('Assets/Secret/key.png', 'secret')
   write('Assets/Models/big.bin', Buffer.alloc(2048))
   write('Assets/Models/crate.fbx', 'fbx')
+  write('Assets/Models/crate.fbx.meta', 'ModelImporter:')
+  write('Assets/Models/other.fbx.meta', 'ModelImporter:')
+  write('Assets/Models/crate.mtl', 'newmtl Crate')
+  write('Assets/Models/Textures/wood.tga', 'tga')
+  write('Assets/Models/a/b/c/d/e/far.png', 'png')
+  write('Assets/Models/robot.blend', 'blend')
+  write('Assets/Models/robot.usdz', 'usdz')
   write('robot.glb', 'glb')
   fs.mkdirSync(path.join(renderer, 'assets'), { recursive: true })
   fs.writeFileSync(path.join(renderer, 'viewer3d.html'), '<!doctype html>')
@@ -35,7 +42,7 @@ const service = (extra: Partial<Parameters<typeof modelViewerFiles>[0]> = {}) =>
   modelViewerFiles({ projectRoot: w => w === 'zoo' ? world : undefined, rendererDir: renderer, maxBytes: 1024, ...extra })
 
 describe('genio-viewer:// model grants', () => {
-  it('grants one glTF/GLB per token and serves it with its side files, CORS-readable by the opaque frame', async () => {
+  it('grants one model per token and serves it with its side files, CORS-readable by the opaque frame', async () => {
     const files = service()
     const url = await files.grant('zoo', 'Assets/Models/robot.gltf')
     expect(url).toMatch(/^genio-media:\/\/model\/[0-9a-f]{32}\/robot\.gltf$/)
@@ -82,9 +89,31 @@ describe('genio-viewer:// model grants', () => {
     expect((await get(files, 'genio-viewer://app/viewer3d.html', 'HEAD')).status).toBe(405)
   })
 
+  it('serves another format with its own Unity .meta, MTL and TGA side files, and finds a texture by name below its folder', async () => {
+    const files = service()
+    const url = await files.grant('zoo', 'Assets/Models/crate.fbx')
+    const base = folderOf(url)
+    expect((await get(files, url)).headers.get('content-type')).toBe('application/octet-stream')
+    const meta = await get(files, `${base}/crate.fbx.meta`)
+    expect([meta.status, meta.headers.get('content-type'), await meta.text()]).toEqual([200, 'text/plain; charset=utf-8', 'ModelImporter:'])
+    expect((await get(files, `${base}/other.fbx.meta`)).status).toBe(403)
+    expect((await get(files, `${base}/crate.mtl`)).status).toBe(200)
+    const tga = await get(files, `${base}/Textures/wood.tga`)
+    expect([tga.status, tga.headers.get('content-type')]).toEqual([200, 'image/x-tga'])
+    // FBX and OBJ files often store the artist's own path; the frame asks by file name and main looks below.
+    expect(await (await get(files, `${base}/wood.tga`)).text()).toBe('tga')
+    expect(await (await get(files, `${base}/Old/Path/WOOD.TGA`)).text()).toBe('tga')
+    expect((await get(files, `${base}/wood.tga`, 'HEAD')).status).toBe(200)
+    // Never above the model's folder, never past the depth limit, never a non-texture by name.
+    expect((await get(files, `${base}/key.png`)).status).toBe(404)
+    expect((await get(files, `${base}/far.png`)).status).toBe(404)
+    expect((await get(files, `${base}/Elsewhere/robot.bin`)).status).toBe(404)
+  })
+
   it('grants only previewable models that exist in a loaded project, and expires old grants', async () => {
     const files = service()
-    await expect(files.grant('zoo', 'Assets/Models/crate.fbx')).rejects.toThrow('Only glTF and GLB')
+    await expect(files.grant('zoo', 'Assets/Models/robot.blend')).rejects.toThrow('cannot read .blend files')
+    await expect(files.grant('zoo', 'Assets/Models/robot.usdz')).rejects.toThrow('cannot read .usdz files')
     await expect(files.grant('zoo', 'Assets/Models/missing.glb')).rejects.toThrow('no longer available')
     await expect(files.grant('zoo', '../outside.glb')).rejects.toThrow('no longer available')
     await expect(files.grant('other', 'robot.glb')).rejects.toThrow('not loaded')

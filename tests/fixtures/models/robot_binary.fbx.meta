@@ -1,0 +1,28 @@
+fileFormatVersion: 2
+guid: c5eb9a40e5abe11a66de8eefa8c24675
+ModelImporter:
+  externalObjects: {}
+  serializedVersion: 22200
+  materials:
+    materialImportMode: 2
+  animations:
+    animationType: 2
+    clipAnimations:
+    - serializedVersion: 16
+      name: Wave
+      takeName: Wave
+      firstFrame: 0
+      lastFrame: 40
+      loopTime: 1
+    - serializedVersion: 16
+      name: Bend
+      takeName: Bend
+      firstFrame: 0
+      lastFrame: 40
+      loopTime: 0
+  meshes:
+    globalScale: 1
+    useFileScale: 1
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

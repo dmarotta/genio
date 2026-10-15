@@ -1,10 +1,12 @@
 // Real Chromium/WebGL check of Inventory's 3D viewer: the sandboxed frame under the app's CSP, what it can
-// reach, every glTF case, playback, and 100 open/close cycles that must leave no GPU resources behind.
+// reach, every format, playback, and 100 open/close cycles that must leave no GPU resources behind.
 // genio-viewer:// is answered by the real handler, which the test process runs (MODEL_VIEWER_BRIDGE).
+// With MODEL_VIEWER_SHOTS=<dir> it also saves a screenshot of the frame per model.
 const { app, BrowserWindow, net, protocol } = require('electron')
 const fs = require('node:fs')
+const path = require('node:path')
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
-const { base, bridge, models, probes, results } = JSON.parse(process.env.MODEL_VIEWER_E2E)
+const { base, bridge, models, probes, results, previews, shots } = JSON.parse(process.env.MODEL_VIEWER_E2E)
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'genio-viewer', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
@@ -37,14 +39,27 @@ app.whenReady().then(async () => {
       await js(`window.log.length = 0; send({ type: 'open', url: ${JSON.stringify(url)}, name: ${JSON.stringify(name)} })`)
       const result = await until(`window.log.find(m => m.type === 'loaded' || m.type === 'failed')`)
       const entry = { result: result ?? { type: 'no answer' } }
+      if (shots) {
+        fs.mkdirSync(shots, { recursive: true })
+        await wait(400)
+        fs.writeFileSync(path.join(shots, `${name}.png`), (await win.webContents.capturePage()).toPNG())
+      }
+      if (previews.includes(name)) {
+        await js(`window.log.length = 0; send({ type: 'texture-previews' })`)
+        entry.previews = await until(`window.log.find(m => m.type === 'texture-previews')`, 5000)
+        // Green of the preview's top texel row and the one below it (a 32 px texture drawn at 96 px).
+        const url = entry.previews?.previews?.[0]?.url
+        if (url) entry.rows = await frame.executeJavaScript(`new Promise(resolve => { const i = new Image(); i.onload = () => {
+          const c = document.createElement('canvas'); c.width = i.width; c.height = i.height; const x = c.getContext('2d'); x.drawImage(i, 0, 0)
+          resolve([x.getImageData(4, 0, 1, 1).data[1], x.getImageData(4, 4, 1, 1).data[1]]) }; i.src = ${JSON.stringify(url)} })`)
+      }
       if (name === 'textured') {
         await wait(1500)
         entry.times = await js(`window.log.filter(m => m.type === 'time').map(m => m.time)`)
-        await js(`window.log.length = 0; send({ type: 'texture-previews' })`)
-        entry.previews = await until(`window.log.find(m => m.type === 'texture-previews')`, 5000)
         await js(`send({ type: 'settings', settings: { wireframe: true, grid: true, bounds: true, skeleton: true, clay: true, background: 'checker', upAxis: 'z' } })`)
         await wait(300)
         entry.labels = await frame.executeJavaScript(`[...document.querySelectorAll('#labels span')].filter(s => !s.hidden).map(s => s.textContent)`)
+        await js(`send({ type: 'settings', settings: { wireframe: false, grid: true, bounds: false, skeleton: false, clay: false, background: 'dark', upAxis: 'y' } })`)
       }
       out.frame[name] = entry
     }

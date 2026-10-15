@@ -240,6 +240,7 @@ describe('Inventory backend', () => {
   it('classifies DCC/HDR/animation/media extensions and hides sidecars and engine caches', () => {
     for (const ext of ['psd', 'tga', 'tif', 'tiff', 'exr', 'hdr']) expect(assetKind(`x.${ext}`)).toBe('image')
     expect(assetKind('a.anim')).toBe('animation'); expect(assetKind('a.bvh')).toBe('animation')
+    for (const ext of ['usd', 'usda', 'usdc', 'usdz', '3ds', 'USDZ']) expect(assetKind(`robot.${ext}`)).toBe('model')
     expect(assetKind('a.material')).toBe('material'); expect(assetKind('a.mat')).toBe('material')
     expect(assetKind('x.png.meta')).toBeUndefined(); expect(assetKind('x.import')).toBeUndefined()
     expect(ignoredAssetPath('Nested/Library/images/a.png')).toBe(true)

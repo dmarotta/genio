@@ -49,9 +49,9 @@ describe('Inventory browser', () => {
   it('uses guarded thumbnail URLs and metadata fallbacks for unsupported formats, large files and LFS', () => {
     expect(thumbnailUrl('my-world', assets[0])).toBe('genio-media://thumb/my-world/Assets/UI/door.png')
     expect(thumbnailUrl('my-world', asset('large.png', { size: 70 * 1024 ** 2 }))).toBeUndefined()
-    for (const ext of ['psd', 'tga', 'tiff', 'fbx', 'blend', 'aiff']) expect(previewKind(asset(`asset.${ext}`))).toBe('none')
+    for (const ext of ['psd', 'tga', 'tiff', 'blend', 'usdz', 'aiff']) expect(previewKind(asset(`asset.${ext}`))).toBe('none')
     expect(previewKind(asset('asset.png', { lfs: true }))).toBe('none')
     expect(thumbnailUrl('world', asset('asset.png', { lfs: true }))).toBeUndefined()
-    for (const [ext, kind] of [['png', 'image'], ['wav', 'audio'], ['mp4', 'video'], ['glb', 'model'], ['gltf', 'model']]) expect(previewKind(asset(`asset.${ext}`))).toBe(kind)
+    for (const [ext, kind] of [['png', 'image'], ['wav', 'audio'], ['mp4', 'video'], ['glb', 'model'], ['gltf', 'model'], ['fbx', 'model'], ['3ds', 'model']]) expect(previewKind(asset(`asset.${ext}`))).toBe(kind)
   })
 })

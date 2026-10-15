@@ -25,14 +25,16 @@ export function previewKind(asset: InventoryAsset): 'image' | 'audio' | 'video' 
 }
 
 export interface PreviewUnavailable { title: string; reason: string }
+const PREVIEW_FORMATS = 'glTF, GLB, FBX, OBJ, STL, PLY, Collada (.dae), BVH, USDA and 3DS'
 
 /** Why an asset shows no preview, in the player's words, with what to do instead. */
 export function unavailablePreview(asset: InventoryAsset): PreviewUnavailable {
   const ext = asset.ext.toLowerCase()
   const type = `This file type can't be previewed here: .${ext}`
   if (asset.lfs) return { title: 'Git LFS file not pulled', reason: 'The local file is an LFS pointer. Pull the asset in your Git client to preview it.' }
-  if (ext === 'blend') return { title: `${type} needs Blender`, reason: 'Open it in Blender to see the scene.' }
-  if (asset.kind === 'model' || ext === 'bvh') return { title: type, reason: 'Genio\'s 3D preview reads glTF and GLB. Open it in your 3D app, or export it as glTF or GLB to preview it here.' }
+  if (ext === 'blend') return { title: `${type} needs Blender`, reason: 'Genio does not run Blender to read .blend files. Open it in Blender, or export it as glTF, GLB or FBX to preview it here.' }
+  if (ext === 'usdz' || ext === 'usdc') return { title: `${type} is binary USD`, reason: `Genio's 3D viewer reads USD only as text (USDA): its binary USD reader fails on ${ext === 'usdz' ? 'USDZ packages' : 'USDC files'}. Open it in your 3D app, or export it as USDA, glTF or FBX to preview it here.` }
+  if (asset.kind === 'model') return { title: type, reason: `Genio's 3D preview reads ${PREVIEW_FORMATS}. Open it in your 3D app, or export it as one of those to preview it here.` }
   if (ext === 'anim') return { title: `${type} is a Unity animation clip`, reason: 'Unity clips play only in the Unity editor. Open it there.' }
   if (asset.kind === 'material') return { title: `${type} is an engine material`, reason: 'Materials render only in the engine that uses them. Open it there.' }
   if (asset.kind === 'image') return { title: type, reason: 'Genio shows PNG, JPEG, WebP, GIF, BMP, AVIF and SVG images. Open this one in your image editor.' }

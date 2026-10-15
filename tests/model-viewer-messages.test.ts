@@ -5,7 +5,8 @@ const loaded: ModelLoaded = {
   stats: { triangles: 348, vertices: 219, meshes: 1, materials: 1, textures: 1, bones: 3, size: [0.6, 2, 0.6] },
   clips: [{ name: 'Wave', duration: 1.71 }],
   textures: [{ id: 0, name: 'robot_checker.png', uses: ['Body · base colour'], width: 4096, height: 4096, original: { width: 8192, height: 8192 }, compressed: false }],
-  missing: [], clayFallback: 0, animationOnly: false, loadMs: 24
+  missing: [], clayFallback: 0, animationOnly: false, loadMs: 24,
+  format: 'FBX binary', units: 'Centimetres, shown in metres', upAxis: 'y', unityClips: true
 }
 
 describe('viewer frame messages', () => {
@@ -20,7 +21,9 @@ describe('viewer frame messages', () => {
     for (const bad of [null, 'ready', { type: 'open', url: 'x' }, { type: 'failed', code: 'pwned', reason: 'x' }, { type: 'failed', code: 'timeout', reason: 'x'.repeat(601) },
       { type: 'time', clip: '0', time: 1, playing: true }, { type: 'loaded', model: { ...loaded, stats: { ...loaded.stats, size: [1, 2] } } },
       { type: 'loaded', model: { ...loaded, clips: [{ name: 3, duration: 1 }] } }, { type: 'loaded', model: { ...loaded, missing: 'a.png' } },
-      { type: 'loaded', model: { ...loaded, stats: { ...loaded.stats, triangles: Infinity } } }]) expect(readViewerMessage(bad)).toBeUndefined()
+      { type: 'loaded', model: { ...loaded, stats: { ...loaded.stats, triangles: Infinity } } },
+      { type: 'loaded', model: { ...loaded, upAxis: 'x' } }, { type: 'loaded', model: { ...loaded, format: 7 } }, { type: 'loaded', model: { ...loaded, units: 'u'.repeat(201) } },
+      { type: 'loaded', model: { ...loaded, unityClips: 'yes' } }]) expect(readViewerMessage(bad)).toBeUndefined()
   })
 
   it('keeps only image data URLs as texture previews', () => {

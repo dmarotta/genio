@@ -6,7 +6,7 @@ const KINDS: Record<AssetKind, string[]> = {
   image: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif', 'svg', 'psd', 'tga', 'tif', 'tiff', 'exr', 'hdr'],
   audio: ['wav', 'mp3', 'ogg', 'flac', 'm4a', 'aac', 'opus', 'aif', 'aiff'],
   video: ['mp4', 'webm', 'mov', 'mkv', 'avi'],
-  model: ['glb', 'gltf', 'fbx', 'obj', 'blend', 'ply', 'stl', 'dae'],
+  model: ['glb', 'gltf', 'fbx', 'obj', 'blend', 'ply', 'stl', 'dae', 'usd', 'usda', 'usdc', 'usdz', '3ds'],
   animation: ['anim', 'bvh'],
   material: ['mat', 'material', 'tres']
 }
