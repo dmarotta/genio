@@ -28,7 +28,7 @@ export function Inventory() {
   return <div className="inventory">
     <header className="inventory-head">
       <div><div className="label">PROJECT ASSETS</div><h1>Inventory</h1></div>
-      {project && <button className="btn sm ghost" onClick={() => { requestSystemsSection('project', GENERATION_ANCHOR); go('systems') }}><Settings size={14} /> Generation settings</button>}
+      {project && <button className="btn sm ghost" onClick={() => { requestSystemsSection('project-assets', GENERATION_ANCHOR); go('systems') }}><Settings size={14} /> Generation settings</button>}
       <span className="dim">Explore · select · preview</span>
     </header>
     {project ? <WorldInventory key={project.name} world={project.name} root={project.path} />

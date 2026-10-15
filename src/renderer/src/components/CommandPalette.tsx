@@ -39,7 +39,7 @@ export function CommandPalette() {
       { id: 'status', label: '/status', hint: 'Character Sheet', group: 'Action', run: () => go('status') },
       { id: 'save', label: '/save', hint: 'Curate player profile & squad memory', group: 'Action', run: () => { close(); void op('Save', () => api().save(), () => 'Genio is curating memory') } },
       { id: 'memory', label: 'Go to Memory', hint: 'Settings · player profile, squad memory, archive', group: 'Navigate', run: () => { requestSystemsSection('memory'); go('systems') } },
-      { id: 'mail', label: 'Go to Mail', hint: 'Settings · notes for Genio', group: 'Navigate', run: () => { requestSystemsSection('mail'); go('systems') } },
+      { id: 'mail', label: 'Go to Mail', hint: 'Settings · Inbox & automation · notes for Genio', group: 'Navigate', run: () => { requestSystemsSection('inbox'); go('systems') } },
       { id: 'online', label: 'Presence: Online', group: 'Presence', run: () => { close(); void op('Presence', () => api().setAway('online'), () => 'Online') } },
       { id: 'dnd', label: 'Presence: DND', group: 'Presence', run: () => { close(); void op('Presence', () => api().setAway('dnd'), () => 'Do not disturb') } },
       { id: 'afk', label: 'Presence: AFK', group: 'Presence', run: () => { close(); void op('Presence', () => api().setAway('afk'), () => 'AFK — the Bot has the controls') } },

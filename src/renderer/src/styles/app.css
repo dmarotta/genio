@@ -872,6 +872,23 @@ body:has(.answers-float .answer-card) .toasts { right: calc(min(380px, 100vw - 2
 .sys-badge { margin-left: 8px; padding: 0 6px; border-radius: 8px; font-size: 11px; background: var(--violet); color: var(--bg); }
 .sys-body { padding: 24px 28px 30px; min-height: 420px; }
 .sys-title { margin: 0 0 8px; font-family: var(--font-display); font-weight: 700; font-size: 26px; letter-spacing: 0.08em; text-transform: uppercase; display: flex; align-items: center; }
+.sys-term { margin-left: 10px; font-family: var(--font-ui); font-weight: 400; font-size: 13px; letter-spacing: 0.04em; text-transform: none; color: var(--text-mute); }
+.sys-group-name { text-transform: none; letter-spacing: 0; color: var(--text-dim); }
+.sys-advanced { margin: 18px 0 0; padding: 12px 10px 0; border-top: 1px solid var(--line); font-size: 13px; color: var(--text-dim); }
+.sys-scope { margin: 0 0 12px; font-size: 13px; }
+.sys-part { margin-top: 26px; padding-top: 14px; border-top: 1px solid var(--line); scroll-margin-top: 12px; }
+.sys-part:focus { outline: none; }
+.sys-part:focus > .sys-subtitle { color: var(--neon); }
+.sys-fold { margin-top: 22px; padding-top: 12px; border-top: 1px solid var(--line); }
+.sys-fold > summary { cursor: pointer; }
+.danger-zone { margin-top: 26px; padding-top: 12px; border-top: 1px solid rgba(255, 80, 80, 0.25); }
+.project-facts { margin-bottom: 4px; }
+.project-folder { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.project-folder > .mono { overflow-wrap: anywhere; }
+.project-git { margin-top: 22px; }
+.generation-folders { margin-top: 14px; }
+.generation-folders > summary { cursor: pointer; margin-bottom: 8px; }
+.unity-play-link { margin-top: 14px; }
 .sys-row { display: grid; grid-template-columns: minmax(200px, 1fr) minmax(240px, 1.2fr); gap: 20px; align-items: center; padding: 14px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.04); }
 .sys-row.col { grid-template-columns: 1fr; gap: 8px; }
 .sys-row-title { font-weight: 600; }
@@ -1243,6 +1260,7 @@ button.prio-label:hover { background: color-mix(in srgb, var(--p) 24%, transpare
   .sys-group, .sys-nav > div:first-child .sys-group { margin: 0 4px 0 10px; }
   .sys-link { width: auto; white-space: nowrap; border-left: 0; border-bottom: 2px solid transparent; }
   .sys-link.on { border-bottom-color: var(--neon); }
+  .sys-advanced { margin: 0 0 0 10px; padding: 0; border-top: 0; white-space: nowrap; }
   .sys-body { padding: 16px 14px 20px; min-height: 0; }
   .sys-title { font-size: 20px; }
   .usage-window { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px; }

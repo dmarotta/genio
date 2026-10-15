@@ -114,13 +114,14 @@ MIT. Genio reimplements concepts from companion by The team (MIT).
 
 ### Open a project folder
 
-Project windows keep configuration in **Settings → This project**: delivery
-(Offline, Standard PRs, or the Hardcore Gauntlet), automatic remote following,
-the detected engine and engine root (read-only, with Rescan; a repository pins
-its root in `.genio/project.json`), Auto-loot, branch prefix, capacity, usage mode,
-description, model opt-out, setup/build/test/lint commands and generation
-settings. Project actions include sync, push on demand and guarded
-unregistration. Removing a project still refuses live units, queued quests and
+Project windows keep configuration in **Settings → This project**: General (the
+detected engine and engine root, read-only with Rescan, a repository pins its root
+in `.genio/project.json`; description, usage mode, capacity, model opt-out and
+guarded removal), Delivery (Offline, Standard PRs, or the Hardcore Gauntlet,
+automatic remote following, Auto-loot, branch prefix, sync and push on demand),
+Commands (setup/build/test/lint), Asset generation and, for Unity, Unity slots.
+Settings stored for every project are under **Genio · all projects**, and expert
+pages under **Show advanced settings**. Removing a project still refuses live units, queued quests and
 unlanded work; an owned folder is never deleted.
 
 Existing stored keys and file formats remain compatible. MCP tools with a
@@ -161,7 +162,7 @@ folder. It does not change PATH itself.
 `npm run dist` builds an unpacked, Genio-branded `release\win-unpacked\Genio.exe`
 (electron-builder, configured under `build` in `package.json`; nothing is published).
 
-In a project window, **Settings → Explorer → Install** adds **Open with Genio**
+In a project window, **Settings → System → Windows integration → Install** adds **Open with Genio**
 to folder and folder-background context menus for your Windows account. On
 Windows 11 it appears under **Show more options**. It uses the same folder-open
 path as `genio <folder>`, including focusing an already-open project. **Remove**

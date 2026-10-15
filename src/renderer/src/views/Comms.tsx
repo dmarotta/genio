@@ -631,7 +631,7 @@ function Composer({ wksp, busy, fill, context }: { wksp: string; busy: boolean; 
           await op('Save', () => api().save(), () => 'Genio is curating memory')
           return
         case '/patch':
-          requestSystemsSection('patch')
+          requestSystemsSection('system', 'settings-updates')
           go('systems')
           return
         case '/help':

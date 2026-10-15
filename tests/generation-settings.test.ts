@@ -27,40 +27,61 @@ async function change(label: string, value: string) {
   })
 }
 async function mount(world = 'test') { await act(async () => root.render(React.createElement(GenerationSettings, { world }))) }
-async function save() { await act(async () => host.querySelector<HTMLButtonElement>('button')!.click()) }
+/** Fields save like the rest of Settings: on blur (React listens to focusout). Queued saves settle before the act ends. */
+async function blur(label: string) {
+  await act(async () => {
+    input(label).dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+    await new Promise((r) => setTimeout(r, 0))
+  })
+}
+const toggle = async () => act(async () => {
+  host.querySelector<HTMLInputElement>('[type="checkbox"]')!.click()
+  await new Promise((r) => setTimeout(r, 0))
+})
 
-it('loads world settings and saves both existing config formats while preserving unrelated fields', async () => {
+it('loads world settings and saves both existing config formats while preserving unrelated fields, with no Save button', async () => {
   await mount()
   expect(input('Monthly budget (USD)').value).toBe('10')
   expect(input('Confirm runs over (USD)').placeholder).toBe('0.25')
   expect(input('Images folder').placeholder).toBe('Game/Assets/Art/Generated')
   expect(host.querySelector<HTMLInputElement>('[type="checkbox"]')!.checked).toBe(false)
+  expect(host.querySelector('button')).toBeNull()
   await change('Monthly budget (USD)', '')
   await change('Confirm runs over (USD)', '0')
   await change('Images folder', 'Game/Assets/Art')
   await change('Animations folder', 'Game/Assets/Motions')
-  await act(async () => host.querySelector<HTMLInputElement>('[type="checkbox"]')!.click())
-  await save()
+  expect(api.falWorldConfig).not.toHaveBeenCalled()
+  await toggle()
+  expect(api.falWorldConfig).toHaveBeenCalledTimes(1)
   expect(api.falWorldConfig).toHaveBeenCalledWith('test', { ...fal.config,
     budget: { monthly_usd: undefined, confirm_over_usd: 0 }, folders: { image: 'Game/Assets/Art' },
     providers: { ...fal.config.providers, codex: { enabled: true, custom: 1 } }
   })
+  expect(api.uthanaWorldConfig).not.toHaveBeenCalled()
+  await blur('Animations folder')
   expect(api.uthanaWorldConfig).toHaveBeenCalledWith('test', { custom: 'keep', folder: 'Game/Assets/Motions' })
+  // Nothing changed since: blurring again writes nothing.
+  await blur('Images folder')
+  await blur('Animations folder')
+  expect(api.falWorldConfig).toHaveBeenCalledTimes(1)
+  expect(api.uthanaWorldConfig).toHaveBeenCalledTimes(1)
 })
 
-it('rejects invalid budgets, supports default confirmation, and reports partial saves for retry', async () => {
+it('rejects invalid budgets, supports default confirmation, and reports a failed folder save for retry', async () => {
   await mount()
   await change('Monthly budget (USD)', '-1')
-  expect(host.querySelector('button')!.disabled).toBe(true)
-  await save()
+  await blur('Monthly budget (USD)')
   expect(api.falWorldConfig).not.toHaveBeenCalled()
+  expect(host.textContent).toContain('Enter a non-negative amount')
   await change('Monthly budget (USD)', '2')
+  await blur('Monthly budget (USD)')
+  expect(api.falWorldConfig.mock.calls[0][1].budget).toEqual({ monthly_usd: 2, confirm_over_usd: undefined })
   api.uthanaWorldConfig.mockRejectedValueOnce(new Error('Folder outside world'))
-  await save()
+  await change('Animations folder', '../outside')
+  await blur('Animations folder')
   expect(host.querySelector('[role="alert"]')!.textContent).toContain('animation folder could not be saved')
-  expect(api.falWorldConfig.mock.calls[0][1].budget.confirm_over_usd).toBeUndefined()
   await change('Animations folder', 'Animations')
-  await save()
+  await blur('Animations folder')
   expect(host.querySelector('[role="alert"]')).toBeNull()
 })
 
@@ -69,7 +90,7 @@ it('does not expose editable defaults after a failed load and retries', async ()
   await mount()
   expect(host.querySelector('input')).toBeNull()
   expect(host.querySelector('button')!.textContent).toBe('Retry settings')
-  await save()
+  await act(async () => host.querySelector<HTMLButtonElement>('button')!.click())
   expect(input('Monthly budget (USD)').value).toBe('10')
 })
 
@@ -80,6 +101,7 @@ it('ignores a late response from a different world', async () => {
   await mount('new')
   await act(async () => resolve({ ...fal, config: { budget: { monthly_usd: 999 } } }))
   expect(input('Monthly budget (USD)').value).toBe('10')
-  await save()
+  await change('Monthly budget (USD)', '11')
+  await blur('Monthly budget (USD)')
   expect(api.falWorldConfig.mock.calls[0][0]).toBe('new')
 })

@@ -18,7 +18,7 @@ const f = vi.hoisted(() => {
       inboxAck: vi.fn()
     },
     state: {
-      settings: { memoryBudgetTokens: 100, gamertag: 'Dani', inboxServer: false, inboxPort: 7777, inboxToken: '', ledger: false },
+      settings: { memoryBudgetTokens: 100, gamertag: 'Dani', inboxServer: false, inboxPort: 7777, inboxToken: '', ledger: false, eventSources: [] },
       snap: { inbox: [{ id: 'n1', ts: '2026-10-13T10:00:00Z', from: 'phone', text: 'add a pause menu' }], projects: [] }
     }
   }
@@ -125,10 +125,10 @@ describe('Settings → Memory', () => {
   })
 })
 
-describe('Settings → Mail', () => {
-  it('keeps the former Lore mailbox: unread badge, notes and acknowledgement', async () => {
+describe('Settings → Inbox & automation', () => {
+  it('keeps the former Lore mailbox under the old mail id: unread badge, notes and acknowledgement', async () => {
     await open('mail')
-    expect(host.querySelector('.sys-link.on')?.textContent).toBe('Mail & replay1')
+    expect(host.querySelector('.sys-link.on')?.textContent).toBe('Inbox & automation1')
     expect(host.querySelector('.mail-note.unread')?.textContent).toContain('add a pause menu')
     await act(async () => button('Ack')!.click())
     expect(f.api.inboxAck).toHaveBeenCalledWith('n1')

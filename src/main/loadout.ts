@@ -29,6 +29,7 @@ import type { SettingsService } from './services'
 import { blockedWindow, explorationSafe, type QuotaWindow } from './quota-policy'
 import { globalMode } from './usage-policy'
 import { approvalModel, unitModel } from '@shared/unit-model-policy'
+import { settingsPath } from '@shared/settings-pages'
 export type { QuotaWindow } from './quota-policy'
 
 type RuleCandidate = DispatchRule['candidates'][number]
@@ -424,7 +425,7 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
  */
 export function cheapGate(g: { worldAllows: boolean; keySet: boolean; opencodeReady: boolean }): { allowed: boolean; why: string } {
   if (!g.worldAllows) return { allowed: false, why: 'cheap third-party models are off for this project' }
-  if (!g.keySet) return { allowed: false, why: 'no OpenRouter key in Settings → Accounts' }
+  if (!g.keySet) return { allowed: false, why: `no OpenRouter key in ${settingsPath('accounts')}` }
   if (!g.opencodeReady) return { allowed: false, why: 'OpenCode is not installed' }
   return { allowed: true, why: 'allowed for this project' }
 }

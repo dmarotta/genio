@@ -70,6 +70,13 @@ describe('Play screen', () => {
     expect(api.playerInstancePlay).toHaveBeenCalledWith('game', { path: 'C:/units/lairs' }, {})
   })
 
+  it('links its idle time and editor limit to Settings › Unity & Play, where they apply to all projects', async () => {
+    await mount()
+    await click('Idle time and editor limit')
+    expect(nav.section).toHaveBeenCalledWith('play', 'player-instance')
+    expect(nav.go).toHaveBeenCalledWith('systems')
+  })
+
   it('shows copy progress with sizes and the lifecycle step while copying', async () => {
     status = { state: 'copying', project: 'C:/games/game', copy: copy({ state: 'syncing', progress: { phase: 'copying', startedAt: NOW - 60_000, bytes: { done: 4 * 2 ** 30, total: 16 * 2 ** 30 }, files: { done: 1200, total: 5000 } } }) as never }
     await mount()

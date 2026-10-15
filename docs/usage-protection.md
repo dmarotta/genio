@@ -85,7 +85,7 @@ fresh 70/85/95% readings and rejections remains in place.
 
 # Usage mode and shared plan meter (stage 3)
 
-One control, Settings → Usage: **Usage mode [Save | Balanced* | Max] Advanced**.
+One control, Settings → Usage & limits: **Usage mode [Save | Balanced* | Max]**; raw model pins are under its collapsed **Pin models and effort**.
 `src/shared/usage-mode.ts` holds the table; the Settings preview, the loadout
 picker, the chat sessions, the supervisor and the dispatcher all read it.
 

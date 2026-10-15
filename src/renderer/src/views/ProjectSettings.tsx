@@ -1,13 +1,15 @@
 import { GenerationSettings } from '../components/GenerationSettings'
 import { useEffect, useState } from 'react'
-import { Backpack, ChevronDown, ChevronRight, FolderOpen, RefreshCw, Rocket, Trash, Upload } from 'lucide-react'
+import { FolderOpen, RefreshCw, Trash, Upload } from 'lucide-react'
 import type { PushStatus } from '@shared/api'
 import { modeSourceOf } from '@shared/vocab'
 import type { Engine, Project, ProjectCommands, ProjectMode } from '@shared/types'
 import { cheapModelsAllowed } from '@shared/dispatch'
-import { requestSystemsSection } from './Systems'
+import { requestSystemsSection } from '../lib/settings-nav'
+import type { SettingsPageId } from '@shared/settings-pages'
+import { SettingsTitle } from '../components/SettingsTitle'
 import { USAGE_MODES, USAGE_MODE_LABEL, type UsageMode } from '@shared/usage-mode'
-import { PROJECT_WINDOW, api, errText, go, hasView, op, openDeploy, setState, toast, useStore } from '../store'
+import { PROJECT_WINDOW, api, errText, go, op, setState, toast, useStore } from '../store'
 import { CommitInput, Confirm, Field, Modal, Toggle } from '../components/ui'
 import { ENGINES, ENGINE_LABEL, MODE_HINT, MODE_LABEL, PROJECT_MODES, isActive } from '../lib/vocab'
 import { ago, cx } from '../lib/format'
@@ -17,16 +19,88 @@ import { UnitySlots } from './UnitySlots'
 import { worldPath, modifiedLabel } from '../lib/worlds'
 import type { WorldMetadata } from '@shared/api'
 
-/** Editable project commands. A stored `run` (retired with Playtest) is kept but not offered. */
+export type ProjectPageId = Extract<SettingsPageId, 'project' | 'project-delivery' | 'project-commands' | 'project-assets' | 'project-unity'>
+
+/** Commands units and checks run. The run command (Playtest only) is no longer shown; a stored one is kept as is. */
 const COMMANDS: (keyof ProjectCommands)[] = ['setup', 'build', 'test', 'lint']
 
-export function ProjectSettingsRow({ p, metadata }: { p: Project; metadata?: WorldMetadata }) {
+const projectUpdate = (p: Project, patch: Partial<Project>): void => { void op('Project', () => api().projectUpdate(p.name, patch)) }
+
+/** This project › General: what the project is, how it counts against limits, and removal. */
+function ProjectGeneral({ p, metadata }: { p: Project; metadata?: WorldMetadata }) {
   const units = useStore((s) => s.snap.tasks.filter((t) => t.project === p.name && isActive(t.state)).length)
   const total = useStore((s) => s.snap.tasks.filter((t) => t.project === p.name && t.state !== 'cleaned').length)
-  const [open, setOpen] = useState(false)
-  const [confirmYolo, setConfirmYolo] = useState(false)
   const [remove, setRemove] = useState(false)
   const [delClone, setDelClone] = useState(false)
+  const update = (patch: Partial<Project>): void => projectUpdate(p, patch)
+  return <>
+    <div className="project-facts">
+      <div className="project-folder">
+        <span className="mono mute" title={worldPath(p)}>{worldPath(p)}</span>
+        <button className="btn sm ghost" title="Reveal in Explorer" onClick={() => void api().openPath(p.path)}>
+          <FolderOpen size={13} /> Reveal in Explorer
+        </button>
+      </div>
+      <p className="mute">{ENGINE_LABEL[p.engine]} {metadata?.engineVersion} · {modifiedLabel(metadata?.lastCommitAt)} · {units} active / {total} units · {p.defaultBranch} · {p.remote ?? 'No remote'}</p>
+    </div>
+    <section className="world-details" aria-label={`${p.name} settings`}>
+      <EngineDetected p={p} />
+      <Field label="Description"><CommitInput value={p.description ?? ''} placeholder="Describe this project" onCommit={(v) => update({ description: v })} /></Field>
+      <div className="world-controls">
+        <Field label="Usage mode" hint="Override the global usage mode for this project"><select className="select" value={p.usageMode ?? ''} onChange={(e) => update({ usageMode: (e.target.value || undefined) as UsageMode | undefined, costDial: undefined })}><option value="">Global setting</option>{USAGE_MODES.map(mode => <option key={mode} value={mode}>{USAGE_MODE_LABEL[mode]}</option>)}</select></Field>
+        <Field label="Capacity" hint="Max units at once (0 = no cap)">
+          <CommitInput type="number" value={p.capacity ?? 0} onCommit={(v) => update({ capacity: Math.max(0, parseInt(v, 10) || 0) })} />
+        </Field>
+        <Field label="Allow cheap third-party models" hint="On by default: OpenRouter models (DeepSeek, Qwen, GLM) via OpenCode for low-stakes work. Code is sent to the OpenRouter provider when used.">
+          <Toggle
+            checked={cheapModelsAllowed(p)}
+            onChange={(v) => update({ allowCheapModels: v })}
+            label={cheapModelsAllowed(p) ? <span className="amber-text">On</span> : 'Off'}
+          />
+        </Field>
+      </div>
+    </section>
+    <section className="danger-zone" aria-label="Danger zone">
+      <div className="label">Danger zone</div>
+      <div className="sys-row">
+        <div className="sys-row-label">
+          <div className="sys-row-title">Remove project from Genio</div>
+          <div className="mute sys-row-hint">{p.managed ? 'Genio can also delete its own clone.' : 'Your folder stays on disk.'}</div>
+        </div>
+        <div className="sys-row-ctl">
+          <button className="btn sm ghost alert" title="Remove project" onClick={() => setRemove(true)}>
+            <Trash size={13} /> Remove
+          </button>
+        </div>
+      </div>
+    </section>
+    {remove && (
+      <Confirm
+        title={`Remove ${p.name}?`}
+        tone="alert"
+        typed={p.name}
+        confirmLabel="Remove project"
+        body={
+          <>
+            <p>Genio refuses while units are working, quests are queued, or any isolated copy holds unlanded work.</p>
+            {p.managed && (
+              <Toggle checked={delClone} onChange={setDelClone} label="Also delete Genio's clone from disk" />
+            )}
+            {!p.managed && <p className="mute">This project is your own folder; Genio never deletes it.</p>}
+          </>
+        }
+        onConfirm={async () => {
+          await op('Remove project', () => api().projectRemove(p.name, p.managed && delClone))
+        }}
+        onClose={() => setRemove(false)}
+      />
+    )}
+  </>
+}
+
+/** This project › Delivery: how finished work reaches the main branch, with Sync and Push beside it. */
+function ProjectDelivery({ p }: { p: Project }) {
+  const [confirmYolo, setConfirmYolo] = useState(false)
   // Offline worlds with a remote push on demand: show what origin is missing.
   const pushable = p.mode === 'local-only' && !!p.remote
   const landed = useStore((s) => s.snap.tasks.filter((t) => t.project === p.name && (t.state === 'merged' || t.state === 'cleaned')).length)
@@ -47,33 +121,51 @@ export function ProjectSettingsRow({ p, metadata }: { p: Project; metadata?: Wor
       live = false
     }
   }, [pushable, p.name, p.defaultBranch, landed, pushTick])
-
-  const update = (patch: Partial<Project>): void => {
-    void op('Project', () => api().projectUpdate(p.name, patch))
-  }
-  const setCmd = (k: keyof ProjectCommands, v: string): void => {
-    update({ commands: { ...p.commands, [k]: v.trim() || undefined } })
-  }
-
-  return (
-    <article className="project-settings">
-      <h3>{p.name}</h3>
-      <p className="mono mute" title={worldPath(p)}>{worldPath(p)}</p>
-      <p className="mute">{ENGINE_LABEL[p.engine]} {metadata?.engineVersion} · {modifiedLabel(metadata?.lastCommitAt)} · {units} active / {total} units · {p.defaultBranch} · {p.remote ?? 'No remote'}</p>
-      <p>{p.gitRepo === false ? 'Git actions need a git repo' : pushable ? 'Push on demand' : MODE_LABEL[p.mode]}{pushable && push && <span> · {push.ahead} commits not pushed{push.behind ? ` · ${push.behind} on origin not local` : ''}</span>}</p>
-      <div className="row" style={{ flexWrap: 'wrap', marginBottom: 20 }}>
-          <button className="btn sm solid" onClick={() => void op('Open project', () => api().projectOpen(p.path))}><FolderOpen size={13} /> Open</button>
-          <span title={hasView('inventory') ? `Open ${p.name} Inventory` : 'Inventory coming soon'}><button className="btn sm solid" disabled={!hasView('inventory')} onClick={() => go('inventory')}><Backpack size={13} /> Inventory</button></span>
-        <button className="btn sm solid" disabled={p.gitRepo === false} title={p.gitRepo === false ? "Needs a git repo" : undefined} onClick={() => openDeploy({ project: p.name })}>
-          <Rocket size={12} /> Deploy
-        </button>
-        <button className="btn sm ghost" disabled={p.gitRepo === false} title={p.gitRepo === false ? "Needs a git repo" : undefined} onClick={() => void op('Sync', () => api().projectSync(p.name)).then(() => setPushTick((n) => n + 1))}>
+  const update = (patch: Partial<Project>): void => projectUpdate(p, patch)
+  const noRepo = p.gitRepo === false
+  return <>
+    <div className="world-controls">
+      <Field label="Delivery" hint={modeSourceOf(p) === 'auto' ? `Follows the remote · ${MODE_HINT[p.mode]}` : MODE_HINT[p.mode]}>
+        <select
+          className="select"
+          disabled={noRepo}
+          title={noRepo ? "Needs a git repo" : undefined}
+          value={modeSourceOf(p) === 'auto' ? 'auto' : p.mode}
+          onChange={(e) => update(e.target.value === 'auto' ? { modeSource: 'auto' } : { mode: e.target.value as ProjectMode })}
+        >
+          <option value="auto">Auto · {MODE_LABEL[p.mode]} (follows the remote)</option>
+          {PROJECT_MODES.map((m) => (
+            <option key={m} value={m} disabled={m !== 'local-only' && !p.remote}>
+              {MODE_LABEL[m]}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Merge finished work automatically" hint="Auto-loot: Genio merges green, in-scope work itself">
+        <Toggle
+          checked={p.yolo}
+          onChange={(v) => {
+            if (v) setConfirmYolo(true)
+            else update({ yolo: false })
+          }}
+          label={p.yolo ? <span className="volt-text">On</span> : 'Off'}
+        />
+      </Field>
+      <Field label="Branch prefix">
+        <CommitInput mono value={p.branchPrefix} onCommit={(v) => update({ branchPrefix: v })} />
+      </Field>
+    </div>
+    <div className="project-git" aria-label="Main branch">
+      <div className="label">Main branch</div>
+      <p>{noRepo ? 'Git actions need a git repo' : pushable ? 'Push on demand' : MODE_LABEL[p.mode]}{pushable && push && <span> · {push.ahead} commits not pushed{push.behind ? ` · ${push.behind} on origin not local` : ''}</span>}</p>
+      <div className="row" style={{ flexWrap: 'wrap' }}>
+        <button className="btn sm ghost" disabled={noRepo} title={noRepo ? "Needs a git repo" : undefined} onClick={() => void op('Sync', () => api().projectSync(p.name)).then(() => setPushTick((n) => n + 1))}>
           <RefreshCw size={12} /> Sync
         </button>
         {pushable && (
           <button
             className="btn sm ghost"
-            disabled={pushing || p.gitRepo === false}
+            disabled={pushing || noRepo}
             title={`Push ${p.defaultBranch} to origin (fast-forward only, never forced)`}
             onClick={async () => {
               setPushing(true)
@@ -85,117 +177,34 @@ export function ProjectSettingsRow({ p, metadata }: { p: Project; metadata?: Wor
             <Upload size={12} /> {pushing ? 'Pushing…' : 'Push'}
           </button>
         )}
-        <button className="btn sm ghost" title="Reveal in Explorer" onClick={() => void api().openPath(p.path)}>
-          <FolderOpen size={13} /> Reveal in Explorer
-        </button>
-        <span style={{ flex: 1 }} />
-        <button className="btn sm ghost alert" title="Remove project" onClick={() => setRemove(true)}>
-          <Trash size={13} /> Remove
-        </button>
-
       </div>
-      <section className="world-details" aria-label={`${p.name} settings`}>
-        <EngineDetected p={p} />
-        <Field label="Usage mode" hint="Override the global usage mode for this project"><select className="select" value={p.usageMode ?? ''} onChange={(e) => update({ usageMode: (e.target.value || undefined) as UsageMode | undefined, costDial: undefined })}><option value="">Global setting</option>{USAGE_MODES.map(mode => <option key={mode} value={mode}>{USAGE_MODE_LABEL[mode]}</option>)}</select></Field>
-        <Field label="Description"><CommitInput value={p.description ?? ''} placeholder="Describe this project" onCommit={(v) => update({ description: v })} /></Field>
-      <div className="world-controls">
-        <Field label="Delivery" hint={modeSourceOf(p) === 'auto' ? `Follows the remote · ${MODE_HINT[p.mode]}` : MODE_HINT[p.mode]}>
-          <select
-            className="select"
-            disabled={p.gitRepo === false}
-            title={p.gitRepo === false ? "Needs a git repo" : undefined}
-            value={modeSourceOf(p) === 'auto' ? 'auto' : p.mode}
-            onChange={(e) => update(e.target.value === 'auto' ? { modeSource: 'auto' } : { mode: e.target.value as ProjectMode })}
-          >
-            <option value="auto">Auto · {MODE_LABEL[p.mode]} (follows the remote)</option>
-            {PROJECT_MODES.map((m) => (
-              <option key={m} value={m} disabled={m !== 'local-only' && !p.remote}>
-                {MODE_LABEL[m]}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Auto-loot" hint="Genio merges green, in-scope work itself">
-          <Toggle
-            checked={p.yolo}
-            onChange={(v) => {
-              if (v) setConfirmYolo(true)
-              else update({ yolo: false })
-            }}
-            label={p.yolo ? <span className="volt-text">On</span> : 'Off'}
-          />
-        </Field>
-        <Field label="Capacity" hint="Max units at once (0 = no cap)">
-          <CommitInput type="number" value={p.capacity ?? 0} onCommit={(v) => update({ capacity: Math.max(0, parseInt(v, 10) || 0) })} />
-        </Field>
-        <Field label="Branch prefix">
-          <CommitInput mono value={p.branchPrefix} onCommit={(v) => update({ branchPrefix: v })} />
-        </Field>
-        <Field label="Allow cheap third-party models" hint="On by default: OpenRouter models (DeepSeek, Qwen, GLM) via OpenCode for low-stakes work. Code is sent to the OpenRouter provider when used.">
-          <Toggle
-            checked={cheapModelsAllowed(p)}
-            onChange={(v) => update({ allowCheapModels: v })}
-            label={cheapModelsAllowed(p) ? <span className="amber-text">On</span> : 'Off'}
-          />
-        </Field>
-      </div>
+    </div>
+    {confirmYolo && (
+      <Confirm
+        title={`Enable Auto-loot for ${p.name}?`}
+        tone="volt"
+        confirmLabel="Enable Auto-loot"
+        body="Genio will merge green, in-scope Builds in this project without asking you first. Red, pending, draft and destructive work still waits for your word."
+        onConfirm={() => update({ yolo: true })}
+        onClose={() => setConfirmYolo(false)}
+      />
+    )}
+  </>
+}
 
-      <button className="world-cmds-toggle label" onClick={() => setOpen((o) => !o)}>
-        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />} Commands
-        <span className="mute" style={{ textTransform: 'none', letterSpacing: 0 }}>
-          {COMMANDS.filter((k) => p.commands[k]).length} set
-        </span>
-      </button>
-      {open && (
-        <div className="world-cmds">
-          {COMMANDS.map((k) => (
-            <Field key={k} label={k}>
-              <CommitInput mono value={p.commands[k] ?? ''} placeholder="—" onCommit={(v) => setCmd(k, v)} />
-            </Field>
-          ))}
-          <p className="mute" style={{ fontSize: 12, margin: 0 }}>
-            The Gauntlet runs lint, build and test on every Hardcore Build.
-          </p>
-        </div>
-      )}
-
-      <GenerationSettings world={p.name} />
-      {supportsUnitySlots(effectiveEngine(p).engine) && <UnitySlots world={p.name} />}
-      </section>
-
-      {confirmYolo && (
-        <Confirm
-          title={`Enable Auto-loot for ${p.name}?`}
-          tone="volt"
-          confirmLabel="Enable Auto-loot"
-          body="Genio will merge green, in-scope Builds in this project without asking you first. Red, pending, draft and destructive work still waits for your word."
-          onConfirm={() => update({ yolo: true })}
-          onClose={() => setConfirmYolo(false)}
-        />
-      )}
-      {remove && (
-        <Confirm
-          title={`Remove ${p.name}?`}
-          tone="alert"
-          typed={p.name}
-          confirmLabel="Remove project"
-          body={
-            <>
-              <p>Genio refuses while units are working, quests are queued, or any isolated copy holds unlanded work.</p>
-              {p.managed && (
-                <Toggle checked={delClone} onChange={setDelClone} label="Also delete Genio's clone from disk" />
-              )}
-              {!p.managed && <p className="mute">This project is your own folder; Genio never deletes it.</p>}
-            </>
-          }
-          onConfirm={async () => {
-            await op('Remove project', () => api().projectRemove(p.name, p.managed && delClone))
-          }}
-          onClose={() => setRemove(false)}
-        />
-      )}
-    </article>
-  )
+/** This project › Commands: what units and the Gauntlet run. Commits keep any stored run command. */
+function ProjectCommandsPage({ p }: { p: Project }) {
+  const setCmd = (k: keyof ProjectCommands, v: string): void => projectUpdate(p, { commands: { ...p.commands, [k]: v.trim() || undefined } })
+  return <div className="world-cmds">
+    {COMMANDS.map((k) => (
+      <Field key={k} label={k}>
+        <CommitInput mono value={p.commands[k] ?? ''} placeholder="—" onCommit={(v) => setCmd(k, v)} />
+      </Field>
+    ))}
+    <p className="mute" style={{ fontSize: 12, margin: 0 }}>
+      Checks & review (the Gauntlet) runs lint, build and test on every Hardcore Build.
+    </p>
+  </div>
 }
 
 /** Genio infers the engine: a read-only Detected line, what else the scan found, and Rescan. No picker. */
@@ -403,15 +412,29 @@ export function ProjectNotice() {
   </div>
 }
 
-export function ThisProjectSettings() {
+/** Settings › This project: one page of this window's project. Other projects are set in their own windows. */
+export function ThisProjectSettings({ page = 'project' }: { page?: ProjectPageId }) {
   const project = useStore(s => s.snap.projects.find(p => p.name === PROJECT_WINDOW))
   const landed = useStore(s => s.snap.tasks.filter(task => task.project === PROJECT_WINDOW && (task.state === 'merged' || task.state === 'cleaned')).length)
   const [metadata, setMetadata] = useState<WorldMetadata>()
   useEffect(() => {
+    if (page !== 'project') return
     let live = true
     setMetadata(undefined)
     if (project) void api().projectMetadata(project.name).then(value => { if (live) setMetadata(value) }).catch(() => undefined)
     return () => { live = false }
-  }, [project, landed])
-  return <><h2 className="sys-title">This project</h2>{project ? <ProjectSettingsRow key={project.name} p={project} metadata={metadata} /> : <p className="mute">Open a project from the Hub to configure it.</p>}</>
+  }, [project, landed, page])
+  const heading = <SettingsTitle page={page} />
+  if (!project) return <>{heading}<p className="mute">Open a project from the Hub to configure it.</p></>
+  return <article className="project-settings" key={project.name}>
+    {heading}
+    <p className="mute sys-scope">Saved with {project.name}. Your other projects are not affected.</p>
+    {page === 'project' && <ProjectGeneral p={project} metadata={metadata} />}
+    {page === 'project-delivery' && <ProjectDelivery p={project} />}
+    {page === 'project-commands' && <ProjectCommandsPage p={project} />}
+    {page === 'project-assets' && <GenerationSettings world={project.name} />}
+    {page === 'project-unity' && (supportsUnitySlots(effectiveEngine(project).engine)
+      ? <UnitySlots world={project.name} />
+      : <p className="mute">Unity slots are for Unity projects only.</p>)}
+  </article>
 }

@@ -11,16 +11,17 @@ vi.mock('../src/renderer/src/store', () => ({
   hasView: () => fixture.enabled, go: fixture.go, openDeploy: fixture.deploy,
   op: async (_: string, fn: () => unknown) => fn(), setState: vi.fn(), toast: vi.fn(), errText: String
 }))
-import { ThisProjectSettings } from '../src/renderer/src/views/ProjectSettings'
+import { ThisProjectSettings, type ProjectPageId } from '../src/renderer/src/views/ProjectSettings'
 import { Systems, requestSystemsSection } from '../src/renderer/src/views/Systems'
 const project = (name: string, engine: Project['engine'] = 'unity'): Project => ({ name, path: `C:/games/${name}`, engine, commands: { run: 'play' }, defaultBranch: 'main', mode: 'local-only', remote: 'origin', forge: 'none', yolo: false, branchPrefix: 'genio/', managed: false, addedAt: '' })
 let root: Root | undefined
 let host: HTMLDivElement
-async function mount(enabled = false) {
-  fixture.projects = [project('Zebra')]; fixture.enabled = enabled
+async function mount(page: ProjectPageId = 'project') {
+  fixture.projects = [project('Zebra')]
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
-  await act(async () => root!.render(React.createElement(ThisProjectSettings)))
+  await act(async () => root!.render(React.createElement(ThisProjectSettings, { page })))
 }
+const buttons = () => [...host.querySelectorAll('button')].map((b) => b.textContent?.trim())
 async function click(text: string) {
   const button = [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === text)
   expect(button, text).toBeTruthy()
@@ -33,14 +34,18 @@ describe('Project settings and registry helpers', () => {
     await mount()
     fixture.projects.push(project('Other'))
     await act(async () => root!.render(React.createElement(Systems)))
-    await act(async () => requestSystemsSection('project'))
+    await act(async () => requestSystemsSection('project-delivery'))
     expect(host.querySelector('h1')?.textContent).toBe('Settings')
+    expect(host.querySelector('.sys-link.on')?.textContent).toBe('Delivery')
     expect(host.textContent).not.toContain('C:/games/Other')
+    expect(host.textContent).toContain('Saved with Zebra.')
     const select = (label: string) => [...host.querySelectorAll('label.field')].find(field => field.querySelector('.label')?.textContent === label)!.querySelector('select')!
     await act(async () => { select('Delivery').value = 'direct-PR'; select('Delivery').dispatchEvent(new Event('change', { bubbles: true })) })
     expect(fixture.update).toHaveBeenLastCalledWith('Zebra', { mode: 'direct-PR' })
     await act(async () => { select('Delivery').value = 'auto'; select('Delivery').dispatchEvent(new Event('change', { bubbles: true })) })
     expect(fixture.update).toHaveBeenLastCalledWith('Zebra', { modeSource: 'auto' })
+    await act(async () => requestSystemsSection('project'))
+    expect(host.querySelector('.sys-link.on')?.textContent).toBe('General')
     await act(async () => { select('Usage mode').value = 'save'; select('Usage mode').dispatchEvent(new Event('change', { bubbles: true })) })
     expect(fixture.update).toHaveBeenLastCalledWith('Zebra', { usageMode: 'save', costDial: undefined })
     // Infer only: no engine picker, no root input.
@@ -81,7 +86,7 @@ describe('Project settings and registry helpers', () => {
     await click('Dismiss')
     expect(fixture.update).toHaveBeenLastCalledWith('Zebra', { engineProposal: undefined })
   })
-  it('deep-links to the Generation section of This project, scrolled into view and focused', async () => {
+  it.each([['project-assets'], ['project']])('deep-links %s with the old generation-settings anchor to Asset generation, scrolled into view and focused', async (id) => {
     const scrolled = vi.fn()
     Object.assign(Element.prototype, { scrollIntoView: scrolled })
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => setTimeout(() => cb(0), 0))
@@ -89,11 +94,11 @@ describe('Project settings and registry helpers', () => {
     try {
       await mount()
       // As from Inventory: the request is made before Settings mounts.
-      requestSystemsSection('project', 'generation-settings')
+      requestSystemsSection(id, 'generation-settings')
       await act(async () => root!.render(React.createElement(Systems)))
       await act(async () => { await new Promise((r) => setTimeout(r, 30)) })
       const section = host.querySelector('#generation-settings')!
-      expect(host.querySelector('.sys-link.on')?.textContent).toBe('This project')
+      expect(host.querySelector('.sys-link.on')?.textContent).toBe('Asset generation')
       expect(section.getAttribute('aria-label')).toBe('Generation settings')
       expect(scrolled).toHaveBeenCalled()
       expect(scrolled.mock.contexts.at(-1)).toBe(section)
@@ -133,33 +138,42 @@ describe('Project settings and registry helpers', () => {
     expect(modifiedLabel('2026-10-12', Date.parse('2026-10-13'))).toBe('1 day ago')
     expect(modifiedLabel()).toBe('No commit yet')
   })
-  it('keeps Inventory disabled until registered, then opens this window\'s Inventory', async () => {
-    await mount()
-    const button = [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('Inventory'))!
-    expect(button.disabled).toBe(true)
-    expect(button.parentElement?.title).toBe('Inventory coming soon')
-    fixture.enabled = true
-    await act(async () => root!.render(React.createElement(ThisProjectSettings)))
-    await click('Inventory')
-    expect(fixture.go).toHaveBeenCalledWith('inventory')
+  it('keeps launcher actions out of every project page: Open, Inventory, Deploy and Playtest live elsewhere', async () => {
+    for (const page of ['project', 'project-delivery', 'project-commands', 'project-assets', 'project-unity'] as ProjectPageId[]) {
+      await mount(page)
+      for (const action of ['Open', 'Inventory', 'Deploy', 'Playtest']) expect(buttons(), `${page} ${action}`).not.toContain(action)
+      await act(async () => root!.unmount()); root = undefined; document.body.innerHTML = ''
+    }
   })
-  it('shows settings immediately and preserves project action handlers', async () => {
+  it('splits This project into General and Delivery and keeps their handlers', async () => {
     await mount()
-    for (const label of ['Delivery', 'Auto-loot', 'Capacity', 'Branch prefix', 'Usage mode', 'Engine', 'Rescan', 'Allow cheap third-party models', 'Description', 'Generation']) expect(host.textContent).toContain(label)
-    const commands = [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('Commands'))!
-    await act(async () => commands.click())
-    expect(host.querySelectorAll('.world-cmds input')).toHaveLength(4)
+    for (const label of ['Usage mode', 'Engine', 'Rescan', 'Allow cheap third-party models', 'Description', 'Capacity', 'Danger zone']) expect(host.textContent).toContain(label)
+    for (const label of ['Delivery', 'Auto-loot', 'Branch prefix', 'Generation']) expect(host.textContent).not.toContain(label)
     expect(host.querySelector('.world-details')).not.toBeNull()
-    await click('Deploy'); expect(fixture.deploy).toHaveBeenCalledWith({ project: 'Zebra' })
-    await click('Open'); expect(fixture.projectOpen).toHaveBeenCalledWith('C:/games/Zebra')
-    expect(host.textContent).not.toContain('Spawn ally')
+    await click('Reveal in Explorer'); expect(fixture.openPath).toHaveBeenCalledWith('C:/games/Zebra')
+    await click('Remove'); expect(document.body.textContent).toContain('Remove Zebra?')
+    await act(async () => root!.unmount()); document.body.innerHTML = ''
+
+    await mount('project-delivery')
+    for (const label of ['Delivery', 'Merge finished work automatically', 'Auto-loot', 'Branch prefix', '2 commits not pushed']) expect(host.textContent).toContain(label)
+    expect(host.textContent).not.toContain('Usage mode')
     await click('Sync'); expect(fixture.sync).toHaveBeenCalledWith('Zebra')
     await click('Push'); expect(fixture.push).toHaveBeenCalledWith('Zebra')
-    await click('Reveal in Explorer'); expect(fixture.openPath).toHaveBeenCalledWith('C:/games/Zebra')
-    // Playtest is retired: no button, and no run command field (a stored value is kept).
-    expect([...host.querySelectorAll('button')].some((b) => b.textContent?.includes('Playtest'))).toBe(false)
-    expect([...host.querySelectorAll('.world-cmds .label')].map((l) => l.textContent)).toEqual(['setup', 'build', 'test', 'lint'])
-    await click('Remove'); expect(document.body.textContent).toContain('Remove Zebra?')
+    await act(async () => host.querySelector<HTMLInputElement>('.toggle input')!.click())
+    expect(document.body.textContent).toContain('Enable Auto-loot for Zebra?')
+  })
+  it('shows Commands open, without the Playtest-only run row, and keeps a stored run command', async () => {
+    await mount('project-commands')
+    const labels = [...host.querySelectorAll('.world-cmds .field .label')].map((l) => l.textContent)
+    expect(labels).toEqual(['setup', 'build', 'test', 'lint'])
+    expect(host.textContent).not.toMatch(/\brun\b|playtest/i)
+    const build = host.querySelectorAll<HTMLInputElement>('.world-cmds input')[1]
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(build, 'make')
+      build.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => { build.dispatchEvent(new FocusEvent('blur')); build.dispatchEvent(new FocusEvent('focusout', { bubbles: true })) })
+    expect(fixture.update).toHaveBeenLastCalledWith('Zebra', { commands: { run: 'play', build: 'make' } })
   })
 })
 

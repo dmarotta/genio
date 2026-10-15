@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bug, ChevronDown, ChevronRight, Play as PlayIcon, RefreshCw, RotateCcw, Square } from 'lucide-react'
-import { sameSource, UNITY_SLOTS_ANCHOR, type PlayConsole, type PlayerInstanceStatus, type PlayerSourceOption } from '@shared/play'
+import { PLAYER_INSTANCE_ANCHOR, sameSource, type PlayConsole, type PlayerInstanceStatus, type PlayerSourceOption } from '@shared/play'
 import { PROJECT_WINDOW, api, errText, go } from '../store'
 import { cx } from '../lib/format'
 import { openGenioPanel, useScreenContext } from '../lib/screen-context'
@@ -124,7 +124,7 @@ function PlayScreen({ world }: { world: string }) {
   const restart = (visible = false): void => void run(visible ? 'visible' : 'restart', () => api().playerInstanceRestart(world, visible))
   const quit = (): void => void run('quit', () => api().playerInstanceQuit(world))
   const keep = (): void => void run('keep', () => api().playerInstanceKeepAlive(world))
-  const settings = (): void => { requestSystemsSection('project', UNITY_SLOTS_ANCHOR); go('systems') }
+  const settings = (): void => { requestSystemsSection('play', PLAYER_INSTANCE_ANCHOR); go('systems') }
 
   const working = !!busy || (!!state && WORKING.has(state))
   const warm = state === 'ready'

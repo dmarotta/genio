@@ -29,6 +29,7 @@ import { getSecret } from './secrets'
 import type { AppCtx, UthanaService } from './services'
 import { UthanaClient, pollJob, type UploadFile, type UthanaJob } from './uthana'
 import { ensureDir, exists, isSubPath, nowIso, readJson, rid, writeJson } from './util'
+import { settingsPath } from '@shared/settings-pages'
 
 export const UTHANA_MEDIA_HOST = 'uthana'
 const MAX_RUNS = 200
@@ -143,7 +144,7 @@ export function createUthanaService(getCtx: () => AppCtx, fetchFn: FetchFn = (u,
     return name
   }
   const requireKey = (): void => {
-    if (!key()) throw new Error('No Uthana key set. Add one in Settings → Accounts.')
+    if (!key()) throw new Error(`No Uthana key set. Add one in ${settingsPath('accounts')}.`)
   }
 
   const set = (id: string, patch: Partial<UthanaRun>): UthanaRun | undefined => {

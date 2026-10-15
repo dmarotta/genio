@@ -23,6 +23,7 @@ vi.mock('../src/renderer/src/store', () => ({
   op: async (_: string, fn: () => unknown) => fn(), setState: vi.fn(), toast: vi.fn(), errText: String
 }))
 import { ThisProjectSettings } from '../src/renderer/src/views/ProjectSettings'
+import { PlayerInstanceSettings } from '../src/renderer/src/views/PlayerInstanceSettings'
 const project = (engine: Project['engine']): Project => ({ name: 'Zebra', path: 'C:/games/Zebra', engine, commands: {}, defaultBranch: 'main', mode: 'local-only', forge: 'none', yolo: false, branchPrefix: 'genio/', managed: false, addedAt: '' })
 const slot = (id: number, patch: object = {}) => ({ id, root: `C:/pool/slot-${id}`, revision: `abcdef${id}0123`, ...patch })
 let root: Root | undefined
@@ -34,15 +35,20 @@ async function mount(engine: Project['engine']) {
   fixture.playPoolCap.mockImplementation(async (_: string, cap: number) => { fixture.pool = { ...fixture.pool, cap }; return { cap, draining: [] } })
   fixture.playerInstanceSettings.mockImplementation(async (_: string, patch: object) => { fixture.machine.settings = { ...fixture.machine.settings, ...patch }; return fixture.machine.settings })
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
-  await act(async () => root!.render(React.createElement(ThisProjectSettings)))
+  await act(async () => root!.render(React.createElement(ThisProjectSettings, { page: 'project-unity' })))
 }
 afterEach(async () => { if (root) await act(async () => root!.unmount()); root = undefined; document.body.innerHTML = ''; vi.clearAllMocks() })
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
-describe('Settings › This project › Unity slots', () => {
+describe('Settings › Unity & Play', () => {
   it('shows the player idle time, global editor limit, and machine RAM including batch editors', async () => {
-    fixture.pool = { cap: 1, queue: [], slots: [] }
-    await mount('unity')
+    fixture.projects = [project('unity')]
+    fixture.playerInstanceSettings.mockImplementation(async (_: string, patch: object) => { fixture.machine.settings = { ...fixture.machine.settings, ...patch }; return fixture.machine.settings })
+    host = document.createElement('div'); document.body.append(host); root = createRoot(host)
+    await act(async () => root!.render(React.createElement(PlayerInstanceSettings, { world: 'Zebra', own: true })))
+    expect(host.querySelector('#player-instance')?.getAttribute('aria-label')).toBe('Your Play editor')
+    expect(host.textContent).toContain('These settings apply to all projects.')
+    expect(host.textContent).toContain('This project: idle')
     expect(host.textContent).toContain('Genio Unity editors: 2 running (1 unit slots, 0 player, 1 batch)')
     expect(host.textContent).toContain('5.0 GB · 14.0 GB available of 32.0 GB')
     const idle = host.querySelector('[aria-label="Player idle minutes"]') as HTMLInputElement
@@ -52,6 +58,16 @@ describe('Settings › This project › Unity slots', () => {
     await act(async () => { cap.value = '3'; cap.dispatchEvent(new Event('change', { bubbles: true })) })
     expect(fixture.playerInstanceSettings).toHaveBeenCalledWith('Zebra', { maxEditors: 3 })
     fixture.machine.settings.maxEditors = 2
+  })
+})
+
+describe('Settings › This project › Unity slots', () => {
+  it('no longer holds the global Play editor settings and links to Unity & Play instead', async () => {
+    fixture.pool = { cap: 1, queue: [], slots: [] }
+    await mount('unity')
+    expect(host.querySelector('[aria-label="Player idle minutes"]')).toBeNull()
+    expect(host.querySelector('[aria-label="Maximum player editors"]')).toBeNull()
+    expect([...host.querySelectorAll('button')].some(b => b.textContent === 'Unity & Play →')).toBe(true)
   })
   it('appears for Unity projects with the cap, every slot state, the queue and disk per slot', async () => {
     fixture.pool = { cap: 2, queue: ['unit:task-9'], slots: [
@@ -87,7 +103,7 @@ describe('Settings › This project › Unity slots', () => {
     fixture.pool = { cap: 1, queue: [], slots: [] }
     await mount(engine)
     expect(host.querySelector('[aria-label="Unity slots"]')).toBeNull()
-    expect(host.textContent).not.toContain('Unity slots')
+    expect(host.textContent).toContain('Unity slots are for Unity projects only.')
     expect(fixture.playPool).not.toHaveBeenCalled()
   })
 

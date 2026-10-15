@@ -11,6 +11,7 @@ import { bus } from './bus'
 import { landedDaysInWeek, landingWindow, loadLandingLog, observeDay, recordLanding, type LandingLog } from './landings'
 import type { AppCtx, StatsService } from './services'
 import { nowIso, readJson, todayStamp, writeJson } from './util'
+import { settingsPath } from '@shared/settings-pages'
 
 /** trophies a player can pin to the front of the achievements grid */
 export const MAX_PINS = 3
@@ -80,7 +81,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'reaction-like', feature: 'comms', name: 'Right Track', description: 'Like a Genio message to confirm the path.' },
   { id: 'reaction-dislike', feature: 'comms', name: 'Hold Up', description: 'Dislike a Genio message so it pauses and asks what is wrong.' },
   { id: 'yolo-chat', feature: 'comms', name: 'No Safety Wheels', description: 'Switch chat to YOLO mode.' },
-  { id: 'account-login', feature: 'systems', name: 'Signed In', description: 'Log in from Settings Accounts.' },
+  { id: 'account-login', feature: 'systems', name: 'Signed In', description: `Log in from ${settingsPath('accounts')}.` },
   { id: 'usage-mode', feature: 'systems', name: 'Gear Shift', description: 'Switch the Usage mode between Save, Balanced and Max.' },
   { id: 'cheap-unit', feature: 'deploy', name: 'Budget Build', description: 'Deploy an OpenCode unit.' },
   { id: 'agent-asset-first', feature: 'agent_generation', name: 'Made to Order', description: 'Generate your first asset through Genio.' },

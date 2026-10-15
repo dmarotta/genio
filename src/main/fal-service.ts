@@ -25,6 +25,7 @@ import {
 import { getSecret } from './secrets'
 import type { AppCtx, FalService } from './services'
 import { ensureDir, exists, isSubPath, nowIso, readJson, rid, slugify, writeJson } from './util'
+import { settingsPath } from '@shared/settings-pages'
 
 export const MEDIA_SCHEME = 'genio-media'
 const MAX_DOWNLOAD = 1024 * 1024 * 1024
@@ -299,7 +300,7 @@ export function createFalService(getCtx: () => AppCtx, fetchFn: FetchFn = (u, i)
       const endpoint = req.endpoint.trim().replace(/^https?:\/\/(?:queue\.)?fal\.run\//i, '').replace(/^\/+|\/+$/g, '')
       if (!validEndpoint(endpoint)) throw new Error(`Not a FAL endpoint id: "${req.endpoint}". Use the form owner/app[/path], e.g. fal-ai/flux/dev.`)
       if (!req.input || typeof req.input !== 'object' || Array.isArray(req.input)) throw new Error('Input must be a JSON object.')
-      if (!key()) throw new Error('No FAL.ai key set. Add one in Settings → Accounts.')
+      if (!key()) throw new Error(`No FAL.ai key set. Add one in ${settingsPath('accounts')}.`)
       const world = req.world?.trim() || undefined
       if (world) project(world)
       // local files go up inline; history keeps the short @file: refs

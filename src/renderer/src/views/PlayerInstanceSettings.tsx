@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react'
-import type { PlayerInstanceStatus, PlayerMachineStatus } from '@shared/play'
+import { PLAYER_INSTANCE_ANCHOR, type PlayerInstanceStatus, type PlayerMachineStatus } from '@shared/play'
 import { api, errText } from '../store'
 import { Field } from '../components/ui'
 
 const gb = (n: number) => `${(n / 2 ** 30).toFixed(1)} GB`
-/** Lifecycle settings only; the source picker and the live game are on the Play screen. */
-export function PlayerInstanceSettings({ world }: { world: string }) {
+/**
+ * Settings › Unity & Play: lifecycle settings stored once for every project; the source picker
+ * and the live game are on the Play screen. `world` is any registered Unity project (the service
+ * checks it); `own` adds that project's instance line when it is this window's project.
+ */
+export function PlayerInstanceSettings({ world, own }: { world: string; own?: boolean }) {
   const [instance, setInstance] = useState<PlayerInstanceStatus>()
   const [machine, setMachine] = useState<PlayerMachineStatus>()
   const [size, setSize] = useState<number>()
@@ -17,14 +21,14 @@ export function PlayerInstanceSettings({ world }: { world: string }) {
       if (polling) return
       polling = true
       try {
-        const [i, m] = await Promise.all([api().playerInstanceStatus(world), api().playerInstanceMachine(world)])
+        const [i, m] = await Promise.all([own ? api().playerInstanceStatus(world) : Promise.resolve(undefined), api().playerInstanceMachine(world)])
         if (live) { setInstance(i); setMachine(m) }
       } catch (e) { if (live) setError(errText(e)) }
       finally { polling = false }
     }
     void poll(); const timer = setInterval(() => void poll(), 5000)
     return () => { live = false; clearInterval(timer) }
-  }, [world])
+  }, [world, own])
   // Full copy sizes are deliberately measured once per copy, rather than on every heartbeat.
   useEffect(() => {
     let live = true; setSize(undefined)
@@ -37,9 +41,9 @@ export function PlayerInstanceSettings({ world }: { world: string }) {
     catch (e) { setError(errText(e)) } finally { setBusy(false) }
   }
   const source = instance?.copy?.source
-  return <div className="player-instance-settings">
-    <h4>Your Play instance</h4>
-    <p className="mute">One editor for this project window. Stop keeps Unity warm; when Unity quits, its copy is deleted in the background.</p>
+  return <section id={PLAYER_INSTANCE_ANCHOR} tabIndex={-1} className="world-generation player-instance-settings" aria-label="Your Play editor">
+    <h4>Your Play editor</h4>
+    <p className="mute">One editor per project window, opened from Play. Stop keeps Unity warm; when Unity quits, its copy is deleted in the background. These settings apply to all projects.</p>
     {error && <p role="alert" className="alert-text">{error}</p>}
     {machine && <>
       <div className="form-grid">
@@ -54,7 +58,7 @@ export function PlayerInstanceSettings({ world }: { world: string }) {
       </div>
       <p className="mute">Genio Unity editors: {machine.totalEditors} running ({machine.unitEditors} unit slots, {machine.playerEditors} player, {machine.batchEditors} batch) · {gb(machine.workingSetBytes)} · {gb(machine.freeBytes)} available of {gb(machine.totalBytes)}</p>
     </>}
-    {instance && <p>{instance.state.replace(/-/g, ' ')}{source ? ` · ${source.kind === 'checkout' ? source.branch ?? source.path : source.ref}` : ''}{instance.deadline ? ` · quits in ${Math.max(0, Math.ceil((instance.deadline - Date.now()) / 60000))} min` : ''}{size !== undefined ? ` · ${gb(size)} on disk` : ''}{instance.copy?.state === 'pending-delete' || instance.copy?.state === 'deleting' ? ' · deleting copy in the background' : ''}</p>}
+    {instance && <p>This project: {instance.state.replace(/-/g, ' ')}{source ? ` · ${source.kind === 'checkout' ? source.branch ?? source.path : source.ref}` : ''}{instance.deadline ? ` · quits in ${Math.max(0, Math.ceil((instance.deadline - Date.now()) / 60000))} min` : ''}{size !== undefined ? ` · ${gb(size)} on disk` : ''}{instance.copy?.state === 'pending-delete' || instance.copy?.state === 'deleting' ? ' · deleting copy in the background' : ''}</p>}
     {instance?.message && <p className="alert-text">{instance.message}</p>}
-  </div>
+  </section>
 }

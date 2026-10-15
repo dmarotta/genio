@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import { ownerLabel, slotStatus, slotsInUse, UNITY_SLOTS_ANCHOR, type PlayPoolState, type PlaySlot } from '@shared/play'
+import { ownerLabel, PLAYER_INSTANCE_ANCHOR, slotStatus, slotsInUse, UNITY_SLOTS_ANCHOR, type PlayPoolState, type PlaySlot } from '@shared/play'
 import type { Task } from '@shared/types'
 import { api, errText, useStore } from '../store'
 import { Confirm, Field } from '../components/ui'
-import { PlayerInstanceSettings } from './PlayerInstanceSettings'
+import { requestSystemsSection } from '../lib/settings-nav'
 
 const CAPS = [1, 2, 3, 4, 5, 6, 7, 8]
 const gb = (bytes: number): string => bytes < 1024 ** 3 ? `${Math.round(bytes / 1024 ** 2)} MB` : `${(bytes / 1024 ** 3).toFixed(1)} GB`
@@ -56,7 +56,6 @@ export function UnitySlots({ world }: { world: string }) {
   const ids = state ? [...new Set([...CAPS.slice(0, state.cap), ...state.slots.map(s => s.id)])].sort((a, b) => a - b) : []
   const totalDisk = disk ? Object.values(disk).reduce((a, b) => a + b, 0) : undefined
   return <section id={UNITY_SLOTS_ANCHOR} tabIndex={-1} className="world-generation unity-slots" aria-label="Unity slots">
-    <h4>Unity slots</h4>
     <p className="mute">Separate copies of this project, each with its own Unity editor, so units can play different branches at once. Units wait in line when every slot is busy.</p>
     {error && <p role="alert" className="alert-text">{error}</p>}
     {!state ? <p className="mute">{error ? 'Unity slots are unavailable right now.' : 'Loading Unity slots…'}</p> : <>
@@ -99,7 +98,10 @@ export function UnitySlots({ world }: { world: string }) {
         {estimate !== undefined && <span className="mute">About {gb(estimate)} per new slot, plus future imports. Only committed files are copied; preparing can take several minutes.</span>}
       </div>
     </>}
-    <PlayerInstanceSettings world={world} />
+    <p className="mute unity-play-link">
+      Your own Play editor settings apply to all projects.{' '}
+      <button className="link-btn" onClick={() => requestSystemsSection('play', PLAYER_INSTANCE_ANCHOR)}>Unity &amp; Play →</button>
+    </p>
     {closing && <Confirm
       title={`Close the Unity editor in slot ${closing.id}?`}
       tone="alert"

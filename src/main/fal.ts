@@ -5,6 +5,7 @@
  * logged, stored or put in an error message.
  */
 import type { FalOutput, FalOutputKind } from '@shared/api'
+import { settingsPath } from '@shared/settings-pages'
 
 export const FAL_QUEUE = 'https://queue.fal.run'
 
@@ -112,7 +113,7 @@ export function falErrorMessage(status: number, body: string): string {
   } catch {
     msg = body.trim().slice(0, 300)
   }
-  if (status === 401 || status === 403) return `FAL rejected the key (${status})${msg ? `: ${msg}` : ''}. Check it in Settings → Accounts.`
+  if (status === 401 || status === 403) return `FAL rejected the key (${status})${msg ? `: ${msg}` : ''}. Check it in ${settingsPath('accounts')}.`
   return `FAL error ${status}${msg ? `: ${msg}` : ''}`
 }
 
@@ -125,7 +126,7 @@ export class FalClient {
   private async call(url: string, init: RequestInit = {}): Promise<unknown> {
     if (!isFalQueueUrl(url)) throw new Error('Refusing to send the FAL key outside queue.fal.run.')
     const key = this.key()
-    if (!key) throw new Error('No FAL.ai key set. Add one in Settings → Accounts.')
+    if (!key) throw new Error(`No FAL.ai key set. Add one in ${settingsPath('accounts')}.`)
     const res = await this.fetchFn(url, {
       ...init,
       headers: { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}), Authorization: `Key ${key}` }

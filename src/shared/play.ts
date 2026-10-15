@@ -125,6 +125,8 @@ export type { MirrorSource as PlayerCopySource } from '../../resources/unit-skil
 
 /** Deep-link target for Settings › This project › Unity slots. */
 export const UNITY_SLOTS_ANCHOR = 'unity-slots'
+/** Deep-link target for Settings › Unity & Play: the player's own Play editor, for all projects. */
+export const PLAYER_INSTANCE_ANCHOR = 'player-instance'
 
 /** Slots within the cap that are taken right now: leased, preparing, closing, stuck, or with an editor open. Draining slots are counted apart. */
 export function slotsInUse(state: Pick<PlayPoolState, 'slots' | 'cap'>): number {

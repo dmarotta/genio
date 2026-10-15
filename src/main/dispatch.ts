@@ -27,6 +27,7 @@ import { SessionQuotaPolicy } from './session-usage'
 import { PolicyNotices, claudeStatus, globalMode, holdsCapacity, liveUnits, worldUsage } from './usage-policy'
 import { readJson } from './util'
 import { claudeProbeError } from './claude-usage-probe'
+import { settingsPath } from '@shared/settings-pages'
 
 const USAGE_TTL = 5 * 60_000
 const LOGIN_TTL = 30 * 60_000
@@ -133,7 +134,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
     const gate = cheapGate({ worldAllows, keySet, opencodeReady: opencode })
     // A Usage mode never grants paid spend: that needs the explicit allowance.
     return gate.allowed && !ctx.settings.get().cheapSpendAllowed
-      ? { allowed: false, why: 'no paid-spend allowance for cheap models (Settings → Usage → Advanced)' }
+      ? { allowed: false, why: `no paid-spend allowance for cheap models (${settingsPath('usage')})` }
       : gate
   }
 

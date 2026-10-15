@@ -20,6 +20,7 @@ import type { CategoryPool, Decision, DispatchProposal, DispatchRule, PoolCandid
 import { LEARNING, candidateKey, categoryLabel, isCategory, type LearningEvent, type OutcomeRecord, type ScoreRow } from '@shared/dispatch'
 import type { DecisionService } from './services'
 import { appendLine, nowIso, readJson, readJsonl, writeJson } from './util'
+import { settingsPath } from '@shared/settings-pages'
 
 const KEEP = 2000
 const DAY = 86_400_000
@@ -301,7 +302,7 @@ export function openProposals(decisions: DecisionService, proposals: DispatchPro
       decisions.open({
         key,
         question: proposalQuestion(p, s),
-        context: `Dispatch learning: ${p.evidence}.\n\nAccepting changes the dispatch table in Settings → Dispatch; locked rows and rules are never touched.`,
+        context: `Dispatch learning: ${p.evidence}.\n\nAccepting changes the dispatch table in ${settingsPath('dispatch')}; locked rows and rules are never touched.`,
         options: PROPOSAL_OPTIONS,
         recommendation: PROPOSAL_OPTIONS[0],
         source: 'system',

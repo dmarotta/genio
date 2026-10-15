@@ -74,7 +74,7 @@ describe('Inventory screen lifecycle', () => {
     await render()
     const button = [...host.querySelectorAll('.inventory-head button')].find(b => b.textContent?.includes('Generation settings'))!
     await act(async () => (button as HTMLButtonElement).click())
-    expect(f.request).toHaveBeenCalledWith('project', 'generation-settings')
+    expect(f.request).toHaveBeenCalledWith('project-assets', 'generation-settings')
     expect(f.go).toHaveBeenCalledWith('systems')
     expect(f.request.mock.invocationCallOrder[0]).toBeLessThan(f.go.mock.invocationCallOrder[0])
   })

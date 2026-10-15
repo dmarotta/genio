@@ -9,6 +9,7 @@ import {
   UTHANA_GRAPHQL, UTHANA_ORIGIN, jobError, jobMotionIds, jobResult, type UthanaAccount, type UthanaRemoteCharacter, type UthanaTextParams
 } from '@shared/uthana'
 import type { FetchFn } from './fal'
+import { settingsPath } from '@shared/settings-pages'
 
 export class UthanaError extends Error {
   constructor(
@@ -20,7 +21,7 @@ export class UthanaError extends Error {
   }
 }
 
-const NO_KEY = 'No Uthana key set. Add one in Settings → Accounts.'
+const NO_KEY = `No Uthana key set. Add one in ${settingsPath('accounts')}.`
 const MAX_BYTES = 512 * 1024 * 1024
 
 /** Raw job as the API returns it. */
@@ -94,7 +95,7 @@ export function uthanaHttpMessage(status: number, body: string): string {
   } catch {
     msg = body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300)
   }
-  if (status === 401) return `Uthana rejected the key (401)${msg ? `: ${msg}` : ''}. Check it in Settings → Accounts.`
+  if (status === 401) return `Uthana rejected the key (401)${msg ? `: ${msg}` : ''}. Check it in ${settingsPath('accounts')}.`
   if (status === 403) return `Uthana refused the request (403)${msg ? `: ${msg}` : ''}. Check the plan's quota or credits at uthana.com/app/account.`
   return `Uthana error ${status}${msg ? `: ${msg}` : ''}`
 }

@@ -21,12 +21,13 @@ import type { AppCtx } from './services'
 import type { Home } from './home'
 import { codexImageScratch, codexImageSkillDir, installUnitPlugin, unitPluginDir, unitPluginSource } from './unitskills'
 import { ensureDir, nowIso, rid, truncate } from './util'
+import { settingsPath } from '@shared/settings-pages'
 
 export const MAX_GENERATED = 4
 export const MAX_REFS = 8
 /** plan meter % at which the chat message warns */
 export const METER_WARN_AT = 80
-export const LOGIN_HINT = 'log in to Codex in Settings → Accounts'
+export const LOGIN_HINT = `log in to Codex in ${settingsPath('accounts')}`
 
 export const GENERATE_IMAGE_DESC =
   "Generate PNG image(s) with Codex's image_gen on the player's ChatGPT plan (no API cost; about a minute per call) and show them in this chat. " +

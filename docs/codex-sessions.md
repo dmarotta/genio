@@ -73,7 +73,7 @@ thread at all. `tests/codex-one-shot-rule.test.ts` enforces this rule. It allows
 only the threads that must persist: the image helper reads its rollout, and the
 chat thread is resumed across restarts.
 
-## Older Genio sessions: Settings > Accounts > Housekeeping
+## Older Genio sessions: Settings > Advanced > Maintenance
 
 Threads and Claude folders Genio left before this are hidden only when the player
 clicks "Hide Genio's past sessions from the Codex and Claude apps"

@@ -1,21 +1,26 @@
-import { ThisProjectSettings } from './ProjectSettings'
+import { ThisProjectSettings, type ProjectPageId } from './ProjectSettings'
+import { PlayerInstanceSettings } from './PlayerInstanceSettings'
 import { ModelPicker, useModelCatalogue } from '../components/ModelPicker'
 import { Fragment, useEffect, useState, type CSSProperties, type ReactNode } from 'react'
-import { ChevronDown, ChevronRight, ChevronUp, Copy, Download, KeyRound, Lock, LockOpen, LogIn, LogOut, Plus, RefreshCw, Trash, TriangleAlert, Users, Wrench, X } from 'lucide-react'
-import type { CategoryPool, DispatchRule, EventSource, HarnessAdapter, PoolCandidate, Settings, ToolStatus, UpdateInfo } from '@shared/types'
+import { ChevronDown, ChevronRight, ChevronUp, Copy, Download, FolderOpen, KeyRound, Lock, LockOpen, LogIn, LogOut, Plus, RefreshCw, Trash, TriangleAlert, Users, Wrench, X } from 'lucide-react'
+import type { CategoryPool, DispatchRule, EventSource, HarnessAdapter, PoolCandidate, Project, Settings, ToolStatus, UpdateInfo } from '@shared/types'
 import {
   CATEGORIES, LEARNING, QUOTA_HOT_PERCENT, categoryLabel, defaultCategoryPools, type DispatchScoresView, type ScoreRow
 } from '@shared/dispatch'
 import {
   MODE_PRESETS, USAGE_MODES, USAGE_MODE_LABEL, modeSummary, pctText, planLabel, presetRows, type UsageMode, type UsagePolicyView
 } from '@shared/usage-mode'
+import { SETTINGS_GROUP_LABEL, SETTINGS_PAGES, settingsPage, type SettingsPage, type SettingsPageId } from '@shared/settings-pages'
+import { effectiveEngine } from '@shared/engine'
+import { supportsUnitySlots } from '@shared/play'
 import { PlanMeter, useUsagePolicyState } from '../components/PlanMeter'
 import {
   accountActions, GENIO_CODEX, type AccountStatus, type ApiKeyStatus, type ExplorerStatus, type FalSpend, type SessionCleanupPreview, type SessionCleanupProgress,
   type SessionCleanupResult, type ToolUsage, type UsageReport
 } from '@shared/api'
-import { api, errText, op, saveSettings, toast, useStore } from '../store'
+import { PROJECT_WINDOW, api, errText, op, saveSettings, toast, useStore } from '../store'
 import { CommitInput, Confirm, Field, Toggle, ViewHeader } from '../components/ui'
+import { SettingsTitle } from '../components/SettingsTitle'
 import { TerminalView } from '../components/Terminal'
 import { Memory } from '../components/Memory'
 import { Mailbox } from '../components/Mailbox'
@@ -23,40 +28,47 @@ import { EFFORTS } from '../lib/vocab'
 import { ago, clock, cx, dateShort, usd } from '../lib/format'
 import { playSfx } from '../lib/sfx'
 import { useScreenContext } from '../lib/screen-context'
+import { onSectionRequest, requestSystemsSection, takePendingSection, type SettingsRequest } from '../lib/settings-nav'
 
-export type Section =
-  | 'project' | 'profile' | 'genio' | 'units' | 'overwatch' | 'gauntlet' | 'comms' | 'alerts' | 'mail' | 'memory'
-  | 'harnesses' | 'dispatch' | 'triggers' | 'toolchain' | 'accounts' | 'patch' | 'usage' | 'explorer'
+export { requestSystemsSection }
+/** Settings pages, in nav order. Kept under its old name for callers that list sections. */
+export const SECTIONS = SETTINGS_PAGES
+export type Section = SettingsPageId
 
-export const SECTIONS: { id: Section; label: string; group: string }[] = [
-  { id: 'project', label: 'This project', group: 'Project' },
-  { id: 'profile', label: 'Profile', group: 'Player' },
-  { id: 'memory', label: 'Memory', group: 'Player' },
-  { id: 'mail', label: 'Mail & replay', group: 'Player' },
-  { id: 'comms', label: 'Comms & FX', group: 'Player' },
-  { id: 'alerts', label: 'Alerts', group: 'Player' },
-  { id: 'usage', label: 'Usage', group: 'Squad' },
-  { id: 'genio', label: 'Genio', group: 'Squad' },
-  { id: 'units', label: 'Units', group: 'Squad' },
-  { id: 'harnesses', label: 'Harnesses', group: 'Squad' },
-  { id: 'dispatch', label: 'Dispatch (Advanced)', group: 'Squad' },
-  { id: 'overwatch', label: 'Overwatch', group: 'Engine' },
-  { id: 'gauntlet', label: 'Gauntlet', group: 'Engine' },
-  { id: 'triggers', label: 'Triggers', group: 'Engine' },
-  { id: 'toolchain', label: 'Loadout', group: 'Base' },
-  { id: 'explorer', label: 'Explorer', group: 'Base' },
-  { id: 'accounts', label: 'Accounts', group: 'Base' },
-  { id: 'patch', label: 'Patch', group: 'Base' }
-]
+/** Per-viewer: whether the Advanced pages are listed. The old Usage › Advanced choice seeds it once. */
+const ADVANCED_KEY = 'genio.settings.advanced'
+const LEGACY_ADVANCED_KEY = 'genio.usage.advanced'
+export function readAdvanced(): boolean {
+  try {
+    const stored = localStorage.getItem(ADVANCED_KEY) ?? localStorage.getItem(LEGACY_ADVANCED_KEY)
+    return stored === '1'
+  } catch {
+    return false
+  }
+}
+function writeAdvanced(v: boolean): void {
+  try {
+    localStorage.setItem(ADVANCED_KEY, v ? '1' : '0')
+  } catch {
+    /* per-viewer convenience only */
+  }
+}
 
-interface SectionRequest { section: Section; anchor?: string }
-let pendingSection: SectionRequest | null = null
-const sectionListeners = new Set<(request: SectionRequest) => void>()
-/** Open a Settings section; with an anchor, also scroll that element into view and focus it. */
-export function requestSystemsSection(section: Section, anchor?: string): void {
-  const request = { section, anchor }
-  pendingSection = sectionListeners.size ? null : request
-  for (const listener of sectionListeners) listener(request)
+const isUnity = (p: Project): boolean => supportsUnitySlots(effectiveEngine(p).engine)
+
+/**
+ * The pages listed for this window: This project only with a project, Unity slots only for a Unity
+ * project, Unity & Play only while a Unity project is registered, Advanced only with the switch on.
+ * The page being shown is always listed, so a deep link never lands on a page missing from the nav.
+ */
+export function visiblePages(opts: { project?: Project; projects: Project[]; advanced: boolean; current?: SettingsPageId }): SettingsPage[] {
+  return SETTINGS_PAGES.filter((page) => {
+    if (page.id === opts.current) return true
+    if (page.group === 'project') return !!opts.project && (!page.unity || isUnity(opts.project))
+    if (page.group === 'advanced') return opts.advanced
+    if (page.unity) return opts.projects.some(isUnity)
+    return true
+  })
 }
 
 /**
@@ -73,6 +85,8 @@ function revealAnchor(id: string): () => void {
       if (--tries > 0) frame = requestAnimationFrame(seek)
       return
     }
+    // Collapsed parts open so the target is visible.
+    for (let d = el.closest('details'); d; d = d.parentElement?.closest('details') ?? null) d.open = true
     const align = (): void => el.scrollIntoView({ block: 'start' })
     align()
     el.focus({ preventScroll: true })
@@ -92,48 +106,30 @@ function revealAnchor(id: string): () => void {
 export function Systems() {
   const settings = useStore((s) => s.settings)
   const unread = useStore((s) => s.snap.inbox.filter((n) => !n.ackedAt).length)
-  const [request, setRequest] = useState<SectionRequest | null>(() => {
-    const p = pendingSection
-    pendingSection = null
-    return p
-  })
-  const [sec, setSec] = useState<Section>(request?.section ?? 'profile')
-  useEffect(() => {
-    const listener = (r: SectionRequest): void => { setSec(r.section); setRequest(r) }
-    sectionListeners.add(listener)
-    return () => { sectionListeners.delete(listener) }
-  }, [])
+  const projects = useStore((s) => s.snap.projects)
+  const project = projects.find((p) => p.name === PROJECT_WINDOW)
+  const [request, setRequest] = useState<SettingsRequest | null>(takePendingSection)
+  const [sec, setSec] = useState<SettingsPageId>(request?.page ?? (project ? 'project' : 'general'))
+  useEffect(() => onSectionRequest((r) => { setSec(r.page); setRequest(r) }), [])
   useEffect(() => (request?.anchor && settings ? revealAnchor(request.anchor) : undefined), [request, !!settings])
-  const [home, setHome] = useState('')
-  const section = SECTIONS.find((s) => s.id === sec)
-  useScreenContext('systems', { facts: [{ label: 'Section', value: section ? `${section.group} › ${section.label}` : sec }] })
-  const [advanced, setAdvancedState] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('genio.usage.advanced') === '1'
-    } catch {
-      return false
-    }
-  })
+  const page = settingsPage(sec)
+  useScreenContext('systems', { facts: [{ label: 'Section', value: `${page.group === 'project' ? 'This project' : SETTINGS_GROUP_LABEL[page.group]} › ${page.label}` }] })
+  const [advanced, setAdvancedState] = useState<boolean>(readAdvanced)
   const setAdvanced = (v: boolean): void => {
     setAdvancedState(v)
-    try {
-      localStorage.setItem('genio.usage.advanced', v ? '1' : '0')
-    } catch {
-      /* per-viewer convenience only */
-    }
+    writeAdvanced(v)
   }
-  useEffect(() => {
-    void api().homePath().then(setHome).catch(() => undefined)
-  }, [])
   if (!settings) return <div className="view"><div className="bar indeterminate"><i /></div></div>
 
-  // Dispatch tables, rules and telemetry are Advanced: listed only while Advanced is open
-  const visible = SECTIONS.filter((x) => x.id !== 'dispatch' || advanced || sec === 'dispatch')
+  const visible = visiblePages({ project, projects, advanced, current: sec })
+  const groupLabel = (g: SettingsPage['group']): ReactNode => g === 'project'
+    ? <>This project <span className="sys-group-name">· {project?.name ?? PROJECT_WINDOW}</span></>
+    : SETTINGS_GROUP_LABEL[g]
   let lastGroup = ''
   return (
     <div className="view">
       <ViewHeader
-        kicker={home ? `Base · ${home}` : 'Configuration'}
+        kicker="Configuration"
         title={
           <>
             <span className="accent">Settings</span>
@@ -141,60 +137,30 @@ export function Systems() {
         }
       />
       <div className="sys-layout">
-        <nav className="sys-nav">
+        <nav className="sys-nav" aria-label="Settings pages">
           {visible.map((s) => {
             const head = s.group !== lastGroup
             lastGroup = s.group
             return (
-              <div key={s.id}>
-                {head && <div className="label sys-group">{s.group}</div>}
-                <button className={cx('sys-link', sec === s.id && 'on')} onClick={() => setSec(s.id)}>
+              <div key={s.id} className={cx('sys-nav-item', `sys-in-${s.group}`)}>
+                {head && <div className="label sys-group">{groupLabel(s.group)}</div>}
+                <button className={cx('sys-link', sec === s.id && 'on')} aria-current={sec === s.id ? 'page' : undefined} title={s.term} onClick={() => setSec(s.id)}>
                   {s.label}
-                  {s.id === 'mail' && unread > 0 && <span className="sys-badge">{unread}</span>}
+                  {s.id === 'inbox' && unread > 0 && <span className="sys-badge">{unread}</span>}
                 </button>
               </div>
             )
           })}
+          <div className="sys-advanced">
+            <Toggle checked={advanced} onChange={setAdvanced} label="Show advanced settings" />
+          </div>
         </nav>
         <div className="sys-body panel">
-          <SectionBody sec={sec} s={settings} advanced={advanced} setAdvanced={setAdvanced} open={setSec} />
+          <SectionBody sec={sec} s={settings} setAdvanced={setAdvanced} open={setSec} />
         </div>
       </div>
     </div>
   )
-}
-
-function ExplorerIntegration() {
-  const [state, setState] = useState<ExplorerStatus | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  useEffect(() => {
-    let active = true
-    void api().explorerStatus().then(value => { if (active) setState(value) }).catch(e => { if (active) setError(errText(e)) })
-    return () => { active = false }
-  }, [])
-  const change = async (enabled: boolean): Promise<void> => {
-    setBusy(true); setError('')
-    try { setState(await api().explorerSet(enabled)) }
-    catch (e) {
-      setError(errText(e))
-      // A failed install may have left one key; keep Remove available.
-      try { setState(await api().explorerStatus()) } catch { /* retain last state */ }
-    } finally { setBusy(false) }
-  }
-  return <>
-    <h2 className="sys-title">Explorer</h2>
-    <Row label="Open with Genio" hint="Open or focus a project from a folder or folder background. Installs for your Windows account only; no administrator rights required.">
-      <button className="btn sm" disabled={busy || state?.available === false || state?.installed === true} onClick={() => void change(true)}>Install</button>
-      <button className="btn sm" disabled={busy || state?.available === false} onClick={() => void change(false)}>Remove</button>
-    </Row>
-    <p className="mute">{busy ? 'Updating Explorer…' : state?.available === false ? 'Available on Windows only.' : state?.installed ? 'Installed for this Genio location.' : state?.present ? 'A partial or older installation exists. Install to update it, or Remove to clean it up.' : 'Not installed.'}</p>
-    {error && <p role="alert">{error}</p>}
-    <p className="dim">On Windows 11, use Show more options in the context menu. Moving Genio requires installing again from its new location.</p>
-    <Row label="Terminal command" hint="Add the Genio resources folder to your user PATH to use the genio.cmd shim. See README → Open a project folder.">
-      <code>genio .</code>
-    </Row>
-  </>
 }
 
 function Row({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
@@ -209,23 +175,49 @@ function Row({ label, hint, children }: { label: string; hint?: ReactNode; child
   )
 }
 
+/** A titled part of a page; with an id it is a deep-link anchor (old pages that merged into this one). */
+function Part({ id, title, term, children }: { id?: string; title: string; term?: string; children: ReactNode }) {
+  return (
+    <section id={id} tabIndex={id ? -1 : undefined} className="sys-part" aria-label={title}>
+      <h3 className="sys-subtitle">{title}{term && <span className="sys-term">({term})</span>}</h3>
+      {children}
+    </section>
+  )
+}
+
 const set = (patch: Partial<Settings>): void => void saveSettings(patch)
 const num = (v: string, min = 0): number => Math.max(min, Number(v) || 0)
 
-function SectionBody({ sec, s, advanced, setAdvanced, open }: { sec: Section; s: Settings; advanced: boolean; setAdvanced: (v: boolean) => void; open: (s: Section) => void }) {
+function SectionBody({ sec, s, setAdvanced, open }: { sec: SettingsPageId; s: Settings; setAdvanced: (v: boolean) => void; open: (s: SettingsPageId) => void }) {
+  const openAdvanced = (id: SettingsPageId): void => { setAdvanced(true); open(id) }
   switch (sec) {
     case 'project':
-      return <ThisProjectSettings />
-    case 'explorer':
-      return <ExplorerIntegration />
-    case 'usage':
-      return <Usage s={s} advanced={advanced} setAdvanced={setAdvanced} open={open} />
-    case 'profile':
+    case 'project-delivery':
+    case 'project-commands':
+    case 'project-assets':
+    case 'project-unity':
+      return <ThisProjectSettings page={sec as ProjectPageId} />
+    case 'general':
       return (
         <>
-          <h2 className="sys-title">Profile</h2>
+          <SettingsTitle page="general" />
           <Row label="Gamertag" hint="How Genio addresses you.">
             <CommitInput value={s.gamertag} onCommit={(v) => set({ gamertag: v.trim() || 'Player' })} />
+          </Row>
+          <Row label="Voice" hint="Genio reads its replies aloud.">
+            <Toggle checked={s.voice} onChange={(v) => set({ voice: v })} />
+          </Row>
+          <Row label="Visual FX" hint="Scanlines and the tactical grid.">
+            <Toggle
+              checked={s.fx}
+              onChange={(v) => {
+                document.body.classList.toggle('fx-off', !v)
+                set({ fx: v })
+              }}
+            />
+          </Row>
+          <Row label="Clean HUD" hint="Hide tool chatter and routine events in Comms.">
+            <Toggle checked={s.calm} onChange={(v) => set({ calm: v })} />
           </Row>
           <Row label="Replay onboarding" hint="Show the first-run setup again.">
             <button className="btn sm" onClick={() => set({ firstRunDone: false })}>
@@ -234,10 +226,13 @@ function SectionBody({ sec, s, advanced, setAdvanced, open }: { sec: Section; s:
           </Row>
         </>
       )
-    case 'comms':
+    case 'notifications':
       return (
         <>
-          <h2 className="sys-title">Comms & FX</h2>
+          <SettingsTitle page="notifications" />
+          <Row label="Desktop notifications" hint="Ready Builds, choices and failures when Genio is in the background.">
+            <Toggle checked={s.desktopNotifications} onChange={(v) => set({ desktopNotifications: v })} />
+          </Row>
           <Row label="Sound effects" hint="Synthesized blips for deploys, merges, choices.">
             <Toggle checked={s.sound} onChange={(v) => set({ sound: v })} />
           </Row>
@@ -253,71 +248,45 @@ function SectionBody({ sec, s, advanced, setAdvanced, open }: { sec: Section; s:
               onMouseUp={() => playSfx('ready', { ...s, sound: true })}
             />
           </Row>
-          <Row label="Visual FX" hint="Scanlines and the tactical grid.">
-            <Toggle
-              checked={s.fx}
-              onChange={(v) => {
-                document.body.classList.toggle('fx-off', !v)
-                set({ fx: v })
-              }}
-            />
-          </Row>
-          <Row label="Clean HUD" hint="Hide tool chatter and routine events in Comms.">
-            <Toggle checked={s.calm} onChange={(v) => set({ calm: v })} />
-          </Row>
-          <Row label="Voice" hint="Genio reads its replies aloud.">
-            <Toggle checked={s.voice} onChange={(v) => set({ voice: v })} />
-          </Row>
-          <Row label="Desktop notifications" hint="Ready Builds, choices and failures when Genio is in the background.">
-            <Toggle checked={s.desktopNotifications} onChange={(v) => set({ desktopNotifications: v })} />
-          </Row>
+          <Part id="settings-away" title="While you're away">
+            <p className="mute">While you're DND or AFK, outcomes that need you are pushed here too.</p>
+            <Row label="Webhook kind">
+              <select className="select" value={s.webhookKind} onChange={(e) => set({ webhookKind: e.target.value as Settings['webhookKind'] })}>
+                <option value="discord">Discord</option>
+                <option value="slack">Slack</option>
+                <option value="generic">Generic JSON</option>
+              </select>
+            </Row>
+            <Row label="Webhook URL" hint="Leave blank to disable.">
+              <CommitInput mono value={s.webhookUrl} placeholder="https://discord.com/api/webhooks/…" onCommit={(v) => set({ webhookUrl: v.trim() })} />
+            </Row>
+            <Row label="Alarm" hint={<>off · auto (desktop + sound) · <span className="mono">command:&lt;cmd&gt;</span> (summary as $1 and stdin)</>}>
+              <CommitInput mono value={s.alarm} onCommit={(v) => set({ alarm: v.trim() || 'auto' })} />
+            </Row>
+            <Row label="Alarm after (min)" hint="An AFK escalation unseen this long re-alerts.">
+              <CommitInput type="number" value={s.alarmMinutes} onCommit={(v) => set({ alarmMinutes: num(v, 1) })} />
+            </Row>
+            <Row label="AFK digest window (s)" hint="Batch escalations before pushing.">
+              <CommitInput type="number" value={s.awayBatchSeconds} onCommit={(v) => set({ awayBatchSeconds: num(v) })} />
+            </Row>
+          </Part>
         </>
       )
-    case 'alerts':
+    case 'usage':
+      return <Usage s={s} open={open} openAdvanced={openAdvanced} />
+    case 'accounts':
+      return <Accounts />
+    case 'memory':
       return (
         <>
-          <h2 className="sys-title">Alerts</h2>
-          <p className="mute">While you're DND or AFK, outcomes that need you are pushed here too.</p>
-          <Row label="Webhook kind">
-            <select className="select" value={s.webhookKind} onChange={(e) => set({ webhookKind: e.target.value as Settings['webhookKind'] })}>
-              <option value="discord">Discord</option>
-              <option value="slack">Slack</option>
-              <option value="generic">Generic JSON</option>
-            </select>
-          </Row>
-          <Row label="Webhook URL" hint="Leave blank to disable.">
-            <CommitInput mono value={s.webhookUrl} placeholder="https://discord.com/api/webhooks/…" onCommit={(v) => set({ webhookUrl: v.trim() })} />
-          </Row>
-          <Row label="Alarm" hint={<>off · auto (desktop + sound) · <span className="mono">command:&lt;cmd&gt;</span> (summary as $1 and stdin)</>}>
-            <CommitInput mono value={s.alarm} onCommit={(v) => set({ alarm: v.trim() || 'auto' })} />
-          </Row>
-          <Row label="Alarm after (min)" hint="An AFK escalation unseen this long re-alerts.">
-            <CommitInput type="number" value={s.alarmMinutes} onCommit={(v) => set({ alarmMinutes: num(v, 1) })} />
-          </Row>
-          <Row label="AFK digest window (s)" hint="Batch escalations before pushing.">
-            <CommitInput type="number" value={s.awayBatchSeconds} onCommit={(v) => set({ awayBatchSeconds: num(v) })} />
-          </Row>
-        </>
-      )
-    case 'genio':
-      return (
-        <>
-          <h2 className="sys-title">Genio</h2>
-          <Row label="Model and effort" hint="Set by the Usage mode. Raw chat picks are under Usage → Advanced.">
-            <button className="btn sm" onClick={() => open('usage')}>Usage</button>
-          </Row>
-          <Row label="Claude Code path" hint="Blank uses the bundled Claude Code.">
-            <CommitInput mono value={s.claudePath} placeholder="(bundled)" onCommit={(v) => set({ claudePath: v.trim() })} />
-          </Row>
-          <Row label="Auto-dispatch queued quests" hint="Genio deploys queued quests as soon as deps, gates and capacity clear.">
-            <Toggle checked={s.autoDispatchQueued} onChange={(v) => set({ autoDispatchQueued: v })} />
-          </Row>
+          <Memory budget={s.memoryBudgetTokens} />
+          <NumRow label="Memory budget (tokens)" hint="Player profile + squad memory kept under this on /save." value={s.memoryBudgetTokens} onCommit={(v) => set({ memoryBudgetTokens: num(v, 500) })} />
         </>
       )
     case 'units':
       return (
         <>
-          <h2 className="sys-title">Units</h2>
+          <SettingsTitle page="units" />
           <Row label="Default harness">
             <select className="select" value={s.defaultHarness} onChange={(e) => set({ defaultHarness: e.target.value })}>
               {s.harnesses
@@ -347,90 +316,165 @@ function SectionBody({ sec, s, advanced, setAdvanced, open }: { sec: Section; s:
               <option value="acceptEdits">Accept edits only</option>
             </select>
           </Row>
-          <Row label="Shell" hint="For Shell sessions.">
-            <CommitInput mono value={s.shell} onCommit={(v) => set({ shell: v.trim() })} />
-          </Row>
-          <Row label="Automatic respawns" hint="One attempt, then the unit waits for a manual Respawn from Squad.">
-            <span className="mono">1</span>
-          </Row>
-          <Row label="Strip AI commit trailers">
-            <Toggle checked={s.stripAiTrailers} onChange={(v) => set({ stripAiTrailers: v })} />
-          </Row>
-          <Row label="Co-authored by Genio" hint="Adds a Co-authored-by trailer for Genio to every unit commit.">
-            <Toggle checked={s.genioCoAuthor} onChange={(v) => set({ genioCoAuthor: v })} />
-          </Row>
-          <Row label="Genio trailer identity" hint="Name <email>. The .invalid domain never links to a real account.">
-            <CommitInput mono value={s.genioCoAuthorIdentity} onCommit={(v) => set({ genioCoAuthorIdentity: v.trim() })} />
+          <Row label="Auto-dispatch queued quests" hint="Genio deploys queued quests as soon as deps, gates and capacity clear.">
+            <Toggle checked={s.autoDispatchQueued} onChange={(v) => set({ autoDispatchQueued: v })} />
           </Row>
           <div className="sys-row col">
             <div className="sys-row-title">Brief additions</div>
             <div className="mute sys-row-hint">Appended to every unit brief.</div>
             <BriefInclude value={s.briefInclude} />
           </div>
+          <details className="sys-fold">
+            <summary className="sys-subtitle">Commit attribution</summary>
+            <Row label="Strip AI commit trailers">
+              <Toggle checked={s.stripAiTrailers} onChange={(v) => set({ stripAiTrailers: v })} />
+            </Row>
+            <Row label="Co-authored by Genio" hint="Adds a Co-authored-by trailer for Genio to every unit commit.">
+              <Toggle checked={s.genioCoAuthor} onChange={(v) => set({ genioCoAuthor: v })} />
+            </Row>
+            <Row label="Genio trailer identity" hint="Name <email>. The .invalid domain never links to a real account.">
+              <CommitInput mono value={s.genioCoAuthorIdentity} onCommit={(v) => set({ genioCoAuthorIdentity: v.trim() })} />
+            </Row>
+          </details>
         </>
       )
-    case 'overwatch':
-      return (
-        <>
-          <h2 className="sys-title">Overwatch</h2>
-          <p className="mute">Zero-token supervision timings. Genio only wakes when something is actionable.</p>
-          <NumRow label="Poll every (s)" value={s.pollSeconds} onCommit={(v) => set({ pollSeconds: num(v, 3) })} />
-          <NumRow label="Lagging after (s)" hint="Idle with no declared wait." value={s.staleSeconds} onCommit={(v) => set({ staleSeconds: num(v, 30) })} />
-          <NumRow label="Lag escalations" hint="Before deep inspection." value={s.staleEscalations} onCommit={(v) => set({ staleEscalations: num(v, 1) })} />
-          <NumRow label="Paused resurface (h)" value={s.pausedResurfaceHours} onCommit={(v) => set({ pausedResurfaceHours: num(v, 1) })} />
-          <Row label="Heartbeat" hint="Routine heartbeat and wake batching follow the Usage mode.">
-            <span className="mono">{MODE_PRESETS[s.usageMode ?? 'balanced'].heartbeat.baseMinutes}/{MODE_PRESETS[s.usageMode ?? 'balanced'].heartbeat.maxMinutes} min</span>
-          </Row>
-          <NumRow label="PR poll (min)" value={s.prPollMinutes} onCommit={(v) => set({ prPollMinutes: num(v, 1) })} />
-          <NumRow label="Ping re-ring (s)" value={s.inboxGraceSeconds} onCommit={(v) => set({ inboxGraceSeconds: num(v, 10) })} />
-          <NumRow label="Ping rings before escalating" value={s.inboxRingMax} onCommit={(v) => set({ inboxRingMax: num(v, 1) })} />
-        </>
-      )
+    case 'play':
+      return <UnityAndPlay />
+    case 'inbox':
+      return <Inbox s={s} />
+    case 'system':
+      return <SystemPage />
+    case 'dispatch':
+      return <Dispatch s={s} />
+    case 'harnesses':
+      return <Harnesses s={s} />
     case 'gauntlet':
       return (
         <>
-          <h2 className="sys-title">Gauntlet</h2>
+          <SettingsTitle page="gauntlet" />
           <p className="mute">Hardcore validation: checks, AI review against your words, fix rounds, push, PR, CI.</p>
           <ModelRow allowCustom label="Reviewer model" value={s.reviewModel} onCommit={(v) => set({ reviewModel: v })} />
           <NumRow label="Max fix rounds" value={s.validationMaxRounds} onCommit={(v) => set({ validationMaxRounds: num(v, 1) })} />
         </>
       )
-    case 'memory':
+    case 'overwatch':
       return (
         <>
-          <Memory budget={s.memoryBudgetTokens} />
-          <NumRow label="Memory budget (tokens)" hint="Player profile + squad memory kept under this on /save." value={s.memoryBudgetTokens} onCommit={(v) => set({ memoryBudgetTokens: num(v, 500) })} />
+          <SettingsTitle page="overwatch" />
+          <p className="mute">Zero-token supervision timings. Genio only wakes when something is actionable. Routine heartbeat and wake batching follow the Usage mode.</p>
+          <NumRow label="Poll every (s)" value={s.pollSeconds} onCommit={(v) => set({ pollSeconds: num(v, 3) })} />
+          <NumRow label="Lagging after (s)" hint="Idle with no declared wait." value={s.staleSeconds} onCommit={(v) => set({ staleSeconds: num(v, 30) })} />
+          <NumRow label="Lag escalations" hint="Before deep inspection." value={s.staleEscalations} onCommit={(v) => set({ staleEscalations: num(v, 1) })} />
+          <NumRow label="Paused resurface (h)" value={s.pausedResurfaceHours} onCommit={(v) => set({ pausedResurfaceHours: num(v, 1) })} />
+          <NumRow label="PR poll (min)" value={s.prPollMinutes} onCommit={(v) => set({ prPollMinutes: num(v, 1) })} />
+          <NumRow label="Ping re-ring (s)" value={s.inboxGraceSeconds} onCommit={(v) => set({ inboxGraceSeconds: num(v, 10) })} />
+          <NumRow label="Ping rings before escalating" value={s.inboxRingMax} onCommit={(v) => set({ inboxRingMax: num(v, 1) })} />
         </>
       )
-    case 'mail':
-      return <MailServer s={s} />
-    case 'harnesses':
-      return <Harnesses s={s} />
-    case 'dispatch':
-      return <Dispatch s={s} />
-    case 'triggers':
-      return <Triggers s={s} />
-    case 'toolchain':
-      return <Toolchain />
-    case 'accounts':
-      return <Accounts />
-    case 'patch':
-      return <Patch />
+    case 'maintenance':
+      return (
+        <>
+          <SettingsTitle page="maintenance" />
+          <Housekeeping />
+        </>
+      )
   }
+}
+
+/** Genio › Unity & Play: the player's own Play editor, stored once for every Unity project. */
+function UnityAndPlay() {
+  const projects = useStore((s) => s.snap.projects)
+  const own = projects.find((p) => p.name === PROJECT_WINDOW && isUnity(p))
+  const world = own ?? projects.find(isUnity)
+  return (
+    <>
+      <SettingsTitle page="play" />
+      {world
+        ? <PlayerInstanceSettings key={world.name} world={world.name} own={!!own} />
+        : <p className="mute">Register a Unity project to use Play.</p>}
+    </>
+  )
+}
+
+/** Genio › System: tools on this PC, Windows integration, updates and Genio's data folder. */
+function SystemPage() {
+  const [home, setHome] = useState('')
+  useEffect(() => {
+    void api().homePath().then(setHome).catch(() => undefined)
+  }, [])
+  return (
+    <>
+      <SettingsTitle page="system" />
+      <Toolchain />
+      <ExplorerIntegration />
+      <Patch />
+      <Part title="Genio data folder">
+        <Row label="Base" hint="Settings, memory and logs Genio keeps on this PC.">
+          <span className="mono selectable">{home || '…'}</span>
+          {home && (
+            <button className="btn sm ghost" title="Reveal in Explorer" onClick={() => void api().openPath(home)}>
+              <FolderOpen size={13} /> Reveal
+            </button>
+          )}
+        </Row>
+      </Part>
+    </>
+  )
+}
+
+function ExplorerIntegration() {
+  const [state, setState] = useState<ExplorerStatus | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let active = true
+    void api().explorerStatus().then(value => { if (active) setState(value) }).catch(e => { if (active) setError(errText(e)) })
+    return () => { active = false }
+  }, [])
+  const change = async (enabled: boolean): Promise<void> => {
+    setBusy(true); setError('')
+    try { setState(await api().explorerSet(enabled)) }
+    catch (e) {
+      setError(errText(e))
+      // A failed install may have left one key; keep Remove available.
+      try { setState(await api().explorerStatus()) } catch { /* retain last state */ }
+    } finally { setBusy(false) }
+  }
+  return <Part id="settings-explorer" title="Windows integration">
+    <Row label="Open with Genio" hint="Open or focus a project from a folder or folder background. Installs for your Windows account only; no administrator rights required.">
+      <button className="btn sm" disabled={busy || state?.available === false || state?.installed === true} onClick={() => void change(true)}>Install</button>
+      <button className="btn sm" disabled={busy || state?.available === false} onClick={() => void change(false)}>Remove</button>
+    </Row>
+    <p className="mute">{busy ? 'Updating Explorer…' : state?.available === false ? 'Available on Windows only.' : state?.installed ? 'Installed for this Genio location.' : state?.present ? 'A partial or older installation exists. Install to update it, or Remove to clean it up.' : 'Not installed.'}</p>
+    {error && <p role="alert">{error}</p>}
+    <p className="dim">On Windows 11, use Show more options in the context menu. Moving Genio requires installing again from its new location.</p>
+    <Row label="Terminal command" hint="Add the Genio resources folder to your user PATH to use the genio.cmd shim. See README → Open a project folder.">
+      <code>genio .</code>
+    </Row>
+  </Part>
 }
 
 const LEVEL_TEXT = { ok: 'below 70%: the mode as set', warm: '70-84%: exploration off, one unit, Auto effort one step lower, other plan preferred', hot: '85-94%: no automatic units; Auto chat Sonnet / low', out: '95%+ or rejected: no new automatic work until reset' } as const
 
-/** Systems → Usage: one mode, what it sets, what is pinned, protection and the shared plan meter. */
-function Usage({ s, advanced, setAdvanced, open }: { s: Settings; advanced: boolean; setAdvanced: (v: boolean) => void; open: (s: Section) => void }) {
+/**
+ * Settings › Usage & limits: one mode, what it sets, what is pinned, protection and the shared plan
+ * meter (its only full home), the pins themselves, and which projects use their own mode.
+ */
+function Usage({ s, open, openAdvanced }: { s: Settings; open: (s: SettingsPageId) => void; openAdvanced: (s: SettingsPageId) => void }) {
   const { view, error: usageError } = useUsagePolicyState()
   const mode: UsageMode = s.usageMode ?? 'balanced'
   const [hover, setHover] = useState<UsageMode | null>(null)
+  const [usage, setUsage] = useState<UsageReport | null>(null)
+  useEffect(() => {
+    let live = true
+    void api().accountUsage().then((u) => { if (live) setUsage(u) }).catch(() => undefined)
+    return () => { live = false }
+  }, [])
   const shown = hover ?? mode
   const pins = pinnedOverrides(s, view)
   return (
     <>
-      <h2 className="sys-title">Usage</h2>
+      <SettingsTitle page="usage" />
       <div className="usage-mode-bar">
         <span className="label">Usage mode</span>
         <div className="seg" role="radiogroup" aria-label="Usage mode">
@@ -451,9 +495,6 @@ function Usage({ s, advanced, setAdvanced, open }: { s: Settings; advanced: bool
             </button>
           ))}
         </div>
-        <button className={cx('btn sm ghost', advanced && 'neon')} aria-pressed={advanced} onClick={() => setAdvanced(!advanced)}>
-          Advanced
-        </button>
       </div>
       <div className="usage-summary">
         <b>{modeSummary(mode, view?.chat)}</b>
@@ -487,7 +528,7 @@ function Usage({ s, advanced, setAdvanced, open }: { s: Settings; advanced: bool
               {p.unpin ? (
                 <button className="btn sm ghost" onClick={p.unpin}>Unpin</button>
               ) : (
-                <button className="btn sm ghost" onClick={() => { setAdvanced(true); open('dispatch') }}>Open</button>
+                <button className="btn sm ghost" onClick={() => openAdvanced('dispatch')}>Open</button>
               )}
             </div>
           ))}
@@ -530,8 +571,17 @@ function Usage({ s, advanced, setAdvanced, open }: { s: Settings; advanced: bool
 
       <div className="label" style={{ margin: '18px 0 6px' }}>Plan remaining</div>
       <PlanMeter view={view} error={usageError} />
+      {usage && <WorldAttribution usage={usage} />}
 
-      {advanced && <UsageAdvanced s={s} view={view} open={open} />}
+      <Row label="Paid spend on cheap models" hint="Lets low-stakes units use OpenRouter models through OpenCode, billed to your OpenRouter key. A mode never turns this on.">
+        <Toggle checked={!!s.cheapSpendAllowed} onChange={(v) => set({ cheapSpendAllowed: v })} />
+        {view && <span className="mute">{view.cheap.why}</span>}
+      </Row>
+      <UsagePins s={s} />
+      <UsageProjects s={s} view={view} open={open} />
+      <Row label="Category table, rules, scorecard" hint="Locked rows and rules are Pinned; unlocked rows follow the mode.">
+        <button className="btn sm" onClick={() => openAdvanced('dispatch')}>Model routing</button>
+      </Row>
     </>
   )
 }
@@ -562,50 +612,44 @@ function pinnedOverrides(s: Settings, view: UsagePolicyView | null): Pin[] {
   return out
 }
 
-/** Advanced: raw chat/unit/Bot picks (each one Pins), per-world mode and capacity, paid-spend allowance, tables. */
-function UsageAdvanced({ s, view, open }: { s: Settings; view: UsagePolicyView | null; open: (s: Section) => void }) {
-  const projects = useStore((st) => st.snap.projects)
+/** Raw chat and unit picks, each one Pinned. Collapsed: the mode sets these for most players. */
+function UsagePins({ s }: { s: Settings }) {
   return (
-    <div className="usage-advanced">
-      <h3 className="sys-subtitle">Advanced</h3>
+    <details className="sys-fold usage-advanced">
+      <summary className="sys-subtitle">Pin models and effort</summary>
       <p className="mute">Any value set here is Pinned: the mode and protection leave it alone. Blank or (auto) follows the mode.</p>
       <ModelRow label="Chat model" hint="Default for project chats without their own pick." value={s.wkspModel} onCommit={(v) => set({ wkspModel: v })} />
       <Row label="Chat effort">
         <EffortSelect model={s.wkspModel} value={s.wkspEffort} onChange={(v) => set({ wkspEffort: v })} />
       </Row>
-      <Row label="Bot model" hint="Handles events while you're DND/AFK using the main chat selection.">
-        <span className="mute">Inherits the main chat provider and model; read-only tools.</span>
-      </Row>
       <ModelRow allowCustom label="Unit model" hint={`Applies to ${s.defaultHarness} units.`} value={s.defaultWorkerModel} onCommit={(v) => set({ defaultWorkerModel: v })} />
       <Row label="Unit effort" hint="Blank: the mode's effort per category.">
         <EffortSelect value={s.defaultWorkerEffort} onChange={(v) => set({ defaultWorkerEffort: v })} />
       </Row>
-      <Row label="Paid spend on cheap models" hint="Lets low-stakes units use OpenRouter models through OpenCode, billed to your OpenRouter key. A mode never turns this on.">
-        <Toggle checked={!!s.cheapSpendAllowed} onChange={(v) => set({ cheapSpendAllowed: v })} />
-        {view && <span className="mute">{view.cheap.why}</span>}
-      </Row>
+    </details>
+  )
+}
+
+/** Each project's mode and cap, read-only: they are set on that project's own General page. */
+function UsageProjects({ s, view, open }: { s: Settings; view: UsagePolicyView | null; open: (s: SettingsPageId) => void }) {
+  const projects = useStore((st) => st.snap.projects)
+  if (!projects.length) return null
+  return (
+    <div className="usage-projects">
       <div className="label" style={{ margin: '16px 0 6px' }}>Projects</div>
-      <p className="mute">A project can use its own mode. Its unit cap can only be lower than the global {MODE_PRESETS[s.usageMode ?? 'balanced'].unitCap}.</p>
+      <p className="mute">A project can use its own mode. Its unit cap can only be lower than the global {MODE_PRESETS[s.usageMode ?? 'balanced'].unitCap}. Change them in each project's Settings.</p>
       {projects.map((p) => {
         const w = view?.worlds.find((x) => x.name === p.name)
         return (
           <Row key={p.name} label={p.name} hint={w?.cap !== undefined ? `at most ${w.cap} unit${w.cap === 1 ? '' : 's'} here` : undefined}>
-            <select
-              className="select"
-              value={p.usageMode ?? ''}
-              onChange={(e) => void op('Project usage mode', () => api().projectUpdate(p.name, { usageMode: (e.target.value || undefined) as UsageMode | undefined, costDial: undefined }))}
-            >
-              <option value="">Global ({USAGE_MODE_LABEL[s.usageMode ?? 'balanced']})</option>
-              {USAGE_MODES.map((m) => <option key={m} value={m}>{USAGE_MODE_LABEL[m]}</option>)}
-            </select>
-            <span className="mute">capacity</span>
-            <CommitInput type="number" className="num-input" value={p.capacity ?? 0} onCommit={(v) => void op('Project capacity', () => api().projectUpdate(p.name, { capacity: Math.max(0, parseInt(v, 10) || 0) }))} />
+            <span className="mono">{p.usageMode ? USAGE_MODE_LABEL[p.usageMode] : `Global (${USAGE_MODE_LABEL[s.usageMode ?? 'balanced']})`}</span>
+            <span className="mute">{p.capacity ? `capacity ${p.capacity}` : 'no own cap'}</span>
+            {p.name === PROJECT_WINDOW
+              ? <button className="btn sm ghost" onClick={() => open('project')}>Change</button>
+              : <button className="btn sm ghost" title={`Open ${p.name} to change its settings`} onClick={() => void op('Open project', () => api().projectOpen(p.path))}>Open</button>}
           </Row>
         )
       })}
-      <Row label="Category table, rules, scorecard" hint="Locked rows and rules are Pinned; unlocked rows follow the mode.">
-        <button className="btn sm" onClick={() => open('dispatch')}>Dispatch</button>
-      </Row>
     </div>
   )
 }
@@ -690,10 +734,11 @@ function BriefInclude({ value }: { value: string }) {
   )
 }
 
-function MailServer({ s }: { s: Settings }) {
+/** Settings › Inbox & automation: notes for Genio (mail, HTTP intake), the activity log, and scheduled checks. */
+function Inbox({ s }: { s: Settings }) {
   return (
     <>
-      <h2 className="sys-title">Mail & replay</h2>
+      <SettingsTitle page="inbox" />
       <Mailbox />
       <Row label="Mail HTTP intake" hint="Send Genio notes from your phone or scripts. Localhost only, token protected.">
         <Toggle checked={s.inboxServer} onChange={(v) => set({ inboxServer: v })} />
@@ -724,6 +769,7 @@ function MailServer({ s }: { s: Settings }) {
       <Row label="Replay log" hint="Append-only activity ledger other tools can read (fleet-ledger.jsonl).">
         <Toggle checked={s.ledger} onChange={(v) => set({ ledger: v })} />
       </Row>
+      <Triggers s={s} />
     </>
   )
 }
@@ -734,8 +780,14 @@ function Harnesses({ s }: { s: Settings }) {
   const [newId, setNewId] = useState('')
   return (
     <>
-      <h2 className="sys-title">Harnesses</h2>
+      <SettingsTitle page="harnesses" />
       <p className="mute">The coding-agent CLIs units run. Unverified adapters are allowed but may need a hand in their terminal.</p>
+      <Row label="Claude Code path" hint="Blank uses the bundled Claude Code.">
+        <CommitInput mono value={s.claudePath} placeholder="(bundled)" onCommit={(v) => set({ claudePath: v.trim() })} />
+      </Row>
+      <Row label="Shell" hint="For Shell sessions.">
+        <CommitInput mono value={s.shell} onCommit={(v) => set({ shell: v.trim() })} />
+      </Row>
       <div className="harness-list">
         {s.harnesses.map((h) => (
           <div key={h.id} className={cx('harness panel', !h.enabled && 'off')}>
@@ -819,7 +871,7 @@ function Dispatch({ s }: { s: Settings }) {
   }, [s.categoryPools, s.dispatchRules])
   return (
     <>
-      <h2 className="sys-title">Dispatch</h2>
+      <SettingsTitle page="dispatch" />
       <p className="mute">
         How Genio picks a unit tool, model and effort. Precedence: your (or Genio's) explicit per-mission pick, then a follow-up's original loadout, then the best-fit rule below, then the
         category table, then the Units default. Unlocked table rows follow the Usage mode; a locked row is Pinned and used as written. Tools that aren't installed or logged in are skipped, and a subscription at
@@ -1081,8 +1133,7 @@ function Triggers({ s }: { s: Settings }) {
   const save = (list: EventSource[]): void => set({ eventSources: list })
   const upd = (id: string, patch: Partial<EventSource>): void => save(s.eventSources.map((e) => (e.id === id ? { ...e, ...patch } : e)))
   return (
-    <>
-      <h2 className="sys-title">Triggers</h2>
+    <Part id="settings-triggers" title="Scheduled checks" term="Triggers">
       <p className="mute">Commands Overwatch runs on a timer. When one fires, Genio gets an event — e.g. a nightly build check, an itch.io butler status, a Steam depot poll.</p>
       {s.eventSources.map((e) => (
         <div key={e.id} className="rule panel">
@@ -1127,7 +1178,7 @@ function Triggers({ s }: { s: Settings }) {
       >
         <Plus size={13} /> Add trigger
       </button>
-    </>
+    </Part>
   )
 }
 
@@ -1143,14 +1194,13 @@ function Toolchain() {
   }
   useEffect(load, [])
   return (
-    <>
-      <h2 className="sys-title">
-        Loadout
+    <Part id="settings-tools" title="Installed tools" term="Loadout">
+      <p className="mute">
+        Tools Genio and its units use. Installs run only when you click.
         <button className="btn sm ghost" style={{ marginLeft: 12 }} onClick={load}>
           <RefreshCw size={12} /> Rescan
         </button>
-      </h2>
-      <p className="mute">Tools Genio and its units use. Installs run only when you click.</p>
+      </p>
       {!tools && (
         <div className="bar indeterminate">
           <i />
@@ -1193,7 +1243,7 @@ function Toolchain() {
           onClose={() => setConfirm(null)}
         />
       )}
-    </>
+    </Part>
   )
 }
 
@@ -1210,7 +1260,6 @@ function Accounts() {
   const [logout, setLogout] = useState<AccountStatus | null>(null)
   const [usage, setUsage] = useState<UsageReport | null>(null)
   const [open, setOpen] = useState<Record<string, boolean>>({})
-  const { view: policy, error: policyError } = useUsagePolicyState()
   const sessionTerm = useStore((s) => (session ? s.terminals[session] : undefined))
   // read on opening the screen and on Refresh only: no background polling
   const load = (): void => {
@@ -1246,15 +1295,12 @@ function Accounts() {
   }
   return (
     <>
-      <h2 className="sys-title">
-        Accounts
+      <SettingsTitle page="accounts">
         <button className="btn sm ghost" style={{ marginLeft: 12 }} onClick={load}>
           <RefreshCw size={12} /> Refresh
         </button>
-      </h2>
-      <p className="mute">Sign in to the CLIs Genio and its units drive. Each login runs the tool's own flow; the tool keeps its credentials and Genio never reads them. Usage comes from what each tool reports and from local session logs.</p>
-      <PlanMeter view={policy} error={policyError} />
-      {usage && <WorldAttribution usage={usage} />}
+      </SettingsTitle>
+      <p className="mute">Sign in to the CLIs Genio and its units drive. Each login runs the tool's own flow; the tool keeps its credentials and Genio never reads them. Usage comes from what each tool reports and from local session logs; the shared plan meter is in Usage &amp; limits.</p>
       {!accounts && (
         <div className="bar indeterminate">
           <i />
@@ -1334,7 +1380,6 @@ function Accounts() {
       {keys.map((k) => (
         <ApiKeyRow key={k.id} k={k} spend={k.id === 'fal' ? usage?.fal : undefined} onChange={() => void api().apiKeys().then(setKeys).catch(() => undefined)} />
       ))}
-      <Housekeeping />
       {logout && (
         <Confirm
           title={logout.tool === GENIO_CODEX ? `Sign out ${logout.label}?` : `Log out of ${logout.label}?`}
@@ -1351,7 +1396,7 @@ function Accounts() {
   )
 }
 
-/** Accounts → Housekeeping: hide Genio's past sessions from the player's Codex and Claude apps, on a click, with Undo. */
+/** Advanced › Maintenance (once Accounts › Housekeeping): hide Genio's past sessions from the player's Codex and Claude apps, on a click, with Undo. */
 function Housekeeping() {
   const [preview, setPreview] = useState<SessionCleanupPreview | null>(null)
   const [loading, setLoading] = useState(false)
@@ -1392,9 +1437,6 @@ function Housekeeping() {
   const running = !!progress?.running
   return (
     <>
-      <div className="label" style={{ margin: '22px 0 8px' }}>
-        Housekeeping
-      </div>
       <Row
         label="Hide Genio's past sessions from the Codex and Claude apps"
         hint="Archives Genio's older Codex threads with Codex's own archive, and moves Genio's older Claude conversations into Genio's own Claude folder, where Genio can still resume them. Nothing is deleted, your own sessions are never touched, and Undo puts everything back. Runs only when you click."
@@ -1644,12 +1686,9 @@ function Patch() {
       setBusy(false)
     }
   }
-  useEffect(() => {
-    void check()
-  }, [])
+  // Checks only on a click: opening Settings never runs git fetch.
   return (
-    <>
-      <h2 className="sys-title">Patch</h2>
+    <Part id="settings-updates" title="Updates" term="Patch">
       <p className="mute">Fast-forward-only self update of Genio's own checkout. Never touches your projects. Allies restart on the new build.</p>
       <button className="btn" disabled={busy} onClick={() => void check()}>
         <RefreshCw size={13} className={busy ? 'spin' : ''} /> Check for patch
@@ -1717,6 +1756,6 @@ function Patch() {
           onClose={() => setConfirm(false)}
         />
       )}
-    </>
+    </Part>
   )
 }
