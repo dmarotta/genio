@@ -44,7 +44,8 @@ async function desktopNotify(appRoot: string, title: string, body: string, sever
     n.on('click', () => {
       drop()
       if (target) { bus.publish({ type: 'navigate', target }); return }
-      const win = electron.BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+      // Never Inventory's hidden, unfocusable thumbnail windows.
+      const win = electron.BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && w.isFocusable())
       if (win) {
         if (win.isMinimized()) win.restore()
         win.show()

@@ -69,6 +69,17 @@ describe('preview thumbnail payload', () => {
       expect((await prepareInventoryContext(next, [], thumbnail, () => history)).images).toHaveLength(1)
     }
   })
+  it('gives Genio a picture of a selected model, but asks for none for audio', async () => {
+    const thumbnail = vi.fn(async () => thumb)
+    const c = context(); c.preview = { ...contextAsset(asset('hero.fbx')), kind: 'model' }
+    const model = await prepareInventoryContext(c, [], thumbnail, () => [])
+    expect(thumbnail).toHaveBeenCalledWith('forest', 'Assets/hero.fbx')
+    expect(model.images).toEqual([{ mediaType: 'image/webp', data: fs.readFileSync(thumb).toString('base64') }])
+    expect(model.context?.thumbnail?.status).toBe('attached')
+    c.preview = { ...contextAsset(asset('theme.mp3')), kind: 'audio' }
+    expect((await prepareInventoryContext(c, [], thumbnail, () => [])).context?.thumbnail).toBeUndefined()
+    expect(thumbnail).toHaveBeenCalledTimes(1)
+  })
   it('does not fetch a removed preview, reports failures honestly and respects attachment limits', async () => {
     const thumbnail = vi.fn(async () => undefined)
     const c = visibleContext(context(), { preview: chipKey(context(), 'preview') })

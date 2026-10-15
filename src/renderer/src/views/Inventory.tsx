@@ -5,7 +5,8 @@ import { PROJECT_WINDOW, api, errText, op, useStore } from '../store'
 import { GENERATION_ANCHOR } from '../components/GenerationSettings'
 import { openSettings } from '../lib/settings-nav'
 import { cx } from '../lib/format'
-import { assetBytes, breadcrumbs, previewKind, thumbnailUrl, unavailablePreview, virtualWindow } from '../lib/inventory'
+import { MODEL_THUMB_NOTES, assetBytes, breadcrumbs, modelTile, previewKind, thumbnailUrl, unavailablePreview, virtualWindow, type TileNote } from '../lib/inventory'
+import { readModelFailure } from '@shared/model-viewer'
 import { PreviewUnavailable } from '../components/PreviewUnavailable'
 import { contextAsset, toggleSelection } from '@shared/inventory-context'
 import { listFact, useScreenContext } from '../lib/screen-context'
@@ -185,6 +186,58 @@ function AssetBrowser({ world, query, revision, indexing, list, tile, selected, 
 }
 
 function AssetThumbnail({ world, asset }: { world: string; asset: InventoryAsset }) {
+  const model = modelTile(world, asset)
+  // An edited model is drawn again (main's cache is keyed by its content).
+  return model ? <ModelThumbnail key={`${asset.size}:${asset.mtimeMs}`} asset={asset} tile={model} /> : <ImageThumbnail world={world} asset={asset} />
+}
+
+/**
+ * A model's tile asks main to draw it only once it stays near the viewport (the 120 ms rule), and cancels
+ * the request when scrolled away first, so main's queue drops it. Main draws one model at a time in a
+ * hidden window; a model it cannot draw answers why, which the tile says under its icon.
+ */
+function ModelThumbnail({ asset, tile }: { asset: InventoryAsset; tile: { url: string } | TileNote }) {
+  const ref = useRef<HTMLSpanElement>(null)
+  const [src, setSrc] = useState<string>()
+  const [note, setNote] = useState<TileNote | undefined>('note' in tile ? tile : undefined)
+  const url = 'url' in tile ? tile.url : undefined
+  useEffect(() => {
+    if (!url) return
+    const el = ref.current!
+    let timer: ReturnType<typeof setTimeout> | undefined, request: AbortController | undefined, done = false
+    const finish = (): void => { done = true; observer.disconnect() }
+    const load = (): void => {
+      const r = request = new AbortController()
+      void fetch(url, { signal: r.signal }).then(async res => {
+        // A data URL (the app's CSP admits no blob: images); thumbnails are a few KB.
+        if (res.ok) setSrc(await dataUrl(await res.blob()))
+        else if (res.status === 422) { const failure = readModelFailure(await res.json()); if (failure) setNote({ note: MODEL_THUMB_NOTES[failure.code], reason: failure.reason }) }
+        finish()
+      }).catch(() => undefined).finally(() => { if (request === r) request = undefined })
+    }
+    const observer = new IntersectionObserver(entries => {
+      clearTimeout(timer)
+      if (done) return
+      if (entries.at(-1)?.isIntersecting) { if (!request) timer = setTimeout(load, 120) } else { request?.abort(); request = undefined }
+    }, { root: el.closest('.inventory-scroll'), rootMargin: '100px' })
+    observer.observe(el)
+    return () => { clearTimeout(timer); observer.disconnect(); request?.abort() }
+  }, [url])
+  const Icon = ICONS[asset.kind]
+  return <span ref={ref} className={cx('inventory-thumb', note && 'has-note')} title={note?.reason}>
+    {src ? <img src={src} alt="" /> : <Icon size={30} strokeWidth={1.2} />}
+    {!src && note && <small className="inventory-thumb-note">{note.note}</small>}
+  </span>
+}
+
+const dataUrl = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
+  const reader = new FileReader()
+  reader.onload = () => resolve(String(reader.result))
+  reader.onerror = () => reject(reader.error)
+  reader.readAsDataURL(blob)
+})
+
+function ImageThumbnail({ world, asset }: { world: string; asset: InventoryAsset }) {
   const url = thumbnailUrl(world, asset)
   const ref = useRef<HTMLSpanElement>(null)
   const [visible, setVisible] = useState(false)

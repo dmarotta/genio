@@ -1,6 +1,6 @@
 import type { InventoryAsset } from '@shared/inventory'
-import { NATIVE_THUMB_EXTS, THUMB_MAX_BYTES, inventoryMediaUrl } from '@shared/inventory'
-import { MODEL_PREVIEW_EXTS, MODEL_PREVIEW_MAX_BYTES } from '@shared/model-viewer'
+import { NATIVE_THUMB_EXTS, inventoryMediaUrl, thumbnailKind } from '@shared/inventory'
+import { MODEL_PREVIEW_EXTS, MODEL_PREVIEW_MAX_BYTES, type ModelFailure } from '@shared/model-viewer'
 
 export function breadcrumbs(folder: string): { name: string; path: string }[] {
   const parts = folder.split('/').filter(Boolean)
@@ -8,8 +8,27 @@ export function breadcrumbs(folder: string): { name: string; path: string }[] {
 }
 
 export function thumbnailUrl(world: string, asset: InventoryAsset): string | undefined {
-  return !asset.lfs && asset.size <= THUMB_MAX_BYTES && NATIVE_THUMB_EXTS.has(asset.ext)
-    ? inventoryMediaUrl('thumb', world, asset.path) : undefined
+  return thumbnailKind(asset) === 'image' ? inventoryMediaUrl('thumb', world, asset.path) : undefined
+}
+
+/** A model tile's short note under its icon, with the full reason as its tooltip. */
+export interface TileNote { note: string; reason: string }
+export const MODEL_THUMB_NOTES: Record<ModelFailure, string> = { 'too-large': 'Too large', timeout: 'Took too long', unreadable: 'Can\'t be read', 'no-webgl': 'No WebGL' }
+
+/**
+ * A model tile asks for its drawing (`url`) or, when the 3D viewer cannot read it, says why at once.
+ * Undefined for everything else (images, audio, LFS pointers keep their own tiles).
+ */
+export function modelTile(world: string, asset: InventoryAsset): { url: string } | TileNote | undefined {
+  if (asset.lfs) return
+  if (thumbnailKind(asset) === 'model') {
+    const big = modelTooLarge(asset)
+    return big ? { note: MODEL_THUMB_NOTES['too-large'], reason: `${big.title}. ${big.reason}` } : { url: inventoryMediaUrl('thumb', world, asset.path) }
+  }
+  if (asset.kind !== 'model') return
+  const { title, reason } = unavailablePreview(asset)
+  const ext = asset.ext.toLowerCase()
+  return { note: ext === 'blend' ? 'Needs Blender' : ext === 'usdz' || ext === 'usdc' ? 'Binary USD' : 'No 3D preview', reason: `${title}. ${reason}` }
 }
 
 const AUDIO_EXTS = ['wav', 'mp3', 'ogg', 'flac', 'm4a', 'aac', 'opus']

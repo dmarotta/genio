@@ -6,6 +6,13 @@
  */
 export const VIEWER_SCHEME = 'genio-viewer'
 export const VIEWER_APP_URL = `${VIEWER_SCHEME}://app/viewer3d.html`
+/**
+ * The same page in a hidden window main drives (src/main/model-thumbnails.ts): one WebGL context draws
+ * Inventory's model thumbnails one at a time, never one canvas per tile (Chromium keeps 16 contexts).
+ */
+export const VIEWER_THUMBNAIL_URL = `${VIEWER_APP_URL}?thumbnail`
+/** Thumbnails are square WebP images this many pixels wide. */
+export const MODEL_THUMB_SIZE = 256
 /** Files above this are not loaded: a 76 MB FBX with 4K textures froze the renderer for 90+ s. */
 export const MODEL_PREVIEW_MAX_BYTES = 64 * 1024 * 1024
 /** The frame is removed (stopping its work) when a model has not drawn by then. */
@@ -87,6 +94,18 @@ export interface ModelLoaded {
   unityClips: boolean
 }
 export type ModelFailure = 'too-large' | 'timeout' | 'unreadable' | 'no-webgl'
+export const MODEL_FAILURES: readonly ModelFailure[] = ['too-large', 'timeout', 'unreadable', 'no-webgl']
+/** Why a model has no thumbnail: what the thumbnail request answers instead of an image (HTTP 422). */
+export interface ModelThumbnailFailure { code: ModelFailure; reason: string }
+/** What the thumbnail page returns to main: a base64 WebP, or why it could not draw the model. */
+export type ModelThumbnailResult = { webp: string } | ModelThumbnailFailure
+
+/** Untrusted input (the page parses arbitrary files, a response body): only a known code and a short reason pass. */
+export function readModelFailure(data: unknown): ModelThumbnailFailure | undefined {
+  const m = data as Record<string, unknown> | undefined
+  if (!m || typeof m !== 'object' || !(MODEL_FAILURES as readonly unknown[]).includes(m.code) || typeof m.reason !== 'string' || m.reason.length > 600) return
+  return { code: m.code as ModelFailure, reason: m.reason }
+}
 export interface ModelPlayback { clip: number; playing: boolean; time: number; speed: number; loop: boolean; follow: boolean }
 
 export type ToViewer =
@@ -115,8 +134,10 @@ export function readViewerMessage(data: unknown): FromViewer | undefined {
   const m = data as Record<string, unknown>
   switch (m.type) {
     case 'ready': return { type: 'ready' }
-    case 'failed':
-      return ['too-large', 'timeout', 'unreadable', 'no-webgl'].includes(m.code as string) && isStr(m.reason, 600) ? { type: 'failed', code: m.code as ModelFailure, reason: m.reason } : undefined
+    case 'failed': {
+      const failure = readModelFailure(m)
+      return failure && { type: 'failed', ...failure }
+    }
     case 'time':
       return isNum(m.clip) && isNum(m.time) && typeof m.playing === 'boolean' ? { type: 'time', clip: m.clip, time: m.time, playing: m.playing } : undefined
     case 'texture-previews': {

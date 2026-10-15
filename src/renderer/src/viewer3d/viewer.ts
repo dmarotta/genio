@@ -48,6 +48,8 @@ export interface Viewer {
   frame(): void
   /** Draw a frame now (uploads textures), without waiting for the next animation frame. */
   render(): void
+  /** A square WebP of the model as framed, drawn and read back at once (the canvas keeps no drawing buffer). */
+  snapshot(size: number): Promise<Blob>
   texturePreviews(size?: number): { id: number; url: string }[]
   /** GPU resources currently alive (renderer.info.memory). */
   memory(): { textures: number; geometries: number }
@@ -583,10 +585,24 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
     return out
   }
 
+  function snapshot(size: number): Promise<Blob> {
+    renderer.setPixelRatio(1)
+    renderer.setSize(size, size, false)
+    width = height = size
+    camera.aspect = 1
+    frame()
+    model?.skeleton?.update()
+    renderer.render(scene, camera)
+    dirty = false
+    const still = new OffscreenCanvas(size, size)
+    still.getContext('2d')!.drawImage(canvas, 0, 0, size, size)
+    return still.convertToBlob({ type: 'image/webp', quality: 0.85 })
+  }
+
   applyBackground()
   raf = requestAnimationFrame(tick)
   return {
-    renderer, open, clear, set, playback, frame, texturePreviews,
+    renderer, open, clear, set, playback, frame, texturePreviews, snapshot,
     render: () => { model?.skeleton?.update(); renderer.render(scene, camera); dirty = false },
     memory: () => ({ textures: renderer.info.memory.textures, geometries: renderer.info.memory.geometries }),
     dispose() {

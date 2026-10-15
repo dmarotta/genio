@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { breadcrumbs, previewKind, thumbnailUrl, virtualWindow } from '../src/renderer/src/lib/inventory'
+import { MODEL_THUMB_NOTES, breadcrumbs, modelTile, previewKind, thumbnailUrl, virtualWindow } from '../src/renderer/src/lib/inventory'
 import { queryInventory } from '../src/main/inventory-query'
 import type { InventoryAsset } from '../src/shared/inventory'
 
@@ -53,5 +53,17 @@ describe('Inventory browser', () => {
     expect(previewKind(asset('asset.png', { lfs: true }))).toBe('none')
     expect(thumbnailUrl('world', asset('asset.png', { lfs: true }))).toBeUndefined()
     for (const [ext, kind] of [['png', 'image'], ['wav', 'audio'], ['mp4', 'video'], ['glb', 'model'], ['gltf', 'model'], ['fbx', 'model'], ['3ds', 'model']]) expect(previewKind(asset(`asset.${ext}`))).toBe(kind)
+  })
+  it('asks for drawn model thumbnails and says plainly, at once, why a model gets none', () => {
+    const model = (name: string, extra: Partial<InventoryAsset> = {}): InventoryAsset => asset(`Assets/Models/${name}`, { kind: 'model', ...extra })
+    for (const name of ['hero.fbx', 'robot.glb', 'crate.obj', 'wave.bvh', 'robot.usda']) expect(modelTile('w', model(name))).toEqual({ url: `genio-media://thumb/w/Assets/Models/${name}` })
+    expect(thumbnailUrl('w', model('hero.fbx'))).toBeUndefined()
+    expect(modelTile('w', model('hero.blend'))).toMatchObject({ note: 'Needs Blender', reason: expect.stringContaining('Genio does not run Blender') })
+    expect(modelTile('w', model('robot.usdz'))).toMatchObject({ note: 'Binary USD' })
+    expect(modelTile('w', model('robot.c4d'))).toMatchObject({ note: 'No 3D preview', reason: expect.stringContaining('glTF, GLB, FBX') })
+    expect(modelTile('w', model('huge.fbx', { size: 80 * 1024 ** 2 }))).toEqual({ note: 'Too large', reason: expect.stringMatching(/^Too large to preview: 80\.0 MB \(limit 64\.0 MB\)\. /) })
+    expect(modelTile('w', model('hero.fbx', { lfs: true }))).toBeUndefined()
+    expect(modelTile('w', assets[0])).toBeUndefined()
+    for (const note of [...Object.values(MODEL_THUMB_NOTES), 'Needs Blender', 'Binary USD', 'No 3D preview']) expect(note).not.toMatch(/coming|later|soon/i)
   })
 })

@@ -8,6 +8,8 @@ import { bus } from '../src/main/bus'
 import { createInventoryService, enumerateInventory, guardedWorldFile, validInventoryPath, type InventoryService } from '../src/main/inventory'
 import { assetKind, ignoredAssetPath } from '../src/main/inventory-query'
 import { inventoryMediaUrl, THUMB_MAX_BYTES } from '../src/shared/inventory'
+import { MODEL_PREVIEW_MAX_BYTES } from '../src/shared/model-viewer'
+import type { ModelThumbnail } from '../src/main/model-thumbnails'
 import { mediaResponse } from '../src/main/fal-service'
 import type { AppCtx } from '../src/main/services'
 
@@ -236,6 +238,60 @@ describe('Inventory backend', () => {
     expect(await s.thumbnail('fixture', 'misc/missing.tga')).toBeUndefined()
     expect(await s.thumbnail('fixture', 'Nested/Assets/ThirdParty/Pack/stone.psd')).toBeUndefined()
     expect(decode).toHaveBeenCalledTimes(2)
+  })
+  it('draws a model once per content in Genio\'s data folder, redraws edits, keeps reasons and skips models over the cap', async () => {
+    const webp = Buffer.from('RIFF0000WEBPmodel')
+    const render = vi.fn(async (_world: string, asset: string): Promise<ModelThumbnail> =>
+      asset.endsWith('broken.obj') ? { code: 'unreadable', reason: 'The file could not be read as OBJ: no vertices' } : { webp })
+    const s = createInventoryService(context, undefined, undefined, render); services.push(s)
+    write('misc/copy.fbx', 'model'); write('misc/broken.obj', 'nope'); write('misc/hero.blend', 'blend')
+    write('big.glb', ''); fs.truncateSync(path.join(root, 'big.glb'), MODEL_PREVIEW_MAX_BYTES + 1)
+    await s.refresh('fixture')
+    const first = await s.thumbnailResult('fixture', 'misc/clip.fbx')
+    expect(first.file).toContain(path.join(data, 'thumbs', 'fixture'))
+    expect(fs.readFileSync(first.file!)).toEqual(webp)
+    expect(render).toHaveBeenCalledTimes(1)
+    // The key is the content's hash and size: a copy shares the drawing and a touch keeps it.
+    expect(await s.thumbnail('fixture', 'misc/copy.fbx')).toBe(first.file)
+    fs.utimesSync(path.join(root, 'misc/clip.fbx'), new Date(), new Date(Date.now() + 5000))
+    expect(await s.thumbnail('fixture', 'misc/clip.fbx')).toBe(first.file)
+    expect(render).toHaveBeenCalledTimes(1)
+    write('misc/clip.fbx', 'edited model')
+    const edited = await s.thumbnail('fixture', 'misc/clip.fbx')
+    expect(edited).toBeDefined(); expect(edited).not.toBe(first.file); expect(render).toHaveBeenCalledTimes(2)
+    // A model that cannot be drawn keeps its reason instead of being drawn again.
+    const broken = await s.thumbnailResult('fixture', 'misc/broken.obj')
+    expect(broken).toEqual({ failure: { code: 'unreadable', reason: 'The file could not be read as OBJ: no vertices' } })
+    expect(await s.thumbnailResult('fixture', 'misc/broken.obj')).toEqual(broken)
+    expect(await s.thumbnail('fixture', 'misc/broken.obj')).toBeUndefined()
+    expect(render).toHaveBeenCalledTimes(3)
+    expect((await s.thumbnailResult('fixture', 'big.glb')).failure).toMatchObject({ code: 'too-large', reason: expect.stringContaining('64 MB preview limit') })
+    expect(await s.thumbnailResult('fixture', 'misc/hero.blend')).toEqual({})
+    expect(render).toHaveBeenCalledTimes(3)
+    expect((await s.info('fixture', 'misc/copy.fbx'))?.thumbnailUrl).toBe(inventoryMediaUrl('thumb', 'fixture', 'misc/copy.fbx'))
+    expect((await s.info('fixture', 'big.glb'))?.thumbnailUrl).toBeUndefined()
+    // Nothing is written into the project.
+    expect((fs.readdirSync(root, { recursive: true }) as string[]).filter(p => p.endsWith('.webp'))).toEqual([path.join('misc', 'texture.webp')])
+  })
+  it('draws one model at a time and drops a request scrolled away before its turn', async () => {
+    let release!: () => void, active = 0, most = 0
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const render = vi.fn(async (): Promise<ModelThumbnail> => {
+      most = Math.max(most, ++active); await gate; active--
+      return { webp: Buffer.from('RIFF0000WEBPmodel') }
+    })
+    const s = createInventoryService(context, undefined, undefined, render); services.push(s)
+    write('misc/a.obj', 'a'); write('misc/b.obj', 'b'); write('misc/c.obj', 'c')
+    await s.refresh('fixture')
+    const a = s.thumbnailResult('fixture', 'misc/a.obj')
+    await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(1))
+    const away = new AbortController()
+    const b = s.thumbnailResult('fixture', 'misc/b.obj', away.signal), c = s.thumbnailResult('fixture', 'misc/c.obj')
+    await new Promise(r => setTimeout(r, 50))
+    away.abort(); release()
+    expect((await a).file).toBeDefined(); expect(await b).toEqual({}); expect((await c).file).toBeDefined()
+    expect(render.mock.calls.map(call => (call as unknown[])[1])).toEqual(['misc/a.obj', 'misc/c.obj'])
+    expect(most).toBe(1)
   })
   it('classifies DCC/HDR/animation/media extensions and hides sidecars and engine caches', () => {
     for (const ext of ['psd', 'tga', 'tif', 'tiff', 'exr', 'hdr']) expect(assetKind(`x.${ext}`)).toBe('image')

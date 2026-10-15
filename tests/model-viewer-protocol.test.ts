@@ -121,6 +121,20 @@ describe('genio-viewer:// model grants', () => {
     for (let i = 0; i < 16; i++) await files.grant('zoo', 'robot.glb')
     expect((await get(files, first)).status).toBe(404)
   })
+
+  it('revokes a thumbnail\'s grant at once, so drawing many thumbnails never expires the inspector\'s', async () => {
+    const files = service()
+    const inspector = await files.grant('zoo', 'robot.glb')
+    for (let i = 0; i < 40; i++) {
+      const thumb = await files.grant('zoo', 'robot.glb')
+      expect((await get(files, thumb)).status).toBe(200)
+      files.revoke(thumb)
+      expect((await get(files, thumb)).status).toBe(404)
+    }
+    expect((await get(files, inspector)).status).toBe(200)
+    files.revoke('genio-media://world/zoo/robot.glb')
+    expect((await get(files, inspector)).status).toBe(200)
+  })
 })
 
 describe('genio-viewer://app', () => {

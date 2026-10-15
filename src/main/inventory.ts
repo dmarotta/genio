@@ -4,7 +4,9 @@ import path from 'node:path'
 import { Worker } from 'node:worker_threads'
 import { createHash } from 'node:crypto'
 import type { InventoryAsset, InventoryInfo, InventoryQuery, InventoryResult, InventoryState } from '@shared/inventory'
-import { inventoryMediaUrl, NATIVE_THUMB_EXTS, THUMB_MAX_BYTES } from '@shared/inventory'
+import { inventoryMediaUrl, thumbnailKind, THUMB_MAX_BYTES } from '@shared/inventory'
+import { MODEL_PREVIEW_MAX_BYTES, type ModelThumbnailFailure } from '@shared/model-viewer'
+import type { ModelThumbnail } from './model-thumbnails'
 import { effectiveEngine } from '@shared/engine'
 import { assetKind, assetTags, ignoredAssetPath, matchInventory, pageInventory, under, vendorPath, type InventoryMatch } from './inventory-query'
 import { INVENTORY_WORKER } from './inventory-worker'
@@ -21,9 +23,18 @@ export interface InventoryService {
   info(world: string, asset: string, verifyHash?: boolean): Promise<InventoryInfo | null>
   mediaPath(world: string, asset: string): Promise<string | undefined>
   thumbnail(world: string, asset: string, signal?: AbortSignal): Promise<string | undefined>
+  /** The thumbnail file, or for a model that cannot be drawn, why. */
+  thumbnailResult(world: string, asset: string, signal?: AbortSignal): Promise<ThumbnailResult>
   stop(): void
 }
+export interface ThumbnailResult { file?: string; failure?: ModelThumbnailFailure }
 export type ThumbnailDecoder = (url: string) => Promise<Buffer | undefined>
+/** Draws one model of a project (the 3D viewer in its hidden window). */
+export type ModelRenderer = (world: string, asset: string) => Promise<ModelThumbnail>
+/** Bumped when the drawing changes (framing, lighting), so cached model thumbnails are redrawn. */
+const MODEL_THUMB_VERSION = 1
+/** Remembered content hashes and model failures. */
+const MEMO = 4096
 type Candidate = InventoryAsset & { sidecar?: string; record?: string; stamp?: string }
 type ScanResult = (InventoryAsset & { stamp: string }) | { path: string; same: true } | { path: string; skip: true; stamp: string }
 /** Watcher batch: `enumerate` when a path may have appeared or vanished (rename events, ignore/config files). */
@@ -101,11 +112,14 @@ export async function enumerateInventory(root: string): Promise<{ files: Map<str
   return { files, ms: performance.now() - start }
 }
 
-export function createInventoryService(getCtx: () => AppCtx, decode?: ThumbnailDecoder, thumbCap = 1024 ** 3): InventoryService {
+export function createInventoryService(getCtx: () => AppCtx, decode?: ThumbnailDecoder, thumbCap = 1024 ** 3, renderModel?: ModelRenderer): InventoryService {
   const worlds = new Map<string, WorldIndex>(), workers = new Set<Worker>()
   const thumbs = new Map<string, { task: Promise<string | undefined>; waiters: (AbortSignal | undefined)[] }>()
+  const models = new Map<string, { task: Promise<ThumbnailResult>; waiters: (AbortSignal | undefined)[] }>()
+  const hashes = new Map<string, Promise<string>>(), modelFailures = new Map<string, ModelThumbnailFailure>()
   const thumbCaches = new Map<string, Promise<Map<string, { size: number; time: number }>>>()
-  let stopped = false, thumbQueue: Promise<unknown> = Promise.resolve()
+  // Models draw in their own queue: a slow model never holds up image thumbnails.
+  let stopped = false, thumbQueue: Promise<unknown> = Promise.resolve(), modelQueue: Promise<unknown> = Promise.resolve()
   /** One-shot worker; with `onChunk`, results stream in pages until the worker reports `done`. */
   const worker = <T>(data: unknown, onChunk?: (items: T) => void): Promise<T> => new Promise((resolve, reject) => {
     if (stopped) return reject(new Error('Inventory stopped'))
@@ -342,44 +356,100 @@ export function createInventoryService(getCtx: () => AppCtx, decode?: ThumbnailD
     if (!proj) return
     return guardedWorldFile(proj.path, asset)
   }
-  const thumbnail = async (world: string, asset: string, signal?: AbortSignal): Promise<string | undefined> => {
-    const w = await ready(world), a = w.assets.get(asset)
-    if (!decode || !a || a.lfs || !NATIVE_THUMB_EXTS.has(a.ext)) return
-    const file = await mediaPath(world, asset)
-    if (!file) return
-    const stat = await fsp.stat(file)
-    if (!stat.size || stat.size > THUMB_MAX_BYTES) return
-    const key = createHash('sha256').update(`${w.root}\0${asset}\0${stat.size}\0${stat.mtimeMs}`).digest('hex')
-    const dir = cacheDir(world, 'thumbs'), dest = path.join(dir, key + '.webp')
-    // Cache hits never wait for the one-off cache walk; LRU entries load only when a thumbnail must be written.
+  // Cache hits never wait for the one-off cache walk; LRU entries load only when a thumbnail must be written.
+  const cached = async (dir: string, dest: string): Promise<boolean> => {
     try {
       await fsp.utimes(dest, new Date(), new Date())
       void thumbCaches.get(dir)?.then(entries => { const entry = entries.get(dest); if (entry) entry.time = Date.now() })
-      return dest
-    } catch { void thumbCaches.get(dir)?.then(entries => entries.delete(dest)) }
-    const queued = thumbs.get(dest)
+      return true
+    } catch { void thumbCaches.get(dir)?.then(entries => entries.delete(dest)); return false }
+  }
+  const store = async (dir: string, dest: string, data: Buffer): Promise<string | undefined> => {
+    const entries = await thumbCache(dir)
+    await fsp.mkdir(dir, { recursive: true })
+    await fsp.writeFile(dest, data)
+    entries.set(dest, { size: data.length, time: Date.now() })
+    // Walk only Genio's cache, once per world; subsequent LRU bookkeeping is in memory.
+    let total = [...entries.values()].reduce((n, e) => n + e.size, 0)
+    for (const [p, e] of [...entries].sort((a, b) => a[1].time - b[1].time)) {
+      if (total <= thumbCap) break
+      await fsp.unlink(p).catch(() => undefined); total -= e.size; entries.delete(p)
+    }
+    return total <= thumbCap && data.length <= thumbCap ? dest : undefined
+  }
+  const webp = (data: Buffer | undefined): data is Buffer => !!data && data.length <= 1024 * 1024 && data.toString('ascii', 0, 4) === 'RIFF' && data.toString('ascii', 8, 12) === 'WEBP'
+  /** A model's content hash, read once per path, size and modification time. */
+  const contentHash = (file: string, stat: fs.Stats): Promise<string> => {
+    const id = `${file}\0${stat.size}\0${stat.mtimeMs}`
+    let hash = hashes.get(id)
+    if (!hash) {
+      hash = new Promise<string>((resolve, reject) => {
+        const h = createHash('sha256')
+        fs.createReadStream(file).on('data', chunk => h.update(chunk)).once('error', reject).once('end', () => resolve(h.digest('hex')))
+      })
+      hashes.set(id, hash)
+      hash.catch(() => hashes.delete(id))
+      if (hashes.size > MEMO) hashes.delete(hashes.keys().next().value!)
+    }
+    return hash
+  }
+  /**
+   * Models are keyed by content hash and size, so an edit draws a new thumbnail and a touch or a copy does
+   * not. Each is drawn once in the model queue (requests scrolled away first are dropped); a model that
+   * cannot be drawn keeps its reason for the session instead of being drawn again.
+   */
+  const modelThumbnail = async (world: string, asset: string, signal?: AbortSignal): Promise<ThumbnailResult> => {
+    const file = await mediaPath(world, asset)
+    if (!renderModel || !file) return {}
+    const stat = await fsp.stat(file)
+    if (stat.size > MODEL_PREVIEW_MAX_BYTES) return { failure: { code: 'too-large', reason: `This model is ${(stat.size / 1024 ** 2).toFixed(1)} MB, over the ${MODEL_PREVIEW_MAX_BYTES / 1024 ** 2} MB preview limit, so it is not drawn.` } }
+    if (signal?.aborted) return {}
+    const key = createHash('sha256').update(`model\0${MODEL_THUMB_VERSION}\0${await contentHash(file, stat)}\0${stat.size}`).digest('hex')
+    const failure = modelFailures.get(key)
+    if (failure) return { failure }
+    const dir = cacheDir(world, 'thumbs'), dest = path.join(dir, key + '.webp')
+    if (await cached(dir, dest)) return { file: dest }
+    const queued = models.get(dest)
     if (queued) { queued.waiters.push(signal); return queued.task }
+    const waiters = [signal]
+    const task = modelQueue.then(async (): Promise<ThumbnailResult> => {
+      if (stopped || waiters.every(s => s?.aborted)) return {}
+      const drawn = await renderModel(world, asset)
+      if ('code' in drawn) {
+        modelFailures.set(key, { code: drawn.code, reason: drawn.reason })
+        if (modelFailures.size > MEMO) modelFailures.delete(modelFailures.keys().next().value!)
+        return { failure: drawn }
+      }
+      return webp(drawn.webp) ? { file: await store(dir, dest, drawn.webp) } : {}
+    }).catch(() => ({})).finally(() => models.delete(dest))
+    models.set(dest, { task, waiters }); modelQueue = task
+    return task
+  }
+  const thumbnailResult = async (world: string, asset: string, signal?: AbortSignal): Promise<ThumbnailResult> => {
+    const w = await ready(world), a = w.assets.get(asset)
+    const kind = a && thumbnailKind(a)
+    if (kind === 'model') return modelThumbnail(world, asset, signal)
+    if (!decode || kind !== 'image') return {}
+    const file = await mediaPath(world, asset)
+    if (!file) return {}
+    const stat = await fsp.stat(file)
+    if (!stat.size || stat.size > THUMB_MAX_BYTES) return {}
+    const key = createHash('sha256').update(`${w.root}\0${asset}\0${stat.size}\0${stat.mtimeMs}`).digest('hex')
+    const dir = cacheDir(world, 'thumbs'), dest = path.join(dir, key + '.webp')
+    if (await cached(dir, dest)) return { file: dest }
+    const queued = thumbs.get(dest)
+    if (queued) { queued.waiters.push(signal); return { file: await queued.task } }
     const waiters = [signal]
     const task = thumbQueue.then(async () => {
       // Requests for tiles scrolled away before their turn are dropped instead of decoded.
       if (stopped || waiters.every(s => s?.aborted)) return
       const data = await decode(inventoryMediaUrl('world', world, asset))
-      if (!data || data.length > 1024 * 1024 || data.toString('ascii', 0, 4) !== 'RIFF' || data.toString('ascii', 8, 12) !== 'WEBP') return
-      const entries = await thumbCache(dir)
-      await fsp.mkdir(dir, { recursive: true })
-      await fsp.writeFile(dest, data)
-      entries.set(dest, { size: data.length, time: Date.now() })
-      // Walk only Genio's cache, once per world; subsequent LRU bookkeeping is in memory.
-      let total = [...entries.values()].reduce((n, e) => n + e.size, 0)
-      for (const [p, e] of [...entries].sort((a, b) => a[1].time - b[1].time)) {
-        if (total <= thumbCap) break
-        await fsp.unlink(p).catch(() => undefined); total -= e.size; entries.delete(p)
-      }
-      return total <= thumbCap && data.length <= thumbCap ? dest : undefined
+      return webp(data) ? store(dir, dest, data) : undefined
     }).catch(() => undefined).finally(() => thumbs.delete(dest))
     thumbs.set(dest, { task, waiters }); thumbQueue = task
-    return task
+    return { file: await task }
   }
+  const thumbnail = async (world: string, asset: string, signal?: AbortSignal): Promise<string | undefined> => (await thumbnailResult(world, asset, signal)).file
   return {
     async open(world) {
       const w = await get(world)
@@ -423,9 +493,11 @@ export function createInventoryService(getCtx: () => AppCtx, decode?: ThumbnailD
       const a = w.assets.get(asset)
       if (!a || !await mediaPath(world, asset)) return null
       const editedSinceGeneration = verifyHash && a.provenance && !a.lfs ? await worker<string>({ root: w.root, hash: asset }) !== a.provenance.sha256 : undefined
-      return { ...a, mediaUrl: inventoryMediaUrl('world', world, asset), thumbnailUrl: !a.lfs && a.size <= THUMB_MAX_BYTES && NATIVE_THUMB_EXTS.has(a.ext) ? inventoryMediaUrl('thumb', world, asset) : undefined, editedSinceGeneration }
+      const kind = thumbnailKind(a)
+      const thumbnailUrl = kind === 'image' || kind === 'model' && renderModel && a.size <= MODEL_PREVIEW_MAX_BYTES ? inventoryMediaUrl('thumb', world, asset) : undefined
+      return { ...a, mediaUrl: inventoryMediaUrl('world', world, asset), thumbnailUrl, editedSinceGeneration }
     },
-    mediaPath, thumbnail,
+    mediaPath, thumbnail, thumbnailResult,
     stop() { stopped = true; for (const world of worlds.keys()) close(world); for (const w of workers) void w.terminate() }
   }
 }

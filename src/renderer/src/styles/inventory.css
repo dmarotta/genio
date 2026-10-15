@@ -35,12 +35,15 @@
 .inventory-tile.selected { background: var(--neon-soft); border-color: var(--neon); }
 .inventory-thumb { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; color: var(--text-mute); background: #080b11; }
 .inventory-thumb img { width: 100%; height: 100%; object-fit: contain; }
+.inventory-thumb.has-note { flex-direction: column; gap: 6px; }
+.inventory-thumb-note { max-width: 100%; padding: 0 6px; font: 10px var(--font-mono); color: var(--text-dim); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inventory-asset-name { font: 12px var(--font-ui); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inventory-asset-type, .inventory-asset-size { color: var(--text-dim); font: 10px var(--font-mono); }
 .inventory-list-head { display: grid; grid-template-columns: 1fr 66px 70px; padding: 8px 18px; font-size: 10px; color: var(--text-dim); }
 .is-list .inventory-tile { display: grid; grid-template-columns: 30px minmax(0, 1fr) 66px 70px; align-items: center; gap: 8px; margin: 2px 5px; padding: 5px; }
 .is-list .inventory-thumb { height: 30px; }
 .is-list .inventory-thumb svg { width: 20px; }
+.is-list .inventory-thumb-note { display: none; }
 .inventory-inspector { overflow: auto; border-left: 1px solid var(--line); padding: 14px; min-width: 0; }
 .inventory-inspector > .label { font-size: 10px; }
 .inventory-inspector h2 { font-size: 16px; line-height: 1.4; overflow-wrap: anywhere; margin: 12px 0; }

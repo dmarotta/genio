@@ -130,7 +130,10 @@ function registerMedia(): void {
         if (req.method !== 'GET') return new Response('method not allowed', { status: 405 })
         const [world, ...parts] = u.pathname.slice(1).split('/').map(decodeURIComponent)
         const asset = parts.join('/')
-        const p = u.hostname === 'world' ? await getCtx().inventory.mediaPath(world, asset) : await getCtx().inventory.thumbnail(world, asset, req.signal)
+        const thumb = u.hostname === 'thumb' ? await getCtx().inventory.thumbnailResult(world, asset, req.signal) : undefined
+        // A model that cannot be drawn answers why, for the grid tile's placeholder.
+        if (thumb?.failure) return new Response(JSON.stringify(thumb.failure), { status: 422, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' } })
+        const p = thumb ? thumb.file : await getCtx().inventory.mediaPath(world, asset)
         if (!p) return new Response('not found', { status: 404 })
         const response = mediaResponse(p, req.headers.get('range'))
         response.headers.set('X-Content-Type-Options', 'nosniff')
@@ -385,6 +388,8 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
   })
   win.on('closed', () => {
     chatWindow?.destroy(); windows.delete(win)
+    // Inventory's hidden thumbnail windows must not keep Genio running once its last window closes.
+    if (!windows.size && !quitting) { quitting = true; void shutdown() }
     if (binding && ctx) void Promise.resolve().then(() => playerInstanceService(ctx!).quit(binding.project)).catch(() => {})
   })
 

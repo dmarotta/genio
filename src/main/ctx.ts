@@ -65,6 +65,8 @@ import { usageReport } from './usage'
 import { retryPendingArchives } from './codex-archive'
 import { createInventoryService } from './inventory'
 import { createThumbnailDecoder } from './inventory-thumbnails'
+import { createModelThumbnailer } from './model-thumbnails'
+import { modelViewer } from './model-viewer'
 import { allyNameForWorld, worldAllyRequest, inheritMainHistory } from './project-chat'
 import { reconcileProjectOpen } from './project-startup'
 import { migrateProjectData } from './project-data-migration'
@@ -207,10 +209,15 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
   ctx.fal = createFalService(getCtx)
   ctx.uthana = createUthanaService(getCtx)
   ctx.dispatch = createDispatchService(getCtx)
-  const thumbnailDecoder = createThumbnailDecoder()
-  ctx.inventory = createInventoryService(getCtx, thumbnailDecoder.decode)
+  const thumbnailDecoder = createThumbnailDecoder(), modelThumbnails = createModelThumbnailer()
+  // Each model is granted to the hidden viewer for one drawing only.
+  const renderModel = async (world: string, asset: string) => {
+    const url = await modelViewer().grant(world, asset)
+    try { return await modelThumbnails.render(url) } finally { modelViewer().revoke(url) }
+  }
+  ctx.inventory = createInventoryService(getCtx, thumbnailDecoder.decode, undefined, renderModel)
   const stopInventory = ctx.inventory.stop
-  ctx.inventory.stop = () => { stopInventory(); thumbnailDecoder.stop() }
+  ctx.inventory.stop = () => { stopInventory(); thumbnailDecoder.stop(); modelThumbnails.stop() }
 
   ctx.main = makeHomeCtx(mainHome)
   homes.set('main', ctx.main)

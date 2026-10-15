@@ -169,6 +169,10 @@ export function modelViewerFiles(opts: ModelViewerFilesOptions) {
       while (grants.size > (opts.maxGrants ?? MAX_GRANTS)) grants.delete(grants.keys().next().value!)
       return `${MODELS}/${token}/${encodeURIComponent(name)}`
     },
+    /** Ends a grant at once (a drawn thumbnail), so short-lived grants never expire the inspector's. */
+    revoke(url: string): void {
+      if (url.startsWith(`${MODELS}/`)) grants.delete(url.slice(MODELS.length + 1).split('/')[0])
+    },
     /** genio-viewer://app/... and genio-media://model/<token>/...; anything else is not found. */
     async handle(req: Request): Promise<Response> {
       try {

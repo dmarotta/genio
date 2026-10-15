@@ -4,7 +4,7 @@ import type { ThumbnailDecoder } from './inventory'
 
 /** Native Chromium codecs run in an isolated Web Worker, never on the main/UI thread.
  * A single hidden sandboxed window hosts it on demand; the service serializes jobs.
- * DCC/HDR, video posters, waveforms and model snapshots are later preview work.
+ * Models draw in their own hidden window (model-thumbnails.ts); DCC/HDR, video posters and waveforms are later work.
  */
 export function createThumbnailDecoder(): { decode: ThumbnailDecoder; stop(): void } {
   let win: BrowserWindow | undefined, loading: Promise<void> | undefined
@@ -29,7 +29,7 @@ export function createThumbnailDecoder(): { decode: ThumbnailDecoder; stop(): vo
   return {
     async decode(url) {
       if (!win || win.isDestroyed()) {
-        win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
+        win = new BrowserWindow({ show: false, focusable: false, skipTaskbar: true, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
         win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
         loading = win.loadURL('data:text/html,<meta http-equiv="Content-Security-Policy" content="default-src %27none%27; script-src blob:; worker-src blob:; connect-src genio-media:">')
       }

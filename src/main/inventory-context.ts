@@ -14,7 +14,8 @@ export async function prepareInventoryContext(input: InventoryContext | undefine
 ): Promise<{ context?: InventoryContextReceipt; images: ChatImageInput[] }> {
   if (!input) return { images: [...images] }
   const context: InventoryContextReceipt = validateInventoryContext(input)
-  if (context.preview?.kind !== 'image') return { context, images: [...images] }
+  // A model's thumbnail is the 3D viewer's drawing of it, so Genio can see the selected model too.
+  if (context.preview?.kind !== 'image' && context.preview?.kind !== 'model') return { context, images: [...images] }
   try {
     const file = await thumbnail(context.world, context.preview.path)
     const bytes = file ? await readFile(file) : undefined

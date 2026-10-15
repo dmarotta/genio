@@ -1,4 +1,5 @@
 import type { Engine } from './types'
+import { MODEL_PREVIEW_EXTS } from './model-viewer'
 
 /** World-relative, forward-slash paths throughout. Inventory never writes to a world. */
 export type AssetKind = 'image' | 'audio' | 'video' | 'model' | 'animation' | 'material'
@@ -88,6 +89,15 @@ export interface InventoryResult {
 }
 export const NATIVE_THUMB_EXTS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif', 'svg'])
 export const THUMB_MAX_BYTES = 64 * 1024 * 1024
+/**
+ * How an asset gets its grid thumbnail: an image decoded by Chromium, or a model the 3D viewer draws.
+ * Models over the preview cap still say 'model': they get the reason instead of a picture.
+ */
+export function thumbnailKind(a: Pick<InventoryAsset, 'ext' | 'size' | 'lfs'>): 'image' | 'model' | undefined {
+  if (a.lfs) return
+  if (NATIVE_THUMB_EXTS.has(a.ext)) return a.size <= THUMB_MAX_BYTES ? 'image' : undefined
+  if ((MODEL_PREVIEW_EXTS as readonly string[]).includes(a.ext)) return 'model'
+}
 export function inventoryMediaUrl(host: 'world' | 'thumb', world: string, asset: string): string {
   return `genio-media://${host}/${[world, ...asset.split('/')].map(encodeURIComponent).join('/')}`
 }

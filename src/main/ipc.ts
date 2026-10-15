@@ -142,7 +142,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     toolchain: () => ctx().toolchain.check(),
     installTool: (name) => ctx().toolchain.install(name),
     pickDirectory: async () => {
-      const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+      const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows().find(w => w.isFocusable())
       const r = win ? await dialog.showOpenDialog(win, { properties: ['openDirectory'] }) : await dialog.showOpenDialog({ properties: ['openDirectory'] })
       return r.canceled || !r.filePaths[0] ? null : r.filePaths[0]
     },
