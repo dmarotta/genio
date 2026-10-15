@@ -4,11 +4,13 @@
  */
 import path from 'node:path'
 import fs from 'node:fs'
-import { app, BrowserWindow, dialog, protocol, screen, shell } from 'electron'
+import { app, BrowserWindow, dialog, net, protocol, screen, shell } from 'electron'
 import { EVENT_CHANNEL } from '@shared/api'
 import { bus } from './bus'
 import { createApp, ensureProjectBase, getCtx, startApp, startProjectBase, stopApp, stopProjectBase } from './ctx'
 import { MEDIA_SCHEME, mediaResponse } from './fal-service'
+import { installModelViewer } from './model-viewer'
+import { VIEWER_SCHEME } from '@shared/model-viewer'
 import { chatImageDir, chatImagePath } from './chat-images'
 import { defaultHomeRoot } from './home'
 import { registerIpc } from './ipc'
@@ -57,8 +59,12 @@ if (!app.requestSingleInstanceLock()) {
 setWindowsAppId()
 
 // genio-media://fal/<run>/<file>: FAL outputs from Genio's data dir (streamable, seekable); genio-media://uthana/<run>/<file>: Animation
-// previews and exports; genio-media://chat/<wksp>/<file>: chat images
-protocol.registerSchemesAsPrivileged([{ scheme: MEDIA_SCHEME, privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true } }])
+// previews and exports; genio-media://chat/<wksp>/<file>: chat images. genio-viewer://app and genio-media://model/<token>/<file>:
+// Inventory's sandboxed 3D viewer and the one model it was granted (model-viewer.ts)
+protocol.registerSchemesAsPrivileged([
+  { scheme: MEDIA_SCHEME, privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true } },
+  { scheme: VIEWER_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }
+])
 
 function appRoot(): string {
   // out/main/index.js → project root in dev/preview; app path when packaged
@@ -107,9 +113,19 @@ async function boot(): Promise<void> {
 }
 
 function registerMedia(): void {
+  const devUrl = !app.isPackaged ? process.env.ELECTRON_RENDERER_URL : undefined
+  const viewer = installModelViewer({
+    projectRoot: world => getCtx().projects.get(world)?.path,
+    rendererDir: path.join(__dirname, '../renderer'),
+    decoderLibs: devUrl && path.join(appRoot(), 'node_modules', 'three', 'examples', 'jsm', 'libs'),
+    devUrl,
+    fetch: url => net.fetch(url)
+  })
+  protocol.handle(VIEWER_SCHEME, req => viewer.handle(req))
   protocol.handle(MEDIA_SCHEME, async (req) => {
     try {
       const u = new URL(req.url)
+      if (u.hostname === 'model') return await viewer.handle(req)
       if (u.hostname === 'world' || u.hostname === 'thumb') {
         if (req.method !== 'GET') return new Response('method not allowed', { status: 405 })
         const [world, ...parts] = u.pathname.slice(1).split('/').map(decodeURIComponent)

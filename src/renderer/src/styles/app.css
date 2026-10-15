@@ -992,18 +992,6 @@ body:has(.answers-float .answer-card) .toasts { right: calc(min(380px, 100vw - 2
 .loadout-why { margin-top: 6px; font-size: 12px; color: var(--text-mute); line-height: 1.4; }
 .loadout .form-grid { margin-top: 12px; }
 
-/* Shared Inventory GLB viewer */
-.glb-view { position: relative; width: 100%; height: 300px; }
-.glb-canvas { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
-.glb-canvas:active { cursor: grabbing; }
-.glb-hud { position: absolute; left: 8px; bottom: 6px; font-size: 10.5px; color: var(--text-mute); pointer-events: none; }
-.glb-msg { padding: 26px 14px; text-align: center; font-size: 12px; }
-.glb-view.animated .glb-hud { bottom: 44px; }
-.glb-player { position: absolute; left: 6px; right: 6px; bottom: 6px; display: flex; align-items: center; gap: 6px; padding: 4px 6px; background: rgba(0, 0, 0, 0.55); border: 1px solid var(--line); }
-.glb-scrub { flex: 1; min-width: 60px; accent-color: var(--neon); }
-.glb-time { font-size: 11px; color: var(--text-dim); white-space: nowrap; min-width: 92px; text-align: right; }
-.glb-player .select.compact { padding: 2px 6px; font-size: 11.5px; }
-
 .rule-head.locks { grid-template-columns: 2fr 1fr 1fr auto auto; }
 
 /* ---------- Smart dispatch ---------- */

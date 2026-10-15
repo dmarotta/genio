@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Backpack, Box, ChevronDown, ChevronRight, FileImage, Film, Folder, FolderOpen, Grid2X2, List, Music, RefreshCw, Search, Settings } from 'lucide-react'
 import type { AssetKind, InventoryAsset, InventoryFolder, InventoryInfo, InventoryQuery, InventoryState } from '@shared/inventory'
 import { PROJECT_WINDOW, api, errText, op, useStore } from '../store'
 import { GENERATION_ANCHOR } from '../components/GenerationSettings'
 import { openSettings } from '../lib/settings-nav'
 import { cx } from '../lib/format'
-import { assetBytes, breadcrumbs, previewKind, thumbnailUrl, virtualWindow } from '../lib/inventory'
-import { GlbViewer } from '../components/GlbViewer'
+import { assetBytes, breadcrumbs, previewKind, thumbnailUrl, unavailablePreview, virtualWindow } from '../lib/inventory'
+import { PreviewUnavailable } from '../components/PreviewUnavailable'
 import { contextAsset, toggleSelection } from '@shared/inventory-context'
 import { listFact, useScreenContext } from '../lib/screen-context'
 import '../styles/inventory.css'
@@ -14,6 +14,8 @@ import '../styles/inventory.css'
 const TYPES: [AssetKind, string][] = [['image', 'Image'], ['audio', 'Audio'], ['video', 'Video'], ['model', '3D'], ['animation', 'Animation'], ['material', 'Material']]
 const ICONS = { image: FileImage, audio: Music, video: Film, model: Box, animation: Box, material: Box }
 type AssetScope = 'all' | 'ours' | 'generated'
+// Loaded only when a model is selected; three itself loads inside the viewer frame, never in this bundle.
+const ModelViewer = lazy(() => import('../components/ModelViewer').then(m => ({ default: m.ModelViewer })))
 const REFRESH_LABEL = 'Refresh the asset list (rescan, includes newly generated assets)'
 // Serialize watcher ownership, including React StrictMode's setup/cleanup/setup cycle.
 let lifecycle: Promise<unknown> = Promise.resolve()
@@ -217,7 +219,7 @@ function Inspector({ world, root, asset, revision }: { world: string; root: stri
     {!asset ? <div className="inventory-empty"><Box size={40} /><h3>Select an asset</h3><p>Preview media and inspect its source.</p></div> : <>
       <h2>{asset.name}</h2>
       {error && <p className="inventory-error" role="alert">{error}</p>}
-      {info ? <AssetPreview key={info.mediaUrl + info.mtimeMs} info={info} /> : !error && <p className="dim">Loading preview…</p>}
+      {info ? <AssetPreview key={info.mediaUrl + info.mtimeMs} world={world} info={info} path={fullPath} /> : !error && <p className="dim">Loading preview…</p>}
       <div className="inventory-path">{asset.path}</div>
       <dl><dt>Type</dt><dd>{asset.kind} · {asset.ext.toUpperCase()}</dd><dt>Size</dt><dd>{assetBytes(asset.lfsSize ?? asset.size)}</dd><dt>Modified</dt><dd>{new Date(asset.mtimeMs).toLocaleString()}</dd><dt>Source</dt><dd>{asset.vendor ? 'Vendor pack' : 'Project asset'} · {asset.tracked ? 'Tracked' : 'Untracked'}</dd>
         {!!info?.tags.length && <><dt>Tags</dt><dd>{info.tags.join(', ')}</dd></>}
@@ -231,17 +233,17 @@ function Inspector({ world, root, asset, revision }: { world: string; root: stri
   </aside>
 }
 
-function AssetPreview({ info }: { info: InventoryInfo }) {
+function AssetPreview({ world, info, path }: { world: string; info: InventoryInfo; path: string }) {
   const kind = previewKind(info)
   const [failed, setFailed] = useState(false)
   const [zoom, setZoom] = useState(1)
   const [loop, setLoop] = useState(false)
-  if (failed) return <div className="inventory-preview-info">This file could not be previewed. Open it in its default app to inspect the format or codec.</div>
+  if (failed) return <PreviewUnavailable title="This file could not be previewed" reason={`Its ${info.ext.toUpperCase()} data or codec isn't one Genio can show. Open it in its default app.`} path={path} />
   if (kind === 'image') return <><div className="inventory-image"><img src={info.mediaUrl} alt={info.name} onError={() => setFailed(true)} style={{ width: `${zoom * 100}%`, maxWidth: 'none' }} /></div><label className="inventory-zoom">Zoom <input type="range" aria-label="Image zoom" min="1" max="4" step="0.1" value={zoom} onChange={e => setZoom(Number(e.target.value))} /></label></>
-  if (kind === 'glb') return <GlbViewer url={info.mediaUrl} />
+  if (kind === 'model') return <Suspense fallback={<p className="dim">Loading 3D viewer…</p>}><ModelViewer world={world} info={info} path={path} /></Suspense>
   if (kind === 'audio' || kind === 'video') return <div className="inventory-media">
     {kind === 'audio' ? <><Music size={50} strokeWidth={1} /><audio controls preload="metadata" loop={loop} src={info.mediaUrl} onError={() => setFailed(true)} /></> : <video controls preload="metadata" loop={loop} src={info.mediaUrl} onError={() => setFailed(true)} />}
     <label><input type="checkbox" checked={loop} onChange={e => setLoop(e.target.checked)} /> Loop</label>
   </div>
-  return <div className="inventory-preview-info">{info.thumbnailUrl && <img src={info.thumbnailUrl} alt={info.name} onError={e => { e.currentTarget.hidden = true }} />}<Box size={32} /><strong>{info.lfs ? 'Git LFS file not pulled' : `${info.ext.toUpperCase()} · preview coming later`}</strong><p>{info.lfs ? 'The local file is an LFS pointer. Pull the asset in your Git client to preview it.' : 'Metadata is available. Open this asset in its default app for a full preview.'}</p></div>
+  return <PreviewUnavailable {...unavailablePreview(info)} path={path} />
 }

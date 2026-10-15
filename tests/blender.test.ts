@@ -5,9 +5,14 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { afterAll, describe, expect, it } from 'vitest'
 import { findBlender } from '../resources/unit-skills/genio/lib/blender-path.mjs'
-import { parseGlb } from '../src/renderer/src/lib/glb'
 
 const run = promisify(execFile)
+/** Primitives and triangles from a GLB's JSON chunk. */
+function glbSummary(bytes: Buffer): { primitives: number; triangles: number } {
+  const json = JSON.parse(bytes.toString('utf8', 20, 20 + bytes.readUInt32LE(12))) as { meshes: { primitives: { indices?: number; attributes: { POSITION: number } }[] }[]; accessors: { count: number }[] }
+  const primitives = json.meshes.flatMap(m => m.primitives)
+  return { primitives: primitives.length, triangles: primitives.reduce((n, p) => n + json.accessors[p.indices ?? p.attributes.POSITION].count / 3, 0) }
+}
 const scripts = path.resolve('resources/unit-skills/genio/skills/blender/scripts')
 const runner = path.join(scripts, 'blender.mjs')
 const helper = path.join(scripts, 'genio_bpy.py')
@@ -40,10 +45,9 @@ describe.skipIf(!blender)('Blender batch integration (local executable)', () => 
     for (const dimension of report.dimensions) expect(dimension).toBeCloseTo(2, 5)
     expect(report.meshes[0]).toMatchObject({ has_uv: true, non_manifold_edges: 0, flipped_faces: 0, loose_vertices: 0 })
     await batch(helper, ['convert', 'cube.fbx', 'cube.glb', '--target', 'web'])
-    const bytes = fs.readFileSync(path.join(world, 'cube.glb'))
-    const model = await parseGlb(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength))
+    const model = glbSummary(fs.readFileSync(path.join(world, 'cube.glb')))
     expect(model.triangles).toBe(12)
-    expect(model.prims).toHaveLength(1)
+    expect(model.primitives).toBe(1)
     await batch(helper, ['convert', 'cube.glb', 'roundtrip.fbx', '--target', 'godot'])
     await batch(helper, ['validate', 'roundtrip.fbx', '--out', 'roundtrip.json'])
     expect(JSON.parse(fs.readFileSync(path.join(world, 'roundtrip.json'), 'utf8')).triangles).toBe(12)

@@ -486,6 +486,8 @@ export interface GenioApi {
   inventoryRefresh(world: string): Promise<InventoryState>
   inventoryList(world: string, query?: InventoryQuery): Promise<InventoryResult>
   inventoryInfo(world: string, path: string, verifyHash?: boolean): Promise<InventoryInfo | null>
+  /** A capability URL (genio-media://model/<token>/<file>) for the sandboxed 3D viewer: this glTF/GLB and its side files only. */
+  inventoryModelUrl(world: string, path: string): Promise<string>
   featureUsed(feature: 'screenshot' | 'model-picker' | 'character-sheet' | 'play-fullscreen'): Promise<void>
   /** Character Sheet: pin an unlocked achievement to the front of the grid (three at most) */
   trophyPin(id: string, pinned: boolean): Promise<OpResult>
@@ -507,6 +509,8 @@ export interface GenioApi {
   /** File menu: close the calling window through its usual unit guard */
   windowClose(): Promise<void>
   openPath(path: string): Promise<void>
+  /** Show the file selected in Explorer/Finder */
+  revealPath(path: string): Promise<void>
   openExternal(url: string): Promise<void>
 
   // ---- accounts
@@ -669,7 +673,7 @@ export const API_METHODS = [
   'playPool', 'playPoolCap', 'playPoolLaunch', 'playPoolEstimate', 'playPoolDisk', 'playCloseSlotEditor',
   'playerInstanceStatus', 'playerInstancePlay', 'playerInstanceStartUnity', 'playerInstanceEnterPlay', 'playerInstanceExitPlay', 'playerInstanceStopUnity', 'playerInstancePause', 'playerInstanceStep', 'playerInstanceScenes', 'playerInstanceSetScene', 'playerInstanceResize', 'playerInstanceStop', 'playerInstanceQuit', 'playerInstanceRestart', 'playerInstanceKeepAlive', 'playerInstanceDetach', 'playerInstanceSettings', 'playerInstanceMachine', 'playerInstanceConsole', 'playerInstanceStream', 'playerInstanceDialogShot', 'playerSources',
   'playerCopies', 'playerCopyStatus', 'playerCopyEnsure', 'playerCopySync', 'playerCopyCancel', 'playerCopyDelete', 'playerCopySizes',
-  'inventoryOpen', 'inventoryClose', 'inventoryRefresh', 'inventoryList', 'inventoryInfo',
+  'inventoryOpen', 'inventoryClose', 'inventoryRefresh', 'inventoryList', 'inventoryInfo', 'inventoryModelUrl',
   'featureUsed',
   'trophyPin',
   'titleEquip',
@@ -686,6 +690,7 @@ export const API_METHODS = [
   'windowOpenHub',
   'windowClose',
   'openPath',
+  'revealPath',
   'openExternal',
   'modelCatalogue',
   'accounts',

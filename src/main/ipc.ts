@@ -5,6 +5,7 @@ import { assertProjectWindow, playService } from './play'
 import { playerCopyService } from './player-copy'
 import { playerInstanceService } from './player-instance'
 import { playerSources, sourceUnit } from './player-sources'
+import { modelViewer } from './model-viewer'
 /**
  * IPC: one ipcMain.handle per GenioApi method ('genio:<method>'). The table is
  * typed against GenioApi so a missing or mistyped method fails the build.
@@ -113,6 +114,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
       if (info) ctx().stats.unlock('inventory-preview')
       return info
     },
+    inventoryModelUrl: (world, asset) => modelViewer().grant(world, asset),
     featureUsed: async (feature) => {
       if (feature === 'screenshot' || feature === 'model-picker' || feature === 'character-sheet' || feature === 'play-fullscreen') bus.publish({ type: 'feature-used', feature })
     },
@@ -153,6 +155,9 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     windowClose: async () => { throw new Error('Closing requires the calling window') },
     openPath: async (p) => {
       await shell.openPath(p)
+    },
+    revealPath: async (p) => {
+      shell.showItemInFolder(p)
     },
     openExternal: async (url) => {
       if (/^https?:\/\//i.test(url)) await shell.openExternal(url)

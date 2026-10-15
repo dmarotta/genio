@@ -92,7 +92,7 @@ describe('Inventory screen lifecycle', () => {
     expect(f.list.mock.calls.every(c => c[1].limit < 100)).toBe(true)
     await click('.inventory-tile')
     expect(host.querySelector('.inventory-inspector h2')?.textContent).toBe('stone.psd')
-    expect(host.textContent).toContain('PSD · preview coming later')
+    expect(host.textContent).toContain("This file type can't be previewed here: .psd")
     f.world = 'beta'; await render()
     expect(f.open.mock.calls.at(-1)?.[0]).toBe('beta')
     expect(host.querySelector('.inventory-inspector h2')).toBeNull()
