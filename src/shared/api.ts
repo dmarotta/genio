@@ -76,7 +76,8 @@ export interface AllyCreateRequest {
   effort?: string
 }
 
-export type TaskFile = 'brief' | 'report' | 'status' | 'inbox' | 'diff' | 'log' | 'validation'
+/** `diffstat` is JSON {stat, commits, uncommitted} (see parseUnitChanges in shared/unit-page). */
+export type TaskFile = 'brief' | 'report' | 'status' | 'inbox' | 'diff' | 'diffstat' | 'log' | 'validation'
 
 export interface OpResult {
   ok: boolean

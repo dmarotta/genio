@@ -1,22 +1,26 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
-  ArrowLeft, CircleStop, ExternalLink, FolderOpen, GitMerge, LogOut, Radar, RotateCcw, Rocket, Send,
-  SquareTerminal, Trash, ArrowUpFromLine, X
+  Archive, ArrowLeft, ChevronDown, ExternalLink, FolderOpen, GitMerge, Info, MoreHorizontal, Radar, RotateCcw, Rocket, Send,
+  SquareTerminal, ArrowUpFromLine, X
 } from 'lucide-react'
-import type { Task, TerminalInfo, ValidationStep, Verdict } from '@shared/types'
+import type { Decision, Task, TerminalInfo, ValidationStep, Verdict } from '@shared/types'
 import { categoryLabel } from '@shared/dispatch'
 import type { TaskFile } from '@shared/api'
 import { api, errText, focusTask, op, openDeploy, setState, toast, liveTasks, useStore } from '../store'
 import { TerminalView } from '../components/Terminal'
 import { Markdown } from '../components/Markdown'
-import { Chip, Confirm, DislikeMarker, Dot, Empty, Modal, Field, NeedsYou, Tabs, ViewHeader, useNow } from '../components/ui'
+import { Chip, Confirm, DislikeMarker, Empty, Modal, Field, NeedsYou, Tabs, ViewHeader, useNow } from '../components/ui'
 import { GenioCore } from '../components/GenioCore'
-import { LoadoutReasons, RATEABLE, VerdictButtons, VerdictPick, rateThenMerge } from '../components/Dispatch'
-import { KIND_LABEL, MODE_LABEL } from '../lib/vocab'
+import { RATEABLE, VerdictButtons, VerdictPick, rateThenMerge } from '../components/Dispatch'
+import { KIND_LABEL } from '../lib/vocab'
 import { ago, clock, cx, shortPath } from '../lib/format'
 import { playSfx } from '../lib/sfx'
 import { squadAttention, squadBadge, squadState, squadTone, unitClock } from '@shared/squad-display'
 import { UNIT_ACTION_HINT, canRespawn, hasOpenPr } from '@shared/unit-actions'
+import {
+  canRate, deliveryLabel, mergeTimeline, needsInput, parsePings, parseStatusLines, parseUnitChanges, primaryAction, prMergeBlock,
+  reportedTests, unitBadge, type TimelineRow, type UnitChanges
+} from '@shared/unit-page'
 import { pendingDecision } from '@shared/decisions'
 import { listFact, useScreenContext } from '../lib/screen-context'
 
@@ -237,42 +241,91 @@ function SessionDetail({ id }: { id: string }) {
   )
 }
 
+
 // ------------------------------------------------------------------ unit detail
 
-type TabId = 'brief' | 'timeline' | 'pings' | 'diff' | 'report' | 'gauntlet'
+type TabId = 'changes' | 'timeline' | 'brief' | 'report' | 'checks'
 /** Under 900 px one pane shows at a time: the terminal or a side tab. */
 type PaneId = 'terminal' | TabId
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => window.setTimeout(r, ms))
+const since = (iso: string, now: number): string => {
+  const a = ago(iso, now)
+  return a === 'now' ? 'just now' : `${a} ago`
+}
+
+/** A task file, reloaded when `deps` change and every `pollMs` while given. */
+function useTaskFile(id: string, which: TaskFile, deps: unknown[], pollMs?: number, enabled = true): { text: string | null; err: string } {
+  const [text, setText] = useState<string | null>(null)
+  const [err, setErr] = useState('')
+  useEffect(() => {
+    setText(null)
+    setErr('')
+  }, [id, which])
+  useEffect(() => {
+    if (!enabled) return
+    let alive = true
+    const load = (): void => {
+      void api()
+        .readTaskFile(id, which)
+        .then((s) => { if (alive) { setErr(''); setText(s ?? '') } })
+        .catch((e) => { if (alive) { setErr(errText(e)); setText('') } })
+    }
+    load()
+    const iv = pollMs ? window.setInterval(load, pollMs) : undefined
+    return () => {
+      alive = false
+      if (iv) window.clearInterval(iv)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, which, pollMs, enabled, ...deps])
+  return { text, err }
+}
+
+/** Open state for a menu or popover that closes on Escape or a click elsewhere. */
+function usePopover() {
+  const [open, setOpen] = useState(false)
+  const wrap = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const away = (e: PointerEvent): void => { if (!wrap.current?.contains(e.target as Node)) setOpen(false) }
+    const esc = (e: KeyboardEvent): void => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('pointerdown', away)
+    document.addEventListener('keydown', esc)
+    return () => {
+      document.removeEventListener('pointerdown', away)
+      document.removeEventListener('keydown', esc)
+    }
+  }, [open])
+  return [open, setOpen, wrap] as const
+}
 
 function UnitDetail({ id }: { id: string }) {
   const t = useStore((s) => s.snap.tasks.find((x) => x.id === id))
   const term = useStore((s) => (t?.terminalId ? s.terminals[t.terminalId] : undefined))
   const project = useStore((s) => s.snap.projects.find((p) => p.name === t?.project))
   const settings = useStore((s) => s.settings)
-  const [tab, setTab] = useState<TabId>('brief')
-  const [pane, setPane] = useState<'terminal' | 'side'>('terminal')
-  const [ping, setPing] = useState('')
-  const [confirm, setConfirm] = useState<null | 'despawn' | 'force' | 'merge' | 'recall'>(null)
+  const now = useNow(1000)
+  const events = useStore((s) => s.statusByTask[id]?.length ?? 0)
+  const question = useStore((s) => s.snap.decisions.find((d) => d.taskId === id && pendingDecision(d, now)))
+  const reconFinished = t?.kind === 'scout' && (t.state === 'done' || !!t.reportPath)
+  const [tab, setTab] = useState<TabId>(() => (reconFinished ? 'report' : t?.kind === 'scout' ? 'timeline' : 'changes'))
+  const [pane, setPane] = useState<'terminal' | 'side'>(() => (reconFinished ? 'side' : 'terminal'))
+  const [confirm, setConfirm] = useState<null | 'despawn' | 'archive' | 'force' | 'merge' | 'recall'>(null)
   const [refusal, setRefusal] = useState('')
   const [upgrade, setUpgrade] = useState(false)
   const [verdict, setVerdict] = useState<Verdict | undefined>()
-  const now = useNow(1000)
-  const latest = useStore((s) => s.statusByTask[id]?.at(-1))
+  const live = !!term?.alive
+  const status = useTaskFile(id, 'status', [events, t?.state], undefined, !!t)
+  const changesFile = useTaskFile(id, 'diffstat', [events, t?.state], live ? 8000 : undefined, !!t && t.kind === 'ship')
+  const statusRows = useMemo(() => parseStatusLines(status.text ?? ''), [status.text])
+  const changes = useMemo(() => parseUnitChanges(changesFile.text ?? ''), [changesFile.text])
   useScreenContext('squad', { facts: t ? [
     { label: 'Unit', value: `${t.title} [${t.id}]` },
-    { label: 'State', value: `${squadBadge(t, term).label} (${t.state}) · ${KIND_LABEL[t.kind]} · ${t.branch}` },
+    { label: 'State', value: `${unitBadge(t, term).label} (${t.state}) · ${KIND_LABEL[t.kind]} · ${t.branch}` },
     { label: 'Tab', value: tab },
-    latest && { label: 'Last status', value: `${latest.kind}: ${latest.text}` }
+    statusRows.length > 0 && { label: 'Last status', value: `${statusRows.at(-1)!.verb}: ${statusRows.at(-1)!.text}` }
   ] : [{ label: 'Unit', value: `${id} (gone)` }] })
-
-  const pending = useStore(s => s.snap.decisions.some(d => d.taskId === id && pendingDecision(d, now)))
-
-  useEffect(() => {
-    if (t?.kind === 'scout' && (t.state === 'done' || t.reportPath)) {
-      setTab('report')
-      setPane('side')
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id])
 
   if (!t) {
     return (
@@ -285,58 +338,49 @@ function UnitDetail({ id }: { id: string }) {
     )
   }
 
-  const badge = squadBadge(t, term)
-  const attention = squadAttention(t, term, pending)
+  const badge = unitBadge(t, term)
+  const attention = squadAttention(t, term, !!question)
   const recon = t.kind === 'scout'
-  const live = !!term?.alive
   const cleaned = t.state === 'cleaned'
-  const canMerge = t.kind === 'ship' && (t.state === 'ready' || !!t.pr?.url)
-  const tabs: { id: TabId; label: string }[] = [
-    { id: 'brief', label: 'Brief' },
+  const primary = primaryAction(t, term, !!question)
+  const hardcore = !!t.validation || t.mode === 'no-mistakes'
+  const lagging = needsInput(t, term, now, settings?.staleSeconds)
+  const tabs = ([
+    !recon && { id: 'changes', label: 'Changes', badge: changes.files.length },
     { id: 'timeline', label: 'Timeline' },
-    { id: 'pings', label: 'Pings' },
-    { id: 'diff', label: 'Diff' },
-    recon ? { id: 'report', label: 'Report' } : { id: 'gauntlet', label: 'Gauntlet' }
-  ]
-  const shown: PaneId = term && pane === 'terminal' ? 'terminal' : tab
+    { id: 'brief', label: 'Brief' },
+    (recon || !!t.reportPath) && { id: 'report', label: 'Report' },
+    !recon && hardcore && { id: 'checks', label: 'Checks' }
+  ] as ({ id: TabId; label: string; badge?: number } | false)[]).filter((x): x is { id: TabId; label: string; badge?: number } => !!x)
+  const current: TabId = tabs.some((x) => x.id === tab) ? tab : tabs[0].id
+  const shown: PaneId = term && pane === 'terminal' ? 'terminal' : current
   const showPane = (p: PaneId): void => {
     setPane(p === 'terminal' ? 'terminal' : 'side')
     if (p !== 'terminal') setTab(p)
   }
 
-  // One flat list so a later layout (primary action, More menu) can regroup it.
-  const actions: (UnitAction | false)[] = [
-    { id: 'interrupt', group: 'control', label: 'Interrupt', icon: <CircleStop size={13} />, hint: UNIT_ACTION_HINT.interrupt, disabled: !live,
-      run: () => void op('Interrupt', () => api().controlTask(t.id, 'interrupt')) },
-    { id: 'recall', group: 'control', label: 'Recall', icon: <LogOut size={13} />, hint: UNIT_ACTION_HINT.recall, disabled: !live, run: () => setConfirm('recall') },
-    { id: 'respawn', group: 'control', label: 'Respawn', icon: <RotateCcw size={13} />, hint: UNIT_ACTION_HINT.respawn, disabled: !canRespawn(t),
-      run: () => void op('Respawn', () => api().controlTask(t.id, 'relaunch')) },
-    canMerge && { id: 'merge', group: 'deliver', label: 'Merge', icon: <GitMerge size={13} />, className: 'solid volt', disabled: project?.gitRepo === false,
-      hint: project?.gitRepo === false ? 'Merge needs a git repo' : `Lands ${t.branch} in ${t.baseBranch}`, run: () => setConfirm('merge') },
-    recon && !cleaned && { id: 'upgrade', group: 'deliver', label: 'Upgrade to Build', icon: <ArrowUpFromLine size={13} />, className: 'violet',
-      hint: "Builds from this Recon's report in the same copy", run: () => setUpgrade(true) },
-    { id: 'folder', group: 'copy', label: 'Folder', icon: <FolderOpen size={13} />, className: 'ghost', disabled: cleaned, hint: "Opens the unit's copy in Explorer",
-      run: () => void api().openPath(t.worktree) },
-    { id: 'shell', group: 'copy', label: 'Shell', icon: <SquareTerminal size={13} />, className: 'ghost', disabled: cleaned, hint: UNIT_ACTION_HINT.shell,
-      run: () => void api().terminalOpenShell(undefined, t.id).then((s) => setState({ focus: { type: 'terminal', id: s.id } })).catch((e) => toast('error', 'Shell', errText(e))) },
-    { id: 'despawn', group: 'copy', label: 'Despawn', icon: <Trash size={13} />, className: 'alert', disabled: cleaned, hint: UNIT_ACTION_HINT.despawn, run: () => setConfirm('despawn') }
-  ]
+  const latest = statusRows.at(-1)
+  const stopped = primary === 'respawn'
+  const line = stopped
+    ? `Stopped: ${stopReason(t)}`
+    : latest ? `${latest.verb}: ${latest.text}${latest.at ? ` · ${since(new Date(latest.at).toISOString(), now)}` : ''}` : t.stateReason ?? ''
 
-  const sendPing = async (): Promise<void> => {
-    const text = ping.trim()
-    if (!text) return
-    const r = await op('Ping', () => api().sendToTask(t.id, text))
-    if (r?.ok) {
-      setPing('')
-      playSfx('send', settings)
-    }
-  }
+  const more = ([
+    live && squadState(t, term) === 'WORKING' && { id: 'interrupt', label: 'Interrupt', hint: UNIT_ACTION_HINT.interrupt,
+      run: () => void op('Interrupt', () => api().controlTask(t.id, 'interrupt')) },
+    canRespawn(t) && { id: 'respawn', label: 'Respawn', hint: UNIT_ACTION_HINT.respawn, run: () => void op('Respawn', () => api().controlTask(t.id, 'relaunch')) },
+    live && { id: 'recall', label: 'Recall', hint: UNIT_ACTION_HINT.recall, run: () => setConfirm('recall') },
+    !cleaned && { id: 'folder', label: 'Open folder', hint: UNIT_ACTION_HINT.folder, run: () => void api().openPath(t.worktree) },
+    !cleaned && { id: 'shell', label: 'Open shell', hint: UNIT_ACTION_HINT.shell, tone: 'warn',
+      run: () => void api().terminalOpenShell(undefined, t.id).then((s) => setState({ focus: { type: 'terminal', id: s.id } })).catch((e) => toast('error', 'Shell', errText(e))) },
+    !cleaned && { id: 'despawn', label: 'Despawn…', hint: UNIT_ACTION_HINT.despawn, tone: 'danger', run: () => setConfirm('despawn') }
+  ] as (MoreItem | false)[]).filter((x): x is MoreItem => !!x)
 
   const despawn = async (force: boolean): Promise<void> => {
     try {
       const r = await api().cleanupTask(t.id, force)
       if (r.ok) {
-        toast('success', 'Despawned', r.message)
+        toast('success', recon ? 'Archived' : 'Despawned', r.message)
         setState({ focus: null })
       } else {
         setRefusal(r.message)
@@ -347,114 +391,131 @@ function UnitDetail({ id }: { id: string }) {
     }
   }
 
+  const prNo = t.pr?.number ? ` #${t.pr.number}` : ''
+  const mergeOff = primary === 'merge-pr' ? prMergeBlock(t.pr!) : project?.gitRepo === false ? 'Merge needs a git repo.' : ''
+
   return (
-    <div className="view detail">
-      <header className="detail-head">
-        <button className="btn ghost sm" onClick={() => setState({ focus: null })}>
-          <ArrowLeft size={14} /> Squad
-        </button>
-        <div className="detail-title">
-          <div className="detail-kicker">
-            <span className={cx('chip', recon ? 'violet' : 'neon')}>
-              {recon ? <Radar size={11} /> : <Rocket size={11} />} {KIND_LABEL[t.kind]}
-            </span>
-            <Chip tone={badge.tone} pulse={badge.label === 'WORKING'}>
-              {badge.label}
-            </Chip>
-            {attention && <NeedsYou />}
-            {t.dislikePause && <DislikeMarker />}
-            {t.mode && <span className="chip">{MODE_LABEL[t.mode]}</span>}
-            {t.yolo && <span className="chip volt">Auto-loot</span>}
-            {t.landedCommit && <span className="chip volt mono selectable" title={t.landedCommit}>commit {t.landedCommit.slice(0, 10)}</span>}
-            <span className="mono mute detail-clock">{unitClock(t, term, now)}</span>
-            {RATEABLE.includes(t.state) && <VerdictButtons t={t} />}
-          </div>
-          <h1 className="title unit-name" title={t.title}>
-            {t.title}
-          </h1>
-          <div className="mute detail-sub">
-            {t.project} · <span className="mono">{t.branch}</span> → <span className="mono">{t.baseBranch}</span> · {t.harness}
-            {t.model ? `/${t.model}` : ''}
-            {t.effort ? ` · ${t.effort}` : ''}
-            {t.category ? ` · ${categoryLabel(t.category)}` : ''}
-            {t.relaunches ? ` · respawned ×${t.relaunches}` : ''}
-          </div>
-          {t.stateReason && <div className={cx('detail-reason', badge.tone === 'alert' ? 'alert-text' : 'mute')} title={t.stateReason}>{t.stateReason}</div>}
-        </div>
-        {t.pr?.url && (
-          <button className="btn detail-pr" onClick={() => void api().openExternal(t.pr!.url)}>
-            <ExternalLink size={13} /> PR{t.pr.number ? ` #${t.pr.number}` : ''}
-            {t.pr.checks && t.pr.checks !== 'none' && <span className={cx('chip', t.pr.checks === 'passing' ? 'volt' : t.pr.checks === 'failing' ? 'alert' : 'amber')}>{t.pr.checks}</span>}
+    <div className="view detail unit-detail">
+      <header className="detail-head unit-head">
+        <div className="uh-row">
+          <button className="btn ghost sm" onClick={() => setState({ focus: null })}>
+            <ArrowLeft size={14} /> Squad
           </button>
-        )}
+          <span className={cx('chip', recon ? 'violet' : 'neon')}>
+            {recon ? <Radar size={11} /> : <Rocket size={11} />} {KIND_LABEL[t.kind]}
+          </span>
+          <span className="uh-state">
+            <Chip tone={badge.tone} pulse={badge.label === 'WORKING'}>{badge.label}</Chip>
+          </span>
+          {attention && <NeedsYou />}
+          {t.dislikePause && <DislikeMarker />}
+          <span className="mute detail-clock">{unitClock(t, term, now)}</span>
+          {t.state === 'ready' && t.readyAt && <span className="mute uh-since">· ready {since(t.readyAt, now)}</span>}
+          <UnitInfo t={t} />
+        </div>
+        <h1 className="title unit-name" title={t.title}>
+          {t.title}
+        </h1>
+        <div className="uh-actions">
+          <div className={cx('uh-line', stopped ? 'alert-text' : 'dim')} title={line}>{line}</div>
+          {canRate(t, term) && <VerdictButtons t={t} label={false} />}
+          {primary === 'merge-local' && (
+            <button className="btn sm solid volt uh-primary" disabled={!!mergeOff} title={mergeOff || `Fast-forwards ${t.branch} into ${t.baseBranch} in your local copy`} onClick={() => setConfirm('merge')}>
+              <GitMerge size={13} /> Merge into {t.baseBranch}
+            </button>
+          )}
+          {primary === 'merge-pr' && (
+            <>
+              <button className="btn sm solid volt uh-primary" disabled={!!mergeOff} title={mergeOff || `Squash-merges PR${prNo} into ${t.baseBranch}`} onClick={() => setConfirm('merge')}>
+                <GitMerge size={13} /> Merge PR{prNo}
+              </button>
+              <button className="btn sm ghost" title={t.pr!.url} onClick={() => void api().openExternal(t.pr!.url)}>
+                <ExternalLink size={13} /> Open PR
+              </button>
+            </>
+          )}
+          {primary === 'respawn' && (
+            <button className="btn sm solid uh-primary" disabled={!canRespawn(t)} title={UNIT_ACTION_HINT.respawn} onClick={() => void op('Respawn', () => api().controlTask(t.id, 'relaunch'))}>
+              <RotateCcw size={13} /> Respawn
+            </button>
+          )}
+          {primary === 'recon-done' && (
+            <>
+              <button className="btn sm solid violet uh-primary" title={UNIT_ACTION_HINT.build} onClick={() => setUpgrade(true)}>
+                <ArrowUpFromLine size={13} /> Build from this report
+              </button>
+              <button className="btn sm ghost" title={UNIT_ACTION_HINT.archive} onClick={() => setConfirm('archive')}>
+                <Archive size={13} /> Archive
+              </button>
+            </>
+          )}
+          <MoreMenu items={more} />
+        </div>
+        {primary === 'question' && <UnitQuestion t={t} d={question} fallback={latest?.text ?? t.stateReason ?? ''} />}
       </header>
 
-      <UnitToolbar actions={actions.filter((a): a is UnitAction => !!a)} />
-
       <div className="detail-switch">
-        <Tabs<PaneId> value={shown} onChange={showPane} tabs={[...(term ? [{ id: 'terminal' as PaneId, label: 'Terminal' }] : []), ...tabs]} />
+        <Tabs<PaneId> value={shown} onChange={showPane} tabs={[...(term ? [{ id: 'terminal' as PaneId, label: lagging ? 'Terminal ●' : 'Terminal' }] : []), ...tabs]} />
       </div>
       <div className={cx('detail-body', !term && 'no-term', shown === 'terminal' ? 'pane-terminal' : 'pane-side')}>
         {term && (
           <div className="detail-term panel">
+            {lagging && (
+              <span className="needs-input" title="No output for a while: the agent may be waiting at a prompt. Click the terminal to type, or ping it below.">
+                <i className="dot pulse" /> needs input
+              </span>
+            )}
             <TerminalView id={term.id} fontSize={13} passive interactive={term.alive} />
           </div>
         )}
         <aside className="detail-side panel">
-          <LoadoutReasons t={t} />
           <div className="detail-side-tabs">
-            <Tabs<TabId> value={tab} onChange={setTab} tabs={tabs} />
+            <Tabs<TabId> value={current} onChange={setTab} tabs={tabs} />
           </div>
           <div className="detail-tab">
-            <TaskFileTab t={t} tab={tab} />
-          </div>
-          <div className="ping-box">
-            <textarea
-              className="textarea"
-              rows={2}
-              value={ping}
-              disabled={t.state === 'cleaned'}
-              placeholder="Ping this unit — lands in its durable inbox"
-              onChange={(e) => setPing(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void sendPing()
-              }}
-            />
-            <button className="btn solid icon" disabled={!ping.trim()} onClick={() => void sendPing()} title="Ping (Ctrl+Enter)">
-              <Send size={14} />
-            </button>
+            {current === 'changes' && <ChangesTab t={t} changes={changes} loading={changesFile.text === null} err={changesFile.err} rows={statusRows} />}
+            {current === 'timeline' && <TimelineTab t={t} rows={statusRows} loading={status.text === null} />}
+            {current === 'brief' && <FileMarkdown t={t} which="brief" empty="No brief." />}
+            {current === 'report' && <FileMarkdown t={t} which="report" empty="No report yet. The Recon writes it before declaring done." />}
+            {current === 'checks' && <ChecksTab t={t} />}
           </div>
         </aside>
       </div>
 
-      {confirm === 'despawn' && (
+      <PingBox t={t} live={live} steer={primary === 'steer'} />
+
+      {(confirm === 'despawn' || confirm === 'archive') && (
         <Confirm
-          title="Despawn this unit?"
-          tone="alert"
-          confirmLabel="Despawn"
+          title={confirm === 'archive' ? 'Archive this Recon?' : 'Despawn this unit?'}
+          tone={confirm === 'archive' ? 'violet' : 'alert'}
+          confirmLabel={confirm === 'archive' ? 'Archive' : 'Despawn'}
           body={
-            <>
-              {hasOpenPr(t) && (
-                <p className="amber-text despawn-pr">
-                  PR{t.pr!.number ? ` #${t.pr!.number}` : ''} is still open. After Despawn, Genio stops watching its checks and you can no longer merge it from here; the PR itself stays open.
+            confirm === 'archive' ? (
+              <p>Genio removes the Recon's isolated copy and branch. Its report, timeline and record stay, and Build from this report stops being offered.</p>
+            ) : (
+              <>
+                {hasOpenPr(t) && (
+                  <p className="amber-text despawn-pr">
+                    PR{prNo} is still open. After Despawn, Genio stops watching its checks and you can no longer merge it from here; the PR itself stays open.
+                  </p>
+                )}
+                <p>
+                  Genio deletes the isolated copy and its branch, and closes the unit's shells, only if nothing would be lost: no uncommitted changes, and the work is pushed, merged, or already in{' '}
+                  <span className="mono">{t.baseBranch}</span>. Otherwise it refuses and tells you why.
                 </p>
-              )}
-              <p>
-                Genio deletes the isolated copy and its branch, and closes the unit's shells, only if nothing would be lost: no uncommitted changes, and the work is pushed, merged, or already in{' '}
-                <span className="mono">{t.baseBranch}</span>. Otherwise it refuses and tells you why.
-              </p>
-            </>
+              </>
+            )
           }
           onConfirm={() => despawn(false)}
-          onClose={() => setConfirm((c) => (c === 'despawn' ? null : c))}
+          onClose={() => setConfirm((c) => (c === 'despawn' || c === 'archive' ? null : c))}
         />
       )}
       {confirm === 'force' && (
         <Confirm
-          title="Despawn refused"
+          title={recon ? 'Archive refused' : 'Despawn refused'}
           tone="alert"
           typed="DISCARD"
-          confirmLabel="Force despawn"
+          confirmLabel={recon ? 'Force archive' : 'Force despawn'}
           body={
             <>
               <pre className="refusal selectable">{refusal}</pre>
@@ -467,7 +528,7 @@ function UnitDetail({ id }: { id: string }) {
       )}
       {confirm === 'merge' && (
         <Confirm
-          title="Merge this Build?"
+          title={t.pr?.url ? `Merge PR${prNo}?` : `Merge into ${t.baseBranch}?`}
           tone="volt"
           confirmLabel="Merge"
           body={
@@ -508,32 +569,185 @@ function UnitDetail({ id }: { id: string }) {
   )
 }
 
-interface UnitAction {
+/** Why a unit stopped, in words, for the Respawn row. */
+function stopReason(t: Task): string {
+  if (t.stateReason && t.stateReason !== 'respawned' && t.stateReason !== 'deployed') return t.stateReason
+  if (t.state === 'detached') return 'Genio restarted while it ran; its copy is intact.'
+  if (t.state === 'exited') return 'the agent exited without a final status.'
+  return 'the agent is not running.'
+}
+
+interface MoreItem {
   id: string
-  /** Toolbar cluster: lifecycle controls, delivery, the unit's copy. */
-  group: 'control' | 'deliver' | 'copy'
   label: string
-  icon: ReactNode
-  /** One-line consequence, shown on hover. */
+  /** One-line consequence, shown under the label. */
   hint: string
-  className?: string
-  disabled?: boolean
+  tone?: 'warn' | 'danger'
   run: () => void
 }
 
-function UnitToolbar({ actions }: { actions: UnitAction[] }) {
-  const groups = (['control', 'deliver', 'copy'] as const).map((g) => actions.filter((a) => a.group === g)).filter((g) => g.length)
+/** The rare controls, each with what it does. */
+function MoreMenu({ items }: { items: MoreItem[] }) {
+  const [open, setOpen, wrap] = usePopover()
+  if (!items.length) return null
   return (
-    <div className="detail-toolbar">
-      {groups.map((g) => (
-        <div key={g[0].group} className="tb-group">
-          {g.map((a) => (
-            <button key={a.id} className={cx('btn sm', a.className)} disabled={a.disabled} title={a.hint} onClick={a.run}>
-              {a.icon} <span className="tb-label">{a.label}</span>
+    <div className="unit-more" ref={wrap}>
+      <button className="btn sm ghost" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <MoreHorizontal size={14} /> More <ChevronDown size={12} />
+      </button>
+      {open && (
+        <div className="unit-menu" role="menu" aria-label="More unit actions">
+          {items.map((it) => (
+            <button key={it.id} role="menuitem" className={cx('unit-menu-item', it.tone)} onClick={() => { setOpen(() => false); it.run() }}>
+              <span className="umi-label">{it.label}</span>
+              <span className="umi-hint">{it.hint}</span>
             </button>
           ))}
         </div>
-      ))}
+      )}
+    </div>
+  )
+}
+
+/** ⓘ details: the unit's facts, out of the header. */
+function UnitInfo({ t }: { t: Task }) {
+  const [open, setOpen, wrap] = usePopover()
+  const rows = ([
+    ['Project', t.project],
+    ['Branch', <><span className="mono">{t.branch}</span> → <span className="mono">{t.baseBranch}</span></>],
+    ['Model', `${t.harness}${t.model ? ` / ${t.model}` : ''}`],
+    ['Effort', t.effort ?? 'default'],
+    t.category && ['Category', categoryLabel(t.category)],
+    ['Delivery', deliveryLabel(t.kind === 'scout' ? undefined : t.mode, t.baseBranch)],
+    t.kind === 'ship' && ['Auto-loot', t.yolo ? 'On: Genio may merge green work itself' : 'Off: merging waits for you'],
+    t.landedCommit && ['Commit', <span className="mono selectable">{t.landedCommit.slice(0, 12)}</span>],
+    t.relaunches > 0 && ['Respawned', `${t.relaunches}×`]
+  ] as ([string, ReactNode] | false | undefined | '')[]).filter((r): r is [string, ReactNode] => !!r)
+  return (
+    <div className="unit-info" ref={wrap}>
+      <button className="link-btn mute uh-info" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <Info size={12} /> details
+      </button>
+      {open && (
+        <div className="unit-info-pop" role="dialog" aria-label="Unit details">
+          <dl>
+            {rows.map(([k, v]) => (
+              <div key={k} className="ui-row">
+                <dt>{k}</dt>
+                <dd>{v}</dd>
+              </div>
+            ))}
+          </dl>
+          {!!t.loadout?.length && (
+            <div className="ui-loadout">
+              <div className="label">Loadout{t.explored ? ' · exploring' : ''}</div>
+              <ul>{t.loadout.map((r, i) => <li key={i}>{r}</li>)}</ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** The open question, answered right here (blocked or needs-decision units). */
+function UnitQuestion({ t, d, fallback }: { t: Task; d?: Decision; fallback: string }) {
+  const [busy, setBusy] = useState(false)
+  const [own, setOwn] = useState('')
+  if (!d) {
+    return (
+      <div className="unit-question">
+        <div className="label amber-text">{t.state === 'blocked' ? 'Blocked' : 'Waiting for you'}</div>
+        <div className="uq-q">{fallback || 'The unit is waiting for an answer.'}</div>
+        <div className="mute uq-hint">Answer in the ping box below.</div>
+      </div>
+    )
+  }
+  const answer = async (text: string): Promise<void> => {
+    if (!text.trim() || busy) return
+    setBusy(true)
+    try {
+      const r = await op('Your move', () => api().answerDecision(d.id, text.trim()))
+      if (r?.ok) setOwn('')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const rec = (o: string): boolean => !!d.recommendation && o.trim().toLowerCase() === d.recommendation.trim().toLowerCase()
+  return (
+    <div className="unit-question">
+      <div className="label amber-text">Open question</div>
+      <div className="uq-q">{d.question}</div>
+      {d.context && (
+        <details className="choice-context">
+          <summary>Details</summary>
+          <Markdown text={d.context} className="md-compact" />
+        </details>
+      )}
+      <div className="uq-answers">
+        {d.options.map((o) => (
+          <button key={o} className={cx('btn sm', rec(o) ? 'solid amber' : 'ghost')} disabled={busy} title={rec(o) ? 'Recommended' : undefined} onClick={() => void answer(o)}>
+            {o}
+          </button>
+        ))}
+        <input className="input uq-own" value={own} disabled={busy} placeholder={d.options.length ? 'Or your own answer' : 'Your answer'} aria-label="Your answer"
+          onChange={(e) => setOwn(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void answer(own) }} />
+        <button className="btn sm" disabled={busy || !own.trim()} onClick={() => void answer(own)}>Answer</button>
+      </div>
+    </div>
+  )
+}
+
+/** Full width under the content: pings land in the unit's inbox and ring it. */
+function PingBox({ t, live, steer }: { t: Task; live: boolean; steer: boolean }) {
+  const settings = useStore((s) => s.settings)
+  const [text, setText] = useState('')
+  const [interrupt, setInterrupt] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const cleaned = t.state === 'cleaned'
+  const send = async (): Promise<void> => {
+    const msg = text.trim()
+    if (!msg || busy) return
+    setBusy(true)
+    try {
+      if (interrupt && live) {
+        await op('Interrupt', () => api().controlTask(t.id, 'interrupt'))
+        await sleep(400)
+      }
+      const r = await op('Ping', () => api().sendToTask(t.id, msg))
+      if (r?.ok) {
+        setText('')
+        setInterrupt(false)
+        playSfx('send', settings)
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className={cx('ping-box unit-ping', steer && 'steer')}>
+      <textarea
+        className="textarea"
+        rows={2}
+        value={text}
+        disabled={cleaned}
+        aria-label="Ping this unit"
+        placeholder={cleaned ? 'Despawned: nothing to ping.' : steer ? 'Steer this unit: lands in its inbox and rings it (Ctrl+Enter)' : 'Ping this unit: lands in its inbox (Ctrl+Enter)'}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void send()
+        }}
+      />
+      <div className="ping-side">
+        {live && (
+          <label className="ping-interrupt" title={`Interrupt first. ${UNIT_ACTION_HINT.interrupt}`}>
+            <input type="checkbox" checked={interrupt} onChange={(e) => setInterrupt(e.target.checked)} /> interrupt and send
+          </label>
+        )}
+        <button className="btn solid icon" disabled={!text.trim() || busy || cleaned} onClick={() => void send()} title={interrupt && live ? 'Interrupt, then ping (Ctrl+Enter)' : 'Ping (Ctrl+Enter)'}>
+          <Send size={14} />
+        </button>
+      </div>
     </div>
   )
 }
@@ -543,7 +757,7 @@ function UpgradeModal({ t, onClose }: { t: Task; onClose: () => void }) {
   const [busy, setBusy] = useState(false)
   return (
     <Modal
-      kicker="Upgrade to Build"
+      kicker="Build from this report"
       title={t.title}
       tone="violet"
       onClose={onClose}
@@ -569,7 +783,7 @@ function UpgradeModal({ t, onClose }: { t: Task; onClose: () => void }) {
               }
             }}
           >
-            <ArrowUpFromLine size={14} /> Upgrade
+            <ArrowUpFromLine size={14} /> Build it
           </button>
         </>
       }
@@ -582,53 +796,93 @@ function UpgradeModal({ t, onClose }: { t: Task; onClose: () => void }) {
   )
 }
 
-const FILE_FOR: Record<TabId, TaskFile> = {
-  brief: 'brief',
-  timeline: 'status',
-  pings: 'inbox',
-  diff: 'diff',
-  report: 'report',
-  gauntlet: 'validation'
-}
-
-function TaskFileTab({ t, tab }: { t: Task; tab: TabId }) {
-  const [text, setText] = useState<string | null>(null)
-  const [err, setErr] = useState('')
-  const statusLive = useStore((s) => s.statusByTask[t.id]?.length ?? 0)
-  useEffect(() => {
-    let alive = true
-    setErr('')
-    const load = (): void => {
-      void api()
-        .readTaskFile(t.id, FILE_FOR[tab])
-        .then((s) => alive && setText(s))
-        .catch((e) => alive && (setErr(errText(e)), setText('')))
-    }
-    setText(null)
-    load()
-    const iv = tab === 'diff' || tab === 'gauntlet' || tab === 'pings' ? window.setInterval(load, 8000) : undefined
-    return () => {
-      alive = false
-      if (iv) window.clearInterval(iv)
-    }
-  }, [t.id, tab, statusLive, t.state, t.validation?.state])
-
+function FileMarkdown({ t, which, empty }: { t: Task; which: 'brief' | 'report'; empty: string }) {
+  const { text, err } = useTaskFile(t.id, which, [t.state])
   if (text === null) return <div className="bar indeterminate"><i /></div>
   if (err) return <div className="alert-text mono" style={{ fontSize: 12 }}>{err}</div>
+  const body = text.trim()
+  return body && body !== '(no report yet)' && body !== '(no brief)' ? <Markdown text={text} className="md-compact" /> : <div className="mute">{empty}</div>
+}
 
-  switch (tab) {
-    case 'brief':
-    case 'report':
-      return text.trim() ? <Markdown text={text} className="md-compact" /> : <div className="mute">{tab === 'report' ? 'No report yet. The Recon writes it before declaring done.' : 'No brief.'}</div>
-    case 'timeline':
-      return <Timeline raw={text} />
-    case 'pings':
-      return text.trim() ? <pre className="file-pre selectable">{text}</pre> : <div className="mute">No pings sent yet.</div>
-    case 'diff':
-      return text.trim() ? <Diff text={text} /> : <div className="mute">No changes on this branch yet.</div>
-    case 'gauntlet':
-      return <Gauntlet t={t} log={text} />
+/** What the branch changes, and what is known about its tests. */
+function ChangesTab({ t, changes, loading, err, rows }: { t: Task; changes: UnitChanges; loading: boolean; err: string; rows: TimelineRow[] }) {
+  const [full, setFull] = useState(false)
+  if (loading) return <div className="bar indeterminate"><i /></div>
+  if (err) return <div className="alert-text mono" style={{ fontSize: 12 }}>{err}</div>
+  const tests = testsLine(t, rows)
+  const most = Math.max(1, ...changes.files.map((f) => f.changes))
+  return (
+    <div className="changes">
+      {changes.removed ? (
+        <div className="mute">The copy was removed on despawn.{t.landedCommit ? ` Landed as ${t.landedCommit.slice(0, 12)}.` : ''}</div>
+      ) : (
+        <>
+          <div className="ch-sum mono">
+            <span className="volt-text">+{changes.insertions}</span> <span className="alert-text">−{changes.deletions}</span>
+            {' · '}{changes.files.length} {changes.files.length === 1 ? 'file' : 'files'} · {changes.commits.length} {changes.commits.length === 1 ? 'commit' : 'commits'}
+            {changes.uncommitted.length > 0 && <span className="amber-text"> · {changes.uncommitted.length} uncommitted</span>}
+          </div>
+          {changes.files.length === 0 && changes.uncommitted.length === 0 ? (
+            <div className="mute">No changes on this branch yet.</div>
+          ) : (
+            <ul className="ch-files">
+              {changes.files.map((f) => (
+                <li key={f.path} title={f.path}>
+                  <span className="mono ch-path">{f.path}</span>
+                  <span className="mono mute ch-n">{f.binary ? 'bin' : f.changes}</span>
+                  <i className="ch-bar" style={{ width: `${Math.round((f.changes / most) * 100)}%` }} />
+                </li>
+              ))}
+              {changes.uncommitted.map((u) => (
+                <li key={u} className="amber-text"><span className="mono ch-path">{u}</span></li>
+              ))}
+            </ul>
+          )}
+          {changes.commits.length > 0 && (
+            <details className="ch-commits">
+              <summary className="label">Commits</summary>
+              <pre className="file-pre selectable">{changes.commits.join('\n')}</pre>
+            </details>
+          )}
+        </>
+      )}
+      <div className="ch-tests">
+        <div className="label">Tests</div>
+        <div className={cx('ch-tests-line', tests.tone)}>{tests.text}</div>
+        {tests.note && <div className="mute ch-note">{tests.note}</div>}
+      </div>
+      {!changes.removed && (changes.files.length > 0 || changes.uncommitted.length > 0) && (
+        <>
+          <button className="btn sm ghost" onClick={() => setFull((f) => !f)}>{full ? 'Hide the diff' : 'Show the full diff'}</button>
+          {full && <FullDiff t={t} />}
+        </>
+      )}
+    </div>
+  )
+}
+
+function testsLine(t: Task, rows: TimelineRow[]): { text: string; tone: string; note?: string } {
+  const v = t.validation
+  if (v) {
+    const failed = v.steps.find((s) => s.state === 'failed')
+    if (v.state === 'running') return { text: `◐ The Gauntlet is running (round ${v.round})`, tone: 'neon-text' }
+    if (v.state === 'passed') return { text: `✓ The Gauntlet passed (round ${v.round})`, tone: 'volt-text' }
+    return { text: `✕ The Gauntlet ${v.state === 'findings' ? 'has findings' : v.state}${failed ? `: ${failed.name}` : ''}`, tone: 'alert-text', note: 'See Checks.' }
   }
+  if (t.pr?.url && t.pr.checks) {
+    const c = t.pr.checks
+    return { text: c === 'passing' ? '✓ PR checks are green' : c === 'failing' ? '✕ PR checks are failing' : c === 'pending' ? '◐ PR checks are running' : 'This PR has no checks', tone: c === 'passing' ? 'volt-text' : c === 'failing' ? 'alert-text' : '' }
+  }
+  const said = reportedTests(rows)
+  const note = t.mode === 'local-only' ? 'Genio runs no tests before a local merge; this is the unit\'s own word.' : undefined
+  return said ? { text: `The unit reported: “${said}”`, tone: '', note } : { text: 'No test result reported yet.', tone: 'mute', note }
+}
+
+function FullDiff({ t }: { t: Task }) {
+  const { text, err } = useTaskFile(t.id, 'diff', [t.state])
+  if (text === null) return <div className="bar indeterminate"><i /></div>
+  if (err) return <div className="alert-text mono" style={{ fontSize: 12 }}>{err}</div>
+  return text.trim() ? <Diff text={text} /> : <div className="mute">No changes on this branch yet.</div>
 }
 
 const VERB_TONE: Record<string, string> = {
@@ -640,35 +894,37 @@ const VERB_TONE: Record<string, string> = {
   done: 'volt',
   resolved: 'mute',
   note: 'mute',
-  'player-held': 'amber'
+  'player-held': 'amber',
+  ping: 'violet'
 }
 
-function Timeline({ raw }: { raw: string }) {
-  const rows = raw
-    .split(/\r?\n/)
-    .filter((l) => l.trim())
-    .map((l) => {
-      const m = l.match(/^\s*([a-z-]+)((?:\s*\[[^\]]*\])*)\s*:\s*(.*)$/i)
-      if (!m) return { verb: 'note', tags: '', text: l, at: undefined as number | undefined }
-      const at = m[2].match(/\[at=(\d{1,12})\]/)
-      return { verb: m[1].toLowerCase(), tags: m[2].replace(/\[at=\d+\]/, '').trim(), text: m[3], at: at ? parseInt(at[1], 10) : undefined }
-    })
-    .reverse()
-  if (!rows.length) return <div className="mute">No status reported yet.</div>
+/** Status lines and pings in one list, newest first. */
+function TimelineTab({ t, rows, loading }: { t: Task; rows: TimelineRow[]; loading: boolean }) {
+  const inbox = useTaskFile(t.id, 'inbox', [t.inbox.seq, t.inbox.acked], t.state === 'cleaned' ? undefined : 8000)
+  const list = useMemo(() => mergeTimeline(rows, parsePings(inbox.text ?? '')), [rows, inbox.text])
+  if (loading) return <div className="bar indeterminate"><i /></div>
+  if (!list.length) return <div className="mute">No status reported and no pings sent yet.</div>
   return (
     <div className="timeline">
-      {rows.map((r, i) => (
-        <div key={i} className="tl-row">
-          <span className={cx('tl-verb', VERB_TONE[r.verb] ?? 'mute')}>{r.verb}</span>
+      {list.map((r, i) => (
+        <div key={i} className={cx('tl-row', r.verb === 'ping' && 'tl-ping')}>
+          <span className={cx('tl-verb', VERB_TONE[r.verb] ?? 'mute')}>{r.verb === 'ping' ? 'you' : r.verb}</span>
           <div className="tl-text selectable">
             {r.tags && <span className="mono mute">{r.tags} </span>}
             {r.text}
+            {r.unread && <span className="mono mute"> · unread</span>}
           </div>
-          <span className="mono mute tl-time">{r.at ? clock(new Date(r.at * 1000).toISOString()) : ''}</span>
+          <span className="mono mute tl-time">{r.at ? clock(new Date(r.at).toISOString()) : ''}</span>
         </div>
       ))}
     </div>
   )
+}
+
+function ChecksTab({ t }: { t: Task }) {
+  const { text } = useTaskFile(t.id, 'validation', [t.state, t.validation?.state], t.validation?.state === 'running' ? 8000 : undefined)
+  if (text === null) return <div className="bar indeterminate"><i /></div>
+  return <Gauntlet t={t} log={text} />
 }
 
 function Diff({ text }: { text: string }) {
@@ -732,4 +988,3 @@ function Gauntlet({ t, log }: { t: Task; log: string }) {
     </div>
   )
 }
-

@@ -1,6 +1,5 @@
 import { ThumbsDown, ThumbsUp } from 'lucide-react'
 import type { Task, Verdict } from '@shared/types'
-import { categoryLabel } from '@shared/dispatch'
 import { api, op } from '../store'
 import { cx } from '../lib/format'
 
@@ -47,20 +46,3 @@ export async function rateThenMerge(id: string, verdict?: Verdict): Promise<{ ok
   return op('Merge', () => api().mergeTask(id))
 }
 
-/** Why the unit got its tool, model and effort. */
-export function LoadoutReasons({ t }: { t: Task }) {
-  if (!t.loadout?.length) return null
-  return (
-    <details className="loadout-reasons">
-      <summary className="label">
-        Loadout{t.category ? ` · ${categoryLabel(t.category)}` : ''}
-        {t.explored ? ' · exploring' : ''}
-      </summary>
-      <ul>
-        {t.loadout.map((r, i) => (
-          <li key={i}>{r}</li>
-        ))}
-      </ul>
-    </details>
-  )
-}

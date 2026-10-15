@@ -943,7 +943,9 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           for (const [sub, label] of [['', 'PENDING'], ['handled', 'READ']] as const) {
             try {
               for (const f of fs.readdirSync(path.join(dir, sub)).filter((x) => x.endsWith('.msg')).sort()) {
-                parts.push(`--- ${label} ${f} ---\n${readText(path.join(dir, sub, f)).split('\n--\n').slice(1).join('\n--\n').trim()}`)
+                const msg = readText(path.join(dir, sub, f))
+                const at = msg.match(/^at=(\S+)$/m)?.[1]
+                parts.push(`--- ${label} ${f}${at ? ` at=${at}` : ''} ---\n${msg.split('\n--\n').slice(1).join('\n--\n').trim()}`)
               }
             } catch {
               /* none */
@@ -956,6 +958,13 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           const project = getCtx().projects.get(t.project)
           const ref = project ? await git.baseRef(project.path, t.baseBranch, t.mode === 'local-only') : t.baseBranch
           return (await git.diff(t.worktree, ref)) || '(no changes)'
+        }
+        case 'diffstat': {
+          if (!exists(t.worktree)) return '(worktree removed)'
+          const project = getCtx().projects.get(t.project)
+          const ref = project ? await git.baseRef(project.path, t.baseBranch, t.mode === 'local-only') : t.baseBranch
+          const [stat, commits, uncommitted] = await Promise.all([git.diffStat(t.worktree, ref), git.logOneline(t.worktree, `${ref}..HEAD`, 50), git.statusPorcelain(t.worktree)])
+          return JSON.stringify({ stat, commits, uncommitted })
         }
         case 'log':
           return t.terminalId ? getCtx().terminals.tail(t.terminalId, 400) || '(no output yet)' : '(unit terminal not running)'

@@ -529,13 +529,63 @@ button.usage-toggle:hover { color: var(--text); }
 .detail-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .detail-title .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .detail-title .title.unit-name { font-size: 26px; }
-.detail-kicker { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11px; }
-.detail-sub { font-size: 12.5px; }
-.detail-reason { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .detail-switch { display: none; }
-.detail-toolbar { display: flex; gap: 18px; flex-wrap: wrap; padding: 10px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-.tb-group { display: flex; gap: 6px; flex-wrap: wrap; }
-.tb-group + .tb-group { padding-left: 18px; border-left: 1px solid var(--line); }
+/* unit page: one header (facts behind ⓘ details), one primary action by state, the rest under More */
+.view.detail.unit-detail { gap: 12px; }
+.unit-head { flex-direction: column; align-items: stretch; gap: 6px; }
+.uh-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11px; min-width: 0; }
+.uh-row .detail-clock, .uh-row .uh-since { font-size: 12px; white-space: nowrap; }
+.unit-head .title.unit-name { font-size: 24px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.uh-actions { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 30px; }
+.uh-line { flex: 1; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.uh-actions > :not(.uh-line) { flex: none; }
+.unit-info, .unit-more { position: relative; }
+.uh-info { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.unit-info-pop { position: absolute; left: 0; top: calc(100% + 6px); z-index: 60; width: min(380px, calc(100vw - 32px)); padding: 10px 12px;
+  background: var(--surface-3); border: 1px solid var(--line-strong); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); font-size: 12.5px; }
+.unit-info-pop dl { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.ui-row { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 10px; }
+.ui-row dt { color: var(--text-mute); }
+.ui-row dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.ui-loadout { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.ui-loadout ul { margin: 6px 0 0; padding-left: 18px; color: var(--text-dim); line-height: 1.45; }
+.unit-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 60; width: min(340px, calc(100vw - 32px)); display: flex; flex-direction: column; padding: 6px;
+  background: var(--surface-3); border: 1px solid var(--line-strong); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); }
+.unit-menu-item { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 7px 10px; background: none; border: 1px solid transparent; border-bottom-color: var(--line); color: var(--text); cursor: pointer; outline: none; }
+.unit-menu-item:last-child { border-bottom-color: transparent; }
+.unit-menu-item:hover, .unit-menu-item:focus-visible { background: var(--neon-soft); border-color: var(--line-strong); }
+.umi-label { font-weight: 600; font-size: 13px; }
+.umi-hint { color: var(--text-mute); font-size: 11.5px; line-height: 1.35; }
+.unit-menu-item.warn .umi-label { color: var(--amber); }
+.unit-menu-item.danger .umi-label { color: var(--alert); }
+.unit-question { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-left: 2px solid var(--amber); background: var(--amber-soft); }
+.uq-q { font-size: 14px; color: var(--text); }
+.uq-hint { font-size: 12px; }
+.uq-answers { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.uq-answers .uq-own { flex: 1; min-width: 160px; }
+.needs-input { position: absolute; bottom: 8px; right: 10px; z-index: 3; display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; font-size: 11px; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--amber); background: rgba(5, 7, 11, 0.85); border: 1px solid var(--amber); pointer-events: auto; }
+.needs-input .dot { --c: var(--amber); width: 7px; height: 7px; }
+.unit-ping { border-top: 0; padding-top: 0; }
+.unit-ping .textarea { flex: 1; min-width: 0; min-height: 48px; }
+.unit-ping.steer .textarea { border-color: var(--neon); }
+.ping-side { display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; gap: 6px; }
+.ping-interrupt { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--text-mute); white-space: nowrap; cursor: pointer; }
+.changes { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.changes > * { align-self: stretch; }
+.changes > .btn { align-self: flex-start; }
+.ch-sum { font-size: 12.5px; }
+.ch-files { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.ch-files li { position: relative; display: flex; gap: 10px; padding: 3px 6px; font-size: 12px; }
+.ch-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.ch-n { font-size: 11px; }
+.ch-bar { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--neon); opacity: 0.45; }
+.ch-commits summary { cursor: pointer; margin-bottom: 6px; }
+.ch-tests { display: flex; flex-direction: column; gap: 4px; }
+.ch-tests-line { font-size: 13px; }
+.ch-note { font-size: 12px; }
+.tl-row.tl-ping .tl-text { color: var(--text); }
+.tl-verb.violet { color: var(--violet); }
 .detail-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 14px; }
 /* no agent terminal (finished units): the content takes the page */
 .detail-body.no-term { grid-template-columns: minmax(0, 1fr); }
@@ -1236,10 +1286,8 @@ button.prio-label:hover { background: color-mix(in srgb, var(--p) 24%, transpare
   .detail-body.pane-terminal .detail-side, .detail-body.pane-side .detail-term { display: none; }
   .view.detail { overflow: auto; }
   .detail-head { flex-wrap: wrap; gap: 8px 18px; }
-  .detail-head .detail-pr { margin-left: auto; }
   .detail-title { order: 3; flex-basis: 100%; }
-  .detail-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .tb-group + .tb-group { padding-left: 0; border-left: 0; }
+  .unit-head { flex-wrap: nowrap; gap: 6px; }
   .tabs { overflow-x: auto; }
   .tab { flex: none; }
   .tab.on::after { bottom: 0; }
@@ -1266,10 +1314,14 @@ button.prio-label:hover { background: color-mix(in srgb, var(--p) 24%, transpare
   .view-head .title { font-size: 26px; }
   .view.detail { padding: 10px 12px 12px; gap: 8px; }
   .detail-title { gap: 3px; }
-  .detail-title .title.unit-name { font-size: 20px; }
-  .detail-toolbar { gap: 6px; padding: 6px 0; }
-  /* icon-only toolbar; the label stays the button's accessible name */
-  .detail-toolbar .tb-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .unit-head .title.unit-name { font-size: 19px; }
+  /* the status line gets its own row; the actions wrap under it */
+  .uh-actions { flex-wrap: wrap; }
+  .uh-line { flex-basis: 100%; }
+  /* menus span the header row instead of hanging off a wrapped button */
+  .uh-row, .uh-actions { position: relative; }
+  .unit-info, .unit-more { position: static; }
+  .unit-menu, .unit-info-pop { left: 0; right: 0; width: auto; }
   .comms-head { padding: 8px 12px; }
   /* Narrow: a sticky one-line picker ("This project › General ▾") opens the search and page list as a sheet. */
   /* The bottom inset keeps the collapsed Genio pill off the last field. */
@@ -1317,8 +1369,6 @@ button.prio-label:hover { background: color-mix(in srgb, var(--p) 24%, transpare
 @media (max-width: 560px) {
   .hud-units { display: none; }
   .file-menu-btn { padding: 0 8px; }
-  /* the unit's facts line (project, branch, model) yields to the state reason */
-  .detail-sub { display: none; }
   .msg-bubble, .msg-images { max-width: 92%; }
   .status-sec { padding: 14px 14px 12px; }
   .sec-title { font-size: 20px; }

@@ -2,11 +2,14 @@ import type { Task } from './types'
 
 /** One-line consequence of each unit control, shown wherever the control is offered (game words: docs/VOCABULARY.md). */
 export const UNIT_ACTION_HINT = {
-  interrupt: 'Stops the current turn; the agent then waits for a ping.',
+  interrupt: 'Stops the current turn; the agent idles until a ping, or until Genio finds it lagging.',
   recall: 'Stops the agent and keeps its copy; reopening the project respawns it automatically.',
   respawn: 'Restarts the agent in the same copy, resuming its conversation; it takes a squad slot.',
   despawn: "Deletes the unit's copy and branch, and closes its shells; refused while work is not landed.",
-  shell: "Opens a shell in the unit's copy: edits land on its branch, and Despawn closes it."
+  shell: "Opens a shell in the unit's copy: edits land on its branch, and Despawn closes it.",
+  folder: "Opens the unit's copy in Explorer; nothing changes.",
+  archive: "Removes the Recon's copy; its report and record stay.",
+  build: "Turns this Recon into a Build in the same copy, with the report as its context."
 } as const
 
 /**

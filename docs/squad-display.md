@@ -3,9 +3,46 @@
 Squad rows, cards and details show WORKING, READY TO MERGE or DONE. A finished
 unit's card and page badge name how it ended instead (FAILED, MERGED, EXITED
 ABNORMALLY or DONE, `squadBadge`), so a failed unit never reads as a red DONE;
-their clock stops when the unit is ready or finished ("took 54 min"). Internal
-lifecycle states and capacity rules are unchanged. Completed units leave both
-active rosters immediately; header counts include working and ready units only.
+their clock stops when the unit is ready or finished ("took 54 min"). The unit
+page also says when the agent is simply not running: NOT RUNNING (detached),
+RECALLED, STOPPED (a clean exit without a final status) or WAITING (paused).
+Internal lifecycle states and capacity rules are unchanged. Completed units
+leave both active rosters immediately; header counts include working and ready
+units only.
+
+## Unit page
+
+The agent terminal stays the main area (watched until the player clicks into
+it). The header holds the back link, the kind and state chips, the clock and an
+ⓘ details popover with the facts: project, branch to base, model, effort,
+category, loadout, delivery ("Merge into main" for Offline), Auto-loot and the
+landed commit. Beside More sits one primary action, by state
+(`primaryAction` in `src/shared/unit-page.ts`):
+
+| State | Primary |
+|---|---|
+| working, spawning, validating, lagging, waiting | none: the ping box below steers |
+| needs-decision, blocked (or any open choice) | the open question inline, with answer buttons |
+| ready, Offline | Merge into main |
+| ready, PR | Merge PR #n (off until checks are green) and Open PR |
+| failed, exited, detached | Respawn, with the stop reason in words |
+| Recon done | Build from this report, and Archive (despawns the copy, keeps the report) |
+| merged, despawned | none |
+
+More holds Interrupt (working only), Respawn, Recall (live only), Open folder,
+Open shell (amber: edits land on the unit's branch) and Despawn (red), each with
+its one-line consequence (`UNIT_ACTION_HINT`). There is no play button and no
+manual Gauntlet button. 👍/👎 shows on finished units only; a ready unit is
+rated in the Merge confirm.
+
+Side tabs: Changes (diffstat, changed and uncommitted files, commits, and the
+test status: the Gauntlet, PR checks, or the unit's own reported words),
+Timeline (status lines and pings, newest first), Brief, Report (Recons) and
+Checks (Hardcore). Under 900 px one strip switches between the terminal and the
+tabs. The ping box spans the page under them, with an "interrupt and send"
+option while the agent runs. A "needs input" badge marks the terminal when the
+agent has printed nothing for the lagging window (Settings: Call a unit lagging
+after) or the unit is lagging.
 
 Build work uses blue; Recon work uses purple. Open player decisions and blocked
 units use yellow while retaining WORKING. Errors and abnormal exits use red.
