@@ -15,7 +15,7 @@ export type SpawnVisible = (file: string, args: string[], options: { env?: NodeJ
 export interface DialogRule { id: string; kind: 'ignore' | 'benign' | 'blocking'; title?: RegExp; match?: RegExp; button?: string[]; reason?: string; immediate?: boolean }
 export interface DialogBlock { hwnd: string; pid: number; process?: string; className?: string; title: string; text: string; buttons: string[]; rule: string; reason: string; screenshot?: string; message: string }
 export interface InspectResult { watched: boolean; gone?: boolean; clicked: { title: string; button: string; rule: string }[]; blocked?: DialogBlock }
-export const HELPER_SOURCE: string
+export function helperSource(): string
 export const DIALOG_RULES: DialogRule[]
 export function hiddenDesktopDir(data: string): string
 export function cscPath(env?: NodeJS.ProcessEnv): string | undefined

@@ -17,11 +17,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { execFile, spawn } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
+import { pluginFile } from './resource-path.mjs'
 
-const HERE = path.dirname(fileURLToPath(import.meta.url))
-export const HELPER_SOURCE = path.join(HERE, 'hidden-desktop', 'GenioDesktop.cs')
+/** The helper's C# source, wherever this module runs from (plain Node or bundled into Genio's main process). */
+export const helperSource = () => pluginFile('lib/hidden-desktop/GenioDesktop.cs')
 const LAUNCH_TIMEOUT_MS = 30_000
 const KEEP_LAUNCH_DIRS_MS = 7 * 24 * 3600_000
 
@@ -35,7 +35,8 @@ export function cscPath(env = process.env) {
 }
 
 /** Builds the helper once per source hash; concurrent callers race to an atomic rename. */
-export async function helperExecutable(data, { source = HELPER_SOURCE, compiler = cscPath(), compile = compileWithCsc } = {}) {
+export async function helperExecutable(data, { source, compiler = cscPath(), compile = compileWithCsc } = {}) {
+  source ??= helperSource()
   const code = fs.readFileSync(source)
   const dir = path.join(hiddenDesktopDir(data), 'bin', createHash('sha256').update(code).digest('hex').slice(0, 16))
   const exe = path.join(dir, 'genio-desktop.exe')
