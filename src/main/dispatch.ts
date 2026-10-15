@@ -104,18 +104,20 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
   }
 
   /** Global cap from the global mode, plus any lower cap of this world. Serialized with selection. */
-  const capGate = (project: string): void => {
+  const capGate = (project: string, respawn = false): void => {
     const ctx = getCtx()
     const s = ctx.settings.get()
     const world = ctx.projects.get(project)
     const own = world ? worldUsage(s, world) : undefined
     const caps = unitCaps(globalMode(s), { mode: own && own.source !== 'global' ? own.mode : undefined, capacity: world?.capacity })
+    // A respawn has no quest to queue: the unit simply stays as it is.
+    const after = respawn ? 'The unit was not respawned and stays as it is; respawn it when a slot frees up.' : 'The quest stays queued.'
     const used = liveUnits(homes(), alive) + launchingCount()
     if (used >= caps.global)
-      throw new Error(`deferred: the ${USAGE_MODE_LABEL[globalMode(s)]} usage mode allows ${caps.global} concurrent unit${caps.global === 1 ? '' : 's'} across all projects (${used} running or launching). The quest stays queued.`)
+      throw new Error(`deferred: the ${USAGE_MODE_LABEL[globalMode(s)]} usage mode allows ${caps.global} concurrent unit${caps.global === 1 ? '' : 's'} across all projects (${used} running or launching). ${after}`)
     if (caps.world !== undefined) {
       const mine = liveUnits(homes(), alive, project) + launchingCount(project)
-      if (mine >= caps.world) throw new Error(`deferred: ${project} allows ${caps.world} concurrent unit${caps.world === 1 ? '' : 's'} (${mine} running or launching). The quest stays queued.`)
+      if (mine >= caps.world) throw new Error(`deferred: ${project} allows ${caps.world} concurrent unit${caps.world === 1 ? '' : 's'} (${mine} running or launching). ${after}`)
     }
   }
 
@@ -194,7 +196,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
         if (opts.respawn && (!replacing || replacing.project !== input.project)) throw new Error('Unknown respawn target')
         const occupies = !!replacing && holdsCapacity(replacing, alive(replacing))
         // Only a genuinely live/spawning replacement already owns a slot.
-        if (!occupies) capGate(input.project)
+        if (!occupies) capGate(input.project, !!opts.respawn)
         const signals = { ...svc.signals(input.project), unavailable: (id: string) => unavailable(id, undefined, replacing) }
         const loadout = resolveLoadout(input, getCtx().settings, signals)
         const primary = loadout.explored ? resolveLoadout(input, getCtx().settings, { ...signals, preview: true }).harness : undefined

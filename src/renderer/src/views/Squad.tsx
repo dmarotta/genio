@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
-  ArrowLeft, CircleStop, ExternalLink, FolderOpen, GitMerge, LogOut, Play, Radar, RotateCcw, Rocket, Send,
-  ShieldCheck, SquareTerminal, Trash, ArrowUpFromLine, X
+  ArrowLeft, CircleStop, ExternalLink, FolderOpen, GitMerge, LogOut, Radar, RotateCcw, Rocket, Send,
+  SquareTerminal, Trash, ArrowUpFromLine, X
 } from 'lucide-react'
 import type { Task, TerminalInfo, ValidationStep, Verdict } from '@shared/types'
 import { categoryLabel } from '@shared/dispatch'
@@ -13,9 +13,10 @@ import { Chip, Confirm, DislikeMarker, Dot, Empty, Modal, Field, NeedsYou, Tabs,
 import { GenioCore } from '../components/GenioCore'
 import { LoadoutReasons, RATEABLE, VerdictButtons, VerdictPick, rateThenMerge } from '../components/Dispatch'
 import { KIND_LABEL, MODE_LABEL } from '../lib/vocab'
-import { ago, clock, cx, elapsed, shortPath } from '../lib/format'
+import { ago, clock, cx, shortPath } from '../lib/format'
 import { playSfx } from '../lib/sfx'
-import { squadAttention, squadState, squadTone } from '@shared/squad-display'
+import { squadAttention, squadBadge, squadState, squadTone, unitClock } from '@shared/squad-display'
+import { UNIT_ACTION_HINT, canRespawn, hasOpenPr } from '@shared/unit-actions'
 import { pendingDecision } from '@shared/decisions'
 import { listFact, useScreenContext } from '../lib/screen-context'
 
@@ -98,6 +99,7 @@ function UnitCard({ t, term }: { t: Task; term?: TerminalInfo }) {
   const now = useNow(1000)
   const pending = useStore(s => s.snap.decisions.some(d => d.taskId === t.id && pendingDecision(d, now)))
   const tone = squadTone(t, term)
+  const badge = squadBadge(t, term)
   const attention = squadAttention(t, term, pending)
   const recon = t.kind === 'scout'
   return (
@@ -116,17 +118,17 @@ function UnitCard({ t, term }: { t: Task; term?: TerminalInfo }) {
           </div>
         </div>
         <div className="unit-state">
-          <Chip tone={tone} pulse={squadState(t, term) === 'WORKING'}>
-            {squadState(t, term)}
+          <Chip tone={badge.tone} pulse={badge.label === 'WORKING'}>
+            {badge.label}
           </Chip>
           {attention && <NeedsYou />}
           {t.dislikePause && <DislikeMarker />}
-          <span className="mono mute">{elapsed(t.createdAt, now)}</span>
+          <span className="mono mute">{unitClock(t, term, now)}</span>
         </div>
       </header>
       <div className="unit-term" onDoubleClick={() => focusTask(t.id)}>
         {term && term.alive ? (
-          <TerminalView id={term.id} fontSize={11} />
+          <TerminalView id={term.id} fontSize={11} passive interactive={false} />
         ) : (
           <NoSignal t={t} />
         )}
@@ -149,8 +151,8 @@ function UnitCard({ t, term }: { t: Task; term?: TerminalInfo }) {
   )
 }
 
+/** A Squad card whose agent is not running. The unit page has no such panel: its content takes the space. */
 function NoSignal({ t }: { t: Task }) {
-  const canRespawn = t.state !== 'cleaned' && t.state !== 'merged' && !(t.kind === 'scout' && t.state === 'done')
   return (
     <div className="no-signal">
       <div className="no-signal-noise" />
@@ -159,8 +161,8 @@ function NoSignal({ t }: { t: Task }) {
         <div className="mute" style={{ fontSize: 12 }}>
           {t.state === 'detached' ? 'Genio restarted; the isolated copy is intact.' : t.state === 'cleaned' ? 'Record kept for history.' : 'Unit process is not running.'}
         </div>
-        {canRespawn && (
-          <button className="btn sm" onClick={(e) => { e.stopPropagation(); void op('Respawn', () => api().controlTask(t.id, 'relaunch')) }}>
+        {canRespawn(t) && (
+          <button className="btn sm" title={UNIT_ACTION_HINT.respawn} onClick={(e) => { e.stopPropagation(); void op('Respawn', () => api().controlTask(t.id, 'relaunch')) }}>
             <RotateCcw size={12} /> Respawn
           </button>
         )}
@@ -172,7 +174,7 @@ function NoSignal({ t }: { t: Task }) {
 function SessionCard({ s }: { s: TerminalInfo }) {
   return (
     <div className="session-card panel" onClick={() => setState({ focus: { type: 'terminal', id: s.id } })}>
-      <SquareTerminal size={14} className={s.kind === 'playtest' ? 'volt-text' : 'neon-text'} />
+      <SquareTerminal size={14} className="neon-text" />
       <div className="session-main">
         <div className="session-title">{s.title}</div>
         <div className="mute mono" style={{ fontSize: 11 }}>
@@ -238,6 +240,8 @@ function SessionDetail({ id }: { id: string }) {
 // ------------------------------------------------------------------ unit detail
 
 type TabId = 'brief' | 'timeline' | 'pings' | 'diff' | 'report' | 'gauntlet'
+/** Under 900 px one pane shows at a time: the terminal or a side tab. */
+type PaneId = 'terminal' | TabId
 
 function UnitDetail({ id }: { id: string }) {
   const t = useStore((s) => s.snap.tasks.find((x) => x.id === id))
@@ -245,17 +249,17 @@ function UnitDetail({ id }: { id: string }) {
   const project = useStore((s) => s.snap.projects.find((p) => p.name === t?.project))
   const settings = useStore((s) => s.settings)
   const [tab, setTab] = useState<TabId>('brief')
+  const [pane, setPane] = useState<'terminal' | 'side'>('terminal')
   const [ping, setPing] = useState('')
   const [confirm, setConfirm] = useState<null | 'despawn' | 'force' | 'merge' | 'recall'>(null)
   const [refusal, setRefusal] = useState('')
   const [upgrade, setUpgrade] = useState(false)
-  const [crew, setCrew] = useState('')
   const [verdict, setVerdict] = useState<Verdict | undefined>()
   const now = useNow(1000)
   const latest = useStore((s) => s.statusByTask[id]?.at(-1))
   useScreenContext('squad', { facts: t ? [
     { label: 'Unit', value: `${t.title} [${t.id}]` },
-    { label: 'State', value: `${squadState(t, term)} (${t.state}) · ${KIND_LABEL[t.kind]} · ${t.branch}` },
+    { label: 'State', value: `${squadBadge(t, term).label} (${t.state}) · ${KIND_LABEL[t.kind]} · ${t.branch}` },
     { label: 'Tab', value: tab },
     latest && { label: 'Last status', value: `${latest.kind}: ${latest.text}` }
   ] : [{ label: 'Unit', value: `${id} (gone)` }] })
@@ -263,23 +267,12 @@ function UnitDetail({ id }: { id: string }) {
   const pending = useStore(s => s.snap.decisions.some(d => d.taskId === id && pendingDecision(d, now)))
 
   useEffect(() => {
-    if (t?.kind === 'scout' && (t.state === 'done' || t.reportPath)) setTab('report')
+    if (t?.kind === 'scout' && (t.state === 'done' || t.reportPath)) {
+      setTab('report')
+      setPane('side')
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
-
-  useEffect(() => {
-    if (!t) return
-    let alive = true
-    const poll = (): void => {
-      void api().crewState(t.id).then((s) => alive && setCrew(s)).catch(() => undefined)
-    }
-    poll()
-    const iv = window.setInterval(poll, 10_000)
-    return () => {
-      alive = false
-      window.clearInterval(iv)
-    }
-  }, [t?.id, t?.state]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!t) {
     return (
@@ -292,11 +285,42 @@ function UnitDetail({ id }: { id: string }) {
     )
   }
 
-  const tone = squadTone(t, term)
+  const badge = squadBadge(t, term)
   const attention = squadAttention(t, term, pending)
   const recon = t.kind === 'scout'
   const live = !!term?.alive
+  const cleaned = t.state === 'cleaned'
   const canMerge = t.kind === 'ship' && (t.state === 'ready' || !!t.pr?.url)
+  const tabs: { id: TabId; label: string }[] = [
+    { id: 'brief', label: 'Brief' },
+    { id: 'timeline', label: 'Timeline' },
+    { id: 'pings', label: 'Pings' },
+    { id: 'diff', label: 'Diff' },
+    recon ? { id: 'report', label: 'Report' } : { id: 'gauntlet', label: 'Gauntlet' }
+  ]
+  const shown: PaneId = term && pane === 'terminal' ? 'terminal' : tab
+  const showPane = (p: PaneId): void => {
+    setPane(p === 'terminal' ? 'terminal' : 'side')
+    if (p !== 'terminal') setTab(p)
+  }
+
+  // One flat list so a later layout (primary action, More menu) can regroup it.
+  const actions: (UnitAction | false)[] = [
+    { id: 'interrupt', group: 'control', label: 'Interrupt', icon: <CircleStop size={13} />, hint: UNIT_ACTION_HINT.interrupt, disabled: !live,
+      run: () => void op('Interrupt', () => api().controlTask(t.id, 'interrupt')) },
+    { id: 'recall', group: 'control', label: 'Recall', icon: <LogOut size={13} />, hint: UNIT_ACTION_HINT.recall, disabled: !live, run: () => setConfirm('recall') },
+    { id: 'respawn', group: 'control', label: 'Respawn', icon: <RotateCcw size={13} />, hint: UNIT_ACTION_HINT.respawn, disabled: !canRespawn(t),
+      run: () => void op('Respawn', () => api().controlTask(t.id, 'relaunch')) },
+    canMerge && { id: 'merge', group: 'deliver', label: 'Merge', icon: <GitMerge size={13} />, className: 'solid volt', disabled: project?.gitRepo === false,
+      hint: project?.gitRepo === false ? 'Merge needs a git repo' : `Lands ${t.branch} in ${t.baseBranch}`, run: () => setConfirm('merge') },
+    recon && !cleaned && { id: 'upgrade', group: 'deliver', label: 'Upgrade to Build', icon: <ArrowUpFromLine size={13} />, className: 'violet',
+      hint: "Builds from this Recon's report in the same copy", run: () => setUpgrade(true) },
+    { id: 'folder', group: 'copy', label: 'Folder', icon: <FolderOpen size={13} />, className: 'ghost', disabled: cleaned, hint: "Opens the unit's copy in Explorer",
+      run: () => void api().openPath(t.worktree) },
+    { id: 'shell', group: 'copy', label: 'Shell', icon: <SquareTerminal size={13} />, className: 'ghost', disabled: cleaned, hint: UNIT_ACTION_HINT.shell,
+      run: () => void api().terminalOpenShell(undefined, t.id).then((s) => setState({ focus: { type: 'terminal', id: s.id } })).catch((e) => toast('error', 'Shell', errText(e))) },
+    { id: 'despawn', group: 'copy', label: 'Despawn', icon: <Trash size={13} />, className: 'alert', disabled: cleaned, hint: UNIT_ACTION_HINT.despawn, run: () => setConfirm('despawn') }
+  ]
 
   const sendPing = async (): Promise<void> => {
     const text = ping.trim()
@@ -334,18 +358,18 @@ function UnitDetail({ id }: { id: string }) {
             <span className={cx('chip', recon ? 'violet' : 'neon')}>
               {recon ? <Radar size={11} /> : <Rocket size={11} />} {KIND_LABEL[t.kind]}
             </span>
-            <Chip tone={tone} pulse={squadState(t, term) === 'WORKING'}>
-              {squadState(t, term)}
+            <Chip tone={badge.tone} pulse={badge.label === 'WORKING'}>
+              {badge.label}
             </Chip>
             {attention && <NeedsYou />}
             {t.dislikePause && <DislikeMarker />}
             {t.mode && <span className="chip">{MODE_LABEL[t.mode]}</span>}
             {t.yolo && <span className="chip volt">Auto-loot</span>}
             {t.landedCommit && <span className="chip volt mono selectable" title={t.landedCommit}>commit {t.landedCommit.slice(0, 10)}</span>}
-            <span className="mono mute">{elapsed(t.createdAt, now)}</span>
+            <span className="mono mute detail-clock">{unitClock(t, term, now)}</span>
             {RATEABLE.includes(t.state) && <VerdictButtons t={t} />}
           </div>
-          <h1 className="title" style={{ fontSize: 26 }}>
+          <h1 className="title unit-name" title={t.title}>
             {t.title}
           </h1>
           <div className="mute detail-sub">
@@ -355,79 +379,32 @@ function UnitDetail({ id }: { id: string }) {
             {t.category ? ` · ${categoryLabel(t.category)}` : ''}
             {t.relaunches ? ` · respawned ×${t.relaunches}` : ''}
           </div>
+          {t.stateReason && <div className={cx('detail-reason', badge.tone === 'alert' ? 'alert-text' : 'mute')} title={t.stateReason}>{t.stateReason}</div>}
         </div>
         {t.pr?.url && (
-          <button className="btn" onClick={() => void api().openExternal(t.pr!.url)}>
+          <button className="btn detail-pr" onClick={() => void api().openExternal(t.pr!.url)}>
             <ExternalLink size={13} /> PR{t.pr.number ? ` #${t.pr.number}` : ''}
             {t.pr.checks && t.pr.checks !== 'none' && <span className={cx('chip', t.pr.checks === 'passing' ? 'volt' : t.pr.checks === 'failing' ? 'alert' : 'amber')}>{t.pr.checks}</span>}
           </button>
         )}
       </header>
 
-      <div className="detail-toolbar">
-        <div className="tb-group">
-          <button className="btn sm" disabled={!live} title="Send Esc to stop the current turn" onClick={() => void op('Interrupt', () => api().controlTask(t.id, 'interrupt'))}>
-            <CircleStop size={13} /> Interrupt
-          </button>
-          <button className="btn sm" disabled={!live} title="Exit the agent cleanly (keeps the isolated copy)" onClick={() => setConfirm('recall')}>
-            <LogOut size={13} /> Recall
-          </button>
-          <button className="btn sm" disabled={t.state === 'cleaned'} title="Restart the agent in the same copy, resuming its conversation" onClick={() => void op('Respawn', () => api().controlTask(t.id, 'relaunch'))}>
-            <RotateCcw size={13} /> Respawn
-          </button>
-        </div>
-        <div className="tb-group">
-          <button className="btn sm volt" disabled={t.state === 'cleaned' || !project?.commands.run} title={project?.commands.run ? `Run: ${project.commands.run}` : 'Set a run command in Projects'} onClick={() => void op('Playtest', () => api().playtest({ taskId: t.id }), (r) => (r ? 'Playtest launched in Sessions' : undefined))}>
-            <Play size={13} /> Playtest
-          </button>
-          {t.kind === 'ship' && (
-            <button className="btn sm" disabled={t.state === 'cleaned' || t.state === 'validating'} title="Run the Gauntlet: review, checks, push, PR" onClick={() => void op('Gauntlet', () => api().validateTask(t.id))}>
-              <ShieldCheck size={13} /> Gauntlet
-            </button>
-          )}
-          {canMerge && (
-            <button className="btn sm solid volt" disabled={project?.gitRepo === false} title={project?.gitRepo === false ? 'Merge needs a git repo' : undefined} onClick={() => setConfirm('merge')}>
-              <GitMerge size={13} /> Merge
-            </button>
-          )}
-          {recon && t.state !== 'cleaned' && (
-            <button className="btn sm violet" onClick={() => setUpgrade(true)}>
-              <ArrowUpFromLine size={13} /> Upgrade to Build
-            </button>
-          )}
-        </div>
-        <div className="tb-group">
-          <button className="btn sm ghost" disabled={t.state === 'cleaned'} onClick={() => void api().openPath(t.worktree)}>
-            <FolderOpen size={13} /> Folder
-          </button>
-          <button className="btn sm ghost" disabled={t.state === 'cleaned'} onClick={() => void api().terminalOpenShell(t.worktree).then((s) => setState({ focus: { type: 'terminal', id: s.id } })).catch((e) => toast('error', 'Shell', errText(e)))}>
-            <SquareTerminal size={13} /> Shell
-          </button>
-          <button className="btn sm alert" disabled={t.state === 'cleaned'} onClick={() => setConfirm('despawn')}>
-            <Trash size={13} /> Despawn
-          </button>
-        </div>
-      </div>
+      <UnitToolbar actions={actions.filter((a): a is UnitAction => !!a)} />
 
-      <div className="detail-body">
-        <div className="detail-term panel">
-          {term && term.alive ? <TerminalView id={term.id} fontSize={13} autoFocus /> : <NoSignal t={t} />}
-        </div>
+      <div className="detail-switch">
+        <Tabs<PaneId> value={shown} onChange={showPane} tabs={[...(term ? [{ id: 'terminal' as PaneId, label: 'Terminal' }] : []), ...tabs]} />
+      </div>
+      <div className={cx('detail-body', !term && 'no-term', shown === 'terminal' ? 'pane-terminal' : 'pane-side')}>
+        {term && (
+          <div className="detail-term panel">
+            <TerminalView id={term.id} fontSize={13} passive interactive={term.alive} />
+          </div>
+        )}
         <aside className="detail-side panel">
-          {crew && <div className="crew-state mono">{crew}</div>}
           <LoadoutReasons t={t} />
-          <Tabs<TabId>
-            value={tab}
-            onChange={setTab}
-            tabs={[
-              { id: 'brief', label: 'Brief' },
-              { id: 'timeline', label: 'Timeline' },
-              { id: 'pings', label: 'Pings' },
-              { id: 'diff', label: 'Diff' },
-              ...(recon ? [{ id: 'report' as TabId, label: 'Report' }] : []),
-              ...(!recon ? [{ id: 'gauntlet' as TabId, label: 'Gauntlet' }] : [])
-            ]}
-          />
+          <div className="detail-side-tabs">
+            <Tabs<TabId> value={tab} onChange={setTab} tabs={tabs} />
+          </div>
           <div className="detail-tab">
             <TaskFileTab t={t} tab={tab} />
           </div>
@@ -457,8 +434,15 @@ function UnitDetail({ id }: { id: string }) {
           confirmLabel="Despawn"
           body={
             <>
-              Genio removes the isolated copy only if nothing would be lost: no uncommitted changes, and the work is pushed, merged, or already in{' '}
-              <span className="mono">{t.baseBranch}</span>. Otherwise it refuses and tells you why.
+              {hasOpenPr(t) && (
+                <p className="amber-text despawn-pr">
+                  PR{t.pr!.number ? ` #${t.pr!.number}` : ''} is still open. After Despawn, Genio stops watching its checks and you can no longer merge it from here; the PR itself stays open.
+                </p>
+              )}
+              <p>
+                Genio deletes the isolated copy and its branch, and closes the unit's shells, only if nothing would be lost: no uncommitted changes, and the work is pushed, merged, or already in{' '}
+                <span className="mono">{t.baseBranch}</span>. Otherwise it refuses and tells you why.
+              </p>
             </>
           }
           onConfirm={() => despawn(false)}
@@ -512,7 +496,7 @@ function UnitDetail({ id }: { id: string }) {
           title="Recall this unit?"
           tone="amber"
           confirmLabel="Recall"
-          body="The agent exits cleanly. Its isolated copy and work stay put; respawn any time."
+          body="The agent exits cleanly and its isolated copy and work stay put. It does not stay stopped: reopening the project respawns it automatically. Despawn it instead if its work is finished."
           onConfirm={async () => {
             await op('Recall', () => api().controlTask(t.id, 'exit'))
           }}
@@ -520,6 +504,36 @@ function UnitDetail({ id }: { id: string }) {
         />
       )}
       {upgrade && <UpgradeModal t={t} onClose={() => setUpgrade(false)} />}
+    </div>
+  )
+}
+
+interface UnitAction {
+  id: string
+  /** Toolbar cluster: lifecycle controls, delivery, the unit's copy. */
+  group: 'control' | 'deliver' | 'copy'
+  label: string
+  icon: ReactNode
+  /** One-line consequence, shown on hover. */
+  hint: string
+  className?: string
+  disabled?: boolean
+  run: () => void
+}
+
+function UnitToolbar({ actions }: { actions: UnitAction[] }) {
+  const groups = (['control', 'deliver', 'copy'] as const).map((g) => actions.filter((a) => a.group === g)).filter((g) => g.length)
+  return (
+    <div className="detail-toolbar">
+      {groups.map((g) => (
+        <div key={g[0].group} className="tb-group">
+          {g.map((a) => (
+            <button key={a.id} className={cx('btn sm', a.className)} disabled={a.disabled} title={a.hint} onClick={a.run}>
+              {a.icon} <span className="tb-label">{a.label}</span>
+            </button>
+          ))}
+        </div>
+      ))}
     </div>
   )
 }
@@ -683,7 +697,7 @@ function Gauntlet({ t, log }: { t: Task; log: string }) {
     <div className="gauntlet">
       {!v ? (
         <div className="mute">
-          {t.mode === 'no-mistakes' ? 'The Gauntlet runs automatically when the unit declares done.' : 'Not run. Hit GAUNTLET to validate this Build on demand.'}
+          {t.mode === 'no-mistakes' ? 'The Gauntlet runs automatically when the unit declares done.' : 'Not run. The Gauntlet runs automatically on Hardcore Builds only.'}
         </div>
       ) : (
         <>

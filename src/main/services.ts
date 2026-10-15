@@ -331,7 +331,6 @@ export interface CrewService {
   crewState(id: string): Promise<string>
   /** structured fleet view text for the wksp */
   fleetView(): Promise<string>
-  playtest(target: { taskId?: string; project?: string }): Promise<TerminalInfo | null>
   /** register a PR url for a task (refuses drafts); arms the merge poll */
   registerPr(id: string, url: string): Promise<OpResult>
   /** append a status line on behalf of Genio (resolved / player-held / note) */

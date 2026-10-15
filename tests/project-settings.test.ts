@@ -4,10 +4,10 @@ import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { Project } from '../src/shared/types'
 import { worldList, worldPath, modifiedLabel } from '../src/renderer/src/lib/worlds'
-const fixture = vi.hoisted(() => ({ projects: [] as Project[], tasks: [], allies: [], enabled: false, go: vi.fn(), deploy: vi.fn(), projectOpen: vi.fn(), update: vi.fn(), rescan: vi.fn(), push: vi.fn(), sync: vi.fn(), openPath: vi.fn(), playtest: vi.fn(), remove: vi.fn(async () => ({ ok: false, message: 'Active units prevent removal' })) }))
+const fixture = vi.hoisted(() => ({ projects: [] as Project[], tasks: [], allies: [], enabled: false, go: vi.fn(), deploy: vi.fn(), projectOpen: vi.fn(), update: vi.fn(), rescan: vi.fn(), push: vi.fn(), sync: vi.fn(), openPath: vi.fn(), remove: vi.fn(async () => ({ ok: false, message: 'Active units prevent removal' })) }))
 vi.mock('../src/renderer/src/store', () => ({
   useStore: (selector: (s: unknown) => unknown) => selector({ settings: {}, snap: { projects: fixture.projects, tasks: fixture.tasks, allies: fixture.allies, inbox: [] } }),
-  PROJECT_WINDOW: 'Zebra', saveSettings: vi.fn(), api: () => ({ homePath: async () => '', projectRemove: fixture.remove, projectOpen: fixture.projectOpen, falWorld: async () => ({ config: {} }), uthanaWorld: async () => ({ config: {} }), projectMetadata: async () => ({}), projectPushStatus: async () => ({ ahead: 2, behind: 0 }), projectUpdate: fixture.update, projectRescan: fixture.rescan, projectPush: fixture.push, projectSync: fixture.sync, openPath: fixture.openPath, playtest: fixture.playtest, playPool: async () => ({ cap: 1, slots: [], queue: [] }), playPoolDisk: async () => ({}) }),
+  PROJECT_WINDOW: 'Zebra', saveSettings: vi.fn(), api: () => ({ homePath: async () => '', projectRemove: fixture.remove, projectOpen: fixture.projectOpen, falWorld: async () => ({ config: {} }), uthanaWorld: async () => ({ config: {} }), projectMetadata: async () => ({}), projectPushStatus: async () => ({ ahead: 2, behind: 0 }), projectUpdate: fixture.update, projectRescan: fixture.rescan, projectPush: fixture.push, projectSync: fixture.sync, openPath: fixture.openPath, playPool: async () => ({ cap: 1, slots: [], queue: [] }), playPoolDisk: async () => ({}) }),
   hasView: () => fixture.enabled, go: fixture.go, openDeploy: fixture.deploy,
   op: async (_: string, fn: () => unknown) => fn(), setState: vi.fn(), toast: vi.fn(), errText: String
 }))
@@ -148,7 +148,7 @@ describe('Project settings and registry helpers', () => {
     for (const label of ['Delivery', 'Auto-loot', 'Capacity', 'Branch prefix', 'Usage mode', 'Engine', 'Rescan', 'Allow cheap third-party models', 'Description', 'Generation']) expect(host.textContent).toContain(label)
     const commands = [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('Commands'))!
     await act(async () => commands.click())
-    expect(host.querySelectorAll('.world-cmds input')).toHaveLength(5)
+    expect(host.querySelectorAll('.world-cmds input')).toHaveLength(4)
     expect(host.querySelector('.world-details')).not.toBeNull()
     await click('Deploy'); expect(fixture.deploy).toHaveBeenCalledWith({ project: 'Zebra' })
     await click('Open'); expect(fixture.projectOpen).toHaveBeenCalledWith('C:/games/Zebra')
@@ -156,7 +156,9 @@ describe('Project settings and registry helpers', () => {
     await click('Sync'); expect(fixture.sync).toHaveBeenCalledWith('Zebra')
     await click('Push'); expect(fixture.push).toHaveBeenCalledWith('Zebra')
     await click('Reveal in Explorer'); expect(fixture.openPath).toHaveBeenCalledWith('C:/games/Zebra')
-    await click('Playtest'); expect(fixture.playtest).toHaveBeenCalledWith({ project: 'Zebra' })
+    // Playtest is retired: no button, and no run command field (a stored value is kept).
+    expect([...host.querySelectorAll('button')].some((b) => b.textContent?.includes('Playtest'))).toBe(false)
+    expect([...host.querySelectorAll('.world-cmds .label')].map((l) => l.textContent)).toEqual(['setup', 'build', 'test', 'lint'])
     await click('Remove'); expect(document.body.textContent).toContain('Remove Zebra?')
   })
 })

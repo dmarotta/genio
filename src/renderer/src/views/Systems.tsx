@@ -347,7 +347,7 @@ function SectionBody({ sec, s, advanced, setAdvanced, open }: { sec: Section; s:
               <option value="acceptEdits">Accept edits only</option>
             </select>
           </Row>
-          <Row label="Shell" hint="For Shell sessions and playtests.">
+          <Row label="Shell" hint="For Shell sessions.">
             <CommitInput mono value={s.shell} onCommit={(v) => set({ shell: v.trim() })} />
           </Row>
           <Row label="Automatic respawns" hint="One attempt, then the unit waits for a manual Respawn from Squad.">

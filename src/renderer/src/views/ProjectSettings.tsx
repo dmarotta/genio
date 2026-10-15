@@ -1,6 +1,6 @@
 import { GenerationSettings } from '../components/GenerationSettings'
 import { useEffect, useState } from 'react'
-import { Backpack, ChevronDown, ChevronRight, FolderOpen, Play, RefreshCw, Rocket, Trash, Upload } from 'lucide-react'
+import { Backpack, ChevronDown, ChevronRight, FolderOpen, RefreshCw, Rocket, Trash, Upload } from 'lucide-react'
 import type { PushStatus } from '@shared/api'
 import { modeSourceOf } from '@shared/vocab'
 import type { Engine, Project, ProjectCommands, ProjectMode } from '@shared/types'
@@ -16,6 +16,9 @@ import { supportsUnitySlots } from '@shared/play'
 import { UnitySlots } from './UnitySlots'
 import { worldPath, modifiedLabel } from '../lib/worlds'
 import type { WorldMetadata } from '@shared/api'
+
+/** Editable project commands. A stored `run` (retired with Playtest) is kept but not offered. */
+const COMMANDS: (keyof ProjectCommands)[] = ['setup', 'build', 'test', 'lint']
 
 export function ProjectSettingsRow({ p, metadata }: { p: Project; metadata?: WorldMetadata }) {
   const units = useStore((s) => s.snap.tasks.filter((t) => t.project === p.name && isActive(t.state)).length)
@@ -63,9 +66,6 @@ export function ProjectSettingsRow({ p, metadata }: { p: Project; metadata?: Wor
           <span title={hasView('inventory') ? `Open ${p.name} Inventory` : 'Inventory coming soon'}><button className="btn sm solid" disabled={!hasView('inventory')} onClick={() => go('inventory')}><Backpack size={13} /> Inventory</button></span>
         <button className="btn sm solid" disabled={p.gitRepo === false} title={p.gitRepo === false ? "Needs a git repo" : undefined} onClick={() => openDeploy({ project: p.name })}>
           <Rocket size={12} /> Deploy
-        </button>
-        <button className="btn sm volt" disabled={!p.commands.run} title={p.commands.run ?? 'Set a run command first'} onClick={() => void op('Playtest', () => api().playtest({ project: p.name }), (r) => (r ? 'Playtest launched in Squad › Sessions' : undefined))}>
-          <Play size={12} /> Playtest
         </button>
         <button className="btn sm ghost" disabled={p.gitRepo === false} title={p.gitRepo === false ? "Needs a git repo" : undefined} onClick={() => void op('Sync', () => api().projectSync(p.name)).then(() => setPushTick((n) => n + 1))}>
           <RefreshCw size={12} /> Sync
@@ -143,18 +143,18 @@ export function ProjectSettingsRow({ p, metadata }: { p: Project; metadata?: Wor
       <button className="world-cmds-toggle label" onClick={() => setOpen((o) => !o)}>
         {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />} Commands
         <span className="mute" style={{ textTransform: 'none', letterSpacing: 0 }}>
-          {Object.values(p.commands).filter(Boolean).length} set
+          {COMMANDS.filter((k) => p.commands[k]).length} set
         </span>
       </button>
       {open && (
         <div className="world-cmds">
-          {(['setup', 'build', 'test', 'lint', 'run'] as (keyof ProjectCommands)[]).map((k) => (
-            <Field key={k} label={k === 'run' ? 'run (playtest)' : k}>
+          {COMMANDS.map((k) => (
+            <Field key={k} label={k}>
               <CommitInput mono value={p.commands[k] ?? ''} placeholder="—" onCommit={(v) => setCmd(k, v)} />
             </Field>
           ))}
           <p className="mute" style={{ fontSize: 12, margin: 0 }}>
-            The Gauntlet runs lint, build and test on every Hardcore Build. Run launches a playtest from any unit's copy.
+            The Gauntlet runs lint, build and test on every Hardcore Build.
           </p>
         </div>
       )}

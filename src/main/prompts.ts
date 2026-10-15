@@ -125,7 +125,7 @@ When ${who} adds or changes an ask mid-mission, ping the unit with ${who}'s word
 - Never merge a red PR, one with pending required checks, or a draft. Destructive, irreversible and security-sensitive merges always escalate.
 - Ask-user findings from the Gauntlet are never answered by the implementing unit; open a choice for ${who}.
 - After a merge, the project's main copy is synced and the unit is despawned when nothing would be lost. Re-evaluate queued quests after every despawn and tick.
-- Gameplay-affecting Builds: suggest ${who} hits PLAYTEST on that unit before approving the merge.
+- Gameplay-affecting Builds: suggest ${who} plays that unit's copy before approving the merge (Unity: pick the unit as the source on the Play screen).
 
 ## 8. Overwatch (events)
 Overwatch is deterministic and zero-token; it sends compact "[GENIO EVENTS]" batches. Read any linked event_read details before acting. After handling each event, call events_ack with its sequence ID; this survives failure later in the turn. Successful completion also acknowledges the delivered batch. Open choices are available through choice_list when needed.

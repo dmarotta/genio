@@ -423,7 +423,13 @@ describe('concurrent unit cap across worlds', () => {
 
   it('reserves a new place for an absent-terminal restart instead of bypassing caps', async () => {
     const stopped = { ...task('b', 'exited'), terminalId: undefined }
-    await expect(service('save', [task('a'), task('c'), task('d'), task('e'), stopped]).reserve({ ...ship('b'), harness: 'codex' }, { respawn: { id: stopped.id, wksp: 'main' } })).rejects.toThrow(/allows 4/)
+    const full = service('save', [task('a'), task('c'), task('d'), task('e'), stopped])
+    const refusal = full.reserve({ ...ship('b'), harness: 'codex' }, { respawn: { id: stopped.id, wksp: 'main' } })
+    await expect(refusal).rejects.toThrow(/allows 4/)
+    // A respawn has no quest to queue: it says the unit stays as it is.
+    await expect(refusal).rejects.toThrow(/not respawned and stays as it is/)
+    await expect(refusal).rejects.not.toThrow(/quest stays queued/)
+    await expect(full.reserve({ ...ship('f'), harness: 'codex' })).rejects.toThrow(/The quest stays queued/)
     const svc = service('balanced', [task('a'), stopped])
     const restart = await svc.reserve({ ...ship('b'), harness: 'codex' }, { respawn: { id: stopped.id, wksp: 'main' } })
     expect(svc.capacity().used).toBe(2)

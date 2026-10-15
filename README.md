@@ -36,7 +36,6 @@ for the design and [docs/VOCABULARY.md](docs/VOCABULARY.md) for the terms.
   and a memory budget.
 - **Project windows** - open a folder for its own chat, Inventory and squad.
   Closing warns before stopping running units; non-git folders keep git actions disabled.
-- **Playtest** — launch the game from any unit's worktree before you merge.
 - **Play** (Unity projects, Ctrl 0) — play the main checkout, any worktree, a
   unit's worktree or a branch in your own hidden Unity instance, streamed into
   Genio with keyboard, mouse and gamepad. Stop keeps Unity warm; it quits after
@@ -45,7 +44,7 @@ for the design and [docs/VOCABULARY.md](docs/VOCABULARY.md) for the terms.
   projects in their own copies and in shared slot editors. Genio can also look
   at your open editor in chat.
 - **Engine aware** — Godot, Unity, Unreal, Bevy, LÖVE, GameMaker, Defold,
-  MonoGame and web engines get sensible build, test and run presets.
+  MonoGame and web engines get sensible build and test presets.
 - **Progression** — XP, levels, streaks and achievements for shipping.
 - **Restart-proof** — all state lives on disk in your Base (`~/.genio`).
 
@@ -119,8 +118,8 @@ Project windows keep configuration in **Settings → This project**: delivery
 (Offline, Standard PRs, or the Hardcore Gauntlet), automatic remote following,
 the detected engine and engine root (read-only, with Rescan; a repository pins
 its root in `.genio/project.json`), Auto-loot, branch prefix, capacity, usage mode,
-description, model opt-out, setup/build/test/lint/run commands and generation
-settings. Project actions include sync, push on demand, playtest and guarded
+description, model opt-out, setup/build/test/lint commands and generation
+settings. Project actions include sync, push on demand and guarded
 unregistration. Removing a project still refuses live units, queued quests and
 unlanded work; an owned folder is never deleted.
 

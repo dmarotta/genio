@@ -36,7 +36,7 @@ beforeEach(() => {
   const hc = { home, crew: undefined as any, decisions: { list: () => [] } }
   ctx = { appRoot: path.join(root, 'missing-bundle'), main: hc, home: () => hc, homes: new Map([['main', hc]]),
     settings: { get: () => ({}), harness: () => adapter }, projects: { get: () => undefined },
-    terminals: { get: () => undefined, lastOutputAt: () => undefined, create: vi.fn(() => ({ id: 'term', alive: true })),
+    terminals: { get: () => undefined, list: () => [], lastOutputAt: () => undefined, create: vi.fn(() => ({ id: 'term', alive: true })),
       submit: vi.fn(async () => {}), kill: vi.fn(), onData: () => () => {}, onExit: vi.fn() },
     dispatch: { reserve: vi.fn(async () => ({ loadout: {}, listed: vi.fn(), release: vi.fn(), check: async () => {} })), record: vi.fn() }
   } as unknown as AppCtx

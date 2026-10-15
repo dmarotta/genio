@@ -648,12 +648,12 @@ export function createToolRegistry(
 
   t(
     'world_update',
-    'Change a project\'s registry entry: mode (pins it; mode=auto makes it follow the remote again), Auto-loot (only on the player\'s word), branch prefix, capacity, engine commands (setup/build/test/lint/run), description. The engine and its root are detected, never set here.',
+    'Change a project\'s registry entry: mode (pins it; mode=auto makes it follow the remote again), Auto-loot (only on the player\'s word), branch prefix, capacity, engine commands (setup/build/test/lint), description. The engine and its root are detected, never set here.',
     {
       world: z.string(), mode: z.enum(['no-mistakes', 'direct-PR', 'local-only', 'no-mistakes-prod-only', 'auto']).optional(),
       auto_loot: z.boolean().optional(), player_words: z.string().optional(), branch_prefix: z.string().optional(),
       capacity: z.number().int().min(0).optional(), description: z.string().optional(),
-      commands: z.object({ setup: z.string().optional(), build: z.string().optional(), test: z.string().optional(), lint: z.string().optional(), run: z.string().optional() }).optional()
+      commands: z.object({ setup: z.string().optional(), build: z.string().optional(), test: z.string().optional(), lint: z.string().optional() }).optional()
     },
     async (a) => {
       if (a.auto_loot === true && (role === 'bot' || !a.player_words?.trim())) return fail('Auto-loot is granted only on the player\'s explicit word (player_words)')

@@ -210,21 +210,20 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     // A click on MERGE is the player's explicit word for this merge.
     mergeTask: (id) => taskHome(id).hc.crew.merge(id),
     promoteScout: (id, intent) => taskHome(id).hc.crew.promote(id, intent),
-    validateTask: (id) => taskHome(id).hc.crew.validate(id),
     readTaskFile: (id, which) => taskHome(id).hc.crew.readFile(id, which),
-    crewState: (id) => taskHome(id).hc.crew.crewState(id),
-    playtest: (target) => {
-      if (target.taskId) return taskHome(target.taskId).hc.crew.playtest(target)
-      return ctx().main.crew.playtest(target)
-    },
 
     // ---- terminals
     terminals: () => ctx().terminals.list(),
     terminalAttach: (id) => ctx().terminals.scrollback(id),
     terminalWrite: (id, data) => ctx().terminals.write(id, data),
     terminalResize: (id, cols, rows) => ctx().terminals.resize(id, cols, rows),
-    terminalOpenShell: (cwd) =>
-      ctx().terminals.create({ kind: 'shell', title: 'Shell', cwd: cwd || ctx().main.home.root }),
+    terminalOpenShell: (cwd, taskId) => {
+      if (!taskId) return ctx().terminals.create({ kind: 'shell', title: 'Shell', cwd: cwd || ctx().main.home.root })
+      const t = taskHome(taskId).hc.crew.get(taskId)
+      if (!t || t.state === 'cleaned') throw new Error(`${taskId} was despawned; its copy is gone.`)
+      // Tied to the unit, so Despawn closes it before removing the copy.
+      return ctx().terminals.create({ kind: 'shell', title: `Shell · ${t.title}`, cwd: t.worktree, taskId: t.id })
+    },
     terminalKill: (id) => ctx().terminals.kill(id),
 
     // ---- quest log

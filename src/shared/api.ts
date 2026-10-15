@@ -546,17 +546,15 @@ export interface GenioApi {
   cleanupTask(id: string, force?: boolean): Promise<OpResult>
   mergeTask(id: string): Promise<OpResult>
   promoteScout(id: string, intent?: string): Promise<Task>
-  validateTask(id: string): Promise<OpResult>
   readTaskFile(id: string, which: TaskFile): Promise<string>
-  crewState(id: string): Promise<string>
-  playtest(target: { taskId?: string; project?: string }): Promise<TerminalInfo | null>
 
   // ---- terminals
   terminals(): Promise<TerminalInfo[]>
   terminalAttach(id: string): Promise<string>
   terminalWrite(id: string, data: string): Promise<void>
   terminalResize(id: string, cols: number, rows: number): Promise<void>
-  terminalOpenShell(cwd?: string): Promise<TerminalInfo>
+  /** A shell in `cwd`, or in a unit's copy and tied to that unit (`taskId`): Despawn closes it. */
+  terminalOpenShell(cwd?: string, taskId?: string): Promise<TerminalInfo>
   terminalKill(id: string): Promise<void>
 
   // ---- quest log (backlog)
@@ -707,10 +705,7 @@ export const API_METHODS = [
   'cleanupTask',
   'mergeTask',
   'promoteScout',
-  'validateTask',
   'readTaskFile',
-  'crewState',
-  'playtest',
   'terminals',
   'terminalAttach',
   'terminalWrite',

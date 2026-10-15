@@ -65,7 +65,7 @@ export interface ProjectCommands {
   build?: string
   test?: string
   lint?: string
-  /** Launches the game for a playtest from any checkout. */
+  /** Retired with Playtest: still detected and kept in stored projects, but nothing runs it. */
   run?: string
 }
 
@@ -847,7 +847,7 @@ export interface TerminalInfo {
   exitCode?: number
   cols: number
   rows: number
-  kind: 'worker' | 'playtest' | 'shell' | 'validation'
+  kind: 'worker' | 'shell' | 'validation'
 }
 
 export interface PermissionRequest {

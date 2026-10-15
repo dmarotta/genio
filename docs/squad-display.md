@@ -1,6 +1,9 @@
 # Squad display
 
-Squad rows, cards and details show WORKING, READY TO MERGE or DONE. Internal
+Squad rows, cards and details show WORKING, READY TO MERGE or DONE. A finished
+unit's card and page badge name how it ended instead (FAILED, MERGED, EXITED
+ABNORMALLY or DONE, `squadBadge`), so a failed unit never reads as a red DONE;
+their clock stops when the unit is ready or finished ("took 54 min"). Internal
 lifecycle states and capacity rules are unchanged. Completed units leave both
 active rosters immediately; header counts include working and ready units only.
 

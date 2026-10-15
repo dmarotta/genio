@@ -14,6 +14,7 @@ import { squadOutcome, squadState } from '../src/shared/squad-display'
 
 let root: string, repo: string, home: Home, hc: HomeCtx, ctx: AppCtx
 let terminal: { id: string; alive: boolean } | undefined
+let listed: { id: string; taskId?: string; alive: boolean; kind: string }[]
 
 async function commit(dir: string, file: string, text: string, message: string): Promise<void> {
   fs.writeFileSync(path.join(dir, file), text)
@@ -29,11 +30,12 @@ beforeEach(async () => {
   await commit(repo, 'readme.md', 'world\n', 'init')
   home = new Home(path.join(root, 'home')); home.ensure()
   terminal = undefined
+  listed = []
   hc = { home, decisions: { list: () => [] } } as unknown as HomeCtx
   ctx = { home: () => hc, homes: new Map([['main', hc]]), main: hc,
     projects: { get: () => ({ name: 'world', path: repo, defaultBranch: 'main' }) },
     settings: { get: () => ({}) },
-    terminals: { get: (id: string) => (terminal?.id === id ? terminal : undefined), kill: vi.fn(), lastOutputAt: () => undefined },
+    terminals: { get: (id: string) => (terminal?.id === id ? terminal : undefined), list: () => listed, kill: vi.fn(), lastOutputAt: () => undefined },
     dispatch: { record: vi.fn() }, ledger: { record: vi.fn() }, stats: { award: vi.fn() }, notifier: { sfx: vi.fn() }
   } as unknown as AppCtx
   hc.backlog = createBacklogService(() => ctx, home)
@@ -116,6 +118,21 @@ describe('post-merge cleanup', () => {
     expect(r.message).toMatch(/Unlanded commits:\n {2}[0-9a-f]+ Late follow-up commit/)
     expect(await git.branchExists(repo, 'genio/ahead2')).toBe(true)
     expect(hc.crew.get('ahead2')?.state).toBe('merged')
+  }, 60_000)
+
+  it('closes the shells opened from the unit page before removing the copy, and leaves other terminals alone', async () => {
+    const t = await readyUnit('shells')
+    listed = [
+      { id: 'shell-mine', taskId: t.id, alive: true, kind: 'shell' },
+      { id: 'shell-other', taskId: 'other-unit', alive: true, kind: 'shell' },
+      { id: 'shell-plain', alive: true, kind: 'shell' }
+    ]
+    const r = await hc.crew.merge(t.id)
+    expect(r.ok).toBe(true)
+    expect(hc.crew.get(t.id)?.state).toBe('cleaned')
+    expect(ctx.terminals.kill).toHaveBeenCalledWith('shell-mine')
+    expect(ctx.terminals.kill).not.toHaveBeenCalledWith('shell-other')
+    expect(ctx.terminals.kill).not.toHaveBeenCalledWith('shell-plain')
   }, 60_000)
 
   it('lets an exited Recon without a report be despawned, but not one that is still running', async () => {

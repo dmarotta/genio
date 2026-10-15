@@ -1,9 +1,10 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
-import { api } from '../store'
+import { api, useStore } from '../store'
 import { onTerminal } from '../lib/termbus'
+import { cx } from '../lib/format'
 
 const THEME = {
   background: '#05070b',
@@ -31,14 +32,24 @@ const THEME = {
 
 /**
  * Live view of a main-process PTY. Writes scrollback on attach, then streams.
- * Keyboard input goes straight to the unit: the player may type into any terminal.
+ * A shell takes its size from the view and keyboard input goes straight to it.
+ * A `passive` view (a unit's agent) only watches: it keeps the PTY's own size,
+ * scaled down to fit, and sends no keys (Ctrl+C included) until the player
+ * clicks into it; from then on it fits the PTY to the view and takes input.
  */
-export function TerminalView({ id, fontSize = 12, interactive = true, autoFocus = false }: { id: string; fontSize?: number; interactive?: boolean; autoFocus?: boolean }) {
+export function TerminalView({ id, fontSize = 12, interactive = true, autoFocus = false, passive = false }: { id: string; fontSize?: number; interactive?: boolean; autoFocus?: boolean; passive?: boolean }) {
   const host = useRef<HTMLDivElement>(null)
+  const info = useStore((s) => s.terminals[id])
+  const size = useRef(info)
+  size.current = info
+  const claim = useRef<(() => void) | undefined>(undefined)
+  const [claimed, setClaimed] = useState(!passive)
 
   useEffect(() => {
     const el = host.current
     if (!el) return
+    let owned = !passive
+    setClaimed(owned)
     const term = new XTerm({
       fontFamily: "'JetBrains Mono', 'Cascadia Code', Consolas, monospace",
       fontSize,
@@ -62,14 +73,36 @@ export function TerminalView({ id, fontSize = 12, interactive = true, autoFocus 
       else term.write(data)
     })
 
+    // Watching never resizes the agent's PTY: mirror its size and scale the screen to the box.
+    const mirror = (): void => {
+      const pty = size.current
+      if (pty && (term.cols !== pty.cols || term.rows !== pty.rows)) term.resize(pty.cols, pty.rows)
+      const screen = term.element
+      if (!screen) return
+      screen.style.transform = ''
+      const scale = Math.min(1, el.clientWidth / (screen.offsetWidth || 1), el.clientHeight / (screen.offsetHeight || 1))
+      screen.style.transformOrigin = '0 0'
+      screen.style.transform = scale < 1 ? `scale(${scale})` : ''
+    }
+
     const doFit = (): void => {
       if (disposed) return
+      if (!owned) return mirror()
       try {
+        if (term.element) term.element.style.transform = ''
         fit.fit()
         void api().terminalResize(id, term.cols, term.rows).catch(() => undefined)
       } catch {
         /* not visible yet */
       }
+    }
+
+    claim.current = () => {
+      if (owned || !interactive || disposed) return
+      owned = true
+      setClaimed(true)
+      doFit()
+      term.focus()
     }
 
     void api()
@@ -81,7 +114,7 @@ export function TerminalView({ id, fontSize = 12, interactive = true, autoFocus 
         pending.length = 0
         attached = true
         requestAnimationFrame(doFit)
-        if (autoFocus) term.focus()
+        if (autoFocus && owned) term.focus()
       })
       .catch((e) => {
         attached = true
@@ -89,7 +122,7 @@ export function TerminalView({ id, fontSize = 12, interactive = true, autoFocus 
       })
 
     const sub = term.onData((d) => {
-      if (interactive) void api().terminalWrite(id, d).catch(() => undefined)
+      if (interactive && owned) void api().terminalWrite(id, d).catch(() => undefined)
     })
 
     let t: number | undefined
@@ -101,12 +134,25 @@ export function TerminalView({ id, fontSize = 12, interactive = true, autoFocus 
 
     return () => {
       disposed = true
+      claim.current = undefined
       ro.disconnect()
       sub.dispose()
       unsub()
       term.dispose()
     }
-  }, [id, fontSize, interactive, autoFocus])
+  }, [id, fontSize, interactive, autoFocus, passive])
 
-  return <div className="term-host" ref={host} onMouseDown={(e) => e.stopPropagation()} />
+  return (
+    <>
+      <div
+        className={cx('term-host', !claimed && 'passive')}
+        ref={host}
+        onMouseDown={(e) => {
+          e.stopPropagation()
+          claim.current?.()
+        }}
+      />
+      {!claimed && interactive && <div className="term-claim mute">Click to type into the agent</div>}
+    </>
+  )
 }

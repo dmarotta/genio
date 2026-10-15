@@ -28,7 +28,6 @@ import { cheapModelsAllowed } from '@shared/dispatch'
 import { questOrder } from '@shared/quest-board'
 import { effectiveEngine } from '@shared/engine'
 import { engineBriefLine, engineEnv, engineFacts } from '@shared/engine-summary'
-import { defaultShell } from './terminals'
 import { getSecret } from './secrets'
 import { installUnitHooks } from './unithooks'
 import { installUnityShims, unityGuardScript, unityPreToolHook } from './unity-guards'
@@ -441,15 +440,6 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     }
   }
 
-  const playCommandFor = (engine: string, run?: string): string | undefined => {
-    if (run) return run
-    if (engine === 'godot') return 'godot --path .'
-    if (engine === 'love2d') return 'love .'
-    if (engine === 'bevy') return 'cargo run'
-    if (engine === 'monogame') return 'dotnet run'
-    return undefined
-  }
-
   const svc: CrewService = {
     list: () => tasks.map(withLive),
     get: (id) => {
@@ -800,7 +790,12 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       } else if (!force) {
         return { ok: false, message: `Cannot verify ${id}'s work: its project is not registered. Force only with the player's word.` }
       }
+      // The agent and every terminal tied to the unit (its shells): a shell open in the copy would block its removal.
       if (t.terminalId) ctx.terminals.kill(t.terminalId)
+      const shells = ctx.terminals.list().filter((term) => term.taskId === id)
+      for (const term of shells) ctx.terminals.kill(term.id)
+      // Give a killed shell a moment to release its working directory (Windows).
+      if (shells.some((term) => term.alive)) await sleep(500)
       let leftover = ''
       if (repo) {
         const scratch = t.kind === 'scout' || force
@@ -1032,25 +1027,6 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       if (!done.length) lines.push('(none)')
       else for (const t of done) lines.push(`- ${t.id} — ${t.title} (${t.project}) ${t.pr?.url ?? t.stateReason ?? ''}`)
       return lines.join('\n')
-    },
-
-    async playtest(target): Promise<TerminalInfo | null> {
-      const ctx = getCtx()
-      const t = target.taskId ? get(target.taskId) : undefined
-      const projectName = t?.project ?? target.project
-      if (!projectName) throw new Error('Pick a project or a unit to playtest.')
-      const project = ctx.projects.get(projectName)
-      if (!project) throw new Error(`Unknown project: ${projectName}`)
-      const cwd = t && exists(t.worktree) ? t.worktree : project.path
-      const cmd = playCommandFor(project.engine, project.commands.run)
-      if (!cmd) throw new Error(`No run command for ${project.name}. Set one in PROJECTS › Commands.`)
-      const sh = defaultShell(ctx.settings.get().shell)
-      const base = path.basename(sh.file).toLowerCase()
-      let args: string[]
-      if (base.includes('pwsh') || base.includes('powershell')) args = ['-NoLogo', '-NoExit', '-Command', cmd]
-      else if (base.startsWith('cmd')) args = ['/k', cmd]
-      else args = ['-lc', `${cmd}; exec ${sh.file}`]
-      return ctx.terminals.create({ kind: 'playtest', title: `playtest · ${t ? t.id : project.name}`, cwd, file: sh.file, args, taskId: t?.id })
     },
 
     async registerPr(id, url): Promise<OpResult> {

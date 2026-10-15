@@ -11,7 +11,8 @@ Vocabulary is gaming, not nautical: see [VOCABULARY.md](VOCABULARY.md).
 - **A visible Squad.** Each unit is an autonomous coding-agent CLI (Claude Code,
   Codex, Gemini, OpenCode, Cursor, Grok, Aider, custom) running in a real PTY
   (node-pty) inside its own git worktree. The GUI shows every terminal live
-  (xterm.js); the Player can watch or type into any of them.
+  (xterm.js); the Player can watch any of them, and types into a unit's agent only
+  after clicking into its terminal.
 - **Scripts own mechanics, agents own judgment.** Deploying, worktrees, status
   parsing, overwatch, merge guards, despawn guards, Gauntlet steps and quest
   transitions are deterministic TypeScript. Genio decides what to do, writes
@@ -59,9 +60,8 @@ Vocabulary is gaming, not nautical: see [VOCABULARY.md](VOCABULARY.md).
 | voice relay | text-to-speech of Genio replies | toggle |
 
 Game-dev additions: engine detection (Godot, Unity, Unreal, Bevy, LÖVE,
-GameMaker, Defold, MonoGame, web), engine-aware command presets, a **PLAYTEST**
-button that launches the game from any unit's worktree before merging, shared
-Unity slots for units, XP, levels, achievements, sound effects and a HUD visual
+GameMaker, Defold, MonoGame, web), engine-aware command presets, shared Unity
+slots for units, XP, levels, achievements, sound effects and a HUD visual
 language.
 
 ## Unity slots and editor tools

@@ -506,6 +506,10 @@ button.usage-toggle:hover { color: var(--text); }
 .term-host { width: 100%; height: 100%; padding: 6px 0 0 8px; }
 .term-host .xterm { height: 100%; }
 .term-host .xterm-viewport { background: transparent !important; }
+/* watching a unit's agent: its PTY size, scaled to fit (Terminal.tsx) */
+.term-host.passive { overflow: hidden; }
+.term-host.passive .xterm { height: auto; width: max-content; }
+.term-claim { position: absolute; top: 8px; right: 12px; z-index: 2; pointer-events: none; font-size: 11px; padding: 2px 8px; background: rgba(5, 7, 11, 0.85); border: 1px solid var(--line); }
 .no-signal { position: absolute; inset: 0; display: grid; place-items: center; overflow: hidden; }
 .no-signal-noise {
   position: absolute; inset: -50%; opacity: 0.08;
@@ -524,16 +528,20 @@ button.usage-toggle:hover { color: var(--text); }
 .detail-head { display: flex; align-items: flex-start; gap: 18px; }
 .detail-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .detail-title .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.detail-title .title.unit-name { font-size: 26px; }
 .detail-kicker { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11px; }
 .detail-sub { font-size: 12.5px; }
+.detail-reason { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.detail-switch { display: none; }
 .detail-toolbar { display: flex; gap: 18px; flex-wrap: wrap; padding: 10px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .tb-group { display: flex; gap: 6px; flex-wrap: wrap; }
 .tb-group + .tb-group { padding-left: 18px; border-left: 1px solid var(--line); }
 .detail-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 14px; }
+/* no agent terminal (finished units): the content takes the page */
+.detail-body.no-term { grid-template-columns: minmax(0, 1fr); }
 .detail-term { position: relative; min-height: 0; background: #05070b; }
 .detail-term.full { flex: 1; }
 .detail-side { display: flex; flex-direction: column; min-height: 0; padding: 4px 14px 14px; }
-.crew-state { font-size: 11px; color: var(--text-mute); padding: 10px 2px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .detail-tab { flex: 1; min-height: 0; overflow: auto; padding: 14px 2px; }
 .ping-box { display: flex; gap: 8px; align-items: stretch; padding-top: 10px; border-top: 1px solid var(--line); }
 .ping-box .textarea { min-height: 54px; }
@@ -1187,9 +1195,16 @@ button.prio-label:hover { background: color-mix(in srgb, var(--p) 24%, transpare
   .titlebar { gap: 12px; }
   .hud-cost { display: none; }
   .presence-opt { font-size: 0; gap: 0; padding: 0 9px; }
-  .detail-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(220px, 1fr) minmax(240px, auto); }
+  /* one pane at a time, picked from a tab strip: the terminal (default) or a side tab */
+  .detail-body { grid-template-columns: minmax(0, 1fr); min-height: 240px; }
+  .detail-switch { display: block; }
+  .detail-side-tabs { display: none; }
+  .detail-body.pane-terminal .detail-side, .detail-body.pane-side .detail-term { display: none; }
   .view.detail { overflow: auto; }
-  .detail-head { flex-wrap: wrap; }
+  .detail-head { flex-wrap: wrap; gap: 8px 18px; }
+  .detail-head .detail-pr { margin-left: auto; }
+  .detail-title { order: 3; flex-basis: 100%; }
+  .detail-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .tb-group + .tb-group { padding-left: 0; border-left: 0; }
   .tabs { overflow-x: auto; }
   .tab { flex: none; }
@@ -1215,6 +1230,12 @@ button.prio-label:hover { background: color-mix(in srgb, var(--p) 24%, transpare
   .level { padding: 0 4px; }
   .view { padding: 16px 14px 22px; gap: 16px; }
   .view-head .title { font-size: 26px; }
+  .view.detail { padding: 10px 12px 12px; gap: 8px; }
+  .detail-title { gap: 3px; }
+  .detail-title .title.unit-name { font-size: 20px; }
+  .detail-toolbar { gap: 6px; padding: 6px 0; }
+  /* icon-only toolbar; the label stays the button's accessible name */
+  .detail-toolbar .tb-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .comms-head { padding: 8px 12px; }
   .sys-layout { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .sys-nav { position: static; flex-direction: row; align-items: center; overflow-x: auto; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
@@ -1251,6 +1272,8 @@ button.prio-label:hover { background: color-mix(in srgb, var(--p) 24%, transpare
 @media (max-width: 560px) {
   .hud-units { display: none; }
   .file-menu-btn { padding: 0 8px; }
+  /* the unit's facts line (project, branch, model) yields to the state reason */
+  .detail-sub { display: none; }
   .msg-bubble, .msg-images { max-width: 92%; }
   .status-sec { padding: 14px 14px 12px; }
   .sec-title { font-size: 20px; }

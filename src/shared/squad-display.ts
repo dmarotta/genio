@@ -53,9 +53,33 @@ export function squadOutcome(task: Task, terminal?: TerminalInfo): SquadOutcome 
 
 export const outcomeTone = (o: SquadOutcome): SquadTone => (o === 'failed' || o === 'exited abnormally' ? 'alert' : 'volt')
 
+/** A unit's badge: WORKING or READY TO MERGE while active, then how it ended (FAILED, MERGED…), never a red DONE. */
+export function squadBadge(task: Task, terminal?: TerminalInfo): { label: string; tone: SquadTone } {
+  const state = squadState(task, terminal)
+  if (state !== 'DONE') return { label: state, tone: squadTone(task, terminal) }
+  const outcome = squadOutcome(task, terminal)
+  return { label: outcome.toUpperCase(), tone: outcomeTone(outcome) }
+}
+
 /** Finish time from the persisted record; legacy records fall back to their landing, despawn or last update. */
 export function finishedAt(task: Task): string {
   return task.finishedAt ?? task.landedAt ?? task.cleanedAt ?? task.updatedAt
+}
+
+const minutes = (ms: number): string => {
+  const m = Math.floor(Math.max(0, ms) / 60_000)
+  if (m < 1) return '<1 min'
+  if (m < 60) return `${m} min`
+  return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min`
+}
+
+/** "working 23 min" while active; the clock stops when the unit is ready or finished: "took 54 min". */
+export function unitClock(task: Task, terminal?: TerminalInfo, now = Date.now()): string {
+  const start = Date.parse(task.createdAt) || now
+  const state = squadState(task, terminal)
+  if (state === 'WORKING') return `working ${minutes(now - start)}`
+  const end = Date.parse(state === 'DONE' ? finishedAt(task) : task.readyAt ?? task.lastStatusAt ?? task.updatedAt) || now
+  return `took ${minutes(end - start)}`
 }
 
 /**

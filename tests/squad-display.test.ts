@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { Task, TaskState, TerminalInfo } from '../src/shared/types'
 import {
-  DONE_HISTORY, finishedAt, outcomeTone, squadAttention, squadOutcome, squadSections, squadState, squadTone, type SquadTone
+  DONE_HISTORY, finishedAt, outcomeTone, squadAttention, squadBadge, squadOutcome, squadSections, squadState, squadTone, unitClock, type SquadTone
 } from '../src/shared/squad-display'
+import { canRespawn, hasOpenPr } from '../src/shared/unit-actions'
 
 const at = '2026-10-13T10:00:00Z'
 const task = (state: TaskState, patch: Partial<Task> = {}): Task => ({
@@ -104,5 +105,42 @@ describe('Squad done history', () => {
     expect(outcomeTone('failed')).toBe('alert')
     expect(outcomeTone('exited abnormally')).toBe('alert')
     expect(finishedAt(task('cleaned', { finishedAt: minute(1), landedAt: minute(2) }))).toBe(minute(1))
+  })
+})
+
+describe('Unit badge, clock and lifecycle rules', () => {
+  it('shows how a finished unit ended instead of a red DONE', () => {
+    expect(squadBadge(task('failed'))).toEqual({ label: 'FAILED', tone: 'alert' })
+    expect(squadBadge(task('cleaned', { outcome: 'failed' }))).toEqual({ label: 'FAILED', tone: 'alert' })
+    expect(squadBadge(task('cleaned', { landedAt: at }))).toEqual({ label: 'MERGED', tone: 'volt' })
+    expect(squadBadge(task('exited'), term({ alive: false, exitCode: 1 }))).toEqual({ label: 'EXITED ABNORMALLY', tone: 'alert' })
+    expect(squadBadge(task('done', { kind: 'scout' }))).toEqual({ label: 'DONE', tone: 'volt' })
+    expect(squadBadge(task('ready', { readyAt: at }))).toEqual({ label: 'READY TO MERGE', tone: 'volt' })
+    expect(squadBadge(task('working'))).toEqual({ label: 'WORKING', tone: 'blue' })
+  })
+  it('counts working time while active and stops the clock when the unit is ready or finished', () => {
+    const now = Date.parse('2026-10-13T12:00:00Z')
+    expect(unitClock(task('working'), undefined, now)).toBe('working 3 h 00 min')
+    expect(unitClock(task('working', { createdAt: '2026-10-13T11:37:10Z' }), undefined, now)).toBe('working 22 min')
+    expect(unitClock(task('working', { createdAt: '2026-10-13T11:59:30Z' }), undefined, now)).toBe('working <1 min')
+    expect(unitClock(task('ready', { readyAt: '2026-10-13T09:54:00Z' }), undefined, now)).toBe('took 54 min')
+    expect(unitClock(task('cleaned', { finishedAt: '2026-10-13T10:05:00Z', cleanedAt: '2026-10-13T11:00:00Z' }), undefined, now)).toBe('took 1 h 05 min')
+    // A merged unit's clock no longer moves.
+    const merged = task('merged', { finishedAt: '2026-10-13T09:40:00Z' })
+    expect(unitClock(merged, undefined, now)).toBe(unitClock(merged, undefined, now + 3_600_000))
+  })
+  it('offers Respawn only where it resumes unfinished work', () => {
+    const allowed: Record<TaskState, boolean> = {
+      spawning: true, working: true, paused: true, stale: true, detached: true, blocked: true, 'needs-decision': true, failed: true, exited: true,
+      validating: false, ready: false, merged: false, done: false, cleaned: false
+    }
+    for (const [state, ok] of Object.entries(allowed)) expect([state, canRespawn(task(state as TaskState))]).toEqual([state, ok])
+  })
+  it('flags only a Build whose PR is still open', () => {
+    expect(hasOpenPr(task('ready', { pr: { url: 'https://github.com/o/r/pull/1', state: 'OPEN' } }))).toBe(true)
+    expect(hasOpenPr(task('ready', { pr: { url: 'https://github.com/o/r/pull/1' } }))).toBe(true)
+    expect(hasOpenPr(task('ready', { pr: { url: 'https://github.com/o/r/pull/1', state: 'MERGED' } }))).toBe(false)
+    expect(hasOpenPr(task('ready', { pr: { url: 'https://github.com/o/r/pull/1', state: 'CLOSED' } }))).toBe(false)
+    expect(hasOpenPr(task('ready'))).toBe(false)
   })
 })
