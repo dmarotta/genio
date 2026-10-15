@@ -14,6 +14,12 @@ Startup and reloads are polled for up to ten minutes. Status includes a bounded 
 
 Stop disconnects streaming and stops Play Mode, leaving Unity warm. The main process checks deadlines every five seconds without requiring an open Play surface. Keep-alive restarts the idle period; zero minutes quits on Stop. Closing the Play port stops Play and starts the timer. Closing the project window quits its player editor. Stop, Quit, a newer Play and Genio exit cancel pending copies/startup so they cannot enter Play later.
 
+## Separate controls
+
+The minimal Play screen drives one control per action. `startUnity()` copies and starts Unity, then stops in `ready` (edit mode, the only state with an idle deadline); it does nothing while the editor runs. `enterPlay()` (and the older `play()`) starts Unity first when it is off, in the same call, then syncs and enters Play. `exitPlay()` (and `stop()`) passes `exiting-play` back to `ready`. `stopUnity()` exits Play, quits the editor and keeps the copy until its idle deadline through `editorGone(…, { manual: true })`, so the next start skips the copy. Idle timeout, Genio exit, crash cleanup and `quit()` still delete the copy. A cold start checks the cap and memory **before** copying, so a refusal copies nothing.
+
+`pause()` reads Unity's `playMode` before sending the toggling `editor_pause`. `step()` pauses first, then sends `genio_step`. On a step, the stream captures that frame and waits for its GPU readback inside it, so the frame is not one step late. The poll picks up a pause or stop made in Unity itself. `scenes()` lists build-settings scenes first, then the other `Assets/**/*.unity`. It asks Pipeline while the editor answers and reads the files otherwise. `setScene()` remembers the scene while Unity is off, opens it when ready, and re-plays into it while playing. `resize()` swaps Unity's stream session behind the same MessagePort, so a new resolution does not exit Play. Stream and input accept `paused`. `controls(state)` in `src/shared/play-controls.ts` maps every state to the toolbar's labels, enabled flags and actions.
+
 ## Shutdown and recovery
 
 `<data>/player-copies/<key>/player.json` records the Genio owner PID and creation time, editor identity, root, source, version, state, deadline, observed process tree and peak working set. `instance.json` remains the copy manager's record. `player.json` survives copy deletion to retain the memory estimate. Global settings are in `player-copies/settings.json`.

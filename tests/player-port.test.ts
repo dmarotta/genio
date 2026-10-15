@@ -5,7 +5,7 @@ import { validateInput } from '../src/main/play-stream'
 
 const f = vi.hoisted(() => ({
   handlers: new Map<string, (...args: any[]) => Promise<unknown>>(), ports: [] as any[], frames: [] as ((b: Buffer) => void)[],
-  detach: vi.fn(async () => {}), stop: vi.fn(async () => {}), input: vi.fn(), play: vi.fn(async () => ({}))
+  detach: vi.fn(async () => {}), stop: vi.fn(async () => {}), input: vi.fn(), play: vi.fn(async () => ({})), resize: vi.fn(async () => ({})), pause: vi.fn(async () => ({}))
 }))
 vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events')
@@ -23,7 +23,7 @@ vi.mock('electron', async () => {
 })
 vi.mock('../src/main/player-instance', () => ({ playerInstanceService: () => ({
   stream: async (_w: string, _width: number, _height: number, frame: (b: Buffer) => void) => { f.frames.push(frame) },
-  detach: f.detach, stop: f.stop, play: f.play, input: f.input
+  detach: f.detach, stop: f.stop, play: f.play, input: f.input, enterPlay: f.play, resize: f.resize, pause: f.pause, step: f.pause, stopUnity: f.stop
 }) }))
 import { registerIpc } from '../src/main/ipc'
 let sender: EventEmitter & { id: number; isDestroyed(): boolean; postMessage: ReturnType<typeof vi.fn> }
@@ -69,4 +69,14 @@ it('replaces a port without queuing a stale Stop against its successor', async (
   await call('playerInstancePlay', 'A', { ref: 'main' })
   expect(f.ports[1].port1.closed).toBe(true); expect(f.detach).not.toHaveBeenCalled()
   expect(f.play).toHaveBeenCalledExactlyOnceWith('A', { ref: 'main' }, undefined)
+})
+it('keeps the port through resize, pause and step, and closes it without a Stop for Enter Play and Stop Unity', async () => {
+  await call('playerInstanceStream', 'A', true)
+  await call('playerInstanceResize', 'A', 960, 540); await call('playerInstancePause', 'A'); await call('playerInstanceStep', 'A')
+  expect(f.resize).toHaveBeenCalledExactlyOnceWith('A', 960, 540)
+  expect(f.ports[0].port1.closed).toBe(false); expect(sender.postMessage).toHaveBeenCalledTimes(1)
+  await call('playerInstanceEnterPlay', 'A', { ref: 'main' })
+  expect(f.ports[0].port1.closed).toBe(true); expect(f.detach).not.toHaveBeenCalled()
+  await call('playerInstanceStream', 'A', true); await call('playerInstanceStopUnity', 'A')
+  expect(f.ports[1].port1.closed).toBe(true); expect(f.detach).not.toHaveBeenCalled(); expect(f.stop).toHaveBeenCalledExactlyOnceWith('A')
 })

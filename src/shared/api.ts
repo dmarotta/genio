@@ -448,6 +448,23 @@ export interface GenioApi {
   playerCopySizes(world: string): Promise<import('./play').PlayerCopySizes>
   playerInstanceStatus(world: string): Promise<import('./play').PlayerInstanceStatus>
   playerInstancePlay(world: string, source: import('./play').PlayerCopySource, options?: { startAnyway?: boolean; visible?: boolean; scene?: string }): Promise<import('./play').PlayerInstanceStatus>
+  /** Start Unity on the copy and leave it ready in edit mode; a no-op while it runs. */
+  playerInstanceStartUnity(world: string, source: import('./play').PlayerCopySource, options?: { startAnyway?: boolean; visible?: boolean }): Promise<import('./play').PlayerInstanceStatus>
+  /** Enter Play; from Off this starts Unity first in the same call. */
+  playerInstanceEnterPlay(world: string, source: import('./play').PlayerCopySource, options?: { startAnyway?: boolean; visible?: boolean; scene?: string }): Promise<import('./play').PlayerInstanceStatus>
+  /** Exit Play and keep Unity ready. */
+  playerInstanceExitPlay(world: string): Promise<import('./play').PlayerInstanceStatus>
+  /** Quit Unity and keep the copy until its idle deadline. */
+  playerInstanceStopUnity(world: string): Promise<import('./play').PlayerInstanceStatus>
+  /** Pause or resume Play; toggles without `paused`. */
+  playerInstancePause(world: string, paused?: boolean): Promise<import('./play').PlayerInstanceStatus>
+  /** Pause if needed, then advance one frame. */
+  playerInstanceStep(world: string): Promise<import('./play').PlayerInstanceStatus>
+  playerInstanceScenes(world: string): Promise<import('./play').PlayerScene[]>
+  /** Kept for the next Play while Unity is off, opened when ready, re-plays while playing. */
+  playerInstanceSetScene(world: string, scene: string): Promise<import('./play').PlayerInstanceStatus>
+  /** A new streamed resolution during Play; the stream port stays open. */
+  playerInstanceResize(world: string, width: number, height: number): Promise<import('./play').PlayerInstanceStatus>
   playerInstanceStop(world: string): Promise<import('./play').PlayerInstanceStatus>
   playerInstanceQuit(world: string): Promise<import('./play').PlayerInstanceStatus>
   playerInstanceRestart(world: string, visible?: boolean): Promise<import('./play').PlayerInstanceStatus>
@@ -650,7 +667,7 @@ export type ApiMethod = keyof GenioApi
 /** Every GenioApi method, as runtime data (contextBridge cannot clone a Proxy). */
 export const API_METHODS = [
   'playPool', 'playPoolCap', 'playPoolLaunch', 'playPoolEstimate', 'playPoolDisk', 'playCloseSlotEditor',
-  'playerInstanceStatus', 'playerInstancePlay', 'playerInstanceStop', 'playerInstanceQuit', 'playerInstanceRestart', 'playerInstanceKeepAlive', 'playerInstanceDetach', 'playerInstanceSettings', 'playerInstanceMachine', 'playerInstanceConsole', 'playerInstanceStream', 'playerInstanceDialogShot', 'playerSources',
+  'playerInstanceStatus', 'playerInstancePlay', 'playerInstanceStartUnity', 'playerInstanceEnterPlay', 'playerInstanceExitPlay', 'playerInstanceStopUnity', 'playerInstancePause', 'playerInstanceStep', 'playerInstanceScenes', 'playerInstanceSetScene', 'playerInstanceResize', 'playerInstanceStop', 'playerInstanceQuit', 'playerInstanceRestart', 'playerInstanceKeepAlive', 'playerInstanceDetach', 'playerInstanceSettings', 'playerInstanceMachine', 'playerInstanceConsole', 'playerInstanceStream', 'playerInstanceDialogShot', 'playerSources',
   'playerCopies', 'playerCopyStatus', 'playerCopyEnsure', 'playerCopySync', 'playerCopyCancel', 'playerCopyDelete', 'playerCopySizes',
   'inventoryOpen', 'inventoryClose', 'inventoryRefresh', 'inventoryList', 'inventoryInfo',
   'featureUsed',

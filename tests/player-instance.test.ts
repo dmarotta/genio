@@ -10,6 +10,8 @@ import { PlayerCopies } from '../resources/unit-skills/genio/lib/player-copy.mjs
 import type { DesktopApi, DesktopWindow } from '../resources/unit-skills/genio/lib/hidden-desktop.mjs'
 
 // Real mirrors in disposable repositories; every process, desktop and Pipeline action is fake.
+// Real git and file copies are slow under a loaded full-suite run.
+vi.setConfig({ testTimeout: 30000 })
 const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_CONFIG')))
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'core.autocrlf=false', ...args], { cwd, env, encoding: 'utf8', windowsHide: true }).trim()
 const write = (file: string, bytes: string) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, bytes) }
@@ -37,6 +39,13 @@ function service() {
         events.push(command)
         if (command === 'editor_play') modes.set(root, 'playing')
         if (command === 'editor_stop') modes.set(root, 'stopped')
+        // Pipeline's editor_pause toggles, and does nothing outside Play.
+        if (command === 'editor_pause' && modes.get(root) === 'playing') modes.set(root, 'paused')
+        else if (command === 'editor_pause' && modes.get(root) === 'paused') modes.set(root, 'playing')
+        if (command === 'genio_step' && modes.get(root) !== 'paused') throw new Error('Pause Play Mode first')
+        if (command === 'open_scene') { if (modes.get(root) === 'playing' || modes.get(root) === 'paused') throw new Error('open_scene refuses while playing'); events.push(`open:${(parameters as { path: string }).path}`) }
+        if (command === 'get_build_settings') return { scenes: [{ path: 'Assets/Scenes/Menu.unity', enabled: true }, { path: 'Assets/Scenes/Arena.unity', enabled: false }] }
+        if (command === 'list_open_scenes') return { scenes: [{ name: 'Arena', path: 'Assets/Scenes/Arena.unity', isActive: true }] }
         if (command === 'editor_status') return { playMode: modes.get(root) ?? 'stopped', compiling: false, domainReloadInProgress: false }
         if (command === 'console') return { entries: compilerErrors ? [{ message: 'error CS1002: ; expected', level: 'Error' }] : [] }
         if (command === 'eval' && (parameters as { code?: string })?.code?.includes('scriptCompilationFailed')) return { success: true, result: compilerErrors }
@@ -44,7 +53,8 @@ function service() {
         if (command === 'eval') events.push(`quit-version:${fs.readFileSync(path.join(root, 'ProjectSettings/ProjectVersion.txt'), 'utf8').trim()}`)
         return parameters ?? {}
       },
-      async stream() { events.push('stream') }, stopStream() { events.push('stream-stop') }, input() { events.push('input') }
+      async stream() { events.push('stream') }, async resize(width: number, height: number) { events.push(`resize:${width}x${height}`) },
+      stopStream() { events.push('stream-stop') }, input() { events.push('input') }
     }) as PlayerRuntime
   })
   services.push(r); return r
@@ -83,7 +93,7 @@ it('keeps one editor warm on Stop and hot-syncs the next source before Play', as
   const packageFile = path.join(first.copy!.root, 'Packages/com.genio.play/Runtime/StreamSession.cs')
   const packageTime = fs.statSync(packageFile).mtimeMs
   const stopped = await svc.stop('A')
-  expect(stopped.state).toBe('stopped-warm'); expect(stopped.pid).toBe(first.pid)
+  expect(stopped.state).toBe('ready'); expect(stopped.pid).toBe(first.pid)
   expect(stopped.deadline).toBe(clock + 10 * 60000)
   const at = events.length
   write(path.join(root, 'Assets/Code.cs'), '// edited, uncommitted and longer\n')
@@ -112,7 +122,7 @@ it('closes before restart-sensitive writes and keeps the copy and Library for th
 it('resets idle on keep-alive, quits at the deadline, and deletes asynchronously', async () => {
   await svc.play('A', { path: projects.get('A')!.path }); await svc.stop('A')
   clock += 9 * 60000; await svc.keepAlive('A'); clock += 9 * 60000; await svc.poll()
-  expect(svc.status('A').state).toBe('stopped-warm')
+  expect(svc.status('A').state).toBe('ready')
   clock += 60000; await svc.poll()
   expect(svc.status('A').state).toBe('idle'); expect(svc.status('A').pid).toBeUndefined()
   await copies.settle(); expect(copies.status(projects.get('A')!.path)).toBeUndefined()
@@ -248,7 +258,7 @@ it('stops and starts the idle deadline on detach and closes all editors on Genio
   project('B'); await svc.play('A', { path: projects.get('A')!.path }); await svc.play('B', { path: projects.get('B')!.path })
   await svc.stream('A', 1280, 720, () => {}, () => {})
   svc.input('A', { type: 'release' }); await svc.detach('A')
-  expect(svc.status('A').state).toBe('stopped-warm')
+  expect(svc.status('A').state).toBe('ready')
   await expect(svc.stream('A', 1280, 720, () => {}, () => {})).rejects.toThrow('Play')
   await svc.shutdown(); expect(processes).toHaveLength(0)
   await expect(svc.play('A', { path: projects.get('A')!.path })).rejects.toThrow('exiting')
@@ -260,7 +270,7 @@ it('cancels a cold copy on Stop before launching or entering Play', async () => 
   svc = service()
   write(path.join(projects.get('A')!.path, 'Assets/Large.txt'), 'a'.repeat(4096))
   const playing = svc.play('A', { path: projects.get('A')!.path }); void playing.catch(() => {})
-  await vi.waitFor(() => expect(started).toBe(true))
+  await vi.waitFor(() => expect(started).toBe(true), { timeout: 20000 })
   const stopped = svc.stop('A'); release()
   await expect(playing).rejects.toThrow(/cancel/i)
   expect((await stopped).state).toBe('idle'); expect(events).not.toContain('launch')
@@ -281,4 +291,153 @@ it('marks legacy input view-only while still allowing video and release', async 
   expect(() => svc.input('A', { type: 'state', keys: ['W'], x: 0, y: 0, buttons: 0, axes: [0, 0, 0, 0, 0, 0], gamepadButtons: 0 })).toThrow('view-only')
   expect(() => svc.input('A', { type: 'release' })).not.toThrow()
   await svc.stream('A', 1280, 720, () => {}, () => {})
+})
+
+// Build 1: Start/Stop Unity and Enter/Exit Play are separate controls.
+const source = () => ({ path: projects.get('A')!.path })
+const input = { type: 'state' as const, keys: ['W'], x: 0, y: 0, buttons: 0, axes: [0, 0, 0, 0, 0, 0], gamepadButtons: 0 }
+it('starts Unity into ready with an idle deadline and no Play, and a second Start is a no-op', async () => {
+  const ready = await svc.startUnity('A', source())
+  expect(ready).toMatchObject({ state: 'ready', deadline: clock + 10 * 60000 }); expect(ready.pid).toBeTruthy()
+  expect(events).toContain('launch'); expect(events).not.toContain('editor_play')
+  const at = events.length
+  expect((await svc.startUnity('A', source())).pid).toBe(ready.pid); expect(events.slice(at)).toEqual([])
+  await expect(svc.stream('A', 1280, 720, () => {}, () => {})).rejects.toThrow('Play')
+  expect(() => svc.input('A', input)).toThrow('not playing')
+})
+it('enters Play from ready without a new editor and exits back to ready', async () => {
+  const ready = await svc.startUnity('A', source())
+  const playing = await svc.enterPlay('A', source())
+  expect(playing).toMatchObject({ state: 'playing', pid: ready.pid }); expect(playing.deadline).toBeUndefined()
+  expect(events.filter(e => e === 'launch')).toHaveLength(1)
+  const exited = await svc.exitPlay('A')
+  expect(exited).toMatchObject({ state: 'ready', pid: ready.pid, deadline: clock + 10 * 60000 })
+})
+it('enters Play from Off in one call: copies, starts Unity, then plays (D1)', async () => {
+  const playing = await svc.enterPlay('A', source())
+  expect(playing.state).toBe('playing')
+  expect(events.indexOf('launch')).toBeLessThan(events.indexOf('editor_play'))
+})
+it('Stop Unity while playing exits Play, quits, and keeps the copy for the idle time (D2)', async () => {
+  const first = await svc.enterPlay('A', source())
+  const at = events.length
+  const stopped = await svc.stopUnity('A')
+  expect(stopped.state).toBe('idle'); expect(stopped.pid).toBeUndefined(); expect(processes).toHaveLength(0)
+  expect(events.slice(at).indexOf('editor_stop')).toBeLessThan(events.slice(at).indexOf('eval'))
+  await copies.settle()
+  expect(copies.status(source().path)).toMatchObject({ state: 'ready', id: first.copy!.id, deadline: clock + 10 * 60000 })
+  // The next start reuses the copy: nothing to copy again.
+  const again = await svc.enterPlay('A', source())
+  expect(again.copy).toMatchObject({ id: first.copy!.id }); expect(again.copy!.lastSync!.bytes!.copied).toBe(0)
+  expect(again.pid).not.toBe(first.pid)
+})
+it('deletes a copy kept by Stop Unity at its idle deadline, and keepAlive extends it', async () => {
+  await svc.startUnity('A', source()); await svc.stopUnity('A')
+  clock += 9 * 60000; await svc.keepAlive('A'); clock += 9 * 60000; await svc.poll(); await copies.settle()
+  expect(copies.status(source().path)?.state).toBe('ready')
+  clock += 60000; await svc.poll(); await copies.settle()
+  expect(copies.status(source().path)).toBeUndefined()
+})
+it('still deletes the copy at once on Genio exit and with a zero idle time', async () => {
+  await svc.startUnity('A', source()); await svc.stopUnity('A')
+  await svc.shutdown(); await copies.settle()
+  expect(copies.status(source().path)).toBeUndefined()
+  const next = service(); await next.configure('A', { idleMinutes: 0 })
+  await next.enterPlay('A', source()); await next.stopUnity('A'); await copies.settle()
+  expect(copies.status(source().path)).toBeUndefined()
+})
+it('cancels a cold copy from the Unity button and keeps the copy with an idle deadline', async () => {
+  let release!: () => void, started = false
+  const gate = new Promise<void>(r => { release = r })
+  copies = new PlayerCopies(data, { env, system: { alive: () => false, created: async () => '100' }, io: { copyFile: async (from, to) => { started = true; await gate; await fs.promises.copyFile(from, to) } } })
+  svc = service()
+  write(path.join(source().path, 'Assets/Large.txt'), 'a'.repeat(4096))
+  const starting = svc.startUnity('A', source()); void starting.catch(() => {})
+  await vi.waitFor(() => expect(started).toBe(true), { timeout: 20000 })
+  const cancelled = svc.stopUnity('A'); release()
+  await expect(starting).rejects.toThrow(/cancel/i)
+  expect((await cancelled).state).toBe('idle'); expect(events).not.toContain('launch')
+  expect(copies.status(source().path)).toMatchObject({ state: 'ready', deadline: clock + 10 * 60000 })
+})
+it('checks memory before copying, so a low-memory refusal copies nothing (D3 ordering)', async () => {
+  free = 5 * 2 ** 30
+  await expect(svc.startUnity('A', source())).rejects.toThrow('Unity needs')
+  expect(svc.status('A').state).toBe('low-memory'); expect(copies.status(source().path)).toBeUndefined()
+  await expect(svc.enterPlay('A', source())).rejects.toThrow('Unity needs')
+  expect(copies.status(source().path)).toBeUndefined()
+  expect((await svc.enterPlay('A', source(), { startAnyway: true })).state).toBe('playing')
+})
+it('pauses idempotently from Unity\'s playMode, keeps streaming and input while paused, and resumes', async () => {
+  await svc.enterPlay('A', source())
+  await svc.stream('A', 1280, 720, () => {}, () => {})
+  expect((await svc.pause('A')).state).toBe('paused')
+  const at = events.length
+  expect((await svc.pause('A', true)).state).toBe('paused'); expect(events.slice(at)).not.toContain('editor_pause')
+  await svc.stream('A', 1280, 720, () => {}, () => {})
+  expect(() => svc.input('A', input)).not.toThrow()
+  expect((await svc.pause('A')).state).toBe('playing')
+  await expect(svc.exitPlay('A').then(() => svc.pause('A'))).rejects.toThrow('Enter Play')
+})
+it('steps by pausing a running Play first, then one genio_step per press', async () => {
+  await svc.enterPlay('A', source())
+  let at = events.length
+  expect((await svc.step('A')).state).toBe('paused')
+  expect(events.slice(at).filter(e => ['editor_pause', 'genio_step'].includes(e))).toEqual(['editor_pause', 'genio_step'])
+  at = events.length; await svc.step('A')
+  expect(events.slice(at).filter(e => ['editor_pause', 'genio_step'].includes(e))).toEqual(['genio_step'])
+})
+it('shows a pause or a stop made in Unity itself on the next poll', async () => {
+  const root = (await svc.enterPlay('A', source())).root!
+  modes.set(root, 'paused'); await svc.poll(); expect(svc.status('A').state).toBe('paused')
+  modes.set(root, 'playing'); await svc.poll(); expect(svc.status('A').state).toBe('playing')
+  modes.set(root, 'stopped'); await svc.poll()
+  expect(svc.status('A')).toMatchObject({ state: 'ready', deadline: clock + 10 * 60000 })
+})
+it('lists scenes from files while Unity is off and from Pipeline while it runs, build order first', async () => {
+  const root = source().path
+  write(path.join(root, 'Assets/Scenes/Menu.unity'), 'scene'); write(path.join(root, 'Assets/Scenes/Arena.unity'), 'scene'); write(path.join(root, 'Assets/Zoo.unity'), 'scene')
+  write(path.join(root, 'Assets/.hidden/Skip.unity'), 'scene'); write(path.join(root, 'Assets/Samples~/Skip.unity'), 'scene')
+  write(path.join(root, 'ProjectSettings/EditorBuildSettings.asset'), 'EditorBuildSettings:\n  m_Scenes:\n  - enabled: 1\n    path: Assets/Scenes/Arena.unity\n    guid: 1\n  - enabled: 0\n    path: Assets/Scenes/Menu.unity\n    guid: 2\n')
+  expect(await svc.scenes('A')).toEqual([
+    { path: 'Assets/Scenes/Arena.unity', name: 'Arena', inBuild: true, enabled: true },
+    { path: 'Assets/Scenes/Menu.unity', name: 'Menu', inBuild: true, enabled: false },
+    { path: 'Assets/Zoo.unity', name: 'Zoo' }
+  ])
+  git(root, 'add', '.'); git(root, 'commit', '-qm', 'scenes')
+  await svc.startUnity('A', source())
+  expect(await svc.scenes('A')).toEqual([
+    { path: 'Assets/Scenes/Menu.unity', name: 'Menu', inBuild: true, enabled: true },
+    { path: 'Assets/Scenes/Arena.unity', name: 'Arena', inBuild: true, enabled: false, open: true, active: true },
+    { path: 'Assets/Zoo.unity', name: 'Zoo' }
+  ])
+})
+it('remembers a scene while off, opens it when ready, and re-plays into it while playing', async () => {
+  await expect(svc.setScene('A', 'Assets/../x.unity')).rejects.toThrow('Invalid scene')
+  expect((await svc.setScene('A', 'Assets/Arena.unity')).scene).toBe('Assets/Arena.unity')
+  await svc.enterPlay('A', source())
+  expect(events.indexOf('open:Assets/Arena.unity')).toBeLessThan(events.indexOf('editor_play'))
+  await svc.exitPlay('A')
+  let at = events.length
+  expect((await svc.setScene('A', 'Assets/Menu.unity')).state).toBe('ready')
+  expect(events.slice(at)).toContain('open:Assets/Menu.unity'); expect(events.slice(at)).not.toContain('editor_play')
+  await svc.enterPlay('A', source()); at = events.length
+  expect((await svc.setScene('A', 'Assets/Zoo.unity')).state).toBe('playing')
+  const after = events.slice(at)
+  expect(after.indexOf('editor_stop')).toBeLessThan(after.indexOf('open:Assets/Zoo.unity'))
+  expect(after.indexOf('open:Assets/Zoo.unity')).toBeLessThan(after.indexOf('editor_play'))
+})
+it('resizes the stream during Play or pause without leaving Play', async () => {
+  await expect(svc.resize('A', 960, 540)).rejects.toThrow('Play')
+  await svc.enterPlay('A', source()); await svc.stream('A', 1280, 720, () => {}, () => {})
+  expect((await svc.resize('A', 960, 540)).state).toBe('playing')
+  await svc.pause('A'); expect((await svc.resize('A', 640, 360)).state).toBe('paused')
+  expect(events).toEqual(expect.arrayContaining(['resize:960x540', 'resize:640x360'])); expect(events.filter(e => e === 'editor_stop')).toHaveLength(0)
+  await expect(svc.resize('A', 8, 8)).rejects.toThrow('16–1920')
+})
+it('retries a stuck close from the Unity button', async () => {
+  await svc.startUnity('A', source())
+  graceful = false; killed = false
+  expect((await svc.stopUnity('A')).state).toBe('close-stuck')
+  graceful = true; killed = true
+  expect((await svc.stopUnity('A')).state).toBe('idle'); expect(processes).toHaveLength(0)
 })

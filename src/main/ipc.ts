@@ -76,6 +76,19 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
       try { if (sourceUnit(ctx(), world, source)) unlockQuietly('play-unit') } catch { /* achievements never fail a Play */ }
       return status
     },
+    playerInstanceStartUnity: (world, source, options) => playerInstanceService(ctx()).startUnity(world, source, options),
+    playerInstanceEnterPlay: async (world, source, options) => {
+      const status = await playerInstanceService(ctx()).enterPlay(world, source, options)
+      try { if (sourceUnit(ctx(), world, source)) unlockQuietly('play-unit') } catch { /* achievements never fail a Play */ }
+      return status
+    },
+    playerInstanceExitPlay: world => playerInstanceService(ctx()).exitPlay(world),
+    playerInstanceStopUnity: world => playerInstanceService(ctx()).stopUnity(world),
+    playerInstancePause: (world, paused) => playerInstanceService(ctx()).pause(world, paused),
+    playerInstanceStep: world => playerInstanceService(ctx()).step(world),
+    playerInstanceScenes: world => playerInstanceService(ctx()).scenes(world),
+    playerInstanceSetScene: (world, scene) => playerInstanceService(ctx()).setScene(world, scene),
+    playerInstanceResize: (world, width, height) => playerInstanceService(ctx()).resize(world, width, height),
     playerInstanceStop: world => playerInstanceService(ctx()).stop(world),
     playerInstanceQuit: world => playerInstanceService(ctx()).quit(world),
     playerInstanceRestart: (world, visible) => playerInstanceService(ctx()).restart(world, visible),
@@ -335,7 +348,8 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
         if (windows && !binding && ['sendChat', 'recap', 'save', 'restartWksp', 'interruptWksp', 'unqueueChat', 'reactToMessage', 'approveGeneration'].includes(method)) throw new Error('Open a project window to use its chat.')
         if (method.startsWith('playPool') || method === 'playCloseSlotEditor' || method.startsWith('playerCopy')) assertProjectWindow(binding, args[0])
         if (method.startsWith('playerInstance') || method === 'playerSources') assertProjectWindow(binding, args[0])
-        if (['playerInstancePlay', 'playerInstanceStop', 'playerInstanceQuit', 'playerInstanceRestart', 'playerInstanceDetach'].includes(method)) playConnections.get(args[0] as string)?.()
+        // These end the stream; Pause, Step, Resize and the scene list keep the port (a resize swaps Unity's session behind it).
+        if (['playerInstancePlay', 'playerInstanceEnterPlay', 'playerInstanceExitPlay', 'playerInstanceStopUnity', 'playerInstanceSetScene', 'playerInstanceStop', 'playerInstanceQuit', 'playerInstanceRestart', 'playerInstanceDetach'].includes(method)) playConnections.get(args[0] as string)?.()
         if (method === 'playerInstanceStream') {
           const [world, enabled, width = 1280, height = 720] = args as [string, boolean, number?, number?]
           playConnections.get(world)?.()

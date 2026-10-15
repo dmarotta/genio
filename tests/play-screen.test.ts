@@ -80,7 +80,7 @@ describe('Play screen', () => {
   })
 
   it('counts down to deletion after Stop, keeps it warm longer or quits now', async () => {
-    status = { state: 'stopped-warm', project: 'C:/games/game', source: { path: 'C:/games/game' }, stoppedAt: NOW - 138_000, deadline: NOW + 462_000, pid: 7, copy: copy({ lastSync: { at: NOW, complete: true, elapsedMs: 1200, files: { source: 9, unchanged: 0, added: 1, updated: 30, restored: 0, deleted: 0, unityMadeDeleted: 0, unityMadeKept: 0 }, bytes: { copied: 12 * 2 ** 20, deleted: 0 }, source: { kind: 'checkout', path: 'C:/games/game', branch: 'main', head: 'b'.repeat(40) } } }) as never }
+    status = { state: 'ready', project: 'C:/games/game', source: { path: 'C:/games/game' }, stoppedAt: NOW - 138_000, deadline: NOW + 462_000, pid: 7, copy: copy({ lastSync: { at: NOW, complete: true, elapsedMs: 1200, files: { source: 9, unchanged: 0, added: 1, updated: 30, restored: 0, deleted: 0, unityMadeDeleted: 0, unityMadeKept: 0 }, bytes: { copied: 12 * 2 ** 20, deleted: 0 }, source: { kind: 'checkout', path: 'C:/games/game', branch: 'main', head: 'b'.repeat(40) } } }) as never }
     await mount()
     expect(text()).toContain('the instance is deleted in 7:42')
     expect(text()).toContain('synced 31 files (12 MB) in 1.2 s')

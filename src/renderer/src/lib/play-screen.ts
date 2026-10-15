@@ -6,9 +6,11 @@ export const STATE_LABEL: Record<PlayerState, string> = {
   copying: 'Copying',
   starting: 'Starting Unity',
   syncing: 'Syncing',
+  ready: 'Stopped · Unity warm',
   'entering-play': 'Entering Play',
   playing: 'Playing',
-  'stopped-warm': 'Stopped · Unity warm',
+  paused: 'Paused',
+  'exiting-play': 'Exiting Play',
   'shutting-down': 'Quitting Unity',
   crashed: 'Unity crashed',
   'stuck-dialog': 'Stuck on a dialog',
@@ -21,7 +23,7 @@ export const STATE_LABEL: Record<PlayerState, string> = {
 }
 
 /** States where Genio is working toward Play or toward quitting; Play/Restart wait, Stop cancels. */
-export const WORKING: ReadonlySet<PlayerState> = new Set(['copying', 'starting', 'syncing', 'entering-play', 'shutting-down'])
+export const WORKING: ReadonlySet<PlayerState> = new Set(['copying', 'starting', 'syncing', 'entering-play', 'exiting-play', 'shutting-down'])
 /** States that need the player's attention; each has one clear action on the screen. */
 export const PROBLEMS: ReadonlySet<PlayerState> = new Set(['crashed', 'stuck-dialog', 'close-stuck', 'compile-errors', 'low-memory', 'missing-editor', 'limit-reached', 'error'])
 
@@ -30,8 +32,8 @@ export const STEPS: { label: string; states: PlayerState[] }[] = [
   { label: 'Copy · sync', states: ['copying', 'syncing'] },
   { label: 'Start Unity', states: ['starting'] },
   { label: 'Enter Play', states: ['entering-play'] },
-  { label: 'Playing', states: ['playing'] },
-  { label: 'Stopped, warm', states: ['stopped-warm'] },
+  { label: 'Playing', states: ['playing', 'paused'] },
+  { label: 'Stopped, warm', states: ['exiting-play', 'ready'] },
   { label: 'Quit · delete copy', states: ['shutting-down'] }
 ]
 export function stepIndex(state: PlayerState | undefined): number {

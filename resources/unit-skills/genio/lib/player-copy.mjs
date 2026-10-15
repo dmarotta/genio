@@ -3,8 +3,8 @@
  * and queue. A record per project at <data>/player-copies/<key>/instance.json names the copy folder, which
  * sits on the project's volume when that volume block clones (like the slots) so the first copy is cheap.
  * The copy follows any source of its project through the git-guided mirror and keeps one Library, seeded
- * once from the main checkout. It stays while its editor is warm and is deleted, in the background, once the
- * editor is gone (PLAYER_COPY_POLICY). Unity is never started or stopped here: build 2's lifecycle calls
+ * once from the main checkout. It stays while its editor is warm, and after the player's Stop Unity until its
+ * idle deadline; otherwise it is deleted, in the background, once the editor is gone (PLAYER_COPY_POLICY). Unity is never started or stopped here: build 2's lifecycle calls
  * stopped(), due() and editorGone(). Node standard library only.
  */
 import fs from 'node:fs'
@@ -278,9 +278,18 @@ export class PlayerCopies {
   }
   /** Copies whose idle deadline has passed: build 2 quits their editor, then calls editorGone(). */
   due(now = Date.now()) { return this.list().filter(r => r.state === 'ready' && Number.isFinite(r.deadline) && r.deadline <= now) }
-  /** Build 2's hook once the copy's editor process is gone (idle timeout, Genio exit, crash cleanup). */
-  async editorGone(world, reason = 'the editor quit') {
+  /**
+   * Build 2's hook once the copy's editor process is gone. An idle timeout, Genio exit and crash cleanup delete
+   * the copy; the player's own Stop Unity (manual) keeps it until its idle deadline, so the next start skips the
+   * copy. A zero idle time deletes at once either way.
+   */
+  async editorGone(world, reason = 'the editor quit', { manual = false, at = Date.now(), idleMs } = {}) {
     if (this.policy.keepCopyWhenEditorQuits) return { kept: true, record: this.status(world) }
+    if (manual && idleMs !== 0) {
+      const record = await this.stopped(world, at, idleMs)
+      if (record && record.state !== 'pending-delete' && record.state !== 'deleting') return { kept: true, record }
+      if (!record) return { deleted: true }
+    }
     return this.deleteInBackground(world, { reason })
   }
 

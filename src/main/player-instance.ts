@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { AppCtx } from './services'
 import { effectiveEngine } from '@shared/engine'
-import { supportsUnitySlots, type PlayerCopySource, type PlayerInstanceStatus, type PlayerMachineStatus, type PlayerSettings, type PlayInput } from '@shared/play'
+import { supportsUnitySlots, type PlayerCopySource, type PlayerInstanceStatus, type PlayerMachineStatus, type PlayerScene, type PlayerSettings, type PlayInput } from '@shared/play'
 import { PlayerCopies, processCreated } from '../../resources/unit-skills/genio/lib/player-copy.mjs'
 import { createDesktopApi, inspectDesktop, launchEditor, type DesktopApi, type EditorLaunch } from '../../resources/unit-skills/genio/lib/hidden-desktop.mjs'
 import { unityVersionOf } from '../../resources/unit-skills/genio/lib/git-mirror.mjs'
@@ -39,9 +39,13 @@ async function idleSlotEditors(ctx: AppCtx): Promise<IdleEditor[]> {
   return out
 }
 const gb = (bytes: number) => (bytes / GiB).toFixed(1)
+/** What happens to the copy once the editor is gone: deleted, kept for a restart, or kept until its idle deadline (Stop Unity). */
+type CopyAfterClose = 'delete' | 'keep' | 'idle'
 export interface PlayerRuntime {
   request<T = unknown>(command: string, parameters?: object): Promise<T>
   stream(width: number, height: number, onFrame: (b: Buffer) => void, onDisconnect: () => void): Promise<void>
+  /** A new stream size behind the same frame and disconnect callbacks, so the renderer's port and Play stay. */
+  resize(width: number, height: number): Promise<void>
   stopStream(): void
   input(input: PlayInput): void
 }
@@ -55,17 +59,73 @@ export interface PlayerInstanceOptions {
 function runtime(root: string, pid: () => number | undefined): PlayerRuntime {
   const adapter = new UnityAdapter(root, async () => {}, pid)
   let stream: PlayStream | undefined
+  const connect = async (next: PlayStream, width: number, height: number) => {
+    const credentials = await next.listen()
+    await adapter.request('genio_set_resolution', { width, height }); await adapter.request('genio_stream_start', { ...credentials, width, height })
+  }
   return {
     request: (command, parameters) => adapter.request(command, parameters),
     async stream(width, height, onFrame, onDisconnect) {
       stream?.close(); const next = stream = new PlayStream()
       next.onFrame = onFrame; next.onDisconnect = onDisconnect
-      try { const credentials = await next.listen(); await adapter.request('genio_set_resolution', { width, height }); await adapter.request('genio_stream_start', { ...credentials, width, height }) }
+      try { await connect(next, width, height) }
       catch (e) { next.close(); if (stream === next) stream = undefined; throw e }
+    },
+    async resize(width, height) {
+      const old = stream
+      if (!old) throw new Error('Start the player stream first')
+      const { onFrame, onDisconnect } = old, next = stream = new PlayStream()
+      next.onFrame = onFrame; next.onDisconnect = onDisconnect
+      // Unity drops the old session when the new one starts: a swap, not a disconnect that would exit Play.
+      old.onDisconnect = undefined
+      try { await connect(next, width, height); old.close() }
+      catch (e) {
+        next.close(); old.onDisconnect = onDisconnect
+        if (stream === next) stream = old
+        if (!old.connected) { old.close(); if (stream === old) stream = undefined; onDisconnect?.() }
+        throw e
+      }
     },
     stopStream() { stream?.close(); stream = undefined },
     input(input) { if (!stream && input.type === 'release') return; if (!stream) throw new Error('Start the player stream first'); stream.input(input) }
   }
+}
+function checkScene(scene: string) {
+  if (typeof scene !== 'string' || !/^Assets\/.+\.unity$/.test(scene) || scene.split('/').includes('..') || scene.includes('\\')) throw new Error('Invalid scene path')
+}
+/** EditorBuildSettings.asset's scene list, in build order. */
+function buildScenes(root: string): { path: string; enabled: boolean }[] {
+  try {
+    const text = fs.readFileSync(path.join(root, 'ProjectSettings/EditorBuildSettings.asset'), 'utf8')
+    return [...text.matchAll(/-\s+enabled:\s*(\d)\s*\r?\n\s+path:\s*(.+?)\s*$/gm)].map(m => ({ path: m[2], enabled: m[1] === '1' }))
+  } catch { return [] }
+}
+/** Every scene file under Assets, skipping the folders Unity ignores (hidden and ~ suffixed) and links. */
+function sceneFiles(root: string, limit = 2000): string[] {
+  const out: string[] = []
+  const walk = (rel: string) => {
+    let entries: fs.Dirent[] = []
+    try { entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true }) } catch { return }
+    for (const e of entries) {
+      if (out.length >= limit || e.name.startsWith('.') || e.name.endsWith('~')) continue
+      const child = `${rel}/${e.name}`
+      if (e.isDirectory()) walk(child)
+      else if (e.isFile() && e.name.endsWith('.unity')) out.push(child)
+    }
+  }
+  walk('Assets')
+  return out.sort((a, b) => a.localeCompare(b))
+}
+function sceneList(build: { path: string; enabled?: boolean }[], files: string[], open: { path: string; isActive?: boolean }[]): PlayerScene[] {
+  const scenes = new Map<string, PlayerScene>()
+  const add = (p: string, extra: Partial<PlayerScene>) => {
+    try { checkScene(p) } catch { return }
+    scenes.set(p, { ...scenes.get(p), path: p, name: path.posix.basename(p, '.unity'), ...extra })
+  }
+  for (const s of build) add(s.path, { inBuild: true, enabled: s.enabled !== false })
+  for (const f of files) if (!scenes.has(f)) add(f, {})
+  for (const s of open) if (scenes.has(s.path)) add(s.path, { open: true, ...(s.isActive ? { active: true } : {}) })
+  return [...scenes.values()]
 }
 
 /** Main-process owner of one player editor per project window. Units' slots and the main editor are independent. */
@@ -194,21 +254,25 @@ export class PlayerInstanceService {
     }
     return { ...this.settings }
   }
-  /** The editor cap, then (with memory) the RAM check. Play runs both before copying; launch re-checks the cap. */
-  private async admit(i: Instance, startAnyway: boolean, memory = true) {
+  /** The editor cap. Warm (ready) editors of other projects make room, oldest first. */
+  private async limit(i: Instance) {
     const procs = await this.system.list()
     const running = [...this.instances.values()].filter(v => v.launch && procs.some(p => sameProcess(p, v.launch!)))
     const copies = this.copies.list()
     const other = copies.filter(c => !running.some(v => v.project === c.project) && procs.some(p => opensRoot(p, c.root))).length
     if (running.length + other >= this.settings.maxEditors) {
-      const warm = running.filter(v => v !== i && v.state === 'stopped-warm' && !this.operations.has(v.project)).sort((a, b) => (a.stoppedAt ?? 0) - (b.stoppedAt ?? 0))
+      const warm = running.filter(v => v !== i && v.state === 'ready' && !this.operations.has(v.project)).sort((a, b) => (a.stoppedAt ?? 0) - (b.stoppedAt ?? 0))
       while (running.length + other >= this.settings.maxEditors && warm.length) {
         const victim = warm.shift()!; await this.serial(victim.project, () => this.close(victim, 'warm instance replaced'))
         if (!victim.launch) running.splice(running.indexOf(victim), 1)
       }
       if (running.length + other >= this.settings.maxEditors) { this.state(i, 'limit-reached', `The player editor limit (${this.settings.maxEditors}) is reached. Stop or quit another project's player instance.`); throw new Error(i.message) }
     }
-    if (memory) await this.admitMemory(i, startAnyway)
+  }
+  /** Admission for a cold start, before any copy, so a refusal never follows a minute of copying (D3). */
+  private async admit(i: Instance, startAnyway: boolean) {
+    await this.limit(i)
+    await this.admitMemory(i, startAnyway)
   }
   /**
    * Available memory (standby included) must cover the estimate plus a 1 GiB reserve. When short, Genio first closes
@@ -223,7 +287,7 @@ export class PlayerInstanceService {
     let m = await measure()
     if (!short(m)) return
     const closed: string[] = []
-    for (const v of [...this.instances.values()].filter(v => v !== i && v.launch && ['stopped-warm', 'compile-errors'].includes(v.state) && !this.operations.has(v.project))) {
+    for (const v of [...this.instances.values()].filter(v => v !== i && v.launch && ['ready', 'compile-errors'].includes(v.state) && !this.operations.has(v.project))) {
       await this.serial(v.project, () => this.close(v, 'memory for another Play'))
       if (!v.launch) closed.push(`${path.basename(v.project)} player`)
     }
@@ -242,7 +306,7 @@ export class PlayerInstanceService {
       : `${gb(m.available)} GB available; Unity needs about ${gb(need)} GB.${biggest}${freed} Close something, or Start anyway.`)
     throw new Error(i.message)
   }
-  private async launch(i: Instance, startAnyway: boolean, visible: boolean, signal?: AbortSignal, memoryChecked = false) {
+  private async launch(i: Instance, visible: boolean, signal?: AbortSignal) {
     const next = this.launches.then(async () => {
       if (this.exiting) throw new Error('Genio is exiting')
       if (signal?.aborted) throw new Error('Play cancelled')
@@ -254,7 +318,8 @@ export class PlayerInstanceService {
         return fs.existsSync(file) ? file : undefined
       }))(version)
       if (!executable) { this.state(i, 'missing-editor', `Install Unity ${version ?? 'for this project'} in Unity Hub.`); throw new Error(i.message) }
-      await this.admit(i, startAnyway, !memoryChecked)
+      // Checked again inside the launch chain, so parallel starts cannot pass the cap together.
+      await this.limit(i)
       if (this.exiting || signal?.aborted) throw new Error('Play cancelled')
       this.state(i, 'starting'); i.sampled = false
       const log = path.join(path.dirname(this.file(i.project)), 'editor.log')
@@ -291,7 +356,7 @@ export class PlayerInstanceService {
     }
     copy(from, to)
   }
-  private async ready(i: Instance, mode?: 'playing' | 'stopped', signal?: AbortSignal) {
+  private async ready(i: Instance, mode?: 'playing' | 'paused' | 'stopped', signal?: AbortSignal) {
     const deadline = this.system.now() + (this.options.readyMs ?? 10 * 60000)
     while (this.system.now() <= deadline) {
       if (this.exiting) throw new Error('Genio is exiting')
@@ -313,24 +378,41 @@ export class PlayerInstanceService {
     }
     throw new Error('Unity is still starting or importing. Check the player editor log or hidden dialog.')
   }
+  /** Start Unity on the copy and leave it ready in edit mode (warming up only); a no-op while the editor is open. */
+  startUnity(world: string, source: PlayerCopySource, options: { startAnyway?: boolean; visible?: boolean } = {}) {
+    return this.open(world, source, options, false)
+  }
+  /** Enter Play: from Off this starts Unity first, in the same call (D1); a running editor syncs the source, then plays. */
+  enterPlay(world: string, source: PlayerCopySource, options: { startAnyway?: boolean; visible?: boolean; scene?: string } = {}) {
+    return this.open(world, source, options, true)
+  }
   play(world: string, source: PlayerCopySource, options: { startAnyway?: boolean; visible?: boolean; scene?: string } = {}) {
+    return this.enterPlay(world, source, options)
+  }
+  private open(world: string, source: PlayerCopySource, options: { startAnyway?: boolean; visible?: boolean; scene?: string }, enter: boolean) {
     const { project, engineRoot } = this.project(world)
-    this.controllers.get(project)?.abort(); this.copies.cancel(project)
-    const generation = (this.generations.get(project) ?? 0) + 1
-    this.generations.set(project, generation)
+    if (options.scene !== undefined) checkScene(options.scene)
+    // Enter Play replaces any Play in progress; Start Unity only warms up and never cancels one.
+    if (enter) {
+      this.controllers.get(project)?.abort(); this.copies.cancel(project)
+      this.generations.set(project, (this.generations.get(project) ?? 0) + 1)
+    }
+    const generation = this.generations.get(project) ?? 0
     return this.serial(project, async () => {
       await this.start(); if (this.exiting) throw new Error('Genio is exiting')
       const controller = new AbortController()
-      const check = () => { if (controller.signal.aborted || this.generations.get(project) !== generation) throw new Error('Play cancelled') }
-      check(); this.controllers.set(project, controller)
+      const check = () => { if (controller.signal.aborted || (this.generations.get(project) ?? 0) !== generation) throw new Error('Play cancelled') }
+      check()
       const i = await this.instance(project)
-      if (i.state === 'close-stuck') { this.controllers.delete(project); throw new Error('Close the stuck player editor before playing again') }
+      if (i.state === 'close-stuck') throw new Error('Close the stuck player editor before playing again')
+      if (!enter && i.launch) return this.status(world)
+      this.controllers.set(project, controller)
+      if (options.scene !== undefined) i.scene = options.scene
       delete i.dialog; delete i.stoppedAt; delete i.deadline; delete i.lowMemory
       let suspended = false
-      // A cold start is admitted before the copy, so a refusal never follows a minute of copying.
-      const memoryChecked = !i.launch
       try {
-        if (memoryChecked) await this.admit(i, options.startAnyway === true)
+        // A cold start is admitted before the copy, so a refusal never follows a minute of copying.
+        if (!i.launch) await this.admit(i, options.startAnyway === true)
         check()
         const copy = await this.copies.ensure(project, engineRoot); i.root = copy.root; i.source = source
         check()
@@ -344,7 +426,7 @@ export class PlayerInstanceService {
         const report = await this.copies.sync(project, source, { signal: controller.signal, beforeApply: async advice => {
           check()
           if (advice.needed && i.launch) {
-            await this.close(i, 'source needs an editor restart', true)
+            await this.close(i, 'source needs an editor restart', 'keep')
             if (i.launch) throw new Error(i.message)
             suspended = false
             this.state(i, 'syncing')
@@ -354,7 +436,7 @@ export class PlayerInstanceService {
         await this.embed(i)
         if (report.lfs.pointers.length) throw new Error(`This source has ${report.lfs.pointers.length} LFS files that are not downloaded`)
         if (suspended) { await this.local(i).request('genio_sync_end'); suspended = false }
-        if (!i.launch) await this.launch(i, options.startAnyway === true, options.visible === true, controller.signal, memoryChecked)
+        if (!i.launch) await this.launch(i, options.visible === true, controller.signal)
         await this.ready(i, undefined, controller.signal)
         // Pipeline's console may retain errors from an earlier compile; query Unity's current flag.
         const compilation = await this.local(i).request<{ success: boolean; result: boolean }>('eval', { code: 'return UnityEditor.EditorUtility.scriptCompilationFailed;' })
@@ -362,12 +444,14 @@ export class PlayerInstanceService {
         if (compilation.result) {
           this.state(i, 'compile-errors', 'Fix the compile errors in the source, then Play again.'); throw new Error(i.message)
         }
-        this.state(i, 'entering-play')
         check()
-        if (options.scene) {
-          if (!/^Assets\/.+\.unity$/.test(options.scene) || options.scene.split('/').includes('..') || options.scene.includes('\\')) throw new Error('Invalid scene path')
-          await this.local(i).request('open_scene', { path: options.scene })
+        if (!enter) {
+          // A zero idle time quits right after Play stops; an explicit Start Unity then stays up until Stop Unity.
+          this.state(i, 'ready'); if (this.settings.idleMinutes) await this.idle(i)
+          return this.status(world)
         }
+        this.state(i, 'entering-play')
+        if (i.scene) await this.local(i).request('open_scene', { path: i.scene })
         await this.local(i).request('editor_play')
         await this.ready(i, 'playing', controller.signal)
         check()
@@ -377,12 +461,12 @@ export class PlayerInstanceService {
       } catch (e) {
         if (suspended && i.launch) await this.local(i).request('genio_sync_end').catch(() => {})
         if (!['stuck-dialog', 'close-stuck', 'compile-errors', ...REFUSED].includes(i.state)) {
-          const cancelled = controller.signal.aborted || this.generations.get(project) !== generation
-          this.state(i, cancelled ? i.launch ? 'stopped-warm' : 'idle' : 'error', (e as Error).message)
+          const cancelled = controller.signal.aborted || (this.generations.get(project) ?? 0) !== generation
+          this.state(i, cancelled ? i.launch ? 'ready' : 'idle' : 'error', (e as Error).message)
         }
         if (i.launch && !['close-stuck'].includes(i.state)) await this.idle(i)
-        // A refused copy has no editor to time out with it: give the copy itself the idle deadline (poll deletes it).
-        else if (!i.launch && REFUSED.includes(i.state) && this.copies.status(project)) await this.copies.stopped(project, this.system.now(), this.settings.idleMinutes * 60000)
+        // A copy left without an editor (refused, cancelled or failed) keeps the idle deadline of a Stop Unity; poll deletes it.
+        else if (!i.launch) await this.copies.editorGone(project, 'the start did not finish', { manual: true, at: this.system.now(), idleMs: this.settings.idleMinutes * 60000 }).catch(() => {})
         throw e
       } finally { if (this.controllers.get(project) === controller) this.controllers.delete(project) }
     })
@@ -395,7 +479,8 @@ export class PlayerInstanceService {
     i.stoppedAt = this.system.now(); i.deadline = i.stoppedAt + this.settings.idleMinutes * 60000
     await this.copies.stopped(i.project, i.stoppedAt, this.settings.idleMinutes * 60000); this.save(i)
   }
-  stop(world: string) {
+  /** Exit Play and keep Unity ready (cancels an Enter Play in progress). The idle deadline starts. */
+  exitPlay(world: string) {
     const { project } = this.project(world)
     this.cancel(project)
     return this.serial(project, async () => {
@@ -404,30 +489,118 @@ export class PlayerInstanceService {
       // Cancel on an admission prompt dismisses it; the refused copy keeps its idle deadline.
       if (!i?.launch) { if (i && REFUSED.includes(i.state)) { delete i.lowMemory; this.state(i, 'idle') } return this.status(world) }
       this.local(i).stopStream()
-      try { await this.local(i).request('editor_stop'); await this.ready(i, 'stopped'); this.state(i, 'stopped-warm') }
+      if (i.state === 'playing' || i.state === 'paused') this.state(i, 'exiting-play')
+      try { await this.local(i).request('editor_stop'); await this.ready(i, 'stopped'); this.state(i, 'ready') }
       catch (e) { if (i.state !== 'stuck-dialog') this.state(i, 'error', (e as Error).message); throw e }
       finally { await this.idle(i) }
       if (!this.settings.idleMinutes) await this.close(i, 'idle timeout')
       return this.status(world)
     })
   }
+  stop(world: string) { return this.exitPlay(world) }
+  /**
+   * Stop Unity (D2): exit Play, quit the editor and keep the copy until its idle deadline, so the next start skips
+   * the copy. Cancels a copy or start in progress, and retries a close that got stuck.
+   */
+  stopUnity(world: string) {
+    const { project } = this.project(world)
+    this.cancel(project)
+    return this.serial(project, async () => {
+      await this.start()
+      const i = this.instances.get(project); if (!i) return this.status(world)
+      delete i.lowMemory
+      if (i.launch && (i.state === 'playing' || i.state === 'paused')) {
+        this.local(i).stopStream(); this.state(i, 'exiting-play')
+        await this.local(i).request('editor_stop').catch(() => { /* the quit ends Play too */ })
+      }
+      await this.close(i, 'the player stopped Unity', 'idle')
+      return this.status(world)
+    })
+  }
   keepAlive(world: string) {
     const { project } = this.project(world)
-    return this.serial(project, async () => { const i = this.instances.get(project); if (i?.launch && i.stoppedAt !== undefined) await this.idle(i); return this.status(world) })
+    return this.serial(project, async () => {
+      const i = this.instances.get(project)
+      if (i?.launch && i.stoppedAt !== undefined) await this.idle(i)
+      else if (!i?.launch && this.copies.status(project)?.deadline !== undefined) await this.copies.stopped(project, this.system.now(), this.settings.idleMinutes * 60000)
+      return this.status(world)
+    })
   }
+  /** Quit Unity and delete the copy now (deleting the copy, closing the project window). */
   quit(world: string) {
     const { project } = this.project(world)
     this.cancel(project)
     return this.serial(project, async () => { await this.start(); const i = this.instances.get(project); if (i) await this.close(i, 'player quit'); else await this.copies.editorGone(project); return this.status(world) })
   }
   async restart(world: string, visible = false) {
-    const source = this.instances.get(this.project(world).project)?.source
+    const { project } = this.project(world)
+    const source = this.instances.get(project)?.source
     if (!source) throw new Error('Choose a source and Play first')
-    const result = await this.quit(world)
+    this.cancel(project)
+    const result = await this.serial(project, async () => { await this.start(); const i = this.instances.get(project); if (i) await this.close(i, 'player restart', 'keep'); return this.status(world) })
     if (result.state === 'close-stuck') throw new Error(result.message)
-    return this.play(world, source, { visible })
+    return this.enterPlay(world, source, { visible })
   }
-  private async close(i: Instance, reason: string, keepCopy = false) {
+  /** Pause or resume Play; without `paused` it toggles. editor_pause toggles, so Unity's playMode decides whether to send it. */
+  pause(world: string, paused?: boolean) {
+    const { project } = this.project(world)
+    return this.serial(project, async () => {
+      const i = this.live(project)
+      await this.paused(i, paused)
+      return this.status(world)
+    })
+  }
+  /** Advance one frame: pauses a running Play first, as Unity's Step does. */
+  step(world: string) {
+    const { project } = this.project(world)
+    return this.serial(project, async () => {
+      const i = this.live(project)
+      await this.paused(i, true)
+      await this.local(i).request('genio_step')
+      return this.status(world)
+    })
+  }
+  private live(project: string) {
+    const i = this.instances.get(project)
+    if (!i?.launch || (i.state !== 'playing' && i.state !== 'paused')) throw new Error('Enter Play first')
+    return i
+  }
+  private async paused(i: Instance, paused?: boolean) {
+    const { playMode } = await this.local(i).request<{ playMode?: string }>('editor_status')
+    if (playMode !== 'playing' && playMode !== 'paused') throw new Error('Unity is not in Play Mode')
+    const target = paused ?? playMode !== 'paused'
+    if (target !== (playMode === 'paused')) { await this.local(i).request('editor_pause'); await this.ready(i, target ? 'paused' : 'playing') }
+    this.state(i, target ? 'paused' : 'playing')
+  }
+  /**
+   * The scene dropdown: Unity's build settings and open scenes while the editor answers, else the files (the copy,
+   * or the source before the first copy). Build order first, then the project's other scenes.
+   */
+  async scenes(world: string): Promise<PlayerScene[]> {
+    const { project, engineRoot } = this.project(world)
+    const i = this.instances.get(project), copy = i?.root ?? this.copies.status(project)?.root
+    const root = copy && fs.existsSync(path.join(copy, 'Assets')) ? copy : path.join(project, engineRoot)
+    let build: { path: string; enabled?: boolean }[] | undefined, open: { path: string; isActive?: boolean }[] = []
+    if (i?.launch && ['ready', 'playing', 'paused', 'compile-errors'].includes(i.state)) {
+      try {
+        build = (await this.local(i).request<{ scenes?: { path: string; enabled?: boolean }[] }>('get_build_settings')).scenes
+        open = (await this.local(i).request<{ scenes?: { path: string; isActive?: boolean }[] }>('list_open_scenes')).scenes ?? []
+      } catch { build = undefined; open = [] }
+    }
+    return sceneList(Array.isArray(build) ? build : buildScenes(root), sceneFiles(root), open)
+  }
+  /** Choose the scene: kept for the next Enter Play while Unity is off, opened at once when ready; a running Play exits, opens it and enters again. */
+  async setScene(world: string, scene: string) {
+    checkScene(scene)
+    const { project } = this.project(world)
+    const replay = await this.serial(project, async () => {
+      const i = await this.instance(project); i.scene = scene; this.save(i)
+      if (i.launch && i.state === 'ready') { await this.local(i).request('open_scene', { path: scene }); return undefined }
+      return i.launch && (i.state === 'playing' || i.state === 'paused') ? i.source : undefined
+    })
+    return replay ? this.enterPlay(world, replay) : this.status(world)
+  }
+  private async close(i: Instance, reason: string, copy: CopyAfterClose = 'delete') {
     this.runtimes.get(i.project)?.stopStream()
     this.state(i, 'shutting-down')
     if (i.launch) {
@@ -441,7 +614,8 @@ export class PlayerInstanceService {
     }
     delete i.launch
     delete i.stoppedAt; delete i.deadline; this.state(i, 'idle')
-    if (!keepCopy) await this.copies.editorGone(i.project, reason)
+    if (copy === 'delete') await this.copies.editorGone(i.project, reason)
+    else if (copy === 'idle') await this.copies.editorGone(i.project, reason, { manual: true, at: this.system.now(), idleMs: this.settings.idleMinutes * 60000 })
   }
   async poll() {
     if (this.polling || this.exiting) return
@@ -460,14 +634,22 @@ export class PlayerInstanceService {
           const workingSet = i.tracked.reduce((sum, p) => sum + (p.workingSet ?? 0), 0)
           i.peakWorkingSet = Math.max(i.peakWorkingSet ?? 0, workingSet) || i.peakWorkingSet
           // The estimate learns from an editor at rest in Play or ready, not from the import peak; a new session replaces it.
-          if (workingSet > 0 && (i.state === 'playing' || i.state === 'stopped-warm')) { i.steadyWorkingSet = i.sampled ? Math.max(i.steadyWorkingSet ?? 0, workingSet) : workingSet; i.sampled = true }
+          if (workingSet > 0 && ['playing', 'paused', 'ready'].includes(i.state)) { i.steadyWorkingSet = i.sampled ? Math.max(i.steadyWorkingSet ?? 0, workingSet) : workingSet; i.sampled = true }
           const watched = await inspectDesktop(this.desktop, i.launch, { now: this.system.now() })
           if (watched.blocked) { this.local(i).stopStream(); i.dialog = watched.blocked; this.state(i, 'stuck-dialog', watched.blocked.message); if (i.stoppedAt === undefined) await this.idle(i) }
+          else if (i.state === 'playing' || i.state === 'paused') {
+            // A pause or stop made in Unity itself shows here.
+            try {
+              const { playMode } = await this.local(i).request<{ playMode?: string }>('editor_status')
+              if ((playMode === 'playing' || playMode === 'paused') && playMode !== i.state) this.state(i, playMode)
+              else if (playMode === 'stopped') { this.local(i).stopStream(); this.state(i, 'ready'); await this.idle(i) }
+            } catch { /* Busy or reloading; the next poll asks again. */ }
+          }
           if (i.deadline !== undefined && i.deadline <= this.system.now()) await this.close(i, 'idle timeout')
           else this.save(i)
         })
       }
-      // Copies without an editor (refused for memory, say) go at their own deadline.
+      // Copies without an editor (kept by Stop Unity, refused for memory) go at their own deadline.
       for (const copy of this.copies.due(this.system.now())) {
         if (this.operations.has(copy.project) || this.instances.get(copy.project)?.launch) continue
         await this.serial(copy.project, async () => { if (!this.instances.get(copy.project)?.launch) await this.copies.editorGone(copy.project, 'idle timeout') })
@@ -489,10 +671,21 @@ export class PlayerInstanceService {
     return { settings: { ...this.settings }, playerEditors: players.length, unitEditors: units.size, batchEditors: batch.length, totalEditors: editors.size,
       workingSetBytes: procs.filter(p => editors.has(p.pid)).reduce((n, p) => n + (p.workingSet ?? 0), 0), freeBytes, totalBytes }
   }
+  private streamable(project: string) {
+    const i = this.instances.get(project)
+    if (!i?.launch || (i.state !== 'playing' && i.state !== 'paused')) throw new Error('Play this project before streaming')
+    return i
+  }
   async stream(world: string, width: number, height: number, frame: (b: Buffer) => void, disconnect: () => void) {
     const { project } = this.project(world)
     if (![width, height].every(n => Number.isInteger(n) && n >= 16 && n <= 1920)) throw new Error('Stream dimensions must be 16–1920')
-    return this.serial(project, async () => { const i = this.instances.get(project); if (!i?.launch || i.state !== 'playing') throw new Error('Play this project before streaming'); await this.local(i).stream(width, height, frame, disconnect) })
+    return this.serial(project, async () => { await this.local(this.streamable(project)).stream(width, height, frame, disconnect) })
+  }
+  /** Change the streamed resolution during Play without closing the renderer's port, so Play goes on. */
+  async resize(world: string, width: number, height: number) {
+    const { project } = this.project(world)
+    if (![width, height].every(n => Number.isInteger(n) && n >= 16 && n <= 1920)) throw new Error('Stream dimensions must be 16–1920')
+    return this.serial(project, async () => { await this.local(this.streamable(project)).resize(width, height); return this.status(world) })
   }
   console(world: string, cursor?: number, session?: string) {
     const { project } = this.project(world)
@@ -504,7 +697,7 @@ export class PlayerInstanceService {
   }
   input(world: string, input: PlayInput) {
     const i = this.instances.get(this.project(world).project)
-    if (!i?.launch || i.state !== 'playing') { if (input.type === 'release') return; throw new Error('The player instance is not playing') }
+    if (!i?.launch || (i.state !== 'playing' && i.state !== 'paused')) { if (input.type === 'release') return; throw new Error('The player instance is not playing') }
     if (input.type !== 'release' && !this.supportsInput(i)) throw new Error('Legacy input is view-only')
     this.local(i).input(input)
   }
@@ -514,7 +707,8 @@ export class PlayerInstanceService {
     if (!file || !dir || path.dirname(path.resolve(file)) !== path.resolve(dir) || !/^blocked-\d+\.png$/.test(path.basename(file))) return undefined
     try { const bytes = fs.readFileSync(file); return bytes.length <= 16 * 2 ** 20 ? `data:image/png;base64,${bytes.toString('base64')}` : undefined } catch { return undefined }
   }
-  detach(world: string) { return this.stop(world) }
+  /** The Play screen left: exit Play and keep Unity ready. */
+  detach(world: string) { return this.exitPlay(world) }
   /** Cancel copies now; close editors in parallel. Deletion is already a background job and is never awaited. */
   async shutdown() {
     this.exiting = true; clearInterval(this.timer)

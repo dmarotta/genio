@@ -52,6 +52,7 @@ namespace Genio.Play.Editor
         public static string Step()
         {
             if (!EditorApplication.isPlaying || !EditorApplication.isPaused) throw new InvalidOperationException("Pause Play Mode first");
+            StreamSession.CaptureStep();
             EditorApplication.Step(); return "Stepped";
         }
         [CliCommand("genio_set_resolution", "Set Game view rendering resolution", MainThreadRequired = true)]

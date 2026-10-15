@@ -34,7 +34,10 @@ export type PlayAction =
 export type PlayInput = { type: 'release' } | { type: 'state'; keys: string[]; x: number; y: number; buttons: number; axes: number[]; gamepadButtons: number }
 
 export interface PlayerSettings { idleMinutes: number; maxEditors: number }
-export type PlayerState = 'idle' | 'copying' | 'starting' | 'syncing' | 'entering-play' | 'playing' | 'stopped-warm' | 'shutting-down' | 'crashed' | 'stuck-dialog' | 'close-stuck' | 'compile-errors' | 'low-memory' | 'missing-editor' | 'limit-reached' | 'error'
+/** ready: Unity is open in edit mode (warm), the only state with an idle deadline. */
+export type PlayerState = 'idle' | 'copying' | 'starting' | 'syncing' | 'ready' | 'entering-play' | 'playing' | 'paused' | 'exiting-play' | 'shutting-down' | 'crashed' | 'stuck-dialog' | 'close-stuck' | 'compile-errors' | 'low-memory' | 'missing-editor' | 'limit-reached' | 'error'
+/** A scene of the player copy: build-settings order first, then the project's other scenes. */
+export interface PlayerScene { path: string; name: string; inBuild?: boolean; enabled?: boolean; open?: boolean; active?: boolean }
 /**
  * A Play refused for memory, asked before copying. consumers: the biggest users by plain name. closed: Genio's own
  * idle editors closed first. hard: Windows cannot commit the estimate, so Start anyway is not offered.
@@ -49,6 +52,8 @@ export interface PlayerLowMemory {
  */
 export interface PlayerInstanceStatus {
   state: PlayerState; project: string; root?: string; source?: PlayerCopySource
+  /** The scene Enter Play opens first; chosen with setScene, kept while Unity is off. */
+  scene?: string
   pid?: number; created?: string; desktop?: string; deadline?: number; stoppedAt?: number
   unityVersion?: string; peakWorkingSet?: number; steadyWorkingSet?: number; lowMemory?: PlayerLowMemory
   message?: string; startup?: string; exitCode?: number

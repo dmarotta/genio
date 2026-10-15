@@ -77,7 +77,7 @@ export class PlayerCopies {
   stopped(world: string, at?: number, idleMs?: number): Promise<PlayerCopyRecord | undefined>
   playing(world: string, at?: number): Promise<PlayerCopyRecord | undefined>
   due(now?: number): PlayerCopyRecord[]
-  editorGone(world: string, reason?: string): Promise<{ kept?: boolean; deleted?: boolean; record?: PlayerCopyRecord }>
+  editorGone(world: string, reason?: string, options?: { manual?: boolean; at?: number; idleMs?: number }): Promise<{ kept?: boolean; deleted?: boolean; record?: PlayerCopyRecord }>
   deleteInBackground(world: string, options?: { reason?: string }): Promise<{ deleted: boolean; record?: PlayerCopyRecord }>
   delete(world: string, options?: { reason?: string }): Promise<{ deleted: boolean; record?: PlayerCopyRecord }>
   editorPids(root: string): number[]

@@ -23,6 +23,7 @@ namespace Genio.Play
         RenderTexture target;
         RenderTexture screen;
         volatile bool pending;
+        bool step;
         string latestInput;
         bool oldBackground;
         float inputAt;
@@ -54,6 +55,11 @@ namespace Genio.Play
             if (current != null) { var previous = current; current = null; previous.Cleanup(); Destroy(previous.gameObject); }
             return "Stopped";
         }
+
+        /// The next frame is a paused editor's single step: capture it whatever the cadence, and finish its readback
+        /// inside that frame. A paused editor runs no further frame, so a readback left for the next frame would
+        /// show each step one step late.
+        public static void CaptureStep() { if (current != null) current.step = true; }
 
         async void Connect(int port)
         {
@@ -91,9 +97,10 @@ namespace Genio.Play
                 // other frame of a 30 fps game whose frames land a hair early (about 20 fps streamed).
                 const float interval = 1f / 30f;
                 float now = Time.realtimeSinceStartup;
-                if (pending || now < next - interval * 0.25f || target == null) continue;
+                bool stepped = step; step = false;
+                if (target == null || !stepped && (pending || now < next - interval * 0.25f)) continue;
                 // After a stall, restart the cadence from now instead of bursting to catch up.
-                next = next + interval < now ? now + interval : next + interval;
+                if (!stepped) next = next + interval < now ? now + interval : next + interval;
                 pending = true;
                 if (screen == null || screen.width != Screen.width || screen.height != Screen.height)
                 {
@@ -124,6 +131,7 @@ namespace Genio.Play
                         finally { pending = false; }
                     });
                 });
+                if (stepped) AsyncGPUReadback.WaitAllRequests();
             }
         }
         static void FlipRows(byte[] pixels, int w, int h)

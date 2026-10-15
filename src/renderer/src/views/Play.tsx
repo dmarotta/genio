@@ -71,7 +71,7 @@ function PlayScreen({ world }: { world: string }) {
     return () => { live = false }
   }, [world, !!status, hasCopy])
   // A stream that ended stays closed until the next Play session (or Reconnect).
-  const playing = state === 'playing'
+  const playing = state === 'playing' || state === 'paused'
   useEffect(() => { if (playing) setStreamEnded(undefined) }, [playing])
   // Compile errors open the console; a stuck dialog fetches its screenshot.
   useEffect(() => { if (state === 'compile-errors') setDrawer(true) }, [state])
@@ -127,7 +127,7 @@ function PlayScreen({ world }: { world: string }) {
   const settings = (): void => { requestSystemsSection('project', UNITY_SLOTS_ANCHOR); go('systems') }
 
   const working = !!busy || (!!state && WORKING.has(state))
-  const warm = state === 'stopped-warm'
+  const warm = state === 'ready'
   // Low memory asks first, before copying: the Unity button itself becomes the one-click override.
   const startAnyway = state === 'low-memory' && !status?.lowMemory?.hard
   const countdown = warm && status?.deadline ? status.deadline - now : undefined

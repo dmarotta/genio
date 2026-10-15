@@ -352,6 +352,18 @@ it('refuses a sync the disk cannot hold, before writing anything', async () => {
   await expect(copies.sync(world, { path: other })).rejects.toThrow(/must be a checkout of this project/)
 })
 
+it('keeps the copy until its idle deadline after a manual Stop Unity, and deletes at once with no idle time', async () => {
+  const copies = make()
+  await copies.ensure(world, 'Game'); await copies.sync(world, { path: world })
+  expect(await copies.editorGone(world, 'the player stopped Unity', { manual: true, at: 1000, idleMs: 60000 })).toMatchObject({ kept: true, record: { state: 'ready', deadline: 61000 } })
+  expect(copies.due(61000).map(r => r.project)).toEqual([world])
+  expect((await copies.editorGone(world, 'idle timeout')).deleted).toBe(false)
+  await copies.settle(); expect(copies.status(world)).toBeUndefined()
+  await copies.ensure(world, 'Game')
+  expect((await copies.editorGone(world, 'the player stopped Unity', { manual: true, idleMs: 0 })).kept).toBeUndefined()
+  await copies.settle(); expect(copies.status(world)).toBeUndefined()
+  expect(await copies.editorGone(world, 'the player stopped Unity', { manual: true, idleMs: 60000 })).toEqual({ deleted: true })
+})
 it('tracks the idle deadline, then deletes the copy in the background once Unity has let go of it', async () => {
   const copies = make()
   const rec = await copies.ensure(world, 'Game')

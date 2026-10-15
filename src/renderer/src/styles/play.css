@@ -14,9 +14,9 @@
 
 .play-status { display: flex; align-items: center; flex-wrap: wrap; gap: 0 4px; margin: 0; }
 .play-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-mute); margin-right: 6px; flex: none; }
-.play-dot.playing { background: var(--volt); box-shadow: var(--glow-volt); }
-.play-dot.stopped-warm { background: var(--neon); }
-.play-dot.copying, .play-dot.syncing, .play-dot.starting, .play-dot.entering-play, .play-dot.shutting-down { background: var(--amber); animation: play-pulse 1.2s ease-in-out infinite; }
+.play-dot.playing, .play-dot.paused { background: var(--volt); box-shadow: var(--glow-volt); }
+.play-dot.ready { background: var(--neon); }
+.play-dot.copying, .play-dot.syncing, .play-dot.starting, .play-dot.entering-play, .play-dot.exiting-play, .play-dot.shutting-down { background: var(--amber); animation: play-pulse 1.2s ease-in-out infinite; }
 .play-dot.crashed, .play-dot.stuck-dialog, .play-dot.close-stuck, .play-dot.compile-errors, .play-dot.low-memory, .play-dot.missing-editor, .play-dot.limit-reached, .play-dot.error { background: var(--alert); }
 @keyframes play-pulse { 50% { opacity: 0.35; } }
 
