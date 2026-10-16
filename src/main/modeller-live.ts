@@ -9,7 +9,7 @@ import path from 'node:path'
 import type { ModellerLive, ModellerStep } from '@shared/modeller'
 
 interface Entry { id: string; n: number; parent: string | null; caption?: string; name?: string; t?: string; ms?: number; triangles?: number; objects?: number; warnings?: number; files?: { glb?: string | null; view?: string | null; receipt?: string | null } }
-interface Failure { id: string; name?: string; branch?: string; kind?: string; error?: string; t?: string; dir?: string }
+interface Failure { id: string; name?: string; parent?: string | null; branch?: string; kind?: string; error?: string; t?: string; dir?: string }
 interface Manifest { model?: string; updated?: string; branch?: string; branches?: Record<string, { head: string | null }>; steps?: Entry[]; failures?: Failure[]; history?: { t?: string }[] }
 
 const readJson = (file: string): unknown => { try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return undefined } }
@@ -64,8 +64,9 @@ export function readModellerLive(dataDir: string, base: () => string): ModellerL
   }
   const root = base()
   const url = (rel: unknown): string | null => typeof rel === 'string' ? root + ['modeller', dir, ...rel.split('/')].map(encodeURIComponent).join('/') : null
-  const steps: ModellerStep[] = line.map(s => ({
-    id: s.id, n: Number(s.n) || stepNumber(s.id), caption: String(s.caption || s.name || s.id), triangles: Number(s.triangles) || 0,
+  // n is the step's place on this branch: the kernel's ids also count amended, reverted and other branches' steps.
+  const steps: ModellerStep[] = line.map((s, i) => ({
+    id: s.id, n: i + 1, caption: String(s.caption || s.name || s.id), triangles: Number(s.triangles) || 0,
     parts: Number(s.objects) || 0, warnings: Number(s.warnings) || 0, ms: Number(s.ms) || 0, glb: url(s.files?.glb), view: url(s.files?.view)
   }))
   const branches = Object.keys(m.branches && typeof m.branches === 'object' ? m.branches : {})
@@ -78,13 +79,16 @@ export function readModellerLive(dataDir: string, base: () => string): ModellerL
   let running: ModellerLive['running'] = null
   const lock = Number((() => { try { return fs.readFileSync(path.join(folder, '.lock'), 'utf8') } catch { return '' } })())
   if (alive(lock)) {
+    // A batch stages all its steps at once; the lowest one is the next to land.
     let pending: string | undefined
-    try { pending = fs.readdirSync(path.join(folder, 'steps')).filter(n => /^\.pending-s\d+$/.test(n)).sort().pop() } catch { /* no steps yet */ }
+    try { pending = fs.readdirSync(path.join(folder, 'steps')).filter(n => /^\.pending-s\d+$/.test(n)).sort((a, b) => stepNumber(a.slice(9)) - stepNumber(b.slice(9)))[0] } catch { /* no steps yet */ }
     if (pending) {
       const id = pending.slice('.pending-'.length), p = path.join(folder, 'steps', pending)
       let startedAt = Date.now()
       try { const st = fs.statSync(p); startedAt = Math.round(st.birthtimeMs || st.ctimeMs) } catch { /* just finished */ }
-      running = { id, n: stepNumber(id), caption: captionOf(path.join(p, 'script.py')) ?? id, startedAt }
+      const landed = Date.parse(line.at(-1)?.t ?? '')
+      if (landed > startedAt && landed <= Date.now()) startedAt = landed
+      running = { id, n: line.length + 1, caption: captionOf(path.join(p, 'script.py')) ?? id, startedAt }
     }
   }
 
@@ -92,8 +96,10 @@ export function readModellerLive(dataDir: string, base: () => string): ModellerL
   const list = <T>(v: T[] | undefined): T[] => Array.isArray(v) ? v : []
   const moved = [line.at(-1)?.t, ...list(m.history).map(h => h?.t)].reduce<string>((a, t) => typeof t === 'string' && t > a ? t : a, '')
   const last = [...list(m.failures)].reverse().find(f => f && (f.branch ?? branch) === branch)
+  // The failed attempt would have followed its parent on this branch.
+  const parentAt = last?.parent ? line.findIndex(s => s.id === last.parent) : -1
   const failure: ModellerLive['failure'] = last && typeof last.id === 'string' && String(last.t ?? '') > moved
-    ? { id: last.id, n: stepNumber(last.id), caption: (last.dir && captionOf(path.join(folder, last.dir, 'script.py'))) || String(last.name ?? last.id), kind: String(last.kind ?? 'error'), error: String(last.error ?? '').slice(0, 2000) }
+    ? { id: last.id, n: last.parent === null ? 1 : parentAt >= 0 ? parentAt + 2 : line.length + 1, caption: (last.dir && captionOf(path.join(folder, last.dir, 'script.py'))) || String(last.name ?? last.id), kind: String(last.kind ?? 'error'), error: String(last.error ?? '').slice(0, 2000) }
     : null
 
   const model = typeof m.model === 'string' ? m.model : dir

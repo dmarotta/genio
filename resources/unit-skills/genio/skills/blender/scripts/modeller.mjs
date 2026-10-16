@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
- * Genio Modeller kernel: one headless Blender per step through the safe runner.
+ * Genio Modeller kernel: one headless Blender per step, or per batch of steps, through the safe runner.
  *
  * A model is a folder in the unit's data directory (never the worktree):
  *   manifest.json            steps, branches, the pinned Blender, history
  *   steps/<id>/script.py     the agent's step script, as it ran
  *   steps/<id>/model.blend   compressed snapshot (pruned to the last few per branch)
  *   steps/<id>/model.glb     modifier-applied GLB, what the live view loads
- *   steps/<id>/sheet.png     2x2 Workbench review sheet (3/4, front, side, top)
- *   steps/<id>/view.png      the 3/4 view alone, 512 px
+ *   steps/<id>/sheet.png     2x2 Workbench review sheet (3/4, front, side, top); a batch's last step only
+ *   steps/<id>/view.png      the 3/4 view alone, 512 px (with the sheet)
  *   steps/<id>/receipt.json  caption, counts, bounds, advisory checks, timings
  *   failed/<id>-<kind>-<t>/  scripts that raised, crashed or hung, with receipts
  *
@@ -32,6 +32,9 @@ export const SCHEMA = 'genio.modeller.v1'
 export const KEEP_SNAPSHOTS = 5
 /** Watchdog per step, seconds. */
 export const STEP_TIMEOUT = 60
+/** Least time between two steps of a batch landing, so the live view shows each one's change. */
+export const PUBLISH_GAP_MS = 600
+const POLL_MS = 50
 const SESSION_WARN_MB = 300
 const FAILURES_KEPT = 50
 const NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/i
@@ -49,6 +52,7 @@ const rel = (dir, p) => path.relative(dir, p).split(path.sep).join('/')
 const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
 const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return null } }
 const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)))
 
 function checkName(kind, name) {
   if (!NAME.test(name ?? '')) throw new Error(`${kind} name must be 1-64 letters, digits, - or _ (got ${JSON.stringify(name)})`)
@@ -72,17 +76,21 @@ function readManifest(dir) {
   return m
 }
 
-function writeManifest(dir, m) {
-  m.updated = now()
-  const file = path.join(dir, 'manifest.json'), tmp = `${file}.${process.pid}.tmp`
-  fs.writeFileSync(tmp, JSON.stringify(m, null, 1))
-  // A viewer reading the manifest can hold it open for a moment on Windows.
+/** A viewer (or Blender, mid-batch) can hold a file for a moment on Windows: retry the rename briefly. */
+function renameRetry(from, to) {
   for (let i = 0; ; i++) {
-    try { fs.renameSync(tmp, file); return } catch (e) {
+    try { fs.renameSync(from, to); return } catch (e) {
       if (i >= 20 || !['EPERM', 'EBUSY', 'EACCES'].includes(e.code)) throw e
       pause(50)
     }
   }
+}
+
+function writeManifest(dir, m) {
+  m.updated = now()
+  const file = path.join(dir, 'manifest.json'), tmp = `${file}.${process.pid}.tmp`
+  fs.writeFileSync(tmp, JSON.stringify(m, null, 1))
+  renameRetry(tmp, file)
 }
 
 const alive = (pid) => {
@@ -229,11 +237,11 @@ export function prune(m, dir, keep = KEEP_SNAPSHOTS) {
   return dropped
 }
 
-async function runPlan(m, dir, plan, base, { timeout, threads, runner }) {
-  const planFile = path.join(plan.out, 'plan.json')
+/** One Blender for the whole plan; its plan.json goes into the first step's folder. */
+function runPlan(m, dir, plan, base, { timeout, threads, runner, signal }) {
+  const planFile = path.join(plan.steps[0].out, 'plan.json')
   fs.writeFileSync(planFile, JSON.stringify(plan, null, 1))
-  const run = await runBlender({ blender: m.blender.path, prefix: runner?.prefix ?? [], script: STEP_SCRIPT, blend: base.blend, args: [planFile], threads, timeout, scratch: path.join(dir, 'logs') })
-  return { run, receipt: readJson(path.join(plan.out, 'receipt.json')) }
+  return runBlender({ blender: m.blender.path, prefix: runner?.prefix ?? [], script: STEP_SCRIPT, blend: base.blend, args: [planFile], threads, timeout, signal, scratch: path.join(dir, 'logs') })
 }
 
 function failureKind(run, receipt) {
@@ -250,71 +258,190 @@ function failureMessage(kind, { receipt, run, timeout, head }) {
   return `${receipt.error}. ${at}`
 }
 
+/** A batch's step scripts, in order: one folder of .py files (sorted by name), a batch .json, or several .py files. */
+export function batchScripts(args) {
+  const raw = Array.isArray(args) ? args : [args]
+  if (raw.some((a) => a && typeof a === 'object')) return raw.map((a) => typeof a === 'object' ? { script: path.resolve(String(a.script ?? '')), name: a.name } : { script: path.resolve(String(a)) })
+  const list = raw.map((a) => path.resolve(String(a)))
+  let items = list.map((script) => ({ script }))
+  const one = list.length === 1 ? fs.statSync(list[0], { throwIfNoEntry: false }) : undefined
+  if (one?.isDirectory()) {
+    items = fs.readdirSync(list[0]).filter((f) => /\.py$/i.test(f)).sort((a, b) => a.localeCompare(b, 'en', { numeric: true })).map((f) => ({ script: path.join(list[0], f) }))
+  } else if (one && /\.json$/i.test(list[0])) {
+    const doc = readJson(list[0])
+    const entries = Array.isArray(doc) ? doc : doc?.steps
+    if (!Array.isArray(entries)) throw new Error(`${list[0]} is not a batch: use ["s01_body.py", ...] or {"steps": [{"script": "s01_body.py", "name": "body"}, ...]}`)
+    const at = path.dirname(list[0])
+    items = entries.map((e) => typeof e === 'string' ? { script: path.resolve(at, e) } : { script: path.resolve(at, String(e?.script ?? '')), name: e?.name })
+  }
+  if (!items.length) throw new Error('The batch has no step scripts.')
+  return items
+}
+
+/**
+ * Run step scripts back to back in one Blender on the current branch's head (with amend, the first
+ * replaces the head). Each one is a normal step (own id, receipt, snapshot, GLB, parent chain),
+ * published to the manifest as soon as Blender writes its receipt, at least `gapMs` after the last,
+ * so the live view shows each change. Only the last step renders the review sheet unless
+ * `everySheet`. The first failure stops the batch: earlier steps stay, it goes under failed/.
+ */
+async function runSteps(dir, m, scripts, { amend = false, everySheet = false, timeout = STEP_TIMEOUT, threads, runner, gapMs = PUBLISH_GAP_MS }) {
+  checkPin(m)
+  const items = scripts.map((it) => {
+    const source = path.resolve(it.script)
+    if (!fs.statSync(source, { throwIfNoEntry: false })?.isFile()) throw new Error(`No step script at ${source}`)
+    return { source, name: checkName('Step', it.name ?? stepName(source)) }
+  })
+  const head = m.branches[m.branch].head
+  if (amend && !head) throw new Error('Nothing to amend: this branch has no steps yet.')
+  const parent0 = amend ? byId(m, head).parent : head
+  const base = baseFor(m, dir, parent0)
+  const plan = { replay: base.replay, steps: [], checks: m.checks, sheet_size: 512 }
+  const staged = items.map((it, k) => {
+    const n = m.next + k, id = stepId(n), staging = path.join(dir, 'steps', `.pending-${id}`)
+    fs.rmSync(staging, { recursive: true, force: true })
+    fs.mkdirSync(staging, { recursive: true })
+    fs.copyFileSync(it.source, path.join(staging, 'script.py'))
+    const sheet = everySheet || k === items.length - 1
+    plan.steps.push({ out: staging, script: path.join(staging, 'script.py'), outputs: ['blend', 'glb', ...(sheet ? ['sheet'] : [])], step: { id, n, name: it.name, model: m.model } })
+    return { ...it, id, n, staging }
+  })
+
+  const started = Date.now()
+  const seen = [], published = []
+  let parent = parent0, lastAt = 0, stepStart = started, prevAt = started
+  // Receipts Blender has finished, in order (each written last and atomically).
+  const scan = () => {
+    while (seen.length < staged.length) {
+      const file = path.join(staged[seen.length].staging, 'receipt.json')
+      const receipt = readJson(file)
+      if (!receipt?.ok) return
+      const at = fs.statSync(file).mtimeMs
+      seen.push({ receipt, ms: Math.max(0, Math.round(at - prevAt)) })
+      prevAt = at
+      stepStart = Date.now()
+    }
+  }
+  const publish = () => {
+    const k = published.length, s = staged[k], { receipt, ms } = seen[k]
+    const t = now(), final = path.join(dir, 'steps', s.id)
+    renameRetry(s.staging, final)
+    fs.rmSync(path.join(final, 'plan.json'), { force: true })
+    const has = (f) => fs.existsSync(path.join(final, f))
+    const files = Object.fromEntries([['script', 'script.py'], ['blend', 'model.blend'], ['glb', 'model.glb'], ['sheet', 'sheet.png'], ['view', 'view.png'], ['receipt', 'receipt.json']].map(([key, f]) => [key, has(f) ? `steps/${s.id}/${f}` : null]))
+    const entry = {
+      id: s.id, n: s.n, parent, branch: m.branch, name: s.name, caption: receipt.caption || s.name, t, ms,
+      triangles: receipt.triangles ?? 0, vertices: receipt.vertices ?? 0, objects: receipt.objects ?? 0, warnings: receipt.warnings.length,
+      blend_sha256: files.blend ? sha256(path.join(dir, files.blend)) : null, files
+    }
+    if (amend && k === 0) {
+      byId(m, head).superseded_by = s.id
+      m.history.push({ op: 'amend', t, branch: m.branch, replaced: head, by: s.id })
+    }
+    m.steps.push(entry)
+    m.next = s.n + 1
+    m.branches[m.branch].head = s.id
+    const pruned = prune(m, dir)
+    const mb = dirBytes(dir) / 2 ** 20
+    if (mb > SESSION_WARN_MB) receipt.warnings.push(`This model's step data is ${Math.round(mb)} MB; older snapshots are pruned, but GLBs and sheets add up.`)
+    const abs = Object.fromEntries(Object.entries(files).map(([key, v]) => [key, v && path.join(dir, v)]))
+    Object.assign(receipt, { id: s.id, parent, branch: m.branch, t, wall_ms: ms, files: abs })
+    fs.writeFileSync(path.join(final, 'receipt.json'), JSON.stringify(receipt, null, 1))
+    writeManifest(dir, m)
+    published.push({
+      ok: true, model: m.model, id: s.id, n: s.n, name: s.name, caption: entry.caption, branch: m.branch, parent,
+      triangles: entry.triangles, vertices: entry.vertices, objects: entry.objects, bounds: receipt.bounds ?? null,
+      warnings: receipt.warnings, sheet: abs.sheet, glb: abs.glb, blend: abs.blend, receipt: abs.receipt, ms, pruned
+    })
+    parent = s.id
+    lastAt = Date.now()
+  }
+
+  // Blender works ahead; steps land one by one while it runs. A step that runs past `timeout` is stopped.
+  const watchdog = new AbortController()
+  let finished = false
+  const running = runPlan(m, dir, plan, base, { timeout: timeout * staged.length, threads, runner, signal: watchdog.signal }).finally(() => { finished = true })
+  try {
+    while (!finished) {
+      scan()
+      if (published.length < seen.length && Date.now() - lastAt >= gapMs) publish()
+      if (Date.now() - stepStart > timeout * 1000) watchdog.abort()
+      await Promise.race([running, sleep(POLL_MS)])
+    }
+  } catch (e) {
+    // Never leave Blender writing into the model after the lock is gone.
+    watchdog.abort()
+    await running
+    throw e
+  }
+  const run = await running
+  scan()
+  while (published.length < seen.length) {
+    await sleep(lastAt + gapMs - Date.now())
+    publish()
+  }
+  // The Blender log is known once the run ends.
+  for (const p of published) {
+    const r = readJson(p.receipt)
+    if (r) fs.writeFileSync(p.receipt, JSON.stringify({ ...r, log: run.log }, null, 1))
+  }
+  if (published.length === staged.length) return { published, failure: null, notRun: [] }
+
+  // The first step without a good receipt failed; the ones after it never ran.
+  const s = staged[published.length]
+  const receipt = readJson(path.join(s.staging, 'receipt.json'))
+  const kind = failureKind(run, receipt)
+  const failDir = path.join(dir, 'failed', `${s.id}-${kind}-${Date.now()}`)
+  fs.mkdirSync(path.dirname(failDir), { recursive: true })
+  renameRetry(s.staging, failDir)
+  for (const f of fs.readdirSync(failDir)) if (!['script.py', 'receipt.json', 'plan.json'].includes(f)) fs.rmSync(path.join(failDir, f), { recursive: true, force: true })
+  const notRun = staged.slice(published.length + 1)
+  for (const x of notRun) fs.rmSync(x.staging, { recursive: true, force: true })
+  const at = m.branches[m.branch].head
+  const recovered = verifySnapshot(m, dir, parent)
+  const error = receipt?.error ?? run.tail.split(/\r?\n/).filter(Boolean).slice(-8).join('\n')
+  const ms = Math.round(Date.now() - (seen.length ? prevAt : started))
+  m.failures.push({ id: s.id, name: s.name, kind, parent, branch: m.branch, t: now(), ms, log: run.log, error, dir: rel(dir, failDir) })
+  m.failures = m.failures.slice(-FAILURES_KEPT)
+  writeManifest(dir, m)
+  return {
+    published, notRun: notRun.map((x) => ({ name: x.name, script: x.source })),
+    failure: {
+      ok: false, kind, model: m.model, id: s.id, name: s.name, branch: m.branch, head: at, error, trace: receipt?.trace ?? [], output: receipt?.output ?? '',
+      message: failureMessage(kind, { receipt, run, timeout, head: at }), recovered, log: run.log, script: path.join(failDir, 'script.py')
+    }
+  }
+}
+
 /** Run one step script on the current branch's head (or, with amend, replace the head). */
 export async function step({ dataDir = modellerDataDir(), model, script, name, amend = false, timeout = STEP_TIMEOUT, threads, runner } = {}) {
   const dir = modelDir(dataDir, model)
   return withLock(dir, async () => {
+    const r = await runSteps(dir, readManifest(dir), [{ script, name }], { amend, timeout, threads, runner })
+    return r.failure ?? r.published[0]
+  })
+}
+
+/**
+ * Run several step scripts as one batch (see runSteps): each lands in the live view as Blender
+ * finishes it. The result lists the steps, the last review sheet, and on a failure the failed step
+ * and the scripts that did not run.
+ */
+export async function batch({ dataDir = modellerDataDir(), model, scripts, everySheet = false, timeout = STEP_TIMEOUT, threads, runner, gapMs = PUBLISH_GAP_MS } = {}) {
+  const dir = modelDir(dataDir, model)
+  const items = batchScripts(scripts)
+  return withLock(dir, async () => {
     const m = readManifest(dir)
-    checkPin(m)
-    const source = path.resolve(script)
-    if (!fs.statSync(source, { throwIfNoEntry: false })?.isFile()) throw new Error(`No step script at ${source}`)
-    const label = checkName('Step', name ?? stepName(source))
-    const head = m.branches[m.branch].head
-    if (amend && !head) throw new Error('Nothing to amend: this branch has no steps yet.')
-    const parent = amend ? byId(m, head).parent : head
-    const n = m.next, id = stepId(n)
-    const staging = path.join(dir, 'steps', `.pending-${id}`)
-    fs.rmSync(staging, { recursive: true, force: true })
-    fs.mkdirSync(staging, { recursive: true })
-    fs.copyFileSync(source, path.join(staging, 'script.py'))
-    const base = baseFor(m, dir, parent)
-    const plan = { out: staging, replay: base.replay, script: path.join(staging, 'script.py'), outputs: ['blend', 'glb', 'sheet'], step: { id, n, name: label, model: m.model }, checks: m.checks, sheet_size: 512 }
-    const { run, receipt } = await runPlan(m, dir, plan, base, { timeout, threads, runner })
-    const t = now()
-    if (run.timedOut || run.code !== 0 || !receipt?.ok) {
-      const kind = failureKind(run, receipt)
-      const failDir = path.join(dir, 'failed', `${id}-${kind}-${Date.now()}`)
-      fs.mkdirSync(path.dirname(failDir), { recursive: true })
-      fs.renameSync(staging, failDir)
-      for (const f of fs.readdirSync(failDir)) if (!['script.py', 'receipt.json', 'plan.json'].includes(f)) fs.rmSync(path.join(failDir, f), { recursive: true, force: true })
-      const recovered = verifySnapshot(m, dir, parent)
-      const error = receipt?.error ?? run.tail.split(/\r?\n/).filter(Boolean).slice(-8).join('\n')
-      m.failures.push({ id, name: label, kind, parent, branch: m.branch, t, ms: run.ms, log: run.log, error, dir: rel(dir, failDir) })
-      m.failures = m.failures.slice(-FAILURES_KEPT)
-      writeManifest(dir, m)
-      return {
-        ok: false, kind, model: m.model, id, name: label, branch: m.branch, head, error, trace: receipt?.trace ?? [], output: receipt?.output ?? '',
-        message: failureMessage(kind, { receipt, run, timeout, head }), recovered, log: run.log, script: path.join(failDir, 'script.py')
-      }
-    }
-    const final = path.join(dir, 'steps', id)
-    fs.renameSync(staging, final)
-    fs.rmSync(path.join(final, 'plan.json'), { force: true })
-    const has = (f) => fs.existsSync(path.join(final, f))
-    const files = Object.fromEntries([['script', 'script.py'], ['blend', 'model.blend'], ['glb', 'model.glb'], ['sheet', 'sheet.png'], ['view', 'view.png'], ['receipt', 'receipt.json']].map(([k, f]) => [k, has(f) ? `steps/${id}/${f}` : null]))
-    const entry = {
-      id, n, parent, branch: m.branch, name: label, caption: receipt.caption || label, t, ms: run.ms,
-      triangles: receipt.triangles ?? 0, vertices: receipt.vertices ?? 0, objects: receipt.objects ?? 0, warnings: receipt.warnings.length,
-      blend_sha256: files.blend ? sha256(path.join(dir, files.blend)) : null, files
-    }
-    if (amend) {
-      byId(m, head).superseded_by = id
-      m.history.push({ op: 'amend', t, branch: m.branch, replaced: head, by: id })
-    }
-    m.steps.push(entry)
-    m.next = n + 1
-    m.branches[m.branch].head = id
-    const pruned = prune(m, dir)
-    const mb = dirBytes(dir) / 2 ** 20
-    if (mb > SESSION_WARN_MB) receipt.warnings.push(`This model's step data is ${Math.round(mb)} MB; older snapshots are pruned, but GLBs and sheets add up.`)
-    const abs = Object.fromEntries(Object.entries(files).map(([k, v]) => [k, v && path.join(dir, v)]))
-    Object.assign(receipt, { id, parent, branch: m.branch, t, wall_ms: run.ms, log: run.log, files: abs })
-    fs.writeFileSync(path.join(final, 'receipt.json'), JSON.stringify(receipt, null, 1))
-    writeManifest(dir, m)
+    const { published, failure, notRun } = await runSteps(dir, m, items, { everySheet, timeout, threads, runner, gapMs })
+    const last = published.at(-1)
+    const brief = (s) => ({ id: s.id, n: s.n, name: s.name, caption: s.caption, triangles: s.triangles, objects: s.objects, warnings: s.warnings, glb: s.glb, sheet: s.sheet, ms: s.ms })
+    const did = `${published.length} of ${items.length} steps landed`
     return {
-      ok: true, model: m.model, id, n, name: label, caption: entry.caption, branch: m.branch, parent,
-      triangles: entry.triangles, vertices: entry.vertices, objects: entry.objects, bounds: receipt.bounds ?? null,
-      warnings: receipt.warnings, sheet: abs.sheet, glb: abs.glb, blend: abs.blend, receipt: abs.receipt, ms: run.ms, pruned
+      ok: !failure, model: m.model, branch: m.branch, head: m.branches[m.branch].head, steps: published.map(brief),
+      sheet: last?.sheet ?? null, receipt: last?.receipt ?? null, warnings: last?.warnings ?? [], failure, not_run: notRun,
+      message: failure
+        ? `${did}; ${failure.id} (${failure.name}) failed. ${failure.message}${notRun.length ? ` Not run: ${notRun.map((x) => x.name).join(', ')}.` : ''}`
+        : `${did}. Review ${last.sheet ? `the sheet of ${last.id}` : last.id} before the next batch.`
     }
   })
 }
@@ -346,8 +473,9 @@ export async function materialize({ dataDir = modellerDataDir(), model, step: re
     const staging = path.join(dir, 'steps', `.rebuild-${s.id}`)
     fs.rmSync(staging, { recursive: true, force: true })
     fs.mkdirSync(staging, { recursive: true })
-    const plan = { out: staging, replay: [...base.replay, path.join(dir, s.files.script)], script: null, outputs: ['blend'], step: { id: s.id, n: s.n, name: s.name, model: m.model }, checks: m.checks }
-    const { run, receipt } = await runPlan(m, dir, plan, base, { timeout, threads, runner })
+    const plan = { replay: [...base.replay, path.join(dir, s.files.script)], steps: [{ out: staging, script: null, outputs: ['blend'], step: { id: s.id, n: s.n, name: s.name, model: m.model } }], checks: m.checks }
+    const run = await runPlan(m, dir, plan, base, { timeout, threads, runner })
+    const receipt = readJson(path.join(staging, 'receipt.json'))
     if (run.timedOut || run.code !== 0 || !receipt?.ok) {
       fs.rmSync(staging, { recursive: true, force: true })
       throw new Error(`Rebuilding ${s.id} failed (${failureKind(run, receipt)}): ${receipt?.error ?? run.tail.slice(-800)}`)
@@ -421,6 +549,7 @@ export async function status({ dataDir = modellerDataDir(), model } = {}) {
 const USAGE = `Usage: modeller.mjs <command> <model> [args] [--data <dir>]
   init <model> [--target unity|godot|web] [--budget <triangles>] [--size <x>x<y>x<z>] [--blender 4.2|5.2|<path>] [--repin]
   step <model> <script.py> [--name <name>] [--amend] [--timeout <seconds>]
+  batch <model> <folder|batch.json|script.py...> [--every-sheet] [--timeout <seconds per step>]
   revert <model> <step>
   branch <model> <name> [--from <step>]
   switch <model> <branch>
@@ -430,7 +559,7 @@ const USAGE = `Usage: modeller.mjs <command> <model> [args] [--data <dir>]
 
 function parseArgs(argv) {
   const pos = [], opt = {}
-  const bools = new Set(['amend', 'repin', 'off'])
+  const bools = new Set(['amend', 'repin', 'off', 'every-sheet'])
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (!a.startsWith('--')) { pos.push(a); continue }
@@ -443,7 +572,8 @@ function parseArgs(argv) {
 }
 
 async function main() {
-  const { pos: [command, model, arg], opt } = parseArgs(process.argv.slice(2))
+  const { pos, opt } = parseArgs(process.argv.slice(2))
+  const [command, model, arg] = pos
   if (!command || !model) throw new Error(USAGE)
   const dataDir = opt.data ? path.resolve(opt.data) : modellerDataDir()
   const threads = opt.threads ? Number(opt.threads) : undefined
@@ -454,6 +584,10 @@ async function main() {
     case 'step':
       if (!arg) throw new Error(USAGE)
       result = await step({ ...common, script: arg, name: opt.name, amend: opt.amend, timeout: opt.timeout ? Number(opt.timeout) : STEP_TIMEOUT, threads })
+      break
+    case 'batch':
+      if (!arg) throw new Error(USAGE)
+      result = await batch({ ...common, scripts: pos.slice(2), everySheet: opt['every-sheet'], timeout: opt.timeout ? Number(opt.timeout) : STEP_TIMEOUT, threads })
       break
     case 'revert': result = await revert({ ...common, to: arg }); break
     case 'branch': result = await branch({ ...common, name: arg, from: opt.from }); break

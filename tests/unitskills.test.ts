@@ -161,6 +161,8 @@ describe('brief tools section', () => {
     expect(b).toMatch(/Fix what is wrong before adding anything new/)
     expect(b).toMatch(/never a gate/)
     expect(b).toMatch(/docstring caption/)
+    expect(b).toContain('node "C:/genio/skills/genio/skills/blender/scripts/modeller.mjs" batch <model> <script.py> <script.py>...')
+    expect(b).toMatch(/batches of 3 to 6 steps.*single steps for fixes and fine details/)
     expect(renderBrief({ ...base, tools: unitToolsBrief(plugin) })).not.toContain('# Modeller')
   })
 

@@ -1,5 +1,6 @@
 // A stand-in for blender.exe that speaks genio_step.py's plan protocol, for tests without Blender.
 // The runner calls: node fake-blender.mjs -b ... [snapshot.blend] --python genio_step.py -- plan.json
+// (plan.steps runs back to back in this one process, as in Blender).
 // A "snapshot" is the zstd magic plus JSON {parts, scripts}. Step scripts drive it with comments:
 //   # part: <name>     add a part        # remove: <name>   drop a part
 //   # fake: error      raise              # fake: crash      exit 3 mid-step
@@ -13,12 +14,18 @@ const argv = process.argv.slice(2)
 const blend = argv.slice(0, argv.indexOf('--python')).find((a) => a.endsWith('.blend'))
 const plan = JSON.parse(fs.readFileSync(argv[argv.indexOf('--') + 1], 'utf8'))
 const state = blend ? JSON.parse(fs.readFileSync(blend).subarray(4).toString('utf8')) : { parts: [], scripts: [] }
-const receipt = { schema: 'genio.modeller-step.v1', ok: false, ...plan.step, blender: 'fake', api_warnings: [], replayed: plan.replay.length, base: blend ?? null }
-const out = (name) => path.join(plan.out, name)
 const captionOf = (code) => code.match(/^"""(.*?)(?:"""|$)/m)?.[1]?.trim() || null
+// A batch's steps run back to back, each published by its receipt; FAKE_BLENDER_STEP_MS paces them.
+const pace = Number(process.env.FAKE_BLENDER_STEP_MS) || 0
+let receipt, out
+
+function writeReceipt() {
+  fs.writeFileSync(out('receipt.json.tmp'), JSON.stringify(receipt))
+  fs.renameSync(out('receipt.json.tmp'), out('receipt.json'))
+}
 
 function finish(code) {
-  fs.writeFileSync(out('receipt.json'), JSON.stringify(receipt))
+  writeReceipt()
   process.exit(code)
 }
 
@@ -37,26 +44,33 @@ function apply(file, kind) {
   return true
 }
 
-function main() {
-  for (const file of plan.replay) apply(file, 'replay')
-  if (plan.script && !apply(plan.script, 'error')) {
-    setInterval(() => {}, 1000) // a hung step: only the watchdog ends it
-    return
+async function main() {
+  for (const [i, item] of plan.steps.entries()) {
+    receipt = { schema: 'genio.modeller-step.v1', ok: false, ...item.step, blender: 'fake', api_warnings: [], replayed: plan.replay.length, base: blend ?? null, batch_index: i }
+    out = (name) => path.join(item.out, name)
+    fs.mkdirSync(item.out, { recursive: true })
+    if (i === 0) for (const file of plan.replay) apply(file, 'replay')
+    if (item.script && !apply(item.script, 'error')) {
+      setInterval(() => {}, 1000) // a hung step: only the watchdog ends it
+      return
+    }
+    const outputs = new Set(item.outputs)
+    if (outputs.has('blend')) fs.writeFileSync(out('model.blend'), Buffer.concat([MAGIC, Buffer.from(JSON.stringify(state))]))
+    if (item.script) {
+      const caption = captionOf(fs.readFileSync(item.script, 'utf8'))
+      if (outputs.has('glb')) fs.writeFileSync(out('model.glb'), JSON.stringify(state.parts))
+      if (outputs.has('sheet')) { fs.writeFileSync(out('sheet.png'), PNG); fs.writeFileSync(out('view.png'), PNG) }
+      Object.assign(receipt, {
+        caption, triangles: state.parts.length * 12, vertices: state.parts.length * 8, objects: state.parts.length,
+        parts: state.parts.map((name) => ({ name, triangles: 12 })), bounds: { min: [0, 0, 0], max: [1, 1, 1], dimensions: [1, 1, 1] },
+        warnings: caption ? [] : ['Start the step script with a docstring: its first line is the caption the player sees.']
+      })
+    }
+    receipt.ok = true
+    writeReceipt()
+    if (pace) await new Promise((r) => setTimeout(r, pace))
   }
-  const outputs = new Set(plan.outputs)
-  if (outputs.has('blend')) fs.writeFileSync(out('model.blend'), Buffer.concat([MAGIC, Buffer.from(JSON.stringify(state))]))
-  if (plan.script) {
-    const caption = captionOf(fs.readFileSync(plan.script, 'utf8'))
-    if (outputs.has('glb')) fs.writeFileSync(out('model.glb'), JSON.stringify(state.parts))
-    if (outputs.has('sheet')) { fs.writeFileSync(out('sheet.png'), PNG); fs.writeFileSync(out('view.png'), PNG) }
-    Object.assign(receipt, {
-      caption, triangles: state.parts.length * 12, vertices: state.parts.length * 8, objects: state.parts.length,
-      parts: state.parts.map((name) => ({ name, triangles: 12 })), bounds: { min: [0, 0, 0], max: [1, 1, 1], dimensions: [1, 1, 1] },
-      warnings: caption ? [] : ['Start the step script with a docstring: its first line is the caption the player sees.']
-    })
-  }
-  receipt.ok = true
-  finish(0)
+  process.exit(0)
 }
 
 main()

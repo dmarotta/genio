@@ -17,6 +17,11 @@ interface Summary {
 }
 
 const n = (id: string | null): string => (id ? String(Number(/^s(\d+)$/.exec(id)?.[1] ?? id)) : 'none')
+/** A step's place on the summary's branch, as the unit page numbers it ("step 3 of 3"). */
+const place = (st: Summary, id: string | null): string => {
+  const i = st.steps.findIndex((x) => x.id === id)
+  return i >= 0 ? String(i + 1) : n(id)
+}
 
 /** One kernel command; its JSON result, or its own error message. */
 async function kernel(script: string, dataDir: string, args: string[]): Promise<Summary> {
@@ -40,7 +45,7 @@ export async function modellerAction(script: string, dataDir: string, act: Model
     case 'revert': {
       const r = await k('revert', act.model, act.step)
       return {
-        message: `Back at step ${n(r.head)} on ${r.branch}.`,
+        message: `Back at step ${place(r, r.head)} on ${r.branch}.`,
         ping: `The player reverted model ${r.model} to ${said(r.steps.at(-1))} on branch ${r.branch} from the unit page. The steps after it left the branch (still on disk). Continue from ${r.head}; do not redo the dropped steps unless the player asks.`
       }
     }
@@ -51,14 +56,14 @@ export async function modellerAction(script: string, dataDir: string, act: Model
       for (let i = 2; before.branches[name]; i++) name = `from-${at}-${i}`
       const r = await k('branch', act.model, name, '--from', at)
       return {
-        message: `New branch ${name} from step ${n(r.head)}.`,
+        message: `New branch ${name} from step ${place(r, r.head)}.`,
         ping: `The player started branch ${name} at ${said(r.steps.at(-1))} of model ${r.model} from the unit page and switched to it; branch ${before.branch} keeps its steps. Continue on ${name} from ${r.head}.`
       }
     }
     case 'switch': {
       const r = await k('switch', act.model, act.branch)
       return {
-        message: `On branch ${r.branch}, step ${n(r.head)}.`,
+        message: `On branch ${r.branch}, step ${place(r, r.head)}.`,
         ping: `The player switched model ${r.model} to branch ${r.branch} from the unit page; its head is ${said(r.steps.at(-1))}. Continue there.`
       }
     }

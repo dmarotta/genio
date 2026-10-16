@@ -40,7 +40,7 @@ describe('Modeller live state', () => {
     ])
     write('tower/manifest.json', JSON.stringify(manifest({ branch: 'wide', updated: '2026-10-16T10:06:00.000Z' })))
     const wide = readModellerLive(data, base)!
-    expect(wide.steps.map(s => s.id)).toEqual(['s001', 's003'])
+    expect(wide.steps.map(s => [s.id, s.n])).toEqual([['s001', 1], ['s003', 2]])
     expect(wide.stamp).not.toBe(live.stamp)
   })
 
@@ -70,8 +70,15 @@ describe('Modeller live state', () => {
     expect(readModellerLive(data, base)!.running).toBeNull()
     write('tower/.lock', String(process.pid))
     const live = readModellerLive(data, base)!
-    expect(live.running).toMatchObject({ id: 's004', n: 4, caption: 'Pitched roof with shingles' })
+    // n is the place it takes on the branch (after s001 and s002), not the id's number
+    expect(live.running).toMatchObject({ id: 's004', n: 3, caption: 'Pitched roof with shingles' })
     expect(Math.abs(live.running!.startedAt - Date.now())).toBeLessThan(60_000)
+    // a batch stages several steps: the lowest is the next to land
+    write('tower/steps/.pending-s010/script.py', '"""Wing mirrors"""\n')
+    write('tower/steps/.pending-s005/script.py', '"""Chimney"""\n')
+    expect(readModellerLive(data, base)!.running).toMatchObject({ id: 's004', n: 3 })
+    fs.rmSync(path.join(data, 'tower/steps/.pending-s004'), { recursive: true })
+    expect(readModellerLive(data, base)!.running).toMatchObject({ id: 's005', n: 3, caption: 'Chimney' })
     write('tower/.lock', '999999999')
     expect(readModellerLive(data, base)!.running).toBeNull()
   })
@@ -80,7 +87,7 @@ describe('Modeller live state', () => {
     const failure = { id: 's004', name: 'roof', kind: 'error', parent: 's002', branch: 'main', t: '2026-10-16T10:04:00.000Z', error: "NameError: name 'roff' is not defined. The model stays at s002.\nTraceback", dir: 'failed/s004-error-1' }
     write('tower/failed/s004-error-1/script.py', '"""Pitched roof"""\n')
     write('tower/manifest.json', JSON.stringify(manifest({ failures: [failure] })))
-    expect(readModellerLive(data, base)!.failure).toEqual({ id: 's004', n: 4, caption: 'Pitched roof', kind: 'error', error: failure.error })
+    expect(readModellerLive(data, base)!.failure).toEqual({ id: 's004', n: 3, caption: 'Pitched roof', kind: 'error', error: failure.error })
     write('tower/manifest.json', JSON.stringify(manifest({ failures: [failure], history: [{ op: 'revert', t: '2026-10-16T10:04:30.000Z' }] })))
     expect(readModellerLive(data, base)!.failure).toBeNull()
     write('tower/manifest.json', JSON.stringify(manifest({ failures: [{ ...failure, branch: 'wide' }] })))

@@ -1,17 +1,19 @@
-"""One Modeller step inside headless Blender. modeller.mjs runs this; agents do not.
+"""Modeller steps inside one headless Blender. modeller.mjs runs this; agents do not.
 
 The only argument after `--` is a plan JSON written by modeller.mjs:
-  out       staging folder for this step's files
   replay    step scripts to re-run first (rebuilding a pruned snapshot)
-  script    the new step script, or null to only rebuild a snapshot
-  outputs   any of blend, glb, sheet
-  step      id, n, name, model (for the receipt)
+  steps     one or more steps, run back to back in this session, each with
+              out      staging folder for this step's files
+              script   the step script, or null to only rebuild a snapshot
+              outputs  any of blend, glb, sheet
+              step     id, n, name, model (for the receipt)
   checks    budget (triangles) and size ([x, y, z] metres), both optional
 
-Order: replay, step script, checks, compressed .blend, modifier-applied GLB,
-then the 2x2 Workbench review sheet (its camera never reaches the snapshot).
-The receipt goes to <out>/receipt.json and stdout as one `@@GENIO_STEP` line.
-Exit codes: 0 done, 3 the step script raised, 4 a replayed script raised.
+Per step: step script, checks, compressed .blend, modifier-applied GLB, then
+the 2x2 Workbench review sheet (its camera never reaches a snapshot). Each
+step's receipt goes to <out>/receipt.json (atomically, last) and stdout as one
+`@@GENIO_STEP` line. The first failure stops the run.
+Exit codes: 0 done, 3 a step script raised, 4 a replayed script raised.
 """
 import ast
 import contextlib
@@ -326,12 +328,22 @@ def render_sheet(out_dir, size, stats):
     return img.filepath_raw
 
 
-def main():
-    plan = json.load(open(sys.argv[sys.argv.index('--') + 1], encoding='utf8'))
-    out, outputs, step = plan['out'], set(plan.get('outputs', [])), plan.get('step', {})
+def write_receipt(out, receipt):
+    # Atomic: modeller.mjs publishes a batch step the moment its receipt says ok.
+    path = os.path.join(out, 'receipt.json')
+    with open(path + '.tmp', 'w', encoding='utf8') as f:
+        json.dump(receipt, f, indent=1)
+    os.replace(path + '.tmp', path)
+    print('@@GENIO_STEP ' + json.dumps({'id': receipt.get('id'), 'ok': receipt['ok'], 'kind': receipt.get('kind')}))
+    sys.stdout.flush()
+
+
+def run_step(item, plan, replay, first, last):
+    """One step of the plan on the scene as the previous one left it. Returns the exit code."""
+    out, outputs, script = item['out'], set(item.get('outputs', [])), item.get('script')
     os.makedirs(out, exist_ok=True)
     t, mark = {}, time.perf_counter()
-    receipt = {'schema': 'genio.modeller-step.v1', 'ok': False, **step,
+    receipt = {'schema': 'genio.modeller-step.v1', 'ok': False, **item.get('step', {}),
                'blender': '.'.join(map(str, bpy.app.version)), 'api_warnings': []}
 
     def lap(key):
@@ -342,33 +354,30 @@ def main():
 
     def finish(code):
         receipt['timings_ms'] = t
-        with open(os.path.join(out, 'receipt.json'), 'w', encoding='utf8') as f:
-            json.dump(receipt, f, indent=1)
-        print('@@GENIO_STEP ' + json.dumps({'ok': receipt['ok'], 'kind': receipt.get('kind')}))
-        sys.stdout.flush()
-        if code:
-            sys.exit(code)
+        write_receipt(out, receipt)
+        return code
 
-    if not bpy.data.filepath:
-        bpy.ops.wm.read_factory_settings(use_empty=True)
-    p.collection(p.EXPORT)
-    lap('setup')
     try:
-        for path in plan.get('replay', []):
-            run_script(path, 'replay', [])
-        lap('replay')
-        if plan.get('script'):
-            code, printed = run_script(plan['script'], 'error', receipt['api_warnings'])
+        if first:
+            if not bpy.data.filepath:
+                bpy.ops.wm.read_factory_settings(use_empty=True)
+            p.collection(p.EXPORT)
+            lap('setup')
+            for path in replay:
+                run_script(path, 'replay', [])
+            lap('replay')
+        if script:
+            code, printed = run_script(script, 'error', receipt['api_warnings'])
             receipt['caption'] = caption_of(code)
             receipt['output'] = printed
         lap('script')
     except StepError as e:
         receipt.update(kind=e.kind, error=str(e), trace=e.trace, output=e.output)
-        if plan.get('script') and e.kind == 'error':
-            receipt['caption'] = caption_of(open(plan['script'], encoding='utf8').read())
-        finish(3 if e.kind == 'error' else 4)
+        if script and e.kind == 'error':
+            receipt['caption'] = caption_of(open(script, encoding='utf8').read())
+        return finish(3 if e.kind == 'error' else 4)
     warn = []
-    if plan.get('script'):
+    if script:
         if not receipt.get('caption'):
             warn.append('Start the step script with a docstring: its first line is the caption the player sees.')
         checks, found = inspect_model(plan.get('checks') or {})
@@ -381,8 +390,9 @@ def main():
                                  'dimensions': [round(v, 4) for v in stats['dimensions']]}
         lap('checks')
     receipt['warnings'] = warn + receipt['api_warnings']
+    blend = os.path.join(out, 'model.blend')
     if 'blend' in outputs:
-        save_blend(os.path.join(out, 'model.blend'))
+        save_blend(blend)
         lap('save')
     shipped = receipt.get('objects', 0) > 0
     if 'glb' in outputs and shipped:
@@ -392,8 +402,21 @@ def main():
     if 'sheet' in outputs and shipped:
         render_sheet(out, plan.get('sheet_size', 512), stats)
         lap('sheet')
+        if not last:
+            # The review camera and render settings must not reach the next step: reopen the snapshot.
+            bpy.ops.wm.open_mainfile(filepath=blend)
+            lap('reload')
     receipt['ok'] = True
-    finish(0)
+    return finish(0)
+
+
+def main():
+    plan = json.load(open(sys.argv[sys.argv.index('--') + 1], encoding='utf8'))
+    steps = plan['steps']
+    for i, item in enumerate(steps):
+        code = run_step(item, plan, plan.get('replay', []), i == 0, i == len(steps) - 1)
+        if code:
+            sys.exit(code)
 
 
 if __name__ == '__main__':

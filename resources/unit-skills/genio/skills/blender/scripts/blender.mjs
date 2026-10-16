@@ -27,9 +27,9 @@ export function assertOutside(dir, roots, message) {
  * One headless Blender run: no autoexec, factory settings, capped threads, a log
  * in scratch and a SIGKILL watchdog. Never throws for a failed run; the caller
  * reads `code` and `timedOut`. `prefix` goes before Blender's own argv (tests run
- * a fake Blender through Node this way).
+ * a fake Blender through Node this way). Aborting `signal` kills it like the watchdog.
  */
-export async function runBlender({ blender, prefix = [], script, blend = null, args = [], threads = Math.min(4, os.availableParallelism()), timeout = 300, scratch, env = {} }) {
+export async function runBlender({ blender, prefix = [], script, blend = null, args = [], threads = Math.min(4, os.availableParallelism()), timeout = 300, scratch, env = {}, signal }) {
   fs.mkdirSync(scratch, { recursive: true })
   const log = path.join(scratch, `blender-${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 6)}.log`)
   const fd = fs.openSync(log, 'wx')
@@ -38,7 +38,9 @@ export async function runBlender({ blender, prefix = [], script, blend = null, a
   const started = performance.now()
   const code = await new Promise((resolve, reject) => {
     const child = spawn(blender, argv, { windowsHide: true, env: { ...process.env, ...env, PYTHONPATH: [helperDir, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter), PYTHONDONTWRITEBYTECODE: '1' }, stdio: ['ignore', 'pipe', 'pipe'] })
-    const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL') }, timeout * 1000)
+    const stop = () => { timedOut = true; child.kill('SIGKILL') }
+    const timer = setTimeout(stop, timeout * 1000)
+    signal?.addEventListener('abort', stop, { once: true })
     const collect = chunk => { fs.writeSync(fd, chunk); tail = (tail + chunk.toString()).slice(-16000) }
     child.stdout.on('data', collect); child.stderr.on('data', collect)
     child.once('error', e => { clearTimeout(timer); reject(e) })

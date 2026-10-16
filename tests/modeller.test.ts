@@ -7,6 +7,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { listBlenders, pickModellerBlender } from '../resources/unit-skills/genio/lib/blender-path.mjs'
 import * as kernel from '../resources/unit-skills/genio/skills/blender/scripts/modeller.mjs'
 import type { Manifest, StepDone, StepFailed } from '../resources/unit-skills/genio/skills/blender/scripts/modeller.mjs'
+import { readModellerLive } from '../src/main/modeller-live'
 
 const run = promisify(execFile)
 const scripts = path.resolve('resources/unit-skills/genio/skills/blender/scripts')
@@ -215,6 +216,136 @@ describe('Modeller kernel with a fake Blender', { timeout: 60000 }, () => {
     await expect(cmd('revert', 'tower', 's099')).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining('No step s099') })
   })
 
+  it('runs a batch of five in one Blender, landing each step while it runs, in order and spaced out, with one sheet', async () => {
+    await fakeModel()
+    const files = ['Body shell', 'Front wheels', 'Rear wheels', 'Rear wing', 'Cockpit'].map((part, i) => script(`s0${i + 1}_${part.split(' ')[0].toLowerCase()}.py`, `Now adding the ${part.toLowerCase()}`, `# part: ${part}`))
+    // Watch the manifest as the live view does: each step must appear on its own, before the batch ends.
+    const heads: string[] = []
+    let lastDoneWhenFirstLanded: boolean | undefined
+    let watching = true
+    const watch = (async () => {
+      while (watching) {
+        try {
+          const h = manifest().branches.main.head
+          if (h && heads.at(-1) !== h) heads.push(h)
+          if (h && lastDoneWhenFirstLanded === undefined) lastDoneWhenFirstLanded = fs.existsSync(path.join(dataDir, 'tower', 'steps', '.pending-s005', 'receipt.json')) || fs.existsSync(path.join(dataDir, 'tower', 'steps', 's005'))
+        } catch { /* not written yet */ }
+        await new Promise((r) => setTimeout(r, 20))
+      }
+    })()
+    process.env.FAKE_BLENDER_STEP_MS = '200'
+    let r: kernel.BatchDone
+    try { r = await kernel.batch({ dataDir, model: 'tower', scripts: files, runner: fake, timeout: 20 }) } finally {
+      delete process.env.FAKE_BLENDER_STEP_MS
+      watching = false
+      await watch
+    }
+    if (heads.at(-1) !== manifest().branches.main.head) heads.push(manifest().branches.main.head!)
+    expect(r).toMatchObject({ ok: true, head: 's005', failure: null, not_run: [] })
+    expect(r.steps.map((s) => [s.id, s.n, s.caption, s.triangles])).toEqual([
+      ['s001', 1, 'Now adding the body shell', 12], ['s002', 2, 'Now adding the front wheels', 24], ['s003', 3, 'Now adding the rear wheels', 36],
+      ['s004', 4, 'Now adding the rear wing', 48], ['s005', 5, 'Now adding the cockpit', 60]
+    ])
+    expect(heads).toEqual(['s001', 's002', 's003', 's004', 's005'])
+    // the first step landed while Blender was still working on the last
+    expect(lastDoneWhenFirstLanded).toBe(false)
+    const m = manifest()
+    expect(m.steps.map((s) => [s.id, s.parent])).toEqual([['s001', null], ['s002', 's001'], ['s003', 's002'], ['s004', 's003'], ['s005', 's004']])
+    expect(m.next).toBe(6)
+    // each step has its own snapshot, GLB and receipt; only the last renders the sheet and view
+    for (const s of m.steps) expect(s.files).toMatchObject({ blend: `steps/${s.id}/model.blend`, glb: `steps/${s.id}/model.glb`, receipt: `steps/${s.id}/receipt.json` })
+    expect(m.steps.map((s) => [s.files.sheet, s.files.view])).toEqual([[null, null], [null, null], [null, null], [null, null], ['steps/s005/sheet.png', 'steps/s005/view.png']])
+    expect(r.sheet).toBe(path.join(dataDir, 'tower', 'steps', 's005', 'sheet.png'))
+    expect(snapshot(path.join(dataDir, 'tower', 'steps', 's003', 'model.blend')).parts).toEqual(['Body shell', 'Front wheels', 'Rear wheels'])
+    const receipts = m.steps.map((s) => JSON.parse(fs.readFileSync(path.join(dataDir, 'tower', s.files.receipt), 'utf8')))
+    // one Blender ran them all: the receipts share its log
+    expect(receipts.map((x) => x.batch_index)).toEqual([0, 1, 2, 3, 4])
+    expect(new Set(receipts.map((x) => x.log)).size).toBe(1)
+    // steps land at least the publish gap apart, so each change shows
+    const at = m.steps.map((s) => Date.parse(s.t))
+    for (let i = 1; i < at.length; i++) expect(at[i] - at[i - 1]).toBeGreaterThanOrEqual(kernel.PUBLISH_GAP_MS - 20)
+    expect(fs.readdirSync(path.join(dataDir, 'tower', 'steps')).filter((f) => f.startsWith('.'))).toEqual([])
+  })
+
+  it('renders every sheet on request and takes a folder or a batch file', async () => {
+    await fakeModel()
+    const folder = fs.mkdtempSync(path.join(src, 'batch-'))
+    for (const [f, part] of [['s10_roof.py', 'Roof'], ['s2_deck.py', 'Deck'], ['s1_legs.py', 'Legs']]) fs.writeFileSync(path.join(folder, f), `"""Adding ${part}"""\n# part: ${part}\n`)
+    fs.writeFileSync(path.join(folder, 'notes.txt'), 'not a step')
+    expect(kernel.batchScripts(folder).map((s) => path.basename(s.script))).toEqual(['s1_legs.py', 's2_deck.py', 's10_roof.py'])
+    const r = await kernel.batch({ dataDir, model: 'tower', scripts: folder, everySheet: true, runner: fake, timeout: 20, gapMs: 0 })
+    expect(r.steps.map((s) => [s.name, s.sheet !== null])).toEqual([['legs', true], ['deck', true], ['roof', true]])
+    fs.writeFileSync(path.join(folder, 'batch.json'), JSON.stringify({ steps: [{ script: 's2_deck.py', name: 'deck-again' }, 's10_roof.py'] }))
+    expect(kernel.batchScripts(path.join(folder, 'batch.json'))).toEqual([{ script: path.join(folder, 's2_deck.py'), name: 'deck-again' }, { script: path.join(folder, 's10_roof.py') }])
+    fs.writeFileSync(path.join(folder, 'bad.json'), '{"nope": 1}')
+    expect(() => kernel.batchScripts(path.join(folder, 'bad.json'))).toThrow(/is not a batch/)
+    await expect(kernel.batch({ dataDir, model: 'tower', scripts: [path.join(folder, 'missing.py')], runner: fake })).rejects.toThrow(/No step script/)
+  })
+
+  it('stops a batch at a failing script: earlier steps stay, the failure is recorded, the rest did not run', async () => {
+    await fakeModel()
+    const files = [
+      script('s01_body.py', 'Body', '# part: Body'), script('s02_wheels.py', 'Wheels', '# part: Wheels'),
+      script('s03_wing.py', 'Wing', '# fake: error'), script('s04_cockpit.py', 'Cockpit', '# part: Cockpit'), script('s05_decals.py', 'Decals', '# part: Decals')
+    ]
+    const r = await kernel.batch({ dataDir, model: 'tower', scripts: files, runner: fake, timeout: 20, gapMs: 0 })
+    expect(r).toMatchObject({ ok: false, head: 's002', steps: [{ id: 's001' }, { id: 's002' }] })
+    expect(r.failure).toMatchObject({ ok: false, kind: 'error', id: 's003', name: 'wing', head: 's002', error: 'RuntimeError: fake failure', recovered: { head: 's002', intact: true } })
+    expect(r.not_run).toEqual([{ name: 'cockpit', script: files[3] }, { name: 'decals', script: files[4] }])
+    expect(r.message).toMatch(/2 of 5 steps landed; s003 \(wing\) failed.*Not run: cockpit, decals\./)
+    const m = manifest()
+    expect(m.steps.map((s) => s.id)).toEqual(['s001', 's002'])
+    expect(m.next).toBe(3)
+    expect(m.failures).toMatchObject([{ id: 's003', kind: 'error', parent: 's002', branch: 'main' }])
+    expect(fs.readdirSync(path.join(dataDir, 'tower', 'failed'))).toEqual([expect.stringMatching(/^s003-error-\d+$/)])
+    expect(fs.readdirSync(path.join(dataDir, 'tower', 'steps')).filter((f) => f.startsWith('.'))).toEqual([])
+    // a crash mid-batch: the step before it stays and the next batch continues from there
+    const crash = await kernel.batch({ dataDir, model: 'tower', scripts: [script('s03_wing.py', 'Wing', '# part: Wing'), script('s04_boom.py', 'Boom', '# fake: crash'), files[3]], runner: fake, timeout: 20, gapMs: 0 })
+    expect(crash).toMatchObject({ ok: false, head: 's003', failure: { kind: 'crash', id: 's004' }, not_run: [{ name: 'cockpit' }] })
+    // a hang is stopped by the per-step watchdog, not after the whole batch's time
+    const started = Date.now()
+    const hang = await kernel.batch({ dataDir, model: 'tower', scripts: [script('s04_hang.py', 'Hanging', '# fake: hang'), files[3]], runner: fake, timeout: 1, gapMs: 0 })
+    expect(Date.now() - started).toBeLessThan(10000)
+    expect(hang).toMatchObject({ ok: false, steps: [], failure: { kind: 'hang', id: 's004', head: 's003' } })
+    const next = done(await step(files[3]))
+    expect(next).toMatchObject({ id: 's004', parent: 's003' })
+    expect(snapshot(next.blend!).parts).toEqual(['Body', 'Wheels', 'Wing', 'Cockpit'])
+  })
+
+  it('reverts and branches per step after a batch', async () => {
+    await fakeModel()
+    await kernel.batch({ dataDir, model: 'tower', scripts: ['Body', 'Wheels', 'Wing', 'Cockpit'].map((p, i) => script(`s0${i + 1}.py`, p, `# part: ${p}`)), runner: fake, timeout: 20, gapMs: 0 })
+    expect((await kernel.revert({ dataDir, model: 'tower', to: 's002' })).steps.map((s) => s.id)).toEqual(['s001', 's002'])
+    const spoiler = done(await step(script('s03_spoiler.py', 'Spoiler', '# part: Spoiler')))
+    expect(spoiler).toMatchObject({ id: 's005', parent: 's002' })
+    expect(snapshot(spoiler.blend!).parts).toEqual(['Body', 'Wheels', 'Spoiler'])
+    const alt = await kernel.branch({ dataDir, model: 'tower', name: 'alt', from: 's003' })
+    expect(alt.steps.map((s) => s.id)).toEqual(['s001', 's002', 's003'])
+  })
+
+  it('numbers steps by their place on the branch: step N of M survives failed attempts, amends, reverts and branches', async () => {
+    await fakeModel()
+    const live = () => {
+      const l = readModellerLive(path.join(dataDir), () => '')!
+      return { of: `step ${l.steps.at(-1)!.n} of ${l.steps.length}`, n: l.steps.map((s) => s.n), failure: l.failure?.n ?? null }
+    }
+    await kernel.batch({ dataDir, model: 'tower', scripts: ['A', 'B', 'C', 'D'].map((p) => script(`${p}.py`, p, `# part: ${p}`)), runner: fake, timeout: 20, gapMs: 0 })
+    expect(live()).toEqual({ of: 'step 4 of 4', n: [1, 2, 3, 4], failure: null })
+    failed(await step(script('bad.py', 'Bad', '# fake: error')))
+    expect(live()).toEqual({ of: 'step 4 of 4', n: [1, 2, 3, 4], failure: 5 })
+    done(await step(script('d2.py', 'D again', '# part: D2'), { amend: true }))
+    expect(live()).toMatchObject({ of: 'step 4 of 4', failure: null })
+    await kernel.revert({ dataDir, model: 'tower', to: 's002' })
+    expect(live()).toMatchObject({ of: 'step 2 of 2', n: [1, 2] })
+    // ids keep counting across amends and reverts (this one used to read "step 6 of 3")
+    expect(done(await step(script('e.py', 'E', '# part: E')))).toMatchObject({ id: 's006' })
+    expect(live()).toMatchObject({ of: 'step 3 of 3', n: [1, 2, 3] })
+    failed(await step(script('bad2.py', 'Bad', '# fake: crash')))
+    expect(live()).toMatchObject({ of: 'step 3 of 3', failure: 4 })
+    await kernel.branch({ dataDir, model: 'tower', name: 'alt', from: 's001' })
+    expect(live()).toMatchObject({ of: 'step 1 of 1', n: [1] })
+  })
+
   it('derives step names and the data folder', () => {
     expect(kernel.stepName('C:/w/.genio/modeller/tower/s03_deck.py')).toBe('deck')
     expect(kernel.stepName('07-roof fix.py')).toBe('roof-fix')
@@ -313,5 +444,29 @@ describe.skipIf(!blender)(`Modeller with Blender ${blender?.version.join('.') ??
     expect(broken.trace[0]).toBe('script.py:3: p.part("Nope")')
     const after = await cmd('step', 'watchtower', path.join(tower, 's06_ladder.py'))
     expect(after).toMatchObject({ ok: true, parent: 's009' })
+  }, 300000)
+
+  it('builds the watchtower as one batch in one Blender, the same as step by step', async () => {
+    await cmd('init', 'batched', '--target', 'unity')
+    const started = Date.now()
+    const r = await cmd('batch', 'batched', tower)
+    const ms = Date.now() - started
+    expect(r).toMatchObject({ ok: true, head: 's007', failure: null })
+    expect(r.steps.map((s: { id: string; name: string; sheet: string | null }) => [s.id, s.name, s.sheet !== null])).toEqual([
+      ['s001', 'legs', false], ['s002', 'bracing', false], ['s003', 'deck', false], ['s004', 'railing', false], ['s005', 'roof', false], ['s006', 'ladder', false], ['s007', 'fix', true]
+    ])
+    expect(r.steps[6].triangles).toBe(2802)
+    expect(r.steps[4].warnings.join('\n')).toMatch(/Roof post 1 \/ Roof/)
+    expect(pngSize(r.sheet)).toEqual([1024, 1024])
+    for (const s of r.steps) expect(fs.existsSync(s.glb)).toBe(true)
+    // one Blender start for seven steps, plus the 0.6 s landing gaps
+    expect(ms).toBeLessThan(120000)
+    // every sheet: the review camera never leaks into the next step
+    await cmd('init', 'sheets', '--target', 'unity')
+    const every = await cmd('batch', 'sheets', path.join(tower, 's01_legs.py'), path.join(tower, 's02_bracing.py'), '--every-sheet')
+    expect(every).toMatchObject({ ok: true, head: 's002' })
+    expect(every.steps.map((s: { sheet: string | null }) => s.sheet !== null)).toEqual([true, true])
+    expect(every.warnings.join('\n')).not.toMatch(/camera|Not in Export/)
+    expect(every.steps[1].triangles).toBe(r.steps[1].triangles)
   }, 300000)
 })

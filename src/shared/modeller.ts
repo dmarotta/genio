@@ -1,6 +1,7 @@
 /** The Modeller's live view: what main reads from a unit's step data for the canvas and its status line. */
 export interface ModellerStep {
   id: string
+  /** Place on the current branch, from 1: "step n of steps.length". The id's number also counts other branches and amends. */
   n: number
   /** The step script's docstring, first line: "Raising four timber legs on stone footings". */
   caption: string
@@ -23,7 +24,7 @@ export interface ModellerLive {
   steps: ModellerStep[]
   /** The head step's advisory checks (budget, ground, piercing parts…): information, never a gate. */
   checks: string[]
-  /** A step Blender is running now. */
+  /** A step Blender is running now (in a batch, the next one to land); n is the place it will take. */
   running: { id: string; n: number; caption: string; startedAt: number } | null
   /** The last attempt on this branch failed; the model stays at its head. */
   failure: { id: string; n: number; caption: string; kind: string; error: string } | null

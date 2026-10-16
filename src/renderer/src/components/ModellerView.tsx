@@ -13,18 +13,26 @@ const TOGGLES: [Toggle, string, string][] = [
 // The toggles carry over from unit to unit.
 let remembered: Pick<ViewerSettings, Toggle> = { wireframe: false, clay: false, turntable: false }
 
-/** A unit's Modeller state, read again every `everyMs` while `poll` (its terminal is live); null while it has no model. */
+/** How often the unit page reads the model while Blender runs: a batch lands a step every 600 ms or so. */
+const RUNNING_POLL_MS = 250
+
+/**
+ * A unit's Modeller state, read again every `everyMs` while `poll` (its terminal is live); null while it
+ * has no model. At 1 s or faster (the unit page) it reads every 250 ms while a step runs, so each step of
+ * a batch shows.
+ */
 export function useModellerLive(id: string, poll: boolean, everyMs = 1000): ModellerLive | null {
   const [live, setLive] = useState<ModellerLive | null>(null)
+  const ms = live?.running && everyMs <= 1000 ? RUNNING_POLL_MS : everyMs
   useEffect(() => {
     let alive = true
     const load = (): void => {
       void api().modellerLive(id).then(l => { if (alive) setLive(prev => prev?.stamp === l?.stamp ? prev : l) }, () => {})
     }
-    load()
-    const iv = poll ? window.setInterval(load, everyMs) : undefined
+    if (ms === everyMs) load()
+    const iv = poll ? window.setInterval(load, ms) : undefined
     return () => { alive = false; if (iv) window.clearInterval(iv) }
-  }, [id, poll, everyMs])
+  }, [id, poll, everyMs, ms])
   return live
 }
 

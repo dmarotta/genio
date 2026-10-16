@@ -2,6 +2,7 @@ export const STEP_SCRIPT: string
 export const SCHEMA: 'genio.modeller.v1'
 export const KEEP_SNAPSHOTS: number
 export const STEP_TIMEOUT: number
+export const PUBLISH_GAP_MS: number
 
 export interface PinnedBlender { path: string; version: string; size: number; mtimeMs: number }
 export interface StepFiles { script: string; blend: string | null; glb: string | null; sheet: string | null; view: string | null; receipt: string }
@@ -35,6 +36,13 @@ export interface StepFailed {
   error: string; trace: string[]; output: string; message: string; log: string; script: string
   recovered: { head: string | null; snapshot: string | null; intact?: boolean }
 }
+export interface BatchScript { script: string; name?: string }
+export interface BatchDone {
+  ok: boolean; model: string; branch: string; head: string | null
+  steps: { id: string; n: number; name: string; caption: string; triangles: number; objects: number; warnings: string[]; glb: string | null; sheet: string | null; ms: number }[]
+  sheet: string | null; receipt: string | null; warnings: string[]
+  failure: StepFailed | null; not_run: { name: string; script: string }[]; message: string
+}
 interface Common { dataDir?: string; model: string }
 
 export function modellerDataDir(env?: Record<string, string | undefined>): string
@@ -44,6 +52,8 @@ export function chooseBlender(choice?: string | { path: string; version: string 
 export function prune(m: Manifest, dir: string, keep?: number): string[]
 export function init(o: Common & { blender?: string | { path: string; version: string }; target?: string; budget?: number | string; size?: string | number[]; repin?: boolean; cwd?: string; env?: Record<string, string | undefined> }): Promise<Summary & { existing: boolean }>
 export function step(o: Common & { script: string; name?: string; amend?: boolean; timeout?: number; threads?: number; runner?: Runner }): Promise<StepDone | StepFailed>
+export function batchScripts(args: string | string[]): BatchScript[]
+export function batch(o: Common & { scripts: string | (string | BatchScript)[]; everySheet?: boolean; timeout?: number; threads?: number; runner?: Runner; gapMs?: number }): Promise<BatchDone>
 export function materialize(o: Common & { step?: string; timeout?: number; threads?: number; runner?: Runner }): Promise<{ ok: true; id: string; blend: string; replayed: number }>
 export function revert(o: Common & { to: string | number }): Promise<Summary & { reverted: string | null }>
 export function branch(o: Common & { name: string; from?: string }): Promise<Summary>

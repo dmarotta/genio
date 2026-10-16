@@ -50,23 +50,27 @@ Before an Uthana character upload or Unity import, copy the source into scratch,
 
 ## Modeller steps
 
-A Modeller builds one model in small steps that the player watches live. Each step is a Python file you write; the kernel runs it in its own headless Blender on the previous step's snapshot. There is no MCP and no live session.
+A Modeller builds one model in small steps that the player watches live. Each step is a Python file you write; the kernel runs it in headless Blender on the previous step's snapshot. There is no MCP and no live session.
 
 ```
 node "{{SKILL_DIR}}/scripts/modeller.mjs" init watchtower --target unity [--budget 5000] [--size 4x4x10]
-node "{{SKILL_DIR}}/scripts/modeller.mjs" step watchtower .genio/modeller/watchtower/s01_legs.py
+node "{{SKILL_DIR}}/scripts/modeller.mjs" batch watchtower .genio/modeller/watchtower/s01_legs.py .genio/modeller/watchtower/s02_bracing.py .genio/modeller/watchtower/s03_deck.py
+node "{{SKILL_DIR}}/scripts/modeller.mjs" step watchtower .genio/modeller/watchtower/s04_railing.py
 node "{{SKILL_DIR}}/scripts/modeller.mjs" status watchtower
 ```
 
 Every step prints JSON: `ok`, `id` (s001, s002...), `caption`, `triangles`, `vertices`, `bounds`, `warnings` and the paths of `sheet` (review PNG), `glb`, `blend` and `receipt`. Exit code 2 means the step failed; 1 means a usage or kernel error.
 
+**Batches.** `batch <model>` takes several scripts in order: their paths, one folder (its `.py` files sorted by name) or a `.json` list (`["s01_body.py", ...]` or `{"steps": [{"script": "s01_body.py", "name": "body"}]}`, paths relative to the file). One Blender runs them back to back; each is a normal step with its own id, receipt, snapshot and GLB, so revert and branch work per step. Each step lands in the live view as soon as its GLB is written (at least 0.6 s apart, so the player sees every change), and its caption shows while it is on its way. Only the last step renders the review sheet (`--every-sheet` renders one per step). `--timeout` is per step. The JSON has `steps` (one entry per landed step), `sheet` and `warnings` of the last one, and on a failure `failure` (as a failed step prints it) and `not_run` (the scripts after it, which did not run). A failing script stops the batch; the steps before it stay.
+
 **The loop:**
-1. One step is one idea (legs, bracing, deck, railing, roof) with 3 to 15 named parts.
-2. Run it, then open the `sheet` PNG with your file-read tool. It is 1024 px: 3/4 view top left, front (looking at the model's front, -Y) top right, right side bottom left, top view bottom right. Workbench colours come from your materials.
-3. Read `warnings`. Compare the sheet with what you meant: proportions, parts floating or poking through, missing pieces, wrong facing.
-4. Fix before you continue. A fix is its own step ("Fixing the ladder rails"), or re-run the last step with `--amend` (it replaces the head, keeping the step count honest).
-5. Steering from the player becomes the next step.
-6. When you judge the model done, export the head step, place it, commit and report done like any Build (the brief's Modeller delivery says what to commit). In a Unity project the model's `.meta` belongs to the change: never hand-write one; `genio-unity import` generates it, and you commit it with the FBX (if Unity cannot run for you, commit without it and say it appears on the first import). There is no separate review: the player merges as usual. Ask the player something only when it is a real question.
+1. One step is one idea (body, wheels, wings, cockpit; legs, bracing, deck, roof) with 3 to 15 named parts. Its docstring is one line saying what it adds ("Now adding the roof"), because the player reads it live.
+2. Block the model out in batches of 3 to 6 steps. Use single steps for fixes and fine details.
+3. After each batch or step, open the `sheet` PNG with your file-read tool. It is 1024 px: 3/4 view top left, front (looking at the model's front, -Y) top right, right side bottom left, top view bottom right. Workbench colours come from your materials.
+4. Read `warnings` (a batch's earlier steps have theirs in `steps[].warnings`). Compare the sheet with what you meant: proportions, parts floating or poking through, missing pieces, wrong facing.
+5. Fix before you continue. A fix is its own step ("Fixing the ladder rails"), or re-run the last step with `--amend` (it replaces the head, keeping the step count honest).
+6. Steering from the player becomes the next step.
+7. When you judge the model done, export the head step, place it, commit and report done like any Build (the brief's Modeller delivery says what to commit). In a Unity project the model's `.meta` belongs to the change: never hand-write one; `genio-unity import` generates it, and you commit it with the FBX (if Unity cannot run for you, commit without it and say it appears on the first import). There is no separate review: the player merges as usual. Ask the player something only when it is a real question.
 
 **A step script** starts with a docstring; its first line is the caption the player sees live ("Now adding the roof: corner posts and a pyramid of shingles"). `bpy` and the helpers `p` are preloaded. Build parts with the helpers: a part made again under the same name replaces the old one, so a script can run twice with the same result (idempotent) and the live view can tell parts apart. Reach existing parts with `p.part('Deck planks')`. Prints appear in the receipt's `output`.
 
@@ -91,7 +95,7 @@ for i, (sx, sy) in enumerate([(1, 1), (-1, 1), (-1, -1), (1, -1)]):
 
 **Kernel operations.** `revert <model> <step>` moves the branch back (later steps stay on disk, off the branch). `branch <model> <name> [--from <step>]` starts a new line of steps and switches to it; `switch <model> <branch>` changes lines. `keep <model> <step>` protects a snapshot from pruning. `materialize <model> [step]` prints a step's `.blend`, rebuilding it if needed; use it to export a deliverable: `node "{{SKILL_DIR}}/scripts/blender.mjs" --script "{{SKILL_DIR}}/scripts/genio_bpy.py" -- export <that .blend> <asset.fbx> --target unity --fmt fbx`.
 
-**Where things live.** Models live in `GENIO_MODELLER_DATA` (the unit's data folder), never the worktree: `manifest.json`, then `steps/<id>/` with `script.py`, `model.blend` (compressed, about 8x smaller), `model.glb`, `sheet.png`, `view.png` and `receipt.json`. The last 5 snapshots of every branch are kept; older ones are deleted and rebuilt on demand by replaying the step scripts, so keep scripts deterministic (seeded `jitter`, no clocks or randomness without a seed). Failed steps go to `failed/` with their receipt. Commit step scripts (under `.genio/modeller/<model>/`) and the deliverable, never the step data.
+**Where things live.** Models live in `GENIO_MODELLER_DATA` (the unit's data folder), never the worktree: `manifest.json`, then `steps/<id>/` with `script.py`, `model.blend` (compressed, about 8x smaller), `model.glb`, `sheet.png` and `view.png` (a batch's last step only, unless `--every-sheet`) and `receipt.json`. The last 5 snapshots of every branch are kept; older ones are deleted and rebuilt on demand by replaying the step scripts, so keep scripts deterministic (seeded `jitter`, no clocks or randomness without a seed). Failed steps go to `failed/` with their receipt. Commit step scripts (under `.genio/modeller/<model>/`) and the deliverable, never the step data.
 
 **Failures and the watchdog.** A step that raises, crashes Blender or runs past its timeout (default 60 s, `--timeout`) is stopped; the model stays at its last good step and the snapshot it ran on is verified. The JSON has `kind` (`error`, `crash`, `hang`, `replay`), `error`, `trace` (your script's lines first) and `message`. Fix the script and run it again; never retry it unchanged.
 
