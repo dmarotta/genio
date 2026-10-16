@@ -457,7 +457,8 @@ export function createUthanaService(getCtx: () => AppCtx, fetchFn: FetchFn = (u,
         motionName: m.kind === 'video' ? (input.motion_name as string) : undefined,
         estUsd: est.usd,
         estUpTo: est.upTo,
-        world
+        world,
+        ...(req.artBible ? { artBible: req.artBible } : {})
       })
       const body: UthanaGenerateRequest = m.kind === 'text' ? req : { ...req, video: { path: req.video!.path, motionName: input.motion_name as string } }
       void drive(run.id, body)
@@ -539,7 +540,8 @@ export function createUthanaService(getCtx: () => AppCtx, fetchFn: FetchFn = (u,
           recipe: null,
           derived_from: derived,
           by: req.by ?? 'player',
-          created: run.completedAt ?? run.createdAt
+          created: run.completedAt ?? run.createdAt,
+          ...(run.artBible ? { art_bible: run.artBible } : {})
         },
         spend: { t: run.createdAt, provider: 'uthana', endpoint, request_id: uthanaRequestId(run), units: run.outputSeconds ?? null, unit: 'seconds', est_usd: cost ?? 0, by: req.by ?? 'player' }
       })

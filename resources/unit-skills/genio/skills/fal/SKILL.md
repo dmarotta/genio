@@ -42,10 +42,11 @@ Read it first: `world --world .` prints folders, budgets with what is already sp
 In project mode `run` and `submit`:
 
 - merge the endpoint's `defaults` and, with `--recipe <id>`, the recipe's `input` under your own input (yours wins); `--recipe` also supplies the endpoint;
+- apply the project's Art Bible (`.genio/art-bible.md`, or your launch snapshot in `GENIO_ART_BIBLE`) when it has one: a short style line after your `prompt` (subject first), `negative_prompt` where the model takes one, the type's references in `image_urls` for edit models, palette parameters for Recraft and Image2Pixel, only the Audio/Music section for sound; spoken TTS text is never touched. Pass `--type <asset type>` for its section and `--no-bible` only when the mission says so. The receipt and provenance record it as `art_bible`;
 - need `--units` or `--est-usd`, and stop with exit 6 when the call would pass your `--budget`, the project's monthly cap, or (with no budget in your brief) the project's `confirm_over_usd`;
 - append one line per paid call to `.genio/spend.jsonl`;
 - take `--dir` from the config folders when you omit it (`--kind image|audio|model|video`, or the recipe's `save_to`);
-- write `.genio/provenance/<asset path>.json` (`genio.provenance.v1`: endpoint, request id, input, price, recipe, sha256, you as `by`) for every downloaded file inside the project.
+- write `.genio/provenance/<asset path>.json` (`genio.provenance.v1`: endpoint, request id, input, price, recipe, sha256, you as `by`, and `art_bible` when one was applied) for every downloaded file inside the project.
 
 Commit the assets with their provenance files and the spend lines. Those are the only `.genio/` writes you ever make: **never edit `config.json` or `recipes.json`**, even when they look wrong (report it instead). Outside a project, `--budget <usd> --ledger <spend.jsonl>` gives the same budget stop against a ledger file you keep in your scratch folder.
 

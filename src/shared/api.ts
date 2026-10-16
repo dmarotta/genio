@@ -274,9 +274,23 @@ export interface FalRun {
   world?: string
   /** recipe it was launched from */
   recipe?: string
+  /** the project's Art Bible as applied to the input (provenance art_bible) */
+  artBible?: ArtBibleStamp
   createdAt: string
   startedAt?: string
   completedAt?: string
+}
+
+/** What a generation recorded about the Art Bible it applied (docs/art-bible.md). */
+export interface ArtBibleStamp {
+  /** git blob id of .genio/art-bible.md (and of its `source:` doc) */
+  blob: string | null
+  source_blob?: string
+  type: string | null
+  /** project-relative references sent with the request */
+  refs: string[]
+  /** what was applied: style, palette, do, avoid, type, refs, negative, colors, … */
+  applied: string[]
 }
 
 export interface FalRunRequest {
@@ -289,6 +303,7 @@ export interface FalRunRequest {
   /** active world (omit for Scratch) */
   world?: string
   recipe?: string
+  artBible?: ArtBibleStamp
 }
 
 export interface FalPrice {

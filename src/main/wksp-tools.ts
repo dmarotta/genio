@@ -30,6 +30,11 @@ import { resolveLoadout } from './loadout'
 import { GENERATE_IMAGE_DESC, generateImageShape } from './chat-imagegen'
 import { findAssets, assetInfo, locateAsset } from './asset-tools'
 import { agentGeneration, falGenerateShape, uthanaMotionShape, uthanaCharacterShape, assetPlaceShape } from './agent-generation'
+import { readBibleFile, writeBibleFile } from './art-bible-gen'
+
+const ART_BIBLE_DESC =
+  "Read or write a project's Art Bible, .genio/art-bible.md (docs/art-bible.md): the style, palette, references and per-type notes every generator applies. Use only when the player asks about or for it. " +
+  'read returns the file, a summary and issues. write replaces the whole file with text (create, update, or an existing art doc turned into a bible with a `source:` line); it is refused if it would not compile, stays uncommitted, and needs player_words quoting their request verbatim (Genio checks it).'
 import { CATEGORY_IDS } from '@shared/dispatch'
 import { playService } from './play'
 import { formatStatusLine } from './status'
@@ -1049,6 +1054,16 @@ export function createToolRegistry(
     t('generate_image', GENERATE_IMAGE_DESC, generateImageShape, async (a) => {
       if (a.world) asked('Placing a generated image', a.player_words)
       return ok(json(await agentGeneration(getCtx()).image(home.name, a, role)))
+    })
+    t('art_bible', ART_BIBLE_DESC, {
+      world: z.string(), action: z.enum(['read', 'write']).default('read'), text: z.string().max(64 * 1024).optional(), player_words: z.string().trim().min(1).optional()
+    }, async a => {
+      const p = getCtx().projects.get(a.world)
+      if (!p) return fail(`No project named ${a.world}`)
+      if (a.action === 'read') return ok(json(readBibleFile(p.path)))
+      if (a.text === undefined) return fail('art_bible write needs the full text of .genio/art-bible.md.')
+      asked('Writing the Art Bible', a.player_words, 'art-bible')
+      return ok(json(writeBibleFile(p.path, a.text)))
     })
   }
 

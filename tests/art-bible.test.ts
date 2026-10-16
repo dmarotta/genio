@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  ArtBibleError, LIMITS, compile, gitBlobSha, loadArtBible, normalizeType, parseArtBible, parseFrontMatter,
+  ArtBibleError, LIMITS, applyToCodex, applyToFal, applyToMotion, bibleStamp, compile, gitBlobSha, loadArtBible, normalizeType, parseArtBible, parseFrontMatter,
   readArtBibleText, selectRefs, targetOf, writeArtBible, type ResolvedBible
 } from '../resources/unit-skills/genio/lib/art-bible.mjs'
 
@@ -386,6 +386,90 @@ describe('write helpers', () => {
     expect(fs.readFileSync(path.join(tmp, 'docs', 'ART_DIRECTION.md'))).toEqual(fs.readFileSync(FOUNDERS_DOC))
     expect(() => writeArtBible(tmp, '---\nsource: docs/nope.md\n---\n')).toThrow(/Not written/)
     expect(readArtBibleText(tmp)).toContain('docs/ART_DIRECTION.md')
+  })
+})
+
+describe('generator helpers', () => {
+  it('Codex: the prompt first, then the style; image refs only; a stamp for provenance', () => {
+    const b = nativeWorld()
+    const r = applyToCodex({ bible: b, type: 'building', prompt: 'A windmill *with* sails' })!
+    expect(r.prompt.startsWith('A windmill *with* sails\nArt direction: A stylized low-poly valley')).toBe(true)
+    expect(r.prompt).toContain('Buildings: Chunky readable masses')
+    expect(r.refs).toEqual([path.join(tmp, 'art', 'blacksmith.png'), path.join(tmp, 'art', 'mood.png')])
+    expect(r.stamp).toEqual({ blob: b.version.blob, type: 'buildings', refs: ['art/blacksmith.png', 'art/mood.png'], applied: ['style', 'palette', 'do', 'avoid', 'type', 'refs'] })
+    // a reference Codex cannot attach is never offered
+    const tga = nativeWorld(NATIVE.replace('../art/blacksmith.png', '../art/blacksmith.tga'))
+    put('art/blacksmith.tga', 'tga')
+    expect(applyToCodex({ bible: loadArtBible(tmp), type: 'building', prompt: 'x' })!.refs).toEqual([path.join(tmp, 'art', 'mood.png')])
+    expect(tga.references.some((x) => x.path === 'art/blacksmith.tga')).toBe(true)
+    expect(applyToCodex({ bible: null, prompt: 'x' })).toBeNull()
+  })
+
+  it('FAL: subject first in prompt, request values win, negative extended, refs after the edit images', () => {
+    const b = nativeWorld()
+    const text = applyToFal({ prompt: 'a sword', seed: 3 }, { bible: b, endpoint: 'fal-ai/flux/dev', type: 'building' })!
+    expect(text.input.prompt).toMatch(/^a sword\. Style: A stylized low-poly valley/)
+    expect(text.input.seed).toBe(3)
+    expect(text.input.negative_prompt).toBeUndefined()
+    expect(text.stamp?.applied).toEqual(['style', 'palette', 'type'])
+
+    const neg = applyToFal({ prompt: 'a door', negative_prompt: 'blurry' }, { bible: b, endpoint: 'fal-ai/ideogram/v3' })!
+    expect(neg.input.negative_prompt).toBe('blurry, photo textures, grunge, outlines, thick')
+    expect(neg.stamp?.applied).toContain('negative')
+
+    const schema = { properties: { prompt: {}, image_urls: { type: 'array', maxItems: 2 } } }
+    const edit = applyToFal({ prompt: 'make it red', image_urls: ['https://x/own.png'] }, { bible: b, endpoint: 'fal-ai/nano-banana/edit', schema, type: 'building' })!
+    expect(edit.input.image_urls).toEqual(['https://x/own.png', `@file:${path.join(tmp, 'art', 'blacksmith.png')}`])
+    expect(edit.stamp?.refs).toEqual(['art/blacksmith.png'])
+    const full = applyToFal({ prompt: 'make it red', image_urls: ['a', 'b'] }, { bible: b, endpoint: 'fal-ai/nano-banana/edit', schema })!
+    expect(full.input.image_urls).toEqual(['a', 'b'])
+    expect(full.input.prompt).not.toContain('reference images')
+    expect(full.stamp?.applied).not.toContain('refs')
+  })
+
+  it('FAL: palette parameters without a prompt, sound sections only, spoken text never touched', () => {
+    const b = nativeWorld()
+    const pixel = applyToFal({ image_url: 'x' }, { bible: b, endpoint: 'fal-ai/image2pixel' })!
+    expect(pixel.input.fixed_palette).toEqual(['#CBBF9F', '#344F60', '#53D9D1'])
+    expect(pixel.stamp?.applied).toEqual(['palette'])
+    const own = applyToFal({ image_url: 'x', fixed_palette: ['#000000'] }, { bible: b, endpoint: 'fal-ai/image2pixel' })!
+    expect(own.input).toEqual({ image_url: 'x', fixed_palette: ['#000000'] })
+    expect(own.stamp).toBeNull()
+    const sfx = applyToFal({ prompt: 'door creak' }, { bible: b, endpoint: 'fal-ai/mmaudio-v2' })!
+    expect(sfx.input.prompt).toBe('door creak. Warm acoustic medieval; soft transients.')
+    expect(sfx.stamp).toMatchObject({ type: 'audio', applied: ['type'] })
+    for (const endpoint of ['fal-ai/kokoro/american-english', 'fal-ai/elevenlabs/tts/turbo-v2.5']) {
+      const tts = applyToFal({ prompt: 'Hello there' }, { bible: b, endpoint })!
+      expect(tts.input).toEqual({ prompt: 'Hello there' })
+      expect(tts.stamp).toBeNull()
+    }
+    expect(applyToFal({ image_url: 'x' }, { bible: b, endpoint: 'fal-ai/birefnet' })!.stamp).toBeNull()
+    expect(applyToFal({ prompt: 'x' }, { bible: null, endpoint: 'fal-ai/flux/dev' })).toBeNull()
+  })
+
+  it('motion gets only the Animation line; no section, no stamp', () => {
+    const b = nativeWorld()
+    const none = applyToMotion({ bible: b, prompt: 'walk slowly' })!
+    expect(none.prompt).toBe('walk slowly')
+    expect(none.stamp).toBeNull()
+    const anim = nativeWorld(NATIVE.replace('## Weather', '## Animation\nWeighty, slightly slow, no flips.\n## Weather'))
+    const r = applyToMotion({ bible: anim, prompt: 'walk slowly' })!
+    expect(r.prompt).toBe('walk slowly. Weighty, slightly slow, no flips.')
+    expect(r.stamp).toMatchObject({ type: 'animation', applied: ['type'], refs: [] })
+    expect(bibleStamp(null)).toBeNull()
+  })
+
+  it('reads a bible from another file (a unit snapshot) while resolving refs in the project', () => {
+    nativeWorld()
+    const snap = path.join(tmp, 'snap', 'art-bible.md')
+    fs.mkdirSync(path.dirname(snap))
+    fs.writeFileSync(snap, NATIVE.replace('A stylized low-poly valley', 'A snapshot valley'))
+    const b = loadArtBible(tmp, { file: snap })!
+    expect(b.style?.summary).toMatch(/^A snapshot valley/)
+    expect(b.references.find((r) => r.path === 'art/blacksmith.png')?.exists).toBe(true)
+    fs.writeFileSync(snap, '')
+    expect(loadArtBible(tmp, { file: snap })).toBeNull()
+    expect(loadArtBible(tmp, { file: path.join(tmp, 'missing.md') })).toBeNull()
   })
 })
 

@@ -12,4 +12,6 @@ export interface GenerationCard {
   progress?: string
   outputs?: { name: string; kind: string; url?: string; imageId?: string }[]
   error?: string
+  /** what the project's Art Bible added to the request (absent: nothing) */
+  artBible?: { type: string | null; applied: string[]; refs: string[]; notes?: string[] }
 }

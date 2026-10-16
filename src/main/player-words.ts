@@ -34,6 +34,7 @@ export const PURPOSES = {
   settings: { needs: 'ask for this preference change' },
   spend: { needs: 'approve this paid run', intent: /\b(?:yes|yep|yeah|ok|okay|sure|approve\w*|go|go ahead|do it|run it|fine|spend|pay|confirm\w*|proceed|accept\w*)\b/ },
   asset: { needs: 'ask for this asset' },
+  'art-bible': { needs: 'ask to create or change the Art Bible' },
   overwrite: { needs: 'say to replace the existing file', intent: /\b(?:overwrit\w*|replac\w*|overrid\w*|swap\w*)\b/ },
   play: { needs: 'ask for this Play action' },
   remote: { needs: 'agree to create the remote repository', intent: /\b(?:github|remote|repo|repository|publish\w*|push\w*)\b/ },

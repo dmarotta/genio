@@ -36,6 +36,8 @@ export interface BriefInput {
   tools?: string
   /** A Modeller unit's working rules (modellerBrief), rendered after Tools */
   modeller?: string
+  /** The project's Art Bible lines under Tools (artBibleBriefLines); absent without a bible */
+  artBible?: string[]
   /** Recon: the report summary's word target from the Usage mode */
   summaryWords?: number
   /** Submodules Genio checked out in the worktree (initWorktreeSubmodules) */
@@ -238,10 +240,11 @@ export function renderBrief(i: BriefInput): string {
   if (i.engineLine?.trim()) out.push(i.engineLine.trim())
   out.push((i.engineHints ?? engineHints(i.engine)).trim())
   out.push('')
-  if (i.tools?.trim()) {
+  if (i.tools?.trim() || i.artBible?.length) {
     out.push('# Tools')
     out.push('')
-    out.push(i.tools.trim())
+    if (i.tools?.trim()) out.push(i.tools.trim())
+    out.push(...(i.artBible ?? []))
     out.push('')
   }
   if (i.modeller?.trim()) {

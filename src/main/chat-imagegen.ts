@@ -22,6 +22,7 @@ import type { Home } from './home'
 import { codexImageScratch, codexImageSkillDir, installUnitPlugin, unitPluginDir, unitPluginSource } from './unitskills'
 import { ensureDir, nowIso, rid, truncate } from './util'
 import { settingsPath } from '@shared/settings-pages'
+import { artBibleShape } from './art-bible-gen'
 
 export const MAX_GENERATED = 4
 export const MAX_REFS = 8
@@ -32,7 +33,7 @@ export const LOGIN_HINT = `log in to Codex in ${settingsPath('accounts')}`
 export const GENERATE_IMAGE_DESC =
   "Generate PNG image(s) with Codex's image_gen on the player's ChatGPT plan (no API cost; about a minute per call) and show them in this chat. " +
   'Use for concepts, sprites, icons, transparent cutouts, and edits or variations of an image: pass refs = chat image ids (shown as [attached image ids: ...] on pasted screenshots and returned by earlier generate_image calls) or absolute paths. ' +
-  'You get the images back to judge them, plus the plan meter. For project assets pass project, place from asset_locate, and player_words. Runs in the background; use generation_status to inspect completion. Without a project it stays in chat.'
+  'You get the images back to judge them, plus the plan meter. For project assets pass project, place from asset_locate, and player_words; a project Art Bible is applied (asset_type picks its section). Runs in the background; use generation_status to inspect completion. Without a project it stays in chat.'
 
 export const generateImageShape = {
   prompt: z.string().min(3).max(4000),
@@ -41,7 +42,8 @@ export const generateImageShape = {
   world: z.string().optional(),
   place: z.string().optional(),
   player_words: z.string().trim().min(1).optional(),
-  count: z.number().int().min(1).max(MAX_GENERATED).default(1)
+  count: z.number().int().min(1).max(MAX_GENERATED).default(1),
+  ...artBibleShape
 }
 export type GenerateImageArgs = z.infer<z.ZodObject<typeof generateImageShape>>
 

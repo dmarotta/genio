@@ -555,17 +555,19 @@ function sourcePath(root, value) {
 /**
  * The project's resolved Art Bible, or null when `.genio/art-bible.md` is
  * missing or empty. `text` stands in for the file (checking an edit before it
- * is written). Reference files are checked on disk; missing ones are reported
- * and never sent to a generator.
+ * is written); `file` reads the bible from elsewhere, such as a unit's launch
+ * snapshot (GENIO_ART_BIBLE), while its references and `source:` still
+ * resolve in `root`. Reference files are checked on disk; missing ones are
+ * reported and never sent to a generator.
  */
-export function loadArtBible(root, { text } = {}) {
+export function loadArtBible(root, { text, file } = {}) {
   const rootAbs = path.resolve(root)
   if (!fs.statSync(rootAbs, { throwIfNoEntry: false })?.isDirectory()) throw new ArtBibleError(`Project folder not found: ${rootAbs}`)
   let buf
   if (text != null) buf = Buffer.from(String(text), 'utf8')
   else {
     try {
-      buf = readText(path.join(rootAbs, '.genio', 'art-bible.md')).buf
+      buf = readText(file ? path.resolve(file) : path.join(rootAbs, '.genio', 'art-bible.md')).buf
     } catch (e) {
       if (e.code === 'ENOENT') return null
       throw e
@@ -944,6 +946,109 @@ export function compile(opts = {}) {
 function rgbOf(hex) {
   const n = parseInt(hex.slice(1), 16)
   return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 }
+}
+
+// --------------------------------------------------------------- generators
+
+/** What Codex's image_gen takes as an attached reference. */
+const CODEX_REF = /\.(png|jpe?g|webp|gif)$/i
+const EDIT_NOTE = 'Use the reference images for style only; do not copy their subjects.'
+const withStop = (s) => (/[.!?…]$/.test(s) ? s : `${s}.`)
+
+/**
+ * What a generation's provenance records about the Art Bible: its version,
+ * the asset type, the references sent and what was applied. Null when nothing
+ * was applied, so a record never claims a style the asset did not get.
+ */
+export function bibleStamp(compiled) {
+  if (!compiled?.applied?.length) return null
+  return {
+    blob: compiled.version?.blob ?? null,
+    ...(compiled.version?.source_blob ? { source_blob: compiled.version.source_blob } : {}),
+    type: compiled.type ?? null,
+    refs: compiled.refs.map((r) => r.path),
+    applied: [...compiled.applied]
+  }
+}
+
+/**
+ * A Codex image prompt with the Art Bible applied: the player's prompt
+ * first, then the compiled style, plus the absolute paths of the type
+ * references to attach (only image formats Codex takes). Null without a
+ * bible; `stamp` is null when nothing was applied.
+ */
+export function applyToCodex({ bible, type, prompt, limit = LIMITS.codexPrompt } = {}) {
+  if (!bible) return null
+  const own = String(prompt ?? '').trim()
+  const usable = { ...bible, references: bible.references.filter((r) => !r.path || CODEX_REF.test(r.path)) }
+  const compiled = compile({ bible: usable, provider: 'codex', type, subject: own, limit })
+  const joined = [own, compiled.prefix].filter(Boolean).join('\n')
+  return {
+    prompt: joined.length <= limit ? joined : compiled.prompt,
+    refs: compiled.refs.map((r) => r.file).filter(Boolean),
+    compiled,
+    stamp: bibleStamp(compiled)
+  }
+}
+
+/**
+ * A FAL model input with the Art Bible applied. The text goes into `prompt`
+ * only (subject first); an input without one gets only palette parameters
+ * (Image2Pixel), and spoken text (TTS) is never touched. Values the request
+ * already sets win over the bible's, except `negative_prompt`, which is
+ * extended, and `image_urls`, which gains the type references after the
+ * request's own (within the schema's maxItems). `kind` is the catalogue's
+ * output kind when known: an audio or model endpoint whose id does not say
+ * so still gets only its own section. Null without a bible.
+ */
+export function applyToFal(input, { bible, endpoint, schema, type, kind } = {}) {
+  if (!bible) return null
+  let target = targetOf({ provider: 'fal', endpoint })
+  if (kind === 'audio' && !SOUND.includes(target)) target = 'audio'
+  if (kind === 'model' && target !== '3d') target = '3d'
+  const prompt = typeof input?.prompt === 'string' && input.prompt.trim() ? input.prompt.trim() : null
+  const none = (note) => ({ input, compiled: null, stamp: null, notes: [note] })
+  if (target === 'voice') return none('Spoken text never gets the Art Bible; nothing applied.')
+  if (target === 'recraft-style') return none('Recraft create-style takes the references from `genio-art refs`; nothing applied.')
+  if (!prompt && target !== 'image2pixel') return none('This input has no prompt; nothing applied.')
+  const provider = [...SOUND, '3d'].includes(target) ? target : 'fal'
+  const compiled = compile({ bible, provider, endpoint, schema, type, subject: prompt ?? '' })
+  const out = { ...input }
+  const applied = new Set(compiled.applied)
+  let prefix = compiled.prefix
+  for (const [k, v] of Object.entries(compiled.params)) {
+    if (k === 'negative_prompt') {
+      const own = typeof input.negative_prompt === 'string' ? input.negative_prompt.trim() : ''
+      out.negative_prompt = own ? `${own}, ${v}` : v
+    } else if (k === 'image_urls') {
+      const own = Array.isArray(input.image_urls) ? input.image_urls : []
+      const max = propsOf(schema)?.image_urls?.maxItems
+      const room = Number.isInteger(max) ? Math.max(0, max - own.length) : v.length
+      const add = v.filter((x) => !own.includes(x)).slice(0, room)
+      compiled.refs = compiled.refs.filter((r) => add.includes(`@file:${r.file ?? r.path}`))
+      if (add.length) out.image_urls = [...own, ...add]
+      else {
+        applied.delete('refs')
+        prefix = prefix.replace(EDIT_NOTE, '').trim()
+        compiled.notes.push('No room for reference images in image_urls; references were left out.')
+      }
+    } else if (input[k] !== undefined || (k === 'max_colors' && input.fixed_palette !== undefined)) {
+      applied.delete({ fixed_palette: 'palette', colors: 'colors', style_id: 'style_id' }[k])
+      compiled.notes.push(`The request sets ${k}; the Art Bible's was not used.`)
+    } else out[k] = v
+  }
+  if (prompt && prefix) out.prompt = `${withStop(prompt)} ${prefix}`
+  compiled.prefix = prefix
+  compiled.applied = [...applied]
+  return { input: out, compiled, stamp: bibleStamp(compiled), notes: compiled.notes }
+}
+
+/** A motion prompt with the Art Bible's Animation line after it. Null without a bible. */
+export function applyToMotion({ bible, prompt } = {}) {
+  if (!bible) return null
+  const own = String(prompt ?? '').trim()
+  const compiled = compile({ bible, provider: 'uthana', subject: own })
+  return { prompt: compiled.prefix ? `${withStop(own)} ${compiled.prefix}` : own, compiled, stamp: bibleStamp(compiled) }
 }
 
 function appliedOf(parts, refs) {

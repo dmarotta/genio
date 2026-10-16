@@ -5,7 +5,7 @@
  * Pure functions; no I/O. API facts were checked against uthana.com/docs/api
  * and uthana.com/pricing on 2026-10-13.
  */
-import type { FalBudget, FalRun } from './api'
+import type { ArtBibleStamp, FalBudget, FalRun } from './api'
 import { fmtUsd, monthKey, worldSpend, type SpendLine } from './fal'
 import type { Engine } from './types'
 
@@ -238,6 +238,8 @@ export interface UthanaRun {
   files: UthanaFile[]
   error?: string
   world?: string
+  /** the project's Art Bible Animation line as applied to the prompt (provenance art_bible) */
+  artBible?: ArtBibleStamp
   createdAt: string
   startedAt?: string
   completedAt?: string
@@ -509,6 +511,7 @@ export interface UthanaGenerateRequest {
   characterName?: string
   text?: UthanaTextParams
   video?: { path: string; motionName: string }
+  artBible?: ArtBibleStamp
 }
 
 export interface UthanaPreviewRequest {

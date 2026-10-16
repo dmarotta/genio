@@ -40,7 +40,7 @@ interface Run {
 
 function runNode(script: string, args: string[], env: Record<string, string | undefined> = {}): Promise<Run> {
   const childEnv: NodeJS.ProcessEnv = { ...process.env }
-  for (const k of ['FAL_KEY', 'GENIO_FAL_TEST_BASE', 'GENIO_TASK_ID', 'GENIO_CODEX_BIN', 'GENIO_CODEX_IMAGE_SCRATCH']) delete childEnv[k]
+  for (const k of ['FAL_KEY', 'GENIO_FAL_TEST_BASE', 'GENIO_TASK_ID', 'GENIO_CODEX_BIN', 'GENIO_CODEX_IMAGE_SCRATCH', 'GENIO_ART_BIBLE']) delete childEnv[k]
   Object.assign(childEnv, env)
   assertIsolatedHomes(childEnv)
   return new Promise((resolve) => {
@@ -62,6 +62,27 @@ function makeWorld(config?: unknown, recipes?: unknown): string {
   if (config !== undefined) fs.writeFileSync(path.join(world, '.genio', 'fal', 'config.json'), JSON.stringify(config, null, 2))
   if (recipes !== undefined) fs.writeFileSync(path.join(world, '.genio', 'fal', 'recipes.json'), JSON.stringify(recipes, null, 2))
   return world
+}
+
+const BIBLE = `# Art Bible: Test
+## Style
+Chunky low-poly shapes in soft daylight.
+## Palette
+| Role | Color | Use |
+|---|---|---|
+| Warm limestone | \`#CBBF9F\` | walls |
+## References
+![Smithy](../Art/smithy.png "style buildings 3")
+## Buildings
+Large roofs and deep recesses.
+`
+/** The world's Art Bible plus the reference it links; returns the bible's git blob id. */
+function addBible(world: string, text = BIBLE): string {
+  fs.mkdirSync(path.join(world, 'Art'), { recursive: true })
+  fs.writeFileSync(path.join(world, 'Art', 'smithy.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+  fs.writeFileSync(path.join(world, '.genio', 'art-bible.md'), text)
+  const buf = Buffer.from(text)
+  return crypto.createHash('sha1').update(Buffer.concat([Buffer.from(`blob ${buf.length}\0`), buf])).digest('hex')
 }
 
 describe('Codex rollout parsing (recon evidence)', () => {
@@ -328,6 +349,35 @@ describe('fal.mjs --world', () => {
     expect((await runNode(FAL, ['submit', '--endpoint', 'fal-ai/test/model', '--json', '{}', '--receipt', 'z.job.json', '--budget', '1'], env())).code).toBe(2)
   })
 
+  it('wraps the prompt with the Art Bible after recipes, records it, follows the launch snapshot and skips it on --no-bible', async () => {
+    const world = makeWorld(CONFIG, RECIPES)
+    const blob = addBible(world)
+    const receipt = path.join(tmp, 'scratch', 'mill.job.json')
+    const r = await runNode(FAL, ['run', '--world', world, '--recipe', 'icon', '--type', 'buildings', '--json', '{"prompt":"a mill"}', '--units', '1', '--budget', '1', '--receipt', receipt, '--name', 'mill'], env())
+    expect(r.code).toBe(0)
+    const sent = posts[0].body
+    expect(sent).toMatchObject({ output_format: 'png', aspect_ratio: '1:1' })
+    expect(sent.prompt).toBe('a mill. Style: Chunky low-poly shapes in soft daylight. Buildings: Large roofs and deep recesses. Colors: warm limestone.')
+    const stamp = { blob, type: 'buildings', refs: [], applied: ['style', 'palette', 'type'] }
+    expect(readJson(receipt).genio).toEqual({ by: 'unit:t-x1', recipe: 'icon', art_bible: stamp })
+    const prov = readJson(path.join(world, '.genio', 'provenance', 'Assets', 'Gen', 'mill.png.json'))
+    expect(prov.art_bible).toEqual(stamp)
+    expect(prov.input.prompt).toBe(sent.prompt)
+
+    const snap = path.join(tmp, 'snapshot.md')
+    fs.writeFileSync(snap, BIBLE.replace('Chunky low-poly shapes', 'Painted watercolour shapes'))
+    expect((await runNode(FAL, ['submit', '--world', world, '--endpoint', 'fal-ai/test/model', '--json', '{"prompt":"a well"}', '--units', '1', '--receipt', path.join(tmp, 'scratch', 'well.job.json')], { ...env(), GENIO_ART_BIBLE: snap })).code).toBe(0)
+    expect(posts[1].body.prompt).toMatch(/^a well\. Style: Painted watercolour shapes/)
+    fs.writeFileSync(snap, '')
+    expect((await runNode(FAL, ['submit', '--world', world, '--endpoint', 'fal-ai/test/model', '--json', '{"prompt":"a cart"}', '--units', '1', '--receipt', path.join(tmp, 'scratch', 'cart.job.json')], { ...env(), GENIO_ART_BIBLE: snap })).code).toBe(0)
+    expect(posts[2].body).toEqual({ output_format: 'png', prompt: 'a cart' })
+    const off = await runNode(FAL, ['submit', '--world', world, '--no-bible', '--endpoint', 'fal-ai/test/model', '--json', '{"prompt":"a gate"}', '--units', '1', '--receipt', path.join(tmp, 'scratch', 'gate.job.json')], env())
+    expect(off.code).toBe(0)
+    expect(posts[3].body).toEqual({ output_format: 'png', prompt: 'a gate' })
+    expect(readJson(path.join(tmp, 'scratch', 'gate.job.json')).genio).toEqual({ by: 'unit:t-x1', recipe: null })
+    expect(fs.readFileSync(path.join(world, '.genio', 'art-bible.md'), 'utf8')).toBe(BIBLE)
+  })
+
   it('summarises the world and fills recipes without a key or network', async () => {
     const world = makeWorld({ ...CONFIG, providers: { codex: { enabled: true } } }, RECIPES)
     fs.writeFileSync(path.join(world, '.genio', 'spend.jsonl'), JSON.stringify({ t: new Date().toISOString(), provider: 'fal', est_usd: 0.25, by: 'unit:t-x1' }) + '\n')
@@ -428,6 +478,47 @@ describe('codex-image.mjs', () => {
     expect(spend).toHaveLength(2)
     for (const l of spend) expect(l).toMatchObject({ provider: 'codex', what: 'image_gen', est_usd: 0, plan: 'chatgpt', thread_id: out.thread_id, by: 'unit:t-c1' })
     expect(fs.readFileSync(path.join(world, '.genio', 'fal', 'config.json'))).toEqual(before)
+  })
+
+  it('applies the Art Bible: style after each prompt, the type references attached, art_bible in provenance', async () => {
+    const { codexHome, env } = setup()
+    const world = makeWorld(ENABLED)
+    const blob = addBible(world)
+    const mill = path.join(world, 'Art', 'mill.png')
+    const r = await runNode(CODEX_IMAGE, ['--world', world, '--type', 'buildings', '--prompt', 'a windmill', '--out', mill], env)
+    expect(r.code).toBe(0)
+    const call = readJson(path.join(codexHome, 'fake-args.json'))
+    expect(call.prompt).toMatch(/Item 1 \(transparent background: no\):\na windmill\nArt direction: Chunky low-poly shapes in soft daylight\./)
+    expect(call.prompt).toContain('Buildings: Large roofs and deep recesses.')
+    expect(call.prompt).toContain('STYLE references only')
+    expect(call.args).toEqual(expect.arrayContaining(['-i', path.join(world, 'Art', 'smithy.png')]))
+    const stamp = { blob, type: 'buildings', refs: ['Art/smithy.png'], applied: ['style', 'palette', 'type', 'refs'] }
+    expect(JSON.parse(r.stdout).images[0].art_bible).toEqual(stamp)
+    const prov = readJson(path.join(world, '.genio', 'provenance', 'Art', 'mill.png.json'))
+    expect(prov.art_bible).toEqual(stamp)
+    expect(prov.input.refs).toEqual(['Art/smithy.png'])
+    expect(prov.input.prompt).toMatch(/^a windmill\nArt direction/)
+
+    const well = path.join(world, 'Art', 'well.png')
+    expect((await runNode(CODEX_IMAGE, ['--world', world, '--no-bible', '--prompt', 'a well', '--out', well], env)).code).toBe(0)
+    const plain = readJson(path.join(codexHome, 'fake-args.json'))
+    expect(plain.prompt).not.toContain('Art direction')
+    expect(plain.args).not.toContain('-i')
+    expect(readJson(path.join(world, '.genio', 'provenance', 'Art', 'well.png.json')).art_bible).toBeUndefined()
+
+    // an empty launch snapshot means the player removed the bible: nothing applies
+    const snap = path.join(tmp, 'snapshot.md')
+    fs.writeFileSync(snap, '')
+    expect((await runNode(CODEX_IMAGE, ['--world', world, '--prompt', 'a cart', '--out', path.join(world, 'Art', 'cart.png')], { ...env, GENIO_ART_BIBLE: snap })).code).toBe(0)
+    expect(readJson(path.join(codexHome, 'fake-args.json')).prompt).not.toContain('Art direction')
+
+    // a bible that cannot compile stops with the fix, before Codex runs
+    fs.rmSync(path.join(codexHome, 'fake-args.json'))
+    fs.writeFileSync(path.join(world, '.genio', 'art-bible.md'), '---\nsource: docs/missing.md\n---\n# B\n')
+    const bad = await runNode(CODEX_IMAGE, ['--world', world, '--prompt', 'x', '--out', path.join(world, 'Art', 'x.png')], env)
+    expect(bad.code).toBe(2)
+    expect(bad.stderr).toMatch(/--no-bible/)
+    expect(fs.existsSync(path.join(codexHome, 'fake-args.json'))).toBe(false)
   })
 
   it('warns when the plan meter passes the threshold and works outside a world with --no-world', async () => {

@@ -28,7 +28,8 @@ It runs `codex exec` in a scratch folder under Genio's data (never in your workt
 - PNG only, square-ish around 1254×1254. `--transparent` asks for a real alpha background.
 - **No** size, seed, count, negative prompt or mask. Results are not reproducible; the revised prompt is recorded instead. For exact sizes, seeds, tiling, PBR, pixel art, cutout, upscale, 3D, audio or video use the FAL skill.
 - `--ref <image>` attaches reference images (edits, consistent characters or props).
-- Several images: repeat `--prompt … --out …` pairs (up to 8) or pass `--batch items.json` (`[{"prompt", "out", "transparent"?}]`). One Codex run serves them all, which saves most of the per-run overhead.
+- **Art Bible:** with `--world`, a project `.genio/art-bible.md` (or your launch snapshot in `GENIO_ART_BIBLE`) is applied automatically: its style follows your prompt and its top 2 references for the asset type are attached. Pass `--type <asset type>` (sprites, ui, buildings, …) for that section; `--no-bible` only when the mission says so. Each image's provenance and JSON result carry `art_bible`.
+- Several images: repeat `--prompt … --out …` pairs (up to 8) or pass `--batch items.json` (`[{"prompt", "out", "transparent"?, "type"?}]`). One Codex run serves them all, which saves most of the per-run overhead.
 - Allow about a minute per image (`--timeout <s>` to change the limit).
 
 ## Plan meter

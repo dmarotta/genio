@@ -3,7 +3,7 @@ import path from 'node:path'
 import { z } from 'zod'
 import type { AssetKind } from '@shared/inventory'
 import type { GenerationCard } from '@shared/generation'
-import type { FalRunRequest } from '@shared/api'
+import type { ArtBibleStamp, FalRunRequest } from '@shared/api'
 import { estimateRun } from '@shared/fal'
 import { schemaDefaults, validateValues, type JsonSchema } from '@shared/fal-schema'
 import { estimateUthana, textParamErrors, textParamsFor, UTHANA_BUILTINS, type UthanaGenerateRequest, type UthanaUploadRequest, type UthanaFormat } from '@shared/uthana'
@@ -12,7 +12,8 @@ import type { AppCtx } from './services'
 import { bus } from './bus'
 import { locateAsset } from './asset-tools'
 import { noLinks, placementTarget, placeOutput } from './asset-placement'
-import { chatImageGen, generateChatImages, resolveRefs, type GenerateImageArgs } from './chat-imagegen'
+import { chatImageGen, generateChatImages, MAX_REFS, resolveRefs, type GenerateImageArgs } from './chat-imagegen'
+import { artBibleShape, bibleForCodex, bibleForFal, bibleForMotion } from './art-bible-gen'
 import { chatImagePath } from './chat-images'
 import { checkGenerationBudget, recordCodexGeneration } from './generation-spend'
 import { provenanceInput, readWorldConfig, sha256File } from './fal-world'
@@ -20,8 +21,8 @@ import { nowIso, readJson, rid, writeJson } from './util'
 
 const requestShape = { world: z.string().min(1), player_words: z.string().trim().min(1) }
 const placementShape = { ...requestShape, place: z.string().min(1).optional(), name: z.string().min(1).optional() }
-export const falGenerateShape = { ...placementShape, endpoint: z.string().min(3), input: z.record(z.string(), z.unknown()) }
-export const uthanaMotionShape = { ...placementShape, prompt: z.string().min(3), model: z.string().default('text-to-motion-3.0'), character: z.string().optional(), length: z.number().positive().max(10).optional(), format: z.enum(['fbx', 'glb', 'bvh']).optional(), video: z.string().optional() }
+export const falGenerateShape = { ...placementShape, endpoint: z.string().min(3), input: z.record(z.string(), z.unknown()), ...artBibleShape }
+export const uthanaMotionShape = { ...placementShape, prompt: z.string().min(3), model: z.string().default('text-to-motion-3.0'), character: z.string().optional(), length: z.number().positive().max(10).optional(), format: z.enum(['fbx', 'glb', 'bvh']).optional(), video: z.string().optional(), art_bible: artBibleShape.art_bible }
 export const uthanaCharacterShape = { ...requestShape, path: z.string().min(1), name: z.string().optional(), auto_rig: z.boolean().default(true) }
 export const assetPlaceShape = { ...requestShape, run: z.string(), output: z.number().int().min(0).max(3).default(0), path: z.string(), overwrite_words: z.string().trim().min(1).optional() }
 
@@ -31,6 +32,8 @@ interface Job extends GenerationCard {
   request?: FalRunRequest | UthanaGenerateRequest | UthanaUploadRequest
   format?: UthanaFormat; images?: ChatImage[]; prompt?: string; refs?: string[]
   sourceHashes?: Record<string, string>
+  /** provenance art_bible of a Codex image (FAL and Uthana keep theirs on the provider run) */
+  artBibleStamp?: ArtBibleStamp
 }
 
 export class AgentGeneration {
@@ -70,8 +73,8 @@ export class AgentGeneration {
     bus.publish({ type: 'generation', wksp: j.wksp, id: j.id, active: j.status === 'running' || j.status === 'placing' })
   }
   private card(j: Job): GenerationCard {
-    const { id, provider, world, model, status, estimatedUsd, spentUsd, capUsd, paths, warnings, error, progress, outputs } = j
-    return { id, provider, world, model, status, estimatedUsd, spentUsd, capUsd, paths, warnings, error, progress, outputs }
+    const { id, provider, world, model, status, estimatedUsd, spentUsd, capUsd, paths, warnings, error, progress, outputs, artBible } = j
+    return { id, provider, world, model, status, estimatedUsd, spentUsd, capUsd, paths, warnings, error, progress, outputs, ...(artBible ? { artBible } : {}) }
   }
   status(id: string, wksp: string): GenerationCard {
     return this.card(this.owned(id, wksp))
@@ -120,8 +123,12 @@ export class AgentGeneration {
     const catalogue = this.ctx.fal.catalogue(a.world), info = await this.ctx.fal.model(a.endpoint)
     if (!info.schema) throw new Error('Cannot validate this endpoint: input schema unavailable')
     const entry = catalogue.entries.find(e => e.endpoint === a.endpoint)
-    const config = readWorldConfig(this.project(a.world).path)
-    const input = { ...schemaDefaults(info.schema as JsonSchema), ...config.defaults?.[a.endpoint], ...a.input }
+    const root = this.project(a.world).path
+    const config = readWorldConfig(root)
+    const merged = { ...schemaDefaults(info.schema as JsonSchema), ...config.defaults?.[a.endpoint], ...a.input }
+    // The Art Bible wraps the player's defaults and the request, before validation and the quote.
+    const bible = a.art_bible === false ? undefined : bibleForFal(root, merged, { endpoint: a.endpoint, schema: info.schema, type: a.asset_type, kind: entry?.output })
+    const input = bible?.value ?? merged
     const errors = validateValues(info.schema as JsonSchema, input)
     if (Object.keys(errors).length) throw new Error(JSON.stringify(errors))
     for (const k of ['num_images', 'num_samples', 'num_outputs']) if (input[k] !== undefined && (typeof input[k] !== 'number' || input[k] < 1 || input[k] > 4)) throw new Error('Delegate batches above four outputs to a unit')
@@ -131,7 +138,8 @@ export class AgentGeneration {
     const target = await this.destination(a, kind, 'new asset')
     const sourceHashes = this.fileHashes(input)
     const j = this.create(wksp, a, 'fal', a.endpoint, usd, target)
-    j.request = { world: a.world, endpoint: a.endpoint, input, maxCostUsd: usd }
+    j.request = { world: a.world, endpoint: a.endpoint, input, maxCostUsd: usd, ...(bible?.stamp ? { artBible: bible.stamp } : {}) }
+    j.artBible = bible?.card
     j.sourceHashes = sourceHashes; this.post(j)
     if (j.status === 'running') this.start(j)
     return this.card(j)
@@ -139,7 +147,9 @@ export class AgentGeneration {
   async motion(wksp: string, a: z.infer<z.ZodObject<typeof uthanaMotionShape>>, role = 'genio'): Promise<GenerationCard> {
     this.requirePlayer(role, a.player_words)
     const p = this.project(a.world), format = a.format ?? (p.engine === 'unity' ? 'fbx' : 'glb')
-    const text = textParamsFor(a.model, { prompt: a.prompt, length: a.length })
+    // Text models follow the Art Bible's Animation line; a video carries its own motion.
+    const bible = a.art_bible === false || a.model.startsWith('video-') ? undefined : bibleForMotion(p.path, a.prompt)
+    const text = textParamsFor(a.model, { prompt: bible?.value ?? a.prompt, length: a.length })
     const errors = textParamErrors(a.model, text)
     if (Object.keys(errors).length) throw new Error(JSON.stringify(errors))
     let video: UthanaGenerateRequest['video']
@@ -157,7 +167,8 @@ export class AgentGeneration {
     if (path.extname(target) !== '.' + format) throw new Error('Placement extension must match the export format')
     const j = this.create(wksp, a, 'uthana', a.model, usd, target)
     j.format = format
-    j.request = { world: a.world, model: a.model, characterId: a.character ?? UTHANA_BUILTINS.find(c => c.name === 'Manny')!.id, ...(video ? { video } : { text }) }
+    j.request = { world: a.world, model: a.model, characterId: a.character ?? UTHANA_BUILTINS.find(c => c.name === 'Manny')!.id, ...(video ? { video } : { text }), ...(bible?.stamp ? { artBible: bible.stamp } : {}) }
+    j.artBible = bible?.card
     if (video) j.sourceHashes = { [video.path]: sha256File(video.path) }
     if (p.engine === 'unity') j.warnings.push('FBX imports as Generic until a unit or the player configures Humanoid import settings. Genio never edits .meta files.')
     this.post(j); if (j.status === 'running') this.start(j)
@@ -265,7 +276,7 @@ export class AgentGeneration {
       if (!source) throw new Error('No generated image at this output index')
       const p = this.project(a.world), prov = provenanceInput({ prompt: j.prompt, references: (j.refs ?? []).map(r => '@file:' + r) }, p.path)
       result = await placeOutput({ project: p, source, relative: a.path, role: 'genio', playerWords: a.player_words, overwrite,
-        provenance: { schema: 'genio.provenance.v1', provider: 'codex', endpoint: 'image_gen', request_id: j.id, input: prov.input, price: null, recipe: null, derived_from: prov.derivedFrom, by, created: j.ts },
+        provenance: { schema: 'genio.provenance.v1', provider: 'codex', endpoint: 'image_gen', request_id: j.id, input: prov.input, price: null, recipe: null, derived_from: prov.derivedFrom, by, created: j.ts, ...(j.artBibleStamp ? { art_bible: j.artBibleStamp } : {}) },
         spend: { t: j.ts, provider: 'codex', request_id: j.id, est_usd: 0, by } })
     }
     if (!result.ok) throw new Error(result.message)
@@ -277,18 +288,24 @@ export class AgentGeneration {
     if (role === 'bot') throw new Error('Bot cannot generate images')
     if (a.place && !a.world) throw new Error('A placement requires a project')
     let target: string | undefined
+    let root: string | undefined
     if (a.world) {
       this.requirePlayer(role, a.player_words)
       const p = this.project(a.world)
+      root = p.path
       const codex = (readWorldConfig(p.path) as { providers?: { codex?: false | { enabled?: boolean } } }).providers?.codex
       if (codex === false || codex?.enabled === false) throw new Error('Codex images are disabled in this project')
       target = await this.destination({ world: a.world, place: a.place, player_words: a.player_words! }, 'image', 'new image.png')
       if (path.extname(target).toLowerCase() !== '.png') throw new Error('Codex outputs PNG; choose a .png placement')
     }
     const gen = chatImageGen(this.ctx, this.ctx.home(wksp).home)
-    const refs = resolveRefs(gen.chatDir, a.refs)
+    const own = resolveRefs(gen.chatDir, a.refs)
+    // Project images follow its Art Bible: style text after the prompt, the type's references attached.
+    const bible = root && a.art_bible !== false ? bibleForCodex(root, { prompt: a.prompt, type: a.asset_type, refs: own, room: MAX_REFS - own.length }) : undefined
+    const sent: GenerateImageArgs = bible ? { ...a, prompt: bible.value.prompt, refs: bible.value.refs } : a
+    const refs = bible?.value.refs ?? own
     const j = this.create(wksp, { world: a.world ?? '', player_words: a.player_words ?? '' }, 'codex', 'image_gen', 0, target)
-    j.prompt = a.prompt; j.refs = refs; this.post(j)
+    j.prompt = sent.prompt; j.refs = refs; j.artBible = bible?.card; j.artBibleStamp = bible?.stamp; this.post(j)
     gen.post = (m) => {
       if (m.images) {
         j.images = m.images
@@ -297,7 +314,7 @@ export class AgentGeneration {
         j.warnings.push(...m.text.split('\n').filter(line => /⚠|failed:/.test(line)))
       }
     }
-    void generateChatImages(gen, a).then(async result => {
+    void generateChatImages(gen, sent).then(async result => {
       if (result.isError || !j.images?.length) throw new Error(result.content.filter(c => c.type === 'text').map(c => c.text).join('\n'))
       recordCodexGeneration(this.ctx, j.id, j.world, j.ts)
       this.ctx.stats.unlock('agent-asset-first')

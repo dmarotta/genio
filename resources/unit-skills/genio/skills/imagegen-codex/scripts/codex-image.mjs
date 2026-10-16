@@ -15,6 +15,11 @@
  * image plus a spend.jsonl line (est_usd 0, plan chatgpt). Without a world it
  * needs an explicit --no-world.
  *
+ * In a world with an Art Bible (.genio/art-bible.md, or the launch snapshot in
+ * GENIO_ART_BIBLE) each prompt gets the compiled style after it and the run
+ * attaches the asset type's references (--type, or "type" per batch item);
+ * provenance records it as art_bible. --no-bible turns that off.
+ *
  * Prints one JSON document on stdout; progress goes to stderr.
  * Exit codes: 0 ok, 2 usage, 3 this world opted out, 4 Codex error or missing image, 5 timed out.
  */
@@ -24,6 +29,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { WorldError, appendSpend, codexEnabled, openWorld, spendFile, unitBy, worldRel, writeProvenance } from '../../../lib/genio-world.mjs'
+import { ArtBibleError, applyToCodex, loadArtBible } from '../../../lib/art-bible.mjs'
 import { findRollout, imageBytes, parseRollout, planMeter, threadIdFromEvents } from './rollout.mjs'
 
 const EXIT = { usage: 2, disabled: 3, codex: 4, timeout: 5 }
@@ -40,7 +46,7 @@ class Fail extends Error {
 }
 
 const REPEATABLE = new Set(['prompt', 'out', 'ref'])
-const FLAGS = new Set(['transparent', 'no-world', 'overwrite', 'help'])
+const FLAGS = new Set(['transparent', 'no-world', 'no-bible', 'overwrite', 'help'])
 
 function parseArgs(argv) {
   const opts = { prompt: [], out: [], ref: [] }
@@ -72,10 +78,10 @@ function itemsOf(opts) {
       throw new Fail(`--batch must be a JSON file: [{"prompt", "out", "transparent"?}, ...] (${e.message}).`, EXIT.usage)
     }
     if (!Array.isArray(list)) throw new Fail('--batch must hold a JSON array.', EXIT.usage)
-    items = list.map((x) => ({ prompt: x?.prompt, out: x?.out, transparent: x?.transparent === undefined ? opts.transparent === true : x.transparent === true }))
+    items = list.map((x) => ({ prompt: x?.prompt, out: x?.out, transparent: x?.transparent === undefined ? opts.transparent === true : x.transparent === true, type: typeof x?.type === 'string' ? x.type : opts.type }))
   } else {
     if (opts.prompt.length !== opts.out.length) throw new Fail('Give one --out per --prompt, in the same order.', EXIT.usage)
-    items = opts.prompt.map((prompt, i) => ({ prompt, out: opts.out[i], transparent: opts.transparent === true }))
+    items = opts.prompt.map((prompt, i) => ({ prompt, out: opts.out[i], transparent: opts.transparent === true, type: opts.type }))
   }
   if (!items.length) throw new Fail('Nothing to generate: give --prompt <text> --out <file.png>.', EXIT.usage)
   if (items.length > MAX_BATCH) throw new Fail(`At most ${MAX_BATCH} images per run.`, EXIT.usage)
@@ -88,8 +94,29 @@ function itemsOf(opts) {
     if (outs.has(out)) throw new Fail(`${it.out} is used twice.`, EXIT.usage)
     outs.add(out)
     if (fs.existsSync(out) && !opts.overwrite) throw new Fail(`${out} already exists; pick a new name or pass --overwrite.`, EXIT.usage)
-    return { prompt: it.prompt.trim(), out, transparent: it.transparent }
+    return { prompt: it.prompt.trim(), out, transparent: it.transparent, type: typeof it.type === 'string' && it.type.trim() ? it.type.trim() : undefined }
   })
+}
+
+/**
+ * The world's Art Bible applied to every item: each prompt gets the compiled
+ * style after it, and the run attaches the union of the items' type
+ * references. Without a bible (or with --no-bible) nothing changes.
+ */
+function applyBible(world, items, refs, opts) {
+  if (!world || opts['no-bible']) return { refs, notes: [] }
+  const bible = loadArtBible(world.root, { file: process.env.GENIO_ART_BIBLE || undefined })
+  if (!bible) return { refs, notes: [] }
+  const all = [...refs]
+  const notes = []
+  for (const it of items) {
+    const r = applyToCodex({ bible, type: it.type, prompt: it.prompt })
+    it.prompt = r.prompt
+    it.artBible = r.stamp
+    for (const p of r.refs) if (!all.some((x) => path.resolve(x) === path.resolve(p))) all.push(p)
+    notes.push(...r.compiled.notes)
+  }
+  return { refs: all, notes: [...new Set(notes)] }
 }
 
 const isUnder = (child, parent) => {
@@ -215,7 +242,7 @@ async function main() {
     return
   }
   const items = itemsOf(opts)
-  const refs = opts.ref.map((r) => {
+  const ownRefs = opts.ref.map((r) => {
     const p = path.resolve(r)
     if (!fs.statSync(p, { throwIfNoEntry: false })?.isFile()) throw new Fail(`Reference image not found: ${p}`, EXIT.usage)
     if (!IMAGE_EXT.has(path.extname(p).toLowerCase())) throw new Fail(`${p}: references must be PNG, JPEG, WebP or GIF images.`, EXIT.usage)
@@ -238,6 +265,7 @@ async function main() {
   } else if (!opts['no-world']) {
     throw new Fail('Pass --world <your worktree root> or, outside any project, an explicit --no-world.', EXIT.usage)
   }
+  const { refs, notes: bibleNotes } = applyBible(world, items, ownRefs, opts)
   const warnAt = opts['warn-at'] === undefined ? 80 : Number(opts['warn-at'])
   if (!Number.isFinite(warnAt)) throw new Fail('--warn-at must be a percentage.', EXIT.usage)
   const timeoutS = opts.timeout === undefined ? Math.max(600, 180 * items.length) : Number(opts.timeout)
@@ -266,7 +294,7 @@ async function main() {
   const results = []
   items.forEach((it, i) => {
     const gen = parsed.images[i]
-    const r = { out: it.out, prompt: it.prompt, transparent: it.transparent }
+    const r = { out: it.out, prompt: it.prompt, transparent: it.transparent, ...(it.artBible ? { art_bible: it.artBible } : {}) }
     if (!gen) return results.push({ ...r, ok: false, error: 'Codex made no image for this item.' })
     Object.assign(r, { call_id: gen.id, revised_prompt: gen.revisedPrompt })
     if (gen.status !== 'completed') return results.push({ ...r, ok: false, error: `image_gen ${gen.status ?? 'unknown'}${gen.failure ? `: ${JSON.stringify(gen.failure)}` : ''}` })
@@ -289,7 +317,8 @@ async function main() {
         recipe: null,
         derived_from: derived,
         by,
-        created: gen.completedAt ?? new Date().toISOString()
+        created: gen.completedAt ?? new Date().toISOString(),
+        ...(it.artBible ? { art_bible: it.artBible } : {})
       })
     }
     results.push({ ...r, ok: true })
@@ -315,6 +344,7 @@ async function main() {
     plan: 'chatgpt',
     thread_id: threadId,
     images: results,
+    ...(bibleNotes.length ? { art_bible_notes: bibleNotes } : {}),
     plan_meter: meter,
     warning: meter.warning,
     spend_lines: world ? parsed.images.length : 0,
@@ -333,12 +363,15 @@ const USAGE = `Genio Codex image helper (uses your ChatGPT plan through Codex's 
   --transparent                 transparent background for every --prompt item
   --ref <image> [--ref ...]     reference images attached to the run (for edits or consistency)
   --world <worktree root>       project mode (on unless .genio/fal/config.json sets providers.codex.enabled false); writes provenance + spend
+                                and applies the project's Art Bible when it has one (style text + the type's references)
+  --type <asset type>           Art Bible section to follow (sprites, ui, buildings, ...; "type" per --batch item)
+  --no-bible                    generate without the Art Bible
   --no-world                    explicit run outside any project (no provenance, no spend line)
   [--overwrite] [--timeout <s>] [--warn-at <plan %, default 80>] [--scratch <dir under Genio's data>]`
 
 main().catch((e) => {
-  const code = e instanceof Fail ? e.code : e instanceof WorldError ? EXIT.usage : 1
-  const message = e instanceof Fail || e instanceof WorldError ? e.message : `${e?.code ?? e?.name ?? 'Error'}: ${e?.message ?? e}`
+  const code = e instanceof Fail ? e.code : e instanceof WorldError || e instanceof ArtBibleError ? EXIT.usage : 1
+  const message = e instanceof Fail || e instanceof WorldError ? e.message : e instanceof ArtBibleError ? `${e.message} Fix .genio/art-bible.md, or pass --no-bible.` : `${e?.code ?? e?.name ?? 'Error'}: ${e?.message ?? e}`
   process.stderr.write(JSON.stringify({ error: message, ...(e?.extra ?? {}) }, null, 2) + '\n')
   process.exit(code)
 })

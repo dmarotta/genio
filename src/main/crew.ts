@@ -37,6 +37,7 @@ import { isLink, removeLinkSafely } from '../../resources/unit-skills/genio/lib/
 import { sourceRemoved, yieldSource } from './source-leases'
 import { installUnitPlugin, openRouterEnv, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief } from './unitskills'
 import { findUnityCli, unityUnitConfig, unityUnitEnv } from './unity-unit'
+import { artBibleBriefLines, unitArtBible, unitArtBibleEnv } from './art-bible-gen'
 import {
   appendJsonl, appendLine, ensureDir, exists, fwd, nowIso, readJson, readText, rid, slugify, stripAnsi, truncate, writeJson, writeText
 } from './util'
@@ -154,6 +155,14 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
   const mainHome = home.parent ?? home
   const pluginDir = unitPluginDir(mainHome.root)
   const toolsBrief = (): string => unitToolsBrief(pluginDir)
+  /** The brief's Art Bible lines: none without a bible, and never fatal. */
+  const artBibleBrief = (main: string, wt: string, id: string): string[] => {
+    try {
+      return artBibleBriefLines(unitArtBible(main, wt, home.taskDir(id)), path.join(pluginDir, 'lib', 'genio-art.mjs'))
+    } catch {
+      return []
+    }
+  }
   const depsGuard = npmGuardScript(pluginDir)
   /** What Genio did about worktree dependencies and links (docs/unit-worktrees.md). */
   const depsLog = (record: Record<string, unknown>): void => safe(() => appendJsonl(path.join(mainHome.state, 'worktree-deps.jsonl'), { at: nowIso(), home: home.name, ...record }))
@@ -339,6 +348,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       ...depsShimEnv,
       ...(project ? depsEnv({ worktree: t.worktree, main: project.path, stateFile: depsStateFile(home.taskDir(t.id)), guard: depsGuard }) : {}),
       ...openRouterEnv(adapter.id, cheapModelsAllowed(project), openRouterKey),
+      // The bible as of this launch: the player's uncommitted edits reach the unit without Genio committing anything.
+      ...(project ? unitArtBibleEnv(project.path, t.worktree, home.taskDir(t.id)) : {}),
       GENIO_TASK_ID: t.id,
       GENIO_STATUS_FILE: fwd(home.statusFile(t.id)),
       GENIO_TASK_INBOX: fwd(inboxDir(t.id)),
@@ -633,6 +644,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
             briefInclude: s.briefInclude,
             summaryWords: req.kind === 'scout' ? ctx.dispatch.reportWords(project.name, loadout.harness) : undefined,
             tools: toolsBrief(),
+            artBible: artBibleBrief(project.path, wt, id),
             submodules,
             nodeDeps: nodeDeps(id, wt)
           })
@@ -1013,6 +1025,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           engine: project.engine,
           briefInclude: ctx.settings.get().briefInclude,
           tools: toolsBrief(),
+          artBible: artBibleBrief(project.path, t.worktree, id),
           nodeDeps: nodeDeps(id, t.worktree),
           carriedReport: report || '(the recon report was empty)'
         })

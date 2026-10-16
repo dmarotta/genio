@@ -19,7 +19,8 @@ import { readSpend, sha256File, type Provenance } from '../src/main/fal-world'
 
 vi.mock('../src/main/chat-imagegen', async importOriginal => {
   const original = await importOriginal<typeof import('../src/main/chat-imagegen')>()
-  return { ...original, chatImageGen: (ctx: AppCtx, home: Home) => ({ chatDir: path.join(home.data, 'chat-images'), post: ctx.home(home.name).wksp.post }), generateChatImages: async (gen: any) => {
+  return { ...original, chatImageGen: (ctx: AppCtx, home: Home) => ({ chatDir: path.join(home.data, 'chat-images'), post: ctx.home(home.name).wksp.post }), generateChatImages: async (gen: any, a: unknown) => {
+    (globalThis as { sentImageArgs?: unknown }).sentImageArgs = a
     fs.mkdirSync(gen.chatDir, { recursive: true })
     fs.writeFileSync(path.join(gen.chatDir, 'abc123-deadbeef.png'), 'image')
     gen.post({ text: '', images: [{ file: 'abc123-deadbeef.png', mediaType: 'image/png' }] })
@@ -114,8 +115,66 @@ it('places completed provider output through asset_locate into the nested engine
   expect(readSpend(project.path)).toHaveLength(1)
 })
 
+const BIBLE = `# Art Bible: Test
+## Style
+Chunky low-poly shapes in soft daylight.
+## References
+![Icon sheet](../Game/Art/icons.png "style sprites 3")
+## Sprites & icons
+Thick readable silhouettes.
+## Audio
+Warm acoustic medieval.
+## Animation
+Weighty, slightly slow.
+`
+
+it("applies the project's Art Bible to every generation tool and records it in provenance", async () => {
+  write('.genio/art-bible.md', BIBLE)
+  write('Game/Art/icons.png', 'png')
+  const ref = path.join(project.path, 'Game', 'Art', 'icons.png')
+  // FAL: the catalogue marks fal-ai/test as audio, so only the Audio section applies
+  const card = await service.fal('main', args())
+  expect(runs[0].input).toEqual({ prompt: 'door creak. Warm acoustic medieval.' })
+  expect(runs[0].artBible).toMatchObject({ type: 'audio', applied: ['type'], refs: [] })
+  expect(card.artBible).toMatchObject({ type: 'audio', applied: ['type'] })
+  await service.fal('main', args({ art_bible: false }))
+  expect(runs[1].input).toEqual({ prompt: 'door creak' })
+  expect(runs[1].artBible).toBeUndefined()
+
+  // Codex: style after the prompt, the type's reference attached, art_bible in the placed image's provenance
+  const sent = () => (globalThis as { sentImageArgs?: { prompt: string; refs: string[] } }).sentImageArgs!
+  const a = { world: 'test', place: 'Game/Assets/UI/icon.png', player_words: 'make an icon', prompt: 'a shield icon', count: 1, refs: [], transparent: false, asset_type: 'sprites' }
+  const image = await service.image('main', a)
+  expect(sent().prompt).toMatch(/^a shield icon\nArt direction: Chunky low-poly shapes in soft daylight\./)
+  expect(sent().prompt).toContain('Sprites & icons: Thick readable silhouettes.')
+  expect(sent().refs).toEqual([ref])
+  await vi.waitFor(() => expect(service.status(image.id, 'main').status).toBe('completed'))
+  const prov = JSON.parse(fs.readFileSync(path.join(project.path, '.genio/provenance/Game/Assets/UI/icon.png.json'), 'utf8'))
+  expect(prov.art_bible).toMatchObject({ type: 'sprites', refs: ['Game/Art/icons.png'], applied: expect.arrayContaining(['style', 'type', 'refs']) })
+  expect(prov.art_bible.blob).toMatch(/^[0-9a-f]{40}$/)
+  expect(prov.input.prompt).toBe(sent().prompt)
+  await service.image('main', { ...a, place: 'Game/Assets/UI/plain.png', art_bible: false })
+  expect(sent()).toMatchObject({ prompt: 'a shield icon', refs: [] })
+
+  // Uthana: the Animation line only
+  price = 0
+  await service.motion('main', { world: 'test', model: 'text-to-motion-3.0', prompt: 'walk slowly', player_words: 'make a walk', length: 4 }).then(q => service.approve(q.id, 'main', 'yes'))
+  expect(ctx.uthana.generate).toHaveBeenCalledWith(expect.objectContaining({ text: expect.objectContaining({ prompt: 'walk slowly. Weighty, slightly slow.' }), artBible: expect.objectContaining({ type: 'animation', applied: ['type'] }) }))
+})
+
+it('stops a generation on an Art Bible that cannot compile, and applies nothing for an empty one', async () => {
+  write('.genio/art-bible.md', '---\nsource: docs/missing.md\n---\n# B\n')
+  await expect(service.fal('main', args())).rejects.toThrow('art_bible: false')
+  expect(ctx.fal.run).not.toHaveBeenCalled()
+  await service.fal('main', args({ art_bible: false }))
+  write('.genio/art-bible.md', '  \n')
+  await service.fal('main', args())
+  expect(runs.map(r => r.input)).toEqual([{ prompt: 'door creak' }, { prompt: 'door creak' }])
+  expect(runs.every(r => r.artBible === undefined)).toBe(true)
+})
+
 it('never exposes generation or approval tools to Bot and validates all tool schemas', () => {
-  const names = ['fal_models', 'fal_generate', 'uthana_motion', 'uthana_character', 'generate_image', 'asset_place', 'approve_run', 'generation_status']
+  const names = ['fal_models', 'fal_generate', 'uthana_motion', 'uthana_character', 'generate_image', 'asset_place', 'approve_run', 'generation_status', 'art_bible']
   for (const role of ['bot', 'genio'] as const) {
     const defs = new Map<string, z.ZodRawShape>()
     const tool = ((name: string, _desc: string, shape: z.ZodRawShape) => { defs.set(name, shape); return {} }) as unknown as Parameters<typeof buildTools>[0]

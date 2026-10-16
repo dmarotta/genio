@@ -59,10 +59,17 @@ export function normalizeType(t: string | null | undefined): string | null
 export function parseFrontMatter(text: string): { data: Record<string, unknown>; body: string; lines: number; errors: string[] }
 export function parseArtBible(text: string, opts?: { file?: string; custom?: boolean; bytes?: number }): ParsedBible
 export function mergeArtBible(bible: ParsedBible, source?: ParsedBible | null): ResolvedBible
-export function loadArtBible(root: string, opts?: { text?: string }): ResolvedBible | null
+export function loadArtBible(root: string, opts?: { text?: string; file?: string }): ResolvedBible | null
 export function summarize(bible: ResolvedBible | null): Record<string, unknown> | null
 export function readArtBibleText(root: string): string | null
 export function writeArtBible(root: string, text: string): ResolvedBible | null
 export function targetOf(opts?: { provider?: string; endpoint?: string }): CompileTarget
 export function selectRefs(bible: ResolvedBible | null, type?: string | null, limit?: number): BibleRef[]
 export function compile(opts?: CompileOptions): Compiled | null
+
+/** What provenance records as `art_bible` (only when something was applied). */
+export interface BibleStamp { blob: string | null; source_blob?: string; type: string | null; refs: string[]; applied: string[] }
+export function bibleStamp(compiled: Compiled | null | undefined): BibleStamp | null
+export function applyToCodex(opts: { bible: ResolvedBible | null; type?: string; prompt: string; limit?: number }): { prompt: string; refs: string[]; compiled: Compiled; stamp: BibleStamp | null } | null
+export function applyToFal(input: Record<string, unknown>, opts: { bible: ResolvedBible | null; endpoint: string; schema?: unknown; type?: string; kind?: string }): { input: Record<string, unknown>; compiled: Compiled | null; stamp: BibleStamp | null; notes: string[] } | null
+export function applyToMotion(opts: { bible: ResolvedBible | null; prompt: string }): { prompt: string; compiled: Compiled; stamp: BibleStamp | null } | null

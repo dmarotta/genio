@@ -315,6 +315,7 @@ export function createFalService(getCtx: () => AppCtx, fetchFn: FetchFn = (u, i)
         estUsd: estimate(endpoint, req.input, world ?? null),
         world,
         recipe: req.recipe || undefined,
+        ...(req.artBible ? { artBible: req.artBible } : {}),
         createdAt: nowIso()
       }
       if (req.maxCostUsd !== undefined && (run.estUsd === undefined || run.estUsd > req.maxCostUsd + 1e-9)) throw new Error('FAL price changed since the quote; request a fresh quote')
@@ -459,7 +460,8 @@ export function createFalService(getCtx: () => AppCtx, fetchFn: FetchFn = (u, i)
           recipe: r.recipe ?? null,
           derived_from: prov.derivedFrom,
           by: req.by ?? 'player',
-          created: r.completedAt ?? r.createdAt
+          created: r.completedAt ?? r.createdAt,
+          ...(r.artBible ? { art_bible: r.artBible } : {})
         },
         spend: { t: r.createdAt, provider: 'fal', endpoint: r.endpoint, request_id: r.requestId ?? null, units: null, unit: price?.unit ?? null, est_usd: est ?? 0, by: req.by ?? 'player' }
       })

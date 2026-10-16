@@ -12,7 +12,10 @@
  * With --world <worktree root> it follows the world's .genio/ folder: player
  * defaults and recipes from .genio/fal/, a budget gate before every paid call,
  * one spend.jsonl line per paid call and a provenance file per downloaded
- * asset. It never writes .genio/fal/config.json or recipes.json.
+ * asset. It never writes .genio/fal/config.json or recipes.json. A project
+ * Art Bible (.genio/art-bible.md, or the launch snapshot in GENIO_ART_BIBLE)
+ * wraps the prompt after recipes and defaults (--type picks its section,
+ * --no-bible turns it off) and is recorded as art_bible in provenance.
  *
  * Every command prints one JSON document on stdout; progress goes to stderr.
  * Exit codes: 0 ok, 2 usage, 3 key missing, 4 FAL/network error, 5 still pending, 6 over budget.
@@ -24,6 +27,7 @@ import path from 'node:path'
 import {
   WorldError, suggestLocation, appendSpend, checkBudget, codexEnabled, findRecipe, folderFor, openWorld, readSpend, spendFile, unitBy, worldRel, writeProvenance
 } from '../../../lib/genio-world.mjs'
+import { ArtBibleError, applyToFal, loadArtBible } from '../../../lib/art-bible.mjs'
 
 const EXIT = { usage: 2, nokey: 3, api: 4, pending: 5, budget: 6 }
 const MISSING_KEY =
@@ -223,6 +227,14 @@ function mergedInput(world, endpoint, recipe, body = {}) {
   return { ...defaults, ...(isObj(recipe?.input) ? recipe.input : {}), ...body }
 }
 
+/** The world's Art Bible applied to a model input; the input as it was without a bible or with --no-bible. */
+function withBible(world, endpoint, body, opts) {
+  if (!world || opts['no-bible']) return { body, stamp: null, notes: [] }
+  const bible = loadArtBible(world.root, { file: process.env.GENIO_ART_BIBLE || undefined })
+  const r = applyToFal(body, { bible, endpoint, type: typeof opts.type === 'string' ? opts.type : undefined })
+  return r ? { body: r.input, stamp: r.stamp, notes: r.notes } : { body, stamp: null, notes: [] }
+}
+
 const usd = (n) => Math.round(n * 1e6) / 1e6
 const today = () => nowUtc().slice(0, 10)
 
@@ -260,8 +272,8 @@ async function submit(opts) {
   const world = worldOf(opts)
   const { endpoint, recipe } = target(opts, world)
   const receipt = req(opts, 'receipt')
-  const body = mergedInput(world, endpoint, recipe, readInput(opts))
-  if (body.sync_mode) throw new Fail('Leave sync_mode off: queued output stays recoverable from the receipt.', EXIT.usage)
+  const merged = mergedInput(world, endpoint, recipe, readInput(opts))
+  if (merged.sync_mode) throw new Fail('Leave sync_mode off: queued output stays recoverable from the receipt.', EXIT.usage)
   const budget = opts.budget === undefined ? null : positive(opts, 'budget', true)
   const ledger = ledgerOf(opts, world)
   if (budget != null && !ledger) throw new Fail('--budget outside project mode needs --ledger <spend.jsonl> to count what you already spent.', EXIT.usage)
@@ -269,6 +281,7 @@ async function submit(opts) {
     throw new Fail(`Receipt ${receipt} already exists. It records an earlier call; use status/result on it, or pick a new receipt name for a new paid call.`, EXIT.usage)
   }
   needKey()
+  const { body, stamp, notes } = withBible(world, endpoint, merged, opts)
   const by = unitBy()
   const est = await estimateFor(opts, endpoint)
   let gate = null
@@ -282,7 +295,7 @@ async function submit(opts) {
   const payload = inlineFiles(body)
   const record = { state: 'submission_unknown', endpoint, created_utc: nowUtc(), input: body }
   if (est) record.price = est.price
-  if (world) record.genio = { by, recipe: recipe?.id ?? null }
+  if (world) record.genio = { by, recipe: recipe?.id ?? null, ...(stamp ? { art_bible: stamp } : {}) }
   try {
     writeJson(receipt, record, true) // reserve before the paid call; never overwrite
   } catch (e) {
@@ -323,6 +336,8 @@ async function submit(opts) {
   return {
     receipt: path.resolve(receipt), state: record.state, endpoint, request_id: sub.request_id ?? null,
     ...(est ? { est_usd: est.price.estimated_usd } : {}),
+    ...(stamp ? { art_bible: stamp } : {}),
+    ...(notes.length ? { art_bible_notes: notes } : {}),
     ...(gate ? { budget: { ...gate, ok: undefined, reason: undefined } } : {})
   }
 }
@@ -470,7 +485,8 @@ function writeFalProvenance(world, file, record, seed) {
     recipe: record.genio?.recipe ?? null,
     derived_from: [...derived],
     by: record.genio?.by ?? unitBy(),
-    created: record.completed_utc ?? nowUtc()
+    created: record.completed_utc ?? nowUtc(),
+    ...(record.genio?.art_bible ? { art_bible: record.genio.art_bible } : {})
   })
 }
 
@@ -595,6 +611,7 @@ Project mode (.genio/ in your worktree):
   recipe   --world <root> --id <recipe> [--subject <text>]   a recipe with its prompt filled in (no network)
   run/submit ... --world <root> (--units <n>|--est-usd <n>) [--budget <usd>] [--recipe <id>] [--kind <image|audio|model|video>]
            priced and checked against the budgets first; logs .genio/spend.jsonl and writes .genio/provenance/
+           [--type <asset type>] [--no-bible]   the project's Art Bible wraps the prompt when it has one
   run/submit ... --budget <usd> --ledger <spend.jsonl> (--units <n>|--est-usd <n>)   the same budget stop outside a project`
 
 function catalogue(opts) {
@@ -624,8 +641,8 @@ async function main() {
 }
 
 main().catch((e) => {
-  const code = e instanceof Fail ? e.code : e instanceof WorldError ? EXIT.usage : 1
-  const message = e instanceof Fail || e instanceof WorldError ? e.message : `${e?.code ?? e?.name ?? 'Error'}: ${e?.message ?? e}`
+  const code = e instanceof Fail ? e.code : e instanceof WorldError || e instanceof ArtBibleError ? EXIT.usage : 1
+  const message = e instanceof Fail || e instanceof WorldError ? e.message : e instanceof ArtBibleError ? `${e.message} Fix .genio/art-bible.md, or pass --no-bible.` : `${e?.code ?? e?.name ?? 'Error'}: ${e?.message ?? e}`
   process.stderr.write(JSON.stringify(redact({ error: message, ...(e?.extra ?? {}) }), null, 2) + '\n')
   process.exit(code)
 })

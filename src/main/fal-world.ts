@@ -20,7 +20,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { FalRecipe, FalWorldConfig } from '@shared/api'
+import type { ArtBibleStamp, FalRecipe, FalWorldConfig } from '@shared/api'
 import { suggestFolder, type SpendLine } from '@shared/fal'
 import type { Engine } from '@shared/types'
 import type { WorldCatalogue } from './fal-catalogue'
@@ -154,6 +154,8 @@ export interface Provenance {
   /** 'player' from the screen, 'unit:<id>' from units */
   by: string
   created: string
+  /** only when the generation applied the project's Art Bible */
+  art_bible?: ArtBibleStamp
 }
 
 export function sha256File(p: string): string {
