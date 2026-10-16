@@ -19,7 +19,7 @@ const USAGE = `Usage: node genio-art.mjs <command> --world <project root> [optio
   refs     [--type <t>] [--limit <n>]   references for an asset type, best first
   check                         sizes, front matter, source and missing references
 Without ${BIBLE_FILE} (or with an empty one) there is no bible and compile returns null.
-In a unit, GENIO_ART_BIBLE (the bible as of its launch) is read instead of the world's file.`
+In a unit, GENIO_ART_BIBLE (the bible as of its launch) is read instead of the project's file.`
 
 class Usage extends Error {}
 
@@ -37,7 +37,7 @@ function parseArgs(argv) {
   return { command, opts }
 }
 
-/** A unit's GENIO_ART_BIBLE (its launch snapshot) stands in for the world's file, as in the generators. */
+/** A unit's GENIO_ART_BIBLE (its launch snapshot) stands in for the project's file, as in the generators. */
 function load(opts) {
   if (typeof opts.world !== 'string' || !opts.world.trim()) throw new Usage('Missing --world <project root>.')
   return loadArtBible(opts.world, { file: process.env.GENIO_ART_BIBLE || undefined })

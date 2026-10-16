@@ -128,4 +128,4 @@ The contract has one line, and the assets skill one step. The `art_bible(world, 
 node resources/unit-skills/genio/lib/genio-art.mjs show|compile|refs|check --world <root> [--type building] [--provider codex|fal|uthana] [--endpoint <id>] [--subject <text>]
 ```
 
-The CLI only reads. It prints one JSON document, and exits 2 on usage errors and 3 when the bible has errors. In a unit it reads `GENIO_ART_BIBLE` instead of the world's file.
+The CLI only reads. It prints one JSON document, and exits 2 on usage errors and 3 when the bible has errors. In a unit it reads `GENIO_ART_BIBLE` instead of the project's file.
