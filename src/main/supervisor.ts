@@ -29,7 +29,8 @@ import { runShell, truncate } from './util'
 import { heartbeatFor } from './usage-policy'
 import { createUnityProcessWatch, type UnityWatchRoot } from './unity-guards'
 import { createDepsWatch, npmGuardScript, type DepsWatchUnit } from './worktree-deps'
-import { unitPluginDir } from './unitskills'
+import { modellerDataDir, unitPluginDir } from './unitskills'
+import { hasModellerModel } from './modeller-live'
 import { loadGuardConfig } from '../../resources/unit-skills/genio/lib/unity-guard.mjs'
 
 interface Track {
@@ -680,6 +681,12 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
     nextTickAt = now + Math.min(maxMs, baseMs * Math.pow(2, tickStreak))
   }
 
+  /** A Build that started a model is a Modeller from then on: orange on the Squad, its page canvas first. */
+  function stepModeller(t: Task): void {
+    if (t.kind !== 'ship' || t.modeller) return
+    if (hasModellerModel(modellerDataDir(hc().home.taskDir(t.id)))) hc().crew.update(t.id, { modeller: true })
+  }
+
   // ------------------------------------------------------------ pass
 
   async function pass(): Promise<void> {
@@ -720,6 +727,7 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
         step('pr', () => stepPr(t, tr, now, s))
         step('recon', () => stepReconParked(t, now))
         step('idle-close', () => stepIdleClose(hc().crew.get(t0.id) ?? t, tr, now))
+        step('modeller', () => stepModeller(t))
       }
       step('triggers', () => stepTriggers(now, s))
       // capacity or quota may have freed: plan steps waiting for a place start now, without a model turn

@@ -1,4 +1,4 @@
-import { Radar, Rocket } from 'lucide-react'
+import { Box, Radar, Rocket } from 'lucide-react'
 import { finishedAt, outcomeTone, squadAttention, squadOutcome, squadState, squadTone } from '@shared/squad-display'
 import { pendingDecision } from '@shared/decisions'
 import { mergeApprovalLabel } from '@shared/merge-approval'
@@ -6,7 +6,8 @@ import { planStepOfTask, stepChipLabel } from '@shared/work-plan'
 import type { Task } from '@shared/types'
 import { focusTask, openDeploy, squadRoster, useStore } from '../store'
 import { Dot, NeedsYou, useNow } from './ui'
-import { KIND_LABEL } from '../lib/vocab'
+import { unitKindLabel } from '../lib/vocab'
+import { useModellerLive } from './ModellerView'
 import { clock, cx, dateShort, elapsed } from '../lib/format'
 
 export function Roster() {
@@ -28,7 +29,7 @@ function RosterSub({ t }: { t: Task }) {
   const plans = useStore(s => s.snap.plans)
   const found = plans?.length ? planStepOfTask(plans, t) : undefined
   return <div className="roster-sub mute">
-    {t.kind === 'scout' ? <Radar size={10} /> : <Rocket size={10} />} {KIND_LABEL[t.kind]} · {found
+    {t.kind === 'scout' ? <Radar size={10} /> : t.modeller ? <Box size={10} /> : <Rocket size={10} />} {unitKindLabel(t)} · {found
       ? <span className="roster-step" title={`${t.project} · plan "${found.plan.title}"`}>{stepChipLabel(found.plan, found.step)}</span>
       : t.project}
   </div>
@@ -40,17 +41,25 @@ function RosterRow({ t, now }: { t: Task; now: number }) {
   const state = squadState(t, terminal)
   const tone = squadTone(t, terminal)
   const attention = squadAttention(t, terminal, pending)
-  return <button className="roster-row" onClick={() => focusTask(t.id)} title={t.stateReason}>
+  return <button className={cx('roster-row', t.modeller && 'has-thumb')} onClick={() => focusTask(t.id)} title={t.stateReason}>
     <Dot tone={tone} pulse={state === 'WORKING'} />
     <div className="roster-main">
       <div className="roster-title">{t.title}</div>
       <RosterSub t={t} />
     </div>
+    {t.modeller && <RosterThumb t={t} live={!!terminal?.alive} />}
     <div className="roster-right">
       <span className="roster-state" style={{ color: `var(--${tone})` }}>{attention && <NeedsYou compact />}{state}</span>
       <span className="mono mute">{elapsed(t.createdAt, now)}</span>
     </div>
   </button>
+}
+
+/** A Modeller's latest step render, small, beside its row. */
+function RosterThumb({ t, live }: { t: Task; live: boolean }) {
+  const model = useModellerLive(t.id, live, 5000)
+  const head = model?.steps.at(-1)
+  return <span className="roster-thumb">{head?.view && <img src={head.view} alt="" title={`${model!.model}, step ${head.n}: ${head.caption}`} />}</span>
 }
 
 /** Finish time: clock today, date before. */

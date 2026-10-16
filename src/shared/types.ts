@@ -184,6 +184,8 @@ export interface Task {
   loadout?: string[]
   /** dispatch category the loadout was picked for */
   category?: TaskCategory
+  /** A Modeller: a Build whose deliverable is a 3D model, so its page leads with the live view. Set when its first model appears. */
+  modeller?: boolean
   /** who decided the unit tool, and whether exploration picked it */
   loadoutSource?: Loadout['source']
   ruleId?: string

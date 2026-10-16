@@ -174,7 +174,8 @@ export async function isAncestor(dir: string, maybeAncestor: string, of: string)
 }
 
 export async function diffStat(dir: string, base: string): Promise<string> {
-  return out(dir, ['diff', '--stat', `${base}...HEAD`])
+  // Wide enough that git never shortens a path to ".../name": the Changes tab previews binaries by path.
+  return out(dir, ['diff', '--stat=1000,900', `${base}...HEAD`])
 }
 
 /** Files a branch changed since it forked from base (empty when either ref is unknown). */

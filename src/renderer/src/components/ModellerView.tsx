@@ -13,8 +13,8 @@ const TOGGLES: [Toggle, string, string][] = [
 // The toggles carry over from unit to unit.
 let remembered: Pick<ViewerSettings, Toggle> = { wireframe: false, clay: false, turntable: false }
 
-/** A unit's Modeller state, read again every second while `poll` (its terminal is live); null while it has no model. */
-export function useModellerLive(id: string, poll: boolean): ModellerLive | null {
+/** A unit's Modeller state, read again every `everyMs` while `poll` (its terminal is live); null while it has no model. */
+export function useModellerLive(id: string, poll: boolean, everyMs = 1000): ModellerLive | null {
   const [live, setLive] = useState<ModellerLive | null>(null)
   useEffect(() => {
     let alive = true
@@ -22,9 +22,9 @@ export function useModellerLive(id: string, poll: boolean): ModellerLive | null 
       void api().modellerLive(id).then(l => { if (alive) setLive(prev => prev?.stamp === l?.stamp ? prev : l) }, () => {})
     }
     load()
-    const iv = poll ? window.setInterval(load, 1000) : undefined
+    const iv = poll ? window.setInterval(load, everyMs) : undefined
     return () => { alive = false; if (iv) window.clearInterval(iv) }
-  }, [id, poll])
+  }, [id, poll, everyMs])
   return live
 }
 

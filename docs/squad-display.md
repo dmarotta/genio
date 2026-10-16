@@ -28,6 +28,7 @@ landed commit. Beside More sits one primary action, by state
 | failed, exited, detached | Respawn, with the stop reason in words |
 | Recon done | Build from this report, and Archive (despawns the copy, keeps the report) |
 | merged, despawned | none |
+| Modeller, working or asking "Accept?" | Accept step N: the unit places and commits the model, then Merge as above |
 
 More holds Interrupt (working only), Respawn, Recall (live only), Open folder
 and Despawn (red), each with its one-line consequence (`UNIT_ACTION_HINT`).
@@ -45,7 +46,12 @@ option while the agent runs. A "needs input" badge marks the terminal when the
 agent has printed nothing for the lagging window (Settings: Call a unit lagging
 after) or the unit is lagging.
 
-Build work uses blue; Recon work uses purple. Open player decisions and blocked
+A Modeller (a Build that started a 3D model) leads with its live model instead
+of the terminal, which becomes a side tab after Steps (thumbnails, Revert to N,
+Branch from N, the head step's checks as information only). Its Squad card and
+rail row show the latest step's render; Changes shows binaries before and after.
+
+Build work uses blue, Modeller work orange; Recon work uses purple. Open player decisions and blocked
 units use yellow while retaining WORKING. Errors and abnormal exits use red.
 READY TO MERGE and successful DONE outcomes use the same existing green. Per the
 player's explicit color decision, there is no extra ready highlight or badge;

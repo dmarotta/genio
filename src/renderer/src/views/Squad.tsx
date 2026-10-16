@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
-  Archive, ArrowLeft, ChevronDown, ExternalLink, FolderOpen, GitMerge, Info, MoreHorizontal, Play as PlayIcon, Radar, RotateCcw, Rocket, Send,
+  Archive, ArrowLeft, Box, Check, ChevronDown, ExternalLink, FolderOpen, GitMerge, Info, MoreHorizontal, Play as PlayIcon, Radar, RotateCcw, Rocket, Send,
   SquareTerminal, ArrowUpFromLine, X
 } from 'lucide-react'
 import type { Decision, Task, TerminalInfo, ValidationStep, Verdict } from '@shared/types'
@@ -9,18 +9,21 @@ import type { TaskFile } from '@shared/api'
 import { api, errText, focusTask, op, openDeploy, setState, toast, liveTasks, useStore } from '../store'
 import { TerminalView } from '../components/Terminal'
 import { ModellerView, useModellerLive } from '../components/ModellerView'
+import { ModellerCardView, ModellerSteps, modelLocked } from '../components/ModellerSteps'
+import type { UnitFilePreview } from '@shared/modeller'
 import { Markdown } from '../components/Markdown'
 import { Chip, Confirm, DislikeMarker, Empty, Modal, Field, NeedsYou, Tabs, ViewHeader, useNow } from '../components/ui'
 import { GenioCore } from '../components/GenioCore'
 import { Popover } from '../components/Layer'
 import { RATEABLE, VerdictButtons, VerdictPick, rateThenMerge } from '../components/Dispatch'
-import { KIND_LABEL } from '../lib/vocab'
+import { unitKindLabel } from '../lib/vocab'
 import { ago, clock, cx, shortPath } from '../lib/format'
+import { assetBytes } from '../lib/inventory'
 import { playSfx } from '../lib/sfx'
 import { squadAttention, squadBadge, squadState, squadTone, unitClock } from '@shared/squad-display'
 import { UNIT_ACTION_HINT, canRespawn, hasOpenPr } from '@shared/unit-actions'
 import {
-  canRate, deliveryLabel, mergeTimeline, needsInput, parsePings, parseStatusLines, parseUnitChanges, primaryAction, prMergeBlock,
+  acceptOption, canRate, deliveryLabel, mergeTimeline, needsInput, parsePings, parseStatusLines, parseUnitChanges, primaryAction, prMergeBlock,
   reportedTests, unitBadge, unitPlay, type TimelineRow, type UnitChanges
 } from '@shared/unit-page'
 import { pendingDecision } from '@shared/decisions'
@@ -114,11 +117,11 @@ function UnitCard({ t, term }: { t: Task; term?: TerminalInfo }) {
   const attention = squadAttention(t, term, pending)
   const recon = t.kind === 'scout'
   return (
-    <article className={cx('unit-card panel', `tone-${tone}`, recon && 'recon', attention && 'attention')}>
+    <article className={cx('unit-card panel', `tone-${tone}`, recon && 'recon', t.modeller && 'modeller', attention && 'attention')}>
       <header className="unit-head" onClick={() => focusTask(t.id)}>
         <div className="unit-kind">
-          {recon ? <Radar size={14} /> : <Rocket size={14} />}
-          <span>{KIND_LABEL[t.kind]}</span>
+          {recon ? <Radar size={14} /> : t.modeller ? <Box size={14} /> : <Rocket size={14} />}
+          <span>{unitKindLabel(t)}</span>
         </div>
         <div className="unit-title-wrap">
           <div className="unit-title">{t.title}</div>
@@ -138,7 +141,9 @@ function UnitCard({ t, term }: { t: Task; term?: TerminalInfo }) {
         </div>
       </header>
       <div className="unit-term" onDoubleClick={() => focusTask(t.id)}>
-        {term && term.alive ? (
+        {t.modeller ? (
+          <ModellerCardSlot t={t} term={term} />
+        ) : term && term.alive ? (
           <TerminalView id={term.id} fontSize={11} passive interactive={false} />
         ) : (
           <NoSignal t={t} />
@@ -160,6 +165,13 @@ function UnitCard({ t, term }: { t: Task; term?: TerminalInfo }) {
       </footer>
     </article>
   )
+}
+
+/** A Modeller's card shows its model, not its terminal: the latest step's render and caption. */
+function ModellerCardSlot({ t, term }: { t: Task; term?: TerminalInfo }) {
+  const live = useModellerLive(t.id, !!term?.alive, 4000)
+  if (live) return <ModellerCardView live={live} />
+  return term?.alive ? <TerminalView id={term.id} fontSize={11} passive interactive={false} /> : <NoSignal t={t} />
 }
 
 /** A Squad card whose agent is not running. The unit page has no such panel: its content takes the space. */
@@ -251,9 +263,12 @@ function SessionDetail({ id }: { id: string }) {
 
 // ------------------------------------------------------------------ unit detail
 
-type TabId = 'model' | 'changes' | 'timeline' | 'brief' | 'report' | 'checks'
-/** Under 900 px one pane shows at a time: the terminal or a side tab. */
-type PaneId = 'terminal' | TabId
+type TabId = 'steps' | 'terminal' | 'changes' | 'timeline' | 'brief' | 'report' | 'checks'
+/**
+ * The main area is the terminal, or a Modeller's live model (its terminal then becomes a side tab).
+ * Under 900 px one pane shows at a time: the main area or a side tab.
+ */
+type PaneId = 'main' | TabId
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => window.setTimeout(r, ms))
 const since = (iso: string, now: number): string => {
@@ -322,8 +337,8 @@ function UnitDetail({ id }: { id: string }) {
   const planStep = t && plans?.length ? planStepOfTask(plans, t) : undefined
   const reconFinished = t?.kind === 'scout' && (t.state === 'done' || !!t.reportPath)
   const [tab, setTab] = useState<TabId>(() => (reconFinished ? 'report' : t?.kind === 'scout' ? 'timeline' : 'changes'))
-  const [pane, setPane] = useState<'terminal' | 'side'>(() => (reconFinished ? 'side' : 'terminal'))
-  const [confirm, setConfirm] = useState<null | 'despawn' | 'archive' | 'force' | 'merge' | 'recall'>(null)
+  const [pane, setPane] = useState<'main' | 'side'>(() => (reconFinished ? 'side' : 'main'))
+  const [confirm, setConfirm] = useState<null | 'despawn' | 'archive' | 'force' | 'merge' | 'recall' | 'accept'>(null)
   const [refusal, setRefusal] = useState('')
   const [upgrade, setUpgrade] = useState(false)
   const [verdict, setVerdict] = useState<Verdict | undefined>()
@@ -334,13 +349,15 @@ function UnitDetail({ id }: { id: string }) {
   const statusRows = useMemo(() => parseStatusLines(status.text ?? ''), [status.text])
   const changes = useMemo(() => parseUnitChanges(changesFile.text ?? ''), [changesFile.text])
   const modeller = useModellerLive(id, live && t?.kind === 'ship')
-  // A Modeller's model is what the player came for: open its tab once it appears.
-  const hasModel = !!modeller
-  useEffect(() => { if (hasModel) setTab('model') }, [hasModel])
+  // A Modeller's page is canvas first: the live model is the main area and its steps the first side tab.
+  const canvas = !!modeller && t?.kind === 'ship'
+  useEffect(() => { if (canvas) { setTab('steps'); setPane('main') } }, [canvas])
+  const head = modeller?.steps.at(-1)
   useScreenContext('squad', { facts: t ? [
     { label: 'Unit', value: `${t.title} [${t.id}]` },
-    { label: 'State', value: `${unitBadge(t, term).label} (${t.state}) · ${KIND_LABEL[t.kind]} · ${t.branch}` },
-    { label: 'Tab', value: tab },
+    { label: 'State', value: `${unitBadge(t, term).label} (${t.state}) · ${unitKindLabel(t)} · ${t.branch}` },
+    { label: 'Tab', value: canvas && pane === 'main' ? 'model (live 3D view)' : tab },
+    modeller && { label: 'Model', value: `${modeller.model} · ${head ? `step ${head.n} of ${modeller.steps.length}: ${head.caption}` : 'no steps yet'} · branch ${modeller.branch}${modeller.running ? ` · now running step ${modeller.running.n}: ${modeller.running.caption}` : ''}` },
     statusRows.length > 0 && { label: 'Last status', value: `${statusRows.at(-1)!.verb}: ${statusRows.at(-1)!.text}` }
   ] : [{ label: 'Unit', value: `${id} (gone)` }] })
 
@@ -359,22 +376,33 @@ function UnitDetail({ id }: { id: string }) {
   const attention = squadAttention(t, term, !!question)
   const recon = t.kind === 'scout'
   const cleaned = t.state === 'cleaned'
-  const primary = primaryAction(t, term, !!question)
+  const accept = acceptOption(question)
+  const primary = primaryAction(t, term, !!question, !!accept)
+  const acceptOff = !modeller ? 'The model is still loading.' : !head ? 'No step to accept yet.' : modelLocked(t, modeller)
   const hardcore = !!t.validation || t.mode === 'no-mistakes'
   const lagging = needsInput(t, term, now, settings?.staleSeconds)
+  const termLabel = lagging ? 'Terminal ●' : 'Terminal'
   const tabs = ([
-    !!modeller && { id: 'model', label: 'Model' },
+    canvas && { id: 'steps', label: 'Steps' },
     !recon && { id: 'changes', label: 'Changes', badge: changes.files.length },
+    canvas && term && { id: 'terminal', label: termLabel },
     { id: 'timeline', label: 'Timeline' },
     { id: 'brief', label: 'Brief' },
     (recon || !!t.reportPath) && { id: 'report', label: 'Report' },
     !recon && hardcore && { id: 'checks', label: 'Checks' }
   ] as ({ id: TabId; label: string; badge?: number } | false)[]).filter((x): x is { id: TabId; label: string; badge?: number } => !!x)
   const current: TabId = tabs.some((x) => x.id === tab) ? tab : tabs[0].id
-  const shown: PaneId = term && pane === 'terminal' ? 'terminal' : current
+  const main = canvas ? { id: 'main' as PaneId, label: 'Model' } : term ? { id: 'main' as PaneId, label: termLabel } : undefined
+  const shown: PaneId = main && pane === 'main' ? 'main' : current
   const showPane = (p: PaneId): void => {
-    setPane(p === 'terminal' ? 'terminal' : 'side')
-    if (p !== 'terminal') setTab(p)
+    setPane(p === 'main' ? 'main' : 'side')
+    if (p !== 'main') setTab(p)
+  }
+  const acceptNow = async (): Promise<void> => {
+    if (!modeller || !head) return
+    const r = await op('Accept', () => api().modellerAct(t.id, { op: 'accept', model: modeller.model, step: head.id }))
+    // The unit's own "Accept?" question is answered too, so it stops waiting.
+    if (r?.ok && question && accept) await op('Accept', () => api().answerDecision(question.id, accept))
   }
 
   const latest = statusRows.at(-1)
@@ -422,8 +450,8 @@ function UnitDetail({ id }: { id: string }) {
           <button className="btn ghost sm" onClick={() => setState({ focus: null })}>
             <ArrowLeft size={14} /> Squad
           </button>
-          <span className={cx('chip', recon ? 'violet' : 'neon')}>
-            {recon ? <Radar size={11} /> : <Rocket size={11} />} {KIND_LABEL[t.kind]}
+          <span className={cx('chip', recon ? 'violet' : t.modeller ? 'orange' : 'neon')}>
+            {recon ? <Radar size={11} /> : t.modeller ? <Box size={11} /> : <Rocket size={11} />} {unitKindLabel(t)}
           </span>
           <span className="uh-state">
             <Chip tone={badge.tone} pulse={badge.label === 'WORKING'}>{badge.label}</Chip>
@@ -461,6 +489,11 @@ function UnitDetail({ id }: { id: string }) {
               </button>
             </>
           )}
+          {primary === 'accept' && (
+            <button className="btn sm solid orange uh-primary" disabled={!!acceptOff} title={acceptOff || 'The unit places this step in the project and commits it; you merge as usual'} onClick={() => setConfirm('accept')}>
+              <Check size={13} /> Accept{head ? ` step ${head.n}` : ''}
+            </button>
+          )}
           {primary === 'respawn' && (
             <button className="btn sm solid uh-primary" disabled={!canRespawn(t)} title={UNIT_ACTION_HINT.respawn} onClick={() => void op('Respawn', () => api().controlTask(t.id, 'relaunch'))}>
               <RotateCcw size={13} /> Respawn
@@ -483,29 +516,29 @@ function UnitDetail({ id }: { id: string }) {
           )}
           <MoreMenu items={more} />
         </div>
-        {primary === 'question' && <UnitQuestion t={t} d={question} fallback={latest?.text ?? t.stateReason ?? ''} />}
+        {(primary === 'question' || (primary === 'accept' && question)) && <UnitQuestion t={t} d={question} fallback={latest?.text ?? t.stateReason ?? ''} />}
       </header>
 
       <div className="detail-switch">
-        <Tabs<PaneId> value={shown} onChange={showPane} tabs={[...(term ? [{ id: 'terminal' as PaneId, label: lagging ? 'Terminal ●' : 'Terminal' }] : []), ...tabs]} />
+        <Tabs<PaneId> value={shown} onChange={showPane} tabs={[...(main ? [main] : []), ...tabs]} />
       </div>
-      <div className={cx('detail-body', !term && 'no-term', shown === 'terminal' ? 'pane-terminal' : 'pane-side')}>
-        {term && (
+      <div className={cx('detail-body', !main && 'no-term', shown === 'main' ? 'pane-terminal' : 'pane-side')}>
+        {canvas && modeller ? (
+          <div className="detail-term detail-canvas panel">
+            <ModellerView live={modeller} />
+          </div>
+        ) : term && (
           <div className="detail-term panel">
-            {lagging && (
-              <span className="needs-input" title="No output for a while: the agent may be waiting at a prompt. Click the terminal to type, or ping it below.">
-                <i className="dot pulse" /> needs input
-              </span>
-            )}
-            <TerminalView id={term.id} fontSize={13} passive interactive={term.alive} />
+            <UnitTerminal id={term.id} alive={term.alive} lagging={lagging} />
           </div>
         )}
         <aside className="detail-side panel">
           <div className="detail-side-tabs">
             <Tabs<TabId> value={current} onChange={setTab} tabs={tabs} />
           </div>
-          <div className="detail-tab">
-            {current === 'model' && modeller && <ModellerView live={modeller} />}
+          <div className={cx('detail-tab', current === 'terminal' && 'detail-tab-term')}>
+            {current === 'steps' && modeller && <ModellerSteps t={t} live={modeller} />}
+            {current === 'terminal' && term && <UnitTerminal id={term.id} alive={term.alive} lagging={lagging} />}
             {current === 'changes' && <ChangesTab t={t} changes={changes} loading={changesFile.text === null} err={changesFile.err} rows={statusRows} />}
             {current === 'timeline' && <TimelineTab t={t} rows={statusRows} loading={status.text === null} />}
             {current === 'brief' && <FileMarkdown t={t} which="brief" empty="No brief." />}
@@ -515,7 +548,7 @@ function UnitDetail({ id }: { id: string }) {
         </aside>
       </div>
 
-      <PingBox t={t} live={live} steer={primary === 'steer'} />
+      <PingBox t={t} live={live} steer={primary === 'steer' || primary === 'accept'} />
 
       {(confirm === 'despawn' || confirm === 'archive') && (
         <Confirm
@@ -597,8 +630,39 @@ function UnitDetail({ id }: { id: string }) {
           onClose={() => setConfirm(null)}
         />
       )}
+      {confirm === 'accept' && modeller && head && (
+        <Confirm
+          title={`Accept step ${head.n}?`}
+          tone="orange"
+          confirmLabel="Accept"
+          body={
+            <>
+              <p>
+                Step {head.n} · {head.caption} ({head.triangles.toLocaleString()} triangles, {head.parts} parts{modeller.branch !== 'main' ? `, branch ${modeller.branch}` : ''}) becomes the model this unit delivers.
+              </p>
+              <p>The unit places it in the project and commits it with its .blend and build scripts, then reports ready. Nothing merges until you merge it, as with any Build.</p>
+            </>
+          }
+          onConfirm={acceptNow}
+          onClose={() => setConfirm(null)}
+        />
+      )}
       {upgrade && <UpgradeModal t={t} onClose={() => setUpgrade(false)} />}
     </div>
+  )
+}
+
+/** The unit's own terminal: the main area of a Build, a side tab of a Modeller. */
+function UnitTerminal({ id, alive, lagging }: { id: string; alive: boolean; lagging: boolean }) {
+  return (
+    <>
+      {lagging && (
+        <span className="needs-input" title="No output for a while: the agent may be waiting at a prompt. Click the terminal to type, or ping it below.">
+          <i className="dot pulse" /> needs input
+        </span>
+      )}
+      <TerminalView id={id} fontSize={13} passive interactive={alive} />
+    </>
   )
 }
 
@@ -865,10 +929,13 @@ function ChangesTab({ t, changes, loading, err, rows }: { t: Task; changes: Unit
           ) : (
             <ul className="ch-files">
               {changes.files.map((f) => (
-                <li key={f.path} title={f.path}>
-                  <span className="mono ch-path">{f.path}</span>
-                  <span className="mono mute ch-n">{f.binary ? 'bin' : f.changes}</span>
-                  <i className="ch-bar" style={{ width: `${Math.round((f.changes / most) * 100)}%` }} />
+                <li key={f.path} title={f.path} className={cx(f.binary && PREVIEWABLE.test(f.path) && 'ch-has-preview')}>
+                  <div className="ch-row">
+                    <span className="mono ch-path">{f.path}</span>
+                    <span className="mono mute ch-n">{f.binary ? 'bin' : f.changes}</span>
+                    <i className="ch-bar" style={{ width: `${Math.round((f.changes / most) * 100)}%` }} />
+                  </div>
+                  {f.binary && PREVIEWABLE.test(f.path) && <BinaryPreview t={t} file={f.path} rev={changes.commits[0] ?? ''} />}
                 </li>
               ))}
               {changes.uncommitted.map((u) => (
@@ -895,6 +962,34 @@ function ChangesTab({ t, changes, loading, err, rows }: { t: Task; changes: Unit
           {full && <FullDiff t={t} />}
         </>
       )}
+    </div>
+  )
+}
+
+/** Binary files the Changes tab can show as pictures: images, and models (drawn by Inventory, or the Modeller's render). */
+const PREVIEWABLE = /^(?!.*=>)[^]*\.(png|jpe?g|webp|gif|bmp|avif|glb|gltf|fbx|obj|stl|ply|dae|usda?|3ds|blend)$/i
+
+/** Before and after thumbnails of a binary file, with its size change (and a model's triangles and parts). */
+function BinaryPreview({ t, file, rev }: { t: Task; file: string; rev: string }) {
+  const [p, setP] = useState<UnitFilePreview | null>(null)
+  useEffect(() => {
+    let alive = true
+    void api().unitFilePreview(t.id, file).then((r) => { if (alive) setP(r) }, () => { if (alive) setP({ kind: 'other' }) })
+    return () => { alive = false }
+  }, [t.id, file, rev])
+  if (!p || p.kind === 'other') return null
+  const side = (label: string, url: string | undefined, size: number | undefined, missing: string): ReactNode => (
+    <figure className="ch-thumb">
+      {url ? <img src={url} alt={`${file}, ${label}`} loading="lazy" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} /> : <span className="mute">{size === undefined ? missing : 'no preview'}</span>}
+      <figcaption className="mute">{label}{size !== undefined ? ` · ${assetBytes(size)}` : ''}</figcaption>
+    </figure>
+  )
+  return (
+    <div className="ch-preview">
+      {side('before', p.before, p.beforeBytes, 'new file')}
+      <span className="ch-arrow mute">→</span>
+      {side('after', p.after, p.afterBytes, 'removed')}
+      {p.triangles !== undefined && <div className="mute ch-preview-note">{p.triangles.toLocaleString()} triangles · {p.parts} parts (Modeller's latest step)</div>}
     </div>
   )
 }

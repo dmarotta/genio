@@ -7,7 +7,10 @@ import { playerInstanceService } from './player-instance'
 import { playerSources, sourceUnit } from './player-sources'
 import { modelViewer } from './model-viewer'
 import { readModellerLive } from './modeller-live'
-import { modellerDataDir } from './unitskills'
+import { modellerAction } from './modeller-actions'
+import { unitFilePreview } from './unit-file-preview'
+import { baseRef } from './git'
+import { modellerDataDir, modellerScript, unitPluginSource } from './unitskills'
 import { standingApprovals } from './standing-approvals'
 import { readArtBibleView, writeArtBibleFile } from './art-bible'
 /**
@@ -62,6 +65,11 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     const f = findTask(ctx(), id)
     if (!f) throw new Error(`no unit/mission ${id}`)
     return f
+  }
+  /** A unit's model as the live view reads it, step files served through its one viewer grant. */
+  const unitModel = (hc: HomeCtx, task: Task): ReturnType<typeof readModellerLive> => {
+    const data = modellerDataDir(hc.home.taskDir(task.id))
+    return readModellerLive(data, () => modelViewer().grantUnit(task.id, { modeller: data, worktree: task.worktree }))
   }
   const projectRoot = (world: string): string => {
     const root = ctx().projects.get(world)?.path
@@ -161,8 +169,22 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     inventoryModelRelease: async (url, completeOnly) => modelViewer().revoke(url, completeOnly === true),
     modellerLive: (id) => {
       const { hc, task } = taskHome(id)
-      const data = modellerDataDir(hc.home.taskDir(id))
-      return readModellerLive(data, () => modelViewer().grantUnit(id, { modeller: data, worktree: task.worktree }))
+      const live = unitModel(hc, task)
+      if (live && !task.modeller && task.kind === 'ship') hc.crew.update(id, { modeller: true })
+      return live
+    },
+    modellerAct: async (id, act) => {
+      const { hc, task } = taskHome(id)
+      if (task.state === 'cleaned') return { ok: false, message: 'This unit was despawned; its model can no longer change.' }
+      const done = await modellerAction(modellerScript(unitPluginSource(ctx().appRoot)), modellerDataDir(hc.home.taskDir(id)), act)
+      const told = await hc.crew.send(id, done.ping)
+      return { ok: true, message: told.ok ? done.message : `${done.message} The unit was not told: ${told.message}` }
+    },
+    unitFilePreview: async (id, file) => {
+      const { hc, task } = taskHome(id)
+      const project = ctx().projects.get(task.project)
+      const ref = project ? await baseRef(project.path, task.baseBranch, task.mode === 'local-only') : task.baseBranch
+      return unitFilePreview({ worktree: task.worktree, ref, file, projectRoot: project?.path, world: project ? task.project : undefined, modeller: () => unitModel(hc, task) })
     },
     artBibleRead: async (world) => readArtBibleView(world, projectRoot(world)),
     artBibleWrite: async (world, file, text) => {

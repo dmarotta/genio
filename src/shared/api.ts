@@ -515,6 +515,10 @@ export interface GenioApi {
   inventoryModelRelease(url: string, completeOnly?: boolean): Promise<void>
   /** A Modeller unit's live view: its steps (GLBs through one viewer grant per unit), the step running now; null while it has no model. */
   modellerLive(taskId: string): Promise<import('./modeller').ModellerLive | null>
+  /** Revert, Branch, switch branch or Accept on a Modeller's model; the unit gets a ping saying what the player did. */
+  modellerAct(taskId: string, act: import('./modeller').ModellerAct): Promise<OpResult>
+  /** Before and after of a binary file the unit changed (images, models), for the Changes tab. */
+  unitFilePreview(taskId: string, file: string): Promise<import('./modeller').UnitFilePreview>
   /** The Art Bible screen: `.genio/art-bible.md`, its source doc and the resolved bible (project window only). */
   artBibleRead(world: string): Promise<import('./art-bible').ArtBibleView>
   /** Save the bible (refused when it would not compile) or its source doc in place; never committed. */
@@ -719,7 +723,7 @@ export const API_METHODS = [
   'playPool', 'playPoolCap', 'playPoolLaunch', 'playPoolEstimate', 'playPoolDisk', 'playCloseSlotEditor',
   'playerInstanceStatus', 'playerInstancePlay', 'playerInstanceStartUnity', 'playerInstanceEnterPlay', 'playerInstanceExitPlay', 'playerInstanceStopUnity', 'playerInstancePause', 'playerInstanceStep', 'playerInstanceScenes', 'playerInstanceSetScene', 'playerInstanceResize', 'playerInstanceStop', 'playerInstanceQuit', 'playerInstanceRestart', 'playerInstanceKeepAlive', 'playerInstanceDetach', 'playerInstanceSettings', 'playerInstanceMachine', 'playerInstanceConsole', 'playerInstanceStream', 'playerInstanceDialogShot', 'playerSources', 'playerSourceAvailable',
   'playerCopies', 'playerCopyStatus', 'playerCopyEnsure', 'playerCopySync', 'playerCopyCancel', 'playerCopyDelete', 'playerCopySizes',
-  'inventoryOpen', 'inventoryClose', 'inventoryRefresh', 'inventoryList', 'inventoryInfo', 'inventoryModelUrl', 'inventoryModelRelease', 'modellerLive',
+  'inventoryOpen', 'inventoryClose', 'inventoryRefresh', 'inventoryList', 'inventoryInfo', 'inventoryModelUrl', 'inventoryModelRelease', 'modellerLive', 'modellerAct', 'unitFilePreview',
   'artBibleRead', 'artBibleWrite',
   'featureUsed',
   'trophyPin',

@@ -9,8 +9,8 @@ vi.mock('../src/renderer/src/store', () => ({ api: () => ({ modellerLive: f.live
 import { ModellerView, useModellerLive } from '../src/renderer/src/components/ModellerView'
 
 const BASE = `genio-media://model/${'a'.repeat(32)}/modeller/tower/steps`
-const step = (n: number, caption: string) => ({ id: `s00${n}`, n, caption, triangles: 12 * n, warnings: 0, ms: 1500, glb: `${BASE}/s00${n}/model.glb` })
-const state = (patch: Partial<ModellerLive> = {}): ModellerLive => ({ model: 'tower', branch: 'main', steps: [step(1, 'Raising four timber legs')], running: null, failure: null, stamp: '1', ...patch })
+const step = (n: number, caption: string) => ({ id: `s00${n}`, n, caption, triangles: 12 * n, parts: n, warnings: 0, ms: 1500, glb: `${BASE}/s00${n}/model.glb`, view: `${BASE}/s00${n}/view.png` })
+const state = (patch: Partial<ModellerLive> = {}): ModellerLive => ({ model: 'tower', branch: 'main', branches: ['main'], steps: [step(1, 'Raising four timber legs')], checks: [], running: null, failure: null, stamp: '1', ...patch })
 const model = (diff?: ModelLoaded['diff']): ModelLoaded => ({
   stats: { triangles: 2802, vertices: 1500, meshes: 9, materials: 3, textures: 0, bones: 0, size: [2, 6, 2] }, clips: [], textures: [], missing: [], clayFallback: 0,
   animationOnly: false, loadMs: 20, format: 'GLB', units: 'Metres', upAxis: 'y', unityClips: false, ...(diff ? { diff } : {})

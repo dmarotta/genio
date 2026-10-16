@@ -10,3 +10,44 @@
 .modeller-view .btn.on { background: var(--neon-soft); border-color: var(--neon); color: var(--neon); }
 .modeller-view-note { margin: 0; font-size: 11px; color: var(--text-dim); overflow-wrap: anywhere; }
 .modeller-view-note.warn { color: var(--amber); }
+
+/* A Modeller's unit page: the live view is the main area (Squad.tsx), its terminal a side tab. */
+.detail-canvas { padding: 8px; background: var(--surface); }
+.detail-tab.detail-tab-term { position: relative; padding: 0; overflow: hidden; background: #05070b; }
+
+/* The Steps tab (components/ModellerSteps.tsx). */
+.modeller-steps { display: flex; flex-direction: column; gap: 8px; }
+.ms-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ms-branch { width: auto; padding: 2px 6px; font-size: 12px; }
+.ms-step { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; padding: 6px; border: 1px solid var(--line); }
+.ms-step.current { border-color: var(--orange); background: var(--orange-soft); }
+.ms-step.running { border-style: dashed; }
+.ms-step.running .dot { --c: var(--orange); }
+.ms-thumb { width: 96px; height: 96px; display: grid; place-items: center; background: #0b0f16; font-size: 11px; overflow: hidden; }
+.ms-thumb img { width: 100%; height: 100%; object-fit: contain; }
+.ms-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ms-title { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-meta { font-size: 11px; }
+.ms-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: auto; }
+.ms-actions .btn { padding: 2px 8px; font-size: 11px; }
+.ms-checks { font-size: 12px; }
+.ms-checks ul { margin: 4px 0 0; padding-left: 18px; color: var(--text-dim); }
+
+/* A Modeller's Squad card and rail row show its model instead of a terminal. */
+.modeller-card { position: absolute; inset: 0; display: flex; flex-direction: column; background: #0b0f16; }
+.modeller-card img { flex: 1; min-height: 0; width: 100%; object-fit: contain; }
+.modeller-card-empty { flex: 1; display: grid; place-items: center; }
+.modeller-card-caption { display: flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 12px; background: #0b0f16cc; border-top: 1px solid var(--line); }
+.modeller-card-caption span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.modeller-card-caption .dot { --c: var(--orange); }
+.modeller-card-caption.warn { color: var(--amber); }
+.roster-row.has-thumb { grid-template-columns: 10px 1fr auto auto; }
+.roster-thumb { width: 28px; height: 28px; background: #0b0f16; border: 1px solid var(--line); overflow: hidden; }
+.roster-thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Changes tab: before and after of a binary file. */
+.ch-preview { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 0 4px; }
+.ch-thumb { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.ch-thumb > img, .ch-thumb > span { width: 96px; height: 96px; display: grid; place-items: center; object-fit: contain; background: #0b0f16; border: 1px solid var(--line); font-size: 11px; }
+.ch-thumb figcaption { font-size: 11px; }
+.ch-preview-note { flex-basis: 100%; font-size: 11px; }

@@ -2,7 +2,7 @@ import type { Task, TaskOutcome, TaskState, TerminalInfo } from './types'
 import { resumedAfterReady } from './unit-activity'
 
 export type SquadState = 'WORKING' | 'READY TO MERGE' | 'DONE'
-export type SquadTone = 'blue' | 'violet' | 'volt' | 'alert' | 'amber'
+export type SquadTone = 'blue' | 'violet' | 'orange' | 'volt' | 'alert' | 'amber'
 export type SquadOutcome = TaskOutcome
 
 /** Internal states the Squad shows as DONE. */
@@ -23,8 +23,8 @@ export function squadState(task: Task, terminal?: TerminalInfo): SquadState {
 /**
  * The unit's color everywhere it appears (Squad rail, Squad page, Quest log):
  * red for errors, green for ready or done, otherwise its kind at work, purple
- * Recon or blue Build. Needing the player never repaints the unit; it is the
- * separate yellow indicator from `squadAttention`.
+ * Recon, orange Modeller or blue Build. Needing the player never repaints the
+ * unit; it is the separate yellow indicator from `squadAttention`.
  */
 export function squadTone(task: Task, terminal?: TerminalInfo): SquadTone {
   const abnormalExit = task.state === 'exited' && (terminal?.exitCode !== undefined
@@ -32,7 +32,7 @@ export function squadTone(task: Task, terminal?: TerminalInfo): SquadTone {
   if (task.state === 'failed' || abnormalExit ||
       (terminal?.alive === false && terminal.exitCode !== undefined && terminal.exitCode !== 0)) return 'alert'
   if (squadState(task, terminal) !== 'WORKING') return 'volt'
-  return task.kind === 'scout' ? 'violet' : 'blue'
+  return task.kind === 'scout' ? 'violet' : task.modeller ? 'orange' : 'blue'
 }
 
 /** Yellow indicator: an active unit waits on the player (an open question, blocked, or a pending decision). */

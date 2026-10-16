@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
-import { Check, Clock, Copy, ExternalLink, GitMerge, Hand, Link2, Pause, Play, Plus, Radar, RotateCcw, Rocket, Trash, X } from 'lucide-react'
+import { Box, Check, Clock, Copy, ExternalLink, GitMerge, Hand, Link2, Pause, Play, Plus, Radar, RotateCcw, Rocket, Trash, X } from 'lucide-react'
 import type { BacklogItem, BacklogKind, PlanStep, Priority, StatusEvent, Task, WorkPlan } from '@shared/types'
 import { planGroups, planStepOf, planStepOfTask, planSummary, stepChipLabel } from '@shared/work-plan'
 import { PlanChip, usePlanView } from '../components/PlanChip'
@@ -332,10 +332,14 @@ function TicketMeta({ q, task }: { q?: BacklogItem; task?: Task }) {
   const step = q ? questPlan(plans, q) : undefined
   return (
     <div className="quest-meta">
-      <span className={cx('chip', kind === 'scout' ? 'violet' : kind === 'choice' ? 'amber' : '')}>
-        {kind === 'scout' ? <Radar size={10} /> : kind === 'ship' ? <Rocket size={10} /> : <Hand size={10} />}
-        {KIND_NAME[kind] ?? kind}
-      </span>
+      {task?.modeller && kind === 'ship' ? (
+        <span className="chip orange"><Box size={10} />Modeller</span>
+      ) : (
+        <span className={cx('chip', kind === 'scout' ? 'violet' : kind === 'choice' ? 'amber' : '')}>
+          {kind === 'scout' ? <Radar size={10} /> : kind === 'ship' ? <Rocket size={10} /> : <Hand size={10} />}
+          {KIND_NAME[kind] ?? kind}
+        </span>
+      )}
       {world && <span className="chip">{world}</span>}
       {step && <PlanChip plan={step.plan} step={step.step} />}
       {task?.category && <span className="chip qk-chip">{task.category}</span>}

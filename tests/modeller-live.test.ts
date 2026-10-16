@@ -2,14 +2,14 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { readModellerLive, scriptCaption } from '../src/main/modeller-live'
+import { hasModellerModel, readModellerLive, scriptCaption } from '../src/main/modeller-live'
 
 let data: string
 const base = (): string => 'genio-media://model/abc/'
 const write = (rel: string, text: string): void => { fs.mkdirSync(path.dirname(path.join(data, rel)), { recursive: true }); fs.writeFileSync(path.join(data, rel), text) }
 const entry = (n: number, parent: string | null, caption: string, t: string) => ({
   id: `s00${n}`, n, parent, branch: 'main', name: caption.split(' ')[0].toLowerCase(), caption, t, ms: 1500 + n, triangles: 100 * n, vertices: 50 * n, objects: n, warnings: n === 2 ? 1 : 0,
-  blend_sha256: null, files: { script: `steps/s00${n}/script.py`, blend: null, glb: `steps/s00${n}/model.glb`, sheet: null, view: null, receipt: `steps/s00${n}/receipt.json` }
+  blend_sha256: null, files: { script: `steps/s00${n}/script.py`, blend: null, glb: `steps/s00${n}/model.glb`, sheet: null, view: n === 1 ? null : `steps/s00${n}/view.png`, receipt: `steps/s00${n}/receipt.json` }
 })
 const manifest = (patch: Record<string, unknown> = {}) => ({
   schema: 'genio.modeller.v1', model: 'tower', created: '2026-10-16T10:00:00.000Z', updated: '2026-10-16T10:05:00.000Z', branch: 'main',
@@ -30,18 +30,32 @@ describe('Modeller live state', () => {
     expect(asked).toBe(false)
   })
 
-  it('lists the current branch from its root with GLBs through the unit grant', () => {
+  it('lists the current branch from its root with GLBs and review renders through the unit grant', () => {
     write('tower/manifest.json', JSON.stringify(manifest()))
     const live = readModellerLive(data, base)!
-    expect(live).toMatchObject({ model: 'tower', branch: 'main', running: null, failure: null })
+    expect(live).toMatchObject({ model: 'tower', branch: 'main', branches: ['main', 'wide'], running: null, failure: null })
     expect(live.steps).toEqual([
-      { id: 's001', n: 1, caption: 'Legs on stone footings', triangles: 100, warnings: 0, ms: 1501, glb: 'genio-media://model/abc/modeller/tower/steps/s001/model.glb' },
-      { id: 's002', n: 2, caption: 'Deck of planks', triangles: 200, warnings: 1, ms: 1502, glb: 'genio-media://model/abc/modeller/tower/steps/s002/model.glb' }
+      { id: 's001', n: 1, caption: 'Legs on stone footings', triangles: 100, parts: 1, warnings: 0, ms: 1501, glb: 'genio-media://model/abc/modeller/tower/steps/s001/model.glb', view: null },
+      { id: 's002', n: 2, caption: 'Deck of planks', triangles: 200, parts: 2, warnings: 1, ms: 1502, glb: 'genio-media://model/abc/modeller/tower/steps/s002/model.glb', view: 'genio-media://model/abc/modeller/tower/steps/s002/view.png' }
     ])
     write('tower/manifest.json', JSON.stringify(manifest({ branch: 'wide', updated: '2026-10-16T10:06:00.000Z' })))
     const wide = readModellerLive(data, base)!
     expect(wide.steps.map(s => s.id)).toEqual(['s001', 's003'])
     expect(wide.stamp).not.toBe(live.stamp)
+  })
+
+  it("carries the head step's checks as information, and says whether the unit has a model at all", () => {
+    expect(hasModellerModel(data)).toBe(false)
+    write('tower/manifest.json', JSON.stringify(manifest()))
+    expect(hasModellerModel(data)).toBe(true)
+    expect(readModellerLive(data, base)!.checks).toEqual([])
+    write('tower/steps/s002/receipt.json', JSON.stringify({ warnings: ['Over budget: 2802 triangles, budget 2000.', 7, 'Nothing touches the ground.'] }))
+    expect(readModellerLive(data, base)!.checks).toEqual(['Over budget: 2802 triangles, budget 2000.', 'Nothing touches the ground.'])
+    // Only the kernel's own receipt path is read.
+    const odd = manifest()
+    odd.steps[1].files.receipt = '../../secret.json'
+    write('tower/manifest.json', JSON.stringify(odd))
+    expect(readModellerLive(data, base)!.checks).toEqual([])
   })
 
   it('picks the most recently updated model', () => {
