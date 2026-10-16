@@ -89,10 +89,23 @@ pool ([player-instance.md](player-instance.md)). The rest serves units and Genio
   pool's main lease; `play_slot_recover` closes a stuck slot editor.
 
 `supportsUnitySlots` (`shared/play.ts`) is the single engine gate for all of it,
-the Play rail entry included. The old Play screen's package, snapshot, slot,
-takeover, step and resolution achievements stay retired: earned dates stay in
-`stats.json` and on the Character Sheet, but they never unlock again or count
-toward totals. Stream, input and full screen came back with the new screen.
+the Play rail entry included. The old Play screen's package, snapshot, slot and
+takeover achievements stay retired: earned dates stay in `stats.json` and on the
+Character Sheet, but they never unlock again or count toward totals. Stream,
+input, full screen, step and resolution came back with the new screen.
+
+## Achievements
+
+`ACHIEVEMENTS` in `src/main/stats.ts` holds every achievement: a stable id, a
+feature tag, a short name and description, and `retired` for one that never
+unlocks again (its id stays for saved stats). Each unlock is wired to a real
+successful event in the main process (`stats.unlock`, a `feature-used` bus
+event, or a unit helper's status note). `tests/achievement-coverage.test.ts`
+fails when a Rail view, a screen-context screen, a player-facing chat tool, a
+unit kind or flag, or a Settings page has no classification or achievement;
+when a feature tag points at nothing live; when source unlocks an unknown or
+retired id; and when a live achievement has no unlock. Keeping them current is
+a repo rule in [AGENTS.md](../AGENTS.md).
 
 ## Process layout
 

@@ -54,3 +54,5 @@ instruction (`shellContextBlock`), up to the last three runs. Messages starting
 with `!` never reach the model as chat text: the composer intercepts them and
 `sendChat`/`steerChat` refuse them. Shell mode is unavailable outside a project
 window and while the pane's shell cannot start.
+
+Achievement: Command Line (`shell-command`), the first `!` run that exits 0.

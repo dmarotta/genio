@@ -47,3 +47,5 @@ listing the delivered files (`generatorReport`), push and PR.
 The chat's own `generate_image` (Codex images in the chat,
 `src/main/chat-imagegen.ts`) is separate and unchanged: Genio still makes an
 image directly when asked.
+
+Achievements: Production Line (`generator-first`) when a Generator's build merges; a Modeller's merge earns Model Citizen (`modeller-first`), and Take Two (`modeller-rewind`) a Revert or Branch from its unit page.

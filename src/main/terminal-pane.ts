@@ -8,6 +8,7 @@
 import fs from 'node:fs'
 import type { ShellRun, TerminalInfo } from '@shared/types'
 import { MAIN_CWD, boundOutput, plainTerminalText, type PaneCwd } from '@shared/terminal-pane'
+import { bus } from './bus'
 import type { AppCtx } from './services'
 import { defaultShell } from './terminals'
 import { stripAnsi } from './util'
@@ -140,6 +141,7 @@ export function runShell(ctx: PaneCtx, project: string, wksp: string, command: s
     const text = plainTerminalText(stripAnsi(head + (dropped ? '\n…\n' : '') + tail))
     const run: ShellRun = { command: cmd, cwd: choice.path, exitCode, durationMs: Date.now() - started, ...boundOutput(text) }
     if (dropped) run.truncated = true
+    if (exitCode === 0) bus.publish({ type: 'feature-used', feature: 'shell-command' })
     try {
       chat.shellRan(run)
     } catch {

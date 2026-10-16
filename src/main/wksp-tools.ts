@@ -1097,7 +1097,9 @@ export function createToolRegistry(
       if (a.action === 'read') return ok(json(readBibleFile(p.path)))
       if (a.text === undefined) return fail('art_bible write needs the full text of .genio/art-bible.md.')
       asked('Writing the Art Bible', a.player_words, 'art-bible')
-      return ok(json(writeBibleFile(p.path, a.text)))
+      const written = writeBibleFile(p.path, a.text)
+      if (a.text.trim()) getCtx().stats.unlock('art-bible-chat')
+      return ok(json(written))
     })
   }
 

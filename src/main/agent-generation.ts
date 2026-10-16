@@ -197,7 +197,10 @@ export class AgentGeneration {
     checkGenerationBudget(this.ctx, j.world, j.estimatedUsd)
     if (j.target) await this.guardTarget(j.world!, j.target)
     // Re-check state after async preflight: double clicks submit exactly once.
-    if (j.status === 'awaiting_approval') { j.status = 'running'; this.start(j) }
+    if (j.status === 'awaiting_approval') {
+      j.status = 'running'; this.start(j)
+      if (j.status === 'running') this.ctx.stats.unlock('spend-approve')
+    }
     return this.card(j)
   }
   private start(j: Job): void {

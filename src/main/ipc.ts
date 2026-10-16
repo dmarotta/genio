@@ -198,6 +198,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
       if (task.state === 'cleaned') return { ok: false, message: 'This unit was despawned; its model can no longer change.' }
       const done = await modellerAction(modellerScript(unitPluginSource(ctx().appRoot)), modellerDataDir(hc.home.taskDir(id)), act)
       const told = await hc.crew.send(id, done.ping)
+      if (act.op === 'revert' || act.op === 'branch') unlockQuietly('modeller-rewind')
       return { ok: true, message: told.ok ? done.message : `${done.message} The unit was not told: ${told.message}` }
     },
     unitFilePreview: async (id, file) => {
@@ -376,6 +377,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
       if (action === 'pause' && plan.state !== 'active') return { ok: false, message: `This plan is already ${plan.state}.` }
       if (action === 'cancel' && (plan.state === 'cancelled' || plan.state === 'done')) return { ok: false, message: `This plan is already ${plan.state}.` }
       const r = await hc.plans.update(id, action === 'pause' ? { op: 'pause', by: 'player' } : { op: 'cancel', by: 'player' })
+      unlockQuietly('plan-control')
       return { ok: true, message: r.message.charAt(0).toUpperCase() + r.message.slice(1) }
     },
 
@@ -474,7 +476,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
           playConnections.get(world)?.()
           if (!enabled) { await playerInstanceService(ctx()).detach(world); return }
           const { port1, port2 } = new MessageChannelMain()
-          let credit = false, closed = false, latest: Buffer | undefined, framed = false, handsOn = false
+          let credit = false, closed = false, latest: Buffer | undefined, framed = false, handsOn = false, heard = false
           const send = (): void => {
             if (!credit || !latest || closed) return
             credit = false; port1.postMessage({ type: 'frame', bytes: new Uint8Array(latest) }); latest = undefined
@@ -503,7 +505,11 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
           port1.on('message', ({ data }) => {
             if (closed) return
             if (data?.type === 'ready') { credit = true; send() }
-            else if (data?.type === 'audio-ack') { if (Number.isInteger(data.count) && data.count > 0) { unacked = Math.max(0, unacked - data.count); sendAudio() } }
+            else if (data?.type === 'audio-ack') {
+              if (Number.isInteger(data.count) && data.count > 0) { unacked = Math.max(0, unacked - data.count); sendAudio() }
+              // acks come while muted too; only sound that played unmuted counts as heard
+              if (data.heard === true && !heard) { heard = true; unlockQuietly('play-audio') }
+            }
             else if (data?.type === 'input') {
               try {
                 playerInstanceService(ctx()).input(world, data.input)

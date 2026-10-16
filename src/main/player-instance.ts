@@ -545,6 +545,8 @@ export class PlayerInstanceService {
         // A cold start is admitted before the copy, so a refusal never follows a minute of copying.
         if (!i.launch) await this.admit(i, options.startAnyway === true)
         check()
+        // A cold start on a copy kept from an earlier session (Warm Start), not one made now.
+        const kept = !i.launch && this.copies.status(project)?.state === 'ready'
         const copy = await this.copies.ensure(project, engineRoot); i.root = copy.root; i.source = source
         check()
         if (i.launch) {
@@ -580,6 +582,7 @@ export class PlayerInstanceService {
           this.state(i, 'compile-errors', 'Fix the compile errors in the source, then Play again.'); throw new Error(i.message)
         }
         check()
+        if (kept) this.ctx.stats.unlock('play-kept-copy')
         if (!enter) {
           // A zero idle time quits right after Play stops; an explicit Start Unity then stays up until Stop Unity.
           this.state(i, 'ready'); if (this.settings.idleMinutes) await this.idle(i)

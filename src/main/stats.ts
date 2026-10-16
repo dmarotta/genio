@@ -46,14 +46,16 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'project-windows-two', name: 'Split Screen', description: 'Have two project windows open at once.', feature: 'file-menu' },
   { id: 'play-first', name: 'Press Play', description: 'Start a Unity Play session.', feature: 'play' },
   { id: 'play-pool-configured', name: 'Room for the Crew', description: `Set the Unity slots for units in ${settingsPath('project-unity')}.`, feature: 'systems' },
-  { id: 'play-observed', name: 'Shared Sight', description: 'Let Genio observe a game frame.', feature: 'play_frame' },
+  { id: 'play-observed', name: 'Shared Sight', description: 'Let Genio look at a frame of your game.', feature: 'play_frame' },
   // The new Play screen brought these back; their ids (and any earned dates) are unchanged.
-  { id: 'play-stream', name: 'Motion Picture', description: 'Receive a live Unity frame on the Play screen.', feature: 'play' },
+  { id: 'play-stream', name: 'Motion Picture', description: 'See your game live on the Play screen.', feature: 'play' },
   { id: 'play-input', name: 'Hands On', description: 'Control a live game with keyboard, mouse or gamepad.', feature: 'play' },
   { id: 'play-fullscreen', name: 'Big Screen', description: 'Expand the live game to full screen.', feature: 'play' },
-  { id: 'play-unit', name: 'Field Test', description: "Play a unit's worktree before it lands.", feature: 'play' },
+  { id: 'play-unit', name: 'Field Test', description: "Play a unit's version of your game before it lands.", feature: 'play' },
   { id: 'play-step', name: 'One Frame at a Time', description: 'Step a paused Unity game.', feature: 'play' },
   { id: 'play-resolution', name: 'Aspect Ratio', description: 'Change the streamed resolution while playing.', feature: 'play' },
+  { id: 'play-audio', name: 'Sound Check', description: "Hear your game's sound on the Play screen.", feature: 'play' },
+  { id: 'play-kept-copy', name: 'Warm Start', description: 'Start Unity again from the Play copy Genio kept for you.', feature: 'play' },
   // Retired with the old Play screen: earned dates stay in stats.json and on the sheet.
   { id: 'play-package', name: 'Live Link', description: 'Enable the Genio Play package in a project.', feature: 'play', retired: true },
   { id: 'play-slot', name: 'Shared Playground', description: 'Prepare and lease a shared Unity slot.', feature: 'play', retired: true },
@@ -61,13 +63,14 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'play-snapshot', name: 'In the Frame', description: 'Capture a game snapshot.', feature: 'play', retired: true },
   { id: 'chat-provider-switch', feature: 'comms', name: 'New Perspective', description: 'Switch the chat provider.' },
   { id: 'codex-chat-turn', feature: 'comms', name: 'Codex Companion', description: 'Complete a Codex-driven chat turn.' },
-  { id: 'inventory-chat', name: 'Shared View', description: 'Send a message with Inventory context from the floating Genio panel.', feature: 'inventory-chat' },
-  { id: 'genio-panel-context', name: 'Over the Shoulder', description: 'Send a message with screen context from the floating Genio panel.', feature: 'genio-panel' },
-  { id: 'inventory-scout', name: 'Inventory Scout', description: 'Find an asset or locate a new asset destination.', feature: 'assets_find' },
-  { id: 'asset-pathfinder', name: 'Asset Pathfinder', description: 'Locate a new asset destination.', feature: 'asset_locate' },
+  { id: 'inventory-chat', name: 'Shared View', description: 'Ask Genio about the assets you picked in Inventory.', feature: 'inventory-chat' },
+  { id: 'genio-panel-context', name: 'Over the Shoulder', description: 'Ask Genio from the floating panel on any screen.', feature: 'genio-panel' },
+  { id: 'inventory-scout', name: 'Inventory Scout', description: 'Have Genio find an asset in your project.', feature: 'assets_find' },
+  { id: 'asset-pathfinder', name: 'Asset Pathfinder', description: 'Have Genio pick the folder for a new asset.', feature: 'asset_locate' },
   { id: 'inventory-open', name: 'Open the Vault', description: 'Open a project Inventory.', feature: 'inventory' },
   { id: 'inventory-preview', name: 'Closer Look', description: 'Select an asset to preview in Inventory.', feature: 'inventory' },
   { id: 'art-bible-edit', name: 'House Style', description: 'Save a project Art Bible from its screen.', feature: 'art-bible' },
+  { id: 'art-bible-chat', name: 'Style by Word', description: 'Have Genio write your Art Bible from chat.', feature: 'art_bible' },
   { id: 'model-picker', feature: 'comms', name: 'Meet the Models', description: 'Open the live model picker.' },
   { id: 'model-switch', feature: 'comms', name: 'Change of Mind', description: 'Switch a chat model in the picker.' },
   { id: 'screenshot', feature: 'comms', name: 'Show and Tell', description: 'Paste a screenshot into chat.' },
@@ -77,8 +80,10 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'ally-chat', feature: 'comms', name: 'Project Chat', description: 'Talk to Genio in a project window.' },
   { id: 'push-first', feature: 'world_push', name: 'Go Live', description: 'Push a project on demand.' },
   { id: 'rating-first', feature: 'rate_task', name: 'GG or Go Again', description: 'Rate a unit on the scorecard.' },
-  { id: 'smart-pick', feature: 'loadout_preview', name: 'Adaptive Build', description: 'Deploy an exploration or quota-based pick.' },
+  { id: 'smart-pick', feature: 'loadout_preview', name: 'Adaptive Build', description: 'Deploy a unit whose tool Genio picked to try something new or to save quota.' },
   { id: 'queue-edit', feature: 'comms', name: 'Second Thoughts', description: 'Edit or cancel a queued message.' },
+  { id: 'chat-steer', feature: 'comms', name: 'Change Course', description: 'Steer Genio mid-turn (Steer or Send now): it stops and reads your message first.' },
+  { id: 'shell-command', feature: 'terminal', name: 'Command Line', description: 'Run a shell command from chat with ! and see it in the terminal pane.' },
   { id: 'reaction-like', feature: 'comms', name: 'Right Track', description: 'Like a Genio message to confirm the path.' },
   { id: 'reaction-dislike', feature: 'comms', name: 'Hold Up', description: 'Dislike a Genio message so it pauses and asks what is wrong.' },
   { id: 'yolo-chat', feature: 'comms', name: 'No Safety Wheels', description: 'Switch chat to YOLO mode.' },
@@ -87,7 +92,9 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'cheap-unit', feature: 'deploy', name: 'Budget Build', description: 'Deploy an OpenCode unit.' },
   { id: 'agent-asset-first', feature: 'agent_generation', name: 'Made to Order', description: 'Generate your first asset through Genio.' },
   { id: 'asset-placed-first', feature: 'asset_place', name: 'Loot Delivered', description: 'Place an agent-generated asset in a project.' },
+  { id: 'spend-approve', feature: 'approve_run', name: 'Worth Every Cent', description: 'Approve a paid generation quote.' },
   { id: 'unit-image', feature: 'assets', name: 'Pixel Crafter', description: 'A unit creates a Codex image.' },
+  { id: 'unit-motion', feature: 'unit-uthana', name: 'Motion Crew', description: 'A unit generates an Uthana motion.' },
   { id: 'blender-first', feature: 'blender', name: 'Polygon Power', description: 'Complete a Blender skill run.' },
   { id: 'inventory-index', feature: 'inventory-index', name: 'Loot Catalog', description: "Index a project's assets for the first time." },
   { id: 'assets-10', feature: 'assets', name: 'Asset Combo', description: 'Generate 10 assets.' },
@@ -95,10 +102,17 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'quest-first', feature: 'quests', name: 'Side Quest', description: 'Add a quest.' },
   { id: 'world-first', feature: 'worlds', name: 'New Game', description: 'Register a project.' },
   { id: 'lore-first', feature: 'memory', name: 'Save Point', description: 'Save your first memory update.' },
-  { feature: 'move', id: 'first-blood', name: 'First Blood', description: 'Merge your first build.' },
+  { feature: 'ship', id: 'first-blood', name: 'First Blood', description: 'Merge your first build.' },
+  { feature: 'modeller', id: 'modeller-first', name: 'Model Citizen', description: 'Merge a Modeller build: a unit that makes a 3D model step by step.' },
+  { feature: 'modeller', id: 'modeller-rewind', name: 'Take Two', description: "Revert or branch a Modeller's model from its unit page." },
+  { feature: 'generator', id: 'generator-first', name: 'Production Line', description: 'Merge a Generator build: a unit that runs asset generation jobs.' },
+  { feature: 'plans', id: 'plan-first', name: 'Battle Plan', description: 'Have Genio file a plan: one job split into steps for several units.' },
+  { feature: 'plans', id: 'plan-control', name: 'Hold Everything', description: 'Pause or cancel a plan from a step chip.' },
+  { feature: 'plans', id: 'plan-done', name: 'According to Plan', description: 'Merge every step of a plan.' },
   { feature: 'squad', id: 'squad-up', name: 'Squad Up', description: 'Have 3 units deployed at once.' },
   { feature: 'squad', id: 'full-party', name: 'Full Party', description: 'Have 5 units deployed at once.' },
-  { feature: 'squad', id: 'recon-expert', name: 'Recon Expert', description: 'Complete 10 recon missions.' },
+  { feature: 'scout', id: 'recon-first', name: 'Scouting Party', description: 'Complete your first recon mission.' },
+  { feature: 'scout', id: 'recon-expert', name: 'Recon Expert', description: 'Complete 10 recon missions.' },
   { feature: 'squad', id: 'speedrunner', name: 'Speedrunner', description: 'A build is ready less than 15 minutes after deploy.' },
   { feature: 'move', id: 'night-owl', name: 'Night Owl', description: 'Merge a build between midnight and 5 AM.' },
   { feature: 'move', id: 'inbox-zero', name: 'Inbox Zero', description: 'Answer every open choice.' },
@@ -106,7 +120,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { feature: 'status', id: 'on-a-roll', name: 'On a Roll', description: 'Play 7 days in a row.' },
   { feature: 'squad', id: 'janitor', name: 'Janitor', description: 'Despawn 25 units cleanly.' },
   { feature: 'systems', id: 'big-spender', name: 'Big Spender', description: 'Spend $50 of model time in total.' },
-  { feature: 'squad', id: 'hardcore-hero', name: 'Hardcore Hero', description: 'Pass the Gauntlet 10 times.' },
+  { feature: 'squad', id: 'hardcore-hero', name: 'Hardcore Hero', description: 'Finish 10 Hardcore builds through the Gauntlet checks.' },
   { feature: 'status', id: 'title-earned', name: 'Found Your Style', description: 'Earn a playstyle title from your landed missions.' },
   { feature: 'status', id: 'title-equip', name: 'Dress the Part', description: 'Equip an earned playstyle title.' },
   { feature: 'status', id: 'trophy-pin', name: 'Trophy Case', description: 'Pin an achievement to your Character Sheet.' },
@@ -402,6 +416,7 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
         }
         case 'scout':
           d.scoutsTotal++
+          svc.unlock('recon-first')
           if (d.scoutsTotal >= 10) svc.unlock('recon-expert')
           land(d, 'recon', taskId)
           earnTitle(d)
@@ -418,6 +433,8 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
           d.mergesTotal++
           d.mergesToday++
           svc.unlock('first-blood')
+          if (task?.modeller) svc.unlock('modeller-first')
+          else if (task?.generator) svc.unlock('generator-first')
           const h = new Date().getHours()
           if (h >= 0 && h < 5) svc.unlock('night-owl')
           if (d.mergesToday >= 5) svc.unlock('combo-x5')
@@ -476,7 +493,8 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
         'play-fullscreen': 'play-fullscreen',
         'model-picker': 'model-picker', 'model-switch': 'model-switch', screenshot: 'screenshot', world_push: 'push-first',
         rate_task: 'rating-first', 'account-login': 'account-login', 'yolo-chat': 'yolo-chat', 'usage-mode': 'usage-mode',
-        quest_add: 'quest-first', world_add: 'world-first', memory_write: 'lore-first', 'inventory-index': 'inventory-index'
+        quest_add: 'quest-first', world_add: 'world-first', memory_write: 'lore-first', 'inventory-index': 'inventory-index',
+        plan_create: 'plan-first', 'plan-done': 'plan-done', 'shell-command': 'shell-command'
       }
       if (ids[ev.feature]) svc.unlock(ids[ev.feature])
       // titles earned by history from before this build show up on the next visit
@@ -495,6 +513,8 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
       svc.unlock('blender-first')
     } else if (ev.type === 'status' && ev.event.kind === 'note' && ev.event.key === 'genio-codex-image') {
       asset('unit-image', ev.event.taskId + ':' + ev.event.text)
+    } else if (ev.type === 'status' && ev.event.kind === 'note' && ev.event.key === 'genio-uthana-run') {
+      asset('unit-motion', ev.event.taskId + ':' + ev.event.text)
     }
   })
 

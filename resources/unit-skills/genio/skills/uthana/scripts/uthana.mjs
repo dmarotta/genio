@@ -556,6 +556,10 @@ async function motion(opts) {
     })
     if (provenance) process.stderr.write(`[uthana] provenance ${provenance}\n`)
   }
+  // Only saved motions report through the existing unit status channel.
+  if (process.env.GENIO_STATUS_FILE && process.env.GENIO_TASK_ID) {
+    try { fs.appendFileSync(process.env.GENIO_STATUS_FILE, `note [key=genio-uthana-run]: ${record.motion_id}\n`) } catch { /* cosmetic */ }
+  }
   return {
     receipt: path.resolve(receipt), resumed: spent === null, model: record.model, motion_id: record.motion_id, motion_ids: record.motion_ids ?? [record.motion_id],
     character_id: record.character_id, file: out, format, bytes: bytes.length, provenance,

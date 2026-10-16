@@ -88,3 +88,5 @@ A hint can be a path, a folder, a bare file name (matched in any folder) or a
 glob (`*`, `**`, `?`). Always-hot files never trigger a hint, because most
 concurrent pairs touch them: `types.ts`, `api.ts`, `ipc.ts`, `app.css`,
 tsconfigs and lockfiles.
+
+Achievements: Battle Plan (`plan-first`, a plan filed), Hold Everything (`plan-control`, Pause or Cancel from a step chip's popover) and According to Plan (`plan-done`, every step merged).

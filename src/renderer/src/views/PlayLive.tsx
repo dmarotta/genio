@@ -120,7 +120,7 @@ export function PlayLive({ world, width, height, input, muted = false, onClosed,
         // Sound is acked even while muted, so main keeps sending and unmuting is instant.
         if (data?.type === 'audio') {
           if (closed || port.current !== channel) return
-          if (++acks >= AUDIO_ACK_EVERY) { channel.postMessage({ type: 'audio-ack', count: acks }); acks = 0 }
+          if (++acks >= AUDIO_ACK_EVERY) { channel.postMessage({ type: 'audio-ack', count: acks, heard: !mutedNow.current }); acks = 0 }
           if (!heard) { heard = true; onSound?.(true) }
           if (data.bytes instanceof Uint8Array) audio.packet(data.bytes)
           return

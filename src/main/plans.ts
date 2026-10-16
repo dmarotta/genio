@@ -278,6 +278,7 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
       delete p.pause
       changed = true
       ledger('plan.done', p)
+      bus.publish({ type: 'feature-used', feature: 'plan-done' })
       wake(`Plan "${p.title}" complete: all ${p.steps.length} steps merged`, p.steps.map((s) => `${s.index}. ${s.title}: ${s.landedCommit?.slice(0, 12) ?? s.landedPr ?? 'landed'}`), true)
     }
     return changed
@@ -588,6 +589,7 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
         load().push(p)
         save()
         ledger('plan.created', p, { steps: p.steps.length })
+        bus.publish({ type: 'feature-used', feature: 'plan_create' })
         const released = p.state === 'active' ? await drainOnce() : []
         const serial = p.steps.every((s, i) => i === 0 ? s.after.length === 0 : s.after.length === 1 && s.after[0] === p.steps[i - 1].key)
         const chain = p.steps.map((s) => `${s.index} ${s.title}`).join(serial ? ' → ' : ' · ')

@@ -50,3 +50,5 @@ Verification uses mocked providers only. Guard tests cover role exclusion,
 overwrite/link/path rules, nested-engine placement, quote thresholds, concurrent
 cap reservations, restarted quotes, reference changes, character reuse, Codex
 opt-out, tool schemas and the quote card IPC action.
+
+Achievements: Worth Every Cent (`spend-approve`) when an approved quote starts its run; Motion Crew (`unit-motion`) when a unit's Uthana helper saves a motion (its `genio-uthana-run` status note).

@@ -129,3 +129,5 @@ node resources/unit-skills/genio/lib/genio-art.mjs show|compile|refs|check --wor
 ```
 
 The CLI only reads. It prints one JSON document, and exits 2 on usage errors and 3 when the bible has errors. In a unit it reads `GENIO_ART_BIBLE` instead of the project's file.
+
+Achievements: House Style (`art-bible-edit`) for a save from the Art Bible screen, Style by Word (`art-bible-chat`) for a non-empty `art_bible` write from chat.

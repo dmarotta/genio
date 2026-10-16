@@ -400,6 +400,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
           const started = startedText(turnActions)
           say(`Interrupted by your message.${started ? ` It had started: ${started}.` : ''}`, 'system')
           interruptedNote = `[GENIO NOTE] Your previous turn was interrupted by ${gamertag()}; it had started: ${started || 'no actions'}; verify state (unit_state, quests) before continuing.`
+          safe(() => getCtx().stats.unlock('chat-steer'))
         }
         if (ok) {
           info.lastError = undefined
