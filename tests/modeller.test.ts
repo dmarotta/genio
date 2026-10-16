@@ -346,6 +346,50 @@ describe('Modeller kernel with a fake Blender', { timeout: 60000 }, () => {
     expect(live()).toMatchObject({ of: 'step 1 of 1', n: [1] })
   })
 
+  it('publishes a step as soon as its GLB is exported, before the sheet, and completes it from the receipt', async () => {
+    await fakeModel()
+    done(await step(script('s01_legs.py', 'Legs', '# part: Legs')))
+    // The fake Blender holds the sheet until the kernel made the step the head with its GLB in place.
+    const roof = done(await step(script('s02_roof.py', 'Roof', '# part: Roof', '# fake: wait-publish')))
+    const receipt = JSON.parse(fs.readFileSync(roof.receipt, 'utf8'))
+    expect(receipt).toMatchObject({ ok: true, id: 's002', sheet_after_publish: true, triangles: 24, parent: 's001' })
+    expect(receipt.stage).toBeUndefined()
+    // the agent still gets the sheet, and the entry is complete
+    for (const f of [roof.sheet!, roof.blend!, roof.glb!]) expect(fs.existsSync(f)).toBe(true)
+    const m = manifest()
+    expect(m.steps[1]).toMatchObject({ id: 's002', triangles: 24, objects: 2, files: { blend: 'steps/s002/model.blend', sheet: 'steps/s002/sheet.png', view: 'steps/s002/view.png' } })
+    expect(m.steps[1].blend_sha256).toMatch(/^[0-9a-f]{64}$/)
+    expect(fs.readdirSync(path.join(dataDir, 'tower', 'steps', 's002')).sort()).toEqual(['model.blend', 'model.glb', 'receipt.json', 'script.py', 'sheet.png', 'view.png'])
+    expect(fs.readdirSync(path.join(dataDir, 'tower', 'steps')).filter((f) => f.startsWith('.'))).toEqual([])
+  })
+
+  it('keeps a published step when its sheet fails or Blender stops after the export', async () => {
+    await fakeModel()
+    done(await step(script('s01_legs.py', 'Legs', '# part: Legs')))
+    const noSheet = done(await step(script('s02_deck.py', 'Deck', '# part: Deck', '# fake: sheet-error')))
+    expect(noSheet).toMatchObject({ id: 's002', sheet: null, triangles: 24 })
+    expect(noSheet.warnings).toEqual([expect.stringMatching(/review sheet failed.*published without it/)])
+    expect(fs.existsSync(noSheet.blend!)).toBe(true)
+    // Blender dies right after the export: the step stays the head, without snapshot or sheet
+    const crashed = done(await step(script('s03_roof.py', 'Roof', '# part: Roof', '# fake: crash-after-glb')))
+    expect(crashed).toMatchObject({ id: 's003', parent: 's002', caption: 'Roof', sheet: null, blend: null })
+    expect(fs.existsSync(crashed.glb!)).toBe(true)
+    expect(crashed.warnings).toEqual([expect.stringMatching(/Blender stopped \(exit code 3\) after this step reached the live view.*replays its script/)])
+    const m = manifest()
+    expect(m.branches.main.head).toBe('s003')
+    expect(m.failures).toEqual([])
+    expect(m.steps[2]).toMatchObject({ files: { glb: 'steps/s003/model.glb', blend: null, sheet: null, script: 'steps/s003/script.py' }, warnings: 1 })
+    expect(fs.readdirSync(path.join(dataDir, 'tower', 'steps')).filter((f) => f.startsWith('.'))).toEqual([])
+    // the next step rebuilds s003's snapshot by replaying its script
+    const rail = done(await step(script('s04_rail.py', 'Rail', '# part: Rail')))
+    expect(JSON.parse(fs.readFileSync(rail.receipt, 'utf8'))).toMatchObject({ replayed: 1 })
+    expect(snapshot(rail.blend!).parts).toEqual(['Legs', 'Deck', 'Roof', 'Rail'])
+    // a fix after review is a normal new head step
+    const fix = done(await step(script('s05_rail_fix.py', 'Fixing the rail', '# remove: Rail', '# part: Better rail')))
+    expect(fix).toMatchObject({ id: 's005', parent: 's004' })
+    expect(manifest().branches.main.head).toBe('s005')
+  })
+
   it('starts Blender on every core for a step or replay that bakes, and reports its bakes', async () => {
     await fakeModel()
     const receipt = (s: StepDone) => JSON.parse(fs.readFileSync(s.receipt, 'utf8'))

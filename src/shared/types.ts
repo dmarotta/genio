@@ -1078,6 +1078,8 @@ export type GenioEvent =
   | { type: 'navigate'; target: NotifyTarget }
   | { type: 'fal-catalogue' }
   | { type: 'uthana-run'; run: UthanaRun }
+  /** A unit's Modeller state changed (a step landed, Blender started one, a step script appeared): pushed while its page reads it. */
+  | { type: 'modeller-live'; taskId: string; live: import('./modeller').ModellerLive | null }
   /** A chat generation (card or generate_image placeholder) started or settled; drives the panel's generating count. */
   | { type: 'generation'; wksp: string; id: string; active: boolean }
 

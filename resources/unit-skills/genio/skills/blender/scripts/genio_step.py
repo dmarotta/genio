@@ -9,8 +9,10 @@ The only argument after `--` is a plan JSON written by modeller.mjs:
               step     id, n, name, model (for the receipt)
   checks    budget (triangles) and size ([x, y, z] metres), both optional
 
-Per step: step script, checks, compressed .blend, modifier-applied GLB, then
-the 2x2 Workbench review sheet (its camera never reaches a snapshot). Each
+Per step: step script, modifier-applied GLB, then <out>/landed.json (the
+kernel publishes the step to the live view from it at once), then checks,
+compressed .blend and the 2x2 Workbench review sheet (its camera never reaches
+a snapshot). A sheet that fails is a warning: the step stays published. Each
 step's receipt goes to <out>/receipt.json (atomically, last) and stdout as one
 `@@GENIO_STEP` line. The first failure stops the run.
 Exit codes: 0 done, 3 a step script raised, 4 a replayed script raised.
@@ -332,14 +334,39 @@ def render_sheet(out_dir, size, stats):
     return img.filepath_raw
 
 
-def write_receipt(out, receipt):
-    # Atomic: modeller.mjs publishes a batch step the moment its receipt says ok.
-    path = os.path.join(out, 'receipt.json')
+def write_json(out, name, doc):
+    # Atomic: modeller.mjs polls these files while Blender runs.
+    path = os.path.join(out, name)
     with open(path + '.tmp', 'w', encoding='utf8') as f:
-        json.dump(receipt, f, indent=1)
+        json.dump(doc, f, indent=1)
     os.replace(path + '.tmp', path)
+
+
+def write_receipt(out, receipt):
+    write_json(out, 'receipt.json', receipt)
     print('@@GENIO_STEP ' + json.dumps({'id': receipt.get('id'), 'ok': receipt['ok'], 'kind': receipt.get('kind')}))
     sys.stdout.flush()
+
+
+@contextlib.contextmanager
+def selection_kept():
+    """The exporter selects and unhides the shipped parts; the snapshot saved after it keeps the
+    scene's own selection, active object and hidden parts."""
+    layer = bpy.context.view_layer
+    state = [(o, o.select_get(), o.hide_get()) for o in layer.objects]
+    active = layer.objects.active
+    try:
+        yield
+    finally:
+        for o, selected, hidden in state:
+            with contextlib.suppress(ReferenceError, RuntimeError):
+                o.hide_set(hidden)
+                o.select_set(selected)
+        layer.objects.active = active
+
+
+def has_meshes():
+    return any(o.type == 'MESH' and len(o.data.vertices) for o in p.export_objects())
 
 
 def run_step(item, plan, replay, first, last):
@@ -383,6 +410,13 @@ def run_step(item, plan, replay, first, last):
         if script and e.kind == 'error':
             receipt['caption'] = caption_of(open(script, encoding='utf8').read())
         return finish(3 if e.kind == 'error' else 4)
+    if script and 'glb' in outputs and has_meshes():
+        # The web preset under genio_bpy's modifier rule: what the live view shows is what ships.
+        with selection_kept():
+            genio_bpy.export(os.path.join(out, 'model.glb'), target='web', fmt='glb')
+        lap('export')
+        # The player sees the step now; snapshot, checks and sheet follow and the receipt completes it.
+        write_json(out, 'landed.json', {'ok': True, 'stage': 'glb', **item.get('step', {}), 'caption': receipt.get('caption'), 'timings_ms': dict(t)})
     warn = []
     if script:
         if not receipt.get('caption'):
@@ -396,23 +430,21 @@ def run_step(item, plan, replay, first, last):
             receipt['bounds'] = {'min': [round(v, 4) for v in stats['min']], 'max': [round(v, 4) for v in stats['max']],
                                  'dimensions': [round(v, 4) for v in stats['dimensions']]}
         lap('checks')
-    receipt['warnings'] = warn + receipt['api_warnings']
     blend = os.path.join(out, 'model.blend')
     if 'blend' in outputs:
         save_blend(blend)
         lap('save')
-    shipped = receipt.get('objects', 0) > 0
-    if 'glb' in outputs and shipped:
-        # The web preset under genio_bpy's modifier rule: what the live view shows is what ships.
-        genio_bpy.export(os.path.join(out, 'model.glb'), target='web', fmt='glb')
-        lap('export')
-    if 'sheet' in outputs and shipped:
-        render_sheet(out, plan.get('sheet_size', 512), stats)
+    if 'sheet' in outputs and receipt.get('objects', 0) > 0:
+        try:
+            render_sheet(out, plan.get('sheet_size', 512), stats)
+        except Exception as e:  # noqa: BLE001 - the step is published already; the sheet is the agent's eyes only
+            warn.append(f'The review sheet failed ({type(e).__name__}: {e}); the step is published without it.')
         lap('sheet')
         if not last:
             # The review camera and render settings must not reach the next step: reopen the snapshot.
             bpy.ops.wm.open_mainfile(filepath=blend)
             lap('reload')
+    receipt['warnings'] = warn + receipt['api_warnings']
     receipt['ok'] = True
     return finish(0)
 

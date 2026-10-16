@@ -360,17 +360,19 @@ describe('Play this unit', () => {
 })
 
 describe('Modeller unit before its first step', () => {
-  const step = { id: 's001', n: 1, caption: 'Raising four timber legs', triangles: 12, parts: 4, warnings: 0, ms: 1500, glb: 'genio-media://model/x/modeller/tower/steps/s001/model.glb', view: 'genio-media://model/x/modeller/tower/steps/s001/view.png' }
-  const model = (steps: typeof step[]) => ({ model: 'tower', branch: 'main', branches: ['main'], steps, checks: [], running: null, failure: null, stamp: String(steps.length) })
+  const step = { id: 's001', n: 1, caption: 'Raising four timber legs', triangles: 12, parts: 4, warnings: 0, ms: 1500, at: 0, glb: 'genio-media://model/x/modeller/tower/steps/s001/model.glb', view: 'genio-media://model/x/modeller/tower/steps/s001/view.png' }
+  const model = (steps: typeof step[]) => ({ model: 'tower', branch: 'main', branches: ['main'], steps, checks: [], running: null, failure: null, next: null, stamp: String(steps.length) })
   const sideTabs = (): string[] => [...host.querySelectorAll('.detail-side-tabs [role="tab"]')].map((b) => b.textContent!.trim())
   const sideTab = (label: string): HTMLButtonElement => [...host.querySelectorAll<HTMLButtonElement>('.detail-side-tabs [role="tab"]')].find((b) => b.textContent!.trim() === label)!
 
   it('is canvas first from the start: an empty 3D scene, Steps then Terminal then Changes, no steps yet, no Accept', async () => {
     calls.set('modellerLive', vi.fn(async () => null))
+    files = { status: 'working: Planning the tower: legs, deck, roof\n' }
     await live({ modeller: true })
     const canvas = host.querySelector('.detail-body .detail-canvas')!
     expect(canvas.querySelector('iframe')!.getAttribute('title')).toBe('Live 3D view')
-    expect(canvas.querySelector('[role="status"]')).toBeNull()
+    // what the unit is doing, and for how long, instead of a silent empty scene
+    expect(canvas.querySelector('[role="status"]')!.textContent).toMatch(/^Planning the tower: legs, deck, roof\d+ (s|min \d+ s|h \d+ min)$/)
     expect(canvas.textContent).not.toMatch(/Waiting|loading|step/i)
     expect(host.querySelector('.detail-body > .detail-term .term-mock')).toBeNull()
     expect([...host.querySelectorAll('.detail-switch [role="tab"]')].map((b) => b.textContent!.trim())).toEqual(['Model', 'Steps', 'Terminal', 'Changes', 'Timeline', 'Brief'])
@@ -393,7 +395,7 @@ describe('Modeller unit before its first step', () => {
   it('shows the head step once one exists and offers what a working Build offers: steering, no Accept', async () => {
     calls.set('modellerLive', vi.fn(async () => model([step])))
     await live({ modeller: true })
-    expect(host.querySelector('.detail-canvas [role="status"]')!.textContent).toBe('Step 1 · Raising four timber legs')
+    expect(host.querySelector('.detail-canvas [role="status"]')!.textContent).toBe('Step 1 · Raising four timber legsworking on the next step')
     expect(primary()).toEqual(['More'])
     expect(button('Accept step 1')).toBeUndefined()
     expect(host.querySelector('.ping-box, textarea')).not.toBeNull()
@@ -403,6 +405,8 @@ describe('Modeller unit before its first step', () => {
     calls.set('modellerLive', vi.fn(async () => model([step])))
     await live({ modeller: true, state: 'ready', readyAt: NOW })
     expect(primary()).toEqual(['Merge into main', 'More'])
+    // it is not working on a next step
+    expect(host.querySelector('.detail-canvas [role="status"]')!.textContent).toBe('Step 1 · Raising four timber legs')
   })
 
   it('a landed Modeller with no model data falls back to its terminal', async () => {

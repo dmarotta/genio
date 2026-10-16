@@ -4,13 +4,14 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { VIEWER_APP_URL, type ModelLoaded } from '../src/shared/model-viewer'
 import type { ModellerLive } from '../src/shared/modeller'
+import type { GenioEvent } from '../src/shared/types'
 const f = vi.hoisted(() => ({ live: vi.fn() }))
 vi.mock('../src/renderer/src/store', () => ({ api: () => ({ modellerLive: f.live }) }))
 import { ModellerView, useModellerLive } from '../src/renderer/src/components/ModellerView'
 
 const BASE = `genio-media://model/${'a'.repeat(32)}/modeller/tower/steps`
-const step = (n: number, caption: string) => ({ id: `s00${n}`, n, caption, triangles: 12 * n, parts: n, warnings: 0, ms: 1500, glb: `${BASE}/s00${n}/model.glb`, view: `${BASE}/s00${n}/view.png` })
-const state = (patch: Partial<ModellerLive> = {}): ModellerLive => ({ model: 'tower', branch: 'main', branches: ['main'], steps: [step(1, 'Raising four timber legs')], checks: [], running: null, failure: null, stamp: '1', ...patch })
+const step = (n: number, caption: string) => ({ id: `s00${n}`, n, caption, triangles: 12 * n, parts: n, warnings: 0, ms: 1500, at: 0, glb: `${BASE}/s00${n}/model.glb`, view: `${BASE}/s00${n}/view.png` })
+const state = (patch: Partial<ModellerLive> = {}): ModellerLive => ({ model: 'tower', branch: 'main', branches: ['main'], steps: [step(1, 'Raising four timber legs')], checks: [], running: null, failure: null, next: null, stamp: '1', ...patch })
 const model = (diff?: ModelLoaded['diff']): ModelLoaded => ({
   stats: { triangles: 2802, vertices: 1500, meshes: 9, materials: 3, textures: 0, bones: 0, size: [2, 6, 2] }, clips: [], textures: [], missing: [], clayFallback: 0,
   animationOnly: false, loadMs: 20, format: 'GLB', units: 'Metres', upAxis: 'y', unityClips: false, ...(diff ? { diff } : {})
@@ -115,5 +116,68 @@ describe('Modeller live view (app side of the sandboxed frame)', () => {
     const calls = f.live.mock.calls.length
     await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
     expect(f.live.mock.calls.length).toBe(calls)
+  })
+
+  it('takes the state main pushes at once, for its own unit only, and keeps polling as the fallback', async () => {
+    const listeners = new Set<(e: GenioEvent) => void>()
+    Object.assign(window, { genio: { on: (fn: (e: GenioEvent) => void) => { listeners.add(fn); return () => listeners.delete(fn) } } })
+    const emit = async (e: GenioEvent) => { await act(async () => { for (const fn of listeners) fn(e) }) }
+    try {
+      f.live.mockResolvedValue(state())
+      const seen: (ModellerLive | null)[] = []
+      function Probe({ poll }: { poll: boolean }) { seen.push(useModellerLive('u1', poll)); return null }
+      await act(async () => root.render(React.createElement(Probe, { poll: true })))
+      expect(seen.at(-1)?.steps).toHaveLength(1)
+      const pushed = state({ steps: [step(1, 'Raising four timber legs'), step(2, 'Deck of planks')], stamp: '2' })
+      await emit({ type: 'modeller-live', taskId: 'other', live: state({ stamp: 'x' }) })
+      expect(seen.at(-1)?.stamp).toBe('1')
+      // no waiting for the next poll
+      await emit({ type: 'modeller-live', taskId: 'u1', live: pushed })
+      expect(seen.at(-1)).toBe(pushed)
+      await emit({ type: 'modeller-live', taskId: 'u1', live: { ...pushed } })
+      expect(seen.at(-1)).toBe(pushed)
+      // the poll still runs: a missed push shows within a second
+      f.live.mockResolvedValue(state({ stamp: '3', steps: [step(1, 'a'), step(2, 'b'), step(3, 'Pitched roof')] }))
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+      expect(seen.at(-1)?.stamp).toBe('3')
+      await act(async () => root.render(React.createElement(Probe, { poll: false })))
+      expect(listeners.size).toBe(0)
+    } finally { delete (window as { genio?: unknown }).genio }
+  })
+
+  it('says what the unit is doing while no step runs: before the first step, between steps and at a new step', async () => {
+    const started = Date.now() - (6 * 60 + 38) * 1000
+    const working = { status: 'Planning the mech: legs, torso, arms', since: started }
+    const caption = (): string => host.querySelector('[role="status"]')?.textContent ?? ''
+    const renderWith = async (live: ModellerLive | null, activity: typeof working | null) => { await act(async () => root.render(React.createElement(ModellerView, { live, activity }))) }
+    // before the unit started a model, and before its first step: its status line and the time since it started
+    await renderWith(null, working)
+    expect(caption()).toBe('Planning the mech: legs, torso, arms6 min 38 s')
+    await renderWith(state({ steps: [] }), { status: '', since: Date.now() - 5000 })
+    expect(caption()).toBe('Working5 s')
+    // the first script exists: its caption
+    await renderWith(state({ steps: [], next: { caption: 'Blocking out the main mass', at: Date.now() } }), working)
+    expect(caption()).toBe('Next: Blocking out the main mass6 min 38 s')
+    // between steps: the last caption and the time since it landed
+    const landed = { ...step(1, 'Blocking out the main mass'), at: Date.now() - 34_000 }
+    await renderWith(state({ steps: [landed] }), working)
+    expect(caption()).toBe('Step 1 · Blocking out the main massworking on the next step· 34 s')
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    expect(caption()).toContain('working on the next step· 36 s')
+    // its script appears: the next caption, before Blender runs it
+    await renderWith(state({ steps: [landed], next: { caption: 'Adding the legs', at: Date.now() } }), working)
+    expect(caption()).toBe('Step 1 · Blocking out the main massnext: Adding the legs· 36 s')
+    // the new step runs, then lands
+    await renderWith(state({ steps: [landed], running: { id: 's002', n: 2, caption: 'Adding the legs', startedAt: Date.now() - 1000 } }), working)
+    expect(caption()).toBe('Step 2 · Adding the legs…1 s')
+    await renderWith(state({ steps: [landed, { ...step(2, 'Adding the legs'), at: Date.now() }] }), working)
+    expect(caption()).toBe('Step 2 · Adding the legsworking on the next step· 0 s')
+    // a unit that is not working shows no activity
+    await renderWith(state({ steps: [landed] }), null)
+    expect(caption()).toBe('Step 1 · Blocking out the main mass')
+    await renderWith(null, null)
+    expect(host.querySelector('[role="status"]')).toBeNull()
+    // text only: no new buttons
+    expect([...host.querySelectorAll('button')].map(b => b.textContent)).toEqual(['Wireframe', 'Clay', 'Turntable'])
   })
 })

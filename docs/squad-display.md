@@ -54,6 +54,19 @@ of the terminal, which becomes a side tab after Steps (thumbnails, Revert to N,
 Branch from N, the head step's checks as information only). Its Squad card and
 rail row show the latest step's render; Changes shows binaries before and after.
 
+The live view shows each step the moment Blender has exported its GLB: the
+kernel publishes it then, and the snapshot, checks and review sheet follow
+(a failed sheet leaves the step published, with a warning). Main watches the
+unit's step data and step scripts while the page is open and pushes each change
+(`modeller-live` event); the page's poll (1 s, 250 ms while a step runs) stays
+as the fallback. The caption over the view is plain text, never a button or a
+toast. While the unit works and no step runs, it says what the unit is doing:
+before the first step, its latest status line and the time since it started;
+between steps, the last step's caption with "working on the next step · N s";
+as soon as the next step's script exists under `.genio/modeller/<model>/`, its
+caption ("next: …"). A step Blender runs shows "Step N · caption…" and its
+seconds.
+
 A Generator (a Build deployed or filed with the Generator flag: one or more
 asset generation jobs, see docs/unit-generator.md) has no live view: its page,
 card and rail row keep the terminal, like any Build. Only its color and its

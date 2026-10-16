@@ -5,6 +5,11 @@
 //   # part: <name>     add a part        # remove: <name>   drop a part
 //   # fake: error      raise              # fake: crash      exit 3 mid-step
 //   # fake: hang       never finish
+//   # fake: wait-publish   after landed.json, wait (up to 10 s) until the kernel published the
+//                          step before writing the sheet; the receipt says sheet_after_publish
+//   # fake: sheet-error    the sheet fails: a warning, no sheet, the step stays ok
+//   # fake: crash-after-glb  exit 3 right after landed.json (no snapshot, sheet or receipt)
+// As genio_step.py, a step with parts writes landed.json right after its GLB, then the rest.
 // A `p.bake_maps(` call lists one bake in the receipt, as genio_parts does; receipts carry the
 // --threads Blender was started with.
 import fs from 'node:fs'
@@ -36,7 +41,7 @@ function finish(code) {
 function apply(file, kind) {
   const code = fs.readFileSync(file, 'utf8')
   if (code.includes('# fake: hang')) return false
-  if (code.includes('# fake: crash')) process.exit(3)
+  if (/^# fake: crash\s*$/m.test(code)) process.exit(3)
   if (code.includes('# fake: error')) {
     Object.assign(receipt, { kind, error: 'RuntimeError: fake failure', trace: [`${path.basename(file)}:2: raise RuntimeError`], caption: captionOf(code) })
     finish(kind === 'error' ? 3 : 4)
@@ -51,6 +56,18 @@ function apply(file, kind) {
   return true
 }
 
+/** Whether the kernel made this step the head, with its GLB in steps/<id>/, within 10 s. */
+async function published(item) {
+  const model = path.dirname(path.dirname(item.out))
+  for (const until = Date.now() + 10000; Date.now() < until; await new Promise((r) => setTimeout(r, 20))) {
+    try {
+      const m = JSON.parse(fs.readFileSync(path.join(model, 'manifest.json'), 'utf8'))
+      if (m.branches[m.branch].head === item.step.id && fs.existsSync(path.join(model, 'steps', item.step.id, 'model.glb'))) return true
+    } catch { /* mid-write */ }
+  }
+  return false
+}
+
 async function main() {
   for (const [i, item] of plan.steps.entries()) {
     receipt = { schema: 'genio.modeller-step.v1', ok: false, ...item.step, blender: 'fake', api_warnings: [], replayed: plan.replay.length, base: blend ?? null, batch_index: i, threads }
@@ -62,15 +79,24 @@ async function main() {
       return
     }
     const outputs = new Set(item.outputs)
+    const code = item.script ? fs.readFileSync(item.script, 'utf8') : ''
+    const caption = item.script ? captionOf(code) : null
+    if (item.script && outputs.has('glb') && state.parts.length) {
+      fs.writeFileSync(out('model.glb'), JSON.stringify(state.parts))
+      fs.writeFileSync(out('landed.json.tmp'), JSON.stringify({ ok: true, stage: 'glb', ...item.step, caption }))
+      fs.renameSync(out('landed.json.tmp'), out('landed.json'))
+      if (code.includes('# fake: crash-after-glb')) process.exit(3)
+    }
     if (outputs.has('blend')) fs.writeFileSync(out('model.blend'), Buffer.concat([MAGIC, Buffer.from(JSON.stringify(state))]))
     if (item.script) {
-      const caption = captionOf(fs.readFileSync(item.script, 'utf8'))
-      if (outputs.has('glb')) fs.writeFileSync(out('model.glb'), JSON.stringify(state.parts))
-      if (outputs.has('sheet')) { fs.writeFileSync(out('sheet.png'), PNG); fs.writeFileSync(out('view.png'), PNG) }
+      const warnings = caption ? [] : ['Start the step script with a docstring: its first line is the caption the player sees.']
+      if (code.includes('# fake: wait-publish')) receipt.sheet_after_publish = await published(item)
+      if (outputs.has('sheet') && code.includes('# fake: sheet-error')) warnings.push('The review sheet failed (RuntimeError: fake sheet failure); the step is published without it.')
+      else if (outputs.has('sheet')) { fs.writeFileSync(out('sheet.png'), PNG); fs.writeFileSync(out('view.png'), PNG) }
       Object.assign(receipt, {
         caption, triangles: state.parts.length * 12, vertices: state.parts.length * 8, objects: state.parts.length,
         parts: state.parts.map((name) => ({ name, triangles: 12 })), bounds: { min: [0, 0, 0], max: [1, 1, 1], dimensions: [1, 1, 1] },
-        warnings: caption ? [] : ['Start the step script with a docstring: its first line is the caption the player sees.']
+        warnings
       })
     }
     receipt.ok = true

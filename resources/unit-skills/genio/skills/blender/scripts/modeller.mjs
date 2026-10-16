@@ -12,10 +12,13 @@
  *   steps/<id>/receipt.json  caption, counts, bounds, advisory checks, timings
  *   failed/<id>-<kind>-<t>/  scripts that raised, crashed or hung, with receipts
  *
- * Each step runs on its parent's snapshot and writes into a staging folder that
- * becomes steps/<id> only when everything succeeded, so a crash or a hang leaves
- * the model at its last good snapshot. Snapshots older than the retention window
- * are rebuilt on demand by replaying the scripts that made them.
+ * Each step runs on its parent's snapshot and writes into a staging folder. Its
+ * GLB moves to steps/<id> and the step becomes the head as soon as Blender has
+ * exported it (landed.json); the snapshot, sheet and receipt follow when Blender
+ * finishes the step. A step that fails before its GLB never lands, so a crash or
+ * a hang leaves the model at its last good snapshot; one that stops after landing
+ * stays, without its sheet. Snapshots older than the retention window are
+ * rebuilt on demand by replaying the scripts that made them.
  */
 import fs from 'node:fs'
 import os from 'node:os'
@@ -227,9 +230,10 @@ export function batchScripts(args) {
 /**
  * Run step scripts back to back in one Blender on the current branch's head (with amend, the first
  * replaces the head). Each one is a normal step (own id, receipt, snapshot, GLB, parent chain),
- * published to the manifest as soon as Blender writes its receipt, at least `gapMs` after the last,
- * so the live view shows each change. Only the last step renders the review sheet unless
- * `everySheet`. The first failure stops the batch: earlier steps stay, it goes under failed/.
+ * published to the manifest as soon as Blender has exported its GLB, at least `gapMs` after the
+ * last, so the live view shows each change; its snapshot, checks and sheet complete the entry when
+ * Blender writes the receipt. Only the last step renders the review sheet unless `everySheet`.
+ * The first failure stops the batch: earlier steps stay, it goes under failed/.
  */
 async function runSteps(dir, m, scripts, { amend = false, everySheet = false, timeout = STEP_TIMEOUT, threads, runner, gapMs = PUBLISH_GAP_MS }) {
   checkPin(m)
@@ -254,32 +258,48 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
   })
 
   const started = Date.now()
-  const seen = [], published = []
-  let parent = parent0, lastAt = 0, stepStart = started, prevAt = started
-  // Receipts Blender has finished, in order (each written last and atomically).
+  // Per staged step, in order: `landed` (its GLB is on disk) and `done` (its receipt says ok).
+  const marks = staged.map(() => ({ landed: null, done: null, ms: 0 }))
+  const published = [], entries = []
+  let completed = 0, parent = parent0, lastAt = 0, stepStart = started, prevAt = started
+  // What Blender has finished (each file written atomically): a step's landed.json right after its
+  // GLB export, its receipt last. Blender runs the steps in order, so the scan stops at the first one
+  // without a receipt.
   const scan = () => {
-    while (seen.length < staged.length) {
-      const file = path.join(staged[seen.length].staging, 'receipt.json')
-      const receipt = readJson(file)
-      if (!receipt?.ok) return
-      const at = fs.statSync(file).mtimeMs
-      seen.push({ receipt, ms: Math.max(0, Math.round(at - prevAt)) })
-      prevAt = at
-      stepStart = Date.now()
+    for (let k = completed; k < staged.length; k++) {
+      const mk = marks[k]
+      if (!mk.done) {
+        const file = path.join(staged[k].staging, 'receipt.json')
+        const receipt = readJson(file)
+        if (receipt?.ok) {
+          const at = fs.statSync(file).mtimeMs
+          Object.assign(mk, { done: receipt, ms: Math.max(0, Math.round(at - prevAt)) })
+          prevAt = at
+          stepStart = Date.now()
+        }
+      }
+      if (!mk.landed) mk.landed = readJson(path.join(staged[k].staging, 'landed.json'))?.ok ? true : mk.done ? true : null
+      if (!mk.done) return
     }
   }
-  const publish = () => {
-    const k = published.length, s = staged[k], { receipt, ms } = seen[k]
+  const absFiles = (files) => Object.fromEntries(Object.entries(files).map(([key, v]) => [key, v && path.join(dir, v)]))
+  // Into the live view: the step's GLB and script move to steps/<id>/ and it becomes the head now,
+  // while Blender still saves its snapshot, runs the checks and renders the sheet in the staging folder.
+  const land = () => {
+    const k = published.length, s = staged[k], mk = marks[k]
+    const r = mk.done ?? readJson(path.join(s.staging, 'landed.json')) ?? {}
     const t = now(), final = path.join(dir, 'steps', s.id)
-    renameRetry(s.staging, final)
-    fs.rmSync(path.join(final, 'plan.json'), { force: true })
+    fs.mkdirSync(final, { recursive: true })
+    fs.copyFileSync(path.join(s.staging, 'script.py'), path.join(final, 'script.py'))
+    if (fs.existsSync(path.join(s.staging, 'model.glb'))) renameRetry(path.join(s.staging, 'model.glb'), path.join(final, 'model.glb'))
     const has = (f) => fs.existsSync(path.join(final, f))
-    const files = Object.fromEntries([['script', 'script.py'], ['blend', 'model.blend'], ['glb', 'model.glb'], ['sheet', 'sheet.png'], ['view', 'view.png'], ['receipt', 'receipt.json']].map(([key, f]) => [key, has(f) ? `steps/${s.id}/${f}` : null]))
+    const files = { script: `steps/${s.id}/script.py`, blend: null, glb: has('model.glb') ? `steps/${s.id}/model.glb` : null, sheet: null, view: null, receipt: `steps/${s.id}/receipt.json` }
     const entry = {
-      id: s.id, n: s.n, parent, branch: m.branch, name: s.name, caption: receipt.caption || s.name, t, ms,
-      triangles: receipt.triangles ?? 0, vertices: receipt.vertices ?? 0, objects: receipt.objects ?? 0, warnings: receipt.warnings.length,
-      blend_sha256: files.blend ? sha256(path.join(dir, files.blend)) : null, files
+      id: s.id, n: s.n, parent, branch: m.branch, name: s.name, caption: r.caption || s.name, t, ms: Math.max(0, Math.round(Date.now() - prevAt)),
+      triangles: r.triangles ?? 0, vertices: r.vertices ?? 0, objects: r.objects ?? 0, warnings: r.warnings?.length ?? 0, blend_sha256: null, files
     }
+    // The live view reads the head's receipt for its checks: none yet.
+    fs.writeFileSync(path.join(final, 'receipt.json'), JSON.stringify({ ok: true, stage: 'glb', id: s.id, caption: entry.caption, parent, branch: m.branch, t, warnings: [] }, null, 1))
     if (amend && k === 0) {
       byId(m, head).superseded_by = s.id
       m.history.push({ op: 'amend', t, branch: m.branch, replaced: head, by: s.id })
@@ -287,21 +307,47 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
     m.steps.push(entry)
     m.next = s.n + 1
     m.branches[m.branch].head = s.id
+    writeManifest(dir, m)
+    entries.push(entry)
+    published.push(null)
+    parent = s.id
+    lastAt = Date.now()
+  }
+  // Blender finished the step (or stopped after landing it): the rest of its files join it and its
+  // entry gets the receipt's counts, warnings and snapshot. A step whose receipt never came stays
+  // published, with a warning; the next step replays its script when its snapshot is missing.
+  const complete = (stopped) => {
+    const k = completed, s = staged[k], entry = entries[k], final = path.join(dir, 'steps', s.id)
+    const receipt = marks[k].done ?? { ...readJson(path.join(final, 'receipt.json')), warnings: [`Blender stopped (${stopped}) after this step reached the live view: ${fs.existsSync(path.join(s.staging, 'model.blend')) ? 'it has no review sheet.' : 'it has no snapshot or review sheet; the next step replays its script.'}`] }
+    for (const f of ['model.blend', 'sheet.png', 'view.png']) if (fs.existsSync(path.join(s.staging, f))) renameRetry(path.join(s.staging, f), path.join(final, f))
+    fs.rmSync(s.staging, { recursive: true, force: true })
+    const has = (f) => fs.existsSync(path.join(final, f))
+    Object.assign(entry.files, { blend: has('model.blend') ? `steps/${s.id}/model.blend` : null, sheet: has('sheet.png') ? `steps/${s.id}/sheet.png` : null, view: has('view.png') ? `steps/${s.id}/view.png` : null })
+    const ms = marks[k].done ? marks[k].ms : Math.max(0, Math.round(Date.now() - prevAt))
+    Object.assign(entry, {
+      caption: receipt.caption || entry.caption, ms, triangles: receipt.triangles ?? 0, vertices: receipt.vertices ?? 0, objects: receipt.objects ?? 0,
+      warnings: receipt.warnings.length, blend_sha256: entry.files.blend ? sha256(path.join(dir, entry.files.blend)) : null
+    })
     const pruned = prune(m, dir)
     const mb = dirBytes(dir) / 2 ** 20
     if (mb > SESSION_WARN_MB) receipt.warnings.push(`This model's step data is ${Math.round(mb)} MB; older snapshots are pruned, but GLBs and sheets add up.`)
-    const abs = Object.fromEntries(Object.entries(files).map(([key, v]) => [key, v && path.join(dir, v)]))
-    Object.assign(receipt, { id: s.id, parent, branch: m.branch, t, wall_ms: ms, files: abs })
+    entry.warnings = receipt.warnings.length
+    const abs = absFiles(entry.files)
+    Object.assign(receipt, { id: s.id, parent: entry.parent, branch: m.branch, t: entry.t, wall_ms: ms, files: abs })
+    delete receipt.stage
     fs.writeFileSync(path.join(final, 'receipt.json'), JSON.stringify(receipt, null, 1))
     writeManifest(dir, m)
-    published.push({
-      ok: true, model: m.model, id: s.id, n: s.n, name: s.name, caption: entry.caption, branch: m.branch, parent,
+    published[k] = {
+      ok: true, model: m.model, id: s.id, n: s.n, name: s.name, caption: entry.caption, branch: m.branch, parent: entry.parent,
       triangles: entry.triangles, vertices: entry.vertices, objects: entry.objects, bounds: receipt.bounds ?? null,
       warnings: receipt.warnings, sheet: abs.sheet, glb: abs.glb, blend: abs.blend, receipt: abs.receipt, ms, pruned,
       ...(receipt.bakes ? { bakes: receipt.bakes } : {})
-    })
-    parent = s.id
-    lastAt = Date.now()
+    }
+    completed++
+  }
+  const advance = () => {
+    if (published.length < staged.length && marks[published.length].landed && Date.now() - lastAt >= gapMs) land()
+    while (completed < published.length && marks[completed].done) complete()
   }
 
   // Blender works ahead; steps land one by one while it runs. A step that runs past `timeout` is stopped.
@@ -311,7 +357,7 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
   try {
     while (!finished) {
       scan()
-      if (published.length < seen.length && Date.now() - lastAt >= gapMs) publish()
+      advance()
       if (Date.now() - stepStart > timeout * 1000) watchdog.abort()
       await Promise.race([running, sleep(POLL_MS)])
     }
@@ -323,10 +369,12 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
   }
   const run = await running
   scan()
-  while (published.length < seen.length) {
+  while (published.length < staged.length && marks[published.length].landed) {
     await sleep(lastAt + gapMs - Date.now())
-    publish()
+    advance()
   }
+  advance()
+  if (completed < published.length) complete(run.timedOut ? 'hang' : `exit code ${run.code}`)
   // The Blender log is known once the run ends.
   for (const p of published) {
     const r = readJson(p.receipt)
@@ -347,7 +395,7 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
   const at = m.branches[m.branch].head
   const recovered = verifySnapshot(m, dir, parent)
   const error = receipt?.error ?? run.tail.split(/\r?\n/).filter(Boolean).slice(-8).join('\n')
-  const ms = Math.round(Date.now() - (seen.length ? prevAt : started))
+  const ms = Math.round(Date.now() - prevAt)
   m.failures.push({ id: s.id, name: s.name, kind, parent, branch: m.branch, t: now(), ms, log: run.log, error, dir: rel(dir, failDir) })
   m.failures = m.failures.slice(-FAILURES_KEPT)
   writeManifest(dir, m)

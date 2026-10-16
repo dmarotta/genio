@@ -10,7 +10,7 @@ import type { ModellerLive, ModellerStep } from '@shared/modeller'
 
 interface Entry { id: string; n: number; parent: string | null; caption?: string; name?: string; t?: string; ms?: number; triangles?: number; objects?: number; warnings?: number; files?: { glb?: string | null; view?: string | null; receipt?: string | null } }
 interface Failure { id: string; name?: string; parent?: string | null; branch?: string; kind?: string; error?: string; t?: string; dir?: string }
-interface Manifest { model?: string; updated?: string; branch?: string; branches?: Record<string, { head: string | null }>; steps?: Entry[]; failures?: Failure[]; history?: { t?: string }[] }
+interface Manifest { model?: string; created?: string; updated?: string; branch?: string; branches?: Record<string, { head: string | null }>; steps?: Entry[]; failures?: Failure[]; history?: { t?: string }[] }
 
 const readJson = (file: string): unknown => { try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return undefined } }
 const stepNumber = (id: string): number => Number(/^s(\d+)$/.exec(id)?.[1] ?? 0)
@@ -44,12 +44,32 @@ function latestModel(dataDir: string): { dir: string; m: Manifest } | undefined 
 /** Whether the unit has started a model: what makes a Build a Modeller on the Squad. */
 export const hasModellerModel = (dataDir: string): boolean => !!latestModel(dataDir)
 
+/** Where a unit writes a model's step scripts: `.genio/modeller/<model>/` in its worktree. */
+export const modellerScriptsDir = (worktree: string, model: string): string => path.join(worktree, '.genio', 'modeller', model)
+
+/** The newest step script in `scripts` written after `after` (epoch ms), with its caption. */
+function newestScript(scripts: string, after: number): { caption: string; at: number } | null {
+  let best: { file: string; at: number } | undefined
+  let names: string[]
+  try { names = fs.readdirSync(scripts) } catch { return null }
+  for (const n of names) {
+    if (!/\.py$/i.test(n)) continue
+    try {
+      const at = fs.statSync(path.join(scripts, n)).mtimeMs
+      if (at > after && (!best || at > best.at)) best = { file: path.join(scripts, n), at: Math.round(at) }
+    } catch { /* removed meanwhile */ }
+  }
+  const caption = best && captionOf(best.file)
+  return best && caption ? { caption, at: best.at } : null
+}
+
 /**
  * The live state of the unit's most recently updated model below `dataDir` (its modeller folder), or
  * null while it has none. `base` is the unit's viewer grant (genio-media://model/<token>/), asked for
  * only when there is a model; step GLBs and review renders are served below its `modeller/` root.
+ * With the unit's `worktree`, `next` is the step script it wrote since the head step landed.
  */
-export function readModellerLive(dataDir: string, base: () => string): ModellerLive | null {
+export function readModellerLive(dataDir: string, base: () => string, worktree?: string): ModellerLive | null {
   const best = latestModel(dataDir)
   if (!best) return null
   const { dir, m } = best
@@ -67,7 +87,7 @@ export function readModellerLive(dataDir: string, base: () => string): ModellerL
   // n is the step's place on this branch: the kernel's ids also count amended, reverted and other branches' steps.
   const steps: ModellerStep[] = line.map((s, i) => ({
     id: s.id, n: i + 1, caption: String(s.caption || s.name || s.id), triangles: Number(s.triangles) || 0,
-    parts: Number(s.objects) || 0, warnings: Number(s.warnings) || 0, ms: Number(s.ms) || 0, glb: url(s.files?.glb), view: url(s.files?.view)
+    parts: Number(s.objects) || 0, warnings: Number(s.warnings) || 0, ms: Number(s.ms) || 0, at: Date.parse(s.t ?? '') || 0, glb: url(s.files?.glb), view: url(s.files?.view)
   }))
   const branches = Object.keys(m.branches && typeof m.branches === 'object' ? m.branches : {})
   if (!branches.includes(branch)) branches.unshift(branch)
@@ -79,9 +99,10 @@ export function readModellerLive(dataDir: string, base: () => string): ModellerL
   let running: ModellerLive['running'] = null
   const lock = Number((() => { try { return fs.readFileSync(path.join(folder, '.lock'), 'utf8') } catch { return '' } })())
   if (alive(lock)) {
-    // A batch stages all its steps at once; the lowest one is the next to land.
+    // A batch stages all its steps at once; the lowest one is the next to land. A step that landed
+    // keeps its staging folder while Blender finishes its sheet: it is the head, no longer running.
     let pending: string | undefined
-    try { pending = fs.readdirSync(path.join(folder, 'steps')).filter(n => /^\.pending-s\d+$/.test(n)).sort((a, b) => stepNumber(a.slice(9)) - stepNumber(b.slice(9)))[0] } catch { /* no steps yet */ }
+    try { pending = fs.readdirSync(path.join(folder, 'steps')).filter(n => /^\.pending-s\d+$/.test(n) && !byId.has(n.slice(9))).sort((a, b) => stepNumber(a.slice(9)) - stepNumber(b.slice(9)))[0] } catch { /* no steps yet */ }
     if (pending) {
       const id = pending.slice('.pending-'.length), p = path.join(folder, 'steps', pending)
       let startedAt = Date.now()
@@ -103,6 +124,9 @@ export function readModellerLive(dataDir: string, base: () => string): ModellerL
     : null
 
   const model = typeof m.model === 'string' ? m.model : dir
-  const stamp = JSON.stringify([model, branch, branches, m.updated, steps.map(s => s.id), running?.id, failure?.id])
-  return { model, branch, branches, steps, checks, running, failure, stamp }
+  // The script being written: newer than the head step (or the model, before its first step), not yet running.
+  const since = Math.max(steps.at(-1)?.at ?? 0, Date.parse(String(m.created ?? '')) || 0)
+  const next = worktree && !running ? newestScript(modellerScriptsDir(worktree, dir), since) : null
+  const stamp = JSON.stringify([model, branch, branches, m.updated, steps.map(s => s.id), running?.id, failure?.id, next?.caption])
+  return { model, branch, branches, steps, checks, running, failure, next, stamp }
 }

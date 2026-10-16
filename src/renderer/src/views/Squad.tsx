@@ -10,7 +10,7 @@ import { api, errText, focusTask, op, openDeploy, setState, toast, liveTasks, us
 import { TerminalView } from '../components/Terminal'
 import { ModellerView, useModellerLive } from '../components/ModellerView'
 import { ModellerCardView, ModellerSteps } from '../components/ModellerSteps'
-import { modellerCanvas, type UnitFilePreview } from '@shared/modeller'
+import { modellerCanvas, type ModellerActivity, type UnitFilePreview } from '@shared/modeller'
 import { Markdown } from '../components/Markdown'
 import { Chip, Confirm, DislikeMarker, Empty, Modal, Field, NeedsYou, Tabs, ViewHeader, useNow } from '../components/ui'
 import { GenioCore } from '../components/GenioCore'
@@ -402,6 +402,10 @@ function UnitDetail({ id }: { id: string }) {
   }
 
   const latest = statusRows.at(-1)
+  // What the live view says the unit is doing while no step runs: only while it works.
+  const activity: ModellerActivity | null = canvas && live && badge.label === 'WORKING'
+    ? { status: latest ? (latest.verb === 'working' ? latest.text : `${latest.verb}: ${latest.text}`) : '', since: Date.parse(t.createdAt) || now }
+    : null
   const stopped = primary === 'respawn'
   const line = stopped
     ? `Stopped: ${stopReason(t)}`
@@ -516,7 +520,7 @@ function UnitDetail({ id }: { id: string }) {
       <div className={cx('detail-body', !main && 'no-term', shown === 'main' ? 'pane-terminal' : 'pane-side')}>
         {canvas ? (
           <div className="detail-term detail-canvas panel">
-            <ModellerView live={modeller} />
+            <ModellerView live={modeller} activity={activity} />
           </div>
         ) : term && (
           <div className="detail-term panel">

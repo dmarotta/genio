@@ -18,9 +18,9 @@ vi.mock('../src/renderer/src/components/ui', () => ({
 import { ModellerCardView, ModellerSteps } from '../src/renderer/src/components/ModellerSteps'
 
 const BASE = `genio-media://model/${'a'.repeat(32)}/modeller/tower/steps`
-const step = (n: number, caption: string, warnings = 0) => ({ id: `s00${n}`, n, caption, triangles: 100 * n, parts: n, warnings, ms: 1500, glb: `${BASE}/s00${n}/model.glb`, view: `${BASE}/s00${n}/view.png` })
+const step = (n: number, caption: string, warnings = 0) => ({ id: `s00${n}`, n, caption, triangles: 100 * n, parts: n, warnings, ms: 1500, at: 0, glb: `${BASE}/s00${n}/model.glb`, view: `${BASE}/s00${n}/view.png` })
 const state = (patch: Partial<ModellerLive> = {}): ModellerLive => ({
-  model: 'tower', branch: 'main', branches: ['main'], checks: [], running: null, failure: null, stamp: '1',
+  model: 'tower', branch: 'main', branches: ['main'], checks: [], running: null, failure: null, next: null, stamp: '1',
   steps: [step(1, 'Legs'), step(2, 'Deck', 1), step(3, 'Roof')], ...patch
 })
 const unit = { id: 'u1', state: 'working' } as Task

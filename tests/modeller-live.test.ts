@@ -35,8 +35,8 @@ describe('Modeller live state', () => {
     const live = readModellerLive(data, base)!
     expect(live).toMatchObject({ model: 'tower', branch: 'main', branches: ['main', 'wide'], running: null, failure: null })
     expect(live.steps).toEqual([
-      { id: 's001', n: 1, caption: 'Legs on stone footings', triangles: 100, parts: 1, warnings: 0, ms: 1501, glb: 'genio-media://model/abc/modeller/tower/steps/s001/model.glb', view: null },
-      { id: 's002', n: 2, caption: 'Deck of planks', triangles: 200, parts: 2, warnings: 1, ms: 1502, glb: 'genio-media://model/abc/modeller/tower/steps/s002/model.glb', view: 'genio-media://model/abc/modeller/tower/steps/s002/view.png' }
+      { id: 's001', n: 1, caption: 'Legs on stone footings', triangles: 100, parts: 1, warnings: 0, ms: 1501, at: Date.parse('2026-10-16T10:01:00.000Z'), glb: 'genio-media://model/abc/modeller/tower/steps/s001/model.glb', view: null },
+      { id: 's002', n: 2, caption: 'Deck of planks', triangles: 200, parts: 2, warnings: 1, ms: 1502, at: Date.parse('2026-10-16T10:02:00.000Z'), glb: 'genio-media://model/abc/modeller/tower/steps/s002/model.glb', view: 'genio-media://model/abc/modeller/tower/steps/s002/view.png' }
     ])
     write('tower/manifest.json', JSON.stringify(manifest({ branch: 'wide', updated: '2026-10-16T10:06:00.000Z' })))
     const wide = readModellerLive(data, base)!
@@ -81,6 +81,48 @@ describe('Modeller live state', () => {
     expect(readModellerLive(data, base)!.running).toMatchObject({ id: 's005', n: 3, caption: 'Chimney' })
     write('tower/.lock', '999999999')
     expect(readModellerLive(data, base)!.running).toBeNull()
+  })
+
+  it('treats a landed step that is still finishing its sheet as the head, not as running', () => {
+    write('tower/manifest.json', JSON.stringify(manifest()))
+    write('tower/.lock', String(process.pid))
+    // s002 is in the manifest (published on export) while its staging folder still exists
+    write('tower/steps/.pending-s002/script.py', '"""Deck of planks"""\n')
+    expect(readModellerLive(data, base)!.running).toBeNull()
+    write('tower/steps/.pending-s004/script.py', '"""Roof"""\n')
+    expect(readModellerLive(data, base)!.running).toMatchObject({ id: 's004', n: 3, caption: 'Roof' })
+  })
+
+  it("names the next step from the newest script the unit wrote since the head landed", () => {
+    const worktree = fs.mkdtempSync(path.join(os.tmpdir(), 'modeller-wt-'))
+    try {
+      const scripts = path.join(worktree, '.genio', 'modeller', 'tower')
+      const at = (file: string, iso: string) => { const t = new Date(iso); fs.utimesSync(path.join(scripts, file), t, t) }
+      write('tower/manifest.json', JSON.stringify(manifest()))
+      expect(readModellerLive(data, base, worktree)!.next).toBeNull()
+      fs.mkdirSync(scripts, { recursive: true })
+      fs.writeFileSync(path.join(scripts, 's01_legs.py'), '"""Legs on stone footings"""\n')
+      fs.writeFileSync(path.join(scripts, 's02_deck.py'), '"""Deck of planks"""\n')
+      at('s01_legs.py', '2026-10-16T10:00:30.000Z')
+      at('s02_deck.py', '2026-10-16T10:01:30.000Z')
+      // both were written before the head (s002) landed
+      expect(readModellerLive(data, base, worktree)!.next).toBeNull()
+      fs.writeFileSync(path.join(scripts, 's03_roof.py'), '"""Pitched roof with shingles"""\nimport bpy\n')
+      fs.writeFileSync(path.join(scripts, 'notes.txt'), '"""not a step"""')
+      at('s03_roof.py', '2026-10-16T10:03:00.000Z')
+      const live = readModellerLive(data, base, worktree)!
+      expect(live.next).toEqual({ caption: 'Pitched roof with shingles', at: expect.any(Number) })
+      expect(live.stamp).not.toBe(readModellerLive(data, base)!.stamp)
+      // once Blender runs it, the running caption says it
+      write('tower/.lock', String(process.pid))
+      write('tower/steps/.pending-s004/script.py', '"""Pitched roof with shingles"""\n')
+      expect(readModellerLive(data, base, worktree)).toMatchObject({ running: { id: 's004' }, next: null })
+      // a script without a docstring has no caption to show
+      fs.rmSync(path.join(data, 'tower', 'steps', '.pending-s004'), { recursive: true })
+      fs.writeFileSync(path.join(scripts, 's04_rail.py'), 'import bpy\n')
+      at('s04_rail.py', '2026-10-16T10:04:00.000Z')
+      expect(readModellerLive(data, base, worktree)!.next).toBeNull()
+    } finally { fs.rmSync(worktree, { recursive: true, force: true }) }
   })
 
   it('reports a failed last attempt until a step, revert or switch moves the model', () => {

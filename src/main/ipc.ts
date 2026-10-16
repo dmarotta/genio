@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { modelCatalogue, invalidateModelCatalogue } from './model-catalogue'
 import { agentGeneration } from './agent-generation'
 import { readWorldMetadata } from './world-metadata'
@@ -7,6 +8,7 @@ import { playerInstanceService } from './player-instance'
 import { playerSources, sourceUnit } from './player-sources'
 import { modelViewer } from './model-viewer'
 import { readModellerLive } from './modeller-live'
+import { createLiveWatch } from './modeller-watch'
 import { modellerAction } from './modeller-actions'
 import { unitFilePreview } from './unit-file-preview'
 import { baseRef } from './git'
@@ -73,7 +75,21 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
   /** A unit's model as the live view reads it, step files served through its one viewer grant. */
   const unitModel = (hc: HomeCtx, task: Task): ReturnType<typeof readModellerLive> => {
     const data = modellerDataDir(hc.home.taskDir(task.id))
-    return readModellerLive(data, () => modelViewer().grantUnit(task.id, { modeller: data, worktree: task.worktree }))
+    return readModellerLive(data, () => modelViewer().grantUnit(task.id, { modeller: data, worktree: task.worktree }), task.worktree)
+  }
+  // While a page reads a unit's model, a change on disk is pushed at once; its poll is the fallback.
+  const liveWatch = createLiveWatch()
+  const pushed = new Map<string, string | undefined>()
+  const watchUnitModel = (hc: HomeCtx, task: Task, stamp: string | undefined): void => {
+    pushed.set(task.id, stamp)
+    liveWatch.touch(task.id, [modellerDataDir(hc.home.taskDir(task.id)), path.join(task.worktree, '.genio', 'modeller')], () => {
+      const f = findTask(ctx(), task.id)
+      if (!f) return
+      const live = unitModel(f.hc, f.task)
+      if (live?.stamp === pushed.get(task.id)) return
+      pushed.set(task.id, live?.stamp)
+      bus.publish({ type: 'modeller-live', taskId: task.id, live })
+    })
   }
   const projectRoot = (world: string): string => {
     const root = ctx().projects.get(world)?.path
@@ -174,6 +190,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
       const live = unitModel(hc, task)
       // A Generator stays a Generator (never both), even when it made a model with the kernel.
       if (live && !task.modeller && !task.generator && task.kind === 'ship') hc.crew.update(id, { modeller: true })
+      if (!task.generator && task.state !== 'cleaned') watchUnitModel(hc, task, live?.stamp)
       return live
     },
     modellerAct: async (id, act) => {

@@ -10,6 +10,8 @@ export interface ModellerStep {
   parts: number
   warnings: number
   ms: number
+  /** When the step reached the live view (epoch ms), 0 when unknown. */
+  at: number
   /** The step's GLB through the unit's viewer grant, or null when it has none. */
   glb: string | null
   /** The step's 3/4 review render (512 px PNG) through the same grant, or null. */
@@ -28,8 +30,44 @@ export interface ModellerLive {
   running: { id: string; n: number; caption: string; startedAt: number } | null
   /** The last attempt on this branch failed; the model stays at its head. */
   failure: { id: string; n: number; caption: string; kind: string; error: string } | null
+  /** The step script the unit is writing or about to run: its newest one under .genio/modeller/<model>/ in the worktree,
+   * written after the head step landed and not running yet. `at` is its last write (epoch ms). */
+  next: { caption: string; at: number } | null
   /** Changes whenever anything above does. */
   stamp: string
+}
+
+/** What the unit is doing, for the live view's text while no step runs: its latest status line and when it started. */
+export interface ModellerActivity {
+  status: string
+  /** The unit's start (epoch ms): the clock before the first step. */
+  since: number
+}
+
+/** "42 s", "6 min 38 s", "1 h 5 min": the live view's clocks. */
+export function elapsed(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000))
+  return s < 60 ? `${s} s` : s < 3600 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${Math.floor(s / 3600)} h ${Math.floor(s / 60) % 60} min`
+}
+
+/**
+ * The live view's caption: the running step, a failed attempt, or the head step; with the unit's
+ * activity while it works and no step runs. Before the first step that is its latest status line (or
+ * the next step's caption once its script exists) and the time since it started; between steps,
+ * "working on the next step" (or the next caption) and the time since the head landed.
+ */
+export function modellerCaption(live: ModellerLive | null, activity: ModellerActivity | null | undefined, now: number):
+  { text: string; side: string; clock: string; tone: 'run' | 'warn' | 'idle' } | null {
+  const run = live?.running, failed = live?.failure, head = live?.steps.at(-1), next = live?.next
+  if (run) return { text: `Step ${run.n} · ${run.caption}…`, side: '', clock: elapsed(now - run.startedAt), tone: 'run' }
+  if (failed) return { text: `Step ${failed.n} failed · ${failed.caption}`, side: '', clock: '', tone: 'warn' }
+  if (head) {
+    const text = `Step ${head.n} · ${head.caption}`
+    if (!activity) return { text, side: '', clock: '', tone: 'idle' }
+    return { text, side: next ? `next: ${next.caption}` : 'working on the next step', clock: head.at ? elapsed(now - head.at) : '', tone: 'idle' }
+  }
+  if (!activity) return null
+  return { text: next ? `Next: ${next.caption}` : activity.status || 'Working', side: '', clock: elapsed(now - activity.since), tone: 'idle' }
 }
 
 /** What the player does to a model from the unit page; main runs it through the kernel and tells the unit. */

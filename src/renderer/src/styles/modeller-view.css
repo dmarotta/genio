@@ -5,6 +5,9 @@
 .modeller-view-caption { position: absolute; top: 6px; left: 6px; right: 6px; display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: #0b0f16cc; font-size: 12px; pointer-events: none; }
 .modeller-view-caption.warn { color: var(--amber); }
 .modeller-view-text { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.modeller-view-side { min-width: 0; max-width: 50%; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-dim); }
+.modeller-view-side + .modeller-view-clock { margin-left: -2px; }
+.modeller-view-clock { flex: none; white-space: nowrap; font-size: 11px; color: var(--text-dim); }
 .modeller-view-tools { display: flex; flex-wrap: wrap; gap: 4px; }
 .modeller-view-tools .btn { padding: 3px 8px; font-size: 11px; }
 .modeller-view .btn.on { background: var(--neon-soft); border-color: var(--neon); color: var(--neon); }

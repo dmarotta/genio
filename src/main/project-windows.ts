@@ -66,6 +66,7 @@ export function routeProjectEvent(ev: GenioEvent, binding: WindowBinding | undef
     case 'task': return project(ev.task.project)
     case 'task-removed': return ev // deletion contains no content; may already be absent from snapshot
     case 'status': return project(snap().tasks.find(t => t.id === ev.event.taskId)?.project)
+    case 'modeller-live': return project(snap().tasks.find(t => t.id === ev.taskId)?.project)
     case 'chat': return wksp(ev.message.wksp)
     case 'chat-delta': case 'generation': return wksp(ev.wksp)
     case 'wksp': return wksp(ev.wksp.name)
