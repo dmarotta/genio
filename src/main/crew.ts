@@ -11,7 +11,9 @@ import type { AppCtx, CrewService } from './services'
 import { placeWorktree, type Home } from './home'
 import { bus } from './bus'
 import * as git from './git'
-import { appendProgressNote, doorbellLine, engineHints, kickoffPrompt, renderBrief, type BriefInput } from './brief'
+import { appendProgressNote, doorbellLine, engineHints, kickoffPrompt, modellerDoneLines, renderBrief, type BriefInput } from './brief'
+import { claimConflict } from '@shared/modeller'
+import { pruneModellerData } from './modeller-landing'
 import { holdsCapacity } from './usage-policy'
 import { buildArgs, CLAUDE_BYPASS_DIALOG } from './harness'
 import { discoverCodexSession } from './codex-session'
@@ -35,7 +37,7 @@ import { installUnityShims, unityGuardScript, unityPreToolHook } from './unity-g
 import { depsEnv, depsPreToolHook, depsStateFile, installNpmShims, npmGuardScript, startWorktreeDeps, sweepWorktrees, type SweepResult } from './worktree-deps'
 import { isLink, removeLinkSafely } from '../../resources/unit-skills/genio/lib/node-deps.mjs'
 import { sourceRemoved, yieldSource } from './source-leases'
-import { installUnitPlugin, openRouterEnv, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief } from './unitskills'
+import { falSkillDir, installUnitPlugin, modellerBrief, modellerDataDir, openRouterEnv, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief } from './unitskills'
 import { findUnityCli, unityUnitConfig, unityUnitEnv } from './unity-unit'
 import { artBibleBriefLines, unitArtBible, unitArtBibleEnv } from './art-bible-gen'
 import {
@@ -573,13 +575,23 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           kind: req.kind,
           notes: req.intent,
           mode: req.kind === 'ship' ? posture.mode : undefined,
-          yolo: req.kind === 'ship' ? posture.yolo : undefined
+          yolo: req.kind === 'ship' ? posture.yolo : undefined,
+          modeller: req.kind === 'ship' && req.modeller ? true : undefined,
+          claims: req.kind === 'ship' && req.modeller ? req.claims : undefined
         })
         backlogId = b.id
       }
 
       // a follow-up on the same quest keeps the loadout of the unit that worked it before
       const quest = backlog.get(backlogId!)
+      // The Modeller flag and its target paths come with the request, else from the quest.
+      const modeller = req.kind === 'ship' && Boolean(req.modeller ?? quest?.modeller)
+      const claims = modeller ? [...new Set((req.claims ?? quest?.claims ?? []).map((c) => c.trim().replace(/\\/g, '/')).filter(Boolean))] : []
+      if (modeller) {
+        const clash = claimConflict(claims, project.name, [...ctx.homes.values()].flatMap((h) => h.crew.list()))
+        if (clash) throw new Error(`deferred: ${clash.path} is claimed by Modeller ${clash.holder.id} ("${truncate(clash.holder.title, 80)}"). This quest stays queued until that unit lands or is despawned.`)
+        if (quest && (!quest.modeller || (req.claims && req.claims.length))) safe(() => backlog.update(quest.id, { modeller: true, ...(claims.length ? { claims } : {}) }))
+      }
       const prev = quest?.taskId ? get(quest.taskId) : undefined
       const pickInput: LoadoutInput = {
         ...req,
@@ -640,10 +652,14 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
             reportPath,
             engine: effectiveEngine(project).engine,
             engineLine: engineBriefLine(engineFacts(project)),
-            engineHints: engineHints(effectiveEngine(project).engine),
+            engineHints: engineHints(effectiveEngine(project).engine, modeller),
             briefInclude: s.briefInclude,
             summaryWords: req.kind === 'scout' ? ctx.dispatch.reportWords(project.name, loadout.harness) : undefined,
             tools: toolsBrief(),
+            modeller: modeller ? modellerBrief(pluginDir, home.taskDir(id)) : undefined,
+            modellerDone: modeller
+              ? modellerDoneLines({ engine: effectiveEngine(project).engine, engineRoot: effectiveEngine(project).root, locate: path.join(falSkillDir(pluginDir), 'scripts', 'fal.mjs'), claims })
+              : undefined,
             artBible: artBibleBrief(project.path, wt, id),
             submodules,
             nodeDeps: nodeDeps(id, wt)
@@ -672,6 +688,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           effort: loadout.effort,
           loadout: loadout.reasons,
           category: loadout.category,
+          ...(modeller ? { modeller: true, ...(claims.length ? { claims } : {}) } : {}),
           loadoutSource: loadout.source,
           ruleId: loadout.ruleId,
           explored: loadout.explored,
@@ -938,7 +955,15 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       const discarded = via === 'forced' || via === 'forced by the player' || via === 'recon ended without a report'
       update(id, { state: 'cleaned', cleanedAt: nowIso(), terminalId: undefined, stateReason: `despawned: ${via}`, ...(discarded ? { discarded } : {}) })
       sourceRemoved(t.worktree)
-      ledger('task.cleaned_up', t, { via })
+      // A Modeller's step snapshots and GLBs go; manifests, renders and scripts stay as history.
+      const pruned = (() => {
+        try {
+          return t.modeller ? pruneModellerData(modellerDataDir(home.taskDir(id))) : undefined
+        } catch {
+          return undefined
+        }
+      })()
+      ledger('task.cleaned_up', t, { via, ...(pruned?.files ? { modellerPruned: pruned } : {}) })
       safe(() => ctx.stats.award('cleanup', id))
       void svc.sweepWorktrees().catch(() => undefined)
       return { ok: true, message: `Despawned ${id} (${via}).${leftover}` }

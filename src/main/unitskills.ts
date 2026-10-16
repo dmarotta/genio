@@ -127,7 +127,7 @@ export function modellerBrief(pluginDir: string, taskDataDir: string): string {
     '- After every step, open the review sheet PNG the step prints (3/4, front, side and top views) and read its warnings. Fix what is wrong before adding anything new: a fix is its own step, or `--amend` the last one.',
     '- The warnings and checks are information for you and the player, never a gate. The player\'s review of the live view decides.',
     '- Steering ("steeper roof") becomes the next step. `revert <model> <step>` or `branch <model> <name> --from <step>` goes back to an earlier version; `status <model>` lists the steps.',
-    `- Steps, .blend snapshots, GLBs and review sheets live in \`${data}/\` (GENIO_MODELLER_DATA). Never copy them into the worktree or commit them.`,
+    `- Steps, .blend snapshots, GLBs and review sheets live in \`${data}/\` (GENIO_MODELLER_DATA). Never copy them into the worktree or commit them, except what the Modeller delivery under Definition of done names for the accepted step.`,
     '- A failed, crashed or hung step leaves the model at its last good step. Read the error and trace it prints, fix the script and run it again; do not retry it unchanged.'
   ].join('\n')
 }

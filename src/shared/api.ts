@@ -38,6 +38,10 @@ export interface SpawnRequest {
   planContext?: string
   /** start the quest although its dependencies have not landed (only on the player's word) */
   force?: boolean
+  /** a Build that runs as a Modeller (absent = the quest's flag) */
+  modeller?: boolean
+  /** a Modeller's target paths, from asset_locate (absent = the quest's claims) */
+  claims?: string[]
 }
 
 export interface ProjectAddRequest {

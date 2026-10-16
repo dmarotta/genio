@@ -394,10 +394,13 @@ export function createToolRegistry(
       effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
       quest_id: z.string().optional(),
       force: z.boolean().default(false),
-      player_words: z.string().trim().min(1).optional()
+      player_words: z.string().trim().min(1).optional(),
+      modeller: z.boolean().optional().describe('kind=ship only: a Modeller, which builds a 3D model in live Blender steps (any model kind; needs local Blender). Absent = the quest\'s flag.'),
+      claims: z.array(z.string()).optional().describe('Modeller only: the project paths it will write (export, .blend), from asset_locate. Refused while another Modeller holds one.')
     },
     async (a) => {
       if (/^\s*(captain|player|boss)\b[:,]/i.test(a.intent)) return fail('intent must be the player\'s words without a speaker label or direct address')
+      if (a.modeller && a.kind !== 'ship') return fail('modeller applies to kind=ship only')
       const held = a.quest_id ? questHeld(a.quest_id) : undefined
       if (held) return fail(`deploy refused: quest ${a.quest_id} is ${held}`)
       if (a.force) {
@@ -413,13 +416,15 @@ export function createToolRegistry(
         const task = await owner.crew.spawn({
           kind: a.kind, project: a.world, title: a.title, intent: a.intent, spec: a.spec ?? step?.spec, mode: a.mode, yolo: a.auto_loot,
           baseBranch: a.base_branch, harness: a.harness ?? step?.harness, model: a.model ?? step?.model, effort: a.effort ?? step?.effort,
-          category: a.category ?? step?.category, backlogId: a.quest_id, wksp: owner.home.name, planContext: step?.planContext, force: a.force
+          category: a.category ?? step?.category, backlogId: a.quest_id, wksp: owner.home.name, planContext: step?.planContext, force: a.force,
+          modeller: a.modeller, claims: a.claims
         })
         did('units', task.id)
         did('quests', task.backlogId)
-        return ok(`deployed ${task.id}: ${task.kind === 'ship' ? 'Build' : 'Recon'} "${task.title}" in ${task.project} (unit tool ${task.harness}${task.model ? ` / ${task.model}` : ''}${task.effort ? ` / ${task.effort}` : ''}, mode ${modeLabel(task.mode)}, branch ${task.branch})${task.loadout?.length ? `\nloadout reasons:\n- ${task.loadout.join('\n- ')}` : ''}`)
+        return ok(`deployed ${task.id}: ${task.kind === 'scout' ? 'Recon' : task.modeller ? 'Modeller' : 'Build'} "${task.title}" in ${task.project} (unit tool ${task.harness}${task.model ? ` / ${task.model}` : ''}${task.effort ? ` / ${task.effort}` : ''}, mode ${modeLabel(task.mode)}, branch ${task.branch})${task.loadout?.length ? `\nloadout reasons:\n- ${task.loadout.join('\n- ')}` : ''}`)
       } catch (e) {
         const msg = (e as Error).message ?? String(e)
+        if (/claimed by Modeller/.test(msg)) return ok(msg)
         if (/deferred|capacity/i.test(msg)) return ok(`deferred: ${msg}. The quest stays queued; it will be dispatchable when capacity frees up.`)
         return fail(`deploy refused: ${msg}`)
       }
@@ -562,14 +567,17 @@ export function createToolRegistry(
       priority: z.enum(['low', 'normal', 'high', 'critical']).default('normal'),
       depends_on: z.array(z.string()).default([]).describe('Quest ids that must land (merged Build, delivered Recon) before this quest may start. Genio never starts it before then, on any path (deploy, Dispatch, restart), unless the player says so.'),
       not_before: z.string().optional(),
-      tags: z.array(z.string()).default([])
+      tags: z.array(z.string()).default([]),
+      modeller: z.boolean().optional().describe('kind=ship only: the quest runs as a Modeller (a 3D model built in live Blender steps).'),
+      claims: z.array(z.string()).optional().describe("Modeller only: its target paths from asset_locate.")
     },
     async (a) => {
       if (a.kind === 'program') {
         const label = a.tags[0] || slugify(a.title, 32)
         return ok(`programs are labels now: no quest filed. Tag the quests that belong to "${a.title}" with "${label}" (quest_add/quest_update tags).`)
       }
-      const it = hc().backlog.add({ title: a.title, project: a.world, kind: a.kind, notes: a.notes, priority: a.priority, dependsOn: a.depends_on, notBefore: a.not_before, tags: a.tags })
+      if (a.modeller && a.kind !== 'ship') return fail('modeller applies to kind=ship only')
+      const it = hc().backlog.add({ title: a.title, project: a.world, kind: a.kind, notes: a.notes, priority: a.priority, dependsOn: a.depends_on, notBefore: a.not_before, tags: a.tags, modeller: a.modeller, claims: a.claims })
       did('quests', it.id)
       return ok(`quest ${it.id} filed (${it.state})${it.duplicateOf ? `; flagged as a duplicate of ${it.duplicateOf} and not dispatched until cleared (quest_update duplicate_of="")` : ''}`)
     }
@@ -584,10 +592,14 @@ export function createToolRegistry(
       depends_on: z.array(z.string()).optional().describe('Replaces the quest ids that must land before this quest may start (see quest_add). A plan step\'s order changes with plan_update instead.'),
       tags: z.array(z.string()).optional(),
       world: z.string().optional(), not_before: z.string().optional(), duplicate_of: z.string().optional(),
-      state: z.enum(['queued', 'blocked', 'dropped', 'held']).optional()
+      state: z.enum(['queued', 'blocked', 'dropped', 'held']).optional(),
+      modeller: z.boolean().optional().describe('A Build quest runs as a Modeller (see quest_add).'),
+      claims: z.array(z.string()).optional()
     },
     async (a) => {
       const patch: Record<string, unknown> = {}
+      if (a.modeller !== undefined) patch.modeller = a.modeller || undefined
+      if (a.claims !== undefined) patch.claims = a.claims.length ? a.claims : undefined
       if (a.title !== undefined) patch.title = a.title
       if (a.notes !== undefined) patch.notes = a.notes
       if (a.priority !== undefined) patch.priority = a.priority

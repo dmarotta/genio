@@ -184,8 +184,10 @@ export interface Task {
   loadout?: string[]
   /** dispatch category the loadout was picked for */
   category?: TaskCategory
-  /** A Modeller: a Build whose deliverable is a 3D model, so its page leads with the live view. Set when its first model appears. */
+  /** A Modeller: a Build whose deliverable is a 3D model, so its page leads with the live view. Set at spawn (the Modeller flag), or when its first model appears. */
   modeller?: boolean
+  /** A Modeller's project paths (exports, .blend, build scripts): another Modeller may not take them until this one lands. */
+  claims?: string[]
   /** who decided the unit tool, and whether exploration picked it */
   loadoutSource?: Loadout['source']
   ruleId?: string
@@ -343,6 +345,10 @@ export interface BacklogItem {
   taskId?: string
   mode?: DeliveryMode
   yolo?: boolean
+  /** A Build that runs as a Modeller (a 3D model built in live Blender steps). */
+  modeller?: boolean
+  /** The Modeller's target paths (asset_locate), claimed at spawn. */
+  claims?: string[]
   tags: string[]
   createdAt: string
   updatedAt: string

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Radar, Rocket, SlidersHorizontal, Sparkles } from 'lucide-react'
+import { Box, Radar, Rocket, SlidersHorizontal, Sparkles } from 'lucide-react'
 import type { DeliveryMode, Loadout, TaskCategory, TaskKind } from '@shared/types'
 import { CATEGORIES, categoryLabel } from '@shared/dispatch'
 import { api, errText, focusTask, setState, toast, useStore } from '../store'
@@ -13,6 +13,9 @@ export function DeployModal() {
   const projects = useStore((s) => s.snap.projects)
   const settings = useStore((s) => s.settings)
   const [kind, setKind] = useState<TaskKind>('ship')
+  const [modeller, setModeller] = useState(false)
+  /** Whether a local Blender was found (a Modeller needs one); null until the toolchain answers. */
+  const [blender, setBlender] = useState<boolean | null>(null)
   // Units always deploy into this window's project (openDeploy prefills it; main enforces it).
   const project = draft?.project ?? projects[0]?.name ?? ''
   const [title, setTitle] = useState('')
@@ -33,6 +36,7 @@ export function DeployModal() {
   useEffect(() => {
     if (!draft) return
     setKind(draft.kind ?? 'ship')
+    setModeller(draft.kind !== 'scout' && !!draft.modeller)
     setTitle(draft.title ?? '')
     setIntent(draft.intent ?? '')
     setSpec(draft.spec ?? '')
@@ -47,6 +51,15 @@ export function DeployModal() {
     setYolo(draft.yolo ?? projects.find((x) => x.name === project)?.yolo ?? false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft])
+
+  useEffect(() => {
+    if (!modeller || blender !== null) return
+    let live = true
+    void api().toolchain().then((tools) => live && setBlender(tools.some((x) => x.name === 'blender' && x.found))).catch(() => live && setBlender(null))
+    return () => {
+      live = false
+    }
+  }, [modeller, blender])
 
   const proj = projects.find((p) => p.name === project)
   const harnesses = useMemo(() => (settings?.harnesses ?? []).filter((h) => h.enabled), [settings])
@@ -85,7 +98,13 @@ export function DeployModal() {
   if (!draft) return null
   const toolName = (id: string): string => settings?.harnesses.find((x) => x.id === id)?.name ?? id
   const close = (): void => setState({ deploy: null })
-  const valid = project && proj?.gitRepo !== false && title.trim() && intent.trim()
+  const asModeller = kind === 'ship' && modeller
+  const noBlender = asModeller && blender === false
+  const valid = project && proj?.gitRepo !== false && title.trim() && intent.trim() && !noBlender
+  const pick = (k: TaskKind, m: boolean): void => {
+    setKind(k)
+    setModeller(m)
+  }
 
   const deployNow = async (): Promise<void> => {
     if (!valid) return
@@ -105,7 +124,8 @@ export function DeployModal() {
         model: pickModel || undefined,
         effort: pickEffort || undefined,
         backlogId: draft.backlogId,
-        wksp: draft.wksp
+        wksp: draft.wksp,
+        ...(asModeller ? { modeller: true } : {})
       })
       playSfx('spawn', settings)
       toast('success', 'Unit deployed', `${t.title} is on the field`)
@@ -121,7 +141,7 @@ export function DeployModal() {
 
   const briefGenio = async (): Promise<void> => {
     if (!project || !intent.trim()) return
-    const kindWord = kind === 'ship' ? 'Build' : 'Recon'
+    const kindWord = asModeller ? 'Modeller' : kind === 'ship' ? 'Build' : 'Recon'
     const text = `${kindWord} in ${project}${title.trim() ? ` — ${title.trim()}` : ''}:\n\n${intent.trim()}${mode ? `\n\n(mode: ${MODE_LABEL[mode]})` : ''}`
     setBusy(true)
     try {
@@ -139,10 +159,10 @@ export function DeployModal() {
   return (
     <Modal
       kicker="Deploy"
-      title={kind === 'ship' ? 'New Build mission' : 'New Recon mission'}
+      title={asModeller ? 'New Modeller mission' : kind === 'ship' ? 'New Build mission' : 'New Recon mission'}
       onClose={close}
       width={680}
-      tone={kind === 'ship' ? 'neon' : 'violet'}
+      tone={asModeller ? 'orange' : kind === 'ship' ? 'neon' : 'violet'}
       footer={
         <>
           <button className="btn ghost" onClick={close}>
@@ -156,22 +176,34 @@ export function DeployModal() {
           >
             Brief Genio
           </button>
-          <button className={cx('btn solid', kind === 'scout' && 'violet')} disabled={busy || !valid} onClick={() => void deployNow()}>
-            {kind === 'ship' ? <Rocket size={14} /> : <Radar size={14} />}
+          <button
+            className={cx('btn solid', kind === 'scout' && 'violet', asModeller && 'orange')}
+            disabled={busy || !valid}
+            title={noBlender ? 'Install Blender 4.2 LTS or newer (free)' : undefined}
+            onClick={() => void deployNow()}
+          >
+            {asModeller ? <Box size={14} /> : kind === 'ship' ? <Rocket size={14} /> : <Radar size={14} />}
             Deploy now
           </button>
         </>
       }
     >
       <div className="kind-switch">
-        <button className={cx('kind-opt', kind === 'ship' && 'on')} onClick={() => setKind('ship')}>
+        <button className={cx('kind-opt', kind === 'ship' && !modeller && 'on')} onClick={() => pick('ship', false)}>
           <Rocket size={18} />
           <div>
             <b>Build</b>
             <span>Ships a change through the project's delivery mode</span>
           </div>
         </button>
-        <button className={cx('kind-opt violet', kind === 'scout' && 'on')} onClick={() => setKind('scout')}>
+        <button className={cx('kind-opt orange', asModeller && 'on')} onClick={() => pick('ship', true)}>
+          <Box size={18} />
+          <div>
+            <b>Modeller</b>
+            <span>{noBlender ? 'Install Blender 4.2 LTS or newer (free)' : 'Builds a 3D model in Blender steps you watch live'}</span>
+          </div>
+        </button>
+        <button className={cx('kind-opt violet', kind === 'scout' && 'on')} onClick={() => pick('scout', false)}>
           <Radar size={18} />
           <div>
             <b>Recon</b>

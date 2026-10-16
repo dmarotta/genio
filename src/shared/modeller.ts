@@ -38,6 +38,37 @@ export type ModellerAct =
   | { op: 'switch'; model: string; branch: string }
   | { op: 'accept'; model: string; step: string }
 
+/** Where a Modeller commits a model's build scripts and manifest: also the path it claims for that model. */
+export const modelScriptsDir = (model: string): string => `.genio/modeller/${model}/`
+
+/** A claimed project path, compared case-insensitively with forward slashes; a trailing slash claims a folder. */
+export function normalizeClaim(p: string): string {
+  return p.trim().replace(/\\/g, '/').replace(/^(\.\/)+/, '').replace(/\/{2,}/g, '/').toLowerCase()
+}
+
+/** Two claims meet when they name the same file or one is a folder holding the other. */
+export function claimsMeet(a: string, b: string): boolean {
+  const x = normalizeClaim(a), y = normalizeClaim(b)
+  if (!x || !y) return false
+  const dir = (s: string): string => (s.endsWith('/') ? s : `${s}/`)
+  return x === y || dir(x) === dir(y) || x.startsWith(dir(y)) || y.startsWith(dir(x))
+}
+
+/** A Modeller holds its claims until it lands or is despawned. */
+export const holdsClaims = (t: { kind: string; modeller?: boolean; state: string }): boolean =>
+  t.kind === 'ship' && !!t.modeller && t.state !== 'merged' && t.state !== 'cleaned'
+
+/** The first path in `claims` another Modeller of the same project already holds, with its holder. */
+export function claimConflict<T extends { id: string; project: string; kind: string; modeller?: boolean; state: string; claims?: string[] }>(
+  claims: string[], project: string, others: T[], self?: string
+): { path: string; holder: T } | undefined {
+  for (const o of others) {
+    if (o.id === self || o.project !== project || !holdsClaims(o)) continue
+    for (const c of claims) if ((o.claims ?? []).some(h => claimsMeet(c, h))) return { path: c, holder: o }
+  }
+  return undefined
+}
+
 /** Before and after of one binary file a unit changed (Changes tab). */
 export interface UnitFilePreview {
   kind: 'image' | 'model' | 'other'

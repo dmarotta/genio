@@ -248,7 +248,7 @@ button.hud-stat:hover { border-color: var(--line); color: var(--text); }
 .palette-hint { font-size: 12px; }
 
 /* ---------- deploy ---------- */
-.kind-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px; }
+.kind-switch { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }
 .kind-opt {
   --c: var(--neon);
   display: flex; gap: 12px; align-items: flex-start; text-align: left; padding: 14px; cursor: pointer;
@@ -256,6 +256,7 @@ button.hud-stat:hover { border-color: var(--line); color: var(--text); }
   clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
 }
 .kind-opt.violet { --c: var(--violet); }
+.kind-opt.orange { --c: var(--orange); }
 .kind-opt b { display: block; color: var(--text); font-family: var(--font-display); font-size: 18px; letter-spacing: 0.1em; text-transform: uppercase; }
 .kind-opt span { font-size: 12px; }
 .kind-opt.on { border-color: var(--c); background: color-mix(in srgb, var(--c) 10%, transparent); color: var(--c); box-shadow: inset 0 0 20px color-mix(in srgb, var(--c) 12%, transparent); }

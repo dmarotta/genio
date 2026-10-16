@@ -5,7 +5,7 @@ import type { SpendLine } from '@shared/fal'
 import { effectiveEngine } from '@shared/engine'
 import { appendSpend, lfsWarnings, provenancePath, sha256File, writeProvenance, type Provenance } from './fal-world'
 
-const MEDIA = /\.(png|jpe?g|webp|gif|tga|tiff?|exr|bmp|psd|wav|ogg|mp3|flac|m4a|aac|mp4|webm|mov|glb|gltf|fbx|obj|bvh)$/i
+const MEDIA = /\.(png|jpe?g|webp|gif|tga|tiff?|exr|bmp|psd|wav|ogg|mp3|flac|m4a|aac|mp4|webm|mov|glb|gltf|fbx|obj|bvh|blend)$/i
 const FORBIDDEN = /^(?:\.git|\.genio|\.godot|\.import|Library|Temp|Logs|obj|Build.*|dist|out|UserSettings|ProjectSettings|Packages|Intermediate|Saved|DerivedDataCache|Binaries|node_modules|Editor|Resources|StreamingAssets|AddressableAssetsData|generated|vendor|third[-_ ]?party|plugins|textmesh pro|microsplatdata|addons)$/i
 
 /** No link traversal, including provenance and scaffold files. Check again immediately before writes. */
@@ -26,6 +26,11 @@ export function placementTarget(project: Pick<Project, 'path' | 'engine' | 'engi
   if (parts.slice(0, -1).some(s => (FORBIDDEN.test(s) && (agent || !/^generated$/i.test(s))) || engine === 'unreal' && /^Content$/i.test(s))) throw new Error('Forbidden placement directory')
   if (engineRoot && !relative.toLowerCase().startsWith(engineRoot.toLowerCase() + '/')) throw new Error('Placement must stay under the engine root')
   if (agent && engine === 'unity' && /\.(glb|gltf)$/i.test(relative) && parts.some(s => /^Assets$/i.test(s))) throw new Error('Unity glTF sources must stay outside Assets; use asset_locate')
+  // A .blend is a source file: only under an ArtSource folder, never under Unity's Assets (Unity imports it through a local Blender).
+  if (/\.blend$/i.test(relative)) {
+    if (!parts.slice(0, -1).some(s => /^ArtSource$/i.test(s))) throw new Error('A .blend may only be placed under an ArtSource folder')
+    if (engine === 'unity' && parts.some(s => /^Assets$/i.test(s))) throw new Error('A .blend must stay outside Unity Assets; use ArtSource/')
+  }
   noLinks(project.path, relative)
   // Match Inventory's inferred pack roots, including new sibling folders with no media yet.
   let ancestor = project.path

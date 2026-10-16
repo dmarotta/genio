@@ -46,7 +46,7 @@ option while the agent runs. A "needs input" badge marks the terminal when the
 agent has printed nothing for the lagging window (Settings: Call a unit lagging
 after) or the unit is lagging.
 
-A Modeller (a Build that started a 3D model) leads with its live model instead
+A Modeller (a Build deployed with the Modeller flag, or one that started a 3D model) leads with its live model instead
 of the terminal, which becomes a side tab after Steps (thumbnails, Revert to N,
 Branch from N, the head step's checks as information only). Its Squad card and
 rail row show the latest step's render; Changes shows binaries before and after.

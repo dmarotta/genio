@@ -137,3 +137,27 @@ describe('closing a finished unit\'s idle terminal', () => {
     expect(kill).not.toHaveBeenCalled()
   })
 })
+
+describe('Modeller claims', () => {
+  it('follow the unit\'s models and claim notes; two Modellers on one path raise one choice, on the newer', () => {
+    const base = ctx.main.crew.get('unit')!
+    fs.writeFileSync(home.tasksFile, JSON.stringify([
+      { ...base, id: 'older', title: 'Tower', modeller: true, claims: ['assets/models/tower.glb'], createdAt: '2026-10-16T09:00:00Z' },
+      { ...base, title: 'Tower again', modeller: true, createdAt: '2026-10-16T10:00:00Z' }
+    ]))
+    ctx.main.crew = createCrewService(() => ctx, home)
+    fs.mkdirSync(path.join(home.taskDir('unit'), 'modeller', 'tower'), { recursive: true })
+    fs.writeFileSync(path.join(home.taskDir('unit'), 'modeller', 'tower', 'manifest.json'), JSON.stringify({ model: 'tower', steps: [] }))
+    ctx.main.crew.appendStatus('unit', 'note [key=claim]: Assets/Models/Tower.glb')
+    const opened: { taskId: string; key: string }[] = []
+    const openForTask = vi.fn((taskId: string, key: string) => { opened.push({ taskId, key }) })
+    Object.assign(ctx.main, { decisions: { list: () => opened, openForTask } })
+    const supervisor = createSupervisor(() => ctx, home)
+    supervisor.poke()
+    expect(ctx.main.crew.get('unit')!.claims).toEqual(['.genio/modeller/tower/', 'Assets/Models/Tower.glb'])
+    expect(openForTask).toHaveBeenCalledExactlyOnceWith('unit', 'asset-claim-older', expect.stringContaining('are changing the same model'), 'system',
+      expect.objectContaining({ options: ['Stop this Modeller', 'Keep both; I pick one at merge'], context: expect.stringContaining('Assets/Models/Tower.glb') }))
+    supervisor.poke()
+    expect(openForTask).toHaveBeenCalledOnce()
+  })
+})

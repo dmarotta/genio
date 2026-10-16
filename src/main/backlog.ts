@@ -304,10 +304,14 @@ export function createBacklogService(getCtx: () => AppCtx, home: Home): BacklogS
         updatedAt: ts,
         outcome: input.outcome,
         planId: input.planId,
-        planStep: input.planStep
+        planStep: input.planStep,
+        modeller: input.modeller,
+        claims: input.claims
       })
       if (!it.planId) delete it.planId
       if (!it.planStep) delete it.planStep
+      if (!it.modeller || it.kind !== 'ship') delete it.modeller
+      if (!it.modeller || !it.claims?.length) delete it.claims
       // a plan's steps are one piece of work each, never duplicates of each other
       it.duplicateOf = it.planId ? undefined : findDuplicate(it, load())?.id
       if (!it.duplicateOf) delete it.duplicateOf

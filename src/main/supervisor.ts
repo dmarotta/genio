@@ -31,6 +31,8 @@ import { createUnityProcessWatch, type UnityWatchRoot } from './unity-guards'
 import { createDepsWatch, npmGuardScript, type DepsWatchUnit } from './worktree-deps'
 import { modellerDataDir, unitPluginDir } from './unitskills'
 import { hasModellerModel } from './modeller-live'
+import { unitClaims } from './modeller-landing'
+import { claimConflict, holdsClaims } from '@shared/modeller'
 import { loadGuardConfig } from '../../resources/unit-skills/genio/lib/unity-guard.mjs'
 
 interface Track {
@@ -681,10 +683,33 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
     nextTickAt = now + Math.min(maxMs, baseMs * Math.pow(2, tickStreak))
   }
 
-  /** A Build that started a model is a Modeller from then on: orange on the Squad, its page canvas first. */
+  /**
+   * A Build that started a model is a Modeller from then on: orange on the Squad, its page canvas first.
+   * A Modeller's claims follow its models and its `note [key=claim]` lines; when two Modellers of a
+   * project meet on a path, the newer one raises one choice for the player.
+   */
   function stepModeller(t: Task): void {
-    if (t.kind !== 'ship' || t.modeller) return
-    if (hasModellerModel(modellerDataDir(hc().home.taskDir(t.id)))) hc().crew.update(t.id, { modeller: true })
+    if (t.kind !== 'ship') return
+    const crew = hc().crew
+    const data = modellerDataDir(hc().home.taskDir(t.id))
+    if (!t.modeller) {
+      if (!hasModellerModel(data)) return
+      t = crew.update(t.id, { modeller: true }) ?? t
+    }
+    if (!holdsClaims(t)) return
+    const claims = unitClaims(t.claims, data, crew.statusEvents(t.id))
+    if (claims.join('\n') !== (t.claims ?? []).join('\n')) t = crew.update(t.id, { claims }) ?? t
+    const clash = claimConflict(claims, t.project, crew.list(), t.id)
+    if (!clash || clash.holder.createdAt > t.createdAt) return
+    const key = `asset-claim-${clash.holder.id}`.slice(0, 64)
+    const decisions = hc().decisions
+    if (decisions.list(true).some((d) => d.taskId === t.id && d.key === key)) return
+    decisions.openForTask(t.id, key, `"${t.title}" and "${clash.holder.title}" are changing the same model. Only one version can land: which one keeps going?`, 'system', {
+      project: t.project,
+      options: ['Stop this Modeller', 'Keep both; I pick one at merge'],
+      recommendation: 'Stop this Modeller',
+      context: `Both claim ${clash.path} (this unit ${t.id}, the other ${clash.holder.id}). A binary file cannot be merged, so the second merge would be refused.`
+    })
   }
 
   // ------------------------------------------------------------ pass

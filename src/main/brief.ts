@@ -36,6 +36,8 @@ export interface BriefInput {
   tools?: string
   /** A Modeller unit's working rules (modellerBrief), rendered after Tools */
   modeller?: string
+  /** A Modeller's delivery lines (modellerDoneLines), opening its Definition of done */
+  modellerDone?: string[]
   /** The project's Art Bible lines under Tools (artBibleBriefLines); absent without a bible */
   artBible?: string[]
   /** Recon: the report summary's word target from the Usage mode */
@@ -72,7 +74,8 @@ export const MODE_LABEL: Record<DeliveryMode, string> = {
   'local-only': 'Offline'
 }
 
-export function engineHints(engine?: Engine): string {
+/** `modeller`: a Modeller never writes .meta files, so Unity's pairing rule becomes that. */
+export function engineHints(engine?: Engine, modeller = false): string {
   const common =
     '- Binary assets (textures, audio, models, scenes) may be tracked with Git LFS: never rewrite or re-encode assets you were not asked to touch.\n' +
     '- Scene/prefab/level files merge badly: keep edits to them minimal and focused.'
@@ -80,7 +83,7 @@ export function engineHints(engine?: Engine): string {
     case 'godot':
       return `- Engine: Godot. Run headless with \`godot --headless --path . --quit\` to check the project loads; if GUT is installed run \`godot --headless -s addons/gut/gut_cmdln.gd\`.\n- Edit .tscn/.tres as text carefully; keep UIDs and resource ids stable.\n${common}`
     case 'unity':
-      return `- Engine: Unity. genio-unity (the unity skill under Tools, also in GENIO_UNITY) is the only way to compile, test, import, build, play, send editor commands and read the console. It targets only your own copy (GENIO_UNITY_PROJECT) or your leased Play slot and keeps a record of every run in GENIO_UNITY_RUNS.\n- Never start Unity.exe, Unity Hub or the \`unity\` CLI yourself. Never open, read or write the main project folder, never read an editor's Pipeline token and never save the player's scenes.\n- Never commit Library/, Temp/ or Logs/. Keep .meta files paired with their assets.\n${common}`
+      return `- Engine: Unity. genio-unity (the unity skill under Tools, also in GENIO_UNITY) is the only way to compile, test, import, build, play, send editor commands and read the console. It targets only your own copy (GENIO_UNITY_PROJECT) or your leased Play slot and keeps a record of every run in GENIO_UNITY_RUNS.\n- Never start Unity.exe, Unity Hub or the \`unity\` CLI yourself. Never open, read or write the main project folder, never read an editor's Pipeline token and never save the player's scenes.\n- Never commit Library/, Temp/ or Logs/. ${modeller ? 'Never create .meta files: Unity writes them when the player imports your model.' : 'Keep .meta files paired with their assets.'}\n${common}`
     case 'unreal':
       return `- Engine: Unreal. Build with UnrealBuildTool / RunUAT when available; never commit Binaries/, Intermediate/, Saved/ or DerivedDataCache/.\n- .uasset/.umap are binary: do not modify them unless asked.\n${common}`
     case 'bevy':
@@ -111,6 +114,34 @@ export function appendCommandPowerShell(statusFile: string, example = 'working: 
   return `Add-Content -Encoding utf8 -LiteralPath "${fwd(statusFile)}" -Value '${example.replace(/'/g, "''")}'`
 }
 
+/**
+ * A Modeller's delivery: where the export goes, its format per engine, no .meta, what is committed
+ * (the export, a compressed .blend under ArtSource, the build scripts), claims, LFS, and Accept.
+ * `locate` is the unit's asset_locate command (the FAL helper's `locate`).
+ */
+export function modellerDoneLines(o: { engine?: Engine; engineRoot?: string; locate: string; claims?: string[] }): string[] {
+  const unity = o.engine === 'unity'
+  const root = o.engineRoot && o.engineRoot !== '.' ? o.engineRoot : ''
+  const fmt = unity ? 'fbx' : 'glb'
+  const target = unity ? 'unity' : o.engine === 'godot' ? 'godot' : 'web'
+  const artSource = [root, 'ArtSource', '3D'].filter(Boolean).join('/')
+  const out = [
+    'Modeller delivery (this comes first; the numbered steps below follow it):',
+    `- Target path: the mission's, or one from asset_locate: \`node "${fwd(o.locate)}" locate --world . --kind model --name <model>.${fmt} --engine ${o.engine ?? 'other'}${root ? ` --engine-root ${root}` : ''}\`. Revising an existing model overwrites its export in place.`,
+    o.claims?.length
+      ? `- Claims: Genio gave you ${o.claims.map((c) => `\`${c}\``).join(', ')}. Before you write any other export or .blend, claim it: \`note [key=claim]: <path>\`. A path another Modeller holds is a \`blocked\` line, never an overwrite.`
+      : '- Claims: before you write an export or a .blend, claim its path: `note [key=claim]: <path>`. A path another Modeller holds is a `blocked` line, never an overwrite.',
+    `- Export the accepted step only (\`modeller.mjs materialize <model> <step>\`, then genio_bpy \`export <that .blend> <target> --target ${target} --fmt ${fmt}\`). ${unity ? 'Unity gets FBX' : 'Godot and web get GLB'}. 1 Blender unit = 1 m; the model is authored Z up, origin at ground centre, front -Y, and exported Y up.`,
+    ...(unity ? ['- Unity axis: import the FBX on your own copy with genio-unity and check its root rotation. A static FBX usually arrives with a -90° X root rotation unless "Bake Axis Conversion" is ticked in its import settings, which live in the .meta you never write. Say in your done line whether it arrived upright.'] : []),
+    '- Never create a `.meta` file. Revising a model leaves its existing `.meta` untouched, so GUID references and import settings survive.',
+    `- Commit exactly: the export; a compressed \`.blend\` of the same step under \`${artSource}/\`${unity ? ' (never under `Assets/`: Unity would import it through a local Blender)' : ''}; and the step scripts in \`.genio/modeller/<model>/\` with a copy of the model's manifest.json. Never commit step data (snapshots, step GLBs, review sheets).`,
+    '- Git LFS: if `.gitattributes` uses `filter=lfs`, run `git check-attr filter -- <file>` for each binary. A binary over 1 MB, or one whose type the LFS rules do not cover, is a `needs-decision` before you commit it. Never edit `.gitattributes`.',
+    '- Before `done`, ask: `needs-decision [key=accept]: Accept step <n> of <model>?` with options `["Accept step <n>","Keep steering"]`. Then stop. The player answers with Accept on your page or by steering; deliver only the step they accept.',
+    ''
+  ]
+  return out
+}
+
 function dod(i: BriefInput): string {
   const lines: string[] = []
   if (i.kind === 'scout') {
@@ -130,7 +161,12 @@ function dod(i: BriefInput): string {
   lines.push(`Build branch: ${i.branch}`)
   lines.push(`Base branch: ${i.baseBranch}`)
   lines.push('')
-  if (mode === 'no-mistakes') {
+  if (i.modellerDone?.length) lines.push(...i.modellerDone)
+  if (mode === 'no-mistakes' && i.modellerDone?.length) {
+    lines.push('1. Commit the accepted model on the build branch with a clear commit message.')
+    lines.push("2. Append `done: <summary>` and stop. Genio pushes the branch and opens the PR without running checks: the player's review of the live view is the gate.")
+    lines.push('3. Do not push and do not open a PR yourself.')
+  } else if (mode === 'no-mistakes') {
     lines.push('1. Implement the mission. Commit all work on the build branch with clear commit messages.')
     lines.push('2. Append `done: <summary>` and stop. Genio then runs the Gauntlet (checks, review, push, PR, CI).')
     lines.push('3. If Genio pings you with Gauntlet findings, fix them, commit, and append `done: <summary of fixes>` again.')

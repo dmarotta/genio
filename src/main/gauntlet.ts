@@ -7,13 +7,15 @@
  * Findings go back to the unit as a ping (round n of validationMaxRounds);
  * ask-player findings and infrastructure failures become Your Move choices.
  * CI is watched afterwards by overwatch through the registered PR.
+ * A Modeller runs no checks (the player chose so): sync → model report → push → PR.
  */
 import fs from 'node:fs'
 import path from 'node:path'
 import { isDefaultUnityTest, unityTestCommand } from './play-editor'
 import { runUnityGate } from './gauntlet-unity'
 import { findUnityCli, unityUnitConfig } from './unity-unit'
-import { unitPluginSource } from './unitskills'
+import { modellerDataDir, unitPluginSource } from './unitskills'
+import { modellerReport } from './modeller-landing'
 import { effectiveEngine } from '@shared/engine'
 import type { Options } from '@anthropic-ai/claude-agent-sdk'
 import type { Project, Task, ValidationRun, ValidationStep } from '@shared/types'
@@ -165,8 +167,10 @@ export function createGauntlet(getCtx: () => AppCtx, home: Home): Gauntlet {
       return { ok: false, message: 'Round limit reached; raised a choice for the player.' }
     }
 
-    const cmds = { ...project.commands }
-    const unity = !cmds.test || isDefaultUnityTest(cmds.test) ? unityTestRoot(project, t.worktree) : undefined
+    // A Modeller runs no checks (the player's choice): the live-view review is the gate. Sync, push and PR stay.
+    const modeller = Boolean(t.modeller)
+    const cmds = { ...(modeller ? {} : project.commands) }
+    const unity = !modeller && (!cmds.test || isDefaultUnityTest(cmds.test)) ? unityTestRoot(project, t.worktree) : undefined
     if (unity) {
       const command = unityTestCommand(unity.dir, unity.relative)
       cmds.test = command
@@ -180,8 +184,9 @@ export function createGauntlet(getCtx: () => AppCtx, home: Home): Gauntlet {
     if (cmds.lint) stepNames.push({ name: 'lint', command: cmds.lint })
     if (cmds.build) stepNames.push({ name: 'build', command: cmds.build })
     if (cmds.test) stepNames.push({ name: 'test', command: cmds.test })
-    if (effectiveEngine(project).engine === 'unity') stepNames.push({ name: 'unity-guard' })
-    stepNames.push({ name: 'review' }, { name: 'push' }, { name: 'pr' })
+    const unityGuard = !modeller && effectiveEngine(project).engine === 'unity'
+    if (unityGuard) stepNames.push({ name: 'unity-guard' })
+    stepNames.push({ name: modeller ? 'model' : 'review' }, { name: 'push' }, { name: 'pr' })
     const vr: ValidationRun = {
       id: rid(4),
       state: 'running',
@@ -262,7 +267,7 @@ export function createGauntlet(getCtx: () => AppCtx, home: Home): Gauntlet {
         }
       }
 
-      if (effectiveEngine(project).engine === 'unity') {
+      if (unityGuard) {
         const audit = step('unity-guard')
         begin(audit)
         const violations = unitUnityAudit(home.taskStateFile(taskId, '.unity.json'), t.terminalId ? ctx.terminals.scrollback(t.terminalId) : '')
@@ -275,41 +280,48 @@ export function createGauntlet(getCtx: () => AppCtx, home: Home): Gauntlet {
         return await sendFindings(taskId, vr, round, findings.join('\n\n'), log)
       }
 
-      // 3. AI review
-      const review = step('review')
-      begin(review)
+      // 3. AI review; a Modeller shows its model's report instead, as information
       const brief = readText(t.briefPath)
       const intent = section(brief, "## Player's intent")
       const spec = section(brief, '## Genio spec')
-      const diff = await git.diff(t.worktree, ref)
-      const rv = await aiReview(t, intent, spec, diff, log)
       let reviewNote = ''
-      if (rv.error || !rv.verdict) {
-        reviewNote = `AI review unavailable: ${rv.error ?? 'no verdict'}`
-        end(review, 'skipped', reviewNote)
-      } else if (rv.verdict.verdict === 'fix') {
-        const text = rv.verdict.findings
-          .map((f, i) => `${i + 1}. [${f.severity ?? 'medium'}] ${f.file ? `${f.file}${f.line ? `:${f.line}` : ''} — ` : ''}${f.issue}${f.fix ? `\n   Fix: ${f.fix}` : ''}`)
-          .join('\n')
-        end(review, 'failed', text)
-        skipRest()
-        return await sendFindings(taskId, vr, round, `### Review findings\n${rv.verdict.summary ? rv.verdict.summary + '\n\n' : ''}${text}`, log)
-      } else if (rv.verdict.verdict === 'ask-player') {
-        end(review, 'failed', rv.verdict.question ?? 'needs a player choice')
-        skipRest()
-        vr.state = 'findings'
-        vr.findings = rv.verdict.question
-        vr.endedAt = nowIso()
-        ctx.home(home.name).decisions.openForTask(taskId, 'gauntlet-review', rv.verdict.question ?? `The reviewer needs a design call on "${t.title}".`, 'validation', {
-          project: t.project,
-          options: rv.verdict.options ?? [],
-          context: rv.verdict.findings.map((f) => f.issue).join('\n')
-        })
-        save({ state: 'needs-decision', stateReason: 'Gauntlet review needs a player choice' })
-        return { ok: false, message: 'The review needs a player choice; added it to Pending answers.' }
+      if (modeller) {
+        const info = step('model')
+        begin(info)
+        end(info, 'skipped', modellerReport(modellerDataDir(home.taskDir(taskId))))
+        reviewNote = "Modeller: no checks, the player's review of the live view is the gate."
       } else {
-        reviewNote = rv.verdict.summary ?? 'Review passed.'
-        end(review, 'passed', reviewNote)
+        const review = step('review')
+        begin(review)
+        const diff = await git.diff(t.worktree, ref)
+        const rv = await aiReview(t, intent, spec, diff, log)
+        if (rv.error || !rv.verdict) {
+          reviewNote = `AI review unavailable: ${rv.error ?? 'no verdict'}`
+          end(review, 'skipped', reviewNote)
+        } else if (rv.verdict.verdict === 'fix') {
+          const text = rv.verdict.findings
+            .map((f, i) => `${i + 1}. [${f.severity ?? 'medium'}] ${f.file ? `${f.file}${f.line ? `:${f.line}` : ''} — ` : ''}${f.issue}${f.fix ? `\n   Fix: ${f.fix}` : ''}`)
+            .join('\n')
+          end(review, 'failed', text)
+          skipRest()
+          return await sendFindings(taskId, vr, round, `### Review findings\n${rv.verdict.summary ? rv.verdict.summary + '\n\n' : ''}${text}`, log)
+        } else if (rv.verdict.verdict === 'ask-player') {
+          end(review, 'failed', rv.verdict.question ?? 'needs a player choice')
+          skipRest()
+          vr.state = 'findings'
+          vr.findings = rv.verdict.question
+          vr.endedAt = nowIso()
+          ctx.home(home.name).decisions.openForTask(taskId, 'gauntlet-review', rv.verdict.question ?? `The reviewer needs a design call on "${t.title}".`, 'validation', {
+            project: t.project,
+            options: rv.verdict.options ?? [],
+            context: rv.verdict.findings.map((f) => f.issue).join('\n')
+          })
+          save({ state: 'needs-decision', stateReason: 'Gauntlet review needs a player choice' })
+          return { ok: false, message: 'The review needs a player choice; added it to Pending answers.' }
+        } else {
+          reviewNote = rv.verdict.summary ?? 'Review passed.'
+          end(review, 'passed', reviewNote)
+        }
       }
 
       // 4. push

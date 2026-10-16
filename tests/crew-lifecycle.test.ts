@@ -390,6 +390,62 @@ describe('per-launch premium approval', () => {
   })
 })
 
+describe('Modeller landing', () => {
+  function modellerWorld() {
+    ctx.projects.get = vi.fn(() => ({ name: 'world', path: task.worktree, defaultBranch: 'main', engine: 'web' }) as any)
+    ctx.projects.resolvePosture = vi.fn(() => ({ mode: 'local-only' as const, yolo: false, branchPrefix: 'genio/' }))
+    ctx.main.backlog = { get: () => ({ id: 'quest' }), add: vi.fn(() => ({ id: 'quest' })), update: vi.fn(), markInFlight: vi.fn(), unresolved: () => [] } as any
+    ctx.dispatch.reportWords = () => 400
+    ctx.dispatch.usagePercent = () => undefined
+    vi.spyOn(git, 'addWorktree').mockResolvedValue({ code: 0, stdout: '', stderr: '' })
+    vi.spyOn(git, 'assertIsolated').mockResolvedValue({ ok: true } as any)
+  }
+
+  it('a Modeller quest spawns a Modeller: the flag and claims on the unit, its rules and delivery in the brief', async () => {
+    modellerWorld()
+    ctx.main.backlog.get = () => ({ id: 'quest', modeller: true, claims: ['assets/models/tower.glb'] }) as any
+    const t = await ctx.main.crew.spawn({ project: 'world', kind: 'ship', title: 'Wooden watchtower', intent: 'a low-poly wooden watchtower', backlogId: 'quest' })
+    expect(t).toMatchObject({ modeller: true, claims: ['assets/models/tower.glb'], state: 'working' })
+    const brief = fs.readFileSync(t.briefPath, 'utf8')
+    expect(brief).toContain('# Modeller')
+    expect(brief).toContain('Modeller delivery')
+    expect(brief).toContain('`assets/models/tower.glb`')
+    expect(brief).toContain('--target web --fmt glb')
+  })
+
+  it('a deploy with the flag files a Modeller quest; a path another Modeller holds defers it', async () => {
+    modellerWorld()
+    const plain = await ctx.main.crew.spawn({ project: 'world', kind: 'ship', title: 'Fix jump', intent: 'fix the jump' })
+    expect(plain.modeller).toBeUndefined()
+    expect(fs.readFileSync(plain.briefPath, 'utf8')).not.toContain('Modeller delivery')
+    ctx.main.crew.update(task.id, { modeller: true, state: 'working', claims: ['assets/models/'], title: 'Tower' })
+    await expect(ctx.main.crew.spawn({ project: 'world', kind: 'ship', title: 'Second tower', intent: 'another tower', modeller: true, claims: ['Assets/Models/tower.glb'] }))
+      .rejects.toThrow(/^deferred: Assets\/Models\/tower\.glb is claimed by Modeller unit/)
+    expect(ctx.main.backlog.add).toHaveBeenLastCalledWith(expect.objectContaining({ modeller: true, claims: ['Assets/Models/tower.glb'] }))
+    expect(git.addWorktree).toHaveBeenCalledOnce()
+    ctx.main.crew.update(task.id, { state: 'merged' })
+    expect(await ctx.main.crew.spawn({ project: 'world', kind: 'ship', title: 'Second tower', intent: 'another tower', modeller: true, claims: ['Assets/Models/tower.glb'] }))
+      .toMatchObject({ modeller: true })
+  })
+
+  it('a despawn drops step snapshots and GLBs and keeps renders, scripts and manifests', async () => {
+    modellerWorld()
+    vi.spyOn(git, 'landedVerdict').mockResolvedValue({ landed: true, via: 'merged', reasons: [] } as any)
+    vi.spyOn(git, 'isWorktreeOf').mockResolvedValue(false)
+    vi.spyOn(git, 'pruneWorktrees').mockResolvedValue({ code: 0, stdout: '', stderr: '' } as any)
+    vi.spyOn(git, 'branchExists').mockResolvedValue(false)
+    ;(ctx.main as any).decisions = { list: () => [] }
+    ;(ctx.terminals as any).list = () => []
+    const step = path.join(home.taskDir('unit'), 'modeller', 'tower', 'steps', 's001')
+    fs.mkdirSync(step, { recursive: true })
+    for (const f of ['model.blend', 'model.glb', 'view.png', 'script.py']) fs.writeFileSync(path.join(step, f), f)
+    fs.writeFileSync(path.join(step, '..', '..', 'manifest.json'), JSON.stringify({ steps: [{ id: 's001', files: { blend: 'steps/s001/model.blend', glb: 'steps/s001/model.glb', view: 'steps/s001/view.png' } }] }))
+    ctx.main.crew.update(task.id, { modeller: true, state: 'merged', baseBranch: 'main' })
+    expect(await ctx.main.crew.cleanup(task.id)).toMatchObject({ ok: true })
+    expect(fs.readdirSync(step).sort()).toEqual(['script.py', 'view.png'])
+  })
+})
+
 
 it('persists the ready signal independently of later notes and restart bookkeeping', () => {
   const crew = ctx.main.crew
