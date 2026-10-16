@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { controls, look } from '../src/shared/play-controls'
+import { controls, look, soundLook } from '../src/shared/play-controls'
 import type { PlayerState } from '../src/shared/play'
 
 // Recon appendix B2, one row per service state: [Unity label, action, enabled], [Play label, action, enabled], pause/step enabled.
@@ -78,6 +78,10 @@ it('marks ▶ active while Play runs, ‖ pressed while paused, and Start anyway
   expect(controls('playing').play.active).toBe(true); expect(controls('ready').play.active).toBeUndefined()
   expect(controls('paused').pause).toMatchObject({ active: true, label: 'Resume' }); expect(controls('playing').pause).toMatchObject({ label: 'Pause' })
   expect(controls('low-memory').unity.warn).toBe(true); expect(controls('idle').unity.warn).toBeUndefined()
+})
+it('draws the game sound toggle ready while sound plays and on (filled, pressed) while muted, never off', () => {
+  expect(soundLook(false)).toEqual({ className: 'plain is-ready', title: 'Mute game sound', pressed: false })
+  expect(soundLook(true)).toEqual({ className: 'plain is-on', title: 'Unmute game sound', pressed: true })
 })
 it('offers no Start anyway when Windows cannot commit the estimate', () => {
   const c = controls('low-memory', { hard: true })

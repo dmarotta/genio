@@ -1,6 +1,54 @@
 import { useEffect, useRef } from 'react'
 import { Lock, Maximize } from 'lucide-react'
 import { PLAY_SCROLL_LIMIT, type PlayInput } from '@shared/play'
+import { AUDIO_ACK_EVERY, PLAY_AUDIO_PROCESSOR } from '../lib/play-audio'
+import workletUrl from '../lib/play-audio-worklet?worker&url'
+
+/** No packet this long after the live view opens: the game has no AudioListener (or no audio module). */
+const NO_SOUND_MS = 3000
+
+/**
+ * The game's sound for one live view: an AudioContext and the ring worklet (lib/play-audio.ts), made on the first
+ * packet. Browsers start audio only once the page has had a user gesture; pressing Play (or unmuting) is one, and a
+ * context that still comes up suspended resumes on the next click or key on the page. Muted: gain 0, suspended, and
+ * packets dropped; unmuting flushes what was left so the sound picks up live. Failures stay silent.
+ */
+function gameSound(initiallyMuted: boolean) {
+  let context: AudioContext | undefined, gain: GainNode | undefined, node: AudioWorkletNode | undefined
+  let muted = initiallyMuted, closed = false
+  const wake = (): void => { if (!closed && !muted && context?.state === 'suspended') void context.resume().catch(() => {}) }
+  const start = (): void => {
+    try { context = new AudioContext({ latencyHint: 'interactive' }) } catch { closed = true; return }
+    const c = context, g = gain = c.createGain()
+    g.connect(c.destination)
+    void c.audioWorklet.addModule(workletUrl).then(() => {
+      if (closed) return
+      node = new AudioWorkletNode(c, PLAY_AUDIO_PROCESSOR, { numberOfInputs: 0, outputChannelCount: [2] })
+      node.connect(g)
+    }).catch(() => {})
+    wake()
+    window.addEventListener('pointerdown', wake); window.addEventListener('keydown', wake)
+  }
+  return {
+    packet(bytes: Uint8Array): void {
+      if (closed || muted) return
+      if (!context) start()
+      node?.port.postMessage(bytes, [bytes.buffer])
+    },
+    mute(on: boolean): void {
+      if (muted === on) return
+      muted = on
+      if (!context || !gain) return
+      if (on) { gain.gain.value = 0; void context.suspend().catch(() => {}) }
+      else { node?.port.postMessage({ type: 'flush' }); gain.gain.value = 1; wake() }
+    },
+    close(): void {
+      closed = true
+      window.removeEventListener('pointerdown', wake); window.removeEventListener('keydown', wake)
+      void context?.close().catch(() => {})
+    }
+  }
+}
 
 // A stop scheduled by an unmount, per project: a remount right after it (React StrictMode in development) cancels it.
 const leaving = new Map<string, ReturnType<typeof setTimeout>>()
@@ -18,11 +66,13 @@ export function wheelNotches(e: Pick<WheelEvent, 'deltaY' | 'deltaMode'>): numbe
 /**
  * The player instance's live Game view: one JPEG frame per credit over the MessagePort main transfers, drawn on a
  * canvas; keyboard, mouse and gamepad state goes back while the canvas has focus. A new width or height resizes
- * Unity's stream behind the same port, so Play continues. Unmounting closes the port; unless main closed it first
+ * Unity's stream behind the same port, so Play continues. The game's sound plays from the same port unless `muted`;
+ * `onSound` says whether any arrived. Unmounting closes the port and the sound; unless main closed the port first
  * (Stop, a new Play), that also exits Play and starts the idle timer.
  */
-export function PlayLive({ world, width, height, input, onClosed, onError }: {
-  world: string; width: number; height: number; input: boolean; onClosed: (message: string) => void; onError?: (message: string) => void
+export function PlayLive({ world, width, height, input, muted = false, onClosed, onError, onSound }: {
+  world: string; width: number; height: number; input: boolean; muted?: boolean
+  onClosed: (message: string) => void; onError?: (message: string) => void; onSound?: (heard: boolean) => void
 }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const port = useRef<MessagePort | undefined>(undefined)
@@ -31,6 +81,9 @@ export function PlayLive({ world, width, height, input, onClosed, onError }: {
   const scroll = useRef(0)
   const enabled = useRef(input)
   const size = useRef({ width, height })
+  const mutedNow = useRef(muted)
+  const sound = useRef<ReturnType<typeof gameSound> | undefined>(undefined)
+  useEffect(() => { mutedNow.current = muted; sound.current?.mute(muted) }, [muted])
   const release = (): void => {
     keys.current.clear(); pointer.current.buttons = 0; scroll.current = 0
     port.current?.postMessage({ type: 'input', input: { type: 'release' } })
@@ -51,16 +104,27 @@ export function PlayLive({ world, width, height, input, onClosed, onError }: {
   }, [])
   useEffect(() => {
     clearTimeout(leaving.get(world)); leaving.delete(world)
-    let closed = false, decoding = false, ended = false
+    let closed = false, decoding = false, ended = false, heard = false
     const end = (message: string): void => { if (!closed && !ended) { ended = true; onClosed(message) } }
+    const audio = sound.current = gameSound(mutedNow.current)
+    const quiet = setTimeout(() => { if (!heard && !closed) onSound?.(false) }, NO_SOUND_MS)
     const connect = (event: MessageEvent): void => {
       if (event.source !== window || event.data?.type !== 'genio:play-port' || event.data.world !== world || !event.ports[0]) return
       const channel = event.ports[0]
       if (closed) { channel.close(); return }
       port.current?.close(); port.current = channel
+      let acks = 0
       channel.onmessage = async ({ data }) => {
         // Main closed the stream (Stop, a new Play, or the stream dropped): nothing to stop from here.
         if (data?.type === 'closed') { if (port.current === channel) port.current = undefined; channel.close(); end('The live stream ended.'); return }
+        // Sound is acked even while muted, so main keeps sending and unmuting is instant.
+        if (data?.type === 'audio') {
+          if (closed || port.current !== channel) return
+          if (++acks >= AUDIO_ACK_EVERY) { channel.postMessage({ type: 'audio-ack', count: acks }); acks = 0 }
+          if (!heard) { heard = true; onSound?.(true) }
+          if (data.bytes instanceof Uint8Array) audio.packet(data.bytes)
+          return
+        }
         if (closed || decoding || data?.type !== 'frame' || !(data.bytes instanceof Uint8Array)) return
         decoding = true
         try {
@@ -87,7 +151,8 @@ export function PlayLive({ world, width, height, input, onClosed, onError }: {
       scroll.current = 0
     }, 33)
     return () => {
-      closed = true; clearInterval(timer); release()
+      closed = true; clearInterval(timer); clearTimeout(quiet); release()
+      audio.close(); if (sound.current === audio) sound.current = undefined
       const open = port.current
       port.current = undefined
       window.removeEventListener('message', connect); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange', blur)

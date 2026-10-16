@@ -84,3 +84,8 @@ export function look(kind: ControlKind, c: PlayerControl<string>, usable = c.ena
   const name = kind === 'step' ? 'Step one frame' : c.label
   return { className: `${tone} is-${state}`, title: `${name}${KEYS[kind]}${reason ? ` · ${reason}` : ''}`, ...(kind === 'play' || kind === 'pause' ? { pressed: !!c.active } : {}) }
 }
+
+/** The game sound toggle at the end of the toolbar: never off (it mutes before Play too); muted is on, filled and framed. */
+export function soundLook(muted: boolean): ControlLook {
+  return { className: `plain is-${muted ? 'on' : 'ready'}`, title: muted ? 'Unmute game sound' : 'Mute game sound', pressed: muted }
+}

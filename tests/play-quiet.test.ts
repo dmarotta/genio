@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 // Play's progress and status show on the Play screen's one status line only: nothing on its paths pushes a message elsewhere.
 const PLAY_PATHS = [
   'src/renderer/src/views/Play.tsx', 'src/renderer/src/views/PlayLive.tsx', 'src/renderer/src/views/PlayerInstanceSettings.tsx',
-  'src/renderer/src/lib/play-screen.ts', 'src/renderer/src/lib/play-nav.ts',
+  'src/renderer/src/lib/play-screen.ts', 'src/renderer/src/lib/play-nav.ts', 'src/renderer/src/lib/play-audio.ts', 'src/renderer/src/lib/play-audio-worklet.ts',
   'src/main/play.ts', 'src/main/play-unity.ts', 'src/main/play-stream.ts', 'src/main/player-instance.ts', 'src/main/player-copy.ts',
   'src/main/player-process.ts', 'src/main/player-sources.ts'
 ]

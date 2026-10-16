@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ChevronDown, GitBranch, MoreHorizontal, Pause, Play as PlayIcon, Power, RotateCcw, StepForward, X } from 'lucide-react'
+import { AlertTriangle, ChevronDown, GitBranch, MoreHorizontal, Pause, Play as PlayIcon, Power, RotateCcw, StepForward, Volume2, VolumeX, X } from 'lucide-react'
 import { PLAYER_INSTANCE_ANCHOR, sameSource, sourceGoneText, type PlayConsole, type PlayerInstanceStatus, type PlayerScene, type PlayerSourceOption } from '@shared/play'
-import { controls, look, type PlayButtonAction, type UnityAction } from '@shared/play-controls'
+import { controls, look, soundLook, type PlayButtonAction, type UnityAction } from '@shared/play-controls'
 import { PROJECT_WINDOW, api, errText, useStore } from '../store'
 import { onPlaySourceRequest, takePlaySource } from '../lib/play-nav'
 import { cx } from '../lib/format'
@@ -27,6 +27,12 @@ const resolutionKey = (world: string): string => `genio.play.resolution.${world}
 function savedResolution(world: string): string {
   try { return localStorage.getItem(resolutionKey(world)) ?? DEFAULT_RESOLUTION.id } catch { return DEFAULT_RESOLUTION.id }
 }
+// The game sound mute, per project, the same way: a missing or blocked store plays the sound. Genio's own UI sounds
+// (settings.sound) are a separate setting.
+const mutedKey = (world: string): string => `genio.play.muted.${world}`
+function savedMuted(world: string): boolean {
+  try { return localStorage.getItem(mutedKey(world)) === '1' } catch { return false }
+}
 
 /** ≤ 520 px wide or ≤ 420 px tall: the narrow pop-out layout with short labels. */
 function useNarrow(): boolean {
@@ -48,6 +54,8 @@ function PlayScreen({ world }: { world: string }) {
   const [choice, setChoice] = useState<string>()
   const [scenes, setScenes] = useState<PlayerScene[]>([])
   const [resolutionId, setResolutionId] = useState(() => savedResolution(world))
+  const [muted, setMuted] = useState(() => savedMuted(world))
+  const [heard, setHeard] = useState<boolean>()
   const [busy, setBusy] = useState<string>()
   const [error, setError] = useState('')
   const [drawer, setDrawer] = useState(false)
@@ -125,7 +133,7 @@ function PlayScreen({ world }: { world: string }) {
   }, [world, sceneMoment])
   // A stream that ended stays closed until the next Play session (or Reconnect).
   const playing = state === 'playing' || state === 'paused'
-  useEffect(() => { if (playing) setStreamEnded(undefined) }, [playing])
+  useEffect(() => { if (playing) setStreamEnded(undefined); else setHeard(undefined) }, [playing])
 
   // Console drawer: polled while open and Unity runs, from a cursor so entries never repeat.
   const running = !!status?.pid
@@ -205,6 +213,11 @@ function PlayScreen({ world }: { world: string }) {
     setResolutionId(id)
     try { localStorage.setItem(resolutionKey(world), id) } catch { /* per-viewer convenience only */ }
   }
+  const toggleMuted = (): void => {
+    const next = !muted
+    setMuted(next)
+    try { localStorage.setItem(mutedKey(world), next ? '1' : '0') } catch { /* per-viewer convenience only */ }
+  }
 
   // Unity's shortcuts while the game does not hold the keyboard: Ctrl+P Play, Ctrl+Shift+P pause, Ctrl+Alt+P step.
   const keys = useRef({ bar, usable, playPress, pause, step })
@@ -245,6 +258,7 @@ function PlayScreen({ world }: { world: string }) {
     !!gone && { label: 'Source gone', value: sourceGoneText(gone) },
     !!sceneName && { label: 'Scene', value: scene ?? sceneName },
     { label: 'Resolution', value: `${resolution.width} × ${resolution.height}` },
+    { label: 'Audio', value: muted ? 'muted' : playing && heard === false ? 'no sound from the game' : 'on' },
     !!status?.unityVersion && { label: 'Unity', value: status.unityVersion },
     state === 'starting' && !!status?.startup && { label: 'Unity log', value: status.startup.split('\n').filter(Boolean).slice(-3).join(' · ') },
     status?.dialog && { label: 'Blocking dialog', value: `${status.dialog.title}: ${status.dialog.text}` },
@@ -263,7 +277,8 @@ function PlayScreen({ world }: { world: string }) {
     unity: look('unity', bar.unity, unityOn, usable(bar.unity) ? noSource : undefined),
     play: look('play', bar.play, playOn, usable(bar.play) ? noSource : undefined),
     pause: look('pause', bar.pause, usable(bar.pause)),
-    step: look('step', bar.step, usable(bar.step))
+    step: look('step', bar.step, usable(bar.step)),
+    sound: soundLook(muted)
   }
 
   return <div className={cx('view play-view', narrow && 'narrow')}>
@@ -310,12 +325,15 @@ function PlayScreen({ world }: { world: string }) {
       <select className="select play-res" aria-label="Resolution" value={resolution.id} disabled={!bar.resolution.enabled} onChange={e => chooseResolution(e.target.value)}>
         {RESOLUTIONS.map(r => <option key={r.id} value={r.id}>{narrow ? r.short : r.label}</option>)}
       </select>
+      <button className={cx('btn sm icon', looks.sound.className)} title={looks.sound.title} aria-label="Mute game sound" aria-pressed={looks.sound.pressed} onClick={toggleMuted}>
+        {muted ? <VolumeX size={13} aria-hidden /> : <Volume2 size={13} aria-hidden />}
+      </button>
     </div>
 
     <StatusLine line={line} detail={error || status?.message} onAction={act} actionOff={actionOff} />
 
     <div className="play-screen">
-      {playing && !streamEnded && <PlayLive world={world} width={resolution.width} height={resolution.height} input={status?.capabilities?.input !== false} onClosed={setStreamEnded} onError={setError} />}
+      {playing && !streamEnded && <PlayLive world={world} width={resolution.width} height={resolution.height} input={status?.capabilities?.input !== false} muted={muted} onClosed={setStreamEnded} onError={setError} onSound={setHeard} />}
     </div>
 
     {drawer && <section className="play-console" aria-label="Unity console">

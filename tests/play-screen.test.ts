@@ -78,7 +78,7 @@ describe('Play screen', () => {
     expect(host.querySelector('.play-chip > span')?.textContent).toBe('main')
     expect(statusLine()).toBe('Stopped')
     expect(bar()).toBeNull()
-    expect([...host.querySelectorAll('[role=toolbar] button')].map(b => b.getAttribute('aria-label'))).toEqual(['Start Unity', 'Enter Play', 'Pause', 'Step'])
+    expect([...host.querySelectorAll('[role=toolbar] button')].map(b => b.getAttribute('aria-label'))).toEqual(['Start Unity', 'Enter Play', 'Pause', 'Step', 'Mute game sound'])
     expect(button('Pause').disabled).toBe(true)
     expect(button('Step').disabled).toBe(true)
     // No hint in the game area, no first-copy estimate, no console unless asked.
@@ -331,6 +331,110 @@ describe('Play screen', () => {
       await act(async () => root.unmount()); root = createRoot(host)
     }
     expect(nav.toast).not.toHaveBeenCalled()
+  })
+})
+
+describe('Play screen: game sound', () => {
+  const playing = (): PlayerInstanceStatus => ({ state: 'playing', project: 'C:/games/game', pid: 4, source: { path: 'C:/games/game' }, capabilities: { input: true }, copy: copy() as never })
+  const sound = () => host.querySelector('[role=toolbar]')!.lastElementChild as HTMLButtonElement
+  const contexts: { state: string; gain: { gain: { value: number } }; suspend: ReturnType<typeof vi.fn>; resume: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> }[] = []
+  const nodes: { name: string; options: unknown; port: { postMessage: ReturnType<typeof vi.fn> } }[] = []
+  class FakeContext {
+    state = 'running'; destination = {}; audioWorklet = { addModule: vi.fn(async () => {}) }
+    gain = { gain: { value: 1 }, connect: vi.fn() }
+    suspend = vi.fn(async () => { this.state = 'suspended' }); resume = vi.fn(async () => { this.state = 'running' }); close = vi.fn(async () => { this.state = 'closed' })
+    constructor() { contexts.push(this) }
+    createGain() { return this.gain }
+  }
+  class FakeNode {
+    port = { postMessage: vi.fn() }; connect = vi.fn()
+    constructor(_context: unknown, readonly name: string, readonly options: unknown) { nodes.push(this) }
+  }
+  const channel = { postMessage: vi.fn(), start: vi.fn(), close: vi.fn(), onmessage: null as ((e: { data: unknown }) => Promise<void>) | null }
+  const connect = () => act(async () => window.dispatchEvent(new MessageEvent('message', { source: window, data: { type: 'genio:play-port', world: 'game' }, ports: [channel as unknown as MessagePort] })))
+  const audio = async (n = 1) => { for (let i = 0; i < n; i++) await act(async () => channel.onmessage!({ data: { type: 'audio', bytes: new Uint8Array(32) } })) }
+  const acks = () => channel.postMessage.mock.calls.filter(([m]) => m?.type === 'audio-ack').map(([m]) => m.count)
+  beforeEach(() => {
+    contexts.length = 0; nodes.length = 0; channel.postMessage.mockClear()
+    vi.stubGlobal('AudioContext', FakeContext); vi.stubGlobal('AudioWorkletNode', FakeNode)
+  })
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('adds exactly one toggle, after Resolution: sound on by default, usable before Play, remembered per project, silent on the status line', async () => {
+    localStorage.setItem('genio.play.muted.other', '1')
+    await mount()
+    expect(host.querySelectorAll('[role=toolbar] button')).toHaveLength(5)
+    expect(sound().previousElementSibling?.getAttribute('aria-label')).toBe('Resolution')
+    expect(sound()).toMatchObject({ disabled: false, title: 'Mute game sound' })
+    expect(sound().getAttribute('aria-label')).toBe('Mute game sound')
+    expect(sound().getAttribute('aria-pressed')).toBe('false')
+    expect(sound().className).toContain('is-ready')
+    expect(facts()).toContainEqual({ label: 'Audio', value: 'on' })
+    const line = statusLine()
+
+    await click('Mute game sound')
+    expect(sound().getAttribute('aria-pressed')).toBe('true')
+    expect(sound()).toMatchObject({ title: 'Unmute game sound' })
+    expect(sound().className).toContain('is-on')
+    expect(localStorage.getItem('genio.play.muted.game')).toBe('1')
+    expect(facts()).toContainEqual({ label: 'Audio', value: 'muted' })
+    expect(statusLine()).toBe(line)
+    expect(text()).not.toMatch(/mute|sound|audio/i)
+    expect(nav.toast).not.toHaveBeenCalled()
+
+    await act(async () => root.unmount()); root = createRoot(host); await mount()
+    expect(sound().getAttribute('aria-pressed')).toBe('true')
+    await click('Mute game sound')
+    expect(sound().getAttribute('aria-pressed')).toBe('false')
+    expect(localStorage.getItem('genio.play.muted.game')).toBe('0')
+    expect(localStorage.getItem('genio.play.muted.other')).toBe('1')
+  })
+
+  it('plays the stream through the worklet, acks it, mutes by suspending, and closes the sound on leaving Play', async () => {
+    status = playing()
+    await mount(); await connect()
+    await audio()
+    expect(contexts).toHaveLength(1)
+    await settle()
+    expect(nodes).toMatchObject([{ name: 'genio-play-audio', options: { numberOfInputs: 0, outputChannelCount: [2] } }])
+    await audio(9)
+    expect(acks()).toEqual([10])
+    expect(nodes[0].port.postMessage).toHaveBeenCalledTimes(9) // the first packet came before the worklet loaded
+    expect(facts()).toContainEqual({ label: 'Audio', value: 'on' })
+
+    await click('Mute game sound')
+    expect(contexts[0].gain.gain.value).toBe(0); expect(contexts[0].suspend).toHaveBeenCalledOnce()
+    await audio(10)
+    expect(acks()).toEqual([10, 10]) // still acked, so main keeps sending
+    expect(nodes[0].port.postMessage).toHaveBeenCalledTimes(9)
+
+    await click('Mute game sound')
+    expect(nodes[0].port.postMessage).toHaveBeenLastCalledWith({ type: 'flush' })
+    expect(contexts[0].gain.gain.value).toBe(1); expect(contexts[0].resume).toHaveBeenCalled()
+    await audio()
+    expect(nodes[0].port.postMessage).toHaveBeenLastCalledWith(expect.any(Uint8Array), [expect.any(ArrayBuffer)])
+
+    await act(async () => root.render(null))
+    expect(contexts[0].close).toHaveBeenCalledOnce()
+  })
+
+  it('creates no audio while muted before Play, and tells Genio when the game sends no sound', async () => {
+    localStorage.setItem('genio.play.muted.game', '1')
+    status = playing()
+    await mount(); await connect()
+    await audio(10)
+    expect(contexts).toHaveLength(0)
+    expect(acks()).toEqual([10])
+    expect(facts()).toContainEqual({ label: 'Audio', value: 'muted' })
+
+    await act(async () => root.unmount()); root = createRoot(host)
+    localStorage.removeItem('genio.play.muted.game')
+    await mount(); await connect()
+    await settle(3000)
+    expect(facts()).toContainEqual({ label: 'Audio', value: 'no sound from the game' })
+    expect(statusLine()).toBe('Playing')
+    await audio()
+    expect(facts()).toContainEqual({ label: 'Audio', value: 'on' })
   })
 })
 
