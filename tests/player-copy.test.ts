@@ -316,19 +316,78 @@ it('cancels a slow first copy between files, reports progress, and finishes on t
   let n = 0
   const phases = new Set<string>()
   const copies = make({ io: { copyFile: async (from, to) => { if (++n === 5) copies.cancel(world); await sleep(15); await fs.promises.copyFile(from, to) } } })
-  await copies.ensure(world, 'Game')
+  const rec = await copies.ensure(world, 'Game')
   await expect(copies.sync(world, { path: world }, { onProgress: p => phases.add(p.phase) })).rejects.toThrow(/Sync cancelled/)
   expect(phases.has('copying')).toBe(true)
   expect(copies.status(world)).toMatchObject({ state: 'ready', lastSync: { complete: false, cancelled: true } })
-  const partial = Object.keys(copyTree(copies)).length
-  expect(partial).toBeGreaterThan(0)
-  expect(partial).toBeLessThan(Object.keys(expected(world)).length)
+  // Staged, not applied: the copy Unity opens is untouched until every file was read.
+  expect(copyTree(copies)).toEqual({})
+  const staged = Object.keys(JSON.parse(fs.readFileSync(path.join(rec.dir, '.mirror-staging', 'staged.json'), 'utf8')).files).length
+  expect(staged).toBeGreaterThan(0)
+  expect(staged).toBeLessThan(Object.keys(expected(world)).length)
   n = -1000
   const report = await copies.sync(world, { path: world })
   expect(copyTree(copies)).toEqual(expected(world))
-  // Files finished before the cancel are not copied again.
-  expect(report.files.unchanged).toBeGreaterThanOrEqual(partial - 16)
+  // Files staged before the cancel are not read again, and the staging folder is gone once applied.
+  expect(report.staged?.reused).toBeGreaterThanOrEqual(staged - 16)
+  expect(fs.existsSync(path.join(rec.dir, '.mirror-staging'))).toBe(false)
   expect(copies.status(world)?.lastSync).toMatchObject({ complete: true })
+}, 60000)
+
+/** A unit's worktree of the test project, as Genio deploys one. */
+function unitWorktree(name = 'unit'): string {
+  const dir = path.join(root, name)
+  git(world, 'worktree', 'add', '-q', '-b', `genio/${name}`, dir)
+  return dir
+}
+/** What Genio's cleanup does after a merge: the worktree and its branch go. */
+function removeWorktree(dir: string): void {
+  try { git(world, 'worktree', 'remove', '--force', dir) } catch { /* a file still open (Windows): removed by hand, then pruned */ }
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10 })
+  git(world, 'worktree', 'prune')
+}
+
+it('a source removed before the sync starts stops it as SOURCE_GONE and leaves the previous copy', async () => {
+  const unit = unitWorktree()
+  const copies = make()
+  await copies.ensure(world, 'Game')
+  await copies.sync(world, { path: world })
+  const before = copyTree(copies)
+  removeWorktree(unit)
+  const failure = await copies.sync(world, { path: unit }).catch(e => e)
+  expect(failure).toMatchObject({ code: 'SOURCE_GONE' })
+  expect(copyTree(copies)).toEqual(before)
+  expect(copies.status(world)).toMatchObject({ state: 'ready', lastSync: { complete: false, sourceGone: true } })
+}, 60000)
+
+it('a unit worktree removed mid-copy never leaves a half-synced copy, and the next sync from main is whole', async () => {
+  const unit = unitWorktree()
+  for (let i = 0; i < 30; i++) write(path.join(unit, 'Game', 'Assets', 'Unit', `u${i}.txt`), `unit work ${i}\n`.repeat(100))
+  write(path.join(unit, 'Game', 'Assets', 'A.cs'), 'class A { int unitEdit; }\n')
+  fs.rmSync(path.join(unit, 'Game', 'Assets', 'Old.txt'))
+  let n = 0
+  const copies = make({ io: { copyFile: async (from, to) => { if (from.startsWith(unit) && ++n === 6) removeWorktree(unit); await fs.promises.copyFile(from, to) } } })
+  await copies.ensure(world, 'Game')
+  await copies.sync(world, { path: world })
+  const before = copyTree(copies)
+  const failure = await copies.sync(world, { path: unit }).catch(e => e)
+  expect(failure).toMatchObject({ code: 'SOURCE_GONE' })
+  expect(fs.existsSync(unit)).toBe(false)
+  // Nothing of the unit landed: not its new files, not its edit, and Old.txt (deleted in the unit) is still there.
+  expect(copyTree(copies)).toEqual(before)
+  expect(copies.status(world)?.lastSync).toMatchObject({ complete: false, sourceGone: true })
+  const report = await copies.sync(world, { path: world })
+  expect(copyTree(copies)).toEqual(expected(world))
+  expect(report.files).toMatchObject({ added: 0, updated: 0, deleted: 0 })
+}, 60000)
+
+it('a deleted branch source is SOURCE_GONE too', async () => {
+  git(world, 'branch', 'feature')
+  const copies = make()
+  await copies.ensure(world, 'Game')
+  await copies.sync(world, { path: world })
+  git(world, 'branch', '-D', 'feature')
+  await expect(copies.sync(world, { ref: 'feature' })).rejects.toMatchObject({ code: 'SOURCE_GONE' })
 }, 60000)
 
 it.skipIf(process.platform !== 'win32')('cancels the Library seed too, leaving no half-copied Library', async () => {

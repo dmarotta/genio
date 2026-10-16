@@ -14,7 +14,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { checkCopyPath, seedLibrary, treeStats } from './unity-seed.mjs'
 import { volumeChild, volumeHome, volumePlacement } from '../skills/play/scripts/clone.mjs'
-import { applyMirror, describeSource, removeFile, resolveSource, scanSource, unityVersionOf } from './git-mirror.mjs'
+import { applyMirror, describeSource, removeFile, resolveSource, scanSource, sourceMissing, unityVersionOf } from './git-mirror.mjs'
 const exec = promisify(execFile)
 
 /** What happens to a copy once its editor has quit. Keeping copies is one line: keepCopyWhenEditorQuits: true. */
@@ -206,8 +206,15 @@ export class PlayerCopies {
         rec.source = described
         rec.lastSync = { at: Date.now(), source: described, complete: true, elapsedMs: Date.now() - started, files: report.files, bytes: report.bytes, restart: report.restart, ...(report.lfs.pointers.length ? { lfsPointers: report.lfs.pointers } : {}), ...(report.warnings.length ? { warnings: report.warnings.slice(0, 20) } : {}) }
         return { ...report, source: described, elapsedMs: Date.now() - started }
-      } catch (e) {
-        rec.lastSync = { at: Date.now(), ...(described ? { source: described } : {}), complete: false, elapsedMs: Date.now() - started, error: e.message, ...(e.code === 'ABORT_ERR' ? { cancelled: true } : {}) }
+      } catch (err) {
+        let e = err
+        // A source that vanished mid-read (a unit's worktree merged and removed, a deleted branch) is not a
+        // fault: the mirror stops before touching the copy, which stays as the previous sync left it.
+        // The error keeps its own words (a missing folder, git's refusal); only its code says why.
+        if (e?.code !== 'SOURCE_GONE' && await sourceMissing(rec.project, source, { env: this.env })) {
+          e = Object.assign(e instanceof Error ? e : new Error(String(e)), { code: 'SOURCE_GONE' })
+        }
+        rec.lastSync = { at: Date.now(), ...(described ? { source: described } : {}), complete: false, elapsedMs: Date.now() - started, error: e.message, ...(e.code === 'ABORT_ERR' ? { cancelled: true } : {}), ...(e.code === 'SOURCE_GONE' ? { sourceGone: true } : {}) }
         throw e
       } finally {
         options.signal?.removeEventListener('abort', relay)
@@ -217,7 +224,7 @@ export class PlayerCopies {
       }
     })
   }
-  /** Stop a running sync between files; the copy stays consistent and the next sync finishes the job. */
+  /** Stop a running sync between files; the copy is untouched while staging, and the next sync reuses what was staged. */
   cancel(world) { const s = this.syncs.get(this.keyOf(world)); if (s) s.controller.abort(); return !!s }
 
   /**

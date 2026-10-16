@@ -6,10 +6,13 @@
  * between checkouts whose files carry different timestamps costs only the changed bytes; dirty and untracked
  * files compare by size and mtime against the manifest of what Genio wrote.
  * The source is only read: git runs without optional locks, fsmonitor or LFS filters (git-lfs clean would
- * store objects in the source's .git), and nothing is written there. Node standard library only.
+ * store objects in the source's .git), and nothing is written there. Every read lands in a staging folder
+ * first; the copy changes only after the whole source was read, so a source that vanishes mid-sync (a unit's
+ * worktree merged and removed) leaves the copy exactly as the previous sync left it. Node standard library only.
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import { createHash } from 'node:crypto'
 import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import { checkFreeSpace } from './unity-seed.mjs'
@@ -98,6 +101,41 @@ export async function resolveSource(project, engineRoot = '', source, options = 
     return { kind: 'commit', gitDir: projectCommon, commit, ref, prefix, project: projectTop }
   }
   throw new Error('A Play source is { path } or { ref }')
+}
+
+/**
+ * True when a Play source can no longer be read: its checkout folder, its .git link or the worktree metadata
+ * that link names is gone (a unit's worktree merged and removed), or its ref no longer names a commit (a
+ * deleted branch). Never throws; anything it cannot decide counts as present.
+ */
+export async function sourceMissing(project, source, options = {}) {
+  try {
+    const { tryGit } = gitRunner(options.env)
+    if (source && typeof source.path === 'string') {
+      if (!fs.existsSync(source.path)) return true
+      const link = path.join(source.path, '.git')
+      let st
+      try { st = fs.statSync(link) } catch { st = undefined }
+      if (st?.isFile()) {
+        const gitdir = fs.readFileSync(link, 'utf8').match(/^gitdir:\s*(.+?)\s*$/m)?.[1]
+        if (!gitdir || !fs.existsSync(path.resolve(source.path, gitdir))) return true
+      }
+      const top = (await tryGit(source.path, ['rev-parse', '--show-toplevel']))?.trim()
+      if (!top) return true
+      // No .git of its own: a leftover folder inside another checkout, unless it is part of the project itself.
+      if (!st) {
+        const inside = (a, b) => { const r = path.relative(canonical(b), canonical(a)); return r === '' || (!r.startsWith('..') && !path.isAbsolute(r)) }
+        return !(fs.existsSync(project) && (inside(source.path, project) || inside(project, source.path)))
+      }
+      return false
+    }
+    if (source && typeof source.ref === 'string') {
+      const ref = source.ref.trim()
+      if (!ref || ref.startsWith('-')) return false
+      return !(await tryGit(project, ['rev-parse', '--verify', '-q', `${ref}^{commit}`]))?.trim()
+    }
+  } catch { /* Undecided: present. */ }
+  return false
 }
 
 /** What a resolved source is, for records and reports. */
@@ -277,6 +315,20 @@ function readManifest(file) {
   try { const m = JSON.parse(fs.readFileSync(file, 'utf8')); if (m && m.version === 1 && m.files && typeof m.files === 'object') return m } catch { /* New or unreadable: everything is compared afresh. */ }
   return { version: 1, files: {} }
 }
+/** The staging folder beside the manifest; its leading dot keeps it apart from the copy's project folder. */
+const STAGING = '.mirror-staging'
+const STAGED = 'staged.json'
+const stagedName = rel => createHash('sha1').update(rel).digest('hex')
+/** The source identity a manifest or staging entry was made from: the blob id, else size and mtime. */
+const sameSource = (m, src) => !!m && (src.id && m.id ? src.id === m.id : src.kind === 'file' && m.mtimeMs !== undefined && m.size === src.size && m.mtimeMs === src.mtimeMs)
+async function renameRetry(from, to, retries = 6) {
+  for (let attempt = 0; ; attempt++) {
+    try { await fs.promises.rename(from, to); return } catch (e) {
+      if (!RETRY.has(e.code) || attempt >= retries) throw e
+      await sleep(Math.min(2000, 50 * 2 ** attempt))
+    }
+  }
+}
 function writeManifest(file, manifest) {
   const temp = `${file}.${process.pid}.tmp`
   fs.mkdirSync(path.dirname(file), { recursive: true })
@@ -334,11 +386,18 @@ async function walkCopy(root, exclude) {
  * Make the copy at root match the scanned source and return what changed. Removals run before copies, so a
  * case-only rename works on Windows. Files Unity made in the copy are deleted, except a .meta for an asset
  * the source has (purging it would give the asset a new GUID and a reimport), packages-lock.json and
- * ProjectSettings files. Cancelling (signal) stops between files and keeps the manifest true to the copy.
+ * ProjectSettings files.
+ * Two phases. Staging reads every changed file into a staging folder beside the manifest (on the copy's
+ * volume) and is the only phase that reads the source. Applying then removes and renames inside the copy and
+ * never reads the source. Cancelling (signal) or a failing read stops staging between files with the copy
+ * untouched; what was staged is kept in its own manifest and reused by the next sync of the same content.
  */
 export async function applyMirror(scan, root, manifestFile, options = {}) {
   const { signal, io = {}, extraBytes = 0, statfs, concurrency = 16, exclude = [] } = options
   const copyFile = io.copyFile ?? ((from, to) => fs.promises.copyFile(from, to))
+  const staging = path.join(path.dirname(manifestFile), STAGING)
+  const stagedFile = path.join(staging, STAGED)
+  const stagedAt = rel => path.join(staging, stagedName(rel))
   const started = Date.now()
   let lastProgress = 0
   const progress = (phase, done, total, bytesDone, bytesTotal, force) => {
@@ -368,7 +427,7 @@ export async function applyMirror(scan, root, manifestFile, options = {}) {
   const copies = [], removals = []
   for (const [rel, src] of source) {
     const m = files[rel], d = dest.get(rel)
-    const same = !!m && (src.id && m.id ? src.id === m.id : src.kind === 'file' && m.mtimeMs !== undefined && m.size === src.size && m.mtimeMs === src.mtimeMs)
+    const same = sameSource(m, src)
     const intact = !!m?.copy && !!d && d.size === m.copy.size && d.mtimeMs === m.copy.mtimeMs
     if (same && intact) {
       report.files.unchanged++
@@ -391,32 +450,70 @@ export async function applyMirror(scan, root, manifestFile, options = {}) {
   const restart = new Set()
   for (const c of [...copies.filter(c => c.kind !== 'restored'), ...removals.filter(r => r.kind === 'deleted')]) if (/^(packages|projectsettings)\//i.test(c.rel)) restart.add(`${c.rel} changed`)
 
+  // What an earlier, interrupted sync already staged: reused when the source still has the same content.
+  const staged = readManifest(stagedFile)
+  const stagedIntact = async (s, rel) => {
+    if (!s?.file || s.pointer) return false
+    const st = await fs.promises.stat(stagedAt(rel)).catch(() => undefined)
+    return !!st && st.size === s.file.size && st.mtimeMs === s.file.mtimeMs
+  }
+  report.staged = { reused: 0 }
   // Small files may be Git LFS pointers: read them first, so sizes and the space check use the real content.
   const readers = new Map()
   const reader = gitDir => { let r = readers.get(gitDir); if (!r) { r = new BlobReader(gitDir, gitRunner(options.env).env); readers.set(gitDir, r) } return r }
   try {
     for (const c of copies) {
-      if (c.src.size > POINTER_MAX) continue
       aborted()
+      if (sameSource(staged.files[c.rel], c.src) && await stagedIntact(staged.files[c.rel], c.rel)) { c.staged = true; report.staged.reused++; continue }
+      if (c.src.size > POINTER_MAX) continue
       c.content = c.src.kind === 'blob' ? await reader(c.src.gitDir).read(c.src.oid) : await fs.promises.readFile(c.src.abs).catch(() => undefined)
       const m = c.content?.length <= POINTER_MAX ? c.content.toString('utf8').match(LFS_POINTER) : undefined
       if (m) c.pointer = { oid: m[1], size: Number(m[2]) }
     }
     const sizeOf = c => c.pointer ? c.pointer.size : c.src.size
-    const bytesTotal = copies.reduce((n, c) => n + sizeOf(c), 0)
+    const toStage = copies.filter(c => !c.staged)
+    const bytesTotal = toStage.reduce((n, c) => n + sizeOf(c), 0)
     const need = bytesTotal + extraBytes - removals.reduce((n, r) => n + r.size, 0)
     if (need > 0) await checkFreeSpace(root, need, { statfs })
+
+    // Staging: the only reads of the source. The copy is untouched until every changed file is staged.
+    let stagedCount = 0, bytesDone = 0
+    const stage = async c => {
+      aborted()
+      const target = stagedAt(c.rel)
+      await removeFile(target)
+      const object = c.pointer && findLfs(c.src.stores, c.pointer)
+      if (object) await copyFile(object, target)
+      else if (c.content) await fs.promises.writeFile(target, c.content)
+      else if (c.src.kind === 'file') await copyFile(c.src.abs, target)
+      else await fs.promises.writeFile(target, await reader(c.src.gitDir).read(c.src.oid))
+      const st = await fs.promises.stat(target)
+      staged.files[c.rel] = { ...(c.src.id ? { id: c.src.id } : {}), size: c.src.size, ...(c.src.kind === 'file' ? { mtimeMs: c.src.mtimeMs } : {}), file: { size: st.size, mtimeMs: st.mtimeMs }, ...(object ? { lfs: true } : c.pointer ? { pointer: true } : {}) }
+      c.staged = true
+      bytesDone += sizeOf(c)
+      progress('copying', ++stagedCount, toStage.length, bytesDone, bytesTotal)
+    }
+    if (toStage.length) await fs.promises.mkdir(staging, { recursive: true })
+    try {
+      progress('copying', 0, toStage.length, 0, bytesTotal, true)
+      // Files stage in parallel; blobs stream one at a time through their git dir's reader.
+      await each(toStage.filter(c => c.src.kind === 'file' || c.content), concurrency, stage, signal)
+      aborted()
+      for (const c of toStage.filter(c => c.src.kind === 'blob' && !c.content)) await stage(c)
+      aborted()
+      progress('copying', stagedCount, toStage.length, bytesDone, bytesTotal, true)
+    } finally { if (toStage.length) writeManifest(stagedFile, staged) }
 
     // Decide before writing restart-sensitive files or moving a live editor's Library.
     await options.beforeApply?.({ needed: first || restart.size > 0, reasons: first ? ['first copy'] : [...restart] })
     aborted()
 
+    // Applying: removals and renames inside the copy's volume only, never cancelled halfway.
     try {
       progress('deleting', 0, removals.length, 0, 0, true)
       const emptied = new Set()
       let done = 0
       for (const r of removals) {
-        aborted()
         if (r.exists) await removeFile(abs(root, r.rel))
         if (r.kind === 'deleted') delete files[r.rel]
         report.files[r.kind]++; report.bytes.deleted += r.size
@@ -428,32 +525,24 @@ export async function applyMirror(scan, root, manifestFile, options = {}) {
         if (sourceDirs.has(ci(d))) continue
         await fs.promises.rmdir(abs(root, d)).catch(() => {})
       }
-
-      let copied = 0, bytesDone = 0
-      const place = async c => {
-        aborted()
-        const target = abs(root, c.rel)
+      let copied = 0
+      for (const c of copies) {
+        const s = staged.files[c.rel], target = abs(root, c.rel)
         await fs.promises.mkdir(path.dirname(target), { recursive: true })
         await writable(target)
-        const object = c.pointer && findLfs(c.src.stores, c.pointer)
-        if (object) { await copyFile(object, target); report.lfs.resolved++ }
-        else if (c.content) await fs.promises.writeFile(target, c.content)
-        else if (c.src.kind === 'file') await copyFile(c.src.abs, target)
-        else await fs.promises.writeFile(target, await reader(c.src.gitDir).read(c.src.oid))
+        await renameRetry(stagedAt(c.rel), target)
+        delete staged.files[c.rel]
         const st = await fs.promises.stat(target)
-        files[c.rel] = { ...(c.src.id ? { id: c.src.id } : {}), size: c.src.size, ...(c.src.kind === 'file' ? { mtimeMs: c.src.mtimeMs } : {}), copy: { size: st.size, mtimeMs: st.mtimeMs }, ...(c.pointer && !object ? { pointer: true } : {}) }
+        files[c.rel] = { ...(c.src.id ? { id: c.src.id } : {}), size: c.src.size, ...(c.src.kind === 'file' ? { mtimeMs: c.src.mtimeMs } : {}), copy: { size: st.size, mtimeMs: st.mtimeMs }, ...(s.pointer ? { pointer: true } : {}) }
+        if (s.lfs) report.lfs.resolved++
         report.files[c.kind]++; report.bytes.copied += st.size
-        bytesDone += sizeOf(c)
-        progress('copying', ++copied, copies.length, bytesDone, bytesTotal)
+        if (++copied % 64 === 0) progress('copying', copied, copies.length, bytesTotal, bytesTotal)
       }
-      progress('copying', 0, copies.length, 0, bytesTotal, true)
-      // Files copy in parallel; blobs stream one at a time through their git dir's reader.
-      await each(copies.filter(c => c.src.kind === 'file' || c.content), concurrency, place, signal)
-      aborted()
-      for (const c of copies.filter(c => c.src.kind === 'blob' && !c.content)) await place(c)
-      aborted()
-      progress('copying', copied, copies.length, bytesDone, bytesTotal, true)
+      progress('copying', copied, copies.length, bytesTotal, bytesTotal, true)
+      // Nothing staged is left to reuse: a later sync starts from a clean staging folder.
+      await fs.promises.rm(staging, { recursive: true, force: true, maxRetries: 3 }).catch(() => {})
     } finally {
+      if (Object.keys(staged.files).length) writeManifest(stagedFile, staged)
       const previous = manifest.unityVersion
       const version = unityVersionOf(root)
       if (previous && version && previous !== version) restart.add(`Unity ${previous} → ${version}`)

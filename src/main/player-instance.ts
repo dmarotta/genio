@@ -3,10 +3,10 @@ import path from 'node:path'
 import type { AppCtx } from './services'
 import { effectiveEngine } from '@shared/engine'
 import { decodeBytes, lineStart } from '@shared/encoding'
-import { supportsUnitySlots, type PlayerCopySource, type PlayerInstanceStatus, type PlayerMachineStatus, type PlayerScene, type PlayerSettings, type PlayInput } from '@shared/play'
+import { sameSource, sourceGoneText, supportsUnitySlots, type PlayerCopySource, type PlayerInstanceStatus, type PlayerMachineStatus, type PlayerScene, type PlayerSettings, type PlayerSourceGone, type PlayInput } from '@shared/play'
 import { PlayerCopies, processCreated } from '../../resources/unit-skills/genio/lib/player-copy.mjs'
 import { createDesktopApi, inspectDesktop, launchEditor, type DesktopApi, type EditorLaunch } from '../../resources/unit-skills/genio/lib/hidden-desktop.mjs'
-import { unityVersionOf } from '../../resources/unit-skills/genio/lib/git-mirror.mjs'
+import { sourceMissing, unityVersionOf } from '../../resources/unit-skills/genio/lib/git-mirror.mjs'
 import { checkCopyPath } from '../../resources/unit-skills/genio/lib/unity-seed.mjs'
 import { editorHolders, editorSeatsDir } from '../../resources/unit-skills/genio/lib/unity-editors.mjs'
 import { poolDirectory } from '../../resources/unit-skills/genio/skills/play/scripts/pool.mjs'
@@ -15,6 +15,8 @@ import { playService } from './play'
 import { UnityAdapter } from './play-unity'
 import { PlayStream } from './play-stream'
 import { biggestConsumers, closePlayerRoot, opensRoot, playerSystem, playerTree, sameProcess, type PlayerProcess, type PlayerSystem } from './player-process'
+import { repoTop, sameFolder } from './git'
+import { leaseSource, onSourceRemoved, type SourceLease } from './source-leases'
 
 const GiB = 2 ** 30
 /** First-run estimate until a session teaches the project's steady working set, and the RAM kept back on top. */
@@ -146,6 +148,7 @@ export class PlayerInstanceService {
   private desktop: DesktopApi
   private data: string
   private settings: PlayerSettings
+  private unlisten: () => void
   constructor(private ctx: AppCtx, private options: PlayerInstanceOptions = {}) {
     this.data = ctx.main.home.data
     this.copies = options.copies ?? playerCopyService(ctx).copies
@@ -153,6 +156,40 @@ export class PlayerInstanceService {
     this.desktop = options.desktop ?? createDesktopApi(this.data)
     this.settings = { idleMinutes: 10, maxEditors: 2 }
     try { this.settings = this.validate(JSON.parse(fs.readFileSync(this.settingsFile(), 'utf8'))) } catch { /* defaults */ }
+    // Genio removed a unit's worktree: an instance playing from it notes that at once (a running sync has its lease).
+    this.unlisten = onSourceRemoved(dir => { for (const i of this.instances.values()) this.noteRemoved(i, dir) })
+  }
+  /** The unit whose worktree a checkout source is, in any state (merged and despawned included). */
+  private unitOf(source: PlayerCopySource) {
+    if (!('path' in source)) return undefined
+    try { return [...(this.ctx.homes?.values() ?? [])].flatMap(h => h.crew.list()).find(t => !!t.worktree && sameFolder(t.worktree, source.path)) } catch { return undefined }
+  }
+  private gone(source: PlayerCopySource, when: PlayerSourceGone['when']): PlayerSourceGone {
+    const t = this.unitOf(source)
+    const merged = !!t && (t.state === 'merged' || !!t.landedCommit || /landed/.test(t.stateReason ?? ''))
+    return { when, at: this.system.now(), ...(t ? { unit: t.title, merged, base: t.baseBranch } : {}) }
+  }
+  /** The main checkout, the fallback when a chosen source is gone. */
+  private async mainSource(project: string): Promise<PlayerCopySource> {
+    return { path: path.resolve((await repoTop(project).catch(() => '')) || project) }
+  }
+  private noteRemoved(i: Instance, dir: string) {
+    if (!i.source || !('path' in i.source) || i.sourceGone || !sameFolder(i.source.path, dir)) return
+    // A copy or sync in progress learns it from its lease and reports 'loading' itself.
+    if (i.state === 'copying' || i.state === 'syncing') return
+    i.sourceGone = this.gone(i.source, 'running')
+    try { this.save(i) } catch { /* shown from memory; saved with the next change */ }
+  }
+  /** The last guard: an unexpected failure in a background step is logged and shown with Retry, never thrown on. */
+  private fault(i: Instance, e: unknown) {
+    console.error('[player-instance]', e)
+    if (['close-stuck', 'stuck-dialog'].includes(i.state)) return
+    const message = `Play hit an unexpected problem: ${(e as Error)?.message ?? String(e)}. Retry, or Stop Unity.`
+    try {
+      // A game still playing keeps its controls; the message alone says what went wrong.
+      if (i.launch && (i.state === 'playing' || i.state === 'paused')) { i.message = message; this.save(i) }
+      else this.state(i, 'error', message)
+    } catch { /* the record could not be saved; the status still shows it */ }
   }
   private settingsFile() { return path.join(this.data, 'player-copies', 'settings.json') }
   private validate(value: PlayerSettings): PlayerSettings {
@@ -224,13 +261,18 @@ export class PlayerInstanceService {
   private supportsInput(i: Instance) {
     try { return !/activeInputHandler:\s*0\b/.test(fs.readFileSync(path.join(i.root!, 'ProjectSettings/ProjectSettings.asset'), 'utf8')) } catch { return false }
   }
+  /** False when the source can no longer be read (a unit's worktree merged and removed, a deleted branch). */
+  async sourceAvailable(world: string, source: PlayerCopySource): Promise<boolean> {
+    return !(await sourceMissing(this.project(world).project, source))
+  }
   syncCopy(world: string, source: PlayerCopySource) {
     const { project, engineRoot } = this.project(world)
     return this.serial(project, async () => {
       await this.start()
       if (this.instances.get(project)?.launch) throw new Error('Use player instance Play to sync a running editor safely')
       await this.copies.ensure(project, engineRoot)
-      return this.copies.sync(project, source)
+      const lease = 'path' in source ? leaseSource(source.path, () => this.copies.cancel(project)) : undefined
+      return this.copies.sync(project, source).finally(() => lease?.release())
     })
   }
   ensureCopy(world: string) {
@@ -391,8 +433,9 @@ export class PlayerInstanceService {
   play(world: string, source: PlayerCopySource, options: { startAnyway?: boolean; visible?: boolean; scene?: string } = {}) {
     return this.enterPlay(world, source, options)
   }
-  private open(world: string, source: PlayerCopySource, options: { startAnyway?: boolean; visible?: boolean; scene?: string }, enter: boolean) {
+  private open(world: string, chosen: PlayerCopySource, options: { startAnyway?: boolean; visible?: boolean; scene?: string }, enter: boolean) {
     const { project, engineRoot } = this.project(world)
+    let source = chosen
     if (options.scene !== undefined) checkScene(options.scene)
     // Enter Play replaces any Play in progress; Start Unity only warms up and never cancels one.
     if (enter) {
@@ -410,8 +453,13 @@ export class PlayerInstanceService {
       if (!enter && i.launch) return this.status(world)
       this.controllers.set(project, controller)
       if (options.scene !== undefined) i.scene = options.scene
-      delete i.dialog; delete i.stoppedAt; delete i.deadline; delete i.lowMemory
-      let suspended = false
+      delete i.dialog; delete i.stoppedAt; delete i.deadline; delete i.lowMemory; delete i.sourceGone
+      // A source already gone (a unit merged and removed since it was chosen) plays the main checkout instead.
+      const main = await this.mainSource(project)
+      if (!sameSource(source, main) && await sourceMissing(project, source)) { i.sourceGone = this.gone(source, 'fallback'); source = main }
+      check()
+      const previous = i.source
+      let suspended = false, lease: SourceLease | undefined
       try {
         // A cold start is admitted before the copy, so a refusal never follows a minute of copying.
         if (!i.launch) await this.admit(i, options.startAnyway === true)
@@ -425,7 +473,11 @@ export class PlayerInstanceService {
           suspended = true; await this.local(i).request('genio_sync_begin')
         }
         this.state(i, i.launch ? 'syncing' : 'copying')
+        // The lease covers the reads of the source; Genio's cleanup waits for it (bounded) or stops it before removing a worktree.
+        if ('path' in source) lease = leaseSource(source.path, () => this.copies.cancel(project))
         const report = await this.copies.sync(project, source, { signal: controller.signal, beforeApply: async advice => {
+          // Everything is staged: the source is not read again.
+          lease?.release()
           check()
           if (advice.needed && i.launch) {
             await this.close(i, 'source needs an editor restart', 'keep')
@@ -433,7 +485,7 @@ export class PlayerInstanceService {
             suspended = false
             this.state(i, 'syncing')
           }
-        } })
+        } }).finally(() => lease?.release())
         check()
         await this.embed(i)
         if (report.lfs.pointers.length) throw new Error(`This source has ${report.lfs.pointers.length} LFS files that are not downloaded`)
@@ -462,6 +514,16 @@ export class PlayerInstanceService {
         return this.status(world)
       } catch (e) {
         if (suspended && i.launch) await this.local(i).request('genio_sync_end').catch(() => {})
+        // The source vanished while it was read: the copy still holds the previous sync, untouched. Not a failure:
+        // Unity (if it runs) stays ready on that copy, and the screen offers the main checkout.
+        if (((e as { code?: string })?.code === 'SOURCE_GONE' || lease?.gone) && !['stuck-dialog', 'close-stuck'].includes(i.state)) {
+          if (previous) i.source = previous; else delete i.source
+          i.sourceGone = this.gone(source, 'loading')
+          this.state(i, i.launch ? 'ready' : 'idle', sourceGoneText(i.sourceGone))
+          if (i.launch) await this.idle(i)
+          else await this.copies.editorGone(project, 'the source was removed', { manual: true, at: this.system.now(), idleMs: this.settings.idleMinutes * 60000 }).catch(() => {})
+          return this.status(world)
+        }
         if (!['stuck-dialog', 'close-stuck', 'compile-errors', ...REFUSED].includes(i.state)) {
           const cancelled = controller.signal.aborted || (this.generations.get(project) ?? 0) !== generation
           this.state(i, cancelled ? i.launch ? 'ready' : 'idle' : 'error', (e as Error).message)
@@ -626,7 +688,9 @@ export class PlayerInstanceService {
       const procs = await this.system.list()
       for (const i of this.instances.values()) {
         if (!i.launch || this.operations.has(i.project)) continue
-        await this.serial(i.project, async () => {
+        // The periodic validity check: a source removed outside Genio's cleanup (or a deleted branch) shows too.
+        if (i.source && !i.sourceGone && await sourceMissing(i.project, i.source)) { i.sourceGone = this.gone(i.source, 'running'); this.save(i) }
+        try { await this.serial(i.project, async () => {
           const p = procs.find(p => sameProcess(p, i.launch!) && opensRoot(p, i.root!))
           if (!p) {
             try { i.exitCode = JSON.parse(fs.readFileSync(path.join(i.launch!.dir!, 'exit.json'), 'utf8')).exitCode } catch { /* no helper exit yet */ }
@@ -649,7 +713,7 @@ export class PlayerInstanceService {
           }
           if (i.deadline !== undefined && i.deadline <= this.system.now()) await this.close(i, 'idle timeout')
           else this.save(i)
-        })
+        }) } catch (e) { this.fault(i, e) }
       }
       // Copies without an editor (kept by Stop Unity, refused for memory) go at their own deadline.
       for (const copy of this.copies.due(this.system.now())) {
@@ -713,7 +777,7 @@ export class PlayerInstanceService {
   detach(world: string) { return this.exitPlay(world) }
   /** Cancel copies now; close editors in parallel. Deletion is already a background job and is never awaited. */
   async shutdown() {
-    this.exiting = true; clearInterval(this.timer)
+    this.exiting = true; clearInterval(this.timer); this.unlisten()
     for (const i of this.instances.values()) { this.cancel(i.project); this.runtimes.get(i.project)?.stopStream() }
     await Promise.allSettled([...this.instances.values()].map(i => this.serial(i.project, () => this.close(i, 'Genio exit'))))
   }

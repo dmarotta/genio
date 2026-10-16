@@ -63,3 +63,16 @@ it('names the unit a source plays, and refuses projects without a supported engi
   await expect(playerSources(ctx(), 'game')).rejects.toThrow('Unity')
   await expect(playerSources(ctx(), 'missing')).rejects.toThrow('Unknown')
 })
+
+it('never offers a unit worktree once it is removed, or while it is half removed', async () => {
+  const unit = path.join(scratch, 'unit-lairs')
+  // Half removed: the folder is still there, its .git link is not.
+  fs.rmSync(path.join(unit, '.git'))
+  expect((await playerSources(ctx(), 'game')).some(s => s.group === 'unit')).toBe(false)
+  // Removed and despawned, as after a merge.
+  fs.rmSync(unit, { recursive: true, force: true }); git(repo, 'worktree', 'prune')
+  tasks[0] = { ...tasks[0], state: 'cleaned' }
+  const sources = await playerSources(ctx(), 'game')
+  expect(sources.some(s => 'path' in s.source && s.source.path === unit)).toBe(false)
+  expect(sources[0]).toMatchObject({ id: 'main' })
+})

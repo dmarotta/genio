@@ -26,6 +26,22 @@ export function primaryAction(t: Task, term?: TerminalInfo, openQuestion = false
   return 'none'
 }
 
+/**
+ * "Play this unit", beside the primary action: opens the Play screen with the unit's worktree preselected. Builds
+ * in projects whose engine has Play (supportsUnitySlots) only. Enabled while the worktree exists, in every state
+ * (a working unit plays a copy of its files as they are on disk at that moment); disabled, with the reason as its
+ * tooltip, once the worktree is gone. undefined: no button.
+ */
+export function unitPlay(t: Task, playable: boolean, worktreeRemoved = false): { enabled: boolean; hint: string } | undefined {
+  if (!playable || t.kind !== 'ship') return undefined
+  const landed = t.state === 'merged' || !!t.landedCommit
+  if (t.state === 'cleaned') {
+    return { enabled: false, hint: landed ? `Merged and removed: its work is in ${t.baseBranch} now. Play ${t.baseBranch} from the Play screen.` : 'Despawned: its worktree is gone, so there is nothing of it to play.' }
+  }
+  if (worktreeRemoved || !t.worktree) return { enabled: false, hint: landed ? `Its worktree was removed after the merge: its work is in ${t.baseBranch} now.` : 'Its worktree was removed, so there is nothing of it to play.' }
+  return { enabled: true, hint: 'Opens Play with this unit\'s worktree as the source. Play copies its files as they are now; the unit keeps working.' }
+}
+
 /** Genio's forge merge refuses red or pending checks; a PR with no checks at all is green. */
 export function prGreen(pr: Pick<PrInfo, 'checks'>): boolean {
   return pr.checks === 'passing' || pr.checks === 'none'

@@ -32,6 +32,8 @@ export interface MirrorReport {
   restart: RestartAdvice
   warnings: string[]
   elapsedMs: number; scanMs: number
+  /** reused: files an interrupted sync had already staged, applied without reading the source again. */
+  staged?: { reused: number }
 }
 export interface MirrorOptions {
   beforeApply?: (restart: RestartAdvice) => Promise<void>
@@ -52,6 +54,8 @@ export const RESTART_FILES: string[]
 export function mirrorSkip(rel: string, exclude?: string[]): boolean
 export function unityVersionOf(root: string): string | undefined
 export function resolveSource(project: string, engineRoot: string | undefined, source: MirrorSource, options?: { env?: Record<string, string | undefined> }): Promise<ResolvedSource>
+/** True when the source's checkout, worktree metadata or ref is gone; never throws. */
+export function sourceMissing(project: string, source: MirrorSource, options?: { env?: Record<string, string | undefined> }): Promise<boolean>
 export function describeSource(source: ResolvedSource): SourceInfo
 export function scanSource(source: ResolvedSource, options?: { exclude?: string[]; env?: Record<string, string | undefined> }): Promise<MirrorScan>
 export function applyMirror(scan: MirrorScan, root: string, manifestFile: string, options?: MirrorOptions): Promise<MirrorReport>

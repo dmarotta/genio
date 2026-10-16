@@ -60,6 +60,32 @@ export interface PlayerInstanceStatus {
   dialog?: import('../../resources/unit-skills/genio/lib/hidden-desktop.mjs').DialogBlock
   capabilities?: { input: boolean }
   copy?: import('../../resources/unit-skills/genio/lib/player-copy.mjs').PlayerCopyRecord
+  /** The chosen source vanished (a unit merged and removed, a deleted branch); see sourceGoneText. */
+  sourceGone?: PlayerSourceGone
+}
+/**
+ * A Play source that vanished. when: 'loading' stopped a copy or sync before it changed anything (the copy keeps
+ * the previous sync); 'running' came after the copy, so Unity and Play went on; 'fallback' found it gone at the
+ * next Play or Restart, which played the main checkout instead.
+ */
+export interface PlayerSourceGone {
+  when: 'loading' | 'running' | 'fallback'
+  at: number
+  /** The unit's title for a unit's worktree. */
+  unit?: string
+  /** The unit's work landed (merged) before its worktree went. */
+  merged?: boolean
+  /** The branch the unit merged into. */
+  base?: string
+}
+/** What the Play screen says about a vanished source: a sentence for 'loading' and 'fallback', a short note for 'running'. */
+export function sourceGoneText(g: PlayerSourceGone): string {
+  const what = g.unit ? 'This unit' : 'This source'
+  const went = g.merged ? 'was merged and removed' : 'was removed'
+  const landed = g.merged ? ` Its work is in ${g.base || 'main'} now.` : ''
+  if (g.when === 'running') return `source ${went}`
+  if (g.when === 'fallback') return `${what} ${went}, so Genio played the main checkout instead.${landed}`
+  return `${what} ${went} while loading.${landed}`
 }
 /** One choice in the Play screen's source picker: the main checkout, a worktree, a unit's worktree (by name) or a branch. */
 export interface PlayerSourceOption {

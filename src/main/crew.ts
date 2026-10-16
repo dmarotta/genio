@@ -34,6 +34,7 @@ import { installUnitHooks } from './unithooks'
 import { installUnityShims, unityGuardScript, unityPreToolHook } from './unity-guards'
 import { depsEnv, depsPreToolHook, depsStateFile, installNpmShims, npmGuardScript, startWorktreeDeps, sweepWorktrees, type SweepResult } from './worktree-deps'
 import { isLink, removeLinkSafely } from '../../resources/unit-skills/genio/lib/node-deps.mjs'
+import { sourceRemoved, yieldSource } from './source-leases'
 import { installUnitPlugin, openRouterEnv, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief } from './unitskills'
 import { findUnityCli, unityUnitConfig, unityUnitEnv } from './unity-unit'
 import {
@@ -860,6 +861,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           return { ok: false, message: `Refusing to despawn ${id}: could not remove the node_modules link at ${fwd(linkedDeps)} (${(e as Error).message}). Remove only the link with cmd /c rmdir, never a recursive delete.` }
         }
       }
+      // A Play copy reading this worktree finishes first, or stops cleanly after a short bounded wait.
+      await yieldSource(t.worktree)
       let leftover = ''
       if (repo) {
         const scratch = t.kind === 'scout' || force
@@ -895,6 +898,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       }
       // update() closes the quest this unit was flying (followUnit); a re-queued follow-up stays queued
       update(id, { state: 'cleaned', cleanedAt: nowIso(), terminalId: undefined, stateReason: `despawned: ${via}` })
+      sourceRemoved(t.worktree)
       ledger('task.cleaned_up', t, { via })
       safe(() => ctx.stats.award('cleanup', id))
       void svc.sweepWorktrees().catch(() => undefined)

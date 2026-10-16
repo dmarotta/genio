@@ -285,3 +285,74 @@ describe('unit page content', () => {
     expect(document.body.textContent).not.toContain('respawn any time')
   })
 })
+
+describe('Play this unit', () => {
+  const unity = { ...project, engine: 'unity' } as Project
+  const openUnity = async (t: Task, terminals: TerminalInfo[] = []): Promise<void> => {
+    setState({ ...initial, focus: { type: 'task', id: t.id }, terminals: Object.fromEntries(terminals.map((x) => [x.id, x])),
+      snap: { ...initial.snap, tasks: [t], projects: [unity], decisions: [] } })
+    await act(async () => root.render(React.createElement(Squad)))
+  }
+  const play = (): HTMLButtonElement | undefined => host.querySelector<HTMLButtonElement>('.uh-actions > button.uh-play') ?? undefined
+  afterEach(() => { localStorage.clear(); Reflect.deleteProperty(window, 'matchMedia') })
+
+  it('is offered only for Builds in a project with Play', async () => {
+    await open(unit({ state: 'ready', readyAt: NOW }))
+    expect(play()).toBeUndefined()
+    await openUnity(unit({ kind: 'scout', state: 'working', mode: undefined }))
+    expect(play()).toBeUndefined()
+  })
+
+  it('sits beside Merge on a ready Build, never instead of it', async () => {
+    await openUnity(unit({ state: 'ready', readyAt: NOW }))
+    expect(primary()).toEqual(['Merge into main', 'Play', 'More'])
+    expect(play()!.disabled).toBe(false)
+    expect(play()!.title).toContain('as the source')
+  })
+
+  it.each([
+    ['working', { terminalId: 'pty-1' }],
+    ['blocked', {}],
+    ['needs-decision', {}],
+    ['paused', {}],
+    ['failed', {}],
+    ['merged', { landedCommit: '8f2c1e9' }]
+  ] as const)('is enabled while the worktree exists: %s', async (state, patch) => {
+    await openUnity(unit({ state, ...patch }), [pty()])
+    expect(play()!.disabled).toBe(false)
+  })
+
+  it('is disabled with the reason once the worktree is gone', async () => {
+    await openUnity(unit({ state: 'cleaned', landedCommit: '8f2c1e9a4b7d03', cleanedAt: NOW }))
+    expect(play()!.disabled).toBe(true)
+    expect(play()!.title).toBe('Merged and removed: its work is in main now. Play main from the Play screen.')
+    await openUnity(unit({ state: 'cleaned', cleanedAt: NOW }))
+    expect(play()!.title).toBe('Despawned: its worktree is gone, so there is nothing of it to play.')
+    files = { diffstat: '(worktree removed)' }
+    await openUnity(unit({ id: 'u2', state: 'done' }))
+    await act(async () => { await Promise.resolve() })
+    expect(play()!.disabled).toBe(true)
+    expect(play()!.title).toBe('Its worktree was removed, so there is nothing of it to play.')
+  })
+
+  it('opens that project\'s Play with the unit preselected, once, without starting Unity', async () => {
+    await openUnity(unit({ state: 'ready', readyAt: NOW }))
+    await click(play()!)
+    expect(JSON.parse(localStorage.getItem('genio.play.request')!)).toMatchObject({ world: 'world', source: 'unit:u1' })
+    expect(apiCall('projectOpen')).toHaveBeenCalledWith('C:/games/world')
+    expect(calls.has('playerInstanceEnterPlay')).toBe(false)
+    expect(calls.has('playerInstanceStartUnity')).toBe(false)
+  })
+
+  it('moves under More on narrow widths, where a disabled Play says why', async () => {
+    Object.assign(window, { matchMedia: (q: string) => ({ matches: q.includes('720px'), addEventListener: () => {}, removeEventListener: () => {} }) })
+    await openUnity(unit({ state: 'ready', readyAt: NOW }))
+    expect(play()).toBeUndefined()
+    expect(primary()).toEqual(['Merge into main', 'More'])
+    const items = await menu()
+    expect(items[0]).toMatchObject({ label: 'Play' })
+    await openUnity(unit({ state: 'cleaned', cleanedAt: NOW }))
+    await click(button('More'))
+    expect(host.querySelector<HTMLButtonElement>('.unit-menu-item')!.disabled).toBe(true)
+  })
+})

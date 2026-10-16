@@ -11,6 +11,7 @@ import * as git from '../src/main/git'
 import type { AppCtx, HomeCtx } from '../src/main/services'
 import type { Task } from '../src/shared/types'
 import { squadOutcome, squadState } from '../src/shared/squad-display'
+import { leaseSource, onSourceRemoved } from '../src/main/source-leases'
 
 let root: string, repo: string, home: Home, hc: HomeCtx, ctx: AppCtx
 let terminal: { id: string; alive: boolean } | undefined
@@ -141,6 +142,21 @@ describe('post-merge cleanup', () => {
     expect(ctx.terminals.kill).toHaveBeenCalledWith('shell-mine')
     expect(ctx.terminals.kill).not.toHaveBeenCalledWith('shell-other')
     expect(ctx.terminals.kill).not.toHaveBeenCalledWith('shell-plain')
+  }, 60_000)
+
+  it('waits for a Play copy reading the worktree before removing it, then tells Play it is gone', async () => {
+    const t = await readyUnit('played')
+    const order: string[] = []
+    const lease = leaseSource(t.worktree, () => {})
+    const off = onSourceRemoved(dir => order.push(`removed:${path.basename(dir)}:${fs.existsSync(t.worktree)}`))
+    // Longer than the merge itself takes, shorter than the bounded wait: without the wait the worktree would be gone first.
+    setTimeout(() => { order.push(`read done:${fs.existsSync(t.worktree)}`); lease.release() }, 2500)
+    const r = await hc.crew.merge(t.id)
+    off()
+    expect(r.ok).toBe(true)
+    expect(hc.crew.get(t.id)?.state).toBe('cleaned')
+    // The read finished on a worktree still there; only then was it removed, and Play told.
+    expect(order).toEqual(['read done:true', 'removed:played:false'])
   }, 60_000)
 
   it('lets an exited Recon without a report be despawned, but not one that is still running', async () => {

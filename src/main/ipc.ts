@@ -102,6 +102,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     playerInstanceStream: async () => { throw new Error('Streaming requires the owning project window') },
     playerInstanceDialogShot: async world => playerInstanceService(ctx()).dialogScreenshot(world),
     playerSources: world => playerSources(ctx(), world),
+    playerSourceAvailable: (world, source) => playerInstanceService(ctx()).sourceAvailable(world, source),
     inventoryOpen: async (world) => {
       const state = await ctx().inventory.open(world)
       ctx().stats.unlock('inventory-open')
@@ -359,7 +360,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
         const binding = windows?.binding(_e.sender.id)
         if (windows && !binding && ['sendChat', 'recap', 'save', 'restartWksp', 'interruptWksp', 'unqueueChat', 'reactToMessage', 'approveGeneration'].includes(method)) throw new Error('Open a project window to use its chat.')
         if (method.startsWith('playPool') || method === 'playCloseSlotEditor' || method.startsWith('playerCopy')) assertProjectWindow(binding, args[0])
-        if (method.startsWith('playerInstance') || method === 'playerSources') assertProjectWindow(binding, args[0])
+        if (method.startsWith('playerInstance') || method === 'playerSources' || method === 'playerSourceAvailable') assertProjectWindow(binding, args[0])
         // These end the stream; Pause, Step, Resize and the scene list keep the port (a resize swaps Unity's session behind it).
         if (['playerInstancePlay', 'playerInstanceEnterPlay', 'playerInstanceExitPlay', 'playerInstanceStopUnity', 'playerInstanceSetScene', 'playerInstanceStop', 'playerInstanceQuit', 'playerInstanceRestart', 'playerInstanceDetach'].includes(method)) playConnections.get(args[0] as string)?.()
         if (method === 'playerInstanceStream') {

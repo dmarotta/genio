@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
-  Archive, ArrowLeft, ChevronDown, ExternalLink, FolderOpen, GitMerge, Info, MoreHorizontal, Radar, RotateCcw, Rocket, Send,
+  Archive, ArrowLeft, ChevronDown, ExternalLink, FolderOpen, GitMerge, Info, MoreHorizontal, Play as PlayIcon, Radar, RotateCcw, Rocket, Send,
   SquareTerminal, ArrowUpFromLine, X
 } from 'lucide-react'
 import type { Decision, Task, TerminalInfo, ValidationStep, Verdict } from '@shared/types'
@@ -19,11 +19,14 @@ import { squadAttention, squadBadge, squadState, squadTone, unitClock } from '@s
 import { UNIT_ACTION_HINT, canRespawn, hasOpenPr } from '@shared/unit-actions'
 import {
   canRate, deliveryLabel, mergeTimeline, needsInput, parsePings, parseStatusLines, parseUnitChanges, primaryAction, prMergeBlock,
-  reportedTests, unitBadge, type TimelineRow, type UnitChanges
+  reportedTests, unitBadge, unitPlay, type TimelineRow, type UnitChanges
 } from '@shared/unit-page'
 import { pendingDecision } from '@shared/decisions'
 import { mergeApprovalLabel } from '@shared/merge-approval'
+import { supportsUnitySlots } from '@shared/play'
+import { effectiveEngine } from '@shared/engine'
 import { listFact, useScreenContext } from '../lib/screen-context'
+import { requestPlaySource } from '../lib/play-nav'
 
 export function Squad() {
   const focus = useStore((s) => s.focus)
@@ -283,6 +286,20 @@ function useTaskFile(id: string, which: TaskFile, deps: unknown[], pollMs?: numb
   return { text, err }
 }
 
+/** The unit header's narrow layout (app.css, max-width 720px): secondary buttons move under More. */
+const NARROW_HEADER = '(max-width: 720px)'
+function useNarrowHeader(): boolean {
+  const [narrow, setNarrow] = useState(() => !!window.matchMedia?.(NARROW_HEADER).matches)
+  useEffect(() => {
+    const m = window.matchMedia?.(NARROW_HEADER)
+    if (!m) return
+    const on = (): void => setNarrow(m.matches)
+    m.addEventListener?.('change', on)
+    return () => m.removeEventListener?.('change', on)
+  }, [])
+  return narrow
+}
+
 /** Open state for a menu or popover that closes on Escape or a click elsewhere. */
 function usePopover() {
   const [open, setOpen] = useState(false)
@@ -316,6 +333,7 @@ function UnitDetail({ id }: { id: string }) {
   const [refusal, setRefusal] = useState('')
   const [upgrade, setUpgrade] = useState(false)
   const [verdict, setVerdict] = useState<Verdict | undefined>()
+  const narrowHeader = useNarrowHeader()
   const live = !!term?.alive
   const status = useTaskFile(id, 'status', [events, t?.state], undefined, !!t)
   const changesFile = useTaskFile(id, 'diffstat', [events, t?.state], live ? 8000 : undefined, !!t && t.kind === 'ship')
@@ -366,7 +384,11 @@ function UnitDetail({ id }: { id: string }) {
     ? `Stopped: ${stopReason(t)}`
     : latest ? `${latest.verb}: ${latest.text}${latest.at ? ` · ${since(new Date(latest.at).toISOString(), now)}` : ''}` : t.stateReason ?? ''
 
+  // Play this unit: beside the primary action (never instead of it); under More on narrow widths.
+  const play = unitPlay(t, !!project && supportsUnitySlots(effectiveEngine(project).engine), changes.removed)
+  const playThis = (): void => { if (project) requestPlaySource(t.project, project.path, `unit:${t.id}`) }
   const more = ([
+    play && { id: 'play', label: 'Play', hint: play.hint, narrow: true, disabled: !play.enabled, run: playThis },
     live && squadState(t, term) === 'WORKING' && { id: 'interrupt', label: 'Interrupt', hint: UNIT_ACTION_HINT.interrupt,
       run: () => void op('Interrupt', () => api().controlTask(t.id, 'interrupt')) },
     canRespawn(t) && { id: 'respawn', label: 'Respawn', hint: UNIT_ACTION_HINT.respawn, run: () => void op('Respawn', () => api().controlTask(t.id, 'relaunch')) },
@@ -454,6 +476,11 @@ function UnitDetail({ id }: { id: string }) {
                 <Archive size={13} /> Archive
               </button>
             </>
+          )}
+          {play && !narrowHeader && (
+            <button className="btn sm ghost uh-play" disabled={!play.enabled} title={play.hint} onClick={playThis}>
+              <PlayIcon size={13} /> Play
+            </button>
           )}
           <MoreMenu items={more} />
         </div>
@@ -589,12 +616,17 @@ interface MoreItem {
   /** One-line consequence, shown under the label. */
   hint: string
   tone?: 'warn' | 'danger'
+  /** Listed only on narrow widths, where its own button is hidden. */
+  narrow?: boolean
+  disabled?: boolean
   run: () => void
 }
 
 /** The rare controls, each with what it does. */
-function MoreMenu({ items }: { items: MoreItem[] }) {
+function MoreMenu({ items: all }: { items: MoreItem[] }) {
   const [open, setOpen, wrap] = usePopover()
+  const narrow = useNarrowHeader()
+  const items = all.filter((it) => narrow || !it.narrow)
   if (!items.length) return null
   return (
     <div className="unit-more" ref={wrap}>
@@ -604,7 +636,7 @@ function MoreMenu({ items }: { items: MoreItem[] }) {
       {open && (
         <div className="unit-menu" role="menu" aria-label="More unit actions">
           {items.map((it) => (
-            <button key={it.id} role="menuitem" className={cx('unit-menu-item', it.tone)} onClick={() => { setOpen(() => false); it.run() }}>
+            <button key={it.id} role="menuitem" className={cx('unit-menu-item', it.tone)} disabled={it.disabled} onClick={() => { setOpen(() => false); it.run() }}>
               <span className="umi-label">{it.label}</span>
               <span className="umi-hint">{it.hint}</span>
             </button>

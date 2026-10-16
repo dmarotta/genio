@@ -38,6 +38,19 @@ A cold start is admitted before the copy: the editor cap, then available RAM (`o
 
 Unit tool guards forbid player roots, including copies placed on another volume. Raw copy IPC cannot mirror under a running player editor; it must use lifecycle Play.
 
+## A source that vanishes
+
+Genio removes a unit's worktree and branch when it despawns the unit after a merge. That can happen at any moment of a Play, so the mirror is staged. `applyMirror` first reads every changed file into `.mirror-staging` beside the manifest, and that is the only step that reads the source. Only then does it remove and rename files inside the copy, which it never stops halfway. If the source vanishes while it is being read (a missing folder, `.git` link or worktree metadata, or a deleted branch, all detected by `sourceMissing`), the sync fails with `code: 'SOURCE_GONE'` and the copy keeps exactly what the previous sync left. Files already staged are reused by the next sync of the same content.
+
+- **Copying or syncing:** `PlayerInstanceService` does not throw. A warm editor ends its hot sync and stays `ready`; a cold start ends `idle` with no Unity started. The status carries `sourceGone: { when: 'loading' }`, and the Play screen shows "This unit was merged and removed while loading. Its work is in main now." with **Play main instead**.
+- **Unity starting, entering Play, playing:** the copy is independent, so everything goes on. `sourceGone: { when: 'running' }` adds a dim note to the status line. It is set by crew cleanup (`sourceRemoved`), and the five-second poll also checks the source.
+- **The next Play, Restart or scene re-play:** a source that is already gone plays the main checkout, with `sourceGone: { when: 'fallback' }`.
+- **Cleanup:** while a copy reads a checkout it holds a lease (`src/main/source-leases.ts`). Before removing a worktree, `crew.cleanup` waits up to 8 s for the read to finish. After that it stops the read (marked gone) and waits up to 10 s more, then removes the worktree anyway, so cleanup never hangs.
+- **Picker:** it lists only checkouts with a `.git`. It reloads when the project's units change state and drops vanished checkouts (`playerSourceAvailable`, checked every 10 s). A request, pick or choice for a vanished source shows an inline message.
+- **Unexpected errors** in the background poll are logged. The instance moves to `error` with the message and a **Retry**, except during Play, where only the message is set.
+
+The unit page's **Play** (beside the primary action, under More at 720 px and below) appears for Builds in Unity projects. It is disabled once the worktree is gone. It opens Play with `unit:<id>` preselected as a one-shot request (`lib/play-nav.ts`, handed to the project's window through localStorage when needed) and does not start Unity.
+
 ## Verification
 
 Run `npm run typecheck` and `npm test` with `GIT_CONFIG_*` variables removed (`Get-ChildItem Env:GIT_CONFIG* | Remove-Item` in PowerShell). Lifecycle tests use disposable repositories, fake process identities, fake Pipeline commands and a fake desktop API. They never launch Unity. The helper can be compiled without running it. Real importing, graphics, licensing and virtual-input release latency require a later manual check in a disposable copy; no real Unity editor was launched for this build.

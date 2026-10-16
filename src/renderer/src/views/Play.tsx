@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ChevronDown, GitBranch, MoreHorizontal, Pause, Play as PlayIcon, Power, RotateCcw, Square, StepForward, X } from 'lucide-react'
-import { PLAYER_INSTANCE_ANCHOR, sameSource, type PlayConsole, type PlayerInstanceStatus, type PlayerScene, type PlayerSourceOption } from '@shared/play'
+import { PLAYER_INSTANCE_ANCHOR, sameSource, sourceGoneText, type PlayConsole, type PlayerInstanceStatus, type PlayerScene, type PlayerSourceOption } from '@shared/play'
 import { controls, type PlayButtonAction, type UnityAction } from '@shared/play-controls'
-import { PROJECT_WINDOW, api, errText } from '../store'
+import { PROJECT_WINDOW, api, errText, useStore } from '../store'
+import { onPlaySourceRequest, takePlaySource } from '../lib/play-nav'
 import { cx } from '../lib/format'
 import { useScreenContext } from '../lib/screen-context'
 import { DEFAULT_RESOLUTION, PROBLEMS, RESOLUTIONS, SOURCE_GROUPS, STATE_LABEL, WORKING, chipText, clock, deletionText, firstCopyText, playedText, progressText, sourceText, statusText, syncSummary } from '../lib/play-screen'
@@ -72,15 +73,52 @@ function PlayScreen({ world }: { world: string }) {
   const state = status?.state
   fast.current = !!busy || (!!state && WORKING.has(state))
 
-  const loadSources = async (): Promise<void> => {
-    try { setSources(await api().playerSources(world)) } catch (e) { setError(errText(e)) }
+  const loadSources = async (): Promise<PlayerSourceOption[] | undefined> => {
+    try { const list = await api().playerSources(world); setSources(list); return list } catch (e) { setError(errText(e)); return undefined }
   }
   useEffect(() => { void loadSources() }, [world])
-  // Preselect what the instance plays, else the main checkout.
+  // A unit merged and removed (or a new one deployed) changes the list at once: re-read it when the project's units change state.
+  const units = useStore(s => s.snap.tasks.filter(t => t.project === world).map(t => `${t.id}:${t.state}`).join('|'))
+  const seenUnits = useRef(units)
+  useEffect(() => {
+    if (seenUnits.current === units) return
+    seenUnits.current = units; void loadSources()
+  }, [units])
+  // The periodic validity check: a checkout removed outside Genio drops out of the picker within seconds.
+  const listed = useRef(sources); listed.current = sources
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const checkouts = (listed.current ?? []).filter(o => o.group === 'unit' || o.group === 'worktree')
+      if (!checkouts.length) return
+      void Promise.all(checkouts.map(o => api().playerSourceAvailable(world, o.source).catch(() => true)))
+        .then(ok => { if (ok.some(v => !v)) void loadSources() })
+    }, 10_000)
+    return () => clearInterval(iv)
+  }, [world])
+  // Preselect what the instance plays, else the main checkout. A chosen source that left the list says so.
+  const [notice, setNotice] = useState('')
+  const lastOption = useRef<PlayerSourceOption | undefined>(undefined)
   useEffect(() => {
     if (!sources || (choice && sources.some(o => o.id === choice))) return
+    const lost = choice && lastOption.current?.id === choice ? lastOption.current : undefined
+    if (lost) setNotice(`${lost.label} is gone: ${lost.group === 'unit' ? 'the unit was merged or despawned' : 'it was removed'}. Pick another source.`)
     setChoice((sources.find(o => sameSource(o.source, status?.source)) ?? sources[0])?.id)
   }, [sources, status?.source])
+  // "Play this unit": a one-shot request preselects that unit, once, from a freshly read list.
+  const [requested, setRequested] = useState(() => { const source = takePlaySource(world); return source ? { source } : undefined })
+  useEffect(() => onPlaySourceRequest(r => { if (r.world === world) setRequested({ source: r.source }) }), [world])
+  useEffect(() => {
+    if (!requested) return
+    let live = true
+    void loadSources().then(list => {
+      if (!live || !list) return
+      const wanted = list.find(o => o.id === requested.source)
+      if (wanted) { setChoice(wanted.id); setNotice('') }
+      else setNotice(requested.source.startsWith('unit:') ? 'That unit\'s worktree is gone: it was merged or despawned, so there is nothing of it to play. Pick another source.' : 'That source is gone. Pick another one.')
+      setRequested(undefined)
+    })
+    return () => { live = false }
+  }, [requested])
   // The scene list: from the files while Unity is off, from Unity once it answers; re-read when it settles.
   const sceneMoment = state && LIVE_SCENES.has(state) ? `${state}:${status?.pid ?? ''}` : 'busy'
   useEffect(() => {
@@ -131,7 +169,8 @@ function PlayScreen({ world }: { world: string }) {
   }, [world, drawer, running, status?.pid])
 
   const option = sources?.find(o => o.id === choice)
-  const run = async (label: string, fn: () => Promise<PlayerInstanceStatus | void>): Promise<void> => {
+  if (option) lastOption.current = option
+  const run =async (label: string, fn: () => Promise<PlayerInstanceStatus | void>): Promise<void> => {
     setBusy(label); setError('')
     try { const s = await fn(); if (s) setStatus(s) }
     catch (e) { const m = errText(e); if (!/Play cancelled/.test(m)) setError(m) }
@@ -163,13 +202,26 @@ function PlayScreen({ world }: { world: string }) {
   const restart = (visible = false): void => void run(visible ? 'visible' : 'restart', () => api().playerInstanceRestart(world, visible))
   const keep = (): void => void run('keep', () => api().playerInstanceKeepAlive(world))
   const settings = (): void => openSettings('play', PLAYER_INSTANCE_ANCHOR)
-  // A new source applies on the next ▶; while playing it re-plays at once.
+  // A new source applies on the next ▶; while playing it re-plays at once. One that vanished since the list was read says so.
   const chooseSource = (id: string): void => {
     if (id === REFRESH) { void loadSources(); return }
-    setChoice(id)
+    setChoice(id); setNotice('')
     const next = sources?.find(o => o.id === id)
-    if (next && playing && !sameSource(next.source, status?.source)) void run('enter', () => api().playerInstanceEnterPlay(world, next.source))
+    if (!next) return
+    void (async () => {
+      const there = next.group === 'main' || await api().playerSourceAvailable(world, next.source).catch(() => true)
+      if (!there) { setNotice(`${next.label} is gone: ${next.group === 'unit' ? 'the unit was merged or despawned' : 'it was removed'}. Pick another source.`); void loadSources(); return }
+      if (playing && !sameSource(next.source, status?.source)) void run('enter', () => api().playerInstanceEnterPlay(world, next.source))
+    })()
   }
+  // The source vanished while loading: one click plays the main checkout, where a merged unit's work now is.
+  const mainOption = sources?.find(o => o.group === 'main')
+  const playMain = (): void => {
+    if (!mainOption) return
+    setChoice(mainOption.id); setNotice('')
+    void run('enter', () => api().playerInstanceEnterPlay(world, mainOption.source))
+  }
+  const gone = status?.sourceGone
   // Off: kept for the next Play; ready: opened; playing: Genio exits, opens it and enters again.
   const chooseScene = (path: string): void => void run('scene', () => api().playerInstanceSetScene(world, path))
   const chooseResolution = (id: string): void => {
@@ -206,6 +258,8 @@ function PlayScreen({ world }: { world: string }) {
   useScreenContext('play', { facts: [
     { label: 'Instance', value: `${state ? STATE_LABEL[state] : 'loading'}${status?.message ? ` · ${status.message}` : ''}` },
     option && { label: 'Source', value: sourceText(option) },
+    !!gone && { label: 'Source gone', value: sourceGoneText(gone) },
+    !!notice && { label: 'Source note', value: notice },
     !!played && { label: 'Playing from', value: `${played}${synced ? ` · ${synced}` : ''}` },
     !!sceneName && { label: 'Scene', value: scene ?? sceneName },
     { label: 'Resolution', value: `${resolution.width} × ${resolution.height}` },
@@ -279,10 +333,20 @@ function PlayScreen({ world }: { world: string }) {
         <span className={cx('play-dot', state)} aria-hidden />
         {state === 'low-memory' && <AlertTriangle size={12} aria-hidden />}
         <span className="play-status-text" title={error || status?.message}>{error || statusText(status, sceneName)}</span>
+        {gone?.when === 'running' && !error && <span className="play-gone-note">· {sourceGoneText(gone)}</span>}
+        {state === 'error' && !busy && option && <button className="play-link" onClick={() => playPress('enter')}>Retry</button>}
         {state === 'compile-errors' && <button className="play-link" onClick={() => setDrawer(true)}>Show console</button>}
         {state === 'limit-reached' && <button className="play-link" onClick={settings}>Settings</button>}
         {countdown !== undefined && <button className="play-link play-idle" title="Keep Unity open longer" onClick={keep} disabled={!!busy}>quits in {clock(countdown)} if idle</button>}
       </p>}
+    {gone && gone.when !== 'running' && <p className={cx('play-gone', gone.when === 'fallback' && 'dim')} role="note">
+      <span>{sourceGoneText(gone)}</span>
+      {gone.when === 'loading' && mainOption && <button className="play-link" disabled={working} onClick={playMain}>Play main instead</button>}
+    </p>}
+    {notice && <p className="play-gone dim" role="note">
+      <span>{notice}</span>
+      <button className="play-link play-idle" onClick={() => setNotice('')}>Dismiss</button>
+    </p>}
 
     <div className="play-screen">
       {playing && !streamEnded

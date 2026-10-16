@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import path from 'node:path'
 import type { AppCtx } from './services'
 import type { Task } from '@shared/types'
@@ -40,7 +41,8 @@ export async function playerSources(ctx: AppCtx, world: string): Promise<PlayerS
   options.push({ id: 'main', group: 'main', label: 'Main checkout', source: { path: top }, ...(main?.branch ? { branch: main.branch } : {}), ...(main?.head ? { head: main.head } : {}) })
   const checkouts = new Set(main?.branch ? [main.branch] : [])
   for (const t of trees) {
-    if (t === main || genioCopy(t.path)) continue
+    // Never offer a checkout that cannot be read, such as a half-removed worktree without its .git.
+    if (t === main || genioCopy(t.path) || !fs.existsSync(path.join(t.path, '.git'))) continue
     const source = { path: t.path }
     const task = tasks.find((k) => sameFolder(k.worktree, t.path))
     if (t.branch) checkouts.add(t.branch)

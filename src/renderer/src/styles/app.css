@@ -562,6 +562,8 @@ button.usage-toggle:hover { color: var(--text); }
 .umi-hint { color: var(--text-mute); font-size: 11.5px; line-height: 1.35; }
 .unit-menu-item.warn .umi-label { color: var(--amber); }
 .unit-menu-item.danger .umi-label { color: var(--alert); }
+.unit-menu-item:disabled { cursor: default; background: none; border-color: transparent; border-bottom-color: var(--line); }
+.unit-menu-item:disabled .umi-label { color: var(--text-mute); }
 .unit-question { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-left: 2px solid var(--amber); background: var(--amber-soft); }
 .uq-q { font-size: 14px; color: var(--text); }
 .uq-hint { font-size: 12px; }

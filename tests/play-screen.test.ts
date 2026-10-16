@@ -8,7 +8,8 @@ import type { PlayerInstanceStatus, PlayerScene, PlayerSourceOption } from '../s
 const nav = vi.hoisted(() => ({ go: vi.fn(), section: vi.fn() }))
 vi.mock('../src/renderer/src/store', () => ({
   PROJECT_WINDOW: 'game', go: nav.go, api: () => (window as unknown as { genio: { api: unknown } }).genio.api,
-  errText: (e: unknown) => (e instanceof Error ? e.message : String(e))
+  errText: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+  useStore: (sel: (s: unknown) => unknown) => sel({ snap: { tasks: [] } }), getState: () => ({}), playAvailable: () => true, subscribe: () => () => {}, op: async (_l: string, fn: () => unknown) => fn()
 }))
 vi.mock('../src/renderer/src/lib/settings-nav', () => ({ openSettings: nav.section }))
 import { Play } from '../src/renderer/src/views/Play'
@@ -34,7 +35,7 @@ let status: PlayerInstanceStatus
 let root: Root, host: HTMLDivElement
 const ok = () => vi.fn(async () => status)
 const api = {
-  playerInstanceStatus: ok(), playerSources: vi.fn(async () => SOURCES),
+  playerInstanceStatus: ok(), playerSources: vi.fn(async () => SOURCES), playerSourceAvailable: vi.fn(async (_world: string, _source: { path?: string; ref?: string }) => true),
   playerInstanceMachine: vi.fn(async () => ({ settings: { idleMinutes: 10, maxEditors: 2 } })),
   playerCopySizes: vi.fn(async () => ({ exists: false, estimate: { projectBytes: 40e9, libraryBytes: 15e9, totalBytes: 55e9, files: 1000 } })),
   playerInstanceStartUnity: ok(), playerInstanceEnterPlay: ok(), playerInstanceExitPlay: ok(), playerInstanceStopUnity: ok(),
@@ -307,5 +308,87 @@ describe('Play screen helpers', () => {
     expect(firstCopyText(3.6e9)).toBe('about 3.4 GB, about 1 min')
     expect(copyMinutes(55e9)).toEqual({ min: 13, max: 20 })
     expect(sourceText({ id: 'w', group: 'worktree', label: 'x', source: { path: 'x' }, head: 'c'.repeat(40) })).toBe('x · detached ccccccc')
+  })
+})
+
+describe('Play screen: a source that vanishes', () => {
+  const gone = (when: 'loading' | 'running' | 'fallback') => ({ when, at: NOW, unit: 'Ranger (lairs AI)', merged: true, base: 'main' })
+  const note = () => [...host.querySelectorAll('.play-gone')].map(p => p.textContent).join(' | ')
+
+  it('says plainly that a unit was merged and removed while loading, and plays main in one click', async () => {
+    status = { state: 'idle', project: 'C:/games/game', message: 'x', sourceGone: gone('loading') }
+    await mount()
+    expect(note()).toBe('This unit was merged and removed while loading. Its work is in main now.Play main instead')
+    expect(host.querySelector('.play-status')?.className).not.toContain('alert-text')
+    expect(host.querySelector('[role=alertdialog], .alert-text')).toBeNull()
+    expect(facts()).toContainEqual({ label: 'Source gone', value: 'This unit was merged and removed while loading. Its work is in main now.' })
+    await click('Play main instead')
+    expect(api.playerInstanceEnterPlay).toHaveBeenCalledWith('game', { path: 'C:/games/game' })
+    expect(select('Play source').value).toBe('main')
+  })
+
+  it('keeps playing with a dim note when the source went after the copy; the controls still work', async () => {
+    status = { state: 'playing', project: 'C:/games/game', pid: 7, source: { path: 'C:/units/lairs' }, sourceGone: gone('running') }
+    await mount()
+    expect(host.querySelector('.play-gone-note')?.textContent).toContain('source was merged and removed')
+    expect(note()).toBe('')
+    expect(button('Pause').disabled).toBe(false)
+    await click('Pause')
+    expect(api.playerInstancePause).toHaveBeenCalledWith('game')
+    await click('Exit Play')
+    expect(api.playerInstanceExitPlay).toHaveBeenCalledWith('game')
+  })
+
+  it('says the next Play fell back to main', async () => {
+    status = { state: 'playing', project: 'C:/games/game', pid: 7, source: { path: 'C:/games/game' }, sourceGone: gone('fallback') }
+    await mount()
+    expect(note()).toBe('This unit was merged and removed, so Genio played the main checkout instead. Its work is in main now.')
+    expect(host.querySelector('.play-gone')?.className).toContain('dim')
+  })
+
+  it('preselects the unit from Play this unit, once, without starting Unity', async () => {
+    localStorage.setItem('genio.play.request', JSON.stringify({ world: 'game', source: 'unit:t1', at: NOW }))
+    await mount(); await settle()
+    expect(select('Play source').value).toBe('unit:t1')
+    expect(localStorage.getItem('genio.play.request')).toBeNull()
+    expect(api.playerInstanceEnterPlay).not.toHaveBeenCalled(); expect(api.playerInstanceStartUnity).not.toHaveBeenCalled()
+  })
+
+  it('says so inline when the requested unit is already gone', async () => {
+    localStorage.setItem('genio.play.request', JSON.stringify({ world: 'game', source: 'unit:t9', at: NOW }))
+    await mount(); await settle()
+    expect(select('Play source').value).toBe('main')
+    expect(note()).toContain('That unit\'s worktree is gone: it was merged or despawned')
+  })
+
+  it('drops a vanished unit from the picker within seconds and says so', async () => {
+    localStorage.setItem('genio.play.request', JSON.stringify({ world: 'game', source: 'unit:t1', at: NOW }))
+    await mount(); await settle()
+    expect(select('Play source').value).toBe('unit:t1')
+    api.playerSourceAvailable.mockImplementation(async (_w: string, s: { path?: string }) => s.path !== 'C:/units/lairs')
+    api.playerSources.mockImplementation(async () => SOURCES.filter(o => o.id !== 'unit:t1'))
+    await settle(10_000)
+    expect([...select('Play source').querySelectorAll('option')].map(o => o.value)).not.toContain('unit:t1')
+    expect(select('Play source').value).toBe('main')
+    expect(note()).toContain('Ranger (lairs AI) is gone: the unit was merged or despawned')
+    api.playerSourceAvailable.mockImplementation(async () => true); api.playerSources.mockImplementation(async () => SOURCES)
+  })
+
+  it('answers a pick of a source that vanished since the list was read with a message, not a Play', async () => {
+    status = { state: 'playing', project: 'C:/games/game', pid: 7, source: { path: 'C:/games/game' } }
+    api.playerSourceAvailable.mockImplementation(async () => false)
+    await mount()
+    await choose('Play source', 'unit:t1'); await settle()
+    expect(note()).toContain('Ranger (lairs AI) is gone')
+    expect(api.playerInstanceEnterPlay).not.toHaveBeenCalled()
+    api.playerSourceAvailable.mockImplementation(async () => true)
+  })
+
+  it('offers Retry after an unexpected failure', async () => {
+    status = { state: 'error', project: 'C:/games/game', message: 'Play hit an unexpected problem: boom. Retry, or Stop Unity.' }
+    await mount()
+    expect(statusLine()).toContain('Play hit an unexpected problem')
+    await click('Retry')
+    expect(api.playerInstanceEnterPlay).toHaveBeenCalledWith('game', { path: 'C:/games/game' }, {})
   })
 })

@@ -2,12 +2,13 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppCtx } from '../src/main/services'
 import { PlayerInstanceService, type PlayerRuntime } from '../src/main/player-instance'
 import { biggestConsumers, closePlayerRoot, type MemoryProcess, type PlayerProcess, type PlayerSystem } from '../src/main/player-process'
 import { PlayerCopies } from '../resources/unit-skills/genio/lib/player-copy.mjs'
 import type { DesktopApi, DesktopWindow } from '../resources/unit-skills/genio/lib/hidden-desktop.mjs'
+import { sourceLeases, sourceRemoved, yieldSource } from '../src/main/source-leases'
 
 // Real mirrors in disposable repositories; every process, desktop and Pipeline action is fake.
 // Real git and file copies are slow under a loaded full-suite run.
@@ -20,6 +21,8 @@ let system: PlayerSystem, desktop: DesktopApi, copies: PlayerCopies, svc: Player
 let projects: Map<string, { path: string; engine: string }>, events: string[], modes: Map<string, string>, dialogs: DesktopWindow[]
 let graceful: boolean, killed: boolean, compilerErrors: boolean, installed: boolean
 let commit: number | undefined, usage: MemoryProcess[], slots: { label: string; close(): Promise<unknown> }[]
+/** Test hooks: just before Unity starts, and on every Pipeline command. */
+let beforeLaunch: (() => void) | undefined, onCommand: ((command: string) => void) | undefined
 const GiB = 2 ** 30
 const services: PlayerInstanceService[] = []
 function project(name: string) {
@@ -33,10 +36,11 @@ function project(name: string) {
   projects.set(name, { path: root, engine: 'unity' }); return root
 }
 function service() {
-  const r = new PlayerInstanceService(ctx, { copies, system, desktop, ownerCreated: async () => '100', executable: () => installed ? 'FakeUnity.exe' : undefined, graceMs: 500, forceMs: 500, readyMs: 2000, idleSlots: async () => slots,
+  const r = new PlayerInstanceService(ctx, { copies, system, desktop, ownerCreated: async () => '100', executable: () => { beforeLaunch?.(); return installed ? 'FakeUnity.exe' : undefined }, graceMs: 500, forceMs: 500, readyMs: 2000, idleSlots: async () => slots,
     runtime: root => ({
       async request(command: string, parameters?: object) {
         events.push(command)
+        onCommand?.(command)
         if (command === 'editor_play') modes.set(root, 'playing')
         if (command === 'editor_stop') modes.set(root, 'stopped')
         // Pipeline's editor_pause toggles, and does nothing outside Play.
@@ -62,7 +66,7 @@ function service() {
 beforeEach(() => {
   scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-player-instance-')); data = path.join(scratch, 'data')
   clock = Date.now(); free = 20 * 2 ** 30; processes = []; nextPid = 1000; projects = new Map(); events = []; modes = new Map(); dialogs = []
-  graceful = true; killed = true; compilerErrors = false; installed = true; commit = undefined; usage = []; slots = []
+  graceful = true; killed = true; compilerErrors = false; installed = true; commit = undefined; usage = []; slots = []; beforeLaunch = undefined; onCommand = undefined
   system = { list: async () => processes.map(p => ({ ...p })), killVerified: vi.fn(async p => { events.push(`kill:${p.pid}`); if (killed) processes = processes.filter(q => !(q.pid === p.pid && q.created === p.created)); return killed }),
     memory: () => ({ freeBytes: free, totalBytes: 32 * 2 ** 30 }), commit: async () => commit, usage: async () => usage, sleep: async ms => { clock += ms }, now: () => clock }
   desktop = { available: () => true,
@@ -440,4 +444,146 @@ it('retries a stuck close from the Unity button', async () => {
   expect((await svc.stopUnity('A')).state).toBe('close-stuck')
   graceful = true; killed = true
   expect((await svc.stopUnity('A')).state).toBe('idle'); expect(processes).toHaveLength(0)
+})
+
+// ---- A unit's worktree merged and removed by Genio at each phase of a Play
+describe('a Play source that vanishes', () => {
+  const MERGED = 'This unit was merged and removed while loading. Its work is in main now.'
+  let unhandled: unknown[]
+  const record = (e: unknown) => { unhandled.push(e) }
+  /** A unit's worktree of project A with work of its own, known to Genio as a merged Build. */
+  function unit(files = 4): string {
+    const main = projects.get('A')!.path, dir = path.join(scratch, 'unit-wt')
+    git(main, 'worktree', 'add', '-q', '-b', 'genio/fix-jump', dir)
+    for (let n = 0; n < files; n++) write(path.join(dir, `Assets/Unit/U${n}.txt`), `unit work ${n}\n`.repeat(200))
+    write(path.join(dir, 'Assets/Code.cs'), '// the unit edit\n')
+    const task = { id: 'u1', title: 'Fix the jump', kind: 'ship', project: 'A', worktree: dir, baseBranch: 'main', state: 'merged', landedCommit: 'abc123' }
+    Object.assign(ctx, { homes: new Map([['main', { crew: { list: () => [task] } }]]) })
+    return dir
+  }
+  /** Genio's cleanup after a merge: the worktree and its branch go. */
+  function remove(dir: string): void {
+    const main = projects.get('A')!.path
+    try { git(main, 'worktree', 'remove', '--force', dir) } catch { /* a file still open (Windows): removed by hand below */ }
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10 })
+    git(main, 'worktree', 'prune'); git(main, 'branch', '-D', 'genio/fix-jump')
+  }
+  const copyFile = (root: string, rel: string) => { try { return fs.readFileSync(path.join(root, rel), 'utf8') } catch { return undefined } }
+  /** A slower copy (so a removal lands mid-copy), with a hook on each file read from the unit. */
+  function slowCopies(onUnitFile?: (n: number) => void, ms = 0) {
+    let n = 0
+    copies = new PlayerCopies(data, { env, io: { copyFile: async (from: string, to: string) => {
+      if (from.includes('unit-wt')) onUnitFile?.(++n)
+      if (ms) await new Promise(r => setTimeout(r, ms))
+      await fs.promises.copyFile(from, to)
+    } }, system: { alive: pid => pid === process.pid || processes.some(p => p.pid === pid), created: async pid => pid === process.pid ? '100' : processes.find(p => p.pid === pid)?.created ?? '' } })
+    svc = service()
+  }
+  beforeEach(() => { unhandled = []; process.on('unhandledRejection', record) })
+  afterEach(() => { process.off('unhandledRejection', record); expect(unhandled).toEqual([]) })
+
+  it('sync start: stops before copying anything, says so plainly, and starts no Unity', async () => {
+    const dir = unit()
+    const sync = copies.sync.bind(copies)
+    copies.sync = (async (...args: Parameters<typeof copies.sync>) => { remove(dir); return sync(...args) }) as typeof copies.sync
+    const s = await svc.enterPlay('A', { path: dir })
+    expect(s).toMatchObject({ state: 'idle', message: MERGED, sourceGone: { when: 'loading', unit: 'Fix the jump', merged: true, base: 'main' } })
+    expect(events).not.toContain('launch')
+    expect(s.copy?.lastSync).toMatchObject({ complete: false, sourceGone: true })
+  })
+
+  it('mid-copy: a warm editor keeps the previous copy, untouched, and plays main on the next press', async () => {
+    const main = projects.get('A')!.path
+    slowCopies(n => { if (n === 3) remove(dir) })
+    const dir = unit(12)
+    const first = await svc.play('A', { path: main })
+    const at = events.length
+    const s = await svc.enterPlay('A', { path: dir })
+    expect(s).toMatchObject({ state: 'ready', pid: first.pid, message: MERGED, source: { path: main }, sourceGone: { when: 'loading' } })
+    expect(events.slice(at)).toEqual(expect.arrayContaining(['genio_sync_begin', 'genio_sync_end'])); expect(events.slice(at)).not.toContain('launch')
+    // Nothing of the unit reached the copy Unity has open.
+    expect(copyFile(s.root!, 'Assets/Code.cs')).toBe('// initial\n'); expect(copyFile(s.root!, 'Assets/Unit/U0.txt')).toBeUndefined()
+    const again = await svc.enterPlay('A', { path: main })
+    expect(again).toMatchObject({ state: 'playing', pid: first.pid }); expect(again.sourceGone).toBeUndefined()
+  })
+
+  it('mid-copy on a cold start: no Unity, the copy kept for a quick start of main', async () => {
+    slowCopies(n => { if (n === 2) remove(dir) })
+    const dir = unit(8)
+    const s = await svc.enterPlay('A', { path: dir })
+    expect(s).toMatchObject({ state: 'idle', sourceGone: { when: 'loading' } }); expect(events).not.toContain('launch')
+    expect((await svc.enterPlay('A', source())).state).toBe('playing')
+  })
+
+  it('after the copy, before Unity starts: Unity and Play go on; the status notes the source is gone; controls work', async () => {
+    const dir = unit()
+    beforeLaunch = () => { beforeLaunch = undefined; remove(dir) }
+    const s = await svc.enterPlay('A', { path: dir })
+    expect(s.state).toBe('playing'); expect(copyFile(s.root!, 'Assets/Code.cs')).toBe('// the unit edit\n')
+    await svc.poll()
+    expect(svc.status('A').sourceGone).toMatchObject({ when: 'running', merged: true })
+    expect((await svc.pause('A')).state).toBe('paused'); expect((await svc.pause('A')).state).toBe('playing')
+    expect((await svc.exitPlay('A')).state).toBe('ready')
+  })
+
+  it('entering Play: the game starts anyway, and Genio\'s cleanup marks the source at once', async () => {
+    const dir = unit()
+    onCommand = c => { if (c === 'editor_play') { onCommand = undefined; remove(dir) } }
+    const s = await svc.enterPlay('A', { path: dir })
+    expect(s.state).toBe('playing')
+    sourceRemoved(dir)
+    expect(svc.status('A')).toMatchObject({ state: 'playing', sourceGone: { when: 'running' } })
+    expect((await svc.step('A')).state).toBe('paused')
+    expect((await svc.stopUnity('A')).state).toBe('idle')
+  })
+
+  it('while playing, then Restart and the next Play: both fall back to main with the message', async () => {
+    const main = projects.get('A')!.path, dir = unit()
+    expect((await svc.enterPlay('A', { path: dir })).state).toBe('playing')
+    remove(dir); sourceRemoved(dir)
+    expect(svc.status('A').sourceGone?.when).toBe('running')
+    const restarted = await svc.restart('A')
+    expect(restarted).toMatchObject({ state: 'playing', sourceGone: { when: 'fallback', unit: 'Fix the jump' } })
+    expect(fs.realpathSync.native((restarted.source as { path: string }).path)).toBe(fs.realpathSync.native(main))
+    expect(copyFile(restarted.root!, 'Assets/Code.cs')).toBe('// initial\n'); expect(copyFile(restarted.root!, 'Assets/Unit/U0.txt')).toBeUndefined()
+    const replayed = await svc.enterPlay('A', { path: dir })
+    expect(replayed).toMatchObject({ state: 'playing', sourceGone: { when: 'fallback' } })
+    expect(await svc.sourceAvailable('A', { path: dir })).toBe(false); expect(await svc.sourceAvailable('A', { path: main })).toBe(true)
+  })
+
+  it('defers Genio\'s worktree deletion while the copy reads it, then stops the read cleanly', async () => {
+    slowCopies(undefined, 40)
+    const dir = unit(60)
+    const playing = svc.enterPlay('A', { path: dir })
+    while (!sourceLeases(dir)) await new Promise(r => setTimeout(r, 10))
+    // What crew.cleanup does before removing the worktree: wait (bounded), then stop the read.
+    expect(await yieldSource(dir, { waitMs: 50, abortMs: 20000 })).toBe('aborted')
+    expect(fs.existsSync(dir)).toBe(true)
+    expect(sourceLeases(dir)).toBe(0)
+    remove(dir)
+    expect(await playing).toMatchObject({ state: 'idle', message: MERGED, sourceGone: { when: 'loading' } })
+  })
+
+  it('lets a short read finish before the deletion goes ahead', async () => {
+    slowCopies(undefined, 5)
+    const dir = unit(4)
+    const playing = svc.enterPlay('A', { path: dir })
+    while (!sourceLeases(dir)) await new Promise(r => setTimeout(r, 5))
+    expect(await yieldSource(dir, { waitMs: 20000, abortMs: 1000 })).toBe('finished')
+    remove(dir)
+    const s = await playing
+    expect(s.state).toBe('playing'); expect(copyFile(s.root!, 'Assets/Code.cs')).toBe('// the unit edit\n')
+  })
+
+  it('an unexpected failure in the background poll becomes an error state with a message, never a crash', async () => {
+    await svc.play('A', source()); await svc.exitPlay('A')
+    desktop.windows = async () => { throw new Error('desktop service vanished') }
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await expect(svc.poll()).resolves.toBeUndefined()
+    expect(svc.status('A')).toMatchObject({ state: 'error' })
+    expect(svc.status('A').message).toContain('desktop service vanished')
+    expect(log).toHaveBeenCalled(); log.mockRestore()
+    desktop.windows = async () => dialogs
+    expect((await svc.enterPlay('A', source())).state).toBe('playing')
+  })
 })

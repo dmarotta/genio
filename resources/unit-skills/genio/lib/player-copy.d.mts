@@ -23,6 +23,8 @@ export interface PlayerLastSync {
   at: number; source?: SourceInfo; complete: boolean; elapsedMs: number
   files?: MirrorFiles; bytes?: { copied: number; deleted: number }; restart?: RestartAdvice
   lfsPointers?: string[]; warnings?: string[]; error?: string; cancelled?: boolean
+  /** The source vanished mid-read (merged and removed worktree, deleted branch); the copy kept the previous sync. */
+  sourceGone?: boolean
 }
 export interface PlayerCopyRecord {
   version: 1; key: string; id: string

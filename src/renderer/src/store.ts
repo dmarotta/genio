@@ -119,7 +119,7 @@ export function setState(patch: Partial<State> | ((s: State) => Partial<State>))
   for (const l of listeners) l()
 }
 
-function subscribe(fn: () => void): () => void {
+export function subscribe(fn: () => void): () => void {
   listeners.add(fn)
   return () => listeners.delete(fn)
 }

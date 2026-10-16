@@ -480,6 +480,8 @@ export interface GenioApi {
   playerInstanceDialogShot(world: string): Promise<string | undefined>
   /** The Play screen's sources: main checkout, worktrees, units' worktrees by name, branches. */
   playerSources(world: string): Promise<import('./play').PlayerSourceOption[]>
+  /** False when a source can no longer be read (a unit's worktree merged and removed, a deleted branch). */
+  playerSourceAvailable(world: string, source: import('./play').PlayerCopySource): Promise<boolean>
   /** Open starts the watcher and returns the cache while reconciling in background. */
   inventoryOpen(world: string): Promise<InventoryState>
   inventoryClose(world: string): Promise<void>
@@ -676,7 +678,7 @@ export type ApiMethod = keyof GenioApi
 /** Every GenioApi method, as runtime data (contextBridge cannot clone a Proxy). */
 export const API_METHODS = [
   'playPool', 'playPoolCap', 'playPoolLaunch', 'playPoolEstimate', 'playPoolDisk', 'playCloseSlotEditor',
-  'playerInstanceStatus', 'playerInstancePlay', 'playerInstanceStartUnity', 'playerInstanceEnterPlay', 'playerInstanceExitPlay', 'playerInstanceStopUnity', 'playerInstancePause', 'playerInstanceStep', 'playerInstanceScenes', 'playerInstanceSetScene', 'playerInstanceResize', 'playerInstanceStop', 'playerInstanceQuit', 'playerInstanceRestart', 'playerInstanceKeepAlive', 'playerInstanceDetach', 'playerInstanceSettings', 'playerInstanceMachine', 'playerInstanceConsole', 'playerInstanceStream', 'playerInstanceDialogShot', 'playerSources',
+  'playerInstanceStatus', 'playerInstancePlay', 'playerInstanceStartUnity', 'playerInstanceEnterPlay', 'playerInstanceExitPlay', 'playerInstanceStopUnity', 'playerInstancePause', 'playerInstanceStep', 'playerInstanceScenes', 'playerInstanceSetScene', 'playerInstanceResize', 'playerInstanceStop', 'playerInstanceQuit', 'playerInstanceRestart', 'playerInstanceKeepAlive', 'playerInstanceDetach', 'playerInstanceSettings', 'playerInstanceMachine', 'playerInstanceConsole', 'playerInstanceStream', 'playerInstanceDialogShot', 'playerSources', 'playerSourceAvailable',
   'playerCopies', 'playerCopyStatus', 'playerCopyEnsure', 'playerCopySync', 'playerCopyCancel', 'playerCopyDelete', 'playerCopySizes',
   'inventoryOpen', 'inventoryClose', 'inventoryRefresh', 'inventoryList', 'inventoryInfo', 'inventoryModelUrl', 'inventoryModelRelease',
   'featureUsed',
