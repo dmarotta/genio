@@ -78,7 +78,7 @@ export interface PlayerSourceGone {
   /** The branch the unit merged into. */
   base?: string
 }
-/** What the Play screen says about a vanished source: a sentence for 'loading' and 'fallback', a short note for 'running'. */
+/** A vanished source in words, for the instance's message and Genio's screen facts (the status line keeps it shorter). */
 export function sourceGoneText(g: PlayerSourceGone): string {
   const what = g.unit ? 'This unit' : 'This source'
   const went = g.merged ? 'was merged and removed' : 'was removed'
@@ -107,15 +107,6 @@ export function sameSource(a: PlayerCopySource | undefined, b: PlayerCopySource 
   const folder = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
   if ('path' in a && 'path' in b) return folder(a.path) === folder(b.path)
   return 'ref' in a && 'ref' in b && a.ref === b.ref
-}
-
-/** Measured first-copy speed on the player's SSD (Recon, 2026-10-14): 47–73 MB/s. */
-export const COPY_MB_PER_SECOND = { slow: 47, fast: 73 } as const
-
-/** A first copy's duration range in whole minutes (at least 1). */
-export function copyMinutes(bytes: number): { min: number; max: number } {
-  const minutes = (mbps: number): number => Math.max(1, Math.round(bytes / (mbps * 1e6) / 60))
-  return { min: minutes(COPY_MB_PER_SECOND.fast), max: minutes(COPY_MB_PER_SECOND.slow) }
 }
 
 export interface PlayerMachineStatus {

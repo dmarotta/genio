@@ -123,9 +123,9 @@ it('closes before restart-sensitive writes and keeps the copy and Library for th
   await svc.play('A', { path: root })
   expect(events).toContain('quit-version:m_EditorVersion: 6000.3.1f1')
 })
-it('resets idle on keep-alive, quits at the deadline, and deletes asynchronously', async () => {
+it('quits at the idle deadline and deletes asynchronously', async () => {
   await svc.play('A', { path: projects.get('A')!.path }); await svc.stop('A')
-  clock += 9 * 60000; await svc.keepAlive('A'); clock += 9 * 60000; await svc.poll()
+  clock += 9 * 60000; await svc.poll()
   expect(svc.status('A').state).toBe('ready')
   clock += 60000; await svc.poll()
   expect(svc.status('A').state).toBe('idle'); expect(svc.status('A').pid).toBeUndefined()
@@ -335,9 +335,9 @@ it('Stop Unity while playing exits Play, quits, and keeps the copy for the idle 
   expect(again.copy).toMatchObject({ id: first.copy!.id }); expect(again.copy!.lastSync!.bytes!.copied).toBe(0)
   expect(again.pid).not.toBe(first.pid)
 })
-it('deletes a copy kept by Stop Unity at its idle deadline, and keepAlive extends it', async () => {
+it('deletes a copy kept by Stop Unity at its idle deadline', async () => {
   await svc.startUnity('A', source()); await svc.stopUnity('A')
-  clock += 9 * 60000; await svc.keepAlive('A'); clock += 9 * 60000; await svc.poll(); await copies.settle()
+  clock += 9 * 60000; await svc.poll(); await copies.settle()
   expect(copies.status(source().path)?.state).toBe('ready')
   clock += 60000; await svc.poll(); await copies.settle()
   expect(copies.status(source().path)).toBeUndefined()

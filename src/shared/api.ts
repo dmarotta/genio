@@ -493,15 +493,12 @@ export interface GenioApi {
   playerInstanceStop(world: string): Promise<import('./play').PlayerInstanceStatus>
   playerInstanceQuit(world: string): Promise<import('./play').PlayerInstanceStatus>
   playerInstanceRestart(world: string, visible?: boolean): Promise<import('./play').PlayerInstanceStatus>
-  playerInstanceKeepAlive(world: string): Promise<import('./play').PlayerInstanceStatus>
   playerInstanceDetach(world: string): Promise<import('./play').PlayerInstanceStatus>
   playerInstanceSettings(world: string, patch: Partial<import('./play').PlayerSettings>): Promise<import('./play').PlayerSettings>
   playerInstanceMachine(world: string): Promise<import('./play').PlayerMachineStatus>
   playerInstanceConsole(world: string, cursor?: number, session?: string): Promise<import('./play').PlayConsole>
   /** Transfers a frame/input MessagePort to the owning window. No Pipeline or WebSocket credentials cross IPC. */
   playerInstanceStream(world: string, enabled: boolean, width?: number, height?: number): Promise<void>
-  /** The hidden desktop's screenshot taken when a dialog blocked the player editor (PNG data URL), if any. */
-  playerInstanceDialogShot(world: string): Promise<string | undefined>
   /** The Play screen's sources: main checkout, worktrees, units' worktrees by name, branches. */
   playerSources(world: string): Promise<import('./play').PlayerSourceOption[]>
   /** False when a source can no longer be read (a unit's worktree merged and removed, a deleted branch). */
@@ -725,7 +722,7 @@ export type ApiMethod = keyof GenioApi
 /** Every GenioApi method, as runtime data (contextBridge cannot clone a Proxy). */
 export const API_METHODS = [
   'playPool', 'playPoolCap', 'playPoolLaunch', 'playPoolEstimate', 'playPoolDisk', 'playCloseSlotEditor',
-  'playerInstanceStatus', 'playerInstancePlay', 'playerInstanceStartUnity', 'playerInstanceEnterPlay', 'playerInstanceExitPlay', 'playerInstanceStopUnity', 'playerInstancePause', 'playerInstanceStep', 'playerInstanceScenes', 'playerInstanceSetScene', 'playerInstanceResize', 'playerInstanceStop', 'playerInstanceQuit', 'playerInstanceRestart', 'playerInstanceKeepAlive', 'playerInstanceDetach', 'playerInstanceSettings', 'playerInstanceMachine', 'playerInstanceConsole', 'playerInstanceStream', 'playerInstanceDialogShot', 'playerSources', 'playerSourceAvailable',
+  'playerInstanceStatus', 'playerInstancePlay', 'playerInstanceStartUnity', 'playerInstanceEnterPlay', 'playerInstanceExitPlay', 'playerInstanceStopUnity', 'playerInstancePause', 'playerInstanceStep', 'playerInstanceScenes', 'playerInstanceSetScene', 'playerInstanceResize', 'playerInstanceStop', 'playerInstanceQuit', 'playerInstanceRestart', 'playerInstanceDetach', 'playerInstanceSettings', 'playerInstanceMachine', 'playerInstanceConsole', 'playerInstanceStream', 'playerSources', 'playerSourceAvailable',
   'playerCopies', 'playerCopyStatus', 'playerCopyEnsure', 'playerCopySync', 'playerCopyCancel', 'playerCopyDelete', 'playerCopySizes',
   'inventoryOpen', 'inventoryClose', 'inventoryRefresh', 'inventoryList', 'inventoryInfo', 'inventoryModelUrl', 'inventoryModelRelease', 'modellerLive', 'modellerAct', 'unitFilePreview',
   'artBibleRead', 'artBibleWrite',

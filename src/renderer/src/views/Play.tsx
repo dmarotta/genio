@@ -6,7 +6,7 @@ import { PROJECT_WINDOW, api, errText, useStore } from '../store'
 import { onPlaySourceRequest, takePlaySource } from '../lib/play-nav'
 import { cx } from '../lib/format'
 import { useScreenContext } from '../lib/screen-context'
-import { DEFAULT_RESOLUTION, PROBLEMS, RESOLUTIONS, SOURCE_GROUPS, STATE_LABEL, WORKING, chipText, clock, deletionText, firstCopyText, playedText, progressText, sourceText, statusText, syncSummary } from '../lib/play-screen'
+import { ACTION_LABEL, DEFAULT_RESOLUTION, RESOLUTIONS, SOURCE_GROUPS, WORKING, chipText, playLine, sourceText, type PlayLine, type PlayLineAction } from '../lib/play-screen'
 import { openSettings } from '../lib/settings-nav'
 import { PlayLive } from './PlayLive'
 import { Popover } from '../components/Layer'
@@ -48,19 +48,16 @@ function PlayScreen({ world }: { world: string }) {
   const [choice, setChoice] = useState<string>()
   const [scenes, setScenes] = useState<PlayerScene[]>([])
   const [resolutionId, setResolutionId] = useState(() => savedResolution(world))
-  const [estimate, setEstimate] = useState<number>()
   const [busy, setBusy] = useState<string>()
   const [error, setError] = useState('')
-  const [now, setNow] = useState(() => Date.now())
   const [drawer, setDrawer] = useState(false)
   const [logs, setLogs] = useState<Entry[]>([])
   const [consoleNote, setConsoleNote] = useState('')
   const [streamEnded, setStreamEnded] = useState<string>()
-  const [shot, setShot] = useState<string>()
   const fast = useRef(false)
   const narrow = useNarrow()
 
-  // Instance status: every second while something runs, every three otherwise; the countdown ticks locally.
+  // Instance status: every second while something runs, every three otherwise.
   useEffect(() => {
     let live = true, timer: ReturnType<typeof setTimeout>
     const poll = async (): Promise<void> => {
@@ -68,8 +65,7 @@ function PlayScreen({ world }: { world: string }) {
       if (live) timer = setTimeout(() => void poll(), fast.current ? 1000 : 3000)
     }
     void poll()
-    const tick = setInterval(() => setNow(Date.now()), 1000)
-    return () => { live = false; clearTimeout(timer); clearInterval(tick) }
+    return () => { live = false; clearTimeout(timer) }
   }, [world])
   const state = status?.state
   fast.current = !!busy || (!!state && WORKING.has(state))
@@ -97,12 +93,11 @@ function PlayScreen({ world }: { world: string }) {
     return () => clearInterval(iv)
   }, [world])
   // Preselect what the instance plays, else the main checkout. A chosen source that left the list says so.
-  const [notice, setNotice] = useState('')
+  const [missing, setMissing] = useState(false)
   const lastOption = useRef<PlayerSourceOption | undefined>(undefined)
   useEffect(() => {
     if (!sources || (choice && sources.some(o => o.id === choice))) return
-    const lost = choice && lastOption.current?.id === choice ? lastOption.current : undefined
-    if (lost) setNotice(`${lost.label} is gone: ${lost.group === 'unit' ? 'the unit was merged or despawned' : 'it was removed'}. Pick another source.`)
+    if (choice && lastOption.current?.id === choice) setMissing(true)
     setChoice((sources.find(o => sameSource(o.source, status?.source)) ?? sources[0])?.id)
   }, [sources, status?.source])
   // "Play this unit": a one-shot request preselects that unit, once, from a freshly read list.
@@ -114,8 +109,8 @@ function PlayScreen({ world }: { world: string }) {
     void loadSources().then(list => {
       if (!live || !list) return
       const wanted = list.find(o => o.id === requested.source)
-      if (wanted) { setChoice(wanted.id); setNotice('') }
-      else setNotice(requested.source.startsWith('unit:') ? 'That unit\'s worktree is gone: it was merged or despawned, so there is nothing of it to play. Pick another source.' : 'That source is gone. Pick another one.')
+      if (wanted) setChoice(wanted.id)
+      setMissing(!wanted)
       setRequested(undefined)
     })
     return () => { live = false }
@@ -128,27 +123,9 @@ function PlayScreen({ world }: { world: string }) {
     void api().playerInstanceScenes(world).then(s => { if (live) setScenes(s) }).catch(() => {})
     return () => { live = false }
   }, [world, sceneMoment])
-  // What the first start copies, for Genio's screen context only: measured once while no copy exists.
-  const hasCopy = !!status?.copy
-  useEffect(() => {
-    if (!status || hasCopy || estimate !== undefined) return
-    let live = true
-    void api().playerCopySizes(world).then(s => { if (live && s.estimate) setEstimate(s.estimate.totalBytes) }).catch(() => {})
-    return () => { live = false }
-  }, [world, !!status, hasCopy])
   // A stream that ended stays closed until the next Play session (or Reconnect).
   const playing = state === 'playing' || state === 'paused'
   useEffect(() => { if (playing) setStreamEnded(undefined) }, [playing])
-  // Compile errors open the console; a stuck dialog fetches its screenshot.
-  useEffect(() => { if (state === 'compile-errors') setDrawer(true) }, [state])
-  const dialogAt = status?.dialog?.screenshot
-  useEffect(() => {
-    setShot(undefined)
-    if (!dialogAt) return
-    let live = true
-    void api().playerInstanceDialogShot(world).then(s => { if (live) setShot(s) }).catch(() => {})
-    return () => { live = false }
-  }, [world, dialogAt])
 
   // Console drawer: polled while open and Unity runs, from a cursor so entries never repeat.
   const running = !!status?.pid
@@ -171,8 +148,8 @@ function PlayScreen({ world }: { world: string }) {
 
   const option = sources?.find(o => o.id === choice)
   if (option) lastOption.current = option
-  const run =async (label: string, fn: () => Promise<PlayerInstanceStatus | void>): Promise<void> => {
-    setBusy(label); setError('')
+  const run = async (label: string, fn: () => Promise<PlayerInstanceStatus | void>): Promise<void> => {
+    setBusy(label); setError(''); setMissing(false)
     try { const s = await fn(); if (s) setStatus(s) }
     catch (e) { const m = errText(e); if (!/Play cancelled/.test(m)) setError(m) }
     finally {
@@ -201,17 +178,16 @@ function PlayScreen({ world }: { world: string }) {
   const pause = (): void => void run('pause', () => api().playerInstancePause(world))
   const step = (): void => void run('step', () => api().playerInstanceStep(world))
   const restart = (visible = false): void => void run(visible ? 'visible' : 'restart', () => api().playerInstanceRestart(world, visible))
-  const keep = (): void => void run('keep', () => api().playerInstanceKeepAlive(world))
   const settings = (): void => openSettings('play', PLAYER_INSTANCE_ANCHOR)
   // A new source applies on the next ▶; while playing it re-plays at once. One that vanished since the list was read says so.
   const chooseSource = (id: string): void => {
     if (id === REFRESH) { void loadSources(); return }
-    setChoice(id); setNotice('')
+    setChoice(id); setMissing(false)
     const next = sources?.find(o => o.id === id)
     if (!next) return
     void (async () => {
       const there = next.group === 'main' || await api().playerSourceAvailable(world, next.source).catch(() => true)
-      if (!there) { setNotice(`${next.label} is gone: ${next.group === 'unit' ? 'the unit was merged or despawned' : 'it was removed'}. Pick another source.`); void loadSources(); return }
+      if (!there) { setMissing(true); void loadSources(); return }
       if (playing && !sameSource(next.source, status?.source)) void run('enter', () => api().playerInstanceEnterPlay(world, next.source))
     })()
   }
@@ -219,7 +195,7 @@ function PlayScreen({ world }: { world: string }) {
   const mainOption = sources?.find(o => o.group === 'main')
   const playMain = (): void => {
     if (!mainOption) return
-    setChoice(mainOption.id); setNotice('')
+    setChoice(mainOption.id)
     void run('enter', () => api().playerInstanceEnterPlay(world, mainOption.source))
   }
   const gone = status?.sourceGone
@@ -246,39 +222,38 @@ function PlayScreen({ world }: { world: string }) {
   }, [])
 
   const working = !!busy || (!!state && WORKING.has(state))
-  const countdown = state === 'ready' && status?.deadline ? status.deadline - now : undefined
-  const copyDeadline = !status?.pid && status?.copy?.deadline ? status.copy.deadline - now : undefined
-  const progress = progressText(status?.copy?.progress, now)
-  const copyBar = (state === 'copying' || state === 'syncing') && progress ? progress : undefined
-  const synced = syncSummary(status?.copy)
-  const played = playedText(status)
+  const line = playLine({ status, busy, error, missing, streamEnded: !!streamEnded })
   const lastError = [...logs].reverse().find(l => /error|exception|assert/i.test(l.level ?? ''))
   const grouped = useMemo(() => SOURCE_GROUPS.map(g => ({ ...g, options: (sources ?? []).filter(o => o.group === g.group) })).filter(g => g.options.length), [sources])
+  const act = (action: PlayLineAction): void => {
+    switch (action) {
+      case 'retry': playPress('enter'); return
+      case 'console': setDrawer(true); return
+      case 'visible': restart(true); return
+      case 'settings': settings(); return
+      case 'reconnect': setStreamEnded(undefined); return
+      case 'main': playMain()
+    }
+  }
+  const actionOff = (action: PlayLineAction): boolean =>
+    ((action === 'retry' || action === 'visible' || action === 'main') && working) || (action === 'retry' && !option) || (action === 'visible' && !status?.source) || (action === 'main' && !mainOption)
 
-  // Everything the page no longer shows stays visible to the floating Genio chat.
+  // The detail the line leaves out stays visible to the floating Genio chat, never on the page.
   useScreenContext('play', { facts: [
-    { label: 'Instance', value: `${state ? STATE_LABEL[state] : 'loading'}${status?.message ? ` · ${status.message}` : ''}` },
+    { label: 'Status', value: `${line.text}${status?.message ? ` · ${status.message}` : ''}` },
     option && { label: 'Source', value: sourceText(option) },
     !!gone && { label: 'Source gone', value: sourceGoneText(gone) },
-    !!notice && { label: 'Source note', value: notice },
-    !!played && { label: 'Playing from', value: `${played}${synced ? ` · ${synced}` : ''}` },
     !!sceneName && { label: 'Scene', value: scene ?? sceneName },
     { label: 'Resolution', value: `${resolution.width} × ${resolution.height}` },
     !!status?.unityVersion && { label: 'Unity', value: status.unityVersion },
-    countdown !== undefined && { label: 'Idle', value: `Unity quits and the copy is deleted in ${clock(countdown)} if idle` },
-    copyDeadline !== undefined && { label: 'Copy', value: `Kept for a quick start; deleted in ${clock(copyDeadline)}` },
-    !!progress && { label: 'Copy progress', value: progress },
-    !hasCopy && estimate !== undefined && { label: 'First start', value: `Copies the project first: ${firstCopyText(estimate)}` },
-    !!deletionText(status?.copy) && { label: 'Deletion', value: deletionText(status?.copy)! },
     state === 'starting' && !!status?.startup && { label: 'Unity log', value: status.startup.split('\n').filter(Boolean).slice(-3).join(' · ') },
-    status?.lowMemory && { label: 'Memory', value: status.message ?? 'Not enough memory' },
     status?.dialog && { label: 'Blocking dialog', value: `${status.dialog.title}: ${status.dialog.text}` },
     playing && status?.capabilities?.input === false && { label: 'Input', value: 'This game reads legacy input, so the stream is view-only' },
+    !!streamEnded && { label: 'Live view', value: streamEnded },
     !!error && { label: 'Error', value: error },
     lastError && { label: 'Last console error', value: lastError.message }
   ] })
 
-  const tone = error || (state && PROBLEMS.has(state)) ? (state === 'low-memory' || state === 'stuck-dialog') && !error ? 'amber-text' : 'alert-text' : undefined
   const UnityIcon = { start: Power, 'start-anyway': AlertTriangle, cancel: X, stop: Power, restart: RotateCcw, 'close-again': Power }[bar.unity.action]
 
   return <div className={cx('view play-view', narrow && 'narrow')}>
@@ -327,43 +302,10 @@ function PlayScreen({ world }: { world: string }) {
       </select>
     </div>
 
-    {copyBar || state === 'starting'
-      ? <ProgressBar text={copyBar ?? 'Starting Unity…'} title={state === 'starting' ? status?.startup?.trim().split('\n').pop() : undefined}
-        done={copyBar ? status?.copy?.progress?.bytes?.done : undefined} total={copyBar ? status?.copy?.progress?.bytes?.total : undefined} />
-      : <p className={cx('play-status', tone)} role="status">
-        <span className={cx('play-dot', state)} aria-hidden />
-        {state === 'low-memory' && <AlertTriangle size={12} aria-hidden />}
-        <span className="play-status-text" title={error || status?.message}>{error || statusText(status, sceneName)}</span>
-        {gone?.when === 'running' && !error && <span className="play-gone-note">· {sourceGoneText(gone)}</span>}
-        {state === 'error' && !busy && option && <button className="play-link" onClick={() => playPress('enter')}>Retry</button>}
-        {state === 'compile-errors' && <button className="play-link" onClick={() => setDrawer(true)}>Show console</button>}
-        {state === 'limit-reached' && <button className="play-link" onClick={settings}>Settings</button>}
-        {countdown !== undefined && <button className="play-link play-idle" title="Keep Unity open longer" onClick={keep} disabled={!!busy}>quits in {clock(countdown)} if idle</button>}
-      </p>}
-    {gone && gone.when !== 'running' && <p className={cx('play-gone', gone.when === 'fallback' && 'dim')} role="note">
-      <span>{sourceGoneText(gone)}</span>
-      {gone.when === 'loading' && mainOption && <button className="play-link" disabled={working} onClick={playMain}>Play main instead</button>}
-    </p>}
-    {notice && <p className="play-gone dim" role="note">
-      <span>{notice}</span>
-      <button className="play-link play-idle" onClick={() => setNotice('')}>Dismiss</button>
-    </p>}
+    <StatusLine line={line} detail={error || status?.message} onAction={act} actionOff={actionOff} />
 
     <div className="play-screen">
-      {playing && !streamEnded
-        ? <PlayLive world={world} width={resolution.width} height={resolution.height} input={status?.capabilities?.input !== false} onClosed={setStreamEnded} onError={setError} />
-        : state === 'stuck-dialog' && status?.dialog
-          ? <div className="play-dialog">
-            <strong>{status.dialog.title || 'Untitled dialog'}</strong>
-            {status.dialog.text && <span>{status.dialog.text}</span>}
-            {status.dialog.buttons.length > 0 && <span className="mute">Buttons: {status.dialog.buttons.join(' · ')}</span>}
-            {shot && <img src={shot} alt="Screenshot of the hidden desktop when the dialog blocked Unity" />}
-            <button className="btn sm amber" disabled={working || !status.source} onClick={() => restart(true)}>Open Unity visibly</button>
-          </div>
-          : <div className="play-screen-empty">
-            {playing ? <><span>{streamEnded}</span><button className="btn sm" onClick={() => setStreamEnded(undefined)}>Reconnect</button></>
-              : <span className="mute">{emptyText(state)}</span>}
-          </div>}
+      {playing && !streamEnded && <PlayLive world={world} width={resolution.width} height={resolution.height} input={status?.capabilities?.input !== false} onClosed={setStreamEnded} onError={setError} />}
     </div>
 
     {drawer && <section className="play-console" aria-label="Unity console">
@@ -380,23 +322,17 @@ function PlayScreen({ world }: { world: string }) {
   </div>
 }
 
-function emptyText(state: PlayerInstanceStatus['state'] | undefined): string {
-  switch (state) {
-    case 'copying': case 'syncing': return 'Copying…'
-    case 'starting': return 'Starting Unity…'
-    case 'entering-play': return 'Entering Play…'
-    case 'ready': return 'Press ▶ to enter Play.'
-    case 'exiting-play': case 'shutting-down': return ''
-    default: return 'Press ▶ to play, or start Unity first.'
-  }
-}
-
-function ProgressBar({ text, title, done, total }: { text: string; title?: string; done?: number; total?: number }) {
-  const pct = total ? Math.min(100, Math.round(((done ?? 0) / total) * 100)) : undefined
-  return <div className="play-progress" role="status" title={title}>
-    <div className="play-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}><span style={{ width: `${pct ?? 100}%` }} className={cx(pct === undefined && 'indeterminate')} /></div>
-    <span className="mute">{text}</span>
-  </div>
+/** The one status line: a dot, the plain state or problem, the progress bar while working, and at most one action. */
+function StatusLine({ line, detail, onAction, actionOff }: { line: PlayLine; detail?: string; onAction: (a: PlayLineAction) => void; actionOff: (a: PlayLineAction) => boolean }) {
+  const problem = line.kind === 'problem'
+  return <p className={cx('play-status', problem && 'alert-text')} role="status" title={problem ? detail : undefined}>
+    <span className={cx('play-dot', line.kind)} aria-hidden />
+    <span className="play-status-text">{line.text}</span>
+    {line.bar !== undefined && <span className="play-progress-track" role="progressbar" aria-label={line.text} aria-valuemin={0} aria-valuemax={100} aria-valuenow={line.bar === 'indeterminate' ? undefined : line.bar}>
+      <span style={{ width: `${line.bar === 'indeterminate' ? 100 : line.bar}%` }} className={cx(line.bar === 'indeterminate' && 'indeterminate')} />
+    </span>}
+    {line.action && <button className="play-link" disabled={actionOff(line.action)} onClick={() => onAction(line.action!)}>{ACTION_LABEL[line.action]}</button>}
+  </p>
 }
 
 /** The ⋯ menu: the rare actions (Restart Unity, Open visibly, console, settings). */

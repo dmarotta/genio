@@ -2,12 +2,12 @@
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { PlayerInstanceStatus, PlayerScene, PlayerSourceOption } from '../src/shared/play'
+import type { PlayerInstanceStatus, PlayerScene, PlayerSourceOption, PlayerState } from '../src/shared/play'
 
 // A fake player backend: no main process, no Unity. The screen only talks to window.genio.api.
-const nav = vi.hoisted(() => ({ go: vi.fn(), section: vi.fn() }))
+const nav = vi.hoisted(() => ({ go: vi.fn(), section: vi.fn(), toast: vi.fn() }))
 vi.mock('../src/renderer/src/store', () => ({
-  PROJECT_WINDOW: 'game', go: nav.go, api: () => (window as unknown as { genio: { api: unknown } }).genio.api,
+  PROJECT_WINDOW: 'game', go: nav.go, toast: nav.toast, api: () => (window as unknown as { genio: { api: unknown } }).genio.api,
   errText: (e: unknown) => (e instanceof Error ? e.message : String(e)),
   useStore: (sel: (s: unknown) => unknown) => sel({ snap: { tasks: [] } }), getState: () => ({}), playAvailable: () => true, subscribe: () => () => {}, op: async (_l: string, fn: () => unknown) => fn()
 }))
@@ -15,8 +15,7 @@ vi.mock('../src/renderer/src/lib/settings-nav', () => ({ openSettings: nav.secti
 import { Play } from '../src/renderer/src/views/Play'
 import { PlayLive } from '../src/renderer/src/views/PlayLive'
 import { getScreenContext } from '../src/renderer/src/lib/screen-context'
-import { chipText, clock, firstCopyText, progressText, sourceText, statusText, syncSummary } from '../src/renderer/src/lib/play-screen'
-import { copyMinutes } from '../src/shared/play'
+import { chipText, playLine, sourceText } from '../src/renderer/src/lib/play-screen'
 
 const NOW = Date.parse('2026-10-14T12:00:00Z')
 const SOURCES: PlayerSourceOption[] = [
@@ -31,19 +30,18 @@ const SCENES: PlayerScene[] = [
 ]
 const copy = (extra: object = {}) => ({ version: 1, key: 'k', id: 'c1', project: 'C:/games/game', engineRoot: '', dir: 'D:/copy', root: 'D:/copy/p', state: 'ready', createdAt: NOW, idleMs: 600000, ...extra })
 const synced = { lastSync: { at: NOW, complete: true, elapsedMs: 1200, files: { source: 9, unchanged: 0, added: 1, updated: 30, restored: 0, deleted: 0, unityMadeDeleted: 0, unityMadeKept: 0 }, bytes: { copied: 12 * 2 ** 20, deleted: 0 }, source: { kind: 'checkout', path: 'C:/games/game', branch: 'main', head: 'b'.repeat(40) } } }
+const copying = (done: number, total: number) => copy({ state: 'syncing', progress: { phase: 'copying', startedAt: NOW - 60_000, bytes: { done, total }, files: { done: 1200, total: 5000 } } }) as never
 let status: PlayerInstanceStatus
 let root: Root, host: HTMLDivElement
 const ok = () => vi.fn(async () => status)
 const api = {
   playerInstanceStatus: ok(), playerSources: vi.fn(async () => SOURCES), playerSourceAvailable: vi.fn(async (_world: string, _source: { path?: string; ref?: string }) => true),
-  playerInstanceMachine: vi.fn(async () => ({ settings: { idleMinutes: 10, maxEditors: 2 } })),
-  playerCopySizes: vi.fn(async () => ({ exists: false, estimate: { projectBytes: 40e9, libraryBytes: 15e9, totalBytes: 55e9, files: 1000 } })),
+  playerCopySizes: vi.fn(async () => ({ exists: false })),
   playerInstanceStartUnity: ok(), playerInstanceEnterPlay: ok(), playerInstanceExitPlay: ok(), playerInstanceStopUnity: ok(),
   playerInstancePause: ok(), playerInstanceStep: ok(), playerInstanceSetScene: ok(), playerInstanceResize: ok(),
   playerInstanceScenes: vi.fn(async () => SCENES),
-  playerInstanceRestart: ok(), playerInstanceKeepAlive: ok(),
+  playerInstanceRestart: ok(),
   playerInstanceConsole: vi.fn(async () => ({ entries: [{ message: 'Assets/Code.cs(3,1): error CS1002: ; expected', level: 'Error', seq: 1 }], cursor: 1, session: 's' })),
-  playerInstanceDialogShot: vi.fn(async () => 'data:image/png;base64,AAAA'),
   playerInstanceStream: vi.fn(async () => undefined), featureUsed: vi.fn(async () => undefined)
 }
 const text = () => host.textContent ?? ''
@@ -52,6 +50,8 @@ const click = async (label: string) => { await act(async () => button(label).cli
 const select = (label: string) => host.querySelector(`select[aria-label="${label}"]`) as HTMLSelectElement
 const choose = async (label: string, value: string) => { await act(async () => { const s = select(label); s.value = value; s.dispatchEvent(new Event('change', { bubbles: true })) }) }
 const statusLine = () => host.querySelector('[role=status]')?.textContent ?? ''
+const bar = () => host.querySelector('[role=progressbar]')
+const problem = () => !!host.querySelector('.play-status.alert-text')
 const facts = () => getScreenContext('play')?.facts ?? []
 const settle = async (ms = 0) => { await act(async () => { await vi.advanceTimersByTimeAsync(ms) }) }
 const mount = async () => { await act(async () => root.render(React.createElement(Play))); await settle() }
@@ -67,7 +67,7 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.clearAllMocks(); vi.useRealTimers() })
 
 describe('Play screen', () => {
-  it('keeps only the header chip, one toolbar and one status line, and starts Unity or Play without a copy prompt', async () => {
+  it('keeps the source chip, one toolbar and one status line, and starts Unity or Play without a copy prompt', async () => {
     await mount()
     const source = select('Play source')
     expect([...source.querySelectorAll('optgroup')].map(g => g.label)).toEqual(['Main checkout', 'Your worktrees', 'Units', 'Branches (played from commits)'])
@@ -76,14 +76,15 @@ describe('Play screen', () => {
     ])
     expect(source.value).toBe('main')
     expect(host.querySelector('.play-chip > span')?.textContent).toBe('main')
-    expect(statusLine()).toBe('Unity is off')
+    expect(statusLine()).toBe('Stopped')
+    expect(bar()).toBeNull()
     expect([...host.querySelectorAll('[role=toolbar] button')].map(b => b.getAttribute('aria-label'))).toEqual(['Start Unity', 'Enter Play', 'Pause', 'Step'])
     expect(button('Pause').disabled).toBe(true)
     expect(button('Step').disabled).toBe(true)
-    // Removed: Ask Genio, the step tracker, the first-copy confirm, the footer and the inline console.
-    expect(text()).not.toContain('Ask Genio')
-    expect(host.querySelector('.play-steps, .play-foot, .play-console, [role=alertdialog]')).toBeNull()
-    expect(facts()).toContainEqual({ label: 'First start', value: 'Copies the project first: about 51.2 GB, about 13–20 min' })
+    // No hint in the game area, no first-copy estimate, no console unless asked.
+    expect(host.querySelector('.play-screen')?.textContent).toBe('')
+    expect(host.querySelector('.play-console, [role=alertdialog], [role=note]')).toBeNull()
+    expect(api.playerCopySizes).not.toHaveBeenCalled()
 
     await click('Start Unity')
     expect(api.playerInstanceStartUnity).toHaveBeenCalledWith('game', { path: 'C:/games/game' }, {})
@@ -96,29 +97,38 @@ describe('Play screen', () => {
     expect(select('Play source').value).toBe('unit:t1')
   })
 
-  it('turns the status line into a progress bar while copying, with Cancel on the Unity button', async () => {
-    status = { state: 'copying', project: 'C:/games/game', copy: copy({ state: 'syncing', progress: { phase: 'copying', startedAt: NOW - 60_000, bytes: { done: 4 * 2 ** 30, total: 16 * 2 ** 30 }, files: { done: 1200, total: 5000 } } }) as never }
+  it('shows Preparing with an indeterminate bar the moment Start Unity is pressed', async () => {
+    let finish!: (s: PlayerInstanceStatus) => void
+    api.playerInstanceStartUnity.mockImplementationOnce(() => new Promise<PlayerInstanceStatus>(r => { finish = r }))
     await mount()
-    expect(host.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow')).toBe('25')
-    expect(statusLine()).toBe('Copying · 4.0 of 16.0 GB · about 3 min left')
-    expect(facts()).toContainEqual({ label: 'Copy progress', value: 'Copying · 4.0 of 16.0 GB · about 3 min left' })
+    await click('Start Unity')
+    expect(statusLine()).toBe('Preparing')
+    expect(bar()?.hasAttribute('aria-valuenow')).toBe(false)
+    expect(bar()?.querySelector('.indeterminate')).not.toBeNull()
+    status = { state: 'ready', project: 'C:/games/game', pid: 7, source: { path: 'C:/games/game' } }
+    await act(async () => finish(status)); await settle()
+    expect(statusLine()).toBe('Ready')
+    expect(bar()).toBeNull()
+  })
+
+  it('shows one overall percentage while preparing the copy, with Cancel on the Unity button', async () => {
+    status = { state: 'copying', project: 'C:/games/game', copy: copying(4 * 2 ** 30, 16 * 2 ** 30) }
+    await mount()
+    expect(statusLine()).toBe('Preparing')
+    expect(bar()?.getAttribute('aria-valuenow')).toBe('25')
+    expect(host.querySelectorAll('[role=progressbar]')).toHaveLength(1)
+    expect(text()).not.toMatch(/GB|files|min left/)
     expect(button('Enter Play').disabled).toBe(true)
     await click('Cancel')
     expect(api.playerInstanceStopUnity).toHaveBeenCalledWith('game')
   })
 
-  it('shows Unity ready with a dim idle countdown that keeps it open, and stops Unity', async () => {
+  it('says Ready with no idle countdown, stops Unity and changes the scene', async () => {
     status = { state: 'ready', project: 'C:/games/game', source: { path: 'C:/games/game' }, stoppedAt: NOW - 138_000, deadline: NOW + 462_000, pid: 7, unityVersion: '6000.3.1f1', copy: copy(synced) as never }
     await mount()
-    expect(statusLine()).toBe('Unity readyquits in 7:42 if idle')
-    expect(text()).not.toContain('synced 31 files')
-    await settle(2000)
-    expect(text()).toContain('quits in 7:40 if idle')
-    expect(facts()).toContainEqual({ label: 'Idle', value: 'Unity quits and the copy is deleted in 7:40 if idle' })
-    expect(facts()).toContainEqual({ label: 'Playing from', value: 'main @ bbbbbbb · synced 31 files (12 MB) in 1.2 s' })
+    expect(statusLine()).toBe('Ready')
+    expect(text()).not.toMatch(/quits in|synced|idle/)
     expect(facts()).toContainEqual({ label: 'Unity', value: '6000.3.1f1' })
-    await click('quits in 7:40 if idle')
-    expect(api.playerInstanceKeepAlive).toHaveBeenCalledWith('game')
     expect(button('Enter Play').disabled).toBe(false)
     await click('Stop Unity')
     expect(api.playerInstanceStopUnity).toHaveBeenCalledWith('game')
@@ -126,12 +136,23 @@ describe('Play screen', () => {
     expect(api.playerInstanceSetScene).toHaveBeenCalledWith('game', 'Assets/Scenes/Menu.unity')
   })
 
-  it('asks on low memory with Start anyway on the Unity button and on ▶, and drops it when Windows cannot commit', async () => {
+  it('says Starting Unity with an indeterminate bar, keeping the startup log for Genio only', async () => {
+    status = { state: 'starting', project: 'C:/games/game', pid: 7, copy: copy() as never, startup: 'Loading packages\nCompiling scripts' }
+    await mount()
+    expect(statusLine()).toBe('Starting Unity')
+    expect(bar()?.querySelector('.indeterminate')).not.toBeNull()
+    expect(text()).not.toContain('Compiling')
+    expect(facts()).toContainEqual({ label: 'Unity log', value: 'Loading packages · Compiling scripts' })
+  })
+
+  it('names low memory in one alert line and keeps Start anyway on the toolbar, dropping it when Windows cannot commit', async () => {
     const lowMemory = { availableBytes: 3.3 * 2 ** 30, neededBytes: 6 * 2 ** 30, hard: false, consumers: [{ name: 'lands-of-old editor', bytes: 13.5 * 2 ** 30 }], closed: [] }
     status = { state: 'low-memory', project: 'C:/games/game', copy: copy() as never, lowMemory, message: '3.3 GB available; Unity needs about 6.0 GB. Biggest: lands-of-old editor 13.5 GB.' }
     await mount()
-    expect(statusLine()).toContain('Biggest: lands-of-old editor 13.5 GB')
-    expect(facts()).toContainEqual({ label: 'Memory', value: status.message })
+    expect(statusLine()).toBe('Not enough free memory for Unity.')
+    expect(problem()).toBe(true)
+    expect(host.querySelector('.play-status')?.getAttribute('title')).toContain('Biggest: lands-of-old editor')
+    expect(facts()).toContainEqual({ label: 'Status', value: `Not enough free memory for Unity. · ${status.message}` })
     await click('Start anyway')
     expect(api.playerInstanceStartUnity).toHaveBeenCalledWith('game', { path: 'C:/games/game' }, { startAnyway: true })
     await click('Enter Play')
@@ -143,33 +164,36 @@ describe('Play screen', () => {
     expect(button('Start Unity').disabled).toBe(false)
   })
 
-  it('restarts Unity from the Unity button on a stuck dialog and shows the dialog in place of the game', async () => {
+  it('names a stuck dialog in one line with Open Unity as its only action, and no dialog panel', async () => {
     status = { state: 'stuck-dialog', project: 'C:/games/game', source: { ref: 'develop' }, pid: 9, copy: copy() as never, message: 'Unity is waiting on a licence prompt',
       dialog: { hwnd: '1', pid: 9, title: 'Unity Licensing', text: 'Sign in to continue', buttons: ['OK', 'Cancel'], rule: 'licence', reason: 'licence', screenshot: 'D:/x/blocked-1.png', message: 'Unity is waiting on a licence prompt' } }
     await mount()
-    expect(statusLine()).toBe('A Unity dialog is blocking the editor: Unity Licensing')
-    expect(text()).toContain('Buttons: OK · Cancel')
-    expect(host.querySelector('.play-dialog img')?.getAttribute('src')).toBe('data:image/png;base64,AAAA')
+    expect(statusLine()).toBe('A Unity dialog is blocking the editor.Open Unity')
+    expect(text()).not.toContain('Sign in to continue')
+    expect(host.querySelector('.play-screen img')).toBeNull()
     expect(facts()).toContainEqual({ label: 'Blocking dialog', value: 'Unity Licensing: Sign in to continue' })
+    await click('Open Unity')
+    expect(api.playerInstanceRestart).toHaveBeenCalledWith('game', true)
     await click('Restart Unity')
     expect(api.playerInstanceRestart).toHaveBeenCalledWith('game')
-    await click('Open Unity visibly')
-    expect(api.playerInstanceRestart).toHaveBeenCalledWith('game', true)
   })
 
-  it('names a crash in one line and offers Start Unity again', async () => {
+  it('names a crash in one line and offers Start Unity again on the toolbar', async () => {
     status = { state: 'crashed', project: 'C:/games/game', exitCode: 1, copy: copy() as never, message: 'Unity exited' }
     await mount()
-    expect(statusLine()).toBe('Unity closed unexpectedly (exit 1)')
+    expect(statusLine()).toBe('Unity closed unexpectedly.')
+    expect(problem()).toBe(true)
     expect(button('Start Unity').disabled).toBe(false)
     expect(button('Enter Play').disabled).toBe(false)
   })
 
-  it('opens the console drawer by itself on compile errors', async () => {
+  it('keeps the console closed on compile errors until Show console is pressed', async () => {
     status = { state: 'compile-errors', project: 'C:/games/game', pid: 4, copy: copy() as never, message: 'Fix the compile errors in the source, then Play again.' }
     await mount()
     await settle()
-    expect(statusLine()).toBe('Compile errorsShow console')
+    expect(statusLine()).toBe('The game has compile errors.Show console')
+    expect(host.querySelector('.play-console')).toBeNull()
+    await click('Show console')
     expect(api.playerInstanceConsole).toHaveBeenCalledWith('game', undefined, undefined)
     expect(host.querySelector('.play-console-body')?.textContent).toContain('error CS1002')
     expect(facts()).toContainEqual({ label: 'Last console error', value: 'Assets/Code.cs(3,1): error CS1002: ; expected' })
@@ -197,7 +221,7 @@ describe('Play screen', () => {
     status = { state: 'playing', project: 'C:/games/game', pid: 4, source: { path: 'C:/games/game' }, scene: 'Assets/Scenes/Arena.unity', capabilities: { input: true }, copy: copy(synced) as never }
     await mount()
     expect(api.playerInstanceStream).toHaveBeenCalledWith('game', true, 1280, 720)
-    expect(statusLine()).toBe('Playing · main @ bbbbbbb · Arena')
+    expect(statusLine()).toBe('Playing')
     expect(button('Exit Play').getAttribute('aria-pressed')).toBe('true')
     expect(facts()).toEqual(expect.arrayContaining([{ label: 'Scene', value: 'Assets/Scenes/Arena.unity' }, { label: 'Resolution', value: '1280 × 720' }]))
     await click('Pause')
@@ -221,9 +245,10 @@ describe('Play screen', () => {
     expect(api.playerInstanceExitPlay).toHaveBeenCalledWith('game')
   })
 
-  it('marks Pause pressed while paused and follows Unity\'s Play shortcuts outside the game', async () => {
+  it('says Paused, marks Pause pressed and follows Unity\'s Play shortcuts outside the game', async () => {
     status = { state: 'paused', project: 'C:/games/game', pid: 4, source: { path: 'C:/games/game' }, capabilities: { input: true }, copy: copy() as never }
     await mount()
+    expect(statusLine()).toBe('Paused')
     expect(button('Resume').getAttribute('aria-pressed')).toBe('true')
     const key = async (init: KeyboardEventInit) => { await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyP', ctrlKey: true, ...init }))) }
     await key({ shiftKey: true })
@@ -234,12 +259,13 @@ describe('Play screen', () => {
     expect(api.playerInstanceExitPlay).toHaveBeenCalledWith('game')
   })
 
-  it('streams the saved resolution, notes legacy input, and exits Play when the screen closes', async () => {
+  it('streams the saved resolution, keeps legacy input out of the page, and exits Play when the screen closes', async () => {
     localStorage.setItem('genio.play.resolution.game', '640x360')
     status = { state: 'playing', project: 'C:/games/game', pid: 4, source: { path: 'C:/games/game' }, capabilities: { input: false }, copy: copy() as never }
     await mount()
     expect(api.playerInstanceStream).toHaveBeenCalledWith('game', true, 640, 360)
-    expect(text()).toContain('View only: this game reads legacy input')
+    expect(text()).not.toContain('View only')
+    expect(button('Lock pointer').disabled).toBe(true)
     expect(facts()).toContainEqual({ label: 'Input', value: 'This game reads legacy input, so the stream is view-only' })
     await act(async () => root.render(null))
     expect(api.playerInstanceStream).toHaveBeenCalledTimes(1)
@@ -255,14 +281,39 @@ describe('Play screen', () => {
     expect(api.playerInstanceStream).not.toHaveBeenCalledWith('game', false)
   })
 
-  it('does not stop the next Play when main closed the stream first', async () => {
+  it('says the live view stopped on the status line, with Reconnect, when main closed the stream first', async () => {
     status = { state: 'playing', project: 'C:/games/game', pid: 4, source: { path: 'C:/games/game' }, capabilities: { input: true }, copy: copy() as never }
     const channel = { postMessage: vi.fn(), start: vi.fn(), close: vi.fn(), onmessage: null as ((e: { data: unknown }) => Promise<void>) | null }
     await mount()
     await act(async () => window.dispatchEvent(new MessageEvent('message', { source: window, data: { type: 'genio:play-port', world: 'game' }, ports: [channel as unknown as MessagePort] })))
     await act(async () => channel.onmessage!({ data: { type: 'closed' } }))
-    expect(text()).toContain('The live stream ended.')
+    expect(statusLine()).toBe('The live view stopped.Reconnect')
+    expect(host.querySelector('.play-screen')?.textContent).toBe('')
+    expect(facts()).toContainEqual({ label: 'Live view', value: 'The live stream ended.' })
     expect(api.playerInstanceStream).toHaveBeenCalledTimes(1)
+    await click('Reconnect')
+    expect(api.playerInstanceStream).toHaveBeenCalledTimes(2)
+    expect(statusLine()).toBe('Playing')
+  })
+
+  it('shows exactly one status line, at most one progress bar and nothing else in every main state', async () => {
+    const states: PlayerInstanceStatus[] = [
+      { state: 'idle', project: 'p' },
+      { state: 'copying', project: 'p', copy: copying(1, 4) },
+      { state: 'starting', project: 'p', pid: 3, startup: 'Importing' },
+      { state: 'ready', project: 'p', pid: 3, source: { path: 'C:/games/game' }, deadline: NOW + 60_000, copy: copy(synced) as never },
+      { state: 'error', project: 'p', message: 'Play hit an unexpected problem: boom.' }
+    ]
+    for (const s of states) {
+      status = s
+      await mount()
+      expect(host.querySelectorAll('[role=status]')).toHaveLength(1)
+      expect(host.querySelectorAll('[role=progressbar]').length).toBeLessThanOrEqual(1)
+      expect(host.querySelectorAll('[role=note], [role=alert], [role=alertdialog]')).toHaveLength(0)
+      expect(host.querySelector('.play-screen')?.textContent).toBe('')
+      await act(async () => root.unmount()); root = createRoot(host)
+    }
+    expect(nav.toast).not.toHaveBeenCalled()
   })
 })
 
@@ -274,6 +325,7 @@ it('decodes one live frame per credit, forwards held input only while focused, a
   try {
     await act(async () => root.render(React.createElement(PlayLive, { world: 'game', width: 640, height: 360, input: true, onClosed: vi.fn() })))
     expect(api.playerInstanceStream).toHaveBeenCalledWith('game', true, 640, 360)
+    expect(host.textContent).toBe('LockFull screen')
     await act(async () => window.dispatchEvent(new MessageEvent('message', { source: window, data: { type: 'genio:play-port', world: 'game' }, ports: [channel as unknown as MessagePort] })))
     expect(channel.postMessage).toHaveBeenCalledWith({ type: 'ready' })
     await act(async () => channel.onmessage!({ data: { type: 'frame', bytes: new Uint8Array([255, 216, 255, 217]) } }))
@@ -291,47 +343,84 @@ it('decodes one live frame per credit, forwards held input only while focused, a
   } finally { context.mockRestore(); vi.unstubAllGlobals() }
 })
 
-describe('Play screen helpers', () => {
-  it('formats the countdown, progress, status line, chip, sync and first copy', () => {
-    expect(clock(462_000)).toBe('7:42')
-    expect(clock(3_725_000)).toBe('1:02:05')
-    expect(clock(-5)).toBe('0:00')
-    expect(progressText({ phase: 'scanning', startedAt: NOW }, NOW)).toBe('Comparing files')
-    expect(progressText({ phase: 'copying', startedAt: NOW - 60_000, bytes: { done: 120 * 2 ** 20, total: 253 * 2 ** 20 } }, NOW)).toBe('Copying · 120 of 253 MB · about 2 min left')
-    expect(progressText({ phase: 'library', startedAt: NOW, bytes: { done: 512 * 2 ** 20, total: 2 ** 31 } }, NOW + 1000)).toBe('Seeding the Library · 512 MB of 2.0 GB')
-    expect(statusText({ state: 'idle', project: 'p' })).toBe('Unity is off')
-    expect(statusText({ state: 'paused', project: 'p', copy: copy({ source: { kind: 'ref', ref: 'develop', commit: 'c0ffee12' } }) as never }, 'Arena')).toBe('Paused · develop @ c0ffee1 · Arena')
-    expect(statusText({ state: 'limit-reached', project: 'p', message: '2 Unity editors already open' })).toBe('2 Unity editors already open')
+describe('playLine: one status line and one progress bar per state', () => {
+  const at = (state: PlayerState, extra: Partial<PlayerInstanceStatus> = {}) => ({ state, project: 'p', ...extra }) as PlayerInstanceStatus
+  it('maps every instance state to a plain word or one short problem sentence', () => {
+    const table: [PlayerState, string, string, unknown, string | undefined][] = [
+      ['idle', 'Stopped', 'off', undefined, undefined],
+      ['copying', 'Preparing', 'work', 'indeterminate', undefined],
+      ['syncing', 'Preparing', 'work', 'indeterminate', undefined],
+      ['starting', 'Starting Unity', 'work', 'indeterminate', undefined],
+      ['entering-play', 'Starting Play', 'work', 'indeterminate', undefined],
+      ['ready', 'Ready', 'ready', undefined, undefined],
+      ['playing', 'Playing', 'live', undefined, undefined],
+      ['paused', 'Paused', 'live', undefined, undefined],
+      ['exiting-play', 'Stopping', 'work', undefined, undefined],
+      ['shutting-down', 'Stopping', 'work', undefined, undefined],
+      ['crashed', 'Unity closed unexpectedly.', 'problem', undefined, undefined],
+      ['stuck-dialog', 'A Unity dialog is blocking the editor.', 'problem', undefined, 'visible'],
+      ['close-stuck', 'Unity would not close.', 'problem', undefined, undefined],
+      ['compile-errors', 'The game has compile errors.', 'problem', undefined, 'console'],
+      ['low-memory', 'Not enough free memory for Unity.', 'problem', undefined, undefined],
+      ['missing-editor', 'This project\'s Unity version is not installed.', 'problem', undefined, undefined],
+      ['limit-reached', 'Too many Play editors are open.', 'problem', undefined, 'settings'],
+      ['error', 'Play failed.', 'problem', undefined, 'retry']
+    ]
+    for (const [state, text, kind, bar, action] of table) {
+      expect(playLine({ status: at(state, { message: 'technical detail, 12 files, 3.1 GB' }) }), state).toEqual({ text, kind, ...(bar ? { bar } : {}), ...(action ? { action } : {}) })
+    }
+    expect(playLine({})).toEqual({ text: 'Loading', kind: 'off' })
+  })
+
+  it('drives the bar by the copy\'s overall percentage, else indeterminate', () => {
+    expect(playLine({ status: at('copying', { copy: copying(3, 4) }) }).bar).toBe(75)
+    expect(playLine({ status: at('syncing', { copy: copying(0, 0) }) }).bar).toBe('indeterminate')
+  })
+
+  it('answers a press at once: Preparing, Starting Play or Stopping while the call runs', () => {
+    expect(playLine({ status: at('idle'), busy: 'start' })).toEqual({ text: 'Preparing', kind: 'work', bar: 'indeterminate' })
+    expect(playLine({ status: at('crashed'), busy: 'enter' })).toEqual({ text: 'Preparing', kind: 'work', bar: 'indeterminate' })
+    expect(playLine({ status: at('ready'), busy: 'enter' })).toEqual({ text: 'Starting Play', kind: 'work', bar: 'indeterminate' })
+    expect(playLine({ status: at('playing'), busy: 'exit' })).toEqual({ text: 'Stopping', kind: 'work' })
+    expect(playLine({ status: at('playing'), busy: 'pause' })).toEqual({ text: 'Playing', kind: 'live' })
+    expect(playLine({ status: at('ready'), busy: 'scene' })).toEqual({ text: 'Ready', kind: 'ready' })
+  })
+
+  it('folds local problems into the same line: a failed call, a missing source, a closed live view, a removed source', () => {
+    expect(playLine({ status: at('ready'), error: 'Streaming requires the owning project window' })).toEqual({ text: 'Something went wrong.', kind: 'problem' })
+    expect(playLine({ status: at('crashed'), error: 'x' }).text).toBe('Unity closed unexpectedly.')
+    expect(playLine({ status: at('idle'), missing: true })).toEqual({ text: 'That source is gone. Pick another one.', kind: 'problem' })
+    expect(playLine({ status: at('playing'), streamEnded: true })).toEqual({ text: 'The live view stopped.', kind: 'problem', action: 'reconnect' })
+    expect(playLine({ status: at('idle'), streamEnded: true }).text).toBe('Stopped')
+    expect(playLine({ status: at('idle', { sourceGone: { when: 'loading', at: NOW, unit: 'Ranger', merged: true, base: 'main' } }) })).toEqual({ text: 'This unit was removed.', kind: 'problem', action: 'main' })
+    expect(playLine({ status: at('playing', { sourceGone: { when: 'running', at: NOW } }) }).text).toBe('Playing')
+    expect(playLine({ status: at('playing', { sourceGone: { when: 'fallback', at: NOW } }) }).text).toBe('Playing')
+  })
+
+  it('formats picker rows and the chip', () => {
     expect(chipText(SOURCES[0])).toBe('main')
     expect(chipText(SOURCES[2])).toBe('Ranger (lairs AI)')
-    expect(syncSummary({ lastSync: { at: 0, complete: true, elapsedMs: 15_400, files: { source: 1, unchanged: 1, added: 0, updated: 0, restored: 0, deleted: 0, unityMadeDeleted: 0, unityMadeKept: 0 } } } as never)).toBe('already in sync (15 s)')
-    expect(firstCopyText(3.6e9)).toBe('about 3.4 GB, about 1 min')
-    expect(copyMinutes(55e9)).toEqual({ min: 13, max: 20 })
     expect(sourceText({ id: 'w', group: 'worktree', label: 'x', source: { path: 'x' }, head: 'c'.repeat(40) })).toBe('x · detached ccccccc')
   })
 })
 
 describe('Play screen: a source that vanishes', () => {
   const gone = (when: 'loading' | 'running' | 'fallback') => ({ when, at: NOW, unit: 'Ranger (lairs AI)', merged: true, base: 'main' })
-  const note = () => [...host.querySelectorAll('.play-gone')].map(p => p.textContent).join(' | ')
 
-  it('says plainly that a unit was merged and removed while loading, and plays main in one click', async () => {
+  it('says a unit was removed while loading on the status line and plays main in one click', async () => {
     status = { state: 'idle', project: 'C:/games/game', message: 'x', sourceGone: gone('loading') }
     await mount()
-    expect(note()).toBe('This unit was merged and removed while loading. Its work is in main now.Play main instead')
-    expect(host.querySelector('.play-status')?.className).not.toContain('alert-text')
-    expect(host.querySelector('[role=alertdialog], .alert-text')).toBeNull()
+    expect(statusLine()).toBe('This unit was removed.Play main')
     expect(facts()).toContainEqual({ label: 'Source gone', value: 'This unit was merged and removed while loading. Its work is in main now.' })
-    await click('Play main instead')
+    await click('Play main')
     expect(api.playerInstanceEnterPlay).toHaveBeenCalledWith('game', { path: 'C:/games/game' })
     expect(select('Play source').value).toBe('main')
   })
 
-  it('keeps playing with a dim note when the source went after the copy; the controls still work', async () => {
+  it('keeps playing with no extra note when the source went after the copy; the controls still work', async () => {
     status = { state: 'playing', project: 'C:/games/game', pid: 7, source: { path: 'C:/units/lairs' }, sourceGone: gone('running') }
     await mount()
-    expect(host.querySelector('.play-gone-note')?.textContent).toContain('source was merged and removed')
-    expect(note()).toBe('')
+    expect(statusLine()).toBe('Playing')
     expect(button('Pause').disabled).toBe(false)
     await click('Pause')
     expect(api.playerInstancePause).toHaveBeenCalledWith('game')
@@ -339,26 +428,28 @@ describe('Play screen: a source that vanishes', () => {
     expect(api.playerInstanceExitPlay).toHaveBeenCalledWith('game')
   })
 
-  it('says the next Play fell back to main', async () => {
+  it('says only Playing when the next Play fell back to main', async () => {
     status = { state: 'playing', project: 'C:/games/game', pid: 7, source: { path: 'C:/games/game' }, sourceGone: gone('fallback') }
     await mount()
-    expect(note()).toBe('This unit was merged and removed, so Genio played the main checkout instead. Its work is in main now.')
-    expect(host.querySelector('.play-gone')?.className).toContain('dim')
+    expect(statusLine()).toBe('Playing')
   })
 
   it('preselects the unit from Play this unit, once, without starting Unity', async () => {
     localStorage.setItem('genio.play.request', JSON.stringify({ world: 'game', source: 'unit:t1', at: NOW }))
     await mount(); await settle()
     expect(select('Play source').value).toBe('unit:t1')
+    expect(statusLine()).toBe('Stopped')
     expect(localStorage.getItem('genio.play.request')).toBeNull()
     expect(api.playerInstanceEnterPlay).not.toHaveBeenCalled(); expect(api.playerInstanceStartUnity).not.toHaveBeenCalled()
   })
 
-  it('says so inline when the requested unit is already gone', async () => {
+  it('says so on the status line when the requested unit is already gone', async () => {
     localStorage.setItem('genio.play.request', JSON.stringify({ world: 'game', source: 'unit:t9', at: NOW }))
     await mount(); await settle()
     expect(select('Play source').value).toBe('main')
-    expect(note()).toContain('That unit\'s worktree is gone: it was merged or despawned')
+    expect(statusLine()).toBe('That source is gone. Pick another one.')
+    await choose('Play source', 'branch:develop')
+    expect(statusLine()).toBe('Stopped')
   })
 
   it('drops a vanished unit from the picker within seconds and says so', async () => {
@@ -370,25 +461,27 @@ describe('Play screen: a source that vanishes', () => {
     await settle(10_000)
     expect([...select('Play source').querySelectorAll('option')].map(o => o.value)).not.toContain('unit:t1')
     expect(select('Play source').value).toBe('main')
-    expect(note()).toContain('Ranger (lairs AI) is gone: the unit was merged or despawned')
+    expect(statusLine()).toBe('That source is gone. Pick another one.')
     api.playerSourceAvailable.mockImplementation(async () => true); api.playerSources.mockImplementation(async () => SOURCES)
   })
 
-  it('answers a pick of a source that vanished since the list was read with a message, not a Play', async () => {
+  it('answers a pick of a source that vanished since the list was read on the status line, not with a Play', async () => {
     status = { state: 'playing', project: 'C:/games/game', pid: 7, source: { path: 'C:/games/game' } }
     api.playerSourceAvailable.mockImplementation(async () => false)
     await mount()
     await choose('Play source', 'unit:t1'); await settle()
-    expect(note()).toContain('Ranger (lairs AI) is gone')
+    expect(statusLine()).toBe('That source is gone. Pick another one.')
     expect(api.playerInstanceEnterPlay).not.toHaveBeenCalled()
     api.playerSourceAvailable.mockImplementation(async () => true)
   })
 
-  it('offers Retry after an unexpected failure', async () => {
+  it('offers Try again after an unexpected failure, keeping the detail for Genio', async () => {
     status = { state: 'error', project: 'C:/games/game', message: 'Play hit an unexpected problem: boom. Retry, or Stop Unity.' }
     await mount()
-    expect(statusLine()).toContain('Play hit an unexpected problem')
-    await click('Retry')
+    expect(statusLine()).toBe('Play failed.Try again')
+    expect(text()).not.toContain('boom')
+    expect(facts()).toContainEqual({ label: 'Status', value: 'Play failed. · Play hit an unexpected problem: boom. Retry, or Stop Unity.' })
+    await click('Try again')
     expect(api.playerInstanceEnterPlay).toHaveBeenCalledWith('game', { path: 'C:/games/game' }, {})
   })
 })

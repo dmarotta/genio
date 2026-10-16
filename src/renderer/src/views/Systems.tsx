@@ -538,7 +538,7 @@ function UnityAndPlay() {
     <>
       <SettingsTitle page="play" />
       {world
-        ? <PlayerInstanceSettings key={world.name} world={world.name} own={!!own} />
+        ? <PlayerInstanceSettings key={world.name} world={world.name} />
         : <p className="mute">Register a Unity project to use Play.</p>}
     </>
   )

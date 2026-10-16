@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { Lock, Maximize } from 'lucide-react'
 import type { PlayInput } from '@shared/play'
 
@@ -21,8 +21,6 @@ export function PlayLive({ world, width, height, input, onClosed, onError }: {
   const pointer = useRef({ x: 0.5, y: 0.5, buttons: 0 })
   const enabled = useRef(input)
   const size = useRef({ width, height })
-  const [received, setReceived] = useState(false)
-  const [stalled, setStalled] = useState(false)
   const release = (): void => {
     keys.current.clear(); pointer.current.buttons = 0
     port.current?.postMessage({ type: 'input', input: { type: 'release' } })
@@ -31,7 +29,6 @@ export function PlayLive({ world, width, height, input, onClosed, onError }: {
   useEffect(() => {
     clearTimeout(leaving.get(world)); leaving.delete(world)
     let closed = false, decoding = false, ended = false
-    let deadline: ReturnType<typeof setTimeout>
     const end = (message: string): void => { if (!closed && !ended) { ended = true; onClosed(message) } }
     const connect = (event: MessageEvent): void => {
       if (event.source !== window || event.data?.type !== 'genio:play-port' || event.data.world !== world || !event.ports[0]) return
@@ -45,7 +42,7 @@ export function PlayLive({ world, width, height, input, onClosed, onError }: {
         decoding = true
         try {
           const bitmap = await createImageBitmap(new Blob([new Uint8Array(data.bytes).buffer], { type: 'image/jpeg' }))
-          try { const c = canvas.current; if (!closed && c) { c.getContext('2d')?.drawImage(bitmap, 0, 0, c.width, c.height); setReceived(true); setStalled(false); clearTimeout(deadline) } }
+          try { const c = canvas.current; if (!closed && c) c.getContext('2d')?.drawImage(bitmap, 0, 0, c.width, c.height) }
           finally { bitmap.close() }
         } catch { end('Could not decode the Unity stream.') }
         finally { decoding = false; if (!closed && port.current === channel) channel.postMessage({ type: 'ready' }) }
@@ -55,7 +52,6 @@ export function PlayLive({ world, width, height, input, onClosed, onError }: {
     const blur = (): void => { release(); if (document.pointerLockElement === canvas.current) void document.exitPointerLock() }
     window.addEventListener('message', connect); window.addEventListener('blur', blur)
     document.addEventListener('visibilitychange', blur)
-    deadline = setTimeout(() => setStalled(true), 15000)
     void window.genio.api.playerInstanceStream(world, true, size.current.width, size.current.height).catch(e => end(message(e)))
     const timer = setInterval(() => {
       if (!enabled.current || document.hidden || document.activeElement !== canvas.current || !port.current) return
@@ -67,7 +63,7 @@ export function PlayLive({ world, width, height, input, onClosed, onError }: {
       port.current.postMessage({ type: 'input', input: state })
     }, 33)
     return () => {
-      closed = true; clearTimeout(deadline); clearInterval(timer); release()
+      closed = true; clearInterval(timer); release()
       const open = port.current
       port.current = undefined
       window.removeEventListener('message', connect); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange', blur)
@@ -98,13 +94,11 @@ export function PlayLive({ world, width, height, input, onClosed, onError }: {
         onKeyDown={e => { if (e.key === 'Escape') { enabled.current = false; release(); e.currentTarget.blur(); return }; if (!input || e.metaKey) return; enabled.current = true; e.preventDefault(); if (keys.current.size < 32) keys.current.add(key(e.code)) }}
         onFocus={() => { enabled.current = input }}
         onKeyUp={e => { keys.current.delete(key(e.code)); if (input) e.preventDefault() }} />
-      {!received && <span className="play-canvas-note">{stalled ? 'No frames yet. Unity may be busy; the Unity console is in the ⋯ menu.' : 'Connecting the live stream…'}</span>}
     </div>
     {/* Left-aligned: the floating Genio chat sits over the bottom-right corner. */}
     <div className="play-live-bar">
-      <button className="btn sm ghost" disabled={!input} title="Lock pointer" aria-label="Lock pointer" onClick={() => { canvas.current?.focus(); void canvas.current?.requestPointerLock() }}><Lock size={13} /><span className="play-live-label">Lock</span></button>
+      <button className="btn sm ghost" disabled={!input} title={input ? 'Lock pointer' : 'View only: this game reads legacy input'} aria-label="Lock pointer" onClick={() => { canvas.current?.focus(); void canvas.current?.requestPointerLock() }}><Lock size={13} /><span className="play-live-label">Lock</span></button>
       <button className="btn sm ghost" title="Full screen" aria-label="Full screen" onClick={() => { if (canvas.current) void canvas.current.requestFullscreen().then(() => window.genio.api.featureUsed('play-fullscreen')).catch(() => {}) }}><Maximize size={13} /><span className="play-live-label">Full screen</span></button>
-      <span className="mute">{input ? 'Click the game to control it · Esc releases' : 'View only: this game reads legacy input'}</span>
     </div>
   </div>
 }

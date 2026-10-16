@@ -581,15 +581,6 @@ export class PlayerInstanceService {
       return this.status(world)
     })
   }
-  keepAlive(world: string) {
-    const { project } = this.project(world)
-    return this.serial(project, async () => {
-      const i = this.instances.get(project)
-      if (i?.launch && i.stoppedAt !== undefined) await this.idle(i)
-      else if (!i?.launch && this.copies.status(project)?.deadline !== undefined) await this.copies.stopped(project, this.system.now(), this.settings.idleMinutes * 60000)
-      return this.status(world)
-    })
-  }
   /** Quit Unity and delete the copy now (deleting the copy, closing the project window). */
   quit(world: string) {
     const { project } = this.project(world)
@@ -766,12 +757,6 @@ export class PlayerInstanceService {
     if (!i?.launch || (i.state !== 'playing' && i.state !== 'paused')) { if (input.type === 'release') return; throw new Error('The player instance is not playing') }
     if (input.type !== 'release' && !this.supportsInput(i)) throw new Error('Legacy input is view-only')
     this.local(i).input(input)
-  }
-  /** The hidden desktop's screenshot taken when a dialog blocked this instance, as a PNG data URL. */
-  dialogScreenshot(world: string): string | undefined {
-    const i = this.instances.get(this.project(world).project), file = i?.dialog?.screenshot, dir = i?.launch?.dir
-    if (!file || !dir || path.dirname(path.resolve(file)) !== path.resolve(dir) || !/^blocked-\d+\.png$/.test(path.basename(file))) return undefined
-    try { const bytes = fs.readFileSync(file); return bytes.length <= 16 * 2 ** 20 ? `data:image/png;base64,${bytes.toString('base64')}` : undefined } catch { return undefined }
   }
   /** The Play screen left: exit Play and keep Unity ready. */
   detach(world: string) { return this.exitPlay(world) }

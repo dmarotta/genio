@@ -110,7 +110,8 @@ async function boot(): Promise<void> {
   ctx = createApp(appRoot())
   // Background: finish pending player-copy deletions and remove copies an earlier session left behind.
   const started = ctx
-  void playerInstanceService(started).start().catch(e => bus.toast('error', 'Player instance recovery', String(e)))
+  // No toast: Play reports only on its own screen, whose status read awaits the same start() and shows a failure there.
+  void playerInstanceService(started).start().catch(e => console.error('[player-instance] recovery', e))
   const sender = (id: number): BrowserWindow | undefined => [...windows.keys()].find(w => !w.isDestroyed() && w.webContents.id === id)
   registerIpc(getCtx, {
     openProject,

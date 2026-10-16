@@ -1,87 +1,82 @@
-import { copyMinutes, type PlayerCopyRecord, type PlayerInstanceStatus, type PlayerSourceOption, type PlayerState } from '@shared/play'
+import type { PlayerInstanceStatus, PlayerSourceOption, PlayerState } from '@shared/play'
 
-/** One plain label per instance state, as the screen context shows it. */
-export const STATE_LABEL: Record<PlayerState, string> = {
-  idle: 'Unity is off',
-  copying: 'Copying',
-  starting: 'Starting Unity',
-  syncing: 'Syncing',
-  ready: 'Unity ready',
-  'entering-play': 'Entering Play',
-  playing: 'Playing',
-  paused: 'Paused',
-  'exiting-play': 'Exiting Play',
-  'shutting-down': 'Stopping Unity',
-  crashed: 'Unity crashed',
-  'stuck-dialog': 'Stuck on a dialog',
-  'close-stuck': 'Unity would not close',
-  'compile-errors': 'Compile errors',
-  'low-memory': 'Not enough memory',
-  'missing-editor': 'Unity version missing',
-  'limit-reached': 'Editor limit reached',
-  error: 'Play failed'
+/** The one action a problem may offer on the status line. */
+export type PlayLineAction = 'retry' | 'console' | 'visible' | 'settings' | 'reconnect' | 'main'
+export const ACTION_LABEL: Record<PlayLineAction, string> = {
+  retry: 'Try again', console: 'Show console', visible: 'Open Unity', settings: 'Settings', reconnect: 'Reconnect', main: 'Play main'
+}
+
+/**
+ * Everything the Play screen says about the instance: one plain line, an alert tone for a problem, the progress bar
+ * (a 0–100 percentage, or indeterminate) only while Genio prepares the copy or starts Unity or Play, and at most one
+ * action. kind colours the dot.
+ */
+export interface PlayLine {
+  text: string
+  kind: 'off' | 'work' | 'ready' | 'live' | 'problem'
+  bar?: number | 'indeterminate'
+  action?: PlayLineAction
 }
 
 /** States where Genio is working toward Play or toward quitting; the status polls faster. */
 export const WORKING: ReadonlySet<PlayerState> = new Set(['copying', 'starting', 'syncing', 'entering-play', 'exiting-play', 'shutting-down'])
-/** States that need the player's attention: the status line turns red or amber. */
-export const PROBLEMS: ReadonlySet<PlayerState> = new Set(['crashed', 'stuck-dialog', 'close-stuck', 'compile-errors', 'low-memory', 'missing-editor', 'limit-reached', 'error'])
 
-export function bytes(n: number): string {
-  if (n < 1024 ** 2) return `${Math.max(0, Math.round(n / 1024))} KB`
-  if (n < 1024 ** 3) return `${Math.round(n / 1024 ** 2)} MB`
-  return `${(n / 1024 ** 3).toFixed(1)} GB`
+/** One short sentence per problem state, and its action when one is needed. */
+const PROBLEM: Partial<Record<PlayerState, { text: string; action?: PlayLineAction }>> = {
+  crashed: { text: 'Unity closed unexpectedly.' },
+  'stuck-dialog': { text: 'A Unity dialog is blocking the editor.', action: 'visible' },
+  'close-stuck': { text: 'Unity would not close.' },
+  'compile-errors': { text: 'The game has compile errors.', action: 'console' },
+  'low-memory': { text: 'Not enough free memory for Unity.' },
+  'missing-editor': { text: 'This project\'s Unity version is not installed.' },
+  'limit-reached': { text: 'Too many Play editors are open.', action: 'settings' },
+  error: { text: 'Play failed.', action: 'retry' }
+}
+const STARTS = new Set(['start', 'start-anyway', 'restart', 'visible'])
+const ENTERS = new Set(['enter', 'enter-anyway'])
+const STOPS = new Set(['cancel', 'stop', 'close-again', 'exit'])
+
+export interface PlayLineInput {
+  status?: PlayerInstanceStatus
+  /** The call in flight, by its button's action. */
+  busy?: string
+  /** A call that failed; its text stays in the tooltip and the screen facts. */
+  error?: string
+  /** The chosen or requested source vanished from the list. */
+  missing?: boolean
+  /** The live view closed while Unity still plays. */
+  streamEnded?: boolean
 }
 
-/** "7:42", or "1:02:05" past an hour; never negative. */
-export function clock(ms: number): string {
-  const total = Math.max(0, Math.ceil(ms / 1000))
-  const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60
-  const pad = (n: number): string => String(n).padStart(2, '0')
-  return h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`
+/** The copy's overall percentage, when it reports bytes. */
+function percent(status: PlayerInstanceStatus): number | 'indeterminate' {
+  const bytes = status.copy?.progress?.bytes
+  return bytes?.total ? Math.min(100, Math.round((bytes.done / bytes.total) * 100)) : 'indeterminate'
 }
 
-/** "120 of 253 MB", or "512 MB of 1.2 GB" when the units differ. */
-function amount(done: number, total: number): string {
-  const d = bytes(done), t = bytes(total), unit = t.split(' ')[1]
-  return d.endsWith(` ${unit}`) ? `${d.split(' ')[0]} of ${t}` : `${d} of ${t}`
-}
-
-/** A running copy or sync as one line: "Copying · 120 of 253 MB · about 1 min left". */
-export function progressText(progress: PlayerCopyRecord['progress'], now: number): string | undefined {
-  if (!progress) return undefined
-  const files = progress.files ? ` · ${progress.files.done.toLocaleString()} of ${progress.files.total.toLocaleString()} files` : ''
-  if (progress.phase === 'scanning') return `Comparing files${files}`
-  if (progress.phase === 'deleting') return `Removing old files${files}`
-  const done = progress.bytes?.done ?? 0, total = progress.bytes?.total ?? 0
-  const what = progress.phase === 'library' ? 'Seeding the Library' : 'Copying'
-  if (!total) return `${what}${files}`
-  const elapsed = (now - progress.startedAt) / 1000, rate = elapsed > 3 ? done / elapsed : 0
-  const left = rate > 0 && total > done ? Math.ceil((total - done) / rate / 60) : undefined
-  return `${what} · ${amount(done, total)}${left !== undefined ? ` · about ${left} min left` : ''}`
-}
-
-/** The last sync, as one short line ("synced 31 files (12 MB) in 1.2 s"). */
-export function syncSummary(copy: PlayerCopyRecord | undefined): string | undefined {
-  const s = copy?.lastSync
-  if (!s || !s.complete || !s.files) return undefined
-  const changed = s.files.added + s.files.updated + s.files.restored + s.files.deleted
-  const seconds = s.elapsedMs < 10_000 ? (s.elapsedMs / 1000).toFixed(1) : String(Math.round(s.elapsedMs / 1000))
-  return changed ? `synced ${changed.toLocaleString()} files (${bytes(s.bytes?.copied ?? 0)}) in ${seconds} s` : `already in sync (${seconds} s)`
-}
-
-/** The background deletion of a copy after Unity quit, if one is pending or running. */
-export function deletionText(copy: PlayerCopyRecord | undefined): string | undefined {
-  if (!copy || (copy.state !== 'pending-delete' && copy.state !== 'deleting')) return undefined
-  const d = copy.deletion
-  const left = d?.bytesLeft ? ` · ${bytes(d.bytesLeft)} left` : ''
-  return `Deleting the copy in the background${left}${d?.blocked ? ` · waiting: ${d.blocked}` : ''}. Starting Unity brings it back if it is not gone yet.`
-}
-
-/** What the first start copies, for the screen context: "about 51.2 GB, about 13–20 min". */
-export function firstCopyText(totalBytes: number): string {
-  const { min, max } = copyMinutes(totalBytes)
-  return `about ${bytes(totalBytes)}, ${min === max ? `about ${min} min` : `about ${min}–${max} min`}`
+/** The status line and bar for the whole screen: a call in flight, then the instance, then local problems. */
+export function playLine({ status, busy, error, missing, streamEnded }: PlayLineInput): PlayLine {
+  const state = status?.state
+  if (!status) return { text: 'Loading', kind: 'off' }
+  if (state === 'copying' || state === 'syncing') return { text: 'Preparing', kind: 'work', bar: percent(status) }
+  if (state === 'starting') return { text: 'Starting Unity', kind: 'work', bar: 'indeterminate' }
+  if (state === 'entering-play') return { text: 'Starting Play', kind: 'work', bar: 'indeterminate' }
+  if (state === 'exiting-play' || state === 'shutting-down' || (busy && STOPS.has(busy))) return { text: 'Stopping', kind: 'work' }
+  if (busy && (STARTS.has(busy) || (ENTERS.has(busy) && state !== 'playing' && state !== 'paused'))) {
+    return state === 'ready' && ENTERS.has(busy) ? { text: 'Starting Play', kind: 'work', bar: 'indeterminate' } : { text: 'Preparing', kind: 'work', bar: 'indeterminate' }
+  }
+  const problem = state && PROBLEM[state]
+  if (problem) return { text: problem.text, kind: 'problem', action: problem.action }
+  if (error) return { text: 'Something went wrong.', kind: 'problem' }
+  if (missing) return { text: 'That source is gone. Pick another one.', kind: 'problem' }
+  if (streamEnded && (state === 'playing' || state === 'paused')) return { text: 'The live view stopped.', kind: 'problem', action: 'reconnect' }
+  if (status.sourceGone?.when === 'loading') return { text: `${status.sourceGone.unit ? 'This unit' : 'This source'} was removed.`, kind: 'problem', action: 'main' }
+  switch (state) {
+    case 'ready': return { text: 'Ready', kind: 'ready' }
+    case 'playing': return { text: 'Playing', kind: 'live' }
+    case 'paused': return { text: 'Paused', kind: 'live' }
+    default: return { text: 'Stopped', kind: 'off' }
+  }
 }
 
 const short = (head?: string): string => (head ? head.slice(0, 7) : '')
@@ -93,7 +88,7 @@ export function sourceText(o: PlayerSourceOption): string {
   return `${o.label}${o.branch ? ` · ${o.branch}` : o.head ? ` · detached ${short(o.head)}` : ''}${dirty(o.dirty)}`
 }
 
-/** The header chip: "main" for the main checkout, else the worktree, unit or branch name. */
+/** The source picker's face: "main" for the main checkout, else the worktree, unit or branch name. */
 export function chipText(o: PlayerSourceOption): string {
   return o.group === 'main' ? 'main' : o.label
 }
@@ -105,13 +100,6 @@ export const SOURCE_GROUPS: { group: PlayerSourceOption['group']; label: string 
   { group: 'branch', label: 'Branches (played from commits)' }
 ]
 
-/** What is playing or last played, from the copy's record: "feat/formation-controls @ 6ff3823". */
-export function playedText(status: PlayerInstanceStatus | undefined): string | undefined {
-  const s = status?.copy?.lastSync?.source ?? status?.copy?.source
-  if (!s) return undefined
-  return s.kind === 'checkout' ? `${s.branch ?? 'detached'}${s.head ? ` @ ${short(s.head)}` : ''}` : `${s.ref} @ ${short(s.commit)}`
-}
-
 /** The streamed resolutions; `short` labels the narrow layout. The stream accepts 16–1920 per side. */
 export const RESOLUTIONS: { id: string; width: number; height: number; label: string; short: string }[] = [
   { id: '1280x720', width: 1280, height: 720, label: '1280 × 720', short: '720p' },
@@ -121,26 +109,3 @@ export const RESOLUTIONS: { id: string; width: number; height: number; label: st
   { id: '720x1280', width: 720, height: 1280, label: '720 × 1280 portrait', short: 'Portrait' }
 ]
 export const DEFAULT_RESOLUTION = RESOLUTIONS[0]
-
-/** The one status line for a state (the copy progress replaces it while copying). */
-export function statusText(status: PlayerInstanceStatus | undefined, scene?: string): string {
-  if (!status) return 'Loading'
-  const where = [playedText(status), scene].filter(Boolean).join(' · ')
-  switch (status.state) {
-    case 'idle': return 'Unity is off'
-    case 'copying': return 'Copying the project…'
-    case 'starting': return 'Starting Unity…'
-    case 'syncing': return 'Syncing the source…'
-    case 'ready': return 'Unity ready'
-    case 'entering-play': return 'Entering Play…'
-    case 'playing': return where ? `Playing · ${where}` : 'Playing'
-    case 'paused': return where ? `Paused · ${where}` : 'Paused'
-    case 'exiting-play': return 'Exiting Play…'
-    case 'shutting-down': return 'Stopping Unity…'
-    case 'crashed': return `Unity closed unexpectedly${status.exitCode !== undefined ? ` (exit ${status.exitCode})` : ''}`
-    case 'stuck-dialog': return `A Unity dialog is blocking the editor${status.dialog?.title ? `: ${status.dialog.title}` : ''}`
-    case 'close-stuck': return 'Unity would not close'
-    case 'compile-errors': return 'Compile errors'
-    default: return status.message ?? STATE_LABEL[status.state]
-  }
-}

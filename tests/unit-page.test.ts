@@ -309,7 +309,7 @@ describe('Play this unit', () => {
     await openUnity(unit({ state: 'ready', readyAt: NOW }))
     expect(primary()).toEqual(['Merge into main', 'Play', 'More'])
     expect(play()!.disabled).toBe(false)
-    expect(play()!.title).toContain('as the source')
+    expect(play()!.title).toBe('Play this unit\'s worktree')
   })
 
   it.each([
@@ -324,17 +324,17 @@ describe('Play this unit', () => {
     expect(play()!.disabled).toBe(false)
   })
 
-  it('is disabled with the reason once the worktree is gone', async () => {
+  it('is disabled with one short reason once the worktree is gone', async () => {
     await openUnity(unit({ state: 'cleaned', landedCommit: '8f2c1e9a4b7d03', cleanedAt: NOW }))
     expect(play()!.disabled).toBe(true)
-    expect(play()!.title).toBe('Merged and removed: its work is in main now. Play main from the Play screen.')
+    expect(play()!.title).toBe('Its worktree is gone.')
     await openUnity(unit({ state: 'cleaned', cleanedAt: NOW }))
-    expect(play()!.title).toBe('Despawned: its worktree is gone, so there is nothing of it to play.')
+    expect(play()!.title).toBe('Its worktree is gone.')
     files = { diffstat: '(worktree removed)' }
     await openUnity(unit({ id: 'u2', state: 'done' }))
     await act(async () => { await Promise.resolve() })
     expect(play()!.disabled).toBe(true)
-    expect(play()!.title).toBe('Its worktree was removed, so there is nothing of it to play.')
+    expect(play()!.title).toBe('Its worktree is gone.')
   })
 
   it('opens that project\'s Play with the unit preselected, once, without starting Unity', async () => {
