@@ -61,7 +61,7 @@ def _trace(path):
 
 
 def run_script(path, kind, api):
-    code = open(path, encoding='utf8').read()
+    code = open(path, encoding='utf-8-sig').read()  # Windows PowerShell 5.1 writes a BOM
     env = {'__name__': '__genio_step__', '__file__': path, 'bpy': bpy, 'p': p}
     buf = io.StringIO()
     with warnings.catch_warnings(record=True) as caught:
@@ -274,7 +274,11 @@ def render_sheet(out_dir, size, stats):
         ob.hide_render = ob not in shipped
     scene.render.engine = 'BLENDER_WORKBENCH'
     shading = scene.display.shading
-    shading.light, shading.color_type = 'STUDIO', 'MATERIAL'
+    # Baked parts show their textures (Workbench draws each material's active image node);
+    # parts without one keep their material colour.
+    textured = any(s.material and s.material.node_tree and any(n.type == 'TEX_IMAGE' and n.image for n in s.material.node_tree.nodes)
+                   for o in shipped if o.type == 'MESH' for s in o.material_slots)
+    shading.light, shading.color_type = 'STUDIO', 'TEXTURE' if textured else 'MATERIAL'
     shading.show_cavity, shading.cavity_type = True, 'WORLD'
     shading.show_object_outline = True
     scene.display.render_aa = '8'
@@ -367,9 +371,12 @@ def run_step(item, plan, replay, first, last):
                 run_script(path, 'replay', [])
             lap('replay')
         if script:
+            p.BAKES.clear()
             code, printed = run_script(script, 'error', receipt['api_warnings'])
             receipt['caption'] = caption_of(code)
             receipt['output'] = printed
+            if p.BAKES:
+                receipt['bakes'] = list(p.BAKES)
         lap('script')
     except StepError as e:
         receipt.update(kind=e.kind, error=str(e), trace=e.trace, output=e.output)

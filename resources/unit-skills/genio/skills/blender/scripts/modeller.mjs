@@ -170,11 +170,24 @@ export function prune(m, dir, keep = KEEP_SNAPSHOTS) {
   return dropped
 }
 
+const BAKES = /\bp\.bake_maps\s*\(/
+
+/**
+ * Blender's --threads caps Cycles too, and a script cannot raise it: a plan whose scripts (replays
+ * included) call p.bake_maps runs on every core, others on the runner's default. An explicit
+ * `threads` wins.
+ */
+export function planThreads(plan, threads) {
+  if (threads) return threads
+  const scripts = [...plan.replay, ...plan.steps.map((s) => s.script)].filter(Boolean)
+  return scripts.some((f) => BAKES.test(fs.readFileSync(f, 'utf8'))) ? os.availableParallelism() : undefined
+}
+
 /** One Blender for the whole plan; its plan.json goes into the first step's folder. */
 function runPlan(m, dir, plan, base, { timeout, threads, runner, signal }) {
   const planFile = path.join(plan.steps[0].out, 'plan.json')
   fs.writeFileSync(planFile, JSON.stringify(plan, null, 1))
-  return runBlender({ blender: m.blender.path, prefix: runner?.prefix ?? [], script: STEP_SCRIPT, blend: base.blend, args: [planFile], threads, timeout, signal, scratch: path.join(dir, 'logs') })
+  return runBlender({ blender: m.blender.path, prefix: runner?.prefix ?? [], script: STEP_SCRIPT, blend: base.blend, args: [planFile], threads: planThreads(plan, threads), timeout, signal, scratch: path.join(dir, 'logs') })
 }
 
 function failureKind(run, receipt) {
@@ -284,7 +297,8 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
     published.push({
       ok: true, model: m.model, id: s.id, n: s.n, name: s.name, caption: entry.caption, branch: m.branch, parent,
       triangles: entry.triangles, vertices: entry.vertices, objects: entry.objects, bounds: receipt.bounds ?? null,
-      warnings: receipt.warnings, sheet: abs.sheet, glb: abs.glb, blend: abs.blend, receipt: abs.receipt, ms, pruned
+      warnings: receipt.warnings, sheet: abs.sheet, glb: abs.glb, blend: abs.blend, receipt: abs.receipt, ms, pruned,
+      ...(receipt.bakes ? { bakes: receipt.bakes } : {})
     })
     parent = s.id
     lastAt = Date.now()

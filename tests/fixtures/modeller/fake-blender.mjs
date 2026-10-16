@@ -5,6 +5,8 @@
 //   # part: <name>     add a part        # remove: <name>   drop a part
 //   # fake: error      raise              # fake: crash      exit 3 mid-step
 //   # fake: hang       never finish
+// A `p.bake_maps(` call lists one bake in the receipt, as genio_parts does; receipts carry the
+// --threads Blender was started with.
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -14,6 +16,7 @@ const argv = process.argv.slice(2)
 const blend = argv.slice(0, argv.indexOf('--python')).find((a) => a.endsWith('.blend'))
 const plan = JSON.parse(fs.readFileSync(argv[argv.indexOf('--') + 1], 'utf8'))
 const state = blend ? JSON.parse(fs.readFileSync(blend).subarray(4).toString('utf8')) : { parts: [], scripts: [] }
+const threads = Number(argv[argv.indexOf('--threads') + 1])
 const captionOf = (code) => code.match(/^"""(.*?)(?:"""|$)/m)?.[1]?.trim() || null
 // A batch's steps run back to back, each published by its receipt; FAKE_BLENDER_STEP_MS paces them.
 const pace = Number(process.env.FAKE_BLENDER_STEP_MS) || 0
@@ -41,12 +44,16 @@ function apply(file, kind) {
   for (const m of code.matchAll(/^# remove: (.+)$/gm)) state.parts = state.parts.filter((p) => p !== m[1].trim())
   for (const m of code.matchAll(/^# part: (.+)$/gm)) if (!state.parts.includes(m[1].trim())) state.parts.push(m[1].trim())
   state.scripts.push(captionOf(code) ?? path.basename(file))
+  if (kind === 'error' && /\bp\.bake_maps\(/.test(code)) {
+    const size = Number(code.match(/bake_maps\(.*size=(\d+)/)?.[1] ?? 1024)
+    receipt.bakes = [{ parts: state.parts.length, materials: 1, size, samples: 8, device: 'CPU', threads, bakes: 2, bake_s: { basecolor: 0.1, roughmetal: 0.1 }, total_s: 0.3, files: {}, material: 'Baked' }]
+  }
   return true
 }
 
 async function main() {
   for (const [i, item] of plan.steps.entries()) {
-    receipt = { schema: 'genio.modeller-step.v1', ok: false, ...item.step, blender: 'fake', api_warnings: [], replayed: plan.replay.length, base: blend ?? null, batch_index: i }
+    receipt = { schema: 'genio.modeller-step.v1', ok: false, ...item.step, blender: 'fake', api_warnings: [], replayed: plan.replay.length, base: blend ?? null, batch_index: i, threads }
     out = (name) => path.join(item.out, name)
     fs.mkdirSync(item.out, { recursive: true })
     if (i === 0) for (const file of plan.replay) apply(file, 'replay')

@@ -346,6 +346,25 @@ describe('Modeller kernel with a fake Blender', { timeout: 60000 }, () => {
     expect(live()).toMatchObject({ of: 'step 1 of 1', n: [1] })
   })
 
+  it('starts Blender on every core for a step or replay that bakes, and reports its bakes', async () => {
+    await fakeModel()
+    const receipt = (s: StepDone) => JSON.parse(fs.readFileSync(s.receipt, 'utf8'))
+    const legs = done(await step(script('s01_legs.py', 'Legs', '# part: Legs', '# part: Deck')))
+    expect(receipt(legs).threads).toBe(Math.min(4, os.availableParallelism()))
+    expect(legs.bakes).toBeUndefined()
+    const paintFile = script('s02_paint.py', 'Painting it', "p.uv_atlas()", "p.camo('Armor', 'red')", "p.weathering('Steel')", 'p.bake_maps(size=2048)')
+    const paint = done(await step(paintFile))
+    expect(receipt(paint)).toMatchObject({ threads: os.availableParallelism(), bakes: [{ parts: 2, size: 2048, bakes: 2 }] })
+    expect(paint.bakes).toEqual([expect.objectContaining({ parts: 2, size: 2048, threads: os.availableParallelism() })])
+    // an explicit thread count wins
+    expect(receipt(done(await step(script('s03_paint.py', 'Again', 'p.bake_maps()'), { threads: 2 }))).threads).toBe(2)
+    // replaying a bake (rebuilding a pruned snapshot) bakes too, so it gets every core
+    const plain = script('s04_rail.py', 'Rail', '# part: Rail')
+    expect(kernel.planThreads({ replay: [paintFile], steps: [{ script: plain }] })).toBe(os.availableParallelism())
+    expect(kernel.planThreads({ replay: [], steps: [{ script: plain }, { script: null }] })).toBeUndefined()
+    expect(kernel.planThreads({ replay: [paintFile], steps: [] }, 3)).toBe(3)
+  })
+
   it('derives step names and the data folder', () => {
     expect(kernel.stepName('C:/w/.genio/modeller/tower/s03_deck.py')).toBe('deck')
     expect(kernel.stepName('07-roof fix.py')).toBe('roof-fix')
@@ -368,10 +387,14 @@ describe('Modeller Blender choice', () => {
 const installed = listBlenders()
 const blender = pickModellerBlender(installed)
 
+interface GlbJson { meshes: { primitives: { indices?: number; attributes: { POSITION: number } }[] }[]; accessors: { count: number }[]; materials?: { name: string }[]; images?: unknown[] }
+const glbJson = (file: string): GlbJson => {
+  const bytes = fs.readFileSync(file)
+  return JSON.parse(bytes.toString('utf8', 20, 20 + bytes.readUInt32LE(12)))
+}
 /** Triangles in a GLB's JSON chunk. */
 function glbTriangles(file: string): number {
-  const bytes = fs.readFileSync(file)
-  const json = JSON.parse(bytes.toString('utf8', 20, 20 + bytes.readUInt32LE(12))) as { meshes: { primitives: { indices?: number; attributes: { POSITION: number } }[] }[]; accessors: { count: number }[] }
+  const json = glbJson(file)
   return json.meshes.flatMap((m) => m.primitives).reduce((n, p) => n + json.accessors[p.indices ?? p.attributes.POSITION].count / 3, 0)
 }
 const pngSize = (file: string): [number, number] => {
@@ -444,6 +467,70 @@ describe.skipIf(!blender)(`Modeller with Blender ${blender?.version.join('.') ??
     expect(broken.trace[0]).toBe('script.py:3: p.part("Nope")')
     const after = await cmd('step', 'watchtower', path.join(tower, 's06_ladder.py'))
     expect(after).toMatchObject({ ok: true, parent: 's009' })
+  }, 300000)
+
+  it('paints with the presets and bakes every part in one joined bake per map, object space intact', async () => {
+    await cmd('init', 'crates', '--target', 'web')
+    const s1 = path.join(src, 's01_crates.py')
+    fs.writeFileSync(s1, [
+      '"""Three crates and a post"""',
+      "crate = p.material('Armor', '#556b2f', rough=0.7)",
+      "steel = p.material('Steel', '#4a4d52', rough=0.4, metal=0.9)",
+      'for i in range(3):',
+      "    p.box(f'Crate {i + 1}', (1, 1, 1), loc=(i * 1.2 - 1.2, 0, 0.5), mat=crate, bevel=0.05)",
+      "p.cylinder('Post', 0.1, 2, loc=(0, 0.8, 1), mat=steel)"
+    ].join('\n'))
+    const built = await cmd('step', 'crates', s1)
+    const s2 = path.join(src, 's02_paint.py')
+    fs.writeFileSync(s2, [
+      '"""Painting it: digital camo and weathering, baked at 128 px"""',
+      "print('atlas', p.uv_atlas())",
+      "p.camo('Armor', 'digital', seed=3)",
+      "count = len(bpy.data.materials['Armor'].node_tree.nodes)",
+      "p.camo('Armor', 'digital', seed=3)",
+      "assert len(bpy.data.materials['Armor'].node_tree.nodes) == count, 'camo() again stacked nodes'",
+      "p.weathering('Steel', wear=1.0, dirt=0.5)",
+      '# Object space on the post: red = object z / 4 + 0.5, where world z would read higher.',
+      "probe = p.material('Probe', '#000000')",
+      'nt = probe.node_tree',
+      "bsdf = next(n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED')",
+      "z = nt.nodes.new('ShaderNodeSeparateXYZ')",
+      "nt.links.new(nt.nodes.new('ShaderNodeTexCoord').outputs['Object'], z.inputs[0])",
+      "red = nt.nodes.new('ShaderNodeMath')",
+      "red.operation = 'MULTIPLY_ADD'",
+      'red.inputs[1].default_value, red.inputs[2].default_value = 0.25, 0.5',
+      "nt.links.new(z.outputs['Z'], red.inputs[0])",
+      "rgb = nt.nodes.new('ShaderNodeCombineColor')",
+      'nt.links.new(red.outputs[0], rgb.inputs[0])',
+      "nt.links.new(rgb.outputs[0], bsdf.inputs['Base Color'])",
+      "post = p.part('Post')",
+      'post.data.materials[0] = probe',
+      'p.bake_maps(size=128, samples=1)',
+      "assert not [o for o in bpy.data.objects if o.name.startswith('genio bake copy')], 'the joined copy stayed'",
+      "assert not [o for o in p.export_objects() if o.hide_render], 'parts stayed hidden'",
+      "assert {s.material.name for o in p.export_objects() for s in o.material_slots} == {'Baked'}",
+      "img = bpy.data.images['Baked_basecolor']",
+      'assert img.packed_file and tuple(img.size) == (128, 128)',
+      '# the post\'s bottom cap is at object z = -1 (red 0.25); world z = 0 would give 0.5',
+      'cap = min(post.data.polygons, key=lambda f: f.center.z)',
+      'uv = post.data.uv_layers.active.data',
+      'u, v = (sum(uv[i].uv[k] for i in cap.loop_indices) / cap.loop_total for k in (0, 1))',
+      'px = img.pixels[(int(v * 128) * 128 + int(u * 128)) * 4]',
+      'srgb = lambda c: 1.055 * c ** (1 / 2.4) - 0.055',
+      "assert abs(px - srgb(0.25)) < 0.06, f'post cap red {px:.3f}: object space would be {srgb(0.25):.3f}, world {srgb(0.5):.3f}'"
+    ].join('\n'))
+    const painted = await cmd('step', 'crates', s2)
+    expect(painted).toMatchObject({
+      ok: true, triangles: built.triangles, objects: 4,
+      bakes: [{ parts: 4, materials: 2, size: 128, samples: 1, device: 'CPU', bakes: 2, threads: os.availableParallelism(), material: 'Baked' }]
+    })
+    // one Cycles bake per map for all four parts, never one per part
+    const receipt = JSON.parse(fs.readFileSync(painted.receipt, 'utf8'))
+    expect(fs.readFileSync(receipt.log, 'utf8').match(/Baking map saved to internal image/g)).toHaveLength(2)
+    // the GLB ships one material and the two packed maps
+    const json = glbJson(painted.glb)
+    expect(json.materials?.map((m) => m.name)).toEqual(['Baked'])
+    expect(json.images).toHaveLength(2)
   }, 300000)
 
   it('builds the watchtower as one batch in one Blender, the same as step by step', async () => {

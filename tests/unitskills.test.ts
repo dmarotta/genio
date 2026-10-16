@@ -167,7 +167,10 @@ describe('brief tools section', () => {
     expect(b).toContain('node "C:/genio/skills/genio/skills/blender/scripts/modeller.mjs" batch <model> <script.py>...` only replays scripts that already exist')
     expect(b).toMatch(/Never build new steps with it/)
     expect(b).not.toMatch(/batches of \d/)
-    expect(b).toMatch(/low-poly web model, bake or paint at 1024 px/)
+    expect(b).toMatch(/low-poly web model, bake at 1024 px/)
+    // Paint is presets plus one joined bake, never a bake loop of the unit's own.
+    expect(b).toMatch(/bake once with `p\.bake_maps\(\)`, never with your own bake loop/)
+    expect(MODELLER_API_CARD).toMatch(/`p\.uv_atlas\(\)`.*`p\.camo\(mat, 'red'\|'woodland'\|'desert'\|'digital'\)`.*`p\.weathering\(mat.*`p\.bake_maps\(size=1024\)`/)
     // The API card replaces reading the Python sources.
     expect(b).toContain(MODELLER_API_CARD)
     expect(b).toMatch(/never read `genio_step\.py`, `genio_parts\.py` or `modeller\.mjs`/)
@@ -188,6 +191,8 @@ describe('brief tools section', () => {
     expect(skill).toMatch(/`batch <model>` replays scripts that already exist/)
     expect(skill).not.toMatch(/batches of \d/)
     expect(skill).toMatch(/1024 px textures/)
+    expect(skill).toContain('**Paint and bake.**')
+    expect(skill).toMatch(/`gpu=True` tries .*off by default because it competes with the player's game or editor/)
     for (const f of ['modeller.mjs', 'genio_step.py', 'genio_parts.py', 'blender.mjs', 'genio_bpy.py']) expect(fs.existsSync(path.join(blenderSkillDir(target), 'scripts', f))).toBe(true)
     expect(fwd(modellerScript(target))).toBe(`${fwd(blenderSkillDir(target))}/scripts/modeller.mjs`)
   })

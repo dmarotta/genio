@@ -30,6 +30,12 @@ export interface StepDone {
   ok: true; model: string; id: string; n: number; name: string; caption: string; branch: string; parent: string | null
   triangles: number; vertices: number; objects: number; bounds: { min: number[]; max: number[]; dimensions: number[] } | null
   warnings: string[]; sheet: string | null; glb: string | null; blend: string | null; receipt: string; ms: number; pruned: string[]
+  /** What p.bake_maps did in this step, when it baked. */
+  bakes?: Bake[]
+}
+export interface Bake {
+  parts: number; materials: number; size: number; samples: number; device: string; threads: number; bakes: number
+  bake_s: Record<string, number>; total_s: number; files: Record<string, string>; material: string | null
 }
 export interface StepFailed {
   ok: false; kind: 'error' | 'crash' | 'hang' | 'replay'; model: string; id: string; name: string; branch: string; head: string | null
@@ -50,6 +56,7 @@ export function stepName(script: string): string
 export function line(m: Manifest, branch?: string): StepEntry[]
 export function chooseBlender(choice?: string | { path: string; version: string }, env?: Record<string, string | undefined>): PinnedBlender
 export function prune(m: Manifest, dir: string, keep?: number): string[]
+export function planThreads(plan: { replay: string[]; steps: { script: string | null }[] }, threads?: number): number | undefined
 export function init(o: Common & { blender?: string | { path: string; version: string }; target?: string; budget?: number | string; size?: string | number[]; repin?: boolean; cwd?: string; env?: Record<string, string | undefined> }): Promise<Summary & { existing: boolean }>
 export function step(o: Common & { script: string; name?: string; amend?: boolean; timeout?: number; threads?: number; runner?: Runner }): Promise<StepDone | StepFailed>
 export function batchScripts(args: string | string[]): BatchScript[]

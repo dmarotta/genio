@@ -9,10 +9,17 @@ Conventions: metres, Z up, the model stands on z = 0 with its footprint centred
 on the origin and its front facing -Y. Deliverable parts live in the `Export`
 collection (or collections inside it); boolean cutters go to the hidden
 `Cutters` collection; review cameras and lights never enter `Export`.
+
+Paint: camo() and weathering() put procedural paint on a material (world-space
+nodes feeding its Principled BSDF); bake_maps() bakes every part's paint into one
+shared PBR texture set with one Cycles bake per map, on a temporary joined copy.
 """
+import json
 import math
+import os
 import random
 import re
+import time
 
 import bpy
 import bmesh
@@ -408,3 +415,560 @@ def stats(objects=None):
             lo, hi = genio_bpy._bounds(meshes)
             out.update(min=list(lo), max=list(hi), dimensions=list(hi - lo))
     return out
+
+
+# Paint ----------------------------------------------------------------------------------------
+
+# Camo palettes: the ground colour, then patch colours from the widest patches to the smallest,
+# and the pattern ('blotch', or 'digital' pixels). 'red' is the committed mech's.
+CAMO = {
+    'red': (('#8e1f1c', '#a33d22', '#4a0f13', '#c8433a', '#211b1c'), 'blotch'),
+    'woodland': (('#55603a', '#6f6a3d', '#2f3b23', '#76593a', '#1d1e19'), 'blotch'),
+    'desert': (('#c6ab7c', '#a5885a', '#dac59c', '#8a6b46', '#5b4934'), 'blotch'),
+    'arctic': (('#d7dcdf', '#b2bac0', '#eff1f2', '#88919a', '#474e55'), 'blotch'),
+    'urban': (('#7a7e83', '#5b5f64', '#a2a6aa', '#3c3f43', '#1e2023'), 'blotch'),
+    'digital': (('#6d787e', '#4d5860', '#98a1a6', '#36414a', '#1d2428'), 'digital'),
+}
+# Per patch colour: noise offset, noise scale (per metre at scale 1) and threshold.
+_PATCHES = (((13.1, 7.3, 2.9), 0.48, 0.57), ((0.0, 0.0, 0.0), 0.4, 0.58), ((21.0, 3.0, 11.0), 0.62, 0.61), ((5.0, 31.0, 17.0), 0.8, 0.635))
+_MECH_HEIGHT = 8.5  # preset sizes are the committed mech's at this height; scale=None fits the model
+_PAINT = 'genio_paint'  # material custom property: the presets applied, so a repaint is exact
+_OBJECT_CO = 'genio_object'  # object-space positions carried onto the joined bake copy
+MAPS = ('basecolor', 'roughmetal')
+# Rays per shading sample for the edge-wear Bevel and the grime AO nodes. Each texel gets
+# `samples` of these: at 8 spp, 4 and 4 looked the same as the mech's 8 and 16 and baked faster.
+_BEVEL_RAYS, _AO_RAYS = 4, 4
+BAKES = []  # what bake_maps() did in the current step; the step receipt lists it
+
+
+def _socket(sockets, identifier):
+    return next(s for s in sockets if s.identifier == identifier)
+
+
+def _nodes(mat):
+    """The material's node tree, switched on (4.2 materials can start without one)."""
+    if mat.node_tree is None or (VERSION < (5, 0) and not mat.use_nodes):
+        mat.use_nodes = True
+    return mat.node_tree
+
+
+class _Graph:
+    """Paint node builder on a material's tree, feeding its Principled BSDF. Sockets or
+    constants go into every input; the procedural graph is world-space (Position, Normal)."""
+
+    def __init__(self, mat):
+        self.nt = _nodes(mat)
+        old = next((n for n in self.nt.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+        glow = (tuple(old.inputs['Emission Color'].default_value), old.inputs['Emission Strength'].default_value) if old else None
+        self.nt.nodes.clear()
+        out = self.nt.nodes.new('ShaderNodeOutputMaterial')
+        self.bsdf = self.nt.nodes.new('ShaderNodeBsdfPrincipled')
+        self.nt.links.new(self.bsdf.outputs['BSDF'], out.inputs['Surface'])
+        if glow:
+            self.bsdf.inputs['Emission Color'].default_value, self.bsdf.inputs['Emission Strength'].default_value = glow
+        geo = self.nt.nodes.new('ShaderNodeNewGeometry')
+        self.P, self.N = geo.outputs['Position'], geo.outputs['Normal']
+
+    def put(self, inp, x):
+        if isinstance(x, bpy.types.NodeSocket):
+            self.nt.links.new(x, inp)
+        else:
+            inp.default_value = x
+
+    def node(self, kind, ins=(), **props):
+        nd = self.nt.nodes.new(kind)
+        for k, v in props.items():
+            setattr(nd, k, v)
+        for key, x in ins:
+            self.put(nd.inputs[key], x)
+        return nd
+
+    def math(self, op, a, b=0.0, clamp=False):
+        return self.node('ShaderNodeMath', ((0, a), (1, b)), operation=op, use_clamp=clamp).outputs[0]
+
+    def vec(self, op, a, b=None):
+        nd = self.node('ShaderNodeVectorMath', ((0, a),) + (((1, b),) if b is not None else ()), operation=op)
+        return nd.outputs['Value'] if op in ('LENGTH', 'DOT_PRODUCT', 'DISTANCE') else nd.outputs['Vector']
+
+    def xyz(self, v):
+        return self.node('ShaderNodeSeparateXYZ', ((0, v),)).outputs
+
+    def noise(self, v, scale, detail=2.0, rough=0.5, out='Fac'):
+        return self.node('ShaderNodeTexNoise', (('Vector', v), ('Scale', scale), ('Detail', detail), ('Roughness', rough))).outputs[out]
+
+    def step(self, x, edge, w=0.012):
+        """Soft threshold: 0 below edge, 1 above."""
+        return self.node('ShaderNodeMapRange', ((0, x), (1, edge - w), (2, edge + w), (3, 0.0), (4, 1.0)),
+                         interpolation_type='SMOOTHSTEP').outputs[0]
+
+    def mix(self, fac, a, b, blend='MIX'):
+        nd = self.node('ShaderNodeMix', data_type='RGBA', blend_type=blend, clamp_result=True)
+        for key, x in (('Factor_Float', fac), ('A_Color', a), ('B_Color', b)):
+            self.put(_socket(nd.inputs, key), x)
+        return _socket(nd.outputs, 'Result_Color')
+
+    def lerp(self, fac, a, b):
+        nd = self.node('ShaderNodeMix', data_type='FLOAT')
+        for key, x in (('Factor_Float', fac), ('A_Float', a), ('B_Float', b)):
+            self.put(_socket(nd.inputs, key), x)
+        return _socket(nd.outputs, 'Result_Float')
+
+    def shade(self, c, k):
+        """Colour times a grey factor (grain, grime)."""
+        grey = self.node('ShaderNodeCombineColor', ((0, k), (1, k), (2, k))).outputs[0]
+        return self.mix(1.0, c, grey, 'MULTIPLY')
+
+    def panel_lines(self, c, strength, s):
+        """Rectangular plate seams on a world grid, skipping the axis a face looks along."""
+        cells = (0.9 * s, 0.85 * s, 0.7 * s)
+        q = self.vec('DIVIDE', self.vec('ADD', self.P, (0.23 * s, 0.41 * s, 0.17 * s)), cells)
+        g = self.xyz(self.vec('ABSOLUTE', self.vec('SUBTRACT', self.vec('FRACTION', q), (0.5, 0.5, 0.5))))
+        n = self.xyz(self.vec('ABSOLUTE', self.N))
+        lines = 0.0
+        for i in range(3):
+            on = self.math('GREATER_THAN', g[i], 0.5 - 0.012 / cells[i] * s)
+            lines = self.math('MAXIMUM', lines, self.math('MULTIPLY', on, self.math('LESS_THAN', n[i], 0.55)))
+        return self.mix(self.math('MULTIPLY', lines, strength), c, (*_hex('#120a0a'), 1.0))
+
+    def weather(self, c, s, wear, dirt, wear_color):
+        """Edge wear, scratches, crevice grime (AO), mud low down and rain streaks. Returns
+        (colour, wear mask); the Bevel and AO nodes only work in Cycles, which bakes them."""
+        P = self.P
+        bevel = self.node('ShaderNodeBevel', (('Radius', 0.02 * s),), samples=_BEVEL_RAYS).outputs['Normal']
+        edges = self.math('LESS_THAN', self.vec('DOT_PRODUCT', bevel, self.N), 0.96)
+        worn = self.math('MULTIPLY', edges, self.step(self.noise(P, 7.0 / s, 4.0, 0.6), 0.56, 0.03))
+        scratch = self.step(self.noise(self.vec('MULTIPLY', P, (1.0, 1.0, 0.25)), 22.0 / s, 1.0), 0.70, 0.01)
+        hit = self.math('MAXIMUM', self.math('MULTIPLY', worn, wear), self.math('MULTIPLY', scratch, 0.6 * wear))
+        c = self.mix(hit, c, (*_hex(wear_color), 1.0))
+        if dirt:
+            ao = self.node('ShaderNodeAmbientOcclusion', (('Distance', 0.4 * s),), samples=_AO_RAYS).outputs['AO']
+            c = self.shade(c, self.lerp(ao, 1.0 - 0.65 * min(dirt, 1.0), 1.0))
+            low = self.math('SUBTRACT', 1.0, self.math('DIVIDE', self.xyz(P)[2], 2.4 * s), clamp=True)
+            mud = self.step(self.math('MULTIPLY', low, self.noise(P, 2.2 / s, 4.0, 0.6)), 0.3, 0.12)
+            c = self.mix(self.math('MULTIPLY', mud, 0.75 * dirt), c, (*_hex('#3b2e24'), 1.0))
+            streak = self.step(self.noise(self.vec('MULTIPLY', P, (7.0, 7.0, 0.5)), 1.4 / s, 2.0), 0.6, 0.06)
+            c = self.mix(self.math('MULTIPLY', streak, 0.35 * dirt), c, (*_hex('#2a2320'), 1.0))
+        return c, hit
+
+    def finish(self, c, rough, metal):
+        for key, x in (('Base Color', c), ('Roughness', rough), ('Metallic', metal)):
+            self.put(self.bsdf.inputs[key], x)
+
+
+def _mat(mat):
+    if not isinstance(mat, str):
+        return mat
+    found = bpy.data.materials.get(mat)
+    if found is None:
+        raise KeyError(f'No material named {mat!r}. Materials: {_names_of(sorted(m.name for m in bpy.data.materials)) or "none"}')
+    return found
+
+
+def _fit(scale):
+    """Pattern size in mech units: scale=None fits the model (its height over 8.5 m)."""
+    if scale is not None:
+        if scale <= 0:
+            raise ValueError('scale must be above 0')
+        return float(scale)
+    try:
+        lo, hi = bounds()
+    except ValueError:
+        return 1.0
+    return max(hi.z - lo.z, 0.05) / _MECH_HEIGHT
+
+
+def _repaint(mat):
+    """Rebuild a material's paint graph from its presets and its plain colour, roughness and
+    metallic, so applying a preset again replaces it instead of stacking."""
+    spec = json.loads(mat.get(_PAINT, '{}'))
+    camo_spec, wear_spec = spec.get('camo'), spec.get('weathering')
+    rough, metal = mat.roughness, mat.metallic
+    base = (*mat.diffuse_color[:3], 1.0)
+    g = _Graph(mat)
+    P = g.P
+    s = (camo_spec or wear_spec)['scale']  # pattern size; the weathering keeps its own
+    lines = 0.0
+    if camo_spec:
+        colours = [(*_hex(h), 1.0) for h in camo_spec['colors']]
+        warp = g.node('ShaderNodeVectorMath', ((0, g.vec('SUBTRACT', g.noise(P, 0.8 / s, 2.0, 0.5, 'Color'), (0.5, 0.5, 0.5))),), operation='SCALE')
+        warp.inputs['Scale'].default_value = 0.7 * s
+        Pw = g.vec('ADD', P, warp.outputs['Vector'])
+        k = 1.0
+        if camo_spec['pattern'] == 'digital':
+            Pw = g.vec('SNAP', Pw, (0.1 * s, 0.1 * s, 0.1 * s))
+            k = 1.6
+        seed = camo_spec['seed']
+        c = colours[0]
+        for (offset, scale, edge), colour in zip(_PATCHES, colours[1:]):
+            shifted = g.vec('ADD', Pw, tuple(o + seed * d for o, d in zip(offset, (17.3, 5.1, 9.7))))
+            c = g.mix(g.step(g.noise(shifted, k * scale / s, 2.0, 0.55), edge, 0.01), c, colour)
+        c = g.shade(c, g.lerp(g.noise(P, 9.0 / s, 5.0, 0.6), 0.86, 1.1))
+        lines = camo_spec['panel_lines']
+    else:
+        c = g.shade(base, g.lerp(g.noise(P, 6.0 / s, 4.0, 0.6), 0.8, 1.15))
+    r = g.lerp(g.noise(P, 4.0 / s), max(rough - 0.1, 0.0), min(rough + 0.12, 1.0))
+    m = metal
+    if wear_spec:
+        lines = max(lines, wear_spec['panel_lines'])
+    if lines:
+        c = g.panel_lines(c, lines, s)
+    if wear_spec:
+        c, hit = g.weather(c, wear_spec['scale'], wear_spec['wear'], wear_spec['dirt'], wear_spec['wear_color'])
+        r = g.lerp(hit, r, wear_spec['bare_rough'])
+        m = g.lerp(hit, metal, wear_spec['bare_metal'])
+    g.finish(c, r, m)
+    return mat
+
+
+def _store(mat, key, value):
+    spec = json.loads(mat.get(_PAINT, '{}'))
+    spec[key] = value
+    mat[_PAINT] = json.dumps(spec)
+
+
+def camo(mat, palette='woodland', scale=None, panel_lines=0.6, wear=0.8, dirt=1.0, seed=0, pattern=None):
+    """Camouflage paint on a material: a palette name from CAMO ('red', 'woodland', 'desert',
+    'arctic', 'urban', 'digital') or your own ['#ground', '#patch', ...] (2 to 5 colours),
+    warped noise patches (pattern='digital' makes them pixels), grain, panel lines, and the
+    weathering() look unless wear and dirt are 0. scale=None sizes the pattern to the model
+    (1.0 is the 8.5 m mech's). Procedural until bake_maps() turns it into textures."""
+    mat = _mat(mat)
+    if isinstance(palette, str):
+        if palette not in CAMO:
+            raise ValueError(f'No camo palette {palette!r}: use one of {", ".join(CAMO)} or a list of #rrggbb colours')
+        colours, kind = CAMO[palette]
+    else:
+        colours, kind = tuple(palette), 'blotch'
+        if not 2 <= len(colours) <= 5:
+            raise ValueError('A camo palette is 2 to 5 colours: the ground, then the patches')
+    for h in colours:
+        _hex(h)
+    kind = pattern or kind
+    if kind not in ('blotch', 'digital'):
+        raise ValueError("pattern is 'blotch' or 'digital'")
+    s = _fit(scale)
+    _store(mat, 'camo', {'colors': list(colours), 'pattern': kind, 'scale': s, 'panel_lines': panel_lines, 'seed': seed})
+    _store(mat, 'weathering', {'scale': s, 'wear': wear, 'dirt': dirt, 'panel_lines': 0.0, 'wear_color': '#77706a',
+                               'bare_rough': 0.35, 'bare_metal': 0.85} if wear or dirt else None)
+    mat.diffuse_color = (*_hex(colours[0]), 1.0)  # the review sheet's Workbench colour
+    return _repaint(mat)
+
+
+def weathering(mat, wear=0.8, dirt=1.0, scale=None, panel_lines=0.0, wear_color='#8c8780', bare_rough=0.35, bare_metal=0.85):
+    """Battle wear on a material's own colour (or on its camo): worn and scratched edges showing
+    bare metal (wear_color, bare_rough, bare_metal), crevice grime, mud on the lower part and rain
+    streaks (dirt), optional panel lines. Applying it again replaces it."""
+    mat = _mat(mat)
+    _hex(wear_color)
+    _store(mat, 'weathering', {'scale': _fit(scale), 'wear': wear, 'dirt': dirt, 'panel_lines': panel_lines,
+                               'wear_color': wear_color, 'bare_rough': bare_rough, 'bare_metal': bare_metal})
+    return _repaint(mat)
+
+
+def uv_atlas(objects=None, angle=66.0, margin=0.003):
+    """One shared, non-overlapping UV atlas over the parts, which bake_maps() needs. Applies their
+    modifiers first (shape-keyed parts keep theirs) so the atlas covers exactly what ships and
+    array or mirror copies get texels of their own. Returns the share of the atlas in use."""
+    obs = [o for o in (export_objects() if objects is None else objects) if o.type == 'MESH']
+    if not obs:
+        raise ValueError('uv_atlas: no mesh parts')
+    if bpy.context.object and bpy.context.object.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+    baked = genio_bpy._evaluated_meshes([o for o in obs if genio_bpy._bakes_modifiers(o)])
+    for ob in obs:
+        old = ob.data
+        if ob in baked:
+            ob.modifiers.clear()
+            ob.data = baked[ob]
+        elif old.users > 1:
+            ob.data = old.copy()  # shared meshes would share texels
+        if ob.data is not old:
+            if old.users == 0:
+                bpy.data.meshes.remove(old)
+            ob.data.name = ob.name
+        for uv in list(ob.data.uv_layers):
+            ob.data.uv_layers.remove(uv)
+        ob.data.uv_layers.new(name='UVMap')
+    for o in bpy.context.view_layer.objects:
+        o.select_set(False)
+    for ob in obs:
+        ob.select_set(True)
+    bpy.context.view_layer.objects.active = obs[0]
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.uv.smart_project(angle_limit=math.radians(angle), island_margin=0.0, area_weight=0.0, correct_aspect=True, scale_to_bounds=False)
+    bpy.ops.uv.select_all(action='SELECT')
+    # Box packing: as tight as the exact-shape packer on the mech's 88 parts, in 0.01 s instead of
+    # 3.6 s, and that packer took 40 s or more on four beveled boxes.
+    bpy.ops.uv.pack_islands(rotate=True, shape_method='AABB', margin_method='FRACTION', margin=margin)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    used = 0.0
+    for ob in obs:
+        uv = numpy.empty(len(ob.data.loops) * 2)
+        ob.data.uv_layers.active.data.foreach_get('uv', uv)
+        uv = uv.reshape(-1, 2)
+        for poly in ob.data.polygons:
+            x, y = uv[poly.loop_start:poly.loop_start + poly.loop_total].T
+            used += abs(numpy.dot(x, numpy.roll(y, 1)) - numpy.dot(y, numpy.roll(x, 1))) / 2
+    return round(used, 4)
+
+
+class _Rig:
+    """Temporary bake wiring on one material: an Emission shader fed by whatever its Principled
+    BSDF gets, an image node to bake into, and Object coordinates read from the joined copy's
+    attribute. undo() puts the tree back as it was."""
+
+    def __init__(self, mat):
+        self.mat = mat
+        # A 4.2 material without nodes renders its plain colour, roughness and metallic.
+        self.plain = mat.node_tree is None or (VERSION < (5, 0) and not mat.use_nodes)
+        nt = self.nt = _nodes(mat)
+        self.added, self.swapped = [], []
+        out = nt.get_output_node('CYCLES')
+        surface = out.inputs['Surface'] if out else None
+        self.old = surface.links[0].from_socket if surface and surface.is_linked else None
+        bsdf = None if self.plain else (self.old.node if self.old and self.old.node.type == 'BSDF_PRINCIPLED'
+                                        else next((n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED'), None))
+
+        def source(name, const):
+            if bsdf is None:
+                return const
+            inp = bsdf.inputs[name]
+            return inp.links[0].from_socket if inp.is_linked else (tuple(inp.default_value) if name == 'Base Color' else inp.default_value)
+
+        self.base = source('Base Color', tuple(mat.diffuse_color))
+        if out is None:
+            out = self.new('ShaderNodeOutputMaterial')
+            out.target = 'CYCLES'
+        self.out = out
+        self.emit = self.new('ShaderNodeEmission')
+        nt.links.new(self.emit.outputs[0], out.inputs['Surface'])
+        self.rm = self.new('ShaderNodeCombineColor')
+        self.rm.inputs[0].default_value = 1.0
+        for i, x in ((1, source('Roughness', mat.roughness)), (2, source('Metallic', mat.metallic))):
+            self.put(self.rm.inputs[i], x)
+        self.target = self.new('ShaderNodeTexImage')
+        for nd in list(nt.nodes):
+            if nd.type == 'TEX_COORD' and nd.object is None and nd.outputs['Object'].is_linked:
+                attr = self.new('ShaderNodeAttribute')
+                attr.attribute_type, attr.attribute_name = 'GEOMETRY', _OBJECT_CO
+                for link in list(nd.outputs['Object'].links):
+                    to = link.to_socket
+                    nt.links.remove(link)
+                    nt.links.new(attr.outputs['Vector'], to)
+                    self.swapped.append((nd.outputs['Object'], to))
+
+    def new(self, kind):
+        nd = self.nt.nodes.new(kind)
+        self.added.append(nd)
+        return nd
+
+    def put(self, inp, x):
+        if isinstance(x, bpy.types.NodeSocket):
+            self.nt.links.new(x, inp)
+        else:
+            inp.default_value = x
+
+    def show(self, key, image):
+        self.put(self.emit.inputs['Color'], self.base if key == 'basecolor' else self.rm.outputs[0])
+        self.target.image = image
+        self.target.select = True
+        self.nt.nodes.active = self.target
+
+    def undo(self):
+        for src, to in self.swapped:
+            self.nt.links.new(src, to)
+        for nd in self.added:
+            self.nt.nodes.remove(nd)
+        if self.old is not None:
+            self.nt.links.new(self.old, self.out.inputs['Surface'])
+        if self.plain and VERSION < (5, 0):
+            self.mat.use_nodes = False
+
+
+def _textured(mat, images):
+    """Make mat a plain image-textured PBR material: the baked base colour, and roughness (G) and
+    metallic (B) from the packed map, the layout the glTF exporter ships as metallicRoughness."""
+    nt = _nodes(mat)
+    nt.nodes.clear()
+    out = nt.nodes.new('ShaderNodeOutputMaterial')
+    bsdf = nt.nodes.new('ShaderNodeBsdfPrincipled')
+    nt.links.new(bsdf.outputs['BSDF'], out.inputs['Surface'])
+    bsdf.inputs['Roughness'].default_value, bsdf.inputs['Metallic'].default_value = mat.roughness, mat.metallic
+    if 'roughmetal' in images:
+        rm = nt.nodes.new('ShaderNodeTexImage')
+        rm.image = images['roughmetal']
+        sep = nt.nodes.new('ShaderNodeSeparateColor')
+        nt.links.new(rm.outputs['Color'], sep.inputs['Color'])
+        nt.links.new(sep.outputs['Green'], bsdf.inputs['Roughness'])
+        nt.links.new(sep.outputs['Blue'], bsdf.inputs['Metallic'])
+    if 'basecolor' in images:
+        base = nt.nodes.new('ShaderNodeTexImage')
+        base.image = images['basecolor']
+        nt.links.new(base.outputs['Color'], bsdf.inputs['Base Color'])
+        nt.nodes.active = base  # Workbench's texture mode shows the active image
+        px = numpy.empty(base.image.size[0] * base.image.size[1] * 4, dtype=numpy.float32)
+        base.image.pixels.foreach_get(px)
+        px = px.reshape(-1, 4)[:, :3]
+        px = px[px.sum(axis=1) > 0]
+        if len(px):
+            mat.diffuse_color = (*px.mean(axis=0).tolist(), 1.0)
+    if _PAINT in mat:
+        del mat[_PAINT]
+    return mat
+
+
+def _use_gpu():
+    """Switch Cycles to the first GPU backend with a device; None when there is none."""
+    prefs = bpy.context.preferences.addons['cycles'].preferences
+    for kind in ('OPTIX', 'CUDA', 'HIP', 'ONEAPI', 'METAL'):
+        try:
+            prefs.compute_device_type = kind
+        except TypeError:
+            continue
+        prefs.get_devices()
+        if any(d.type == kind for d in prefs.devices):
+            for d in prefs.devices:
+                d.use = d.type == kind
+            return kind
+    return None
+
+
+def bake_maps(objects=None, size=1024, samples=8, maps=MAPS, margin=None, material='Baked', gpu=False, out_dir=None):
+    """Bake what every part's material feeds its Principled BSDF (camo() and weathering() paint,
+    or any node graph) into one shared texture set: base colour, and roughness (G) plus metallic
+    (B). The parts must share one non-overlapping UV atlas (uv_atlas()).
+
+    Fast: the parts are copied as they ship and joined into one temporary mesh, so Cycles syncs
+    and bakes once per map instead of once per part per map, on every core (the kernel starts
+    Blender with all of them for a step that calls this), at `samples` (8 looks the same as 32 on
+    this kind of paint). The originals are hidden from render meanwhile, so AO and bevel rays
+    see the same geometry. gpu=True tries the GPU; it is off by default because it competes
+    with the player's game or editor. The copy is deleted afterwards; the parts, their names
+    and hierarchy are untouched.
+
+    Then the maps are saved as PNGs (out_dir, default the model's data folder) and packed, and
+    the parts get one shared image-textured material named `material`, or with material=None
+    each part's own materials are rewired to the textures. Returns what it did, with seconds."""
+    t0 = time.perf_counter()
+    obs = [part(o) if isinstance(o, str) else o for o in (export_objects() if objects is None else objects)]
+    obs = [o for o in obs if o.type == 'MESH']
+    if not obs:
+        raise ValueError('bake_maps: no mesh parts to bake')
+    maps = tuple(maps)
+    if not maps or any(k not in MAPS for k in maps):
+        raise ValueError(f'maps are any of {MAPS}')
+    no_uv = [o.name for o in obs if not o.data.uv_layers]
+    uv_names = {o.data.uv_layers.active.name for o in obs if o.data.uv_layers}
+    if no_uv or len(uv_names) > 1:
+        what = f'{_names_of(no_uv)} have no UV map' if no_uv else f'the parts use different UV maps ({", ".join(sorted(uv_names))})'
+        raise ValueError(f'bake_maps needs one shared UV atlas, but {what}. Run p.uv_atlas() first.')
+    bare = [o.name for o in obs if not o.material_slots or any(s.material is None for s in o.material_slots)]
+    if bare:
+        raise ValueError(f'bake_maps: {_names_of(bare)} have an empty material slot; give every part a material')
+    mats = list(dict.fromkeys(s.material for o in obs for s in o.material_slots))
+    margin = max(4, size * 3 // 512) if margin is None else margin
+    out_dir = out_dir or os.path.join(os.environ.get('GENIO_MODELLER_DATA') or bpy.app.tempdir, 'bake')
+    prefix = material or 'Baked'
+    images = {}
+    for key in maps:
+        old = bpy.data.images.get(f'{prefix}_{key}')
+        if old is not None:
+            bpy.data.images.remove(old)
+        images[key] = bpy.data.images.new(f'{prefix}_{key}', size, size, alpha=False, is_data=key == 'roughmetal')
+        if key == 'roughmetal':
+            images[key].colorspace_settings.name = 'Non-Color'
+
+    if bpy.context.object and bpy.context.object.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+    scene = bpy.context.scene
+    saved = [(scene.render, 'engine', scene.render.engine)]
+    scene.render.engine = 'CYCLES'
+    bake = scene.render.bake
+    saved += [(owner, key, getattr(owner, key)) for owner, key in (
+        (scene.cycles, 'device'), (scene.cycles, 'samples'), (bake, 'margin'), (bake, 'margin_type'), (bake, 'target'), (bake, 'use_clear'))]
+    hidden = [(o, o.hide_render) for o in obs]
+    rigs, meshes, joined = [], [], None
+    seconds = {}
+    try:
+        device = _use_gpu() if gpu else None
+        if gpu and device is None:
+            print('bake_maps: no GPU found, baking on the CPU')
+        scene.cycles.device = 'GPU' if device else 'CPU'
+        scene.cycles.samples = samples
+        bake.margin, bake.margin_type, bake.target, bake.use_clear = margin, 'EXTEND', 'IMAGE_TEXTURES', True
+        rigs = [_Rig(m) for m in mats]
+        copies = []
+        with evaluated(obs) as shipped:
+            for ob, mesh in shipped.items():
+                me = mesh.copy()
+                meshes.append(me)
+                for i, slot in enumerate(ob.material_slots):
+                    me.materials[i] = slot.material
+                co = numpy.empty(len(me.vertices) * 3, dtype=numpy.float32)
+                me.vertices.foreach_get('co', co)
+                me.attributes.new(_OBJECT_CO, 'FLOAT_VECTOR', 'POINT').data.foreach_set('vector', co)
+                c = bpy.data.objects.new('genio bake copy', me)
+                scene.collection.objects.link(c)
+                c.matrix_world = ob.matrix_world.copy()
+                if me.shape_keys:
+                    c.shape_key_clear()
+                copies.append(c)
+        for ob in obs:
+            ob.hide_render = True
+        joined = copies[0]
+        with bpy.context.temp_override(active_object=joined, object=joined, selected_objects=copies, selected_editable_objects=copies):
+            bpy.ops.object.join()
+        for o in bpy.context.view_layer.objects:
+            o.select_set(False)
+        joined.select_set(True)
+        bpy.context.view_layer.objects.active = joined
+        for key in maps:
+            for rig in rigs:
+                rig.show(key, images[key])
+            t = time.perf_counter()
+            with bpy.context.temp_override(active_object=joined, object=joined, selected_objects=[joined], selected_editable_objects=[joined]):
+                bpy.ops.object.bake(type='EMIT', margin=margin, margin_type='EXTEND', use_clear=True, target='IMAGE_TEXTURES')
+            seconds[key] = round(time.perf_counter() - t, 2)
+    finally:
+        if joined is not None:
+            bpy.data.objects.remove(joined)
+        for me in meshes:
+            if me.users == 0:
+                bpy.data.meshes.remove(me)
+        for o, was in hidden:
+            o.hide_render = was
+        for rig in rigs:
+            rig.undo()
+        for owner, key, value in saved:
+            setattr(owner, key, value)
+
+    os.makedirs(out_dir, exist_ok=True)
+    files = {}
+    for key, img in images.items():
+        img.filepath_raw = files[key] = os.path.join(out_dir, f'{prefix}_{key}.png')
+        img.file_format = 'PNG'
+        img.save()
+        img.pack()
+    if material:
+        shared = _textured(bpy.data.materials.get(material) or bpy.data.materials.new(_clean(material)), images)
+        for ob in obs:
+            me = ob.data
+            me.materials.clear()
+            me.materials.append(shared)
+            me.polygons.foreach_set('material_index', [0] * len(me.polygons))
+            me.update()
+    else:
+        for m in mats:
+            _textured(m, images)
+    result = {'parts': len(obs), 'materials': len(mats), 'size': size, 'samples': samples, 'device': device or 'CPU',
+              'threads': scene.render.threads, 'bakes': len(maps), 'bake_s': seconds,
+              'total_s': round(time.perf_counter() - t0, 2), 'files': files, 'material': material}
+    BAKES.append(result)
+    print(f"bake_maps: {len(obs)} parts as one joined copy, {size} px, {samples} spp on {result['device']} "
+          f"({result['threads']} threads): " + ', '.join(f'{k} {v} s' for k, v in seconds.items()) + f"; {result['total_s']} s in all")
+    return result
+
+
+def _names_of(names):
+    return ', '.join(names[:6]) + (f' and {len(names) - 6} more' if len(names) > 6 else '')
