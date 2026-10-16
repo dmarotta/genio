@@ -21,6 +21,7 @@ import { estimatePlan, formatEstimate } from '@shared/plan-estimate'
 import { unitDiscarded, unitFinished } from '@shared/quest-board'
 import * as git from './git'
 import { hintOverlap } from './plan-hints'
+import { bus } from './bus'
 import type { Home } from './home'
 import type { AppCtx, HomeCtx, PlanService } from './services'
 import { nowIso, readJson, rid, slugify, truncate, writeJson } from './util'
@@ -67,9 +68,10 @@ export type PlanUpdateOp =
   | { op: 'add_step'; step: PlanStepInput }
   | { op: 'remove_step'; step: string }
   | { op: 'reorder'; order: string[] }
-  | { op: 'pause'; reason?: string }
+  /** by: 'player' when the player used the plan popover (the main chat hears of it) */
+  | { op: 'pause'; reason?: string; by?: 'player' }
   | { op: 'resume' }
-  | { op: 'cancel' }
+  | { op: 'cancel'; by?: 'player' }
   | { op: 'settings'; autoAdvance?: boolean; maxParallel?: number }
 
 export interface PlanUpdateResult {
@@ -125,6 +127,20 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
     } catch {
       /* in-memory state survives until the next successful write */
     }
+    publish()
+  }
+
+  /** Every home's plans to the windows: the step chips and the quest log plan groups. */
+  function publish(): void {
+    let all: WorkPlan[] = load()
+    try {
+      const ctx = getCtx()
+      all = [...ctx.homes.values()].flatMap((h) => (h.home.name === home.name ? load() : h.plans?.list() ?? []))
+      if (!ctx.homes.has(home.name)) all = [...all, ...load()]
+    } catch {
+      /* not wired (tests) */
+    }
+    bus.publish({ type: 'plans', plans: all })
   }
 
   function must(id: string): WorkPlan {
@@ -465,6 +481,13 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
     return state === 'in-flight' || state === 'ready' || state === 'merged' ? state : undefined
   }
 
+  /** The player paused or cancelled from the plan popover: the main chat hears it once and does not undo it. */
+  function playerActed(p: WorkPlan, message: string): void {
+    wake(`The player ${p.state === 'cancelled' ? 'cancelled' : 'paused'} plan "${p.title}" from the plan popover: ${message}`, [
+      p.state === 'cancelled' ? 'Do not restart its steps unless the player asks.' : 'Resume it with plan_update only when the player asks.'
+    ], true)
+  }
+
   function resolvePauseChoice(p: WorkPlan, answer: string): void {
     const id = p.pause?.choiceId
     if (!id) return
@@ -584,15 +607,19 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
           case 'pause': {
             if (p.state !== 'active') throw new Error(`plan ${p.id} is ${p.state}`)
             p.state = 'paused'
-            p.pause = { reason: op.reason?.trim() || 'paused by Genio', at: nowIso() }
+            p.pause = { reason: op.reason?.trim() || (op.by === 'player' ? 'paused by the player' : 'paused by Genio'), at: nowIso() }
             message = 'plan paused: no new step starts until it resumes; running units keep running'
-            ledger('plan.paused', p, { reason: p.pause.reason })
+            ledger('plan.paused', p, { reason: p.pause.reason, by: op.by })
+            if (op.by === 'player') playerActed(p, message)
             break
           }
           case 'resume':
             return { plan: p, message: resume(p) }
-          case 'cancel':
-            return { plan: p, message: cancel(p) }
+          case 'cancel': {
+            message = cancel(p)
+            if (op.by === 'player') playerActed(p, message)
+            return { plan: p, message }
+          }
           case 'settings': {
             if (op.autoAdvance !== undefined) p.autoAdvance = op.autoAdvance
             if (op.maxParallel !== undefined) p.maxParallel = Math.max(1, Math.min(PLAN_MAX_PARALLEL, Math.round(op.maxParallel)))

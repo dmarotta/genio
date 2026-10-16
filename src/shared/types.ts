@@ -893,6 +893,8 @@ export interface FleetSnapshot {
   pendingUnits?: string[]
   tasks: Task[]
   backlog: BacklogItem[]
+  /** WorkPlans (data/plans.json): the step chips and the quest log plan groups */
+  plans?: WorkPlan[]
   decisions: Decision[]
   projects: Project[]
   wksps: WkspInfo[]
@@ -1033,6 +1035,7 @@ export type GenioEvent =
   | { type: 'task'; task: Task }
   | { type: 'task-removed'; id: string }
   | { type: 'backlog'; items: BacklogItem[] }
+  | { type: 'plans'; plans: WorkPlan[] }
   | { type: 'decisions'; decisions: Decision[] }
   | { type: 'standing-approvals'; approvals: StandingApproval[] }
   | { type: 'projects'; projects: Project[] }

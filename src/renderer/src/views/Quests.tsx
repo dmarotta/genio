@@ -1,6 +1,8 @@
-import { useMemo, useRef, useState, type DragEvent } from 'react'
-import { Check, Clock, Copy, ExternalLink, GitMerge, Hand, Link2, Play, Plus, Radar, RotateCcw, Rocket, Trash, X } from 'lucide-react'
-import type { BacklogItem, BacklogKind, Priority, StatusEvent, Task } from '@shared/types'
+import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import { Check, Clock, Copy, ExternalLink, GitMerge, Hand, Link2, Pause, Play, Plus, Radar, RotateCcw, Rocket, Trash, X } from 'lucide-react'
+import type { BacklogItem, BacklogKind, PlanStep, Priority, StatusEvent, Task, WorkPlan } from '@shared/types'
+import { planGroups, planStepOf, planStepOfTask, planSummary, stepChipLabel } from '@shared/work-plan'
+import { PlanChip, usePlanView } from '../components/PlanChip'
 import { PRIORITIES } from '@shared/api'
 import {
   buildBoard, PRIORITY_ORDER, queueChips, reorderQueue, visibleBands, type DoneEntry, type FlightCard, type QueueChip
@@ -28,6 +30,7 @@ export const toneColor = (t: SquadTone | 'mute' | 'neon'): string =>
 export function Quests() {
   const items = useStore((s) => s.snap.backlog)
   const tasks = useStore((s) => s.snap.tasks)
+  const plans = useStore((s) => s.snap.plans)
   const decisions = useStore((s) => s.snap.decisions)
   const projects = useStore((s) => s.snap.projects)
   const terminals = useStore((s) => s.terminals)
@@ -51,7 +54,7 @@ export function Quests() {
   const reasons = (q: BacklogItem): QueueChip[] => {
     const wait = waits.get(q.id)
     return queueChips(q, {
-      backlog: items, tasks, terminals, worldCaps, now,
+      backlog: items, tasks, terminals, worldCaps, now, plans,
       global: policy ? { cap: policy.unitCap, used: policy.liveUnits } : undefined,
       quota: wait ? { reason: wait.reason, until: wait.until } : undefined
     })
@@ -128,7 +131,7 @@ export function Quests() {
         </Empty>
       ) : (
         <div className="kanban qk">
-          <QueuedColumn queue={board.queued} chipsFor={chipsFor} now={now} onOpen={(q) => open(q)} />
+          <QueuedColumn queue={board.queued} plans={plans} chipsFor={chipsFor} now={now} onOpen={(q) => open(q)} />
           <section className="kan-col col-in-flight">
             <header className="kan-head">
               <span className="label">In flight</span>
@@ -137,8 +140,14 @@ export function Quests() {
             <div className="kan-hint mute">The Squad's active units: working or ready to merge</div>
             <div className="kan-list">
               {board.inFlight.length === 0 && <div className="qk-empty mute">No units on the field.</div>}
-              {board.inFlight.map((c) => (
-                <FlightTicket key={c.key} c={c} now={now} events={c.task ? statusByTask[c.task.id] : undefined} onOpen={() => open(c.quest, c.task)} />
+              {planGroups(board.inFlight, (c) => (c.quest ? questPlan(plans, c.quest) : undefined)).map((b) => 'item' in b ? (
+                <FlightTicket key={b.item.key} c={b.item} now={now} events={b.item.task ? statusByTask[b.item.task.id] : undefined} onOpen={() => open(b.item.quest, b.item.task)} />
+              ) : (
+                <PlanGroup key={`plan-${b.plan.id}`} plan={b.plan}>
+                  {b.items.map((c) => (
+                    <FlightTicket key={c.key} c={c} now={now} events={c.task ? statusByTask[c.task.id] : undefined} onOpen={() => open(c.quest, c.task)} />
+                  ))}
+                </PlanGroup>
               ))}
             </div>
           </section>
@@ -174,9 +183,12 @@ export function Quests() {
 
 // ------------------------------------------------------------------ queued
 
-export function QueuedColumn({ queue, chipsFor, now, onOpen }: {
-  queue: BacklogItem[]; chipsFor: (q: BacklogItem) => QueueChip[]; now: number; onOpen: (q: BacklogItem) => void
+export function QueuedColumn({ queue: all, plans, chipsFor, now, onOpen }: {
+  queue: BacklogItem[]; plans?: WorkPlan[]; chipsFor: (q: BacklogItem) => QueueChip[]; now: number; onOpen: (q: BacklogItem) => void
 }) {
+  // a plan's steps start in plan order, not by priority: they sit in their plan's group above the bands
+  const groups = planGroups(all, (q) => questPlan(plans, q)).filter((b) => 'plan' in b)
+  const queue = all.filter((q) => !questPlan(plans, q))
   const [drag, setDrag] = useState<string | null>(null)
   const [over, setOver] = useState<{ band: Priority; before?: string } | null>(null)
   // the ticket in hand; drag state is set a tick after dragstart because Chromium
@@ -210,11 +222,16 @@ export function QueuedColumn({ queue, chipsFor, now, onOpen }: {
     <section className="kan-col col-queued">
       <header className="kan-head">
         <span className="label">Queued</span>
-        <span className="num">{queue.length}</span>
+        <span className="num">{all.length}</span>
       </header>
       <div className="kan-hint mute">Runs next, top first · drag to reorder or change priority</div>
       <div className="kan-list">
-        {queue.length === 0 && <div className="qk-empty mute">Nothing queued</div>}
+        {all.length === 0 && <div className="qk-empty mute">Nothing queued</div>}
+        {groups.map((g) => 'plan' in g && (
+          <PlanGroup key={`plan-${g.plan.id}`} plan={g.plan}>
+            {g.items.map((q) => <QueueTicket key={q.id} q={q} chips={chipsFor(q)} now={now} onOpen={() => onOpen(q)} />)}
+          </PlanGroup>
+        ))}
         {visibleBands(queue, !!drag).map((band) => {
           const list = queue.filter((q) => q.priority === band)
           return (
@@ -274,7 +291,7 @@ function QueueTicket({ q, chips, now, onOpen }: { q: BacklogItem; chips: QueueCh
 
 function ReasonChip({ c }: { c: QueueChip }) {
   const icon = c.kind === 'waiting' ? <Hand size={10} /> : c.kind === 'depends' ? <Link2 size={10} /> : c.kind === 'duplicate' ? <Copy size={10} />
-    : c.kind === 'later' || c.kind === 'quota' ? <Clock size={10} /> : c.kind === 'ready' ? <Play size={10} /> : null
+    : c.kind === 'later' || c.kind === 'quota' ? <Clock size={10} /> : c.kind === 'ready' ? <Play size={10} /> : c.kind === 'plan' ? <Pause size={10} /> : null
   return (
     <span className={cx('chip qk-chip', c.tone !== 'mute' && c.tone)} title={c.title}>
       {icon} {trunc(c.label, 48)}{c.date ? ` ${dateShort(c.date)}` : ''}
@@ -309,8 +326,10 @@ function PriorityLabel({ q }: { q: BacklogItem }) {
 }
 
 function TicketMeta({ q, task }: { q?: BacklogItem; task?: Task }) {
+  const plans = useStore((s) => s.snap.plans)
   const kind = q?.kind ?? task?.kind ?? 'ship'
   const world = q?.project ?? task?.project
+  const step = q ? questPlan(plans, q) : undefined
   return (
     <div className="quest-meta">
       <span className={cx('chip', kind === 'scout' ? 'violet' : kind === 'choice' ? 'amber' : '')}>
@@ -318,8 +337,29 @@ function TicketMeta({ q, task }: { q?: BacklogItem; task?: Task }) {
         {KIND_NAME[kind] ?? kind}
       </span>
       {world && <span className="chip">{world}</span>}
+      {step && <PlanChip plan={step.plan} step={step.step} />}
       {task?.category && <span className="chip qk-chip">{task.category}</span>}
-      {q?.tags.map((t) => <span key={t} className="chip qk-chip qk-tag">#{t}</span>)}
+      {/* the step chip already names the plan its label stands for */}
+      {q?.tags.filter((t) => !(step && t.startsWith('plan:'))).map((t) => <span key={t} className="chip qk-chip qk-tag">#{t}</span>)}
+    </div>
+  )
+}
+
+/** The plan a quest is a step of, while the plan is known to this window. */
+function questPlan(plans: WorkPlan[] | undefined, q: BacklogItem): { plan: WorkPlan; step: PlanStep } | undefined {
+  return q.planId && plans?.length ? planStepOf(plans, q.id) : undefined
+}
+
+/** A plan's steps in one column, under "New Play · plan · 1/3 merged". The title opens the plan popover. */
+function PlanGroup({ plan, children }: { plan: WorkPlan; children: ReactNode }) {
+  const v = usePlanView(plan.id)
+  return (
+    <div className="qk-plan">
+      <div className="qk-plan-head">
+        <PlanChip plan={plan} label={plan.title} />
+        {v && <span className="mute">{planSummary(v)}</span>}
+      </div>
+      {children}
     </div>
   )
 }
@@ -384,8 +424,10 @@ function FlightTicket({ c, now, events, onOpen }: { c: FlightCard; now: number; 
 // ------------------------------------------------------------------ done
 
 function DoneTicket({ d, onOpen }: { d: DoneEntry; onOpen: () => void }) {
+  const plans = useStore((s) => s.snap.plans)
   const t = d.task
   const color = toneColor(d.tone)
+  const step = d.quest ? questPlan(plans, d.quest) : t && plans?.length ? planStepOfTask(plans, t) : undefined
   const outcomeText = d.quest?.outcome && !/^https:\/\//.test(d.quest.outcome) ? d.quest.outcome : undefined
   return (
     <div className="quest qk-ticket qk-done panel" style={{ ['--c' as string]: color }} onClick={onOpen}>
@@ -398,6 +440,12 @@ function DoneTicket({ d, onOpen }: { d: DoneEntry; onOpen: () => void }) {
         {duration(d.startedAt, d.at) && <span>· took {duration(d.startedAt, d.at)}</span>}
         {(t?.project ?? d.quest?.project) && <span>· {t?.project ?? d.quest?.project}</span>}
       </div>
+      {step && (
+        <div className="quest-meta">
+          <PlanChip plan={step.plan} step={step.step}
+            label={`${stepChipLabel(step.plan, step.step)}${step.plan.state === 'done' ? ' · plan complete' : step.plan.state === 'cancelled' ? ' · plan cancelled' : ''}`} />
+        </div>
+      )}
       {outcomeText && <div className="quest-outcome mute">{trunc(outcomeText, 120)}</div>}
       {t?.mergeApproval && <div className="quest-outcome qk-approval mute" title={mergeApprovalLabel(t.mergeApproval, 2000)}>{mergeApprovalLabel(t.mergeApproval, 80)}</div>}
       <div className="qk-foot">

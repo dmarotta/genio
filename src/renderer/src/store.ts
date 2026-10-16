@@ -324,6 +324,9 @@ export function handleEvent(ev: GenioEvent): void {
       if (s.snap.allies.some((a) => !a.retiredAt)) scheduleRefresh()
       else setState({ snap: { ...s.snap, backlog: ev.items } })
       break
+    case 'plans':
+      setState({ snap: { ...s.snap, plans: ev.plans } })
+      break
     case 'decisions':
       if (s.snap.allies.some((a) => !a.retiredAt)) scheduleRefresh()
       else setState({ snap: { ...s.snap, decisions: ev.decisions } })

@@ -170,3 +170,80 @@ export function planStepOf(plans: WorkPlan[], questId: string): { plan: WorkPlan
   }
   return undefined
 }
+
+// ---------------------------------------------------------------- step chips
+
+/** The plan step a unit works: its own quest, else any plan step that lists it. */
+export function planStepOfTask(plans: WorkPlan[], task: Pick<Task, 'id' | 'backlogId'>): { plan: WorkPlan; step: PlanStep } | undefined {
+  const own = task.backlogId ? planStepOf(plans, task.backlogId) : undefined
+  if (own) return own
+  for (const plan of plans) {
+    const step = plan.steps.find((s) => s.taskIds.includes(task.id))
+    if (step) return { plan, step }
+  }
+  return undefined
+}
+
+/** The chip text: "Step 2/3 · New Play". */
+export const stepChipLabel = (plan: Pick<WorkPlan, 'title' | 'steps'>, step: Pick<PlanStep, 'index'>): string =>
+  `Step ${step.index}/${plan.steps.length} · ${plan.title}`
+
+/** The quest log group header: "plan · 1/3 merged", plus why it does not move on by itself. */
+export function planSummary(v: Pick<PlanView, 'state' | 'merged' | 'total'>): string {
+  const base = `plan · ${v.merged}/${v.total} merged`
+  return v.state === 'active' ? base : `${base} · ${v.state === 'done' ? 'complete' : v.state}`
+}
+
+/** One step's state in words: "merged", "working", "waits on step 2". */
+export function stepStateText(v: Pick<PlanStepView, 'state' | 'waitsOn' | 'kind'>, steps: Pick<PlanStepView, 'key' | 'index'>[]): string {
+  switch (v.state) {
+    case 'merged': return v.kind === 'scout' ? 'delivered' : 'merged'
+    case 'in-flight': return 'working'
+    case 'ready': return v.kind === 'scout' ? 'report ready' : 'ready to merge'
+    case 'blocked': return 'blocked'
+    case 'discarded': return 'discarded'
+    case 'queued': return 'starts next'
+    case 'waiting': {
+      const idx = v.waitsOn.map((k) => steps.find((s) => s.key === k)?.index ?? k)
+      return `waits on step ${idx.join(', ')}`
+    }
+  }
+}
+
+/**
+ * A quest log column with each plan's steps gathered under one header, where the
+ * plan's first card stood; steps keep plan order, other cards keep theirs.
+ */
+export function planGroups<T>(items: T[], planOf: (item: T) => { plan: WorkPlan; step: PlanStep } | undefined): ({ plan: WorkPlan; items: T[] } | { item: T })[] {
+  const out: ({ plan: WorkPlan; items: T[] } | { item: T })[] = []
+  const groups = new Map<string, { plan: WorkPlan; items: T[] }>()
+  const index = new Map<T, number>()
+  for (const item of items) {
+    const found = planOf(item)
+    if (!found) {
+      out.push({ item })
+      continue
+    }
+    index.set(item, found.step.index)
+    const g = groups.get(found.plan.id)
+    if (g) g.items.push(item)
+    else {
+      const next = { plan: found.plan, items: [item] }
+      groups.set(found.plan.id, next)
+      out.push(next)
+    }
+  }
+  for (const g of groups.values()) g.items.sort((a, b) => index.get(a)! - index.get(b)!)
+  return out
+}
+
+/** The Squad's colors for a step: green landed or ready, blue/purple at work, red discarded, yellow blocked. */
+export function stepTone(v: Pick<PlanStepView, 'state' | 'kind'>): 'volt' | 'blue' | 'violet' | 'alert' | 'amber' | 'mute' {
+  switch (v.state) {
+    case 'merged': case 'ready': return 'volt'
+    case 'in-flight': return v.kind === 'scout' ? 'violet' : 'blue'
+    case 'blocked': return 'amber'
+    case 'discarded': return 'alert'
+    default: return 'mute'
+  }
+}

@@ -70,6 +70,10 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     for (const hc of ctx().homes.values()) if (hc.backlog.get(id)) return hc
     throw new Error(`no quest ${id}`)
   }
+  const planHome = (id: string): HomeCtx => {
+    for (const hc of ctx().homes.values()) if (hc.plans?.get(id)) return hc
+    throw new Error(`no plan ${id}`)
+  }
   /**
    * The quest page Dispatch button: a quest that waits on unlanded dependencies
    * is refused, unless the player chose Dispatch anyway. That click is their word
@@ -317,6 +321,14 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
       }
       return [...byHome].flatMap(([h, list]) => h.backlog.reorder(list))
     },
+    planControl: async (id, action) => {
+      const hc = planHome(id)
+      const plan = hc.plans.get(id)!
+      if (action === 'pause' && plan.state !== 'active') return { ok: false, message: `This plan is already ${plan.state}.` }
+      if (action === 'cancel' && (plan.state === 'cancelled' || plan.state === 'done')) return { ok: false, message: `This plan is already ${plan.state}.` }
+      const r = await hc.plans.update(id, action === 'pause' ? { op: 'pause', by: 'player' } : { op: 'cancel', by: 'player' })
+      return { ok: true, message: r.message.charAt(0).toUpperCase() + r.message.slice(1) }
+    },
 
     // ---- choices
     answerDecision: (id, answer) => answerChoice(ctx(), id, answer),
@@ -480,6 +492,9 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
             if (waits) return waits
             await ctx().home(binding.wksp).wksp.send(dispatchMessage(backlogHome(quest.id), quest, Boolean(args[1])), 'system')
             return { ok: true, message: 'Sent to project chat.' }
+          }
+          if (method === 'planControl' && planHome(String(args[0])).plans.get(String(args[0]))?.world !== binding.project) {
+            throw new Error('Plan is outside this project.')
           }
           if (method === 'backlogReorder') {
             for (const p of args[0] as { id: string }[]) {

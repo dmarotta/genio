@@ -2,6 +2,7 @@ import { Radar, Rocket } from 'lucide-react'
 import { finishedAt, outcomeTone, squadAttention, squadOutcome, squadState, squadTone } from '@shared/squad-display'
 import { pendingDecision } from '@shared/decisions'
 import { mergeApprovalLabel } from '@shared/merge-approval'
+import { planStepOfTask, stepChipLabel } from '@shared/work-plan'
 import type { Task } from '@shared/types'
 import { focusTask, openDeploy, squadRoster, useStore } from '../store'
 import { Dot, NeedsYou, useNow } from './ui'
@@ -22,6 +23,17 @@ export function Roster() {
   </div>
 }
 
+/** Kind and project, or the plan step the unit works ("Step 2/3 · New Play"); the unit page chip opens the plan. */
+function RosterSub({ t }: { t: Task }) {
+  const plans = useStore(s => s.snap.plans)
+  const found = plans?.length ? planStepOfTask(plans, t) : undefined
+  return <div className="roster-sub mute">
+    {t.kind === 'scout' ? <Radar size={10} /> : <Rocket size={10} />} {KIND_LABEL[t.kind]} · {found
+      ? <span className="roster-step" title={`${t.project} · plan "${found.plan.title}"`}>{stepChipLabel(found.plan, found.step)}</span>
+      : t.project}
+  </div>
+}
+
 function RosterRow({ t, now }: { t: Task; now: number }) {
   const terminal = useStore(s => t.terminalId ? s.terminals[t.terminalId] : undefined)
   const pending = useStore(s => s.snap.decisions.some(d => d.taskId === t.id && pendingDecision(d, now)))
@@ -32,7 +44,7 @@ function RosterRow({ t, now }: { t: Task; now: number }) {
     <Dot tone={tone} pulse={state === 'WORKING'} />
     <div className="roster-main">
       <div className="roster-title">{t.title}</div>
-      <div className="roster-sub mute">{t.kind === 'scout' ? <Radar size={10} /> : <Rocket size={10} />} {KIND_LABEL[t.kind]} · {t.project}</div>
+      <RosterSub t={t} />
     </div>
     <div className="roster-right">
       <span className="roster-state" style={{ color: `var(--${tone})` }}>{attention && <NeedsYou compact />}{state}</span>
@@ -57,7 +69,7 @@ function DoneRow({ t, now }: { t: Task; now: number }) {
     <Dot tone={tone} />
     <div className="roster-main">
       <div className="roster-title">{t.title}</div>
-      <div className="roster-sub mute">{t.kind === 'scout' ? <Radar size={10} /> : <Rocket size={10} />} {KIND_LABEL[t.kind]} · {t.project}</div>
+      <RosterSub t={t} />
     </div>
     <div className="roster-right">
       <span className="roster-state" style={{ color: `var(--${tone})` }}>{outcome}</span>

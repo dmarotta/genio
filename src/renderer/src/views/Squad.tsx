@@ -28,6 +28,8 @@ import { supportsUnitySlots } from '@shared/play'
 import { effectiveEngine } from '@shared/engine'
 import { listFact, useScreenContext } from '../lib/screen-context'
 import { requestPlaySource } from '../lib/play-nav'
+import { planStepOfTask } from '@shared/work-plan'
+import { PlanChip } from '../components/PlanChip'
 
 export function Squad() {
   const focus = useStore((s) => s.focus)
@@ -315,6 +317,8 @@ function UnitDetail({ id }: { id: string }) {
   const now = useNow(1000)
   const events = useStore((s) => s.statusByTask[id]?.length ?? 0)
   const question = useStore((s) => s.snap.decisions.find((d) => d.taskId === id && pendingDecision(d, now)))
+  const plans = useStore((s) => s.snap.plans)
+  const planStep = t && plans?.length ? planStepOfTask(plans, t) : undefined
   const reconFinished = t?.kind === 'scout' && (t.state === 'done' || !!t.reportPath)
   const [tab, setTab] = useState<TabId>(() => (reconFinished ? 'report' : t?.kind === 'scout' ? 'timeline' : 'changes'))
   const [pane, setPane] = useState<'terminal' | 'side'>(() => (reconFinished ? 'side' : 'terminal'))
@@ -418,6 +422,7 @@ function UnitDetail({ id }: { id: string }) {
           <span className="uh-state">
             <Chip tone={badge.tone} pulse={badge.label === 'WORKING'}>{badge.label}</Chip>
           </span>
+          {planStep && <PlanChip plan={planStep.plan} step={planStep.step} />}
           {attention && <NeedsYou />}
           {t.dislikePause && <DislikeMarker />}
           <span className="mute detail-clock">{unitClock(t, term, now)}</span>

@@ -4,7 +4,7 @@
  * units, via the Squad display mapping), the durable Done history, duplicate
  * detection and the legacy held/program migration.
  */
-import type { BacklogItem, Decision, Priority, Task, TerminalInfo } from './types'
+import type { BacklogItem, Decision, Priority, Task, TerminalInfo, WorkPlan } from './types'
 import { pendingDecision } from './decisions'
 import { squadAttention, squadState, squadTone, type SquadState, type SquadTone } from './squad-display'
 
@@ -193,7 +193,7 @@ export function buildBoard({ backlog, tasks, terminals = {}, decisions = [], now
 // ------------------------------------------------------------------ queue reasons
 
 export interface QueueChip {
-  kind: 'duplicate' | 'waiting' | 'later' | 'depends' | 'quota' | 'cap' | 'ready'
+  kind: 'duplicate' | 'waiting' | 'later' | 'depends' | 'quota' | 'cap' | 'ready' | 'plan'
   label: string
   title?: string
   /** shown after the label as a short date */
@@ -209,6 +209,8 @@ export interface QueueContext {
   worldCaps?: Record<string, number | undefined>
   global?: { cap: number; used: number }
   quota?: { reason: string; until?: string }
+  /** a plan step waits on "step N" and stops while its plan is paused */
+  plans?: WorkPlan[]
   now?: number
 }
 
@@ -226,11 +228,18 @@ export function queueChips(q: BacklogItem, ctx: QueueContext): QueueChip[] {
   else if ((q.hold && !q.hold.until) || (q.kind === 'choice' && !q.hold)) {
     chips.push({ kind: 'waiting', label: 'waiting for you', title: q.hold?.reason ?? 'A choice only you can make', tone: 'amber' })
   }
+  const plan = q.planId ? ctx.plans?.find((p) => p.id === q.planId) : undefined
+  if (plan && (plan.state === 'paused' || plan.state === 'cancelled')) {
+    chips.push({ kind: 'plan', label: `plan ${plan.state}`, title: plan.pause?.reason ?? `Plan "${plan.title}" is ${plan.state}`, tone: 'amber' })
+  }
   const deps = q.dependsOn.filter((id) => find(id)?.state !== 'done')
   if (deps.length) {
     const first = find(deps[0])
+    const steps = plan ? deps.map((id) => plan.steps.find((s) => s.questId === id)?.index) : []
     chips.push({
-      kind: 'depends', label: `waits on ${first ? `"${first.title}"` : deps[0]}${deps.length > 1 ? ` +${deps.length - 1}` : ''}`,
+      kind: 'depends',
+      label: steps.length && steps.every((i) => i !== undefined) ? `waits on step ${steps.join(', ')}`
+        : `waits on ${first ? `"${first.title}"` : deps[0]}${deps.length > 1 ? ` +${deps.length - 1}` : ''}`,
       title: deps.map((id) => find(id)?.title ?? `${id} (missing)`).join('\n'), tone: 'mute'
     })
   }
