@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { ChatMessage } from '../src/shared/types'
 import { CopyMessageButton } from '../src/renderer/src/components/CopyMessageButton'
 import { ChatPanel } from '../src/renderer/src/views/Comms'
+import { clock } from '../src/renderer/src/lib/format'
 
 const f = vi.hoisted(() => ({ write: vi.fn(), toast: vi.fn(), unqueue: vi.fn(), messages: [] as ChatMessage[] }))
 vi.mock('../src/renderer/src/store', () => ({
@@ -62,8 +63,8 @@ it('reports an unavailable clipboard without an unhandled rejection', async () =
   expect(copy().disabled).toBe(false)
 })
 
-it('copies each displayed message, including full wakes and routed content, without interfering with the queue', async () => {
-  const message = (id: string, role: ChatMessage['role'], text: string): ChatMessage => ({ id, wksp: 'ally', role, text, ts: '2026-10-13T12:00:00Z' })
+it.each(['screen', 'panel'] as const)('copies each displayed message on %s without cost labels or interfering with the queue', async (surface) => {
+  const message = (id: string, role: ChatMessage['role'], text: string): ChatMessage => ({ id, wksp: 'ally', role, text, ts: '2026-10-13T12:00:00Z', costUsd: 0.123 })
   f.messages = [
     message('player', 'player', 'Player\nmessage'),
     message('genio', 'genio', '**Assistant**\nreply'),
@@ -74,7 +75,10 @@ it('copies each displayed message, including full wakes and routed content, with
     { ...message('queued', 'player', 'Queued message'), queue: 'queued' },
     message('empty', 'genio', '')
   ]
-  await act(() => root.render(React.createElement(ChatPanel, { wksp: 'ally' })))
+  await act(() => root.render(React.createElement(ChatPanel, { wksp: 'ally', surface })))
+  expect(host.textContent).not.toContain('$')
+  expect(host.querySelector('[data-msg="genio"] .msg-meta')?.textContent?.trim()).toBe(`Genio · ${clock(f.messages[1].ts)}`)
+  expect(f.messages.every(m => m.costUsd === 0.123)).toBe(true)
   const buttons = host.querySelectorAll<HTMLButtonElement>('[aria-label="Copy message"]')
   expect(buttons).toHaveLength(7)
   for (const button of buttons) await act(async () => button.click())

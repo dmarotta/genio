@@ -1074,7 +1074,6 @@ body:has(.answers-float .answer-card) .toasts { right: calc(min(380px, 100vw - 2
   .unit-grid { grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr)); }
   .sys-layout { grid-template-columns: 170px minmax(0, 1fr); }
   .sys-row { grid-template-columns: 1fr; gap: 8px; }
-  .hud-stat .label { display: none; }
   .form-grid.cols-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
@@ -1343,7 +1342,6 @@ button.prio-label:hover { background: color-mix(in srgb, var(--p) 24%, transpare
 .hub-titlebar > .btn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 1; }
 @media (max-width: 900px) {
   .titlebar { gap: 12px; }
-  .hud-cost { display: none; }
   .presence-opt { font-size: 0; gap: 0; padding: 0 9px; }
   /* one pane at a time, picked from a tab strip: the terminal (default) or a side tab */
   .detail-body { grid-template-columns: minmax(0, 1fr); min-height: 240px; }

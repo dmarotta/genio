@@ -3,7 +3,7 @@ import { PROJECT_WINDOW, api, go, op, openDecisions, runningUnits, setState, tog
 import { useNow } from './ui'
 import { FileMenu } from './FileMenu'
 import { PRESENCE } from '../lib/vocab'
-import { clock, cx, usd } from '../lib/format'
+import { clock, cx } from '../lib/format'
 import { playSfx } from '../lib/sfx'
 import { PANE_SHORTCUT, togglePane } from '../lib/terminal-pane'
 import type { AwayMode } from '@shared/types'
@@ -72,12 +72,6 @@ export function TitleBar() {
           <Crosshair size={14} />
           <span className="num">{moves}</span>
         </button>
-        <div className="hud-stat hud-cost" title="Estimated chat, Bot and review cost today; excludes unit costs and is not subscription spend">
-          <span className="mute label" style={{ letterSpacing: '0.1em' }}>
-            Chat/review
-          </span>
-          <span className="num">{usd(stats.costTodayUsd)}</span>
-        </div>
         <button className="level" title={`${stats.xp} / ${stats.xpNext} XP`} onClick={() => setState({ view: 'status' })}>
           <span className="level-badge num">
             <small>LV</small>

@@ -25,12 +25,16 @@ it('renders Units and Queue totals using the cap definition, including live wait
   document.body.append(host)
   const root = createRoot(host)
   try {
-    setState({ ...original, terminals, snap: { ...original.snap, tasks, pendingUnits: ['world'], backlog: [] } })
+    setState({ ...original, terminals, snap: { ...original.snap, tasks, pendingUnits: ['world'], backlog: [], stats: { ...original.snap.stats, costTodayUsd: 27 } } })
     expect(runningUnits(getState())).toBe(used + 1)
     await act(async () => root.render(React.createElement(React.Fragment, null, React.createElement(Rail), React.createElement(TitleBar))))
     expect(host.querySelector('[aria-label="Quests"]')?.textContent).toContain('8 running')
     expect(host.querySelector('.rail-badge')?.textContent).toBe('8')
     expect(host.querySelector('[title="Units in action"] .num')?.textContent).toBe('8')
+    expect(host.querySelector('.hud-cost')).toBeNull()
+    expect(host.querySelector('.titlebar')?.textContent).not.toMatch(/Chat\/review|\$/)
+    expect(host.querySelector('.hud-stats')?.lastElementChild?.className).toBe('level')
+    expect(getState().snap.stats.costTodayUsd).toBe(27)
     await act(async () => {
       handleEvent({ type: 'pending-units', projects: [] })
       for (const terminal of Object.values(terminals)) handleEvent({ type: 'terminal', terminal: { ...terminal, alive: false } })

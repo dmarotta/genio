@@ -480,7 +480,6 @@ const Message = memo(function Message({ m, calm, gamertag, onTakeBack, onSendNow
         {!m.partial && <ReactionNote m={m} />}
         <div className="msg-meta">
           {ASSISTANT_NAME} · {clock(m.ts)}
-          {m.costUsd ? ` · $${m.costUsd.toFixed(3)}` : ''}
           <CopyMessageButton text={m.text} />
           {!m.partial && (m.text || m.generation) && <Reactions m={m} />}
         </div>
