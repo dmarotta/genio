@@ -140,6 +140,9 @@ button.hud-stat:hover { border-color: var(--line); color: var(--text); }
 .big-glyph { font-size: 40px; color: var(--neon); text-shadow: var(--glow); }
 
 /* ---------- modal ---------- */
+/* Modals, menus and toasts render in #genio-layer (components/Layer.tsx), a sibling of the app at the end of <body>:
+   above the title bar, rail, chat panel and Your Move cards, and outside every page's clip-path and scroll box. */
+#genio-layer, #genio-layer * { -webkit-app-region: no-drag; }
 .modal-scrim {
   position: fixed; inset: 0; z-index: 200; display: grid; grid-template-columns: minmax(0, 1fr); place-items: safe center; overflow: auto; padding: 24px;
   background: rgba(3, 4, 7, 0.72); backdrop-filter: blur(3px);
@@ -296,14 +299,12 @@ button.usage-toggle:hover { color: var(--text); }
 .chat-panel { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; container: chat-panel / inline-size; }
 .chat-panel .chat-log { padding: 20px 20px 12px; }
 .chat-panel .composer { padding: 10px 20px 14px; }
-.chat-panel .slash-menu { left: 20px; right: 20px; }
 .chat-panel .toggle-label { white-space: nowrap; }
 /* A narrow floating panel keeps its controls on as few lines as it can: the key hints go, the gutters shrink. */
 @container chat-panel (max-width: 560px) {
   .comms-head { padding: 8px 12px; gap: 6px 14px; }
   .chat-panel .chat-log { padding: 16px 12px 10px; }
   .chat-panel .composer { padding: 8px 12px 12px; }
-  .chat-panel .slash-menu { left: 12px; right: 12px; }
   .composer-keys { display: none; }
 }
 .chat-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex: 1; }
@@ -467,7 +468,7 @@ button.usage-toggle:hover { color: var(--text); }
 .composer-hints .quick { display: flex; gap: 14px; margin-left: auto; }
 .composer-hints .quick .link-btn:disabled { opacity: 0.4; cursor: default; text-shadow: none; }
 .composer-hints .quick .link-btn { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; }
-.slash-menu { position: absolute; left: 28px; right: 28px; bottom: calc(100% - 4px); max-width: 860px; margin: 0 auto; padding: 6px; z-index: 30; }
+.slash-menu { padding: 6px; }
 .slash-item { width: 100%; display: grid; grid-template-columns: 110px 1fr; gap: 14px; padding: 8px 12px; background: none; border: 0; text-align: left; cursor: pointer; color: var(--text); }
 .slash-item.on { background: var(--neon-soft); }
 
@@ -567,7 +568,7 @@ button.usage-toggle:hover { color: var(--text); }
 .uh-actions > :not(.uh-line) { flex: none; }
 .unit-info, .unit-more { position: relative; }
 .uh-info { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
-.unit-info-pop { position: absolute; left: 0; top: calc(100% + 6px); z-index: 60; width: min(380px, calc(100vw - 32px)); padding: 10px 12px;
+.unit-info-pop { width: min(380px, calc(100vw - 32px)); padding: 10px 12px;
   background: var(--surface-3); border: 1px solid var(--line-strong); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); font-size: 12.5px; }
 .unit-info-pop dl { margin: 0; display: flex; flex-direction: column; gap: 4px; }
 .ui-row { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 10px; }
@@ -575,7 +576,7 @@ button.usage-toggle:hover { color: var(--text); }
 .ui-row dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
 .ui-loadout { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
 .ui-loadout ul { margin: 6px 0 0; padding-left: 18px; color: var(--text-dim); line-height: 1.45; }
-.unit-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 60; width: min(340px, calc(100vw - 32px)); display: flex; flex-direction: column; padding: 6px;
+.unit-menu { width: min(340px, calc(100vw - 32px)); display: flex; flex-direction: column; padding: 6px;
   background: var(--surface-3); border: 1px solid var(--line-strong); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); }
 .unit-menu-item { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 7px 10px; background: none; border: 1px solid transparent; border-bottom-color: var(--line); color: var(--text); cursor: pointer; outline: none; }
 .unit-menu-item:last-child { border-bottom-color: transparent; }
@@ -940,8 +941,10 @@ body:has(.answers-float .answer-card) .toasts { right: calc(min(380px, 100vw - 2
 .mail-reply { margin-top: 8px; font-size: 13px; color: var(--text-dim); }
 
 /* ---------- systems ---------- */
-.sys-layout { flex: 1; display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 22px; align-items: start; }
-.sys-nav { position: sticky; top: 0; display: flex; flex-direction: column; }
+/* The page card fills the height below the header, however few controls it has; longer pages scroll the view
+   (one scrollbar) while the nav stays put. */
+.sys-layout { flex: 1 0 auto; display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 22px; align-items: stretch; }
+.sys-nav { position: sticky; top: 0; align-self: start; display: flex; flex-direction: column; }
 .sys-nav-list { display: flex; flex-direction: column; }
 .sys-picker { display: none; }
 .sys-group { margin: 16px 0 6px 10px; font-size: 10px; }
@@ -970,6 +973,10 @@ body:has(.answers-float .answer-card) .toasts { right: calc(min(380px, 100vw - 2
 .sys-link.on { color: var(--neon); border-left-color: var(--neon); background: var(--neon-soft); }
 .sys-badge { margin-left: 8px; padding: 0 6px; border-radius: 8px; font-size: 11px; background: var(--violet); color: var(--bg); }
 .sys-body { padding: 24px 28px 30px; min-height: 420px; }
+/* A danger zone stays at the bottom of its page. */
+.sys-body > :has(> .danger-zone) { display: flex; flex-direction: column; min-height: 100%; }
+.sys-body > :has(> .danger-zone) > .danger-zone { margin-top: auto; }
+.sys-body > :has(> .danger-zone) > :has(+ .danger-zone) { margin-bottom: 26px; }
 .sys-title { margin: 0 0 8px; font-family: var(--font-display); font-weight: 700; font-size: 26px; letter-spacing: 0.08em; text-transform: uppercase; display: flex; align-items: center; }
 .sys-term { margin-left: 10px; font-family: var(--font-ui); font-weight: 400; font-size: 13px; letter-spacing: 0.04em; text-transform: none; color: var(--text-mute); }
 .sys-group-name { text-transform: none; letter-spacing: 0; color: var(--text-dim); }
@@ -1209,7 +1216,7 @@ ul.loadout-why li { margin: 1px 0; }
 .rail-gauge .gauge-core { fill: currentColor; stroke: none; }
 .rail-gauge + .rail-foot { margin-top: 4px; }
 .rail-gauge-pop {
-  position: absolute; left: calc(100% + 12px); bottom: 0; z-index: 60; width: 280px;
+  width: 280px;
   display: flex; flex-direction: column; gap: 10px; padding: 10px 12px;
   background: var(--surface-3); border: 1px solid var(--line-strong); color: var(--text);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); font-size: 11.5px; cursor: default;
@@ -1273,7 +1280,7 @@ ul.loadout-why li { margin: 1px 0; }
 .prio-label.p-low { --p: var(--text-mute); }
 button.prio-label:hover { background: color-mix(in srgb, var(--p) 24%, transparent); }
 .prio-label.on { outline: 1px solid var(--p); }
-.prio-menu { position: absolute; z-index: 20; top: 22px; left: 0; display: flex; flex-direction: column; gap: 4px; padding: 6px; }
+.prio-menu { display: flex; flex-direction: column; gap: 4px; padding: 6px; }
 
 .qk-band { display: flex; flex-direction: column; gap: 8px; padding: 6px 0 8px; border-top: 1px dashed transparent; }
 .qk-band-head { display: flex; align-items: center; justify-content: space-between; }
@@ -1346,17 +1353,13 @@ button.prio-label:hover { background: color-mix(in srgb, var(--p) 24%, transpare
   /* the status line gets its own row; the actions wrap under it */
   .uh-actions { flex-wrap: wrap; }
   .uh-line { flex-basis: 100%; }
-  /* menus span the header row instead of hanging off a wrapped button */
-  .uh-row, .uh-actions { position: relative; }
-  .unit-info, .unit-more { position: static; }
-  .unit-menu, .unit-info-pop { left: 0; right: 0; width: auto; }
   .comms-head { padding: 8px 12px; }
   /* Narrow: a sticky one-line picker ("This project › General ▾") opens the search and page list as a sheet. */
   /* The bottom inset keeps the collapsed Genio pill off the last field. */
   .sys-view { gap: 10px; padding-bottom: 64px; }
   .sys-view .view-head .label { display: none; }
   .sys-view .view-head .title { font-size: 20px; margin-top: 0; }
-  .sys-layout { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .sys-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; gap: 10px; }
   /* Sticks below the view's top padding; the shadow paints over that strip so nothing shows above it. */
   .sys-nav { position: sticky; top: 0; z-index: 6; background: var(--bg); padding-bottom: 2px; box-shadow: 0 -16px 0 0 var(--bg); }
   /* Revealed rows land below the sticky picker, not under it. */

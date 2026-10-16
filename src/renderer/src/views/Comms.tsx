@@ -25,6 +25,7 @@ import { InventoryContextChips, useInventoryContext } from '../components/Invent
 const MAIN_PANEL = 'main'
 import { EffortSelect, ModelSelect } from './Systems'
 import { openSettings } from '../lib/settings-nav'
+import { Popover } from '../components/Layer'
 import { settingsPath } from '@shared/settings-pages'
 
 const SLASH: { cmd: string; hint: string }[] = [
@@ -591,6 +592,8 @@ function Composer({ wksp, busy, steerable = false, fill, context }: { wksp: stri
   const history = useRef<{ list: string[]; at: number; draft: string }>({ list: [], at: -1, draft: '' })
   const [sel, setSel] = useState(0)
   const ta = useRef<HTMLTextAreaElement>(null)
+  const composer = useRef<HTMLDivElement>(null)
+  const box = useRef<HTMLDivElement>(null)
   const att = useAttachments(wksp)
   const inventory = useInventoryContext(wksp, context)
   const canSend = !!text.trim() || att.images.length > 0
@@ -804,9 +807,9 @@ function Composer({ wksp, busy, steerable = false, fill, context }: { wksp: stri
   }
 
   return (
-    <div className="composer">
+    <div className="composer" ref={composer}>
       {matches.length > 0 && (
-        <div className="slash-menu panel">
+        <Popover anchor={composer} span={box} placement="top-span" gap={4} className="slash-menu panel">
           {matches.map((s, i) => (
             <button
               key={s.cmd}
@@ -821,11 +824,11 @@ function Composer({ wksp, busy, steerable = false, fill, context }: { wksp: stri
               <span className="mute">{s.hint}</span>
             </button>
           ))}
-        </div>
+        </Popover>
       )}
       {inventory.chips}
       <AttachmentStrip att={att} />
-      <div className={cx('composer-box ticks', att.dragging && 'dropping', shell && 'shell')} {...att.dropProps}>
+      <div ref={box} className={cx('composer-box ticks', att.dragging && 'dropping', shell && 'shell')} {...att.dropProps}>
         {shell && <span className="composer-shell-glyph mono" title="Shell mode: runs in your terminal, not sent to Genio as chat" aria-hidden>!</span>}
         <textarea
           ref={ta}

@@ -33,9 +33,9 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove() })
 
 const fileButton = () => host.querySelector('.file-menu-btn') as HTMLButtonElement
-const items = () => [...host.querySelectorAll('[aria-label="File"] > [role="menuitem"]')].map(b => b.textContent)
-const subItems = () => [...host.querySelectorAll('.file-submenu [role="menuitem"]')] as HTMLButtonElement[]
-const item = (text: string) => [...host.querySelectorAll('[role="menuitem"]')].find(b => b.textContent?.startsWith(text)) as HTMLButtonElement
+const items = () => [...document.querySelectorAll('[aria-label="File"] > [role="menuitem"]')].map(b => b.textContent)
+const subItems = () => [...document.querySelectorAll('.file-submenu [role="menuitem"]')] as HTMLButtonElement[]
+const item = (text: string) => [...document.querySelectorAll('[role="menuitem"]')].find(b => b.textContent?.startsWith(text)) as HTMLButtonElement
 const press = async (key: string, target: Element = document.activeElement!, init: KeyboardEventInit = {}) =>
   act(async () => { target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })) })
 
@@ -48,7 +48,7 @@ it.each(['/', '/?project=one&wksp=ally-one'])('shows exactly three entries in wi
   expect(subItems().map(b => b.textContent)).toEqual(['betaOpen', 'alpha', 'oneOpen'])
   await act(async () => item('beta').click())
   expect(api.projectOpen).toHaveBeenCalledExactlyOnceWith('C:/beta')
-  expect(host.querySelector('[role="menu"]')).toBeNull()
+  expect(document.querySelector('[role="menu"]')).toBeNull()
   await act(async () => fileButton().click())
   await act(async () => item('Open Recent').click())
   await act(async () => item('alpha').click())
@@ -68,12 +68,12 @@ it('opens the Hub and shows a readable toast on failure', async () => {
   await act(async () => fileButton().click())
   await act(async () => item('Hub').click())
   expect(api.windowOpenHub).toHaveBeenCalledOnce()
-  expect(host.querySelector('[role="menu"]')).toBeNull()
+  expect(document.querySelector('[role="menu"]')).toBeNull()
   api.windowOpenHub.mockRejectedValueOnce(new Error("Error invoking remote method 'genio:windowOpenHub': Error: Hub page unavailable"))
   await act(async () => fileButton().click())
   await act(async () => item('Hub').click())
-  expect(host.querySelector('.toast.t-error .toast-title')?.textContent).toBe('Open Hub')
-  expect(host.querySelector('.toast-body')?.textContent).toBe('Hub page unavailable')
+  expect(document.querySelector('.toast.t-error .toast-title')?.textContent).toBe('Open Hub')
+  expect(document.querySelector('.toast-body')?.textContent).toBe('Hub page unavailable')
 })
 
 it('shows a Hub failure from Ctrl+N and closes the File menu', async () => {
@@ -81,8 +81,8 @@ it('shows a Hub failure from Ctrl+N and closes the File menu', async () => {
   await act(async () => fileButton().click())
   await press('n', window as unknown as Element, { ctrlKey: true })
   expect(api.windowOpenHub).toHaveBeenCalledOnce()
-  expect(host.querySelector('[role="menu"]')).toBeNull()
-  expect(host.querySelector('.toast-body')?.textContent).toBe('Hub window manager is unavailable')
+  expect(document.querySelector('[role="menu"]')).toBeNull()
+  expect(document.querySelector('.toast-body')?.textContent).toBe('Hub window manager is unavailable')
 })
 
 it('supports keyboard navigation through Open Recent and back to Exit', async () => {
@@ -102,7 +102,7 @@ it('supports keyboard navigation through Open Recent and back to Exit', async ()
   await press('ArrowDown'); await press('End')
   expect(document.activeElement?.textContent).toBe('Exit')
   await press('Escape')
-  expect(host.querySelector('[role="menu"]')).toBeNull()
+  expect(document.querySelector('[role="menu"]')).toBeNull()
   expect(document.activeElement).toBe(fileButton())
   expect(api.windowClose).not.toHaveBeenCalled()
 })

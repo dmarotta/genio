@@ -9,6 +9,7 @@ import { useScreenContext } from '../lib/screen-context'
 import { DEFAULT_RESOLUTION, PROBLEMS, RESOLUTIONS, SOURCE_GROUPS, STATE_LABEL, WORKING, chipText, clock, deletionText, firstCopyText, playedText, progressText, sourceText, statusText, syncSummary } from '../lib/play-screen'
 import { openSettings } from '../lib/settings-nav'
 import { PlayLive } from './PlayLive'
+import { Popover } from '../components/Layer'
 import '../styles/play.css'
 
 type Entry = PlayConsole['entries'][number]
@@ -402,18 +403,14 @@ function ProgressBar({ text, title, done, total }: { text: string; title?: strin
 function Overflow({ items }: { items: { label: string; disabled?: boolean; run: () => void }[] }) {
   const [open, setOpen] = useState(false)
   const wrap = useRef<HTMLDivElement>(null)
+  const panel = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    if (!open) return
-    const away = (e: PointerEvent): void => { if (!wrap.current?.contains(e.target as Node)) setOpen(false) }
-    const esc = (e: KeyboardEvent): void => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('pointerdown', away); document.addEventListener('keydown', esc)
-    wrap.current?.querySelector<HTMLButtonElement>('[role=menuitem]:not(:disabled)')?.focus()
-    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc) }
+    if (open) panel.current?.querySelector<HTMLButtonElement>('[role=menuitem]:not(:disabled)')?.focus()
   }, [open])
   return <div className="play-menu" ref={wrap}>
     <button className="btn sm icon ghost" aria-label="More Play actions" title="More" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(o => !o)}><MoreHorizontal size={15} /></button>
-    {open && <div className="play-menu-panel" role="menu" aria-label="More Play actions">
+    {open && <Popover anchor={wrap} panel={panel} placement="bottom-end" className="play-menu-panel" role="menu" aria-label="More Play actions" onClose={() => setOpen(false)}>
       {items.map(it => <button key={it.label} role="menuitem" className="play-menu-item" disabled={it.disabled} onClick={() => { setOpen(false); it.run() }}>{it.label}</button>)}
-    </div>}
+    </Popover>}
   </div>
 }

@@ -110,11 +110,11 @@ describe('Project settings and registry helpers', () => {
   it('keeps removal typed and delegates to the existing guarded service without deleting owned folders', async () => {
     await mount()
     await click('Remove')
-    const confirm = [...host.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Remove project')!
+    const confirm = [...document.querySelectorAll('.modal button')].find(button => button.textContent?.trim() === 'Remove project') as HTMLButtonElement
     expect(confirm.disabled).toBe(true)
-    expect(host.textContent).toContain('Genio refuses while units are working')
-    expect(host.textContent).toContain('Genio never deletes it')
-    const input = host.querySelector('.modal input')!
+    expect(document.querySelector('.modal')!.textContent).toContain('Genio refuses while units are working')
+    expect(document.querySelector('.modal')!.textContent).toContain('Genio never deletes it')
+    const input = document.querySelector('.modal input')!
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Zebra')
       input.dispatchEvent(new Event('input', { bubbles: true }))

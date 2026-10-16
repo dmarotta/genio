@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Hand, ThumbsDown, X } from 'lucide-react'
 import { cx } from '../lib/format'
 import { toneVar, type Tone } from '../lib/vocab'
+import { Dialog } from './Layer'
 
 export function Chip({ tone, children, title, pulse }: { tone?: Tone; children: ReactNode; title?: string; pulse?: boolean }) {
   return (
@@ -61,20 +62,14 @@ export function Modal({
   tone?: Tone
   kicker?: string
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  const titleId = useId()
   return (
-    <div className="modal-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <Dialog onClose={onClose} labelledBy={titleId}>
       <div className="modal panel glow ticks rise" style={{ width, ['--tone' as string]: toneVar(tone) }}>
         <header className="modal-head">
           <div>
             {kicker && <div className="label" style={{ color: toneVar(tone) }}>{kicker}</div>}
-            <h2 className="modal-title">{title}</h2>
+            <h2 className="modal-title" id={titleId}>{title}</h2>
           </div>
           <button className="btn ghost icon sm" onClick={onClose} aria-label="Close">
             <X size={16} />
@@ -83,7 +78,7 @@ export function Modal({
         <div className="modal-body">{children}</div>
         {footer && <footer className="modal-foot">{footer}</footer>}
       </div>
-    </div>
+    </Dialog>
   )
 }
 

@@ -5,6 +5,7 @@ import { cx } from '../lib/format'
 import { entryActive, initialIndex, menuKey, navItems, opensMenu, windowRail, type NavItem, type RailEntry } from '../lib/railmenu'
 import '../styles/railmenu.css'
 import { RailMeter } from './PlanMeter'
+import { Popover } from './Layer'
 import { questCounts } from '@shared/quest-summary'
 
 const ICON: Record<string, LucideIcon> = {
@@ -92,22 +93,6 @@ function RailMenu({ entry, view }: { entry: RailEntry & { kind: 'menu' }; view: 
   // a shortcut or the palette switching screens closes the menu
   useEffect(() => setOpen(false), [view])
 
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent): void => {
-      if (!wrap.current?.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') close(true)
-    }
-    document.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
   return (
     <div className="rail-menu-wrap" ref={wrap}>
       <button
@@ -128,7 +113,11 @@ function RailMenu({ entry, view }: { entry: RailEntry & { kind: 'menu' }; view: 
         {!open && <span className="rail-tip">{entry.label}</span>}
       </button>
       {open && (
-        <div
+        <Popover
+          anchor={wrap}
+          placement="right-start"
+          gap={12}
+          onClose={(how) => close(how === 'escape')}
           className="rail-menu panel glow"
           role="menu"
           aria-label={entry.label}
@@ -163,7 +152,7 @@ function RailMenu({ entry, view }: { entry: RailEntry & { kind: 'menu' }; view: 
               </button>
             )
           })}
-        </div>
+        </Popover>
       )}
     </div>
   )

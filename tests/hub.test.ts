@@ -27,7 +27,7 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers() })
 const render = async () => { await act(async () => root.render(React.createElement(App))) }
 async function click(text: string) {
-  const button = [...host.querySelectorAll('button')].find(b => b.textContent?.includes(text))!
+  const button = [...document.querySelectorAll('button')].find(b => b.textContent?.includes(text))!
   expect(button).toBeDefined()
   await act(async () => button.click())
 }
@@ -40,7 +40,7 @@ it('shows only project selection even on first run and ignores work shortcuts', 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: '2', ctrlKey: true }))
   })
   expect(host.querySelector('h1')?.textContent).toBe('Choose a project')
-  expect(host.querySelector('.rail, .palette, .onboard, .presence, .hud-stats')).toBeNull()
+  expect(document.querySelector('.rail, .palette, .onboard, .presence, .hud-stats')).toBeNull()
 })
 
 it('has Settings with only the global pages, from its gear button and Ctrl+,', async () => {
@@ -82,7 +82,7 @@ it('opens a picked folder and does nothing when the picker is cancelled', async 
 
 it('creates a project and opens its project window', async () => {
   await render(); await click('New project')
-  const name = host.querySelector('.modal input') as HTMLInputElement
+  const name = document.querySelector('.modal input') as HTMLInputElement
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, 'created')
     name.dispatchEvent(new Event('input', { bubbles: true }))
@@ -94,12 +94,12 @@ it('creates a project and opens its project window', async () => {
 
 it('adds a repository from the Hub and opens the registered project', async () => {
   await render(); await click('Add project')
-  const source = host.querySelector('.modal input') as HTMLInputElement
+  const source = document.querySelector('.modal input') as HTMLInputElement
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(source, 'owner/repository')
     source.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  const confirm = [...host.querySelectorAll('.modal button')].find(button => button.textContent?.includes('Add project')) as HTMLButtonElement
+  const confirm = [...document.querySelectorAll('.modal button')].find(button => button.textContent?.includes('Add project')) as HTMLButtonElement
   await act(async () => confirm.click())
   expect(add).toHaveBeenCalledWith(expect.objectContaining({ source: 'owner/repository', mode: undefined }))
   expect(open).toHaveBeenCalledWith('C:/added')
@@ -127,7 +127,7 @@ it('preserves project search, sorting and sync-all in the Hub', async () => {
 it('keeps failed opens out of recents and leaves the selection usable', async () => {
   open.mockRejectedValueOnce(new Error('Folder unavailable'))
   await render(); await click('beta')
-  expect(host.textContent).toContain('Folder unavailable')
+  expect(document.body.textContent).toContain('Folder unavailable')
   expect(localStorage.getItem('genio.hub.recent-projects')).toBeNull()
   expect((host.querySelector('.hub-project') as HTMLButtonElement).disabled).toBe(false)
 })

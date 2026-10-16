@@ -2,7 +2,7 @@
 .rail-menu-wrap { position: relative; }
 .rail-menu-wrap .rail-btn.open { color: var(--text); background: rgba(255, 255, 255, 0.05); }
 .rail-menu {
-  position: absolute; left: calc(100% + 12px); top: 0; z-index: 60; min-width: 270px;
+  min-width: 270px;
   display: flex; flex-direction: column; padding: 6px;
   background: var(--surface-3); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 0 24px rgba(0, 229, 255, 0.05);
   animation: rail-menu-in 0.12s ease-out;

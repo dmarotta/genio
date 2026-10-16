@@ -47,7 +47,7 @@ const api = {
   playerInstanceStream: vi.fn(async () => undefined), featureUsed: vi.fn(async () => undefined)
 }
 const text = () => host.textContent ?? ''
-const button = (label: string) => [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === label || b.getAttribute('aria-label') === label)!
+const button = (label: string) => [...document.querySelectorAll('button')].find(b => b.textContent?.trim() === label || b.getAttribute('aria-label') === label)!
 const click = async (label: string) => { await act(async () => button(label).click()) }
 const select = (label: string) => host.querySelector(`select[aria-label="${label}"]`) as HTMLSelectElement
 const choose = async (label: string, value: string) => { await act(async () => { const s = select(label); s.value = value; s.dispatchEvent(new Event('change', { bubbles: true })) }) }
@@ -182,7 +182,7 @@ describe('Play screen', () => {
     status = { state: 'ready', project: 'C:/games/game', source: { path: 'C:/games/game' }, pid: 7, copy: copy() as never }
     await mount()
     await click('More Play actions')
-    expect([...host.querySelectorAll('[role=menuitem]')].map(b => b.textContent)).toEqual(['Restart Unity', 'Open Unity visibly (debug)', 'Unity console', 'Idle time and editor limit…'])
+    expect([...document.querySelectorAll('[role=menuitem]')].map(b => b.textContent)).toEqual(['Restart Unity', 'Open Unity visibly (debug)', 'Unity console', 'Idle time and editor limit…'])
     await click('Open Unity visibly (debug)')
     expect(api.playerInstanceRestart).toHaveBeenCalledWith('game', true)
     await click('More Play actions')

@@ -12,6 +12,7 @@ import { toDraftImage } from '../lib/attach'
 import { fitImage, viewerClick, viewerKey, type ViewerAction } from '../lib/image-viewer'
 import { errText, toast } from '../store'
 import { useChatDocument } from './ChatDocument'
+import { layerRoot } from './Layer'
 
 const hasFiles = (e: DragEvent): boolean => Array.from(e.dataTransfer.types).includes('Files')
 
@@ -247,6 +248,6 @@ function ImageViewer({ urls, index, onIndex, onClose }: ViewerProps) {
         <X size={18} />
       </button>
     </div>,
-    document.body
+    layerRoot(document)
   )
 }

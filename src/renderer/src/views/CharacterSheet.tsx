@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
+import { layerRoot } from '../components/Layer'
 import { ChevronDown, Compass, Flame, Hammer, Lock, Palette, Pin, Shield, Swords, Trophy, type LucideIcon } from 'lucide-react'
 import type { Achievement, LandingDay, PlaystyleId, PlaystyleTitleId, PlaystyleView } from '@shared/types'
 import { titleName } from '@shared/playstyle'
@@ -240,7 +241,7 @@ function AchievementTip({ a, anchor }: { a: Achievement; anchor: HTMLElement | n
       <div className="achv-tip-desc">{a.description}</div>
       <div className={cx('achv-tip-state', a.unlockedAt ? 'got' : 'mute')}>{a.unlockedAt ? `Earned ${dateShort(a.unlockedAt)}${a.retired ? ' · retired' : ''}` : 'Locked'}</div>
     </div>,
-    document.body
+    layerRoot()
   )
 }
 
@@ -373,7 +374,7 @@ function LandingTip({ day, anchor }: { day: LandingDay; anchor: HTMLElement | nu
         </>
       )}
     </div>,
-    document.body
+    layerRoot()
   )
 }
 

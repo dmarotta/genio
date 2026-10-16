@@ -4,6 +4,7 @@ import { canDrive, rankedModels, modelRowLabel, modelDisabledReason, staticClaud
 import { api } from '../store'
 import './ModelPicker.css'
 import { useChatDocument } from './ChatDocument'
+import { layerRoot } from './Layer'
 
 let latest: ModelCatalogue = staticClaudeCatalogue()
 let pending: Promise<ModelCatalogue> | undefined
@@ -96,6 +97,6 @@ export function ModelPicker({ value, onChange, onAccounts: _onAccounts, ...props
           </button>)}
         </div>)}
       </div>
-    </div>, document.body)}
+    </div>, layerRoot(document))}
   </>
 }

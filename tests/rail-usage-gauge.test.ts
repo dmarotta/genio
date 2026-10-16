@@ -85,7 +85,7 @@ describe('rail usage gauge', () => {
     expect(nav.open).toHaveBeenCalledTimes(2)
     expect(g.className).toContain('tone-hot')
     expect(g.getAttribute('aria-label')).toBe('Plan usage, 85% or more used: Claude 88% used, Codex 20% used')
-    expect(host.querySelector('[role="tooltip"]')).toBeNull()
+    expect(document.querySelector('[role="tooltip"]')).toBeNull()
     expect(host.textContent).not.toMatch(/CL|CD/)
   })
 
@@ -93,7 +93,7 @@ describe('rail usage gauge', () => {
     const g = await mount(view([row('claude', 72), row('codex', undefined, { error: 'rate-limit file missing' })]))
     expect(g.className).toContain('tone-warm')
     await act(async () => g.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
-    const pop = host.querySelector('[role="tooltip"]')!
+    const pop = document.querySelector('[role="tooltip"]')!
     expect(pop).not.toBeNull()
     expect(g.getAttribute('aria-describedby')).toBe(pop.id)
     const text = pop.textContent!
@@ -108,20 +108,20 @@ describe('rail usage gauge', () => {
     expect(text).not.toContain('?')
     expect(pop.querySelectorAll('.gauge-row .bar')).toHaveLength(2)
     await act(async () => g.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })))
-    expect(host.querySelector('[role="tooltip"]')).toBeNull()
+    expect(document.querySelector('[role="tooltip"]')).toBeNull()
   })
 
   it('opens on keyboard focus and closes on Escape or blur', async () => {
     const g = await mount(view([row('claude', 10), row('codex', 5)]))
     expect(g.className).toContain('tone-ok')
     await act(async () => g.focus())
-    expect(host.querySelector('[role="tooltip"]')).not.toBeNull()
+    expect(document.querySelector('[role="tooltip"]')).not.toBeNull()
     await act(async () => g.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
-    expect(host.querySelector('[role="tooltip"]')).toBeNull()
+    expect(document.querySelector('[role="tooltip"]')).toBeNull()
     await act(async () => { g.blur(); g.focus() })
-    expect(host.querySelector('[role="tooltip"]')).not.toBeNull()
+    expect(document.querySelector('[role="tooltip"]')).not.toBeNull()
     await act(async () => g.blur())
-    expect(host.querySelector('[role="tooltip"]')).toBeNull()
+    expect(document.querySelector('[role="tooltip"]')).toBeNull()
   })
 
   it('is gray with a readable error when usage cannot be read at all', async () => {
@@ -129,6 +129,6 @@ describe('rail usage gauge', () => {
     expect(g.className).toContain('tone-unknown')
     expect(g.getAttribute('aria-label')).toBe('Plan usage, unknown: unknown')
     await act(async () => g.focus())
-    expect(host.querySelector('[role="tooltip"]')!.textContent).toContain('Could not refresh usage')
+    expect(document.querySelector('[role="tooltip"]')!.textContent).toContain('Could not refresh usage')
   })
 })

@@ -5,6 +5,7 @@ import { api, errText, op, saveSettings, toast, useStore } from '../store'
 import { GenioCore } from './GenioCore'
 import { Field, Toggle } from './ui'
 import { cx } from '../lib/format'
+import { Dialog } from './Layer'
 
 /** First run: gamertag → toolchain check → first world. */
 export function Onboarding() {
@@ -34,7 +35,7 @@ export function Onboarding() {
   const steps = ['Player', 'Loadout', 'First project']
 
   return (
-    <div className="modal-scrim strong">
+    <Dialog strong dismissible={false} label="New game">
       <div className="onboard panel glow ticks rise">
         <div className="onboard-side">
           <GenioCore size={96} state="active" />
@@ -179,6 +180,6 @@ export function Onboarding() {
           )}
         </div>
       </div>
-    </div>
+    </Dialog>
   )
 }

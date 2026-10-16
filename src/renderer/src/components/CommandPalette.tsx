@@ -7,6 +7,7 @@ import { SETTINGS_INDEX } from '@shared/settings-index'
 import { SETTINGS_GROUP_LABEL, settingsPage } from '@shared/settings-pages'
 import { KIND_LABEL } from '../lib/vocab'
 import { cx } from '../lib/format'
+import { Dialog } from './Layer'
 
 interface Cmd {
   id: string
@@ -94,7 +95,7 @@ export function CommandPalette() {
     setState({ palette: false })
   }
   return (
-    <div className="modal-scrim" onMouseDown={(e) => e.target === e.currentTarget && setState({ palette: false })}>
+    <Dialog onClose={() => setState({ palette: false })} label="Command palette">
       <div className="palette panel glow ticks rise">
         <div className="palette-input">
           <Search size={16} className="mute" />
@@ -130,7 +131,7 @@ export function CommandPalette() {
           {!filtered.length && <div className="mute" style={{ padding: 16 }}>No match.</div>}
         </div>
       </div>
-    </div>
+    </Dialog>
   )
 }
 

@@ -50,7 +50,7 @@ const menu = async (): Promise<{ label: string; hint: string; tone: string }[]> 
   const more = button('More')
   if (!more) return []
   await click(more)
-  const items = [...host.querySelectorAll('.unit-menu-item')].map((i) => ({ label: i.querySelector('.umi-label')!.textContent!, hint: i.querySelector('.umi-hint')!.textContent!,
+  const items = [...document.querySelectorAll('.unit-menu-item')].map((i) => ({ label: i.querySelector('.umi-label')!.textContent!, hint: i.querySelector('.umi-hint')!.textContent!,
     tone: i.classList.contains('danger') ? 'danger' : i.classList.contains('warn') ? 'warn' : '' }))
   await click(more)
   return items
@@ -192,14 +192,14 @@ describe('unit page header and primary action', () => {
 
   it('keeps the facts in a details popover: branch, model, effort, delivery as Merge into main, Auto-loot, commit', async () => {
     await open(unit({ state: 'merged', category: 'bugfix', landedCommit: '8f2c1e9a4b7d03', loadout: ['Rule: bugfix → claude/opus'] }))
-    expect(host.querySelector('.unit-info-pop')).toBeNull()
+    expect(document.querySelector('.unit-info-pop')).toBeNull()
     await click(host.querySelector<HTMLButtonElement>('.uh-info')!)
-    const facts = Object.fromEntries([...host.querySelectorAll('.ui-row')].map((r) => [r.querySelector('dt')!.textContent, r.querySelector('dd')!.textContent]))
+    const facts = Object.fromEntries([...document.querySelectorAll('.ui-row')].map((r) => [r.querySelector('dt')!.textContent, r.querySelector('dd')!.textContent]))
     expect(facts).toMatchObject({ Project: 'world', Branch: 'genio/u1 → main', Model: 'claude / opus', Effort: 'high', Delivery: 'Merge into main',
       'Auto-loot': 'Off: merging waits for you', Commit: '8f2c1e9a4b7d' })
     expect(facts.Category).toBeTruthy()
-    expect(host.querySelector('.ui-loadout')?.textContent).toContain('Rule: bugfix')
-    expect(host.textContent).not.toMatch(/Offline/)
+    expect(document.querySelector('.ui-loadout')?.textContent).toContain('Rule: bugfix')
+    expect(document.body.textContent).not.toMatch(/Offline/)
   })
 })
 
@@ -276,12 +276,12 @@ describe('unit page content', () => {
   it('warns before despawning a Build with an open PR, and says Recall does not stick', async () => {
     await open(unit({ state: 'ready', mode: 'direct-PR', pr: { url: 'https://github.com/o/r/pull/7', number: 7, state: 'OPEN' } }))
     await click(button('More'))
-    await click([...host.querySelectorAll<HTMLButtonElement>('.unit-menu-item')].find((b) => b.textContent?.startsWith('Despawn'))!)
+    await click([...document.querySelectorAll<HTMLButtonElement>('.unit-menu-item')].find((b) => b.textContent?.startsWith('Despawn'))!)
     expect(document.querySelector('.despawn-pr')?.textContent).toContain('PR #7 is still open')
     await click(button('Cancel'))
     await live()
     await click(button('More'))
-    await click([...host.querySelectorAll<HTMLButtonElement>('.unit-menu-item')].find((b) => b.textContent?.startsWith('Recall'))!)
+    await click([...document.querySelectorAll<HTMLButtonElement>('.unit-menu-item')].find((b) => b.textContent?.startsWith('Recall'))!)
     expect(document.body.textContent).toContain('reopening the project respawns it automatically')
     expect(document.body.textContent).not.toContain('respawn any time')
   })
@@ -354,6 +354,6 @@ describe('Play this unit', () => {
     expect(items[0]).toMatchObject({ label: 'Play' })
     await openUnity(unit({ state: 'cleaned', cleanedAt: NOW }))
     await click(button('More'))
-    expect(host.querySelector<HTMLButtonElement>('.unit-menu-item')!.disabled).toBe(true)
+    expect(document.querySelector<HTMLButtonElement>('.unit-menu-item')!.disabled).toBe(true)
   })
 })

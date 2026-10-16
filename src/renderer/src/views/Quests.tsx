@@ -13,6 +13,7 @@ import { KIND_LABEL } from '../lib/vocab'
 import { ago, clock, cx, dateInput, dateShort, duration, trunc } from '../lib/format'
 import { useUsagePolicy } from '../components/PlanMeter'
 import { useScreenContext } from '../lib/screen-context'
+import { Popover } from '../components/Layer'
 
 const DONE_PAGE = 12
 const DONE_MORE = 25
@@ -284,23 +285,24 @@ function ReasonChip({ c }: { c: QueueChip }) {
 /** Click the label to change the priority in place. */
 function PriorityLabel({ q }: { q: BacklogItem }) {
   const [menu, setMenu] = useState(false)
+  const wrap = useRef<HTMLSpanElement>(null)
   const set = (p: Priority): void => {
     setMenu(false)
     if (p !== q.priority) void op('Priority', () => api().backlogUpdate(q.id, { priority: p }))
   }
   return (
-    <span className="prio-wrap" onClick={(e) => e.stopPropagation()}>
+    <span className="prio-wrap" ref={wrap} onClick={(e) => e.stopPropagation()}>
       <button className={cx('prio-label', `p-${q.priority}`)} title="Change priority" onClick={() => setMenu((m) => !m)}>
         {PRIORITY_LABEL[q.priority]}
       </button>
       {menu && (
-        <span className="prio-menu panel" onMouseLeave={() => setMenu(false)}>
+        <Popover anchor={wrap} gap={4} className="prio-menu panel" onMouseLeave={() => setMenu(false)} onClose={() => setMenu(false)}>
           {PRIORITY_ORDER.map((p) => (
             <button key={p} className={cx('prio-label', `p-${p}`, p === q.priority && 'on')} onClick={() => set(p)}>
               {PRIORITY_LABEL[p]}
             </button>
           ))}
-        </span>
+        </Popover>
       )}
     </span>
   )

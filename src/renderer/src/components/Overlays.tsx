@@ -4,18 +4,21 @@ import { ShieldCheck, Trophy, X } from 'lucide-react'
 import { api, dismissToast, getState, op, setState, useStore } from '../store'
 import { GenioCore } from './GenioCore'
 import { cx, clock } from '../lib/format'
+import { Dialog, Layer } from './Layer'
 
 export function Toasts() {
   const toasts = useStore((s) => s.toasts)
   return (
-    <div className="toasts" aria-live="polite">
-      {toasts.map((t) => (
-        <div key={t.id} className={cx('toast rise', `t-${t.level}`)} onClick={() => dismissToast(t.id)}>
-          <div className="toast-title">{t.title}</div>
-          {t.body && <div className="toast-body selectable">{t.body}</div>}
-        </div>
-      ))}
-    </div>
+    <Layer>
+      <div className="toasts" aria-live="polite">
+        {toasts.map((t) => (
+          <div key={t.id} className={cx('toast rise', `t-${t.level}`)} onClick={() => dismissToast(t.id)}>
+            <div className="toast-title">{t.title}</div>
+            {t.body && <div className="toast-body selectable">{t.body}</div>}
+          </div>
+        ))}
+      </div>
+    </Layer>
   )
 }
 
@@ -29,19 +32,21 @@ export function AchievementOverlay() {
   }, [current])
   if (!current) return null
   return (
-    <div className="achv" key={current.id} onClick={() => setState((s) => ({ achievements: s.achievements.slice(1) }))}>
-      <div className="achv-card">
-        <div className="achv-icon">
-          <Trophy size={30} />
+    <Layer>
+      <div className="achv" key={current.id} onClick={() => setState((s) => ({ achievements: s.achievements.slice(1) }))}>
+        <div className="achv-card">
+          <div className="achv-icon">
+            <Trophy size={30} />
+          </div>
+          <div>
+            <div className="achv-kicker">Achievement unlocked</div>
+            <div className="achv-name">{current.name}</div>
+            <div className="achv-desc">{current.description}</div>
+          </div>
+          <div className="achv-shine" />
         </div>
-        <div>
-          <div className="achv-kicker">Achievement unlocked</div>
-          <div className="achv-name">{current.name}</div>
-          <div className="achv-desc">{current.description}</div>
-        </div>
-        <div className="achv-shine" />
       </div>
-    </div>
+    </Layer>
   )
 }
 
@@ -54,7 +59,7 @@ export function PermissionPrompt() {
     void op('Permission', () => api().resolvePermission(req.id, allow))
   }
   return (
-    <div className="modal-scrim strong">
+    <Dialog strong dismissible={false} label={`Genio wants to run ${req.tool}`}>
       <div className="modal panel glow ticks rise perm" style={{ width: 600, ['--tone' as string]: 'var(--amber)' }}>
         <header className="modal-head">
           <div>
@@ -83,7 +88,7 @@ export function PermissionPrompt() {
           </button>
         </footer>
       </div>
-    </div>
+    </Dialog>
   )
 }
 
@@ -104,25 +109,27 @@ export function BootSplash({ ready }: { ready: boolean }) {
   if (gone) return null
   const lines = ['LINKING CORE', 'SCANNING SQUAD', 'LOADING QUEST LOG', 'SYSTEMS ONLINE']
   return (
-    <div className={cx('splash', leaving && 'out')} onClick={() => setSkipped(true)}>
-      <div className="splash-inner">
-        <GenioCore size={120} state="active" />
-        <div className="splash-word" data-text="GENIO">
-          GENIO
-        </div>
-        <div className="splash-sub label">AI squad orchestrator · game dev edition</div>
-        <div className="bar splash-bar">
-          <i style={{ width: ready ? '100%' : '70%' }} />
-        </div>
-        <div className="splash-lines mono">
-          {lines.map((l, i) => (
-            <div key={l} style={{ animationDelay: `${i * 0.22}s` }}>
-              <span className="volt-text">▸</span> {l}
-            </div>
-          ))}
+    <Layer>
+      <div className={cx('splash', leaving && 'out')} onClick={() => setSkipped(true)}>
+        <div className="splash-inner">
+          <GenioCore size={120} state="active" />
+          <div className="splash-word" data-text="GENIO">
+            GENIO
+          </div>
+          <div className="splash-sub label">AI squad orchestrator · game dev edition</div>
+          <div className="bar splash-bar">
+            <i style={{ width: ready ? '100%' : '70%' }} />
+          </div>
+          <div className="splash-lines mono">
+            {lines.map((l, i) => (
+              <div key={l} style={{ animationDelay: `${i * 0.22}s` }}>
+                <span className="volt-text">▸</span> {l}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
-    </div>
+    </Layer>
   )
 }
 
@@ -137,7 +144,7 @@ export function WelcomeBack() {
   const sevTone: Record<string, string> = { info: 'neon', decision: 'amber', failure: 'alert', ready: 'volt' }
   const close = (): void => setState({ welcomeDismissedAt: fresh.reduce((m, e) => (e.ts > m ? e.ts : m), getState().welcomeDismissedAt ?? '') })
   return (
-    <div className="modal-scrim" onMouseDown={(e) => e.target === e.currentTarget && close()}>
+    <Dialog onClose={close} label={`Welcome back, ${gamertag}`}>
       <div className="modal panel glow ticks rise" style={{ width: 620 }}>
         <header className="modal-head">
           <div>
@@ -179,6 +186,6 @@ export function WelcomeBack() {
           </button>
         </footer>
       </div>
-    </div>
+    </Dialog>
   )
 }

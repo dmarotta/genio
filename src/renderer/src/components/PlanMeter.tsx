@@ -5,11 +5,12 @@
  * Used full-size in Settings → Usage & limits; the rail shows one gauge icon
  * with the same details in a hover/focus popup.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { leftText, USAGE_MODE_LABEL, type MeterRow, type MeterWindow, type UsagePolicyView } from '@shared/usage-mode'
 import { api, useStore } from '../store'
 import { ago, cx } from '../lib/format'
 import { openSettings } from '../lib/settings-nav'
+import { Popover } from './Layer'
 
 const REFRESH_MS = 60_000
 
@@ -184,12 +185,14 @@ function GaugeRow({ l }: { l: GaugeLine }) {
 export function RailMeter() {
   const { view, error } = useUsagePolicyState()
   const [open, setOpen] = useState(false)
+  const gauge = useRef<HTMLDivElement>(null)
   const lines = view ? view.meter.map(gaugeLine) : []
   const tone = gaugeTone(lines)
   const worst = Math.max(-1, ...lines.map((l) => l.usedPercent ?? -1))
   const summary = error ? 'unknown' : !view ? 'loading' : lines.map((l) => `${l.label} ${l.usedPercent !== undefined ? `${l.usedPercent}% used` : 'unknown'}`).join(', ')
   return (
     <div
+      ref={gauge}
       className={cx('rail-gauge', `tone-${tone}`, open && 'open')}
       tabIndex={0}
       role="button"
@@ -207,7 +210,7 @@ export function RailMeter() {
     >
       <GaugeGlyph percent={worst < 0 ? undefined : worst} />
       {open && (
-        <div id="rail-gauge-pop" className="rail-gauge-pop panel" role="tooltip">
+        <Popover anchor={gauge} placement="right-end" gap={12} id="rail-gauge-pop" className="rail-gauge-pop panel" role="tooltip">
           <div className="label rail-gauge-title">Plan usage</div>
           {error && <div className="gauge-error">{error}</div>}
           {!error && !view && <div className="mute">Reading plan usage…</div>}
@@ -217,7 +220,7 @@ export function RailMeter() {
               Usage mode {USAGE_MODE_LABEL[view.mode] ?? view.mode} · unit cap {view.unitCap}
             </div>
           )}
-        </div>
+        </Popover>
       )}
     </div>
   )

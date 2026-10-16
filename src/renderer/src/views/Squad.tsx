@@ -11,6 +11,7 @@ import { TerminalView } from '../components/Terminal'
 import { Markdown } from '../components/Markdown'
 import { Chip, Confirm, DislikeMarker, Empty, Modal, Field, NeedsYou, Tabs, ViewHeader, useNow } from '../components/ui'
 import { GenioCore } from '../components/GenioCore'
+import { Popover } from '../components/Layer'
 import { RATEABLE, VerdictButtons, VerdictPick, rateThenMerge } from '../components/Dispatch'
 import { KIND_LABEL } from '../lib/vocab'
 import { ago, clock, cx, shortPath } from '../lib/format'
@@ -299,21 +300,10 @@ function useNarrowHeader(): boolean {
   return narrow
 }
 
-/** Open state for a menu or popover that closes on Escape or a click elsewhere. */
+/** Open state and anchor for a header popover; the Popover closes it on Escape or a click elsewhere. */
 function usePopover() {
   const [open, setOpen] = useState(false)
   const wrap = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const away = (e: PointerEvent): void => { if (!wrap.current?.contains(e.target as Node)) setOpen(false) }
-    const esc = (e: KeyboardEvent): void => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('pointerdown', away)
-    document.addEventListener('keydown', esc)
-    return () => {
-      document.removeEventListener('pointerdown', away)
-      document.removeEventListener('keydown', esc)
-    }
-  }, [open])
   return [open, setOpen, wrap] as const
 }
 
@@ -632,14 +622,14 @@ function MoreMenu({ items: all }: { items: MoreItem[] }) {
         <MoreHorizontal size={14} /> More <ChevronDown size={12} />
       </button>
       {open && (
-        <div className="unit-menu" role="menu" aria-label="More unit actions">
+        <Popover anchor={wrap} placement="bottom-end" className="unit-menu" role="menu" aria-label="More unit actions" onClose={() => setOpen(false)}>
           {items.map((it) => (
             <button key={it.id} role="menuitem" className={cx('unit-menu-item', it.tone)} disabled={it.disabled} onClick={() => { setOpen(() => false); it.run() }}>
               <span className="umi-label">{it.label}</span>
               <span className="umi-hint">{it.hint}</span>
             </button>
           ))}
-        </div>
+        </Popover>
       )}
     </div>
   )
@@ -665,7 +655,7 @@ function UnitInfo({ t }: { t: Task }) {
         <Info size={12} /> details
       </button>
       {open && (
-        <div className="unit-info-pop" role="dialog" aria-label="Unit details">
+        <Popover anchor={wrap} className="unit-info-pop" role="dialog" aria-label="Unit details" onClose={() => setOpen(false)}>
           <dl>
             {rows.map(([k, v]) => (
               <div key={k} className="ui-row">
@@ -680,7 +670,7 @@ function UnitInfo({ t }: { t: Task }) {
               <ul>{t.loadout.map((r, i) => <li key={i}>{r}</li>)}</ul>
             </div>
           )}
-        </div>
+        </Popover>
       )}
     </div>
   )

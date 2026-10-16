@@ -5,6 +5,7 @@ import { cx } from '../lib/format'
 import { fileKeyAction, fileMenu, type FileAction, type FileEntry, type FileItem } from '../lib/filemenu'
 import { menuKey } from '../lib/railmenu'
 import { readRecent, rememberRecent } from '../lib/recent'
+import { Popover } from './Layer'
 import type { WindowList } from '@shared/api'
 import '../styles/filemenu.css'
 
@@ -61,13 +62,6 @@ export function FileMenu() {
     else items.current[sel]?.focus()
   }, [open, sel, sub, subSel, subRows.length])
 
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent): void => { if (!wrap.current?.contains(e.target as Node)) close(false) }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [open])
-
   // Window-local accelerators; a focused terminal or field that handled the key keeps it.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -108,7 +102,7 @@ export function FileMenu() {
         File
       </button>
       {open && (
-        <div className="file-menu-pop">
+        <Popover anchor={wrap} gap={9} fit={false} className="file-menu-pop" onClose={(how) => close(how === 'escape')}>
           <div
             className="file-menu-panel panel glow"
             role="menu"
@@ -169,7 +163,7 @@ export function FileMenu() {
               )) : <div className="file-menu-empty mute">{submenu.empty}</div>}
             </div>
           )}
-        </div>
+        </Popover>
       )}
     </div>
   )

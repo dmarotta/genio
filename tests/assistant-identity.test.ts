@@ -83,7 +83,7 @@ it('snapshots the floating panel title and preserves the project only in the nat
 it('labels project permission requests as Genio while retaining their routing key', async () => {
   setState({ permissions: [{ id: 'permission', wksp: PROJECT, tool: 'Bash', input: 'npm test', ts: '2026-10-14' }] })
   await act(() => root.render(React.createElement(PermissionPrompt)))
-  expect(host.querySelector('.modal-head .label')!.textContent).toBe('Access request · Genio')
+  expect(document.querySelector('.modal-head .label')!.textContent).toBe('Access request · Genio')
   expect(getState().permissions[0].wksp).toBe(PROJECT)
 })
 
