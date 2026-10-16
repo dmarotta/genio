@@ -47,17 +47,9 @@ describe('Modeller actions from the unit page', () => {
     expect(s.ping).toContain('switched model tower to branch main from the unit page; its head is s003 ("Roof")')
   })
 
-  it('accepts a step: keeps its snapshot and asks the unit to deliver exactly it, merge unchanged', async () => {
-    const r = await modellerAction(KERNEL, data, { op: 'accept', model: 'tower', step: 's003' })
-    expect(read().steps.find((s: { id: string }) => s.id === 's003').keep).toBe(true)
-    expect(r.ping).toContain('accepts s003 ("Roof") of model tower on branch main')
-    expect(r.ping).toContain('commit the export with its compressed .blend and the build scripts, then report done')
-    expect(r.ping).toContain('The player merges as usual')
-  })
-
   it('refuses steps off the branch, unknown models and a model a step is running on', async () => {
     await modellerAction(KERNEL, data, { op: 'revert', model: 'tower', step: 's001' })
-    await expect(modellerAction(KERNEL, data, { op: 'accept', model: 'tower', step: 's003' })).rejects.toThrow('not on branch main any more')
+    await expect(modellerAction(KERNEL, data, { op: 'branch', model: 'tower', step: 's003' })).rejects.toThrow('not on branch main any more')
     await expect(modellerAction(KERNEL, data, { op: 'revert', model: '../x', step: 's001' })).rejects.toThrow('Model name')
     fs.writeFileSync(path.join(data, 'tower', '.lock'), String(process.pid))
     await expect(modellerAction(KERNEL, data, { op: 'revert', model: 'tower', step: 's001' })).rejects.toThrow('Wait for it to finish')

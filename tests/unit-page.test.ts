@@ -365,7 +365,7 @@ describe('Modeller unit before its first step', () => {
   const sideTabs = (): string[] => [...host.querySelectorAll('.detail-side-tabs [role="tab"]')].map((b) => b.textContent!.trim())
   const sideTab = (label: string): HTMLButtonElement => [...host.querySelectorAll<HTMLButtonElement>('.detail-side-tabs [role="tab"]')].find((b) => b.textContent!.trim() === label)!
 
-  it('is canvas first from the start: an empty 3D scene, Steps then Terminal then Changes, no steps yet, Accept off', async () => {
+  it('is canvas first from the start: an empty 3D scene, Steps then Terminal then Changes, no steps yet, no Accept', async () => {
     calls.set('modellerLive', vi.fn(async () => null))
     await live({ modeller: true })
     const canvas = host.querySelector('.detail-body .detail-canvas')!
@@ -376,9 +376,8 @@ describe('Modeller unit before its first step', () => {
     expect([...host.querySelectorAll('.detail-switch [role="tab"]')].map((b) => b.textContent!.trim())).toEqual(['Model', 'Steps', 'Terminal', 'Changes', 'Timeline', 'Brief'])
     expect(sideTabs()).toEqual(['Steps', 'Terminal', 'Changes', 'Timeline', 'Brief'])
     expect(host.querySelector('.detail-tab')!.textContent).toBe('No steps yet.')
-    const accept = button('Accept')
-    expect(accept.disabled).toBe(true)
-    expect(accept.title).toBe('No step to accept yet.')
+    expect(primary()).toEqual(['More'])
+    expect(host.textContent).not.toMatch(/accept/i)
   })
 
   it('shows its terminal tab at the legible size, fitted to the tab, with no enlarge or click-to-type control', async () => {
@@ -391,11 +390,19 @@ describe('Modeller unit before its first step', () => {
     expect(host.textContent).not.toMatch(/enlarge|click to type/i)
   })
 
-  it('accepts the head step once one exists', async () => {
+  it('shows the head step once one exists and offers what a working Build offers: steering, no Accept', async () => {
     calls.set('modellerLive', vi.fn(async () => model([step])))
     await live({ modeller: true })
-    expect(button('Accept step 1').disabled).toBe(false)
     expect(host.querySelector('.detail-canvas [role="status"]')!.textContent).toBe('Step 1 · Raising four timber legs')
+    expect(primary()).toEqual(['More'])
+    expect(button('Accept step 1')).toBeUndefined()
+    expect(host.querySelector('.ping-box, textarea')).not.toBeNull()
+  })
+
+  it('a ready Modeller offers Merge like any Build', async () => {
+    calls.set('modellerLive', vi.fn(async () => model([step])))
+    await live({ modeller: true, state: 'ready', readyAt: NOW })
+    expect(primary()).toEqual(['Merge into main', 'More'])
   })
 
   it('a landed Modeller with no model data falls back to its terminal', async () => {

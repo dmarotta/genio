@@ -289,7 +289,7 @@ export function createGauntlet(getCtx: () => AppCtx, home: Home): Gauntlet {
         const info = step('model')
         begin(info)
         end(info, 'skipped', modellerReport(modellerDataDir(home.taskDir(taskId))))
-        reviewNote = "Modeller: no checks, the player's review of the live view is the gate."
+        reviewNote = 'Modeller: no checks; the model report is information only and merging follows the usual approval.'
       } else {
         const review = step('review')
         begin(review)

@@ -519,7 +519,7 @@ export interface GenioApi {
   inventoryModelRelease(url: string, completeOnly?: boolean): Promise<void>
   /** A Modeller unit's live view: its steps (GLBs through one viewer grant per unit), the step running now; null while it has no model. */
   modellerLive(taskId: string): Promise<import('./modeller').ModellerLive | null>
-  /** Revert, Branch, switch branch or Accept on a Modeller's model; the unit gets a ping saying what the player did. */
+  /** Revert, Branch or switch branch on a Modeller's model; the unit gets a ping saying what the player did. */
   modellerAct(taskId: string, act: import('./modeller').ModellerAct): Promise<OpResult>
   /** Before and after of a binary file the unit changed (images, models), for the Changes tab. */
   unitFilePreview(taskId: string, file: string): Promise<import('./modeller').UnitFilePreview>

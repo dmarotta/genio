@@ -653,7 +653,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
             reportPath,
             engine: effectiveEngine(project).engine,
             engineLine: engineBriefLine(engineFacts(project)),
-            engineHints: engineHints(effectiveEngine(project).engine, modeller),
+            engineHints: engineHints(effectiveEngine(project).engine),
             briefInclude: s.briefInclude,
             summaryWords: req.kind === 'scout' ? ctx.dispatch.reportWords(project.name, loadout.harness) : undefined,
             tools: toolsBrief(),

@@ -125,9 +125,9 @@ export function modellerBrief(pluginDir: string, taskDataDir: string): string {
     `- Start each model once: \`node "${kernel}" init <model> --target <unity|godot|web>\` (add \`--budget <triangles>\` or \`--size <x>x<y>x<z>\` when the mission gives them). Run a step: \`node "${kernel}" step <model> <script.py>\`.`,
     '- One step is one idea (legs, bracing, deck, roof) with 3 to 15 named parts. Put step scripts in your worktree under `.genio/modeller/<model>/`, numbered `s01_legs.py`, `s02_bracing.py`. The first line of each script is a docstring caption in plain words ("Raising four timber legs on stone footings"): the player reads it live. Build with the preloaded `p` helpers so a script can run again without duplicating parts.',
     '- After every step, open the review sheet PNG the step prints (3/4, front, side and top views) and read its warnings. Fix what is wrong before adding anything new: a fix is its own step, or `--amend` the last one.',
-    '- The warnings and checks are information for you and the player, never a gate. The player\'s review of the live view decides.',
+    '- The warnings and checks are information for you and the player, never a gate. You decide when the model is done; then deliver it as the Modeller delivery under Definition of done says, like any Build.',
     '- Steering ("steeper roof") becomes the next step. `revert <model> <step>` or `branch <model> <name> --from <step>` goes back to an earlier version; `status <model>` lists the steps.',
-    `- Steps, .blend snapshots, GLBs and review sheets live in \`${data}/\` (GENIO_MODELLER_DATA). Never copy them into the worktree or commit them, except what the Modeller delivery under Definition of done names for the accepted step.`,
+    `- Steps, .blend snapshots, GLBs and review sheets live in \`${data}/\` (GENIO_MODELLER_DATA). Never copy them into the worktree or commit them, except what the Modeller delivery under Definition of done names for the finished model.`,
     '- A failed, crashed or hung step leaves the model at its last good step. Read the error and trace it prints, fix the script and run it again; do not retry it unchanged.'
   ].join('\n')
 }

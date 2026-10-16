@@ -66,6 +66,7 @@ Every step prints JSON: `ok`, `id` (s001, s002...), `caption`, `triangles`, `ver
 3. Read `warnings`. Compare the sheet with what you meant: proportions, parts floating or poking through, missing pieces, wrong facing.
 4. Fix before you continue. A fix is its own step ("Fixing the ladder rails"), or re-run the last step with `--amend` (it replaces the head, keeping the step count honest).
 5. Steering from the player becomes the next step.
+6. When you judge the model done, export the head step, place it, commit and report done like any Build (the brief's Modeller delivery says what to commit). In a Unity project the model's `.meta` belongs to the change: never hand-write one; `genio-unity import` generates it, and you commit it with the FBX (if Unity cannot run for you, commit without it and say it appears on the first import). There is no separate review: the player merges as usual. Ask the player something only when it is a real question.
 
 **A step script** starts with a docstring; its first line is the caption the player sees live ("Now adding the roof: corner posts and a pyramid of shingles"). `bpy` and the helpers `p` are preloaded. Build parts with the helpers: a part made again under the same name replaces the old one, so a script can run twice with the same result (idempotent) and the live view can tell parts apart. Reach existing parts with `p.part('Deck planks')`. Prints appear in the receipt's `output`.
 

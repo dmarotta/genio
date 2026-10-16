@@ -7,7 +7,7 @@ import { Confirm } from './ui'
 import '../styles/modeller-view.css'
 
 /** Why the model cannot change right now, or ''. */
-export function modelLocked(t: Task, live: ModellerLive): string {
+function modelLocked(t: Task, live: ModellerLive): string {
   if (t.state === 'cleaned') return 'Despawned: the model can no longer change.'
   if (live.running) return `Wait for step ${live.running.n} to finish.`
   return ''

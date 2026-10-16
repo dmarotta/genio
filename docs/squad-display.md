@@ -28,7 +28,10 @@ landed commit. Beside More sits one primary action, by state
 | failed, exited, detached | Respawn, with the stop reason in words |
 | Recon done | Build from this report, and Archive (despawns the copy, keeps the report) |
 | merged, despawned | none |
-| Modeller, working or asking "Accept?" | Accept step N: the unit places and commits the model, then Merge as above |
+
+A Modeller offers the same: it exports, places and commits its model when it
+judges it done, reports ready, and merges like any Build (Auto-loot or the
+player's approval).
 
 More holds Interrupt (working only), Respawn, Recall (live only), Open folder
 and Despawn (red), each with its one-line consequence (`UNIT_ACTION_HINT`).

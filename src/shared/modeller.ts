@@ -36,7 +36,6 @@ export type ModellerAct =
   | { op: 'revert'; model: string; step: string }
   | { op: 'branch'; model: string; step: string }
   | { op: 'switch'; model: string; branch: string }
-  | { op: 'accept'; model: string; step: string }
 
 /** Where a Modeller commits a model's build scripts and manifest: also the path it claims for that model. */
 export const modelScriptsDir = (model: string): string => `.genio/modeller/${model}/`

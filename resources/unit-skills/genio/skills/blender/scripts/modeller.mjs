@@ -404,7 +404,7 @@ export function switchBranch({ dataDir = modellerDataDir(), model, name } = {}) 
   })
 }
 
-/** Keep (or stop keeping) a step's snapshot regardless of retention, e.g. the accepted step. */
+/** Keep (or stop keeping) a step's snapshot regardless of retention, e.g. the step you deliver. */
 export function keep({ dataDir = modellerDataDir(), model, step: ref, on = true } = {}) {
   return edit(dataDir, model, (m) => {
     const s = resolveStep(m, ref)

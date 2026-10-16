@@ -1,9 +1,8 @@
 /**
  * What the player does to a Modeller's model from the unit page: Revert to step N, Branch from step N,
- * switch branch, Accept. Each runs the kernel's own CLI (modeller.mjs, as plain Node, under its lock,
+ * switch branch. Each runs the kernel's own CLI (modeller.mjs, as plain Node, under its lock,
  * so it is refused while a step runs) and returns the ping that tells the unit, so its next step
- * builds on what the player now sees. Accept only marks the step kept and asks the unit to deliver it:
- * placing the files, committing and merging stay the unit's and the player's, with merge approval unchanged.
+ * builds on what the player now sees. Delivery is the unit's own, as for any Build.
  */
 import type { ModellerAct } from '@shared/modeller'
 import { run } from './util'
@@ -61,14 +60,6 @@ export async function modellerAction(script: string, dataDir: string, act: Model
       return {
         message: `On branch ${r.branch}, step ${n(r.head)}.`,
         ping: `The player switched model ${r.model} to branch ${r.branch} from the unit page; its head is ${said(r.steps.at(-1))}. Continue there.`
-      }
-    }
-    case 'accept': {
-      const s = onBranch(await k('status', act.model), act.step)
-      const r = await k('keep', act.model, s.id)
-      return {
-        message: `Accepted step ${n(s.id)}. The unit places the files; merge as usual when it is ready.`,
-        ping: `The player accepts ${said(s)} of model ${r.model} on branch ${r.branch}: deliver exactly this step and add no more. Export it into the project (modeller.mjs materialize ${r.model} ${s.id} first if its snapshot was pruned), commit the export with its compressed .blend and the build scripts, then report done. The player merges as usual.`
       }
     }
   }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
-  Archive, ArrowLeft, Box, Check, ChevronDown, ExternalLink, FolderOpen, GitMerge, Info, MoreHorizontal, Play as PlayIcon, Radar, RotateCcw, Rocket, Send,
+  Archive, ArrowLeft, Box, ChevronDown, ExternalLink, FolderOpen, GitMerge, Info, MoreHorizontal, Play as PlayIcon, Radar, RotateCcw, Rocket, Send,
   SquareTerminal, ArrowUpFromLine, X
 } from 'lucide-react'
 import type { Decision, Task, TerminalInfo, ValidationStep, Verdict } from '@shared/types'
@@ -9,7 +9,7 @@ import type { TaskFile } from '@shared/api'
 import { api, errText, focusTask, op, openDeploy, setState, toast, liveTasks, useStore } from '../store'
 import { TerminalView } from '../components/Terminal'
 import { ModellerView, useModellerLive } from '../components/ModellerView'
-import { ModellerCardView, ModellerSteps, modelLocked } from '../components/ModellerSteps'
+import { ModellerCardView, ModellerSteps } from '../components/ModellerSteps'
 import { modellerCanvas, type UnitFilePreview } from '@shared/modeller'
 import { Markdown } from '../components/Markdown'
 import { Chip, Confirm, DislikeMarker, Empty, Modal, Field, NeedsYou, Tabs, ViewHeader, useNow } from '../components/ui'
@@ -23,7 +23,7 @@ import { playSfx } from '../lib/sfx'
 import { squadAttention, squadBadge, squadState, squadTone, unitClock } from '@shared/squad-display'
 import { UNIT_ACTION_HINT, canRespawn, hasOpenPr } from '@shared/unit-actions'
 import {
-  acceptOption, canRate, deliveryLabel, mergeTimeline, needsInput, parsePings, parseStatusLines, parseUnitChanges, primaryAction, prMergeBlock,
+  canRate, deliveryLabel, mergeTimeline, needsInput, parsePings, parseStatusLines, parseUnitChanges, primaryAction, prMergeBlock,
   reportedTests, unitBadge, unitPlay, type TimelineRow, type UnitChanges
 } from '@shared/unit-page'
 import { pendingDecision } from '@shared/decisions'
@@ -338,7 +338,7 @@ function UnitDetail({ id }: { id: string }) {
   const reconFinished = t?.kind === 'scout' && (t.state === 'done' || !!t.reportPath)
   const [tab, setTab] = useState<TabId>(() => (reconFinished ? 'report' : t?.kind === 'scout' ? 'timeline' : 'changes'))
   const [pane, setPane] = useState<'main' | 'side'>(() => (reconFinished ? 'side' : 'main'))
-  const [confirm, setConfirm] = useState<null | 'despawn' | 'archive' | 'force' | 'merge' | 'recall' | 'accept'>(null)
+  const [confirm, setConfirm] = useState<null | 'despawn' | 'archive' | 'force' | 'merge' | 'recall'>(null)
   const [refusal, setRefusal] = useState('')
   const [upgrade, setUpgrade] = useState(false)
   const [verdict, setVerdict] = useState<Verdict | undefined>()
@@ -378,9 +378,7 @@ function UnitDetail({ id }: { id: string }) {
   const attention = squadAttention(t, term, !!question)
   const recon = t.kind === 'scout'
   const cleaned = t.state === 'cleaned'
-  const accept = acceptOption(question)
-  const primary = primaryAction(t, term, !!question, !!accept)
-  const acceptOff = !modeller || !head ? 'No step to accept yet.' : modelLocked(t, modeller)
+  const primary = primaryAction(t, term, !!question)
   const hardcore = !!t.validation || t.mode === 'no-mistakes'
   const lagging = needsInput(t, term, now, settings?.staleSeconds)
   const termLabel = lagging ? 'Terminal ●' : 'Terminal'
@@ -399,12 +397,6 @@ function UnitDetail({ id }: { id: string }) {
   const showPane = (p: PaneId): void => {
     setPane(p === 'main' ? 'main' : 'side')
     if (p !== 'main') setTab(p)
-  }
-  const acceptNow = async (): Promise<void> => {
-    if (!modeller || !head) return
-    const r = await op('Accept', () => api().modellerAct(t.id, { op: 'accept', model: modeller.model, step: head.id }))
-    // The unit's own "Accept?" question is answered too, so it stops waiting.
-    if (r?.ok && question && accept) await op('Accept', () => api().answerDecision(question.id, accept))
   }
 
   const latest = statusRows.at(-1)
@@ -491,11 +483,6 @@ function UnitDetail({ id }: { id: string }) {
               </button>
             </>
           )}
-          {primary === 'accept' && (
-            <button className="btn sm solid orange uh-primary" disabled={!!acceptOff} title={acceptOff || 'The unit places this step in the project and commits it; you merge as usual'} onClick={() => setConfirm('accept')}>
-              <Check size={13} /> Accept{head ? ` step ${head.n}` : ''}
-            </button>
-          )}
           {primary === 'respawn' && (
             <button className="btn sm solid uh-primary" disabled={!canRespawn(t)} title={UNIT_ACTION_HINT.respawn} onClick={() => void op('Respawn', () => api().controlTask(t.id, 'relaunch'))}>
               <RotateCcw size={13} /> Respawn
@@ -518,7 +505,7 @@ function UnitDetail({ id }: { id: string }) {
           )}
           <MoreMenu items={more} />
         </div>
-        {(primary === 'question' || (primary === 'accept' && question)) && <UnitQuestion t={t} d={question} fallback={latest?.text ?? t.stateReason ?? ''} />}
+        {primary === 'question' && <UnitQuestion t={t} d={question} fallback={latest?.text ?? t.stateReason ?? ''} />}
       </header>
 
       <div className="detail-switch">
@@ -550,7 +537,7 @@ function UnitDetail({ id }: { id: string }) {
         </aside>
       </div>
 
-      <PingBox t={t} live={live} steer={primary === 'steer' || primary === 'accept'} />
+      <PingBox t={t} live={live} steer={primary === 'steer'} />
 
       {(confirm === 'despawn' || confirm === 'archive') && (
         <Confirm
@@ -629,23 +616,6 @@ function UnitDetail({ id }: { id: string }) {
           onConfirm={async () => {
             await op('Recall', () => api().controlTask(t.id, 'exit'))
           }}
-          onClose={() => setConfirm(null)}
-        />
-      )}
-      {confirm === 'accept' && modeller && head && (
-        <Confirm
-          title={`Accept step ${head.n}?`}
-          tone="orange"
-          confirmLabel="Accept"
-          body={
-            <>
-              <p>
-                Step {head.n} · {head.caption} ({head.triangles.toLocaleString()} triangles, {head.parts} parts{modeller.branch !== 'main' ? `, branch ${modeller.branch}` : ''}) becomes the model this unit delivers.
-              </p>
-              <p>The unit places it in the project and commits it with its .blend and build scripts, then reports ready. Nothing merges until you merge it, as with any Build.</p>
-            </>
-          }
-          onConfirm={acceptNow}
           onClose={() => setConfirm(null)}
         />
       )}

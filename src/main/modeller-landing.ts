@@ -42,7 +42,7 @@ export function unitClaims(spawn: string[] | undefined, dataDir: string, events:
 export function modellerReport(dataDir: string): string {
   const live = readModellerLive(dataDir, () => '')
   const head = live?.steps.at(-1)
-  const lines = ["No checks for Modellers (the player's choice): the player's review of the live view is the gate."]
+  const lines = ["No checks for Modellers (the player's choice): this report is information only, and merging follows the usual approval."]
   if (!live || !head) return [...lines, 'No model step found in the unit\'s data.'].join('\n')
   lines.push(`Model ${live.model}, branch ${live.branch}: step ${head.n} "${head.caption}", ${head.triangles} triangles, ${head.parts} parts.`)
   lines.push(live.checks.length ? `Advisory checks (information only):\n${live.checks.map(c => `- ${c}`).join('\n')}` : 'Advisory checks: none raised.')

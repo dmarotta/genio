@@ -6,30 +6,24 @@ import { squadBadge, squadState, type SquadTone } from './squad-display'
  * docs/squad-display.md): merge a ready Build, respawn a stopped unit, build
  * from a finished Recon, answer an open question, or steer a working unit
  * through the ping box. Landed and despawned units offer nothing. A Modeller
- * offers Accept instead of plain steering (and for its own "Accept?" question):
- * the unit then places and commits the model and merging stays as it is.
+ * offers exactly what any Build offers.
  */
-export type PrimaryAction = 'merge-local' | 'merge-pr' | 'respawn' | 'recon-done' | 'question' | 'accept' | 'steer' | 'none'
+export type PrimaryAction = 'merge-local' | 'merge-pr' | 'respawn' | 'recon-done' | 'question' | 'steer' | 'none'
 
 const STOPPED: Task['state'][] = ['failed', 'exited', 'detached']
 const RUNNING: Task['state'][] = ['spawning', 'working', 'validating', 'stale', 'paused']
 
-/** The Accept answer of a choice that asks the player to accept a model ("Accept" / "Keep steering"), if it is one. */
-export function acceptOption(d?: { options: string[] }): string | undefined {
-  return d?.options.find((o) => /^accept\b/i.test(o.trim()))
-}
-
-export function primaryAction(t: Task, term?: TerminalInfo, openQuestion = false, acceptQuestion = false): PrimaryAction {
+export function primaryAction(t: Task, term?: TerminalInfo, openQuestion = false): PrimaryAction {
   if (t.state === 'cleaned' || t.state === 'merged') return 'none'
   if (t.kind === 'scout' && t.state === 'done') return 'recon-done'
   if (STOPPED.includes(t.state)) return 'respawn'
-  if (t.state === 'needs-decision' || t.state === 'blocked' || openQuestion) return t.modeller && acceptQuestion ? 'accept' : 'question'
+  if (t.state === 'needs-decision' || t.state === 'blocked' || openQuestion) return 'question'
   if (t.kind === 'ship' && t.state === 'ready' && squadState(t, term) === 'READY TO MERGE') {
     if (t.pr?.url && t.pr.state !== 'MERGED' && t.pr.state !== 'CLOSED') return 'merge-pr'
     if (!t.pr?.url && t.mode === 'local-only') return 'merge-local'
     return 'none'
   }
-  if (RUNNING.includes(t.state) || t.state === 'ready') return t.modeller && t.kind === 'ship' ? 'accept' : 'steer'
+  if (RUNNING.includes(t.state) || t.state === 'ready') return 'steer'
   return 'none'
 }
 

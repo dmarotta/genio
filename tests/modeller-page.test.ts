@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Task } from '../src/shared/types'
 import { squadAttention, squadTone } from '../src/shared/squad-display'
-import { acceptOption, primaryAction } from '../src/shared/unit-page'
+import { primaryAction } from '../src/shared/unit-page'
 import { modellerCanvas } from '../src/shared/modeller'
 
 const task = (patch: Partial<Task> = {}): Task => ({
@@ -22,15 +22,17 @@ describe('Modeller units on the Squad and the unit page', () => {
     expect(squadAttention(asking)).toBe(true)
   })
 
-  it('offer Accept instead of plain steering, and for their own Accept question', () => {
-    expect(primaryAction(task({ modeller: true }))).toBe('accept')
-    expect(primaryAction(task())).toBe('steer')
-    expect(primaryAction(task({ modeller: true, state: 'needs-decision' }), undefined, true, true)).toBe('accept')
-    expect(primaryAction(task({ modeller: true, state: 'blocked' }), undefined, true, false)).toBe('question')
-    // Once the unit placed the files and is ready, the normal Merge takes over; landed units offer nothing.
+  it('offer exactly what a normal Build offers: steer while working, the question, Merge when ready', () => {
+    expect(primaryAction(task({ modeller: true }))).toBe('steer')
+    expect(primaryAction(task({ modeller: true, state: 'needs-decision' }), undefined, true)).toBe('question')
+    expect(primaryAction(task({ modeller: true, state: 'blocked' }), undefined, true)).toBe('question')
     expect(primaryAction(task({ modeller: true, state: 'ready', readyAt: '2026-10-16T11:00:00.000Z' }))).toBe('merge-local')
     expect(primaryAction(task({ modeller: true, state: 'merged' }))).toBe('none')
     expect(primaryAction(task({ modeller: true, state: 'exited' }))).toBe('respawn')
+    for (const state of ['working', 'needs-decision', 'ready', 'merged', 'exited'] as const) {
+      const ready = state === 'ready' ? { readyAt: '2026-10-16T11:00:00.000Z' } : {}
+      expect(primaryAction(task({ modeller: true, state, ...ready }), undefined, state === 'needs-decision')).toBe(primaryAction(task({ state, ...ready }), undefined, state === 'needs-decision'))
+    }
   })
 
   it('show the 3D view from their start until they land or are despawned', () => {
@@ -41,13 +43,5 @@ describe('Modeller units on the Squad and the unit page', () => {
     expect(modellerCanvas(task({ modeller: true, state: 'merged' }))).toBe(false)
     expect(modellerCanvas(task({ modeller: true, state: 'ready', landedAt: '2026-10-16T11:00:00.000Z' }))).toBe(false)
     expect(modellerCanvas(task({ modeller: true, state: 'cleaned' }))).toBe(false)
-  })
-
-  it("find the Accept answer of a unit's question", () => {
-    expect(acceptOption({ options: ['Accept step 5', 'Keep steering'] })).toBe('Accept step 5')
-    expect(acceptOption({ options: [' accept', 'no'] })).toBe(' accept')
-    expect(acceptOption({ options: ['Acceptable?', 'Keep steering'] })).toBeUndefined()
-    expect(acceptOption({ options: ['Close the scene', 'Keep it open'] })).toBeUndefined()
-    expect(acceptOption(undefined)).toBeUndefined()
   })
 })
