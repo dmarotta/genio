@@ -1,4 +1,5 @@
 import type { Task, TaskOutcome, TaskState, TerminalInfo } from './types'
+import { resumedAfterReady } from './unit-activity'
 
 export type SquadState = 'WORKING' | 'READY TO MERGE' | 'DONE'
 export type SquadTone = 'blue' | 'violet' | 'volt' | 'alert' | 'amber'
@@ -13,11 +14,9 @@ export const DONE_HISTORY = 25
 export function squadState(task: Task, terminal?: TerminalInfo): SquadState {
   if (DONE_STATES.includes(task.state)) return 'DONE'
   if (task.state !== 'ready' || task.validation?.state === 'running') return 'WORKING'
-  // A surviving idle CLI is allowed. Output after the final status means work
-  // has resumed; never let its old PR/ready label override that evidence.
-  const output = Math.max(Date.parse(task.lastOutputAt ?? '') || 0, Date.parse(terminal?.lastOutputAt ?? '') || 0)
-  const ready = Date.parse(task.readyAt ?? task.lastStatusAt ?? task.updatedAt) || 0
-  if (terminal?.alive && (!ready || output > ready)) return 'WORKING'
+  // A surviving idle CLI is allowed and its own chrome is not work. Positive
+  // evidence of resumed work wins over an old PR/ready label.
+  if (terminal?.alive && resumedAfterReady(task, terminal)) return 'WORKING'
   return 'READY TO MERGE'
 }
 

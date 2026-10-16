@@ -221,6 +221,8 @@ export interface Task {
   outcome?: TaskOutcome
   /** Final ready signal, unaffected by later notes or bookkeeping. */
   readyAt?: string
+  /** Positive evidence a ready unit took up work again (a status line, a delivered ping, a new turn, sustained output); idle CLI chrome never sets it. */
+  resumedAt?: string
   relaunches: number
   /** Automatic attempts since deliberate resume, completed work, or app restart. */
   automaticRelaunches?: number
@@ -886,6 +888,8 @@ export interface TerminalInfo {
   cwd: string
   alive: boolean
   lastOutputAt?: string
+  /** Last sustained output that looks like work: new text over several seconds, idle CLI chrome and repaints excluded. */
+  workOutputAt?: string
   exitCode?: number
   cols: number
   rows: number

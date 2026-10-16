@@ -5,11 +5,14 @@
 import path from 'node:path'
 import * as pty from 'node-pty'
 import type { TerminalInfo } from '@shared/types'
+import { createActivityMeter, type ActivityMeter } from '@shared/unit-activity'
 import type { AppCtx, CreateTerminalOpts, TerminalService } from './services'
 import { bus } from './bus'
 import { rid, stripAnsi, which } from './util'
 
 const SCROLLBACK_MAX = 1_500_000
+/** Sustained work-like output republishes the terminal at most this often. */
+const WORK_REPUBLISH_MS = 15_000
 
 interface Term {
   info: TerminalInfo
@@ -17,6 +20,9 @@ interface Term {
   buf: string[]
   bufLen: number
   lastOutputAt?: number
+  /** a unit's sustained work-like output (idle chrome excluded) */
+  meter?: ActivityMeter
+  workPublishedAt?: number
   dataFns: Set<(d: string) => void>
   exitFns: Set<(code: number) => void>
 }
@@ -133,7 +139,8 @@ export function createTerminalService(getCtx: () => AppCtx): TerminalService {
         rows,
         kind: opts.kind
       }
-      const t: Term = { info, buf: [], bufLen: 0, dataFns: new Set(), exitFns: new Set() }
+      const t: Term = { info, buf: [], bufLen: 0, dataFns: new Set(), exitFns: new Set(),
+        meter: opts.kind === 'worker' ? createActivityMeter(opts.harness) : undefined }
       terms.set(id, t)
       const env = terminalEnv(opts)
       try {
@@ -154,6 +161,14 @@ export function createTerminalService(getCtx: () => AppCtx): TerminalService {
         proc.onData((d) => {
           t.lastOutputAt = Date.now()
           t.info.lastOutputAt = new Date(t.lastOutputAt).toISOString()
+          if (t.meter?.push(stripAnsi(d), t.lastOutputAt)) {
+            t.info.workOutputAt = t.info.lastOutputAt
+            // Publish work-like output at a slow cadence, not on every chunk of it.
+            if (t.lastOutputAt - (t.workPublishedAt ?? 0) > WORK_REPUBLISH_MS) {
+              t.workPublishedAt = t.lastOutputAt
+              publish(t)
+            }
+          }
           push(t, d)
           for (const fn of t.dataFns) {
             try {

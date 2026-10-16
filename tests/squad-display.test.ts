@@ -22,14 +22,16 @@ describe('Squad display only', () => {
     expect(squadState(t)).toBe(expected)
     expect(t.state).toBe(internal)
   })
-  it('allows an idle ready CLI but rejects new live output, validation and respawn even with an old PR', () => {
+  it('allows an idle ready CLI and its chrome but rejects resumed work, validation and respawn even with an old PR', () => {
     const t = task('ready', { readyAt: at, pr: { url: 'https://example.com/pr/1' } })
     expect(squadState(t, term({ lastOutputAt: at }))).toBe('READY TO MERGE')
-    expect(squadState(t, term({ lastOutputAt: '2026-10-13T10:00:01Z' }))).toBe('WORKING')
-    expect(squadState({ ...t, lastStatusAt: '2026-10-13T10:00:03Z', lastOutputAt: '2026-10-13T10:00:02Z' }, term())).toBe('WORKING')
+    // a dialog or status-bar repaint after the ready line is not work
+    expect(squadState(t, term({ lastOutputAt: '2026-10-13T10:00:01Z' }))).toBe('READY TO MERGE')
+    expect(squadState({ ...t, lastOutputAt: '2026-10-13T10:00:02Z' }, term())).toBe('READY TO MERGE')
+    expect(squadState({ ...t, resumedAt: '2026-10-13T10:00:02Z' }, term())).toBe('WORKING')
     expect(squadState({ ...t, validation: { state: 'running' } as Task['validation'] })).toBe('WORKING')
     expect(squadState({ ...t, state: 'working' }, term())).toBe('WORKING')
-    expect(squadState({ ...t, lastOutputAt: '2026-10-13T10:00:02Z' }, term({ alive: false, exitCode: 0 }))).toBe('READY TO MERGE')
+    expect(squadState({ ...t, resumedAt: '2026-10-13T10:00:02Z' }, term({ alive: false, exitCode: 0 }))).toBe('READY TO MERGE')
   })
   it('uses blue Build, purple Recon, green ready/done, red error, and a separate yellow attention indicator', () => {
     expect(squadTone(task('working'))).toBe('blue')

@@ -50,10 +50,15 @@ READY TO MERGE and successful DONE outcomes use the same existing green. Per the
 player's explicit color decision, there is no extra ready highlight or badge;
 the label text is the difference.
 
-Ready requires no running validation and no live terminal output after the ready
-signal. Terminal output carries its source timestamp through the existing batched
-IPC channel, so delivery after a ready event cannot falsely imply resumed work.
-An idle surviving terminal is allowed. Respawning/rebasing units whose lifecycle
+Ready requires no running validation and no positive evidence of resumed work
+after the ready signal (`src/shared/unit-activity.ts`): a new status line, a ping
+delivered to the CLI, a new turn from the harness (Claude's UserPromptSubmit hook
+writes `.turn-started`; a later Stop returns the unit to ready), a relaunch, or,
+for a runtime without a turn marker, sustained new output past a one-minute
+closing-summary grace. An idle surviving terminal and its own chrome (dialogs,
+tips, status-bar repaints, usage and update notices) never count as work.
+Overwatch persists the evidence as `resumedAt`, so the Squad label, the unit
+clock, its color and the unit cap agree. Respawning/rebasing units whose lifecycle
 returns to working show WORKING even when an old PR still exists. The ready signal
 is persisted in the existing task record, independently of later bookkeeping.
 

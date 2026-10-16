@@ -63,23 +63,33 @@ it('shows the 25 most recent finished units newest first, red for failures, from
   expect(rows[3].querySelector('.roster-state')?.getAttribute('style')).toContain('--volt')
 })
 
-it('turns a stale ready label into WORKING on live terminal output', async () => {
+it('turns a stale ready label into WORKING on resumed work, never on idle CLI output', async () => {
   setState({ terminals: { pty: { id: 'pty', alive: true } as TerminalInfo }, snap: { ...getState().snap,
     tasks: [task('Ready', { state: 'ready', terminalId: 'pty', readyAt: '2026-10-13T10:00:00Z' })] } })
   await act(async () => root.render(React.createElement(Roster)))
   expect(host.textContent).toContain('READY TO MERGE')
   await act(async () => handleEvent({ type: 'terminal', terminal: { id: 'pty', alive: true, lastOutputAt: '2026-10-13T10:00:01Z' } as TerminalInfo }))
+  expect(host.querySelector('.roster-state')?.textContent).toBe('READY TO MERGE')
+  await act(async () => handleEvent({ type: 'task', task: task('Ready', { state: 'ready', terminalId: 'pty', readyAt: '2026-10-13T10:00:00Z', resumedAt: '2026-10-13T10:00:02Z' }) }))
   expect(host.querySelector('.roster-state')?.textContent).toBe('WORKING')
 })
 
-it('uses output source time so a pre-ready batch delivered late does not create false live work', async () => {
-  let output!: (batch: { id: string; data: string; at?: string }[]) => void
+it('turns a stale ready label into WORKING on sustained work output from the terminal', async () => {
+  setState({ terminals: { pty: { id: 'pty', alive: true } as TerminalInfo }, snap: { ...getState().snap,
+    tasks: [task('Ready', { state: 'ready', harness: 'codex', terminalId: 'pty', readyAt: '2026-10-13T10:00:00Z' })] } })
+  await act(async () => root.render(React.createElement(Roster)))
+  await act(async () => handleEvent({ type: 'terminal', terminal: { id: 'pty', alive: true, workOutputAt: '2026-10-13T10:05:00Z' } as TerminalInfo }))
+  expect(host.querySelector('.roster-state')?.textContent).toBe('WORKING')
+})
+
+it('never relabels a ready unit from raw output batches, before or after its ready time', async () => {
+  let output: ((batch: { id: string; data: string; at?: string }[]) => void) | undefined
   const snap = { ...initial.snap, tasks: [task('Ready', { state: 'ready', terminalId: 'pty', readyAt: '2026-10-13T10:00:00Z' })] }
-  Object.assign(window, { genio: { on: vi.fn(), onTerminalData: (fn: typeof output) => { output = fn; return () => {} },
+  Object.assign(window, { genio: { on: vi.fn(), onTerminalData: (fn: NonNullable<typeof output>) => { output = fn; return () => {} },
     api: { snapshot: async () => snap, getSettings: async () => ({}), terminals: async () => [{ id: 'pty', alive: true }] } } })
   await act(async () => { await boot(); root.render(React.createElement(Roster)) })
-  await act(async () => output([{ id: 'pty', data: 'final output', at: '2026-10-13T09:59:59Z' }]))
+  await act(async () => output?.([{ id: 'pty', data: 'final output', at: '2026-10-13T09:59:59Z' }]))
   expect(host.querySelector('.roster-state')?.textContent).toBe('READY TO MERGE')
-  await act(async () => output([{ id: 'pty', data: 'new work', at: '2026-10-13T10:00:01Z' }]))
-  expect(host.querySelector('.roster-state')?.textContent).toBe('WORKING')
+  await act(async () => output?.([{ id: 'pty', data: 'Autocompact at 400k tokens?', at: '2026-10-13T10:00:01Z' }]))
+  expect(host.querySelector('.roster-state')?.textContent).toBe('READY TO MERGE')
 })

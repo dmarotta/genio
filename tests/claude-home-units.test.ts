@@ -89,6 +89,8 @@ it('a bypass-mode Unity unit keeps Stop and the blocking PreToolUse hook, with a
   expect(launch.args).toContain('--dangerously-skip-permissions')
   const settings = JSON.parse(fs.readFileSync(launch.args![launch.args!.indexOf('--settings') + 1], 'utf8'))
   expect(settings.hooks.Stop).toHaveLength(1)
+  // a submitted prompt marks a new turn, so a ready unit's idle chrome is never mistaken for work
+  expect(settings.hooks.UserPromptSubmit[0].hooks[0].command).toContain('.turn-started')
   expect(settings.hooks.PreToolUse[0]).toMatchObject({ matcher: expect.stringContaining('Bash|PowerShell|Read|Edit|Write'),
     hooks: [{ type: 'command', command: 'node', args: [expect.stringContaining('unity-guard-hook.mjs')], timeout: 10, onFailure: 'block' }] })
   const bin = launch.env!.PATH.split(path.delimiter)[0]

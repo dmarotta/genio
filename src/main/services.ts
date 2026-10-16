@@ -82,6 +82,8 @@ export interface CreateTerminalOpts {
   /** inherited variables to drop before `env` applies; a trailing * matches a prefix */
   unsetEnv?: string[]
   taskId?: string
+  /** a unit's runtime, so its idle CLI chrome is not mistaken for work */
+  harness?: string
   cols?: number
   rows?: number
 }

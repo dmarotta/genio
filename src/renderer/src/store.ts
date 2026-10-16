@@ -7,7 +7,7 @@ import type { SpawnRequest } from '@shared/api'
 import { applyChatEvent, cleanChatMessage, patchAllyControls, type AllyControlsPatch } from '@shared/chat'
 import { pendingDecision } from '@shared/decisions'
 import { occupiedUnits } from '@shared/unit-capacity'
-import { squadSections, squadState } from '@shared/squad-display'
+import { squadSections } from '@shared/squad-display'
 import { playSfx } from './lib/sfx'
 import { speak } from './lib/voice'
 import { viewAvailable, type ViewId } from './lib/railmenu'
@@ -432,23 +432,9 @@ export async function boot(): Promise<void> {
     setState({ booted: true, connected: false })
     return
   }
+  // Raw output never relabels a ready unit (its idle CLI prints chrome too):
+  // resumed work arrives as task and terminal events.
   window.genio.on(handleEvent)
-  window.genio.onTerminalData?.((batch) => {
-    const terminals = { ...state.terminals }
-    let changed = false
-    for (const { id, at } of batch) {
-      const terminal = terminals[id]
-      const task = state.snap.tasks.find(t => t.terminalId === id && t.state === 'ready')
-      const output = terminal && { ...terminal, lastOutputAt: at ?? new Date().toISOString() }
-      // Notify the store only when new output actually invalidates a ready
-      // label; ordinary terminal streaming stays on its existing fast path.
-      if (terminal?.alive && task && output && squadState(task, terminal) === 'READY TO MERGE' && squadState(task, output) === 'WORKING') {
-        terminals[id] = output
-        changed = true
-      }
-    }
-    if (changed) setState({ terminals })
-  })
   try {
     const [snap, settings, terms] = await Promise.all([
       api().snapshot(),

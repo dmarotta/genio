@@ -196,13 +196,15 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
 
   const writeClaudeSettings = (t: Task, guard?: string, deps?: string): string => {
     const p = home.taskStateFile(t.id, '.claude-settings.json')
-    const marker = fwd(turnEndedFile(t.id))
-    const command = `node -e "require('fs').writeFileSync('${marker}', String(Date.now()))"`
+    const stamp = (file: string): string => `node -e "require('fs').writeFileSync('${fwd(file)}', String(Date.now()))"`
     const preToolUse = [...(guard ? [unityPreToolHook(guard)] : []), ...(deps ? [depsPreToolHook(deps)] : [])]
     // Genio's Claude home has no user settings of its own: carry over only the
     // player's existing bypass consent. Genio never answers that dialog itself.
+    // A submitted prompt marks a new turn: work, unlike the idle CLI's own output.
     writeJson(p, { ...(playerSkipsBypassPrompt() ? { skipDangerousModePermissionPrompt: true } : {}),
-      hooks: { Stop: [{ hooks: [{ type: 'command', command }] }], ...(preToolUse.length ? { PreToolUse: preToolUse } : {}) } })
+      hooks: { Stop: [{ hooks: [{ type: 'command', command: stamp(turnEndedFile(t.id)) }] }],
+        UserPromptSubmit: [{ hooks: [{ type: 'command', command: stamp(home.taskStateFile(t.id, '.turn-started')) }] }],
+        ...(preToolUse.length ? { PreToolUse: preToolUse } : {}) } })
     return p
   }
 
@@ -339,7 +341,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       GENIO_BRIEF: fwd(t.briefPath)
     }
     await opts.check()
-    const term = ctx.terminals.create({ kind: 'worker', title: t.id, cwd: t.worktree, file: adapter.command, args, env, taskId: t.id,
+    const term = ctx.terminals.create({ kind: 'worker', title: t.id, cwd: t.worktree, file: adapter.command, args, env, taskId: t.id, harness: adapter.id,
       unsetEnv: isClaude ? UNIT_UNSET_ENV : undefined })
     if (!term.alive) throw new Error(`Could not start ${adapter.name} (${adapter.command}). Is it installed? Check SYSTEMS.`)
     watchConsent(t, term.id, adapter.trustPatterns, adapter.trustResponse, isClaude)
@@ -724,7 +726,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       const adapter = getCtx().settings.harness(t.harness)
       await getCtx().terminals.submit(t.terminalId!, doorbellLine(inboxDir(id)), adapter?.submitKey ?? '\r')
       const cur = get(id)!
-      update(id, { inbox: { ...cur.inbox, lastRingAt: nowIso(), rings: cur.inbox.rings + 1 } })
+      // A ping delivered to a ready unit's CLI starts a new turn.
+      update(id, { inbox: { ...cur.inbox, lastRingAt: nowIso(), rings: cur.inbox.rings + 1 }, ...(cur.state === 'ready' ? { resumedAt: nowIso() } : {}) })
       return true
     },
 
@@ -1155,8 +1158,11 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       if (!t) return []
       const file = home.statusFile(id)
       let size = 0
+      let writtenAt = 0
       try {
-        size = fs.statSync(file).size
+        const st = fs.statSync(file)
+        size = st.size
+        writtenAt = Math.min(st.mtimeMs, Date.now())
       } catch {
         return []
       }
@@ -1186,6 +1192,9 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       beforeConsume?.(events)
       for (const e of events) {
         try {
+          // A new status line after the ready one is the unit at work again (a repeated done is not).
+          // Stamped with when it was written, so a turn that ended since still reads as idle.
+          if (get(id)?.state === 'ready' && e.kind !== 'done') update(id, { resumedAt: new Date(writtenAt || Date.now()).toISOString() })
           applyStatus(t, e)
         } catch {
           /* one bad line never stops overwatch */

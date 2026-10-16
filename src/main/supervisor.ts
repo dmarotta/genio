@@ -21,6 +21,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { EventSource, StatusEvent, Task, WakeKind } from '@shared/types'
+import { readySince, resumedAfterReady, terminalWorkAt } from '@shared/unit-activity'
 import { bus } from './bus'
 import type { Home } from './home'
 import type { AppCtx, SupervisorService } from './services'
@@ -251,6 +252,36 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
     // quiet for the settle window → the unit stopped without declaring anything
     if (lastOutput(cur, tr) > now - (TURN_END_SETTLE_MS - 5_000)) return
     enqueue('signal', `${label(cur)}: turn ended without a declared status`, cur.id, tailLines(cur, 15), false)
+  }
+
+  // ------------------------------------------------------------ (2b) ready unit at work again
+
+  /**
+   * Persist positive evidence that a ready unit resumed (a new turn from the
+   * harness hook, a relaunch, sustained work-like output) so the Squad, the
+   * clock and the unit cap read it from the task. Idle CLI chrome never counts.
+   * A turn that ended after the resume, with no new ready line, leaves the unit
+   * ready and idle again.
+   */
+  function stepResumed(t: Task): void {
+    if (t.state !== 'ready' || !t.terminalId) return
+    const terminal = ctx().terminals.get(t.terminalId)
+    if (!terminal?.alive) return
+    const marker = (suffix: string): number => {
+      try {
+        return fs.statSync(home.taskStateFile(t.id, suffix)).mtimeMs
+      } catch {
+        return 0 // this runtime has no such hook
+      }
+    }
+    const ready = readySince(t)
+    const ended = marker('.turn-ended')
+    if (resumedAfterReady(t)) {
+      if (ended > (Date.parse(t.resumedAt ?? '') || 0)) hc().crew.update(t.id, { resumedAt: undefined })
+      return
+    }
+    const at = Math.max(marker('.turn-started'), terminalWorkAt(t, terminal, ready))
+    if (at > ready && at > ended) hc().crew.update(t.id, { resumedAt: new Date(at).toISOString() })
   }
 
   // ------------------------------------------------------------ (3) stale / exited
@@ -682,6 +713,7 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
           }
         })()
         step('turn-end', () => stepTurnEnd(t, tr, now))
+        step('resumed', () => stepResumed(t))
         step('liveness', () => stepLiveness(t, tr, now, s))
         step('paused', () => stepPaused(t, tr, now, s))
         step('inbox', () => stepInbox(t, tr, now, s))

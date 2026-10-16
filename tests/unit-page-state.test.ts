@@ -37,9 +37,10 @@ describe('primary action by state (the Recon table)', () => {
     expect(primaryAction(unit(), undefined, true)).toBe('question')
   })
 
-  it('steers a ready unit whose agent has started printing again', () => {
+  it('steers a ready unit that resumed work, but still offers the merge while its idle CLI only prints chrome', () => {
     const t = unit({ state: 'ready', readyAt: '2026-10-13T11:50:00Z' })
-    expect(primaryAction(t, pty({ lastOutputAt: '2026-10-13T11:55:00Z' }))).toBe('steer')
+    expect(primaryAction(t, pty({ lastOutputAt: '2026-10-13T11:55:00Z' }))).toBe('merge-local')
+    expect(primaryAction({ ...t, resumedAt: '2026-10-13T11:55:00Z' }, pty())).toBe('steer')
   })
 })
 
