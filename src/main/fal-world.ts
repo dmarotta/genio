@@ -39,6 +39,7 @@ Machine-readable data Genio keeps with this project. Small text only; safe to re
 - \`fal/recipes.json\`: named generation presets (this project's favourites). Units read them.
 - \`fal/catalogue.json\` (optional): \`{"add": [...], "hide": [...]}\` to extend or trim Genio's curated FAL catalogue for this project.
 - \`uthana/config.json\`: the animation save folder for this project.
+- \`art-bible.md\` (optional): this project's Art Bible, the style, palette and references generators follow. A \`source:\` line can point it at an existing art-direction doc, which stays where it is.
 - \`provenance/<asset path>.json\`: how each saved generated asset was made (model, request id, input, estimated price, sha256).
 - \`spend.jsonl\`: one line per paid generation call (estimated USD). Merges with \`merge=union\`.
 - \`cache/\`: ignored, normally empty. Genio keeps run history and downloads in its own data folder.
