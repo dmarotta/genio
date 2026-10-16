@@ -18,6 +18,7 @@ import { PlayStream } from './play-stream'
 import { biggestConsumers, closePlayerRoot, opensRoot, playerSystem, playerTree, sameProcess, type PlayerProcess, type PlayerSystem } from './player-process'
 import { repoTop, sameFolder } from './git'
 import { leaseSource, onSourceRemoved, type SourceLease } from './source-leases'
+import { StartLog, validDurations, type StartDurations } from './player-start'
 
 const GiB = 2 ** 30
 /** First-run estimate until a session teaches the project's steady working set, and the RAM kept back on top. */
@@ -27,9 +28,13 @@ const REFUSED: readonly string[] = ['low-memory', 'missing-editor', 'limit-reach
 /** Preparing the copy, starting Unity or entering Play: Genio's heavy background copies wait (quiet-start.mjs). */
 const QUIET: readonly string[] = ['copying', 'syncing', 'starting', 'entering-play']
 const QUIT = 'UnityEditor.EditorApplication.delayCall += () => UnityEditor.EditorApplication.Exit(0); return true;'
+/** A start whose editor.log has gone quiet this long asks Pipeline in the background, at most this often (a long unpack, or a Unity that words its log differently). */
+const PROBE_QUIET_MS = 30000
 interface Instance extends PlayerInstanceStatus {
   /** sampled: this session has recorded a steady working set, so later samples raise it instead of replacing it. */
   owner: { pid: number; created: string }; launch?: EditorLaunch; tracked: PlayerProcess[]; sampled?: boolean
+  /** The last complete start's phase durations, kept in player.json: the next start's bar weights. */
+  startDurations?: StartDurations
 }
 /** A Genio slot editor no unit holds; closing it loses no work. */
 export interface IdleEditor { label: string; close(): Promise<unknown> }
@@ -144,6 +149,8 @@ export class PlayerInstanceService {
   private controllers = new Map<string, AbortController>()
   /** Projects whose Play is starting, and when that start began. */
   private quiet = new Map<string, number>()
+  /** Projects whose Unity is starting: their editor.log, read for the phase. */
+  private startLogs = new Map<string, StartLog>()
   private launches: Promise<unknown> = Promise.resolve()
   private timer?: ReturnType<typeof setInterval>
   private cleanupTimer?: ReturnType<typeof setInterval>
@@ -215,7 +222,18 @@ export class PlayerInstanceService {
     const file = this.file(i.project); fs.mkdirSync(path.dirname(file), { recursive: true })
     const temp = `${file}.tmp`; fs.writeFileSync(temp, JSON.stringify(i, null, 2)); fs.renameSync(temp, file)
   }
-  private state(i: Instance, state: Instance['state'], message?: string) { i.state = state; i.message = message; this.save(i); this.quietStart(i) }
+  private state(i: Instance, state: Instance['state'], message?: string) {
+    i.state = state; i.message = message
+    if (state !== 'starting') this.endStart(i)
+    this.save(i); this.quietStart(i)
+  }
+  /** The start is over: one that reached "Loading completed" leaves its phase durations for the next start's bar. */
+  private endStart(i: Instance) {
+    const log = this.startLogs.get(i.project)
+    if (!log) return
+    this.startLogs.delete(i.project)
+    if (log.phases.complete) i.startDurations = log.phases.durations(this.system.now())
+  }
   /**
    * Quiet start: while this Play prepares, starts Unity or enters Play, its marker holds back Genio's heavy
    * background copies; ready, playing, stopped or failed releases them. A marker problem never stops a Play.
@@ -247,6 +265,8 @@ export class PlayerInstanceService {
       try {
         const previous = JSON.parse(fs.readFileSync(this.file(project), 'utf8'))
         for (const key of ['peakWorkingSet', 'steadyWorkingSet'] as const) if (previous.project === project && Number.isFinite(previous[key]) && previous[key] > 0) i[key] = previous[key]
+        const durations = previous.project === project ? validDurations(previous.startDurations) : undefined
+        if (durations) i.startDurations = durations
       } catch { /* first session */ }
       this.instances.set(project, i)
     }
@@ -288,8 +308,10 @@ export class PlayerInstanceService {
   status(world: string): PlayerInstanceStatus {
     const { project } = this.project(world), i = this.instances.get(project)
     if (!i) return { state: 'idle', project, copy: this.copies.status(project) }
-    const { owner: _owner, launch, tracked: _tracked, sampled: _sampled, ...visible } = i
-    return { ...visible, ...(launch ? { pid: launch.pid, created: launch.created, desktop: launch.desktop } : {}), capabilities: { input: this.supportsInput(i) }, copy: this.copies.status(project) }
+    const { owner: _owner, launch, tracked: _tracked, sampled: _sampled, startDurations, ...visible } = i
+    const log = i.state === 'starting' ? this.startLogs.get(project) : undefined
+    return { ...visible, ...(launch ? { pid: launch.pid, created: launch.created, desktop: launch.desktop } : {}), ...(log ? { start: log.status(this.system.now(), startDurations) } : {}),
+      capabilities: { input: this.supportsInput(i) }, copy: this.copies.status(project) }
   }
   private supportsInput(i: Instance) {
     try { return !/activeInputHandler:\s*0\b/.test(fs.readFileSync(path.join(i.root!, 'ProjectSettings/ProjectSettings.asset'), 'utf8')) } catch { return false }
@@ -404,8 +426,15 @@ export class PlayerInstanceService {
       // Checked again inside the launch chain, so parallel starts cannot pass the cap together.
       await this.limit(i)
       if (this.exiting || signal?.aborted) throw new Error('Play cancelled')
-      this.state(i, 'starting'); i.sampled = false
       const log = path.join(path.dirname(this.file(i.project)), 'editor.log')
+      // The last session's log would read as an instant start; one that cannot move aside leaves phases unread.
+      let fresh = true
+      try { fs.rmSync(`${log}.prev`, { force: true }); if (fs.existsSync(log)) fs.renameSync(log, `${log}.prev`) } catch { fresh = false }
+      this.state(i, 'starting'); i.sampled = false
+      if (fresh) {
+        const engineRoot = this.copies.status(i.project)?.engineRoot ?? ''
+        this.startLogs.set(i.project, new StartLog(log, this.system.now(), { copy: path.join(i.root!, 'Library/PackageCache'), main: path.join(i.project, engineRoot, 'Library/PackageCache') }))
+      }
       const launched = await (this.options.launch ?? launchEditor)({ file: executable, args: ['-automated', '-projectPath', i.root!, '-logFile', log], cwd: i.root, data: this.data, api: this.desktop, visible, label: 'player', owner: i.owner })
       i.launch = launched
       if (!launched.created) {
@@ -441,6 +470,12 @@ export class PlayerInstanceService {
   }
   private async ready(i: Instance, mode?: 'playing' | 'paused' | 'stopped', signal?: AbortSignal) {
     const deadline = this.system.now() + (this.options.readyMs ?? 10 * 60000)
+    // A fresh start reads Unity's log: phases for the status line, and "Loading completed" for ready.
+    const log = mode ? undefined : this.startLogs.get(i.project)
+    type EditorStatus = { compiling?: boolean; domainReloadInProgress?: boolean; playMode?: string }
+    const ask = () => this.local(i).request<EditorStatus>('editor_status')
+    const settled = (s: EditorStatus) => !s.compiling && !s.domainReloadInProgress && (!mode || s.playMode === mode)
+    let probe: Promise<void> | undefined, probed = false, probedAt = -Infinity
     while (this.system.now() <= deadline) {
       if (this.exiting) throw new Error('Genio is exiting')
       if (signal?.aborted) throw new Error('Play cancelled')
@@ -448,10 +483,16 @@ export class PlayerInstanceService {
       if (!i.launch || !procs.some(p => sameProcess(p, i.launch!) && opensRoot(p, i.root!))) throw new Error('The player editor exited while starting')
       const watched = await inspectDesktop(this.desktop, i.launch, { now: this.system.now() })
       if (watched.blocked) { i.dialog = watched.blocked; this.state(i, 'stuck-dialog', watched.blocked.message); throw new Error(i.message) }
-      try {
-        const status = await this.local(i).request<{ compiling?: boolean; domainReloadInProgress?: boolean; playMode?: string }>('editor_status')
-        if (!status.compiling && !status.domainReloadInProgress && (!mode || status.playMode === mode)) return
-      } catch { /* Import or domain reload; poll rather than repeat the mutation. */ }
+      try { log?.read(this.system.now()) } catch { /* Read again on the next poll. */ }
+      // A Pipeline call made while Unity loads blocks for up to 20 s, so a start whose log Genio follows asks only
+      // once the log says loading completed; a log quiet for long gets one background probe instead.
+      if (!log?.phases.recognized || log.phases.complete) {
+        try { if (settled(await ask())) return } catch { /* Import or domain reload; poll rather than repeat the mutation. */ }
+      } else if (!probe && log.quietFor(this.system.now()) >= PROBE_QUIET_MS && this.system.now() - probedAt >= PROBE_QUIET_MS) {
+        probedAt = this.system.now()
+        probe = ask().then(s => { probed ||= settled(s) }, () => {}).finally(() => { probe = undefined })
+      }
+      if (probed) return
       try {
         const file = path.join(path.dirname(this.file(i.project)), 'editor.log'), stat = fs.statSync(file)
         const fd = fs.openSync(file, 'r'), chunk = Buffer.alloc(Math.min(4096, stat.size))

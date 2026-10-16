@@ -4,7 +4,7 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppCtx } from '../src/main/services'
-import { PlayerInstanceService, type PlayerRuntime } from '../src/main/player-instance'
+import { PlayerInstanceService, type PlayerInstanceOptions, type PlayerRuntime } from '../src/main/player-instance'
 import { biggestConsumers, closePlayerRoot, type MemoryProcess, type PlayerProcess, type PlayerSystem } from '../src/main/player-process'
 import { PlayerCopies, PLAYER_COPY_CLEANUP_INTERVAL_MS, PLAYER_COPY_MAX_AGE_MS } from '../resources/unit-skills/genio/lib/player-copy.mjs'
 import type { DesktopApi, DesktopWindow } from '../resources/unit-skills/genio/lib/hidden-desktop.mjs'
@@ -36,7 +36,7 @@ function project(name: string) {
   write(path.join(root, 'Assets/Code.cs'), '// initial\n'); git(root, 'add', '.'); git(root, 'commit', '-qm', 'initial')
   projects.set(name, { path: root, engine: 'unity' }); return root
 }
-function service() {
+function service(extra: Partial<PlayerInstanceOptions> = {}) {
   const r = new PlayerInstanceService(ctx, { copies, system, desktop, ownerCreated: async () => '100', executable: () => { beforeLaunch?.(); return installed ? 'FakeUnity.exe' : undefined }, graceMs: 500, forceMs: 500, readyMs: 2000, idleSlots: async () => slots,
     runtime: root => ({
       async request(command: string, parameters?: object) {
@@ -60,7 +60,8 @@ function service() {
       },
       async stream() { events.push('stream') }, async resize(width: number, height: number) { events.push(`resize:${width}x${height}`) },
       stopStream() { events.push('stream-stop') }, input() { events.push('input') }
-    }) as PlayerRuntime
+    }) as PlayerRuntime,
+    ...extra
   })
   services.push(r); return r
 }
@@ -141,6 +142,77 @@ it('a failed or refused start releases the hold, so nothing waits on it', async 
   expect(svc.status('A').state).toBe('error')
   expect(await waiting).toMatchObject({ deferred: true, resumed: 'quiet' })
   expect(playStarts(data)).toEqual([])
+})
+it('shows the start phase from Unity\'s log, asks Pipeline only once loading completed, and fills the next start\'s bar', async () => {
+  svc = service({ readyMs: 10 * 60000 })
+  const root = projects.get('A')!.path, logFile = path.join(copies.dir, copies.keyOf(root), 'editor.log')
+  const excerpt = (name: string) => fs.readFileSync(path.join(__dirname, 'fixtures/play-start', name), 'utf8').split(/\r?\n/)
+  let pending: string[] = [], seen: { phase: string; bar?: number }[] = [], early = 0, hold = 0
+  // Each phase takes a while after its first line; UPM's resolve, silent in the log, the longest.
+  const feed = (n: number) => {
+    if (hold && hold--) return
+    let k = 0
+    while (k < Math.min(n, pending.length)) {
+      const line = pending[k++]
+      if (/^(Application\.AssetDatabase Initial Refresh|Begin MonoManager|Domain Reload Profiling|\[ScriptCompilation\]|Starting: .*bee_backend)/.test(line)) { hold = line.includes('Refresh Start') ? 3 : 1; break }
+    }
+    fs.appendFileSync(logFile, pending.splice(0, k).map(l => `${l}\n`).join(''))
+  }
+  const launch = desktop.launch
+  desktop.launch = vi.fn(async options => {
+    const launched = await launch(options)
+    // By the first poll Unity has written its header and first domain reload; then a dozen lines a second.
+    feed(pending.findIndex(l => l.startsWith('Domain Reload Profiling')) + 1)
+    return launched
+  })
+  system.sleep = async ms => {
+    clock += ms
+    const s = svc.status('A')
+    if (s.state === 'starting' && s.start) seen.push(s.start)
+    feed(12)
+  }
+  onCommand = command => { if (command === 'editor_status' && !fs.readFileSync(logFile, 'utf8').includes('[Project] Loading completed')) early++ }
+  const phases = () => seen.map(s => s.phase).filter((p, n, all) => p !== all[n - 1])
+
+  // First start: no PackageCache in the copy, no start on record, so the bar stays indeterminate.
+  pending = excerpt('cold-editor.txt')
+  expect((await svc.startUnity('A', { path: root })).state).toBe('ready')
+  expect(phases()).toEqual(['opening', 'packages', 'compiling', 'loading', 'importing', 'scene'])
+  expect(seen.every(s => s.bar === undefined)).toBe(true)
+  expect(early).toBe(0); expect(events).toContain('editor_status')
+  expect(svc.status('A').start).toBeUndefined()
+  const record = JSON.parse(fs.readFileSync(path.join(copies.dir, copies.keyOf(root), 'player.json'), 'utf8'))
+  expect(Object.keys(record.startDurations)).toEqual(['opening', 'packages', 'compiling', 'loading', 'importing', 'scene'])
+  expect(svc.status('A')).not.toHaveProperty('startDurations')
+
+  // The next session's second start of the kept copy, PackageCache in place: the last start weights a determinate bar
+  // that only grows.
+  await svc.stopUnity('A')
+  write(path.join(svc.status('A').copy!.root, 'Library/PackageCache/com.unity.inputsystem/package.json'), '{}')
+  await svc.shutdown(); svc = service({ readyMs: 10 * 60000 })
+  pending = excerpt('warm-editor.txt'); seen = []
+  expect((await svc.startUnity('A', { path: root })).state).toBe('ready')
+  expect(phases()).toEqual(['opening', 'compiling', 'loading', 'importing', 'scene'])
+  const bars = seen.map(s => s.bar!)
+  expect(bars.every(b => Number.isInteger(b) && b >= 0 && b <= 99)).toBe(true)
+  expect(bars).toEqual([...bars].sort((a, b) => a - b)); expect(bars.at(-1)).toBeGreaterThan(bars[0])
+  expect(early).toBe(0)
+  // The last session's log moved aside, so it never reads as an instant start.
+  expect(fs.readFileSync(`${logFile}.prev`, 'utf8')).toContain('Loading completed in 355.907 seconds')
+})
+it('still finds ready through Pipeline when the log is missing or goes quiet', async () => {
+  svc = service({ readyMs: 10 * 60000 })
+  const root = projects.get('A')!.path, logFile = path.join(copies.dir, copies.keyOf(root), 'editor.log')
+  // No log at all (the other tests): Pipeline answers on the first poll, as before.
+  expect((await svc.startUnity('A', { path: root })).state).toBe('ready')
+  await svc.stopUnity('A')
+  // A log Genio recognises that never says "Loading completed": a background probe after 30 quiet seconds.
+  const launch = desktop.launch
+  desktop.launch = vi.fn(async options => { const r = await launch(options); fs.writeFileSync(logFile, 'Begin MonoManager ReloadAssembly\n'); return r })
+  const asked: number[] = [], started = clock
+  onCommand = command => { if (command === 'editor_status') asked.push(clock - started) }
+  expect((await svc.startUnity('A', { path: root })).state).toBe('ready')
+  expect(asked[0]).toBeGreaterThanOrEqual(30000)
 })
 it('closes before restart-sensitive writes and keeps the copy and Library for the restart', async () => {
   const root = projects.get('A')!.path, first = await svc.play('A', { path: root })

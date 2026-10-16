@@ -1,4 +1,4 @@
-import type { PlayerInstanceStatus, PlayerSourceOption, PlayerState } from '@shared/play'
+import type { PlayerInstanceStatus, PlayerSourceOption, PlayerStartPhase, PlayerState } from '@shared/play'
 
 /** The one action a problem may offer on the status line. */
 export type PlayLineAction = 'retry' | 'console' | 'visible' | 'settings' | 'reconnect' | 'main'
@@ -48,6 +48,11 @@ export interface PlayLineInput {
   streamEnded?: boolean
 }
 
+/** The step shown after "Starting Unity", from the phase main reads in Unity's log. */
+export const START_STEP: Record<PlayerStartPhase, string> = {
+  opening: 'opening', packages: 'unpacking packages', compiling: 'compiling scripts', loading: 'loading scripts', importing: 'importing', scene: 'opening scene'
+}
+
 /** The copy's overall percentage, when it reports bytes. */
 function percent(status: PlayerInstanceStatus): number | 'indeterminate' {
   const bytes = status.copy?.progress?.bytes
@@ -59,7 +64,10 @@ export function playLine({ status, busy, error, missing, streamEnded }: PlayLine
   const state = status?.state
   if (!status) return { text: 'Loading', kind: 'off' }
   if (state === 'copying' || state === 'syncing') return { text: 'Preparing', kind: 'work', bar: percent(status) }
-  if (state === 'starting') return { text: 'Starting Unity', kind: 'work', bar: 'indeterminate' }
+  if (state === 'starting') {
+    const start = status.start
+    return { text: start ? `Starting Unity · ${START_STEP[start.phase]}` : 'Starting Unity', kind: 'work', bar: start?.bar ?? 'indeterminate' }
+  }
   if (state === 'entering-play') return { text: 'Starting Play', kind: 'work', bar: 'indeterminate' }
   if (state === 'exiting-play' || state === 'shutting-down' || (busy && STOPS.has(busy))) return { text: 'Stopping', kind: 'work' }
   if (busy && (STARTS.has(busy) || (ENTERS.has(busy) && state !== 'playing' && state !== 'paused'))) {

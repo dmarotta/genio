@@ -1,0 +1,168 @@
+[Licensing::Module] Trying to connect to existing licensing client channel...
+Built from '6000.5/staging' branch; Version is '6000.5.1f1 (0d9463e84828) revision 889955'; Using compiler version '194234433'; Build Type 'Release'
+OS: 'Windows 11  (10.0.22631) Core' Language: 'en' Physical Memory: 32680 MB
+[Licensing::IpcConnector] Channel LicenseClient-player doesn't exist
+BatchMode: 0, IsHumanControllingUs: 0, StartBugReporterOnCrash: 0, Is64bit: 1
+System  architecture: x64
+Mono path[0] = 'C:/Program Files/Unity/Hub/Editor/6000.5.1f1/Editor/Data/Managed'
+Mono path[1] = 'C:/Program Files/Unity/Hub/Editor/6000.5.1f1/Editor/Data/BCLExtensions/runtime/netstandard2.1'
+Mono path[2] = 'C:/Program Files/Unity/Hub/Editor/6000.5.1f1/Editor/Data/MonoBleedingEdge/lib/mono/unityjit-win32'
+Mono config path = 'C:/Program Files/Unity/Hub/Editor/6000.5.1f1/Editor/Data/MonoBleedingEdge/etc'
+Using monoOptions --debugger-agent=transport=dt_socket,embedding=1,server=y,suspend=n,address=127.0.0.1:56928
+CodeReloadManager initialized
+ImportWorker Server TCP listen port: 0
+AcceleratorClientConnectionCallback - disconnected - :0
+Begin MonoManager ReloadAssembly
+Registering precompiled unity dll's ...
+Register platform support module: C:/Program Files/Unity/Hub/Editor/6000.5.1f1/Editor/Data/PlaybackEngines/WebGLSupport/UnityEditor.WebGL.Extensions.dll
+Register platform support module: C:/Program Files/Unity/Hub/Editor/6000.5.1f1/Editor/Data/PlaybackEngines/WindowsStandaloneSupport/UnityEditor.WindowsStandalone.Extensions.dll
+Registered in 0.002124 seconds.
+Native extension for WindowsStandalone target not found
+Native extension for WebGL target not found
+Package Manager log level set to [2]
+ScheduleIndexationOnStartup MainProcess:False IndexOnStartup:False
+Mono: successfully reloaded assembly
+- Finished resetting the current domain, in  0.528 seconds
+Domain Reload Profiling: 1105ms
+Application.AssetDatabase Initial Refresh Start
+[Package Manager] Done resolving packages in 254.10 seconds
+[Licensing::Client] Successfully resolved entitlement details
+[Package Manager] Lock file was modified
+[Package Manager] Registered 69 packages:
+    com.cysharp.unitask@https://github.com/Cysharp/UniTask.git?path=src/UniTask/Assets/Plugins/UniTask (location: C:\Users\player\.genio\data\player-copies\9a6576b1e0d7b8a06d2413d5\copy\founders-of-avalon\FoundersOfAvalonUnity\Library\PackageCache\com.cysharp.unitask@19d14d4a71cc)
+[Subsystems] No new subsystems found in resolved package list.
+[Package Manager] Done registering packages in 0.00 seconds
+Directory monitor buffer overflow for 'Packages'Next Refresh will do full enumeration.Assembly reference Packages/com.unity.cinemachine/Editor/Samples/ExposeHDRPInternals/HDRP-Editor-ref.asmref has no target assembly definition
+Assembly reference Packages/com.unity.cinemachine/Editor/Samples/ExposeHDRPInternals/HDRP-Editor-ref.asmref has no target assembly definition
+[ScriptCompilation] Requested script compilation because: Assembly Definition File(s) changed
+[ScriptCompilation] Requested script compilation because: AssetDatabase observed changes in script compilation related files
+[Licensing::Client] Successfully resolved entitlement details
+Starting: C:\Program Files\Unity\Hub\Editor\6000.5.1f1\Editor\Data\Tools\BuildPipeline\bee_backend.exe --ipc --defer-dag-verification --dagfile="Library/Bee/1900b0aEDbg.dag" --continue-on-failure --profile="Library/Bee/backend1.traceevents" ScriptAssemblies
+WorkingDir: C:\Users\player/.genio/data/player-copies/9a6576b1e0d7b8a06d2413d5/copy/founders-of-avalon/FoundersOfAvalonUnity
+Starting: C:\Program Files\Unity\Hub\Editor\6000.5.1f1\Editor\Data\netcorerun\netcorerun.exe "C:\Program Files\Unity\Hub\Editor\6000.5.1f1\Editor\Data\Tools\BuildPipeline\ScriptCompilationBuildProgram.exe" "Library/Bee/1900b0aEDbg.dag.json" "Library/Bee/1900b0aEDbg-inputdata.json" "Library\Bee\buildprogram0.traceevents"
+WorkingDir: C:\Users\player/.genio/data/player-copies/9a6576b1e0d7b8a06d2413d5/copy/founders-of-avalon/FoundersOfAvalonUnity
+ExitCode: 4 Duration: 2s408ms
+[           0s] Csc Library/Bee/artifacts/1900b0aEDbg.dag/UnityEngine.UI.dll (+2 others) [CacheMiss 07787361966e5d53ab06ccb47229da7400000000000000000000000000000006]
+Rebuilding DAG because FileSignature timestamp changed: Library/Bee/1900b0aEDbg-inputdata.json
+*** Tundra requires additional run (2.33 seconds), 1 items updated, 673 evaluated
+ExitCode: 0 Duration: 3s61ms
+Starting: C:\Program Files\Unity\Hub\Editor\6000.5.1f1\Editor\Data\Tools\BuildPipeline\bee_backend.exe --ipc --defer-dag-verification --dagfile="Library/Bee/1900b0aEDbg.dag" --continue-on-failure --dagfilejson="Library\Bee\1900b0aEDbg.dag.json" --profile="Library/Bee/backend2.traceevents" ScriptAssemblies
+WorkingDir: C:\Users\player/.genio/data/player-copies/9a6576b1e0d7b8a06d2413d5/copy/founders-of-avalon/FoundersOfAvalonUnity
+ExitCode: 0 Duration: 13s
+Finished compiling graph: 1242 nodes, 25121 flattened edges (21177 ToBuild, 204 ToUse), maximum node priority 1298
+[  87/1238  0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/UnityEngine.TestRunner.rsp2
+[ 115/1238  0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/UnityEngine.TestRunner.UnityAdditionalFile.txt
+[ 173/1238  0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/UnityEngine.UI.UnityAdditionalFile.txt
+[ 179/1238  0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/UnityEditor.TestRunner.UnityAdditionalFile.txt
+[ 180/1238  0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/UnityEditor.TestRunner.rsp2
+[ 181/1238  0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Collections.UnityAdditionalFile.txt
+[ 188/1238  0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Collections.CodeGen.UnityAdditionalFile.txt
+[ 189/1238  0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Burst.CodeGen.rsp2
+[ 190/1238  0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Pipeline.CodeGen.rsp2
+[ 191/1238  0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Collections.CodeGen.rsp2
+[ 192/1238  0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/UnityEditor.UI.UnityAdditionalFile.txt
+[ 194/1238  0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Mathematics.UnityAdditionalFile.txt
+[ 195/1238  0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/UnityEditor.UI.rsp2
+[ 196/1238  0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/Unity.RenderPipelines.Core.Runtime.rsp2
+[ 203/1238  0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/Unity.InputSystem.rsp
+[ 211/1238  0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Burst.UnityAdditionalFile.txt
+
+running Unity.Jobs.CodeGen.JobsILPostProcessor
+
+running Unity.Pipeline.CodeGen.CodeReloadInPlaceILPostProcessor
+
+running zzzUnity.Burst.CodeGen.BurstILPostProcessor
+[1317/1238  0s] CopyFiles Library/ScriptAssemblies/Unity.VisualEffectGraph.Editor.pdb
+[1318/1238  0s] CopyFiles Library/ScriptAssemblies/Unity.VisualEffectGraph.Editor.dll
+*** Tundra build success (13.56 seconds), 651 items updated, 1238 evaluated
+Assets\_Project\Source\Runtime\GameBootstrap.cs(458,97): warning CS0618: 'FindObjectsSortMode' is obsolete: 'FindObjectsSortMode has been deprecated. Use the FindObjectsByType overloads that do not take a FindObjectsSortMode parameter.'
+Assets\_Project\Source\Runtime\GameBootstrap.cs(458,35): warning CS0618: 'Object.FindObjectsByType<T>(FindObjectsInactive, FindObjectsSortMode)' is obsolete: 'FindObjectsByType with FindObjectsSortMode parameter has been deprecated. Use FindObjectsByType<T>() or FindObjectsByType<T>(FindObjectsInactive) instead. InstanceID will be replaced in the future with EntityId and previous sort order cannot be maintained.'
+Assets\_Project\Source\Editor\HudMinimapBuilder.cs(33,29): warning CS0618: 'Object.FindFirstObjectByType<T>()' is obsolete: 'FindFirstObjectByType has been deprecated because it relies on instance ID ordering. Use FindAnyObjectByType instead, which does not depend on ordering.'
+Assets\_Project\Source\Editor\HudMinimapBuilder.cs(34,24): warning CS0618: 'Object.FindFirstObjectByType<T>(FindObjectsInactive)' is obsolete: 'FindFirstObjectByType has been deprecated because it relies on instance ID ordering. Use FindAnyObjectByType instead, which does not depend on ordering.'
+Assets\_Project\Source\Editor\HudMockupBuilder.cs(92,17): warning CS0618: 'Object.FindFirstObjectByType<T>()' is obsolete: 'FindFirstObjectByType has been deprecated because it relies on instance ID ordering. Use FindAnyObjectByType instead, which does not depend on ordering.'
+Total cache size 268177764
+Total cache size after purge 268177764, took 00:00:00.8321132
+AssetDatabase: script compilation time: 32.025808s
+Begin MonoManager ReloadAssembly
+DirectoryNotFoundException: Could not find a part of the path "C:\Users\player\.genio\data\player-copies\9a6576b1e0d7b8a06d2413d5\copy\founders-of-avalon\FoundersOfAvalonUnity\Library\PackageCache\com.unity.visualscripting@8bed5ad90189\Editor\VisualScripting.Core\Dependencies\YamlDotNet\Unity.VisualScripting.YamlDotNet.dll"
+  at System.IO.FileStream..ctor (System.String path, System.IO.FileMode mode, System.IO.FileAccess access, System.IO.FileShare share, System.Int32 bufferSize, System.Boolean anonymous, System.IO.FileOptions options) [0x0019e] in <816f70bc2a9c4332b0bd119906a8d40e>:0 
+  at System.IO.FileStream..ctor (System.String path, System.IO.FileMode mode, System.IO.FileAccess access, System.IO.FileShare share) [0x00000] in <816f70bc2a9c4332b0bd119906a8d40e>:0 
+'Packages/com.unity.cinemachine/Editor/Editors/CinemachineVirtualCameraBaseEditor.cs' contains partial class of Unity.Object, exactly 1 of the partial classes needs to be in a file with the same filename. This is to know the one that can be referenced from ie. GameObjects
+'Packages/com.unity.cinemachine/Editor/Obsolete/CinemachineVirtualCameraBaseEditor.cs' contains partial class of Unity.Object, exactly 1 of the partial classes needs to be in a file with the same filename. This is to know the one that can be referenced from ie. GameObjects
+Importing 'GUID: 235de40f4eb54511bd88045b176906cc - Path: Packages/com.genio.play' with importer (DefaultImporter)
+Imported 'GUID: 235de40f4eb54511bd88045b176906cc' -> (Import Result ID: 'dc7ee59e75f1312d89916b0b68ab39e7') in 0.039 seconds [static dependencies only]. Details - ImportResultOutputID=381cea108c4ce61e0b38ad79d96a70e4 DependenciesID=f0fbd2191dd5d0e9a441488469f6c2b1 StaticDependenciesID=b8c5dbae158091b0f34ec037898a1f79 
+Importing 'GUID: c03fac303683841489878837f3122372 - Path: Packages/com.genio.play/Runtime' with importer (DefaultImporter)
+Imported 'GUID: c03fac303683841489878837f3122372' -> (Import Result ID: 'b01126ffda630e592e0abcc925ae8a3f') in 0.027 seconds [static dependencies only]. Details - ImportResultOutputID=c1b88ec683ebbe6863712a7d9f8a97eb DependenciesID=ab5ca0a5624b2123014d8adc79857a92 StaticDependenciesID=2355e3cc768196a4a8a6f480524ad1dc 
+Importing 'GUID: 1120530aa30f4b140813eb29559b2f18 - Path: Packages/com.genio.play/Editor' with importer (DefaultImporter)
+Imported 'GUID: 1120530aa30f4b140813eb29559b2f18' -> (Import Result ID: 'bde37001ee8f46c4d6a9350c5aba925b') in 0.019 seconds [static dependencies only]. Details - ImportResultOutputID=d4c96c75926a59fa82bfb4febd91598b DependenciesID=9945545e15a0949014c7d2be226206c1 StaticDependenciesID=fc9aca0500bb024ecb97f9c42998385d 
+Importing 'GUID: 82c5f8f48d6125f43a56b6882ef37a4d - Path: Packages/com.genio.play/Input' with importer (DefaultImporter)
+Imported 'GUID: 82c5f8f48d6125f43a56b6882ef37a4d' -> (Import Result ID: 'fdee79454c1c082b1cf56365fe35044d') in 0.012 seconds [static dependencies only]. Details - ImportResultOutputID=dc6d2659c57231faadeb92530ab0f9ea DependenciesID=ade067a72230b0b2726dfe1455d63268 StaticDependenciesID=5eb3b16b5b287fa81e9841111c0720c8 
+Importing 'GUID: 481468a329afb0c428daaac1d4df6491 - Path: Packages/com.genio.play/Runtime/Genio.Play.asmdef' with importer (AssemblyDefinitionImporter)
+Imported 'GUID: 481468a329afb0c428daaac1d4df6491' -> (Import Result ID: '64d13e3596a02194276505d0274882de') in 0.045 seconds [static dependencies only]. Details - ImportResultOutputID=e1293f026ee89ac3801daef7cd6262c6 DependenciesID=9fa42db315bc1bfb195dc0f579634bda StaticDependenciesID=b0c64470fac8a7061b2738b6489268a0 
+Importing 'GUID: cc20e2d3ce2593840af105781d06c334 - Path: Packages/com.genio.play/Input/Genio.Play.Input.asmdef' with importer (AssemblyDefinitionImporter)
+Imported 'GUID: cc20e2d3ce2593840af105781d06c334' -> (Import Result ID: 'ea19161bf468b1b33e5c0b8951088aa8') in 0.020 seconds [static dependencies only]. Details - ImportResultOutputID=17ec63ae5a8a4bb97f364de82c367d63 DependenciesID=0881293f99bb9df3545b1327527082c6 StaticDependenciesID=e6106c0c25e554a6f22bdeae11aaf0bc 
+Importing 'GUID: 4dc4553e49993414fb4c67fad441ce07 - Path: Packages/com.genio.play/Editor/Genio.Play.Editor.asmdef' with importer (AssemblyDefinitionImporter)
+Imported 'GUID: 4dc4553e49993414fb4c67fad441ce07' -> (Import Result ID: '9cb28060fb9039192ef527f96f77da81') in 0.015 seconds [static dependencies only]. Details - ImportResultOutputID=1004f7a0bf0da9f5757af00e88e975b8 DependenciesID=9b14cc9c55cbbe505846694588f4b0d5 StaticDependenciesID=2ee5822609c0fe65f4460514a2b45426 
+Mono: successfully reloaded assembly
+- Finished resetting the current domain, in 17.026 seconds
+Domain Reload Profiling: 21648ms
+	BeginReloadAssembly (718ms)
+		DisableScriptedObjects (155ms)
+		CreateAndSetChildDomain (145ms)
+	RebuildCommonClasses (22ms)
+			AfterProcessingInitializeOnLoad (9ms)
+		AwakeInstancesAfterBackupRestoration (31ms)
+Importing 'GUID: 594440d44ec3f6f4cbecb27ff96a63c8 - Path: Assets/_Project/Rendering/Shaders/WorldOverlay.shader' with importer (ShaderImporter)
+Launched and connected shader compiler UnityShaderCompiler.exe after 0.01 seconds
+Imported 'GUID: 594440d44ec3f6f4cbecb27ff96a63c8' -> (Import Result ID: 'd80cc67c5d6e9cab418b8305d6dac4de') in 0.683 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=38ccc5b55a12d4f3cb06528337da9d1d DependenciesID=cfc2e97fa1a718fc1a8e5714ae0c62f3 StaticDependenciesID=cc02e502c023aca9aae260507f4005ee 
+Importing 'GUID: c2cfc700bec54ef448b8bc2d8a15231c - Path: Assets/_Project/Config/GameConfig.asset' with importer (NativeFormatImporter)
+Imported 'GUID: c2cfc700bec54ef448b8bc2d8a15231c' -> (Import Result ID: 'fbc1cd5f9d53c6312a78a4ac55d7c473') in 13.005 seconds [static dependencies only]. Details - ImportResultOutputID=e844ab2f306e912be61482990f7ce3b6 DependenciesID=3ce70b91041e3eab6560efe901b1b24e StaticDependenciesID=475e13d750d82a82e95d8f9f05438414 
+Importing 'GUID: f288ae1f4751b564a96ac7587541f7a2 - Path: Assets/_Project/Config/URP/PC_Renderer.asset' with importer (NativeFormatImporter)
+Imported 'GUID: f288ae1f4751b564a96ac7587541f7a2' -> (Import Result ID: '317245a36997442c93e2432f6bfc5111') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=15428fb8eba65c8a58e09e16b7e5387d DependenciesID=d05738a675beea111778b501f9a43a45 StaticDependenciesID=bbf5be3cb1b71bcb3b17feb9e1dbe2ce 
+Importing 'GUID: f9ddea4bca197054195cc7ab7b6967dc - Path: Assets/_Project/Art/UI/Hud/Fonts/HudText.asset' with importer (NativeFormatImporter)
+Imported 'GUID: f9ddea4bca197054195cc7ab7b6967dc' -> (Import Result ID: '851c0952a158641fbc27b1f6e73e0fa4') in 0.050 seconds [static dependencies only]. Details - ImportResultOutputID=bf8e70bc0b43588656318177c19186d4 DependenciesID=d9e52613f40bb76c5c034f3f11318279 StaticDependenciesID=dcc9d90f10c29381e53ec3da1ab5fa65 
+Importing 'GUID: fa69697be3070b04a893666f5947f18c - Path: Packages/com.unity.render-pipelines.core/Runtime/Debugging/Runtime UI Resources/RuntimeDebugWindow_PanelSettings.asset' with importer (NativeFormatImporter)
+Imported 'GUID: fa69697be3070b04a893666f5947f18c' -> (Import Result ID: 'b565eff3529f094ee8f15df558e2e962') in 0.009 seconds [static dependencies only]. Details - ImportResultOutputID=5726e19063be2ee1c1db3057114932de DependenciesID=38e0beee6e3ee05e6e24989b8736db22 StaticDependenciesID=89bc07465b88621bb3db86998cb67e75 
+Importing 'GUID: c0676d389f0bbb34a9f09b5f1fade5dc - Path: Packages/com.genio.play/package.json' with importer (PackageManifestImporter)
+Imported 'GUID: c0676d389f0bbb34a9f09b5f1fade5dc' -> (Import Result ID: 'df19598a55ed82725ddd89559ff47746') in 0.028 seconds [static dependencies only]. Details - ImportResultOutputID=c50960a6710a0e450539dc789590d7aa DependenciesID=b3e35e69a6f72c00b1f6bb1fb3282d22 StaticDependenciesID=804d900e64d8a1f8271fa7a7d2403ac4 
+Importing 'GUID: 7f4c41740f2055a4786dc0bbe932eb5e - Path: Packages/com.genio.play/README.md' with importer (TextScriptImporter)
+Imported 'GUID: 7f4c41740f2055a4786dc0bbe932eb5e' -> (Import Result ID: '747d9c8316b88401541f6cb93e910787') in 0.013 seconds [static dependencies only]. Details - ImportResultOutputID=c6016c0aeefb01a5381e8b0f3c5e830b DependenciesID=936f724726f340aa055121b48dcba80b StaticDependenciesID=38ccfc3255377dbea8bee45d9ae42385 
+	UnloadStreamsBegin: 3.354ms
+	PersistCurrentRevisions: 0.564ms
+	GenerateScriptTypeHashes: 4.571ms
+	GenerateScriptTypeSerializationHashes: 7.995ms
+	Untracked: 22787.784ms
+
+Application.AssetDatabase Initial Refresh End
+Scanning for USB devices : 14.588ms
+Initializing Unity extensions:
+Worker ready: AssetImportWorkerHW0 0
+Script 'Library/PackageCache/com.unity.ai.navigation@42d896194035/ValidationExceptions.json' will not be compiled because it exists outside the Assets folder and does not to belong to any assembly definition file.
+Script 'Library/PackageCache/com.unity.addressables@3663259cca70/Tests/Runtime/ResourceManager/Unity.ResourceManager.Tests.asmdef' will not be compiled because it exists outside the Assets folder and does not to belong to any assembly definition file.
+Script 'Library/PackageCache/com.unity.addressables@3663259cca70/Tests/Runtime/Unity.Addressables.Runtime.Tests.asmdef' will not be compiled because it exists outside the Assets folder and does not to belong to any assembly definition file.
+Script 'Library/PackageCache/com.unity.scriptablebuildpipeline@ee4c11ba2fa5/Tests/Runtime/TestAssets/Unity.ScriptableBuildPipelineTests.Runtime.Tests.asmdef' will not be compiled because it exists outside the Assets folder and does not to belong to any assembly definition file.
+Script 'Library/PackageCache/com.unity.timeline@8cd8509afae5/DocCodeExamples/DocCodeExamples.asmdef' will not be compiled because it exists outside the Assets folder and does not to belong to any assembly definition file.
+Script 'Library/PackageCache/com.unity.inputsystem@21a28c3a6c83/Tests/IntegrationTests/Unity.InputSystem.IntegrationTests.asmdef' will not be compiled because it exists outside the Assets folder and does not to belong to any assembly definition file.
+Script 'Library/PackageCache/com.unity.scriptablebuildpipeline@ee4c11ba2fa5/Tests/Runtime/Unity.ScriptableBuildPipeline.Tests.asmdef' will not be compiled because it exists outside the Assets folder and does not to belong to any assembly definition file.
+[MODES] ModeService[none].Initialize
+[MODES] ModeService[none].LoadModes
+[MODES] Loading mode Default (0) for mode-current-id-FoundersOfAvalonUnity
+[Licensing::Client] Successfully resolved entitlement details
+Unloading 422 Unused Serialized files (Serialized files now loaded: 0)
+Loaded scene 'Assets/_Project/Scenes/MainMenu.unity'
+	Deserialize:            792.823 ms
+	Integration:            2039.385 ms
+	Integration of assets:  284.628 ms
+	Thread Wait Time:       0.371 ms
+	Total Operation Time:   3117.207 ms
+Unloading 8927 unused Assets / (9.3 MB). Loaded Objects now: 11616.
+Memory consumption went from 0.64 GB to 0.63 GB.
+Total: 36.599900 ms (FindLiveObjects: 2.296400 ms CreateObjectMapping: 7.078200 ms MarkObjects: 14.994900 ms  DeleteObjects: 12.210700 ms)
+
+[LAYOUT] About to load C:\Users\player/AppData/Roaming/Unity/Editor-5.x/Preferences\Layouts\current\default-6000.dwlt, keepMainWindow=False
+[MODES] ModeService[default].InitializeCurrentMode
+[MODES] ModeService[default].RaiseModeChanged(default, default)
+<RI> Initializing input.
+Using Windows.Gaming.Input
+[Project] Loading completed in 355.907 seconds
+	Project init time: 				351.019 seconds

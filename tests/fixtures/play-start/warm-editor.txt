@@ -1,0 +1,86 @@
+[Licensing::Module] Trying to connect to existing licensing client channel...
+Built from '6000.5/staging' branch; Version is '6000.5.1f1 (0d9463e84828) revision 889955'; Using compiler version '194234433'; Build Type 'Release'
+[Licensing::IpcConnector] Channel LicenseClient-player doesn't exist
+OS: 'Windows 11  (10.0.22631) Core' Language: 'en' Physical Memory: 32680 MB
+BatchMode: 0, IsHumanControllingUs: 0, StartBugReporterOnCrash: 0, Is64bit: 1
+System  architecture: x64
+Initialize mono
+Mono path[0] = 'C:/Program Files/Unity/Hub/Editor/6000.5.1f1/Editor/Data/Managed'
+Mono path[1] = 'C:/Program Files/Unity/Hub/Editor/6000.5.1f1/Editor/Data/BCLExtensions/runtime/netstandard2.1'
+Mono path[2] = 'C:/Program Files/Unity/Hub/Editor/6000.5.1f1/Editor/Data/MonoBleedingEdge/lib/mono/unityjit-win32'
+Mono config path = 'C:/Program Files/Unity/Hub/Editor/6000.5.1f1/Editor/Data/MonoBleedingEdge/etc'
+Using monoOptions --debugger-agent=transport=dt_socket,embedding=1,server=y,suspend=n,address=127.0.0.1:56592
+CodeReloadManager initialized
+ImportWorker Server TCP listen port: 0
+AcceleratorClientConnectionCallback - disconnected - :0
+Begin MonoManager ReloadAssembly
+Registering precompiled unity dll's ...
+Register platform support module: C:/Program Files/Unity/Hub/Editor/6000.5.1f1/Editor/Data/PlaybackEngines/WebGLSupport/UnityEditor.WebGL.Extensions.dll
+Register platform support module: C:/Program Files/Unity/Hub/Editor/6000.5.1f1/Editor/Data/PlaybackEngines/WindowsStandaloneSupport/UnityEditor.WindowsStandalone.Extensions.dll
+Registered in 0.003102 seconds.
+Native extension for WindowsStandalone target not found
+Native extension for WebGL target not found
+Package Manager log level set to [2]
+ScheduleIndexationOnStartup MainProcess:False IndexOnStartup:True
+Mono: successfully reloaded assembly
+- Finished resetting the current domain, in  0.941 seconds
+Domain Reload Profiling: 1948ms
+[Licensing::Client] Successfully resolved entitlement details
+Application.AssetDatabase Initial Refresh Start
+[Package Manager] Restoring resolved packages state from cache
+[Licensing::Client] Successfully resolved entitlement details
+[Package Manager] Registered 69 packages:
+    com.cysharp.unitask@https://github.com/Cysharp/UniTask.git?path=src/UniTask/Assets/Plugins/UniTask (location: D:\copies\game\founders-of-avalon\FoundersOfAvalonUnity\Library\PackageCache\com.cysharp.unitask@19d14d4a71cc)
+[Subsystems] No new subsystems found in resolved package list.
+[Package Manager] Done registering packages in 0.04 seconds
+Assembly reference Packages/com.unity.cinemachine/Editor/Samples/ExposeHDRPInternals/HDRP-Editor-ref.asmref has no target assembly definition
+Assembly reference Packages/com.unity.cinemachine/Editor/Samples/ExposeHDRPInternals/HDRP-Editor-ref.asmref has no target assembly definition
+Starting: C:\Program Files\Unity\Hub\Editor\6000.5.1f1\Editor\Data\Tools\BuildPipeline\bee_backend.exe --ipc --defer-dag-verification --dagfile="Library/Bee/1900b0aEDbg.dag" --continue-on-failure --profile="Library/Bee/backend1.traceevents" ScriptAssemblies
+WorkingDir: D:/copies/game/founders-of-avalon/FoundersOfAvalonUnity
+ExitCode: 0 Duration: 0s858ms
+[ 952/1238  0s] ILPP-Configuration Library/ilpp-configuration.nevergeneratedoutput
+*** Tundra build success (0.76 seconds), 1 items updated, 1238 evaluated
+AssetDatabase: script compilation time: 4.260724s
+Begin MonoManager ReloadAssembly
+Start HTTP server: port:7800
+ScheduleIndexationOnStartup MainProcess:True IndexOnStartup:True
+Mono: successfully reloaded assembly
+- Finished resetting the current domain, in 11.585 seconds
+Domain Reload Profiling: 14651ms
+	BeginReloadAssembly (700ms)
+		DisableScriptedObjects (80ms)
+Starting new worker id: 0 with log in D:/copies/game/founders-of-avalon/FoundersOfAvalonUnity/Logs/AssetImportWorkerHW0.log
+
+Asset Pipeline Refresh (id=f75473b04b86a6f4293583d774b3a2e2): Total: 22.636 seconds - Initiated by InitialRefreshV2(ForceSynchronousImport)
+	(Values over 0.05ms)
+	Summary:
+		Imports: total=0 (actual=0, local cache=0, cache server=0)
+		Asset DB Process Time: managed=0 ms, native=14613 ms
+		Asset DB Callback time: managed=55 ms, native=48 ms
+		Scripting: domain reloads=1, domain reload time=3250 ms, compile time=4263 ms, other=405 ms
+	Untracked: 4393.193ms
+
+Application.AssetDatabase Initial Refresh End
+Launched and connected shader compiler UnityShaderCompiler.exe after 0.11 seconds
+Scanning for USB devices : 42.429ms
+[MODES] ModeService[none].Initialize
+[MODES] ModeService[none].LoadModes
+[MODES] Loading mode Default (0) for mode-current-id-FoundersOfAvalonUnity
+Unloading 424 Unused Serialized files (Serialized files now loaded: 0)
+Loaded scene 'Assets/_Project/Scenes/MainMenu.unity'
+	Deserialize:            339.611 ms
+	Integration:            936.080 ms
+	Integration of assets:  192.158 ms
+	Thread Wait Time:       5.372 ms
+	Total Operation Time:   1473.221 ms
+Unloading 8927 unused Assets / (7.8 MB). Loaded Objects now: 11616.
+Memory consumption went from 0.61 GB to 0.60 GB.
+Total: 42.544000 ms (FindLiveObjects: 2.067500 ms CreateObjectMapping: 6.823700 ms MarkObjects: 22.644500 ms  DeleteObjects: 11.005400 ms)
+
+[LAYOUT] About to load C:\Users\player/AppData/Roaming/Unity/Editor-5.x/Preferences\Layouts\current\default-6000.dwlt, keepMainWindow=False
+[MODES] ModeService[default].InitializeCurrentMode
+[MODES] ModeService[default].RaiseModeChanged(default, default)
+<RI> Initializing input.
+Using Windows.Gaming.Input
+[Project] Loading completed in 36.667 seconds
+	Project init time: 				31.643 seconds

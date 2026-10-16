@@ -145,6 +145,22 @@ describe('Play screen', () => {
     expect(facts()).toContainEqual({ label: 'Unity log', value: 'Loading packages · Compiling scripts' })
   })
 
+  it('adds the start phase to Starting Unity, with a determinate bar only when main sends one', async () => {
+    status = { state: 'starting', project: 'C:/games/game', pid: 7, copy: copy() as never, startup: 'Begin MonoManager ReloadAssembly', start: { phase: 'compiling' } }
+    await mount()
+    expect(statusLine()).toBe('Starting Unity · compiling scripts')
+    expect(bar()?.querySelector('.indeterminate')).not.toBeNull()
+    expect(bar()?.hasAttribute('aria-valuenow')).toBe(false)
+    status = { ...status, start: { phase: 'loading', bar: 42 } }
+    await settle(3000)
+    expect(statusLine()).toBe('Starting Unity · loading scripts')
+    expect(bar()?.getAttribute('aria-valuenow')).toBe('42')
+    expect(bar()?.getAttribute('aria-label')).toBe('Starting Unity · loading scripts')
+    expect(host.querySelectorAll('[role=progressbar]')).toHaveLength(1)
+    expect(text()).not.toMatch(/Begin MonoManager|left|%|\d+ ?s\b/)
+    expect(host.querySelector('.play-screen')?.textContent).toBe('')
+  })
+
   it('names low memory in one alert line and keeps Start anyway on the toolbar, dropping it when Windows cannot commit', async () => {
     const lowMemory = { availableBytes: 3.3 * 2 ** 30, neededBytes: 6 * 2 ** 30, hard: false, consumers: [{ name: 'lands-of-old editor', bytes: 13.5 * 2 ** 30 }], closed: [] }
     status = { state: 'low-memory', project: 'C:/games/game', copy: copy() as never, lowMemory, message: '3.3 GB available; Unity needs about 6.0 GB. Biggest: lands-of-old editor 13.5 GB.' }
@@ -301,6 +317,7 @@ describe('Play screen', () => {
       { state: 'idle', project: 'p' },
       { state: 'copying', project: 'p', copy: copying(1, 4) },
       { state: 'starting', project: 'p', pid: 3, startup: 'Importing' },
+      ...(['opening', 'packages', 'compiling', 'loading', 'importing', 'scene'] as const).map((phase, n): PlayerInstanceStatus => ({ state: 'starting', project: 'p', pid: 3, start: { phase, ...(n % 2 ? { bar: n * 15 } : {}) } })),
       { state: 'ready', project: 'p', pid: 3, source: { path: 'C:/games/game' }, deadline: NOW + 60_000, copy: copy(synced) as never },
       { state: 'error', project: 'p', message: 'Play hit an unexpected problem: boom.' }
     ]
@@ -411,6 +428,18 @@ describe('playLine: one status line and one progress bar per state', () => {
   it('drives the bar by the copy\'s overall percentage, else indeterminate', () => {
     expect(playLine({ status: at('copying', { copy: copying(3, 4) }) }).bar).toBe(75)
     expect(playLine({ status: at('syncing', { copy: copying(0, 0) }) }).bar).toBe('indeterminate')
+  })
+
+  it('names each Unity start phase after Starting Unity and takes the bar from main, else indeterminate', () => {
+    const steps = { opening: 'opening', packages: 'unpacking packages', compiling: 'compiling scripts', loading: 'loading scripts', importing: 'importing', scene: 'opening scene' } as const
+    for (const [phase, step] of Object.entries(steps)) {
+      expect(playLine({ status: at('starting', { start: { phase: phase as keyof typeof steps } }) })).toEqual({ text: `Starting Unity · ${step}`, kind: 'work', bar: 'indeterminate' })
+    }
+    expect(playLine({ status: at('starting', { start: { phase: 'compiling', bar: 0 } }) }).bar).toBe(0)
+    expect(playLine({ status: at('starting', { start: { phase: 'scene', bar: 97 } }) }).bar).toBe(97)
+    // Only Starting Unity carries a step: a stale phase never leaks into another state.
+    expect(playLine({ status: at('entering-play', { start: { phase: 'scene', bar: 97 } }) })).toEqual({ text: 'Starting Play', kind: 'work', bar: 'indeterminate' })
+    expect(playLine({ status: at('ready', { start: { phase: 'scene' } }) })).toEqual({ text: 'Ready', kind: 'ready' })
   })
 
   it('answers a press at once: Preparing, Starting Play or Stopping while the call runs', () => {
