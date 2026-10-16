@@ -1,0 +1,2 @@
+export function assertOutside(dir: string, roots: (string | undefined | null)[], message: string): void
+export function runBlender(o: { blender: string; prefix?: string[]; script: string; blend?: string | null; args?: string[]; threads?: number; timeout?: number; scratch: string; env?: Record<string, string> }): Promise<{ code: number | null; timedOut: boolean; log: string; tail: string; ms: number }>

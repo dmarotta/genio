@@ -3,9 +3,49 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { spawn, execFileSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { findBlender } from '../../../lib/blender-path.mjs'
 import { openWorld, sha256File, writeProvenance, unitBy } from '../../../lib/genio-world.mjs'
+
+const helperDir = path.dirname(fileURLToPath(import.meta.url))
+
+// Resolve existing parents as well as symlinks before accepting a scratch location.
+function canonical(p) {
+  if (fs.existsSync(p)) return fs.realpathSync(p)
+  return path.join(canonical(path.dirname(p)), path.basename(p))
+}
+
+/** Throws unless `dir` lies outside every root (the project, the worktree). */
+export function assertOutside(dir, roots, message) {
+  for (const root of roots.filter(Boolean)) {
+    const rel = path.relative(canonical(root), canonical(dir))
+    if (!rel || (!rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel))) throw new Error(message)
+  }
+}
+
+/**
+ * One headless Blender run: no autoexec, factory settings, capped threads, a log
+ * in scratch and a SIGKILL watchdog. Never throws for a failed run; the caller
+ * reads `code` and `timedOut`. `prefix` goes before Blender's own argv (tests run
+ * a fake Blender through Node this way).
+ */
+export async function runBlender({ blender, prefix = [], script, blend = null, args = [], threads = Math.min(4, os.availableParallelism()), timeout = 300, scratch, env = {} }) {
+  fs.mkdirSync(scratch, { recursive: true })
+  const log = path.join(scratch, `blender-${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 6)}.log`)
+  const fd = fs.openSync(log, 'wx')
+  const argv = [...prefix, '-b', '--factory-startup', '--disable-autoexec', '--python-use-system-env', '--python-exit-code', '1', '--threads', String(threads), ...(blend ? [blend] : []), '--python', script, '--', ...args]
+  let tail = '', timedOut = false
+  const started = performance.now()
+  const code = await new Promise((resolve, reject) => {
+    const child = spawn(blender, argv, { windowsHide: true, env: { ...process.env, ...env, PYTHONPATH: [helperDir, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter), PYTHONDONTWRITEBYTECODE: '1' }, stdio: ['ignore', 'pipe', 'pipe'] })
+    const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL') }, timeout * 1000)
+    const collect = chunk => { fs.writeSync(fd, chunk); tail = (tail + chunk.toString()).slice(-16000) }
+    child.stdout.on('data', collect); child.stderr.on('data', collect)
+    child.once('error', e => { clearTimeout(timer); reject(e) })
+    child.once('close', c => { clearTimeout(timer); resolve(c) })
+  }).finally(() => fs.closeSync(fd))
+  return { code, timedOut, log, tail, ms: Math.round(performance.now() - started) }
+}
 
 async function main() {
   const raw = process.argv.slice(2), split = raw.indexOf('--')
@@ -25,31 +65,10 @@ async function main() {
   const blend = opts.blend ? path.resolve(opts.blend) : null
   const blendSha = blend ? sha256File(blend) : null
   const scratch = path.resolve(opts.scratch ?? process.env.GENIO_BLENDER_SCRATCH ?? path.join(os.tmpdir(), 'genio-blender'))
-  // Resolve existing parents as well as symlinks before accepting a scratch location.
-  function canonical(p) {
-    if (fs.existsSync(p)) return fs.realpathSync(p)
-    return path.join(canonical(path.dirname(p)), path.basename(p))
-  }
-  for (const root of [process.cwd(), world?.root].filter(Boolean)) {
-    const rel = path.relative(canonical(root), canonical(scratch))
-    if (!rel || (!rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel))) throw new Error('Scratch logs must be outside the project/worktree')
-  }
+  assertOutside(scratch, [process.cwd(), world?.root], 'Scratch logs must be outside the project/worktree')
   const blender = findBlender()
   if (!blender) throw new Error('Blender not found. Set GENIO_BLENDER to blender.exe (not blender-launcher.exe).')
-  fs.mkdirSync(scratch, { recursive: true })
-  const log = path.join(scratch, `blender-${Date.now()}-${process.pid}.log`)
-  const fd = fs.openSync(log, 'wx')
-  const argv = ['-b', '--factory-startup', '--disable-autoexec', '--python-use-system-env', '--python-exit-code', '1', '--threads', String(threads), ...(blend ? [blend] : []), '--python', script, '--', ...args]
-  const helperDir = path.dirname(fileURLToPath(import.meta.url))
-  let tail = '', timedOut = false
-  const code = await new Promise((resolve, reject) => {
-    const child = spawn(blender, argv, { windowsHide: true, env: { ...process.env, PYTHONPATH: [helperDir, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter), PYTHONDONTWRITEBYTECODE: '1' }, stdio: ['ignore', 'pipe', 'pipe'] })
-    const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL') }, timeout * 1000)
-    const collect = chunk => { fs.writeSync(fd, chunk); tail = (tail + chunk.toString()).slice(-16000) }
-    child.stdout.on('data', collect); child.stderr.on('data', collect)
-    child.once('error', e => { clearTimeout(timer); reject(e) })
-    child.once('close', c => { clearTimeout(timer); resolve(c) })
-  }).finally(() => fs.closeSync(fd))
+  const { code, timedOut, log, tail } = await runBlender({ blender, script, blend, args, threads, timeout, scratch })
   if (timedOut || code !== 0) throw new Error(`${timedOut ? 'Blender timed out' : `Blender failed (exit ${code})`}. Log: ${log}\n${tail.split(/\r?\n/).slice(-30).join('\n')}`)
   let provenance = null
   if (opts.provenance) {
@@ -63,4 +82,7 @@ async function main() {
   }
   console.log(JSON.stringify({ ok: true, log, provenance }))
 }
-main().catch(e => { console.error(e.message); process.exitCode = 1 })
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  main().catch(e => { console.error(e.message); process.exitCode = 1 })
+}

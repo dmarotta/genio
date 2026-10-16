@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { renderBrief, type BriefInput } from '../src/main/brief'
 import { assertIsolatedHomes } from './support/isolated-homes.mjs'
-import { blenderSkillDir, codexImageSkillDir, falSkillDir, genioUnityScript, installUnitPlugin, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief, unitySkillDir } from '../src/main/unitskills'
+import { blenderSkillDir, codexImageSkillDir, falSkillDir, genioUnityScript, installUnitPlugin, modellerBrief, modellerScript, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief, unitySkillDir } from '../src/main/unitskills'
 
 const APP_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SCRIPT = path.join(unitPluginSource(APP_ROOT), 'skills', 'fal', 'scripts', 'fal.mjs')
@@ -59,7 +59,10 @@ describe('unit launch extras', () => {
   it('uses the unit data folder for Blender logs', () => {
     const x = unitLaunchExtras('codex', { pluginDir, dataDir: 'C:/genio/data', taskDataDir: 'C:/genio/data/unit-a' })
     expect(x.env.GENIO_BLENDER_SCRATCH).toBe('C:/genio/data/unit-a/blender')
+    expect(x.env.GENIO_MODELLER_DATA).toBe('C:/genio/data/unit-a/modeller')
     expect(unitToolsBrief(pluginDir)).toContain('skills/blender/SKILL.md')
+    // Modeller steps belong to a unit: without its data folder there is no place for them
+    expect(unitLaunchExtras('codex', { pluginDir, dataDir: 'C:/genio/data' }).env).not.toHaveProperty('GENIO_MODELLER_DATA')
   })
 })
 
@@ -142,6 +145,34 @@ describe('brief tools section', () => {
     // Unity goes through genio-unity only; the retired Play page and flag are gone.
     expect(b).toContain('node "C:/genio/skills/genio/skills/unity/scripts/genio-unity.mjs" <verb>')
     expect(b).not.toMatch(/skills\/play\/SKILL\.md|--world-path|GENIO_PLAY_/)
+  })
+
+  it('adds the Modeller working rules only to Modeller units, after Tools', () => {
+    const plugin = 'C:\\genio\\skills\\genio'
+    const modeller = modellerBrief(plugin, base.taskDataDir)
+    const b = renderBrief({ ...base, tools: unitToolsBrief(plugin), modeller })
+    expect(b.indexOf('# Modeller')).toBeGreaterThan(b.indexOf('# Tools'))
+    expect(b.indexOf('# Modeller')).toBeLessThan(b.indexOf('# Definition of done'))
+    expect(b).toContain('node "C:/genio/skills/genio/skills/blender/scripts/modeller.mjs" step <model> <script.py>')
+    expect(b).toContain('C:/genio/skills/genio/skills/blender/SKILL.md`, section "Modeller steps"')
+    expect(b).toContain('`C:/genio/data/t-a1/modeller/`')
+    expect(b).toMatch(/no MCP and no live Blender session/)
+    expect(b).toMatch(/open the review sheet PNG/)
+    expect(b).toMatch(/Fix what is wrong before adding anything new/)
+    expect(b).toMatch(/never a gate/)
+    expect(b).toMatch(/docstring caption/)
+    expect(renderBrief({ ...base, tools: unitToolsBrief(plugin) })).not.toContain('# Modeller')
+  })
+
+  it('installs the Modeller kernel and its skill section with the Blender skill', () => {
+    const target = unitPluginDir(path.join(tmp, 'home'))
+    installUnitPlugin(unitPluginSource(APP_ROOT), target, [])
+    const skill = fs.readFileSync(path.join(blenderSkillDir(target), 'SKILL.md'), 'utf8')
+    expect(skill).toContain('## Modeller steps')
+    expect(skill).toContain(`node "${fwd(blenderSkillDir(target))}/scripts/modeller.mjs" init watchtower`)
+    expect(skill).toMatch(/\| `scene\.render\.engine = 'BLENDER_EEVEE'` \| error \| ok \|/)
+    for (const f of ['modeller.mjs', 'genio_step.py', 'genio_parts.py', 'blender.mjs', 'genio_bpy.py']) expect(fs.existsSync(path.join(blenderSkillDir(target), 'scripts', f))).toBe(true)
+    expect(fwd(modellerScript(target))).toBe(`${fwd(blenderSkillDir(target))}/scripts/modeller.mjs`)
   })
 })
 

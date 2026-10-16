@@ -34,6 +34,8 @@ export interface BriefInput {
   carriedReport?: string
   /** Bundled unit skills (paths only, never keys) */
   tools?: string
+  /** A Modeller unit's working rules (modellerBrief), rendered after Tools */
+  modeller?: string
   /** Recon: the report summary's word target from the Usage mode */
   summaryWords?: number
   /** Submodules Genio checked out in the worktree (initWorktreeSubmodules) */
@@ -240,6 +242,12 @@ export function renderBrief(i: BriefInput): string {
     out.push('# Tools')
     out.push('')
     out.push(i.tools.trim())
+    out.push('')
+  }
+  if (i.modeller?.trim()) {
+    out.push('# Modeller')
+    out.push('')
+    out.push(i.modeller.trim())
     out.push('')
   }
   out.push('# Definition of done')

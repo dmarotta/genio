@@ -27,6 +27,10 @@ export const codexImageSkillDir = (pluginDir: string): string => path.join(plugi
 export const unitySkillDir = (pluginDir: string): string => path.join(pluginDir, 'skills', 'unity')
 /** The genio-unity wrapper: the only way a unit drives Unity. */
 export const genioUnityScript = (pluginDir: string): string => path.join(unitySkillDir(pluginDir), 'scripts', 'genio-unity.mjs')
+/** The Modeller kernel CLI (steps, revert, branch) on the safe Blender runner. */
+export const modellerScript = (pluginDir: string): string => path.join(blenderSkillDir(pluginDir), 'scripts', 'modeller.mjs')
+/** A Modeller's steps, snapshots and review sheets: the unit's data folder, never its worktree. */
+export const modellerDataDir = (taskDataDir: string): string => path.join(taskDataDir, 'modeller')
 /** Scratch runs of the Codex image helper live in Genio's data, never in a world. */
 export const codexImageScratch = (dataDir: string): string => path.join(dataDir, 'codex-image')
 
@@ -86,6 +90,7 @@ export function unitLaunchExtras(harnessId: string, opts: { pluginDir?: string; 
     if (harnessId === 'claude') args.push('--plugin-dir', opts.pluginDir)
     env.GENIO_BLENDER_SKILL = fwd(blenderSkillDir(opts.pluginDir))
     if (opts.taskDataDir ?? opts.dataDir) env.GENIO_BLENDER_SCRATCH = fwd(path.join((opts.taskDataDir ?? opts.dataDir)!, 'blender'))
+    if (opts.taskDataDir) env.GENIO_MODELLER_DATA = fwd(modellerDataDir(opts.taskDataDir))
     env.GENIO_ASSETS_SKILL = fwd(assetsSkillDir(opts.pluginDir))
     env.GENIO_UNITY_SKILL = fwd(unitySkillDir(opts.pluginDir))
     env.GENIO_UNITY = fwd(genioUnityScript(opts.pluginDir))
@@ -107,6 +112,24 @@ export function unitLaunchExtras(harnessId: string, opts: { pluginDir?: string; 
 export function openRouterEnv(harnessId: string, worldAllows: boolean, key: string | undefined): Record<string, string> {
   const k = key?.trim()
   return harnessId === 'opencode' && worldAllows && k ? { OPENROUTER_API_KEY: k } : {}
+}
+
+/** The brief addition for a Modeller unit: how to work in small, reviewed Blender steps. */
+export function modellerBrief(pluginDir: string, taskDataDir: string): string {
+  const skill = fwd(blenderSkillDir(pluginDir))
+  const kernel = fwd(modellerScript(pluginDir))
+  const data = fwd(modellerDataDir(taskDataDir))
+  return [
+    `You are a Modeller: you build a 3D model in small steps that the player watches live. Read \`${skill}/SKILL.md\`, section "Modeller steps", before the first step. Every kind of model is in scope.`,
+    '- You write Python (bpy) step scripts; Genio runs each in its own headless Blender. There is no MCP and no live Blender session.',
+    `- Start each model once: \`node "${kernel}" init <model> --target <unity|godot|web>\` (add \`--budget <triangles>\` or \`--size <x>x<y>x<z>\` when the mission gives them). Run a step: \`node "${kernel}" step <model> <script.py>\`.`,
+    '- One step is one idea (legs, bracing, deck, roof) with 3 to 15 named parts. Put step scripts in your worktree under `.genio/modeller/<model>/`, numbered `s01_legs.py`, `s02_bracing.py`. The first line of each script is a docstring caption in plain words ("Raising four timber legs on stone footings"): the player reads it live. Build with the preloaded `p` helpers so a script can run again without duplicating parts.',
+    '- After every step, open the review sheet PNG the step prints (3/4, front, side and top views) and read its warnings. Fix what is wrong before adding anything new: a fix is its own step, or `--amend` the last one.',
+    '- The warnings and checks are information for you and the player, never a gate. The player\'s review of the live view decides.',
+    '- Steering ("steeper roof") becomes the next step. `revert <model> <step>` or `branch <model> <name> --from <step>` goes back to an earlier version; `status <model>` lists the steps.',
+    `- Steps, .blend snapshots, GLBs and review sheets live in \`${data}/\` (GENIO_MODELLER_DATA). Never copy them into the worktree or commit them.`,
+    '- A failed, crashed or hung step leaves the model at its last good step. Read the error and trace it prints, fix the script and run it again; do not retry it unchanged.'
+  ].join('\n')
 }
 
 /** The brief's pointer to the bundled skills. Paths only; never a key. */

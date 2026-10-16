@@ -1,6 +1,6 @@
 ---
 name: blender
-description: Batch Blender modelling, mesh cleanup, validation, FBX/GLB export and conversion with explicit engine presets. Uses local Blender, no MCP or interactive session.
+description: Batch Blender modelling, mesh cleanup, validation, FBX/GLB export and conversion with explicit engine presets, plus Modeller steps (a model built in small reviewed bpy scripts with snapshots, revert and branch). Uses local Blender, no MCP or interactive session.
 ---
 
 # Blender batch skill
@@ -47,6 +47,77 @@ Other CLI commands: `apply-transforms input.glb cleaned.blend` and `decimate inp
 ## Mesh cleanup recipe
 
 Before an Uthana character upload or Unity import, copy the source into scratch, import it, and validate. Check the project's budget and scale convention. Decimate an unrigged copy to that budget; apply rotation/scale before rigging. Inspect UV seams and silhouette, repair winding and loose geometry deliberately, place the origin at ground contact as the project requires, then export with an explicit target. Validate the exported file and inspect a Workbench preview before delivery. Preserve originals and rigs; never decimate an animated character blindly.
+
+## Modeller steps
+
+A Modeller builds one model in small steps that the player watches live. Each step is a Python file you write; the kernel runs it in its own headless Blender on the previous step's snapshot. There is no MCP and no live session.
+
+```
+node "{{SKILL_DIR}}/scripts/modeller.mjs" init watchtower --target unity [--budget 5000] [--size 4x4x10]
+node "{{SKILL_DIR}}/scripts/modeller.mjs" step watchtower .genio/modeller/watchtower/s01_legs.py
+node "{{SKILL_DIR}}/scripts/modeller.mjs" status watchtower
+```
+
+Every step prints JSON: `ok`, `id` (s001, s002...), `caption`, `triangles`, `vertices`, `bounds`, `warnings` and the paths of `sheet` (review PNG), `glb`, `blend` and `receipt`. Exit code 2 means the step failed; 1 means a usage or kernel error.
+
+**The loop:**
+1. One step is one idea (legs, bracing, deck, railing, roof) with 3 to 15 named parts.
+2. Run it, then open the `sheet` PNG with your file-read tool. It is 1024 px: 3/4 view top left, front (looking at the model's front, -Y) top right, right side bottom left, top view bottom right. Workbench colours come from your materials.
+3. Read `warnings`. Compare the sheet with what you meant: proportions, parts floating or poking through, missing pieces, wrong facing.
+4. Fix before you continue. A fix is its own step ("Fixing the ladder rails"), or re-run the last step with `--amend` (it replaces the head, keeping the step count honest).
+5. Steering from the player becomes the next step.
+
+**A step script** starts with a docstring; its first line is the caption the player sees live ("Now adding the roof: corner posts and a pyramid of shingles"). `bpy` and the helpers `p` are preloaded. Build parts with the helpers: a part made again under the same name replaces the old one, so a script can run twice with the same result (idempotent) and the live view can tell parts apart. Reach existing parts with `p.part('Deck planks')`. Prints appear in the receipt's `output`.
+
+```python
+"""Raising four tapered timber legs on stone footings"""
+wood = p.material('Wood', '#8a5a2b')
+stone = p.material('Stone', (0.48, 0.48, 0.5), rough=0.95)
+for i, (sx, sy) in enumerate([(1, 1), (-1, 1), (-1, -1), (1, -1)]):
+    p.beam(f'Leg {i + 1}', (sx * 1.6, sy * 1.6, 0.0), (sx * 1.2, sy * 1.2, 6.1), 0.28, wood)
+    p.cylinder(f'Footing {i + 1}', 0.36, 0.3, (sx * 1.6, sy * 1.6, 0.15), mat=stone, segments=6)
+```
+
+**Helpers** (`genio_parts.py`, data API only, so nothing fails a poll in background mode):
+- Parts: `box(name, size, loc, rot, mat, col, bevel)`, `cylinder(name, radius, depth, loc, rot, mat, col, segments, radius_top)`, `cone`, `sphere(name, radius, loc, subdiv)`, `plane(name, (x, y))`, `beam(name, a, b, thickness)`, `prism(name, [(x, y)...], depth)` for any outline with thickness, `lathe(name, [(radius, z)...], segments)` for turned shapes (barrels, vases, columns), `jitter(ob, amount, seed)` for rocks and foliage.
+- Modifiers, named so re-adding replaces: `bevel(ob, width)`, `array(ob, count, (dx, dy, dz))`, `mirror(ob, axes, about=other)`, `solidify(ob, thickness)`, `subsurf(ob, levels)`, `boolean_cut(ob, cutter)` (the cutter moves to the hidden `Cutters` collection and never ships). The step GLB, counts and checks follow the modifier rule above.
+- Materials: `material(name, colour, rough, metal, emission)`; colour is `'#rrggbb'` (sRGB) or a linear `(r, g, b)`. One material per name, reused; it sets the Principled BSDF and the Workbench colour. Names must be real names; `.001` suffixes are refused.
+- Structure: `collection('Roof')` groups parts inside `Export`; `parent(child, parent)`; `remove(*names)`; `part(name)`.
+- Conventions: metres, Z up, the model stands on z = 0 with its footprint centred on the origin and its front facing -Y. `ground()` and `center()` move the whole model there; `origin_to_base(ob)` puts a part's origin at its foot; `apply_scale(ob)` bakes object scale so bevels stay even. The exporters turn Blender -Y front into Unity +Z (FBX `unity` preset) and glTF +Z (Godot and web GLB); see `p.CONVENTIONS`.
+- `cleanup()` drops unused cutters, unlinked objects and orphan meshes and materials; it never touches `Export`. `stats()` gives shipped triangle and vertex counts per part.
+
+**Checks** run on the geometry as it ships after every step: `g.validate()`'s report plus the Modeller's own. They land in the receipt's `checks` and `warnings` and are information for you and the player, never a gate: triangle budget (when `init --budget` set one), ground contact (lowest point at z = 0), footprint centring, scale sanity (and `--size` when given, 25 % tolerance), open or non-manifold parts, inward-facing faces, modifiers held back by shape keys, negative or uneven scale under bevel/solidify, objects outside `Export`, `.001` names, and parts passing through each other. The pass-through check warns only when a part goes deep into another and sticks out again (a post through a roof, a ladder rail inside a leg); every contact, joints included, is listed in `checks.pierces`.
+
+**Kernel operations.** `revert <model> <step>` moves the branch back (later steps stay on disk, off the branch). `branch <model> <name> [--from <step>]` starts a new line of steps and switches to it; `switch <model> <branch>` changes lines. `keep <model> <step>` protects a snapshot from pruning. `materialize <model> [step]` prints a step's `.blend`, rebuilding it if needed; use it to export a deliverable: `node "{{SKILL_DIR}}/scripts/blender.mjs" --script "{{SKILL_DIR}}/scripts/genio_bpy.py" -- export <that .blend> <asset.fbx> --target unity --fmt fbx`.
+
+**Where things live.** Models live in `GENIO_MODELLER_DATA` (the unit's data folder), never the worktree: `manifest.json`, then `steps/<id>/` with `script.py`, `model.blend` (compressed, about 8x smaller), `model.glb`, `sheet.png`, `view.png` and `receipt.json`. The last 5 snapshots of every branch are kept; older ones are deleted and rebuilt on demand by replaying the step scripts, so keep scripts deterministic (seeded `jitter`, no clocks or randomness without a seed). Failed steps go to `failed/` with their receipt. Commit step scripts (under `.genio/modeller/<model>/`) and the deliverable, never the step data.
+
+**Failures and the watchdog.** A step that raises, crashes Blender or runs past its timeout (default 60 s, `--timeout`) is stopped; the model stays at its last good step and the snapshot it ran on is verified. The JSON has `kind` (`error`, `crash`, `hang`, `replay`), `error`, `trace` (your script's lines first) and `message`. Fix the script and run it again; never retry it unchanged.
+
+**Blender version.** `init` pins one Blender per model, because GLBs are byte-identical only within a version: `GENIO_BLENDER` when set, else 4.2 LTS when installed (it starts 2-4x faster than 5.x), else the newest 4.2-or-later. `--blender 5.2` or a path picks another; `init <model> --repin` re-pins after an upgrade. A changed or missing pinned binary stops the step with that advice.
+
+**4.2 vs 5.2 traps** (measured on 4.2.1 and 5.2.1). The helpers already avoid them; mind them in raw bpy:
+
+| Idiom | 4.2 | 5.2 | Use instead |
+|---|---|---|---|
+| `scene.render.engine = 'BLENDER_EEVEE'` | error | ok | `p.EEVEE` (4.2 needs `BLENDER_EEVEE_NEXT`) |
+| `scene.render.engine = 'BLENDER_EEVEE_NEXT'` | ok | error | `p.EEVEE` |
+| `scene.eevee.use_bloom`, `use_ssr` | ok | error | drop them |
+| `mat.shadow_method` | ok | error | omit |
+| `mat.use_nodes = True` | needed | DeprecationWarning (gone in 6.0) | `if mat.node_tree is None: mat.use_nodes = True` |
+| new material has a node tree | no | yes | as above |
+| BSDF `inputs['Specular']`, `['Emission']` | error | error | `'Specular IOR Level'`, `'Emission Color'` |
+| `mesh.use_auto_smooth`, `calc_normals()`, `calc_normals_split()` | error | error | `mesh.shade_smooth()`, `shade_auto_smooth()` |
+| `shade_smooth(use_auto_smooth=True)` | error | error | `bpy.ops.object.shade_smooth_by_angle()` |
+| operator dict override `op({'active_object': o})` | error | error | `with bpy.context.temp_override(...)` |
+| `create_cone(diameter1=...)` | error | error | `radius1`, `radius2` |
+| `bpy.ops.export_mesh.stl` | missing | missing | `bpy.ops.wm.stl_export` |
+| `bpy.ops.wm.collada_export` | ok | missing | glTF or FBX |
+| `scene.node_tree` (compositor) | ok | missing | `scene.compositing_node_group` (5.x) |
+| `bpy.ops.ed.undo()` in background | error | error | revert to a step |
+| glTF `export_colors=` | missing | missing | `export_vertex_color` |
+
+`bpy.app.timers` never fire in background mode: do the work inline. `DeprecationWarning`s raised by a step show up in its `warnings`.
 
 ## Gotchas
 
