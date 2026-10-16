@@ -230,10 +230,16 @@ export function grantAtDeploy(ctx: AppCtx, task: Pick<Task, 'id' | 'project' | '
   return r
 }
 
+/** A recorded grant: the event ledger line and the player's achievement. */
 function safeLedger(ctx: AppCtx, task: Pick<Task, 'id' | 'project' | 'wksp'>, data: Record<string, unknown>): void {
   try {
     ctx.ledger.record({ home: task.wksp, event: 'spend.granted', task: task.id, project: task.project, data })
   } catch {
     /* the grant record is the source of truth */
+  }
+  try {
+    ctx.stats.unlock('unit-spend-grant')
+  } catch {
+    /* optional */
   }
 }

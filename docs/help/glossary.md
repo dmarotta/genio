@@ -200,11 +200,14 @@ Source: [usage-protection.md](../usage-protection.md)
 
 ## Spend approval
 
-Every paid generation call is covered by you: a run above the project's ask-before threshold (default $0.25) waits
-for your click or your typed approval; cheaper runs go ahead and show their cost. A unit gets a USD budget in its
-mission (a Generator's default is $0.50) and stops there. The monthly cap is a hard stop nobody can override.
-Codex images on your ChatGPT plan are free and never ask.
-Where: Settings → This project → Asset generation (monthly cap, ask-before threshold); quote cards in chat.
+No money is spent without your approval. In chat, every paid generation (FAL, Uthana), whatever the amount, waits
+on a quote card for your click or your typed approval. A unit spends only under a spend grant you gave it: an
+approved budget when you deploy it (the Deploy dialog's "Approved spend" field, or telling Genio the amount), or
+your "Approve USD …" answer to the unit's spend question in Choices. Grants add up per unit; a decline grants
+nothing; nobody else, not a unit and not Genio on its own, can create one. The monthly cap is a hard stop nobody can
+override. Codex images on your ChatGPT plan are free and never ask. Spend lines say who approved each paid call and how.
+Where: quote cards in chat; Choices for a unit's spend question; Deploy dialog; the monthly cap in
+Settings → This project → Asset generation.
 Source: [agent-generation.md](../agent-generation.md), [unit-generator.md](../unit-generator.md)
 
 ## Unit capabilities
@@ -280,7 +283,7 @@ Source: [squad-display.md](../squad-display.md)
 ## Generator
 
 A Build that runs one or more asset generation jobs (images, textures, sounds, music, 3D, motions), places the
-results and merges like any Build. Spend cap USD 0.50 unless you name another.
+results and merges like any Build. No default budget: it spends only what you approve (see Spend approval).
 Where: Deploy dialog (Generator option) or ask Genio.
 Source: [unit-generator.md](../unit-generator.md)
 

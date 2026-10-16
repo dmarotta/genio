@@ -94,6 +94,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'agent-asset-first', feature: 'agent_generation', name: 'Made to Order', description: 'Generate your first asset through Genio.' },
   { id: 'asset-placed-first', feature: 'asset_place', name: 'Loot Delivered', description: 'Place an agent-generated asset in a project.' },
   { id: 'spend-approve', feature: 'approve_run', name: 'Worth Every Cent', description: 'Approve a paid generation quote.' },
+  { id: 'unit-spend-grant', feature: 'spend-grant', name: 'Purse Strings', description: 'Approve spending for a unit: a budget at deploy or its spend question.' },
   { id: 'unit-image', feature: 'assets', name: 'Pixel Crafter', description: 'A unit creates a Codex image.' },
   { id: 'unit-motion', feature: 'unit-uthana', name: 'Motion Crew', description: 'A unit generates an Uthana motion.' },
   { id: 'blender-first', feature: 'blender', name: 'Polygon Power', description: 'Complete a Blender skill run.' },

@@ -70,7 +70,8 @@ const OTHER_FEATURES: Record<string, [file: string, needle: string]> = {
   terminal: ['src/main/terminal-pane.ts', 'export function runShell'],
   assets: ['resources/unit-skills/genio/skills/imagegen-codex/scripts/codex-image.mjs', 'genio-codex-image'],
   blender: ['resources/unit-skills/genio/skills/blender/scripts/blender.mjs', 'genio-blender-run'],
-  'unit-uthana': ['resources/unit-skills/genio/skills/uthana/scripts/uthana.mjs', 'genio-uthana-run']
+  'unit-uthana': ['resources/unit-skills/genio/skills/uthana/scripts/uthana.mjs', 'genio-uthana-run'],
+  'spend-grant': ['src/main/spend-grants.ts', 'export function recordGrant']
 }
 
 // Retired achievements and why. Their ids stay in ACHIEVEMENTS for saved stats; they never unlock again and never cover a
