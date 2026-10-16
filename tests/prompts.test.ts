@@ -69,6 +69,15 @@ describe('bounded custom contract and lazy procedures', () => {
     }
   })
 
+  it('sends questions about Genio itself to genio_help first, in every contract within the cap', () => {
+    const line = '- Asked how Genio works, what a mode or setting does or why it behaves so: genio_help first; answer from its excerpts, naming the source doc.'
+    for (const isAlly of [false, true]) for (const bot of [false, true]) {
+      const prompt = customContract({ gamertag: 'x'.repeat(80), base: 'b'.repeat(128), isAlly }, bot, chatUsageLine('max'))
+      expect(prompt.split('\n')).toContain(line)
+      expect(prompt.length).toBeLessThanOrEqual(CUSTOM_CONTRACT_BUDGET)
+    }
+  })
+
   it('leaves budget for provider instructions even with long identity fields', () => {
     expect(customContract({ gamertag: 'x'.repeat(1000), base: 'b'.repeat(1000), isAlly: true }, true, 'u'.repeat(300)).length)
       .toBeLessThanOrEqual(CUSTOM_CONTRACT_BUDGET)

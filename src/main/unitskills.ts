@@ -85,10 +85,11 @@ export interface UnitLaunchExtras {
 /** Characters Genio and its units uploaded to Uthana: Genio's data, never a world. */
 export const uthanaDataDir = (dataDir: string): string => path.join(dataDir, 'uthana')
 
-/** Launch additions for a unit: the plugin dir for Claude Code, the skill paths, Codex image scratch and the FAL and Uthana keys for all. */
-export function unitLaunchExtras(harnessId: string, opts: { pluginDir?: string; falKey?: string; uthanaKey?: string; dataDir?: string; taskDataDir?: string; project?: string }): UnitLaunchExtras {
+/** Launch additions for a unit: the plugin dir for Claude Code, the skill paths, Codex image scratch, Genio's help docs and the FAL and Uthana keys for all. */
+export function unitLaunchExtras(harnessId: string, opts: { pluginDir?: string; falKey?: string; uthanaKey?: string; dataDir?: string; taskDataDir?: string; project?: string; helpDocs?: string }): UnitLaunchExtras {
   const args: string[] = []
   const env: Record<string, string> = {}
+  if (opts.helpDocs) env.GENIO_HELP_DOCS = fwd(opts.helpDocs)
   if (opts.pluginDir) {
     // First in argv: the next element is always another flag, never the prompt.
     if (harnessId === 'claude') args.push('--plugin-dir', opts.pluginDir)
@@ -172,8 +173,9 @@ export function modellerBrief(pluginDir: string, taskDataDir: string): string {
   ].join('\n')
 }
 
-/** The brief's pointer to the bundled skills. Paths only; never a key. */
-export function unitToolsBrief(pluginDir: string): string {
+/** The brief's pointer to the bundled skills and Genio's help docs. Paths only; never a key. */
+export function unitToolsBrief(pluginDir: string, helpDocs?: string): string {
+  const help = helpDocs ? `- Genio help (what a Genio feature, mode or setting does): read \`${fwd(helpDocs)}/help/glossary.md\`, then the docs listed in \`${fwd(helpDocs)}/help/help-set.json\` (folder also in GENIO_HELP_DOCS).\n` : ''
   const assets = fwd(assetsSkillDir(pluginDir))
   const uthana = fwd(uthanaSkillDir(pluginDir))
   const dir = fwd(falSkillDir(pluginDir))
@@ -181,6 +183,7 @@ export function unitToolsBrief(pluginDir: string): string {
   const blender = fwd(blenderSkillDir(pluginDir))
   const unity = fwd(unitySkillDir(pluginDir))
   return (
+    help +
     `- Unity (Unity projects only): read \`${unity}/SKILL.md\`. Compile, test, import, build, play, send editor commands and read the console only with \`node "${unity}/scripts/genio-unity.mjs" <verb>\` (also in GENIO_UNITY). It targets only your own copy or your leased Play slot. Never start Unity.exe, Unity Hub or the \`unity\` CLI yourself, never control the main editor and never touch Toolbox.\n` +
     `- Assets: read \`${assets}/SKILL.md\` first for provider routing and project-type placement. Use asset_locate / the shared suggestLocation helper.\n` +
     `- Uthana (character motions, rigged characters): read \`${uthana}/SKILL.md\` and use \`node "${uthana}/scripts/uthana.mjs"\` with --world <your worktree root> and --budget, like the FAL helper. The key, when the player set one, is only in your UTHANA_API_KEY environment variable: never print or write it.\n` +

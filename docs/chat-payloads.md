@@ -67,6 +67,12 @@ Use `procedure_read` for intake, units, delivery, events, voice, quests, memory 
 the ally charter. `skill_read` loads one named bundled skill, with an optional
 Markdown `reference` inside its directory. These reads are paged. Claude's native
 Skill tool is disabled to prevent incidental bulk configuration injection.
+`genio_help` (`src/main/help.ts`) searches Genio's own help set, `docs/help/help-set.json`
+(the player-facing docs plus `docs/help/glossary.md`), and returns the best paragraphs
+with their doc and heading, paged; it never writes or calls a model, the Bot has it, and
+the contract tells the chat to use it first for questions about Genio itself. The set
+ships with the app (`docs/**`), `scripts/check-help.mjs` fails the build when a listed
+doc is missing, and units get the folder as `GENIO_HELP_DOCS`.
 `settings_read`/`settings_update` expose only supported non-secret preferences;
 advanced/security/account configuration remains in Settings. Bot cannot change them.
 

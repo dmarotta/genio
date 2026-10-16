@@ -10,12 +10,12 @@
   "scripts": {
     "predev": "node scripts/check-install.mjs",
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "node scripts/check-help.mjs && electron-vite build",
     "prestart": "node scripts/check-install.mjs",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
-    "dist": "electron-vite build && electron-builder --win --dir --publish never",
+    "dist": "node scripts/check-help.mjs && electron-vite build && electron-builder --win --dir --publish never",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "perf": "vitest run --config vitest.perf.config.ts",
     "capture": "node scripts/capture.mjs"
@@ -65,7 +65,7 @@
     "appId": "dev.genio.app",
     "productName": "Genio",
     "directories": { "output": "release" },
-    "files": ["out/**/*", "resources/**/*", "package.json"],
+    "files": ["out/**/*", "resources/**/*", "docs/**/*", "package.json"],
     "asar": false,
     "npmRebuild": false,
     "win": { "icon": "resources/icon.ico", "target": "nsis" },

@@ -37,6 +37,7 @@ import { installUnityShims, unityGuardScript, unityPreToolHook } from './unity-g
 import { depsEnv, depsPreToolHook, depsStateFile, installNpmShims, npmGuardScript, startWorktreeDeps, sweepWorktrees, type SweepResult } from './worktree-deps'
 import { isLink, removeLinkSafely } from '../../resources/unit-skills/genio/lib/node-deps.mjs'
 import { sourceRemoved, yieldSource } from './source-leases'
+import { helpDocsDir } from './help'
 import { falSkillDir, installUnitPlugin, modellerBrief, modellerDataDir, openRouterEnv, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief } from './unitskills'
 import { findUnityCli, unityUnitConfig, unityUnitEnv } from './unity-unit'
 import { artBibleBriefLines, unitArtBible, unitArtBibleEnv } from './art-bible-gen'
@@ -156,7 +157,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
   /** Bundled unit skills live in the main base, outside every world. */
   const mainHome = home.parent ?? home
   const pluginDir = unitPluginDir(mainHome.root)
-  const toolsBrief = (): string => unitToolsBrief(pluginDir)
+  const toolsBrief = (): string => unitToolsBrief(pluginDir, helpDocsDir(getCtx().appRoot))
   /** The brief's Art Bible lines: none without a bible, and never fatal. */
   const artBibleBrief = (main: string, wt: string, id: string): string[] => {
     try {
@@ -195,7 +196,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       /* no OS encryption: the skills report the key as missing */
     }
     const project = getCtx().projects.get(t.project)
-    const extras = unitLaunchExtras(harnessId, { pluginDir: installed, falKey, uthanaKey, dataDir: mainHome.data, taskDataDir: home.taskDir(t.id), project: project?.name })
+    const extras = unitLaunchExtras(harnessId, { pluginDir: installed, falKey, uthanaKey, dataDir: mainHome.data, taskDataDir: home.taskDir(t.id), project: project?.name, helpDocs: helpDocsDir(getCtx().appRoot) })
     Object.assign(extras.env, project ? engineEnv(project) : {})
     // genio-unity shares the player's Play pool; the unit sees only its own targets.
     const unity = unityUnitConfig(project, { task: t.id, worktree: t.worktree, data: mainHome.data, taskDir: home.taskDir(t.id), cli: findUnityCli() })

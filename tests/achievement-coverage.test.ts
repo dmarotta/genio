@@ -23,7 +23,7 @@ const SUPPORTING_TOOLS = [
   'world_posture', 'world_update', 'world_engine_root', 'world_remove', 'world_sync', 'status_report',
   'memory_read', 'memory_report', 'memory_archive', 'mail_list', 'mail_ack', 'mail_reply',
   'dispatch_profiles', 'toolchain_check', 'presence_set', 'ally_list', 'ally_route',
-  'report_to_main', 'escalate', 'asset_info', 'procedure_read', 'skill_read', 'settings_read', 'settings_update', 'event_read', 'events_ack'
+  'report_to_main', 'escalate', 'asset_info', 'procedure_read', 'skill_read', 'genio_help', 'settings_read', 'settings_update', 'event_read', 'events_ack'
 ]
 
 // Retired with the old Play screen (package install, snapshots, slot takeover). Their ids stay in

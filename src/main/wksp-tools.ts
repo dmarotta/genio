@@ -31,6 +31,11 @@ import { GENERATE_IMAGE_DESC, generateImageShape } from './chat-imagegen'
 import { findAssets, assetInfo, locateAsset } from './asset-tools'
 import { agentGeneration, falGenerateShape, uthanaMotionShape, uthanaCharacterShape, assetPlaceShape } from './agent-generation'
 import { readBibleFile, writeBibleFile } from './art-bible-gen'
+import { helpDocsDir, searchHelp } from './help'
+
+const HELP_DESC =
+  "Read-only search of Genio's own bundled help (its docs and a plain-language glossary): what a Genio mode, setting, screen or rule does, where it is, and why Genio behaves as it does. " +
+  'query = the player\'s question or its key words; topic optionally narrows to a doc or heading (e.g. glossary, play, presence). Returns the best matching excerpts with their source doc and heading, or says nothing matches. Never writes, never calls a model.'
 
 const ART_BIBLE_DESC =
   "Read or write a project's Art Bible, .genio/art-bible.md (docs/art-bible.md): the style, palette, references and per-type notes every generator applies. Use only when the player asks about or for it. " +
@@ -319,6 +324,11 @@ export function createToolRegistry(
     const text = readReference(dir, reference ?? 'SKILL.md')
     if (!text) return fail(`Bundled skill ${name} is unavailable`)
     return ok(`Skill directory: ${dir}\n\n${text.replace(/\{\{SKILL_DIR\}\}/g, dir.replace(/\\/g, '/'))}`)
+  })
+  t('genio_help', HELP_DESC, { query: z.string().trim().min(1), topic: z.string().trim().min(1).optional() }, ({ query, topic }) => {
+    const dir = helpDocsDir(getCtx().appRoot)
+    if (!dir) return fail('Genio\'s help docs are missing from this install, so this cannot be looked up: say so plainly.')
+    return ok(searchHelp(dir, query, { topic }))
   })
   const preferenceShape = { usageMode: z.enum(['save', 'balanced', 'max']).optional(), sound: z.boolean().optional(),
     soundVolume: z.number().min(0).max(1).optional(), voice: z.boolean().optional(), calm: z.boolean().optional(),

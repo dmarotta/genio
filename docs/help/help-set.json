@@ -1,0 +1,29 @@
+{
+  "about": "The help set genio_help searches and units read through GENIO_HELP_DOCS: paths relative to docs/. scripts/check-help.mjs fails the build when one is missing.",
+  "docs": [
+    "help/glossary.md",
+    "ARCHITECTURE.md",
+    "VOCABULARY.md",
+    "squad-display.md",
+    "play.md",
+    "player-instance.md",
+    "plans.md",
+    "unit-generator.md",
+    "art-bible.md",
+    "project-startup.md",
+    "usage-protection.md",
+    "chat-limits.md",
+    "agent-generation.md",
+    "inventory-screen.md",
+    "model-catalogue.md",
+    "terminal-pane.md",
+    "structured-unit-choices.md",
+    "unit-restart-recovery.md",
+    "unit-worktrees.md",
+    "hidden-desktop.md",
+    "unity-copies.md",
+    "unity-enforcement.md",
+    "gauntlet-unity.md",
+    "codex-sessions.md"
+  ]
+}
