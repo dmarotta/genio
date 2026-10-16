@@ -10,6 +10,14 @@ const loaded: ModelLoaded = {
 }
 
 describe('viewer frame messages', () => {
+  it('preserves validated request IDs and bounds progress from the sandbox', () => {
+    const progress = { phase: 'textures', completed: 2, total: 5, elapsedMs: 100 }
+    expect(readViewerMessage({ type: 'progress', requestId: 7, progress: { ...progress, extra: 'ignored' } })).toEqual({ type: 'progress', requestId: 7, progress })
+    for (const requestId of [-1, NaN, 1.5, '7']) expect(readViewerMessage({ type: 'ready', requestId })).toBeUndefined()
+    for (const patch of [{ phase: 'unknown' }, { completed: 6 }, { total: -1 }, { elapsedMs: Infinity }]) {
+      expect(readViewerMessage({ type: 'progress', progress: { ...progress, ...patch } })).toBeUndefined()
+    }
+  })
   it('accepts well-formed messages and copies only known fields', () => {
     expect(readViewerMessage({ type: 'ready', extra: 1 })).toEqual({ type: 'ready' })
     expect(readViewerMessage({ type: 'loaded', model: { ...loaded, script: 'x', stats: { ...loaded.stats, html: '<b>' } } })).toEqual({ type: 'loaded', model: loaded })

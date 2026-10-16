@@ -6,6 +6,7 @@
  */
 import { BrowserWindow } from 'electron'
 import { MODEL_PREVIEW_TIMEOUT_MS, VIEWER_THUMBNAIL_URL, readModelFailure, type ModelThumbnailFailure } from '@shared/model-viewer'
+import { modelPreviewPriority, type ModelPreviewPriority } from './model-preview-priority'
 
 export type ModelThumbnail = { webp: Buffer } | ModelThumbnailFailure
 export interface ModelThumbnailer { render(url: string): Promise<ModelThumbnail>; stop(): void }
@@ -16,6 +17,7 @@ export interface ModelThumbnailerOptions {
   idleMs?: number
   /** Tests substitute the window. */
   createWindow?: () => BrowserWindow
+  priority?: ModelPreviewPriority
 }
 const MAX_WEBP = 1024 * 1024
 const IDLE_MS = 20_000
@@ -40,9 +42,11 @@ function hiddenWindow(): BrowserWindow {
 
 export function createModelThumbnailer(opts: ModelThumbnailerOptions = {}): ModelThumbnailer {
   const timeoutMs = opts.timeoutMs ?? MODEL_PREVIEW_TIMEOUT_MS
+  const priority = opts.priority ?? modelPreviewPriority
+  const shutdown = new AbortController()
   let win: BrowserWindow | undefined, loading: Promise<void> | undefined, idle: NodeJS.Timeout | undefined
   let queue: Promise<unknown> = Promise.resolve()
-  const stop = (): void => {
+  const close = (): void => {
     clearTimeout(idle); idle = undefined
     const w = win
     win = undefined; loading = undefined
@@ -53,7 +57,7 @@ export function createModelThumbnailer(opts: ModelThumbnailerOptions = {}): Mode
       const w = win = (opts.createWindow ?? hiddenWindow)()
       w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
       w.webContents.on('will-navigate', e => e.preventDefault())
-      w.webContents.on('render-process-gone', () => { if (win === w) stop() })
+      w.webContents.on('render-process-gone', () => { if (win === w) close() })
       loading = (async () => {
         await w.loadURL(opts.pageUrl ?? VIEWER_THUMBNAIL_URL)
         for (let i = 0; !await w.webContents.executeJavaScript('typeof window.genioThumbnail === "function"'); i++) {
@@ -63,38 +67,55 @@ export function createModelThumbnailer(opts: ModelThumbnailerOptions = {}): Mode
       })()
     }
     const w = win
-    return loading.then(() => w, e => { if (win === w) stop(); throw e })
+    return loading.then(() => w, e => { if (win === w) close(); throw e })
   }
-  const draw = async (url: string): Promise<ModelThumbnail> => {
+  const draw = async (url: string): Promise<ModelThumbnail | 'interrupted'> => {
     clearTimeout(idle)
+    let off = (): void => {}
+    let abort = (): void => {}
+    const interrupted = new Promise<'interrupted'>(resolve => {
+      const interrupt = (): void => { close(); resolve('interrupted') }
+      off = priority.subscribe(() => { if (priority.active) interrupt() })
+      abort = interrupt
+      shutdown.signal.addEventListener('abort', abort, { once: true })
+    })
     let timer: NodeJS.Timeout | undefined
     const timedOut = new Promise<ModelThumbnail>(resolve => {
       timer = setTimeout(() => {
         // Destroying the window is what stops a model that hangs the page.
-        stop()
+        close()
         resolve({ code: 'timeout', reason: `Drawing this model took longer than ${timeoutMs / 1000} s, so it was stopped. Select it to try the full preview, or open it in your 3D app.` })
       }, timeoutMs)
     })
     let used: BrowserWindow | undefined
     const drawn = ready()
-      .then(w => { used = w; return w.webContents.executeJavaScript(`window.genioThumbnail(${JSON.stringify(url)})`) })
-      .then(readModelThumbnail, (): ModelThumbnail => {
+      .then(w => { used = w; if (priority.active || shutdown.signal.aborted || w.isDestroyed()) return 'interrupted'; return w.webContents.executeJavaScript(`window.genioThumbnail(${JSON.stringify(url)})`) })
+      .then(value => value === 'interrupted' ? value : readModelThumbnail(value), (): ModelThumbnail => {
         // A crashed or broken page is replaced on the next job (never one a later job already made).
-        if (used && win === used) stop()
+        if (used && win === used) close()
         return { code: 'unreadable', reason: 'The 3D viewer stopped while drawing this model.' }
       })
-    try { return await Promise.race([drawn, timedOut]) } finally {
+    try { return await Promise.race([drawn, timedOut, interrupted]) } finally {
       clearTimeout(timer)
-      if (win) idle = setTimeout(stop, opts.idleMs ?? IDLE_MS)
+      off(); shutdown.signal.removeEventListener('abort', abort)
+      if (win) idle = setTimeout(close, opts.idleMs ?? IDLE_MS)
     }
   }
   return {
     /** Jobs run one at a time, in order. */
     render(url) {
-      const job = queue.then(() => draw(url))
+      const job = queue.then(async (): Promise<ModelThumbnail> => {
+        while (!shutdown.signal.aborted) {
+          await priority.idle(shutdown.signal)
+          if (shutdown.signal.aborted) break
+          const result = await draw(url)
+          if (result !== 'interrupted') return result
+        }
+        return { code: 'unreadable', reason: 'The thumbnail viewer was closed.' }
+      })
       queue = job.catch(() => undefined)
       return job
     },
-    stop
+    stop() { shutdown.abort(); close() }
   }
 }

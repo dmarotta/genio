@@ -4,9 +4,9 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { InventoryInfo } from '../src/shared/inventory'
 import { MODEL_PREVIEW_TIMEOUT_MS, VIEWER_APP_URL, type ModelLoaded } from '../src/shared/model-viewer'
-const f = vi.hoisted(() => ({ grant: vi.fn(), openPath: vi.fn(), revealPath: vi.fn() }))
+const f = vi.hoisted(() => ({ grant: vi.fn(), release: vi.fn(), openPath: vi.fn(), revealPath: vi.fn() }))
 vi.mock('../src/renderer/src/store', () => ({
-  api: () => ({ inventoryModelUrl: f.grant, openPath: f.openPath, revealPath: f.revealPath }),
+  api: () => ({ inventoryModelUrl: f.grant, inventoryModelRelease: f.release, openPath: f.openPath, revealPath: f.revealPath }),
   op: async (_: string, fn: () => unknown) => fn(), errText: (e: unknown) => String((e as Error)?.message ?? e)
 }))
 import { ModelViewer } from '../src/renderer/src/components/ModelViewer'
@@ -33,7 +33,8 @@ async function render(info: InventoryInfo) {
 }
 /** A message as the viewer frame would post it (or, with `source`, as anything else would). */
 async function fromFrame(data: unknown, source: MessageEventSource | null = frame()!.contentWindow) {
-  await act(async () => { window.dispatchEvent(new MessageEvent('message', { data, source })) })
+  const message = data && typeof data === 'object' ? { requestId: f.grant.mock.calls.length, ...data } : data
+  await act(async () => { window.dispatchEvent(new MessageEvent('message', { data: message, source })) })
 }
 const button = (label: string): HTMLButtonElement => [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === label || b.getAttribute('aria-label') === label)!
 
@@ -41,6 +42,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   f.grant.mockResolvedValue(TOKEN_URL)
+  f.release.mockResolvedValue(undefined)
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
 })
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.clearAllMocks() })
@@ -156,5 +158,59 @@ describe('Inventory 3D preview (app side of the sandboxed frame)', () => {
     await render(asset('robot.glb'))
     expect(frame()).toBeNull()
     expect(text()).toContain('This asset is no longer available.')
+  })
+
+  it('covers a missing ready handshake and a stalled IPC grant with the watchdog', async () => {
+    let resolve!: (url: string) => void
+    f.grant.mockReturnValueOnce(new Promise<string>(done => { resolve = done }))
+    await render(asset('robot.fbx'))
+    await act(async () => { await vi.advanceTimersByTimeAsync(MODEL_PREVIEW_TIMEOUT_MS) })
+    expect(frame()).toBeNull()
+    expect(text()).toContain('requesting access to the file')
+    await act(async () => resolve(TOKEN_URL))
+    expect(f.release).toHaveBeenCalledWith(TOKEN_URL, false)
+    await act(async () => button('Retry').click())
+    expect(frame()).not.toBeNull()
+    await act(async () => { await vi.advanceTimersByTimeAsync(MODEL_PREVIEW_TIMEOUT_MS) })
+    expect(text()).toContain('starting the viewer')
+    expect(frame()).toBeNull()
+  })
+
+  it('shows geometry before textures, cancels, and retries with a fresh frame', async () => {
+    await render(asset('robot.fbx'))
+    const oldFrame = frame()!
+    const posted = vi.spyOn(oldFrame.contentWindow!, 'postMessage')
+    await fromFrame({ type: 'ready' })
+    await fromFrame({ type: 'progress', progress: { phase: 'geometry', completed: 0, total: 0, elapsedMs: 40 } })
+    await fromFrame({ type: 'progress', progress: { phase: 'textures', completed: 2, total: 5, elapsedMs: 60 } })
+    expect(text()).not.toContain('Loading model…')
+    expect(text()).toContain('Textures 2 of 5')
+    await act(async () => button('Cancel').click())
+    expect(frame()).toBeNull()
+    expect(text()).toContain('Preview cancelled')
+    expect(posted.mock.calls.at(-1)?.[0]).toEqual({ type: 'cancel' })
+    await act(async () => button('Retry').click())
+    expect(frame()).not.toBe(oldFrame)
+    await fromFrame({ type: 'ready' })
+    await fromFrame({ type: 'loaded', model })
+    expect(text()).toContain('Triangles348')
+    expect(f.release).toHaveBeenCalledWith(TOKEN_URL, true)
+  })
+
+  it('reuses one warm frame on reselection, opens once, and ignores stale results', async () => {
+    await render(asset('robot.fbx'))
+    const iframe = frame()!
+    const posted = vi.spyOn(iframe.contentWindow!, 'postMessage')
+    await fromFrame({ type: 'ready' }); await fromFrame({ type: 'ready' })
+    expect(posted.mock.calls.filter(c => (c[0] as { type: string }).type === 'open')).toHaveLength(1)
+    await render(asset('crate.fbx'))
+    expect(frame()).toBe(iframe)
+    expect(posted.mock.calls.filter(c => (c[0] as { type: string }).type === 'open')).toHaveLength(2)
+    await fromFrame({ type: 'loaded', requestId: 1, model })
+    await fromFrame({ type: 'failed', requestId: 1, code: 'timeout', reason: 'stale' })
+    expect(text()).toContain('Loading model…')
+    expect(text()).not.toContain('stale')
+    await fromFrame({ type: 'loaded', model })
+    expect(text()).toContain('Triangles348')
   })
 })

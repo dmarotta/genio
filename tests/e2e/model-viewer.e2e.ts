@@ -12,6 +12,7 @@ import { afterAll, beforeAll, expect, it } from 'vitest'
 import { modelViewerFiles } from '../../src/main/model-viewer'
 import { animatedGlb } from '../helpers/anim-glb'
 import { crateGrid, tga } from '../helpers/model-fixtures'
+import { MODEL_PREVIEW_MAX_TEXTURE } from '../../src/shared/model-viewer'
 
 const fixtures = path.resolve('tests/fixtures/models')
 let root: string, server: ViteDevServer, results: Record<string, any>, models: Record<string, string>
@@ -27,6 +28,7 @@ beforeAll(async () => {
   fs.writeFileSync(path.join(dir, 'rig_only.glb'), animatedGlb({ mesh: false }))
   fs.writeFileSync(path.join(dir, 'corrupt.glb'), Buffer.from('glTF but not really a binary glTF file'))
   fs.writeFileSync(path.join(dir, 'corrupt.fbx'), Buffer.from('; FBX 7.4.0 project file\nnot really an FBX'))
+  fs.copyFileSync(path.join(dir, 'robot_binary.fbx'), path.join(dir, 'slow.fbx'))
   fs.writeFileSync(path.join(dir, 'binary.usd'), Buffer.concat([Buffer.from('PXR-USDC'), Buffer.alloc(64)]))
   // A texture wider than the 2048 px preview limit, and an OBJ whose texture is missing (clay fallback).
   fs.writeFileSync(path.join(dir, 'Textures', 'wide.tga'), tga(3000, 4, crateGrid))
@@ -49,7 +51,9 @@ beforeAll(async () => {
         try {
           const url = new URL(req.url ?? '/', 'http://x')
           if (url.pathname === '/__viewer') {
-            const r = await files.handle(new Request(url.searchParams.get('u')!, { method: req.method }))
+            const target = url.searchParams.get('u')!
+            if (target.endsWith('/slow.fbx') || target.endsWith('/wide.tga')) await new Promise(resolve => setTimeout(resolve, 500))
+            const r = await files.handle(new Request(target, { method: req.method }))
             res.statusCode = r.status
             r.headers.forEach((v, k) => res.setHeader(k, v))
             res.end(Buffer.from(await r.arrayBuffer()))
@@ -103,8 +107,8 @@ beforeAll(async () => {
   await server.listen()
   const base = server.resolvedUrls!.local[0].replace(/\/$/, '')
   files = modelViewerFiles({
-    projectRoot: w => w === 'zoo' ? world : undefined, rendererDir: path.join(root, 'no-build'), maxBytes: 200_000, maxGrants: 64,
-    decoderLibs: path.resolve('node_modules/three/examples/jsm/libs'), devUrl: base
+    projectRoot: w => w === 'zoo' ? world : undefined, rendererDir: process.env.MODEL_VIEWER_BUILT ? path.resolve('out/renderer') : path.join(root, 'no-build'), maxBytes: 200_000, maxGrants: 64,
+    decoderLibs: path.resolve('node_modules/three/examples/jsm/libs'), devUrl: process.env.MODEL_VIEWER_BUILT ? undefined : base
   })
   const grant = (asset: string): Promise<string> => files.grant('zoo', `Assets/Models/${asset}`)
   models = {
@@ -113,7 +117,7 @@ beforeAll(async () => {
     fbx: await grant('robot_binary.fbx'), fbxAscii: await grant('crate_ascii.fbx'), obj: await grant('crate.obj'), objTga: await grant('crate_tga.obj'),
     stl: await grant('crate.stl'), ply: await grant('crate.ply'), dae: await grant('dae/robot.dae'), bvh: await grant('robot_wave.bvh'),
     usda: await grant('usda/robot.usda'), tds: await grant('crate.3ds'), wide: await grant('wide.obj'), nomap: await grant('nomap.obj'),
-    corruptFbx: await grant('corrupt.fbx'), usdc: await grant('binary.usd')
+    corruptFbx: await grant('corrupt.fbx'), usdc: await grant('binary.usd'), slow: await grant('slow.fbx')
   }
   const side = models.sideFiles.replace(/robot\.gltf$/, '')
   const probes = { sideFile: `${side}robot_checker.png`, notes: `${side}notes.txt`, traversal: `${side}../../Secret/key.png`, encoded: `${side}..%2F..%2FSecret%2Fkey.png`, forged: `genio-media://model/${'0'.repeat(32)}/robot.bin`, viewerHost: models.sideFiles.replace('genio-media://model/', 'genio-viewer://') }
@@ -180,13 +184,18 @@ it('reads FBX (binary with Unity clip names, ASCII), OBJ+MTL, STL, PLY, Collada,
 
 it('decodes textures off-thread, shrinks them to the preview limit and falls back to clay', () => {
   const loaded = (name: string) => results.frame[name].result
-  expect(loaded('wide').model.textures[0]).toMatchObject({ name: 'wide.tga', width: 2048, height: 3, original: { width: 3000, height: 4 } })
+  expect(loaded('wide').model.textures[0]).toMatchObject({ name: 'wide.tga', width: MODEL_PREVIEW_MAX_TEXTURE, height: Math.round(4 * MODEL_PREVIEW_MAX_TEXTURE / 3000), original: { width: 3000, height: 4 } })
   expect(loaded('nomap')).toMatchObject({ type: 'loaded', model: { missing: ['nothere.png'], clayFallback: 1, stats: { textures: 0 } } })
   for (const name of ['objTga', 'tds', 'wide']) expect(results.frame[name].previews.previews, name).toHaveLength(1)
   // A bitmap flipped for WebGL is turned back for its preview: the TGA grid's top row is cyan, the next dark.
   const [top, next] = results.frame.objTga.rows
   expect(top).toBeGreaterThan(150)
   expect(next).toBeLessThan(100)
+})
+
+it('draws geometry before slow textures and cancels real reads and decodes across rapid selections', () => {
+  expect(results.frame.wide.progress.map((p: { phase: string }) => p.phase)).toEqual(expect.arrayContaining(['reading', 'parsing', 'geometry', 'textures']))
+  expect(results.cancellation).toEqual({ reading: true, textures: true })
 })
 
 it('says plainly what it cannot read', () => {

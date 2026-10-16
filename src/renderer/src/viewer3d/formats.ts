@@ -15,7 +15,7 @@ import { USDLoader } from 'three/examples/jsm/loaders/USDLoader.js'
 import { TDSLoader } from 'three/examples/jsm/loaders/TDSLoader.js'
 import { DecodedTextureLoader, withDecodedTextures, type TextureDecoder } from './textures'
 import { applyUnityClips, fbxFrameRate, unityClips } from './unity-meta'
-import type { ModelFailure } from '@shared/model-viewer'
+import type { ModelFailure, ModelProgress } from '@shared/model-viewer'
 
 export class ViewerError extends Error {
   constructor(readonly code: ModelFailure | 'cancelled', message: string) { super(message) }
@@ -58,12 +58,13 @@ export interface FormatContext {
   /** Every texture the decoder makes for this load, attached or not. */
   made: Set<THREE.Texture>
   gltfLoader(manager: THREE.LoadingManager): GLTFLoader
+  progress?(phase: ModelProgress['phase']): void
 }
 
 /** A loader error carrying the HTTP status, as three's FileLoader reports one. */
 const httpError = (status: number): Error => Object.assign(new Error(`HTTP ${status}`), { response: { status } })
-async function fetchBytes(url: string): Promise<ArrayBuffer> {
-  const response = await fetch(url)
+async function fetchBytes(url: string, signal: AbortSignal): Promise<ArrayBuffer> {
+  const response = await fetch(url, { signal })
   if (!response.ok) throw httpError(response.status)
   return response.arrayBuffer()
 }
@@ -79,42 +80,52 @@ function unitWords(metres: number): string {
 const NO_UNITS = 'No unit in the file, read as metres'
 
 /** Unity's clip names for an FBX, from <model>.meta when there is one. */
-async function unityNames(url: string, takes: THREE.AnimationClip[], buffer: ArrayBuffer): Promise<THREE.AnimationClip[] | undefined> {
+async function unityNames(url: string, takes: THREE.AnimationClip[], buffer: ArrayBuffer, signal: AbortSignal): Promise<THREE.AnimationClip[] | undefined> {
   if (!takes.length) return
   let meta: string
   try {
-    const response = await fetch(`${url}.meta`)
+    const response = await fetch(`${url}.meta`, { signal: AbortSignal.any([signal, AbortSignal.timeout(1500)]) })
     if (!response.ok) return
     meta = await response.text()
   } catch { return }
-  const entries = unityClips(meta)
+  const entries = unityClips(meta).slice(0, 512)
   return entries.length ? applyUnityClips(takes, entries, fbxFrameRate(buffer) ?? 30) : undefined
 }
 
 export async function loadFormat(ext: string, ctx: FormatContext): Promise<Parsed> {
   const { url, folder, manager, decoder, made } = ctx
+  const signal = manager.abortController.signal
+  const read = async (): Promise<ArrayBuffer> => {
+    const bytes = await fetchBytes(url, signal)
+    signal.throwIfAborted()
+    ctx.progress?.('parsing')
+    // Let the host paint the phase before a synchronous format parser runs.
+    await new Promise(resolve => setTimeout(resolve, 0))
+    signal.throwIfAborted()
+    return bytes
+  }
   const decoded = <T>(parse: () => T): { value: T; blobs: string[] } => withDecodedTextures(decoder, made, parse)
   // FBXLoader skips embedded TGA images unless a loader is registered for them. Not for glTF, whose
   // textures are not flipped (GLTFLoader also asks the manager for handlers).
   if (ext !== 'glb' && ext !== 'gltf') manager.addHandler(/\.tga$/i, new DecodedTextureLoader(manager, decoder, made))
   switch (ext) {
     case 'glb': case 'gltf': {
-      const gltf = await ctx.gltfLoader(manager).loadAsync(url)
+      const gltf = await ctx.gltfLoader(manager).parseAsync(await read(), folder)
       return { root: gltf.scene, clips: gltf.animations, extra: gltf.parser.associations.keys(), format: ext === 'glb' ? 'GLB' : 'glTF', scale: 1, units: 'Metres', turned: false, gltf }
     }
     case 'fbx': {
-      const buffer = await fetchBytes(url)
+      const buffer = await read()
       const binary = new TextDecoder('latin1').decode(new Uint8Array(buffer, 0, Math.min(18, buffer.byteLength))) === 'Kaydara FBX Binary'
       const { value: root, blobs } = decoded(() => new FBXLoader(manager).parse(buffer, folder))
       const metres = (Number(root.userData.unitScaleFactor) || 1) / 100
-      const named = await unityNames(url, root.animations, buffer)
+      const named = await unityNames(url, root.animations, buffer, signal)
       return {
         root, clips: named ?? root.animations, extra: [], format: binary ? 'FBX binary' : 'FBX ASCII', scale: metres,
         units: unitWords(metres), turned: root.rotation.x !== 0, unityClips: !!named, blobs
       }
     }
     case 'obj': {
-      const source = text(await fetchBytes(url))
+      const source = text(await read())
       const loader = new OBJLoader(manager)
       // Blender and most tools name their material library in the file; the first that loads is used.
       for (const lib of [...source.matchAll(/^mtllib\s+(.+?)\s*$/gm)].map(m => m[1]).slice(0, 4)) {
@@ -128,13 +139,13 @@ export async function loadFormat(ext: string, ctx: FormatContext): Promise<Parse
       return { root, clips: [], extra: [], format: 'OBJ', scale: 1, units: NO_UNITS, turned: false }
     }
     case 'stl': {
-      const geometry = new STLLoader(manager).parse(await fetchBytes(url))
+      const geometry = new STLLoader(manager).parse(await read())
       if (!geometry.attributes.normal) geometry.computeVertexNormals()
       const material = new THREE.MeshStandardMaterial({ color: PLAIN, roughness: 0.6, metalness: 0.05, vertexColors: !!geometry.attributes.color, name: 'STL' })
       return { root: new THREE.Mesh(geometry, material), clips: [], extra: [], format: 'STL', scale: 1, units: NO_UNITS, turned: false }
     }
     case 'ply': {
-      const geometry = new PLYLoader(manager).parse(await fetchBytes(url))
+      const geometry = new PLYLoader(manager).parse(await read())
       const colors = !!geometry.attributes.color
       // A PLY without faces is a point cloud.
       if (!geometry.index) return { root: new THREE.Points(geometry, new THREE.PointsMaterial({ color: colors ? 0xffffff : PLAIN, size: 2, sizeAttenuation: false, vertexColors: colors, name: 'PLY points' })), clips: [], extra: [], format: 'PLY (points)', scale: 1, units: NO_UNITS, turned: false }
@@ -143,7 +154,7 @@ export async function loadFormat(ext: string, ctx: FormatContext): Promise<Parse
       return { root: new THREE.Mesh(geometry, material), clips: [], extra: [], format: 'PLY', scale: 1, units: NO_UNITS, turned: false }
     }
     case 'dae': {
-      const source = text(await fetchBytes(url))
+      const source = text(await read())
       const { value: collada, blobs } = decoded(() => new ColladaLoader(manager).parse(source, folder))
       if (!collada?.scene) throw new ViewerError('unreadable', 'The file could not be read as Collada: it is not valid Collada XML.')
       const root = collada.scene
@@ -151,14 +162,14 @@ export async function loadFormat(ext: string, ctx: FormatContext): Promise<Parse
       return { root, clips: root.animations ?? [], extra: [], format: 'Collada', scale: 1, units: unitWords(root.scale.x), turned: root.rotation.x !== 0, blobs }
     }
     case 'bvh': {
-      const bvh = new BVHLoader(manager).parse(text(await fetchBytes(url)))
+      const bvh = new BVHLoader(manager).parse(text(await read()))
       const root = new THREE.Group()
       root.add(bvh.skeleton.bones[0])
       bvh.clip.name = decodeURIComponent(url.slice(url.lastIndexOf('/') + 1)).replace(/\.bvh$/i, '')
       return { root, clips: [bvh.clip], extra: [], format: 'BVH', scale: 1, units: NO_UNITS, turned: false }
     }
     case 'usda': case 'usd': {
-      const buffer = await fetchBytes(url)
+      const buffer = await read()
       if (text(buffer.slice(0, 8)) === 'PXR-USDC') throw new ViewerError('unreadable', 'This .usd file is binary USD (USDC), which Genio\'s 3D viewer cannot read. Open it in your 3D app, or export it as USDA, glTF or FBX to preview it here.')
       const { value: root, blobs } = await new Promise<{ value: THREE.Group; blobs: string[] }>((resolve, reject) => {
         // USDLoader calls back once its own texture images have loaded.
@@ -170,7 +181,7 @@ export async function loadFormat(ext: string, ctx: FormatContext): Promise<Parse
       return { root, clips: root.animations ?? [], extra: [], format: ext === 'usda' ? 'USDA' : 'USD (text)', scale: 1, units: unitWords(root.scale.x), turned: root.rotation.x !== 0, blobs }
     }
     case '3ds': {
-      const buffer = await fetchBytes(url)
+      const buffer = await read()
       const { value: root } = decoded(() => new TDSLoader(manager).parse(buffer, folder))
       return { root, clips: [], extra: [], format: '3DS', scale: 1, units: NO_UNITS, turned: false, zUp: true }
     }

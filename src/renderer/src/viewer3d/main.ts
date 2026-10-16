@@ -7,7 +7,8 @@ import { createViewer, ViewerError, type Viewer } from './viewer'
 import './viewer3d.css'
 
 // The frame's origin is opaque, so its messages cannot name a target origin; they carry no secrets.
-const post = (message: FromViewer): void => window.parent.postMessage(message, '*')
+let requestId: number | undefined
+const post = (message: FromViewer): void => window.parent.postMessage(message.type === 'ready' || requestId === undefined ? message : { ...message, requestId }, '*')
 const canvas = document.getElementById('view') as HTMLCanvasElement
 const thumbnails = new URLSearchParams(location.search).has('thumbnail')
 let viewer: Viewer | undefined, broken: ViewerError | undefined
@@ -15,9 +16,10 @@ if (thumbnails) canvas.style.width = canvas.style.height = `${MODEL_THUMB_SIZE}p
 try {
   viewer = createViewer(canvas, {
     decoderPath: import.meta.env.DEV ? new URL('./decoders/', location.href).href : undefined,
-    maxTexture: MODEL_PREVIEW_MAX_TEXTURE,
+    maxTexture: thumbnails ? 512 : MODEL_PREVIEW_MAX_TEXTURE,
     labels: thumbnails ? undefined : document.getElementById('labels') ?? undefined,
-    onTime: thumbnails ? undefined : (clip, time, playing) => post({ type: 'time', clip, time, playing })
+    onTime: thumbnails ? undefined : (clip, time, playing) => post({ type: 'time', clip, time, playing }),
+    onProgress: thumbnails ? undefined : progress => post({ type: 'progress', progress })
   })
 } catch (e) {
   broken = e instanceof ViewerError ? e : new ViewerError('no-webgl', e instanceof Error ? e.message : String(e))
@@ -51,6 +53,7 @@ if (thumbnails) {
     const message = event.data as ToViewer
     switch (message?.type) {
       case 'open': {
+        requestId = message.requestId
         const id = ++opening
         void viewer.open(String(message.url)).then(model => { if (id === opening) post({ type: 'loaded', model }) }, (e: unknown) => {
           if (id !== opening) return
@@ -59,6 +62,8 @@ if (thumbnails) {
         })
         break
       }
+      case 'cancel': ++opening; viewer.clear(); break
+      case 'hello': post({ type: 'ready' }); break
       case 'settings': viewer.set(message.settings); break
       case 'playback': viewer.playback(message.playback); break
       case 'frame': viewer.frame(); break
@@ -68,3 +73,8 @@ if (thumbnails) {
   post({ type: 'ready' })
 }
 window.addEventListener('pagehide', () => viewer?.dispose())
+canvas.addEventListener('webglcontextlost', event => {
+  event.preventDefault()
+  viewer?.clear()
+  if (!thumbnails) post({ type: 'failed', code: 'no-webgl', reason: 'The graphics context was lost. Retry to start a fresh preview.' })
+})

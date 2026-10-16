@@ -11,10 +11,10 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
-import { DEFAULT_VIEWER_SETTINGS, MODEL_PREVIEW_MAX_BYTES, MODEL_PREVIEW_MAX_TEXTURE, formatLength, type ModelLoaded, type ModelPlayback, type ModelTexture, type ViewerSettings } from '@shared/model-viewer'
+import { DEFAULT_VIEWER_SETTINGS, MODEL_PREVIEW_MAX_BYTES, MODEL_PREVIEW_MAX_TEXTURE, formatLength, type ModelLoaded, type ModelPlayback, type ModelProgress, type ModelTexture, type ViewerSettings } from '@shared/model-viewer'
 import { collectResources, disposeResources, materialTextures, type Disposable } from './resources'
 import { FORMAT_NAMES, ViewerError, loadFormat, sideFileUrl, type Parsed } from './formats'
-import { TextureDecoder, flippedBitmaps, hasImage, prepareTextures } from './textures'
+import { TextureDecoder, flippedBitmaps, hasImage, prepareTextures, progressiveGltfTextures, settledSources } from './textures'
 
 export { ViewerError }
 
@@ -38,6 +38,7 @@ export interface ViewerOptions {
   labels?: HTMLElement
   /** Playback position, a few times a second while playing and on every change. */
   onTime?(clip: number, time: number, playing: boolean): void
+  onProgress?(progress: ModelProgress): void
 }
 export interface Viewer {
   readonly renderer: THREE.WebGLRenderer
@@ -75,6 +76,7 @@ interface Loaded {
   grid?: THREE.GridHelper
   bounds?: THREE.Box3Helper
   skeleton?: SkeletonLines
+  texturing?: boolean
 }
 
 const fileName = (url: string): string => {
@@ -166,6 +168,7 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
   let settings: ViewerSettings = { ...DEFAULT_VIEWER_SETTINGS }
   let model: Loaded | undefined
   let generation = 0
+  let cancelLoad: (() => void) | undefined
   let draco: DRACOLoader | undefined, ktx2: KTX2Loader | undefined, decoder: TextureDecoder | undefined
   let dirty = true, raf = 0, last = performance.now(), lastReport = 0, width = 0, height = 0
   const labelEls = opts.labels ? (['width', 'height', 'depth'] as const).map(axis => {
@@ -254,7 +257,10 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
 
   function applyMaterials(): void {
     if (!model) return
-    for (const [mesh, original] of model.materials) mesh.material = settings.clay ? (Array.isArray(original) ? original.map(() => clay) : clay) : original
+    for (const [mesh, original] of model.materials) {
+      const choose = (m: THREE.Material): THREE.Material => settings.clay || model!.texturing && materialTextures(m).some(t => !hasImage(t)) ? clay : m
+      mesh.material = Array.isArray(original) ? original.map(choose) : choose(original)
+    }
     const all = new Set<THREE.Material>([clay])
     for (const original of model.materials.values()) for (const m of [original].flat()) all.add(m)
     for (const m of all) if ('wireframe' in m) (m as THREE.MeshStandardMaterial).wireframe = settings.wireframe
@@ -326,18 +332,6 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
    */
   function fallBack(parsed: Parsed, materials: Set<THREE.Material>): number {
     let count = 0
-    if (parsed.gltf) {
-      // GLTFLoader leaves a failed map unassigned, so the file's own record says which had one.
-      const json = parsed.gltf.parser.json as { materials?: { pbrMetallicRoughness?: { baseColorTexture?: unknown } }[] }
-      for (const m of materials) {
-        const index = (parsed.gltf.parser.associations.get(m) as { materials?: number } | undefined)?.materials
-        const standard = m as THREE.MeshStandardMaterial
-        if (index !== undefined && json.materials?.[index]?.pbrMetallicRoughness?.baseColorTexture && !standard.map && standard.color) {
-          standard.color.set(CLAY); standard.roughness = 0.85; standard.metalness = 0; count++
-        }
-      }
-      return count
-    }
     for (const m of materials) {
       const slots = m as unknown as Record<string, THREE.Texture | null>
       let lostBase = false
@@ -347,6 +341,11 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
         m.needsUpdate = true
         if (slot === 'map') lostBase = true
       }
+      if (parsed.gltf) {
+        const parser = parsed.gltf.parser
+        const index = (parser.associations.get(m) as { materials?: number } | undefined)?.materials
+        if (index !== undefined && parser.json.materials?.[index]?.pbrMetallicRoughness?.baseColorTexture && !(m as THREE.MeshStandardMaterial).map) lostBase = true
+      }
       const coloured = m as THREE.MeshPhongMaterial
       if (lostBase && coloured.color) { coloured.color.set(CLAY); count++ }
     }
@@ -355,6 +354,7 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
 
   function clear(): void {
     generation++
+    cancelLoad?.(); cancelLoad = undefined
     if (!model) return
     const m = model
     model = undefined
@@ -368,7 +368,7 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
     dirty = true
   }
 
-  function gltfLoader(manager: THREE.LoadingManager): GLTFLoader {
+  function gltfLoader(manager: THREE.LoadingManager, textures: TextureDecoder, made: Set<THREE.Texture>): GLTFLoader {
     if (!draco) {
       draco = new DRACOLoader()
       if (opts.decoderPath) draco.setDecoderPath(opts.decoderPath)
@@ -378,12 +378,17 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
       if (opts.decoderPath) ktx2.setTranscoderPath(opts.decoderPath)
     }
     return new GLTFLoader(manager).setDRACOLoader(draco).setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder)
+      .register(parser => { progressiveGltfTextures(parser, textures, made); return { name: 'GENIO_progressive_images' } })
   }
 
   async function open(url: string): Promise<ModelLoaded> {
     clear()
     const gen = generation
     const started = performance.now()
+    const progress = (phase: ModelProgress['phase'], completed = 0, total = 0): void => {
+      if (gen === generation) opts.onProgress?.({ phase, completed, total, elapsedMs: Math.round(performance.now() - started) })
+    }
+    progress('reading')
     const name = fileName(url)
     const ext = name.slice(name.lastIndexOf('.') + 1).toLowerCase()
     const format = FORMAT_NAMES[ext] ?? ext.toUpperCase()
@@ -393,18 +398,23 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
     manager.onError = u => { failed.set(u, fileName(u)) }
     manager.setURLModifier(u => sideFileUrl(u, folder))
     const idle = settled(manager)
-    const textures = decoder ??= new TextureDecoder(maxTexture)
+    const textures = decoder = new TextureDecoder(maxTexture, ext !== 'usd' && ext !== 'usda')
+    cancelLoad = () => { manager.abort(); textures.dispose() }
     const made = new Set<THREE.Texture>()
     let parsed: Parsed
     try {
-      parsed = await loadFormat(ext, { url, folder, manager, decoder: textures, made, gltfLoader })
-      // Textures and other side files arrive after parsing.
-      await idle()
+      parsed = await loadFormat(ext, { url, folder, manager, decoder: textures, made, gltfLoader: m => gltfLoader(m, textures, made), progress })
     } catch (e) {
-      disposeResources(made)
+      textures.dispose(); manager.abort(); disposeResources(made)
       throw gen === generation ? await loadError(e, failed, url, name, format) : new ViewerError('cancelled', 'Superseded')
     }
-    for (const blob of parsed.blobs ?? []) URL.revokeObjectURL(blob)
+    if (gen !== generation) {
+      for (const blob of parsed.blobs ?? []) URL.revokeObjectURL(blob)
+      disposeResources(collectResources(parsed.root, [...parsed.extra, ...made]))
+      throw new ViewerError('cancelled', 'Superseded')
+    }
+    const stop = cancelLoad
+    cancelLoad = () => { stop?.(); for (const blob of parsed.blobs ?? []) URL.revokeObjectURL(blob) }
     const root = parsed.root
     if (!parsed.gltf) {
       // A file's own lights and cameras would relight or crowd the preview.
@@ -440,15 +450,65 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
       for (const m of [mesh.material].flat()) materials.add(m)
     })
     const animationOnly = !drawables && (bones.size > 0 || parsed.clips.length > 0)
-    if (!drawables && !animationOnly) { disposeResources(resources); throw new ViewerError('unreadable', 'The file holds no meshes, skeleton or animation to show.') }
+    if (!drawables && !animationOnly) { cancelLoad?.(); disposeResources(resources); throw new ViewerError('unreadable', 'The file holds no meshes, skeleton or animation to show.') }
     const textureList = [...new Set([...materials].flatMap(materialTextures))]
+    const bySource = new Map<THREE.Texture['source'], { info: ModelTexture; texture: THREE.Texture }>()
+    // pivot (up-axis turn) > units (file units to metres) > the file's root.
+    const pivot = new THREE.Group(), units = new THREE.Group()
+    units.scale.setScalar(parsed.scale)
+    units.add(root)
+    pivot.add(units)
+    if (parsed.zUp) settings = { ...settings, upAxis: 'z' }
+    const joints = bones.size ? [...bones] : animationOnly ? (() => { const all: THREE.Object3D[] = []; root.traverse(o => { if (o !== root) all.push(o) }); return all })() : []
+    const loaded: Loaded = {
+      pivot, root, resources, meshes, joints, animationOnly, texturing: true,
+      materials: new Map(meshes.map(m => [m, m.material])),
+      actions: [], textures: [...bySource.values()].slice(0, 512),
+      // A bare rig is framed over its whole clip; following its root would only drift the view.
+      playback: { clip: 0, playing: true, time: 0, speed: 1, loop: true, follow: !animationOnly },
+      box: new THREE.Box3(),
+      followNode: joints.find(j => !j.parent || !joints.includes(j.parent))
+    }
+    if (parsed.clips.length) {
+      const mixer = new THREE.AnimationMixer(root)
+      loaded.mixer = mixer
+      loaded.actions = parsed.clips.slice(0, 512).map(c => mixer.clipAction(c))
+      loaded.actions[0].play()
+      mixer.update(0)
+      mixer.addEventListener('finished', () => { if (model === loaded) { loaded.playback.playing = false; report() } })
+    }
+    model = loaded
+    scene.add(pivot)
+    applyBackground()
+    applyMaterials()
+    layout()
+    applySkeleton()
+    // Submit geometry with clay first. Shader compilation and GPU upload are included in this phase.
+    renderer.render(scene, camera)
+    progress('geometry')
+    await new Promise(resolve => setTimeout(resolve, 0))
+    if (gen !== generation) throw new ViewerError('cancelled', 'Superseded')
+    const readySources = new Set<THREE.Texture['source']>()
+    const sourceTextures = [...new Map(textureList.map(t => [t.source, t])).values()]
+    const textureCount = sourceTextures.length
+    manager.onProgress = () => {
+      if (gen !== generation) return
+      const arrived = new Set(textureList.filter(t => hasImage(t) && !readySources.has(t.source)).map(t => t.source))
+      for (const t of textureList) if (arrived.has(t.source)) t.needsUpdate = true
+      for (const source of arrived) readySources.add(source)
+      applyMaterials(); progress('textures', sourceTextures.filter(t => settledSources.has(t.source) || hasImage(t)).length, textureCount)
+    }
+    progress('textures', 0, textureCount)
+    textures.resume()
+    await idle()
+    if (gen !== generation) throw new ViewerError('cancelled', 'Superseded')
     let prepared: Awaited<ReturnType<typeof prepareTextures>>
-    try { prepared = await prepareTextures(textureList, maxTexture, textures) } catch (e) { disposeResources(resources); throw e }
-    if (cancelled()) throw new ViewerError('cancelled', 'Superseded')
+    try { prepared = await prepareTextures(textureList, maxTexture, textures) } catch (e) { clear(); throw e }
+    if (gen !== generation) throw new ViewerError('cancelled', 'Superseded')
+    for (const blob of parsed.blobs ?? []) URL.revokeObjectURL(blob)
     const { originals } = prepared
     for (const name of prepared.failed) failed.set(`undecoded:${name}`, name)
     const clayFallback = fallBack(parsed, materials)
-    const bySource = new Map<THREE.Texture['source'], { info: ModelTexture; texture: THREE.Texture }>()
     for (const m of materials) for (const [slot, value] of Object.entries(m)) {
       const t = value as THREE.Texture
       if (!t?.isTexture) continue
@@ -466,38 +526,10 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
       const use = `${m.name || 'Material'} · ${SLOTS[slot] ?? slot}`
       if (!entry.info.uses.includes(use) && entry.info.uses.length < 64) entry.info.uses.push(use)
     }
-    // pivot (up-axis turn) > units (file units to metres) > the file's root.
-    const pivot = new THREE.Group(), units = new THREE.Group()
-    units.scale.setScalar(parsed.scale)
-    units.add(root)
-    pivot.add(units)
-    if (parsed.zUp) settings = { ...settings, upAxis: 'z' }
-    const joints = bones.size ? [...bones] : animationOnly ? (() => { const all: THREE.Object3D[] = []; root.traverse(o => { if (o !== root) all.push(o) }); return all })() : []
-    const loaded: Loaded = {
-      pivot, root, resources, meshes, joints, animationOnly,
-      materials: new Map(meshes.map(m => [m, m.material])),
-      actions: [], textures: [...bySource.values()].slice(0, 512),
-      // A bare rig is framed over its whole clip; following its root would only drift the view.
-      playback: { clip: 0, playing: true, time: 0, speed: 1, loop: true, follow: !animationOnly },
-      box: new THREE.Box3(),
-      followNode: joints.find(j => !j.parent || !joints.includes(j.parent))
-    }
-    if (parsed.clips.length) {
-      const mixer = new THREE.AnimationMixer(root)
-      loaded.mixer = mixer
-      loaded.actions = parsed.clips.map(c => mixer.clipAction(c))
-      loaded.actions[0].play()
-      mixer.update(0)
-      mixer.addEventListener('finished', () => { if (model === loaded) { loaded.playback.playing = false; report() } })
-    }
-    model = loaded
-    scene.add(pivot)
-    applyBackground()
+    loaded.textures = [...bySource.values()].slice(0, 512)
+    loaded.texturing = false
     applyMaterials()
-    layout()
-    applySkeleton()
-    // Upload and compile now, so the first visible frame does not stall.
-    renderer.compile(scene, camera)
+    renderer.render(scene, camera)
     dirty = true
     report()
     return {

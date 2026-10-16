@@ -6,6 +6,7 @@ vi.mock('electron', () => ({
 }))
 import { createModelThumbnailer, readModelThumbnail } from '../src/main/model-thumbnails'
 import { VIEWER_THUMBNAIL_URL } from '../src/shared/model-viewer'
+import { ModelPreviewPriority } from '../src/main/model-preview-priority'
 
 const WEBP = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WEBPVP8 '), Buffer.alloc(16)])
 type Draw = (url: string) => Promise<unknown>
@@ -37,6 +38,42 @@ const wait = (ms: number): Promise<void> => new Promise(resolve => setTimeout(re
 afterEach(() => { made.length = 0; script = async () => ({ webp: WEBP.toString('base64') }) })
 
 describe('model thumbnail window', () => {
+  it('preempts a running thumbnail, pauses queued jobs and retries without caching a failure', async () => {
+    const priority = new ModelPreviewPriority()
+    let first = true
+    script = async () => {
+      if (first) { first = false; return new Promise(() => undefined) }
+      return { webp: WEBP.toString('base64') }
+    }
+    const thumbnails = createModelThumbnailer({ priority, timeoutMs: 2000 })
+    const a = thumbnails.render('genio-media://model/t/a.fbx')
+    const b = thumbnails.render('genio-media://model/t/b.fbx')
+    await wait(10)
+    priority.begin('interactive')
+    expect(made[0].window.destroyed).toBe(true)
+    await wait(10)
+    expect(made).toHaveLength(1)
+    priority.finish('interactive')
+    expect(await a).toEqual({ webp: WEBP })
+    expect(await b).toEqual({ webp: WEBP })
+    expect(made).toHaveLength(2)
+    expect(made[1].window.draws).toEqual(['genio-media://model/t/a.fbx', 'genio-media://model/t/b.fbx'])
+    thumbnails.stop()
+  })
+
+  it('releases a stalled priority lease and cancels a queue waiting behind it', async () => {
+    const priority = new ModelPreviewPriority()
+    priority.begin('viewer', 20)
+    const thumbnails = createModelThumbnailer({ priority })
+    const first = thumbnails.render('genio-media://model/t/a.fbx')
+    expect(made).toHaveLength(0)
+    expect(await first).toEqual({ webp: WEBP })
+    priority.begin('viewer')
+    const queued = thumbnails.render('genio-media://model/t/b.fbx')
+    thumbnails.stop()
+    expect(await queued).toMatchObject({ code: 'unreadable' })
+    priority.finish('viewer')
+  })
   it('accepts only a real WebP up to 1 MB or a known failure from the page', () => {
     expect(readModelThumbnail({ webp: WEBP.toString('base64') })).toEqual({ webp: WEBP })
     expect(readModelThumbnail({ code: 'too-large', reason: 'robot.bin is larger than the 64 MB preview limit.' })).toEqual({ code: 'too-large', reason: 'robot.bin is larger than the 64 MB preview limit.' })

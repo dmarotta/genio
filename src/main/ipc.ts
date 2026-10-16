@@ -115,7 +115,8 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
       if (info) ctx().stats.unlock('inventory-preview')
       return info
     },
-    inventoryModelUrl: (world, asset) => modelViewer().grant(world, asset),
+    inventoryModelUrl: (world, asset) => modelViewer().grant(world, asset, true),
+    inventoryModelRelease: async (url, completeOnly) => modelViewer().revoke(url, completeOnly === true),
     featureUsed: async (feature) => {
       if (feature === 'screenshot' || feature === 'model-picker' || feature === 'character-sheet' || feature === 'play-fullscreen') bus.publish({ type: 'feature-used', feature })
     },

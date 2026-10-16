@@ -7,6 +7,7 @@
 import * as THREE from 'three'
 import { TGALoader } from 'three/examples/jsm/loaders/TGALoader.js'
 import { decodeTga } from './tga'
+import type { GLTFParser } from 'three/examples/jsm/loaders/GLTFLoader.js'
 
 interface Decoded { bitmap: ImageBitmap; width: number; height: number }
 
@@ -14,6 +15,8 @@ interface Decoded { bitmap: ImageBitmap; width: number; height: number }
 export const originalSizes = new WeakMap<ImageBitmap, { width: number; height: number }>()
 /** Bitmaps stored bottom-up for WebGL; previews turn them back. */
 export const flippedBitmaps = new WeakSet<ImageBitmap>()
+/** Includes failed images, so progress counts completed work rather than only successful decodes. */
+export const settledSources = new WeakSet<THREE.Texture['source']>()
 
 /**
  * Decode, shrink and flip one image. Runs in the worker, which is built from this source (an opaque-origin
@@ -49,12 +52,22 @@ function workerMain(decode: typeof decodeImage, readTga: typeof decodeTga): void
   }
 }
 
-/** One worker per viewer; decodes queue in it. Without workers it decodes here, still asynchronously. */
+/** One cancellable worker per load; serial fetch/decode bounds peak image memory. */
 export class TextureDecoder {
   private worker?: Worker | null
   private next = 0
   private readonly waiting = new Map<number, { resolve(d: Decoded): void; reject(e: Error): void }>()
-  constructor(private readonly max: number) {}
+  private readonly controller = new AbortController()
+  private tail: Promise<unknown> = Promise.resolve()
+  private readonly gate: Promise<void>
+  private release!: () => void
+  constructor(private readonly max: number, deferred = false) {
+    this.gate = new Promise(resolve => { this.release = resolve })
+    if (!deferred) this.resume()
+  }
+  /** Geometry is submitted before any texture fetch/decode starts. */
+  resume(): void { this.release() }
+  async geometryReady(): Promise<void> { await this.gate; this.controller.signal.throwIfAborted() }
 
   private start(): Worker | null {
     if (this.worker !== undefined) return this.worker
@@ -69,22 +82,46 @@ export class TextureDecoder {
       this.waiting.delete(id)
       if (error !== undefined) w?.reject(new Error(error)); else if (w) w.resolve(done); else done.bitmap.close()
     }
-    this.worker.onerror = () => this.fail(new Error('The texture decoder stopped.'))
+    this.worker.onerror = () => { this.worker?.terminate(); this.worker = null; this.fail(new Error('The texture decoder stopped.')) }
     return this.worker
   }
 
   /** Fetch, decode, shrink and (by default) flip one image for WebGL. */
   async decode(url: string, flip = true): Promise<Decoded> {
-    const response = await fetch(url)
+    const job = this.tail.then(async () => {
+      await this.gate
+      this.controller.signal.throwIfAborted()
+      const signal = AbortSignal.any([this.controller.signal, AbortSignal.timeout(8000)])
+      return this.decodeNow(url, flip, signal)
+    })
+    this.tail = job.catch(() => undefined)
+    return job
+  }
+
+  private async decodeNow(url: string, flip: boolean, signal: AbortSignal): Promise<Decoded> {
+    const response = await fetch(url, { signal })
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const bytes = await response.arrayBuffer()
+    signal.throwIfAborted()
     const worker = this.start()
-    if (!worker) return this.mark(await decodeImage(bytes, this.max, flip, decodeTga), flip)
+    // Native browser image decoders remain asynchronous; never run the JS TGA decoder on the UI thread.
+    if (!worker) throw new Error('The off-thread texture decoder is unavailable.')
     const id = ++this.next
     const done = await new Promise<Decoded>((resolve, reject) => {
-      this.waiting.set(id, { resolve, reject })
+      const abort = (): void => {
+        this.waiting.delete(id)
+        // A synchronous TGA decoder can only be cancelled by terminating its worker.
+        worker.terminate(); if (this.worker === worker) this.worker = undefined
+        reject(new Error('Texture loading was cancelled or exceeded 8 s.'))
+      }
+      signal.addEventListener('abort', abort, { once: true })
+      this.waiting.set(id, {
+        resolve: d => { signal.removeEventListener('abort', abort); resolve(d) },
+        reject: e => { signal.removeEventListener('abort', abort); reject(e) }
+      })
       worker.postMessage({ id, bytes, max: this.max, flip }, [bytes])
     })
+    if (this.controller.signal.aborted) { done.bitmap.close(); this.controller.signal.throwIfAborted() }
     return this.mark(done, flip)
   }
 
@@ -100,9 +137,47 @@ export class TextureDecoder {
   }
 
   dispose(): void {
+    this.controller.abort(); this.resume()
     this.worker?.terminate()
     this.worker = undefined
     this.fail(new Error('The viewer was closed.'))
+  }
+}
+
+/** glTF keeps its sampler/UV/extension handling; ordinary images arrive after the geometry, sharing
+ * their Source with any texture-transform clones. Compressed KTX2 uses three's own worker decoder. */
+export function progressiveGltfTextures(parser: GLTFParser, decoder: TextureDecoder, made: Set<THREE.Texture>): void {
+  const original = parser.loadImageSource.bind(parser)
+  const sources = new Map<number, THREE.Texture>()
+  parser.loadImageSource = (index, loader) => {
+    if (loader !== parser.textureLoader) return original(index, loader)
+    const cached = sources.get(index)
+    if (cached) { const clone = cached.clone(); made.add(clone); return Promise.resolve(clone) }
+    const texture = new THREE.Texture()
+    texture.flipY = false
+    texture.needsUpdate = true
+    made.add(texture); sources.set(index, texture)
+    const image = parser.json.images[index] as { uri?: string; bufferView?: number; mimeType?: string }
+    const manager = parser.options.manager
+    const name = image.uri ?? `embedded image ${index + 1}`
+    texture.userData.file = fileName(name)
+    manager.itemStart(name)
+    void (async () => {
+      let blob: string | undefined
+      try {
+        await decoder.geometryReady()
+        const url = image.bufferView !== undefined
+          ? (blob = URL.createObjectURL(new Blob([await parser.getDependency('bufferView', image.bufferView)], { type: image.mimeType })))
+          : manager.resolveURL(THREE.LoaderUtils.resolveURL(image.uri ?? '', parser.options.path))
+        const decoded = await decoder.decode(url, false)
+        texture.image = decoded.bitmap; texture.needsUpdate = true
+      } catch { manager.itemError(name) } finally {
+        if (blob) URL.revokeObjectURL(blob)
+        settledSources.add(texture.source)
+        manager.itemEnd(name)
+      }
+    })()
+    return Promise.resolve(texture)
   }
 }
 
@@ -124,17 +199,14 @@ export class DecodedTextureLoader extends THREE.Loader<THREE.Texture> {
     texture.userData.file = fileName(full)
     this.made.add(texture)
     this.manager.itemStart(full)
-    this.decoder.decode(full).then(d => {
+    void this.decoder.decode(full).then(d => {
       texture.image = d.bitmap
       // The worker already flipped it; WebGL ignores UNPACK_FLIP_Y for ImageBitmap.
       texture.flipY = false
       texture.needsUpdate = true
-      onLoad?.(texture)
-      this.manager.itemEnd(full)
+      try { onLoad?.(texture) } finally { settledSources.add(texture.source); this.manager.itemEnd(full) }
     }, (e: unknown) => {
-      onError?.(e)
-      this.manager.itemError(full)
-      this.manager.itemEnd(full)
+      try { onError?.(e) } finally { settledSources.add(texture.source); this.manager.itemError(full); this.manager.itemEnd(full) }
     })
     return texture
   }

@@ -18,7 +18,7 @@ export const MODEL_PREVIEW_MAX_BYTES = 64 * 1024 * 1024
 /** The frame is removed (stopping its work) when a model has not drawn by then. */
 export const MODEL_PREVIEW_TIMEOUT_MS = 30_000
 /** Larger textures are downscaled before upload, so 4K maps cannot exhaust GPU memory. */
-export const MODEL_PREVIEW_MAX_TEXTURE = 2048
+export const MODEL_PREVIEW_MAX_TEXTURE = 1024
 /** What three r186 reads. USDZ and USDC (binary USD) fail in its USD reader, and .blend needs Blender. */
 export const MODEL_PREVIEW_EXTS = ['glb', 'gltf', 'fbx', 'obj', 'stl', 'ply', 'dae', 'bvh', 'usda', 'usd', '3ds'] as const
 /**
@@ -107,19 +107,29 @@ export function readModelFailure(data: unknown): ModelThumbnailFailure | undefin
   return { code: m.code as ModelFailure, reason: m.reason }
 }
 export interface ModelPlayback { clip: number; playing: boolean; time: number; speed: number; loop: boolean; follow: boolean }
+export interface ModelProgress {
+  phase: 'reading' | 'parsing' | 'geometry' | 'textures'
+  completed: number
+  total: number
+  elapsedMs: number
+}
 
 export type ToViewer =
-  | { type: 'open'; url: string; name: string }
+  | { type: 'open'; url: string; name: string; requestId?: number }
   | { type: 'settings'; settings: ViewerSettings }
   | { type: 'playback'; playback: Partial<ModelPlayback> }
   | { type: 'frame' }
   | { type: 'texture-previews' }
-export type FromViewer =
+  | { type: 'cancel' }
+  | { type: 'hello' }
+export type FromViewer = (
   | { type: 'ready' }
   | { type: 'loaded'; model: ModelLoaded }
   | { type: 'failed'; code: ModelFailure; reason: string }
   | { type: 'time'; clip: number; time: number; playing: boolean }
   | { type: 'texture-previews'; previews: { id: number; url: string }[] }
+  | { type: 'progress'; progress: ModelProgress }
+) & { requestId?: number }
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
 const isStr = (v: unknown, max = 512): v is string => typeof v === 'string' && v.length <= max
@@ -130,9 +140,21 @@ const strings = (v: unknown, max: number): v is string[] => Array.isArray(v) && 
  * texture previews only as image data URLs.
  */
 export function readViewerMessage(data: unknown): FromViewer | undefined {
+  const message = parseViewerMessage(data)
+  if (!message) return
+  const id = (data as Record<string, unknown>).requestId
+  if (id !== undefined && (!Number.isSafeInteger(id) || (id as number) < 0)) return
+  return id === undefined ? message : { ...message, requestId: id as number }
+}
+function parseViewerMessage(data: unknown): FromViewer | undefined {
   if (!data || typeof data !== 'object') return
   const m = data as Record<string, unknown>
   switch (m.type) {
+    case 'progress': {
+      const p = m.progress as ModelProgress | undefined
+      if (!p || !['reading', 'parsing', 'geometry', 'textures'].includes(p.phase) || ![p.completed, p.total, p.elapsedMs].every(v => isNum(v) && v >= 0) || p.completed > p.total) return
+      return { type: 'progress', progress: { phase: p.phase, completed: p.completed, total: p.total, elapsedMs: p.elapsedMs } }
+    }
     case 'ready': return { type: 'ready' }
     case 'failed': {
       const failure = readModelFailure(m)

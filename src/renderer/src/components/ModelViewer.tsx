@@ -30,12 +30,17 @@ function missingReason(name: string): string {
 /**
  * Inventory's 3D preview. Three.js runs in a sandboxed frame (genio-viewer://app) with its own CSP;
  * this component only exchanges validated messages with it and draws the controls around it.
- * Removing the frame (failure, timeout, another selection) stops its work and frees its WebGL context.
+ * Selections reuse a warm frame. Failure, cancellation and the host watchdog discard a stuck frame.
  */
-export function ModelViewer({ world, info, path }: { world: string; info: InventoryInfo; path: string }) {
+export function ModelViewer({ world, info, path, active = true }: { world: string; info: InventoryInfo; path: string; active?: boolean }) {
   const tooLarge = modelTooLarge(info)
   const frame = useRef<HTMLIFrameElement>(null)
-  const [url, setUrl] = useState<string>()
+  const ready = useRef(false)
+  const request = useRef(0)
+  const [attempt, setAttempt] = useState(0)
+  const [progress, setProgress] = useState('Starting viewer')
+  const [geometry, setGeometry] = useState(false)
+  const cancel = useRef<() => void>(() => {})
   const [failure, setFailure] = useState<Unavailable>()
   const [model, setModel] = useState<ModelLoaded>()
   const [settings, setSettings] = useState<ViewerSettings>(() => ({ ...remembered, upAxis: 'y' }))
@@ -47,36 +52,63 @@ export function ModelViewer({ world, info, path }: { world: string; info: Invent
   const send = (message: ToViewer): void => frame.current?.contentWindow?.postMessage(message, '*')
 
   useEffect(() => {
-    if (tooLarge) return
+    setModel(undefined); setPreviews(undefined); setFailure(undefined); setGeometry(false)
+    current.current = { ...remembered, upAxis: 'y' }; setSettings(current.current)
+    setProgress('Starting viewer')
+    if (tooLarge) { ready.current = false; return }
+    if (!active) return
     let alive = true
-    api().inventoryModelUrl(world, info.path).then(u => { if (alive) setUrl(u) }, e => { if (alive) setFailure({ title: FAILED.unreadable, reason: errText(e) }) })
-    return () => { alive = false }
-  }, [world, info.path])
-
-  useEffect(() => {
-    if (!url || failure) return
-    let timer: ReturnType<typeof setTimeout> | undefined
+    let url: string | undefined, sent = false, phase = 'requesting access to the file'
+    const id = ++request.current
+    const release = (completeOnly = false): void => { if (url) void api().inventoryModelRelease(url, completeOnly).catch(() => {}) }
+    const fail = (error: Unavailable): void => {
+      if (!alive) return
+      alive = false; ready.current = false
+      clearTimeout(timer); send({ type: 'cancel' }); release()
+      setFailure(error)
+    }
+    // Covers IPC/grant, chunk startup and ready handshake as well as parsing and textures.
+    const timer = setTimeout(() => fail({ title: `${FAILED.timeout} after ${MODEL_PREVIEW_TIMEOUT_MS / 1000} s`, reason: `Loading stopped while ${phase}. Retry the preview or open the file in your 3D app.` }), MODEL_PREVIEW_TIMEOUT_MS)
+    cancel.current = () => fail({ title: 'Preview cancelled', reason: `Loading was cancelled while ${phase}.` })
+    const open = (): void => {
+      if (!alive || !ready.current || !url || sent) return
+      sent = true; phase = 'reading the model'; setProgress('Reading model')
+      send({ type: 'settings', settings: current.current })
+      send({ type: 'open', url, name: info.name, requestId: id })
+    }
     const onMessage = (event: MessageEvent): void => {
-      if (!frame.current || event.source !== frame.current.contentWindow) return
+      if (!alive || !frame.current || event.source !== frame.current.contentWindow) return
       const m = readViewerMessage(event.data)
       if (m?.type === 'ready') {
-        send({ type: 'settings', settings: current.current })
-        send({ type: 'open', url, name: info.name })
-        clearTimeout(timer)
-        timer = setTimeout(() => setFailure({ title: `${FAILED.timeout} after ${MODEL_PREVIEW_TIMEOUT_MS / 1000} s`, reason: 'The model took too long to load, so loading was cancelled. Open it in your 3D app instead.' }), MODEL_PREVIEW_TIMEOUT_MS)
+        ready.current = true; open(); return
+      }
+      if (m?.type === 'failed' && m.requestId === undefined && !sent) { fail({ title: FAILED[m.code], reason: m.reason }); return }
+      if (m?.requestId !== id) return
+      if (m.type === 'progress') {
+        const p = m.progress
+        phase = p.phase === 'textures' ? `loading textures (${p.completed} of ${p.total})` : p.phase === 'geometry' ? 'drawing the first frame' : `${p.phase} the model`
+        if (p.phase === 'geometry') setGeometry(true)
+        setProgress(p.phase === 'textures' ? `Textures ${p.completed} of ${p.total}` : p.phase === 'geometry' ? 'Geometry ready' : p.phase === 'parsing' ? 'Parsing model' : 'Reading model')
       } else if (m?.type === 'loaded') {
         clearTimeout(timer)
+        release(true); setGeometry(true)
         // The viewer starts some files turned (3DS is Z-up by convention).
         if (m.model.upAxis !== current.current.upAxis) { current.current = { ...current.current, upAxis: m.model.upAxis }; setSettings(current.current) }
         setModel(m.model); setPlayback(p => ({ ...p, follow: !m.model.animationOnly }))
       }
-      else if (m?.type === 'failed') { clearTimeout(timer); setFailure({ title: FAILED[m.code], reason: m.reason }) }
+      else if (m?.type === 'failed') fail({ title: FAILED[m.code], reason: m.reason })
       else if (m?.type === 'time') setPlayback(p => ({ ...p, clip: m.clip, time: m.time, playing: m.playing }))
       else if (m?.type === 'texture-previews') setPreviews(Object.fromEntries(m.previews.map(p => [p.id, p.url])))
     }
     window.addEventListener('message', onMessage)
-    return () => { window.removeEventListener('message', onMessage); clearTimeout(timer) }
-  }, [url, failure])
+    send({ type: 'hello' })
+    void api().inventoryModelUrl(world, info.path).then(u => {
+      url = u
+      if (!alive) { release(); return }
+      phase = ready.current ? 'reading the model' : 'starting the viewer'; open()
+    }, e => fail({ title: FAILED.unreadable, reason: errText(e) }))
+    return () => { alive = false; window.removeEventListener('message', onMessage); clearTimeout(timer); send({ type: 'cancel' }); release() }
+  }, [world, info.path, info.mtimeMs, attempt, !!tooLarge, active])
 
   useEffect(() => {
     if (!popped) return
@@ -88,7 +120,7 @@ export function ModelViewer({ world, info, path }: { world: string; info: Invent
   useEffect(() => { if (tab === 'textures' && model?.textures.length && !previews) send({ type: 'texture-previews' }) }, [tab, model, previews])
 
   if (tooLarge) return <PreviewUnavailable {...tooLarge} path={path} />
-  if (failure) return <PreviewUnavailable {...failure} path={path} />
+  if (failure) return <><PreviewUnavailable {...failure} path={path} /><button className="btn sm" onClick={() => { ready.current = false; setAttempt(a => a + 1) }}>Retry</button></>
 
   const change = (patch: Partial<ViewerSettings>): void => {
     const next = { ...current.current, ...patch }
@@ -107,8 +139,8 @@ export function ModelViewer({ world, info, path }: { world: string; info: Invent
     {popped && <div className="model-viewer-backdrop" onClick={() => setPopped(false)} />}
     <div className="model-viewer-panel" role={popped ? 'dialog' : undefined} aria-label={popped ? `3D preview of ${info.name}` : undefined}>
       <div className="model-viewer-stage">
-        {url && <iframe ref={frame} src={VIEWER_APP_URL} sandbox="allow-scripts" title={`3D preview of ${info.name}`} referrerPolicy="no-referrer" />}
-        {!model && <div className="model-viewer-loading">Loading model…</div>}
+        <iframe ref={frame} src={VIEWER_APP_URL} sandbox="allow-scripts" title={`3D preview of ${info.name}`} referrerPolicy="no-referrer" />
+        {!model && <div className={cx('model-viewer-loading', geometry && 'geometry-ready')} role="status">{!geometry && <span>Loading model…</span>}<span>{progress}</span><button className="btn sm" onClick={() => cancel.current()}>Cancel</button></div>}
         <div className="model-viewer-corner">
           <button className="btn sm ghost icon" title="Frame the model (or double-click it)" aria-label="Frame the model" disabled={!model} onClick={() => send({ type: 'frame' })}><Focus size={13} /></button>
           <button className="btn sm ghost icon" title={popped ? 'Back to the inspector (Esc)' : 'Pop out a larger view'} aria-label={popped ? 'Close the larger view' : 'Pop out a larger view'} onClick={() => setPopped(!popped)}>{popped ? <Minimize2 size={13} /> : <Maximize2 size={13} />}</button>

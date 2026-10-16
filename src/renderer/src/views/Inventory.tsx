@@ -272,7 +272,7 @@ function Inspector({ world, root, asset, revision }: { world: string; root: stri
     {!asset ? <div className="inventory-empty"><Box size={40} /><h3>Select an asset</h3><p>Preview media and inspect its source.</p></div> : <>
       <h2>{asset.name}</h2>
       {error && <p className="inventory-error" role="alert">{error}</p>}
-      {info ? <AssetPreview key={info.mediaUrl + info.mtimeMs} world={world} info={info} path={fullPath} /> : !error && <p className="dim">Loading preview…</p>}
+      {info ? <AssetPreview key={previewKind(info) === 'model' ? 'model' : info.mediaUrl + info.mtimeMs} world={world} info={info} active={info.path === asset.path} path={info.path === asset.path ? fullPath : root.replace(/[\\/]$/, '') + '/' + info.path} /> : !error && <p className="dim">Loading preview…</p>}
       <div className="inventory-path">{asset.path}</div>
       <dl><dt>Type</dt><dd>{asset.kind} · {asset.ext.toUpperCase()}</dd><dt>Size</dt><dd>{assetBytes(asset.lfsSize ?? asset.size)}</dd><dt>Modified</dt><dd>{new Date(asset.mtimeMs).toLocaleString()}</dd><dt>Source</dt><dd>{asset.vendor ? 'Vendor pack' : 'Project asset'} · {asset.tracked ? 'Tracked' : 'Untracked'}</dd>
         {!!info?.tags.length && <><dt>Tags</dt><dd>{info.tags.join(', ')}</dd></>}
@@ -286,14 +286,14 @@ function Inspector({ world, root, asset, revision }: { world: string; root: stri
   </aside>
 }
 
-function AssetPreview({ world, info, path }: { world: string; info: InventoryInfo; path: string }) {
+function AssetPreview({ world, info, path, active }: { world: string; info: InventoryInfo; path: string; active: boolean }) {
   const kind = previewKind(info)
   const [failed, setFailed] = useState(false)
   const [zoom, setZoom] = useState(1)
   const [loop, setLoop] = useState(false)
   if (failed) return <PreviewUnavailable title="This file could not be previewed" reason={`Its ${info.ext.toUpperCase()} data or codec isn't one Genio can show. Open it in its default app.`} path={path} />
   if (kind === 'image') return <><div className="inventory-image"><img src={info.mediaUrl} alt={info.name} onError={() => setFailed(true)} style={{ width: `${zoom * 100}%`, maxWidth: 'none' }} /></div><label className="inventory-zoom">Zoom <input type="range" aria-label="Image zoom" min="1" max="4" step="0.1" value={zoom} onChange={e => setZoom(Number(e.target.value))} /></label></>
-  if (kind === 'model') return <Suspense fallback={<p className="dim">Loading 3D viewer…</p>}><ModelViewer world={world} info={info} path={path} /></Suspense>
+  if (kind === 'model') return <Suspense fallback={<p className="dim">Loading 3D viewer…</p>}><ModelViewer world={world} info={info} path={path} active={active} /></Suspense>
   if (kind === 'audio' || kind === 'video') return <div className="inventory-media">
     {kind === 'audio' ? <><Music size={50} strokeWidth={1} /><audio controls preload="metadata" loop={loop} src={info.mediaUrl} onError={() => setFailed(true)} /></> : <video controls preload="metadata" loop={loop} src={info.mediaUrl} onError={() => setFailed(true)} />}
     <label><input type="checkbox" checked={loop} onChange={e => setLoop(e.target.checked)} /> Loop</label>

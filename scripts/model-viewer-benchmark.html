@@ -1,0 +1,39 @@
+<!doctype html><html><body style="margin:0"><iframe sandbox="allow-scripts" style="width:100vw;height:90vh;border:0"></iframe><p id="status">Starting viewer</p><script>
+const frame = document.querySelector('iframe'), status = document.getElementById('status');
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+window.runBenchmark = async manifest => {
+  const results = [];
+  let page;
+  for (const entry of manifest) {
+    const started = performance.now(), events = [], probes = [];
+    let end = false, submitted = false, open = false;
+    const sendOpen = () => { open = true; frame.contentWindow.postMessage({type:'open',url:entry.url,name:entry.asset}, '*'); };
+    const onMessage = e => {
+      if(e.source !== frame.contentWindow) return;
+      const m = e.data;
+      if(m?.type === 'benchmark') {
+        if (m.phase === 'open-start') page = m.page;
+        if (open && m.page === page) {
+          probes.push(m);
+          if (probes.some(p=>p.phase==='geometry-attached') && m.phase==='render-end') submitted = true;
+        }
+        return;
+      }
+      if(!['ready','loaded','failed','progress'].includes(m?.type)) return;
+      events.push({...m, at:performance.now()-started});
+      if(m.type === 'ready') { status.textContent='Loading model…'; sendOpen(); }
+      if(m.type === 'progress') status.textContent=m.progress.phase === 'textures' ? `Textures ${m.progress.completed} of ${m.progress.total}` : m.progress.phase;
+      if(m.type === 'loaded') { status.textContent='Model loaded'; end=true; }
+      if(m.type === 'failed') { status.textContent=m.reason; end=true; submitted=true; }
+    };
+    window.addEventListener('message', onMessage);
+    if(entry.reuse && page) sendOpen(); else { page=undefined; frame.src='genio-viewer://app/viewer3d.html'; }
+    for(let i=0;i<350&&(!end||!submitted);i++) await wait(100);
+    await wait(150);
+    results.push({asset:entry.asset,bytes:entry.size,reuse:!!entry.reuse,elapsed:performance.now()-started,ui:status.textContent,events,probes});
+    window.removeEventListener('message',onMessage);
+    await wait(100);
+  }
+  return results;
+};
+</script></body></html>

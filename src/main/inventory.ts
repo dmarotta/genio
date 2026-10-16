@@ -11,6 +11,7 @@ import { effectiveEngine } from '@shared/engine'
 import { assetKind, assetTags, ignoredAssetPath, matchInventory, pageInventory, under, vendorPath, type InventoryMatch } from './inventory-query'
 import { INVENTORY_WORKER } from './inventory-worker'
 import { bus } from './bus'
+import { modelPreviewPriority } from './model-preview-priority'
 import { run } from './util'
 import { isRepo } from './git'
 import type { AppCtx } from './services'
@@ -32,7 +33,7 @@ export type ThumbnailDecoder = (url: string) => Promise<Buffer | undefined>
 /** Draws one model of a project (the 3D viewer in its hidden window). */
 export type ModelRenderer = (world: string, asset: string) => Promise<ModelThumbnail>
 /** Bumped when the drawing changes (framing, lighting), so cached model thumbnails are redrawn. */
-const MODEL_THUMB_VERSION = 1
+const MODEL_THUMB_VERSION = 2
 /** Remembered content hashes and model failures. */
 const MEMO = 4096
 type Candidate = InventoryAsset & { sidecar?: string; record?: string; stamp?: string }
@@ -120,6 +121,7 @@ export function createInventoryService(getCtx: () => AppCtx, decode?: ThumbnailD
   const thumbCaches = new Map<string, Promise<Map<string, { size: number; time: number }>>>()
   // Models draw in their own queue: a slow model never holds up image thumbnails.
   let stopped = false, thumbQueue: Promise<unknown> = Promise.resolve(), modelQueue: Promise<unknown> = Promise.resolve()
+  const thumbnailStop = new AbortController()
   /** One-shot worker; with `onChunk`, results stream in pages until the worker reports `done`. */
   const worker = <T>(data: unknown, onChunk?: (items: T) => void): Promise<T> => new Promise((resolve, reject) => {
     if (stopped) return reject(new Error('Inventory stopped'))
@@ -383,10 +385,17 @@ export function createInventoryService(getCtx: () => AppCtx, decode?: ThumbnailD
     const id = `${file}\0${stat.size}\0${stat.mtimeMs}`
     let hash = hashes.get(id)
     if (!hash) {
-      hash = new Promise<string>((resolve, reject) => {
+      hash = (async () => {
+        await modelPreviewPriority.idle(thumbnailStop.signal)
+        thumbnailStop.signal.throwIfAborted()
         const h = createHash('sha256')
-        fs.createReadStream(file).on('data', chunk => h.update(chunk)).once('error', reject).once('end', () => resolve(h.digest('hex')))
-      })
+        for await (const chunk of fs.createReadStream(file, { signal: thumbnailStop.signal })) {
+          await modelPreviewPriority.idle(thumbnailStop.signal)
+          thumbnailStop.signal.throwIfAborted()
+          h.update(chunk)
+        }
+        return h.digest('hex')
+      })()
       hashes.set(id, hash)
       hash.catch(() => hashes.delete(id))
       if (hashes.size > MEMO) hashes.delete(hashes.keys().next().value!)
@@ -498,6 +507,6 @@ export function createInventoryService(getCtx: () => AppCtx, decode?: ThumbnailD
       return { ...a, mediaUrl: inventoryMediaUrl('world', world, asset), thumbnailUrl, editedSinceGeneration }
     },
     mediaPath, thumbnail, thumbnailResult,
-    stop() { stopped = true; for (const world of worlds.keys()) close(world); for (const w of workers) void w.terminate() }
+    stop() { stopped = true; thumbnailStop.abort(); for (const world of worlds.keys()) close(world); for (const w of workers) void w.terminate() }
   }
 }

@@ -42,6 +42,37 @@ const service = (extra: Partial<Parameters<typeof modelViewerFiles>[0]> = {}) =>
   modelViewerFiles({ projectRoot: w => w === 'zoo' ? world : undefined, rendererDir: renderer, maxBytes: 1024, ...extra })
 
 describe('genio-viewer:// model grants', () => {
+  it('streams byte ranges and refuses malformed or unsatisfiable ranges without reading the whole file', async () => {
+    write('range.glb', '0123456789')
+    const files = service(), url = await files.grant('zoo', 'range.glb')
+    const partial = await files.handle(new Request(url, { headers: { Range: 'bytes=2-5' } }))
+    expect([partial.status, partial.headers.get('content-range'), partial.headers.get('content-length'), await partial.text()]).toEqual([206, 'bytes 2-5/10', '4', '2345'])
+    const suffix = await files.handle(new Request(url, { headers: { Range: 'bytes=-3' } }))
+    expect(await suffix.text()).toBe('789')
+    for (const range of ['bytes=99-', 'bytes=5-2', 'bytes=-0', 'bytes=0-2,5-6', 'nonsense']) {
+      expect((await files.handle(new Request(url, { headers: { Range: range } }))).status).toBe(416)
+    }
+  })
+
+  it('resolves Unity sibling Textures by basename while keeping unrelated sibling folders private', async () => {
+    write('Assets/Pack/Base Mesh/hero.fbx')
+    write('Assets/Pack/Textures/Body/Hero.TGA', 'pixels')
+    write('Assets/Pack/Private/key.png', 'private')
+    const files = service(), url = await files.grant('zoo', 'Assets/Pack/Base Mesh/hero.fbx')
+    expect(await (await get(files, `${folderOf(url)}/hero.tga`)).text()).toBe('pixels')
+    expect((await get(files, `${folderOf(url)}/key.png`)).status).toBe(404)
+  })
+
+  it('keeps the interactive grant alive while thumbnail capabilities roll over', async () => {
+    const files = service({ maxGrants: 2 })
+    const interactive = await files.grant('zoo', 'robot.glb', true)
+    for (let i = 0; i < 5; i++) await files.grant('zoo', 'robot.glb')
+    expect((await get(files, interactive)).status).toBe(200)
+    files.revoke(interactive, true)
+    expect((await get(files, interactive)).status).toBe(200)
+    files.revoke(interactive)
+    expect((await get(files, interactive)).status).toBe(404)
+  })
   it('grants one model per token and serves it with its side files, CORS-readable by the opaque frame', async () => {
     const files = service()
     const url = await files.grant('zoo', 'Assets/Models/robot.gltf')

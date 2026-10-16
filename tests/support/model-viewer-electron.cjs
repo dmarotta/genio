@@ -38,7 +38,7 @@ app.whenReady().then(async () => {
     for (const [name, url] of Object.entries(models)) {
       await js(`window.log.length = 0; send({ type: 'open', url: ${JSON.stringify(url)}, name: ${JSON.stringify(name)} })`)
       const result = await until(`window.log.find(m => m.type === 'loaded' || m.type === 'failed')`)
-      const entry = { result: result ?? { type: 'no answer' } }
+      const entry = { result: result ?? { type: 'no answer' }, progress: await js(`window.log.filter(m => m.type === 'progress').map(m => m.progress)`) }
       if (shots) {
         fs.mkdirSync(shots, { recursive: true })
         await wait(400)
@@ -62,6 +62,16 @@ app.whenReady().then(async () => {
         await js(`send({ type: 'settings', settings: { wireframe: false, grid: true, bounds: false, skeleton: false, clay: false, background: 'dark', upAxis: 'y' } })`)
       }
       out.frame[name] = entry
+    }
+    out.cancellation = {};
+    for (const [phase, name, id] of [['reading','slow',501], ['textures','wide',503]]) {
+      await js(`window.log.length = 0; send({ type:'open', url:${JSON.stringify(models[name])}, name:'cancel test', requestId:${id} })`)
+      if (phase === 'textures') await until(`window.log.find(m => m.type === 'progress' && m.requestId === ${id} && m.progress.phase === 'geometry')`)
+      else await wait(30)
+      await js(`send({type:'cancel'}); send({ type:'open', url:${JSON.stringify(models.fbxAscii)}, name:'next', requestId:${id+1} })`)
+      const next = await until(`window.log.find(m => m.type === 'loaded' && m.requestId === ${id+1})`)
+      await wait(600)
+      out.cancellation[phase] = !!next && !await js(`window.log.some(m => ['loaded','failed'].includes(m.type) && m.requestId === ${id})`)
     }
     out.probes = await frame.executeJavaScript(`(async () => {
       const r = {}

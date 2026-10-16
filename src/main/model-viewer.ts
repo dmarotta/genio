@@ -2,8 +2,8 @@
  * Inventory's sandboxed 3D viewer: genio-viewer://app serves the viewer frame (its page, chunks and
  * decoders) and genio-media://model/<token>/ serves one granted model with its side files. The frame's
  * CSP admits only those two hosts, so it reaches neither IPC nor genio-media://world nor the network;
- * a token covers one model's folder (and below): the model itself, its Unity .meta and side-file types,
- * each under the size cap, behind the same path guard as every other Inventory file.
+ * a token covers the model's folder and side files, plus basename-matched images in the conventional
+ * sibling Textures folder. Each file stays under the size cap and the Inventory real-path guard.
  */
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
@@ -14,6 +14,7 @@ import { MODEL_PREVIEW_EXTS, MODEL_PREVIEW_MAX_BYTES, MODEL_SIDE_FILE_EXTS, VIEW
 import { guardedWorldFile } from './inventory'
 import { ignoredAssetPath } from './inventory-query'
 import { MEDIA_SCHEME } from './fal-service'
+import { modelPreviewPriority } from './model-preview-priority'
 
 const TYPES: Record<string, string> = {
   html: 'text/html; charset=utf-8', js: 'text/javascript', css: 'text/css', wasm: 'application/wasm',
@@ -48,7 +49,7 @@ export function viewerCsp(dev: boolean): string {
   ].join('; ')
 }
 
-interface Grant { root: string; dir: string; name: string; textures?: Promise<Map<string, string>> }
+interface Grant { root: string; dir: string; name: string; interactive: boolean; textures?: Promise<Map<string, string>> }
 
 /**
  * Texture files below a model's folder by lower-case name, nearest first. FBX, OBJ and Collada files
@@ -57,17 +58,22 @@ interface Grant { root: string; dir: string; name: string; textures?: Promise<Ma
  */
 async function texturesBelow(root: string, dir: string): Promise<Map<string, string>> {
   const found = new Map<string, string>()
-  const queue = [dir]
+  // Only the conventional sibling Textures folder is added, never a project-wide basename search.
+  const parent = path.posix.dirname(dir)
+  const sibling = path.posix.join(parent === '.' ? '' : parent, 'Textures')
+  const queue = [{ rel: dir, depth: 0 }, ...(sibling !== dir ? [{ rel: sibling, depth: 0 }] : [])]
   let seen = 0
+  const deadline = performance.now() + 1000
   for (let i = 0; i < queue.length && seen < FIND_ENTRIES; i++) {
-    const rel = queue[i]
+    if (performance.now() > deadline) break
+    const { rel, depth } = queue[i]
     let entries: fs.Dirent[]
     try { entries = await fsp.readdir(path.join(root, rel), { withFileTypes: true }) } catch { continue }
     for (const e of entries) {
       if (++seen > FIND_ENTRIES) break
       const child = rel ? `${rel}/${e.name}` : e.name
       if (e.isFile() && TEXTURE_EXTS.has(path.posix.extname(e.name).slice(1).toLowerCase()) && !found.has(e.name.toLowerCase())) found.set(e.name.toLowerCase(), child)
-      else if (e.isDirectory() && !ignoredAssetPath(child) && child.split('/').length - (dir ? dir.split('/').length : 0) <= FIND_DEPTH) queue.push(child)
+      else if (e.isDirectory() && !e.isSymbolicLink() && !ignoredAssetPath(child) && depth < FIND_DEPTH) queue.push({ rel: child, depth: depth + 1 })
     }
   }
   return found
@@ -131,7 +137,7 @@ export function modelViewerFiles(opts: ModelViewerFilesOptions) {
   }
 
   /** HEAD tells the frame why a side file failed (GLTFLoader drops the status). */
-  async function model(u: URL, head: boolean): Promise<Response> {
+  async function model(u: URL, head: boolean, reqRange: string | null): Promise<Response> {
     const [, token = '', ...parts] = u.pathname.split('/')
     const grant = grants.get(token)
     if (!grant) return fail(404, 'not found')
@@ -144,7 +150,10 @@ export function modelViewerFiles(opts: ModelViewerFilesOptions) {
     let p = await guardedWorldFile(grant.root, inFolder(rel))
     if (!p && TEXTURE_EXTS.has(e)) {
       grant.textures ??= texturesBelow(grant.root, grant.dir)
-      const near = (await grant.textures).get(path.posix.basename(rel).toLowerCase())
+      // A slow filesystem must not keep the frame waiting indefinitely. The shared search is bounded too.
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const index = await Promise.race([grant.textures, new Promise<Map<string, string>>(resolve => { timer = setTimeout(() => resolve(new Map()), 1200) })]).finally(() => clearTimeout(timer))
+      const near = index.get(path.posix.basename(rel).toLowerCase())
       if (near) p = await guardedWorldFile(grant.root, near)
     }
     if (!p) return fail(404, 'not found')
@@ -152,12 +161,19 @@ export function modelViewerFiles(opts: ModelViewerFilesOptions) {
     if (size > maxBytes) return fail(413, `${path.posix.basename(rel)} is ${size} bytes; the preview limit is ${maxBytes}`)
     const type = TYPES[e] ?? 'application/octet-stream'
     if (head) return new Response(null, { status: 200, headers: headers(type, { 'Content-Length': String(size) }) })
-    return file(p, type, { 'Content-Security-Policy': "default-src 'none'; sandbox" })
+    const range = reqRange?.match(/^bytes=(\d*)-(\d*)$/)
+    if (reqRange) {
+      const start = range?.[1] ? Number(range[1]) : range?.[2] ? Math.max(0, size - Number(range[2])) : NaN
+      const end = range?.[1] && range[2] ? Math.min(size - 1, Number(range[2])) : size - 1
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start > end || start >= size) return new Response(null, { status: 416, headers: headers(type, { 'Content-Range': `bytes */${size}` }) })
+      return new Response(Readable.toWeb(fs.createReadStream(p, { start, end })) as ReadableStream, { status: 206, headers: headers(type, { 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': String(end - start + 1) }) })
+    }
+    return file(p, type, { 'Accept-Ranges': 'bytes', 'Content-Security-Policy': "default-src 'none'; sandbox" })
   }
 
   return {
     /** A fresh capability URL for one model; older grants expire as new ones are made. */
-    async grant(world: string, asset: string): Promise<string> {
+    async grant(world: string, asset: string, interactive = false): Promise<string> {
       const root = opts.projectRoot(world)
       if (!root) throw new Error(`Project ${world} is not loaded.`)
       if (!(MODEL_PREVIEW_EXTS as readonly string[]).includes(ext(asset))) throw new Error(`Genio's 3D viewer cannot read .${ext(asset)} files.`)
@@ -165,13 +181,21 @@ export function modelViewerFiles(opts: ModelViewerFilesOptions) {
       const token = randomBytes(16).toString('hex')
       const dir = path.posix.dirname(asset)
       const name = path.posix.basename(asset)
-      grants.set(token, { root, dir: dir === '.' ? '' : dir, name })
-      while (grants.size > (opts.maxGrants ?? MAX_GRANTS)) grants.delete(grants.keys().next().value!)
+      grants.set(token, { root, dir: dir === '.' ? '' : dir, name, interactive })
+      const sameKind = [...grants].filter(([, g]) => g.interactive === interactive)
+      while (sameKind.length > (opts.maxGrants ?? MAX_GRANTS)) {
+        const [old] = sameKind.shift()!
+        grants.delete(old); modelPreviewPriority.finish(old)
+      }
+      if (interactive) modelPreviewPriority.begin(token)
       return `${MODELS}/${token}/${encodeURIComponent(name)}`
     },
     /** Ends a grant at once (a drawn thumbnail), so short-lived grants never expire the inspector's. */
-    revoke(url: string): void {
-      if (url.startsWith(`${MODELS}/`)) grants.delete(url.slice(MODELS.length + 1).split('/')[0])
+    revoke(url: string, completeOnly = false): void {
+      if (!url.startsWith(`${MODELS}/`)) return
+      const token = url.slice(MODELS.length + 1).split('/')[0]
+      modelPreviewPriority.finish(token)
+      if (!completeOnly) grants.delete(token)
     },
     /** genio-viewer://app/... and genio-media://model/<token>/...; anything else is not found. */
     async handle(req: Request): Promise<Response> {
@@ -180,7 +204,7 @@ export function modelViewerFiles(opts: ModelViewerFilesOptions) {
         const models = u.protocol === `${MEDIA_SCHEME}:` && u.hostname === 'model'
         if (req.method !== 'GET' && !(req.method === 'HEAD' && models)) return fail(405, 'method not allowed')
         if (u.protocol === `${VIEWER_SCHEME}:` && u.hostname === 'app') return await app(u)
-        if (models) return await model(u, req.method === 'HEAD')
+        if (models) return await model(u, req.method === 'HEAD', req.headers.get('range'))
         return fail(404, 'not found')
       } catch { return fail(404, 'not found') }
     }
