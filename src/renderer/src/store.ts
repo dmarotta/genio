@@ -198,10 +198,10 @@ const registeredViews = new Set<string>()
 export function registerViews(views: string[]): void { views.forEach((view) => registeredViews.add(view)) }
 export function hasView(view: string): boolean { return registeredViews.has(view) }
 
-/** Project screens (Comms, Inventory, Play) always show this window's project; the Hub has none. */
+/** Project screens (Comms, Inventory, Art Bible, Play) always show this window's project; the Hub has none. */
 export function go(view: ViewId): void {
   if (view === 'worlds') view = 'systems'
-  if (!PROJECT_WINDOW && ['comms', 'inventory', 'play'].includes(view)) view = 'worlds'
+  if (!PROJECT_WINDOW && !viewAvailable(view, false, true)) view = 'worlds'
   setState({ view, palette: false })
 }
 

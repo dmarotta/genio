@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Backpack, IdCard, Globe, MessageSquare, ScrollText, Settings, Swords, Gamepad2, type LucideIcon } from 'lucide-react'
+import { Backpack, IdCard, Globe, MessageSquare, Palette, ScrollText, Settings, Swords, Gamepad2, type LucideIcon } from 'lucide-react'
 import { PROJECT_WINDOW, go, useStore, runningUnits, playAvailable, type ViewId } from '../store'
 import { cx } from '../lib/format'
 import { entryActive, initialIndex, menuKey, navItems, opensMenu, windowRail, type NavItem, type RailEntry } from '../lib/railmenu'
@@ -16,7 +16,8 @@ const ICON: Record<string, LucideIcon> = {
   status: IdCard,
   worlds: Globe,
   systems: Settings,
-  inventory: Backpack
+  inventory: Backpack,
+  'art-bible': Palette
 }
 
 /** This window's rail with and without Play, built once so selectors stay referentially stable. */

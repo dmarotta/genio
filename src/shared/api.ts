@@ -498,6 +498,10 @@ export interface GenioApi {
   inventoryModelUrl(world: string, path: string): Promise<string>
   /** Resume thumbnails after loading, or revoke the grant when the selection closes. */
   inventoryModelRelease(url: string, completeOnly?: boolean): Promise<void>
+  /** The Art Bible screen: `.genio/art-bible.md`, its source doc and the resolved bible (project window only). */
+  artBibleRead(world: string): Promise<import('./art-bible').ArtBibleView>
+  /** Save the bible (refused when it would not compile) or its source doc in place; never committed. */
+  artBibleWrite(world: string, file: import('./art-bible').ArtBibleFile, text: string): Promise<import('./art-bible').ArtBibleView>
   featureUsed(feature: 'screenshot' | 'model-picker' | 'character-sheet' | 'play-fullscreen'): Promise<void>
   /** Character Sheet: pin an unlocked achievement to the front of the grid (three at most) */
   trophyPin(id: string, pinned: boolean): Promise<OpResult>
@@ -697,6 +701,7 @@ export const API_METHODS = [
   'playerInstanceStatus', 'playerInstancePlay', 'playerInstanceStartUnity', 'playerInstanceEnterPlay', 'playerInstanceExitPlay', 'playerInstanceStopUnity', 'playerInstancePause', 'playerInstanceStep', 'playerInstanceScenes', 'playerInstanceSetScene', 'playerInstanceResize', 'playerInstanceStop', 'playerInstanceQuit', 'playerInstanceRestart', 'playerInstanceKeepAlive', 'playerInstanceDetach', 'playerInstanceSettings', 'playerInstanceMachine', 'playerInstanceConsole', 'playerInstanceStream', 'playerInstanceDialogShot', 'playerSources', 'playerSourceAvailable',
   'playerCopies', 'playerCopyStatus', 'playerCopyEnsure', 'playerCopySync', 'playerCopyCancel', 'playerCopyDelete', 'playerCopySizes',
   'inventoryOpen', 'inventoryClose', 'inventoryRefresh', 'inventoryList', 'inventoryInfo', 'inventoryModelUrl', 'inventoryModelRelease',
+  'artBibleRead', 'artBibleWrite',
   'featureUsed',
   'trophyPin',
   'titleEquip',

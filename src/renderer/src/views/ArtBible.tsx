@@ -1,0 +1,271 @@
+import { useEffect, useState } from 'react'
+import { Check, Eye, ImageOff, Pencil, X } from 'lucide-react'
+import { ART_BIBLE_MAX_BYTES, ART_BIBLE_WARN_BYTES, hasArtBible, paletteStrip, refLabel, type ArtBibleColor, type ArtBibleFile, type ArtBibleOverview, type ArtBibleRef, type ArtBibleView } from '@shared/art-bible'
+import { PROJECT_WINDOW, api, errText, op, useStore } from '../store'
+import { Markdown } from '../components/Markdown'
+import { Tabs } from '../components/ui'
+import { useScreenContext } from '../lib/screen-context'
+import { cx } from '../lib/format'
+import '../styles/art-bible.css'
+
+type Tab = 'overview' | 'markdown'
+export const ART_BIBLE_EMPTY = 'No Art Bible yet. Ask Genio to create one.'
+/** Genio's chat or a unit may write the file while the screen is open. */
+const POLL_MS = 3000
+/** Unsaved Markdown edits per project, kept while the player visits other screens. */
+const drafts = new Map<string, Partial<Record<ArtBibleFile, string>>>()
+
+/** Each project window is bound to one project; the Art Bible is that project's `.genio/art-bible.md`. */
+export function ArtBible() {
+  const project = useStore(s => s.snap.projects.find(p => p.name === PROJECT_WINDOW))
+  return (
+    <div className="view art-bible">
+      {project ? <WorldArtBible key={project.name} world={project.name} /> : <><Head /><p className="dim">Open this project from the Hub to see its Art Bible.</p></>}
+    </div>
+  )
+}
+
+function Head({ view }: { view?: ArtBibleView }) {
+  const shown = hasArtBible(view)
+  return (
+    <header className="view-head ab-head">
+      <div>
+        <div className="ab-kicker">
+          <span className="label">Project art direction</span>
+          {shown && <span className="mono">{view!.path}</span>}
+        </div>
+        <h1 className="title">Art <span className="accent">Bible</span></h1>
+      </div>
+    </header>
+  )
+}
+
+function WorldArtBible({ world }: { world: string }) {
+  const [view, setView] = useState<ArtBibleView>()
+  const [error, setError] = useState('')
+  const [tab, setTab] = useState<Tab>('overview')
+  const [, setRev] = useState(0)
+
+  useEffect(() => {
+    let alive = true, last = ''
+    const load = (): void => {
+      void api().artBibleRead(world).then(v => {
+        if (!alive) return
+        const key = JSON.stringify(v)
+        if (key !== last) { last = key; setView(v) }
+        setError('')
+      }).catch(e => { if (alive) setError(errText(e)) })
+    }
+    load()
+    const timer = setInterval(() => { if (document.visibilityState === 'visible') load() }, POLL_MS)
+    window.addEventListener('focus', load)
+    return () => { alive = false; clearInterval(timer); window.removeEventListener('focus', load) }
+  }, [world])
+
+  const shown = hasArtBible(view)
+  useScreenContext('art-bible', {
+    world,
+    facts: [
+      view && { label: 'Art Bible', value: shown ? `${view.path}${view.source ? `, extending ${view.source.path}` : ''}` : 'none yet' },
+      shown && { label: 'Tab', value: tab === 'overview' ? 'Overview' : 'Markdown' }
+    ]
+  })
+
+  const setDraft = (file: ArtBibleFile, text: string | undefined): void => {
+    const d = { ...drafts.get(world) }
+    if (text === undefined) delete d[file]
+    else d[file] = text
+    drafts.set(world, d)
+    setRev(n => n + 1)
+  }
+
+  if (!view) return <><Head />{error ? <p className="alert-text">{error}</p> : <div className="bar indeterminate"><i /></div>}</>
+  if (!shown) return <><Head view={view} /><p className="dim ab-empty">{ART_BIBLE_EMPTY}</p></>
+
+  return (
+    <>
+      <Head view={view} />
+      <Tabs<Tab> value={tab} onChange={setTab} tabs={[{ id: 'overview', label: 'Overview' }, { id: 'markdown', label: 'Markdown' }]} />
+      {error && <p className="alert-text">{error}</p>}
+      {tab === 'overview'
+        ? <Overview view={view} />
+        : <MarkdownTab world={world} view={view} drafts={drafts.get(world) ?? {}} setDraft={setDraft} onSaved={setView} />}
+    </>
+  )
+}
+
+function Overview({ view }: { view: ArtBibleView }) {
+  const b = view.bible
+  if (!b) return <p className="alert-text">{view.error ?? 'This Art Bible could not be read.'}</p>
+  const strip = paletteStrip(b)
+  const empty = !b.style && !strip.length && !b.references.length && !b.do.length && !b.dont.length && !b.avoid.length
+  return (
+    <>
+      {b.source && <div className="mute ab-from">From {b.source}</div>}
+      {b.issues.length > 0 && <Issues issues={b.issues} />}
+      {empty && <p className="dim">Nothing to show yet: this Art Bible has no style, palette, references, do and don't lines or avoid terms.</p>}
+      {strip.length > 0 && <div className="ab-strip" aria-hidden>{strip.map((hex, i) => <b key={i} style={{ background: hex }} />)}</div>}
+      <div className="ab-grid">
+        <div className="ab-col">
+          {b.style && (
+            <section className="panel ab-card">
+              <div className="label ab-card-head">Style</div>
+              <Markdown className="ab-style" text={b.style.text || b.style.summary} />
+            </section>
+          )}
+          {b.references.length > 0 && (
+            <section className="panel ab-card">
+              <div className="label ab-card-head">Moodboard · {b.references.length} reference{b.references.length === 1 ? '' : 's'}</div>
+              <div className="ab-mood">{b.references.map((r, i) => <RefTile key={`${r.href}-${i}`} r={r} />)}</div>
+            </section>
+          )}
+          {(b.do.length > 0 || b.dont.length > 0) && (
+            <div className="ab-dd">
+              {b.do.length > 0 && <Lines title="Do" lines={b.do} good />}
+              {b.dont.length > 0 && <Lines title="Don't" lines={b.dont} />}
+            </div>
+          )}
+        </div>
+        {(strip.length > 0 || b.avoid.length > 0) && (
+          <div className="ab-col">
+            {strip.length > 0 && (
+              <section className="panel ab-card ab-palette">
+                <div className="label ab-card-head">Palette</div>
+                <Swatches colors={b.palette} />
+                {b.accents.length > 0 && <><div className="label ab-sub">Accents</div><Swatches colors={b.accents} /></>}
+              </section>
+            )}
+            {b.avoid.length > 0 && (
+              <section className="panel ab-card">
+                <div className="label ab-card-head">Avoid</div>
+                <div className="ab-avoid">{b.avoid.map(a => <span key={a} className="chip alert">{a}</span>)}</div>
+              </section>
+            )}
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
+function Issues({ issues }: { issues: ArtBibleOverview['issues'] }) {
+  return (
+    <ul className="ab-issues">
+      {issues.map((i, n) => <li key={n} className={i.level === 'error' ? 'alert-text' : 'amber-text'}>{i.message}</li>)}
+    </ul>
+  )
+}
+
+function RefTile({ r }: { r: ArtBibleRef }) {
+  const [broken, setBroken] = useState(false)
+  const label = refLabel(r)
+  const why = r.external ? 'External link: not shown and never sent' : !r.exists ? 'Missing file' : 'Cannot be shown'
+  return (
+    <figure className="ab-ref" title={[r.path ?? r.href, r.types.length ? r.types.join(', ') : 'all types', `weight ${r.weight}`].join(' · ')}>
+      {r.url && !broken
+        ? <img src={r.url} alt={label} loading="lazy" draggable={false} onError={() => setBroken(true)} />
+        : <div className="ab-ref-none"><ImageOff size={18} /><span>{why}</span></div>}
+      <span className="chip neon ab-role">{r.role}</span>
+      <span className="ab-weight" aria-label={`weight ${r.weight} of 3`}>{[1, 2, 3].map(n => <i key={n} className={cx(n > r.weight && 'off')} />)}</span>
+      <figcaption>{label}</figcaption>
+    </figure>
+  )
+}
+
+function Lines({ title, lines, good }: { title: string; lines: string[]; good?: boolean }) {
+  const Icon = good ? Check : X
+  return (
+    <section className="panel ab-card">
+      <div className="label ab-card-head">{title}</div>
+      <ul className="ab-list">
+        {lines.map((l, i) => <li key={i}><Icon size={14} className={good ? 'volt-text' : 'alert-text'} /><span>{l}</span></li>)}
+      </ul>
+    </section>
+  )
+}
+
+function Swatches({ colors }: { colors: ArtBibleColor[] }) {
+  return (
+    <div className="ab-swatches">
+      {colors.map((c, i) => (
+        <div key={`${c.hex}-${i}`} className="ab-swatch" title={[c.name, c.hex, c.use].filter(Boolean).join(' · ')}>
+          <b style={{ background: c.hex }} />
+          <span>{c.name}<span className="mono">{c.hex}</span>{c.use && <span className="mute">{c.use}</span>}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** The raw files, in the Memory editor pattern: one textarea per file, preview, Ctrl+S, size against the limits. */
+function MarkdownTab({ world, view, drafts, setDraft, onSaved }: {
+  world: string
+  view: ArtBibleView
+  drafts: Partial<Record<ArtBibleFile, string>>
+  setDraft: (file: ArtBibleFile, text: string | undefined) => void
+  onSaved: (v: ArtBibleView) => void
+}) {
+  const [file, setFile] = useState<ArtBibleFile>('bible')
+  const [preview, setPreview] = useState(false)
+  const current: ArtBibleFile = file === 'source' && view.source ? 'source' : 'bible'
+  const disk = (current === 'source' ? view.source?.text : view.text) ?? ''
+  const text = drafts[current] ?? disk
+  const dirty = text !== disk
+  const path = current === 'source' ? view.source!.path : view.path
+  const bytes = new TextEncoder().encode(text).length
+
+  const save = async (): Promise<void> => {
+    if (!dirty) return
+    const r = await op('Save Art Bible', () => api().artBibleWrite(world, current, text), () => `${path} saved`)
+    if (!r) return
+    setDraft(current, undefined)
+    onSaved(r)
+  }
+
+  return (
+    <section className="memory-editor ab-markdown">
+      <div className="memory-top">
+        {view.source
+          ? <Tabs<ArtBibleFile> value={current} onChange={setFile} tabs={[
+            { id: 'bible', label: view.path, badge: drafts.bible !== undefined && drafts.bible !== (view.text ?? '') ? 1 : undefined },
+            { id: 'source', label: view.source.path, badge: drafts.source !== undefined && drafts.source !== view.source.text ? 1 : undefined }
+          ]} />
+          : <span className="mono dim">{view.path}</span>}
+        <div className="memory-tools">
+          <span className={cx('mono', bytes > ART_BIBLE_MAX_BYTES ? 'alert-text' : bytes > ART_BIBLE_WARN_BYTES ? 'amber-text' : 'mute')} title={`Warns above ${ART_BIBLE_WARN_BYTES / 1024} KB; above ${ART_BIBLE_MAX_BYTES / 1024} KB generators cannot use it`}>
+            {(bytes / 1024).toFixed(1)} KB
+          </span>
+          <button className={cx('btn sm ghost', preview && 'on')} onClick={() => setPreview(p => !p)}>
+            {preview ? <Pencil size={12} /> : <Eye size={12} />} {preview ? 'Edit' : 'Preview'}
+          </button>
+          {dirty && <button className="btn sm ghost" onClick={() => setDraft(current, undefined)}>Discard</button>}
+          <button className="btn sm solid" disabled={!dirty} onClick={() => void save()}>
+            <Check size={12} /> Save file
+          </button>
+        </div>
+      </div>
+      <div className="mute memory-hint">
+        {current === 'source' ? 'The existing doc this Art Bible extends, edited where it is.' : 'Saved as a plain file; Genio never commits it.'}
+      </div>
+      {preview ? (
+        <div className="memory-preview">
+          <Markdown text={text} />
+        </div>
+      ) : (
+        <textarea
+          className="textarea mono memory-text"
+          aria-label={`${path} text`}
+          value={text}
+          spellCheck={false}
+          onChange={e => setDraft(current, e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 's' && (e.ctrlKey || e.metaKey)) {
+              e.preventDefault()
+              void save()
+            }
+          }}
+        />
+      )}
+    </section>
+  )
+}

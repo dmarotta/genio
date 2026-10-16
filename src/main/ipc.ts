@@ -7,6 +7,7 @@ import { playerInstanceService } from './player-instance'
 import { playerSources, sourceUnit } from './player-sources'
 import { modelViewer } from './model-viewer'
 import { standingApprovals } from './standing-approvals'
+import { readArtBibleView, writeArtBibleFile } from './art-bible'
 /**
  * IPC: one ipcMain.handle per GenioApi method ('genio:<method>'). The table is
  * typed against GenioApi so a missing or mistyped method fails the build.
@@ -59,6 +60,11 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     const f = findTask(ctx(), id)
     if (!f) throw new Error(`no unit/mission ${id}`)
     return f
+  }
+  const projectRoot = (world: string): string => {
+    const root = ctx().projects.get(world)?.path
+    if (!root) throw new Error(`Project not loaded: ${world}`)
+    return root
   }
   const backlogHome = (id: string): HomeCtx => {
     for (const hc of ctx().homes.values()) if (hc.backlog.get(id)) return hc
@@ -147,6 +153,12 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     },
     inventoryModelUrl: (world, asset) => modelViewer().grant(world, asset, true),
     inventoryModelRelease: async (url, completeOnly) => modelViewer().revoke(url, completeOnly === true),
+    artBibleRead: async (world) => readArtBibleView(world, projectRoot(world)),
+    artBibleWrite: async (world, file, text) => {
+      const view = writeArtBibleFile(world, projectRoot(world), file, text)
+      unlockQuietly('art-bible-edit')
+      return view
+    },
     featureUsed: async (feature) => {
       if (feature === 'screenshot' || feature === 'model-picker' || feature === 'character-sheet' || feature === 'play-fullscreen') bus.publish({ type: 'feature-used', feature })
     },
@@ -389,6 +401,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
         if (windows && !binding && ['sendChat', 'steerChat', 'sendQueuedNow', 'recap', 'save', 'restartWksp', 'interruptWksp', 'unqueueChat', 'reactToMessage', 'approveGeneration'].includes(method)) throw new Error('Open a project window to use its chat.')
         if (method.startsWith('playPool') || method === 'playCloseSlotEditor' || method.startsWith('playerCopy')) assertProjectWindow(binding, args[0])
         if (method.startsWith('playerInstance') || method === 'playerSources' || method === 'playerSourceAvailable') assertProjectWindow(binding, args[0])
+        if (windows && method.startsWith('artBible') && (!binding || args[0] !== binding.project)) throw new Error('The Art Bible belongs to its project window.')
         // The pane lives in its project window only; a '!' result goes to that window's own chat.
         if (windows && method.startsWith('pane') && (!binding || args[0] !== binding.project || (method === 'paneRun' && args[1] !== binding.wksp))) {
           throw new Error('The terminal belongs to its project window.')

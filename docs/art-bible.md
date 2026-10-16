@@ -77,6 +77,16 @@ founders-of-avalon's `docs/ART_DIRECTION.md` parses without edits: 10 palette co
 
 When text runs over a budget it is cut in this order: per-type line, do/don't lines, palette detail (uses, then hex), summary.
 
+## Screen
+
+**Art Bible** sits in the rail after Inventory (**Ctrl+6**) in every project window. It reads the file every few seconds, so a bible Genio writes from chat shows up while the screen is open.
+
+- **No bible** (missing or empty file): one line, "No Art Bible yet. Ask Genio to create one." Nothing else: no import, template or suggestions.
+- **Overview**: style, a moodboard of the references (role, weight, caption; missing and external ones show as placeholders), palette and accents, do and don't, avoid terms, and any problems the bible has. A bible with `source:` shows a quiet "From <path>" line.
+- **Markdown**: the raw file in the Memory editor pattern (preview, Ctrl+S, size against the 16 and 64 KB limits). With `source:` it edits both the bible and the source doc in place. Saves are plain file writes that Genio never commits; a bible that would not compile is refused.
+
+Code: `src/renderer/src/views/ArtBible.tsx` and `src/main/art-bible.ts`, which also serves reference images over `genio-media://art-bible/<project>/<path>` (only paths the bible lists).
+
 ## Helpers and CLI
 
 - `parseArtBible`, `mergeArtBible` and `loadArtBible` parse and resolve; `summarize` gives counts.

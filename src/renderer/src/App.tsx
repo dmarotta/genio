@@ -18,6 +18,7 @@ import { CharacterSheet } from './views/CharacterSheet'
 import { ProjectNotice } from './views/ProjectSettings'
 import { Systems } from './views/Systems'
 import { Inventory } from './views/Inventory'
+import { ArtBible } from './views/ArtBible'
 import { Play } from './views/Play'
 import { GenioPanel } from './components/GenioPanel'
 import { TerminalPane } from './components/TerminalPane'
@@ -29,7 +30,8 @@ const VIEW: Partial<Record<ViewId, ComponentType>> = {
   quests: Quests,
   status: CharacterSheet,
   systems: Systems,
-  inventory: Inventory
+  inventory: Inventory,
+  'art-bible': ArtBible
 }
 
 registerViews(Object.keys(VIEW))

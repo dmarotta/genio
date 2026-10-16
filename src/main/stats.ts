@@ -67,6 +67,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'asset-pathfinder', name: 'Asset Pathfinder', description: 'Locate a new asset destination.', feature: 'asset_locate' },
   { id: 'inventory-open', name: 'Open the Vault', description: 'Open a project Inventory.', feature: 'inventory' },
   { id: 'inventory-preview', name: 'Closer Look', description: 'Select an asset to preview in Inventory.', feature: 'inventory' },
+  { id: 'art-bible-edit', name: 'House Style', description: 'Save a project Art Bible from its screen.', feature: 'art-bible' },
   { id: 'model-picker', feature: 'comms', name: 'Meet the Models', description: 'Open the live model picker.' },
   { id: 'model-switch', feature: 'comms', name: 'Change of Mind', description: 'Switch a chat model in the picker.' },
   { id: 'screenshot', feature: 'comms', name: 'Show and Tell', description: 'Paste a screenshot into chat.' },

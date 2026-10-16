@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { RAIL, entryActive, initialIndex, menuKey, navItems, opensMenu } from '../src/renderer/src/lib/railmenu'
+import { RAIL, entryActive, initialIndex, menuKey, navItems, opensMenu, windowRail } from '../src/renderer/src/lib/railmenu'
 
 const MENU = { kind: 'menu' as const, id: 'test', label: 'Test menu', items: [{ id: 'inventory' as const, label: 'Inventory', key: '9' }, { id: 'worlds' as const, label: 'Worlds', key: '6' }] }
 
@@ -20,8 +20,18 @@ describe('rail entries', () => {
   it('keeps every screen and its shortcut reachable for the palette', () => {
     const keys = Object.fromEntries(navItems().map((n) => [n.id, n.key]))
     expect(keys).toEqual({
-      comms: '1', squad: '2', quests: '3', status: '5', systems: '8', inventory: '9', play: '0'
+      comms: '1', squad: '2', quests: '3', status: '5', systems: '8', inventory: '9', 'art-bible': '6', play: '0'
     })
+  })
+
+  it('puts Art Bible right after Inventory, in every project window and never in the Hub', () => {
+    const ids = navItems().map((i) => i.id)
+    expect(ids.indexOf('art-bible')).toBe(ids.indexOf('inventory') + 1)
+    expect(navItems().find((i) => i.id === 'art-bible')?.label).toBe('Art Bible')
+    for (const play of [true, false]) {
+      expect(navItems(windowRail(true, play)).map((i) => i.id)).toContain('art-bible')
+      expect(navItems(windowRail(false, play)).map((i) => i.id)).not.toContain('art-bible')
+    }
   })
 
   it('has no Lore entry: memory lives in Settings → Memory', () => {
@@ -38,6 +48,7 @@ describe('rail icons', () => {
   it('uses game-metaphor glyphs: id card, backpack, gear', () => {
     expect(rail).toMatch(/status: IdCard,/)
     expect(rail).toMatch(/inventory: Backpack\b/)
+    expect(rail).toMatch(/'art-bible': Palette\b/)
     expect(rail).toMatch(/systems: Settings,/)
   })
 
