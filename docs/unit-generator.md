@@ -25,7 +25,13 @@ the main area of its page, card and rail row.
 
 ## Brief
 
-`generatorBrief` in `src/main/brief.ts` renders a short `# Generator` section:
+A Generator has the same skills as every other unit: the shared `# Tools` section and launch environment
+(Codex images, FAL, Uthana, the Sound Studio, Blender, Unity, assets, the Art Bible), see
+[unit-worktrees.md](unit-worktrees.md#every-unit-gets-every-capability). A Recon, Build or Modeller can make
+the same assets under the same spend rules; we prefer generation work to be done in units, and a Generator is
+simply the unit whose mission is the job list.
+
+`generatorBrief` in `src/main/brief.ts` adds only its own rules, in a short `# Generator` section:
 the job list, spending only under the spend grant the player approved (no
 default budget: an approved budget at deploy, or the player's approval of the
 unit's `needs-decision [key=spend]` question; see docs/agent-generation.md), the helper per job

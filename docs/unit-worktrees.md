@@ -108,6 +108,34 @@ Electron cannot show the card when its own binary or `.bin` is gone. For that ca
 `npm start` run the same check first (`predev` / `prestart`: `scripts/check-install.mjs`), which prints the
 same message and exits 1. A packaged build skips the check.
 
+## Every unit gets every capability
+
+The worktree is the same for every unit, and so is what it can use. Every unit, whatever its kind (Recon,
+Build, Modeller, Generator) or runtime (Claude Code, Codex, Gemini, OpenCode and the rest), gets the whole
+skill set: assets, imagegen-codex (Codex images on the ChatGPT plan), fal, uthana, sound (the Sound Studio),
+blender and unity, plus the Art Bible when the project has one. Only the mission rules differ: a Recon does
+not commit, a Modeller and a Generator keep their claims and landing rules.
+
+- **One list.** `UNIT_CAPABILITIES` in `src/main/unitskills.ts` names each skill, its path variable and its
+  own prerequisite. Blender needs a local Blender, Unity a Unity project, FAL and Uthana their key and a spend
+  grant, Codex images only the player's ChatGPT plan.
+- **Brief.** `unitBriefSections` (`brief.ts`) gives every kind the same `# Tools` section (`unitToolsBrief`).
+  It opens with the capability list and the line "Work is best done in units, and any paid call needs an
+  approval". A Modeller or Generator section adds only that kind's rules. A Recon upgraded to a Build gets
+  the same Tools again, with the grant the player approved so far.
+- **Environment.** `unitLaunchExtras` sets the same variables for every runtime: one `GENIO_<SKILL>_SKILL`
+  per skill (`GENIO_ASSETS_SKILL`, `GENIO_IMAGEGEN_CODEX_SKILL`, `GENIO_FAL_SKILL`, `GENIO_UTHANA_SKILL`,
+  `GENIO_SOUND_SKILL`, `GENIO_BLENDER_SKILL`, `GENIO_UNITY_SKILL`), `GENIO_UNITY`, the helpers' data folders
+  (`GENIO_BLENDER_SCRATCH`, `GENIO_MODELLER_DATA`, `GENIO_SOUND_DATA`, `GENIO_CODEX_IMAGE_SCRATCH`,
+  `GENIO_UTHANA_DATA`), `GENIO_HELP_DOCS`, the spend grant (`GENIO_SPEND_GRANT`, `GENIO_SPEND_KEY`) and
+  `FAL_KEY` / `UTHANA_API_KEY` when the player set them. A key is never permission to spend: the paid
+  helpers refuse without a grant ([agent-generation.md](agent-generation.md)). Claude Code also gets
+  `--plugin-dir`, which is only its native way to load the same skills. Unity projects add the genio-unity
+  config and shims ([unity-enforcement.md](unity-enforcement.md)).
+- **Guard.** `tests/unit-capabilities.test.ts` renders every kind's brief for every built-in runtime and the
+  launch environment per runtime. It fails when one kind or runtime lacks a skill (`capabilityGaps`).
+  `tests/crew-lifecycle.test.ts` deploys each kind for real and compares their environments.
+
 ## Tests
 
 `tests/node-deps.test.ts` and `tests/worktree-deps.test.ts` use real junctions in temp folders

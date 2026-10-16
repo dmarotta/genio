@@ -11,7 +11,7 @@ import type { AppCtx, CrewService } from './services'
 import { placeWorktree, type Home } from './home'
 import { bus } from './bus'
 import * as git from './git'
-import { appendProgressNote, doorbellLine, engineHints, generatorBrief, kickoffPrompt, modellerDoneLines, renderBrief, type BriefInput } from './brief'
+import { appendProgressNote, doorbellLine, engineHints, kickoffPrompt, renderBrief, unitBriefSections, type BriefInput } from './brief'
 import { claimConflict, claimHolderKind } from '@shared/modeller'
 import { pruneModellerData } from './modeller-landing'
 import { holdsCapacity } from './usage-policy'
@@ -38,7 +38,7 @@ import { depsEnv, depsPreToolHook, depsStateFile, installNpmShims, npmGuardScrip
 import { isLink, removeLinkSafely } from '../../resources/unit-skills/genio/lib/node-deps.mjs'
 import { sourceRemoved, yieldSource } from './source-leases'
 import { helpDocsDir } from './help'
-import { falSkillDir, installUnitPlugin, modellerBrief, modellerDataDir, openRouterEnv, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief } from './unitskills'
+import { installUnitPlugin, modellerDataDir, openRouterEnv, unitLaunchExtras, unitPluginDir, unitPluginSource } from './unitskills'
 import { findUnityCli, unityUnitConfig, unityUnitEnv } from './unity-unit'
 import { artBibleBriefLines, unitArtBible, unitArtBibleEnv } from './art-bible-gen'
 import {
@@ -168,7 +168,6 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
   /** Bundled unit skills live in the main base, outside every world. */
   const mainHome = home.parent ?? home
   const pluginDir = unitPluginDir(mainHome.root)
-  const toolsBrief = (approvedUsd?: number): string => unitToolsBrief(pluginDir, helpDocsDir(getCtx().appRoot), approvedUsd)
   /** The brief's Art Bible lines: none without a bible, and never fatal. */
   const artBibleBrief = (main: string, wt: string, id: string): string[] => {
     try {
@@ -724,12 +723,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
             engineHints: engineHints(effectiveEngine(project).engine),
             briefInclude: s.briefInclude,
             summaryWords: req.kind === 'scout' ? ctx.dispatch.reportWords(project.name, loadout.harness) : undefined,
-            tools: toolsBrief(req.approvedBudget?.usd),
-            modeller: modeller ? modellerBrief(pluginDir, home.taskDir(id)) : undefined,
-            modellerDone: modeller
-              ? modellerDoneLines({ engine: effectiveEngine(project).engine, engineRoot: effectiveEngine(project).root, locate: path.join(falSkillDir(pluginDir), 'scripts', 'fal.mjs'), claims })
-              : undefined,
-            generator: generator ? generatorBrief(pluginDir, home.taskDir(id), { engine: effectiveEngine(project).engine, engineRoot: effectiveEngine(project).root, claims }) : undefined,
+            ...unitBriefSections({ pluginDir, taskDataDir: home.taskDir(id), helpDocs: helpDocsDir(ctx.appRoot), approvedUsd: req.approvedBudget?.usd,
+              modeller, generator, engine: effectiveEngine(project).engine, engineRoot: effectiveEngine(project).root, claims }),
             artBible: artBibleBrief(project.path, wt, id),
             submodules,
             nodeDeps: nodeDeps(id, wt)
@@ -1150,9 +1145,12 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           statusFile: home.statusFile(id),
           inboxDir: inboxDir(id),
           taskDataDir: home.taskDir(id),
-          engine: project.engine,
+          engine: effectiveEngine(project).engine,
+          engineLine: engineBriefLine(engineFacts(project)),
+          engineHints: engineHints(effectiveEngine(project).engine),
           briefInclude: ctx.settings.get().briefInclude,
-          tools: toolsBrief(),
+          // The same skill set as at deploy, and the grant the player approved so far.
+          ...unitBriefSections({ pluginDir, taskDataDir: home.taskDir(id), helpDocs: helpDocsDir(ctx.appRoot), approvedUsd: grantedUsd(mainHome.data, id) }),
           artBible: artBibleBrief(project.path, t.worktree, id),
           nodeDeps: nodeDeps(id, t.worktree),
           carriedReport: report || '(the recon report was empty)'

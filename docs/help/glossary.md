@@ -213,8 +213,12 @@ Source: [agent-generation.md](../agent-generation.md), [unit-generator.md](../un
 ## Unit capabilities
 
 What every unit can do: work and commit in its own isolated copy, read and follow the bundled skills (assets, images,
-FAL, Uthana, sound, Blender, Unity), report status to Genio, open choices for you, and read these help docs. It never
-pushes to or merges your main branch, never talks to you directly, and never edits outside its copy.
+FAL, Uthana, sound, Blender, Unity), report status to Genio, open choices for you, and read these help docs. Every
+unit gets every skill, whatever its kind (Recon, Build, Modeller, Generator) or runtime (Claude, Codex or another);
+only its mission rules differ. Each skill needs only its own prerequisite: Blender a local Blender, Unity a Unity
+project, FAL and Uthana their key. Paid calls still need your approval. Genio prefers to hand project work,
+generation included, to units. A unit never pushes to or merges your main branch, never talks to you directly, and
+never edits outside its copy.
 Where: the unit page's Brief tab shows its full instructions.
 Source: [unit-worktrees.md](../unit-worktrees.md), [unity-enforcement.md](../unity-enforcement.md)
 

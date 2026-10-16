@@ -46,7 +46,7 @@ describe('unit launch extras', () => {
   it('gives the plugin dir only to Claude Code, the skill path to every runtime', () => {
     const codex = unitLaunchExtras('codex', { pluginDir, falKey: KEY })
     expect(codex.args).toEqual([])
-    expect(codex.env).toEqual({ GENIO_UNITY_SKILL: 'C:/genio/skills/genio/skills/unity', GENIO_UNITY: 'C:/genio/skills/genio/skills/unity/scripts/genio-unity.mjs', GENIO_ASSETS_SKILL: 'C:/genio/skills/genio/skills/assets', GENIO_UTHANA_SKILL: 'C:/genio/skills/genio/skills/uthana', GENIO_BLENDER_SKILL: fwd(blenderSkillDir(pluginDir)), GENIO_FAL_SKILL: fwd(falSkillDir(pluginDir)), GENIO_IMAGEGEN_CODEX_SKILL: fwd(codexImageSkillDir(pluginDir)), FAL_KEY: KEY })
+    expect(codex.env).toEqual({ GENIO_UNITY_SKILL: 'C:/genio/skills/genio/skills/unity', GENIO_UNITY: 'C:/genio/skills/genio/skills/unity/scripts/genio-unity.mjs', GENIO_ASSETS_SKILL: 'C:/genio/skills/genio/skills/assets', GENIO_UTHANA_SKILL: 'C:/genio/skills/genio/skills/uthana', GENIO_SOUND_SKILL: 'C:/genio/skills/genio/skills/sound', GENIO_BLENDER_SKILL: fwd(blenderSkillDir(pluginDir)), GENIO_FAL_SKILL: fwd(falSkillDir(pluginDir)), GENIO_IMAGEGEN_CODEX_SKILL: fwd(codexImageSkillDir(pluginDir)), FAL_KEY: KEY })
     expect(unitLaunchExtras('claude', { falKey: KEY })).toEqual({ args: [], env: { FAL_KEY: KEY } })
   })
 
@@ -141,7 +141,7 @@ describe('brief tools section', () => {
     expect(b).toContain('`{"spend_usd": <amount>')
     expect(b).toContain('Codex images on the ChatGPT plan are not a spend')
     expect(b).not.toMatch(/--budget/)
-    expect(unitToolsBrief('C:\\genio\\skills\\genio', undefined, 0.5)).toContain('The player approved USD 0.50 for you at deploy: that is your spend grant.')
+    expect(unitToolsBrief('C:\\genio\\skills\\genio', undefined, 0.5)).toContain('The player has approved USD 0.50 for you so far: that is your spend grant.')
     expect(b).toContain('--world')
     expect(b).toContain('C:/genio/skills/genio/skills/imagegen-codex/SKILL.md')
     // Codex is the default for images, FAL the specialist (listed after it)

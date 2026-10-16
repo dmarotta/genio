@@ -1,12 +1,15 @@
 /**
- * Skills Genio bundles for its units (FAL.ai, Codex images on the ChatGPT
- * plan). The source lives in resources/unit-skills/genio, laid out as a Claude
- * Code plugin. At launch it is installed into the main base's skills/ folder,
- * never into a world: Claude Code units load it with --plugin-dir, every
- * runtime gets the SKILL.md paths in its brief and as GENIO_FAL_SKILL,
- * GENIO_IMAGEGEN_CODEX_SKILL and the like, and the genio-unity wrapper as
- * GENIO_UNITY. The FAL key reaches a unit only as the FAL_KEY
- * environment variable of its process, the Uthana key only as UTHANA_API_KEY.
+ * Skills Genio bundles for its units (assets, Codex images on the ChatGPT
+ * plan, FAL.ai, Uthana, the Sound Studio, Blender, Unity). The source lives in
+ * resources/unit-skills/genio, laid out as a Claude Code plugin. At launch it
+ * is installed into the main base's skills/ folder, never into a world: Claude
+ * Code units load it with --plugin-dir, every runtime gets the SKILL.md paths
+ * in its brief and as GENIO_FAL_SKILL, GENIO_SOUND_SKILL and the like
+ * (UNIT_CAPABILITIES), and the genio-unity wrapper as GENIO_UNITY. Every unit
+ * gets every skill, whatever its kind or runtime; only the mission rules
+ * differ. The FAL key reaches a unit only as the FAL_KEY environment variable
+ * of its process, the Uthana key only as UTHANA_API_KEY; a key never lets a
+ * unit spend without a spend grant.
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -34,6 +37,39 @@ export const modellerScript = (pluginDir: string): string => path.join(blenderSk
 export const modellerDataDir = (taskDataDir: string): string => path.join(taskDataDir, 'modeller')
 /** Scratch runs of the Codex image helper live in Genio's data, never in a world. */
 export const codexImageScratch = (dataDir: string): string => path.join(dataDir, 'codex-image')
+/** A unit's Sound Studio sets: its data folder, never its worktree (sound.mjs's own fallback). */
+export const soundDataDir = (taskDataDir: string): string => path.join(taskDataDir, 'sound')
+
+/** One bundled skill: its folder under skills/, its path variable and what it needs to run. */
+export interface UnitCapability {
+  skill: string
+  env: string
+  /** What it is for, in the brief's capability list */
+  use: string
+  /** Its own prerequisite, stated plainly */
+  needs: string
+}
+
+/**
+ * The capability set: every unit gets all of it (paths in its brief and environment), whatever its
+ * kind (Recon, Build, Modeller, Generator) or runtime (Claude, Codex, others). A key being set never
+ * means a unit may spend: paid helpers refuse without a spend grant.
+ */
+export const UNIT_CAPABILITIES: readonly UnitCapability[] = [
+  { skill: 'assets', env: 'GENIO_ASSETS_SKILL', use: 'provider routing, placement and how to ask for spend', needs: 'nothing' },
+  { skill: 'imagegen-codex', env: 'GENIO_IMAGEGEN_CODEX_SKILL', use: 'images', needs: "the player's ChatGPT plan; free, no approval" },
+  { skill: 'fal', env: 'GENIO_FAL_SKILL', use: 'textures, 3D, audio, music, video', needs: 'the FAL key and a spend grant' },
+  { skill: 'uthana', env: 'GENIO_UTHANA_SKILL', use: 'character motions', needs: 'the Uthana key and a spend grant' },
+  { skill: 'sound', env: 'GENIO_SOUND_SKILL', use: 'SFX sets, UI sounds, ambience loops', needs: 'nothing for local steps; its FAL steps need the FAL key and a spend grant' },
+  { skill: 'blender', env: 'GENIO_BLENDER_SKILL', use: 'batch modelling, export, Modeller steps', needs: 'a local Blender' },
+  { skill: 'unity', env: 'GENIO_UNITY_SKILL', use: 'compile, test, import, build, play', needs: 'a Unity project' }
+]
+export const unitSkillDir = (pluginDir: string, skill: string): string => path.join(pluginDir, 'skills', skill)
+
+/** Skills whose SKILL.md a brief does not name: empty when the unit has the whole capability set. */
+export function capabilityGaps(brief: string, pluginDir: string): string[] {
+  return UNIT_CAPABILITIES.filter((c) => !brief.includes(`${fwd(unitSkillDir(pluginDir, c.skill))}/SKILL.md`)).map((c) => c.skill)
+}
 
 function writeIfChanged(file: string, content: Buffer): void {
   try {
@@ -85,7 +121,11 @@ export interface UnitLaunchExtras {
 /** Characters Genio and its units uploaded to Uthana: Genio's data, never a world. */
 export const uthanaDataDir = (dataDir: string): string => path.join(dataDir, 'uthana')
 
-/** Launch additions for a unit: the plugin dir for Claude Code, the skill paths, Codex image scratch, Genio's help docs and the FAL and Uthana keys for all. */
+/**
+ * Launch additions for a unit: the plugin dir for Claude Code (its native skill loader), and for every
+ * runtime alike every skill path, the helpers' data folders, Codex image scratch, Genio's help docs and the
+ * FAL and Uthana keys. Nothing here depends on the unit's kind.
+ */
 export function unitLaunchExtras(harnessId: string, opts: { pluginDir?: string; falKey?: string; uthanaKey?: string; dataDir?: string; taskDataDir?: string; project?: string; helpDocs?: string }): UnitLaunchExtras {
   const args: string[] = []
   const env: Record<string, string> = {}
@@ -93,15 +133,11 @@ export function unitLaunchExtras(harnessId: string, opts: { pluginDir?: string; 
   if (opts.pluginDir) {
     // First in argv: the next element is always another flag, never the prompt.
     if (harnessId === 'claude') args.push('--plugin-dir', opts.pluginDir)
-    env.GENIO_BLENDER_SKILL = fwd(blenderSkillDir(opts.pluginDir))
+    for (const c of UNIT_CAPABILITIES) env[c.env] = fwd(unitSkillDir(opts.pluginDir, c.skill))
     if (opts.taskDataDir ?? opts.dataDir) env.GENIO_BLENDER_SCRATCH = fwd(path.join((opts.taskDataDir ?? opts.dataDir)!, 'blender'))
     if (opts.taskDataDir) env.GENIO_MODELLER_DATA = fwd(modellerDataDir(opts.taskDataDir))
-    env.GENIO_ASSETS_SKILL = fwd(assetsSkillDir(opts.pluginDir))
-    env.GENIO_UNITY_SKILL = fwd(unitySkillDir(opts.pluginDir))
+    if (opts.taskDataDir) env.GENIO_SOUND_DATA = fwd(soundDataDir(opts.taskDataDir))
     env.GENIO_UNITY = fwd(genioUnityScript(opts.pluginDir))
-    env.GENIO_UTHANA_SKILL = fwd(uthanaSkillDir(opts.pluginDir))
-    env.GENIO_FAL_SKILL = fwd(falSkillDir(opts.pluginDir))
-    env.GENIO_IMAGEGEN_CODEX_SKILL = fwd(codexImageSkillDir(opts.pluginDir))
     if (opts.dataDir) env.GENIO_CODEX_IMAGE_SCRATCH = fwd(codexImageScratch(opts.dataDir))
     if (opts.dataDir) env.GENIO_UTHANA_DATA = fwd(uthanaDataDir(opts.dataDir))
     if (opts.project) env.GENIO_PROJECT = opts.project
@@ -175,11 +211,11 @@ export function modellerBrief(pluginDir: string, taskDataDir: string): string {
 
 /**
  * How a unit spends money: only under the player's approval (a spend grant), and how to ask for one.
- * `approvedUsd` is what the player approved at deploy, if anything.
+ * `approvedUsd` is what the player approved for the unit so far (at deploy, or before a Recon's upgrade), if anything.
  */
 export function spendRulesBrief(approvedUsd?: number): string {
   const start = approvedUsd && approvedUsd > 0
-    ? `The player approved USD ${approvedUsd.toFixed(2)} for you at deploy: that is your spend grant.`
+    ? `The player has approved USD ${approvedUsd.toFixed(2)} for you so far: that is your spend grant.`
     : 'You start with no spend grant (USD 0).'
   return (
     `- Spending: no paid call (FAL, Uthana, the Sound Studio's FAL steps, any paid provider) runs without the player's approval. ${start} ` +
@@ -190,9 +226,18 @@ export function spendRulesBrief(approvedUsd?: number): string {
   )
 }
 
+/** The brief's short capability list: the same for every unit kind and runtime, each skill with its own prerequisite. */
+export function capabilitiesBrief(): string {
+  return (
+    '- Capabilities: you have every skill below, as every unit does whatever its kind (Recon, Build, Modeller, Generator) or runtime; only the mission rules differ. ' +
+    `Each needs only its own prerequisite: ${UNIT_CAPABILITIES.map((c) => `${c.skill} (${c.use}; needs ${c.needs})`).join(', ')}. The Art Bible applies when the project has one.\n` +
+    '- Work is best done in units, and any paid call needs an approval (how to ask is in the assets skill, and under Spending below).'
+  )
+}
+
 /**
  * The brief's pointer to the bundled skills and Genio's help docs, and how the unit may spend.
- * Paths only; never a key. `approvedUsd` is what the player approved at deploy, if anything.
+ * Paths only; never a key. The same for every unit kind. `approvedUsd` is what the player approved so far, if anything.
  */
 export function unitToolsBrief(pluginDir: string, helpDocs?: string, approvedUsd?: number): string {
   const help = helpDocs ? `- Genio help (what a Genio feature, mode or setting does): read \`${fwd(helpDocs)}/help/glossary.md\`, then the docs listed in \`${fwd(helpDocs)}/help/help-set.json\` (folder also in GENIO_HELP_DOCS).\n` : ''
@@ -202,13 +247,16 @@ export function unitToolsBrief(pluginDir: string, helpDocs?: string, approvedUsd
   const codex = fwd(codexImageSkillDir(pluginDir))
   const blender = fwd(blenderSkillDir(pluginDir))
   const unity = fwd(unitySkillDir(pluginDir))
+  const sound = fwd(soundSkillDir(pluginDir))
   return (
+    `${capabilitiesBrief()}\n` +
     help +
     `- Unity (Unity projects only): read \`${unity}/SKILL.md\`. Compile, test, import, build, play, send editor commands and read the console only with \`node "${unity}/scripts/genio-unity.mjs" <verb>\` (also in GENIO_UNITY). It targets only your own copy or your leased Play slot. Never start Unity.exe, Unity Hub or the \`unity\` CLI yourself, never control the main editor and never touch Toolbox.\n` +
     `- Assets: read \`${assets}/SKILL.md\` first for provider routing and project-type placement. Use asset_locate / the shared suggestLocation helper.\n` +
     `${spendRulesBrief(approvedUsd)}\n` +
     `- Uthana (character motions, rigged characters): read \`${uthana}/SKILL.md\` and use \`node "${uthana}/scripts/uthana.mjs"\` with --world <your worktree root>, like the FAL helper. Its motions and auto-rigged uploads are paid calls under your spend grant. The key, when the player set one, is only in your UTHANA_API_KEY environment variable: never print or write it.\n` +
-    `- Blender (batch modelling, validation, export and conversion): read \`${blender}/SKILL.md\` and use \`node "${blender}/scripts/blender.mjs"\`. Requires local Blender; no MCP or live session. Logs go to GENIO_BLENDER_SCRATCH.\n` +
+    `- Sound Studio (sets of game SFX, UI sounds, ambience loops): read \`${sound}/SKILL.md\` and use \`node "${sound}/scripts/sound.mjs"\`. Local steps (trim, fade, normalize, loop, pitch, layer) are free; its FAL steps are paid calls under your spend grant. Step data goes to GENIO_SOUND_DATA, outside your worktree, and is never committed.\n` +
+    `- Blender (batch modelling, validation, export and conversion, and the Modeller steps in its SKILL.md): read \`${blender}/SKILL.md\` and use \`node "${blender}/scripts/blender.mjs"\`. Requires local Blender; no MCP or live session. Logs go to GENIO_BLENDER_SCRATCH, Modeller steps to GENIO_MODELLER_DATA.\n` +
     `- Images (default): Codex images on the player's ChatGPT plan, on in every project unless it opted out, free of approval. For concept art, sprites, icons, transparent cutouts and edits from references read \`${codex}/SKILL.md\` and use \`node "${codex}/scripts/codex-image.mjs"\`.\n` +
     `- FAL.ai (specific needs: seamless/PBR textures, 3D, audio, music, video, pixel-art conversion, upscaling, background removal, exact size/seed/reproducibility): before any FAL work read \`${dir}/SKILL.md\` and use its helper \`node "${dir}/scripts/fal.mjs"\`. ` +
     'Every model run is a paid call under your spend grant (Spending above); report what you spent. ' +

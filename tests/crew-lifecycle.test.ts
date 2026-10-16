@@ -486,7 +486,7 @@ describe('Generator', () => {
     modellerWorld()
     ;(ctx as any).ledger = { record: () => undefined }
     const t = await ctx.main.crew.spawn({ project: 'world', kind: 'ship', title: 'Door sounds', intent: 'a door creak', generator: true, approvedBudget: { usd: 0.5, via: 'dialog' } })
-    expect(fs.readFileSync(t.briefPath, 'utf8')).toContain('The player approved USD 0.50 for you at deploy: that is your spend grant.')
+    expect(fs.readFileSync(t.briefPath, 'utf8')).toContain('The player has approved USD 0.50 for you so far: that is your spend grant.')
     const { readGrant } = await import('../resources/unit-skills/genio/lib/spend-grant.mjs')
     const { grantEnv } = await import('../src/main/spend-grants')
     expect(readGrant({ ...grantEnv(home.data, home.taskDir(t.id)), GENIO_TASK_ID: t.id })).toMatchObject({ ok: true, total_usd: 0.5, grants: [{ usd: 0.5, by: 'player', how: 'approved budget in the Deploy dialog' }] })
@@ -551,6 +551,53 @@ describe('Generator', () => {
     expect(GENERATE_IMAGE_DESC).toContain("Generate PNG image(s) with Codex's image_gen on the player's ChatGPT plan")
     expect(Object.keys(generateImageShape).sort()).toEqual(['art_bible', 'asset_type', 'count', 'place', 'player_words', 'prompt', 'refs', 'transparent', 'world'])
     expect(Object.keys(generateImageShape)).not.toContain('generator')
+  })
+})
+
+describe('every unit kind gets every capability', () => {
+  const APP_ROOT = path.resolve(__dirname, '..')
+
+  it('deploys Recon, Build, Modeller and Generator with the same skills in the brief and the launch environment', async () => {
+    const { capabilityGaps, UNIT_CAPABILITIES, unitPluginDir } = await import('../src/main/unitskills')
+    modellerWorld()
+    ;(ctx as any).appRoot = APP_ROOT
+    const kinds = {
+      recon: { kind: 'scout' as const },
+      build: { kind: 'ship' as const },
+      modeller: { kind: 'ship' as const, modeller: true },
+      generator: { kind: 'ship' as const, generator: true }
+    }
+    const create = ctx.terminals.create as unknown as ReturnType<typeof vi.fn>
+    // Per-unit folders differ by the unit's id only.
+    const skillEnv = (env: Record<string, string>, id: string): Record<string, string> =>
+      Object.fromEntries(Object.entries(env).filter(([k]) => /^(FAL_KEY|UTHANA_API_KEY|GENIO_(\w+_SKILL|UNITY|SOUND_DATA|MODELLER_DATA|BLENDER_SCRATCH|CODEX_IMAGE_SCRATCH|UTHANA_DATA|HELP_DOCS|SPEND_GRANT|SPEND_KEY))$/.test(k)).map(([k, v]) => [k, v.replaceAll(id, '<id>')]))
+    const envs: Record<string, Record<string, string>> = {}
+    for (const [name, req] of Object.entries(kinds)) {
+      const t = await ctx.main.crew.spawn({ project: 'world', title: `${name} unit`, intent: `a ${name} job`, ...req })
+      expect(capabilityGaps(fs.readFileSync(t.briefPath, 'utf8'), unitPluginDir(home.root)), name).toEqual([])
+      const env = create.mock.calls.at(-1)![0].env as Record<string, string>
+      for (const c of UNIT_CAPABILITIES) expect(env[c.env], `${name} ${c.env}`).toBeTruthy()
+      expect(env.GENIO_SOUND_DATA, name).toBe(path.join(home.taskDir(t.id), 'sound').replace(/\\/g, '/'))
+      envs[name] = skillEnv(env, t.id)
+    }
+    expect(Object.keys(envs.build)).toEqual(expect.arrayContaining(['GENIO_SOUND_SKILL', 'GENIO_UNITY', 'GENIO_SPEND_GRANT', 'GENIO_SPEND_KEY', 'GENIO_HELP_DOCS']))
+    expect(envs.recon).toEqual(envs.build)
+    expect(envs.modeller).toEqual(envs.build)
+    expect(envs.generator).toEqual(envs.build)
+  })
+
+  it('a Recon upgraded to a Build keeps every capability and the grant the player approved', async () => {
+    const { capabilityGaps, unitPluginDir } = await import('../src/main/unitskills')
+    const { recordGrant } = await import('../src/main/spend-grants')
+    modellerWorld()
+    ctx.main.crew.update(task.id, { kind: 'scout', state: 'done', automaticRelaunches: 0 })
+    vi.spyOn(git, 'currentBranch').mockResolvedValue(task.branch)
+    recordGrant({ dataDir: home.data, taskDir: home.taskDir(task.id), unit: task.id, project: 'world', usd: 0.25, how: 'test' })
+    await expect(ctx.main.crew.promote(task.id, 'Build this')).resolves.toMatchObject({ kind: 'ship' })
+    const brief = fs.readFileSync(task.briefPath, 'utf8')
+    expect(capabilityGaps(brief, unitPluginDir(home.root))).toEqual([])
+    expect(brief).toContain('The player has approved USD 0.25 for you so far: that is your spend grant.')
+    expect(brief).toContain('- Engine: web (JS/TS).')
   })
 })
 

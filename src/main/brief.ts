@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { DeliveryMode, Engine, TaskKind } from '@shared/types'
 import { fwd, nowIso } from './util'
-import { assetsSkillDir, codexImageSkillDir, falSkillDir, soundSkillDir, uthanaSkillDir } from './unitskills'
+import { assetsSkillDir, codexImageSkillDir, falSkillDir, modellerBrief, soundSkillDir, unitToolsBrief, uthanaSkillDir } from './unitskills'
 import type { SubmoduleReport } from '../../resources/unit-skills/genio/lib/git-submodules.mjs'
 
 export interface BriefInput {
@@ -179,6 +179,30 @@ export function generatorBrief(pluginDir: string, taskDataDir: string, o: { engi
     "- Check every result before you keep it: open the file and look at it (the image itself, a render of a model, the sound sheet's waveform, spectrogram and levels) and judge it against the job. Report honestly what works and what does not; never claim quality from metadata alone.",
     '- Finish like any Build (Definition of done below): commit the chosen assets, then `done: <jobs delivered> (spend: est. USD <spent> of USD <granted> approved; Codex images: <n>)`. Ask the player only a real question.'
   ].join('\n')
+}
+
+/**
+ * A unit's skill sections: the same Tools (every capability) for every kind and runtime; a Modeller or a
+ * Generator adds only its own mission rules on top. Recon and Build differ only in the definition of done.
+ */
+export function unitBriefSections(o: {
+  pluginDir: string
+  taskDataDir: string
+  helpDocs?: string
+  approvedUsd?: number
+  modeller?: boolean
+  generator?: boolean
+  engine?: Engine
+  engineRoot?: string
+  claims?: string[]
+}): Pick<BriefInput, 'tools' | 'modeller' | 'modellerDone' | 'generator'> {
+  const at = { engine: o.engine, engineRoot: o.engineRoot, claims: o.claims }
+  return {
+    tools: unitToolsBrief(o.pluginDir, o.helpDocs, o.approvedUsd),
+    modeller: o.modeller ? modellerBrief(o.pluginDir, o.taskDataDir) : undefined,
+    modellerDone: o.modeller ? modellerDoneLines({ ...at, locate: path.join(falSkillDir(o.pluginDir), 'scripts', 'fal.mjs') }) : undefined,
+    generator: o.generator ? generatorBrief(o.pluginDir, o.taskDataDir, at) : undefined
+  }
 }
 
 function dod(i: BriefInput): string {
