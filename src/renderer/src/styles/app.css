@@ -356,6 +356,9 @@ button.usage-toggle:hover { color: var(--text); }
 .msg-acts { display: inline-flex; gap: 2px; margin-left: 8px; vertical-align: middle; }
 .msg-act { display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 1px solid transparent; background: none; color: var(--text-mute); cursor: pointer; }
 .msg-act:hover { color: var(--text); border-color: var(--line-strong); }
+.msg-act.msg-send-now { display: inline-flex; gap: 3px; width: auto; padding: 0 6px; color: var(--amber); font: inherit; letter-spacing: inherit; text-transform: inherit; }
+.msg-act.msg-send-now:hover { border-color: var(--amber); }
+.composer-steer { flex: none; gap: 6px; padding: 0 12px; }
 .msg-copy { width: 26px; height: 26px; border-radius: 4px; }
 .msg-copy:focus-visible { outline: 2px solid var(--neon); outline-offset: 2px; }
 .msg-copy:disabled { opacity: 0.5; cursor: default; }

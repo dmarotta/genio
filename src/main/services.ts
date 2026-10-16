@@ -433,6 +433,14 @@ export interface WkspService {
    * null when the session already has it.
    */
   unqueue(id: string): UnqueuedChat | null
+  /**
+   * Steer: a player message read before anything else waiting. While a visible Genio turn runs it ends at a
+   * safe point (a running tool call finishes first) and stays in the transcript with an interruption note.
+   * With no turn to steer (idle, held, or the Bot playing) it is an ordinary message at the front of the queue.
+   */
+  steer(text: string, images?: ChatImageInput[], context?: InventoryContext): Promise<void>
+  /** A queued message steers now (see steer); false when the session already picked it up. */
+  sendNow(id: string): boolean
   /** deliver queued wakes (drain → one turn → ack after the turn completes) */
   deliverWakes(): void
   /** Hold event delivery until the main process has reconciled this window. */

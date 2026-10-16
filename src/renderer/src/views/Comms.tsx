@@ -2,7 +2,7 @@ import { ASSISTANT_NAME } from '@shared/assistant'
 import { ComingNext } from '../components/ComingNext'
 import { GenerationCard } from '../components/GenerationCard'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
-import { ArrowDown, ChevronDown, ChevronRight, CircleStop, Pencil, RefreshCw, Rocket, Send, ShieldCheck, ThumbsDown, ThumbsUp, TriangleAlert, Wrench, X } from 'lucide-react'
+import { ArrowDown, ChevronDown, ChevronRight, ChevronsUp, CircleStop, CornerUpRight, Pencil, RefreshCw, Rocket, Send, ShieldCheck, ThumbsDown, ThumbsUp, TriangleAlert, Wrench, X } from 'lucide-react'
 import type { Ally, ChatMessage, ReactionKind, Settings } from '@shared/types'
 import { chatControls, routedRequest, splitQueued, type ChatControls, type UnqueuedChat } from '@shared/chat'
 import { MAX_IMAGES_PER_MESSAGE } from '@shared/chat-images'
@@ -63,6 +63,8 @@ export function ChatPanel({ wksp, context, surface = 'screen', active: _active =
   const gamertag = settings?.gamertag || 'Player'
   const calm = !!settings?.calm
   const busy = info?.activity === 'thinking' || info?.activity === 'tool' || info?.activity === 'starting'
+  // the session's own turn state: a visible Genio turn runs that a message can steer (never the Bot's)
+  const steerable = !!info?.steerable
   const isAlly = wksp !== MAIN_PANEL
 
   useEffect(() => {
@@ -81,6 +83,14 @@ export function ChatPanel({ wksp, context, surface = 'screen', active: _active =
       else if (edit) fill.current?.(got)
     } catch (e) {
       toast('error', edit ? 'Message not editable' : 'Message not cancelled', errText(e))
+    }
+  }, [wksp])
+  // A queued message jumps the queue and steers: the turn in progress stops at a safe point and reads it first.
+  const sendNow = useCallback(async (m: ChatMessage): Promise<void> => {
+    try {
+      if (!(await api().sendQueuedNow(wksp, m.id))) toast('info', 'Already sent', `${ASSISTANT_NAME} picked that message up already.`)
+    } catch (e) {
+      toast('error', 'Message not sent now', errText(e))
     }
   }, [wksp])
 
@@ -126,9 +136,9 @@ export function ChatPanel({ wksp, context, surface = 'screen', active: _active =
         </div>
       })}
 
-      <ChatLog key={wksp} wksp={wksp} surface={surface} messages={visible} calm={calm} busy={busy} gamertag={gamertag} activityDetail={info?.activityDetail} lastError={info?.lastError} onTakeBack={takeBack} />
+      <ChatLog key={wksp} wksp={wksp} surface={surface} messages={visible} calm={calm} busy={busy} gamertag={gamertag} activityDetail={info?.activityDetail} lastError={info?.lastError} onTakeBack={takeBack} onSendNow={sendNow} />
 
-      <Composer wksp={wksp} busy={busy} fill={fill} context={context} />
+      <Composer wksp={wksp} busy={busy} steerable={steerable} fill={fill} context={context} />
     </div>
   )
 }
@@ -160,6 +170,7 @@ function calmHidden(m: ChatMessage): boolean {
 }
 
 type TakeBack = (m: ChatMessage, edit: boolean) => Promise<void>
+type SendNow = (m: ChatMessage) => Promise<void>
 
 /**
  * Where the player left each chat scrolled up (first visible message and its offset), keyed by
@@ -180,7 +191,7 @@ function topMessage(el: HTMLElement): { id: string; offset: number } | undefined
   return undefined
 }
 
-function ChatLog({ wksp, surface, messages: all, calm, busy, gamertag, activityDetail, lastError, onTakeBack }: { wksp: string; surface: string; messages: ChatMessage[]; calm: boolean; busy: boolean; gamertag: string; activityDetail?: string; lastError?: string; onTakeBack: TakeBack }) {
+function ChatLog({ wksp, surface, messages: all, calm, busy, gamertag, activityDetail, lastError, onTakeBack, onSendNow }: { wksp: string; surface: string; messages: ChatMessage[]; calm: boolean; busy: boolean; gamertag: string; activityDetail?: string; lastError?: string; onTakeBack: TakeBack; onSendNow?: SendNow }) {
   const ref = useRef<HTMLDivElement>(null)
   const body = useRef<HTMLDivElement>(null)
   const memoryKey = `${wksp}:${surface}`
@@ -326,7 +337,7 @@ function ChatLog({ wksp, surface, messages: all, calm, busy, gamertag, activityD
           )}
           {lastError && !busy && <div className="msg-error mono">{lastError} <button className="btn sm" onClick={() => void op('Restart', () => api().restartWksp(wksp, false))}>Restart session</button></div>}
           {queued.map((m) => (
-            <Message key={m.id} m={m} calm={calm} gamertag={gamertag} onTakeBack={onTakeBack} />
+            <Message key={m.id} m={m} calm={calm} gamertag={gamertag} onTakeBack={onTakeBack} onSendNow={onSendNow} />
           ))}
         </div>
       </div>
@@ -345,7 +356,7 @@ function ChatLog({ wksp, surface, messages: all, calm, busy, gamertag, activityD
  * One message. Memoised: a streamed delta replaces only the message it belongs to, so the
  * other messages of a long transcript keep their rendered output (and parsed Markdown).
  */
-const Message = memo(function Message({ m, calm, gamertag, onTakeBack }: { m: ChatMessage; calm: boolean; gamertag: string; onTakeBack: TakeBack }) {
+const Message = memo(function Message({ m, calm, gamertag, onTakeBack, onSendNow }: { m: ChatMessage; calm: boolean; gamertag: string; onTakeBack: TakeBack; onSendNow?: SendNow }) {
   const [open, setOpen] = useState(false)
   if (m.role === 'player') {
     const waiting = m.queue === 'queued' || m.queue === 'unsent'
@@ -369,6 +380,11 @@ const Message = memo(function Message({ m, calm, gamertag, onTakeBack }: { m: Ch
           <CopyMessageButton text={m.text} />
           {waiting && (
             <span className="msg-acts">
+              {m.queue === 'queued' && onSendNow && (
+                <button className="msg-act msg-send-now" title={`Send now: ${ASSISTANT_NAME} stops the current turn at a safe point and reads this first`} aria-label="Send queued message now" onClick={() => void onSendNow(m)}>
+                  <ChevronsUp size={12} /> Send now
+                </button>
+              )}
               <button className="msg-act" title="Edit: put it back in the composer" aria-label="Edit queued message" onClick={() => void onTakeBack(m, true)}>
                 <Pencil size={11} />
               </button>
@@ -517,7 +533,7 @@ function ReactionNote({ m }: { m: ChatMessage }) {
   )
 }
 
-function Composer({ wksp, busy, fill, context }: { wksp: string; busy: boolean; context?: InventoryContext; fill: RefObject<((c: UnqueuedChat) => void) | undefined> }) {
+function Composer({ wksp, busy, steerable = false, fill, context }: { wksp: string; busy: boolean; steerable?: boolean; context?: InventoryContext; fill: RefObject<((c: UnqueuedChat) => void) | undefined> }) {
   // Client-side commands drive the whole app, so they live in the main chat; an ally gets its text (and its own /help, /status, /save) as typed.
   const isMain = wksp === MAIN_PANEL
   const [text, setText] = useState(() => getDraft(wksp))
@@ -592,7 +608,12 @@ function Composer({ wksp, busy, fill, context }: { wksp: string; busy: boolean; 
     setState({ chats: { ...s.chats, [wksp]: [...(s.chats[wksp] ?? []), msg] } })
   }
 
-  const submit = async (raw: string): Promise<void> => {
+  // One submit per draft: a double click or Enter repeated before the cleared composer renders sends nothing more.
+  const submitted = useRef(false)
+  useEffect(() => { submitted.current = false })
+
+  /** `steer`: the turn in progress stops at a safe point and reads this first; otherwise it queues while busy. */
+  const submit = async (raw: string, steer = false): Promise<void> => {
     const t = raw.trim()
     const images = att.images
     if (!t && !images.length) return
@@ -600,6 +621,8 @@ function Composer({ wksp, busy, fill, context }: { wksp: string; busy: boolean; 
       toast('info', 'Attaching images', 'Wait a moment for the images to finish attaching.')
       return
     }
+    if (submitted.current) return
+    submitted.current = true
     update('')
     const [cmd, ...rest] = t.split(/\s+/)
     const words = rest.join(' ')
@@ -643,7 +666,9 @@ function Composer({ wksp, busy, fill, context }: { wksp: string; busy: boolean; 
     playSfx('send', settings)
     att.set([])
     try {
-      await api().sendChat(wksp, t, images.length ? toSendable(images) : undefined, inventory.context)
+      const sendable = images.length ? toSendable(images) : undefined
+      if (steer) await api().steerChat(wksp, t, sendable, inventory.context)
+      else await api().sendChat(wksp, t, sendable, inventory.context)
       inventory.sent()
     } catch (e) {
       toast('error', 'Message not sent', errText(e))
@@ -682,7 +707,9 @@ function Composer({ wksp, busy, fill, context }: { wksp: string; busy: boolean; 
           value={text}
           onPaste={att.onPaste}
           placeholder={
-            busy
+            steerable
+              ? `${ASSISTANT_NAME} is working… Send queues it for next; Steer reads it now.`
+              : busy
               ? `${ASSISTANT_NAME} is working… you can still send; it queues and is read next.`
               : isMain
                 ? 'Message Genio  ·  / for commands'
@@ -722,11 +749,19 @@ function Composer({ wksp, busy, fill, context }: { wksp: string; busy: boolean; 
             }
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
-              void submit(text)
+              // Ctrl+Enter steers a running turn; with nothing to steer it is a plain send
+              void submit(text, (e.ctrlKey || e.metaKey) && steerable)
             }
           }}
         />
-        <button className="btn solid icon" disabled={!canSend || att.pending > 0} onClick={() => void submit(text)} aria-label="Send">
+        {steerable && (
+          <button className="btn amber composer-steer" disabled={!canSend || att.pending > 0} onClick={() => void submit(text, true)}
+            title={`Steer (Ctrl+Enter): ${ASSISTANT_NAME} stops the current turn at a safe point and reads this first`}>
+            <CornerUpRight size={14} /> Steer
+          </button>
+        )}
+        <button className="btn solid icon" disabled={!canSend || att.pending > 0} onClick={() => void submit(text)} aria-label="Send"
+          title={steerable ? 'Send (Enter): queued, read when the current turn ends' : 'Send (Enter)'}>
           <Send size={15} />
         </button>
       </div>
@@ -735,7 +770,7 @@ function Composer({ wksp, busy, fill, context }: { wksp: string; busy: boolean; 
           <ShellModeButton wksp={wksp} />
           <ChatModelControls wksp={wksp} />
           <span className="composer-keys">
-            <kbd>Enter</kbd> send · <kbd>Shift</kbd>+<kbd>Enter</kbd> newline · <kbd>/</kbd> commands
+            <kbd>Enter</kbd> send · {steerable && <><kbd>Ctrl</kbd>+<kbd>Enter</kbd> steer · </>}<kbd>Shift</kbd>+<kbd>Enter</kbd> newline · <kbd>/</kbd> commands
           </span>
         </span>
         <span className="quick">

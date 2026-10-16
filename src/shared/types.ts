@@ -491,6 +491,8 @@ export interface WkspInfo {
   costUsd: number
   turns: number
   queued: number
+  /** a visible Genio turn is running and a player message can steer it (end it at a safe point and be read first) */
+  steerable?: boolean
   limit?: { resetsAt?: number; restartRequired?: boolean; provider?: 'claude' | 'codex'; reason?: string }
   botLimit?: { resetsAt?: number; restartRequired?: boolean; provider?: 'claude' | 'codex'; reason?: string }
   lastError?: string

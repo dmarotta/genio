@@ -101,6 +101,17 @@ export class ProviderChatSession {
       this.retryTimer.unref?.()
     }
   }
+  /**
+   * The player's steering turn goes first (after earlier steering, ahead of every other waiting turn,
+   * whose order is kept) and, when `yieldTurn`, the turn in progress ends at a safe point so it is read next.
+   */
+  async steer(item: ChatTurn, yieldTurn = true): Promise<void> {
+    item.steer = true
+    const i = this.pending.findIndex(t => !t.steer)
+    if (i < 0) this.pending.push(item); else this.pending.splice(i, 0, item)
+    if (yieldTurn && this.driver?.busy) await this.driver.yieldTurn()
+    this.pump()
+  }
   async interrupt(): Promise<void> {
     await this.driver?.interrupt()
     // Explicit cancellation authorizes a queued provider change, but does not replay the active turn.

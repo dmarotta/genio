@@ -136,6 +136,37 @@ describe('Codex chat release gates', () => {
     expect(f.server.sent.find(r => r.method === 'turn/start')!.params.input[0].text).toBe('new')
     expect(f.hooks.onError).not.toHaveBeenCalled()
   })
+  it('yields a steered turn only after its running tool call finishes, refusing new calls meanwhile', async () => {
+    const f = fixture(); await f.start()
+    let finishDeploy!: (v: unknown) => void
+    f.call.mockImplementationOnce(() => new Promise(r => { finishDeploy = r }))
+    f.server.emit('item/agentMessage/delta', { itemId: 'a1', delta: 'Deploying' })
+    const running = f.server.call('genio_deploy', 'call-1')
+    let yielded = false
+    const yielding = f.driver.yieldTurn().then(() => { yielded = true })
+    await new Promise(r => setTimeout(r, 120))
+    expect(yielded).toBe(false)
+    expect(f.server.sent.some(r => r.method === 'turn/interrupt')).toBe(false)
+    await expect(f.server.call('genio_deploy', 'call-2')).rejects.toThrow()
+    finishDeploy({ content: [{ type: 'text', text: 'deployed' }] })
+    expect(await running).toEqual({ success: true, contentItems: [{ type: 'inputText', text: 'deployed' }] })
+    await yielding
+    expect(f.server.sent.filter(r => r.method === 'turn/interrupt')).toEqual([{ method: 'turn/interrupt', params: { threadId: 'thread-1', turnId: 'turn-1' } }])
+    expect(f.call).toHaveBeenCalledOnce()
+    expect(f.hooks.onMessage).toHaveBeenLastCalledWith(expect.objectContaining({ text: 'Deploying', partial: false }), true)
+    expect(f.hooks.onTurnEnd).toHaveBeenCalledWith(expect.objectContaining({ prompt: 'hello' }), false, '', 0)
+    expect(f.hooks.onError).not.toHaveBeenCalled()
+    expect(f.hooks.onLimit).not.toHaveBeenCalledWith(expect.objectContaining({ restartRequired: true }))
+    // the steering turn runs next on a resumed thread
+    f.driver.send({ kind: 'player', prompt: 'steer', steer: true })
+    await vi.waitFor(() => expect(f.server.turn).toBe(2))
+    expect(f.server.sent.filter(r => r.method === 'turn/start').map(r => r.params.input[0].text)).toEqual(['hello', 'steer'])
+  })
+  it('a yield with no turn running resolves at once', async () => {
+    const f = fixture()
+    await f.driver.yieldTurn()
+    expect(f.hooks.onTurnEnd).not.toHaveBeenCalled()
+  })
   it('sends images through the documented app-server input shape', async () => {
     const f = fixture()
     f.driver.send({ kind: 'player', prompt: 'image', images: [{ mediaType: 'image/png', data: 'aGVsbG8=' }] })

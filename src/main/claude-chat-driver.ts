@@ -115,8 +115,19 @@ export class AgentSession implements ChatDriver {
   q?: Query
   input?: InputQueue
   busy = false
-  current?: TurnItem
+  private turn?: TurnItem
+  get current(): TurnItem | undefined { return this.turn }
+  set current(item: TurnItem | undefined) {
+    this.turn = item
+    // the yielded turn is over, however it ended
+    if (this.yielding && this.yielding.turn !== item) this.settleYield()
+  }
   pending: TurnItem[] = []
+  /** the current turn's prompt reached the query (before that there is nothing to interrupt) */
+  private submitted = false
+  /** tool calls of the current turn that started and have no result yet */
+  private openTools = new Set<string>()
+  private yielding?: { turn: TurnItem; asked: boolean; done: Promise<void>; resolve(): void; timer?: ReturnType<typeof setTimeout> }
   sessionId?: string
   private limit?: WkspInfo['limit']
   private limitPaused = false
@@ -201,6 +212,8 @@ export class AgentSession implements ChatDriver {
     if (!next) return
     this.busy = true
     this.current = next
+    this.submitted = false
+    this.openTools.clear()
     this.hooks.onStart?.(next)
     this.turnMsgIds = []
     this.lastText = ''
@@ -212,6 +225,8 @@ export class AgentSession implements ChatDriver {
       await this.ensureStarted()
       if (this.current !== next) return // stopped or timed out during setup
       this.input!.push(next.prompt, next.images)
+      this.submitted = true
+      this.tryYield()
     } catch (e) {
       if (this.current !== next) return
       this.reset()
@@ -400,6 +415,20 @@ export class AgentSession implements ChatDriver {
     this.input = undefined
   }
 
+  /** The turn's messages are final: shown as written, the turn's cost on the last one. */
+  private finishMessages(cost: number): void {
+    for (const id of this.turnMsgIds) {
+      const cm = this.msgs.get(id)
+      if (!cm) continue
+      cm.partial = false
+      if (id === this.turnMsgIds[this.turnMsgIds.length - 1]) cm.costUsd = cost
+      if (!cm.text && !(cm.tools ?? []).length) continue
+      this.hooks.onMessage({ ...cm }, true)
+      this.msgs.delete(id)
+      this.blockText.delete(id)
+    }
+  }
+
   private chatFor(apiId: string): ChatMessage {
     const id = `m-${apiId}`
     let m = this.msgs.get(id)
@@ -457,6 +486,7 @@ export class AgentSession implements ChatDriver {
             const trace: ToolTrace = { id: block.id, name: block.name ?? 'tool', input: truncate(JSON.stringify(block.input ?? {}), 2000) }
             cm.tools = [...(cm.tools ?? []).filter((t) => t.id !== block.id), trace]
             this.toolOwner.set(block.id, cm.id)
+            this.openTools.add(block.id)
             this.hooks.onActivity('tool', prettyTool(block.name ?? ''))
           }
         }
@@ -472,6 +502,7 @@ export class AgentSession implements ChatDriver {
         if (!Array.isArray(content)) return
         for (const block of content as { type: string; tool_use_id?: string; content?: unknown; is_error?: boolean }[]) {
           if (block.type !== 'tool_result' || !block.tool_use_id) continue
+          this.openTools.delete(block.tool_use_id)
           const owner = this.toolOwner.get(block.tool_use_id)
           const cm = owner ? this.msgs.get(owner) : undefined
           if (!cm) continue
@@ -482,6 +513,7 @@ export class AgentSession implements ChatDriver {
           this.hooks.onMessage({ ...cm }, false)
         }
         this.hooks.onActivity('thinking')
+        this.tryYield()
         return
       }
       case 'result': {
@@ -494,16 +526,7 @@ export class AgentSession implements ChatDriver {
         const delta = cost.delta
         if (r.usage) this.hooks.onUsage?.({ provider: 'claude', input: r.usage.input_tokens ?? 0,
           cached: r.usage.cache_read_input_tokens ?? 0, output: r.usage.output_tokens ?? 0, cashCost: delta })
-        for (const id of this.turnMsgIds) {
-          const cm = this.msgs.get(id)
-          if (!cm) continue
-          cm.partial = false
-          if (id === this.turnMsgIds[this.turnMsgIds.length - 1]) cm.costUsd = delta
-          if (!cm.text && !(cm.tools ?? []).length) continue
-          this.hooks.onMessage({ ...cm }, true)
-          this.msgs.delete(id)
-          this.blockText.delete(id)
-        }
+        this.finishMessages(delta)
         if (limitError) {
           // Cost still belongs to this attempt, but failed wake events must not be acknowledged.
           this.hooks.onTurnEnd(undefined, false, '', delta)
@@ -512,7 +535,9 @@ export class AgentSession implements ChatDriver {
         }
         const okTurn = !r.is_error
         if (okTurn) this.setLimit()
-        if (!okTurn) this.hooks.onError(`Turn ended with an error (${r.subtype ?? 'error'}): ${(r.errors ?? []).join('; ') || r.result || 'unknown'}`)
+        // the player stopped it: the transcript notes that, it is not an error
+        const yielded = !!this.yielding?.asked && this.yielding.turn === this.current
+        if (!okTurn && !yielded) this.hooks.onError(`Turn ended with an error (${r.subtype ?? 'error'}): ${(r.errors ?? []).join('; ') || r.result || 'unknown'}`)
         const item = this.current
         this.busy = false
         this.current = undefined
@@ -550,6 +575,44 @@ export class AgentSession implements ChatDriver {
     } catch {
       /* ignore */
     }
+  }
+
+  yieldTurn(): Promise<void> {
+    if (!this.busy || !this.current) return Promise.resolve()
+    if (this.yielding) return this.yielding.done
+    let resolve!: () => void
+    const done = new Promise<void>(r => { resolve = r })
+    this.yielding = { turn: this.current, asked: false, done, resolve }
+    this.tryYield()
+    return done
+  }
+
+  /**
+   * Interrupt the yielding turn once it is at a safe point: its prompt was submitted and every tool call
+   * it started has its result (Genio's tool policy refuses new ones meanwhile). Interrupting mid-call
+   * could leave a deploy, merge or quest half done.
+   */
+  private tryYield(): void {
+    const y = this.yielding
+    if (!y || y.asked || this.current !== y.turn || !this.submitted || this.openTools.size || !this.q) return
+    y.asked = true
+    const q = this.q
+    void q.interrupt().catch(() => undefined)
+    // An interrupt the query never answers must not hold the player's message forever.
+    y.timer = setTimeout(() => {
+      if (this.yielding !== y || this.current !== y.turn || q !== this.q) return
+      this.finishMessages(0)
+      this.ended('the interrupted turn did not stop; the session was restarted')
+    }, 30_000)
+    y.timer.unref?.()
+  }
+
+  private settleYield(): void {
+    const y = this.yielding
+    if (!y) return
+    this.yielding = undefined
+    if (y.timer) clearTimeout(y.timer)
+    y.resolve()
   }
 
   stop(): void {

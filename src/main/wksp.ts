@@ -107,6 +107,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
   }
   const publishInfo = (): void => {
     info.queued = genio.queued + (bot?.queued ?? 0) + preparing.size
+    info.steerable = canSteer()
     info.sessionId = genio.sessionId
     bus.publish({ type: 'wksp', wksp: { ...info } })
   }
@@ -148,6 +149,16 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
   }
   const hasActions = (): boolean => Object.values(turnActions).some(v => v?.length)
 
+  /**
+   * Set while the visible turn in progress is being ended for the player's steering message (cleared when
+   * that turn ends). Meanwhile the chat's tool policy starts no new tool call.
+   */
+  let steering: object | undefined
+  /** the context line the turn after an interrupted one starts with */
+  let interruptedNote: string | undefined
+  /** Player messages that steer once their turn is ready: the visible turn in progress ends and they are read first. */
+  const steerIds = new Set<string>()
+
   /** Player messages already shown as queued whose turn is still being prepared (images, project opening). */
   const preparing = new Set<string>()
   const waiting = (id: string): boolean => loadHistory().find((x) => x.id === id)?.queue === 'queued'
@@ -175,6 +186,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
   /** A waiting message taken out of the chat (cancelled, edited, or its send failed). */
   const withdraw = (m: ChatMessage): void => {
     preparing.delete(m.id)
+    steerIds.delete(m.id)
     history = loadHistory().filter((x) => x.id !== m.id)
     const gone: ChatMessage = { ...m, queue: 'cancelled' }
     appendJsonl(home.chatFile, gone)
@@ -183,6 +195,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
   /** The session queue was dropped: whatever still waited is shown as not sent, never left looking queued. */
   const strandWaiting = (): void => {
     preparing.clear()
+    steerIds.clear()
     if (readOnly || !history) return
     const { list, stranded } = strandQueued(history)
     history = list
@@ -239,6 +252,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
 
   function makePolicy(role: ToolRole): CanUseTool {
     return async (toolName, input): Promise<PermissionResult> => {
+      // a turn the player is steering away from starts nothing new; what already runs finishes
+      if (role !== 'bot' && steering) return { behavior: 'deny', message: `${gamertag()} interrupted this turn with a new message. Do not start anything else; stop here.` }
       const d = await enforceTool({ role, chat: name, shellMode: () => chatControls(settings(), liveAlly()).shellMode,
         permissions: getCtx().permissions, player: gamertag() }, { runtime: 'claude', name: toolName, input })
       return d.behavior === 'allow' ? { behavior: 'allow', updatedInput: input } : d
@@ -339,6 +354,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     events: {
       onStart(item) {
         turnActions = {}
+        // after an interruption Genio re-checks reality instead of assuming the cut turn finished
+        if (interruptedNote) { item.prompt = `${interruptedNote}\n\n${item.prompt}`; interruptedNote = undefined }
         delivered(item)
       },
       onRequeue(item) {
@@ -373,6 +390,13 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
         publishInfo()
       },
       onTurnEnd(item, ok, lastText, cost) {
+        const interrupted = !!steering && !ok
+        steering = undefined
+        if (interrupted) {
+          const started = startedText(turnActions)
+          say(`Interrupted by your message.${started ? ` It had started: ${started}.` : ''}`, 'system')
+          interruptedNote = `[GENIO NOTE] Your previous turn was interrupted by ${gamertag()}; it had started: ${started || 'no actions'}; verify state (unit_state, quests) before continuing.`
+        }
         if (ok) {
           info.lastError = undefined
           if (item?.prompt.includes('[GENIO PROJECT OPEN]') && lastText && !NOOP_RE.test(lastText.trim())) safe(() => getCtx().stats.unlock('project-welcome'))
@@ -385,7 +409,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
         saveState()
         if (item?.kind === 'events' && item.ackThrough !== undefined) {
           if (ok) safe(() => getCtx().home(name).wakes.ack(item.ackThrough!))
-          else eventsBackoffUntil = Date.now() + 60_000
+          // an interrupted batch stays pending (per-event acks hold) and is delivered again after the player's turn
+          else if (!interrupted) eventsBackoffUntil = Date.now() + 60_000
         }
         if (ok && lastText && !NOOP_RE.test(lastText.trim())) {
           bus.publish({ type: 'sfx', sound: 'blip' })
@@ -524,7 +549,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     const player = (): void => markSent(shown.id)
     const turn = (prompt: string): void => {
       preparing.delete(shown.id)
-      if (waiting(shown.id)) genio.enqueue({ kind: 'player', prompt, msgId: shown.id })
+      if (waiting(shown.id)) enqueueTurn({ kind: 'player', prompt, msgId: shown.id })
       publishInfo()
     }
     switch (cmd) {
@@ -599,6 +624,26 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
 
   // ---------------------------------------------------------- service
 
+  /** The Bot's away turn is not the player's chat: it is never steered. */
+  function botAway(): boolean {
+    return !!bot?.busy && safeGet(() => getCtx().away.state().mode) === 'afk'
+  }
+  /** A visible Genio turn is running (player, greeting or event turn) and the player can steer it. */
+  function canSteer(): boolean {
+    return !readOnly && genio.busy && !info.limit && !botAway()
+  }
+  /** A ready turn goes first; when it steers, the visible turn in progress ends at a safe point. */
+  function enqueueTurn(item: TurnItem): void {
+    if (!item.msgId || !steerIds.delete(item.msgId)) { genio.enqueue(item); return }
+    const yieldTurn = canSteer()
+    const token = {}
+    if (yieldTurn) steering = token
+    void genio.steer(item, yieldTurn).finally(() => {
+      if (steering === token) steering = undefined
+      publishInfo()
+    })
+  }
+
   const checkSend = (): void => {
     if (readOnly) throw new Error('The main chat is archived. Open the Genio project to continue.')
     if (!isOpen()) throw new Error('Open the project window before using its chat.')
@@ -672,54 +717,72 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     if (!shown) bus.publish({ type: 'sfx', sound: 'send' })
     // the ids let Genio pass pasted images to generate_image as refs
     prompt += inventoryContextBlock(m.context) + attachedIdsNote(stored.refs)
-    genio.enqueue({ kind: player ? 'player' : 'system', prompt, images: stored.send.length ? stored.send : undefined, msgId: player ? m.id : undefined })
+    enqueueTurn({ kind: player ? 'player' : 'system', prompt, images: stored.send.length ? stored.send : undefined, msgId: player ? m.id : undefined })
     if (hasInventoryChips(m.context)) safe(() => ctx.stats.unlock('inventory-chat'))
     if (m.context?.screen) safe(() => ctx.stats.unlock('genio-panel-context'))
     publishInfo()
   }
   let pendingSend: Promise<void> = Promise.resolve()
 
+  const submit = (text: string, origin: 'player' | 'system' | 'genio', images: ChatImageInput[], context: InventoryContext | undefined, steer: boolean): Promise<void> => {
+    let shown: Shown | undefined
+    let snapshot: InventoryContext | undefined
+    try {
+      checkSend()
+      if (!text.trim() && !images.length) return Promise.resolve()
+      // Thumbnail decoding may be slow: retain click order and freeze the visible chips now.
+      snapshot = context && validateInventoryContext(context)
+      // slash commands with images are just text for Genio
+      if (origin === 'player') shown = showQueued(text.trim(), images, snapshot)
+      // decided on submit: steering while the Bot plays is just a message
+      if (shown && steer && !botAway()) steerIds.add(shown.m.id)
+    } catch (e) {
+      return Promise.reject(e)
+    }
+    const sending = pendingSend.then(async () => {
+      if (projectOpening) {
+        await projectReady
+        if (stopped || !isOpen()) {
+          if (shown) return // stop() shows it as not sent
+          throw new Error('The project window closed before the message could be sent.')
+        }
+      }
+      return performSend(text, origin, images, snapshot, shown)
+    })
+    // A shown message whose turn could not be prepared leaves the chat; the composer gets the draft back.
+    // Once its turn is queued (or it was taken back) the message is accounted for and the send succeeded.
+    const settled = shown ? sending.catch((e) => {
+      if (!shown || !preparing.has(shown.m.id)) return
+      const current = loadHistory().find((x) => x.id === shown!.m.id)
+      if (current) withdraw(current)
+      else preparing.delete(shown.m.id)
+      publishInfo()
+      throw e
+    }) : sending
+    pendingSend = settled.catch(() => undefined)
+    return settled
+  }
+
   const svc: WkspService = {
-    info: () => ({ ...info, queued: genio.queued + (bot?.queued ?? 0) + preparing.size }),
+    info: () => ({ ...info, queued: genio.queued + (bot?.queued ?? 0) + preparing.size, steerable: canSteer() }),
     history(limit = 200) {
       const h = loadHistory()
       return h.slice(-limit)
     },
-    send(text, origin = 'player', images = [], context) {
-      let shown: Shown | undefined
-      let snapshot: InventoryContext | undefined
-      try {
-        checkSend()
-        if (!text.trim() && !images.length) return Promise.resolve()
-        // Thumbnail decoding may be slow: retain click order and freeze the visible chips now.
-        snapshot = context && validateInventoryContext(context)
-        // slash commands with images are just text for Genio
-        if (origin === 'player') shown = showQueued(text.trim(), images, snapshot)
-      } catch (e) {
-        return Promise.reject(e)
-      }
-      const sending = pendingSend.then(async () => {
-        if (projectOpening) {
-          await projectReady
-          if (stopped || !isOpen()) {
-            if (shown) return // stop() shows it as not sent
-            throw new Error('The project window closed before the message could be sent.')
-          }
-        }
-        return performSend(text, origin, images, snapshot, shown)
-      })
-      // A shown message whose turn could not be prepared leaves the chat; the composer gets the draft back.
-      // Once its turn is queued (or it was taken back) the message is accounted for and the send succeeded.
-      const settled = shown ? sending.catch((e) => {
-        if (!shown || !preparing.has(shown.m.id)) return
-        const current = loadHistory().find((x) => x.id === shown!.m.id)
-        if (current) withdraw(current)
-        else preparing.delete(shown.m.id)
-        publishInfo()
-        throw e
-      }) : sending
-      pendingSend = settled.catch(() => undefined)
-      return settled
+    send: (text, origin = 'player', images = [], context) => submit(text, origin, images, context, false),
+    steer: (text, images = [], context) => submit(text, 'player', images, context, true),
+    sendNow(id) {
+      if (readOnly) return false
+      const m = loadHistory().find((x) => x.id === id)
+      if (!m || m.queue !== 'queued') return false
+      steerIds.add(id)
+      // still being prepared: it steers as soon as its turn is ready
+      if (preparing.has(id)) return true
+      const item = genio.cancel(id)
+      if (!item) { steerIds.delete(id); return false }
+      enqueueTurn(item)
+      publishInfo()
+      return true
     },
     unqueue(id) {
       if (readOnly) return null
@@ -838,6 +901,14 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     post: record
   }
   return svc
+}
+
+const STARTED_LABELS: Record<keyof MessageActions, string> = { units: 'units', quests: 'quests', merges: 'merges', choices: 'choices', settings: 'settings' }
+
+/** What an interrupted turn had started, for its transcript note and the next turn's context ('' for nothing). */
+export function startedText(actions: MessageActions): string {
+  return (Object.keys(STARTED_LABELS) as (keyof MessageActions)[])
+    .filter(k => actions[k]?.length).map(k => `${STARTED_LABELS[k]} ${actions[k]!.join(', ')}`).join('; ')
 }
 
 function safe(fn: () => void): void {

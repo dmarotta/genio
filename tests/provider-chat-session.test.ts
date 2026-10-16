@@ -18,6 +18,7 @@ class Driver implements ChatDriver {
   cancel(): undefined { return undefined }
   hasEventsQueued() { return this.current?.kind === 'events' }
   async interrupt() { this.finish(false) }
+  async yieldTurn() { if (this.busy) this.finish(false) }
   resume() {}
   stop() { this.busy = false }
   finish(ok = true) { this.busy = false; const t = this.current; this.current = undefined; this.events.onTurnEnd(t, ok, 'done', 0) }

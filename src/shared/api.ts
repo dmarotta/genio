@@ -551,6 +551,10 @@ export interface GenioApi {
   sendChat(wksp: string, text: string, images?: ChatImageInput[], context?: InventoryContext): Promise<void>
   /** take back a queued (or unsent) message for edit/cancel; null when the session already picked it up */
   unqueueChat(wksp: string, id: string): Promise<UnqueuedChat | null>
+  /** send a message that steers: the turn in progress ends at a safe point and this one is read first */
+  steerChat(wksp: string, text: string, images?: ChatImageInput[], context?: InventoryContext): Promise<void>
+  /** a queued message steers now; false when the session already picked it up */
+  sendQueuedNow(wksp: string, id: string): Promise<boolean>
   /** like/dislike a Genio message (null removes it); a dislike pauses what that message started after a short grace period */
   reactToMessage(wksp: string, id: string, kind: ReactionKind | null): Promise<ChatMessage>
   interruptWksp(wksp: string): Promise<void>
@@ -719,6 +723,8 @@ export const API_METHODS = [
   'chatHistory',
   'sendChat',
   'unqueueChat',
+  'steerChat',
+  'sendQueuedNow',
   'reactToMessage',
   'interruptWksp',
   'restartWksp',

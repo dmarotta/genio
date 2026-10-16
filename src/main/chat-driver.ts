@@ -10,6 +10,8 @@ export interface ChatTurn {
   ackThrough?: number
   msgId?: string
   limitRetried?: boolean
+  /** the player steered with it: it goes ahead of everything waiting and ends the turn in progress */
+  steer?: boolean
 }
 export interface ChatDriverEvents {
   /** Return an unsubmitted turn to the owning queue without acknowledging it. */
@@ -37,6 +39,12 @@ export interface ChatDriver {
   start(): Promise<void>
   send(turn: ChatTurn): void
   interrupt(): Promise<void>
+  /**
+   * End the turn in progress at a safe point, for a player's steering message: a tool call already
+   * running finishes first and no new one starts. Resolves once the turn has ended (onTurnEnd fired)
+   * or when none was running. Queued turns stay queued.
+   */
+  yieldTurn(): Promise<void>
   resume(fresh?: boolean): void
   stop(): void
   cancel(id: string): ChatTurn | undefined

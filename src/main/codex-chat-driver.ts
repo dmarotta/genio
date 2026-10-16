@@ -138,6 +138,7 @@ export class CodexChatDriver implements ChatDriver {
   private messages = new Map<string, ChatMessage>()
   private calls = new Map<string, Promise<unknown>>()
   private toolNames = new Set<string>()
+  private yielding?: Promise<void>
   private generation = 0
   /** handoff for the first turn of a thread that replaced one from another home */
   private carry?: string
@@ -363,6 +364,8 @@ export class CodexChatDriver implements ChatDriver {
     // Cache promises before execution: duplicate runtime requests never repeat a mutation.
     const key = `${p.threadId}:${p.turnId}:${p.callId}`
     let result = this.calls.get(key)
+    // the player is steering: what started finishes, nothing new starts
+    if (!result && this.yielding) throw new Error('The player interrupted this turn; no new tool call starts')
     if (!result) {
       result = this.bridge.call(p.tool.slice('genio_'.length), p.arguments).then(r => ({ success: !r.isError,
         contentItems: r.content.flatMap<{ type: string; text?: string; imageUrl?: string }>(c => c.type === 'text' ? [{ type: 'inputText', text: c.text ?? '' }] :
@@ -391,6 +394,18 @@ export class CodexChatDriver implements ChatDriver {
       if (item) this.events.onTurnEnd(item, false, '', 0)
       this.events.onActivity('idle')
     }
+  }
+  yieldTurn(): Promise<void> {
+    if (!this.current) return Promise.resolve()
+    return this.yielding ??= this.yieldAtSafePoint(this.current).finally(() => { this.yielding = undefined })
+  }
+  /** Interrupt once the turn is running and its started tool calls are done: aborting the bridge mid-call could cut a mutation in half. */
+  private async yieldAtSafePoint(turn: ChatTurn): Promise<void> {
+    const since = Date.now()
+    while (this.current === turn && !this.turnId && !this.closed && Date.now() - since < 30_000) await new Promise(r => setTimeout(r, 50))
+    if (this.current !== turn) return
+    await Promise.allSettled([...this.calls.values()])
+    if (this.current === turn) await this.interrupt().catch(() => undefined)
   }
   resume(fresh = false): void {
     const interrupted = this.current

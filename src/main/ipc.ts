@@ -208,6 +208,8 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     chatHistory: (wksp, limit) => ctx().home(wksp).wksp.history(limit),
     sendChat: (wksp, text, images, context) => sendPlayerChat(ctx(), wksp, text, images, context),
     unqueueChat: async (wksp, id) => ctx().home(wksp).wksp.unqueue(id),
+    steerChat: (wksp, text, images, context) => ctx().home(wksp).wksp.steer(text, images, context),
+    sendQueuedNow: async (wksp, id) => ctx().home(wksp).wksp.sendNow(id),
     reactToMessage: (wksp, id, kind) => ctx().home(wksp).reactions.react(id, kind),
     interruptWksp: (wksp) => ctx().home(wksp).wksp.interrupt(),
     restartWksp: (wksp, fresh, role) => ctx().home(wksp).wksp.restart(fresh, role),
@@ -358,7 +360,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
         if (windows && method === 'windowList') return { ...(await h.windowList()), windows: windows.list(_e.sender.id) }
         if (windows && method === 'windowClose') return windows.close(_e.sender.id)
         const binding = windows?.binding(_e.sender.id)
-        if (windows && !binding && ['sendChat', 'recap', 'save', 'restartWksp', 'interruptWksp', 'unqueueChat', 'reactToMessage', 'approveGeneration'].includes(method)) throw new Error('Open a project window to use its chat.')
+        if (windows && !binding && ['sendChat', 'steerChat', 'sendQueuedNow', 'recap', 'save', 'restartWksp', 'interruptWksp', 'unqueueChat', 'reactToMessage', 'approveGeneration'].includes(method)) throw new Error('Open a project window to use its chat.')
         if (method.startsWith('playPool') || method === 'playCloseSlotEditor' || method.startsWith('playerCopy')) assertProjectWindow(binding, args[0])
         if (method.startsWith('playerInstance') || method === 'playerSources' || method === 'playerSourceAvailable') assertProjectWindow(binding, args[0])
         // These end the stream; Pause, Step, Resize and the scene list keep the port (a resize swaps Unity's session behind it).
@@ -443,7 +445,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
           if (method === 'backlogAdd') return ctx().home(binding.wksp).backlog.add({ ...(args[0] as Parameters<GenioApi['backlogAdd']>[0]), project: binding.project })
           if (method === 'wakes') return ctx().home(binding.wksp).wakes.recent(args[0] as number)
           // Chat history, sends and controls cannot switch this window to another base.
-          if (['chatHistory', 'sendChat', 'interruptWksp', 'restartWksp', 'unqueueChat', 'reactToMessage', 'approveGeneration', 'allyUpdate'].includes(method) && args[0] !== binding.wksp) {
+          if (['chatHistory', 'sendChat', 'steerChat', 'sendQueuedNow', 'interruptWksp', 'restartWksp', 'unqueueChat', 'reactToMessage', 'approveGeneration', 'allyUpdate'].includes(method) && args[0] !== binding.wksp) {
             throw new Error('This window is bound to its project chat.')
           }
         }

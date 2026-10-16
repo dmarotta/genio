@@ -39,7 +39,7 @@ function setup(build = vi.fn(async () => ({})), preflight = true, stale = false)
       created.push(p)
       if (p === 'codex') return {
         capabilities: { mode: 'driver' as const, guardedTools: true }, busy: false, idle: true, queued: 0,
-        start: async () => {}, send: item => { e.onStart?.(item) }, interrupt: async () => {},
+        start: async () => {}, send: item => { e.onStart?.(item) }, interrupt: async () => {}, yieldTurn: async () => {},
         resume: () => {}, stop: () => {}, cancel: () => undefined, hasEventsQueued: () => false
       }
       const driver = new AgentSession('genio', build, { ...e, onRateLimit: vi.fn() }, 'main', () => ({}),
