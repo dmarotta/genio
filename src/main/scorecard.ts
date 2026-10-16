@@ -45,6 +45,7 @@ export function buildOutcome(t: Task, outcome: OutcomeRecord['outcome'], now = D
     title: t.title,
     kind: t.kind,
     category: isCategory(t.category) ? t.category : t.kind === 'scout' ? 'recon-design' : 'feature',
+    categoryGuessed: isCategory(t.category) ? undefined : true,
     world: t.project,
     harness: t.harness,
     model: t.model,

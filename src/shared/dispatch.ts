@@ -110,6 +110,8 @@ export interface OutcomeRecord {
   title: string
   kind: 'ship' | 'scout'
   category: TaskCategory
+  /** the task had no category: `category` is the kind's default, not evidence of the work */
+  categoryGuessed?: boolean
   world: string
   harness: string
   model?: string

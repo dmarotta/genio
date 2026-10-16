@@ -45,3 +45,27 @@ describe('playstyle thresholds', () => {
     expect(r.title).toBe('artificer')
   })
 })
+
+describe('unknown outcomes', () => {
+  const guessed: Rec & { categoryGuessed: boolean } = { ...ship('feature'), categoryGuessed: true }
+  const stray = { kind: 'ship', category: 'retired-category', landed: true } as unknown as Rec
+
+  it('gives a guessed or unrecognised category no family, but a recon stays a Scout', () => {
+    expect(familyOf(guessed)).toBeUndefined()
+    expect(familyOf(stray)).toBeUndefined()
+    expect(familyOf({ kind: 'scout', category: 'recon-design', categoryGuessed: true })).toBe('scout')
+  })
+
+  it('never counts unknown builds as samples, so they cannot make a Builder', () => {
+    const r = classifyPlaystyle([...times(4, ship('art')), ...times(10, guessed), stray])
+    expect(r).toMatchObject({ title: 'adventurer', samples: 4, counts: { builder: 0, scout: 0, artificer: 4, warden: 0 } })
+    expect(r.why).toBe('Land 5 missions to earn a title · 4 so far')
+  })
+
+  it('reads the last 20 known landings past any unknown ones', () => {
+    const r = classifyPlaystyle([...times(12, ship('bugfix')), ...times(8, ship('ui')), ...times(6, guessed)])
+    expect(r.samples).toBe(20)
+    expect(r.counts).toEqual({ builder: 8, scout: 0, artificer: 0, warden: 12 })
+    expect(r.title).toBe('warden')
+  })
+})

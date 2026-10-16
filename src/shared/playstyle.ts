@@ -20,10 +20,16 @@ export const titleName = (id: PlaystyleTitleId): string => PLAYSTYLES.find((p) =
 
 export const isPlaystyleId = (v: unknown): v is PlaystyleId => PLAYSTYLES.some((p) => p.id === v)
 
-/** A recon is scouting whatever its topic; builds go by category (unknown categories build). */
-export function familyOf(r: Pick<OutcomeRecord, 'kind' | 'category'>): PlaystyleId {
+type Sample = Pick<OutcomeRecord, 'kind' | 'category' | 'categoryGuessed'>
+
+/**
+ * A recon is scouting whatever its topic; builds go by category. A build whose
+ * category was guessed or is not one we know is unknown: it has no family.
+ */
+export function familyOf(r: Sample): PlaystyleId | undefined {
   if (r.kind === 'scout') return 'scout'
-  return PLAYSTYLES.find((p) => p.categories.includes(r.category))?.id ?? 'builder'
+  if (r.categoryGuessed) return undefined
+  return PLAYSTYLES.find((p) => p.categories.includes(r.category))?.id
 }
 
 export interface PlaystyleReading {
@@ -33,12 +39,15 @@ export interface PlaystyleReading {
   why: string
 }
 
-/** Records in scorecard order (oldest first); only landed missions count. */
-export function classifyPlaystyle(records: readonly Pick<OutcomeRecord, 'kind' | 'category' | 'landed'>[]): PlaystyleReading {
+/** Records in scorecard order (oldest first); only landed missions of a known family count. */
+export function classifyPlaystyle(records: readonly (Sample & Pick<OutcomeRecord, 'landed'>)[]): PlaystyleReading {
   const { window, minSamples, majority } = PLAYSTYLE_RULES
-  const recent = records.filter((r) => r.landed).slice(-window)
+  const recent = records.flatMap((r) => {
+    const family = r.landed ? familyOf(r) : undefined
+    return family ? [family] : []
+  }).slice(-window)
   const counts: Record<PlaystyleId, number> = { builder: 0, scout: 0, artificer: 0, warden: 0 }
-  for (const r of recent) counts[familyOf(r)]++
+  for (const family of recent) counts[family]++
   const samples = recent.length
   if (samples < minSamples) {
     return { title: 'adventurer', samples, counts, why: `Land ${minSamples} missions to earn a title · ${samples} so far` }

@@ -252,6 +252,8 @@ describe('scorecard', () => {
     const r = buildOutcome(task(), 'landed', Date.now(), 55)
     expect(r).toMatchObject({ category: 'tests', world: 'w', harness: 'codex', model: 'gpt-x', effort: 'medium', landed: true, pings: 1, relaunches: 1, lagging: 1, fixRounds: 2, planUsage: { start: 40, end: 55 } })
     expect(r.wallMinutes).toBe(30)
+    expect(r.categoryGuessed).toBeUndefined()
+    expect(buildOutcome(task({ category: undefined }), 'landed')).toMatchObject({ category: 'feature', categoryGuessed: true })
   })
 
   it('upserts one record per task, keeps verdicts and a landing', () => {
