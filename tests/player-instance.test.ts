@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppCtx } from '../src/main/services'
 import { PlayerInstanceService, type PlayerRuntime } from '../src/main/player-instance'
 import { biggestConsumers, closePlayerRoot, type MemoryProcess, type PlayerProcess, type PlayerSystem } from '../src/main/player-process'
-import { PlayerCopies } from '../resources/unit-skills/genio/lib/player-copy.mjs'
+import { PlayerCopies, PLAYER_COPY_CLEANUP_INTERVAL_MS, PLAYER_COPY_MAX_AGE_MS } from '../resources/unit-skills/genio/lib/player-copy.mjs'
 import type { DesktopApi, DesktopWindow } from '../resources/unit-skills/genio/lib/hidden-desktop.mjs'
 import { sourceLeases, sourceRemoved, yieldSource } from '../src/main/source-leases'
 
@@ -80,7 +80,7 @@ beforeEach(() => {
       return { ok: true, pid, created, desktop: options.name }
     }), windows: async () => dialogs, close: vi.fn(async () => false), click: vi.fn(async () => true), screenshot: async (_d, file) => { write(file, 'fake-png'); return file }
   }
-  copies = new PlayerCopies(data, { env, system: { alive: pid => pid === process.pid || processes.some(p => p.pid === pid), created: async pid => pid === process.pid ? '100' : processes.find(p => p.pid === pid)?.created ?? '' } })
+  copies = new PlayerCopies(data, { env, statfs: async () => ({ bavail: 100n * BigInt(GiB), bsize: 1n, blocks: 200n * BigInt(GiB) }), system: { alive: pid => pid === process.pid || processes.some(p => p.pid === pid), created: async pid => pid === process.pid ? '100' : processes.find(p => p.pid === pid)?.created ?? '' } })
   ctx = { appRoot: process.cwd(), main: { home: { data } }, projects: { get: (name: string) => projects.get(name) }, stats: { unlock: vi.fn() } } as unknown as AppCtx
   project('A'); svc = service()
 })
@@ -123,13 +123,13 @@ it('closes before restart-sensitive writes and keeps the copy and Library for th
   await svc.play('A', { path: root })
   expect(events).toContain('quit-version:m_EditorVersion: 6000.3.1f1')
 })
-it('quits at the idle deadline and deletes asynchronously', async () => {
+it('quits at the idle deadline and keeps the copy', async () => {
   await svc.play('A', { path: projects.get('A')!.path }); await svc.stop('A')
   clock += 9 * 60000; await svc.poll()
   expect(svc.status('A').state).toBe('ready')
   clock += 60000; await svc.poll()
   expect(svc.status('A').state).toBe('idle'); expect(svc.status('A').pid).toBeUndefined()
-  await copies.settle(); expect(copies.status(projects.get('A')!.path)).toBeUndefined()
+  await copies.settle(); expect(copies.status(projects.get('A')!.path)?.state).toBe('ready')
 })
 it('applies a zero idle setting to Stop and persists the global default-two cap', async () => {
   expect((await svc.machine('A')).settings).toEqual({ idleMinutes: 10, maxEditors: 2 })
@@ -198,12 +198,12 @@ it('learns the steady working set from the last session instead of the import pe
   processes[0].workingSet = 5 * GiB; await svc.poll(); processes[0].workingSet = 2 * GiB; await svc.poll()
   expect(svc.status('A').steadyWorkingSet).toBe(5 * GiB)
 })
-it('gives a copy refused for low memory the idle deadline, then deletes it', async () => {
+it('retains a copy refused for low memory past the editor idle deadline', async () => {
   await svc.ensureCopy('A'); free = 3 * GiB
   await expect(svc.play('A', { path: projects.get('A')!.path })).rejects.toThrow('available')
-  expect(copies.status(projects.get('A')!.path)?.deadline).toBe(clock + 10 * 60000)
+  expect(copies.status(projects.get('A')!.path)?.deadline).toBeUndefined()
   clock += 10 * 60000; await svc.poll(); await copies.settle()
-  expect(copies.status(projects.get('A')!.path)).toBeUndefined()
+  expect(copies.status(projects.get('A')!.path)?.state).toBe('ready')
 })
 it('groups a Unity editor\'s children under its project and other programs by name', () => {
   expect(biggestConsumers([{ pid: 1, ppid: 0, name: 'Unity.exe', command: 'Unity.exe -projectPath "D:/w/Game/"', workingSet: 2 }, { pid: 2, ppid: 1, name: 'dotnet.exe', command: 'dotnet VBCSCompiler.dll', workingSet: 1 },
@@ -229,14 +229,14 @@ it('cleans up a crash and never kills a reused PID', async () => {
   processes = [{ pid: first.pid!, ppid: 0, created: '999999', command: 'OtherApp.exe' }]
   await svc.poll(); expect(svc.status('A').state).toBe('crashed')
   expect(system.killVerified).not.toHaveBeenCalled(); expect(processes[0].created).toBe('999999')
-  await copies.settle(); expect(copies.status(projects.get('A')!.path)).toBeUndefined()
+  await copies.settle(); expect(copies.status(projects.get('A')!.path)?.id).toBe(first.copy!.id)
 })
-it('sweeps an orphan using PID, creation time and root before deleting the copy', async () => {
+it('sweeps an orphan using PID, creation time and root while retaining the copy', async () => {
   await svc.play('A', { path: projects.get('A')!.path })
   const rec = copies.status(projects.get('A')!.path)!, file = path.join(copies.dir, rec.key, 'player.json')
   const persisted = JSON.parse(fs.readFileSync(file, 'utf8')); persisted.owner = { pid: 9999, created: '55' }; fs.writeFileSync(file, JSON.stringify(persisted))
   const recovered = service(); await recovered.start()
-  expect(processes).toHaveLength(0); await copies.settle(); expect(copies.status(rec.project)).toBeUndefined()
+  expect(processes).toHaveLength(0); await copies.settle(); expect(copies.status(rec.project)?.id).toBe(rec.id)
   expect(events).toContain('eval')
 })
 it('keeps a stuck editor and its copy, with verified tree kills that exclude licence clients', async () => {
@@ -265,6 +265,7 @@ it('stops and starts the idle deadline on detach and closes all editors on Genio
   expect(svc.status('A').state).toBe('ready')
   await expect(svc.stream('A', 1280, 720, () => {}, () => {})).rejects.toThrow('Play')
   await svc.shutdown(); expect(processes).toHaveLength(0)
+  expect(copies.list().filter(copy => copy.state === 'ready')).toHaveLength(2)
   await expect(svc.play('A', { path: projects.get('A')!.path })).rejects.toThrow('exiting')
 })
 it('cancels a cold copy on Stop before launching or entering Play', async () => {
@@ -322,35 +323,78 @@ it('enters Play from Off in one call: copies, starts Unity, then plays (D1)', as
   expect(playing.state).toBe('playing')
   expect(events.indexOf('launch')).toBeLessThan(events.indexOf('editor_play'))
 })
-it('Stop Unity while playing exits Play, quits, and keeps the copy for the idle time (D2)', async () => {
+it('Stop Unity while playing exits Play, quits, and keeps the copy between sessions', async () => {
   const first = await svc.enterPlay('A', source())
   const at = events.length
   const stopped = await svc.stopUnity('A')
   expect(stopped.state).toBe('idle'); expect(stopped.pid).toBeUndefined(); expect(processes).toHaveLength(0)
   expect(events.slice(at).indexOf('editor_stop')).toBeLessThan(events.slice(at).indexOf('eval'))
   await copies.settle()
-  expect(copies.status(source().path)).toMatchObject({ state: 'ready', id: first.copy!.id, deadline: clock + 10 * 60000 })
+  expect(copies.status(source().path)).toMatchObject({ state: 'ready', id: first.copy!.id })
+  expect(copies.status(source().path)?.deadline).toBeUndefined()
   // The next start reuses the copy: nothing to copy again.
   const again = await svc.enterPlay('A', source())
   expect(again.copy).toMatchObject({ id: first.copy!.id }); expect(again.copy!.lastSync!.bytes!.copied).toBe(0)
   expect(again.pid).not.toBe(first.pid)
 })
-it('deletes a copy kept by Stop Unity at its idle deadline', async () => {
+it('keeps a copy past Stop Unity idle time', async () => {
   await svc.startUnity('A', source()); await svc.stopUnity('A')
   clock += 9 * 60000; await svc.poll(); await copies.settle()
   expect(copies.status(source().path)?.state).toBe('ready')
   clock += 60000; await svc.poll(); await copies.settle()
-  expect(copies.status(source().path)).toBeUndefined()
+  expect(copies.status(source().path)?.state).toBe('ready')
 })
-it('still deletes the copy at once on Genio exit and with a zero idle time', async () => {
+it('keeps the copy on Genio exit and with a zero idle time', async () => {
   await svc.startUnity('A', source()); await svc.stopUnity('A')
   await svc.shutdown(); await copies.settle()
-  expect(copies.status(source().path)).toBeUndefined()
+  expect(copies.status(source().path)?.state).toBe('ready')
   const next = service(); await next.configure('A', { idleMinutes: 0 })
   await next.enterPlay('A', source()); await next.stopUnity('A'); await copies.settle()
+  expect(copies.status(source().path)?.state).toBe('ready')
+})
+it('closing the project window retains its copy; only explicit Delete copy deletes it', async () => {
+  const first = await svc.enterPlay('A', source())
+  await svc.quit('A'); await copies.settle()
+  expect(processes).toHaveLength(0)
+  expect(copies.status(source().path)?.id).toBe(first.copy!.id)
+  await svc.enterPlay('A', source())
+  await svc.deleteCopy('A'); await copies.settle()
+  expect(processes).toHaveLength(0)
   expect(copies.status(source().path)).toBeUndefined()
 })
-it('cancels a cold copy from the Unity button and keeps the copy with an idle deadline', async () => {
+it('explicit Delete copy cannot remove a stuck running editor', async () => {
+  const first = await svc.enterPlay('A', source())
+  graceful = false; killed = false
+  expect((await svc.deleteCopy('A')).deleted).toBe(false)
+  await copies.settle()
+  expect(svc.status('A').state).toBe('close-stuck')
+  expect(copies.status(source().path)?.id).toBe(first.copy!.id)
+})
+it('runs cleanup at startup and hourly, protects a launch even without editor metadata, and stops the timer on exit', async () => {
+  const intervals = vi.spyOn(global, 'setInterval'), clears = vi.spyOn(global, 'clearInterval')
+  try {
+    const old = await copies.ensure(source().path)
+    await copies.playing(source().path, clock - PLAYER_COPY_MAX_AGE_MS - 1)
+    await svc.start(); await svc.cleanup()
+    expect(copies.status(source().path)).toBeUndefined()
+    const callIndex = intervals.mock.calls.findIndex(([, ms]) => ms === PLAYER_COPY_CLEANUP_INTERVAL_MS)
+    expect(callIndex).toBeGreaterThanOrEqual(0)
+    const hourly = intervals.mock.calls[callIndex][0] as () => void
+    const first = await svc.enterPlay('A', source())
+    expect(first.copy!.id).not.toBe(old.id)
+    fs.rmSync(path.join(first.root!, 'Library/EditorInstance.json'))
+    clock += PLAYER_COPY_MAX_AGE_MS + 1
+    hourly(); await svc.cleanup()
+    expect(copies.status(source().path)?.id).toBe(first.copy!.id)
+    await svc.stopUnity('A')
+    hourly(); await svc.cleanup()
+    expect(copies.status(source().path)).toBeUndefined()
+    const cleanupTimer = intervals.mock.results[callIndex].value
+    await svc.shutdown()
+    expect(clears).toHaveBeenCalledWith(cleanupTimer)
+  } finally { intervals.mockRestore(); clears.mockRestore() }
+})
+it('cancels a cold copy from the Unity button and keeps the copy', async () => {
   let release!: () => void, started = false
   const gate = new Promise<void>(r => { release = r })
   copies = new PlayerCopies(data, { env, system: { alive: () => false, created: async () => '100' }, io: { copyFile: async (from, to) => { started = true; await gate; await fs.promises.copyFile(from, to) } } })
@@ -361,7 +405,7 @@ it('cancels a cold copy from the Unity button and keeps the copy with an idle de
   const cancelled = svc.stopUnity('A'); release()
   await expect(starting).rejects.toThrow(/cancel/i)
   expect((await cancelled).state).toBe('idle'); expect(events).not.toContain('launch')
-  expect(copies.status(source().path)).toMatchObject({ state: 'ready', deadline: clock + 10 * 60000 })
+  expect(copies.status(source().path)).toMatchObject({ state: 'ready' })
 })
 it('checks memory before copying, so a low-memory refusal copies nothing (D3 ordering)', async () => {
   free = 5 * 2 ** 30

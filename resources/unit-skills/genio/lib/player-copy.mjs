@@ -3,8 +3,8 @@
  * and queue. A record per project at <data>/player-copies/<key>/instance.json names the copy folder, which
  * sits on the project's volume when that volume block clones (like the slots) so the first copy is cheap.
  * The copy follows any source of its project through the git-guided mirror and keeps one Library, seeded
- * once from the main checkout. It stays while its editor is warm, and after the player's Stop Unity until its
- * idle deadline; otherwise it is deleted, in the background, once the editor is gone (PLAYER_COPY_POLICY). Unity is never started or stopped here: build 2's lifecycle calls
+ * once from the main checkout. Copies survive editor and Genio shutdown; cleanup removes unused copies
+ * after 24 hours or when their volume is short of space. Unity is never started or stopped here: the lifecycle calls
  * stopped(), due() and editorGone(). Node standard library only.
  */
 import fs from 'node:fs'
@@ -18,8 +18,10 @@ import { applyMirror, describeSource, removeFile, resolveSource, scanSource, sou
 const exec = promisify(execFile)
 
 /** What happens to a copy once its editor has quit. Keeping copies is one line: keepCopyWhenEditorQuits: true. */
-export const PLAYER_COPY_POLICY = Object.freeze({ keepCopyWhenEditorQuits: false })
-/** The editor quits this long after the last Play stopped (build 2), and the copy goes with it. */
+export const PLAYER_COPY_POLICY = Object.freeze({ keepCopyWhenEditorQuits: true })
+export const PLAYER_COPY_MAX_AGE_MS = 24 * 60 * 60 * 1000
+export const PLAYER_COPY_CLEANUP_INTERVAL_MS = 60 * 60 * 1000
+/** The editor quits this long after the last Play stopped; its copy stays on disk. */
 export const DEFAULT_IDLE_MS = 10 * 60 * 1000
 const SUB = 'player-copies'
 const MARKER = 'genio-player-copy.json'
@@ -77,7 +79,8 @@ export class PlayerCopies {
   /** One operation at a time per project; deletions run outside, so they never hold up a Play. */
   exclusive(k, fn) {
     const run = (this.locks.get(k) ?? Promise.resolve()).then(fn)
-    this.locks.set(k, run.catch(() => {}))
+    const settled = run.catch(() => {}).finally(() => { if (this.locks.get(k) === settled) this.locks.delete(k) })
+    this.locks.set(k, settled)
     return run
   }
   async me() { return this.self ??= { pid: process.pid, created: await this.system.created(process.pid) } }
@@ -286,12 +289,17 @@ export class PlayerCopies {
   /** Copies whose idle deadline has passed: build 2 quits their editor, then calls editorGone(). */
   due(now = Date.now()) { return this.list().filter(r => r.state === 'ready' && Number.isFinite(r.deadline) && r.deadline <= now) }
   /**
-   * Build 2's hook once the copy's editor process is gone. An idle timeout, Genio exit and crash cleanup delete
-   * the copy; the player's own Stop Unity (manual) keeps it until its idle deadline, so the next start skips the
-   * copy. A zero idle time deletes at once either way.
+   * The editor has gone. By default every shutdown keeps the copy for a later incremental sync.
+   * The legacy policy remains available to scripts; explicit deletion bypasses this hook.
    */
   async editorGone(world, reason = 'the editor quit', { manual = false, at = Date.now(), idleMs } = {}) {
-    if (this.policy.keepCopyWhenEditorQuits) return { kept: true, record: this.status(world) }
+    if (this.policy.keepCopyWhenEditorQuits) return this.exclusive(this.keyOf(world), async () => {
+      const k = this.keyOf(world), rec = this.read(k)
+      if (!rec) return { kept: true }
+      delete rec.stoppedAt; delete rec.deadline
+      this.write(k, rec)
+      return { kept: true, record: this.view(k, rec) }
+    })
     if (manual && idleMs !== 0) {
       const record = await this.stopped(world, at, idleMs)
       if (record && record.state !== 'pending-delete' && record.state !== 'deleting') return { kept: true, record }
@@ -327,9 +335,9 @@ export class PlayerCopies {
     const rec = this.read(k)
     return rec ? { deleted: false, record: this.view(k, rec) } : { deleted: true }
   }
-  startDeletion(k) {
+  startDeletion(k, inUse = () => false) {
     if (this.jobs.has(k)) return this.jobs.get(k)
-    const job = { controller: new AbortController(), progress: { phase: 'starting' } }
+    const job = { controller: new AbortController(), progress: { phase: 'starting' }, inUse }
     job.promise = this.runDeletion(k, job).catch(() => {}).finally(() => this.jobs.delete(k))
     this.jobs.set(k, job)
     return job
@@ -365,6 +373,7 @@ export class PlayerCopies {
   async runDeletion(k, job) {
     let rec = this.read(k)
     if (!rec) return
+    if (job.inUse(rec) || this.syncs.has(k)) return
     const save = patch => { const now = this.read(k); if (!now || now.id !== rec.id) return; rec = { ...now, ...patch }; this.write(k, rec) }
     const refusal = this.refusal(k, rec)
     if (refusal) { save({ state: 'pending-delete', deletion: { ...rec.deletion, blocked: `Genio will not delete ${rec.dir}: ${refusal}` } }); return }
@@ -373,9 +382,12 @@ export class PlayerCopies {
     save({ state: 'deleting', deletion: { ...rec.deletion, startedAt: Date.now(), blocked: undefined, error: undefined } })
     const p = job.progress
     const deadline = Date.now() + this.deletion.timeoutMs
-    let persisted = Date.now()
+    let persisted = Date.now(), editorChecked = 0
     const tick = () => {
-      if (job.controller.signal.aborted) { const e = new Error('Deletion stopped: the copy was revived'); e.code = 'ABORT_ERR'; throw e }
+      // Lifecycle use is checked on every file; external editor metadata is sampled once a second.
+      let editorRunning = false
+      if (Date.now() - editorChecked >= 1000) { editorChecked = Date.now(); editorRunning = this.editorPids(rec.root).length > 0 }
+      if (job.controller.signal.aborted || job.inUse(rec) || this.syncs.has(k) || editorRunning) { const e = new Error('Deletion stopped: the copy is in use or was revived'); e.code = 'ABORT_ERR'; throw e }
       if (Date.now() > deadline) { const e = new Error('Deletion timed out; it continues at the next start'); e.code = 'ETIMEDOUT'; throw e }
       if (Date.now() - persisted > 5000) { persisted = Date.now(); save({ deletion: { ...rec.deletion, ...p } }) }
     }
@@ -424,11 +436,51 @@ export class PlayerCopies {
   async settle() { while (this.jobs.size || this.trashJobs.size) await Promise.all([...[...this.jobs.values()].map(j => j.promise), ...this.trashJobs]) }
 
   /**
-   * At Genio's start: finish pending deletions, delete copies whose owning Genio is gone (its editor went
-   * with it; a copy Unity still holds is left for build 2's sweep), and remove marked folders left without
+   * Reclaim unused copies, oldest Play first. Never-played copies age from creation. Check space on
+   * each copy's own volume, and remeasure after each deletion (estimates cannot account for block clones).
+   * isInUse is live, not a startup snapshot: a queued Play or launch protects the copy immediately.
+   */
+  async cleanup({ now = Date.now(), isInUse = () => false } = {}) {
+    const playedAt = rec => Number.isFinite(rec.lastPlayedAt) ? rec.lastPlayedAt : rec.createdAt
+    const out = []
+    for (const candidate of this.list().sort((a, b) => playedAt(a) - playedAt(b))) {
+      const k = candidate.key
+      if (this.locks.has(k) || this.syncs.has(k) || this.jobs.has(k) || isInUse(candidate)) continue
+      const job = await this.exclusive(k, async () => {
+        const rec = this.read(k)
+        if (!rec || rec.id !== candidate.id || this.syncs.has(k) || isInUse(rec)) return
+        if (!await this.mine(rec) && await this.ownerAlive(rec.owner)) return
+        const expired = playedAt(rec) < now - PLAYER_COPY_MAX_AGE_MS
+        let low = false
+        if (!expired) {
+          try {
+            const stat = await (this.statfs ?? fs.promises.statfs)(rec.dir, { bigint: true })
+            const free = Number(stat.bavail) * Number(stat.bsize), total = Number(stat.blocks) * Number(stat.bsize)
+            low = free < 15 * 2 ** 30 || total > 0 && free / total < 0.1
+          } catch { /* An unavailable volume is not a reason to delete a recent copy. */ }
+        }
+        // The checks above can yield to a new lifecycle operation. Recheck before marking anything.
+        if ((!expired && !low) || isInUse(rec) || this.syncs.has(k) || this.editorPids(rec.root).length) return
+        rec.owner = await this.me()
+        if (isInUse(rec)) return
+        rec.state = 'pending-delete'
+        rec.deletion = { reason: expired ? 'not played for 24 hours' : 'low disk space', requestedAt: now }
+        this.write(k, rec)
+        return this.startDeletion(k, isInUse)
+      })
+      if (job) {
+        await job.promise
+        out.push({ key: k, project: candidate.project, deleted: !this.read(k) })
+      }
+    }
+    return out
+  }
+
+  /**
+   * At Genio's start: finish pending deletions, adopt copies whose owning Genio is gone, and remove marked folders left without
    * a record. Runs in the background; returns what it started.
    */
-  async sweep({ protectedKeys = [] } = {}) {
+  async sweep({ protectedKeys = [], isInUse = () => false } = {}) {
     const out = []
     let names = []
     try { names = fs.readdirSync(this.dir).filter(n => /^[0-9a-f]{24}$/.test(n)) } catch { return out }
@@ -437,13 +489,19 @@ export class PlayerCopies {
       const rec = this.read(k)
       if (!rec) {
         const copy = path.join(this.dir, k, 'copy')
-        try { if (JSON.parse(fs.readFileSync(path.join(copy, MARKER), 'utf8')).kind === KIND) { this.removeInBackground(copy); out.push({ key: k, action: 'stray-deleted' }) } } catch { /* Nothing marked here. */ }
+        try {
+          const marker = JSON.parse(fs.readFileSync(path.join(copy, MARKER), 'utf8'))
+          const editor = fs.readdirSync(copy, { withFileTypes: true }).filter(e => e.isDirectory()).some(e => this.editorPids(path.join(copy, e.name)).length)
+          if (marker.kind === KIND && !editor && !isInUse(marker)) { this.removeInBackground(copy); out.push({ key: k, action: 'stray-deleted' }) }
+        } catch { /* Nothing marked here. */ }
         continue
       }
+      if (this.locks.has(k) || this.syncs.has(k) || isInUse(rec)) { out.push({ key: k, action: 'kept' }); continue }
+      if (!await this.mine(rec) && await this.ownerAlive(rec.owner)) { out.push({ key: k, project: rec.project, action: 'owned', pid: rec.owner.pid }); continue }
       const listing = dir => { try { return fs.readdirSync(dir) } catch { return [] } }
       // Folders moved aside by an earlier copy of this project.
       for (const n of listing(path.dirname(rec.dir))) if (n.startsWith(`${TRASH}-`)) this.removeInBackground(path.join(path.dirname(rec.dir), n))
-      if (rec.state === 'pending-delete' || rec.state === 'deleting') { this.startDeletion(k); out.push({ key: k, project: rec.project, action: 'deleting' }); continue }
+      if (rec.state === 'pending-delete' || rec.state === 'deleting') { this.startDeletion(k, isInUse); out.push({ key: k, project: rec.project, action: 'deleting' }); continue }
       if (await this.mine(rec)) { this.purgeTrash(rec); continue }
       if (await this.ownerAlive(rec.owner)) { out.push({ key: k, project: rec.project, action: 'owned', pid: rec.owner.pid }); continue }
       const editor = fs.existsSync(rec.dir) ? this.editorPids(rec.root) : []

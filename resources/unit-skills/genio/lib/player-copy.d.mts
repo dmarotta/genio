@@ -4,6 +4,8 @@ import type { MirrorFiles, MirrorOptions, MirrorProgress, MirrorReport, MirrorSo
 
 export interface PlayerCopyPolicy { keepCopyWhenEditorQuits: boolean }
 export const PLAYER_COPY_POLICY: Readonly<PlayerCopyPolicy>
+export const PLAYER_COPY_MAX_AGE_MS: number
+export const PLAYER_COPY_CLEANUP_INTERVAL_MS: number
 export const DEFAULT_IDLE_MS: number
 export interface PlayerOwner { pid: number; created: string }
 /**
@@ -37,7 +39,7 @@ export interface PlayerCopyRecord {
   owner?: PlayerOwner
   source?: SourceInfo
   lastSync?: PlayerLastSync
-  /** Idle timer: the editor quits (and the copy is deleted) at deadline = stoppedAt + idleMs. */
+  /** Idle timer: only the editor quits at deadline = stoppedAt + idleMs. */
   idleMs: number; stoppedAt?: number; deadline?: number; lastPlayedAt?: number
   library?: { version?: string; at: number }
   deletion?: PlayerDeletion
@@ -59,7 +61,7 @@ export interface PlayerCopiesOptions {
   clone?: CloneOptions
   /** Tests: a slow copy, and the Library robocopy runner. */
   io?: MirrorOptions['io'] & { run?: SeedOptions['run'] }
-  statfs?: SeedOptions['statfs']
+  statfs?: (path: string, options: { bigint: true }) => Promise<{ bavail: bigint; bsize: bigint; blocks?: bigint }>
   system?: { alive?: (pid: number) => boolean; created?: (pid: number) => Promise<string> }
   deletion?: { concurrency?: number; timeoutMs?: number; retries?: number }
   env?: Record<string, string | undefined>
@@ -84,6 +86,7 @@ export class PlayerCopies {
   delete(world: string, options?: { reason?: string }): Promise<{ deleted: boolean; record?: PlayerCopyRecord }>
   editorPids(root: string): number[]
   settle(): Promise<void>
-  sweep(options?: { protectedKeys?: string[] }): Promise<SweepResult[]>
+  cleanup(options?: { now?: number; isInUse?: (copy: PlayerCopyRecord) => boolean }): Promise<{ key: string; project: string; deleted: boolean }[]>
+  sweep(options?: { protectedKeys?: string[]; isInUse?: (copy: PlayerCopyRecord) => boolean }): Promise<SweepResult[]>
   sizes(world: string, engineRoot?: string): Promise<PlayerCopySizes>
 }

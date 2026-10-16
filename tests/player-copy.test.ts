@@ -4,7 +4,7 @@ import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { afterEach, beforeEach, expect, it } from 'vitest'
-import { PlayerCopies } from '../resources/unit-skills/genio/lib/player-copy.mjs'
+import { PlayerCopies, PLAYER_COPY_MAX_AGE_MS } from '../resources/unit-skills/genio/lib/player-copy.mjs'
 import { mirrorSkip } from '../resources/unit-skills/genio/lib/git-mirror.mjs'
 
 // Temp repositories only: nothing here reads or writes a real project.
@@ -291,6 +291,106 @@ it('copies submodules from the source checkout, else from the main checkout, els
   expect(copyTree(copies)).toEqual(copyBefore)
 }, 90000)
 
+const GiB = 2 ** 30
+const plentyOfSpace = async () => ({ bavail: 100n * BigInt(GiB), bsize: 1n, blocks: 200n * BigInt(GiB) })
+
+it('cleans copies unplayed for 24 hours, keeping recent copies and aging never-played copies from creation', async () => {
+  const copies = make({ statfs: plentyOfSpace }), now = Date.now()
+  const old = await copies.ensure(world, 'Game')
+  await copies.playing(world, now - PLAYER_COPY_MAX_AGE_MS - 1)
+  const recentWorld = makeWorld(path.join(root, 'recent'))
+  const recent = await copies.ensure(recentWorld, 'Game')
+  await copies.playing(recentWorld, now - PLAYER_COPY_MAX_AGE_MS)
+  const neverWorld = makeWorld(path.join(root, 'never'))
+  const never = await copies.ensure(neverWorld, 'Game')
+  const file = path.join(copies.dir, never.key, 'instance.json')
+  fs.writeFileSync(file, JSON.stringify({ ...never, createdAt: now - PLAYER_COPY_MAX_AGE_MS - 1 }))
+  const freshWorld = makeWorld(path.join(root, 'fresh'))
+  await copies.ensure(freshWorld, 'Game')
+  const before = snapshot(world)
+  expect((await copies.cleanup({ now })).map(r => r.project).sort()).toEqual([world, neverWorld].sort())
+  expect(fs.existsSync(old.dir)).toBe(false)
+  expect(fs.existsSync(never.dir)).toBe(false)
+  expect(copies.status(recentWorld)?.id).toBe(recent.id)
+  expect(copies.status(freshWorld)?.state).toBe('ready')
+  expect(snapshot(world)).toEqual(before)
+}, 60000)
+
+it('skips old copies with editor PIDs, a live foreign owner, or a lifecycle operation', async () => {
+  const copies = make({ statfs: plentyOfSpace }), now = Date.now()
+  const rec = await copies.ensure(world, 'Game')
+  await copies.playing(world, now - PLAYER_COPY_MAX_AGE_MS - 1)
+  for (const [file, field] of [['Library/EditorInstance.json', 'process_id'], ['Library/Pipeline/.unity-pipeline-port', 'pid']]) {
+    write(path.join(rec.root, file), JSON.stringify({ [field]: process.pid }))
+    expect(await copies.cleanup({ now })).toEqual([])
+    expect(copies.status(world)?.state).toBe('ready')
+    fs.rmSync(path.join(rec.root, file))
+  }
+  expect(await copies.cleanup({ now, isInUse: copy => copy.project === world })).toEqual([])
+  const file = path.join(copies.dir, rec.key, 'instance.json'), original = fs.readFileSync(file, 'utf8')
+  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(original), owner: { pid: process.ppid, created: 'PARENT' } }))
+  const other = new PlayerCopies(data, { statfs: plentyOfSpace, system: { created: async pid => pid === process.ppid ? 'PARENT' : 'T0' } })
+  expect(await other.cleanup({ now })).toEqual([])
+  expect(copies.status(world)?.id).toBe(rec.id)
+  fs.writeFileSync(file, original)
+  expect((await copies.cleanup({ now }))[0].deleted).toBe(true)
+})
+
+it('never cancels or deletes an active sync during cleanup', async () => {
+  let release!: () => void, started = false
+  const gate = new Promise<void>(r => { release = r })
+  const copies = make({ statfs: plentyOfSpace, io: { copyFile: async (from, to) => { started = true; await gate; await fs.promises.copyFile(from, to) } } })
+  const rec = await copies.ensure(world, 'Game'), now = Date.now()
+  await copies.playing(world, now - PLAYER_COPY_MAX_AGE_MS - 1)
+  const syncing = copies.sync(world, { path: world })
+  try {
+    while (!started) await sleep(5)
+    expect(await copies.cleanup({ now })).toEqual([])
+    expect(copies.status(world)?.state).toBe('syncing')
+  } finally { release() }
+  await syncing
+  expect(copies.status(world)?.id).toBe(rec.id)
+}, 60000)
+
+it('rechecks lifecycle use after a disk query before marking a copy for deletion', async () => {
+  let busy = false
+  const copies = make({ statfs: async () => { busy = true; return { bavail: 1n, bsize: 1n, blocks: 100n } } })
+  const rec = await copies.ensure(world, 'Game')
+  expect(await copies.cleanup({ isInUse: () => busy })).toEqual([])
+  expect(copies.status(world)).toMatchObject({ id: rec.id, state: 'ready' })
+})
+
+it('on low disk deletes least recently played first, measures the copy volume and stops when space recovers', async () => {
+  const queried: string[] = [], now = Date.now()
+  let firstDir = '', secondDir = ''
+  const copies = make({ statfs: async dir => {
+    queried.push(dir)
+    // More than 15 GiB free, but under 10% until the two oldest copies have gone.
+    const low = fs.existsSync(firstDir) || fs.existsSync(secondDir)
+    return { bavail: BigInt((low ? 20 : 40) * GiB), bsize: 1n, blocks: BigInt(300 * GiB) }
+  } })
+  firstDir = (await copies.ensure(world, 'Game')).dir
+  await copies.playing(world, now - 3000)
+  const second = makeWorld(path.join(root, 'second')), third = makeWorld(path.join(root, 'third'))
+  secondDir = (await copies.ensure(second, 'Game')).dir
+  await copies.playing(second, now - 2000)
+  const newest = await copies.ensure(third, 'Game')
+  await copies.playing(third, now - 1000)
+  expect((await copies.cleanup({ now })).map(r => r.project)).toEqual([world, second])
+  expect(queried).toEqual([firstDir, secondDir, newest.dir])
+  expect(copies.status(third)?.id).toBe(newest.id)
+}, 60000)
+
+it('uses the absolute free-space threshold and keeps recent copies when their volume cannot be read', async () => {
+  const low = make({ statfs: async () => ({ bavail: BigInt(14 * GiB), bsize: 1n, blocks: BigInt(50 * GiB) }) })
+  await low.ensure(world, 'Game')
+  expect((await low.cleanup())[0].deleted).toBe(true)
+  const unavailable = make({ statfs: async () => { throw new Error('volume unavailable') } })
+  const rec = await unavailable.ensure(world, 'Game')
+  expect(await unavailable.cleanup()).toEqual([])
+  expect(unavailable.status(world)?.id).toBe(rec.id)
+})
+
 it.skipIf(!hasLfs)('reads LFS-tracked files as they are on disk without git-lfs writing into the source', async () => {
   const lfs = ['filter.lfs.clean=git-lfs clean -- %f', 'filter.lfs.smudge=git-lfs smudge -- %f', 'filter.lfs.process=git-lfs filter-process', 'filter.lfs.required=true']
   for (const kv of lfs) { const at = kv.indexOf('='); git(world, 'config', kv.slice(0, at), kv.slice(at + 1)) }
@@ -411,19 +511,19 @@ it('refuses a sync the disk cannot hold, before writing anything', async () => {
   await expect(copies.sync(world, { path: other })).rejects.toThrow(/must be a checkout of this project/)
 })
 
-it('keeps the copy until its idle deadline after a manual Stop Unity, and deletes at once with no idle time', async () => {
+it('keeps the copy after every editor shutdown, including a zero idle time', async () => {
   const copies = make()
-  await copies.ensure(world, 'Game'); await copies.sync(world, { path: world })
-  expect(await copies.editorGone(world, 'the player stopped Unity', { manual: true, at: 1000, idleMs: 60000 })).toMatchObject({ kept: true, record: { state: 'ready', deadline: 61000 } })
-  expect(copies.due(61000).map(r => r.project)).toEqual([world])
-  expect((await copies.editorGone(world, 'idle timeout')).deleted).toBe(false)
-  await copies.settle(); expect(copies.status(world)).toBeUndefined()
-  await copies.ensure(world, 'Game')
-  expect((await copies.editorGone(world, 'the player stopped Unity', { manual: true, idleMs: 0 })).kept).toBeUndefined()
-  await copies.settle(); expect(copies.status(world)).toBeUndefined()
-  expect(await copies.editorGone(world, 'the player stopped Unity', { manual: true, idleMs: 60000 })).toEqual({ deleted: true })
+  const rec = await copies.ensure(world, 'Game'); await copies.sync(world, { path: world })
+  await copies.stopped(world, 1000, 60000)
+  for (const reason of ['the player stopped Unity', 'idle timeout', 'Genio exit', 'editor exited']) {
+    expect(await copies.editorGone(world, reason, { manual: true, idleMs: 0 })).toMatchObject({ kept: true, record: { state: 'ready', id: rec.id } })
+    await copies.settle()
+    expect(copies.status(world)?.deadline).toBeUndefined()
+    expect(fs.readFileSync(path.join(rec.root, 'Library/ArtifactDB'), 'utf8')).toBe('warm cache')
+  }
+  expect(await copies.delete(world)).toEqual({ deleted: true })
 })
-it('tracks the idle deadline, then deletes the copy in the background once Unity has let go of it', async () => {
+it('tracks the editor idle deadline, and explicit deletion waits until Unity has let go of the copy', async () => {
   const copies = make()
   const rec = await copies.ensure(world, 'Game')
   await copies.sync(world, { path: world })
@@ -441,9 +541,9 @@ it('tracks the idle deadline, then deletes the copy in the background once Unity
   // Unity still has the copy open: the deletion waits, marked pending.
   write(path.join(rec.root, 'Library', 'EditorInstance.json'), JSON.stringify({ process_id: process.pid }))
   const before = snapshot(world)
-  expect((await copies.editorGone(world)).deleted).toBe(false)
+  expect((await copies.deleteInBackground(world, { reason: 'the player deleted it' })).deleted).toBe(false)
   await copies.settle()
-  expect(copies.status(world)).toMatchObject({ state: 'pending-delete', deletion: { reason: 'the editor quit', blocked: expect.stringMatching(/Unity still has the copy open \(PID \d+\)/) } })
+  expect(copies.status(world)).toMatchObject({ state: 'pending-delete', deletion: { reason: 'the player deleted it', blocked: expect.stringMatching(/Unity still has the copy open \(PID \d+\)/) } })
   expect(fs.existsSync(rec.root)).toBe(true)
   fs.rmSync(path.join(rec.root, 'Library', 'EditorInstance.json'))
   expect(await copies.delete(world)).toEqual({ deleted: true })
@@ -544,7 +644,7 @@ it('keeps one record per project, lists them, sizes them and estimates a first c
   await expect(busy.sync(world, { path: world })).rejects.toThrow(/belongs to another running Genio/)
 }, 90000)
 
-it('the startup sweep finishes pending deletions and removes copies whose Genio session is gone', async () => {
+it('the startup sweep finishes explicit deletions and keeps copies whose Genio session is gone', async () => {
   const second = makeWorld(path.join(root, 'second'))
   const third = makeWorld(path.join(root, 'third'))
   const old = new PlayerCopies(data, { system: { created: async () => 'DEAD' } })
@@ -554,7 +654,7 @@ it('the startup sweep finishes pending deletions and removes copies whose Genio 
   // third is still open in Unity; second was left pending by an exit mid-deletion.
   write(path.join(c.root, 'Library', 'EditorInstance.json'), JSON.stringify({ process_id: process.pid }))
   const file = path.join(data, 'player-copies', b.key, 'instance.json')
-  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), state: 'pending-delete', deletion: { reason: 'the editor quit' } }))
+  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), state: 'pending-delete', deletion: { reason: 'the player deleted it' } }))
   // A marked copy folder that lost its record.
   const stray = path.join(data, 'player-copies', 'f'.repeat(24), 'copy')
   write(path.join(stray, 'genio-player-copy.json'), JSON.stringify({ kind: 'genio-player-copy', id: 'x' }))
@@ -562,13 +662,13 @@ it('the startup sweep finishes pending deletions and removes copies whose Genio 
   // The new session: the old one's PID is this process, but its creation time differs, so it is gone.
   const fresh = new PlayerCopies(data, { system: { created: async () => 'NEW' } })
   const swept = await fresh.sweep()
-  expect(swept.map(s => [s.project ?? s.key, s.action]).sort()).toEqual([[world, 'deleting'], [second, 'deleting'], [third, 'editor-running'], ['f'.repeat(24), 'stray-deleted']].sort())
+  expect(swept.map(s => [s.project ?? s.key, s.action]).sort()).toEqual([[world, 'kept'], [second, 'deleting'], [third, 'editor-running'], ['f'.repeat(24), 'stray-deleted']].sort())
   await fresh.settle()
-  expect(fs.existsSync(a.dir)).toBe(false)
+  expect(fs.existsSync(a.dir)).toBe(true)
   expect(fs.existsSync(b.dir)).toBe(false)
   expect(fs.existsSync(stray)).toBe(false)
   expect(fs.existsSync(c.root)).toBe(true)
-  expect(fresh.list().map(r => r.project)).toEqual([third])
+  expect(fresh.list().map(r => r.project).sort()).toEqual([world, third].sort())
 
   // Keeping copies is one policy switch.
   const keep = new PlayerCopies(data, { system: { created: async () => 'NEW' }, policy: { keepCopyWhenEditorQuits: true } })

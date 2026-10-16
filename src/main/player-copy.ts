@@ -5,8 +5,8 @@ import { PlayerCopies } from '../../resources/unit-skills/genio/lib/player-copy.
 
 /**
  * The player's own Play copy, one per project: kept outside the units' slot pool, cap and queue, synced from
- * any source of the project (main checkout, worktree, unit worktree, branch), and deleted in the background
- * once its editor is gone. Play's instance lifecycle (build 2) and screen (build 3) drive it; no UI here.
+ * any source of the project (main checkout, worktree, unit worktree, branch), and retained between sessions.
+ * The instance lifecycle schedules cleanup after 24 hours unplayed or when the copy volume is low on space.
  */
 export class PlayerCopyService {
   readonly copies: PlayerCopies
@@ -37,7 +37,7 @@ export class PlayerCopyService {
   editorGone(world: string, reason?: string) { return this.copies.editorGone(this.project(world).path, reason) }
   deleteInBackground(world: string) { return this.copies.deleteInBackground(this.project(world).path, { reason: 'the player deleted it' }) }
   sizes(world: string) { const p = this.project(world); return this.copies.sizes(p.path, p.engineRoot) }
-  /** At start: finish pending deletions and remove copies a previous Genio session left behind. */
+  /** At start: finish pending deletions and adopt copies a previous Genio session left behind. */
   sweep() { return this.copies.sweep() }
 }
 const services = new WeakMap<AppCtx, PlayerCopyService>()

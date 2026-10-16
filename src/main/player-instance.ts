@@ -4,7 +4,7 @@ import type { AppCtx } from './services'
 import { effectiveEngine } from '@shared/engine'
 import { decodeBytes, lineStart } from '@shared/encoding'
 import { sameSource, sourceGoneText, supportsUnitySlots, type PlayerCopySource, type PlayerInstanceStatus, type PlayerMachineStatus, type PlayerScene, type PlayerSettings, type PlayerSourceGone, type PlayInput } from '@shared/play'
-import { PlayerCopies, processCreated } from '../../resources/unit-skills/genio/lib/player-copy.mjs'
+import { PlayerCopies, PLAYER_COPY_CLEANUP_INTERVAL_MS, processCreated } from '../../resources/unit-skills/genio/lib/player-copy.mjs'
 import { createDesktopApi, inspectDesktop, launchEditor, type DesktopApi, type EditorLaunch } from '../../resources/unit-skills/genio/lib/hidden-desktop.mjs'
 import { sourceMissing, unityVersionOf } from '../../resources/unit-skills/genio/lib/git-mirror.mjs'
 import { checkCopyPath } from '../../resources/unit-skills/genio/lib/unity-seed.mjs'
@@ -42,8 +42,8 @@ async function idleSlotEditors(ctx: AppCtx): Promise<IdleEditor[]> {
   return out
 }
 const gb = (bytes: number) => (bytes / GiB).toFixed(1)
-/** What happens to the copy once the editor is gone: deleted, kept for a restart, or kept until its idle deadline (Stop Unity). */
-type CopyAfterClose = 'delete' | 'keep' | 'idle'
+/** Regular closes retain the copy; a restart inside a sync must not acquire the copy's lock again. */
+type CopyAfterClose = 'delete' | 'keep' | 'restart'
 export interface PlayerRuntime {
   request<T = unknown>(command: string, parameters?: object): Promise<T>
   stream(width: number, height: number, onFrame: (b: Buffer) => void, onDisconnect: () => void): Promise<void>
@@ -141,6 +141,8 @@ export class PlayerInstanceService {
   private controllers = new Map<string, AbortController>()
   private launches: Promise<unknown> = Promise.resolve()
   private timer?: ReturnType<typeof setInterval>
+  private cleanupTimer?: ReturnType<typeof setInterval>
+  private cleanupRun?: Promise<unknown>
   private polling = false
   private exiting = false
   private startup?: Promise<void>
@@ -248,9 +250,22 @@ export class PlayerInstanceService {
         this.save(i)
         if (!i.launch) this.instances.delete(i.project)
       }
-      await this.copies.sweep({ protectedKeys: [...this.instances.values()].filter(i => i.launch || i.state === 'close-stuck').map(i => this.copies.keyOf(i.project)) })
-      if (!this.exiting) { this.timer = setInterval(() => void this.poll().catch(() => {}), 5000); this.timer.unref() }
+      await this.copies.sweep({ isInUse: copy => this.copyInUse(copy) })
+      if (!this.exiting) {
+        void this.cleanup().catch(e => console.error('[player-instance] cleanup', e))
+        this.cleanupTimer = setInterval(() => void this.cleanup().catch(e => console.error('[player-instance] cleanup', e)), PLAYER_COPY_CLEANUP_INTERVAL_MS)
+        this.cleanupTimer.unref()
+        this.timer = setInterval(() => void this.poll().catch(() => {}), 5000); this.timer.unref()
+      }
     })()
+  }
+  private copyInUse(copy: { project: string }) {
+    const i = this.instances.get(copy.project)
+    return this.exiting || this.operations.has(copy.project) || !!i?.launch || i?.state === 'close-stuck'
+  }
+  /** Startup and hourly maintenance run off the Play path; overlapping sweeps share one run. */
+  cleanup(): Promise<unknown> {
+    return this.cleanupRun ??= this.copies.cleanup({ now: this.system.now(), isInUse: copy => this.copyInUse(copy) }).finally(() => { this.cleanupRun = undefined })
   }
   status(world: string): PlayerInstanceStatus {
     const { project } = this.project(world), i = this.instances.get(project)
@@ -280,9 +295,16 @@ export class PlayerInstanceService {
     return this.serial(project, async () => { await this.start(); return this.copies.ensure(project, engineRoot) })
   }
   async deleteCopy(world: string) {
-    await this.quit(world)
-    const copy = this.copies.status(this.project(world).project)
-    return { deleted: !copy, record: copy }
+    const { project } = this.project(world)
+    this.cancel(project)
+    return this.serial(project, async () => {
+      await this.start()
+      const i = this.instances.get(project)
+      if (i) await this.close(i, 'the player deleted it', 'delete')
+      else await this.copies.deleteInBackground(project, { reason: 'the player deleted it' })
+      const copy = this.copies.status(project)
+      return { deleted: !copy, record: copy }
+    })
   }
   async configure(world: string, patch: Partial<PlayerSettings>) {
     this.project(world)
@@ -480,7 +502,7 @@ export class PlayerInstanceService {
           lease?.release()
           check()
           if (advice.needed && i.launch) {
-            await this.close(i, 'source needs an editor restart', 'keep')
+            await this.close(i, 'source needs an editor restart', 'restart')
             if (i.launch) throw new Error(i.message)
             suspended = false
             this.state(i, 'syncing')
@@ -529,7 +551,7 @@ export class PlayerInstanceService {
           this.state(i, cancelled ? i.launch ? 'ready' : 'idle' : 'error', (e as Error).message)
         }
         if (i.launch && !['close-stuck'].includes(i.state)) await this.idle(i)
-        // A copy left without an editor (refused, cancelled or failed) keeps the idle deadline of a Stop Unity; poll deletes it.
+        // Refused, cancelled or failed starts retain the copy for the next incremental sync.
         else if (!i.launch) await this.copies.editorGone(project, 'the start did not finish', { manual: true, at: this.system.now(), idleMs: this.settings.idleMinutes * 60000 }).catch(() => {})
         throw e
       } finally { if (this.controllers.get(project) === controller) this.controllers.delete(project) }
@@ -550,7 +572,7 @@ export class PlayerInstanceService {
     return this.serial(project, async () => {
       await this.start()
       const i = this.instances.get(project)
-      // Cancel on an admission prompt dismisses it; the refused copy keeps its idle deadline.
+      // Cancel on an admission prompt dismisses it; an existing copy stays available.
       if (!i?.launch) { if (i && REFUSED.includes(i.state)) { delete i.lowMemory; this.state(i, 'idle') } return this.status(world) }
       this.local(i).stopStream()
       if (i.state === 'playing' || i.state === 'paused') this.state(i, 'exiting-play')
@@ -563,7 +585,7 @@ export class PlayerInstanceService {
   }
   stop(world: string) { return this.exitPlay(world) }
   /**
-   * Stop Unity (D2): exit Play, quit the editor and keep the copy until its idle deadline, so the next start skips
+   * Stop Unity (D2): exit Play, quit the editor and keep the copy between sessions, so the next start skips
    * the copy. Cancels a copy or start in progress, and retries a close that got stuck.
    */
   stopUnity(world: string) {
@@ -577,11 +599,11 @@ export class PlayerInstanceService {
         this.local(i).stopStream(); this.state(i, 'exiting-play')
         await this.local(i).request('editor_stop').catch(() => { /* the quit ends Play too */ })
       }
-      await this.close(i, 'the player stopped Unity', 'idle')
+      await this.close(i, 'the player stopped Unity')
       return this.status(world)
     })
   }
-  /** Quit Unity and delete the copy now (deleting the copy, closing the project window). */
+  /** Quit Unity when the project window closes, retaining its copy. */
   quit(world: string) {
     const { project } = this.project(world)
     this.cancel(project)
@@ -592,7 +614,7 @@ export class PlayerInstanceService {
     const source = this.instances.get(project)?.source
     if (!source) throw new Error('Choose a source and Play first')
     this.cancel(project)
-    const result = await this.serial(project, async () => { await this.start(); const i = this.instances.get(project); if (i) await this.close(i, 'player restart', 'keep'); return this.status(world) })
+    const result = await this.serial(project, async () => { await this.start(); const i = this.instances.get(project); if (i) await this.close(i, 'player restart', 'restart'); return this.status(world) })
     if (result.state === 'close-stuck') throw new Error(result.message)
     return this.enterPlay(world, source, { visible })
   }
@@ -655,7 +677,7 @@ export class PlayerInstanceService {
     })
     return replay ? this.enterPlay(world, replay) : this.status(world)
   }
-  private async close(i: Instance, reason: string, copy: CopyAfterClose = 'delete') {
+  private async close(i: Instance, reason: string, copy: CopyAfterClose = 'keep') {
     this.runtimes.get(i.project)?.stopStream()
     this.state(i, 'shutting-down')
     if (i.launch) {
@@ -669,8 +691,8 @@ export class PlayerInstanceService {
     }
     delete i.launch
     delete i.stoppedAt; delete i.deadline; this.state(i, 'idle')
-    if (copy === 'delete') await this.copies.editorGone(i.project, reason)
-    else if (copy === 'idle') await this.copies.editorGone(i.project, reason, { manual: true, at: this.system.now(), idleMs: this.settings.idleMinutes * 60000 })
+    if (copy === 'delete') await this.copies.deleteInBackground(i.project, { reason })
+    else if (copy === 'keep') await this.copies.editorGone(i.project, reason)
   }
   async poll() {
     if (this.polling || this.exiting) return
@@ -705,11 +727,6 @@ export class PlayerInstanceService {
           if (i.deadline !== undefined && i.deadline <= this.system.now()) await this.close(i, 'idle timeout')
           else this.save(i)
         }) } catch (e) { this.fault(i, e) }
-      }
-      // Copies without an editor (kept by Stop Unity, refused for memory) go at their own deadline.
-      for (const copy of this.copies.due(this.system.now())) {
-        if (this.operations.has(copy.project) || this.instances.get(copy.project)?.launch) continue
-        await this.serial(copy.project, async () => { if (!this.instances.get(copy.project)?.launch) await this.copies.editorGone(copy.project, 'idle timeout') })
       }
     } finally { this.polling = false }
   }
@@ -760,9 +777,9 @@ export class PlayerInstanceService {
   }
   /** The Play screen left: exit Play and keep Unity ready. */
   detach(world: string) { return this.exitPlay(world) }
-  /** Cancel copies now; close editors in parallel. Deletion is already a background job and is never awaited. */
+  /** Cancel starts and maintenance now; close editors in parallel, keeping their copies. */
   async shutdown() {
-    this.exiting = true; clearInterval(this.timer); this.unlisten()
+    this.exiting = true; clearInterval(this.timer); clearInterval(this.cleanupTimer); this.unlisten()
     for (const i of this.instances.values()) { this.cancel(i.project); this.runtimes.get(i.project)?.stopStream() }
     await Promise.allSettled([...this.instances.values()].map(i => this.serial(i.project, () => this.close(i, 'Genio exit'))))
   }
