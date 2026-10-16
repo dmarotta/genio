@@ -3,8 +3,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { PlayerCopies, PLAYER_COPY_MAX_AGE_MS } from '../resources/unit-skills/genio/lib/player-copy.mjs'
+import { clearPlayStarting, markPlayStarting } from '../resources/unit-skills/genio/lib/quiet-start.mjs'
 import { mirrorSkip } from '../resources/unit-skills/genio/lib/git-mirror.mjs'
 
 // Temp repositories only: nothing here reads or writes a real project.
@@ -617,6 +618,51 @@ it('revives a copy waiting to be deleted instead of seeding a new one', async ()
     expect(fs.readFileSync(path.join(rec.root, 'Library', 'ArtifactDB'), 'utf8')).toBe('warm cache')
     expect(fs.existsSync(path.join(rec.dir, 'trash'))).toBe(false)
   }
+}, 60000)
+
+it('defers a deletion while a Play starts and deletes once it is ready', async () => {
+  const copies = make()
+  const rec = await copies.ensure(world, 'Game')
+  await copies.sync(world, { path: world })
+  markPlayStarting(data, 'other-project', { project: 'B', phase: 'starting' })
+  await copies.deleteInBackground(world)
+  await sleep(150)
+  expect(copies.status(world)?.state).toBe('pending-delete')
+  expect(fs.readFileSync(path.join(rec.root, 'Library', 'ArtifactDB'), 'utf8')).toBe('warm cache')
+  clearPlayStarting(data, 'other-project')
+  await copies.settle()
+  expect(copies.status(world)).toBeUndefined(); expect(fs.existsSync(rec.dir)).toBe(false)
+}, 60000)
+
+it('pauses a running deletion between files and resumes it', async () => {
+  for (let i = 0; i < 200; i++) write(path.join(world, 'Game', 'Assets', 'Bulk', `b${i}.txt`), 'bulk\n')
+  let calls = 0, release!: () => void
+  const held = new Promise<void>(r => { release = r })
+  const copies = make({ quiet: async () => { calls++; if (calls === 2) await held; return { waitedMs: 0, deferred: calls === 2, resumed: 'quiet' as const } } })
+  const rec = await copies.ensure(world, 'Game')
+  await copies.sync(world, { path: world })
+  await copies.deleteInBackground(world)
+  await vi.waitFor(() => expect(calls).toBe(2))
+  await sleep(50)
+  expect(copies.status(world)?.state).toBe('deleting')
+  expect(fs.existsSync(rec.root)).toBe(true)
+  release()
+  await copies.settle()
+  expect(calls).toBeGreaterThan(2); expect(copies.status(world)).toBeUndefined()
+}, 60000)
+
+it('a Play start never holds up reviving its own copy', async () => {
+  const copies = make()
+  const rec = await copies.ensure(world, 'Game')
+  await copies.sync(world, { path: world })
+  markPlayStarting(data, 'other-project', { project: 'B', phase: 'copying' })
+  await copies.deleteInBackground(world)
+  const started = Date.now()
+  expect(await copies.ensure(world, 'Game')).toMatchObject({ id: rec.id, state: 'ready' })
+  expect(Date.now() - started).toBeLessThan(1500)
+  clearPlayStarting(data, 'other-project')
+  await copies.settle()
+  expect(copies.status(world)?.state).toBe('ready')
 }, 60000)
 
 it('keeps one record per project, lists them, sizes them and estimates a first copy', async () => {

@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url'
 import { acquireEditor, editorCap, editorHolders } from '../../../lib/unity-editors.mjs'
 import { PlayPool } from '../../play/scripts/pool.mjs'
 import { seedLibrary as seedCopyLibrary } from '../../../lib/unity-seed.mjs'
+import { waitForQuiet } from '../../../lib/quiet-start.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const PLAY_SCRIPT = path.join(HERE, '..', '..', 'play', 'scripts', 'play.mjs')
@@ -321,7 +322,11 @@ async function batch(verb, c, opts) {
     record.license = { ok: license.ok, checked: license.checked, cached: license.cached }
     if (!license.ok) throw new UnityError(license.code === 3 ? EXIT.auth : EXIT.license, MESSAGES.license)
     const libraryFrom = path.join(c.play.world, c.engineRoot, 'Library')
-    if (!fs.existsSync(path.join(target.copy, 'Library'))) say('seeding Library for your copy from the project (first run only)...')
+    if (!fs.existsSync(path.join(target.copy, 'Library'))) {
+      // Quiet start: the seed waits while the player's Play starts, at most the cap (lib/quiet-start.mjs).
+      await waitForQuiet(c.play.data, { onWait: () => say('waiting for the player\'s Play to finish starting before seeding Library (at most 10 minutes)...') })
+      say('seeding Library for your copy from the project (first run only)...')
+    }
     record.librarySeed = await seedCopyLibrary(target.copy, libraryFrom, { data: c.play.data })
     record.librarySeeded = record.librarySeed.seeded
     if (record.librarySeed.reason === 'submodules-missing') say(`WARNING: git submodules are missing from your worktree (${record.librarySeed.missing.join(', ')}), so Unity will not resolve those packages. Never run git submodule yourself; append "blocked: git submodules missing" to your status if your mission needs them.`)

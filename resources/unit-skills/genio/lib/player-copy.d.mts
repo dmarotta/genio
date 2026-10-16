@@ -1,5 +1,6 @@
 import type { CloneOptions } from '../skills/play/scripts/clone.mjs'
 import type { SeedOptions, SeedReport } from './unity-seed.mjs'
+import type { QuietWait } from './quiet-start.mjs'
 import type { MirrorFiles, MirrorOptions, MirrorProgress, MirrorReport, MirrorSource, RestartAdvice, SourceInfo } from './git-mirror.mjs'
 
 export interface PlayerCopyPolicy { keepCopyWhenEditorQuits: boolean }
@@ -65,6 +66,8 @@ export interface PlayerCopiesOptions {
   system?: { alive?: (pid: number) => boolean; created?: (pid: number) => Promise<string> }
   deletion?: { concurrency?: number; timeoutMs?: number; retries?: number }
   env?: Record<string, string | undefined>
+  /** Quiet start: deletions wait on it before they start and between files (default: quiet-start.mjs on data). */
+  quiet?: (signal?: AbortSignal) => Promise<QuietWait>
 }
 export function processCreated(pid: number): Promise<string>
 export class PlayerCopies {

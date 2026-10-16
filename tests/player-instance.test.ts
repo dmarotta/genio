@@ -9,6 +9,7 @@ import { biggestConsumers, closePlayerRoot, type MemoryProcess, type PlayerProce
 import { PlayerCopies, PLAYER_COPY_CLEANUP_INTERVAL_MS, PLAYER_COPY_MAX_AGE_MS } from '../resources/unit-skills/genio/lib/player-copy.mjs'
 import type { DesktopApi, DesktopWindow } from '../resources/unit-skills/genio/lib/hidden-desktop.mjs'
 import { sourceLeases, sourceRemoved, yieldSource } from '../src/main/source-leases'
+import { playStarts, waitForQuiet } from '../resources/unit-skills/genio/lib/quiet-start.mjs'
 
 // Real mirrors in disposable repositories; every process, desktop and Pipeline action is fake.
 // Real git and file copies are slow under a loaded full-suite run.
@@ -110,6 +111,36 @@ it('keeps one editor warm on Stop and hot-syncs the next source before Play', as
   expect(fs.statSync(packageFile).mtimeMs).toBe(packageTime)
   expect(again.deadline).toBeUndefined()
   await expect(svc.syncCopy('A', { path: root })).rejects.toThrow('safely')
+})
+it('holds Genio\'s background copies while a Play starts and releases them once it plays', async () => {
+  const phases: string[] = []
+  let waiting: Promise<{ deferred: boolean; resumed: string }> | undefined
+  const seen = () => { for (const s of playStarts(data)) if (phases.at(-1) !== s.phase) phases.push(s.phase!) }
+  beforeLaunch = () => { seen(); waiting ??= waitForQuiet(data, { pollMs: 60_000 }) }
+  onCommand = command => { if (command === 'editor_status' || command === 'editor_play') seen() }
+  const playing = await svc.play('A', { path: projects.get('A')!.path })
+  expect(playing.state).toBe('playing')
+  expect(phases).toEqual(['copying', 'starting', 'entering-play'])
+  expect(playStarts(data)).toEqual([])
+  expect(await waiting).toMatchObject({ deferred: true, resumed: 'quiet' })
+  // A warm editor syncing for the next Play holds them again, then releases.
+  phases.length = 0
+  await svc.stop('A'); await svc.play('A', { path: projects.get('A')!.path })
+  expect(phases).toContain('entering-play'); expect(playStarts(data)).toEqual([])
+})
+it('a failed or refused start releases the hold, so nothing waits on it', async () => {
+  let waiting: Promise<{ deferred: boolean; resumed: string }> | undefined
+  installed = false
+  beforeLaunch = () => { waiting ??= waitForQuiet(data, { pollMs: 60_000 }) }
+  await expect(svc.play('A', { path: projects.get('A')!.path })).rejects.toThrow('Install Unity')
+  expect(svc.status('A').state).toBe('missing-editor')
+  expect(await waiting).toMatchObject({ deferred: true, resumed: 'quiet' })
+  installed = true; waiting = undefined
+  onCommand = command => { if (command === 'editor_status') processes = [] }
+  await expect(svc.play('A', { path: projects.get('A')!.path })).rejects.toThrow('exited while starting')
+  expect(svc.status('A').state).toBe('error')
+  expect(await waiting).toMatchObject({ deferred: true, resumed: 'quiet' })
+  expect(playStarts(data)).toEqual([])
 })
 it('closes before restart-sensitive writes and keeps the copy and Library for the restart', async () => {
   const root = projects.get('A')!.path, first = await svc.play('A', { path: root })

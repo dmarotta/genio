@@ -8,6 +8,7 @@ import { PlayerCopies, PLAYER_COPY_CLEANUP_INTERVAL_MS, processCreated } from '.
 import { createDesktopApi, inspectDesktop, launchEditor, type DesktopApi, type EditorLaunch } from '../../resources/unit-skills/genio/lib/hidden-desktop.mjs'
 import { sourceMissing, unityVersionOf } from '../../resources/unit-skills/genio/lib/git-mirror.mjs'
 import { checkCopyPath } from '../../resources/unit-skills/genio/lib/unity-seed.mjs'
+import { clearPlayStarting, markPlayStarting } from '../../resources/unit-skills/genio/lib/quiet-start.mjs'
 import { editorHolders, editorSeatsDir } from '../../resources/unit-skills/genio/lib/unity-editors.mjs'
 import { poolDirectory } from '../../resources/unit-skills/genio/skills/play/scripts/pool.mjs'
 import { playerCopyService } from './player-copy'
@@ -23,6 +24,8 @@ const GiB = 2 ** 30
 const FIRST_RUN_ESTIMATE = 6 * GiB, RESERVE = GiB
 /** Admission refusals: the state stays until Play, Start anyway or Cancel. */
 const REFUSED: readonly string[] = ['low-memory', 'missing-editor', 'limit-reached']
+/** Preparing the copy, starting Unity or entering Play: Genio's heavy background copies wait (quiet-start.mjs). */
+const QUIET: readonly string[] = ['copying', 'syncing', 'starting', 'entering-play']
 const QUIT = 'UnityEditor.EditorApplication.delayCall += () => UnityEditor.EditorApplication.Exit(0); return true;'
 interface Instance extends PlayerInstanceStatus {
   /** sampled: this session has recorded a steady working set, so later samples raise it instead of replacing it. */
@@ -139,6 +142,8 @@ export class PlayerInstanceService {
   private operations = new Map<string, Promise<unknown>>()
   private generations = new Map<string, number>()
   private controllers = new Map<string, AbortController>()
+  /** Projects whose Play is starting, and when that start began. */
+  private quiet = new Map<string, number>()
   private launches: Promise<unknown> = Promise.resolve()
   private timer?: ReturnType<typeof setInterval>
   private cleanupTimer?: ReturnType<typeof setInterval>
@@ -210,7 +215,20 @@ export class PlayerInstanceService {
     const file = this.file(i.project); fs.mkdirSync(path.dirname(file), { recursive: true })
     const temp = `${file}.tmp`; fs.writeFileSync(temp, JSON.stringify(i, null, 2)); fs.renameSync(temp, file)
   }
-  private state(i: Instance, state: Instance['state'], message?: string) { i.state = state; i.message = message; this.save(i) }
+  private state(i: Instance, state: Instance['state'], message?: string) { i.state = state; i.message = message; this.save(i); this.quietStart(i) }
+  /**
+   * Quiet start: while this Play prepares, starts Unity or enters Play, its marker holds back Genio's heavy
+   * background copies; ready, playing, stopped or failed releases them. A marker problem never stops a Play.
+   */
+  private quietStart(i: Instance) {
+    try {
+      if (QUIET.includes(i.state) && !this.exiting) {
+        const since = this.quiet.get(i.project) ?? this.system.now()
+        this.quiet.set(i.project, since)
+        markPlayStarting(this.data, this.copies.keyOf(i.project), { project: i.project, phase: i.state, since })
+      } else if (this.quiet.delete(i.project)) clearPlayStarting(this.data, this.copies.keyOf(i.project))
+    } catch (e) { console.error('[player-instance] quiet start', e) }
+  }
   private local(i: Instance) {
     let r = this.runtimes.get(i.project)
     if (!r) { r = (this.options.runtime ?? runtime)(i.root!, () => i.launch?.pid); this.runtimes.set(i.project, r) }
@@ -780,6 +798,7 @@ export class PlayerInstanceService {
   /** Cancel starts and maintenance now; close editors in parallel, keeping their copies. */
   async shutdown() {
     this.exiting = true; clearInterval(this.timer); clearInterval(this.cleanupTimer); this.unlisten()
+    for (const i of this.instances.values()) this.quietStart(i)
     for (const i of this.instances.values()) { this.cancel(i.project); this.runtimes.get(i.project)?.stopStream() }
     await Promise.allSettled([...this.instances.values()].map(i => this.serial(i.project, () => this.close(i, 'Genio exit'))))
   }

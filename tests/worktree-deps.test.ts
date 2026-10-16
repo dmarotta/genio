@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { isLink } from '../resources/unit-skills/genio/lib/node-deps.mjs'
 import { createDepsWatch, depsPreToolHook, installCommand, startWorktreeDeps, sweepWorktrees, removeTreeSafely, type SweepUnit } from '../src/main/worktree-deps'
 import { renderBrief } from '../src/main/brief'
+import { clearPlayStarting, markPlayStarting } from '../resources/unit-skills/genio/lib/quiet-start.mjs'
 
 let tmp: string, main: string, root: string
 const junction = (target: string, link: string): void => fs.symlinkSync(target, link, 'junction')
@@ -101,6 +102,24 @@ describe('background setup at launch', () => {
     const status = fs.readFileSync(statusFile, 'utf8')
     expect(status).toMatch(/^note \[key=deps\].*setting up this worktree's own node_modules/m)
     expect(status).toMatch(/^note \[key=deps\].*node_modules ready \(npm ci/m)
+  })
+
+  it('defers the setup while a Play starts, stays installing, then completes', async () => {
+    const wt = unitDir('deferred'), data = path.join(tmp, 'data')
+    write(path.join(wt, 'package.json'), '{}')
+    write(path.join(wt, 'package-lock.json'), '{"a":1}')
+    const stateFile = path.join(tmp, 'deps.json'), statusFile = path.join(tmp, 'unit.status')
+    markPlayStarting(data, 'project-a', { project: 'A', phase: 'starting' })
+    const install = vi.fn(async () => ({ code: 0 }))
+    const job = startWorktreeDeps({ worktree: wt, main, stateFile, statusFile, install, data })!
+    await vi.waitFor(() => expect(JSON.parse(fs.readFileSync(stateFile, 'utf8'))).toMatchObject({ state: 'installing', waiting: 'a Play is starting', pid: process.pid }))
+    await new Promise(r => setTimeout(r, 100))
+    expect(install).not.toHaveBeenCalled()
+    clearPlayStarting(data, 'project-a')
+    expect(await job).toMatchObject({ state: 'ready', method: 'npm ci', deferredMs: expect.any(Number) })
+    expect(install).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(fs.readFileSync(stateFile, 'utf8'))).toMatchObject({ state: 'ready' })
+    expect(fs.readFileSync(statusFile, 'utf8')).not.toMatch(/failed/)
   })
 
   it('does nothing without a package.json or with a real node_modules already there', () => {

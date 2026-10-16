@@ -1,4 +1,5 @@
 import type { CloneSystem } from '../skills/play/scripts/clone.mjs'
+import type { QuietWait } from './quiet-start.mjs'
 export const DEPS_RULE: string
 export const LOCKFILES: string[]
 export const PACKAGE_MANAGERS: string[]
@@ -8,7 +9,7 @@ export interface LinkRemoval { removed: boolean; path: string; reason?: string; 
 export interface InstallCheck { ok: boolean; root: string; missing: string[]; skipped?: string; linked?: string }
 export interface WorktreeLink { worktree: string; project: string; unit: string; path: string; target?: string }
 export type DepsState = 'installing' | 'ready' | 'failed' | 'skipped'
-export interface DepsReport { state: DepsState; method?: string; reason?: string; from?: string; repaired?: string; copyFailure?: string; elapsedMs: number }
+export interface DepsReport { state: DepsState; method?: string; reason?: string; from?: string; repaired?: string; copyFailure?: string; elapsedMs: number; deferredMs?: number }
 export interface SetupOptions {
   platform?: string
   run?: (file: string, args: string[], options: { windowsHide: boolean; maxBuffer: number }) => Promise<unknown>
@@ -16,7 +17,9 @@ export interface SetupOptions {
   system?: Partial<CloneSystem>
   copy?: (source: string, dest: string, options: SetupOptions) => Promise<{ method: string }>
   install?: (dir: string) => Promise<{ code: number; output?: string }>
-  progress?: (r: { state: 'installing'; method: string }) => void
+  progress?: (r: { state: 'installing'; method: string; waiting?: string }) => void
+  /** Quiet start: waited on before the copy or npm ci; onWait runs when a Play start makes it wait. */
+  quiet?: (onWait?: () => void) => Promise<QuietWait>
 }
 export function within(p: string, root: string): boolean
 export function isLink(p: string): boolean

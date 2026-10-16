@@ -41,6 +41,11 @@ store instead of a per-slot store. Existing per-slot caches are retained when
 switching their configuration; this change does not delete old caches. Shared
 LFS storage follows the project's lifetime and pruning policy.
 
+A slot's new clone or Library seed, and `genio-unity`'s first seed of a unit's
+copy, wait while the player's Play is starting, at most 10 minutes
+([quiet start](player-instance.md#quiet-start)). `seedLibrary` itself never waits:
+the Play copy's own seed is part of the start.
+
 `seedLibrary` returns `{ seeded, elapsedMs }`, with `reason: 'exists' | 'missing'`
 when skipped, or `'submodules-missing' | 'source-submodules-missing'` (with the
 `missing` paths) when the copy or the source project declares git submodules

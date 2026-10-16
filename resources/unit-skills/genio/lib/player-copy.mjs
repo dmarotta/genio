@@ -15,6 +15,7 @@ import { promisify } from 'node:util'
 import { checkCopyPath, seedLibrary, treeStats } from './unity-seed.mjs'
 import { volumeChild, volumeHome, volumePlacement } from '../skills/play/scripts/clone.mjs'
 import { applyMirror, describeSource, removeFile, resolveSource, scanSource, sourceMissing, unityVersionOf } from './git-mirror.mjs'
+import { waitForQuiet } from './quiet-start.mjs'
 const exec = promisify(execFile)
 
 /** What happens to a copy once its editor has quit. Keeping copies is one line: keepCopyWhenEditorQuits: true. */
@@ -47,7 +48,8 @@ export async function processCreated(pid) {
 export class PlayerCopies {
   /**
    * data: Genio's data folder. options: policy, clone (block-clone fixtures), io.copyFile (tests), statfs,
-   * system { alive, created }, deletion { concurrency, timeoutMs, retries }, env (git environment).
+   * system { alive, created }, deletion { concurrency, timeoutMs, retries }, env (git environment),
+   * quiet(signal) (the quiet-start wait deletions take before they start and between files; quiet-start.mjs).
    */
   constructor(data, options = {}) {
     this.data = data
@@ -59,6 +61,7 @@ export class PlayerCopies {
     this.env = options.env
     this.system = { alive, created: processCreated, ...options.system }
     this.deletion = { concurrency: 2, timeoutMs: 30 * 60 * 1000, retries: 6, ...options.deletion }
+    this.quiet = options.quiet ?? (signal => waitForQuiet(data, { signal }))
     this.locks = new Map()
     this.syncs = new Map()
     this.jobs = new Map()
@@ -371,8 +374,11 @@ export class PlayerCopies {
   }
 
   async runDeletion(k, job) {
+    if (!this.read(k)) return
+    // Quiet start: a deletion waits while a Play starts (at most the cap), and pauses between files below.
+    await this.quiet(job.controller.signal)
     let rec = this.read(k)
-    if (!rec) return
+    if (!rec || job.controller.signal.aborted) return
     if (job.inUse(rec) || this.syncs.has(k)) return
     const save = patch => { const now = this.read(k); if (!now || now.id !== rec.id) return; rec = { ...now, ...patch }; this.write(k, rec) }
     const refusal = this.refusal(k, rec)
@@ -381,7 +387,9 @@ export class PlayerCopies {
     if (editor.length) { save({ state: 'pending-delete', deletion: { ...rec.deletion, blocked: `Unity still has the copy open${editor.some(Boolean) ? ` (PID ${editor.filter(Boolean).join(', ')})` : ''}` } }); return }
     save({ state: 'deleting', deletion: { ...rec.deletion, startedAt: Date.now(), blocked: undefined, error: undefined } })
     const p = job.progress
-    const deadline = Date.now() + this.deletion.timeoutMs
+    // Time spent paused for a Play start does not count toward the timeout.
+    let deadline = Date.now() + this.deletion.timeoutMs
+    const pause = async () => { deadline += (await this.quiet(job.controller.signal)).waitedMs }
     let persisted = Date.now(), editorChecked = 0
     const tick = () => {
       // Lifecycle use is checked on every file; external editor metadata is sampled once a second.
@@ -395,7 +403,7 @@ export class PlayerCopies {
       if (fs.existsSync(rec.dir)) {
         const total = await sizeTree(rec.dir)
         Object.assign(p, { phase: 'mirror', bytesTotal: total.bytes, filesTotal: total.files, bytesLeft: total.bytes, filesLeft: total.files })
-        const opts = { tick, progress: p, concurrency: this.deletion.concurrency, retries: this.deletion.retries }
+        const opts = { tick, pause, progress: p, concurrency: this.deletion.concurrency, retries: this.deletion.retries }
         // The project files go first: a revived copy re-syncs them. Each Library moves aside whole before
         // its files go, so a revived copy never opens a half-deleted Library.
         const libraries = await libraryDirs(rec.root)
@@ -429,7 +437,7 @@ export class PlayerCopies {
     for (const n of names) this.removeInBackground(path.join(rec.dir, n))
   }
   removeInBackground(dir) {
-    const run = deleteTree(dir, { tick: () => {}, concurrency: this.deletion.concurrency, retries: this.deletion.retries }).then(() => rmdirRetry(dir, this.deletion.retries)).catch(() => {})
+    const run = this.quiet().then(() => deleteTree(dir, { tick: () => {}, pause: () => this.quiet(), concurrency: this.deletion.concurrency, retries: this.deletion.retries })).then(() => rmdirRetry(dir, this.deletion.retries)).catch(() => {})
     this.trashJobs.add(run); run.finally(() => this.trashJobs.delete(run))
   }
   /** Waits for every background deletion this process started. */
@@ -574,10 +582,12 @@ async function sizeTree(dir) {
 
 /**
  * Delete everything under dir (links removed, never followed), files a few at a time, folders after their
- * files. skip(rel) keeps top-level entries. Progress counts down bytesLeft and filesLeft.
+ * files. skip(rel) keeps top-level entries. Progress counts down bytesLeft and filesLeft. pause() runs every
+ * 64 files, so a Play starting stops the deletion between files until it is ready.
  */
-async function deleteTree(dir, { tick, progress, concurrency = 2, retries = 6 }, skip) {
-  let since = 0
+async function deleteTree(dir, { tick, pause, progress, concurrency = 2, retries = 6 }, skip) {
+  // One pause holds every worker.
+  let since = 0, gate
   const visit = async (d, rel) => {
     let entries
     try { entries = await fs.promises.readdir(d, { withFileTypes: true }) } catch (e) { if (e.code === 'ENOENT') return; throw e }
@@ -590,12 +600,17 @@ async function deleteTree(dir, { tick, progress, concurrency = 2, retries = 6 },
     let next = 0
     await Promise.all(Array.from({ length: Math.min(concurrency, files.length) }, async () => {
       while (next < files.length) {
+        while (gate) await gate
+        if (next >= files.length) break
         tick()
         const p = path.join(d, files[next++])
         const size = (await fs.promises.lstat(p).catch(() => undefined))?.size ?? 0
         await removeFile(p, { retries })
         if (progress) { progress.bytesLeft = Math.max(0, (progress.bytesLeft ?? 0) - size); progress.filesLeft = Math.max(0, (progress.filesLeft ?? 0) - 1) }
-        if (++since % 64 === 0) await yieldNow()
+        if (++since % 64 === 0) {
+          await yieldNow()
+          if (pause && !gate) { gate = pause().finally(() => { gate = undefined }); await gate }
+        }
       }
     }))
     for (const name of dirs) {

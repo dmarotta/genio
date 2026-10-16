@@ -11,6 +11,7 @@ import {
   type DepsReport, type SetupOptions
 } from '../../resources/unit-skills/genio/lib/node-deps.mjs'
 import { listProcesses } from '../../resources/unit-skills/genio/skills/play/scripts/pool.mjs'
+import { waitForQuiet } from '../../resources/unit-skills/genio/lib/quiet-start.mjs'
 import { formatStatusLine } from './status'
 import { appendLine, fwd, writeJson } from './util'
 
@@ -87,7 +88,9 @@ export function startWorktreeDeps(o: { worktree: string; main: string; stateFile
   const note = (text: string): void => { try { appendLine(o.statusFile, formatStatusLine('note', text, { key: 'deps' })) } catch { /* optional */ } }
   write({ state: 'installing', pid: process.pid })
   note(`Genio is setting up this worktree's own node_modules in the background; wait until ${fwd(o.stateFile)} says ready before running node tools.`)
-  const job = setupNodeModules(o.worktree, o.main, { ...o, progress: r => write({ ...r, pid: process.pid }) })
+  // Quiet start: the copy waits while a Play starts (docs/play.md); deps.json stays installing meanwhile.
+  const quiet = o.quiet ?? (o.data ? (onWait?: () => void) => waitForQuiet(o.data!, { onWait }) : undefined)
+  const job = setupNodeModules(o.worktree, o.main, { ...o, quiet, progress: r => write({ ...r, pid: process.pid }) })
     .catch((e: Error): DepsReport => ({ state: 'failed', reason: e.message, elapsedMs: 0 }))
     .then(report => {
       write({ ...report })

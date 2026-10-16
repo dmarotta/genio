@@ -8,6 +8,7 @@ import { checkCopyPath, checkFreeSpace, seedLibrary, treeStats } from '../../../
 import { assertMounted, volumeHome, volumeMissing, volumePlacement } from './clone.mjs'
 import { createDesktopApi, inspectDesktop, launchEditor } from '../../../lib/hidden-desktop.mjs'
 import { initSubmodules, noHooksPath } from '../../../lib/git-submodules.mjs'
+import { waitForQuiet } from '../../../lib/quiet-start.mjs'
 const exec = promisify(execFile)
 const alive = pid => { try { process.kill(pid, 0); return true } catch (e) { return e.code !== 'ESRCH' } }
 const canonical = p => { const v = fs.realpathSync(p); return process.platform === 'win32' ? v.toLowerCase() : v }
@@ -101,6 +102,7 @@ export class PlayPool {
     // Slot editors open on a hidden desktop (lib/hidden-desktop.mjs); tests inject a fake desktop and spawn.
     this.desktop = options.desktop ?? createDesktopApi(data)
     this.spawnVisible = options.spawnVisible
+    this.quiet = options.quiet
     this.closes = new Set()
     fs.mkdirSync(this.dir, { recursive: true })
   }
@@ -503,6 +505,11 @@ export class PlayPool {
     if (ready) return this.root(id)
     const started = Date.now()
     try {
+      // Quiet start: a new clone or Library seed waits while the player's Play starts, at most the cap (quiet-start.mjs).
+      if (!fs.existsSync(dest) || !fs.existsSync(path.join(this.root(id), 'Library'))) {
+        const quiet = await (this.quiet ?? (() => waitForQuiet(this.data)))()
+        if (quiet.deferred) await this.check(id, token)
+      }
       await checkCopyPath(dest)
       await checkCopyPath(this.root(id))
       const checkout = await checkoutStats(source, revision, gitOptions)

@@ -301,7 +301,8 @@ export function npmCi(dir, { timeoutMs = 20 * 60_000 } = {}) {
  */
 export async function setupNodeModules(worktree, main, options = {}) {
   const started = Date.now()
-  const done = r => ({ ...r, elapsedMs: Date.now() - started })
+  let deferred = {}
+  const done = r => ({ ...r, ...deferred, elapsedMs: Date.now() - started })
   const dest = path.join(worktree, 'node_modules')
   if (!fs.existsSync(path.join(worktree, 'package.json'))) return done({ state: 'skipped', reason: 'no package.json' })
   if (key(real(worktree)) === key(real(main))) throw new Error('Refusing to set up dependencies: the worktree is the main checkout')
@@ -314,7 +315,12 @@ export async function setupNodeModules(worktree, main, options = {}) {
   if (above) throw new Error(`Refusing to install: ${above.reason}`)
   const own = lockHash(worktree), theirs = lockHash(main), source = path.join(main, 'node_modules')
   let copyFailure
-  options.progress?.({ state: 'installing', method: own && own.hash === theirs?.hash ? 'copy' : 'npm ci' })
+  const method = own && own.hash === theirs?.hash ? 'copy' : 'npm ci'
+  options.progress?.({ state: 'installing', method })
+  // Quiet start: a Play starting holds the copy or npm ci back until it is ready, at most the cap (quiet-start.mjs).
+  const quiet = await options.quiet?.(() => options.progress?.({ state: 'installing', method, waiting: 'a Play is starting' }))
+  if (quiet?.deferred) options.progress?.({ state: 'installing', method })
+  if (quiet?.deferred) deferred = { deferredMs: quiet.waitedMs }
   if (own && theirs && own.file === theirs.file && own.hash === theirs.hash) {
     const health = checkInstall(main)
     if (health.ok && !isLink(source) && fs.existsSync(source)) {

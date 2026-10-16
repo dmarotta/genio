@@ -29,6 +29,9 @@ worktree, in the background, and does nothing if the worktree has no `package.js
   A project with only a pnpm or yarn lockfile is copied when the hashes match. Otherwise it is left for the
   unit to install.
 - The result is never a junction, symlink or hardlink. The main checkout is only read.
+- While the player's Play is starting, the copy or `npm ci` waits until it is ready, stopped or failed, at
+  most 10 minutes ([quiet start](player-instance.md#quiet-start)). `deps.json` stays `installing`, with
+  `waiting: 'a Play is starting'`, and the final report records `deferredMs`.
 
 Progress goes to `data/<task>/deps.json` (`installing`, `ready`, `failed` or `skipped`, plus the method) and to
 `note [key=deps]` status lines, which are shown on the unit page. The brief (`nodeDepsLines` in `brief.ts`)

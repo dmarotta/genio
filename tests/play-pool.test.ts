@@ -7,6 +7,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { PlayPool } from '../resources/unit-skills/genio/skills/play/scripts/pool.mjs'
 import { PlayService } from '../src/main/play'
 import type { AppCtx } from '../src/main/services'
+import { clearPlayStarting, markPlayStarting } from '../resources/unit-skills/genio/lib/quiet-start.mjs'
 
 let root: string, world: string, data: string, pool: PlayPool
 beforeEach(() => { root=fs.mkdtempSync(path.join(os.tmpdir(),'genio-play-pool-')); world=path.join(root,'world');data=path.join(root,'data');fs.mkdirSync(world);pool=new PlayPool(data,world) })
@@ -131,6 +132,27 @@ it('copies only a committed revision, seeds Library without credentials, clears 
   // The source is never cleaned.
   expect(fs.readFileSync(path.join(world,'Assets/untracked-in-source.meta'),'utf8')).toBe('keep me')
   expect(git(world,['status','--porcelain','--untracked-files=all'])).toBe(sourceStatus)
+}, 30000)
+it('defers a new slot clone and Library seed while the player\'s Play starts, keeping the lease', async () => {
+  git(world,['init','-q']); git(world,['config','user.name','Test']); git(world,['config','user.email','test@example.invalid'])
+  fs.writeFileSync(path.join(world,'game.txt'),'v1'); fs.writeFileSync(path.join(world,'.gitignore'),'Library/\n'); git(world,['add','.']); git(world,['commit','-qm','first'])
+  fs.mkdirSync(path.join(world,'Library')); fs.writeFileSync(path.join(world,'Library/warm'),'cache')
+  markPlayStarting(data,'player-a',{ project:'A', phase:'starting' })
+  const a=(await pool.acquire('a'))!
+  let done=false
+  const preparing=pool.prepare(a.id,a.token).then(r=>{ done=true; return r })
+  await vi.waitFor(async()=>expect((await pool.state()).slots[0]).toMatchObject({ preparing:true, owner:'a' }),{ timeout:15000 })
+  await new Promise(r=>setTimeout(r,200))
+  expect(done).toBe(false); expect(fs.existsSync(a.root)).toBe(false)
+  clearPlayStarting(data,'player-a')
+  await expect(preparing).resolves.toBe(a.root)
+  expect(fs.readFileSync(path.join(a.root,'Library/warm'),'utf8')).toBe('cache')
+  // A switch with the clone and Library in place does not wait.
+  const quiet=vi.fn(async()=>({ waitedMs:0, deferred:false, resumed:'quiet' as const }))
+  const same=new PlayPool(data,world,'',{ quiet })
+  fs.writeFileSync(path.join(world,'game.txt'),'v2'); git(world,['commit','-qam','second'])
+  await same.prepare(a.id,a.token)
+  expect(quiet).not.toHaveBeenCalled()
 }, 30000)
 it('checks disk space before cloning and clears preparing after failure', async () => {
   git(world,['init','-q']); git(world,['config','user.name','Test']); git(world,['config','user.email','test@example.invalid'])
