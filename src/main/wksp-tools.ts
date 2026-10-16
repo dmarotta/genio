@@ -644,7 +644,7 @@ export function createToolRegistry(
     model: z.string().optional(),
     effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
     after: z.array(z.string()).default([]).describe('Keys of the steps that must MERGE (a Recon: deliver) before this step starts. Serial by default: name the previous step. Leave empty only for steps that may start at once.'),
-    files: z.array(z.string()).default([]).describe('Files or globs this step is expected to touch that other steps also touch (handoff and rebase hints).'),
+    files: z.array(z.string()).default([]).describe('Files, folders or globs this step is expected to touch that other steps also touch. When another step lands touching one of them while this step is at work, Genio pings this step\'s unit to rebase (shared types, api, ipc, app.css, tsconfigs and lockfiles never trigger it).'),
     acceptance: z.string().min(5).describe('One line: how we know this step is done.')
   }
   const planStep = z.object({ key: z.string().min(1).max(40).describe('Short unique step id (e.g. "core", "ui"); other steps name it in after.'), ...stepShape })
@@ -655,14 +655,14 @@ export function createToolRegistry(
 
   t(
     'plan_create',
-    'File a plan: work that needs 2 or more units in a set order (a Recon proposed builds, several subsystems, or more than about an hour of unit work). Each step becomes a quest whose dependencies mirror its after; Genio starts each step by itself, from its stored spec and loadout plus a handoff note on what landed, once every step it comes after has MERGED. Merges still need the usual approval: the plan waits at an unapproved merge. A discarded or failed step pauses the plan and asks the player (resume, edit or cancel). Serial by default; mark steps parallel only when they share no API and few files. Refuses a duplicate of an active plan. Returns the plan id, step quest ids and a one-line announcement to post once.',
+    'File a plan: work that needs 2 or more units (a Recon proposed builds, it spans several subsystems, or one unit would run past about 60 min). Not for one-sentence diffs or tightly coupled changes to the same files: that is one deploy. Each step becomes a quest whose dependencies mirror its after; Genio starts each step by itself, from its stored spec and loadout plus a handoff note on what landed, once every step it comes after has MERGED, and pings working steps to rebase when a landing touches their files. Merges still need the usual approval: the plan waits at an unapproved merge. A discarded or failed step pauses the plan and asks the player (resume, edit or cancel). Serial by default; mark steps parallel only when they share no API and few files, at most 2 at once. Refuses a duplicate of an active plan. Returns the plan id, step quest ids, a time and cost estimate from this squad\'s history, and a one-line announcement (steps, order, time, cost): post it once, and carry on without asking when the player already asked for the work.',
     {
       world: z.string(),
       title: z.string().min(3),
       intent: z.string().min(3).describe('The player\'s own words that asked for this work (no speaker label): the intent of every step\'s brief.'),
       goal: z.string().optional().describe('One or two lines on what the whole plan achieves.'),
       auto_advance: z.boolean().default(true).describe('Start each next step by itself when its prerequisites merge (default). false: steps start only when deployed.'),
-      max_parallel: z.number().int().min(1).max(3).default(2).describe('Steps of this plan working at once.'),
+      max_parallel: z.number().int().min(1).max(3).default(2).describe('Steps of this plan working at once (default 2; 3 only for steps that share nothing).'),
       start: z.boolean().default(true).describe('true when the player already asked for the work: the first steps start now. false files the plan paused until plan_update resume (a plan the player has not asked for yet).'),
       steps: z.array(planStep).min(1).max(20)
     },
@@ -679,7 +679,7 @@ export function createToolRegistry(
       return ok(json({
         plan_id: r.plan.id, state: r.plan.state,
         steps: r.plan.steps.map(s => ({ key: s.key, index: s.index, title: s.title, quest_id: s.questId, after: s.after })),
-        released: r.released, announcement: r.announcement
+        released: r.released, estimate: r.plan.estimate, announcement: r.announcement
       }))
     }
   )
@@ -720,7 +720,7 @@ export function createToolRegistry(
 
   t(
     'plan_status',
-    'Plans and their steps: each step\'s state (waiting, queued, in-flight, ready, merged, blocked, discarded) derived from its quest and unit, the steps Genio starts next, what blocks the plan, and the landed commits. plan_id for one plan; otherwise every active or paused plan (include_done adds finished and cancelled ones).',
+    'Plans and their steps: each step\'s state (waiting, queued, in-flight, ready, merged, blocked, discarded) derived from its quest and unit, the steps Genio starts next, what blocks the plan, the landed commits, and the estimate (time and main chat cost; left = what remains for the steps not merged). plan_id for one plan; otherwise every active or paused plan (include_done adds finished and cancelled ones).',
     { plan_id: z.string().optional(), include_done: z.boolean().default(false) },
     async ({ plan_id, include_done }) => {
       if (plan_id) return ok(json(planHome(plan_id).plans.view(plan_id)))

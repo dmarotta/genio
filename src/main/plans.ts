@@ -8,15 +8,19 @@
  * it. A discarded or failed step pauses the plan and opens one choice (resume,
  * edit or cancel). A step never starts before its prerequisites merged, and
  * merge approval is unchanged: a plan simply waits at an unapproved merge.
+ * When a step lands, siblings at work whose file hints overlap the landed diff
+ * (always-hot files left out) are pinged to rebase.
  *
  * Named WorkPlan because PlanId/PlanStatus already mean provider quota plans.
  */
 import path from 'node:path'
-import type { BacklogItem, Decision, PlanStep, Task, TaskCategory, TaskKind, WorkPlan } from '@shared/types'
+import type { BacklogItem, Decision, PlanEstimate, PlanStep, Task, TaskCategory, TaskKind, WorkPlan } from '@shared/types'
 import type { SpawnRequest } from '@shared/api'
 import { planStepOf, planView, stepGraphProblems, stepTask, topoOrder, workLanded, type PlanView } from '@shared/work-plan'
+import { estimatePlan, formatEstimate } from '@shared/plan-estimate'
 import { unitDiscarded, unitFinished } from '@shared/quest-board'
 import * as git from './git'
+import { hintOverlap } from './plan-hints'
 import type { Home } from './home'
 import type { AppCtx, HomeCtx, PlanService } from './services'
 import { nowIso, readJson, rid, slugify, truncate, writeJson } from './util'
@@ -72,6 +76,9 @@ export interface PlanUpdateResult {
   plan: WorkPlan
   message: string
 }
+
+/** plan_status: the derived view plus the estimate, and what is left of it for the steps not merged yet. */
+export type PlanStatusView = PlanView & { estimate?: PlanEstimate; left?: PlanEstimate }
 
 export const PLAN_MAX_STEPS = 20
 export const PLAN_MAX_PARALLEL = 3
@@ -145,6 +152,54 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
 
   function ledger(event: string, p: WorkPlan, data?: Record<string, unknown>): void {
     safe(() => getCtx().ledger.record({ home: home.name, event: 'backlog.state', project: p.world, data: { plan: p.id, event, ...data } }))
+  }
+
+  // ------------------------------------------------------------- estimate
+
+  /** The main chat's measured spend per unit it ran, once there is enough history to mean anything. */
+  function chatUsdPerUnit(): number | undefined {
+    const usd = safe(() => hc().wksp.info().costUsd) ?? 0
+    const units = safe(() => hc().crew.list().length) ?? 0
+    return usd > 0 && units >= 5 ? Math.min(5, Math.max(0.1, usd / units)) : undefined
+  }
+
+  function estimate(p: WorkPlan, steps: PlanStep[] = p.steps): PlanEstimate {
+    const keys = new Set(steps.map((s) => s.key))
+    return estimatePlan(steps.map((s) => ({ key: s.key, kind: s.kind, category: s.category, after: s.after.filter((a) => keys.has(a)) })), tasks(),
+      { world: p.world, maxParallel: p.maxParallel, chatUsdPerUnit: chatUsdPerUnit() })
+  }
+
+  // ------------------------------------------------------------- rebase hints
+
+  /**
+   * A step landed: ping each sibling at work whose file hints cover files the
+   * landing changed (always-hot files left out) to rebase before it finishes.
+   * A ready sibling whose terminal closed is relaunched to do it.
+   */
+  async function rebaseHints(planId: string, key: string): Promise<void> {
+    const p = load().find((x) => x.id === planId)
+    const s = p?.steps.find((x) => x.key === key)
+    if (!p || !s?.changedFiles?.length) return
+    const sent: string[] = []
+    for (const v of view(p).steps) {
+      if (v.key === s.key || (v.state !== 'in-flight' && v.state !== 'ready') || !v.taskId) continue
+      const sib = p.steps.find((x) => x.key === v.key)!
+      const overlap = hintOverlap(s.changedFiles, sib.files)
+      if (!overlap.length) continue
+      const owner = safe(() => [...getCtx().homes.values()].find((h) => h.crew.get(v.taskId!)))
+      const t = owner?.crew.get(v.taskId)
+      if (!owner || !t) continue
+      const shown = `${overlap.slice(0, 8).join(', ')}${overlap.length > 8 ? ` (+${overlap.length - 8} more)` : ''}`
+      const base = t.baseBranch || 'the base branch'
+      const text = `Plan "${p.title}": step ${s.index} "${s.title}" landed on ${base}${s.landedCommit ? ` (${s.landedCommit.slice(0, 12)})` : ''} touching ${shown}, which your step also touches. Rebase onto ${base} before you finish, resolve any conflict in favour of what landed, and rerun the checks.`
+      const r = await owner.crew.send(t.id, text).catch(() => undefined)
+      if (!r?.ok) continue
+      const alive = safe(() => !!t.terminalId && !!getCtx().terminals.get(t.terminalId)?.alive) ?? false
+      if (!alive && t.state === 'ready') await owner.crew.control(t.id, 'relaunch', `rebase onto ${base}: step ${s.index} landed touching ${shown}`).catch(() => undefined)
+      sent.push(`step ${sib.index} (${t.id}): ${shown}`)
+      ledger('plan.rebase-hint', p, { step: sib.key, landed: s.key, task: t.id, files: overlap })
+    }
+    if (sent.length) wake(`Plan "${p.title}": ${stepLabel(p, s)} landed; asked overlapping steps to rebase`, sent, true)
   }
 
   // ------------------------------------------------------------- landings
@@ -506,6 +561,7 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
           questOf.set(key, questId)
           p.steps.push({ ...draft, questId })
         }
+        p.estimate = estimate(p)
         load().push(p)
         save()
         ledger('plan.created', p, { steps: p.steps.length })
@@ -514,6 +570,7 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
         const chain = p.steps.map((s) => `${s.index} ${s.title}`).join(serial ? ' → ' : ' · ')
         const started = released.filter((r) => / started as /.test(r)).length
         const announcement = `Plan · ${p.title} (${p.steps.length} step${p.steps.length > 1 ? 's' : ''}, ${serial ? 'serial' : `up to ${p.maxParallel} at once`}): ${chain}. ` +
+          `${formatEstimate(p.estimate)}. ` +
           (p.state === 'paused' ? 'Nothing starts until the plan is resumed.' : `${started ? `${started} step${started > 1 ? 's' : ''} started now; ` : ''}each next step starts when its prerequisites merge. Merges still need your OK.`)
         return { plan: p, released, announcement }
       })
@@ -617,6 +674,7 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
             break
           }
         }
+        if (op.op !== 'pause' && p.steps.length) p.estimate = estimate(p)
         p.updatedAt = nowIso()
         save()
         if (p.state === 'active') scheduleDrain()
@@ -628,7 +686,9 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
       const p = load().find((x) => x.id === id)
       if (!p) return undefined
       if (settle(p)) save()
-      return view(p)
+      const v = view(p)
+      const open = p.steps.filter((s) => v.steps.find((x) => x.key === s.key)?.state !== 'merged')
+      return { ...v, ...(p.estimate ? { estimate: p.estimate } : {}), ...(open.length && open.length < p.steps.length ? { left: estimate(p, open) } : {}) }
     },
 
     stepOf: (questId) => planStepOf(load(), questId),
@@ -662,7 +722,11 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
           if (settle(p)) dirty = true
           save()
           dirty = false
-          if (!s.changedFiles?.length && task.kind === 'ship') void queue(() => fillChangedFiles(p.id, s.key, task)).catch(() => undefined)
+          const key = s.key
+          void queue(async () => {
+            if (!s.changedFiles?.length && task.kind === 'ship') await fillChangedFiles(p.id, key, task)
+            await rebaseHints(p.id, key)
+          }).catch(() => undefined)
         } else if (current && !s.landedAt && (unitDiscarded(task) || task.state === 'failed')) {
           if (dirty) save()
           dirty = false

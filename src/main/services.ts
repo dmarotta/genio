@@ -395,8 +395,8 @@ export interface PlanService {
   /** validate, file one quest per step and store the plan; start releases the steps that are ready now */
   create(input: import('./plans').PlanCreateInput): Promise<import('./plans').PlanCreateResult>
   update(id: string, op: import('./plans').PlanUpdateOp): Promise<import('./plans').PlanUpdateResult>
-  /** the plan as plan_status reports it (shared selector, work-plan.ts) */
-  view(id: string): import('@shared/work-plan').PlanView | undefined
+  /** the plan as plan_status reports it (shared selector, work-plan.ts), with its estimate and what is left of it */
+  view(id: string): import('./plans').PlanStatusView | undefined
   /** the plan and step a quest belongs to */
   stepOf(questId: string): { plan: import('@shared/types').WorkPlan; step: import('@shared/types').PlanStep } | undefined
   /** the launch for a step's quest: its stored spec and loadout plus the handoff note */

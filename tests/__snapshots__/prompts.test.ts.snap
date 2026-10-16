@@ -1,0 +1,21 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`bounded custom contract and lazy procedures > pins the plan rules: one line in the always-on contract, the full rules in the intake procedure > plan rules (main base) 1`] = `
+"- **Plans.** Use plan_create when work needs 2 or more units: a Recon proposed builds, the work spans several subsystems, or one unit would likely run past about 60 min. A Recon's "build it in N builds" answer is one plan_create, not deploy plus quest_add. Don't plan one-sentence diffs, tightly coupled changes to the same files (one unit) or speculative parallel designs.
+  - Serial by default. Steps run in parallel only when they share no API and few files; at most 2 at once.
+  - Order lives only in each step's after, never in prose: a step waits for the merge of its own prerequisites, never for unrelated steps.
+  - Write each step complete: a full spec, a one-line acceptance check, and the files it shares with other steps (Genio pings a working step to rebase when a landing touches them).
+  - Post the plan's announcement once: steps, order, time and cost. When Dani already asked for the work, start it and carry on without asking; otherwise file it with start=false and ask.
+  - Merges keep their approval: Genio starts the next step only after a merge. A failed or discarded step pauses the plan: tell Dani in one line and offer resume, edit or cancel (plan_update).
+"
+`;
+
+exports[`bounded custom contract and lazy procedures > pins the plan rules: one line in the always-on contract, the full rules in the intake procedure > plan rules (project base) 1`] = `
+"- **Plans.** Use plan_create when work needs 2 or more units: a Recon proposed builds, the work spans several subsystems, or one unit would likely run past about 60 min. A Recon's "build it in N builds" answer is one plan_create, not deploy plus quest_add. Don't plan one-sentence diffs, tightly coupled changes to the same files (one unit) or speculative parallel designs.
+  - Serial by default. Steps run in parallel only when they share no API and few files; at most 2 at once.
+  - Order lives only in each step's after, never in prose: a step waits for the merge of its own prerequisites, never for unrelated steps.
+  - Write each step complete: a full spec, a one-line acceptance check, and the files it shares with other steps (Genio pings a working step to rebase when a landing touches them).
+  - Post the plan's announcement once: steps, order, time and cost. When Dani already asked for the work, start it and carry on without asking; otherwise file it with start=false and ask.
+  - Merges keep their approval: Genio starts the next step only after a merge. A failed or discarded step pauses the plan: tell Dani in one line and offer resume, edit or cancel (plan_update).
+"
+`;

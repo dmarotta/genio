@@ -53,6 +53,8 @@ function fakeCrew(): Partial<CrewService> {
       hc.backlog.markInFlight(req.backlogId!, t.id)
       return t
     }),
+    send: vi.fn(async (id: string) => ({ ok: true, message: `Saved ping for ${id}` })),
+    control: vi.fn(async (id: string) => ({ ok: true, message: `relaunched ${id}` })),
     statusEvents: (id: string) => (done[id] ? [{ kind: 'done', text: done[id] } as StatusEvent] : []),
     capacityUsed: () => tasks.filter((t) => ['spawning', 'working'].includes(t.state)).length
   }
@@ -277,6 +279,36 @@ describe('plan tools', () => {
     expect(hc.backlog.get(hc.plans.get(created.plan_id)!.steps[2].questId)?.dependsOn).toEqual([created.steps[0].quest_id])
     expect(await call('plan_update', { plan_id: created.plan_id, op: 'pause', reason: 'player away' })).toMatch(/plan paused/)
     expect(JSON.parse(await call('plan_status', {}))).toHaveLength(1)
+  })
+})
+
+describe('estimate and rebase hints', () => {
+  it('announces time and cost once and reports what is left as steps merge', async () => {
+    const { plan, announcement } = await createPlan([step('core'), step('ui', ['core']), step('docs', ['ui'])])
+    expect(plan.estimate).toMatchObject({ units: 3, elapsedMinutes: [60, 135], samples: 0 })
+    expect(announcement).toContain('About 1-2.5 h, 3 units (~1.5 unit-hours), main chat ~$1.50-2.10. 1 step started now')
+    await land('core', plan.id)
+    expect(hc.plans.view(plan.id)).toMatchObject({ estimate: { units: 3 }, left: { units: 2, elapsedMinutes: [40, 90] } })
+    // a step change recomputes the estimate
+    await hc.plans.update(plan.id, { op: 'add_step', step: step('tests', ['core']) })
+    expect(hc.plans.get(plan.id)!.estimate!.units).toBe(4)
+  })
+
+  it('pings the steps at work whose file hints a landing touched, and relaunches a ready one whose terminal closed', async () => {
+    const { plan } = await createPlan([step('a'), step('b', [], { files: ['src/a.ts'] }), step('c', [], { files: ['src/**'] }), step('d', [], { files: ['src/shared/types.ts'] })], { maxParallel: 3 })
+    // c finished and waits for its merge, which frees a place for d
+    hc.crew.update(unitOf('c', plan.id).id, { state: 'ready' })
+    await hc.plans.idle()
+    expect(states(plan.id)).toEqual({ a: 'in-flight', b: 'in-flight', c: 'ready', d: 'in-flight' })
+    await land('a', plan.id)
+    const send = hc.crew.send as ReturnType<typeof vi.fn>
+    expect(send.mock.calls.map((c) => c[0])).toEqual([unitOf('b', plan.id).id, unitOf('c', plan.id).id])
+    expect(send.mock.calls[0][1]).toBe('Plan "New Play": step 1 "Step a" landed on main (a0123456789a) touching src/a.ts, which your step also touches. Rebase onto main before you finish, resolve any conflict in favour of what landed, and rerun the checks.')
+    // the always-hot types.ts never reaches a hint: c hears only about src/a.ts, d (types.ts only) hears nothing
+    expect(send.mock.calls[1][1]).toContain('touching src/a.ts, which')
+    expect(hc.crew.control).toHaveBeenCalledTimes(1)
+    expect(hc.crew.control).toHaveBeenCalledWith(unitOf('c', plan.id).id, 'relaunch', expect.stringContaining('rebase onto main'))
+    expect(hc.wakes.pending().map((w) => w.reason)).toContainEqual('Plan "New Play": step 1/4 "Step a" landed; asked overlapping steps to rebase')
   })
 })
 

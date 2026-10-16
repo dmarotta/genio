@@ -408,6 +408,21 @@ export interface WorkPlan {
   /** why the plan is paused (a discarded or failed step), and the choice it opened */
   pause?: { reason: string; step?: string; choiceId?: string; at: string }
   doneAt?: string
+  /** time and cost from this squad's history when the steps were last set (plan-estimate.ts) */
+  estimate?: PlanEstimate
+}
+
+/** Ranges are [typical, slow]; merge-approval waits are not counted. */
+export interface PlanEstimate {
+  units: number
+  /** the steps' unit run time added up, minutes */
+  unitMinutes: [number, number]
+  /** wall-clock minutes along the longest chain of steps, within max parallel */
+  elapsedMinutes: [number, number]
+  /** what the main chat spends supervising these units, USD */
+  mainChatUsd: [number, number]
+  /** finished units the run times come from (0: Genio's defaults) */
+  samples: number
 }
 
 export type DecisionSource = 'unit' | 'genio' | 'validation' | 'ally' | 'system'

@@ -57,6 +57,18 @@ describe('bounded custom contract and lazy procedures', () => {
     }
   })
 
+  it('pins the plan rules: one line in the always-on contract, the full rules in the intake procedure', () => {
+    for (const isAlly of [false, true]) {
+      const o = { gamertag: 'Dani', base: 'world', isAlly }
+      const line = customContract(o).split('\n').find(l => l.startsWith('- Deploy independent work'))
+      expect(line).toContain('Work for 2+ units (a Recon\'s builds, several subsystems, a unit past ~60 min): plan_create, never order in prose; not for small or same-file changes (procedure_read("intake")).')
+      const intake = procedureText('intake', o)
+      const rules = intake.slice(intake.indexOf('- **Plans.**'), intake.indexOf('- For one-off operational work'))
+      expect(rules).toMatchSnapshot(isAlly ? 'plan rules (project base)' : 'plan rules (main base)')
+      expect(procedureText('units', o)).not.toContain('**Plans.**')
+    }
+  })
+
   it('leaves budget for provider instructions even with long identity fields', () => {
     expect(customContract({ gamertag: 'x'.repeat(1000), base: 'b'.repeat(1000), isAlly: true }, true, 'u'.repeat(300)).length)
       .toBeLessThanOrEqual(CUSTOM_CONTRACT_BUDGET)

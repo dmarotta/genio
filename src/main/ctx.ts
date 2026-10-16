@@ -126,10 +126,10 @@ export function makeHomeCtx(home: Home, ally?: Ally): HomeCtx {
     return control(id, action, note, manual)
   }
   const merge = hc.crew.merge
-  hc.crew.merge = async (id) => {
+  hc.crew.merge = async (id, approval) => {
     const project = hc.crew.get(id)?.project
     if (project && getCtx().projects.get(project)?.gitRepo === false) return { ok: false, message: 'Merge needs a git repo.' }
-    return merge(id)
+    return merge(id, approval)
   }
   // New project homes can start supervision inside allies.create, before
   // ensureProjectBase returns. Hold their first turn at construction as well.
