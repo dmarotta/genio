@@ -6,22 +6,11 @@ import { spawn, execFileSync } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { findBlender } from '../../../lib/blender-path.mjs'
 import { openWorld, sha256File, writeProvenance, unitBy } from '../../../lib/genio-world.mjs'
+import { assertOutside } from '../../../lib/step-kernel.mjs'
+
+export { assertOutside }
 
 const helperDir = path.dirname(fileURLToPath(import.meta.url))
-
-// Resolve existing parents as well as symlinks before accepting a scratch location.
-function canonical(p) {
-  if (fs.existsSync(p)) return fs.realpathSync(p)
-  return path.join(canonical(path.dirname(p)), path.basename(p))
-}
-
-/** Throws unless `dir` lies outside every root (the project, the worktree). */
-export function assertOutside(dir, roots, message) {
-  for (const root of roots.filter(Boolean)) {
-    const rel = path.relative(canonical(root), canonical(dir))
-    if (!rel || (!rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel))) throw new Error(message)
-  }
-}
 
 /**
  * One headless Blender run: no autoexec, factory settings, capped threads, a log

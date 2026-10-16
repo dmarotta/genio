@@ -20,10 +20,14 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import crypto from 'node:crypto'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { runBlender, assertOutside } from './blender.mjs'
 import { blenderVersion, listBlenders, pickModellerBlender } from '../../../lib/blender-path.mjs'
+import {
+  addBranch, byId, checkName, dirBytes, line, now, readJson, rel, renameRetry, resolveStep, revertHead, sha256, sleep, stepId, switchTo, withLock as lockDir, writeManifest
+} from '../../../lib/step-kernel.mjs'
+
+export { line }
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 export const STEP_SCRIPT = path.join(here, 'genio_step.py')
@@ -37,7 +41,7 @@ export const PUBLISH_GAP_MS = 600
 const POLL_MS = 50
 const SESSION_WARN_MB = 300
 const FAILURES_KEPT = 50
-const NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/i
+const WHO = { tool: 'Modeller', cli: 'modeller.mjs', thing: 'model', key: 'model' }
 
 /** Where models live: GENIO_MODELLER_DATA, else next to the unit's Blender scratch, else temp. */
 export function modellerDataDir(env = process.env) {
@@ -46,18 +50,7 @@ export function modellerDataDir(env = process.env) {
   return path.join(os.tmpdir(), 'genio-modeller')
 }
 
-const now = () => new Date().toISOString()
-const stepId = (n) => `s${String(n).padStart(3, '0')}`
-const rel = (dir, p) => path.relative(dir, p).split(path.sep).join('/')
-const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
-const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return null } }
-const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)))
-
-function checkName(kind, name) {
-  if (!NAME.test(name ?? '')) throw new Error(`${kind} name must be 1-64 letters, digits, - or _ (got ${JSON.stringify(name)})`)
-  return name
-}
+const withLock = (dir, fn) => lockDir(dir, fn, WHO)
 
 /** A step name from its script: `s03_deck.py` becomes `deck`. */
 export function stepName(script) {
@@ -74,57 +67,6 @@ function readManifest(dir) {
   if (!m) throw new Error(`No model at ${dir}. Run: modeller.mjs init ${path.basename(dir)}`)
   if (m.schema !== SCHEMA) throw new Error(`Unknown manifest schema ${m.schema}`)
   return m
-}
-
-/** A viewer (or Blender, mid-batch) can hold a file for a moment on Windows: retry the rename briefly. */
-function renameRetry(from, to) {
-  for (let i = 0; ; i++) {
-    try { fs.renameSync(from, to); return } catch (e) {
-      if (i >= 20 || !['EPERM', 'EBUSY', 'EACCES'].includes(e.code)) throw e
-      pause(50)
-    }
-  }
-}
-
-function writeManifest(dir, m) {
-  m.updated = now()
-  const file = path.join(dir, 'manifest.json'), tmp = `${file}.${process.pid}.tmp`
-  fs.writeFileSync(tmp, JSON.stringify(m, null, 1))
-  renameRetry(tmp, file)
-}
-
-const alive = (pid) => {
-  if (!Number.isInteger(pid) || pid <= 0) return false
-  try { process.kill(pid, 0); return true } catch (e) { return e.code === 'EPERM' }
-}
-
-async function withLock(dir, fn) {
-  const file = path.join(dir, '.lock')
-  for (;;) {
-    try { fs.writeFileSync(file, String(process.pid), { flag: 'wx' }); break } catch (e) {
-      if (e.code !== 'EEXIST') throw e
-      const pid = Number(fs.readFileSync(file, 'utf8'))
-      if (alive(pid)) throw new Error(`Another Modeller command (pid ${pid}) is working on this model. Wait for it to finish.`)
-      fs.rmSync(file, { force: true })
-    }
-  }
-  try { return await fn() } finally { fs.rmSync(file, { force: true }) }
-}
-
-const byId = (m, id) => m.steps.find((s) => s.id === id)
-
-/** Steps from the root to a branch's head: the model as that branch sees it. */
-export function line(m, branch = m.branch) {
-  const out = []
-  for (let id = m.branches[branch]?.head; id; id = byId(m, id)?.parent) out.unshift(byId(m, id))
-  return out
-}
-
-function resolveStep(m, ref) {
-  const n = /^s?(\d+)$/i.exec(String(ref ?? ''))
-  const s = n && byId(m, stepId(Number(n[1])))
-  if (!s) throw new Error(`No step ${ref}. Steps: ${m.steps.map((x) => x.id).join(', ') || 'none'}`)
-  return s
 }
 
 function describeBlender(p, version) {
@@ -211,15 +153,6 @@ function baseFor(m, dir, parentId) {
     chain.push(s)
   }
   return { blend: null, replay: chain.reverse().map((x) => path.join(dir, x.files.script)) }
-}
-
-function dirBytes(dir) {
-  let total = 0
-  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    const p = path.join(dir, e.name)
-    total += e.isDirectory() ? dirBytes(p) : fs.statSync(p).size
-  }
-  return total
 }
 
 /** Drop snapshots outside the last `keep` steps of every branch, except kept steps. Scripts stay. */
@@ -502,34 +435,16 @@ async function edit(dataDir, model, fn) {
 
 /** Move the current branch's head back to step N. Later steps stay on disk, off the branch. */
 export function revert({ dataDir = modellerDataDir(), model, to } = {}) {
-  return edit(dataDir, model, (m) => {
-    const s = resolveStep(m, to)
-    if (!line(m).includes(s)) throw new Error(`${s.id} is not on branch ${m.branch}. Branch from it instead: modeller.mjs branch ${m.model} <name> --from ${s.id}`)
-    const from = m.branches[m.branch].head
-    m.branches[m.branch].head = s.id
-    m.history.push({ op: 'revert', t: now(), branch: m.branch, from, to: s.id })
-    return { reverted: from }
-  })
+  return edit(dataDir, model, (m) => revertHead(m, to, WHO))
 }
 
 /** Start a new branch at step N (default: the head) and switch to it. */
 export function branch({ dataDir = modellerDataDir(), model, name, from } = {}) {
-  return edit(dataDir, model, (m) => {
-    checkName('Branch', name)
-    if (m.branches[name]) throw new Error(`Branch ${name} already exists. Switch to it: modeller.mjs switch ${m.model} ${name}`)
-    const at = from != null ? resolveStep(m, from).id : m.branches[m.branch].head
-    m.branches[name] = { head: at, from: at }
-    m.history.push({ op: 'branch', t: now(), branch: name, from: at, parent: m.branch })
-    m.branch = name
-  })
+  return edit(dataDir, model, (m) => { addBranch(m, name, from, WHO) })
 }
 
 export function switchBranch({ dataDir = modellerDataDir(), model, name } = {}) {
-  return edit(dataDir, model, (m) => {
-    if (!m.branches[name]) throw new Error(`No branch ${name}. Branches: ${Object.keys(m.branches).join(', ')}`)
-    m.history.push({ op: 'switch', t: now(), from: m.branch, to: name })
-    m.branch = name
-  })
+  return edit(dataDir, model, (m) => { switchTo(m, name) })
 }
 
 /** Keep (or stop keeping) a step's snapshot regardless of retention, e.g. the step you deliver. */
