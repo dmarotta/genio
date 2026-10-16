@@ -86,8 +86,12 @@ it('counts in-flight generations from generation events and notices new messages
   expect(button('Expand Genio chat').textContent).not.toContain('generating')
 })
 
-it('shows the current screen as chips, removes chips from sends and follows screen changes', async () => {
-  await render(); await click('Remove preview context'); await click('Test send')
+it('shows Inventory picks as removable chips, sends the screen context without a chip and follows screen changes', async () => {
+  await render()
+  // the screen context is mandatory: no chip, no remove control, only Inventory's picks
+  expect([...host.querySelectorAll('.inventory-context-chip')].map(c => c.textContent)).toEqual(['Assets', 'tree.png', '2 selected'])
+  expect(host.querySelector('[aria-label="Remove screen context"]')).toBeNull()
+  await click('Remove preview context'); await click('Test send')
   expect(f.send.mock.lastCall?.[0]).not.toHaveProperty('preview')
   await click('Collapse Genio chat'); await click('Expand Genio chat'); await click('Test send')
   expect(f.send.mock.lastCall?.[0]).not.toHaveProperty('preview')
@@ -96,11 +100,11 @@ it('shows the current screen as chips, removes chips from sends and follows scre
   await act(async () => publishScreenContext('squad', { facts: [{ label: 'Unit', value: 'Build HUD [t-1]' }] }))
   await render('squad')
   expect(host.querySelector('.genio-panel-grip')?.textContent).toContain('Squad')
-  expect(host.querySelector('.inventory-context-chip')?.textContent).toContain('Squad · Build HUD [t-1]')
+  // a screen-only context renders nothing above the composer, yet still goes with every send
+  expect(host.querySelector('.inventory-context')).toBeNull()
+  expect(host.querySelector('[aria-label^="Remove "]')).toBeNull()
   await click('Test send')
   expect(f.send.mock.lastCall?.[0]).toEqual({ world: 'alpha', screen: { id: 'squad', label: 'Squad', facts: [{ label: 'Unit', value: 'Build HUD [t-1]' }] } })
-  await click('Remove screen context'); await click('Test send')
-  expect(f.send.mock.lastCall?.[0]).toBeUndefined()
 })
 
 it('preserves an edited queued snapshot independently of browsing and across panel remounts', async () => {

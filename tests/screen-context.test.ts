@@ -58,12 +58,12 @@ describe('context serialization', () => {
     expect(hasInventoryChips(c)).toBe(true)
     expect(hasInventoryChips(screenContextFor('squad', 'forest'))).toBe(false)
   })
-  it('lets the player remove the screen chip until the screen state changes', () => {
-    const c = screenContextFor('quests', 'forest', { facts: [{ label: 'Quest', value: 'Boss fight' }] })
-    const dismissed = { screen: chipKey(c, 'screen') }
-    expect(visibleContext(c, dismissed)).toBeUndefined()
-    const next = screenContextFor('quests', 'forest', { facts: [{ label: 'Quest', value: 'Tutorial' }] })
-    expect(visibleContext(next, dismissed)?.screen?.facts?.[0].value).toBe('Tutorial')
+  it('always sends the screen context: only Inventory chips can be removed', () => {
+    const c = { ...screenContextFor('inventory', 'forest', { facts: [{ label: 'Visible', value: 'a.png' }] }), folder: 'Assets' }
+    expect(visibleContext(c, {})?.screen?.facts?.[0].value).toBe('a.png')
+    const left = visibleContext(c, { folder: chipKey(c, 'folder') })
+    expect(left).not.toHaveProperty('folder')
+    expect(left?.screen?.id).toBe('inventory')
   })
   it('rejects malformed screen state at the IPC boundary', () => {
     expect(() => validateInventoryContext({ world: 'forest', screen: { id: 'Bad Id', label: 'x' } })).toThrow()

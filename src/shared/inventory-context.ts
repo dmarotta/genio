@@ -32,12 +32,14 @@ export function contextAsset(a: InventoryAsset): ContextAsset {
     ...(p ? { provenance: { provider: p.provider, endpoint: p.endpoint, by: p.by, created: p.created } } : {}) }
 }
 /** Dismissals apply to that chip's value; browsing to another value restores it. */
-export function chipKey(c: InventoryContext, chip: ContextChip): string {
-  return JSON.stringify([c.world, chip === 'screen' ? c.screen : chip === 'folder' ? c.folder : chip === 'preview' ? c.preview?.path : c.selection?.map(a => a.path).sort()])
+/** The chips the player can take off a message: Inventory's picks. The screen context always goes with it. */
+export type RemovableChip = Exclude<ContextChip, 'screen'>
+export function chipKey(c: InventoryContext, chip: RemovableChip): string {
+  return JSON.stringify([c.world, chip === 'folder' ? c.folder : chip === 'preview' ? c.preview?.path : c.selection?.map(a => a.path).sort()])
 }
-export function visibleContext(c: InventoryContext, dismissed: Partial<Record<ContextChip, string>>): InventoryContext | undefined {
+export function visibleContext(c: InventoryContext, dismissed: Partial<Record<RemovableChip, string>>): InventoryContext | undefined {
   const next = { ...c }
-  for (const chip of ['screen', 'folder', 'preview', 'selection'] as const) if (dismissed[chip] === chipKey(c, chip)) delete next[chip]
+  for (const chip of ['folder', 'preview', 'selection'] as const) if (dismissed[chip] === chipKey(c, chip)) delete next[chip]
   return next.screen || next.folder !== undefined || next.preview || next.selection?.length ? next : undefined
 }
 /** Inventory chips (as opposed to a screen-only context). */

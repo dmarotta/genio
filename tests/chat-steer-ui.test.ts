@@ -153,3 +153,27 @@ describe('the composer while Genio is busy', () => {
     expect(api.steerChat).toHaveBeenCalledWith(WKSP, 'from the panel', undefined, expect.objectContaining({ world: WKSP, screen: expect.objectContaining({ id: 'inventory' }) }))
   })
 })
+
+describe("the composer's screen context", () => {
+  it('goes with every message but renders nothing: no chip, no remove control, no empty strip', async () => {
+    show({ activity: 'idle', steerable: false, queued: 0 }, [])
+    const context = { world: WKSP, screen: { id: 'squad', label: 'Squad', facts: [{ label: 'Unit', value: 'Model a low poly racing car [model-a-low-poly-1]' }] } }
+    setDraft(WKSP, 'make it green')
+    await act(() => root.render(React.createElement(ChatPanel, { wksp: WKSP, context })))
+    const composer = host.querySelector('.composer')!
+    expect(composer.querySelector('.inventory-context')).toBeNull()
+    expect(composer.textContent).not.toContain('Squad')
+    expect(host.querySelector('[aria-label="Remove screen context"]')).toBeNull()
+    // nothing sits above the input box
+    expect(composer.firstElementChild?.classList.contains('composer-box')).toBe(true)
+    await act(async () => { press({}) })
+    expect(api.sendChat).toHaveBeenCalledWith(WKSP, 'make it green', undefined, context)
+  })
+
+  it('still shows the screen context on a sent message', async () => {
+    const context = { world: WKSP, screen: { id: 'squad', label: 'Squad', facts: [{ label: 'Unit', value: 'Build HUD [t-1]' }] } }
+    show({ activity: 'idle', steerable: false, queued: 0 }, [{ id: 'p1', wksp: WKSP, role: 'player', text: 'hi', ts: '2026-10-16T12:00:00Z', context }])
+    await act(() => root.render(React.createElement(ChatPanel, { wksp: WKSP })))
+    expect(host.querySelector('.chat-log .inventory-context-chip')?.textContent).toBe('Squad · Build HUD [t-1]')
+  })
+})
