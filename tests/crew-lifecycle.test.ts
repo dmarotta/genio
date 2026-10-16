@@ -21,6 +21,7 @@ import { pickLoadout } from '../src/main/loadout'
 import { defaultSettings } from '../src/main/settings'
 import * as git from '../src/main/git'
 import { CODEX_UNIT_MODEL, CLAUDE_UNIT_MODEL } from '../src/shared/unit-model-policy'
+import { OPUS } from '../src/shared/usage-mode'
 
 let root: string, home: Home, ctx: AppCtx, task: Task
 let terminal: { id: string; alive: boolean } | undefined
@@ -404,13 +405,24 @@ describe('Modeller landing', () => {
   it('a Modeller quest spawns a Modeller: the flag and claims on the unit, its rules and delivery in the brief', async () => {
     modellerWorld()
     ctx.main.backlog.get = () => ({ id: 'quest', modeller: true, claims: ['assets/models/tower.glb'] }) as any
+    ctx.dispatch.reserve = vi.fn(async input => ({ loadout: pickLoadout(input, defaultSettings(), h => ['claude', 'codex'].includes(h.id)),
+      listed: vi.fn(), release, check: async () => {} }))
     const t = await ctx.main.crew.spawn({ project: 'world', kind: 'ship', title: 'Wooden watchtower', intent: 'a low-poly wooden watchtower', backlogId: 'quest' })
-    expect(t).toMatchObject({ modeller: true, claims: ['assets/models/tower.glb'], state: 'working' })
+    expect(t).toMatchObject({ modeller: true, claims: ['assets/models/tower.glb'], state: 'working', harness: 'claude', model: OPUS })
     const brief = fs.readFileSync(t.briefPath, 'utf8')
     expect(brief).toContain('# Modeller')
     expect(brief).toContain('Modeller delivery')
     expect(brief).toContain('`assets/models/tower.glb`')
     expect(brief).toContain('--target web --fmt glb')
+  })
+
+  it('loadout_preview carries the Modeller default through the tool schema', async () => {
+    ctx.settings.get = () => defaultSettings()
+    ctx.settings.availableHarnesses = () => BUILTIN_HARNESSES.filter(h => ['claude', 'codex'].includes(h.id))
+    ctx.dispatch.signals = () => ({})
+    const tool = createToolRegistry(() => ctx, home, 'genio').find(t => t.name === 'loadout_preview')!
+    const result = await tool.invoke({ kind: 'ship', world: 'world', title: 'Tower', intent: 'Build a tower', category: 'art', modeller: true })
+    expect(JSON.parse((result.content[0] as { text: string }).text)).toMatchObject({ harness: 'claude', model: OPUS, effort: 'medium' })
   })
 
   it('a deploy with the flag files a Modeller quest; a path another Modeller holds defers it', async () => {

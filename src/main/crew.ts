@@ -595,6 +595,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       const prev = quest?.taskId ? get(quest.taskId) : undefined
       const pickInput: LoadoutInput = {
         ...req,
+        modeller,
         priority: quest?.priority,
         sticky: prev ? { from: prev.id, harness: prev.harness, model: prev.model, effort: prev.effort, category: prev.category } : undefined
       }

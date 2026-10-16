@@ -960,13 +960,14 @@ export function createToolRegistry(
     'What a deploy would get (unit tool, model, effort, category) if harness/model/effort are omitted or set as given, and why.',
     {
       kind: z.enum(['ship', 'scout']), world: z.string(), title: z.string(), intent: z.string(), spec: z.string().optional(),
+      modeller: z.boolean().optional().describe('kind=ship only: preview a Modeller loadout (defaults to Claude Opus).'),
       category: z.enum(CATEGORY_IDS).optional(), harness: z.string().optional(), model: z.string().optional(), effort: z.string().optional()
     },
     async (a) =>
       ok(
         json(
           resolveLoadout(
-            { kind: a.kind, project: a.world, title: a.title, intent: a.intent, spec: a.spec, category: a.category, harness: a.harness, model: a.model, effort: a.effort },
+            { kind: a.kind, modeller: a.modeller, project: a.world, title: a.title, intent: a.intent, spec: a.spec, category: a.category, harness: a.harness, model: a.model, effort: a.effort },
             getCtx().settings,
             getCtx().dispatch.signals(a.world, { preview: true })
           )

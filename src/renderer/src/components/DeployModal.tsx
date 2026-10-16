@@ -77,6 +77,7 @@ export function DeployModal() {
       api()
         .previewLoadout({
           kind,
+          modeller: kind === 'ship' && modeller,
           project,
           title,
           intent,
@@ -93,7 +94,7 @@ export function DeployModal() {
       live = false
       clearTimeout(t)
     }
-  }, [draft, kind, project, title, intent, spec, category, pickHarness, pickModel, pickEffort, settings])
+  }, [draft, kind, modeller, project, title, intent, spec, category, pickHarness, pickModel, pickEffort, settings])
 
   if (!draft) return null
   const toolName = (id: string): string => settings?.harnesses.find((x) => x.id === id)?.name ?? id

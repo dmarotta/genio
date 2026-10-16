@@ -3,9 +3,9 @@ import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ToolStatus } from '../src/shared/types'
-const f = vi.hoisted(() => ({ spawn: vi.fn(), toolchain: vi.fn(), state: {} as Record<string, unknown> }))
+const f = vi.hoisted(() => ({ spawn: vi.fn(), toolchain: vi.fn(), preview: vi.fn(), state: {} as Record<string, unknown> }))
 vi.mock('../src/renderer/src/store', () => ({
-  api: () => ({ spawnTask: f.spawn, toolchain: f.toolchain, previewLoadout: async () => null }),
+  api: () => ({ spawnTask: f.spawn, toolchain: f.toolchain, previewLoadout: f.preview }),
   useStore: (pick: (s: unknown) => unknown) => pick(f.state),
   errText: String, focusTask: vi.fn(), setState: vi.fn(), toast: vi.fn()
 }))
@@ -28,10 +28,27 @@ beforeEach(() => {
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
   f.state = { deploy: { kind: 'ship', project: 'game', title: 'Watchtower', intent: 'a low-poly wooden watchtower' }, snap: { projects: [{ name: 'game', mode: 'local-only' }] }, settings: { harnesses: [] } }
   f.spawn.mockResolvedValue({ id: 't1', title: 'Watchtower' })
+  f.preview.mockResolvedValue(null)
 })
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.clearAllMocks() })
 
 describe('Deploy a Modeller', () => {
+  it('refreshes the loadout preview when switching between Build and Modeller', async () => {
+    vi.useFakeTimers()
+    try {
+      f.toolchain.mockResolvedValue(tools(true))
+      await render()
+      await act(async () => { await vi.advanceTimersByTimeAsync(250) })
+      expect(f.preview).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'ship', modeller: false }))
+      await act(async () => button(/^Modeller/).click())
+      await act(async () => { await vi.advanceTimersByTimeAsync(250) })
+      expect(f.preview).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'ship', modeller: true }))
+      await act(async () => button(/^Build/).click())
+      await act(async () => { await vi.advanceTimersByTimeAsync(250) })
+      expect(f.preview).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'ship', modeller: false }))
+    } finally { vi.useRealTimers() }
+  })
+
   it('deploys a Build with the Modeller flag when Blender is installed', async () => {
     f.toolchain.mockResolvedValue(tools(true))
     await render()

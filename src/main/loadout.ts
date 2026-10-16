@@ -9,7 +9,8 @@
  * then a follow-up's sticky loadout, then the best-fit dispatch rule, then the
  * category table (category from Genio or the keyword heuristic), then the
  * configured default. An unlocked table row follows the Usage mode (its preset
- * cell, the same-effort fallback, cheap models per the mode); a locked row is
+ * effort, with Claude Opus preferred for Modeller Builds unless pinned or held),
+ * with the same-effort fallback and cheap models per the mode; a locked row is
  * Pinned and used as written under the mode's dial. Candidates whose tool is not
  * installed, enabled or logged in are skipped, cheap third-party models need
  * the world not opted out and a paid-spend allowance, and a tool above ~85% of a
@@ -23,7 +24,7 @@ import {
   COST_MODEL, DIAL_LABEL, QUALITY_MODEL, categoryLabel, defaultCategoryPools, isCategory, shiftEffort, type ScoreRow
 } from '@shared/dispatch'
 import {
-  MODE_PRESETS, USAGE_MODE_LABEL, isPlan, modeCandidates, planStatus, planStatuses, protectionCause, stepDown, type PlanLevel, type UsageMode
+  MODE_PRESETS, OPUS, USAGE_MODE_LABEL, groupOf, isPlan, modeCandidates, planStatus, planStatuses, protectionCause, stepDown, type PlanLevel, type UsageMode
 } from '@shared/usage-mode'
 import type { SettingsService } from './services'
 import { blockedWindow, explorationSafe, type QuotaWindow } from './quota-policy'
@@ -297,6 +298,23 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
 
     // ---- category table: an unlocked row follows the Usage mode, a locked row is Pinned as written
     const pool = harness ? undefined : poolFor(s, category)
+    // Modellers replace only an automatic choice; rules, sticky loadouts and pins still win.
+    if (!harness && input.kind === 'ship' && input.modeller && !explicitModel && !s.defaultWorkerModel?.trim() && !pool?.locked) {
+      const unavailable = !installed('claude') ? 'not installed or enabled'
+        : env.loggedOut?.('claude') ? 'not logged in'
+          : quotaBlocked('claude') ? 'held by quota protection'
+            : levelOf('claude') === 'warm' && levelOf('codex') !== 'warm' && usable('codex')
+              ? `${protectionCause(plans.claude)}; preferring ${nameOf('codex')}` : undefined
+      if (unavailable) {
+        reasons.push(`Modeller: Claude Opus unavailable (${unavailable}); falling back to the normal picker`)
+      } else {
+        harness = 'claude'
+        cand = { harness, model: OPUS, effort: preset.units[groupOf(category)][1] }
+        source = 'mode'
+        fromMode = true
+        reasons.push('Modeller: defaults to Claude Opus')
+      }
+    }
     const byMode = Boolean(pool && !pool.locked)
     const auto = byMode ? modeCandidates(mode, category, plans) : undefined
     const rowCandidates = auto ? auto.candidates : (pool?.candidates ?? [])

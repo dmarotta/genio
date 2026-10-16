@@ -740,6 +740,8 @@ export type DispatchProposal =
 /** What the loadout picker needs to know about a mission. Empty harness/model/effort = auto. */
 export interface LoadoutInput {
   kind: TaskKind
+  /** A Modeller Build defaults to Claude Opus unless its loadout is pinned. */
+  modeller?: boolean
   project: string
   title: string
   intent: string
