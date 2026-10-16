@@ -8,6 +8,7 @@ import { categoryLabel } from '@shared/dispatch'
 import type { TaskFile } from '@shared/api'
 import { api, errText, focusTask, op, openDeploy, setState, toast, liveTasks, useStore } from '../store'
 import { TerminalView } from '../components/Terminal'
+import { ModellerView, useModellerLive } from '../components/ModellerView'
 import { Markdown } from '../components/Markdown'
 import { Chip, Confirm, DislikeMarker, Empty, Modal, Field, NeedsYou, Tabs, ViewHeader, useNow } from '../components/ui'
 import { GenioCore } from '../components/GenioCore'
@@ -250,7 +251,7 @@ function SessionDetail({ id }: { id: string }) {
 
 // ------------------------------------------------------------------ unit detail
 
-type TabId = 'changes' | 'timeline' | 'brief' | 'report' | 'checks'
+type TabId = 'model' | 'changes' | 'timeline' | 'brief' | 'report' | 'checks'
 /** Under 900 px one pane shows at a time: the terminal or a side tab. */
 type PaneId = 'terminal' | TabId
 
@@ -332,6 +333,10 @@ function UnitDetail({ id }: { id: string }) {
   const changesFile = useTaskFile(id, 'diffstat', [events, t?.state], live ? 8000 : undefined, !!t && t.kind === 'ship')
   const statusRows = useMemo(() => parseStatusLines(status.text ?? ''), [status.text])
   const changes = useMemo(() => parseUnitChanges(changesFile.text ?? ''), [changesFile.text])
+  const modeller = useModellerLive(id, live && t?.kind === 'ship')
+  // A Modeller's model is what the player came for: open its tab once it appears.
+  const hasModel = !!modeller
+  useEffect(() => { if (hasModel) setTab('model') }, [hasModel])
   useScreenContext('squad', { facts: t ? [
     { label: 'Unit', value: `${t.title} [${t.id}]` },
     { label: 'State', value: `${unitBadge(t, term).label} (${t.state}) · ${KIND_LABEL[t.kind]} · ${t.branch}` },
@@ -358,6 +363,7 @@ function UnitDetail({ id }: { id: string }) {
   const hardcore = !!t.validation || t.mode === 'no-mistakes'
   const lagging = needsInput(t, term, now, settings?.staleSeconds)
   const tabs = ([
+    !!modeller && { id: 'model', label: 'Model' },
     !recon && { id: 'changes', label: 'Changes', badge: changes.files.length },
     { id: 'timeline', label: 'Timeline' },
     { id: 'brief', label: 'Brief' },
@@ -499,6 +505,7 @@ function UnitDetail({ id }: { id: string }) {
             <Tabs<TabId> value={current} onChange={setTab} tabs={tabs} />
           </div>
           <div className="detail-tab">
+            {current === 'model' && modeller && <ModellerView live={modeller} />}
             {current === 'changes' && <ChangesTab t={t} changes={changes} loading={changesFile.text === null} err={changesFile.err} rows={statusRows} />}
             {current === 'timeline' && <TimelineTab t={t} rows={statusRows} loading={status.text === null} />}
             {current === 'brief' && <FileMarkdown t={t} which="brief" empty="No brief." />}

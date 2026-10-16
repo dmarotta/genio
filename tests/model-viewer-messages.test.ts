@@ -34,6 +34,14 @@ describe('viewer frame messages', () => {
       { type: 'loaded', model: { ...loaded, unityClips: 'yes' } }]) expect(readViewerMessage(bad)).toBeUndefined()
   })
 
+  it('passes a hot swap diff through only when it is well-formed', () => {
+    const diff = { added: 1, changed: 2, removed: 0, names: ['deck', 'leg_1', 'leg_2'], swapMs: 0.4 }
+    expect(readViewerMessage({ type: 'loaded', model: { ...loaded, diff: { ...diff, extra: 1 } } })).toEqual({ type: 'loaded', model: { ...loaded, diff } })
+    for (const bad of [{ ...diff, added: -1 }, { ...diff, names: 'deck' }, { ...diff, names: Array(65).fill('x') }, { ...diff, names: ['x'.repeat(513)] }, { ...diff, swapMs: NaN }, null]) {
+      expect(readViewerMessage({ type: 'loaded', model: { ...loaded, diff: bad } })).toBeUndefined()
+    }
+  })
+
   it('keeps only image data URLs as texture previews', () => {
     const png = 'data:image/png;base64,iVBORw0KGgo='
     expect(readViewerMessage({ type: 'texture-previews', previews: [{ id: 0, url: png }, { id: 1, url: 'javascript:alert(1)' }, { id: 2, url: 'data:text/html;base64,PGI+' }, { id: 3, url: 'genio-media://world/a/b.png' }] }))

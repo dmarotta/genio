@@ -201,3 +201,57 @@ describe('genio-viewer://app', () => {
     expect(viewerCsp(true)).toContain("'unsafe-inline'")
   })
 })
+
+describe('a Modeller unit grant', () => {
+  const unit = (): { data: string; tree: string } => {
+    const data = path.join(root, 'task', 'modeller'), tree = path.join(root, 'worktree')
+    for (const [dir, rel, text] of [[data, 'tower/steps/s001/model.glb', 'glb1'], [data, 'tower/steps/s001/sheet.png', 'png'], [data, 'tower/steps/s001/script.py', 'import os'],
+      [data, 'tower/steps/s001/receipt.json', '{}'], [data, 'tower/manifest.json', '{}'], [tree, 'Assets/Models/tower.fbx', 'fbx'], [tree, '.genio/modeller/tower/s01_legs.py', 'x'], [root, 'task/brief.md', 'secret']] as const) {
+      fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), text)
+    }
+    return { data, tree }
+  }
+
+  it('serves models and side files below its roots, never scripts, receipts or anything above them', async () => {
+    const { data, tree } = unit()
+    const files = service()
+    const base = files.grantUnit('u1', { modeller: data, worktree: tree })
+    expect(base).toMatch(/^genio-media:\/\/model\/[0-9a-f]{32}\/$/)
+    const glb = await get(files, `${base}modeller/tower/steps/s001/model.glb`)
+    expect([glb.status, glb.headers.get('content-type'), await glb.text()]).toEqual([200, 'model/gltf-binary', 'glb1'])
+    expect((await get(files, `${base}modeller/tower/steps/s001/sheet.png`)).status).toBe(200)
+    expect((await get(files, `${base}worktree/Assets/Models/tower.fbx`)).status).toBe(200)
+    expect((await get(files, `${base}worktree/Assets/Models/tower.fbx`, 'HEAD')).headers.get('content-length')).toBe('3')
+    for (const rel of ['modeller/tower/steps/s001/script.py', 'modeller/tower/manifest.json', 'modeller/tower/steps/s001/receipt.json', 'worktree/.genio/modeller/tower/s01_legs.py']) {
+      expect((await get(files, base + rel)).status, rel).toBe(403)
+    }
+    // The URL parser folds the dots away: <token>/brief.md names no root.
+    expect((await get(files, `${base}modeller/../brief.md`)).status).toBe(404)
+    expect((await get(files, `${base}modeller/..%2Fbrief.md`)).status).toBe(400)
+    expect((await get(files, `${base}other/tower/steps/s001/model.glb`)).status).toBe(404)
+    expect((await get(files, `${base}constructor/x.glb`)).status).toBe(404)
+    expect((await get(files, `${base}modeller`)).status).toBe(404)
+    expect((await get(files, `${base}modeller/tower/steps/s009/model.glb`)).status).toBe(404)
+  })
+
+  it('keeps one token per unit, expires the oldest units and revokes on request', async () => {
+    const { data, tree } = unit()
+    const files = service({ maxGrants: 2 })
+    const a = files.grantUnit('a', { modeller: data, worktree: tree })
+    expect(files.grantUnit('a', { modeller: data, worktree: tree })).toBe(a)
+    const moved = files.grantUnit('a', { modeller: data, worktree: path.join(root, 'elsewhere') })
+    expect(moved).not.toBe(a)
+    expect((await get(files, `${a}modeller/tower/steps/s001/model.glb`)).status).toBe(404)
+    const b = files.grantUnit('b', { modeller: data })
+    files.grantUnit('a', { modeller: data, worktree: path.join(root, 'elsewhere') })
+    files.grantUnit('c', { modeller: data })
+    expect((await get(files, `${b}modeller/tower/steps/s001/model.glb`)).status).toBe(404)
+    expect((await get(files, `${moved}modeller/tower/steps/s001/model.glb`)).status).toBe(200)
+    // Unit grants never spend the per-model grants.
+    const single = await files.grant('zoo', 'robot.glb')
+    expect((await get(files, single)).status).toBe(200)
+    files.revoke(moved)
+    expect((await get(files, `${moved}modeller/tower/steps/s001/model.glb`)).status).toBe(404)
+    expect(files.grantUnit('a', { modeller: data, worktree: path.join(root, 'elsewhere') })).not.toBe(moved)
+  })
+})

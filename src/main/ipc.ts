@@ -6,6 +6,8 @@ import { playerCopyService } from './player-copy'
 import { playerInstanceService } from './player-instance'
 import { playerSources, sourceUnit } from './player-sources'
 import { modelViewer } from './model-viewer'
+import { readModellerLive } from './modeller-live'
+import { modellerDataDir } from './unitskills'
 import { standingApprovals } from './standing-approvals'
 import { readArtBibleView, writeArtBibleFile } from './art-bible'
 /**
@@ -157,6 +159,11 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     },
     inventoryModelUrl: (world, asset) => modelViewer().grant(world, asset, true),
     inventoryModelRelease: async (url, completeOnly) => modelViewer().revoke(url, completeOnly === true),
+    modellerLive: (id) => {
+      const { hc, task } = taskHome(id)
+      const data = modellerDataDir(hc.home.taskDir(id))
+      return readModellerLive(data, () => modelViewer().grantUnit(id, { modeller: data, worktree: task.worktree }))
+    },
     artBibleRead: async (world) => readArtBibleView(world, projectRoot(world)),
     artBibleWrite: async (world, file, text) => {
       const view = writeArtBibleFile(world, projectRoot(world), file, text)

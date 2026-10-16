@@ -1,12 +1,13 @@
 // Real Chromium/WebGL check of Inventory's 3D viewer: the sandboxed frame under the app's CSP, what it can
-// reach, every format, playback, and 100 open/close cycles that must leave no GPU resources behind.
+// reach, every format, playback, and 100 open/close cycles that must leave no GPU resources behind; then the
+// Modeller's hot swap (keep) of a five-step model, in the frame and on the viewer core.
 // genio-viewer:// is answered by the real handler, which the test process runs (MODEL_VIEWER_BRIDGE).
 // With MODEL_VIEWER_SHOTS=<dir> it also saves a screenshot of the frame per model.
 const { app, BrowserWindow, net, protocol } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
-const { base, bridge, models, probes, results, previews, shots } = JSON.parse(process.env.MODEL_VIEWER_E2E)
+const { base, bridge, models, steps, probes, results, previews, shots } = JSON.parse(process.env.MODEL_VIEWER_E2E)
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'genio-viewer', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
@@ -73,6 +74,17 @@ app.whenReady().then(async () => {
       await wait(600)
       out.cancellation[phase] = !!next && !await js(`window.log.some(m => ['loaded','failed'].includes(m.type) && m.requestId === ${id})`)
     }
+    // The Modeller's live view: each step hot swapped over the last (keep), from the unit's directory grant.
+    out.live = []
+    // As ModellerView does: fresh settings first (the 3DS check above left the frame turned Z-up).
+    await js(`send({ type: 'cancel' }); send({ type: 'settings', settings: { wireframe: false, grid: true, bounds: false, skeleton: false, clay: false, background: 'dark', upAxis: 'y', turntable: false } })`)
+    for (const [i, url] of steps.entries()) {
+      const id = 900 + i
+      await js(`window.log.length = 0; send({ type: 'open', url: ${JSON.stringify(url)}, name: 'step ${i + 1}', requestId: ${id}, keep: true })`)
+      out.live.push(await until(`window.log.find(m => (m.type === 'loaded' || m.type === 'failed') && m.requestId === ${id})`) ?? { type: 'no answer' })
+      if (shots) { await wait(150); fs.writeFileSync(path.join(shots, `live-step${i + 1}.png`), (await win.webContents.capturePage()).toPNG()) }
+      await wait(200)
+    }
     out.probes = await frame.executeJavaScript(`(async () => {
       const r = {}
       const status = async url => { try { return (await fetch(url)).status } catch (e) { return 'blocked' } }
@@ -91,6 +103,9 @@ app.whenReady().then(async () => {
     await win.loadURL(base + '/leak.html')
     await until('!!window.runLeak', 20000)
     out.leak = await js(`runLeak(${JSON.stringify(Object.values(models))}, 100)`)
+    await win.loadURL(base + '/live.html')
+    await until('!!window.runLive', 20000)
+    out.liveCore = await js(`runLive(${JSON.stringify(steps)})`)
   } catch (e) {
     out.error = String(e && e.stack || e)
   }

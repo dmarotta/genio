@@ -4,6 +4,8 @@
  * CSP admits only those two hosts, so it reaches neither IPC nor genio-media://world nor the network;
  * a token covers the model's folder and side files, plus basename-matched images in the conventional
  * sibling Textures folder. Each file stays under the size cap and the Inventory real-path guard.
+ * A Modeller unit gets one directory token instead (grantUnit): its worktree and its step data, so
+ * the live view can scrub through steps without spending a grant per step.
  */
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
@@ -107,6 +109,9 @@ export function modelViewer(): ModelViewerFiles {
 
 export function modelViewerFiles(opts: ModelViewerFilesOptions) {
   const grants = new Map<string, Grant>()
+  /** Directory grants by token, and each unit's token. */
+  const unitGrants = new Map<string, { unit: string; roots: Record<string, string> }>()
+  const unitTokens = new Map<string, string>()
   const maxBytes = opts.maxBytes ?? MODEL_PREVIEW_MAX_BYTES
   const headers = (type: string, extra: Record<string, string> = {}): Record<string, string> => ({
     'Content-Type': type, 'Access-Control-Allow-Origin': '*', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store', ...extra
@@ -139,12 +144,22 @@ export function modelViewerFiles(opts: ModelViewerFilesOptions) {
   /** HEAD tells the frame why a side file failed (GLTFLoader drops the status). */
   async function model(u: URL, head: boolean, reqRange: string | null): Promise<Response> {
     const [, token = '', ...parts] = u.pathname.split('/')
-    const grant = grants.get(token)
-    if (!grant) return fail(404, 'not found')
+    const grant = grants.get(token), unit = unitGrants.get(token)
+    if (!grant && !unit) return fail(404, 'not found')
     let rel: string
     try { rel = parts.map(decodeURIComponent).join('/') } catch { return fail(400, 'bad path') }
     const e = ext(rel)
     if (!rel || rel.includes('\\') || rel.split('/').some(s => !s || s === '.' || s === '..')) return fail(400, 'bad path')
+    if (unit) {
+      // <root key>/<path inside it>: models and their side files only, never scripts, notes or receipts.
+      const [key, ...inside] = rel.split('/')
+      const root = Object.hasOwn(unit.roots, key) ? unit.roots[key] : undefined
+      if (!root || !inside.length) return fail(404, 'not found')
+      if (![...MODEL_PREVIEW_EXTS, ...MODEL_SIDE_FILE_EXTS].includes(e as never)) return fail(403, 'not a model or side file')
+      const p = await guardedWorldFile(root, inside.join('/'))
+      return p ? send(p, rel, e, head, reqRange) : fail(404, 'not found')
+    }
+    if (!grant) return fail(404, 'not found')
     if (rel !== grant.name && rel !== `${grant.name}.meta` && !(MODEL_SIDE_FILE_EXTS as readonly string[]).includes(e)) return fail(403, 'not a model side file')
     const inFolder = (r: string): string => grant.dir ? `${grant.dir}/${r}` : r
     let p = await guardedWorldFile(grant.root, inFolder(rel))
@@ -157,6 +172,10 @@ export function modelViewerFiles(opts: ModelViewerFilesOptions) {
       if (near) p = await guardedWorldFile(grant.root, near)
     }
     if (!p) return fail(404, 'not found')
+    return send(p, rel, e, head, reqRange)
+  }
+
+  async function send(p: string, rel: string, e: string, head: boolean, reqRange: string | null): Promise<Response> {
     const size = (await fsp.stat(p)).size
     if (size > maxBytes) return fail(413, `${path.posix.basename(rel)} is ${size} bytes; the preview limit is ${maxBytes}`)
     const type = TYPES[e] ?? 'application/octet-stream'
@@ -190,10 +209,35 @@ export function modelViewerFiles(opts: ModelViewerFilesOptions) {
       if (interactive) modelPreviewPriority.begin(token)
       return `${MODELS}/${token}/${encodeURIComponent(name)}`
     },
+    /**
+     * One directory grant per unit, as a base URL (genio-media://model/<token>/): <key>/<path> reads a
+     * model or side file below roots[key]. The same unit and roots keep their token; the oldest units' expire.
+     */
+    grantUnit(unit: string, roots: Record<string, string>): string {
+      const had = unitTokens.get(unit)
+      const same = had && JSON.stringify(unitGrants.get(had)?.roots) === JSON.stringify(roots)
+      if (had && same) {
+        // Most recently used last, so an open live view never expires first.
+        const g = unitGrants.get(had)!
+        unitGrants.delete(had); unitGrants.set(had, g)
+        return `${MODELS}/${had}/`
+      }
+      if (had) unitGrants.delete(had)
+      const token = randomBytes(16).toString('hex')
+      unitGrants.set(token, { unit, roots: { ...roots } })
+      unitTokens.set(unit, token)
+      while (unitGrants.size > (opts.maxGrants ?? MAX_GRANTS)) {
+        const [old, g] = unitGrants.entries().next().value!
+        unitGrants.delete(old); unitTokens.delete(g.unit)
+      }
+      return `${MODELS}/${token}/`
+    },
     /** Ends a grant at once (a drawn thumbnail), so short-lived grants never expire the inspector's. */
     revoke(url: string, completeOnly = false): void {
       if (!url.startsWith(`${MODELS}/`)) return
       const token = url.slice(MODELS.length + 1).split('/')[0]
+      const unit = unitGrants.get(token)
+      if (unit) { if (!completeOnly) { unitGrants.delete(token); unitTokens.delete(unit.unit) } return }
       modelPreviewPriority.finish(token)
       if (!completeOnly) grants.delete(token)
     },

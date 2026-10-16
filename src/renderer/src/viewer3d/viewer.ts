@@ -2,7 +2,8 @@
  * Inventory's 3D viewer core (runs only inside the sandboxed viewer frame): one WebGL context per
  * frame, every format in formats.ts (glTF/GLB with Draco, meshopt and KTX2; FBX, OBJ, STL, PLY,
  * Collada, BVH, USDA, 3DS), orbit/pan/zoom, framing, view toggles, clips and a full dispose of
- * everything a load created.
+ * everything a load created. The Modeller's live view opens each step with keep: a hot swap that
+ * keeps the camera, glows the parts that changed (by node name) and fades the removed ones.
  */
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
@@ -11,7 +12,7 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
-import { DEFAULT_VIEWER_SETTINGS, MODEL_PREVIEW_MAX_BYTES, MODEL_PREVIEW_MAX_TEXTURE, formatLength, type ModelLoaded, type ModelPlayback, type ModelProgress, type ModelTexture, type ViewerSettings } from '@shared/model-viewer'
+import { DEFAULT_VIEWER_SETTINGS, MODEL_DIFF_NAMES, MODEL_PREVIEW_MAX_BYTES, MODEL_PREVIEW_MAX_TEXTURE, formatLength, type ModelDiff, type ModelLoaded, type ModelPlayback, type ModelProgress, type ModelTexture, type ViewerSettings } from '@shared/model-viewer'
 import { collectResources, disposeResources, materialTextures, type Disposable } from './resources'
 import { FORMAT_NAMES, ViewerError, loadFormat, sideFileUrl, type Parsed } from './formats'
 import { TextureDecoder, flippedBitmaps, hasImage, prepareTextures, progressiveGltfTextures, settledSources } from './textures'
@@ -29,6 +30,13 @@ const CLAY = 0x9ea3aa
 const ACCENT = 0x00e5ff
 const BACKGROUNDS = { dark: 0x0b0f16, light: 0xdfe3e8 }
 const GRID_COLORS = { dark: [0x2b6b7a, 0x1a2a33], light: [0x7f8b99, 0xb7c0ca] }
+/** The Modeller's orange: parts a step added or changed glow in it, then cool off. */
+const GLOW = 0xff8a2a
+const GLOW_MS = 1400
+const FADE_MS = 500
+const TWEEN_MS = 650
+/** One turn in 40 s. */
+const TURNTABLE_SPEED = 1.5
 
 export interface ViewerOptions {
   /** Folder URL holding three's draco_* and basis_* decoder files; omitted, the copies bundled beside the loaders. */
@@ -42,7 +50,10 @@ export interface ViewerOptions {
 }
 export interface Viewer {
   readonly renderer: THREE.WebGLRenderer
-  open(url: string): Promise<ModelLoaded>
+  /** keep: hot swap over the model shown (see the file comment); the result carries the diff. */
+  open(url: string, opts?: { keep?: boolean }): Promise<ModelLoaded>
+  /** Where the camera is and what is animating, for checks and screenshots. */
+  view(): { position: number[]; target: number[]; glowing: number; fading: number }
   clear(): void
   set(settings: Partial<ViewerSettings>): void
   playback(patch: Partial<ModelPlayback>): void
@@ -77,6 +88,27 @@ interface Loaded {
   bounds?: THREE.Box3Helper
   skeleton?: SkeletonLines
   texturing?: boolean
+}
+
+/** Meshes by node name, the key a hot swap diffs on (the Modeller names every part). */
+function partNames(meshes: THREE.Mesh[]): Map<string, THREE.Mesh> {
+  const out = new Map<string, THREE.Mesh>()
+  for (const mesh of meshes) {
+    const base = mesh.name || mesh.parent?.name || 'mesh'
+    let key = base
+    for (let i = 2; out.has(key); i++) key = `${base}#${i}`
+    out.set(key, mesh)
+  }
+  return out
+}
+/** What makes a part "changed": its vertex count, local bounds, world placement and material colours. */
+function partSignature(mesh: THREE.Mesh, material: THREE.Material | THREE.Material[] | undefined): string {
+  const g = mesh.geometry
+  if (!g.boundingBox) g.computeBoundingBox()
+  const b = g.boundingBox!
+  const numbers = [g.attributes.position?.count ?? 0, g.index?.count ?? 0, ...b.min.toArray(), ...b.max.toArray(), ...mesh.matrixWorld.elements]
+  const colours = [material ?? []].flat().map(m => `${m.name}:${(m as THREE.MeshStandardMaterial).color?.getHex() ?? ''}`)
+  return `${numbers.map(v => Math.round(v * 1000)).join(',')}|${colours.join(',')}`
 }
 
 const fileName = (url: string): string => {
@@ -163,7 +195,13 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
   const controls = new OrbitControls(camera, canvas)
   controls.enableDamping = true
   controls.dampingFactor = 0.12
+  controls.autoRotateSpeed = TURNTABLE_SPEED
   const clay = new THREE.MeshStandardMaterial({ color: CLAY, roughness: 0.85, metalness: 0, name: 'Clay' })
+  // Glow is an additive overlay sharing each part's geometry, so it never touches the model's materials.
+  let glow: { material: THREE.MeshBasicMaterial; overlays: THREE.Mesh[]; t0: number } | undefined
+  // A swapped-out step lingers until its removed parts have faded; then its resources go.
+  const ghosts: { m: Loaded; material: THREE.MeshStandardMaterial; t0: number }[] = []
+  let tween: { from: [THREE.Vector3, THREE.Vector3]; to: [THREE.Vector3, THREE.Vector3]; t0: number } | undefined
   const background = new THREE.Color()
   let settings: ViewerSettings = { ...DEFAULT_VIEWER_SETTINGS }
   let model: Loaded | undefined
@@ -175,6 +213,8 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
     const el = document.createElement('span'); el.dataset.axis = axis; el.hidden = true; opts.labels!.append(el); return el
   }) : []
   controls.addEventListener('change', () => { dirty = true })
+  // The player's own orbit wins over a framing move in progress.
+  controls.addEventListener('start', () => { tween = undefined })
   canvas.addEventListener('dblclick', () => frame())
 
   const report = (): void => {
@@ -224,7 +264,8 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
     return box
   }
 
-  function layout(): void {
+  /** Bounds, grid and framing for the model's current axis; a hot swap keeps the camera (sticky framing). */
+  function layout(reframe = true): void {
     if (!model) return
     model.pivot.rotation.x = settings.upAxis === 'z' ? -Math.PI / 2 : 0
     model.box = measure(model)
@@ -233,26 +274,121 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
     model.bounds = new THREE.Box3Helper(model.box, ACCENT)
     model.bounds.visible = settings.bounds
     scene.add(model.bounds)
-    frame()
+    if (reframe) frame(); else stick()
+  }
+
+  /** The model's centre and radius, and the distance at which it fills the view. */
+  function fit(box: THREE.Box3): { center: THREE.Vector3; radius: number; distance: number } {
+    const size = box.getSize(new THREE.Vector3()), center = box.getCenter(new THREE.Vector3())
+    const radius = Math.max(size.length() / 2, 1e-4)
+    const vfov = THREE.MathUtils.degToRad(camera.fov)
+    const fov = Math.min(vfov, 2 * Math.atan(Math.tan(vfov / 2) * camera.aspect))
+    return { center, radius, distance: radius / Math.sin(fov / 2) * 1.05 }
+  }
+  function clip(radius: number, distance: number): void {
+    camera.near = Math.max(radius / 1000, distance - radius * 50, 1e-4)
+    camera.far = distance + radius * 50
+    camera.updateProjectionMatrix()
+    controls.minDistance = radius * 0.02
+    controls.maxDistance = distance * 20
   }
 
   function frame(): void {
     if (!model) return
-    const size = model.box.getSize(new THREE.Vector3()), center = model.box.getCenter(new THREE.Vector3())
-    const radius = Math.max(size.length() / 2, 1e-4)
-    const vfov = THREE.MathUtils.degToRad(camera.fov)
-    const fov = Math.min(vfov, 2 * Math.atan(Math.tan(vfov / 2) * camera.aspect))
-    const distance = radius / Math.sin(fov / 2) * 1.05
-    camera.near = Math.max(radius / 1000, distance - radius * 50, 1e-4)
-    camera.far = distance + radius * 50
+    tween = undefined
+    const { center, radius, distance } = fit(model.box)
+    clip(radius, distance)
     camera.position.copy(center).add(new THREE.Vector3(1, 0.62, 1.3).normalize().multiplyScalar(distance))
-    camera.updateProjectionMatrix()
     controls.target.copy(center)
-    controls.minDistance = radius * 0.02
-    controls.maxDistance = distance * 20
     controls.update()
     model.followAt = undefined
     dirty = true
+  }
+
+  /**
+   * Sticky framing: the camera stays where the player left it, and only backs off (along the same
+   * view direction) when the model outgrows the view or drifts off-centre. It never zooms in by itself.
+   */
+  function stick(): void {
+    if (!model) return
+    const { center, radius, distance } = fit(model.box)
+    const offset = camera.position.clone().sub(controls.target)
+    const have = offset.length()
+    const far = Math.max(distance, have)
+    clip(radius, far)
+    if (distance <= have * 1.02 && center.distanceTo(controls.target) < radius * 0.35) return
+    const position = center.clone().addScaledVector(offset.normalize(), far)
+    tween = { from: [camera.position.clone(), controls.target.clone()], to: [position, center], t0: performance.now() }
+    dirty = true
+  }
+
+  /** Glow the parts a swap added or changed, cooling off over GLOW_MS. Skinned parts are left alone. */
+  function startGlow(parts: THREE.Mesh[]): void {
+    endGlow()
+    const shown = parts.filter(mesh => !(mesh as THREE.SkinnedMesh).isSkinnedMesh && !(mesh as THREE.InstancedMesh).isInstancedMesh)
+    if (!shown.length) return
+    const material = new THREE.MeshBasicMaterial({
+      color: GLOW, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1, wireframe: settings.wireframe, name: 'Genio glow'
+    })
+    const overlays = shown.map(mesh => {
+      const overlay = new THREE.Mesh(mesh.geometry, material)
+      overlay.name = 'Genio glow'
+      overlay.renderOrder = 1
+      mesh.add(overlay)
+      return overlay
+    })
+    glow = { material, overlays, t0: performance.now() }
+    dirty = true
+  }
+  function endGlow(): void {
+    if (!glow) return
+    for (const overlay of glow.overlays) overlay.removeFromParent()
+    glow.material.dispose()
+    glow = undefined
+    dirty = true
+  }
+
+  /** Take a swapped-out step off the stage, letting its removed parts fade out first. */
+  function retire(m: Loaded, removed: THREE.Mesh[]): void {
+    m.mixer?.stopAllAction()
+    m.mixer?.uncacheRoot(m.root)
+    for (const helper of [m.grid, m.bounds]) if (helper) { scene.remove(helper); helper.dispose() }
+    if (m.skeleton) { scene.remove(m.skeleton.object); m.skeleton.dispose(); m.skeleton = undefined }
+    if (!removed.length) { scene.remove(m.pivot); disposeResources(m.resources); return }
+    const keep = new Set(removed)
+    const material = new THREE.MeshStandardMaterial({ color: CLAY, roughness: 0.85, transparent: true, opacity: 0.6, depthWrite: false, wireframe: settings.wireframe, name: 'Genio removed' })
+    m.pivot.traverse(o => {
+      const mesh = o as THREE.Mesh
+      if (keep.has(mesh)) mesh.material = material
+      else if (mesh.isMesh || (o as THREE.Line).isLine || (o as THREE.Points).isPoints) o.visible = false
+    })
+    ghosts.push({ m, material, t0: performance.now() })
+  }
+  function dropGhost(i: number): void {
+    const [{ m, material }] = ghosts.splice(i, 1)
+    scene.remove(m.pivot)
+    disposeResources(m.resources)
+    material.dispose()
+    dirty = true
+  }
+
+  /** The hot swap: what changed between the step shown and the next one, by node name. */
+  function swap(previous: Loaded, next: Loaded): ModelDiff {
+    const started = performance.now()
+    previous.pivot.updateMatrixWorld(true)
+    next.pivot.updateMatrixWorld(true)
+    const before = partNames(previous.meshes), after = partNames(next.meshes)
+    const added: string[] = [], changed: string[] = [], removed: THREE.Mesh[] = []
+    for (const [name, mesh] of after) {
+      const old = before.get(name)
+      if (!old) added.push(name)
+      else if (partSignature(old, previous.materials.get(old)) !== partSignature(mesh, next.materials.get(mesh))) changed.push(name)
+    }
+    for (const [name, mesh] of before) if (!after.has(name)) removed.push(mesh)
+    retire(previous, removed)
+    startGlow([...added, ...changed].map(name => after.get(name)!))
+    return { added: added.length, changed: changed.length, removed: removed.length, names: [...added, ...changed].slice(0, MODEL_DIFF_NAMES), swapMs: Math.round((performance.now() - started) * 10) / 10 }
   }
 
   function applyMaterials(): void {
@@ -263,6 +399,8 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
     }
     const all = new Set<THREE.Material>([clay])
     for (const original of model.materials.values()) for (const m of [original].flat()) all.add(m)
+    if (glow) all.add(glow.material)
+    for (const g of ghosts) all.add(g.material)
     for (const m of all) if ('wireframe' in m) (m as THREE.MeshStandardMaterial).wireframe = settings.wireframe
     dirty = true
   }
@@ -318,7 +456,26 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
       dirty = true
       if (now - lastReport > 150) report()
     }
-    if (controls.update()) dirty = true
+    if (tween) {
+      const k = Math.min(1, (now - tween.t0) / TWEEN_MS), e = 1 - (1 - k) ** 3
+      camera.position.lerpVectors(tween.from[0], tween.to[0], e)
+      controls.target.lerpVectors(tween.from[1], tween.to[1], e)
+      if (k === 1) tween = undefined
+      dirty = true
+    }
+    if (glow) {
+      const k = Math.min(1, (now - glow.t0) / GLOW_MS)
+      glow.material.opacity = 0.6 * (1 - k) ** 2
+      if (k === 1) endGlow()
+      dirty = true
+    }
+    for (let i = ghosts.length - 1; i >= 0; i--) {
+      const k = Math.min(1, (now - ghosts[i].t0) / FADE_MS)
+      ghosts[i].material.opacity = 0.6 * (1 - k)
+      if (k === 1) dropGhost(i)
+      dirty = true
+    }
+    if (controls.update(dt)) dirty = true
     if (!dirty || !width || !height) return
     dirty = false
     if (model?.skeleton?.object.visible) model.skeleton.update()
@@ -352,9 +509,17 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
     return count
   }
 
-  function clear(): void {
+  /** Stops a load in progress; what is shown stays. */
+  function abort(): void {
     generation++
     cancelLoad?.(); cancelLoad = undefined
+  }
+
+  function clear(): void {
+    abort()
+    endGlow()
+    while (ghosts.length) dropGhost(ghosts.length - 1)
+    tween = undefined
     if (!model) return
     const m = model
     model = undefined
@@ -381,8 +546,9 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
       .register(parser => { progressiveGltfTextures(parser, textures, made); return { name: 'GENIO_progressive_images' } })
   }
 
-  async function open(url: string): Promise<ModelLoaded> {
-    clear()
+  async function open(url: string, { keep = false } = {}): Promise<ModelLoaded> {
+    // A hot swap leaves the step shown on stage until the next one has parsed.
+    if (keep && model) abort(); else clear()
     const gen = generation
     const started = performance.now()
     const progress = (phase: ModelProgress['phase'], completed = 0, total = 0): void => {
@@ -477,11 +643,13 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
       mixer.update(0)
       mixer.addEventListener('finished', () => { if (model === loaded) { loaded.playback.playing = false; report() } })
     }
+    const previous = keep ? model : undefined
     model = loaded
     scene.add(pivot)
     applyBackground()
     applyMaterials()
-    layout()
+    layout(!previous)
+    const diff = previous && swap(previous, loaded)
     applySkeleton()
     // Submit geometry with clay first. Shader compilation and GPU upload are included in this phase.
     renderer.render(scene, camera)
@@ -543,7 +711,8 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
       loadMs: Math.round(performance.now() - started),
       format: parsed.format,
       units: `${parsed.units}${parsed.turned ? '; Z-up in the file, turned upright' : parsed.zUp ? '; Z-up by convention, turned upright' : ''}`,
-      upAxis: settings.upAxis, unityClips: !!parsed.unityClips
+      upAxis: settings.upAxis, unityClips: !!parsed.unityClips,
+      ...(diff ? { diff } : {})
     }
   }
 
@@ -551,6 +720,7 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
     const before = settings
     settings = { ...settings, ...patch }
     applyBackground()
+    controls.autoRotate = settings.turntable
     if (!model) return
     if (before.upAxis !== settings.upAxis) layout()
     else if (before.background !== settings.background) placeGrid()
@@ -635,6 +805,7 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
   raf = requestAnimationFrame(tick)
   return {
     renderer, open, clear, set, playback, frame, texturePreviews, snapshot,
+    view: () => ({ position: camera.position.toArray(), target: controls.target.toArray(), glowing: glow?.overlays.length ?? 0, fading: ghosts.length }),
     render: () => { model?.skeleton?.update(); renderer.render(scene, camera); dirty = false },
     memory: () => ({ textures: renderer.info.memory.textures, geometries: renderer.info.memory.geometries }),
     dispose() {

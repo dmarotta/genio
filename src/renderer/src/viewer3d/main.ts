@@ -55,7 +55,7 @@ if (thumbnails) {
       case 'open': {
         requestId = message.requestId
         const id = ++opening
-        void viewer.open(String(message.url)).then(model => { if (id === opening) post({ type: 'loaded', model }) }, (e: unknown) => {
+        void viewer.open(String(message.url), { keep: message.keep === true }).then(model => { if (id === opening) post({ type: 'loaded', model }) }, (e: unknown) => {
           if (id !== opening) return
           if (!(e instanceof ViewerError)) post({ type: 'failed', code: 'unreadable', reason: e instanceof Error ? e.message : String(e) })
           else if (e.code !== 'cancelled') post({ type: 'failed', code: e.code, reason: e.message })

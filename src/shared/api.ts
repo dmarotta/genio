@@ -513,6 +513,8 @@ export interface GenioApi {
   inventoryModelUrl(world: string, path: string): Promise<string>
   /** Resume thumbnails after loading, or revoke the grant when the selection closes. */
   inventoryModelRelease(url: string, completeOnly?: boolean): Promise<void>
+  /** A Modeller unit's live view: its steps (GLBs through one viewer grant per unit), the step running now; null while it has no model. */
+  modellerLive(taskId: string): Promise<import('./modeller').ModellerLive | null>
   /** The Art Bible screen: `.genio/art-bible.md`, its source doc and the resolved bible (project window only). */
   artBibleRead(world: string): Promise<import('./art-bible').ArtBibleView>
   /** Save the bible (refused when it would not compile) or its source doc in place; never committed. */
@@ -717,7 +719,7 @@ export const API_METHODS = [
   'playPool', 'playPoolCap', 'playPoolLaunch', 'playPoolEstimate', 'playPoolDisk', 'playCloseSlotEditor',
   'playerInstanceStatus', 'playerInstancePlay', 'playerInstanceStartUnity', 'playerInstanceEnterPlay', 'playerInstanceExitPlay', 'playerInstanceStopUnity', 'playerInstancePause', 'playerInstanceStep', 'playerInstanceScenes', 'playerInstanceSetScene', 'playerInstanceResize', 'playerInstanceStop', 'playerInstanceQuit', 'playerInstanceRestart', 'playerInstanceKeepAlive', 'playerInstanceDetach', 'playerInstanceSettings', 'playerInstanceMachine', 'playerInstanceConsole', 'playerInstanceStream', 'playerInstanceDialogShot', 'playerSources', 'playerSourceAvailable',
   'playerCopies', 'playerCopyStatus', 'playerCopyEnsure', 'playerCopySync', 'playerCopyCancel', 'playerCopyDelete', 'playerCopySizes',
-  'inventoryOpen', 'inventoryClose', 'inventoryRefresh', 'inventoryList', 'inventoryInfo', 'inventoryModelUrl', 'inventoryModelRelease',
+  'inventoryOpen', 'inventoryClose', 'inventoryRefresh', 'inventoryList', 'inventoryInfo', 'inventoryModelUrl', 'inventoryModelRelease', 'modellerLive',
   'artBibleRead', 'artBibleWrite',
   'featureUsed',
   'trophyPin',

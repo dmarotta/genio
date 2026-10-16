@@ -48,8 +48,10 @@ export interface ViewerSettings {
   background: ViewerBackground
   /** Turns a Z-up model upright. glTF is Y-up by specification; FBX, Collada and USD say their axis and are turned on load. */
   upAxis: 'y' | 'z'
+  /** Slowly orbits the model (the Modeller's live view). */
+  turntable: boolean
 }
-export const DEFAULT_VIEWER_SETTINGS: ViewerSettings = { wireframe: false, grid: true, bounds: false, skeleton: false, clay: false, background: 'dark', upAxis: 'y' }
+export const DEFAULT_VIEWER_SETTINGS: ViewerSettings = { wireframe: false, grid: true, bounds: false, skeleton: false, clay: false, background: 'dark', upAxis: 'y', turntable: false }
 
 export interface ModelStats {
   triangles: number
@@ -92,7 +94,12 @@ export interface ModelLoaded {
   upAxis: 'y' | 'z'
   /** Clip names and ranges come from the model's Unity .meta. */
   unityClips: boolean
+  /** An `open` with keep: what changed from the model shown before, by node name. */
+  diff?: ModelDiff
 }
+/** Parts (meshes by node name) added, changed or removed by a hot swap; `names` lists the added and changed ones. */
+export interface ModelDiff { added: number; changed: number; removed: number; names: string[]; swapMs: number }
+export const MODEL_DIFF_NAMES = 64
 export type ModelFailure = 'too-large' | 'timeout' | 'unreadable' | 'no-webgl'
 export const MODEL_FAILURES: readonly ModelFailure[] = ['too-large', 'timeout', 'unreadable', 'no-webgl']
 /** Why a model has no thumbnail: what the thumbnail request answers instead of an image (HTTP 422). */
@@ -115,7 +122,11 @@ export interface ModelProgress {
 }
 
 export type ToViewer =
-  | { type: 'open'; url: string; name: string; requestId?: number }
+  /**
+   * keep: hot swap over the model shown (the Modeller's next step). The camera stays where it is and
+   * backs off only when the model outgrows the view; parts that changed glow, removed ones fade.
+   */
+  | { type: 'open'; url: string; name: string; requestId?: number; keep?: boolean }
   | { type: 'settings'; settings: ViewerSettings }
   | { type: 'playback'; playback: Partial<ModelPlayback> }
   | { type: 'frame' }
@@ -176,13 +187,16 @@ function parseViewerMessage(data: unknown): FromViewer | undefined {
       if (!Array.isArray(model.textures) || model.textures.length > 512 || !model.textures.every(t => t && isNum(t.id) && isStr(t.name) && strings(t.uses, 64) && isNum(t.width) && isNum(t.height) && typeof t.compressed === 'boolean' && (t.original === undefined || isNum(t.original?.width) && isNum(t.original?.height)))) return
       if (!strings(model.missing, 512) || !isNum(model.clayFallback) || typeof model.animationOnly !== 'boolean' || !isNum(model.loadMs)) return
       if (!isStr(model.format, 40) || !isStr(model.units, 200) || !['y', 'z'].includes(model.upAxis as string) || typeof model.unityClips !== 'boolean') return
+      const d = model.diff as Record<string, unknown> | undefined
+      if (d !== undefined && (!d || ![d.added, d.changed, d.removed, d.swapMs].every(v => isNum(v) && v >= 0) || !strings(d.names, MODEL_DIFF_NAMES))) return
       const stats = s as unknown as ModelStats
       return { type: 'loaded', model: {
         stats: { triangles: stats.triangles, vertices: stats.vertices, meshes: stats.meshes, materials: stats.materials, textures: stats.textures, bones: stats.bones, size: [stats.size[0], stats.size[1], stats.size[2]] },
         clips: (model.clips as ModelClip[]).map(c => ({ name: c.name, duration: c.duration })),
         textures: (model.textures as ModelTexture[]).map(t => ({ id: t.id, name: t.name, uses: [...t.uses], width: t.width, height: t.height, compressed: t.compressed, ...(t.original ? { original: { width: t.original.width, height: t.original.height } } : {}) })),
         missing: [...model.missing as string[]], clayFallback: model.clayFallback, animationOnly: model.animationOnly, loadMs: model.loadMs,
-        format: model.format, units: model.units, upAxis: model.upAxis as 'y' | 'z', unityClips: model.unityClips
+        format: model.format, units: model.units, upAxis: model.upAxis as 'y' | 'z', unityClips: model.unityClips,
+        ...(d ? { diff: { added: d.added as number, changed: d.changed as number, removed: d.removed as number, names: [...d.names as string[]], swapMs: d.swapMs as number } } : {})
       } }
     }
   }

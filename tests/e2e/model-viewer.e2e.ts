@@ -12,6 +12,7 @@ import { afterAll, beforeAll, expect, it } from 'vitest'
 import { modelViewerFiles } from '../../src/main/model-viewer'
 import { animatedGlb } from '../helpers/anim-glb'
 import { crateGrid, tga } from '../helpers/model-fixtures'
+import { TOWER_STEPS, partsGlb } from '../helpers/parts-glb'
 import { MODEL_PREVIEW_MAX_TEXTURE } from '../../src/shared/model-viewer'
 
 const fixtures = path.resolve('tests/fixtures/models')
@@ -98,6 +99,46 @@ beforeAll(async () => {
                 return { baseline, peak, after, outcomes }
               }
             </script></body>`))
+          } else if (url.pathname === '/live.html') {
+            // The Modeller's hot swap on the viewer core: camera, glow, fade, turntable, frame rate, and no leaks.
+            res.setHeader('Content-Type', 'text/html')
+            res.end(await s.transformIndexHtml(url.pathname, `<!doctype html><body><canvas style="width: 640px; height: 480px"></canvas><script type="module">
+              import { createViewer } from '/src/viewer3d/viewer.ts'
+              const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
+              const offset = v => v.position.map((p, i) => p - v.target[i])
+              const dist = v => Math.hypot(...offset(v))
+              const dot = (a, b) => { const x = offset(a), y = offset(b); return x.reduce((s, v, i) => s + v * y[i], 0) / dist(a) / dist(b) }
+              window.runLive = async steps => {
+                const viewer = createViewer(document.querySelector('canvas'), { decoderPath: 'genio-viewer://app/decoders/' })
+                viewer.render()
+                const baseline = viewer.memory(), out = { steps: [] }
+                for (const url of steps) {
+                  const before = viewer.view()
+                  const model = await viewer.open(url, { keep: true })
+                  const now = viewer.view()
+                  await wait(1600)
+                  const after = viewer.view()
+                  out.steps.push({ diff: model.diff ?? null, loadMs: model.loadMs, triangles: model.stats.triangles, glowing: now.glowing, fading: now.fading, settled: [after.glowing, after.fading],
+                    before: dist(before), after: dist(after), moved: before.position.some((p, i) => Math.abs(p - after.position[i]) > 1e-6), turn: dot(before, after) })
+                }
+                const t0 = viewer.view()
+                viewer.set({ turntable: true })
+                let frames = 0
+                const start = performance.now()
+                await new Promise(resolve => { const tick = () => { frames++; performance.now() - start < 1500 ? requestAnimationFrame(tick) : resolve() }; requestAnimationFrame(tick) })
+                out.fps = frames / ((performance.now() - start) / 1000)
+                const t1 = viewer.view()
+                out.turntable = { turn: dot(t0, t1), distances: [dist(t0), dist(t1)] }
+                viewer.set({ turntable: false })
+                const swaps = []
+                for (let i = 0; i < 40; i++) { const m = await viewer.open(steps[i % steps.length], { keep: true }); viewer.render(); if (m.diff) swaps.push(m.diff.swapMs) }
+                out.swapMs = swaps
+                viewer.clear(); viewer.render()
+                out.leak = { baseline, after: viewer.memory() }
+                viewer.dispose()
+                return out
+              }
+            </script></body>`))
           } else next()
         } catch (e) { next(e) }
       })
@@ -119,10 +160,22 @@ beforeAll(async () => {
     usda: await grant('usda/robot.usda'), tds: await grant('crate.3ds'), wide: await grant('wide.obj'), nomap: await grant('nomap.obj'),
     corruptFbx: await grant('corrupt.fbx'), usdc: await grant('binary.usd'), slow: await grant('slow.fbx')
   }
+  // A Modeller unit's step data, served through its one directory grant.
+  const modeller = path.join(root, 'unit', 'modeller')
+  TOWER_STEPS.forEach((parts, i) => {
+    const dir = path.join(modeller, 'tower', 'steps', `s00${i + 1}`)
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'model.glb'), partsGlb(parts))
+    fs.writeFileSync(path.join(dir, 'script.py'), '"""A step"""\nimport bpy\n')
+  })
+  const unit = files.grantUnit('unit', { modeller, worktree: world })
+  const steps = TOWER_STEPS.map((_, i) => `${unit}modeller/tower/steps/s00${i + 1}/model.glb`)
   const side = models.sideFiles.replace(/robot\.gltf$/, '')
-  const probes = { sideFile: `${side}robot_checker.png`, notes: `${side}notes.txt`, traversal: `${side}../../Secret/key.png`, encoded: `${side}..%2F..%2FSecret%2Fkey.png`, forged: `genio-media://model/${'0'.repeat(32)}/robot.bin`, viewerHost: models.sideFiles.replace('genio-media://model/', 'genio-viewer://') }
+  const probes = { sideFile: `${side}robot_checker.png`, notes: `${side}notes.txt`, traversal: `${side}../../Secret/key.png`, encoded: `${side}..%2F..%2FSecret%2Fkey.png`, forged: `genio-media://model/${'0'.repeat(32)}/robot.bin`, viewerHost: models.sideFiles.replace('genio-media://model/', 'genio-viewer://'),
+    unitStep: steps[0], unitScript: steps[0].replace(/model\.glb$/, 'script.py'), unitWorktree: `${unit}worktree/Assets/Models/robot_textured_anim.glb`, unitSecret: `${unit}worktree/Secret/key.txt` }
+  fs.writeFileSync(path.join(world, 'Secret', 'key.txt'), 'secret')
   const resultFile = path.join(root, 'results.json')
-  const env: NodeJS.ProcessEnv = { ...process.env, MODEL_VIEWER_E2E: JSON.stringify({ base, bridge: `${base}/__viewer?u=`, models, probes, results: resultFile, previews: ['textured', 'objTga', 'tds', 'wide'], shots: process.env.MODEL_VIEWER_SHOTS }) }
+  const env: NodeJS.ProcessEnv = { ...process.env, MODEL_VIEWER_E2E: JSON.stringify({ base, bridge: `${base}/__viewer?u=`, models, steps, probes, results: resultFile, previews: ['textured', 'objTga', 'tds', 'wide'], shots: process.env.MODEL_VIEWER_SHOTS }) }
   delete env.ELECTRON_RUN_AS_NODE
   for (const key of Object.keys(env)) if (key.startsWith('GIT_CONFIG_')) delete env[key]
   const child = spawn(createRequire(import.meta.url)('electron') as unknown as string, [path.resolve('tests/support/model-viewer-electron.cjs'), `--user-data-dir=${path.join(root, 'profile')}`], { env, windowsHide: true, stdio: 'inherit' })
@@ -219,8 +272,45 @@ it('keeps the frame away from the app bridge, genio-media://, the network and fi
   expect(results.probes).toMatchObject({
     origin: 'null', ownBridge: 'undefined', parentBridge: 'SecurityError', parentDocument: 'SecurityError',
     media: 'blocked', web: 'blocked', local: 'blocked', popup: 'refused',
-    sideFile: 200, notes: 403, traversal: 404, encoded: 400, forged: 404, viewerHost: 'blocked'
+    sideFile: 200, notes: 403, traversal: 404, encoded: 400, forged: 404, viewerHost: 'blocked',
+    unitStep: 200, unitScript: 403, unitWorktree: 200, unitSecret: 403
   })
+})
+
+it('hot swaps Modeller steps in the sandboxed frame and reports what changed by part name', () => {
+  const live = results.live.map((m: any) => m.model?.diff ?? m.type)
+  expect(results.live.every((m: any) => m.type === 'loaded'), JSON.stringify(results.live)).toBe(true)
+  expect(live).toEqual([
+    'loaded',
+    { added: 1, changed: 0, removed: 0, names: ['deck'], swapMs: expect.any(Number) },
+    { added: 0, changed: 1, removed: 0, names: ['deck'], swapMs: expect.any(Number) },
+    { added: 1, changed: 0, removed: 0, names: ['roof'], swapMs: expect.any(Number) },
+    { added: 0, changed: 0, removed: 1, names: [], swapMs: expect.any(Number) }
+  ])
+})
+
+it('keeps the camera across steps, backs off only for a bigger model, glows changes, fades removals, turns and frees everything', () => {
+  const { steps, fps, turntable, swapMs, leak } = results.liveCore
+  const [legs, deck, recolour, roof, unroof] = steps
+  expect(legs.diff).toBeNull()
+  expect(deck).toMatchObject({ glowing: 1, fading: 0, settled: [0, 0] })
+  expect(deck.after).toBeGreaterThanOrEqual(deck.before - 1e-6)
+  // Same bounds: the camera does not move at all.
+  expect(recolour).toMatchObject({ glowing: 1, moved: false, settled: [0, 0] })
+  // A tall roof: the camera backs off along the same view direction.
+  expect(roof.after).toBeGreaterThan(roof.before * 1.05)
+  expect(roof.turn).toBeGreaterThan(0.999)
+  // The roof goes: it fades out, and the camera never zooms in by itself.
+  expect(unroof).toMatchObject({ glowing: 0, fading: 1, settled: [0, 0] })
+  expect(unroof.after).toBeCloseTo(unroof.before, 4)
+  expect(unroof.turn).toBeGreaterThan(0.999)
+  expect(turntable.turn).toBeLessThan(0.9999)
+  expect(turntable.distances[1]).toBeCloseTo(turntable.distances[0], 3)
+  // Perf check (the Recon prototype: about 2 ms parse and 1 ms swap at 61 fps).
+  console.log(`Modeller hot swap: load ${steps.map((s: any) => s.loadMs).join('/')} ms, swap median ${[...swapMs].sort((a, b) => a - b)[swapMs.length >> 1]} ms, ${fps.toFixed(1)} fps turning`)
+  expect(Math.max(...swapMs)).toBeLessThan(50)
+  expect(fps).toBeGreaterThan(30)
+  expect(leak.after).toEqual(leak.baseline)
 })
 
 it('frees every GPU texture and geometry after 100 open/close cycles (the naive dispose leaked 86 textures)', () => {

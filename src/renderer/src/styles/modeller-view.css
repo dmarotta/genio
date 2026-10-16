@@ -1,0 +1,12 @@
+/* The Modeller's live view (components/ModellerView.tsx). */
+.modeller-view { display: flex; flex-direction: column; gap: 8px; min-width: 0; height: 100%; }
+.modeller-view-stage { position: relative; flex: 1 1 auto; min-height: 260px; background: #0b0f16; border: 1px solid var(--line); }
+.modeller-view-stage iframe { position: absolute; inset: 0; display: block; width: 100%; height: 100%; border: 0; background: #0b0f16; }
+.modeller-view-caption { position: absolute; top: 6px; left: 6px; right: 6px; display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: #0b0f16cc; font-size: 12px; pointer-events: none; }
+.modeller-view-caption.warn { color: var(--amber); }
+.modeller-view-text { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.modeller-view-tools { display: flex; flex-wrap: wrap; gap: 4px; }
+.modeller-view-tools .btn { padding: 3px 8px; font-size: 11px; }
+.modeller-view .btn.on { background: var(--neon-soft); border-color: var(--neon); color: var(--neon); }
+.modeller-view-note { margin: 0; font-size: 11px; color: var(--text-dim); overflow-wrap: anywhere; }
+.modeller-view-note.warn { color: var(--amber); }
