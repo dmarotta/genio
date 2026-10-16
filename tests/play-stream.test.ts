@@ -36,3 +36,19 @@ it('validates whole input states and always accepts neutral release', () => {
   for (const patch of [{x:NaN},{buttons:8},{axes:[0]},{keys:['bad/key']},{gamepadButtons:-1}]) expect(() => validateInput({...valid,...patch})).toThrow('Invalid')
   expect(() => validateInput({type:'release'})).not.toThrow()
 })
+it('accepts an optional wheel scroll, clamps it and rejects NaN or huge values', () => {
+  const state = (scroll?: unknown) => ({type:'state' as const,keys:[],x:0.5,y:0.5,buttons:0,axes:[0,0,0,0,0,0],gamepadButtons:0,...(scroll === undefined ? {} : {scroll})}) as Parameters<typeof validateInput>[0] & {scroll?: number}
+  const old = state(); expect(() => validateInput(old)).not.toThrow(); expect(old.scroll).toBeUndefined()
+  for (const [given, kept] of [[1.5,1.5],[-3,-3],[0,0],[80,50],[-900,-50]]) { const s = state(given); validateInput(s); expect(s.scroll).toBe(kept) }
+  for (const bad of [NaN, Infinity, -Infinity, 1e6, '2']) expect(() => validateInput(state(bad))).toThrow('Invalid')
+})
+it('carries the scroll of a superseded state packet into the next one', async () => {
+  const {stream,port,token} = await setup()
+  const c = client(port,token); await once(c,'open')
+  const got: unknown[] = []; c.on('message', d => got.push(JSON.parse(d.toString())))
+  const state = (scroll: number) => ({type:'state' as const,keys:[],x:0.5,y:0.5,buttons:0,axes:[0,0,0,0,0,0],gamepadButtons:0,scroll})
+  stream.input(state(1)); stream.input(state(2))
+  await new Promise(r => setTimeout(r, 20)); stream.input(state(0.5))
+  await new Promise(r => setTimeout(r, 50))
+  expect(got.map(m => (m as {scroll:number}).scroll)).toEqual([1, 2.5])
+})

@@ -1,7 +1,7 @@
 import http from 'node:http'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { WebSocketServer, WebSocket } from 'ws'
-import type { PlayInput } from '@shared/play'
+import { PLAY_SCROLL_LIMIT, type PlayInput } from '@shared/play'
 
 export const MAX_FRAME = 4 * 1024 * 1024
 /** One authenticated Unity client; bounded latest-frame storage, never a frame queue. */
@@ -12,6 +12,7 @@ export class PlayStream {
   private token = randomBytes(32).toString('hex')
   private port = 0
   private lastInput = 0
+  private pendingScroll = 0
   private lastFrame = 0
   private closed = false
   latest?: Buffer
@@ -46,10 +47,13 @@ export class PlayStream {
     validateInput(input)
     if (!this.connected) throw new Error('Unity stream is disconnected')
     const now = Date.now()
-    // Continuous state supersedes the preceding packet; release must always get through.
-    if (input.type !== 'release' && now - this.lastInput < 8) return
+    // Continuous state supersedes the preceding packet; release must always get through. Wheel notches are deltas, not
+    // state: a superseded packet's scroll rides on the next one so no notch is lost.
+    if (input.type !== 'release' && now - this.lastInput < 8) { this.pendingScroll = clampScroll(this.pendingScroll + (input.scroll ?? 0)); return }
     if (this.client!.bufferedAmount > 65536) { this.client!.terminate(); throw new Error('Unity input stalled') }
     this.lastInput = now
+    if (input.type === 'state' && this.pendingScroll) input = { ...input, scroll: clampScroll((input.scroll ?? 0) + this.pendingScroll) }
+    this.pendingScroll = 0
     this.client!.send(JSON.stringify(input))
   }
   close(): void {
@@ -58,11 +62,18 @@ export class PlayStream {
   }
 }
 
+const clampScroll = (n: number): number => Math.max(-PLAY_SCROLL_LIMIT, Math.min(PLAY_SCROLL_LIMIT, n))
+/** Beyond this many notches a scroll value is garbage, not a fast spin: rejected rather than clamped. */
+const SCROLL_REJECT = 10_000
+
+/** Throws on a malformed packet; clamps a state's optional scroll to PLAY_SCROLL_LIMIT notches in place. */
 export function validateInput(input: PlayInput): void {
   if (!input || !['state', 'release'].includes(input.type)) throw new Error('Invalid stream input')
   if (input.type === 'release') return
   if (!Array.isArray(input.keys) || input.keys.length > 32 || input.keys.some(k => typeof k !== 'string' || !/^[A-Za-z][A-Za-z0-9]{0,24}$/.test(k)) ||
     ![input.x, input.y].every(n => Number.isFinite(n) && n >= 0 && n <= 1) || !Number.isInteger(input.buttons) || input.buttons < 0 || input.buttons > 7 ||
     !Array.isArray(input.axes) || input.axes.length !== 6 || input.axes.some(n => !Number.isFinite(n) || n < -1 || n > 1) ||
-    !Number.isInteger(input.gamepadButtons) || input.gamepadButtons < 0 || input.gamepadButtons > 65535) throw new Error('Invalid stream input state')
+    !Number.isInteger(input.gamepadButtons) || input.gamepadButtons < 0 || input.gamepadButtons > 65535 ||
+    (input.scroll !== undefined && (typeof input.scroll !== 'number' || !Number.isFinite(input.scroll) || Math.abs(input.scroll) > SCROLL_REJECT))) throw new Error('Invalid stream input state')
+  if (input.scroll !== undefined) input.scroll = clampScroll(input.scroll)
 }

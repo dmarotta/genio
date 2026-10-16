@@ -16,7 +16,7 @@ Runtime commands use Pipeline's `Unity.Pipeline.Attributes` assembly. Editor con
 
 ## Input and lifecycle
 
-The optional Input System assembly creates virtual keyboard, mouse and gamepad devices while input is captured. Genio sends complete held states. Legacy Input Manager code cannot see those devices; legacy-only games remain view-only.
+The optional Input System assembly creates virtual keyboard, mouse and gamepad devices while input is captured. Genio sends complete held states. A state's optional `scroll` (wheel notches since the last packet, positive up) becomes the virtual mouse's `scroll.y`, scaled like a real wheel in that project: `InputSystem.scrollWheelDeltaPerTick` when the editor reports it (1 with the uniform Scroll Delta Behavior), else 120 on Windows. Legacy Input Manager code cannot see those devices (including `Input.mouseScrollDelta`); legacy-only games remain view-only.
 
 Pause, release, disconnect, a 300 ms input watchdog, scene/domain reload and quit neutralize input or remove temporary devices. In the Editor, a temporary clone of Input System settings routes input to the game and is restored without saving an asset. `Application.runInBackground` is restored on disconnect. The Editor tick pump runs only while the streaming object is active. Capture can suspend if the Game view is inactive.
 

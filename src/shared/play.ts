@@ -31,7 +31,13 @@ export type PlayAction =
   | { type: 'key'; key: string }
   | { type: 'pointer'; x: number; y: number }
 
-export type PlayInput = { type: 'release' } | { type: 'state'; keys: string[]; x: number; y: number; buttons: number; axes: number[]; gamepadButtons: number }
+/**
+ * scroll: wheel notches since the last state packet, positive away from the player (Unity's scroll up); fractions come
+ * from smooth touchpads. Optional: older packets have none.
+ */
+export type PlayInput = { type: 'release' } | { type: 'state'; keys: string[]; x: number; y: number; buttons: number; axes: number[]; gamepadButtons: number; scroll?: number }
+/** The most wheel notches one state packet carries; more is clamped. */
+export const PLAY_SCROLL_LIMIT = 50
 
 export interface PlayerSettings { idleMinutes: number; maxEditors: number }
 /** ready: Unity is open in edit mode (warm), the only state with an idle deadline. */

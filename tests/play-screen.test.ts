@@ -13,7 +13,7 @@ vi.mock('../src/renderer/src/store', () => ({
 }))
 vi.mock('../src/renderer/src/lib/settings-nav', () => ({ openSettings: nav.section }))
 import { Play } from '../src/renderer/src/views/Play'
-import { PlayLive } from '../src/renderer/src/views/PlayLive'
+import { PlayLive, wheelNotches } from '../src/renderer/src/views/PlayLive'
 import { getScreenContext } from '../src/renderer/src/lib/screen-context'
 import { chipText, playLine, sourceText } from '../src/renderer/src/lib/play-screen'
 
@@ -341,6 +341,42 @@ it('decodes one live frame per credit, forwards held input only while focused, a
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(api.playerInstanceStream).toHaveBeenLastCalledWith('game', false)
   } finally { context.mockRestore(); vi.unstubAllGlobals() }
+})
+
+it('normalizes wheel notches across deltaMode, with up positive as in Unity', () => {
+  expect(wheelNotches({ deltaY: -100, deltaMode: 0 })).toBe(1)
+  expect(wheelNotches({ deltaY: 3, deltaMode: 1 })).toBe(-1)
+  expect(wheelNotches({ deltaY: -1, deltaMode: 2 })).toBe(1)
+  expect(wheelNotches({ deltaY: 40, deltaMode: 0 })).toBe(-0.4)
+  expect(wheelNotches({ deltaY: NaN, deltaMode: 0 })).toBe(0)
+})
+
+it('sends the wheel to the game only while it has input, summed per state packet and reset after sending', async () => {
+  const channel = { postMessage: vi.fn(), start: vi.fn(), close: vi.fn(), onmessage: null as ((e: { data: unknown }) => Promise<void>) | null }
+  const render = (input: boolean) => act(async () => root.render(React.createElement(PlayLive, { world: 'game', width: 640, height: 360, input, onClosed: vi.fn() })))
+  const wheel = (deltaY: number, deltaMode = 0) => { const e = new WheelEvent('wheel', { deltaY, deltaMode, cancelable: true, bubbles: true }); host.querySelector('canvas')!.dispatchEvent(e); return e.defaultPrevented }
+  const states = () => channel.postMessage.mock.calls.map(([m]) => m.input).filter(i => i?.type === 'state')
+  await render(true)
+  await act(async () => window.dispatchEvent(new MessageEvent('message', { source: window, data: { type: 'genio:play-port', world: 'game' }, ports: [channel as unknown as MessagePort] })))
+  const canvas = host.querySelector('canvas')!
+  expect(wheel(-100)).toBe(false) // not focused: the page scrolls
+  await act(async () => { canvas.focus() })
+  expect([wheel(-100), wheel(3, 1), wheel(-1, 2), wheel(-50)]).toEqual([true, true, true, true])
+  await act(async () => { await vi.advanceTimersByTimeAsync(33) })
+  expect(states().at(-1).scroll).toBe(1.5)
+  await act(async () => { await vi.advanceTimersByTimeAsync(33) })
+  expect(states().at(-1).scroll).toBe(0)
+  expect(wheel(100)).toBe(true)
+  await act(async () => { canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true })) })
+  expect(wheel(100)).toBe(false) // released: the page scrolls again and nothing is left to send
+  await act(async () => { canvas.focus(); await vi.advanceTimersByTimeAsync(33) })
+  expect(states().at(-1).scroll).toBe(0)
+  await render(false)
+  const before = states().length
+  await act(async () => { canvas.focus() })
+  expect(wheel(-100)).toBe(false) // view-only game
+  await act(async () => { await vi.advanceTimersByTimeAsync(66) })
+  expect(states()).toHaveLength(before)
 })
 
 describe('playLine: one status line and one progress bar per state', () => {

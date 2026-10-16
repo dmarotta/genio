@@ -1,10 +1,19 @@
 import { useEffect, useRef } from 'react'
 import { Lock, Maximize } from 'lucide-react'
-import type { PlayInput } from '@shared/play'
+import { PLAY_SCROLL_LIMIT, type PlayInput } from '@shared/play'
 
 // A stop scheduled by an unmount, per project: a remount right after it (React StrictMode in development) cancels it.
 const leaving = new Map<string, ReturnType<typeof setTimeout>>()
 const message = (e: unknown): string => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+
+/**
+ * A wheel event in notches, positive away from the player (Unity's scroll up, the browser's negative deltaY). One notch
+ * is about 100 px in Chromium, 3 lines in line mode, and one page when Windows scrolls a screen at a time.
+ */
+export function wheelNotches(e: Pick<WheelEvent, 'deltaY' | 'deltaMode'>): number {
+  const notch = e.deltaMode === 2 ? 1 : e.deltaMode === 1 ? 3 : 100
+  return Number.isFinite(e.deltaY) ? -e.deltaY / notch : 0
+}
 
 /**
  * The player instance's live Game view: one JPEG frame per credit over the MessagePort main transfers, drawn on a
@@ -19,13 +28,27 @@ export function PlayLive({ world, width, height, input, onClosed, onError }: {
   const port = useRef<MessagePort | undefined>(undefined)
   const keys = useRef(new Set<string>())
   const pointer = useRef({ x: 0.5, y: 0.5, buttons: 0 })
+  const scroll = useRef(0)
   const enabled = useRef(input)
   const size = useRef({ width, height })
   const release = (): void => {
-    keys.current.clear(); pointer.current.buttons = 0
+    keys.current.clear(); pointer.current.buttons = 0; scroll.current = 0
     port.current?.postMessage({ type: 'input', input: { type: 'release' } })
   }
   useEffect(() => { enabled.current = input; if (!input) release() }, [input])
+  // React's onWheel is passive and cannot stop the page scrolling. While the game has input (the canvas holds focus and
+  // Esc has not released it) the wheel goes to Unity, summed until the next state packet; otherwise the page scrolls.
+  useEffect(() => {
+    const c = canvas.current
+    if (!c) return
+    const wheel = (e: WheelEvent): void => {
+      if (!enabled.current || document.activeElement !== c) return
+      e.preventDefault()
+      scroll.current = Math.max(-PLAY_SCROLL_LIMIT, Math.min(PLAY_SCROLL_LIMIT, scroll.current + wheelNotches(e)))
+    }
+    c.addEventListener('wheel', wheel, { passive: false })
+    return () => c.removeEventListener('wheel', wheel)
+  }, [])
   useEffect(() => {
     clearTimeout(leaving.get(world)); leaving.delete(world)
     let closed = false, decoding = false, ended = false
@@ -59,8 +82,9 @@ export function PlayLive({ world, width, height, input, onClosed, onError }: {
       const indices = [0, 1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14, 15]
       const state: PlayInput = { type: 'state', keys: [...keys.current], ...pointer.current,
         axes: [0, 1, 2, 3].map(i => Math.max(-1, Math.min(1, pad?.axes[i] ?? 0))).concat([pad?.buttons[6]?.value ?? 0, pad?.buttons[7]?.value ?? 0]),
-        gamepadButtons: indices.reduce((mask, index, i) => mask | (pad?.buttons[index]?.pressed ? 1 << i : 0), 0) }
+        gamepadButtons: indices.reduce((mask, index, i) => mask | (pad?.buttons[index]?.pressed ? 1 << i : 0), 0), scroll: scroll.current }
       port.current.postMessage({ type: 'input', input: state })
+      scroll.current = 0
     }, 33)
     return () => {
       closed = true; clearInterval(timer); release()
