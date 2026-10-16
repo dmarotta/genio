@@ -484,7 +484,7 @@ button.usage-toggle:hover { color: var(--text); }
 .md hr { border: 0; height: 1px; background: var(--line); margin: 1em 0; }
 .md a { border-bottom: 1px dotted var(--neon); }
 .md.md-compact { font-size: 13px; line-height: 1.55; }
-.md.streaming > :last-child::after { content: 'â–Œ'; color: var(--neon); animation: pulse 0.8s infinite; margin-left: 2px; }
+.md.streaming > :last-child::after { content: '\258C'; color: var(--neon); animation: pulse 0.8s infinite; margin-left: 2px; }
 
 /* ---------- squad ---------- */
 .unit-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(440px, 100%), 1fr)); gap: 18px; }

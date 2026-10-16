@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { AppCtx } from './services'
 import { effectiveEngine } from '@shared/engine'
+import { decodeBytes, lineStart } from '@shared/encoding'
 import { supportsUnitySlots, type PlayerCopySource, type PlayerInstanceStatus, type PlayerMachineStatus, type PlayerScene, type PlayerSettings, type PlayInput } from '@shared/play'
 import { PlayerCopies, processCreated } from '../../resources/unit-skills/genio/lib/player-copy.mjs'
 import { createDesktopApi, inspectDesktop, launchEditor, type DesktopApi, type EditorLaunch } from '../../resources/unit-skills/genio/lib/hidden-desktop.mjs'
@@ -372,7 +373,8 @@ export class PlayerInstanceService {
       try {
         const file = path.join(path.dirname(this.file(i.project)), 'editor.log'), stat = fs.statSync(file)
         const fd = fs.openSync(file, 'r'), chunk = Buffer.alloc(Math.min(4096, stat.size))
-        try { fs.readSync(fd, chunk, 0, chunk.length, Math.max(0, stat.size - chunk.length)); i.startup = chunk.toString('utf8').trim().split(/\r?\n/).slice(-4).join('\n') } finally { fs.closeSync(fd) }
+        // A tail that starts mid-file starts at its first whole line, never inside a character.
+        try { fs.readSync(fd, chunk, 0, chunk.length, Math.max(0, stat.size - chunk.length)); i.startup = decodeBytes(stat.size > chunk.length ? chunk.subarray(lineStart(chunk)) : chunk).trim().split(/\r?\n/).slice(-4).join('\n') } finally { fs.closeSync(fd) }
       } catch { /* Log not created yet. */ }
       this.save(i); await this.system.sleep(1000)
     }

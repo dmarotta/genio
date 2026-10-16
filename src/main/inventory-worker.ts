@@ -4,6 +4,7 @@ const { parentPort, workerData: d } = require('node:worker_threads');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { StringDecoder } = require('node:string_decoder');
 const root = fs.realpathSync(d.root);
 const dirs = new Map();
 function inside(p) {
@@ -25,7 +26,8 @@ function read(rel, cap) {
   const fd = fs.openSync(p, 'r');
   try {
     const b = Buffer.alloc(cap);
-    return b.subarray(0, fs.readSync(fd, b, 0, cap, 0)).toString('utf8');
+    // StringDecoder.write keeps back a character the cap cut in half
+    return new StringDecoder('utf8').write(b.subarray(0, fs.readSync(fd, b, 0, cap, 0)));
   } finally { fs.closeSync(fd); }
 }
 function meta(rel) {

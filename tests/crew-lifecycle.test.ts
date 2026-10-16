@@ -168,6 +168,26 @@ describe('non-destructive lifecycle recovery', () => {
     expect(crew.get(task.id)).toMatchObject({ state: 'ready', automaticRelaunches: 0 })
   })
 
+  it('reads status lines a unit wrote as PowerShell UTF-16 or ANSI, cut mid-write, next to Genio UTF-8', () => {
+    const crew = ctx.main.crew
+    crew.update(task.id, { state: 'working', mode: 'local-only' })
+    const file = home.statusFile(task.id)
+    const wide = (s: string): Buffer => Buffer.from(s, 'utf16le')
+    fs.writeFileSync(file, Buffer.concat([Buffer.from([0xff, 0xfe]), wide('note: café — 中文 \u{1F389}\r\n')]))
+    const second = wide('note: second ✅\r\n')
+    // the write stops between a UTF-16 newline and its NUL, then inside the next line
+    fs.appendFileSync(file, second.subarray(0, second.length - 1))
+    expect(crew.readNewStatus(task.id).map(e => e.text)).toEqual(['café — 中文 \u{1F389}', 'second ✅'])
+    fs.appendFileSync(file, second.subarray(second.length - 1))
+    fs.appendFileSync(file, wide('note: th'))
+    expect(crew.readNewStatus(task.id)).toEqual([])
+    fs.appendFileSync(file, wide('ird\r\n'))
+    crew.appendStatus(task.id, 'note: Genio’s own UTF-8')
+    fs.appendFileSync(file, Buffer.concat([Buffer.from('note: ANSI café ', 'latin1'), Buffer.from([0x96, 0x0d, 0x0a])]))
+    expect(crew.readNewStatus(task.id).map(e => e.text)).toEqual(['third', 'Genio’s own UTF-8', 'ANSI café –'])
+    expect(crew.statusEvents(task.id).map(e => e.text)).toEqual(['café — 中文 \u{1F389}', 'second ✅', 'third', 'Genio’s own UTF-8', 'ANSI café –'])
+  })
+
   it.each(['missing', 'error'])('completion cannot leave validating behind when Gauntlet preflight has a project %s', async failure => {
     const crew = ctx.main.crew
     if (failure === 'error') vi.spyOn(ctx.projects, 'get').mockImplementation(() => { throw new Error('project lookup failed') })

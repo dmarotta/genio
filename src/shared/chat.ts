@@ -1,6 +1,7 @@
 import type { InventoryContext } from './inventory-context'
 import type { ChatImageInput } from './chat-images'
 import type { Ally, ChatMessage, Settings } from './types'
+import { hasMojibake, repairMojibake, trimZeroWidth } from './encoding'
 
 const ROUTED_RE = /^\[FROM GENIO MAIN corr=([\w-]+)\]\s*([\s\S]*?)(?:\n\nWhen finished \(or blocked\), answer with report_to_main[\s\S]*)?$/
 
@@ -78,6 +79,21 @@ export function strandQueued(list: readonly ChatMessage[]): { list: ChatMessage[
     return u
   })
   return { list: next, stranded }
+}
+
+/**
+ * A Genio-side message as the chat shows it: UTF-8 that something upstream
+ * read as Windows-1252 decoded back, and stray zero-width characters at its
+ * ends dropped (a finished message only: a stream may still be mid-sequence).
+ * Tool results get the same repair; the player's own words are never touched.
+ */
+export function cleanChatMessage(m: ChatMessage): ChatMessage {
+  if (m.role === 'player') return m
+  const repaired = repairMojibake(m.text)
+  const text = m.partial ? repaired : trimZeroWidth(repaired)
+  let tools = m.tools
+  if (tools?.some((t) => t.result && hasMojibake(t.result))) tools = tools.map((t) => (t.result ? { ...t, result: repairMojibake(t.result) } : t))
+  return text === m.text && tools === m.tools ? m : { ...m, text, tools }
 }
 
 /**

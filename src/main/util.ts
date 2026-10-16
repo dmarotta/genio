@@ -2,6 +2,7 @@ import { spawn, execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import { decodeBytes, TextStream } from '@shared/encoding'
 
 export const nowIso = (): string => new Date().toISOString()
 
@@ -82,22 +83,25 @@ export function runShell(
           killTree(child.pid)
         }, opts.timeoutMs)
       : undefined
-    child.stdout.on('data', (d: Buffer) => {
-      const s = d.toString('utf8')
-      stdout += s
+    // A character split between two chunks, or a line in the OEM/ANSI code page, still decodes whole.
+    const out = new TextStream()
+    const err = new TextStream()
+    const emit = (s: string, to: 'out' | 'err'): void => {
+      if (!s) return
+      if (to === 'out') stdout += s
+      else stderr += s
       opts.onData?.(s)
-    })
-    child.stderr.on('data', (d: Buffer) => {
-      const s = d.toString('utf8')
-      stderr += s
-      opts.onData?.(s)
-    })
+    }
+    child.stdout.on('data', (d: Buffer) => emit(out.write(d), 'out'))
+    child.stderr.on('data', (d: Buffer) => emit(err.write(d), 'err'))
     child.on('error', (e) => {
       if (timer) clearTimeout(timer)
       resolve({ code: 127, stdout, stderr: stderr + e.message })
     })
     child.on('close', (code) => {
       if (timer) clearTimeout(timer)
+      emit(out.end(), 'out')
+      emit(err.end(), 'err')
       resolve({ code: code ?? 1, stdout, stderr })
     })
   })
@@ -156,9 +160,10 @@ export function ensureDir(p: string): string {
   return p
 }
 
+/** A text file whatever wrote it: UTF-8, a PowerShell UTF-16 or ANSI file, or a log mixing them (see decodeBytes). */
 export function readText(p: string, fallback = ''): string {
   try {
-    return fs.readFileSync(p, 'utf8')
+    return decodeBytes(fs.readFileSync(p))
   } catch {
     return fallback
   }
@@ -189,7 +194,7 @@ export function appendLine(p: string, line: string): void {
 
 export function readJson<T>(p: string, fallback: T): T {
   try {
-    return JSON.parse(fs.readFileSync(p, 'utf8')) as T
+    return JSON.parse(decodeBytes(fs.readFileSync(p))) as T
   } catch {
     return fallback
   }

@@ -13,6 +13,7 @@
 import http from 'node:http'
 import { timingSafeEqual } from 'node:crypto'
 import type { InboxNote } from '@shared/types'
+import { decodeBytes } from '@shared/encoding'
 import { bus } from './bus'
 import type { AppCtx, InboxService } from './services'
 import { nowIso, readJsonl, rid, truncate, writeText } from './util'
@@ -177,7 +178,8 @@ export function createInboxService(getCtx: () => AppCtx): InboxService {
       })
       req.on('end', () => {
         if (res.writableEnded) return
-        const raw = Buffer.concat(chunks).toString('utf8')
+        // a PowerShell 5.1 Invoke-RestMethod body may arrive in the ANSI code page
+        const raw = decodeBytes(Buffer.concat(chunks))
         let text = raw
         let from = 'remote'
         if (String(req.headers['content-type'] ?? '').includes('json')) {

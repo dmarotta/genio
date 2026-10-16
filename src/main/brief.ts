@@ -88,6 +88,11 @@ export function appendCommand(statusFile: string, example = 'working: <one short
   return `echo "${example}" >> "${f}"`
 }
 
+/** The same append for Windows PowerShell 5.1, whose `>>` writes UTF-16 and `Add-Content` ANSI unless told UTF-8. */
+export function appendCommandPowerShell(statusFile: string, example = 'working: <one short line>'): string {
+  return `Add-Content -Encoding utf8 -LiteralPath "${fwd(statusFile)}" -Value '${example.replace(/'/g, "''")}'`
+}
+
 function dod(i: BriefInput): string {
   const lines: string[] = []
   if (i.kind === 'scout') {
@@ -178,7 +183,7 @@ export function renderBrief(i: BriefInput): string {
   out.push('   ```')
   out.push(`   ${appendCommand(i.statusFile)}`)
   out.push('   ```')
-  out.push('   (works in bash and PowerShell). Format: `<verb> [key=<slug>]: <one short line>`.')
+  out.push(`   (works in bash and PowerShell). For text beyond plain ASCII in Windows PowerShell, write UTF-8 explicitly: \`${appendCommandPowerShell(i.statusFile)}\`. Format: \`<verb> [key=<slug>]: <one short line>\`.`)
   out.push('   Verbs: `working` (material phase change only), `needs-decision` (a product choice only the player can make; then stop), `blocked` (you are stuck and need Genio), `paused` (a declared wait, optionally `until <YYYY-MM-DDTHH:MMZ>`), `done`, `failed`, `note`, `resolved [key=<slug>]` (a blocker cleared on its own).')
   out.push('   Report sparingly: status lines are events, not progress logs. Always write full `https://` PR URLs.')
   out.push('4. Hitting the same obstacle twice means `blocked: <what you need>`.')

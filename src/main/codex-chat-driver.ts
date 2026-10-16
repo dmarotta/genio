@@ -42,6 +42,8 @@ export function spawnCodexChat(events: CodexWireEvents, extraEnv: Record<string,
     shim ? ['/d', '/s', '/c', `"${file}" ${args.join(' ')}`] : args,
     { env, windowsHide: true, windowsVerbatimArguments: shim, detached: process.platform !== 'win32' })
   child.stderr.resume()
+  // decoded across chunk boundaries (readline would too; this keeps it explicit)
+  child.stdout.setEncoding('utf8')
   let sequence = 0, closed = false
   const pending = new Map<number, { resolve(v: RpcValue): void; reject(e: Error): void; timer: ReturnType<typeof setTimeout> }>()
   const send = (message: unknown): void => { if (!closed) child.stdin.write(JSON.stringify(message) + '\n') }

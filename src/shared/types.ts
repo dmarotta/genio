@@ -870,7 +870,7 @@ export interface UpdateInfo {
   error?: string
 }
 
-/** Push events main â†’ renderer */
+/** Push events main → renderer */
 export type GenioEvent =
   | { type: 'pending-units'; projects: string[] }
   | { type: 'inventory'; state: import('./inventory').InventoryState }

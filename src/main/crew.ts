@@ -27,6 +27,7 @@ import { DONE_STATES, squadOutcome } from '@shared/squad-display'
 import { cheapModelsAllowed } from '@shared/dispatch'
 import { questOrder } from '@shared/quest-board'
 import { effectiveEngine } from '@shared/engine'
+import { completeLines, decodeBytes } from '@shared/encoding'
 import { engineBriefLine, engineEnv, engineFacts } from '@shared/engine-summary'
 import { getSecret } from './secrets'
 import { installUnitHooks } from './unithooks'
@@ -1095,9 +1096,10 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       } catch {
         return []
       }
-      const lastNl = buf.lastIndexOf(0x0a)
-      if (lastNl < 0) return [] // wait for a complete line
-      const chunk = buf.subarray(0, lastNl + 1).toString('utf8')
+      // Whole lines only (a UTF-16 newline's NUL included), decoded however the unit's shell wrote them.
+      const lines = completeLines(buf)
+      if (!lines) return [] // wait for a complete line
+      const chunk = decodeBytes(buf.subarray(0, lines))
       const events = chunk
         .split(/\r?\n/)
         .filter((l) => l.trim())
@@ -1115,7 +1117,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         ledger('task.status', t, { state: e.kind, key: e.key, text: truncate(e.text, 2000) })
         bus.publish({ type: 'status', event: e })
       }
-      update(id, { statusOffset: offset + lastNl + 1, lastStatusAt: nowIso() })
+      update(id, { statusOffset: offset + lines, lastStatusAt: nowIso() })
       return events
     },
 

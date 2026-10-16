@@ -116,6 +116,9 @@ export function runCodexImage(run: CodexImageRun, outs: readonly string[], promp
     const child = spawn(process.execPath, args, { cwd: run.scratch, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     let stdout = ''
     let stderr = ''
+    // decoded across chunk boundaries, so a character split between two reads stays whole
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
     child.stdout.on('data', (d) => (stdout += d))
     child.stderr.on('data', (d) => (stderr += d))
     child.on('error', (e) => resolve({ error: `Could not start the image helper (${e.message}).` }))

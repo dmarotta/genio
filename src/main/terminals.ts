@@ -53,6 +53,30 @@ export function resolveSpawn(file: string, args: string[]): { file: string; args
   return { file: resolved, args }
 }
 
+/**
+ * A unit's console in UTF-8. Windows consoles start in the OEM code page, so the
+ * PowerShell and cmd children a unit's agent runs would print cp437/cp850 into
+ * a reader expecting UTF-8. `chcp 65001` switches the whole pseudo console
+ * first. A command line cmd would rewrite (`%`, quotes, newlines) starts
+ * unwrapped, with only the UTF-8 environment variables.
+ */
+export function utf8ConsoleSpawn(sp: { file: string; args: string[] | string }, platform = process.platform): { file: string; args: string[] | string } {
+  if (platform !== 'win32') return sp
+  if (typeof sp.args === 'string') {
+    const line = /^\/d \/s \/c "([\s\S]*)"$/.exec(sp.args)?.[1]
+    return line === undefined ? sp : { file: sp.file, args: `/d /s /c "chcp 65001 >nul & ${line}"` }
+  }
+  const parts = [sp.file, ...sp.args]
+  if (parts.some((a) => /[\r\n"%]/.test(a))) return sp
+  return { file: process.env.ComSpec || 'cmd.exe', args: `/d /s /c "chcp 65001 >nul & ${parts.map(cmdQuote).join(' ')}"` }
+}
+
+/** An interactive PowerShell that reads and writes UTF-8 (its console, and `$OutputEncoding` for pipes into native commands). */
+export function utf8ShellArgs(file: string, args: string[]): string[] {
+  if (!/(^|[\\/])(pwsh|powershell)(\.exe)?$/i.test(file) || args.some((a) => /^-(c|command|f|file|encodedcommand|ec)$/i.test(a))) return args
+  return [...args, '-NoExit', '-Command', '[Console]::InputEncoding=[Console]::OutputEncoding=$OutputEncoding=[Text.UTF8Encoding]::new($false)']
+}
+
 /** A child's environment: Genio's own, minus `unsetEnv` (a trailing * matches a prefix), plus `env`. */
 export function terminalEnv(opts: Pick<CreateTerminalOpts, 'env' | 'unsetEnv'>, base: NodeJS.ProcessEnv = process.env): Record<string, string> {
   const env: Record<string, string> = {}
@@ -64,7 +88,8 @@ export function terminalEnv(opts: Pick<CreateTerminalOpts, 'env' | 'unsetEnv'>, 
     for (const k of Object.keys(env)) if (prefix === undefined ? k === name : k.startsWith(prefix)) delete env[k]
   }
   // Windows environment names are case-insensitive: a PATH shim must replace inherited Path too.
-  Object.assign(env, { TERM: 'xterm-256color', COLORTERM: 'truecolor', FORCE_COLOR: '1' })
+  // Python writes UTF-8 to pipes and files instead of the ANSI code page.
+  Object.assign(env, { TERM: 'xterm-256color', COLORTERM: 'truecolor', FORCE_COLOR: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' })
   for (const [key, value] of Object.entries(opts.env ?? {})) {
     if (process.platform === 'win32') for (const inherited of Object.keys(env)) if (inherited.toLowerCase() === key.toLowerCase()) delete env[inherited]
     env[key] = value
@@ -96,7 +121,7 @@ export function createTerminalService(getCtx: () => AppCtx): TerminalService {
       if (!file) {
         const sh = defaultShell(getCtx().settings.get().shell)
         file = sh.file
-        args = sh.args
+        args = utf8ShellArgs(sh.file, sh.args)
       }
       const info: TerminalInfo = {
         id,
@@ -112,7 +137,7 @@ export function createTerminalService(getCtx: () => AppCtx): TerminalService {
       terms.set(id, t)
       const env = terminalEnv(opts)
       try {
-        const sp = resolveSpawn(file, args)
+        const sp = opts.kind === 'worker' ? utf8ConsoleSpawn(resolveSpawn(file, args)) : resolveSpawn(file, args)
         const processStartedAt = Date.now()
         const proc = pty.spawn(sp.file, sp.args, {
           name: 'xterm-256color',

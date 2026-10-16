@@ -4,7 +4,7 @@ import type {
   TerminalInfo
 } from '@shared/types'
 import type { SpawnRequest } from '@shared/api'
-import { applyChatEvent, patchAllyControls, type AllyControlsPatch } from '@shared/chat'
+import { applyChatEvent, cleanChatMessage, patchAllyControls, type AllyControlsPatch } from '@shared/chat'
 import { pendingDecision } from '@shared/decisions'
 import { occupiedUnits } from '@shared/unit-capacity'
 import { squadSections, squadState } from '@shared/squad-display'
@@ -255,7 +255,7 @@ export async function loadChat(wksp: string, force = false): Promise<void> {
   if (PROJECT_WKSP && wksp !== PROJECT_WKSP) return
   if (state.chatLoaded[wksp] && !force) return
   try {
-    const hist = await api().chatHistory(wksp, 300)
+    const hist = (await api().chatHistory(wksp, 300)).map(cleanChatMessage)
     const running = hist.filter(m => m.generation?.status === 'running' || m.generation?.status === 'placing').map(m => m.id)
     setState((s) => ({
       chats: { ...s.chats, [wksp]: mergeChat(hist, s.chats[wksp] ?? []) },
@@ -325,7 +325,7 @@ export function handleEvent(ev: GenioEvent): void {
       setState({ snap: { ...s.snap, wksps: upsertBy(s.snap.wksps, ev.wksp, (m) => m.name) } })
       break
     case 'chat': {
-      const m = ev.message
+      const m = cleanChatMessage(ev.message)
       setState({ chats: { ...s.chats, [m.wksp]: applyChatEvent(s.chats[m.wksp] ?? [], m) } })
       break
     }
@@ -334,10 +334,10 @@ export function handleEvent(ev: GenioEvent): void {
       const i = list.findIndex((x) => x.id === ev.id)
       let next: ChatMessage[]
       if (i < 0) {
-        next = [...list, { id: ev.id, wksp: ev.wksp, role: 'genio', text: ev.text, ts: new Date().toISOString(), partial: true }]
+        next = [...list, cleanChatMessage({ id: ev.id, wksp: ev.wksp, role: 'genio', text: ev.text, ts: new Date().toISOString(), partial: true })]
       } else {
         next = list.slice()
-        next[i] = { ...next[i], text: next[i].text + ev.text, partial: true }
+        next[i] = cleanChatMessage({ ...next[i], text: next[i].text + ev.text, partial: true })
       }
       setState({ chats: { ...s.chats, [ev.wksp]: next } })
       break
