@@ -328,7 +328,11 @@ export function createToolRegistry(
   t('genio_help', HELP_DESC, { query: z.string().trim().min(1), topic: z.string().trim().min(1).optional() }, ({ query, topic }) => {
     const dir = helpDocsDir(getCtx().appRoot)
     if (!dir) return fail('Genio\'s help docs are missing from this install, so this cannot be looked up: say so plainly.')
-    return ok(searchHelp(dir, query, { topic }))
+    const found = searchHelp(dir, query, { topic })
+    if (role !== 'bot' && !found.startsWith('No help')) {
+      try { getCtx().stats.unlock('help-first') } catch { /* achievements never fail a lookup */ }
+    }
+    return ok(found)
   })
   const preferenceShape = { usageMode: z.enum(['save', 'balanced', 'max']).optional(), sound: z.boolean().optional(),
     soundVolume: z.number().min(0).max(1).optional(), voice: z.boolean().optional(), calm: z.boolean().optional(),

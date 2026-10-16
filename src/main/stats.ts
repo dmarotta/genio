@@ -77,6 +77,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'chat-image', feature: 'generate_image', name: 'Pixel Summoner', description: 'Generate an image in chat.' },
   { id: 'fal-first', feature: 'fal_generate', name: 'Asset Alchemist', description: 'Complete a FAL run.' },
   { id: 'animation-first', feature: 'uthana_motion', name: 'Motion Unlocked', description: 'Generate your first Uthana animation.' },
+  { id: 'help-first', feature: 'genio_help', name: 'Read the Manual', description: "Ask how Genio works and get the answer from Genio's own help." },
   { id: 'ally-chat', feature: 'comms', name: 'Project Chat', description: 'Talk to Genio in a project window.' },
   { id: 'push-first', feature: 'world_push', name: 'Go Live', description: 'Push a project on demand.' },
   { id: 'rating-first', feature: 'rate_task', name: 'GG or Go Again', description: 'Rate a unit on the scorecard.' },

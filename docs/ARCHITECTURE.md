@@ -105,7 +105,7 @@ fails when a Rail view, a screen-context screen, a player-facing chat tool, a
 unit kind or flag, or a Settings page has no classification or achievement;
 when a feature tag points at nothing live; when source unlocks an unknown or
 retired id; and when a live achievement has no unlock. Keeping them current is
-a repo rule in [AGENTS.md](../AGENTS.md).
+a repo rule in `AGENTS.md` at the repository root.
 
 ## Process layout
 

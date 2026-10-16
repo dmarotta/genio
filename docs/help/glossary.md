@@ -224,6 +224,14 @@ unity (the only way a unit compiles, tests and plays Unity).
 Where: nothing to set up; they ship with Genio.
 Source: [agent-generation.md](../agent-generation.md), [art-bible.md](../art-bible.md)
 
+## Achievements
+
+Trophies for real things you did in Genio: a merged build, a finished plan, your game's sound on the Play screen.
+Each unlocks once, when the action succeeds; you can pin up to three to the front. Retired ones you earned stay on the
+sheet but never unlock again.
+Where: Character Sheet in the rail (Ctrl+5).
+Source: [ARCHITECTURE.md](../ARCHITECTURE.md)
+
 ## Play
 
 The screen where you play a Unity project inside Genio, from its own private copy and hidden editor. One toolbar
