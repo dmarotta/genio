@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
-  Archive, ArrowLeft, Box, ChevronDown, ExternalLink, FolderOpen, GitMerge, Info, MoreHorizontal, Play as PlayIcon, Radar, RotateCcw, Rocket, Send,
+  Archive, ArrowLeft, ChevronDown, ExternalLink, FolderOpen, GitMerge, Info, MoreHorizontal, Play as PlayIcon, RotateCcw, Rocket, Send,
   SquareTerminal, ArrowUpFromLine, X
 } from 'lucide-react'
 import type { Decision, Task, TerminalInfo, ValidationStep, Verdict } from '@shared/types'
@@ -17,6 +17,7 @@ import { GenioCore } from '../components/GenioCore'
 import { Popover } from '../components/Layer'
 import { RATEABLE, VerdictButtons, VerdictPick, rateThenMerge } from '../components/Dispatch'
 import { unitKindLabel } from '../lib/vocab'
+import { UnitKindIcon, unitKindChip } from '../components/UnitKind'
 import { ago, clock, cx, shortPath } from '../lib/format'
 import { assetBytes } from '../lib/inventory'
 import { playSfx } from '../lib/sfx'
@@ -117,10 +118,10 @@ function UnitCard({ t, term }: { t: Task; term?: TerminalInfo }) {
   const attention = squadAttention(t, term, pending)
   const recon = t.kind === 'scout'
   return (
-    <article className={cx('unit-card panel', `tone-${tone}`, recon && 'recon', t.modeller && 'modeller', attention && 'attention')}>
+    <article className={cx('unit-card panel', `tone-${tone}`, recon && 'recon', t.modeller && 'modeller', !t.modeller && t.generator && 'generator', attention && 'attention')}>
       <header className="unit-head" onClick={() => focusTask(t.id)}>
         <div className="unit-kind">
-          {recon ? <Radar size={14} /> : t.modeller ? <Box size={14} /> : <Rocket size={14} />}
+          <UnitKindIcon t={t} size={14} />
           <span>{unitKindLabel(t)}</span>
         </div>
         <div className="unit-title-wrap">
@@ -348,7 +349,8 @@ function UnitDetail({ id }: { id: string }) {
   const changesFile = useTaskFile(id, 'diffstat', [events, t?.state], live ? 8000 : undefined, !!t && t.kind === 'ship')
   const statusRows = useMemo(() => parseStatusLines(status.text ?? ''), [status.text])
   const changes = useMemo(() => parseUnitChanges(changesFile.text ?? ''), [changesFile.text])
-  const modeller = useModellerLive(id, live && t?.kind === 'ship')
+  // A Generator has no live view: its terminal stays the main area.
+  const modeller = useModellerLive(id, live && t?.kind === 'ship' && !t.generator)
   // A Modeller's page is canvas first from its start: the live model (an empty scene until the first
   // step) is the main area and its steps the first side tab.
   const canvas = t?.kind === 'ship' && (!!modeller || modellerCanvas(t))
@@ -444,8 +446,8 @@ function UnitDetail({ id }: { id: string }) {
           <button className="btn ghost sm" onClick={() => setState({ focus: null })}>
             <ArrowLeft size={14} /> Squad
           </button>
-          <span className={cx('chip', recon ? 'violet' : t.modeller ? 'orange' : 'neon')}>
-            {recon ? <Radar size={11} /> : t.modeller ? <Box size={11} /> : <Rocket size={11} />} {unitKindLabel(t)}
+          <span className={cx('chip', unitKindChip(t))}>
+            <UnitKindIcon t={t} size={11} /> {unitKindLabel(t)}
           </span>
           <span className="uh-state">
             <Chip tone={badge.tone} pulse={badge.label === 'WORKING'}>{badge.label}</Chip>

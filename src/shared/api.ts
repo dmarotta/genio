@@ -40,7 +40,9 @@ export interface SpawnRequest {
   force?: boolean
   /** a Build that runs as a Modeller (absent = the quest's flag) */
   modeller?: boolean
-  /** a Modeller's target paths, from asset_locate (absent = the quest's claims) */
+  /** a Build that runs as a Generator, asset generation jobs (absent = the quest's flag); never with modeller */
+  generator?: boolean
+  /** a Modeller's or Generator's target paths, from asset_locate (absent = the quest's claims) */
   claims?: string[]
 }
 

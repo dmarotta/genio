@@ -69,3 +69,29 @@ describe('Deploy a Modeller', () => {
     expect(f.spawn).toHaveBeenCalledWith(expect.not.objectContaining({ modeller: true }))
   })
 })
+
+describe('Deploy a Generator', () => {
+  it('deploys a Build with the Generator flag and never with the Modeller flag too', async () => {
+    f.toolchain.mockResolvedValue(tools(false))
+    await render()
+    await act(async () => button(/^Modeller/).click())
+    await act(async () => button(/^Generator/).click())
+    expect(host.querySelector('[role=dialog]')!.getAttribute('aria-label')).toBe('New Generator mission')
+    expect(button(/^Generator/).className).toBe('kind-opt magenta on')
+    expect(button(/^Modeller/).className).not.toContain('on')
+    expect(button(/Deploy now/).className).toContain('magenta')
+    expect(button(/Deploy now/).disabled).toBe(false)
+    await act(async () => button(/Deploy now/).click())
+    expect(f.spawn).toHaveBeenCalledWith(expect.objectContaining({ kind: 'ship', generator: true, project: 'game' }))
+    expect(f.spawn).toHaveBeenCalledWith(expect.not.objectContaining({ modeller: true }))
+  })
+
+  it('opens on the Generator option for a Generator draft; Recon drops the flag', async () => {
+    f.state = { ...f.state, deploy: { kind: 'ship', project: 'game', title: 'Door sounds', intent: 'a door creak', generator: true } }
+    await render()
+    expect(host.querySelector('[role=dialog]')!.getAttribute('aria-label')).toBe('New Generator mission')
+    await act(async () => button(/^Recon/).click())
+    await act(async () => button(/Deploy now/).click())
+    expect(f.spawn).toHaveBeenCalledWith(expect.not.objectContaining({ generator: true }))
+  })
+})

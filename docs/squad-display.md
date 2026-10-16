@@ -31,7 +31,7 @@ landed commit. Beside More sits one primary action, by state
 
 A Modeller offers the same: it exports, places and commits its model when it
 judges it done, reports ready, and merges like any Build (Auto-loot or the
-player's approval).
+player's approval). So does a Generator, with no Accept step either.
 
 More holds Interrupt (working only), Respawn, Recall (live only), Open folder
 and Despawn (red), each with its one-line consequence (`UNIT_ACTION_HINT`).
@@ -54,7 +54,15 @@ of the terminal, which becomes a side tab after Steps (thumbnails, Revert to N,
 Branch from N, the head step's checks as information only). Its Squad card and
 rail row show the latest step's render; Changes shows binaries before and after.
 
-Build work uses blue, Modeller work orange; Recon work uses purple. Open player decisions and blocked
+A Generator (a Build deployed or filed with the Generator flag: one or more
+asset generation jobs, see docs/unit-generator.md) has no live view: its page,
+card and rail row keep the terminal, like any Build. Only its color and its
+Generator chip (sparkles icon) tell it apart. It never becomes a Modeller.
+
+Build work uses blue, Modeller work orange, Generator work magenta (`--magenta`);
+Recon work uses purple. The kind chip (unit page header, Squad card, Quest log)
+keeps the kind's color in every state: neon Build, orange Modeller, magenta
+Generator, violet Recon. Open player decisions and blocked
 units use yellow while retaining WORKING. Errors and abnormal exits use red.
 READY TO MERGE and successful DONE outcomes use the same existing green. Per the
 player's explicit color decision, there is no extra ready highlight or badge;

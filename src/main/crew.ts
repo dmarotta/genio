@@ -11,8 +11,8 @@ import type { AppCtx, CrewService } from './services'
 import { placeWorktree, type Home } from './home'
 import { bus } from './bus'
 import * as git from './git'
-import { appendProgressNote, doorbellLine, engineHints, kickoffPrompt, modellerDoneLines, renderBrief, type BriefInput } from './brief'
-import { claimConflict } from '@shared/modeller'
+import { appendProgressNote, doorbellLine, engineHints, generatorBrief, kickoffPrompt, modellerDoneLines, renderBrief, type BriefInput } from './brief'
+import { claimConflict, claimHolderKind } from '@shared/modeller'
 import { pruneModellerData } from './modeller-landing'
 import { holdsCapacity } from './usage-policy'
 import { buildArgs, CLAUDE_BYPASS_DIALOG } from './harness'
@@ -547,6 +547,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         }
       }
 
+      if (req.modeller && req.generator) throw new Error('A Build runs as a Modeller or as a Generator, not both.')
+
       // quest log gate
       const backlog = hc().backlog
       let backlogId = req.backlogId
@@ -577,20 +579,26 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           mode: req.kind === 'ship' ? posture.mode : undefined,
           yolo: req.kind === 'ship' ? posture.yolo : undefined,
           modeller: req.kind === 'ship' && req.modeller ? true : undefined,
-          claims: req.kind === 'ship' && req.modeller ? req.claims : undefined
+          generator: req.kind === 'ship' && req.generator ? true : undefined,
+          claims: req.kind === 'ship' && (req.modeller || req.generator) ? req.claims : undefined
         })
         backlogId = b.id
       }
 
       // a follow-up on the same quest keeps the loadout of the unit that worked it before
       const quest = backlog.get(backlogId!)
-      // The Modeller flag and its target paths come with the request, else from the quest.
-      const modeller = req.kind === 'ship' && Boolean(req.modeller ?? quest?.modeller)
-      const claims = modeller ? [...new Set((req.claims ?? quest?.claims ?? []).map((c) => c.trim().replace(/\\/g, '/')).filter(Boolean))] : []
-      if (modeller) {
+      // The Modeller and Generator flags and their target paths come with the request, else from the quest.
+      // The two never go together: a flag in the request replaces the quest's other one.
+      const modeller = req.kind === 'ship' && Boolean(req.modeller ?? (req.generator ? false : quest?.modeller))
+      const generator = req.kind === 'ship' && Boolean(req.generator ?? (req.modeller ? false : quest?.generator))
+      const claims = modeller || generator ? [...new Set((req.claims ?? quest?.claims ?? []).map((c) => c.trim().replace(/\\/g, '/')).filter(Boolean))] : []
+      if (modeller || generator) {
         const clash = claimConflict(claims, project.name, [...ctx.homes.values()].flatMap((h) => h.crew.list()))
-        if (clash) throw new Error(`deferred: ${clash.path} is claimed by Modeller ${clash.holder.id} ("${truncate(clash.holder.title, 80)}"). This quest stays queued until that unit lands or is despawned.`)
-        if (quest && (!quest.modeller || (req.claims && req.claims.length))) safe(() => backlog.update(quest.id, { modeller: true, ...(claims.length ? { claims } : {}) }))
+        if (clash) throw new Error(`deferred: ${clash.path} is claimed by ${claimHolderKind(clash.holder)} ${clash.holder.id} ("${truncate(clash.holder.title, 80)}"). This quest stays queued until that unit lands or is despawned.`)
+        const flag = modeller ? 'modeller' : 'generator'
+        if (quest && (!quest[flag] || (modeller ? quest.generator : quest.modeller) || (req.claims && req.claims.length))) {
+          safe(() => backlog.update(quest.id, { modeller: modeller || undefined, generator: generator || undefined, ...(claims.length ? { claims } : {}) }))
+        }
       }
       const prev = quest?.taskId ? get(quest.taskId) : undefined
       const pickInput: LoadoutInput = {
@@ -661,6 +669,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
             modellerDone: modeller
               ? modellerDoneLines({ engine: effectiveEngine(project).engine, engineRoot: effectiveEngine(project).root, locate: path.join(falSkillDir(pluginDir), 'scripts', 'fal.mjs'), claims })
               : undefined,
+            generator: generator ? generatorBrief(pluginDir, home.taskDir(id), { engine: effectiveEngine(project).engine, engineRoot: effectiveEngine(project).root, claims }) : undefined,
             artBible: artBibleBrief(project.path, wt, id),
             submodules,
             nodeDeps: nodeDeps(id, wt)
@@ -690,6 +699,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           loadout: loadout.reasons,
           category: loadout.category,
           ...(modeller ? { modeller: true, ...(claims.length ? { claims } : {}) } : {}),
+          ...(generator ? { generator: true, ...(claims.length ? { claims } : {}) } : {}),
           loadoutSource: loadout.source,
           ruleId: loadout.ruleId,
           explored: loadout.explored,

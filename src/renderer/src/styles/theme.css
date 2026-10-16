@@ -41,6 +41,8 @@
   --violet-soft: rgba(165, 107, 255, 0.14);
   --orange: #ff8a2a;        /* modeller: a unit building a 3D model */
   --orange-soft: rgba(255, 138, 42, 0.14);
+  --magenta: #ff45e0;       /* generator: a unit running asset generation jobs */
+  --magenta-soft: rgba(255, 69, 224, 0.14);
 
   --glow: 0 0 12px rgba(0, 229, 255, 0.35), 0 0 2px rgba(0, 229, 255, 0.8);
   --glow-volt: 0 0 12px rgba(198, 255, 61, 0.35);
@@ -163,6 +165,7 @@ code, pre, kbd { font-family: var(--font-mono); font-size: 12.5px; }
 .btn.alert { --c: var(--alert); }
 .btn.violet { --c: var(--violet); }
 .btn.orange { --c: var(--orange); }
+.btn.magenta { --c: var(--magenta); }
 .btn.icon { width: 34px; padding: 0; }
 .btn.sm.icon { width: 26px; }
 
@@ -194,6 +197,7 @@ code, pre, kbd { font-family: var(--font-mono); font-size: 12.5px; }
 .chip.alert { --c: var(--alert); }
 .chip.violet { --c: var(--violet); }
 .chip.orange { --c: var(--orange); }
+.chip.magenta { --c: var(--magenta); }
 
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--text-mute)); box-shadow: 0 0 8px var(--c, transparent); flex: none; }
 .dot.pulse { animation: pulse 1.6s ease-in-out infinite; }

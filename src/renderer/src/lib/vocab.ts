@@ -1,6 +1,6 @@
 import type { AwayMode, DeliveryMode, Engine, Priority, ProjectMode, TaskKind, TaskState } from '@shared/types'
 
-export type Tone = 'neon' | 'blue' | 'volt' | 'amber' | 'alert' | 'violet' | 'orange' | 'mute'
+export type Tone = 'neon' | 'blue' | 'volt' | 'amber' | 'alert' | 'violet' | 'orange' | 'magenta' | 'mute'
 
 export const MODE_LABEL: Record<ProjectMode, string> = {
   'no-mistakes': 'Hardcore',
@@ -20,8 +20,9 @@ export const DELIVERY_MODES: DeliveryMode[] = ['no-mistakes', 'direct-PR', 'loca
 export const PROJECT_MODES: ProjectMode[] = ['no-mistakes', 'no-mistakes-prod-only', 'direct-PR', 'local-only']
 
 export const KIND_LABEL: Record<TaskKind, string> = { ship: 'Build', scout: 'Recon' }
-/** A unit's kind in words; a Modeller is a Build that builds a 3D model. */
-export const unitKindLabel = (t: { kind: TaskKind; modeller?: boolean }): string => (t.modeller && t.kind === 'ship' ? 'Modeller' : KIND_LABEL[t.kind])
+/** A unit's kind in words; a Modeller is a Build that builds a 3D model, a Generator one that runs asset generation jobs. */
+export const unitKindLabel = (t: { kind: TaskKind; modeller?: boolean; generator?: boolean }): string =>
+  t.kind !== 'ship' ? KIND_LABEL[t.kind] : t.modeller ? 'Modeller' : t.generator ? 'Generator' : KIND_LABEL.ship
 
 export const STATE_LABEL: Record<TaskState, string> = {
   spawning: 'Deploying',

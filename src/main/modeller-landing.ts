@@ -1,6 +1,7 @@
 /**
  * How a Modeller lands (Modeller build 4): the project paths it claims, the information report the
  * Gauntlet shows in place of checks, and what is left of its step data once it is despawned.
+ * A Generator lands the same way: the same claims and an information report of the files it delivers.
  * Step data is the kernel's (resources/unit-skills/genio/skills/blender/scripts/modeller.mjs).
  */
 import fs from 'node:fs'
@@ -46,6 +47,18 @@ export function modellerReport(dataDir: string): string {
   if (!live || !head) return [...lines, 'No model step found in the unit\'s data.'].join('\n')
   lines.push(`Model ${live.model}, branch ${live.branch}: step ${head.n} "${head.caption}", ${head.triangles} triangles, ${head.parts} parts.`)
   lines.push(live.checks.length ? `Advisory checks (information only):\n${live.checks.map(c => `- ${c}`).join('\n')}` : 'Advisory checks: none raised.')
+  return lines.join('\n')
+}
+
+/** What the Gauntlet shows for a Generator instead of running checks: the files its branch delivers. */
+export function generatorReport(files: string[]): string {
+  const lines = ["No checks for Generators (the player's choice): this report is information only, and merging follows the usual approval."]
+  const assets = files.filter(f => !f.startsWith('.genio/'))
+  const provenance = files.length - assets.length
+  if (!files.length) return [...lines, 'The branch changes no files.'].join('\n')
+  lines.push(`${assets.length} file(s) delivered${provenance ? `, ${provenance} provenance or spend file(s) under .genio/` : ''}:`)
+  lines.push(...assets.slice(0, 40).map(f => `- ${f}`))
+  if (assets.length > 40) lines.push(`- … and ${assets.length - 40} more`)
   return lines.join('\n')
 }
 

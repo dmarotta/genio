@@ -306,12 +306,15 @@ export function createBacklogService(getCtx: () => AppCtx, home: Home): BacklogS
         planId: input.planId,
         planStep: input.planStep,
         modeller: input.modeller,
+        generator: input.generator,
         claims: input.claims
       })
       if (!it.planId) delete it.planId
       if (!it.planStep) delete it.planStep
       if (!it.modeller || it.kind !== 'ship') delete it.modeller
-      if (!it.modeller || !it.claims?.length) delete it.claims
+      // a quest is a Modeller or a Generator, never both: the Modeller flag wins
+      if (!it.generator || it.kind !== 'ship' || it.modeller) delete it.generator
+      if ((!it.modeller && !it.generator) || !it.claims?.length) delete it.claims
       // a plan's steps are one piece of work each, never duplicates of each other
       it.duplicateOf = it.planId ? undefined : findDuplicate(it, load())?.id
       if (!it.duplicateOf) delete it.duplicateOf

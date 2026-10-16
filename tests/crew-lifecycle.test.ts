@@ -391,17 +391,18 @@ describe('per-launch premium approval', () => {
   })
 })
 
-describe('Modeller landing', () => {
-  function modellerWorld() {
-    ctx.projects.get = vi.fn(() => ({ name: 'world', path: task.worktree, defaultBranch: 'main', engine: 'web' }) as any)
-    ctx.projects.resolvePosture = vi.fn(() => ({ mode: 'local-only' as const, yolo: false, branchPrefix: 'genio/' }))
-    ctx.main.backlog = { get: () => ({ id: 'quest' }), add: vi.fn(() => ({ id: 'quest' })), update: vi.fn(), markInFlight: vi.fn(), unresolved: () => [] } as any
-    ctx.dispatch.reportWords = () => 400
-    ctx.dispatch.usagePercent = () => undefined
-    vi.spyOn(git, 'addWorktree').mockResolvedValue({ code: 0, stdout: '', stderr: '' })
-    vi.spyOn(git, 'assertIsolated').mockResolvedValue({ ok: true } as any)
-  }
+/** A web project that spawns for real up to the worktree, with a stub quest log. */
+function modellerWorld() {
+  ctx.projects.get = vi.fn(() => ({ name: 'world', path: task.worktree, defaultBranch: 'main', engine: 'web' }) as any)
+  ctx.projects.resolvePosture = vi.fn(() => ({ mode: 'local-only' as const, yolo: false, branchPrefix: 'genio/' }))
+  ctx.main.backlog = { get: () => ({ id: 'quest' }), add: vi.fn(() => ({ id: 'quest' })), update: vi.fn(), markInFlight: vi.fn(), unresolved: () => [] } as any
+  ctx.dispatch.reportWords = () => 400
+  ctx.dispatch.usagePercent = () => undefined
+  vi.spyOn(git, 'addWorktree').mockResolvedValue({ code: 0, stdout: '', stderr: '' })
+  vi.spyOn(git, 'assertIsolated').mockResolvedValue({ ok: true } as any)
+}
 
+describe('Modeller landing', () => {
   it('a Modeller quest spawns a Modeller: the flag and claims on the unit, its rules and delivery in the brief', async () => {
     modellerWorld()
     ctx.main.backlog.get = () => ({ id: 'quest', modeller: true, claims: ['assets/models/tower.glb'] }) as any
@@ -455,6 +456,86 @@ describe('Modeller landing', () => {
     ctx.main.crew.update(task.id, { modeller: true, state: 'merged', baseBranch: 'main' })
     expect(await ctx.main.crew.cleanup(task.id)).toMatchObject({ ok: true })
     expect(fs.readdirSync(step).sort()).toEqual(['script.py', 'view.png'])
+  })
+})
+
+describe('Generator', () => {
+  const tools = () => createToolRegistry(() => ctx, home, 'genio')
+  const text = (r: { content: unknown[] }): string => (r.content[0] as { text: string }).text
+
+  it('a Generator quest spawns a Generator: the flag and claims on the unit, its rules in the brief, no Modeller parts', async () => {
+    modellerWorld()
+    ctx.main.backlog.get = () => ({ id: 'quest', generator: true, claims: ['Assets/Audio/door.wav'] }) as any
+    const t = await ctx.main.crew.spawn({ project: 'world', kind: 'ship', title: 'Door sounds', intent: 'a door creak and a slam', backlogId: 'quest' })
+    expect(t).toMatchObject({ generator: true, claims: ['Assets/Audio/door.wav'], state: 'working' })
+    expect(t.modeller).toBeUndefined()
+    const brief = fs.readFileSync(t.briefPath, 'utf8')
+    expect(brief).toContain('# Generator')
+    expect(brief).toContain('Spend cap: USD 0.50')
+    expect(brief).toContain('`Assets/Audio/door.wav`')
+    expect(brief).toContain('--engine web')
+    expect(brief).not.toContain('# Modeller')
+    expect(brief).not.toContain('Modeller delivery')
+  })
+
+  it('deploy and quest_add carry the flag on Builds only and never with the Modeller flag', async () => {
+    modellerWorld()
+    const deploy = tools().find(x => x.name === 'deploy')!
+    const r = await deploy.invoke({ kind: 'ship', world: 'world', title: 'Hero art', intent: 'a hero portrait', generator: true, claims: ['Assets/Art/hero.png'] })
+    expect(text(r)).toMatch(/^deployed .*: Generator "Hero art"/)
+    expect(ctx.main.backlog.add).toHaveBeenLastCalledWith(expect.objectContaining({ generator: true, claims: ['Assets/Art/hero.png'] }))
+    expect(ctx.main.crew.list().find(x => x.title === 'Hero art')).toMatchObject({ generator: true, claims: ['Assets/Art/hero.png'] })
+    expect(await deploy.invoke({ kind: 'scout', world: 'world', title: 'Look', intent: 'look at audio', generator: true })).toMatchObject({ isError: true })
+    expect(text(await deploy.invoke({ kind: 'ship', world: 'world', title: 'Both', intent: 'both kinds', generator: true, modeller: true }))).toMatch(/Modeller or a Generator, not both/)
+    await expect(ctx.main.crew.spawn({ project: 'world', kind: 'ship', title: 'Both', intent: 'both kinds', generator: true, modeller: true })).rejects.toThrow(/not both/)
+
+    const { createBacklogService } = await import('../src/main/backlog')
+    ;(ctx.main as any).backlog = createBacklogService(() => ctx, home)
+    ;(ctx as any).ledger = { record: () => undefined }
+    const questAdd = tools().find(x => x.name === 'quest_add')!
+    expect(text(await questAdd.invoke({ title: 'Coin pickup sound', world: 'world', generator: true, claims: ['Assets/Audio/coin.wav'] }))).toMatch(/^quest \S+ filed/)
+    expect(ctx.main.backlog.list().at(-1)).toMatchObject({ kind: 'ship', generator: true, claims: ['Assets/Audio/coin.wav'] })
+    expect(await questAdd.invoke({ title: 'Recon of sounds', world: 'world', kind: 'scout', generator: true })).toMatchObject({ isError: true })
+    expect(await questAdd.invoke({ title: 'Both kinds at once', world: 'world', generator: true, modeller: true })).toMatchObject({ isError: true })
+    const id = ctx.main.backlog.list().at(-1)!.id
+    await tools().find(x => x.name === 'quest_update')!.invoke({ id, modeller: true })
+    expect(ctx.main.backlog.get(id)).toMatchObject({ modeller: true, generator: undefined })
+  })
+
+  it('a flag in the request replaces the quest\'s other flag', async () => {
+    modellerWorld()
+    ctx.main.backlog.get = () => ({ id: 'quest', modeller: true, claims: ['Assets/Models/tower.glb'] }) as any
+    const t = await ctx.main.crew.spawn({ project: 'world', kind: 'ship', title: 'Tower texture', intent: 'a stone texture', backlogId: 'quest', generator: true })
+    expect(t).toMatchObject({ generator: true })
+    expect(t.modeller).toBeUndefined()
+    expect(ctx.main.backlog.update).toHaveBeenCalledWith('quest', expect.objectContaining({ generator: true, modeller: undefined }))
+  })
+
+  it('a path another Generator or Modeller holds defers the spawn, in both directions', async () => {
+    modellerWorld()
+    ctx.main.crew.update(task.id, { generator: true, state: 'working', claims: ['Assets/Audio/'], title: 'Door sounds' })
+    await expect(ctx.main.crew.spawn({ project: 'world', kind: 'ship', title: 'More sounds', intent: 'a coin sound', generator: true, claims: ['Assets/Audio/coin.wav'] }))
+      .rejects.toThrow(/^deferred: Assets\/Audio\/coin\.wav is claimed by Generator unit/)
+    await expect(ctx.main.crew.spawn({ project: 'world', kind: 'ship', title: 'Speaker model', intent: 'a speaker', modeller: true, claims: ['assets/audio/speaker.glb'] }))
+      .rejects.toThrow(/is claimed by Generator unit/)
+    const deferred = await tools().find(x => x.name === 'deploy')!.invoke({ kind: 'ship', world: 'world', title: 'More sounds', intent: 'a coin sound', generator: true, claims: ['Assets/Audio/coin.wav'] })
+    expect(deferred).not.toHaveProperty('isError')
+    expect(text(deferred)).toMatch(/claimed by Generator unit/)
+    ctx.main.crew.update(task.id, { generator: undefined, modeller: true, claims: ['Assets/Models/'] })
+    await expect(ctx.main.crew.spawn({ project: 'world', kind: 'ship', title: 'Tower skin', intent: 'a texture', generator: true, claims: ['Assets/Models/tower.png'] }))
+      .rejects.toThrow(/is claimed by Modeller unit/)
+    ctx.main.crew.update(task.id, { state: 'merged' })
+    expect(await ctx.main.crew.spawn({ project: 'world', kind: 'ship', title: 'Tower skin', intent: 'a texture', generator: true, claims: ['Assets/Models/tower.png'] }))
+      .toMatchObject({ generator: true })
+  })
+
+  it('leaves the chat\'s own generate_image as it was: Codex images on the ChatGPT plan, same arguments', async () => {
+    const { GENERATE_IMAGE_DESC, generateImageShape } = await import('../src/main/chat-imagegen')
+    const tool = tools().find(x => x.name === 'generate_image')!
+    expect(tool.description).toBe(GENERATE_IMAGE_DESC)
+    expect(GENERATE_IMAGE_DESC).toContain("Generate PNG image(s) with Codex's image_gen on the player's ChatGPT plan")
+    expect(Object.keys(generateImageShape).sort()).toEqual(['art_bible', 'asset_type', 'count', 'place', 'player_words', 'prompt', 'refs', 'transparent', 'world'])
+    expect(Object.keys(generateImageShape)).not.toContain('generator')
   })
 })
 

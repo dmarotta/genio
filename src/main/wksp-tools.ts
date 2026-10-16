@@ -396,11 +396,14 @@ export function createToolRegistry(
       force: z.boolean().default(false),
       player_words: z.string().trim().min(1).optional(),
       modeller: z.boolean().optional().describe('kind=ship only: a Modeller, which builds a 3D model in live Blender steps (any model kind; needs local Blender). Absent = the quest\'s flag.'),
-      claims: z.array(z.string()).optional().describe('Modeller only: the project paths it will write (export, .blend), from asset_locate. Refused while another Modeller holds one.')
+      generator: z.boolean().optional().describe('kind=ship only: a Generator, which runs one or more asset generation jobs (images, textures, sounds, music, 3D, motions) with the asset helpers and delivers them like any Build; its terminal is the main view. List the jobs in intent/spec; the spend cap is USD 0.50 unless the player names another. Never together with modeller. Absent = the quest\'s flag.'),
+      claims: z.array(z.string()).optional().describe('Modeller or Generator only: the project paths it will write (export, .blend, generated assets), from asset_locate. Refused while another Modeller or Generator holds one.')
     },
     async (a) => {
       if (/^\s*(captain|player|boss)\b[:,]/i.test(a.intent)) return fail('intent must be the player\'s words without a speaker label or direct address')
       if (a.modeller && a.kind !== 'ship') return fail('modeller applies to kind=ship only')
+      if (a.generator && a.kind !== 'ship') return fail('generator applies to kind=ship only')
+      if (a.modeller && a.generator) return fail('a Build is a Modeller or a Generator, not both')
       const held = a.quest_id ? questHeld(a.quest_id) : undefined
       if (held) return fail(`deploy refused: quest ${a.quest_id} is ${held}`)
       if (a.force) {
@@ -417,14 +420,14 @@ export function createToolRegistry(
           kind: a.kind, project: a.world, title: a.title, intent: a.intent, spec: a.spec ?? step?.spec, mode: a.mode, yolo: a.auto_loot,
           baseBranch: a.base_branch, harness: a.harness ?? step?.harness, model: a.model ?? step?.model, effort: a.effort ?? step?.effort,
           category: a.category ?? step?.category, backlogId: a.quest_id, wksp: owner.home.name, planContext: step?.planContext, force: a.force,
-          modeller: a.modeller, claims: a.claims
+          modeller: a.modeller, generator: a.generator, claims: a.claims
         })
         did('units', task.id)
         did('quests', task.backlogId)
-        return ok(`deployed ${task.id}: ${task.kind === 'scout' ? 'Recon' : task.modeller ? 'Modeller' : 'Build'} "${task.title}" in ${task.project} (unit tool ${task.harness}${task.model ? ` / ${task.model}` : ''}${task.effort ? ` / ${task.effort}` : ''}, mode ${modeLabel(task.mode)}, branch ${task.branch})${task.loadout?.length ? `\nloadout reasons:\n- ${task.loadout.join('\n- ')}` : ''}`)
+        return ok(`deployed ${task.id}: ${task.kind === 'scout' ? 'Recon' : task.modeller ? 'Modeller' : task.generator ? 'Generator' : 'Build'} "${task.title}" in ${task.project} (unit tool ${task.harness}${task.model ? ` / ${task.model}` : ''}${task.effort ? ` / ${task.effort}` : ''}, mode ${modeLabel(task.mode)}, branch ${task.branch})${task.loadout?.length ? `\nloadout reasons:\n- ${task.loadout.join('\n- ')}` : ''}`)
       } catch (e) {
         const msg = (e as Error).message ?? String(e)
-        if (/claimed by Modeller/.test(msg)) return ok(msg)
+        if (/claimed by (Modeller|Generator)/.test(msg)) return ok(msg)
         if (/deferred|capacity/i.test(msg)) return ok(`deferred: ${msg}. The quest stays queued; it will be dispatchable when capacity frees up.`)
         return fail(`deploy refused: ${msg}`)
       }
@@ -569,7 +572,8 @@ export function createToolRegistry(
       not_before: z.string().optional(),
       tags: z.array(z.string()).default([]),
       modeller: z.boolean().optional().describe('kind=ship only: the quest runs as a Modeller (a 3D model built in live Blender steps).'),
-      claims: z.array(z.string()).optional().describe("Modeller only: its target paths from asset_locate.")
+      generator: z.boolean().optional().describe('kind=ship only: the quest runs as a Generator (asset generation jobs listed in the notes). Never together with modeller.'),
+      claims: z.array(z.string()).optional().describe('Modeller or Generator only: its target paths from asset_locate.')
     },
     async (a) => {
       if (a.kind === 'program') {
@@ -577,7 +581,9 @@ export function createToolRegistry(
         return ok(`programs are labels now: no quest filed. Tag the quests that belong to "${a.title}" with "${label}" (quest_add/quest_update tags).`)
       }
       if (a.modeller && a.kind !== 'ship') return fail('modeller applies to kind=ship only')
-      const it = hc().backlog.add({ title: a.title, project: a.world, kind: a.kind, notes: a.notes, priority: a.priority, dependsOn: a.depends_on, notBefore: a.not_before, tags: a.tags, modeller: a.modeller, claims: a.claims })
+      if (a.generator && a.kind !== 'ship') return fail('generator applies to kind=ship only')
+      if (a.modeller && a.generator) return fail('a Build quest is a Modeller or a Generator, not both')
+      const it = hc().backlog.add({ title: a.title, project: a.world, kind: a.kind, notes: a.notes, priority: a.priority, dependsOn: a.depends_on, notBefore: a.not_before, tags: a.tags, modeller: a.modeller, generator: a.generator, claims: a.claims })
       did('quests', it.id)
       return ok(`quest ${it.id} filed (${it.state})${it.duplicateOf ? `; flagged as a duplicate of ${it.duplicateOf} and not dispatched until cleared (quest_update duplicate_of="")` : ''}`)
     }
@@ -594,11 +600,16 @@ export function createToolRegistry(
       world: z.string().optional(), not_before: z.string().optional(), duplicate_of: z.string().optional(),
       state: z.enum(['queued', 'blocked', 'dropped', 'held']).optional(),
       modeller: z.boolean().optional().describe('A Build quest runs as a Modeller (see quest_add).'),
+      generator: z.boolean().optional().describe('A Build quest runs as a Generator (see quest_add). Setting one flag clears the other.'),
       claims: z.array(z.string()).optional()
     },
     async (a) => {
+      if (a.modeller && a.generator) return fail('a Build quest is a Modeller or a Generator, not both')
       const patch: Record<string, unknown> = {}
       if (a.modeller !== undefined) patch.modeller = a.modeller || undefined
+      if (a.generator !== undefined) patch.generator = a.generator || undefined
+      if (a.modeller) patch.generator = undefined
+      if (a.generator) patch.modeller = undefined
       if (a.claims !== undefined) patch.claims = a.claims.length ? a.claims : undefined
       if (a.title !== undefined) patch.title = a.title
       if (a.notes !== undefined) patch.notes = a.notes

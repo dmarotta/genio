@@ -160,4 +160,24 @@ describe('Modeller claims', () => {
     supervisor.poke()
     expect(openForTask).toHaveBeenCalledOnce()
   })
+
+  it('a Generator\'s claim notes meet an older Modeller\'s path: one choice, and the Generator never turns into a Modeller', () => {
+    const base = ctx.main.crew.get('unit')!
+    fs.writeFileSync(home.tasksFile, JSON.stringify([
+      { ...base, id: 'older', title: 'Tower', modeller: true, claims: ['assets/models/'], createdAt: '2026-10-16T09:00:00Z' },
+      { ...base, title: 'Tower texture', generator: true, claims: ['Assets/Textures/stone.png'], createdAt: '2026-10-16T10:00:00Z' }
+    ]))
+    ctx.main.crew = createCrewService(() => ctx, home)
+    // a model in its data (it tried the kernel) leaves it a Generator
+    fs.mkdirSync(path.join(home.taskDir('unit'), 'modeller', 'tower'), { recursive: true })
+    fs.writeFileSync(path.join(home.taskDir('unit'), 'modeller', 'tower', 'manifest.json'), JSON.stringify({ model: 'tower', steps: [] }))
+    ctx.main.crew.appendStatus('unit', 'note [key=claim]: Assets/Models/tower.png')
+    const openForTask = vi.fn()
+    Object.assign(ctx.main, { decisions: { list: () => [], openForTask } })
+    createSupervisor(() => ctx, home).poke()
+    expect(ctx.main.crew.get('unit')).toMatchObject({ generator: true, claims: ['Assets/Textures/stone.png', '.genio/modeller/tower/', 'Assets/Models/tower.png'] })
+    expect(ctx.main.crew.get('unit')!.modeller).toBeUndefined()
+    expect(openForTask).toHaveBeenCalledExactlyOnceWith('unit', 'asset-claim-older', expect.stringContaining('are changing the same asset'), 'system',
+      expect.objectContaining({ options: ['Stop this Generator', 'Keep both; I pick one at merge'], recommendation: 'Stop this Generator' }))
+  })
 })

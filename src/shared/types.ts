@@ -186,7 +186,9 @@ export interface Task {
   category?: TaskCategory
   /** A Modeller: a Build whose deliverable is a 3D model, so its page leads with the live view. Set at spawn (the Modeller flag), or when its first model appears. */
   modeller?: boolean
-  /** A Modeller's project paths (exports, .blend, build scripts): another Modeller may not take them until this one lands. */
+  /** A Generator: a Build that runs asset generation jobs (images, sounds, 3D, motions). Its page keeps the terminal; never also a Modeller. */
+  generator?: boolean
+  /** A Modeller's or Generator's project paths (exports, .blend, build scripts, generated assets): no other Modeller or Generator may take them until this one lands. */
   claims?: string[]
   /** who decided the unit tool, and whether exploration picked it */
   loadoutSource?: Loadout['source']
@@ -347,7 +349,9 @@ export interface BacklogItem {
   yolo?: boolean
   /** A Build that runs as a Modeller (a 3D model built in live Blender steps). */
   modeller?: boolean
-  /** The Modeller's target paths (asset_locate), claimed at spawn. */
+  /** A Build that runs as a Generator (asset generation jobs); never together with modeller. */
+  generator?: boolean
+  /** The Modeller's or Generator's target paths (asset_locate), claimed at spawn. */
   claims?: string[]
   tags: string[]
   createdAt: string

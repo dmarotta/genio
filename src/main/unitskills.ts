@@ -25,6 +25,7 @@ export const falSkillDir = (pluginDir: string): string => path.join(pluginDir, '
 export const blenderSkillDir = (pluginDir: string): string => path.join(pluginDir, 'skills', 'blender')
 export const codexImageSkillDir = (pluginDir: string): string => path.join(pluginDir, 'skills', 'imagegen-codex')
 export const unitySkillDir = (pluginDir: string): string => path.join(pluginDir, 'skills', 'unity')
+export const soundSkillDir = (pluginDir: string): string => path.join(pluginDir, 'skills', 'sound')
 /** The genio-unity wrapper: the only way a unit drives Unity. */
 export const genioUnityScript = (pluginDir: string): string => path.join(unitySkillDir(pluginDir), 'scripts', 'genio-unity.mjs')
 /** The Modeller kernel CLI (steps, revert, branch) on the safe Blender runner. */

@@ -1,4 +1,3 @@
-import { Box, Radar, Rocket } from 'lucide-react'
 import { finishedAt, outcomeTone, squadAttention, squadOutcome, squadState, squadTone } from '@shared/squad-display'
 import { pendingDecision } from '@shared/decisions'
 import { mergeApprovalLabel } from '@shared/merge-approval'
@@ -8,6 +7,7 @@ import { focusTask, openDeploy, squadRoster, useStore } from '../store'
 import { Dot, NeedsYou, useNow } from './ui'
 import { unitKindLabel } from '../lib/vocab'
 import { useModellerLive } from './ModellerView'
+import { UnitKindIcon } from './UnitKind'
 import { clock, cx, dateShort, elapsed } from '../lib/format'
 
 export function Roster() {
@@ -29,7 +29,7 @@ function RosterSub({ t }: { t: Task }) {
   const plans = useStore(s => s.snap.plans)
   const found = plans?.length ? planStepOfTask(plans, t) : undefined
   return <div className="roster-sub mute">
-    {t.kind === 'scout' ? <Radar size={10} /> : t.modeller ? <Box size={10} /> : <Rocket size={10} />} {unitKindLabel(t)} · {found
+    <UnitKindIcon t={t} size={10} /> {unitKindLabel(t)} · {found
       ? <span className="roster-step" title={`${t.project} · plan "${found.plan.title}"`}>{stepChipLabel(found.plan, found.step)}</span>
       : t.project}
   </div>

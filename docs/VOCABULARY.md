@@ -21,6 +21,7 @@ code comments that cite the original design.
 | backlog | **Quest Log** | items are **quests** |
 | ship task | **Build** mission | produces a change |
 | scout task | **Recon** mission | produces a report |
+| ship task with `generator` | **Generator** | a Build running asset generation jobs (magenta) |
 | promote scout | **Upgrade to Build** | |
 | delivery mode `no-mistakes` | **Hardcore** | full Gauntlet validation, then PR |
 | delivery mode `direct-PR` | **Standard** | unit pushes and opens a PR |

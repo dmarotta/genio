@@ -8,6 +8,7 @@
  * ask-player findings and infrastructure failures become Your Move choices.
  * CI is watched afterwards by overwatch through the registered PR.
  * A Modeller runs no checks (the player chose so): sync → model report → push → PR.
+ * A Generator neither: sync → asset report → push → PR.
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -15,7 +16,7 @@ import { isDefaultUnityTest, unityTestCommand } from './play-editor'
 import { runUnityGate } from './gauntlet-unity'
 import { findUnityCli, unityUnitConfig } from './unity-unit'
 import { modellerDataDir, unitPluginSource } from './unitskills'
-import { modellerReport } from './modeller-landing'
+import { generatorReport, modellerReport } from './modeller-landing'
 import { effectiveEngine } from '@shared/engine'
 import type { Options } from '@anthropic-ai/claude-agent-sdk'
 import type { Project, Task, ValidationRun, ValidationStep } from '@shared/types'
@@ -168,9 +169,12 @@ export function createGauntlet(getCtx: () => AppCtx, home: Home): Gauntlet {
     }
 
     // A Modeller runs no checks (the player's choice): the live-view review is the gate. Sync, push and PR stay.
+    // A Generator skips them the same way: its information report lists the files it delivers.
     const modeller = Boolean(t.modeller)
-    const cmds = { ...(modeller ? {} : project.commands) }
-    const unity = !modeller && (!cmds.test || isDefaultUnityTest(cmds.test)) ? unityTestRoot(project, t.worktree) : undefined
+    const generator = !modeller && Boolean(t.generator)
+    const noChecks = modeller || generator
+    const cmds = { ...(noChecks ? {} : project.commands) }
+    const unity = !noChecks && (!cmds.test || isDefaultUnityTest(cmds.test)) ? unityTestRoot(project, t.worktree) : undefined
     if (unity) {
       const command = unityTestCommand(unity.dir, unity.relative)
       cmds.test = command
@@ -184,9 +188,9 @@ export function createGauntlet(getCtx: () => AppCtx, home: Home): Gauntlet {
     if (cmds.lint) stepNames.push({ name: 'lint', command: cmds.lint })
     if (cmds.build) stepNames.push({ name: 'build', command: cmds.build })
     if (cmds.test) stepNames.push({ name: 'test', command: cmds.test })
-    const unityGuard = !modeller && effectiveEngine(project).engine === 'unity'
+    const unityGuard = !noChecks && effectiveEngine(project).engine === 'unity'
     if (unityGuard) stepNames.push({ name: 'unity-guard' })
-    stepNames.push({ name: modeller ? 'model' : 'review' }, { name: 'push' }, { name: 'pr' })
+    stepNames.push({ name: modeller ? 'model' : generator ? 'assets' : 'review' }, { name: 'push' }, { name: 'pr' })
     const vr: ValidationRun = {
       id: rid(4),
       state: 'running',
@@ -290,6 +294,11 @@ export function createGauntlet(getCtx: () => AppCtx, home: Home): Gauntlet {
         begin(info)
         end(info, 'skipped', modellerReport(modellerDataDir(home.taskDir(taskId))))
         reviewNote = 'Modeller: no checks; the model report is information only and merging follows the usual approval.'
+      } else if (generator) {
+        const info = step('assets')
+        begin(info)
+        end(info, 'skipped', generatorReport(await git.changedFiles(t.worktree, ref, 'HEAD')))
+        reviewNote = 'Generator: no checks; the asset report is information only and merging follows the usual approval.'
       } else {
         const review = step('review')
         begin(review)

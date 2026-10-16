@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
-import { Box, Check, Clock, Copy, ExternalLink, GitMerge, Hand, Link2, Pause, Play, Plus, Radar, RotateCcw, Rocket, Trash, X } from 'lucide-react'
+import { Box, Check, Clock, Copy, ExternalLink, GitMerge, Hand, Link2, Pause, Play, Plus, Radar, RotateCcw, Rocket, Sparkles, Trash, X } from 'lucide-react'
 import type { BacklogItem, BacklogKind, PlanStep, Priority, StatusEvent, Task, WorkPlan } from '@shared/types'
 import { planGroups, planStepOf, planStepOfTask, planSummary, stepChipLabel } from '@shared/work-plan'
 import { PlanChip, usePlanView } from '../components/PlanChip'
@@ -38,8 +38,8 @@ export function Quests() {
   const policy = useUsagePolicy()
   const now = useNow(30_000)
   const [title, setTitle] = useState('')
-  /** 'modeller' files a Build quest with the Modeller flag. */
-  const [kind, setKind] = useState<BacklogKind | 'modeller'>('ship')
+  /** 'modeller' and 'generator' file a Build quest with that flag. */
+  const [kind, setKind] = useState<BacklogKind | 'modeller' | 'generator'>('ship')
   const [priority, setPriority] = useState<Priority>('normal')
   const [openId, setOpenId] = useState<string | null>(null)
   const [doneShown, setDoneShown] = useState(DONE_PAGE)
@@ -69,7 +69,7 @@ export function Quests() {
     if (!title.trim()) return
     try {
       // The window's project is applied by the main process.
-      await api().backlogAdd({ title: title.trim(), priority, ...(kind === 'modeller' ? { kind: 'ship', modeller: true } : { kind }) })
+      await api().backlogAdd({ title: title.trim(), priority, ...(kind === 'modeller' ? { kind: 'ship', modeller: true } : kind === 'generator' ? { kind: 'ship', generator: true } : { kind }) })
       setTitle('')
     } catch (e) {
       toast('error', 'Quest not added', errText(e))
@@ -109,9 +109,10 @@ export function Quests() {
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && void add()}
         />
-        <select className="select compact" value={kind} onChange={(e) => setKind(e.target.value as BacklogKind | 'modeller')}>
+        <select className="select compact" value={kind} onChange={(e) => setKind(e.target.value as BacklogKind | 'modeller' | 'generator')}>
           <option value="ship">Build</option>
           <option value="modeller">Modeller</option>
+          <option value="generator">Generator</option>
           <option value="scout">Recon</option>
           <option value="choice">Choice</option>
         </select>
@@ -336,6 +337,8 @@ function TicketMeta({ q, task }: { q?: BacklogItem; task?: Task }) {
     <div className="quest-meta">
       {(task?.modeller || q?.modeller) && kind === 'ship' ? (
         <span className="chip orange"><Box size={10} />Modeller</span>
+      ) : (task?.generator || q?.generator) && kind === 'ship' ? (
+        <span className="chip magenta"><Sparkles size={10} />Generator</span>
       ) : (
         <span className={cx('chip', kind === 'scout' ? 'violet' : kind === 'choice' ? 'amber' : '')}>
           {kind === 'scout' ? <Radar size={10} /> : kind === 'ship' ? <Rocket size={10} /> : <Hand size={10} />}

@@ -54,16 +54,19 @@ export function claimsMeet(a: string, b: string): boolean {
   return x === y || dir(x) === dir(y) || x.startsWith(dir(y)) || y.startsWith(dir(x))
 }
 
-/** A Modeller holds its claims until it lands or is despawned. */
-export const holdsClaims = (t: { kind: string; modeller?: boolean; state: string }): boolean =>
-  t.kind === 'ship' && !!t.modeller && t.state !== 'merged' && t.state !== 'cleaned'
+/** A Modeller or a Generator holds its claims until it lands or is despawned. */
+export const holdsClaims = (t: { kind: string; modeller?: boolean; generator?: boolean; state: string }): boolean =>
+  t.kind === 'ship' && (!!t.modeller || !!t.generator) && t.state !== 'merged' && t.state !== 'cleaned'
+
+/** Who holds a claim, in words: "Modeller" or "Generator". */
+export const claimHolderKind = (t: { modeller?: boolean; generator?: boolean }): string => (t.generator && !t.modeller ? 'Generator' : 'Modeller')
 
 /** A Modeller still at its model shows the 3D view from its start: an empty scene until the first step lands. */
 export const modellerCanvas = (t: { kind: string; modeller?: boolean; state: string; landedAt?: string; pr?: { state?: string } }): boolean =>
-  holdsClaims(t) && !t.landedAt && t.pr?.state !== 'MERGED'
+  !!t.modeller && holdsClaims(t) && !t.landedAt && t.pr?.state !== 'MERGED'
 
-/** The first path in `claims` another Modeller of the same project already holds, with its holder. */
-export function claimConflict<T extends { id: string; project: string; kind: string; modeller?: boolean; state: string; claims?: string[] }>(
+/** The first path in `claims` another Modeller or Generator of the same project already holds, with its holder. */
+export function claimConflict<T extends { id: string; project: string; kind: string; modeller?: boolean; generator?: boolean; state: string; claims?: string[] }>(
   claims: string[], project: string, others: T[], self?: string
 ): { path: string; holder: T } | undefined {
   for (const o of others) {

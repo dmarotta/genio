@@ -4,8 +4,10 @@
  * per-mode definition of done.
  */
 import fs from 'node:fs'
+import path from 'node:path'
 import type { DeliveryMode, Engine, TaskKind } from '@shared/types'
 import { fwd, nowIso } from './util'
+import { assetsSkillDir, codexImageSkillDir, falSkillDir, soundSkillDir, uthanaSkillDir } from './unitskills'
 import type { SubmoduleReport } from '../../resources/unit-skills/genio/lib/git-submodules.mjs'
 
 export interface BriefInput {
@@ -38,6 +40,8 @@ export interface BriefInput {
   modeller?: string
   /** A Modeller's delivery lines (modellerDoneLines), opening its Definition of done */
   modellerDone?: string[]
+  /** A Generator unit's working rules (generatorBrief), rendered after Tools */
+  generator?: string
   /** The project's Art Bible lines under Tools (artBibleBriefLines); absent without a bible */
   artBible?: string[]
   /** Recon: the report summary's word target from the Usage mode */
@@ -145,6 +149,41 @@ export function modellerDoneLines(o: { engine?: Engine; engineRoot?: string; loc
   return out
 }
 
+/** A Generator's spend cap when the player named none: a hard stop, raised only on the player's word. */
+export const GENERATOR_DEFAULT_BUDGET_USD = 0.5
+
+/**
+ * A Generator's working rules: the player's generation jobs, the spend cap, which helper makes what,
+ * placement and claims, takes, provenance and checking every result. It finishes like any Build.
+ */
+export function generatorBrief(pluginDir: string, taskDataDir: string, o: { engine?: Engine; engineRoot?: string; claims?: string[] } = {}): string {
+  const assets = fwd(assetsSkillDir(pluginDir))
+  const codex = fwd(codexImageSkillDir(pluginDir))
+  const fal = fwd(falSkillDir(pluginDir))
+  const sound = fwd(soundSkillDir(pluginDir))
+  const uthana = fwd(uthanaSkillDir(pluginDir))
+  const takes = fwd(path.join(taskDataDir, 'takes'))
+  const root = o.engineRoot && o.engineRoot !== '.' ? o.engineRoot : ''
+  const cap = GENERATOR_DEFAULT_BUDGET_USD.toFixed(2)
+  return [
+    "You are a Generator: you run the player's asset generation jobs (images, textures, sounds, music, 3D, motions) and deliver the files into the project like any Build. The player follows you in your terminal; there is no live view.",
+    '- Jobs: the mission lists one or more jobs; each is its own file or set. Work through them in order and keep a short list of what each one produced.',
+    `- Spend cap: USD ${cap} for the whole mission, unless the player's own words in the mission raise it. It is a hard stop, not a target: pass what is left of it as \`--budget <usd>\` on every paid call (fal.mjs, sound.mjs), never retry a paid call automatically, and when it runs out stop and deliver what you have.`,
+    `- Helper per job (routing in \`${assets}/SKILL.md\`; read a helper's SKILL.md before its first call): ordinary images (concept art, sprites, icons, cutouts, edits) with Codex images on the player's ChatGPT plan, \`node "${codex}/scripts/codex-image.mjs"\` (no USD, but the plan is shared with other units: stop when it warns about the plan meter); textures, 3D, audio and music with FAL, \`node "${fal}/scripts/fal.mjs"\`; motions with Uthana if the uthana helper is available (see \`${uthana}/SKILL.md\`), otherwise report each motion job as not done.`,
+    `- Audio: trim, loop, fade, normalize and layer with the Sound Studio steps, \`${sound}/SKILL.md\` and \`node "${sound}/scripts/sound.mjs"\` (its FAL steps take \`--budget\` too).`,
+    "- Art Bible: when the project has one, the helpers apply it automatically in `--world .` mode; pass each job's asset type as `--type <asset type>`.",
+    `- Paths: the mission's, or from asset_locate: \`node "${fal}/scripts/fal.mjs" locate --world . --kind <image|audio|model|animation|video> --name <file> --engine ${o.engine ?? 'other'}${root ? ` --engine-root ${root}` : ''}\`. Replacing an existing asset keeps its path.`,
+    o.claims?.length
+      ? `- Claims: Genio gave you ${o.claims.map((c) => `\`${c}\``).join(', ')}. Before you write any other project path, claim it: \`note [key=claim]: <path>\`. A path another Generator or Modeller holds is a \`blocked\` line, never an overwrite.`
+      : '- Claims: before you write a project path, claim it: `note [key=claim]: <path>`. A path another Generator or Modeller holds is a `blocked` line, never an overwrite.',
+    `- Takes: generate tries and variants into \`${takes}/\`, outside the worktree. Only the take you choose goes into the project; never commit the others.`,
+    '- Unity: commit each asset with its `.meta`, which `genio-unity import` generates (never hand-write one). If Unity cannot run for you, commit the asset without it and say so in your final note.',
+    '- Provenance: commit the `.genio/provenance/` files and the `.genio/spend.jsonl` lines the helpers write, together with the assets. Never edit `.genio/fal/config.json` or `recipes.json`.',
+    "- Check every result before you keep it: open the file and look at it (the image itself, a render of a model, the sound sheet's waveform, spectrogram and levels) and judge it against the job. Report honestly what works and what does not; never claim quality from metadata alone.",
+    '- Finish like any Build (Definition of done below): commit the chosen assets, then `done: <jobs delivered> (spend: est. USD <spent> of <cap>; Codex images: <n>)`. Ask the player only a real question.'
+  ].join('\n')
+}
+
 function dod(i: BriefInput): string {
   const lines: string[] = []
   if (i.kind === 'scout') {
@@ -168,6 +207,10 @@ function dod(i: BriefInput): string {
   if (mode === 'no-mistakes' && i.modellerDone?.length) {
     lines.push('1. Commit the finished model on the build branch with a clear commit message.')
     lines.push('2. Append `done: <summary>` and stop. Genio pushes the branch and opens the PR without running checks (Modellers skip them; the model report is information only).')
+    lines.push('3. Do not push and do not open a PR yourself.')
+  } else if (mode === 'no-mistakes' && i.generator?.trim()) {
+    lines.push('1. Commit the chosen assets with their provenance on the build branch with a clear commit message.')
+    lines.push('2. Append `done: <summary>` and stop. Genio pushes the branch and opens the PR without running checks (Generators skip them, like Modellers).')
     lines.push('3. Do not push and do not open a PR yourself.')
   } else if (mode === 'no-mistakes') {
     lines.push('1. Implement the mission. Commit all work on the build branch with clear commit messages.')
@@ -290,6 +333,12 @@ export function renderBrief(i: BriefInput): string {
     out.push('# Modeller')
     out.push('')
     out.push(i.modeller.trim())
+    out.push('')
+  }
+  if (i.generator?.trim()) {
+    out.push('# Generator')
+    out.push('')
+    out.push(i.generator.trim())
     out.push('')
   }
   out.push('# Definition of done')

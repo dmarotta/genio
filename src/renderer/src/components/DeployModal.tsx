@@ -7,6 +7,7 @@ import { Field, Modal, Toggle } from './ui'
 import { DELIVERY_MODES, EFFORTS, MODE_HINT, MODE_LABEL } from '../lib/vocab'
 import { cx } from '../lib/format'
 import { playSfx } from '../lib/sfx'
+import { UnitKindIcon } from './UnitKind'
 
 export function DeployModal() {
   const draft = useStore((s) => s.deploy)
@@ -14,6 +15,8 @@ export function DeployModal() {
   const settings = useStore((s) => s.settings)
   const [kind, setKind] = useState<TaskKind>('ship')
   const [modeller, setModeller] = useState(false)
+  /** A Build that runs asset generation jobs; never together with modeller. */
+  const [generator, setGenerator] = useState(false)
   /** Whether a local Blender was found (a Modeller needs one); null until the toolchain answers. */
   const [blender, setBlender] = useState<boolean | null>(null)
   // Units always deploy into this window's project (openDeploy prefills it; main enforces it).
@@ -37,6 +40,7 @@ export function DeployModal() {
     if (!draft) return
     setKind(draft.kind ?? 'ship')
     setModeller(draft.kind !== 'scout' && !!draft.modeller)
+    setGenerator(draft.kind !== 'scout' && !draft.modeller && !!draft.generator)
     setTitle(draft.title ?? '')
     setIntent(draft.intent ?? '')
     setSpec(draft.spec ?? '')
@@ -100,12 +104,15 @@ export function DeployModal() {
   const toolName = (id: string): string => settings?.harnesses.find((x) => x.id === id)?.name ?? id
   const close = (): void => setState({ deploy: null })
   const asModeller = kind === 'ship' && modeller
+  const asGenerator = kind === 'ship' && !modeller && generator
   const noBlender = asModeller && blender === false
   const valid = project && proj?.gitRepo !== false && title.trim() && intent.trim() && !noBlender
-  const pick = (k: TaskKind, m: boolean): void => {
+  const pick = (k: TaskKind, flavor?: 'modeller' | 'generator'): void => {
     setKind(k)
-    setModeller(m)
+    setModeller(flavor === 'modeller')
+    setGenerator(flavor === 'generator')
   }
+  const kindWord = asModeller ? 'Modeller' : asGenerator ? 'Generator' : kind === 'ship' ? 'Build' : 'Recon'
 
   const deployNow = async (): Promise<void> => {
     if (!valid) return
@@ -126,7 +133,8 @@ export function DeployModal() {
         effort: pickEffort || undefined,
         backlogId: draft.backlogId,
         wksp: draft.wksp,
-        ...(asModeller ? { modeller: true } : {})
+        ...(asModeller ? { modeller: true } : {}),
+        ...(asGenerator ? { generator: true } : {})
       })
       playSfx('spawn', settings)
       toast('success', 'Unit deployed', `${t.title} is on the field`)
@@ -142,7 +150,6 @@ export function DeployModal() {
 
   const briefGenio = async (): Promise<void> => {
     if (!project || !intent.trim()) return
-    const kindWord = asModeller ? 'Modeller' : kind === 'ship' ? 'Build' : 'Recon'
     const text = `${kindWord} in ${project}${title.trim() ? ` — ${title.trim()}` : ''}:\n\n${intent.trim()}${mode ? `\n\n(mode: ${MODE_LABEL[mode]})` : ''}`
     setBusy(true)
     try {
@@ -160,10 +167,10 @@ export function DeployModal() {
   return (
     <Modal
       kicker="Deploy"
-      title={asModeller ? 'New Modeller mission' : kind === 'ship' ? 'New Build mission' : 'New Recon mission'}
+      title={`New ${kindWord} mission`}
       onClose={close}
       width={680}
-      tone={asModeller ? 'orange' : kind === 'ship' ? 'neon' : 'violet'}
+      tone={asModeller ? 'orange' : asGenerator ? 'magenta' : kind === 'ship' ? 'neon' : 'violet'}
       footer={
         <>
           <button className="btn ghost" onClick={close}>
@@ -178,33 +185,40 @@ export function DeployModal() {
             Brief Genio
           </button>
           <button
-            className={cx('btn solid', kind === 'scout' && 'violet', asModeller && 'orange')}
+            className={cx('btn solid', kind === 'scout' && 'violet', asModeller && 'orange', asGenerator && 'magenta')}
             disabled={busy || !valid}
             title={noBlender ? 'Install Blender 4.2 LTS or newer (free)' : undefined}
             onClick={() => void deployNow()}
           >
-            {asModeller ? <Box size={14} /> : kind === 'ship' ? <Rocket size={14} /> : <Radar size={14} />}
+            <UnitKindIcon t={{ kind, modeller: asModeller, generator: asGenerator }} size={14} />
             Deploy now
           </button>
         </>
       }
     >
       <div className="kind-switch">
-        <button className={cx('kind-opt', kind === 'ship' && !modeller && 'on')} onClick={() => pick('ship', false)}>
+        <button className={cx('kind-opt', kind === 'ship' && !asModeller && !asGenerator && 'on')} onClick={() => pick('ship')}>
           <Rocket size={18} />
           <div>
             <b>Build</b>
             <span>Ships a change through the project's delivery mode</span>
           </div>
         </button>
-        <button className={cx('kind-opt orange', asModeller && 'on')} onClick={() => pick('ship', true)}>
+        <button className={cx('kind-opt orange', asModeller && 'on')} onClick={() => pick('ship', 'modeller')}>
           <Box size={18} />
           <div>
             <b>Modeller</b>
             <span>{noBlender ? 'Install Blender 4.2 LTS or newer (free)' : 'Builds a 3D model in Blender steps you watch live'}</span>
           </div>
         </button>
-        <button className={cx('kind-opt violet', kind === 'scout' && 'on')} onClick={() => pick('scout', false)}>
+        <button className={cx('kind-opt magenta', asGenerator && 'on')} onClick={() => pick('ship', 'generator')}>
+          <Sparkles size={18} />
+          <div>
+            <b>Generator</b>
+            <span>Runs asset generation jobs (images, sounds, 3D, motions) and places the files</span>
+          </div>
+        </button>
+        <button className={cx('kind-opt violet', kind === 'scout' && 'on')} onClick={() => pick('scout')}>
           <Radar size={18} />
           <div>
             <b>Recon</b>

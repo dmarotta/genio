@@ -32,7 +32,7 @@ import { createDepsWatch, npmGuardScript, type DepsWatchUnit } from './worktree-
 import { modellerDataDir, unitPluginDir } from './unitskills'
 import { hasModellerModel } from './modeller-live'
 import { unitClaims } from './modeller-landing'
-import { claimConflict, holdsClaims } from '@shared/modeller'
+import { claimConflict, claimHolderKind, holdsClaims } from '@shared/modeller'
 import { loadGuardConfig } from '../../resources/unit-skills/genio/lib/unity-guard.mjs'
 
 interface Track {
@@ -687,12 +687,13 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
    * A Build that started a model is a Modeller from then on: orange on the Squad, its page canvas first.
    * A Modeller's claims follow its models and its `note [key=claim]` lines; when two Modellers of a
    * project meet on a path, the newer one raises one choice for the player.
+   * A Generator's claims work the same way (its spawn paths and claim notes); it never becomes a Modeller.
    */
   function stepModeller(t: Task): void {
     if (t.kind !== 'ship') return
     const crew = hc().crew
     const data = modellerDataDir(hc().home.taskDir(t.id))
-    if (!t.modeller) {
+    if (!t.modeller && !t.generator) {
       if (!hasModellerModel(data)) return
       t = crew.update(t.id, { modeller: true }) ?? t
     }
@@ -704,10 +705,11 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
     const key = `asset-claim-${clash.holder.id}`.slice(0, 64)
     const decisions = hc().decisions
     if (decisions.list(true).some((d) => d.taskId === t.id && d.key === key)) return
-    decisions.openForTask(t.id, key, `"${t.title}" and "${clash.holder.title}" are changing the same model. Only one version can land: which one keeps going?`, 'system', {
+    const kind = claimHolderKind(t)
+    decisions.openForTask(t.id, key, `"${t.title}" and "${clash.holder.title}" are changing the same ${t.generator ? 'asset' : 'model'}. Only one version can land: which one keeps going?`, 'system', {
       project: t.project,
-      options: ['Stop this Modeller', 'Keep both; I pick one at merge'],
-      recommendation: 'Stop this Modeller',
+      options: [`Stop this ${kind}`, 'Keep both; I pick one at merge'],
+      recommendation: `Stop this ${kind}`,
       context: `Both claim ${clash.path} (this unit ${t.id}, the other ${clash.holder.id}). A binary file cannot be merged, so the second merge would be refused.`
     })
   }

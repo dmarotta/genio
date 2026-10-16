@@ -2,7 +2,7 @@ import type { Task, TaskOutcome, TaskState, TerminalInfo } from './types'
 import { resumedAfterReady } from './unit-activity'
 
 export type SquadState = 'WORKING' | 'READY TO MERGE' | 'DONE'
-export type SquadTone = 'blue' | 'violet' | 'orange' | 'volt' | 'alert' | 'amber'
+export type SquadTone = 'blue' | 'violet' | 'orange' | 'magenta' | 'volt' | 'alert' | 'amber'
 export type SquadOutcome = TaskOutcome
 
 /** Internal states the Squad shows as DONE. */
@@ -23,8 +23,8 @@ export function squadState(task: Task, terminal?: TerminalInfo): SquadState {
 /**
  * The unit's color everywhere it appears (Squad rail, Squad page, Quest log):
  * red for errors, green for ready or done, otherwise its kind at work, purple
- * Recon, orange Modeller or blue Build. Needing the player never repaints the
- * unit; it is the separate yellow indicator from `squadAttention`.
+ * Recon, orange Modeller, magenta Generator or blue Build. Needing the player
+ * never repaints the unit; it is the separate yellow indicator from `squadAttention`.
  */
 export function squadTone(task: Task, terminal?: TerminalInfo): SquadTone {
   const abnormalExit = task.state === 'exited' && (terminal?.exitCode !== undefined
@@ -32,7 +32,13 @@ export function squadTone(task: Task, terminal?: TerminalInfo): SquadTone {
   if (task.state === 'failed' || abnormalExit ||
       (terminal?.alive === false && terminal.exitCode !== undefined && terminal.exitCode !== 0)) return 'alert'
   if (squadState(task, terminal) !== 'WORKING') return 'volt'
-  return task.kind === 'scout' ? 'violet' : task.modeller ? 'orange' : 'blue'
+  return unitKindTone(task)
+}
+
+/** A unit's kind color, whatever its state: its kind chip and icon on the Squad, unit page and Quest log. */
+export function unitKindTone(task: Pick<Task, 'kind' | 'modeller' | 'generator'>): 'blue' | 'violet' | 'orange' | 'magenta' {
+  if (task.kind === 'scout') return 'violet'
+  return task.modeller ? 'orange' : task.generator ? 'magenta' : 'blue'
 }
 
 /** Yellow indicator: an active unit waits on the player (an open question, blocked, or a pending decision). */

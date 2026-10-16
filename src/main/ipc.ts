@@ -168,7 +168,8 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     modellerLive: (id) => {
       const { hc, task } = taskHome(id)
       const live = unitModel(hc, task)
-      if (live && !task.modeller && task.kind === 'ship') hc.crew.update(id, { modeller: true })
+      // A Generator stays a Generator (never both), even when it made a model with the kernel.
+      if (live && !task.modeller && !task.generator && task.kind === 'ship') hc.crew.update(id, { modeller: true })
       return live
     },
     modellerAct: async (id, act) => {
