@@ -3,6 +3,7 @@ import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Ally, ChatMessage, WkspInfo } from '../src/shared/types'
+import type { SendNowResult } from '../src/shared/chat'
 
 vi.hoisted(() => window.history.replaceState(null, '', '/?project=forest&wksp=forest'))
 vi.mock('../src/renderer/src/views/Systems', () => ({ ModelSelect: () => null, EffortSelect: () => null }))
@@ -15,7 +16,7 @@ import { publishScreenContext } from '../src/renderer/src/lib/screen-context'
 
 const WKSP = 'forest'
 const initial = getState()
-const api = { sendChat: vi.fn(async () => {}), steerChat: vi.fn(async () => {}), sendQueuedNow: vi.fn(async () => true), unqueueChat: vi.fn(async () => null) }
+const api = { sendChat: vi.fn(async () => {}), steerChat: vi.fn(async () => {}), sendQueuedNow: vi.fn(async (): Promise<SendNowResult> => ({ ok: true })), unqueueChat: vi.fn(async () => null) }
 let root: Root, host: HTMLDivElement, previous: typeof window.genio
 const queued: ChatMessage = { id: 'q1', wksp: WKSP, role: 'player', text: 'then the moat', queue: 'queued', ts: '2026-10-16T12:00:00Z' }
 
@@ -41,7 +42,7 @@ beforeEach(() => {
   previous = window.genio
   window.genio = { api } as never
   for (const f of Object.values(api)) f.mockClear()
-  api.sendQueuedNow.mockResolvedValue(true)
+  api.sendQueuedNow.mockResolvedValue({ ok: true })
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
   publishScreenContext('inventory', { world: WKSP })
 })
@@ -110,9 +111,28 @@ describe('the composer while Genio is busy', () => {
     expect(host.querySelector('[aria-label="Cancel queued message"]')).not.toBeNull()
     await act(async () => now.click())
     expect(api.sendQueuedNow).toHaveBeenCalledWith(WKSP, 'q1')
-    api.sendQueuedNow.mockResolvedValueOnce(false)
+    // steering right away: the turn stops, no toast needed
+    expect(getState().toasts).toEqual([])
+  })
+
+  it('Send now always tells the player what happened: what it waits for, or why it cannot', async () => {
+    show({ steerable: true })
+    await act(() => root.render(React.createElement(ChatPanel, { wksp: WKSP })))
+    const now = host.querySelector<HTMLButtonElement>('[aria-label="Send queued message now"]')!
+    api.sendQueuedNow.mockResolvedValueOnce({ ok: true, note: 'Genio stops as soon as deploy finishes, then reads it first.' })
     await act(async () => now.click())
-    expect(getState().toasts.at(-1)).toMatchObject({ title: 'Already sent' })
+    expect(getState().toasts.at(-1)).toMatchObject({ title: 'Steering', body: 'Genio stops as soon as deploy finishes, then reads it first.' })
+    api.sendQueuedNow.mockResolvedValueOnce({ ok: false, reason: 'Genio picked that message up already.' })
+    await act(async () => now.click())
+    expect(getState().toasts.at(-1)).toMatchObject({ title: 'Not sent now', body: 'Genio picked that message up already.' })
+  })
+
+  it('a steering message says so in place of Queued, without a second Send now', async () => {
+    show({ steerable: true }, [{ ...queued, steering: true }])
+    await act(() => root.render(React.createElement(ChatPanel, { wksp: WKSP })))
+    expect(host.querySelector('.msg-queue')!.textContent).toBe('Steering · ')
+    expect(host.querySelector('[aria-label="Send queued message now"]')).toBeNull()
+    expect(host.querySelector('[aria-label="Edit queued message"]')).not.toBeNull()
   })
 
   it('an unsent message (after a restart) has no Send now', async () => {

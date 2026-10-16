@@ -37,6 +37,10 @@ export class ProviderChatSession {
   get busy(): boolean { return this.dispatching || !!this.driver?.busy }
   get queued(): number { return this.pending.length + (this.driver?.queued ?? 0) }
   get idle(): boolean { return !this.busy && !this.queued && !this.paused }
+  /** the player message the turn in progress is reading, if any */
+  get runningMsgId(): string | undefined { return this.driver?.running?.msgId }
+  /** While a steering yield waits for a running tool call: that call, named for the player. */
+  yieldWait(): string | undefined { return this.driver?.yieldWait?.() }
   state(): ProviderSessions {
     if (this.sessionId) this.ids[this.provider] = this.sessionId
     return { active: this.provider, ids: { ...this.ids } }

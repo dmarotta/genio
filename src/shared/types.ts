@@ -525,6 +525,8 @@ export interface ChatMessage {
   from?: 'genio'
   /** a player message not yet read by the session (see ChatQueueState) */
   queue?: ChatQueueState
+  /** a queued message the player steered with (Steer or Send now): the turn in progress ends at a safe point and reads it first */
+  steering?: boolean
   /** a Genio image being generated: how many are on the way (the placeholder resolves into images or an error) */
   generating?: number
   /** what this Genio turn started, captured from its tool calls */

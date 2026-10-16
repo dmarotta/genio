@@ -89,9 +89,12 @@ export function ChatPanel({ wksp, context, surface = 'screen', active: _active =
     }
   }, [wksp])
   // A queued message jumps the queue and steers: the turn in progress stops at a safe point and reads it first.
+  // The message turns to "Steering" at once; a toast says what it waits for, or why it cannot be sent now.
   const sendNow = useCallback(async (m: ChatMessage): Promise<void> => {
     try {
-      if (!(await api().sendQueuedNow(wksp, m.id))) toast('info', 'Already sent', `${ASSISTANT_NAME} picked that message up already.`)
+      const r = await api().sendQueuedNow(wksp, m.id)
+      if (!r.ok) toast('info', 'Not sent now', r.reason)
+      else if (r.note) toast('info', 'Steering', r.note)
     } catch (e) {
       toast('error', 'Message not sent now', errText(e))
     }
@@ -369,11 +372,15 @@ const Message = memo(function Message({ m, calm, gamertag, onTakeBack, onSendNow
         {m.text && <div className="msg-bubble selectable">{m.text}</div>}
         <InventoryContextChips context={m.context} wksp={m.wksp} />
         <div className="msg-meta">
-          {m.queue === 'queued' && (
+          {m.queue === 'queued' && (m.steering ? (
+            <span className="msg-queue steering" title={`Steering: ${ASSISTANT_NAME} stops the current turn at a safe point (a running action finishes first) and reads this first.`}>
+              Steering ·{' '}
+            </span>
+          ) : (
             <span className="msg-queue" title="Sent while the session was busy: it reads this as soon as the current turn ends.">
               Queued ·{' '}
             </span>
-          )}
+          ))}
           {m.queue === 'unsent' && (
             <span className="msg-queue" title="The session stopped (Genio or this project window closed) before reading this message. Edit to send it again.">
               Not sent ·{' '}
@@ -383,7 +390,7 @@ const Message = memo(function Message({ m, calm, gamertag, onTakeBack, onSendNow
           <CopyMessageButton text={m.text} />
           {waiting && (
             <span className="msg-acts">
-              {m.queue === 'queued' && onSendNow && (
+              {m.queue === 'queued' && !m.steering && onSendNow && (
                 <button className="msg-act msg-send-now" title={`Send now: ${ASSISTANT_NAME} stops the current turn at a safe point and reads this first`} aria-label="Send queued message now" onClick={() => void onSendNow(m)}>
                   <ChevronsUp size={12} /> Send now
                 </button>

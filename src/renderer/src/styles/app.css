@@ -354,6 +354,7 @@ button.usage-toggle:hover { color: var(--text); }
 .msg.player.unsent .msg-bubble { border-color: rgba(255, 182, 39, 0.55); }
 .msg.player.queued .msg-images, .msg.player.unsent .msg-images { opacity: 0.6; }
 .msg.player.queued .msg-queue { color: var(--neon); }
+.msg.player.queued .msg-queue.steering { color: var(--amber); }
 .msg.player.unsent .msg-queue { color: var(--amber); }
 .msg-acts { display: inline-flex; gap: 2px; margin-left: 8px; vertical-align: middle; }
 .msg-act { display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 1px solid transparent; background: none; color: var(--text-mute); cursor: pointer; }

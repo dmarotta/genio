@@ -25,7 +25,7 @@ import type {
   UthanaUploadRequest, UthanaWorldConfig, UthanaWorldState
 } from '@shared/uthana'
 import type { PickEnv } from './loadout'
-import type { AllyControlsPatch, UnqueuedChat } from '@shared/chat'
+import type { AllyControlsPatch, SendNowResult, UnqueuedChat } from '@shared/chat'
 import type { ChatImageInput } from '@shared/chat-images'
 import type { Home } from './home'
 import type { InventoryService } from './inventory'
@@ -472,8 +472,11 @@ export interface WkspService {
    * With no turn to steer (idle, held, or the Bot playing) it is an ordinary message at the front of the queue.
    */
   steer(text: string, images?: ChatImageInput[], context?: InventoryContext): Promise<void>
-  /** A queued message steers now (see steer); false when the session already picked it up. */
-  sendNow(id: string): boolean
+  /**
+   * A queued message steers now (see steer). The result says what it waits for (a running tool call, a limit,
+   * the Bot's turn) or why it cannot; a stale queued record is corrected, never left looking queued.
+   */
+  sendNow(id: string): SendNowResult
   /** deliver queued wakes (drain → one turn → ack after the turn completes) */
   deliverWakes(): void
   /** Hold event delivery until the main process has reconciled this window. */

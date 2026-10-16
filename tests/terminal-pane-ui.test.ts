@@ -22,7 +22,7 @@ const WKSP = 'forest'
 const initial = getState()
 const shellTerm = (patch: Partial<TerminalInfo> = {}): TerminalInfo => ({ id: 'pane-1', title: 'Terminal', cwd: 'C:/games/forest', alive: true, cols: 120, rows: 32, kind: 'pane', project: WKSP, ...patch })
 const api = {
-  sendChat: vi.fn(async () => {}), steerChat: vi.fn(async () => {}), sendQueuedNow: vi.fn(async () => true), unqueueChat: vi.fn(async () => null),
+  sendChat: vi.fn(async () => {}), steerChat: vi.fn(async () => {}), sendQueuedNow: vi.fn(async () => ({ ok: true })), unqueueChat: vi.fn(async () => null),
   paneRun: vi.fn(async (_w: string, _m: string, command: string) => shellTerm({ id: 'run-1', run: command, title: `! ${command}` })),
   paneOpen: vi.fn(async (_w: string, cwd = 'main') => shellTerm({ cwd: cwd === 'main' ? 'C:/games/forest' : `C:/wt/${cwd}` })),
   paneClose: vi.fn(async () => {}),

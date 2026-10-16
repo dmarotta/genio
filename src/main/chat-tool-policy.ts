@@ -32,7 +32,32 @@ export function isReadOnlyCommand(cmd: string): boolean {
   return segments.every((s) => READ_ONLY_SEGMENTS.some((re) => re.test(s.trim())))
 }
 
-export type ToolDecision = { behavior: 'allow' } | { behavior: 'deny'; message: string } | { behavior: 'ask'; input: string; reason?: string }
+/** Waits, plain variable assignments and PowerShell reads: harmless to cut short, though never auto-approved for that. */
+const INTERRUPTIBLE_SEGMENTS: RegExp[] = [
+  /^(start-sleep|sleep)(\s+-(s|seconds|m|milliseconds))?\s+\d+(\.\d+)?[smhd]?$/i,
+  /^\$\w+\s*=\s*('[^']*'|"[^"$]*"|\d+)$/,
+  /^(get-childitem|gci|get-content|gc|get-item|get-itemproperty|test-path|resolve-path|split-path|join-path|select-object|select-string|sort-object|measure-object|format-table|format-list|out-string|get-date|get-process|convertfrom-json)\b/i
+]
+
+/**
+ * True when a running tool call can be cut short by a steering interrupt with nothing left half done: a read
+ * tool, or a shell command that only reads or waits (Genio's `Start-Sleep 75; Get-ChildItem …` polls).
+ * Anything else (deploys, merges, quests, writes) runs to its result first.
+ */
+export function interruptibleTool(name: string, input: unknown): boolean {
+  if (ALLOWED.has(name)) return true
+  if (name !== 'Bash' && name !== 'PowerShell') return false
+  const cmd = String((input as { command?: string } | undefined)?.command ?? '').trim()
+  // a script block can run anything; a write, substitution or redirection is never cut
+  if (!cmd || /[{}`]|\$\(|<\(|>\(/.test(cmd)) return false
+  if (isReadOnlyCommand(cmd)) return true
+  const scrubbed = cmd.replace(/2>&1|2>\s*\/dev\/null|2>\s*nul\b/gi, '')
+  if (/>/.test(scrubbed)) return false
+  return scrubbed.split(/\s*(?:&&|\|\||;|\|)\s*/).filter(Boolean)
+    .every((s) => [...READ_ONLY_SEGMENTS, ...INTERRUPTIBLE_SEGMENTS].some((re) => re.test(s.trim())))
+}
+
+export type ToolDecision ={ behavior: 'allow' } | { behavior: 'deny'; message: string } | { behavior: 'ask'; input: string; reason?: string }
 
 /** Pure tool policy for a Genio/Bot session; 'ask' goes to the player's permission prompt. */
 export function decideTool(role: ToolRole, toolName: string, input: unknown, shellMode: Settings['chatShellMode']): ToolDecision {

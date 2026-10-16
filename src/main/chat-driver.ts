@@ -45,6 +45,10 @@ export interface ChatDriver {
    * or when none was running. Queued turns stay queued.
    */
   yieldTurn(): Promise<void>
+  /** While a yield waits for a running tool call to finish: that call, named for the player. */
+  yieldWait?(): string | undefined
+  /** the turn in progress (submitted or starting), if any */
+  readonly running?: ChatTurn
   resume(fresh?: boolean): void
   stop(): void
   cancel(id: string): ChatTurn | undefined

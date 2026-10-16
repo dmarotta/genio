@@ -33,8 +33,8 @@ const fake = vi.hoisted(() => {
     }
     finishTurn(): void { this.emit({ type: 'result', total_cost_usd: 0 }) }
     say(id: string, text: string): void { this.emit({ type: 'assistant', message: { id, content: [{ type: 'text', text }] } }) }
-    startTool(id: string, toolId: string): void {
-      this.emit({ type: 'assistant', message: { id, content: [{ type: 'tool_use', id: toolId, name: 'mcp__genio__deploy', input: {} }] } })
+    startTool(id: string, toolId: string, name = 'mcp__genio__deploy', input: unknown = {}): void {
+      this.emit({ type: 'assistant', message: { id, content: [{ type: 'tool_use', id: toolId, name, input }] } })
     }
     toolDone(toolId: string): void {
       this.emit({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: toolId, content: 'deployed' }] } })
@@ -76,7 +76,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   createSdkMcpServer: () => ({})
 }))
 vi.mock('../src/main/wksp-tools', () => ({ buildTools: (_t: unknown, _g: unknown, _h: unknown, _role: unknown, hooks: { action?: () => void }) => { fake.hooks.push(hooks); return [] } }))
-vi.mock('../src/main/chat-tool-policy', () => ({ DISALLOWED: [], enforceTool: async () => ({ behavior: 'allow' }) }))
+vi.mock('../src/main/chat-tool-policy', async (actual) => ({ ...(await actual<object>()), DISALLOWED: [], enforceTool: async () => ({ behavior: 'allow' }) }))
 vi.mock('../src/main/chat-tool-bridge', () => ({
   openChatToolBridge: async () => ({ entry: 'bridge.js', env: {}, close: async () => {} }), closeChatToolBridges: async () => {}
 }))
@@ -191,13 +191,13 @@ describe('steering the visible turn', () => {
     await c.svc.send('b')
     await c.svc.send('c')
     const b = c.svc.history().find(m => m.text === 'b')!
-    expect(c.svc.sendNow(b.id)).toBe(true)
+    expect(c.svc.sendNow(b.id)).toEqual({ ok: true })
     await received(2)
     expect(q().interrupts).toBe(1)
     expect(q().received[1]).toContain('\n\nb')
     expect(c.view().queued.map(m => m.text)).toEqual(['a', 'c'])
     // already picked up: nothing to send now
-    expect(c.svc.sendNow(b.id)).toBe(false)
+    expect(c.svc.sendNow(b.id)).toEqual({ ok: false, reason: 'Genio picked that message up already.' })
     q().finishTurn()
     await received(3)
     q().finishTurn()
@@ -212,8 +212,8 @@ describe('steering the visible turn', () => {
     q().autoStop = false
     await c.svc.send('x')
     const x = c.svc.history().find(m => m.text === 'x')!
-    expect(c.svc.sendNow(x.id)).toBe(true)
-    expect(c.svc.sendNow(x.id)).toBe(true)
+    expect(c.svc.sendNow(x.id)).toMatchObject({ ok: true })
+    expect(c.svc.sendNow(x.id)).toMatchObject({ ok: true })
     await flush()
     expect(q().interrupts).toBe(1)
     q().finishTurn()
@@ -222,6 +222,86 @@ describe('steering the visible turn', () => {
     await flush()
     expect(q().received.filter(t => t.endsWith('x'))).toHaveLength(1)
     expect(c.svc.history().filter(m => m.text === 'x')).toHaveLength(1)
+  })
+
+  it('Send now during a running action says what it waits for and shows the message as steering until it is read', async () => {
+    const c = chat()
+    await c.svc.send('deploy a unit')
+    await received(1)
+    q().startTool('a1', 'tool-1')
+    await flush()
+    await c.svc.send('wait, not that one')
+    const x = c.svc.history().find(m => m.text === 'wait, not that one')!
+    // the turn is inside a deploy: it cannot stop yet, and the player is told so instead of nothing happening
+    expect(c.svc.sendNow(x.id)).toEqual({ ok: true, note: 'Genio stops as soon as deploy finishes (a running action is never cut in half), then reads it first.' })
+    await flush()
+    expect(q().interrupts).toBe(0)
+    expect(c.view().queued).toMatchObject([{ id: x.id, queue: 'queued', steering: true }])
+    q().toolDone('tool-1')
+    await received(2)
+    expect(q().interrupts).toBe(1)
+    expect(q().received[1]).toContain('wait, not that one')
+    // read: no longer queued, and the steering mark went with the queue state
+    expect(c.view().queued).toEqual([])
+    const sent = c.view().log.find(m => m.id === x.id)!
+    expect(sent.queue).toBeUndefined()
+    expect(sent.steering).toBeUndefined()
+  })
+
+  it('Send now cuts a read-only wait at once instead of sitting it out', async () => {
+    const c = chat()
+    await c.svc.send('check on the unit')
+    await received(1)
+    q().startTool('a1', 'tool-1', 'PowerShell', { command: "Start-Sleep 75; $d='C:\\Users\\dani\\data'; Get-ChildItem $d -Recurse -File | Select-Object -ExpandProperty FullName" })
+    await flush()
+    await c.svc.send('now it does')
+    const x = c.svc.history().find(m => m.text === 'now it does')!
+    expect(c.svc.sendNow(x.id)).toEqual({ ok: true })
+    await received(2)
+    expect(q().interrupts).toBe(1)
+    expect(q().received[1]).toContain('now it does')
+  })
+
+  it('a stale queued record (no turn waits for it) is shown as not sent, with the reason, never left queued', async () => {
+    const c = chat()
+    await c.svc.send('first')
+    await received(1)
+    const lost: ChatMessage = { id: 'p-lost', wksp: 'art', role: 'player', text: 'lost message', ts: new Date().toISOString(), queue: 'queued' }
+    c.svc.post(lost, true)
+    expect(c.view().queued.map(m => m.id)).toEqual(['p-lost'])
+    expect(c.svc.sendNow('p-lost')).toEqual({ ok: false, reason: 'That message was no longer waiting in the session, so it is marked Not sent. Edit it to send it again.' })
+    expect(c.view().queued).toEqual([])
+    expect(c.svc.history().find(m => m.id === 'p-lost')?.queue).toBe('unsent')
+    // still on record that way after a restart
+    const reloaded = createWkspService(() => ctx as never, c.home)
+    cleanup.push(() => void reloaded.stop())
+    expect(reloaded.history().find(m => m.id === 'p-lost')?.queue).toBe('unsent')
+    expect(q().interrupts).toBe(0)
+  })
+
+  it('a message the running turn already read but still recorded as queued turns sent', async () => {
+    const c = chat()
+    await c.svc.send('read me')
+    await received(1)
+    const m = c.svc.history().find(x => x.text === 'read me')!
+    expect(m.queue).toBeUndefined()
+    c.svc.post({ ...m, queue: 'queued' }, true)
+    expect(c.svc.sendNow(m.id)).toEqual({ ok: false, reason: 'Genio is already reading that message.' })
+    expect(c.view().queued).toEqual([])
+    expect(c.svc.history().find(x => x.id === m.id)?.queue).toBeUndefined()
+    expect(q().interrupts).toBe(0)
+  })
+
+  it('Send now on a message the screen still shows queued re-sends its real state', async () => {
+    const c = chat()
+    await c.svc.send('already read')
+    await received(1)
+    const m = c.svc.history().find(x => x.text === 'already read')!
+    const seen: ChatMessage[] = []
+    const off = bus.onEvent((ev: GenioEvent) => { if (ev.type === 'chat') seen.push(ev.message) })
+    cleanup.push(off)
+    expect(c.svc.sendNow(m.id)).toEqual({ ok: false, reason: 'Genio picked that message up already.' })
+    expect(seen).toEqual([m])
   })
 
   it('steers an event turn without dropping its events or one arriving meanwhile', async () => {

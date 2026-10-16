@@ -173,7 +173,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     const i = h.findIndex((x) => x.id === id)
     if (i < 0 || h[i].queue !== 'queued') return
     preparing.delete(id)
-    const { queue: _was, ...sent } = h[i]
+    const { queue: _was, steering: _steered, ...sent } = h[i]
     h.splice(i, 1)
     const m = { ...sent, ts: nowIso() }
     record(m, true)
@@ -636,9 +636,16 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
   function canSteer(): boolean {
     return !readOnly && genio.busy && !info.limit && !botAway()
   }
+  /** A waiting message the player steered with shows it ("Steering") until the session reads it. */
+  function markSteering(id: string): void {
+    const m = loadHistory().find((x) => x.id === id)
+    if (m?.queue === 'queued' && !m.steering) record({ ...m, steering: true }, false)
+  }
   /** A ready turn goes first; when it steers, the visible turn in progress ends at a safe point. */
   function enqueueTurn(item: TurnItem): void {
     if (!item.msgId || !steerIds.delete(item.msgId)) { genio.enqueue(item); return }
+    // marked before it is queued: an idle session reads it at once, and reading it clears the mark
+    markSteering(item.msgId)
     const yieldTurn = canSteer()
     const token = {}
     if (yieldTurn) steering = token
@@ -646,6 +653,14 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
       if (steering === token) steering = undefined
       publishInfo()
     })
+  }
+  /** Why a steering message just queued is not read at once; undefined when the turn stops now (or none runs). */
+  function steerNote(): string | undefined {
+    const tool = genio.yieldWait()
+    if (tool) return `${ASSISTANT_NAME} stops as soon as ${tool} finishes (a running action is never cut in half), then reads it first.`
+    if (info.limit) return `${ASSISTANT_NAME} cannot take a turn right now (see the limit notice); it is read first when the chat resumes.`
+    if (genio.busy && !canSteer()) return 'This turn cannot be steered; it is read first when the turn ends.'
+    return undefined
   }
 
   const checkSend = (): void => {
@@ -780,17 +795,36 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     send: (text, origin = 'player', images = [], context) => submit(text, origin, images, context, false),
     steer: (text, images = [], context) => submit(text, 'player', images, context, true),
     sendNow(id) {
-      if (readOnly) return false
+      if (readOnly) return { ok: false, reason: 'The main chat is archived. Open the Genio project to continue.' }
       const m = loadHistory().find((x) => x.id === id)
-      if (!m || m.queue !== 'queued') return false
+      if (!m || m.queue !== 'queued') {
+        // the chat on screen is behind: show the message as it really is
+        if (m) bus.publish({ type: 'chat', message: m })
+        return { ok: false, reason: !m ? 'That message is no longer in this chat.'
+          : m.queue === 'unsent' ? 'The session stopped before reading that message. Edit it to send it again.'
+          : `${ASSISTANT_NAME} picked that message up already.` }
+      }
       steerIds.add(id)
       // still being prepared: it steers as soon as its turn is ready
-      if (preparing.has(id)) return true
+      if (preparing.has(id)) {
+        markSteering(id)
+        return { ok: true, note: 'It is still being prepared (images or the project opening) and steers as soon as it is ready.' }
+      }
       const item = genio.cancel(id)
-      if (!item) { steerIds.delete(id); return false }
+      if (!item) {
+        steerIds.delete(id)
+        // Its record says queued but no turn waits for it: never leave it looking queued.
+        if (genio.runningMsgId === id) {
+          markSent(id)
+          return { ok: false, reason: `${ASSISTANT_NAME} is already reading that message.` }
+        }
+        record(strandQueued([m]).list[0], true)
+        publishInfo()
+        return { ok: false, reason: 'That message was no longer waiting in the session, so it is marked Not sent. Edit it to send it again.' }
+      }
       enqueueTurn(item)
       publishInfo()
-      return true
+      return { ok: true, note: steerNote() }
     },
     unqueue(id) {
       if (readOnly) return null

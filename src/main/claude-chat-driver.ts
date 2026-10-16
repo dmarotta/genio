@@ -10,6 +10,7 @@ import type { ClaudeRateLimitInfo } from './usage'
 import { claudeLimitState } from './claude-limit'
 import { registerModelQuery, supportedClaudeEfforts } from './model-discovery'
 import { nowIso, rid, truncate } from './util'
+import { interruptibleTool } from './chat-tool-policy'
 type Sdk = typeof import('@anthropic-ai/claude-agent-sdk')
 let sdkPromise: Promise<Sdk> | undefined
 export const loadSdk = (): Promise<Sdk> => (sdkPromise ??= import('@anthropic-ai/claude-agent-sdk'))
@@ -117,6 +118,7 @@ export class AgentSession implements ChatDriver {
   busy = false
   private turn?: TurnItem
   get current(): TurnItem | undefined { return this.turn }
+  get running(): TurnItem | undefined { return this.turn }
   set current(item: TurnItem | undefined) {
     this.turn = item
     // the yielded turn is over, however it ended
@@ -126,7 +128,7 @@ export class AgentSession implements ChatDriver {
   /** the current turn's prompt reached the query (before that there is nothing to interrupt) */
   private submitted = false
   /** tool calls of the current turn that started and have no result yet */
-  private openTools = new Set<string>()
+  private openTools = new Map<string, { name: string; input: unknown }>()
   private yielding?: { turn: TurnItem; asked: boolean; done: Promise<void>; resolve(): void; timer?: ReturnType<typeof setTimeout> }
   sessionId?: string
   private limit?: WkspInfo['limit']
@@ -486,7 +488,7 @@ export class AgentSession implements ChatDriver {
             const trace: ToolTrace = { id: block.id, name: block.name ?? 'tool', input: truncate(JSON.stringify(block.input ?? {}), 2000) }
             cm.tools = [...(cm.tools ?? []).filter((t) => t.id !== block.id), trace]
             this.toolOwner.set(block.id, cm.id)
-            this.openTools.add(block.id)
+            this.openTools.set(block.id, { name: block.name ?? 'tool', input: block.input })
             this.hooks.onActivity('tool', prettyTool(block.name ?? ''))
           }
         }
@@ -587,14 +589,27 @@ export class AgentSession implements ChatDriver {
     return done
   }
 
+  /** The running tool call a yield still waits for: one that could be left half done if cut. */
+  private blockingTool(): { name: string; input: unknown } | undefined {
+    return [...this.openTools.values()].find((t) => !interruptibleTool(t.name, t.input))
+  }
+
+  yieldWait(): string | undefined {
+    const y = this.yielding
+    if (!y || y.asked || this.current !== y.turn) return undefined
+    const tool = this.blockingTool()
+    return tool ? prettyTool(tool.name) : undefined
+  }
+
   /**
    * Interrupt the yielding turn once it is at a safe point: its prompt was submitted and every tool call
-   * it started has its result (Genio's tool policy refuses new ones meanwhile). Interrupting mid-call
-   * could leave a deploy, merge or quest half done.
+   * it started has its result (Genio's tool policy refuses new ones meanwhile), or only reads or waits
+   * (a `Start-Sleep 75` poll is cut, not sat out). Interrupting a deploy, merge or quest mid-call could
+   * leave it half done.
    */
   private tryYield(): void {
     const y = this.yielding
-    if (!y || y.asked || this.current !== y.turn || !this.submitted || this.openTools.size || !this.q) return
+    if (!y || y.asked || this.current !== y.turn || !this.submitted || this.blockingTool() || !this.q) return
     y.asked = true
     const q = this.q
     void q.interrupt().catch(() => undefined)

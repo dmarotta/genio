@@ -145,6 +145,7 @@ export class CodexChatDriver implements ChatDriver {
 
   constructor(private readonly options: CodexDriverOptions, private readonly events: ChatDriverEvents) {}
   get queued(): number { return this.pending.length }
+  get running(): ChatTurn | undefined { return this.current }
   get idle(): boolean { return !this.busy && !this.pending.length && !this.paused }
   hasEventsQueued(): boolean { return this.current?.kind === 'events' || this.pending.some(t => t.kind === 'events') }
   cancel(id: string): ChatTurn | undefined {

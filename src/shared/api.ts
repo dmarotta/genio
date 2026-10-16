@@ -3,7 +3,7 @@ import type { RecommendationReview, RecommendationResult } from './choice'
 import type { InventoryContext } from './inventory-context'
 export interface WorldMetadata { engineVersion?: string; lastCommitAt?: string }
 
-import type { AllyControlsPatch, UnqueuedChat } from './chat'
+import type { AllyControlsPatch, SendNowResult, UnqueuedChat } from './chat'
 import type {
   AwayMode, AwayState, BacklogItem, StatusReport, ChatMessage, DeliveryMode, Engine, FleetSnapshot,
   GenioEvent, LedgerRecord, Priority, Project, ProjectCommands, Ally, Settings, Task, TaskKind,
@@ -587,8 +587,8 @@ export interface GenioApi {
   unqueueChat(wksp: string, id: string): Promise<UnqueuedChat | null>
   /** send a message that steers: the turn in progress ends at a safe point and this one is read first */
   steerChat(wksp: string, text: string, images?: ChatImageInput[], context?: InventoryContext): Promise<void>
-  /** a queued message steers now; false when the session already picked it up */
-  sendQueuedNow(wksp: string, id: string): Promise<boolean>
+  /** a queued message steers now; the result says what it waits for, or why it cannot */
+  sendQueuedNow(wksp: string, id: string): Promise<SendNowResult>
   /** like/dislike a Genio message (null removes it); a dislike pauses what that message started after a short grace period */
   reactToMessage(wksp: string, id: string, kind: ReactionKind | null): Promise<ChatMessage>
   interruptWksp(wksp: string): Promise<void>

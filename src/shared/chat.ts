@@ -57,6 +57,12 @@ export interface UnqueuedChat {
 }
 
 /**
+ * What Send now did with a queued message. `ok`: it steers (or goes first when nothing can be steered);
+ * `note` says what it waits for when the turn cannot stop right away. Otherwise `reason` says why not.
+ */
+export type SendNowResult = { ok: true; note?: string } | { ok: false; reason: string }
+
+/**
  * A chat log as written on disk (one line per write): the last write of an id
  * wins and sets its place, and cancelled messages drop out.
  */
@@ -74,7 +80,8 @@ export function strandQueued(list: readonly ChatMessage[]): { list: ChatMessage[
   const stranded: ChatMessage[] = []
   const next = list.map((m) => {
     if (m.queue !== 'queued') return m
-    const u: ChatMessage = { ...m, queue: 'unsent' }
+    const { steering: _was, ...rest } = m
+    const u: ChatMessage = { ...rest, queue: 'unsent' }
     stranded.push(u)
     return u
   })

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { decideTool } from '../src/main/wksp'
+import { interruptibleTool } from '../src/main/chat-tool-policy'
 
 const ps = (command: string): { command: string } => ({ command })
 const MODES = ['ask', 'auto-shell', 'all'] as const
@@ -45,5 +46,28 @@ describe('decideTool: chat shell approval mode', () => {
       expect(decideTool('bot', 'PowerShell', ps('Remove-Item x'), mode).behavior).toBe('deny')
       expect(decideTool('bot', 'mcp__other__thing', {}, mode).behavior).toBe('deny')
     }
+  })
+})
+
+describe('interruptibleTool: what a steering interrupt may cut short', () => {
+  it('cuts reads and waits', () => {
+    expect(interruptibleTool('Read', { file_path: 'x' })).toBe(true)
+    expect(interruptibleTool('Grep', { pattern: 'x' })).toBe(true)
+    expect(interruptibleTool('Bash', ps('git status'))).toBe(true)
+    expect(interruptibleTool('PowerShell', ps("Start-Sleep 75; $d='C:\\data'; Get-ChildItem $d -Recurse -File | Select-Object -ExpandProperty FullName"))).toBe(true)
+    expect(interruptibleTool('Bash', ps('sleep 30 && tail -n 20 log.txt'))).toBe(true)
+  })
+
+  it('lets anything that could be left half done finish', () => {
+    expect(interruptibleTool('mcp__genio__deploy', {})).toBe(false)
+    expect(interruptibleTool('PowerShell', ps('Start-Sleep 5; Remove-Item x'))).toBe(false)
+    expect(interruptibleTool('PowerShell', ps('Get-ChildItem | Where-Object { Remove-Item $_ }'))).toBe(false)
+    expect(interruptibleTool('Bash', ps('npm test > out.txt'))).toBe(false)
+    expect(interruptibleTool('PowerShell', ps('$x = $(npm install)'))).toBe(false)
+    expect(interruptibleTool('Bash', ps(''))).toBe(false)
+  })
+
+  it('never changes what runs without asking', () => {
+    expect(decideTool('genio', 'PowerShell', ps('Start-Sleep 75'), 'ask')).toMatchObject({ behavior: 'ask' })
   })
 })
