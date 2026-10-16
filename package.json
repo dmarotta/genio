@@ -8,8 +8,10 @@
   "license": "MIT",
   "private": true,
   "scripts": {
+    "predev": "node scripts/check-install.mjs",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "prestart": "node scripts/check-install.mjs",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",

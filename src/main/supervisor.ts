@@ -27,6 +27,8 @@ import type { AppCtx, SupervisorService } from './services'
 import { runShell, truncate } from './util'
 import { heartbeatFor } from './usage-policy'
 import { createUnityProcessWatch, type UnityWatchRoot } from './unity-guards'
+import { createDepsWatch, npmGuardScript, type DepsWatchUnit } from './worktree-deps'
+import { unitPluginDir } from './unitskills'
 import { loadGuardConfig } from '../../resources/unit-skills/genio/lib/unity-guard.mjs'
 
 interface Track {
@@ -72,6 +74,7 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
   let unsub: (() => void) | undefined
   let unityTimer: NodeJS.Timeout | undefined
   const unityWatch = createUnityProcessWatch()
+  const depsWatch = createDepsWatch(npmGuardScript(unitPluginDir((home.parent ?? home).root)))
 
   // tick (heartbeat) state
   let nextTickAt = 0
@@ -103,6 +106,16 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
       await unityWatch.poll(roots, (task, message) => { void hc().crew.send(task, message).catch(() => {}) })
     } catch (e) {
       if (process.env.GENIO_DEBUG) console.error(`[unity-watch:${home.name}]`, e)
+    }
+    try {
+      const units: DepsWatchUnit[] = []
+      for (const task of hc().crew.list()) {
+        const terminal = task.terminalId ? ctx().terminals.get(task.terminalId) : undefined
+        if (terminal?.alive) units.push({ id: task.id, worktree: task.worktree, pid: terminal.pid, statusFile: home.statusFile(task.id) })
+      }
+      await depsWatch.poll(units, (task, message) => { void hc().crew.send(task, message).catch(() => {}) })
+    } catch (e) {
+      if (process.env.GENIO_DEBUG) console.error(`[deps-watch:${home.name}]`, e)
     }
   }
 

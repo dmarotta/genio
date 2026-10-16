@@ -4,7 +4,7 @@
  */
 import path from 'node:path'
 import fs from 'node:fs'
-import { app, BrowserWindow, dialog, net, protocol, screen, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, net, protocol, screen, shell } from 'electron'
 import { EVENT_CHANNEL } from '@shared/api'
 import { bus } from './bus'
 import { createApp, ensureProjectBase, getCtx, startApp, startProjectBase, stopApp, stopProjectBase } from './ctx'
@@ -27,6 +27,7 @@ import { fitInto, isChatPopoutUrl, POPOUT_MIN, visiblePopoutBounds, type Rect } 
 import { WINDOW_MIN } from '@shared/window'
 import { captureUserData } from './capture-isolation'
 import { windowTitle } from '@shared/window-title'
+import { COPY_SIGNAL, genioInstallReport, logInstallReport, recoveryCardHtml, type GenioInstallReport } from './install-health'
 
 // Validate before single-instance locking, Base writes, or provider startup.
 const captureData = captureUserData()
@@ -90,6 +91,16 @@ function clearLock(): void {
 }
 
 async function boot(): Promise<void> {
+  // A checkout whose node_modules was wiped (an install run through a unit's linked node_modules) gets a
+  // recovery card, not a crash. Existence checks only; Genio never reinstalls its own checkout.
+  if (!app.isPackaged) {
+    const health = genioInstallReport(appRoot(), defaultHomeRoot())
+    if (!health.ok) {
+      logInstallReport(health, defaultHomeRoot())
+      showRecoveryCard(health)
+      return
+    }
+  }
   writeLock()
   if (!process.env.GENIO_CAPTURE_DIR) ensureWindowsToastIdentity(appRoot())
   // Electron writes Start Menu\Electron.lnk on an unpackaged run's first notification.
@@ -110,6 +121,20 @@ async function boot(): Promise<void> {
   wireEvents()
   await launch(process.argv, process.cwd())
   for (const pending of pendingLaunches.splice(0)) await launch(pending.argv, pending.cwd)
+}
+
+/** The plain recovery card: what is broken, the command to fix it and a Copy button. Closing it quits. */
+function showRecoveryCard(health: GenioInstallReport): void {
+  const card = new BrowserWindow({ width: 680, height: 600, title: 'Genio', backgroundColor: '#07090e', autoHideMenuBar: true, icon: windowIcon(appRoot()),
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true } })
+  card.setMenu(null)
+  card.on('page-title-updated', (e, title) => {
+    e.preventDefault()
+    if (title.startsWith(COPY_SIGNAL)) clipboard.writeText(health.command)
+  })
+  card.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  card.webContents.on('will-navigate', e => e.preventDefault())
+  void card.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(recoveryCardHtml(health))}`)
 }
 
 function registerMedia(): void {

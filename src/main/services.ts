@@ -29,6 +29,7 @@ import type { AllyControlsPatch, UnqueuedChat } from '@shared/chat'
 import type { ChatImageInput } from '@shared/chat-images'
 import type { Home } from './home'
 import type { InventoryService } from './inventory'
+import type { SweepResult } from './worktree-deps'
 
 // ---------------------------------------------------------------- global
 
@@ -341,6 +342,8 @@ export interface CrewService {
   openDecisionKeys(id: string): string[]
   /** session start: mark detached tasks, reconcile worktrees */
   reconcileOnStart(project?: string): Promise<void>
+  /** startup and despawn: remove node_modules links in worktree folders (tell live units instead), clear landed leftovers */
+  sweepWorktrees(): Promise<SweepResult>
   /** number of live (not-yet-PR) tasks holding a capacity place for project */
   capacityUsed(project: string): number
   /** state of the unit's quest in this base's quest log, when it has one */

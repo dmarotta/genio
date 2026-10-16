@@ -298,6 +298,8 @@ export async function startApp(ctx: AppCtx): Promise<void> {
   surface()
   stopEngineChoices = bus.onEvent((ev) => { if (ev.type === 'projects') surface(ev.projects) })
   for (const h of ctx.homes.values()) await h.crew.reconcileOnStart()
+  // node_modules links left in worktree folders lose the link (only the link); landed leftovers are cleared
+  for (const h of ctx.homes.values()) void h.crew.sweepWorktrees().catch(() => undefined)
   // despawned Codex units whose threads were still open last time: archive them now
   void retryPendingArchives(ctx.main.home.data).catch(() => undefined)
   // quests drifted from their units (landed but still in flight, duplicates): fix before supervision reads them

@@ -11,7 +11,7 @@ import type { AppCtx, CrewService } from './services'
 import { placeWorktree, type Home } from './home'
 import { bus } from './bus'
 import * as git from './git'
-import { appendProgressNote, doorbellLine, engineHints, kickoffPrompt, renderBrief } from './brief'
+import { appendProgressNote, doorbellLine, engineHints, kickoffPrompt, renderBrief, type BriefInput } from './brief'
 import { holdsCapacity } from './usage-policy'
 import { buildArgs, CLAUDE_BYPASS_DIALOG } from './harness'
 import { discoverCodexSession } from './codex-session'
@@ -32,10 +32,12 @@ import { engineBriefLine, engineEnv, engineFacts } from '@shared/engine-summary'
 import { getSecret } from './secrets'
 import { installUnitHooks } from './unithooks'
 import { installUnityShims, unityGuardScript, unityPreToolHook } from './unity-guards'
+import { depsEnv, depsPreToolHook, depsStateFile, installNpmShims, npmGuardScript, startWorktreeDeps, sweepWorktrees, type SweepResult } from './worktree-deps'
+import { isLink, removeLinkSafely } from '../../resources/unit-skills/genio/lib/node-deps.mjs'
 import { installUnitPlugin, openRouterEnv, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief } from './unitskills'
 import { findUnityCli, unityUnitConfig, unityUnitEnv } from './unity-unit'
 import {
-  appendLine, ensureDir, exists, fwd, nowIso, readJson, readText, rid, slugify, stripAnsi, truncate, writeJson, writeText
+  appendJsonl, appendLine, ensureDir, exists, fwd, nowIso, readJson, readText, rid, slugify, stripAnsi, truncate, writeJson, writeText
 } from './util'
 
 /** States with an expected live process. */
@@ -147,6 +149,18 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
   const mainHome = home.parent ?? home
   const pluginDir = unitPluginDir(mainHome.root)
   const toolsBrief = (): string => unitToolsBrief(pluginDir)
+  const depsGuard = npmGuardScript(pluginDir)
+  /** What Genio did about worktree dependencies and links (docs/unit-worktrees.md). */
+  const depsLog = (record: Record<string, unknown>): void => safe(() => appendJsonl(path.join(mainHome.state, 'worktree-deps.jsonl'), { at: nowIso(), home: home.name, ...record }))
+  /** Live units already told about a node_modules link this session. */
+  const toldLinks = new Set<string>()
+  /** The brief's dependency lines for a worktree with a package.json. */
+  const nodeDeps = (id: string, wt: string): BriefInput['nodeDeps'] =>
+    exists(path.join(wt, 'package.json')) ? { stateFile: depsStateFile(home.taskDir(id)), setup: depsGuard } : undefined
+  /** Background private node_modules for the unit's worktree (once; nothing to do when it already has one). */
+  const startDeps = (t: Task, main: string): void => safe(() => {
+    void startWorktreeDeps({ worktree: t.worktree, main, stateFile: depsStateFile(home.taskDir(t.id)), statusFile: home.statusFile(t.id), data: mainHome.data, log: depsLog })
+  })
 
   /** Launch additions for unit skills; a missing install or key never blocks a launch. */
   const skillExtras = (t: Task, harnessId: string, worldPath?: string): ReturnType<typeof unitLaunchExtras> => {
@@ -179,14 +193,15 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     return extras
   }
 
-  const writeClaudeSettings = (t: Task, guard?: string): string => {
+  const writeClaudeSettings = (t: Task, guard?: string, deps?: string): string => {
     const p = home.taskStateFile(t.id, '.claude-settings.json')
     const marker = fwd(turnEndedFile(t.id))
     const command = `node -e "require('fs').writeFileSync('${marker}', String(Date.now()))"`
+    const preToolUse = [...(guard ? [unityPreToolHook(guard)] : []), ...(deps ? [depsPreToolHook(deps)] : [])]
     // Genio's Claude home has no user settings of its own: carry over only the
     // player's existing bypass consent. Genio never answers that dialog itself.
     writeJson(p, { ...(playerSkipsBypassPrompt() ? { skipDangerousModePermissionPrompt: true } : {}),
-      hooks: { Stop: [{ hooks: [{ type: 'command', command }] }], ...(guard ? { PreToolUse: [unityPreToolHook(guard)] } : {}) } })
+      hooks: { Stop: [{ hooks: [{ type: 'command', command }] }], ...(preToolUse.length ? { PreToolUse: preToolUse } : {}) } })
     return p
   }
 
@@ -269,9 +284,20 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     const unityProject = project && effectiveEngine(project).engine === 'unity'
     const guard = unityProject ? unityGuardScript(pluginDir) : undefined
     if (unityProject && (!skills.env.GENIO_UNITY_CONFIG || !skills.env.GENIO_UNITY)) throw new Error('Unity units require the installed genio-unity wrapper and guard config.')
-    const shimEnv = guard ? installUnityShims(path.join(home.taskDir(t.id), 'unit-bin'), skills.env.GENIO_UNITY, guard,
-      adapter.env?.PATH ?? adapter.env?.Path ?? process.env.PATH ?? process.env.Path ?? '') : {}
-    const settingsPath = isClaude ? writeClaudeSettings(t, guard) : undefined
+    const shimDir = path.join(home.taskDir(t.id), 'unit-bin')
+    const inheritedPath = adapter.env?.PATH ?? adapter.env?.Path ?? process.env.PATH ?? process.env.Path ?? ''
+    const shimEnv = guard ? installUnityShims(shimDir, skills.env.GENIO_UNITY, guard, inheritedPath) : {}
+    // npm/npx/pnpm/yarn refuse installs through a linked node_modules; a missing guard never blocks a launch.
+    let depsShimEnv: Record<string, string> = {}
+    let deps: string | undefined
+    try {
+      depsShimEnv = installNpmShims(shimDir, depsGuard, inheritedPath)
+      deps = depsGuard
+    } catch {
+      /* launch without the npm shims */
+    }
+    if (project) startDeps(t, project.path)
+    const settingsPath = isClaude ? writeClaudeSettings(t, guard, deps) : undefined
     // Genio's own Codex home keeps units (and any Codex image run inside a unit) out of the player's Codex app.
     // A runtime with its own CODEX_HOME keeps it; a resume follows the unit's thread.
     const isCodex = adapter.id === 'codex'
@@ -303,6 +329,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       ...hookEnv,
       ...skills.env,
       ...shimEnv,
+      ...depsShimEnv,
+      ...(project ? depsEnv({ worktree: t.worktree, main: project.path, stateFile: depsStateFile(home.taskDir(t.id)), guard: depsGuard }) : {}),
       ...openRouterEnv(adapter.id, cheapModelsAllowed(project), openRouterKey),
       GENIO_TASK_ID: t.id,
       GENIO_STATUS_FILE: fwd(home.statusFile(t.id)),
@@ -336,6 +364,31 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       })()
     }
     return term
+  }
+
+  let sweeping: Promise<unknown> = Promise.resolve()
+  const sweepOnce = (): Promise<SweepResult> => {
+    const ctx = getCtx()
+    // This base's worktrees folder and any Dev Drive one its units were placed in.
+    const roots = [...new Set([home.worktrees, ...tasks.map((t) => path.dirname(path.dirname(t.worktree)))].filter((r) => path.basename(r) === 'worktrees'))]
+    const lists = new Map<string, Promise<string[] | undefined>>()
+    const key = (p: string): string => (process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p))
+    return sweepWorktrees({
+      roots,
+      units: tasks.map((t) => ({ id: t.id, worktree: t.worktree, live: terminalAlive(t) || t.state === 'spawning', state: t.state, stateReason: t.stateReason })),
+      registered: async (folder, projectName) => {
+        const repo = ctx.projects.get(projectName)?.path
+        if (!repo) return undefined
+        if (!lists.has(repo)) lists.set(repo, git.worktreeList(repo).then((l) => l.map((w) => key(w.path))).catch(() => undefined))
+        const known = await lists.get(repo)!
+        // An unreadable worktree list proves nothing: treat the folder as registered and leave it.
+        return known ? known.includes(key(folder)) : true
+      },
+      notify: (id, message) => void svc.send(id, message).catch(() => undefined),
+      log: depsLog,
+      told: toldLinks,
+      setup: depsGuard
+    })
   }
 
   const resolveKeysFor = (id: string): string[] => [...foldOpenDecisions(svc.statusEvents(id)).keys()]
@@ -555,7 +608,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
             briefInclude: s.briefInclude,
             summaryWords: req.kind === 'scout' ? ctx.dispatch.reportWords(project.name, loadout.harness) : undefined,
             tools: toolsBrief(),
-            submodules
+            submodules,
+            nodeDeps: nodeDeps(id, wt)
           })
         )
 
@@ -797,6 +851,15 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       for (const term of shells) ctx.terminals.kill(term.id)
       // Give a killed shell a moment to release its working directory (Windows).
       if (shells.some((term) => term.alive)) await sleep(500)
+      // A linked node_modules goes first, the link only: removing the worktree must never reach through it.
+      const linkedDeps = path.join(t.worktree, 'node_modules')
+      if (isLink(linkedDeps)) {
+        try {
+          depsLog({ event: 'deps.link-removed', unit: id, ...removeLinkSafely(linkedDeps) })
+        } catch (e) {
+          return { ok: false, message: `Refusing to despawn ${id}: could not remove the node_modules link at ${fwd(linkedDeps)} (${(e as Error).message}). Remove only the link with cmd /c rmdir, never a recursive delete.` }
+        }
+      }
       let leftover = ''
       if (repo) {
         const scratch = t.kind === 'scout' || force
@@ -834,7 +897,15 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       update(id, { state: 'cleaned', cleanedAt: nowIso(), terminalId: undefined, stateReason: `despawned: ${via}` })
       ledger('task.cleaned_up', t, { via })
       safe(() => ctx.stats.award('cleanup', id))
+      void svc.sweepWorktrees().catch(() => undefined)
       return { ok: true, message: `Despawned ${id} (${via}).${leftover}` }
+    },
+
+    sweepWorktrees(): Promise<SweepResult> {
+      // One sweep at a time: a despawn during the startup sweep queues behind it.
+      const next = sweeping.catch(() => undefined).then(sweepOnce)
+      sweeping = next
+      return next
     },
 
     async merge(id): Promise<OpResult> {
@@ -909,6 +980,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           engine: project.engine,
           briefInclude: ctx.settings.get().briefInclude,
           tools: toolsBrief(),
+          nodeDeps: nodeDeps(id, t.worktree),
           carriedReport: report || '(the recon report was empty)'
         })
       )

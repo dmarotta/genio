@@ -36,6 +36,18 @@ export interface BriefInput {
   summaryWords?: number
   /** Submodules Genio checked out in the worktree (initWorktreeSubmodules) */
   submodules?: SubmoduleReport
+  /** A worktree with a package.json: Genio's private node_modules setup record and the setup script */
+  nodeDeps?: { stateFile: string; setup: string }
+}
+
+/** Setup lines on the worktree's own node_modules (docs/unit-worktrees.md). */
+export function nodeDepsLines(d?: BriefInput['nodeDeps']): string[] {
+  if (!d) return []
+  return [
+    `- Dependencies: Genio is installing this worktree's own private \`node_modules\` in the background (a copy of the main checkout's when the lockfiles match, otherwise \`npm ci --prefer-offline\` here). \`${fwd(d.stateFile)}\` says \`installing\`, \`ready\`, \`failed\` or \`skipped\`; wait for \`ready\` before running node tools.`,
+    '- That `node_modules` is yours alone: you may run `npm install` or `npm ci` inside this worktree. Never link, junction or move `node_modules`, never point it at another folder, and never touch the main checkout\'s `node_modules`: an install through a link deletes and rewrites the folder it points to.',
+    `- If it is missing or broken, run \`node "${fwd(d.setup)}" setup\` in the worktree (it removes a link only, then copies or installs).`
+  ]
 }
 
 /** Setup lines on the worktree's submodules: none without any, a visible warning when some are missing. */
@@ -174,6 +186,7 @@ export function renderBrief(i: BriefInput): string {
   out.push('- ISOLATION ASSERTION (do this first): run `git rev-parse --show-toplevel`. It must resolve to the worktree path above.')
   out.push(`  If it does not, run \`${appendCommand(i.statusFile, 'blocked: launched outside the isolated worktree')}\` and stop immediately.`)
   out.push(...submoduleLines(i.submodules))
+  out.push(...nodeDepsLines(i.nodeDeps))
   out.push('')
   out.push('# Rules')
   out.push('')

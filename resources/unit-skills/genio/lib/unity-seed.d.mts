@@ -21,6 +21,7 @@ export interface SeedOptions {
 export function checkCopyPath(path: string): Promise<void>
 export function treeStats(root: string, options?: { library?: boolean; rejectLinks?: boolean }): Promise<TreeStats>
 export function checkFreeSpace(target: string, bytes: number, options?: SeedOptions): Promise<CopySpace>
+export function robocopyTree(source: string, dest: string, options?: { run?: SeedOptions['run']; excludeDirs?: string[]; excludeFiles?: string[]; label?: string }): Promise<'robocopy'>
 export function copyLibrary(source: string, dest: string, options?: SeedOptions): Promise<'robocopy' | 'fs.cp'>
 export function cloneOrCopyLibrary(source: string, dest: string, options?: SeedOptions): Promise<{ method: SeedMethod; clone?: SeedResult }>
 export function seedLibrary(copy: string, source: string, options?: SeedOptions): Promise<SeedReport>

@@ -70,18 +70,26 @@ export async function cloneOrCopyLibrary(source, dest, options = {}) {
   return { method: clone.method === 'clone' ? `clone:${clone.via}` : method ?? 'clone-refused-copy', clone }
 }
 
-/** Robocopy uses codes 0–7 for success; 8 and above (and launch errors) are failures. */
+/**
+ * A 16-thread robocopy of a whole tree that never copies junctions or symlinks (/XJ). Robocopy uses codes
+ * 0–7 for success; 8 and above (and launch errors) are failures.
+ */
+export async function robocopyTree(source, dest, { run = exec, excludeDirs = [], excludeFiles = [], label = 'robocopy' } = {}) {
+  const args = [source, dest, '/E', '/MT:16', '/XJ', '/R:1', '/W:1', '/COPY:DAT', '/DCOPY:DAT', '/NP', '/NFL', '/NDL', '/NJH', '/NJS',
+    ...excludeDirs.length ? ['/XD', ...excludeDirs] : [], ...excludeFiles.length ? ['/XF', ...excludeFiles] : []]
+  try { await run('robocopy.exe', args, { windowsHide: true, maxBuffer: 4 * 1024 * 1024 }) }
+  catch (e) {
+    if (!Number.isInteger(e.code) || e.code < 0 || e.code >= 8) throw new Error(`${label} failed (${e.code ?? e.message}): ${e.stderr || e.stdout || ''}`, { cause: e })
+  }
+  return 'robocopy'
+}
+
 export async function copyLibrary(source, dest, { platform = process.platform, run = exec } = {}) {
   if (platform !== 'win32') {
     await fs.promises.cp(source, dest, { recursive: true, filter: async p => !excluded(path.basename(p), (await fs.promises.lstat(p)).isDirectory()) })
     return 'fs.cp'
   }
-  const args = [source, dest, '/E', '/MT:16', '/XJ', '/R:1', '/W:1', '/COPY:DAT', '/DCOPY:DAT', '/NP', '/NFL', '/NDL', '/NJH', '/NJS', '/XD', ...SKIP_DIRS, '/XF', 'EditorInstance.json', '*-lock']
-  try { await run('robocopy.exe', args, { windowsHide: true, maxBuffer: 4 * 1024 * 1024 }) }
-  catch (e) {
-    if (!Number.isInteger(e.code) || e.code < 0 || e.code >= 8) throw new Error(`Library robocopy failed (${e.code ?? e.message}): ${e.stderr || e.stdout || ''}`, { cause: e })
-  }
-  return 'robocopy'
+  return robocopyTree(source, dest, { run, excludeDirs: SKIP_DIRS, excludeFiles: ['EditorInstance.json', '*-lock'], label: 'Library robocopy' })
 }
 
 /**
