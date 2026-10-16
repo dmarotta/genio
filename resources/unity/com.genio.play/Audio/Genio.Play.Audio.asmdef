@@ -1,0 +1,6 @@
+{
+  "name": "Genio.Play.Audio",
+  "references": ["Genio.Play"],
+  "defineConstraints": ["GENIO_AUDIO"],
+  "versionDefines": [{ "name": "com.unity.modules.audio", "expression": "1.0.0", "define": "GENIO_AUDIO" }]
+}

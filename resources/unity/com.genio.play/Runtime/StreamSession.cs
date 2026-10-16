@@ -16,10 +16,13 @@ namespace Genio.Play
     {
         public static Action<string> Input;
         public static Action ReleaseInput;
+        /// Set by the optional audio assembly: start the listener tap on a session, and stop it.
+        public static Action<StreamSession> StartAudio, StopAudio;
         static StreamSession current;
         public static bool Active => current != null;
         ClientWebSocket socket;
         CancellationTokenSource cancel;
+        readonly SemaphoreSlim sending = new SemaphoreSlim(1, 1);
         RenderTexture target;
         RenderTexture screen;
         volatile bool pending;
@@ -46,6 +49,8 @@ namespace Genio.Play
             current.socket = new ClientWebSocket();
             current.socket.Options.SetRequestHeader("Authorization", "Bearer " + token);
             current.Connect(port);
+            // At once rather than after the connect, so a resolution swap leaves no gap where the editor sounds.
+            StartAudio?.Invoke(current);
             return "Connecting";
         }
 
@@ -115,7 +120,6 @@ namespace Genio.Play
                     if (request.hasError || cancel == null || cancel.IsCancellationRequested) { pending = false; return; }
                     var pixels = request.GetData<byte>().ToArray();
                     var connection = socket;
-                    var cancellation = cancel.Token;
                     _ = Task.Run(async () =>
                     {
                         try
@@ -125,7 +129,7 @@ namespace Genio.Play
                             FlipRows(pixels, width, height);
                             var jpg = ImageConversion.EncodeArrayToJPG(pixels, GraphicsFormat.R8G8B8A8_UNorm, (uint)width, (uint)height, 0, 75);
                             if (jpg.Length <= 4 * 1024 * 1024 && connection.State == WebSocketState.Open)
-                                await connection.SendAsync(new ArraySegment<byte>(jpg), WebSocketMessageType.Binary, true, cancellation);
+                                await Send(new ArraySegment<byte>(jpg));
                         }
                         catch (Exception) { }
                         finally { pending = false; }
@@ -133,6 +137,17 @@ namespace Genio.Play
                 });
                 if (stepped) AsyncGPUReadback.WaitAllRequests();
             }
+        }
+        /// Any thread. One message at a time: ClientWebSocket allows a single outstanding send, and audio and frames
+        /// share the socket. Dropped quietly before the connection opens and after it closes.
+        public async Task Send(ArraySegment<byte> bytes)
+        {
+            var connection = socket; var source = cancel;
+            if (connection == null || source == null) return;
+            var token = source.Token;
+            await sending.WaitAsync(token);
+            try { if (connection.State == WebSocketState.Open) await connection.SendAsync(bytes, WebSocketMessageType.Binary, true, token); }
+            finally { sending.Release(); }
         }
         static void FlipRows(byte[] pixels, int w, int h)
         {
@@ -149,6 +164,7 @@ namespace Genio.Play
         {
             if (cancel == null) return;
             cancel.Cancel(); socket?.Abort(); socket?.Dispose(); socket = null;
+            StopAudio?.Invoke(this);
             // Readback callbacks may still complete; cancellation fences them before encoding.
             if (target != null) { Destroy(target); target = null; }
             if (screen != null) { Destroy(screen); screen = null; }

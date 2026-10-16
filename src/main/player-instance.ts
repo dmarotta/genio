@@ -49,8 +49,8 @@ const gb = (bytes: number) => (bytes / GiB).toFixed(1)
 type CopyAfterClose = 'delete' | 'keep' | 'restart'
 export interface PlayerRuntime {
   request<T = unknown>(command: string, parameters?: object): Promise<T>
-  stream(width: number, height: number, onFrame: (b: Buffer) => void, onDisconnect: () => void): Promise<void>
-  /** A new stream size behind the same frame and disconnect callbacks, so the renderer's port and Play stay. */
+  stream(width: number, height: number, onFrame: (b: Buffer) => void, onDisconnect: () => void, onAudio?: (b: Buffer) => void): Promise<void>
+  /** A new stream size behind the same frame, audio and disconnect callbacks, so the renderer's port and Play stay. */
   resize(width: number, height: number): Promise<void>
   stopStream(): void
   input(input: PlayInput): void
@@ -71,17 +71,17 @@ function runtime(root: string, pid: () => number | undefined): PlayerRuntime {
   }
   return {
     request: (command, parameters) => adapter.request(command, parameters),
-    async stream(width, height, onFrame, onDisconnect) {
+    async stream(width, height, onFrame, onDisconnect, onAudio) {
       stream?.close(); const next = stream = new PlayStream()
-      next.onFrame = onFrame; next.onDisconnect = onDisconnect
+      next.onFrame = onFrame; next.onAudio = onAudio; next.onDisconnect = onDisconnect
       try { await connect(next, width, height) }
       catch (e) { next.close(); if (stream === next) stream = undefined; throw e }
     },
     async resize(width, height) {
       const old = stream
       if (!old) throw new Error('Start the player stream first')
-      const { onFrame, onDisconnect } = old, next = stream = new PlayStream()
-      next.onFrame = onFrame; next.onDisconnect = onDisconnect
+      const { onFrame, onAudio, onDisconnect } = old, next = stream = new PlayStream()
+      next.onFrame = onFrame; next.onAudio = onAudio; next.onDisconnect = onDisconnect
       // Unity drops the old session when the new one starts: a swap, not a disconnect that would exit Play.
       old.onDisconnect = undefined
       try { await connect(next, width, height); old.close() }
@@ -768,10 +768,10 @@ export class PlayerInstanceService {
     if (!i?.launch || (i.state !== 'playing' && i.state !== 'paused')) throw new Error('Play this project before streaming')
     return i
   }
-  async stream(world: string, width: number, height: number, frame: (b: Buffer) => void, disconnect: () => void) {
+  async stream(world: string, width: number, height: number, frame: (b: Buffer) => void, disconnect: () => void, audio?: (b: Buffer) => void) {
     const { project } = this.project(world)
     if (![width, height].every(n => Number.isInteger(n) && n >= 16 && n <= 1920)) throw new Error('Stream dimensions must be 16–1920')
-    return this.serial(project, async () => { await this.local(this.streamable(project)).stream(width, height, frame, disconnect) })
+    return this.serial(project, async () => { await this.local(this.streamable(project)).stream(width, height, frame, disconnect, audio) })
   }
   /** Change the streamed resolution during Play without closing the renderer's port, so Play goes on. */
   async resize(world: string, width: number, height: number) {

@@ -4,7 +4,12 @@ import { WebSocketServer, WebSocket } from 'ws'
 import { PLAY_SCROLL_LIMIT, type PlayInput } from '@shared/play'
 
 export const MAX_FRAME = 4 * 1024 * 1024
-/** One authenticated Unity client; bounded latest-frame storage, never a frame queue. */
+/** The 'GA' v1 audio header (com.genio.play's AudioTap): 'G' 'A', version, channels, seq u32, rate u32, frames u16,
+ * reserved u16, capture time f64 (Unix ms), all little-endian; interleaved int16 samples follow. */
+export const AUDIO_HEADER = 24
+export const AUDIO_MAX_FRAMES = 4096
+export interface PlayAudio { seq: number; rate: number; channels: number; frames: number; time: number }
+/** One authenticated Unity client; bounded latest-frame storage, never a frame queue. Audio packets pass straight through. */
 export class PlayStream {
   private server = http.createServer((_req, res) => { res.writeHead(404); res.end() })
   private ws = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME, perMessageDeflate: false })
@@ -17,6 +22,8 @@ export class PlayStream {
   private closed = false
   latest?: Buffer
   onFrame?: (frame: Buffer) => void
+  /** Every valid audio packet, header included, in arrival order: never throttled or coalesced. */
+  onAudio?: (packet: Buffer) => void
   onDisconnect?: () => void
   get connected(): boolean { return this.client?.readyState === WebSocket.OPEN }
   async listen(): Promise<{ port: number; token: string }> {
@@ -31,6 +38,11 @@ export class PlayStream {
         client.on('error', () => client.terminate())
         client.on('message', (data, binary) => {
           const frame = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer)
+          // Audio first: the frame throttle below would drop most of it. A JPEG starts FF D8, so 'GA' never collides.
+          if (binary && frame[0] === 0x47 && frame[1] === 0x41) {
+            if (!validateAudio(frame)) { client.close(1003); return }
+            this.onAudio?.(frame); return
+          }
           if (!binary || frame.length < 4 || frame.length > MAX_FRAME || frame[0] !== 255 || frame[1] !== 216 || frame.at(-2) !== 255 || frame.at(-1) !== 217) { client.close(1003); return }
           const now = Date.now()
           if (now - this.lastFrame < 25) return
@@ -57,9 +69,19 @@ export class PlayStream {
     this.client!.send(JSON.stringify(input))
   }
   close(): void {
-    this.closed = true; this.onFrame = undefined; this.latest = undefined
+    this.closed = true; this.onFrame = undefined; this.onAudio = undefined; this.latest = undefined
     this.client?.terminate(); this.ws.close(); this.server.close()
   }
+}
+
+/** A 'GA' v1 packet's header, or undefined when it is malformed: wrong magic or version, 1–2 channels,
+ * 8–192 kHz, 1–AUDIO_MAX_FRAMES frames, a finite capture time, and exactly the samples the header promises. */
+export function validateAudio(packet: Buffer): PlayAudio | undefined {
+  if (packet.length < AUDIO_HEADER || packet[0] !== 0x47 || packet[1] !== 0x41 || packet[2] !== 1) return undefined
+  const channels = packet[3], seq = packet.readUInt32LE(4), rate = packet.readUInt32LE(8), frames = packet.readUInt16LE(12), time = packet.readDoubleLE(16)
+  if (channels < 1 || channels > 2 || rate < 8000 || rate > 192_000 || frames < 1 || frames > AUDIO_MAX_FRAMES || !Number.isFinite(time)) return undefined
+  if (packet.length !== AUDIO_HEADER + frames * channels * 2) return undefined
+  return { seq, rate, channels, frames, time }
 }
 
 const clampScroll = (n: number): number => Math.max(-PLAY_SCROLL_LIMIT, Math.min(PLAY_SCROLL_LIMIT, n))

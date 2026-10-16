@@ -1,7 +1,15 @@
 import { afterEach, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { once } from 'node:events'
-import { PlayStream, validateInput, MAX_FRAME } from '../src/main/play-stream'
+import { PlayStream, validateInput, validateAudio, MAX_FRAME, AUDIO_HEADER } from '../src/main/play-stream'
+
+/** A 'GA' v1 packet as com.genio.play's AudioTap writes it; `extra` pads or (negative) truncates the samples. */
+function ga({ seq = 0, rate = 48000, channels = 2, frames = 1024, time = 1.7e12, version = 1, extra = 0 } = {}) {
+  const b = Buffer.alloc(Math.max(0, AUDIO_HEADER + frames * channels * 2 + extra))
+  b.write('GA', 0, 'latin1'); b[2] = version; b[3] = channels
+  b.writeUInt32LE(seq, 4); b.writeUInt32LE(rate, 8); b.writeUInt16LE(frames, 12); b.writeDoubleLE(time, 16)
+  return b
+}
 
 const streams: PlayStream[] = []
 const clients: WebSocket[] = []
@@ -51,4 +59,35 @@ it('carries the scroll of a superseded state packet into the next one', async ()
   await new Promise(r => setTimeout(r, 20)); stream.input(state(0.5))
   await new Promise(r => setTimeout(r, 50))
   expect(got.map(m => (m as {scroll:number}).scroll)).toEqual([1, 2.5])
+})
+it('validates audio headers and sizes', () => {
+  expect(validateAudio(ga({ seq: 7, frames: 512 }))).toEqual({ seq: 7, rate: 48000, channels: 2, frames: 512, time: 1.7e12 })
+  for (const ok of [{ channels: 1 }, { rate: 8000 }, { rate: 192000 }, { frames: 1 }, { frames: 4096 }]) expect(validateAudio(ga(ok))).toBeDefined()
+  for (const bad of [{ version: 2 }, { channels: 0 }, { channels: 3 }, { rate: 7999 }, { rate: 192001 }, { frames: 0 }, { frames: 4097 }, { time: NaN }, { time: Infinity }, { extra: 1 }, { extra: -2 }])
+    expect(validateAudio(ga(bad)), JSON.stringify(bad)).toBeUndefined()
+  const wrongMagic = ga(); wrongMagic[1] = 0x42; expect(validateAudio(wrongMagic)).toBeUndefined()
+  expect(validateAudio(Buffer.from('GA'))).toBeUndefined()
+})
+it('passes interleaved JPEG and audio, never throttling audio or letting it reset the frame throttle', async () => {
+  const {stream,port,token} = await setup()
+  const c = client(port,token); await once(c,'open')
+  const frames: Buffer[] = [], audio: number[] = []
+  stream.onFrame = f => frames.push(f); stream.onAudio = a => audio.push(a.readUInt32LE(4))
+  const jpeg = (n: number) => Buffer.from([255,216,n,255,217])
+  const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
+  // Back to back, far inside the 25 ms frame throttle: every audio packet still arrives, in order.
+  c.send(jpeg(1)); for (let seq = 0; seq < 10; seq++) c.send(ga({ seq, frames: 256 }))
+  // Audio 20 ms after a frame, then a frame 20 ms later: had audio restarted the throttle, that frame would drop.
+  await wait(20); c.send(ga({ seq: 10, frames: 256 })); await wait(20); c.send(jpeg(2))
+  await wait(30)
+  expect(audio).toEqual([0,1,2,3,4,5,6,7,8,9,10])
+  expect(frames.map(f => f[2])).toEqual([1,2]); expect(stream.latest?.[2]).toBe(2)
+})
+it('closes a malformed audio packet with 1003', async () => {
+  for (const bad of [ga({ extra: 1 }), ga({ channels: 6 }), Buffer.from('GA nonsense')]) {
+    const {stream,port,token} = await setup(); const c = client(port,token); await once(c,'open')
+    let heard = false; stream.onAudio = () => { heard = true }
+    const closed = once(c,'close'); c.send(bad)
+    expect((await closed)[0]).toBe(1003); expect(heard).toBe(false)
+  }
 })

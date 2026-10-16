@@ -1,8 +1,14 @@
-# Genio Play 0.1
+# Genio Play 0.2
 
 Unity Pipeline's media companion for the player's temporary copy (Unity 6). Genio embeds this folder under `Packages/com.genio.play` in its marked copy after each mirror. Nothing is installed into the source project or a unit's worktree.
 
-The package is inert until an authenticated Pipeline command starts a session during Play Mode. It dials a token-authenticated WebSocket on `127.0.0.1`; it opens no listener. Frames are JPEGs encoded after GPU readback, up to 1920 × 1920, 30 fps, quality 75. There is no audio. The fixed cadence uses quarter-frame tolerance to avoid skipping frames of a 30 fps game; stalls reset it without catch-up bursts.
+The package is inert until an authenticated Pipeline command starts a session during Play Mode. It dials a token-authenticated WebSocket on `127.0.0.1`; it opens no listener. Frames are JPEGs encoded after GPU readback, up to 1920 × 1920, 30 fps, quality 75. The fixed cadence uses quarter-frame tolerance to avoid skipping frames of a 30 fps game; stalls reset it without catch-up bursts.
+
+## Audio
+
+The optional `Genio.Play.Audio` assembly (compiled only when the project has the built-in Audio module, `com.unity.modules.audio`) streams the game's sound on the same socket. When a session starts it adds a hidden, unsaved filter to the active `AudioListener` and re-checks the listener twice a second, so it follows scene loads and camera switches. The filter sees the final mix, AudioMixer routes included, even while Unity's per-user **Mute Audio** is on; it copies the mix and then zeroes it, so the hidden editor never sounds by itself whatever that setting says. The package never reads or writes that setting. Once a session has started, the filter stays on the listener until the listener goes (scene unload, Play Mode exit), so the editor also stays quiet between sessions and during a resolution swap.
+
+The mixer thread downmixes to stereo (quad, 5.0, 5.1 and 7.1 fold down; LFE is left out) and writes int16 into a preallocated ring: nothing is allocated on the audio thread. A sender thread sends one binary message per mixer block, at most 4096 frames, through the same single-send gate as the frames. Little-endian `GA` v1 packets: `'G' 'A'`, version `1`, channels (`2`), seq u32, sample rate u32, frames u16, reserved u16, capture time f64 (Unix ms), then the interleaved samples. A JPEG starts `FF D8`, so the two never collide. When the sender falls behind (about 1.4 s at 48 kHz) the newest block is dropped and its seq skipped. A scene without an active listener sends nothing.
 
 ## Commands
 

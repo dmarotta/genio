@@ -40,6 +40,10 @@ function refuseShellText(text: string): void {
   if (isShellCommandMessage(text)) throw new Error('Messages starting with ! are shell commands: they run in the terminal and are never sent to Genio as chat.')
 }
 
+/** Play audio rides outside the frame credits: at most AUDIO_IN_FLIGHT packets (about 250 ms) the renderer has not
+ * acked with `{ type: 'audio-ack', count }`, then a short backlog that drops its oldest packet when it overflows. */
+export const AUDIO_IN_FLIGHT = 12, AUDIO_BACKLOG = 4
+
 type Handlers ={ [K in keyof GenioApi]: (...args: Parameters<GenioApi[K]>) => ReturnType<GenioApi[K]> | Awaited<ReturnType<GenioApi[K]>> }
 
 /** The window manager as IPC sees it; sender ids are the calling window's webContents id. */
@@ -459,9 +463,20 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
             credit = false; port1.postMessage({ type: 'frame', bytes: new Uint8Array(latest) }); latest = undefined
             if (!framed) { framed = true; unlockQuietly('play-stream') }
           }
+          // A renderer that falls behind hears the newest sound, not a growing delay.
+          const audio: Buffer[] = []
+          let unacked = 0
+          const sendAudio = (): void => {
+            while (!closed && audio.length && unacked < AUDIO_IN_FLIGHT) { unacked++; port1.postMessage({ type: 'audio', bytes: new Uint8Array(audio.shift()!) }) }
+          }
+          const queueAudio = (packet: Buffer): void => {
+            if (closed) return
+            audio.push(packet); sendAudio()
+            if (audio.length > AUDIO_BACKLOG) audio.splice(0, audio.length - AUDIO_BACKLOG)
+          }
           const close = (): void => {
             if (closed) return
-            closed = true; latest = undefined
+            closed = true; latest = undefined; audio.length = 0
             try { port1.postMessage({ type: 'closed' }); port1.close(); port2.close() } catch { /* window gone */ }
             _e.sender.removeListener('destroyed', detach)
             if (playConnections.get(world) === close) playConnections.delete(world)
@@ -471,6 +486,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
           port1.on('message', ({ data }) => {
             if (closed) return
             if (data?.type === 'ready') { credit = true; send() }
+            else if (data?.type === 'audio-ack') { if (Number.isInteger(data.count) && data.count > 0) { unacked = Math.max(0, unacked - data.count); sendAudio() } }
             else if (data?.type === 'input') {
               try {
                 playerInstanceService(ctx()).input(world, data.input)
@@ -484,7 +500,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
           port1.on('close', detach); port1.start()
           _e.sender.once('destroyed', detach)
           try {
-            await playerInstanceService(ctx()).stream(world, width, height, frame => { latest = frame; send() }, detach)
+            await playerInstanceService(ctx()).stream(world, width, height, frame => { latest = frame; send() }, detach, queueAudio)
             if (closed || _e.sender.isDestroyed()) throw new Error('Play window closed')
             _e.sender.postMessage('genio:play-port', { world }, [port2])
           } catch (error) { close(); throw error }
