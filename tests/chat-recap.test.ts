@@ -6,6 +6,7 @@ import { ChatPanel } from '../src/renderer/src/views/Comms'
 
 const f = vi.hoisted(() => ({ wksp: { name: 'ally', activity: 'ready', queued: 0 } as Record<string, unknown> | undefined, calm: false, recap: vi.fn() }))
 vi.mock('../src/renderer/src/store', () => ({
+  PROJECT_WINDOW: undefined,
   PROJECT_WKSP: 'ally',
   useStore: (select: (s: unknown) => unknown) =>
     select({ snap: { wksps: f.wksp ? [f.wksp] : [], allies: [] }, chats: { ally: [] }, settings: { calm: f.calm } }),

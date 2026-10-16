@@ -29,10 +29,11 @@ landed commit. Beside More sits one primary action, by state
 | Recon done | Build from this report, and Archive (despawns the copy, keeps the report) |
 | merged, despawned | none |
 
-More holds Interrupt (working only), Respawn, Recall (live only), Open folder,
-Open shell (amber: edits land on the unit's branch) and Despawn (red), each with
-its one-line consequence (`UNIT_ACTION_HINT`). There is no play button and no
-manual Gauntlet button. 👍/👎 shows on finished units only; a ready unit is
+More holds Interrupt (working only), Respawn, Recall (live only), Open folder
+and Despawn (red), each with its one-line consequence (`UNIT_ACTION_HINT`).
+There is no shell button: the player's own shell is the project window's
+terminal pane (docs/terminal-pane.md), which can run in a unit's copy. There is
+no manual Gauntlet button. 👍/👎 shows on finished units only; a ready unit is
 rated in the Merge confirm.
 
 Side tabs: Changes (diffstat, changed and uncommitted files, commits, and the

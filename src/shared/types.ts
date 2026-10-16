@@ -442,6 +442,8 @@ export interface ChatMessage {
   reaction?: MessageReaction
   /** one short line under the message: what a dislike paused or an undo resumed */
   reactionNote?: string
+  /** a '!' command the player ran in their own shell (role 'system'): never an agent action */
+  shell?: ShellRun
 }
 
 /** What one Genio turn started (ids from its tool calls), so a reaction covers exactly that and nothing else. */
@@ -891,9 +893,32 @@ export interface TerminalInfo {
   /** Last sustained output that looks like work: new text over several seconds, idle CLI chrome and repaints excluded. */
   workOutputAt?: string
   exitCode?: number
+  /** ms epoch when the process ended */
+  exitedAt?: number
+  /** the process could not start at all (no shell ran); exitCode is -1 */
+  startError?: string
   cols: number
   rows: number
-  kind: 'worker' | 'shell' | 'validation'
+  /** worker: a unit's agent; session: an account login; pane: the player's own terminal pane in a project window */
+  kind: 'worker' | 'session' | 'validation' | 'pane'
+  /** pane terminals: the project window that owns them (closing it kills them) */
+  project?: string
+  /** pane terminals: the command a '!' run started; absent for the pane's interactive shell */
+  run?: string
+}
+
+/** A '!' command the player ran from the chat composer, as its result block shows it. */
+export interface ShellRun {
+  command: string
+  cwd: string
+  /** undefined when the process never started */
+  exitCode?: number
+  durationMs: number
+  /** plain text, bounded (head and tail kept) */
+  output: string
+  truncated: boolean
+  /** why the command could not run */
+  error?: string
 }
 
 export interface PermissionRequest {

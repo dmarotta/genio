@@ -421,6 +421,25 @@ button.usage-toggle:hover { color: var(--text); }
 .composer-box textarea { flex: 1; resize: none; background: none; border: 0; outline: none; color: var(--text); font-size: 15px; line-height: 1.5; padding: 6px 0; max-height: 220px; user-select: text; }
 .composer.disabled .composer-box { opacity: 0.5; }
 .composer-box.dropping { border-color: var(--neon); box-shadow: var(--glow); border-style: dashed; }
+/* '!' shell mode: amber border and a prompt glyph, so a command never looks like a message to Genio. */
+.composer-box.shell { border-color: var(--amber); background: rgba(255, 182, 39, 0.05); }
+.composer-box.shell:focus-within { border-color: var(--amber); box-shadow: 0 0 12px rgba(255, 182, 39, 0.3); }
+.composer-box.shell textarea { font-family: var(--font-mono); font-size: 14px; }
+.composer-shell-glyph { align-self: center; color: var(--amber); font-weight: 700; font-size: 16px; margin-right: -4px; }
+.composer-shell-keys { color: var(--amber); }
+.composer-shell-off { margin-top: 6px; font-size: 12px; }
+/* A '!' result block: the player's own command, never an agent action. */
+.msg-shell { margin: 6px 0 10px auto; max-width: 92%; border: 1px solid rgba(255, 182, 39, 0.35); border-left-width: 3px; background: rgba(0, 0, 0, 0.35); font-size: 12.5px; }
+.msg-shell.bad { border-left-color: var(--alert); }
+.msg-shell-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 6px 10px; }
+.msg-shell-toggle { display: grid; place-items: center; width: 18px; height: 18px; padding: 0; background: none; border: 0; color: var(--text-dim); cursor: pointer; }
+.msg-shell-who { font-size: 10.5px; }
+.msg-shell-cmd { font-family: var(--font-mono); color: var(--text); overflow-wrap: anywhere; min-width: 0; }
+.msg-shell-exit { font-size: 11.5px; }
+.msg-shell-time { font-size: 11px; margin-left: auto; }
+.msg-shell-body { padding: 0 10px 8px 34px; display: flex; flex-direction: column; gap: 6px; }
+.msg-shell-out { margin: 0; padding: 8px 10px; max-height: 420px; overflow: auto; background: #05070b; border: 1px solid var(--line); font-family: var(--font-mono); font-size: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+.msg-shell-foot { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; overflow-wrap: anywhere; }
 .attach-strip { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .attach-thumb { position: relative; width: 72px; height: 72px; border: 1px solid var(--line-strong); background: rgba(0, 0, 0, 0.45); }
 .attach-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }

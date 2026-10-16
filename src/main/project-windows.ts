@@ -36,6 +36,8 @@ export function projectSnapshot(s: FleetSnapshot, binding?: WindowBinding): Flee
 }
 
 export function terminalProject(t: TerminalInfo, s: FleetSnapshot): string | undefined {
+  // The terminal pane belongs to its window, whichever folder (main checkout or a unit's copy) it runs in.
+  if (t.project) return t.project
   const task = s.tasks.find(x => x.id === t.taskId || x.terminalId === t.id)
   if (task) return task.project
   const cwd = normalisedProjectPath(t.cwd)

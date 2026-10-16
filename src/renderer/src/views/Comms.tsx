@@ -1,14 +1,16 @@
 import { ASSISTANT_NAME } from '@shared/assistant'
 import { ComingNext } from '../components/ComingNext'
 import { GenerationCard } from '../components/GenerationCard'
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
-import { ArrowDown, ChevronDown, ChevronRight, ChevronsUp, CircleStop, CornerUpRight, Pencil, RefreshCw, Rocket, Send, ShieldCheck, ThumbsDown, ThumbsUp, TriangleAlert, Wrench, X } from 'lucide-react'
-import type { Ally, ChatMessage, ReactionKind, Settings } from '@shared/types'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
+import { ArrowDown, ChevronDown, ChevronRight, ChevronsUp, CircleStop, CornerUpRight, Pencil, Play, RefreshCw, Rocket, Send, ShieldCheck, ThumbsDown, ThumbsUp, TriangleAlert, Wrench, X } from 'lucide-react'
+import type { Ally, ChatMessage, ReactionKind, Settings, ShellRun } from '@shared/types'
+import { formatDuration, isShellCommandMessage, isShellText } from '@shared/terminal-pane'
 import { chatControls, routedRequest, splitQueued, type ChatControls, type UnqueuedChat } from '@shared/chat'
 import { MAX_IMAGES_PER_MESSAGE } from '@shared/chat-images'
 import {
-  PROJECT_WKSP, api, errText, focusTask, getState, go, loadChat, op, openDeploy, saveChatControls, saveSettings, setState, toast, useStore
+  PROJECT_WKSP, PROJECT_WINDOW, api, errText, focusTask, getState, go, loadChat, op, openDeploy, saveChatControls, saveSettings, setState, toast, useStore
 } from '../store'
+import { readShellHistory, rememberShellCommand, shellUnavailable, showPane } from '../lib/terminal-pane'
 import { Markdown } from '../components/Markdown'
 import { CopyMessageButton } from '../components/CopyMessageButton'
 import { GenioCore } from '../components/GenioCore'
@@ -423,6 +425,7 @@ const Message = memo(function Message({ m, calm, gamertag, onTakeBack, onSendNow
       </div>
     )
   }
+  if (m.role === 'system' && m.shell) return <ShellResult id={m.id} run={m.shell} ts={m.ts} />
   if (m.role === 'system') {
     return (
       <div data-msg={m.id} className="msg-system rise">
@@ -477,6 +480,51 @@ const Message = memo(function Message({ m, calm, gamertag, onTakeBack, onSendNow
     </div>
   )
 })
+
+/** A shell-mode draft is stored with its leading '!'; the composer shows the command after the glyph. */
+const withoutBang = (d: string): string => (isShellText(d) ? d.slice(1) : d)
+
+const SHELL_PREVIEW_LINES = 12
+
+/**
+ * A '!' command the player ran: command, exit code, duration and output (first lines, then Show more).
+ * Marked "run by you" so it never reads as something Genio or a unit did.
+ */
+function ShellResult({ id, run, ts }: { id: string; run: ShellRun; ts: string }) {
+  const [open, setOpen] = useState(true)
+  const [all, setAll] = useState(false)
+  const lines = run.output ? run.output.split('\n') : []
+  const long = lines.length > SHELL_PREVIEW_LINES
+  const shown = all || !long ? run.output : lines.slice(0, SHELL_PREVIEW_LINES).join('\n')
+  const ok = !run.error && run.exitCode === 0
+  return (
+    <div data-msg={id} className={cx('msg-shell rise', ok ? 'ok' : 'bad')}>
+      <div className="msg-shell-head">
+        <button className="msg-shell-toggle" aria-expanded={open} aria-label={open ? 'Collapse output' : 'Expand output'} onClick={() => setOpen((o) => !o)}>
+          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        </button>
+        <span className="chip amber msg-shell-who" title="You ran this in your own terminal with ! — not Genio, not a unit">run by you</span>
+        <code className="msg-shell-cmd selectable">$ {run.command}</code>
+        <span className={cx('msg-shell-exit mono', ok ? 'volt-text' : 'alert-text')}>{run.error ? 'did not run' : `exit ${run.exitCode ?? '?'}`}</span>
+        <span className="mute mono msg-shell-time">{formatDuration(run.durationMs)} · {clock(ts)}</span>
+        <CopyMessageButton text={`$ ${run.command}\n${run.output}`} />
+      </div>
+      {open && (
+        <div className="msg-shell-body">
+          {run.error && <div className="alert-text">{run.error}</div>}
+          {run.output ? <pre className="msg-shell-out selectable">{shown}</pre> : !run.error && <div className="mute">(no output)</div>}
+          {(long || run.truncated) && (
+            <div className="msg-shell-foot mute">
+              {long && <button className="link-btn" onClick={() => setAll((a) => !a)}>{all ? 'Show less' : `Show more (${lines.length - SHELL_PREVIEW_LINES} more lines)`}</button>}
+              {run.truncated && <span>Long output: its start and end are kept.</span>}
+            </div>
+          )}
+          <div className="msg-shell-foot mute">in {run.cwd} · Genio reads this with your next message</div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 const REACTION_HINT = {
   like: 'Like: this is the right path. Genio proceeds confidently (never approves a merge). Click again to undo.',
@@ -536,7 +584,11 @@ function ReactionNote({ m }: { m: ChatMessage }) {
 function Composer({ wksp, busy, steerable = false, fill, context }: { wksp: string; busy: boolean; steerable?: boolean; context?: InventoryContext; fill: RefObject<((c: UnqueuedChat) => void) | undefined> }) {
   // Client-side commands drive the whole app, so they live in the main chat; an ally gets its text (and its own /help, /status, /save) as typed.
   const isMain = wksp === MAIN_PANEL
-  const [text, setText] = useState(() => getDraft(wksp))
+  // '!' as the first character: shell mode. The '!' becomes the prompt glyph; the draft keeps it.
+  const [shell, setShell] = useState(() => isShellText(getDraft(wksp)))
+  const [text, setText] = useState(() => withoutBang(getDraft(wksp)))
+  const unavailable = useStore(shellUnavailable)
+  const history = useRef<{ list: string[]; at: number; draft: string }>({ list: [], at: -1, draft: '' })
   const [sel, setSel] = useState(0)
   const ta = useRef<HTMLTextAreaElement>(null)
   const att = useAttachments(wksp)
@@ -549,14 +601,21 @@ function Composer({ wksp, busy, steerable = false, fill, context }: { wksp: stri
     : busy || info.queued
       ? `${ASSISTANT_NAME} is working`
       : ''
-  const update = (v: string): void => {
+  const update = (v: string, inShell = shell): void => {
     setText(v)
-    setDraft(wksp, v)
+    setDraft(wksp, (inShell ? '!' : '') + v)
+  }
+  const shellMode = (on: boolean, v = ''): void => {
+    setShell(on)
+    history.current = { list: [], at: -1, draft: '' }
+    update(v, on)
   }
 
   // Restore this chat's draft (on mount or chat switch) with the caret at the end.
   useLayoutEffect(() => {
-    const d = getDraft(wksp)
+    const raw = getDraft(wksp)
+    const d = withoutBang(raw)
+    setShell(isShellText(raw))
     setText(d)
     const el = ta.current
     if (el && d) {
@@ -568,9 +627,10 @@ function Composer({ wksp, busy, steerable = false, fill, context }: { wksp: stri
   useEffect(() => {
     fill.current = (c) => {
       inventory.restore(c.context)
-      const draft = getDraft(wksp)
+      const draft = withoutBang(getDraft(wksp))
       const next = [c.text, draft].filter((s) => s.trim()).join('\n\n')
-      update(next)
+      setShell(false)
+      update(next, false)
       if (c.images?.length) att.set([...fromSendable(c.images), ...att.images].slice(0, MAX_IMAGES_PER_MESSAGE))
       const el = ta.current
       if (el) {
@@ -580,7 +640,7 @@ function Composer({ wksp, busy, steerable = false, fill, context }: { wksp: stri
     }
   })
   const settings = useStore((s) => s.settings)
-  const showSlash = isMain && text.startsWith('/') && !text.includes(' ') && !text.includes('\n')
+  const showSlash = isMain && !shell && text.startsWith('/') && !text.includes(' ') && !text.includes('\n')
   const matches = showSlash ? SLASH.filter((s) => s.cmd.startsWith(text.toLowerCase())) : []
 
   useEffect(() => {
@@ -612,11 +672,42 @@ function Composer({ wksp, busy, steerable = false, fill, context }: { wksp: stri
   const submitted = useRef(false)
   useEffect(() => { submitted.current = false })
 
+  /**
+   * Shell mode: the command runs in the project's shell (a tab in the terminal pane, opened if hidden), and its
+   * result block joins this chat as run by the player. It never goes to Genio as chat text.
+   */
+  const runCommand = async (): Promise<void> => {
+    const command = text.trim()
+    if (!command || !PROJECT_WINDOW) return
+    if (unavailable) {
+      toast('error', 'Shell unavailable', unavailable)
+      return
+    }
+    if (submitted.current) return
+    submitted.current = true
+    rememberShellCommand(PROJECT_WINDOW, command)
+    shellMode(false)
+    try {
+      const t = await api().paneRun(PROJECT_WINDOW, wksp, command, getState().paneCwd)
+      setState((s) => ({ terminals: { ...s.terminals, [t.id]: t } }))
+      showPane(t.id)
+    } catch (e) {
+      toast('error', 'Command not run', errText(e))
+      shellMode(true, command)
+    }
+  }
+
   /** `steer`: the turn in progress stops at a safe point and reads this first; otherwise it queues while busy. */
   const submit = async (raw: string, steer = false): Promise<void> => {
+    if (shell) return runCommand()
     const t = raw.trim()
     const images = att.images
     if (!t && !images.length) return
+    // A leading '!' is a shell command, never chat text for Genio; here shell mode could not start.
+    if (isShellCommandMessage(t)) {
+      toast('error', 'Shell unavailable', unavailable ?? 'Type ! first to run a shell command.')
+      return
+    }
     if (att.pending) {
       toast('info', 'Attaching images', 'Wait a moment for the images to finish attaching.')
       return
@@ -678,6 +769,40 @@ function Composer({ wksp, busy, steerable = false, fill, context }: { wksp: stri
     }
   }
 
+  /** Shell mode's keys: Enter runs, Esc and Backspace on the empty prompt leave it, the arrows walk the history. True when handled. */
+  const shellKey = (e: ReactKeyboardEvent<HTMLTextAreaElement>): boolean => {
+    const el = e.currentTarget
+    if (e.key === 'Escape' || (e.key === 'Backspace' && !text && el.selectionStart === 0 && el.selectionEnd === 0)) {
+      e.preventDefault()
+      if (e.key === 'Escape' && text) update('')
+      else shellMode(false)
+      return true
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      void runCommand()
+      return true
+    }
+    if (e.key === 'ArrowUp' && !text.slice(0, el.selectionStart).includes('\n')) {
+      // Read fresh each time a walk starts: the other composer (floating or main) may have run commands.
+      if (history.current.at < 0) history.current = { list: PROJECT_WINDOW ? readShellHistory(PROJECT_WINDOW) : [], at: -1, draft: text }
+      const h = history.current
+      if (h.at >= h.list.length - 1) return false
+      e.preventDefault()
+      h.at++
+      update(h.list[h.list.length - 1 - h.at])
+      return true
+    }
+    const h = history.current
+    if (e.key === 'ArrowDown' && h.at >= 0 && !text.slice(el.selectionEnd).includes('\n')) {
+      e.preventDefault()
+      h.at--
+      update(h.at < 0 ? h.draft : h.list[h.list.length - 1 - h.at])
+      return true
+    }
+    return false
+  }
+
   return (
     <div className="composer">
       {matches.length > 0 && (
@@ -700,14 +825,18 @@ function Composer({ wksp, busy, steerable = false, fill, context }: { wksp: stri
       )}
       {inventory.chips}
       <AttachmentStrip att={att} />
-      <div className={cx('composer-box ticks', att.dragging && 'dropping')} {...att.dropProps}>
+      <div className={cx('composer-box ticks', att.dragging && 'dropping', shell && 'shell')} {...att.dropProps}>
+        {shell && <span className="composer-shell-glyph mono" title="Shell mode: runs in your terminal, not sent to Genio as chat" aria-hidden>!</span>}
         <textarea
           ref={ta}
           rows={1}
           value={text}
           onPaste={att.onPaste}
+          aria-label={shell ? 'Shell command' : 'Message'}
           placeholder={
-            steerable
+            shell
+              ? 'run a shell command'
+              : steerable
               ? `${ASSISTANT_NAME} is working… Send queues it for next; Steer reads it now.`
               : busy
               ? `${ASSISTANT_NAME} is working… you can still send; it queues and is read next.`
@@ -716,10 +845,13 @@ function Composer({ wksp, busy, steerable = false, fill, context }: { wksp: stri
                 : `Message ${ASSISTANT_NAME}  ·  it answers you here`
           }
           onChange={(e) => {
-            update(e.target.value)
+            const v = e.target.value
             setSel(0)
+            if (!shell && isShellText(v) && !unavailable) shellMode(true, v.slice(1))
+            else update(v)
           }}
           onKeyDown={(e) => {
+            if (shell && shellKey(e)) return
             if (matches.length) {
               if (e.key === 'ArrowDown') {
                 e.preventDefault()
@@ -754,24 +886,38 @@ function Composer({ wksp, busy, steerable = false, fill, context }: { wksp: stri
             }
           }}
         />
-        {steerable && (
+        {steerable && !shell && (
           <button className="btn amber composer-steer" disabled={!canSend || att.pending > 0} onClick={() => void submit(text, true)}
             title={`Steer (Ctrl+Enter): ${ASSISTANT_NAME} stops the current turn at a safe point and reads this first`}>
             <CornerUpRight size={14} /> Steer
           </button>
         )}
-        <button className="btn solid icon" disabled={!canSend || att.pending > 0} onClick={() => void submit(text)} aria-label="Send"
-          title={steerable ? 'Send (Enter): queued, read when the current turn ends' : 'Send (Enter)'}>
-          <Send size={15} />
-        </button>
+        {shell ? (
+          <button className="btn amber icon" disabled={!text.trim() || !!unavailable} onClick={() => void runCommand()} aria-label="Run command"
+            title={unavailable ?? 'Run (Enter) in your terminal'}>
+            <Play size={15} />
+          </button>
+        ) : (
+          <button className="btn solid icon" disabled={!canSend || att.pending > 0} onClick={() => void submit(text)} aria-label="Send"
+            title={steerable ? 'Send (Enter): queued, read when the current turn ends' : 'Send (Enter)'}>
+            <Send size={15} />
+          </button>
+        )}
       </div>
+      {!shell && unavailable && isShellText(text) && <div className="composer-shell-off alert-text" role="status">Shell mode is unavailable: {unavailable}</div>}
       <div className="composer-hints mute">
         <span>
           <ShellModeButton wksp={wksp} />
           <ChatModelControls wksp={wksp} />
-          <span className="composer-keys">
-            <kbd>Enter</kbd> send · {steerable && <><kbd>Ctrl</kbd>+<kbd>Enter</kbd> steer · </>}<kbd>Shift</kbd>+<kbd>Enter</kbd> newline · <kbd>/</kbd> commands
-          </span>
+          {shell ? (
+            <span className="composer-keys composer-shell-keys">
+              <span title="Runs in your own terminal. Genio reads the output with your next message.">Shell mode</span> · <kbd>Enter</kbd> run · <kbd>↑</kbd> history · <kbd>Esc</kbd> chat
+            </span>
+          ) : (
+            <span className="composer-keys">
+              <kbd>Enter</kbd> send · {steerable && <><kbd>Ctrl</kbd>+<kbd>Enter</kbd> steer · </>}<kbd>Shift</kbd>+<kbd>Enter</kbd> newline · <kbd>/</kbd> commands{PROJECT_WINDOW && <> · <kbd>!</kbd> shell</>}
+            </span>
+          )}
         </span>
         <span className="quick">
           <button

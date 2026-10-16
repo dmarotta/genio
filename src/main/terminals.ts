@@ -1,6 +1,6 @@
 /**
- * Terminal manager: one real PTY per unit / playtest / shell (companion's tmux
- * windows). Keeps an ANSI scrollback ring so the GUI can re-attach at any time.
+ * Terminal manager: one real PTY per unit / playtest / login session / terminal pane (companion's
+ * tmux windows). Keeps an ANSI scrollback ring so the GUI can re-attach at any time.
  */
 import path from 'node:path'
 import * as pty from 'node-pty'
@@ -137,14 +137,17 @@ export function createTerminalService(getCtx: () => AppCtx): TerminalService {
         alive: true,
         cols,
         rows,
-        kind: opts.kind
+        kind: opts.kind,
+        ...(opts.project ? { project: opts.project } : {}),
+        ...(opts.run !== undefined ? { run: opts.run } : {})
       }
       const t: Term = { info, buf: [], bufLen: 0, dataFns: new Set(), exitFns: new Set(),
         meter: opts.kind === 'worker' ? createActivityMeter(opts.harness) : undefined }
       terms.set(id, t)
       const env = terminalEnv(opts)
       try {
-        const sp = opts.kind === 'worker' ? utf8ConsoleSpawn(resolveSpawn(file, args)) : resolveSpawn(file, args)
+        // A unit's agent and the player's pane both get a UTF-8 console (chcp 65001), as the player expects.
+        const sp = opts.kind === 'worker' || opts.kind === 'pane' ? utf8ConsoleSpawn(resolveSpawn(file, args)) : resolveSpawn(file, args)
         const processStartedAt = Date.now()
         const proc = pty.spawn(sp.file, sp.args, {
           name: 'xterm-256color',
@@ -188,6 +191,7 @@ export function createTerminalService(getCtx: () => AppCtx): TerminalService {
         proc.onExit(({ exitCode }) => {
           t.info.alive = false
           t.info.exitCode = exitCode
+          t.info.exitedAt = Date.now()
           t.proc = undefined
           push(t, `\r\n\x1b[2m[genio] process exited with code ${exitCode}\x1b[0m\r\n`)
           publish(t)
@@ -202,6 +206,8 @@ export function createTerminalService(getCtx: () => AppCtx): TerminalService {
       } catch (e) {
         t.info.alive = false
         t.info.exitCode = -1
+        t.info.exitedAt = Date.now()
+        t.info.startError = `${file} did not start: ${(e as Error).message}`
         push(t, `\x1b[31m[genio] failed to start ${file}: ${(e as Error).message}\x1b[0m\r\n`)
       }
       publish(t)
@@ -221,6 +227,8 @@ export function createTerminalService(getCtx: () => AppCtx): TerminalService {
 
     async submit(id, text, submitKey = '\r') {
       const t = terms.get(id)
+      // Only Genio's own automation submits text (a unit's brief and pings): never into the player's pane.
+      if (t?.info.kind === 'pane') throw new Error("The player's terminal pane takes no input from Genio or its units.")
       if (!t?.proc) return
       t.proc.write(text)
       await new Promise((r) => setTimeout(r, 150))

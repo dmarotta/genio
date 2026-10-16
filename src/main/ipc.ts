@@ -26,6 +26,13 @@ import { sessionCleanupPreview, sessionCleanupProgress, sessionCleanupRun, sessi
 import type { AppCtx, HomeCtx } from './services'
 import { ownsDecision } from '@shared/decisions'
 import { projectSnapshot, terminalProject, type WindowBinding } from './project-windows'
+import { closePane, openPane, paneCwds, runShell } from './terminal-pane'
+import { isShellCommandMessage } from '@shared/terminal-pane'
+
+/** A '!' message is a shell command the composer runs itself: it never reaches the model as chat text. */
+function refuseShellText(text: string): void {
+  if (isShellCommandMessage(text)) throw new Error('Messages starting with ! are shell commands: they run in the terminal and are never sent to Genio as chat.')
+}
 
 type Handlers ={ [K in keyof GenioApi]: (...args: Parameters<GenioApi[K]>) => ReturnType<GenioApi[K]> | Awaited<ReturnType<GenioApi[K]>> }
 
@@ -206,9 +213,9 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     // ---- comms
     approveGeneration: (wksp, run) => agentGeneration(ctx()).approve(run, wksp, 'Approved this exact quote in chat'),
     chatHistory: (wksp, limit) => ctx().home(wksp).wksp.history(limit),
-    sendChat: (wksp, text, images, context) => sendPlayerChat(ctx(), wksp, text, images, context),
+    sendChat: (wksp, text, images, context) => { refuseShellText(text); return sendPlayerChat(ctx(), wksp, text, images, context) },
     unqueueChat: async (wksp, id) => ctx().home(wksp).wksp.unqueue(id),
-    steerChat: (wksp, text, images, context) => ctx().home(wksp).wksp.steer(text, images, context),
+    steerChat: (wksp, text, images, context) => { refuseShellText(text); return ctx().home(wksp).wksp.steer(text, images, context) },
     sendQueuedNow: async (wksp, id) => ctx().home(wksp).wksp.sendNow(id),
     reactToMessage: (wksp, id, kind) => ctx().home(wksp).reactions.react(id, kind),
     interruptWksp: (wksp) => ctx().home(wksp).wksp.interrupt(),
@@ -245,14 +252,12 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     terminalAttach: (id) => ctx().terminals.scrollback(id),
     terminalWrite: (id, data) => ctx().terminals.write(id, data),
     terminalResize: (id, cols, rows) => ctx().terminals.resize(id, cols, rows),
-    terminalOpenShell: (cwd, taskId) => {
-      if (!taskId) return ctx().terminals.create({ kind: 'shell', title: 'Shell', cwd: cwd || ctx().main.home.root })
-      const t = taskHome(taskId).hc.crew.get(taskId)
-      if (!t || t.state === 'cleaned') throw new Error(`${taskId} was despawned; its copy is gone.`)
-      // Tied to the unit, so Despawn closes it before removing the copy.
-      return ctx().terminals.create({ kind: 'shell', title: `Shell · ${t.title}`, cwd: t.worktree, taskId: t.id })
-    },
     terminalKill: (id) => ctx().terminals.kill(id),
+    // The player's own terminal pane (project windows only; see the binding checks below).
+    paneCwds: async (world) => paneCwds(ctx(), world),
+    paneOpen: async (world, cwd, restart, size) => openPane(ctx(), world, cwd, restart, size),
+    paneClose: async (world) => closePane(ctx(), world),
+    paneRun: async (world, wksp, command, cwd, size) => runShell(ctx(), world, wksp, command, cwd, size),
 
     // ---- quest log
     backlogAdd: (item) => ctx().main.backlog.add(item),
@@ -363,6 +368,10 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
         if (windows && !binding && ['sendChat', 'steerChat', 'sendQueuedNow', 'recap', 'save', 'restartWksp', 'interruptWksp', 'unqueueChat', 'reactToMessage', 'approveGeneration'].includes(method)) throw new Error('Open a project window to use its chat.')
         if (method.startsWith('playPool') || method === 'playCloseSlotEditor' || method.startsWith('playerCopy')) assertProjectWindow(binding, args[0])
         if (method.startsWith('playerInstance') || method === 'playerSources' || method === 'playerSourceAvailable') assertProjectWindow(binding, args[0])
+        // The pane lives in its project window only; a '!' result goes to that window's own chat.
+        if (windows && method.startsWith('pane') && (!binding || args[0] !== binding.project || (method === 'paneRun' && args[1] !== binding.wksp))) {
+          throw new Error('The terminal belongs to its project window.')
+        }
         // These end the stream; Pause, Step, Resize and the scene list keep the port (a resize swaps Unity's session behind it).
         if (['playerInstancePlay', 'playerInstanceEnterPlay', 'playerInstanceExitPlay', 'playerInstanceStopUnity', 'playerInstanceSetScene', 'playerInstanceStop', 'playerInstanceQuit', 'playerInstanceRestart', 'playerInstanceDetach'].includes(method)) playConnections.get(args[0] as string)?.()
         if (method === 'playerInstanceStream') {

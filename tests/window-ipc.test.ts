@@ -50,3 +50,31 @@ it('routes Exit to only the calling window', async () => {
   expect(manager.close).toHaveBeenCalledExactlyOnceWith(42)
   expect(handlers.has('genio:appQuit')).toBe(false)
 })
+
+it('never sends a ! message to the model as chat text', async () => {
+  const send = vi.fn(async () => {})
+  const steer = vi.fn(async () => {})
+  const hc = { wksp: { send, steer } }
+  registerIpc((() => ({ home: () => hc })) as unknown as () => AppCtx, windows(true))
+  for (const method of ['sendChat', 'steerChat']) {
+    await expect(handlers.get(`genio:${method}`)!({ sender: { id: 1 } }, 'ally-one', '!git status')).rejects.toThrow(/shell commands/)
+    await expect(handlers.get(`genio:${method}`)!({ sender: { id: 1 } }, 'ally-one', '  !ls')).rejects.toThrow(/shell commands/)
+  }
+  expect(send).not.toHaveBeenCalled()
+  expect(steer).not.toHaveBeenCalled()
+  await handlers.get('genio:sendChat')!({ sender: { id: 1 } }, 'ally-one', 'what does it mean!')
+  expect(send).toHaveBeenCalledOnce()
+})
+
+it('the terminal pane answers only its own project window, and a ! result goes only to that window\'s chat', async () => {
+  const terminals = { list: () => [], create: vi.fn(), kill: vi.fn() }
+  const ctx = () => ({ terminals, projects: { get: () => undefined }, homes: new Map() }) as unknown as AppCtx
+  registerIpc(ctx, windows(true))
+  await expect(handlers.get('genio:paneOpen')!({ sender: { id: 1 } }, 'two')).rejects.toThrow('The terminal belongs to its project window.')
+  await expect(handlers.get('genio:paneRun')!({ sender: { id: 1 } }, 'one', 'other-wksp', 'ls')).rejects.toThrow('The terminal belongs to its project window.')
+  await expect(handlers.get('genio:paneClose')!({ sender: { id: 1 } }, 'one')).resolves.toBeUndefined()
+  registerIpc(ctx, windows(false))
+  await expect(handlers.get('genio:paneCwds')!({ sender: { id: 1 } }, 'one')).rejects.toThrow('The terminal belongs to its project window.')
+  expect(terminals.create).not.toHaveBeenCalled()
+  expect(handlers.has('genio:terminalOpenShell')).toBe(false)
+})

@@ -36,8 +36,10 @@ const THEME = {
  * A `passive` view (a unit's agent) only watches: it keeps the PTY's own size,
  * scaled down to fit, and sends no keys (Ctrl+C included) until the player
  * clicks into it; from then on it fits the PTY to the view and takes input.
+ * The player's terminal pane (`pane`) adds clickable links, copy and paste (Ctrl+C with a selection,
+ * Ctrl+V, Ctrl+Shift+C/V, right click) and leaves Ctrl+` to the pane toggle.
  */
-export function TerminalView({ id, fontSize = 12, interactive = true, autoFocus = false, passive = false }: { id: string; fontSize?: number; interactive?: boolean; autoFocus?: boolean; passive?: boolean }) {
+export function TerminalView({ id, fontSize = 12, interactive = true, autoFocus = false, passive = false, pane = false }: { id: string; fontSize?: number; interactive?: boolean; autoFocus?: boolean; passive?: boolean; pane?: boolean }) {
   const host = useRef<HTMLDivElement>(null)
   const info = useStore((s) => s.terminals[id])
   const size = useRef(info)
@@ -121,6 +123,8 @@ export function TerminalView({ id, fontSize = 12, interactive = true, autoFocus 
         term.write(`\r\n\x1b[38;2;255;46;110m[no signal] ${String(e?.message ?? e)}\x1b[0m\r\n`)
       })
 
+    const extras = pane ? paneExtras(term) : undefined
+
     const sub = term.onData((d) => {
       if (interactive && owned) void api().terminalWrite(id, d).catch(() => undefined)
     })
@@ -138,9 +142,10 @@ export function TerminalView({ id, fontSize = 12, interactive = true, autoFocus 
       ro.disconnect()
       sub.dispose()
       unsub()
+      extras?.()
       term.dispose()
     }
-  }, [id, fontSize, interactive, autoFocus, passive])
+  }, [id, fontSize, interactive, autoFocus, passive, pane])
 
   return (
     <>
@@ -155,4 +160,52 @@ export function TerminalView({ id, fontSize = 12, interactive = true, autoFocus 
       {!claimed && interactive && <div className="term-claim mute">Click to type into the agent</div>}
     </>
   )
+}
+
+const URL_RE = /https?:\/\/[^\s"'<>`]+[^\s"'<>`.,;:!?)\]}]/g
+
+/** Links, clipboard and the pane shortcut for the player's own terminal; returns its cleanup. */
+function paneExtras(term: XTerm): () => void {
+  const copy = (): boolean => {
+    const text = term.getSelection()
+    if (!text) return false
+    void navigator.clipboard?.writeText(text).catch(() => undefined)
+    term.clearSelection()
+    return true
+  }
+  const paste = (): void => {
+    void navigator.clipboard?.readText().then((t) => { if (t) term.paste(t) }).catch(() => undefined)
+  }
+  term.attachCustomKeyEventHandler((e) => {
+    if (e.type !== 'keydown') return true
+    const ctrl = e.ctrlKey || e.metaKey
+    // Ctrl+` belongs to the pane toggle, never to the shell.
+    if (ctrl && (e.code === 'Backquote' || e.key === '`')) return false
+    if (ctrl && e.shiftKey && e.code === 'KeyC') { copy(); return false }
+    if (ctrl && e.code === 'KeyV') { e.preventDefault(); paste(); return false }
+    // Ctrl+C copies a selection; with nothing selected it interrupts as usual.
+    if (ctrl && !e.shiftKey && e.code === 'KeyC' && term.hasSelection()) { copy(); return false }
+    return true
+  })
+  const links = term.registerLinkProvider({
+    provideLinks(y, callback) {
+      const line = term.buffer.active.getLine(y - 1)?.translateToString(true) ?? ''
+      const found = [...line.matchAll(URL_RE)].map((m) => ({
+        range: { start: { x: m.index! + 1, y }, end: { x: m.index! + m[0].length, y } },
+        text: m[0],
+        activate: (_e: MouseEvent, url: string) => void api().openExternal(url).catch(() => undefined)
+      }))
+      callback(found.length ? found : undefined)
+    }
+  })
+  const el = term.element
+  const menu = (e: MouseEvent): void => {
+    e.preventDefault()
+    if (!copy()) paste()
+  }
+  el?.addEventListener('contextmenu', menu)
+  return () => {
+    links.dispose()
+    el?.removeEventListener('contextmenu', menu)
+  }
 }

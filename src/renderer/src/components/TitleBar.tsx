@@ -1,10 +1,11 @@
-import { Crosshair, GitMerge, Users } from 'lucide-react'
+import { Crosshair, GitMerge, SquareTerminal, Users } from 'lucide-react'
 import { PROJECT_WINDOW, api, go, op, openDecisions, runningUnits, setState, toggleAnswers, useStore } from '../store'
 import { useNow } from './ui'
 import { FileMenu } from './FileMenu'
 import { PRESENCE } from '../lib/vocab'
 import { clock, cx, usd } from '../lib/format'
 import { playSfx } from '../lib/sfx'
+import { PANE_SHORTCUT, togglePane } from '../lib/terminal-pane'
 import type { AwayMode } from '@shared/types'
 
 export function TitleBar() {
@@ -15,6 +16,7 @@ export function TitleBar() {
   const moves = useStore((s) => openDecisions(s).length)
   const answersOpen = useStore(s => s.answersOpen && (openDecisions(s).length > 0 || !!s.answerHistory))
   const settings = useStore((s) => s.settings)
+  const paneOpen = useStore((s) => s.paneOpen)
   const pct = stats.xpNext > 0 ? Math.min(100, (stats.xp / stats.xpNext) * 100) : 0
 
   const setPresence = async (mode: AwayMode): Promise<void> => {
@@ -57,6 +59,11 @@ export function TitleBar() {
       <div className="tb-spacer" />
 
       <div className="hud-stats">
+        {PROJECT_WINDOW && (
+          <button className={cx('hud-stat hud-terminal', paneOpen && 'on')} title={`Terminal (${PANE_SHORTCUT})`} aria-label="Terminal" aria-pressed={paneOpen} onClick={togglePane}>
+            <SquareTerminal size={15} />
+          </button>
+        )}
         <button className="hud-stat hud-units" title="Units in action" onClick={() => go('squad')}>
           <Users size={14} />
           <span className="num">{units}</span>

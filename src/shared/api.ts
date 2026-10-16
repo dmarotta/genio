@@ -11,6 +11,7 @@ import type {
   ReactionKind
 } from './types'
 import type { DispatchScoresView } from './dispatch'
+import type { PaneCwd } from './terminal-pane'
 import type { ChatImageInput } from './chat-images'
 import type { InventoryInfo, InventoryQuery, InventoryResult, InventoryState } from './inventory'
 import type { UthanaWorldConfig, UthanaWorldState } from './uthana'
@@ -585,9 +586,15 @@ export interface GenioApi {
   terminalAttach(id: string): Promise<string>
   terminalWrite(id: string, data: string): Promise<void>
   terminalResize(id: string, cols: number, rows: number): Promise<void>
-  /** A shell in `cwd`, or in a unit's copy and tied to that unit (`taskId`): Despawn closes it. */
-  terminalOpenShell(cwd?: string, taskId?: string): Promise<TerminalInfo>
   terminalKill(id: string): Promise<void>
+  /** The terminal pane's folders: the main checkout, then each live unit's copy. */
+  paneCwds(world: string): Promise<PaneCwd[]>
+  /** Start the pane's shell in a folder (default: the main checkout), or return the one running there; another folder or `restart` replaces it. */
+  paneOpen(world: string, cwd?: string, restart?: boolean, size?: { cols: number; rows: number }): Promise<TerminalInfo>
+  /** Close the pane: its shell and its '!' runs stop. */
+  paneClose(world: string): Promise<void>
+  /** Run a '!' command from `wksp`'s composer in the pane's folder; its result block joins that chat when it ends. */
+  paneRun(world: string, wksp: string, command: string, cwd?: string, size?: { cols: number; rows: number }): Promise<TerminalInfo>
 
   // ---- quest log (backlog)
   backlogAdd(item: Partial<BacklogItem> & { title: string }): Promise<BacklogItem>
@@ -746,8 +753,11 @@ export const API_METHODS = [
   'terminalAttach',
   'terminalWrite',
   'terminalResize',
-  'terminalOpenShell',
   'terminalKill',
+  'paneCwds',
+  'paneOpen',
+  'paneClose',
+  'paneRun',
   'backlogAdd',
   'backlogUpdate',
   'backlogHold',

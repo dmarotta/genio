@@ -9,7 +9,7 @@ import type { InventoryContext } from '@shared/inventory-context'
  * the main home ('main') and one per local second unit.
  */
 import type {
-  AwayMode, AwayEntry, AwayState, BacklogItem, StatusReport, ChatMessage, Decision, FleetSnapshot,
+  AwayMode, AwayEntry, AwayState, BacklogItem, StatusReport, ChatMessage, ShellRun, Decision, FleetSnapshot,
   FleetStats, HarnessAdapter, InboxNote, LedgerRecord, WkspInfo, PermissionRequest, Project, Ally,
   Settings, StatusEvent, Task, TerminalInfo, ToolStatus, UpdateInfo, Wake, WakeKind, Achievement,
   DeliveryMode, SfxName, NotifyTarget, Verdict, TaskCounters, PlaystyleId, ReactionKind
@@ -84,6 +84,10 @@ export interface CreateTerminalOpts {
   taskId?: string
   /** a unit's runtime, so its idle CLI chrome is not mistaken for work */
   harness?: string
+  /** pane terminals: the owning project window */
+  project?: string
+  /** pane terminals: the '!' command this one-shot process runs */
+  run?: string
   cols?: number
   rows?: number
 }
@@ -456,6 +460,11 @@ export interface WkspService {
   say(text: string, role?: ChatMessage['role']): ChatMessage
   /** add or replace (by id) a message in this chat; persist=false keeps it on screen only (e.g. a placeholder) */
   post(m: ChatMessage, persist: boolean): void
+  /**
+   * A '!' command the player ran finished: its result block joins the transcript (run by the player, never an
+   * agent action) and its bounded output is read with the player's next message, labelled as their shell output.
+   */
+  shellRan(run: ShellRun): ChatMessage
 }
 
 /** The player's like/dislike on this chat's Genio messages (reactions.ts). */

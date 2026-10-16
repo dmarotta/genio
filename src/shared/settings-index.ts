@@ -125,7 +125,7 @@ const ROWS: Partial<Record<SettingsPageId, RowSpec[]>> = {
   dispatch: [['Learn the order automatically', ['Auto reorder', 'Learning']]],
   harnesses: [
     ['Claude Code path', ['Claude path']],
-    ['Shell']
+    ['Terminal shell', ['Shell', 'Terminal', 'PowerShell']]
   ],
   gauntlet: [
     ['Review model', ['Reviewer model']],

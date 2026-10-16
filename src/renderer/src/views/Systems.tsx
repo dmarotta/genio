@@ -972,7 +972,7 @@ function Harnesses({ s }: { s: Settings }) {
       <Row label="Claude Code path" hint="Blank uses the bundled Claude Code, e.g. C:\tools\claude.exe.">
         <CommitInput mono value={s.claudePath} placeholder="(bundled)" onCommit={(v) => set({ claudePath: v.trim() })} />
       </Row>
-      <Row label="Shell" hint="The shell for Shell sessions, e.g. pwsh. Blank uses the system default.">
+      <Row label="Terminal shell" hint="The shell the terminal pane (Ctrl+`) and ! commands run, e.g. pwsh or cmd. Blank uses PowerShell.">
         <CommitInput mono value={s.shell} onCommit={(v) => set({ shell: v.trim() })} />
       </Row>
       <div className="harness-list">

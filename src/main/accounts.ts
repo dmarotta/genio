@@ -246,7 +246,7 @@ export async function openAccountSession(ctx: AppCtx, tool: string, action: 'log
   if (action === 'login') def.prepare?.()
   // A login with its own home (Genio's Codex) signs in only that home: the player's own login is never touched.
   const terminal = ctx.terminals.create({
-    kind: 'shell',
+    kind: 'session',
     title: `${action === 'login' ? 'Log in' : 'Log out'} · ${def.label}`,
     cwd,
     file: t.path,

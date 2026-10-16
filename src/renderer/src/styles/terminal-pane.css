@@ -1,0 +1,62 @@
+/* The player's terminal pane: slides up under the screen, inside the project window's stage column. */
+.stage-column { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.stage-column > .stage-shell { flex: 1 1 auto; }
+
+.term-pane {
+  flex: none; position: relative; overflow: hidden; z-index: 12;
+  display: flex; flex-direction: column; justify-content: flex-start;
+  background: #05070b; border-top: 1px solid transparent;
+  transition: height 200ms var(--ease), border-color 200ms var(--ease);
+}
+.term-pane:not(.open) { border-top-width: 0; }
+.term-pane.open { border-top-color: var(--line-strong); box-shadow: 0 -10px 24px rgba(0, 0, 0, 0.45); }
+.term-pane.dragging { transition: none; }
+@media (prefers-reduced-motion: reduce) { .term-pane { transition: none; } }
+body.fx-off .term-pane { transition: none; }
+
+/* Fixed at the pane's height so the shell never resizes while the pane animates. */
+.term-pane-inner { flex: none; display: flex; flex-direction: column; min-height: 0; position: relative; }
+.term-pane-grip { position: absolute; top: 0; left: 0; right: 0; height: 6px; margin-top: -1px; cursor: ns-resize; z-index: 3; }
+.term-pane-grip:hover, .term-pane-grip:focus-visible, .term-pane.dragging .term-pane-grip { background: var(--neon-soft); outline: none; box-shadow: inset 0 1px 0 var(--neon); }
+
+.term-pane-bar { flex: none; display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 8px 0 4px; border-bottom: 1px solid var(--line); background: rgba(12, 15, 22, 0.96); }
+.term-pane-tabs { flex: 1; min-width: 0; display: flex; align-items: stretch; gap: 2px; overflow-x: auto; scrollbar-width: none; height: 100%; }
+.term-pane-tab { display: inline-flex; align-items: center; gap: 6px; flex: none; max-width: 240px; padding: 0 10px; height: 100%;
+  background: none; border: 0; border-bottom: 2px solid transparent; color: var(--text-dim); cursor: pointer; font-size: 12px; white-space: nowrap; }
+.term-pane-tab.on { color: var(--text); border-bottom-color: var(--neon); }
+.term-pane-tab.run { padding: 0 2px 0 0; }
+.term-pane-tab.run > button:first-child { display: inline-flex; align-items: center; gap: 6px; min-width: 0; height: 100%; padding: 0 4px 0 10px; background: none; border: 0; color: inherit; cursor: pointer; font-size: 12px; }
+.term-pane-tab.run .mono { overflow: hidden; text-overflow: ellipsis; }
+.term-pane-tab.ok .term-pane-exit { color: var(--volt); }
+.term-pane-tab.bad .term-pane-exit { color: var(--alert); }
+.term-pane-exit { font-size: 10.5px; font-family: var(--font-mono); }
+.term-pane-tab-x { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; background: none; border: 0; color: var(--text-mute); cursor: pointer; border-radius: 3px; }
+.term-pane-tab-x:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+.term-pane-cwd { flex: none; max-width: 220px; height: 24px; padding: 0 6px; font-size: 11.5px; background: rgba(0, 0, 0, 0.45); color: var(--text); border: 1px solid var(--line); }
+
+.term-pane-body { flex: 1; min-height: 0; position: relative; }
+.term-pane-view { position: absolute; inset: 0; display: none; flex-direction: column; }
+.term-pane-view.on { display: flex; }
+.term-pane-view > .term-host { flex: 1; min-height: 0; }
+.term-pane-empty { align-items: center; justify-content: center; gap: 10px; font-size: 13px; padding: 12px; text-align: center; }
+.term-pane-ended, .term-pane-run {
+  flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; padding: 6px 12px; font-size: 12px;
+  border-top: 1px solid var(--line); background: rgba(12, 15, 22, 0.96);
+}
+.term-pane-ended { border-top-color: rgba(255, 46, 110, 0.35); }
+.term-pane-run .mono { color: var(--amber); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
+.term-pane-run.ok { color: var(--volt); }
+.term-pane-run.bad { color: var(--alert); }
+
+/* The floating cards and toasts stay above the pane, never over it. */
+body .answers-float { max-height: calc(100vh - var(--hud) - 20px - var(--term-pane-h, 0px)); }
+@media (max-height: 520px) { body .answers-float { max-height: calc(100vh - var(--hud) - 12px - var(--term-pane-h, 0px)); } }
+@media (max-width: 780px) { html body:has(.answers-float .answer-card) .toasts { bottom: calc(18px + var(--term-pane-h, 0px)); } }
+
+.hud-stat.on { color: var(--neon); border-color: var(--line-strong); }
+
+@media (max-width: 560px) {
+  .term-pane-bar { gap: 2px; padding-right: 4px; }
+  .term-pane-cwd { max-width: 96px; }
+  .term-pane-tab { padding: 0 6px; max-width: 140px; }
+}

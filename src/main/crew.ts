@@ -849,11 +849,11 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       } else if (!force) {
         return { ok: false, message: `Cannot verify ${id}'s work: its project is not registered. Force only with the player's word.` }
       }
-      // The agent and every terminal tied to the unit (its shells): a shell open in the copy would block its removal.
+      // The agent and every terminal tied to the unit (a terminal pane open in its copy): a shell there would block its removal.
       if (t.terminalId) ctx.terminals.kill(t.terminalId)
       const shells = ctx.terminals.list().filter((term) => term.taskId === id)
       for (const term of shells) ctx.terminals.kill(term.id)
-      // Give a killed shell a moment to release its working directory (Windows).
+      // Give a killed terminal a moment to release its working directory (Windows).
       if (shells.some((term) => term.alive)) await sleep(500)
       // A linked node_modules goes first, the link only: removing the worktree must never reach through it.
       const linkedDeps = path.join(t.worktree, 'node_modules')

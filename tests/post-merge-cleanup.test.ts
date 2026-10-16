@@ -129,12 +129,12 @@ describe('post-merge cleanup', () => {
     expect(hc.crew.get('ahead2')?.state).toBe('merged')
   }, 60_000)
 
-  it('closes the shells opened from the unit page before removing the copy, and leaves other terminals alone', async () => {
+  it('closes a terminal pane open in the unit\'s copy before removing it, and leaves other terminals alone', async () => {
     const t = await readyUnit('shells')
     listed = [
-      { id: 'shell-mine', taskId: t.id, alive: true, kind: 'shell' },
-      { id: 'shell-other', taskId: 'other-unit', alive: true, kind: 'shell' },
-      { id: 'shell-plain', alive: true, kind: 'shell' }
+      { id: 'shell-mine', taskId: t.id, alive: true, kind: 'pane' },
+      { id: 'shell-other', taskId: 'other-unit', alive: true, kind: 'pane' },
+      { id: 'shell-plain', alive: true, kind: 'pane' }
     ]
     const r = await hc.crew.merge(t.id)
     expect(r.ok).toBe(true)

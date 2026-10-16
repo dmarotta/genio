@@ -56,6 +56,14 @@ export interface State {
   deploy: Partial<SpawnRequest> | null
   palette: boolean
   welcomeDismissedAt?: string
+  /** The terminal pane is showing (hidden keeps its shell running; closing it stops the shell). */
+  paneOpen: boolean
+  /** The pane tab in front: a '!' run's terminal id; unset = the shell */
+  paneTab?: string
+  /** The pane's folder: 'main' or a unit id (see paneCwds) */
+  paneCwd: string
+  /** Why the pane's shell could not start (bad folder); shell mode is unavailable meanwhile */
+  paneError?: string
 }
 
 const emptySnap: FleetSnapshot = {
@@ -101,7 +109,9 @@ let state: State = {
   focus: null,
   deploy: null,
   palette: false,
-  answersOpen: true
+  answersOpen: true,
+  paneOpen: false,
+  paneCwd: 'main'
 }
 
 const listeners = new Set<() => void>()

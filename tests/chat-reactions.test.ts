@@ -7,6 +7,7 @@ import { ChatPanel } from '../src/renderer/src/views/Comms'
 
 const f = vi.hoisted(() => ({ react: vi.fn(), toast: vi.fn(), messages: [] as ChatMessage[] }))
 vi.mock('../src/renderer/src/store', () => ({
+  PROJECT_WINDOW: undefined,
   PROJECT_WKSP: 'ally',
   useStore: (select: (s: unknown) => unknown) => select({ snap: { wksps: [], allies: [] }, chats: { ally: f.messages }, settings: undefined }),
   api: () => ({ reactToMessage: f.react }), loadChat: vi.fn(), toast: f.toast, errText: String

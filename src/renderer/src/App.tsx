@@ -20,6 +20,7 @@ import { Systems } from './views/Systems'
 import { Inventory } from './views/Inventory'
 import { Play } from './views/Play'
 import { GenioPanel } from './components/GenioPanel'
+import { TerminalPane } from './components/TerminalPane'
 
 const VIEW: Partial<Record<ViewId, ComponentType>> = {
   play: Play,
@@ -70,20 +71,24 @@ export function App() {
       <ProjectNotice />
       <div className="app-body">
         <Rail />
-        <div className="stage-shell">
-          <main className="stage" key={view}>
-            {booted && !connected ? (
-              <div className="offline">
-                <div className="title">
-                  No <span className="accent">link</span>
+        {/* The terminal pane slides up under the stage; the floating chat stays within the stage above it. */}
+        <div className="stage-column">
+          <div className="stage-shell">
+            <main className="stage" key={view}>
+              {booted && !connected ? (
+                <div className="offline">
+                  <div className="title">
+                    No <span className="accent">link</span>
+                  </div>
+                  <p className="dim">Genio's core is not responding. Restart the app; if it persists, check the console.</p>
                 </div>
-                <p className="dim">Genio's core is not responding. Restart the app; if it persists, check the console.</p>
-              </div>
-            ) : (
-              <View />
-            )}
-          </main>
-          <GenioPanel />
+              ) : (
+                <View />
+              )}
+            </main>
+            <GenioPanel />
+          </div>
+          <TerminalPane />
         </div>
       </div>
       {/* Floating cards: overlaid on the right edge, outside the layout so they never reflow it. */}

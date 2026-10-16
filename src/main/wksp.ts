@@ -27,7 +27,8 @@ import path from 'node:path'
 import type {
   Options, CanUseTool, PermissionResult
 } from '@anthropic-ai/claude-agent-sdk'
-import type { Ally, ChatMessage, WkspInfo, MessageActions } from '@shared/types'
+import type { Ally, ChatMessage, WkspInfo, MessageActions, ShellRun } from '@shared/types'
+import { SHELL_CONTEXT_RUNS, shellContextBlock, shellSummary } from '@shared/terminal-pane'
 import { hasInventoryChips, inventoryContextBlock, validateInventoryContext, type InventoryContext } from '@shared/inventory-context'
 import type { ChatImageInput } from '@shared/chat-images'
 import { prepareInventoryContext } from './inventory-context'
@@ -158,6 +159,9 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
   let interruptedNote: string | undefined
   /** Player messages that steer once their turn is ready: the visible turn in progress ends and they are read first. */
   const steerIds = new Set<string>()
+
+  /** The player's '!' runs since their last message: read, labelled as their own shell output, with the next one. */
+  let shellRuns: ShellRun[] = []
 
   /** Player messages already shown as queued whose turn is still being prepared (images, project opening). */
   const preparing = new Set<string>()
@@ -696,8 +700,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     const stored = { refs: [...(shown?.m.images ?? []), ...added.refs], send: [...(shown?.send ?? []), ...added.send] }
     if (prepared.context?.thumbnail?.status === 'attached') prepared.context.thumbnail.image = stored.refs.at(-1)
     const m: ChatMessage = shown ? { ...loadHistory().find((x) => x.id === shown.m.id)! } : inboundMessage(name, trimmed, origin)
-    // only real conversation needs a handoff; messages still waiting (this one included) are not part of it
-    let prompt = !genio.sessionId && loadHistory().some((x) => !x.queue) ?`${handoffContext()}\n\nCurrent request:\n${trimmed}` : trimmed
+    // only real conversation needs a handoff; messages still waiting (this one included) and '!' result blocks are not part of it
+    let prompt = !genio.sessionId && loadHistory().some((x) => !x.queue && !x.shell) ?`${handoffContext()}\n\nCurrent request:\n${trimmed}` : trimmed
     // companion: the first ordinary player message after AFK ends it with a return brief
     if (origin === 'player' && ctx.away.state().mode === 'afk') {
       const brief = ctx.away.takeReturnBrief()
@@ -710,6 +714,10 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     if (stored.refs.length) m.images = stored.refs
     if (prepared.context) m.context = prepared.context
     const player = origin === 'player'
+    if (player && shellRuns.length) {
+      prompt = `${shellContextBlock(shellRuns)}\n\n${prompt}`
+      shellRuns = []
+    }
     // mid-turn: the message waits in the log as queued until the session picks it up
     if (player) m.queue = 'queued'
     if (shown) preparing.delete(m.id)
@@ -898,7 +906,13 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
       saveState()
     },
     say,
-    post: record
+    post: record,
+    shellRan(run) {
+      const m: ChatMessage = { id: `sh-${rid(6)}`, wksp: name, role: 'system', text: shellSummary(run), ts: nowIso(), shell: run }
+      record(m, true)
+      if (!readOnly) shellRuns = [...shellRuns, run].slice(-SHELL_CONTEXT_RUNS)
+      return m
+    }
   }
   return svc
 }

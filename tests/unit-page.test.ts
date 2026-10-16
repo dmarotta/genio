@@ -19,7 +19,7 @@ let files: Record<string, string> = {}
 const calls = new Map<string, ReturnType<typeof vi.fn>>()
 const apiCall = (name: string): ReturnType<typeof vi.fn> => {
   if (!calls.has(name)) {
-    calls.set(name, vi.fn(async (...args: unknown[]) => (name === 'terminalOpenShell' ? { id: 'shell-1' } : name === 'readTaskFile' ? files[args[1] as string] ?? '' : { ok: true, message: 'ok' })))
+    calls.set(name, vi.fn(async (...args: unknown[]) => (name === 'readTaskFile' ? files[args[1] as string] ?? '' : { ok: true, message: 'ok' })))
   }
   return calls.get(name)!
 }
@@ -95,13 +95,12 @@ describe('unit page header and primary action', () => {
     expect(host.querySelector('.verdict')).toBeNull()
   })
 
-  it('puts Interrupt, Respawn, Recall, Open folder, Open shell and Despawn under More, each with its one-line consequence', async () => {
+  it('puts Interrupt, Respawn, Recall, Open folder and Despawn under More, each with its one-line consequence', async () => {
     await live()
     const items = await menu()
-    expect(items.map((i) => i.label)).toEqual(['Interrupt', 'Respawn', 'Recall', 'Open folder', 'Open shell', 'Despawn…'])
-    expect(items.map((i) => i.hint)).toEqual([UNIT_ACTION_HINT.interrupt, UNIT_ACTION_HINT.respawn, UNIT_ACTION_HINT.recall, UNIT_ACTION_HINT.folder, UNIT_ACTION_HINT.shell, UNIT_ACTION_HINT.despawn])
+    expect(items.map((i) => i.label)).toEqual(['Interrupt', 'Respawn', 'Recall', 'Open folder', 'Despawn…'])
+    expect(items.map((i) => i.hint)).toEqual([UNIT_ACTION_HINT.interrupt, UNIT_ACTION_HINT.respawn, UNIT_ACTION_HINT.recall, UNIT_ACTION_HINT.folder, UNIT_ACTION_HINT.despawn])
     for (const i of items) expect(i.hint).not.toMatch(/\n/)
-    expect(items.find((i) => i.label === 'Open shell')!.tone).toBe('warn')
     expect(items.find((i) => i.label === 'Despawn…')!.tone).toBe('danger')
   })
 
@@ -111,7 +110,7 @@ describe('unit page header and primary action', () => {
     expect(host.querySelector('.detail-clock')?.textContent).toBe('took 54 min')
     expect(host.querySelector('.uh-since')?.textContent).toBe('· ready 6m ago')
     expect(primary()).toEqual(['Merge into main', 'More'])
-    expect((await menu()).map((i) => i.label)).toEqual(['Open folder', 'Open shell', 'Despawn…'])
+    expect((await menu()).map((i) => i.label)).toEqual(['Open folder', 'Despawn…'])
     await click(button('Merge into main'))
     expect(document.body.textContent).toContain('Fast-forward genio/u1 into main')
     expect(document.querySelector('.verdict-pick')).not.toBeNull()
@@ -264,12 +263,14 @@ describe('unit page content', () => {
     expect(calls.get('controlTask')).toHaveBeenCalledTimes(1)
   })
 
-  it('opens Shell tied to the unit from More', async () => {
+  it('offers no shell: not under More, not in the Squad header; the unit page keeps only the agent terminal', async () => {
     await live()
-    await click(button('More'))
-    await click([...host.querySelectorAll<HTMLButtonElement>('.unit-menu-item')].find((b) => b.textContent?.startsWith('Open shell'))!)
-    expect(calls.get('terminalOpenShell')).toHaveBeenCalledWith(undefined, 'u1')
-    expect(getState().focus).toEqual({ type: 'terminal', id: 'shell-1' })
+    expect((await menu()).map((i) => i.label)).not.toContain('Open shell')
+    expect(host.textContent).not.toMatch(/\bShell\b/)
+    expect(host.querySelectorAll('.term-mock')).toHaveLength(1)
+    await act(async () => setState({ focus: null }))
+    expect([...host.querySelectorAll('button')].map((b) => b.textContent?.trim())).not.toContain('Shell')
+    expect(calls.has('terminalOpenShell')).toBe(false)
   })
 
   it('warns before despawning a Build with an open PR, and says Recall does not stick', async () => {

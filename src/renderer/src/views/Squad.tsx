@@ -44,7 +44,8 @@ function SquadGrid() {
         .sort((a, b) => rank(a) - rank(b) || b.createdAt.localeCompare(a.createdAt)),
     [tasks]
   )
-  const sessions = Object.values(terminals).filter((t) => t.kind !== 'worker')
+  // Login sessions; the terminal pane shows its own terminals.
+  const sessions = Object.values(terminals).filter((t) => t.kind !== 'worker' && t.kind !== 'pane')
   useScreenContext('squad', { facts: [
     { label: 'Roster', value: `${list.length} active units` },
     list.length > 0 && { label: 'Units', value: listFact(list.map((t) => `${t.title} (${squadState(t, t.terminalId ? terminals[t.terminalId] : undefined)})`), list.length, 5) }
@@ -59,9 +60,7 @@ function SquadGrid() {
           </>
         }
       >
-        <button className="btn ghost" onClick={() => void api().terminalOpenShell().then((t) => setState({ focus: { type: 'terminal', id: t.id } })).catch((e) => toast('error', 'Shell', errText(e)))}>
-          <SquareTerminal size={14} /> Shell
-        </button>
+
         <button className="btn solid" onClick={() => openDeploy()}>
           <Rocket size={14} /> Deploy
         </button>
@@ -394,8 +393,7 @@ function UnitDetail({ id }: { id: string }) {
     canRespawn(t) && { id: 'respawn', label: 'Respawn', hint: UNIT_ACTION_HINT.respawn, run: () => void op('Respawn', () => api().controlTask(t.id, 'relaunch')) },
     live && { id: 'recall', label: 'Recall', hint: UNIT_ACTION_HINT.recall, run: () => setConfirm('recall') },
     !cleaned && { id: 'folder', label: 'Open folder', hint: UNIT_ACTION_HINT.folder, run: () => void api().openPath(t.worktree) },
-    !cleaned && { id: 'shell', label: 'Open shell', hint: UNIT_ACTION_HINT.shell, tone: 'warn',
-      run: () => void api().terminalOpenShell(undefined, t.id).then((s) => setState({ focus: { type: 'terminal', id: s.id } })).catch((e) => toast('error', 'Shell', errText(e))) },
+
     !cleaned && { id: 'despawn', label: 'Despawn…', hint: UNIT_ACTION_HINT.despawn, tone: 'danger', run: () => setConfirm('despawn') }
   ] as (MoreItem | false)[]).filter((x): x is MoreItem => !!x)
 
