@@ -125,6 +125,22 @@ export const BUILTIN_HARNESSES: HarnessAdapter[] = [
 /** Matches both raw and whitespace-squashed terminal text. */
 export const CLAUDE_BYPASS_DIALOG = /bypass\s*permissions\s*mode|yes,?\s*i\s*accept/i
 
+/** A TUI's working line once it took a submitted prompt (Codex: "Working (0s • esc to interrupt)"), on whitespace-squashed lower-case text. */
+export const TUI_WORKING = /esc(ape)?tointerrupt/
+
+/**
+ * Claude's "We recommend compacting earlier" offer at a turn end ("Keep auto
+ * (1m tokens)" / "Autocompact at ‹ 400k › tokens"), on whitespace-squashed
+ * lower-case text. Returns the key that keeps the automatic window: Enter on
+ * a preselected "Keep auto", else Esc ("not now", which changes no setting).
+ * Undefined when the offer is not showing.
+ */
+export function autocompactOfferKey(squashed: string): string | undefined {
+  if (!squashed.includes('autocompactat') || !/keepauto\(\d/.test(squashed)) return undefined
+  const pointed = (option: string): number => Math.max(squashed.lastIndexOf(`❯${option}`), squashed.lastIndexOf(`>${option}`))
+  return pointed('keepauto(') > pointed('autocompactat') ? '\r' : '\x1b'
+}
+
 export interface LaunchVars {
   model?: string
   effort?: string

@@ -13,6 +13,13 @@ import { rid, stripAnsi, which } from './util'
 const SCROLLBACK_MAX = 1_500_000
 /** Sustained work-like output republishes the terminal at most this often. */
 const WORK_REPUBLISH_MS = 15_000
+/** Typed text settles (no new echo for this long, at most SUBMIT_SETTLE_MAX_MS) before the submit key. */
+const SUBMIT_SETTLE_MS = 250
+const SUBMIT_SETTLE_MAX_MS = 1_500
+/** A confirmed submit presses the key once per entry, then waits this long for the TUI to take the line. */
+export const SUBMIT_CHECKS_MS = [500, 1_000, 2_000, 4_000]
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 interface Term {
   info: TerminalInfo
@@ -225,20 +232,41 @@ export function createTerminalService(getCtx: () => AppCtx): TerminalService {
       if (t?.proc) t.proc.write(data)
     },
 
-    async submit(id, text, submitKey = '\r') {
+    async submit(id, text, submitKey = '\r', confirm) {
       const t = terms.get(id)
       // Only Genio's own automation submits text (a unit's brief and pings): never into the player's pane.
       if (t?.info.kind === 'pane') throw new Error("The player's terminal pane takes no input from Genio or its units.")
-      if (!t?.proc) return
+      if (!t?.proc) return false
       t.proc.write(text)
-      await new Promise((r) => setTimeout(r, 150))
-      if (!t.proc) return
-      t.proc.write(submitKey)
-      // Some TUIs swallow the first Enter right after a paste burst; a second
-      // Enter on an empty composer is harmless, so retry once if nothing echoed.
-      const before = t.lastOutputAt ?? 0
-      await new Promise((r) => setTimeout(r, 600))
-      if (t.proc && (t.lastOutputAt ?? 0) <= before) t.proc.write(submitKey)
+      // An Enter that reaches a TUI while it still takes in the typed burst becomes
+      // a newline (Codex) or is dropped: wait until the echo of the text settles.
+      const typedAt = Date.now()
+      await sleep(SUBMIT_SETTLE_MS)
+      while (Date.now() - typedAt < SUBMIT_SETTLE_MAX_MS && Date.now() - (t.lastOutputAt ?? 0) < SUBMIT_SETTLE_MS) await sleep(50)
+      if (!t.proc) return false
+      if (!confirm) {
+        t.proc.write(submitKey)
+        // A second Enter on an empty composer is harmless, so retry once if nothing echoed.
+        const before = t.lastOutputAt ?? 0
+        await sleep(600)
+        if (t.proc && (t.lastOutputAt ?? 0) <= before) t.proc.write(submitKey)
+        return true
+      }
+      // Confirmed submit: press the key, then look for the TUI taking the line; retry with backoff.
+      let since = ''
+      const collect = (d: string): void => { since += d }
+      t.dataFns.add(collect)
+      try {
+        for (const wait of SUBMIT_CHECKS_MS) {
+          if (!t.proc) return false
+          t.proc.write(submitKey)
+          await sleep(wait)
+          if (confirm(stripAnsi(since))) return true
+        }
+        return false
+      } finally {
+        t.dataFns.delete(collect)
+      }
     },
 
     resize(id, cols, rows) {

@@ -95,6 +95,46 @@ export function setClaudeTrust(cfgFile: string, dirs: string[], trusted: boolean
   }
 }
 
+/** The window "Keep auto (1m tokens)" keeps: Claude's own default for 1M-context models. */
+const AUTO_COMPACT_KEEP_TOKENS = 1_000_000
+
+/**
+ * Answer Claude Code's "We recommend compacting earlier" offer in `cfgFile`
+ * before a unit meets it: the offer waits at a turn end for a key, and a unit
+ * stuck there reads no pings and never resumes. Claude skips the offer once
+ * autoCompactOffer[account][model] holds an answer; "keep" is what the
+ * "Keep auto (1m tokens)" choice writes and changes no setting, so the default
+ * automatic window stays. Covers `models` for the signed-in account and every
+ * offer Claude already recorded unanswered. Read-modify-write, atomic; a
+ * missing or empty file is left alone (crew answers the offer on screen too).
+ */
+export function answerAutoCompactOffer(cfgFile: string, models: string[], now = Date.now()): void {
+  try {
+    const raw = readText(cfgFile)
+    if (!raw.trim()) return
+    const data = JSON.parse(raw) as { oauthAccount?: { accountUuid?: unknown }; autoCompactOffer?: Record<string, Record<string, Record<string, unknown>>> }
+    const offers = (data.autoCompactOffer ??= {})
+    const account = data.oauthAccount?.accountUuid
+    if (typeof account === 'string' && account) {
+      offers[account] ??= {}
+      for (const m of models) if (m) offers[account][m] ??= {}
+    }
+    let changed = false
+    for (const byModel of Object.values(offers)) {
+      if (!byModel || typeof byModel !== 'object') continue
+      for (const [model, offer] of Object.entries(byModel)) {
+        if (!offer || typeof offer !== 'object' || (offer.resolved && typeof offer.resolved === 'object')) continue
+        byModel[model] = { ...offer, eligibleLoggedAt: typeof offer.eligibleLoggedAt === 'number' ? offer.eligibleLoggedAt : now,
+          resolved: { choice: 'keep', tokens: AUTO_COMPACT_KEEP_TOKENS } }
+        changed = true
+      }
+    }
+    if (changed) writeText(cfgFile, JSON.stringify(data, null, 2))
+  } catch {
+    /* crew answers the offer on screen */
+  }
+}
+
 // ---------------------------------------------------------------- where a conversation lives
 
 /** Claude's projects/ folder name for a cwd (every non-alphanumeric becomes '-'; long names get a hash suffix). */

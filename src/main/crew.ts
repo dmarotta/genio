@@ -15,9 +15,9 @@ import { appendProgressNote, doorbellLine, engineHints, generatorBrief, kickoffP
 import { claimConflict, claimHolderKind } from '@shared/modeller'
 import { pruneModellerData } from './modeller-landing'
 import { holdsCapacity } from './usage-policy'
-import { buildArgs, CLAUDE_BYPASS_DIALOG } from './harness'
+import { autocompactOfferKey, buildArgs, CLAUDE_BYPASS_DIALOG, TUI_WORKING } from './harness'
 import { discoverCodexSession } from './codex-session'
-import { claudeLaunch, claudeTrustFiles, playerSkipsBypassPrompt, setClaudeTrust, UNIT_UNSET_ENV } from './claude-home'
+import { answerAutoCompactOffer, claudeLaunch, claudeTrustFiles, playerSkipsBypassPrompt, setClaudeTrust, UNIT_UNSET_ENV } from './claude-home'
 import { scheduleUnitArchive, unarchiveCodexThread } from './codex-archive'
 import { codexLaunch, genioCodexHome, setCodexTrust } from './codex-home'
 import { foldOpenDecisions, formatStatusLine, parseStatusLine, parseStatusLog } from './status'
@@ -52,9 +52,17 @@ const FINISHED: TaskState[] = ['ready', 'merged', 'done', 'failed', 'cleaned']
 /** States that put an outcome on the dispatch scorecard (a later end replaces an earlier one). */
 const ENDED: TaskState[] = ['merged', 'done', 'failed', 'cleaned']
 
+/** Claude's autocompact offer is answered once its output has been quiet this long. */
+const AUTOCOMPACT_SETTLE_MS = 2_000
+/** After an answer, the offer's lingering redraws are not a new appearance for this long. */
+const AUTOCOMPACT_COOLDOWN_MS = 10_000
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
 }
+
+/** TUI output as whitespace-free lower-case text: cursor-positioned text loses its spaces anyway. */
+const squashTui = (x: string): string => stripAnsi(x).replace(/\s+/g, '').toLowerCase()
 
 export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService {
   let tasks: Task[] = readJson<Task[]>(home.tasksFile, [])
@@ -72,6 +80,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
   const inboxDir = (id: string): string => home.taskStateFile(id, '.inbox')
   const turnEndedFile = (id: string): string => home.taskStateFile(id, '.turn-ended')
   const bypassWarned = new Set<string>()
+  /** the ping seq last reported as typed but not submitted, per unit */
+  const unsubmitted = new Map<string, number>()
   const controlling = new Set<string>()
   const restarting = new Set<string>()
   /** quests whose unit is being prepared: a second start path must not launch them twice */
@@ -270,6 +280,41 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     setTimeout(off, 90_000)
   }
 
+  /**
+   * Claude's autocompact offer ("Keep auto (1m tokens)" / "Autocompact at …")
+   * holds a unit at a turn end until a key answers it: the unit reads no
+   * pings and never resumes. answerAutoCompactOffer normally keeps it away;
+   * if it still shows, answer it with the key that keeps the automatic window,
+   * once per appearance (fresh output after the cooldown), then ring for any
+   * ping that waited.
+   */
+  const watchAutocompactOffer = (t: Task, terminalId: string): void => {
+    const terms = getCtx().terminals
+    let tail = ''
+    let settle: ReturnType<typeof setTimeout> | undefined
+    let answeredAt = 0
+    const off = terms.onData(terminalId, (d) => {
+      tail = (tail + squashTui(d)).slice(-4000)
+      if (Date.now() - answeredAt < AUTOCOMPACT_COOLDOWN_MS || !autocompactOfferKey(tail)) return
+      // Keys that arrive while the offer is still drawing are refused: answer once it settles.
+      clearTimeout(settle)
+      settle = setTimeout(() => {
+        const key = autocompactOfferKey(tail)
+        tail = ''
+        if (!key || get(t.id)?.terminalId !== terminalId) return
+        answeredAt = Date.now()
+        terms.write(terminalId, key)
+        setTimeout(() => {
+          if (svc.unreadInbox(t.id).length) void svc.ring(t.id).catch(() => false)
+        }, 1_500)
+      }, AUTOCOMPACT_SETTLE_MS)
+    })
+    terms.onExit(terminalId, () => {
+      off()
+      clearTimeout(settle)
+    })
+  }
+
   const launch = async (t: Task, opts: { resume: boolean; prompt: string; check(): Promise<void>; prepare?(): Promise<void> }): Promise<TerminalInfo> => {
     const ctx = getCtx()
     const s = ctx.settings.get()
@@ -301,6 +346,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     // Genio's own Claude home keeps units out of the player's Claude apps; --continue follows the unit's conversation.
     const claude = isClaude ? await claudeLaunch(opts.resume ? { cwd: t.worktree } : undefined) : undefined
     if (claude) setClaudeTrust(claude.configFile, [t.worktree], true)
+    // Only Genio's own home: the player's Claude keeps its own offers.
+    if (claude?.isolated) answerAutoCompactOffer(claude.configFile, [model ?? '', ...adapter.models])
     const skills = skillExtras(t, adapter.id, project?.path)
     const unityProject = project && effectiveEngine(project).engine === 'unity'
     const guard = unityProject ? unityGuardScript(pluginDir) : undefined
@@ -365,6 +412,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       unsetEnv: isClaude ? UNIT_UNSET_ENV : undefined })
     if (!term.alive) throw new Error(`Could not start ${adapter.name} (${adapter.command}). Is it installed? Check SYSTEMS.`)
     watchConsent(t, term.id, adapter.trustPatterns, adapter.trustResponse, isClaude)
+    if (isClaude) watchAutocompactOffer(t, term.id)
     ctx.terminals.onExit(term.id, (code) => {
       const cur = get(t.id)
       if (!cur || cur.terminalId !== term.id) return
@@ -789,11 +837,32 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     async ring(id) {
       const t = get(id)
       if (!t || !terminalAlive(t)) return false
-      const adapter = getCtx().settings.harness(t.harness)
-      await getCtx().terminals.submit(t.terminalId!, doorbellLine(inboxDir(id)), adapter?.submitKey ?? '\r')
+      const ctx = getCtx()
+      const adapter = ctx.settings.harness(t.harness)
+      const claude = t.harness === 'claude'
+      const marker = (suffix: string): number => {
+        try {
+          return fs.statSync(home.taskStateFile(id, suffix)).mtimeMs
+        } catch {
+          return 0
+        }
+      }
+      const startedBefore = marker('.turn-started')
+      // A unit in mid-turn queues the line: it starts no turn and draws no new working line, so only an idle one confirms.
+      const busy = claude ? startedBefore > marker('.turn-ended') : Date.now() - (ctx.terminals.lastOutputAt(t.terminalId!) ?? 0) < 2_000
+      const taken = await ctx.terminals.submit(t.terminalId!, doorbellLine(inboxDir(id)), adapter?.submitKey ?? '\r',
+        (since) => busy || TUI_WORKING.test(squashTui(since)) || (claude && marker('.turn-started') > startedBefore))
       const cur = get(id)!
       // A ping delivered to a ready unit's CLI starts a new turn.
       update(id, { inbox: { ...cur.inbox, lastRingAt: nowIso(), rings: cur.inbox.rings + 1 }, ...(cur.state === 'ready' ? { resumedAt: nowIso() } : {}) })
+      const seq = svc.unreadInbox(id)[0]?.seq
+      if (taken === false && seq !== undefined && unsubmitted.get(id) !== seq && terminalAlive(cur)) {
+        // The doorbell sits typed in the unit's input box: say so once per ping, plainly.
+        unsubmitted.set(id, seq)
+        safe(() => hc().wakes.enqueue({ kind: 'stale', taskId: id, routine: false,
+          reason: `${cur.kind === 'scout' ? 'RECON' : 'BUILD'} "${cur.title}" (${cur.project}): ping #${seq} was typed into the unit's terminal but not submitted (Enter retried; the unit did not start on it)`,
+          lines: ctx.terminals.tail(cur.terminalId!, 8).split('\n').filter((l) => l.trim()).map((l) => `| ${truncate(l, 200)}`) }))
+      }
       return true
     },
 

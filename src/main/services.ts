@@ -97,8 +97,12 @@ export interface TerminalService {
   list(): TerminalInfo[]
   get(id: string): TerminalInfo | undefined
   write(id: string, data: string): void
-  /** type text then press the submit key, with a short settle delay (TUI paste safety) */
-  submit(id: string, text: string, submitKey?: string): Promise<void>
+  /**
+   * type text, let its echo settle, then press the submit key (TUI paste safety). With `confirm`
+   * (the ANSI-stripped output since the first key press → the TUI took the line) the key is
+   * retried with backoff (SUBMIT_CHECKS_MS); resolves false when it never confirmed.
+   */
+  submit(id: string, text: string, submitKey?: string, confirm?: (since: string) => boolean): Promise<boolean>
   resize(id: string, cols: number, rows: number): void
   kill(id: string): void
   /** raw scrollback (ANSI) for re-attaching a view */

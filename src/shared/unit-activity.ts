@@ -53,7 +53,7 @@ export const IDLE_CHROME: Record<string, RegExp[]> = {
     /usagelimit|ratelimit|limitresets|resetsat|approachingyour|planusage/, /contextleft|context(window)?:?\d+%|tokens?(left|used)/,
     /bypasspermissions|shift\+tab|esctocancel|ctrl\+[a-z]to/, /^[>›❯│|─━—\-_=*·•.]+$/
   ],
-  claude: [/^\d+tokens/, /auto-?compact/],
+  claude: [/^\d+tokens/, /auto-?compact/, /compactingearlier|keepauto\(|enterconfirm|escnotnow|re-sendsthewholeconversation|summarizedonyournext/],
   codex: [/^codex(v[\d.]+)?$/, /^\/(model|status|approvals)/, /workingdirectory|sendmessage|pressenter/]
 }
 
