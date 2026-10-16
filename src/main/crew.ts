@@ -908,7 +908,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       return next
     },
 
-    async merge(id): Promise<OpResult> {
+    async merge(id, approval): Promise<OpResult> {
       const t = get(id)
       if (!t) return { ok: false, message: `Unknown unit: ${id}` }
       if (t.kind !== 'ship') return { ok: false, message: 'Recon missions have nothing to merge.' }
@@ -932,8 +932,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       }
       if (!result.ok) return result
       update(id, { state: 'merged', landedAt: nowIso(), landedCommit, stateReason: mergeVia === 'pr' ? 'PR merged' : `landed in local ${t.baseBranch}`,
-        pr: t.pr ? { ...t.pr, state: 'MERGED', checkedAt: nowIso() } : undefined })
-      ledger('task.merged', t, { via: mergeVia, pr: t.pr?.url })
+        pr: t.pr ? { ...t.pr, state: 'MERGED', checkedAt: nowIso() } : undefined, ...(approval ? { mergeApproval: approval } : {}) })
+      ledger('task.merged', t, { via: mergeVia, pr: t.pr?.url, ...(approval ? { approval } : {}) })
       safe(() => ctx.stats.award('merge', id))
       safe(() => ctx.notifier.sfx('merge'))
       if (mergeVia === 'pr') await ctx.projects.sync(project.name).catch(() => undefined)

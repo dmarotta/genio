@@ -34,6 +34,7 @@ import { prepareInventoryContext } from './inventory-context'
 import { bus } from './bus'
 import { chatImageDir, loadChatImages, saveChatImages } from './chat-images'
 import { attachedIdsNote } from './chat-imagegen'
+import { noteStandingWords } from './standing-approvals'
 import type { Home } from './home'
 import { buildTools, type ToolHooks, type ToolRole } from './wksp-tools'
 import { openChatToolBridge, closeChatToolBridges } from './chat-tool-bridge'
@@ -159,7 +160,13 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     preparing.delete(id)
     const { queue: _was, ...sent } = h[i]
     h.splice(i, 1)
-    record({ ...sent, ts: nowIso() }, true)
+    const m = { ...sent, ts: nowIso() }
+    record(m, true)
+    // "keep merging everything" / "stop merging": a standing merge approval starts or ends once the session reads it
+    try {
+      const receipt = noteStandingWords(getCtx(), home, m)
+      if (receipt) say(receipt, 'system')
+    } catch { /* never blocks the message */ }
   }
   /** The session picked a queued message up. */
   const delivered = (item: TurnItem): void => {

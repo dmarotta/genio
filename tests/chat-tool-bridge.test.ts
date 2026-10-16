@@ -6,7 +6,7 @@ import path from 'node:path'
 import { Home } from '../src/main/home'
 import { assertIsolatedHomes } from './support/isolated-homes.mjs'
 import type { AppCtx } from '../src/main/services'
-import type { Task } from '../src/shared/types'
+import type { ChatMessage, Task } from '../src/shared/types'
 import { buildTools } from '../src/main/wksp-tools'
 import { createToolRegistry } from '../src/main/wksp-tools'
 import { createChatToolSession } from '../src/main/chat-tool-session'
@@ -22,6 +22,9 @@ import { FakeAppServer } from './helpers/fake-codex-server'
 
 let ctx: AppCtx, home: Home, root: string, abort: AbortController
 let task: Task
+/** The player's own chat messages: verified player_words must quote one of these. */
+let playerSaid: ChatMessage[] = []
+const say = (text: string): void => { playerSaid.push({ id: `p-${playerSaid.length}`, wksp: 'main', role: 'player', text, ts: new Date().toISOString() }) }
 const open: Awaited<ReturnType<typeof openChatToolBridge>>[] = []
 const children: ChildProcessWithoutNullStreams[] = []
 const audit: BridgeAudit[] = []
@@ -35,7 +38,8 @@ beforeEach(() => {
     crewState: vi.fn(async () => 'ready'), readFile: vi.fn(async () => 'report'),
     spawn: vi.fn(), fleetView: vi.fn(async () => 'fleet') },
     backlog: { list: () => [], get: () => undefined }, decisions: { list: () => [], get: () => undefined },
-    wksp: { post: vi.fn() } }
+    wksp: { post: vi.fn(), history: () => playerSaid } }
+  playerSaid = []
   ctx = { appRoot: process.cwd(), main: hc, homes: new Map([['main', hc]]), home: () => hc,
     settings: { get: () => ({ chatShellMode: 'ask' }) }, permissions: { ask: vi.fn(async () => true) },
     allies: { list: () => [] }, memory: { read: () => 'memory', readVersion: () => ({ which: 'lore', version: 'v1', text: 'memory' }), write: vi.fn() },
@@ -254,6 +258,9 @@ describe('authority and unchanged deterministic handlers', () => {
     ctx.settings.save = vi.fn(patch => Object.assign(settings, patch) as any)
     const read = await call(b, 'settings_read')
     expect(read.content[0].text).not.toContain('private-')
+    expect(await call(b, 'settings_update', { player_words: 'turn sound off', patch: { sound: false } })).toMatchObject({ isError: true })
+    expect(settings.sound).toBe(true)
+    say('turn sound off')
     expect(await call(b, 'settings_update', { player_words: 'turn sound off', patch: { sound: false } })).not.toHaveProperty('isError')
     expect(settings.sound).toBe(false)
     expect(await call(b, 'settings_update', { player_words: 'yes', patch: { chatShellMode: 'all' } })).toMatchObject({ isError: true })
@@ -353,6 +360,8 @@ describe('authority and unchanged deterministic handlers', () => {
     const b = await bridge()
     const args = { run: 'run', world: 'safe', path: 'Assets/a.png' }
     expect(await call(b, 'asset_place', args)).toMatchObject({ isError: true })
+    expect((await call(b, 'asset_place', { ...args, player_words: 'place it' })).content[0].text).toContain("not in any of the player's own messages")
+    say('place it')
     const sdk = createToolRegistry(() => ctx, home, 'genio').find(t => t.name === 'asset_place')!
     for (const dest of ['../escape.png', 'Library/a.png', 'vendor/a.png', 'Assets/script.ts']) {
       const input = { ...args, path: dest, player_words: 'place it' }

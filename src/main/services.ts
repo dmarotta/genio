@@ -323,7 +323,8 @@ export interface CrewService {
   send(id: string, text: string, resolveKeys?: string[]): Promise<OpResult>
   control(id: string, action: 'interrupt' | 'exit' | 'relaunch', note?: string, manual?: boolean): Promise<OpResult>
   cleanup(id: string, force?: boolean): Promise<OpResult>
-  merge(id: string): Promise<OpResult>
+  /** approval: what authorized it, recorded on the task and in the ledger */
+  merge(id: string, approval?: import('@shared/types').MergeApproval): Promise<OpResult>
   promote(id: string, intent?: string): Promise<Task>
   /** run the no-mistakes validation pipeline (review → fixes → checks → push → PR → CI) */
   validate(id: string): Promise<OpResult>
@@ -380,7 +381,7 @@ export interface BacklogService {
 }
 
 /** Where the player answered a choice: a UI surface (Your Move, Hub, inline card), or typed to a chat. */
-export type AnswerOrigin = { via: 'ui' } | { via: 'chat'; chat: string }
+export type AnswerOrigin = { via: 'ui' } | { via: 'chat'; chat: string; /** the verified player message that carried it */ message?: string }
 
 export interface DecisionService {
   list(includeResolved?: boolean): Decision[]

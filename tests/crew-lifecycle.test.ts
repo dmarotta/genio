@@ -25,7 +25,11 @@ import { CODEX_UNIT_MODEL, CLAUDE_UNIT_MODEL } from '../src/shared/unit-model-po
 let root: string, home: Home, ctx: AppCtx, task: Task
 let terminal: { id: string; alive: boolean } | undefined
 let release: ReturnType<typeof vi.fn<() => void>>
+/** The player's own chat messages, which verified player_words must quote. */
+let said: { id: string; wksp: string; role: 'player'; text: string; ts: string }[] = []
+const playerSays = (text: string): void => { said.push({ id: `p-${said.length}`, wksp: 'main', role: 'player', text, ts: new Date().toISOString() }) }
 beforeEach(() => {
+  said = []
   vi.useFakeTimers()
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-lifecycle-'))
   home = new Home(root); home.ensure()
@@ -40,7 +44,7 @@ beforeEach(() => {
   terminal = undefined
   release = vi.fn()
   const adapter = { ...BUILTIN_HARNESSES.find(h => h.id === 'codex')!, id: 'test', enabled: true, command: 'fake-unit' }
-  const hc = { home, crew: undefined as any }
+  const hc = { home, crew: undefined as any, wksp: { history: () => said } }
   ctx = { appRoot: path.join(root, 'missing-bundle'), main: hc, home: () => hc, homes: new Map([['main', hc]]),
     settings: { get: () => ({}), harness: () => adapter }, projects: { get: () => undefined },
     permissions: createPermissionBroker(() => ctx),
@@ -107,11 +111,14 @@ describe('non-destructive lifecycle recovery', () => {
     expect(ctx.main.backlog.get(quest.id)).toMatchObject({ state: 'done', outcome: 'https://example.com/pull/9' })
   })
 
-  it('holds automatic repeats but lets chat and UI deliberately restart without approval text', async () => {
+  it('holds automatic repeats; chat resumes a held unit only on the player\'s own words, the UI Respawn needs none', async () => {
     const crew = ctx.main.crew
     expect((await crew.control(task.id, 'relaunch')).ok).toBe(false)
     const tool = createToolRegistry(() => ctx, home, 'genio').find(t => t.name === 'control')!
-    expect(await tool.invoke({ task: task.id, action: 'relaunch' })).not.toHaveProperty('isError')
+    expect(await tool.invoke({ task: task.id, action: 'relaunch' })).toMatchObject({ isError: true })
+    expect(await tool.invoke({ task: task.id, action: 'relaunch', player_words: 'respawn it' })).toMatchObject({ isError: true })
+    playerSays('respawn it')
+    expect(await tool.invoke({ task: task.id, action: 'relaunch', player_words: 'respawn it' })).not.toHaveProperty('isError')
     expect(crew.get(task.id)).toMatchObject({ state: 'working', automaticRelaunches: 0, relaunches: 2, branch: task.branch, worktree: task.worktree })
     crew.update(task.id, { automaticRelaunches: 1 })
     registerIpc(() => ctx)
@@ -136,9 +143,10 @@ describe('non-destructive lifecycle recovery', () => {
   it('allows repeated deliberate chat relaunches and a fresh automatic retry afterward', async () => {
     const crew = ctx.main.crew
     const tool = createToolRegistry(() => ctx, home, 'ally').find(t => t.name === 'control')!
+    playerSays('resume the unit')
     for (let i = 0; i < 3; i++) {
       crew.update(task.id, { automaticRelaunches: 1 })
-      expect(await tool.invoke({ task: task.id, action: 'relaunch' })).not.toHaveProperty('isError')
+      expect(await tool.invoke({ task: task.id, action: 'relaunch', player_words: 'resume the unit' })).not.toHaveProperty('isError')
       expect(crew.get(task.id)?.automaticRelaunches).toBe(0)
     }
     expect((await crew.control(task.id, 'relaunch')).ok).toBe(true)

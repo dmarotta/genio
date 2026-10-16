@@ -2,7 +2,9 @@
 
 The chat `control` tool accepts `player_words` for a player-requested restart.
 This reaches the same `manual=true` service path as Squad's Respawn button.
-Without those words, the one-automatic-retry limit still applies. A successful
+For a unit held after its automatic retry, the words must quote the player's own
+chat message saying to resume or respawn it (`src/main/player-words.ts` checks
+this); without them, the one-automatic-retry limit still applies. A successful
 manual restart begins a new retry episode; a failed manual attempt preserves the
 existing retry history. Bot cannot claim this authority. This grants no merge,
 discard, account, spending or quota override.

@@ -133,10 +133,15 @@ describe('engine root declaration', () => {
     expect(await declareEngineRoot(ctx, { world: 'game', root: 'tools/LevelEditor', playerWords: 'yes that one', actor: 'genio' })).not.toContain('Detection still reports')
   })
 
-  it('the chat tool requires player_words and refuses the Bot', async () => {
+  it('the chat tool requires the player\'s own words and refuses the Bot', async () => {
     const home = new Home(path.join(dir, 'home'))
+    const said: { id: string; wksp: string; role: 'player' | 'genio'; text: string; ts: string }[] = [{ id: 'g1', wksp: 'main', role: 'genio', text: 'use client', ts: new Date().toISOString() }]
+    Object.assign(ctx.main.wksp, { history: () => said })
     const tool = (role: 'genio' | 'bot') => createToolRegistry(() => ctx, home, role).find(t => t.name === 'world_engine_root')!
     expect(await tool('genio').invoke({ world: 'game', root: 'client' })).toMatchObject({ isError: true })
+    // Words only Genio wrote are not the player's instruction.
+    expect(await tool('genio').invoke({ world: 'game', root: 'client', player_words: 'use client' })).toMatchObject({ isError: true })
+    said.push({ id: 'p1', wksp: 'main', role: 'player', text: 'use client', ts: new Date().toISOString() })
     expect(await tool('bot').invoke({ world: 'game', root: 'client', player_words: 'use client' })).toMatchObject({ isError: true })
     expect(fs.existsSync(path.join(dir, '.genio', 'project.json'))).toBe(false)
     const ok = await tool('genio').invoke({ world: 'game', root: 'client', player_words: 'use client' })

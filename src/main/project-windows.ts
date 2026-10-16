@@ -30,7 +30,8 @@ export function projectSnapshot(s: FleetSnapshot, binding?: WindowBinding): Flee
     backlog: s.backlog.filter(t => t.project === binding.project),
     decisions: s.decisions.filter(t => ownsDecision(t, binding)),
     wksps: s.wksps.filter(m => m.name === binding.wksp),
-    allies: s.allies.filter(a => a.name === binding.wksp)
+    allies: s.allies.filter(a => a.name === binding.wksp),
+    standing: s.standing?.filter(a => a.project === binding.project)
   }
 }
 
@@ -69,6 +70,7 @@ export function routeProjectEvent(ev: GenioEvent, binding: WindowBinding | undef
     case 'wake': return wksp(ev.wake.wksp)
     case 'projects': return { ...ev, projects: ev.projects.filter(p => p.name === binding.project) }
     case 'allies': return { ...ev, allies: ev.allies.filter(a => a.name === binding.wksp) }
+    case 'standing-approvals': return { ...ev, approvals: ev.approvals.filter(a => a.project === binding.project) }
     case 'backlog': case 'decisions': return { type: 'snapshot', data: projectSnapshot(snap(), binding) }
     case 'terminal': return project(terminalOwner ?? terminalProject(ev.terminal, snap()))
     case 'terminal-removed': return project(terminalOwner)

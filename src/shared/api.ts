@@ -567,6 +567,8 @@ export interface GenioApi {
   controlTask(id: string, action: 'interrupt' | 'exit' | 'relaunch'): Promise<OpResult>
   cleanupTask(id: string, force?: boolean): Promise<OpResult>
   mergeTask(id: string): Promise<OpResult>
+  /** end a standing merge approval (the title bar chip) */
+  revokeStandingApproval(id: string): Promise<OpResult>
   promoteScout(id: string, intent?: string): Promise<Task>
   readTaskFile(id: string, which: TaskFile): Promise<string>
 
@@ -727,6 +729,7 @@ export const API_METHODS = [
   'controlTask',
   'cleanupTask',
   'mergeTask',
+  'revokeStandingApproval',
   'promoteScout',
   'readTaskFile',
   'terminals',

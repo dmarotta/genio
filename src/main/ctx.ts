@@ -30,6 +30,7 @@
  *   dispatch.ts     createDispatchService(getCtx)
  */
 import { agentGeneration } from './agent-generation'
+import { standingApprovals } from './standing-approvals'
 import type { FleetSnapshot, Ally, Project } from '@shared/types'
 import { Home, defaultHomeRoot } from './home'
 import { scrubInheritedSessionEnv } from './util'
@@ -276,7 +277,8 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
       allies: ctx.allies.list(),
       away: ctx.away.state(),
       inbox: ctx.inbox.list(),
-      stats: ctx.stats.get()
+      stats: ctx.stats.get(),
+      standing: standingApprovals(ctx).list()
     }
   }
 

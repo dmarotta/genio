@@ -74,6 +74,14 @@ describe('post-merge cleanup', () => {
     expect((await git.git(repo, ['worktree', 'list', '--porcelain'])).stdout).not.toContain('gone')
   }, 60_000)
 
+  it('records the approval behind the merge on the task and in the ledger', async () => {
+    const t = await readyUnit('approved')
+    const approval = { kind: 'specific' as const, at: '2026-10-13T09:30:00Z', words: 'merge the approved one', messageId: 'p-1', messageAt: '2026-10-13T09:29:00Z' }
+    expect((await hc.crew.merge(t.id, approval)).ok).toBe(true)
+    expect(hc.crew.get(t.id)).toMatchObject({ state: 'cleaned', mergeApproval: approval })
+    expect(ctx.ledger.record).toHaveBeenCalledWith(expect.objectContaining({ event: 'task.merged', task: t.id, data: expect.objectContaining({ via: 'local', approval }) }))
+  }, 60_000)
+
   it('treats a leftover folder git no longer knows ("not a working tree") as clean and leaves its files alone', async () => {
     const t = await readyUnit('stray')
     fs.rmSync(t.worktree, { recursive: true, force: true })

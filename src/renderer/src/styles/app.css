@@ -63,6 +63,9 @@ kbd {
 .presence-opt.on i { opacity: 1; box-shadow: 0 0 8px currentColor; }
 .presence-opt.on.p-afk i { animation: pulse 1.6s infinite; }
 .tb-spacer { flex: 1; }
+.tb-standing { display: flex; align-items: center; gap: 6px; margin-left: 12px; min-width: 0; -webkit-app-region: no-drag; }
+.tb-standing-chip { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-size: 12px; }
+.tb-standing-chip .link-btn { font-size: 12px; }
 .hud-stats { display: flex; align-items: center; gap: 6px; }
 .hud-stat {
   display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px;
@@ -535,6 +538,7 @@ button.usage-toggle:hover { color: var(--text); }
 .unit-head { flex-direction: column; align-items: stretch; gap: 6px; }
 .uh-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11px; min-width: 0; }
 .uh-row .detail-clock, .uh-row .uh-since { font-size: 12px; white-space: nowrap; }
+.uh-approval { display: flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .unit-head .title.unit-name { font-size: 24px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .uh-actions { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 30px; }
 .uh-line { flex: 1; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

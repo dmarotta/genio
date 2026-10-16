@@ -321,6 +321,9 @@ export function handleEvent(ev: GenioEvent): void {
     case 'projects':
       setState({ snap: { ...s.snap, projects: ev.projects } })
       break
+    case 'standing-approvals':
+      setState({ snap: { ...s.snap, standing: ev.approvals } })
+      break
     case 'wksp':
       setState({ snap: { ...s.snap, wksps: upsertBy(s.snap.wksps, ev.wksp, (m) => m.name) } })
       break

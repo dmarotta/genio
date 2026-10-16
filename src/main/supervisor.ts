@@ -425,7 +425,7 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
           if (v.checks === 'failing' && prevChecks !== 'failing') {
             enqueue('check', `${label(cur)}: PR checks failing`, cur.id, [url, ...v.failing.map((f) => `failing: ${f}`)], false)
           } else if (v.checks === 'passing' && prevChecks !== 'passing') {
-            const auto = cur.yolo ? ' (Auto-loot is on for this project)' : ''
+            const auto = cur.yolo ? ' (Auto-loot is on for this project)' : ' (no Auto-loot: present it as ready for the player\'s approval; merge only on their word)'
             enqueue('check', `${label(cur)}: checks green${auto}`, cur.id, [url], false)
           }
         }

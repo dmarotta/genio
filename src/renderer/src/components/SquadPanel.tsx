@@ -1,6 +1,7 @@
 import { Radar, Rocket } from 'lucide-react'
 import { finishedAt, outcomeTone, squadAttention, squadOutcome, squadState, squadTone } from '@shared/squad-display'
 import { pendingDecision } from '@shared/decisions'
+import { mergeApprovalLabel } from '@shared/merge-approval'
 import type { Task } from '@shared/types'
 import { focusTask, openDeploy, squadRoster, useStore } from '../store'
 import { Dot, NeedsYou, useNow } from './ui'
@@ -51,7 +52,7 @@ function DoneRow({ t, now }: { t: Task; now: number }) {
   const outcome = squadOutcome(t, terminal)
   const tone = outcomeTone(outcome)
   const end = finishedAt(t)
-  const detail = [t.stateReason, t.pr?.url, t.landedCommit && `commit ${t.landedCommit.slice(0, 10)}`].filter(Boolean).join('\n')
+  const detail = [t.stateReason, mergeApprovalLabel(t.mergeApproval, 300), t.pr?.url, t.landedCommit && `commit ${t.landedCommit.slice(0, 10)}`].filter(Boolean).join('\n')
   return <button className="roster-row done-row" onClick={() => focusTask(t.id)} title={detail || undefined}>
     <Dot tone={tone} />
     <div className="roster-main">

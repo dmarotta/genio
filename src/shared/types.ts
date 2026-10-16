@@ -234,6 +234,38 @@ export interface Task {
   dislikePause?: DislikePause
   /** Genio messages the player liked that covered this unit: a positive on the dispatch scorecard. */
   likes?: number
+  /** What authorized the merge that landed this Build (also in the ledger's task.merged record). */
+  mergeApproval?: MergeApproval
+}
+
+/** The authority behind one merge: Auto-loot, the player's verified words, a standing approval, or the Merge button. */
+export interface MergeApproval {
+  kind: 'autoloot' | 'specific' | 'standing' | 'ui-button'
+  at: string
+  /** the player's words, quoted from a real player message (or their answer to a merge choice) */
+  words?: string
+  /** the player chat message that carried them */
+  messageId?: string
+  messageAt?: string
+  /** the standing approval the merge ran under */
+  standingId?: string
+  /** the merge choice the player answered */
+  choiceId?: string
+}
+
+/**
+ * "Keep merging everything": recorded from a real player message, scoped to one project's Builds,
+ * never to destructive actions. Held in memory, so it ends with the session at the latest.
+ */
+export interface StandingApproval {
+  id: string
+  project: string
+  /** the chat the player said it in */
+  wksp: string
+  messageId: string
+  text: string
+  createdAt: string
+  expiresAt: string
 }
 
 /** What a dislike paused on a unit, so an undo restores exactly that. */
@@ -339,6 +371,10 @@ export interface Decision {
   action?: DecisionAction
   /** A player answer given outside the owning chat must reach it: pending until its event is queued there. */
   followUp?: 'pending' | 'delivered'
+  /** where the answer came from: a UI click, or a chat answer verified against the player's own message */
+  answeredVia?: 'ui' | 'chat'
+  /** the player chat message that carried a chat answer */
+  answerMessage?: string
 }
 
 export type DecisionAction =
@@ -347,6 +383,8 @@ export type DecisionAction =
   | { kind: 'engine-root'; project: string; roots: Record<string, string> }
   /** what is wrong with a disliked Genio message: "keep going" resumes what the dislike paused */
   | { kind: 'reaction'; wksp: string; message: string }
+  /** "Merge now?" for one ready Build: an approving answer is the player's specific approval of that merge */
+  | { kind: 'merge-approval'; task: string }
 
 export type WakeKind = 'signal' | 'stale' | 'check' | 'heartbeat' | 'answer' | 'reaction'
 
@@ -516,7 +554,7 @@ export interface LedgerRecord {
     | 'task.dispatched' | 'task.status' | 'task.pr_ready' | 'task.merged' | 'task.cleaned_up' | 'task.relaunched'
     | 'decision.opened' | 'decision.resolved' | 'backlog.added' | 'backlog.state'
     | 'project.added' | 'project.removed' | 'project.remote_changed' | 'project.engine_changed' | 'project.pushed' | 'project.push_refused' | 'project.engine_declared'
-    | 'presence.changed' | 'achievement'
+    | 'presence.changed' | 'achievement' | 'approval.standing' | 'approval.revoked'
   task?: string
   project?: string
   data?: Record<string, unknown>
@@ -773,6 +811,8 @@ export interface FleetSnapshot {
   away: AwayState
   inbox: InboxNote[]
   stats: FleetStats
+  /** active standing merge approvals */
+  standing?: StandingApproval[]
 }
 
 export interface FleetStats {
@@ -880,6 +920,7 @@ export type GenioEvent =
   | { type: 'task-removed'; id: string }
   | { type: 'backlog'; items: BacklogItem[] }
   | { type: 'decisions'; decisions: Decision[] }
+  | { type: 'standing-approvals'; approvals: StandingApproval[] }
   | { type: 'projects'; projects: Project[] }
   | { type: 'wksp'; wksp: WkspInfo }
   | { type: 'chat'; message: ChatMessage }

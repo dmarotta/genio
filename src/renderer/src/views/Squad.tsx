@@ -22,6 +22,7 @@ import {
   reportedTests, unitBadge, type TimelineRow, type UnitChanges
 } from '@shared/unit-page'
 import { pendingDecision } from '@shared/decisions'
+import { mergeApprovalLabel } from '@shared/merge-approval'
 import { listFact, useScreenContext } from '../lib/screen-context'
 
 export function Squad() {
@@ -416,6 +417,11 @@ function UnitDetail({ id }: { id: string }) {
         <h1 className="title unit-name" title={t.title}>
           {t.title}
         </h1>
+        {t.mergeApproval && (
+          <div className="uh-approval mute" title={mergeApprovalLabel(t.mergeApproval, 2000)}>
+            <GitMerge size={11} /> {mergeApprovalLabel(t.mergeApproval)}
+          </div>
+        )}
         <div className="uh-actions">
           <div className={cx('uh-line', stopped ? 'alert-text' : 'dim')} title={line}>{line}</div>
           {canRate(t, term) && <VerdictButtons t={t} label={false} />}

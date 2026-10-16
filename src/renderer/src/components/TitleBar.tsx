@@ -1,9 +1,9 @@
-import { Crosshair, Users } from 'lucide-react'
+import { Crosshair, GitMerge, Users } from 'lucide-react'
 import { PROJECT_WINDOW, api, go, op, openDecisions, runningUnits, setState, toggleAnswers, useStore } from '../store'
 import { useNow } from './ui'
 import { FileMenu } from './FileMenu'
 import { PRESENCE } from '../lib/vocab'
-import { cx, usd } from '../lib/format'
+import { clock, cx, usd } from '../lib/format'
 import { playSfx } from '../lib/sfx'
 import type { AwayMode } from '@shared/types'
 
@@ -53,6 +53,7 @@ export function TitleBar() {
         ))}
       </div>
 
+      <StandingChips />
       <div className="tb-spacer" />
 
       <div className="hud-stats">
@@ -84,6 +85,24 @@ export function TitleBar() {
         </button>
       </div>
       <div className="wc-gap" />
+    </div>
+  )
+}
+
+/** "Standing merge approval until 21:40 · Revoke": the player's "keep merging everything", visible and one click to end. */
+function StandingChips() {
+  const now = useNow(30_000)
+  const standing = useStore((s) => s.snap.standing ?? [])
+  const active = standing.filter((a) => Date.parse(a.expiresAt) > now)
+  if (!active.length) return null
+  return (
+    <div className="tb-standing">
+      {active.map((a) => (
+        <span key={a.id} className="chip volt tb-standing-chip" title={`From your message: "${a.text}"\nGenio may merge ${a.project} Builds as they become ready and pass their checks. Never destructive actions. Ends at ${clock(a.expiresAt)} or when Genio restarts.`}>
+          <GitMerge size={11} /> Standing merge approval{PROJECT_WINDOW ? '' : ` · ${a.project}`} until {clock(a.expiresAt)} ·{' '}
+          <button className="link-btn" onClick={() => void op('Revoke', () => api().revokeStandingApproval(a.id))}>Revoke</button>
+        </span>
+      ))}
     </div>
   )
 }

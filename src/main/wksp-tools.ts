@@ -8,11 +8,17 @@ import { normalizeProjectArgs, projectAliasShape } from './project-tool-args'
 import { z } from 'zod'
 import { modeLabel } from '@shared/vocab'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import type { Decision, MessageActions, Task } from '@shared/types'
+import type { ChatMessage, Decision, MergeApproval, MessageActions, Task } from '@shared/types'
 import type { TaskFile } from '@shared/api'
 import type { AnswerOrigin, AppCtx, HomeCtx } from './services'
 import type { Home } from './home'
-import { readText, slugify } from './util'
+import { readText, slugify, truncate } from './util'
+import {
+  HISTORY_DEPTH, MERGE_CHOICE_OPTIONS, mergeChoiceApproval, refusal, verifyMergeWords, verifyPlayerWords, type MergeTarget, type WordsPurpose
+} from './player-words'
+import { standingApprovals } from './standing-approvals'
+import { relaunchPolicy } from './relaunch-policy'
+import { mergeApprovalLabel } from '@shared/merge-approval'
 import { questOrder } from '@shared/quest-board'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -58,6 +64,7 @@ function dislikeHold(ctx: AppCtx, message: string | undefined): string | undefin
 const ok = (text: string): CallToolResult => ({ content: [{ type: 'text', text }] })
 const fail = (text: string): CallToolResult => ({ content: [{ type: 'text', text }], isError: true })
 const json = (v: unknown): string => JSON.stringify(v, null, 1)
+const approvalLine = (a: MergeApproval): string => `${mergeApprovalLabel(a, 200)}${a.standingId ? ` (standing approval ${a.standingId})` : ''}${a.choiceId ? ` (choice ${a.choiceId})` : ''}${a.messageId ? ` (message ${a.messageId})` : ''}`
 
 /** On-demand evidence stays inside its task/skill folder, including symlinks. */
 function readReference(root: string, file: string): string {
@@ -198,6 +205,15 @@ export function createToolRegistry(
     try { hooks.action?.(kind, id) } catch { /* the record is a convenience for reactions */ }
   }
   const questHeld = (id: string): string | undefined => dislikeHold(getCtx(), questHome(id).backlog.get(id)?.hold?.reaction)
+  /** This chat's log: the only place the player's own words can come from. */
+  const chatLog = (): ChatMessage[] => {
+    try { return hc().wksp.history?.(HISTORY_DEPTH) ?? [] } catch { return [] }
+  }
+  /** Why player_words do not authorize this (verbatim quote of a real player message that says it), or undefined when they do. */
+  const unheard = (action: string, words: string | undefined, purpose: WordsPurpose, opts?: { after?: string; what?: string }): string | undefined => {
+    const r = verifyPlayerWords(chatLog(), words, purpose, opts)
+    return r.ok ? undefined : refusal(action, r.reason, 'Quote the player\'s own message exactly as player_words, or ask them first.')
+  }
 
   // Wrap every handler so a thrown error becomes a tool error, never a crash.
   function t<S extends z.ZodRawShape>(name: string, desc: string, shape: S, fn: (a: z.infer<z.ZodObject<S>>) => Promise<CallToolResult> | CallToolResult): void {
@@ -239,13 +255,15 @@ export function createToolRegistry(
     const frame = await play(world).frame(world, 1280, 720)
     return { content: [{ type: 'image', data: frame.base64, mimeType: 'image/png' }, { type: 'text', text: `${frame.width}x${frame.height} captured ${frame.capturedAt}` }] }
   })
-  t('play_control', 'Control Play only on the explicit player request quoted in player_words. Never save scenes or use eval. Units control only their own copy/slot.', {
+  t('play_control', 'Control Play only on the explicit player request: player_words must quote the player\'s own chat message verbatim (Genio checks it). Never save scenes or use eval. Units control only their own copy/slot.', {
     world: z.string(), player_words: z.string().trim().min(1), action: z.discriminatedUnion('type', [
       z.object({ type: z.enum(['play', 'pause', 'stop']) }), z.object({ type: z.literal('scene'), path: z.string() }),
       z.object({ type: z.literal('key'), key: z.string() }), z.object({ type: z.literal('pointer'), x: z.number().nonnegative(), y: z.number().nonnegative() })
     ])
   }, async ({ world, player_words, action }) => {
     if (role === 'bot') return fail('Play control waits for the player')
+    const no = unheard('Play control', player_words, 'play')
+    if (no) return fail(no)
     await play(world).act(world, action, player_words)
     return ok('Play action completed')
   })
@@ -305,10 +323,12 @@ export function createToolRegistry(
       calm: s.calm, fx: s.fx, desktopNotifications: s.desktopNotifications }
   }
   t('settings_read', `Read supported chat/app preferences without secrets or large configuration skills. Where the player sees them: usageMode in ${settingsPath('usage')}; calm is Clean chat (Clean HUD), fx is Scanlines and grid, voice is Read replies aloud, all in ${settingsPath('general')}; sound, soundVolume and desktopNotifications in ${settingsPath('notifications')}. Advanced models, accounts and security settings are elsewhere in Settings, e.g. ${settingsPath('accounts')} or ${settingsPath('dispatch')}.`, {}, () => ok(json(preferences())))
-  t('settings_update', 'Change only these named preferences when the player requests it; quote their request. Does not change permissions, accounts or spending allowances.', {
+  t('settings_update', 'Change only these named preferences when the player requests it; player_words quotes their request verbatim from their own chat message (Genio checks it). Does not change permissions, accounts or spending allowances.', {
     player_words: z.string().trim().min(1), patch: z.strictObject(preferenceShape)
-  }, ({ patch }) => {
+  }, ({ player_words, patch }) => {
     if (role === 'bot' || !home.isMain) return fail('Global preferences require the player in main chat')
+    const no = unheard('Preference change', player_words, 'settings')
+    if (no) return fail(no)
     const previous = getCtx().settings.get().usageMode
     getCtx().settings.save(patch)
     for (const key of Object.keys(patch)) did('settings', key)
@@ -403,13 +423,18 @@ export function createToolRegistry(
 
   t(
     'control',
-    'Unit lifecycle: interrupt, exit (recall), relaunch (respawn in the same copy and session). Never tears anything down. Chat relaunches are deliberate, like the UI Respawn button, and reset the automatic retry limit; Bot recovery is capped at one retry. Quota and capacity safeguards still apply.',
+    'Unit lifecycle: interrupt, exit (recall), relaunch (respawn in the same copy and session). Never tears anything down. Chat relaunches are deliberate, like the UI Respawn button, and reset the automatic retry limit; Bot recovery is capped at one retry. A unit held after its automatic relaunch resumes only when player_words quotes the player\'s own message saying to resume or respawn it (Genio checks it). Quota and capacity safeguards still apply.',
     { task: z.string(), action: z.enum(['interrupt', 'exit', 'relaunch']), note: z.string().optional(), player_words: z.string().trim().min(1).optional() },
     async ({ task, action, note, player_words }) => {
       if (role === 'bot' && player_words) return fail('The Bot cannot authorize a manual restart')
       const f = requireTask(task)
       const held = action === 'relaunch' ? dislikeHold(getCtx(), f.task.dislikePause?.message) : undefined
       if (held) return fail(`relaunch refused: ${task} is ${held}`)
+      // Held after its automatic retry: only the player's word (or the Respawn button) resets the limit.
+      if (action === 'relaunch' && role !== 'bot' && !relaunchPolicy(f.task, false).allowed) {
+        const no = unheard('relaunch', player_words, 'relaunch', { after: f.task.createdAt, what: 'this unit' })
+        if (no) return fail(`${no} ${task} is held after its automatic relaunch; the player can also use Respawn on the unit page.`)
+      }
       const r = await f.hc.crew.control(task, action, note, role !== 'bot')
       if (r.ok && action !== 'exit') did('units', task)
       return r.ok ? ok(r.message || `${action} done`) : fail(r.message)
@@ -418,11 +443,15 @@ export function createToolRegistry(
 
   t(
     'despawn',
-    'Despawn a unit and remove its isolated copy. Refuses unlanded work (uncommitted changes, commits not pushed/merged) and lists the exact files/commits. A Recon that has exited (recalled or duplicate) needs no report. force=true discards work and REQUIRES player_words quoting the player\'s explicit instruction to discard this specific work.',
+    'Despawn a unit and remove its isolated copy. Refuses unlanded work (uncommitted changes, commits not pushed/merged) and lists the exact files/commits. A Recon that has exited (recalled or duplicate) needs no report. force=true discards work and REQUIRES player_words quoting, verbatim, the player\'s own chat message that says to discard or delete this work (Genio checks it; a question does not count).',
     { task: z.string(), force: z.boolean().default(false), player_words: z.string().optional() },
     async ({ task, force, player_words }) => {
-      if (force && (role === 'bot' || !player_words?.trim())) return fail('force despawn refused: it needs the player\'s explicit words authorizing discarding this work')
+      if (force && role === 'bot') return fail('force despawn refused: discarding work waits for the player')
       const f = requireTask(task)
+      if (force) {
+        const no = unheard('force despawn', player_words, 'discard', { after: f.task.createdAt, what: 'this unit' })
+        if (no) return fail(`${no} Without force, despawn refuses and lists exactly what would be lost.`)
+      }
       const r = await f.hc.crew.cleanup(task, force)
       return r.ok ? ok(r.message || 'despawned') : fail(`despawn refused: ${r.message}`)
     }
@@ -430,7 +459,7 @@ export function createToolRegistry(
 
   t(
     'merge',
-    "Merge a Build: its PR (guarded squash merge of a green, non-draft PR) or, for Offline projects, a fast-forward of its ready branch. Without the project's Auto-loot, player_words must quote the player's explicit approval of this merge.",
+    "Merge a Build: its PR (guarded squash merge of a green, non-draft PR) or, for Offline projects, a fast-forward of its ready branch. Genio checks the authority itself, in this order: the project's Auto-loot; player_words quoting, verbatim, the player's own chat message that says to merge this work (sent after the unit reported ready; naming it by title or id, saying \"everything\", or replying directly to your message about it with \"merge it\"; never a question, a maybe, or a design pick like \"go with 3\"); the player's approving answer to this unit's \"Merge now?\" choice (choice_open merge_task); or an active standing approval (\"keep merging everything\"). The Bot merges only under Auto-loot. Every merge records its approval.",
     { task: z.string(), player_words: z.string().optional() },
     async ({ task, player_words }) => {
       const ctx = getCtx()
@@ -441,8 +470,14 @@ export function createToolRegistry(
       if (held) return fail(`merge refused: ${task} is ${held}`)
       const proj = ctx.projects.get(tk.project)
       const autoLoot = tk.yolo ?? proj?.yolo ?? false
-      const words = role === 'bot' ? '' : (player_words ?? '').trim()
-      if (!autoLoot && !words) return fail('merge refused: this project has no Auto-loot, so it needs the player\'s explicit approval (pass their words as player_words, or open a choice)')
+      let approval: MergeApproval | undefined
+      if (autoLoot) approval = { kind: 'autoloot', at: new Date().toISOString() }
+      else if (role === 'bot') return fail('merge refused: the Bot merges only green, in-scope work in projects with Auto-loot on; this merge waits for the player')
+      else {
+        const authority = mergeAuthority(ctx, tk, player_words)
+        if ('refused' in authority) return fail(authority.refused)
+        approval = authority
+      }
       const away = ctx.away.state().mode
       if (tk.mode === 'local-only' && away === 'afk') return fail('merge refused: Offline landings wait for the player to return from AFK')
       if (tk.pr?.url) {
@@ -452,11 +487,31 @@ export function createToolRegistry(
         if (v.checks === 'failing') return fail(`merge refused: checks are red (${v.failing.join(', ') || 'failing'})`)
         if (v.checks === 'pending') return fail(`merge refused: checks still running (${v.pending.join(', ') || 'pending'})`)
       }
-      const r = await f.hc.crew.merge(task)
+      const r = await f.hc.crew.merge(task, approval)
       if (r.ok) did('merges', task)
-      return r.ok ? ok(r.message || 'merged') : fail(`merge refused: ${r.message}`)
+      return r.ok ? ok(`${r.message || 'merged'}\nApproval: ${approvalLine(approval)}`) : fail(`merge refused: ${r.message}`)
     }
   )
+
+  /** Who said this merge may happen: verified words, an answered merge choice, or a standing approval. */
+  function mergeAuthority(ctx: AppCtx, tk: Task, words: string | undefined): MergeApproval | { refused: string } {
+    const at = new Date().toISOString()
+    const target = (t: Task): MergeTarget => ({ id: t.id, title: t.title, branch: t.branch, readyAt: t.readyAt, createdAt: t.createdAt, pr: t.pr })
+    const others = [...ctx.homes.values()].flatMap(h => h.crew.list?.() ?? [])
+      .filter(o => o.id !== tk.id && o.kind === 'ship' && o.project === tk.project && !['merged', 'cleaned', 'done', 'failed'].includes(o.state)).map(target)
+    let reason = ''
+    if (words?.trim()) {
+      const r = verifyMergeWords(chatLog(), words, target(tk), others)
+      if (r.ok) return { kind: 'specific', at, words: truncate(r.text.replace(/\s+/g, ' ').trim(), 300), messageId: r.messageId, messageAt: r.at }
+      reason = r.reason
+    }
+    const choice = mergeChoiceApproval([...ctx.homes.values()].flatMap(h => h.decisions.list(true)), target(tk))
+    if (choice) return { kind: 'specific', at, words: choice.answer, choiceId: choice.id, ...(choice.answerMessage ? { messageId: choice.answerMessage } : {}) }
+    const standing = standingApprovals(ctx).active(tk.project)
+    if (standing) return { kind: 'standing', at, words: standing.text, messageId: standing.messageId, standingId: standing.id }
+    return { refused: refusal('merge', reason || `no player message approves merging ${tk.id} ("${truncate(tk.title, 60)}"), and ${tk.project} has neither Auto-loot nor a standing approval`,
+      'Tell the player it is ready for their approval (or open a "Merge now?" choice with choice_open merge_task), then merge on their word; they can also use the Merge button on the unit page.') }
+  }
 
   t('upgrade_recon', 'Upgrade a finished Recon into a Build in place (the report becomes context). intent = the player\'s words for what to build.', { task: z.string(), intent: z.string().optional() }, async ({ task, intent }) => {
     const f = requireTask(task)
@@ -563,13 +618,23 @@ export function createToolRegistry(
   // ------------------------------------------------------------ choices
   t(
     'choice_open',
-    'Open a choice for the player in the pending answer panel (several options with a recommendation, or a design pick). Link task when it came from a unit.',
+    'Open a choice for the player in the pending answer panel (several options with a recommendation, or a design pick). Link task when it came from a unit. merge_task=<ready Build id> opens its "Merge now?" choice instead (options default to Merge now / Not yet; no task link, the unit is not pinged): the player\'s approving answer is their approval of that merge.',
     {
       question: z.string().min(5), options: z.array(z.string()).default([]), recommendation: z.string().optional(), batch: z.string().optional(),
       context: z.string().optional(), task: z.string().optional(), key: z.string().optional(), quest_id: z.string().optional(),
-      urgency: z.enum(['normal', 'urgent']).default('normal')
+      urgency: z.enum(['normal', 'urgent']).default('normal'), merge_task: z.string().optional()
     },
     async (a) => {
+      if (a.merge_task) {
+        const m = requireTask(a.merge_task).task
+        if (m.kind !== 'ship') return fail('merge_task must be a Build')
+        const open = [...getCtx().homes.values()].flatMap(x => x.decisions.list(false)).find(d => d.action?.kind === 'merge-approval' && d.action.task === m.id)
+        if (open) return ok(`choice ${open.id} is already open for merging ${m.id}`)
+        const d = hc().decisions.open({ question: a.question, options: a.options.length ? a.options : MERGE_CHOICE_OPTIONS, recommendation: a.recommendation,
+          context: a.context, urgency: a.urgency, project: m.project, key: `merge:${m.id}`, source: 'genio', action: { kind: 'merge-approval', task: m.id } })
+        did('choices', d.id)
+        return ok(`choice ${d.id} opened: an approving answer from the player approves merging ${m.id}`)
+      }
       const h = a.task ? findTask(getCtx(), a.task, home)!.hc : hc()
       const project = getCtx().allies.list().find(ally => ally.name === home.name)?.projects[0]
       const d = a.task
@@ -582,11 +647,18 @@ export function createToolRegistry(
     }
   )
 
-  t('choice_resolve', "Close a choice with the player's answer (pings the unit with resolve key and records it on a held quest).", { id: z.string(), answer: z.string().min(1) }, async ({ id, answer }) => {
+  t('choice_resolve', "Close a choice with the player's answer (pings the unit with resolve key and records it on a held quest). For a merge choice the answer must be the player's own chat reply, quoted verbatim (Genio checks it).", { id: z.string(), answer: z.string().min(1) }, async ({ id, answer }) => {
     if (role === 'bot') return fail('only the player can answer a choice; it stays open until they return')
     const found = findDecision(getCtx(), id)
     if (!home.isMain && found?.hc.home.name !== home.name) return fail('Choice is outside this conversation.')
-    const r = await answerChoice(getCtx(), id, answer, { via: 'chat', chat: home.name })
+    let message: string | undefined
+    if (found?.d.action?.kind === 'merge-approval' && !found.d.resolvedAt) {
+      // The answer becomes merge authority: it must be the player's own reply, typed after the choice opened.
+      const r = verifyPlayerWords(chatLog(), answer, 'choice', { after: found.d.createdAt, what: 'the merge choice' })
+      if (!r.ok) return fail(refusal('answering the merge choice', r.reason, 'Quote the player\'s reply exactly, or let them answer it in the answer panel.'))
+      message = r.messageId
+    }
+    const r = await answerChoice(getCtx(), id, answer, { via: 'chat', chat: home.name, ...(message ? { message } : {}) })
     return r.ok ? ok(r.message) : fail(r.message)
   })
 
@@ -605,6 +677,8 @@ export function createToolRegistry(
     { world: z.string(), root: z.string(), player_words: z.string().trim().min(1) },
     async (a) => {
       if (role === 'bot') return fail('pinning the engine root waits for the player')
+      const no = unheard('Pinning the engine root', a.player_words, 'engine-root')
+      if (no) return fail(no)
       const r = await declareEngineRoot(getCtx(), { world: a.world, root: a.root, playerWords: a.player_words, actor: role })
       did('settings', `project ${a.world}`)
       return ok(r)
@@ -640,7 +714,9 @@ export function createToolRegistry(
       create_remote: z.boolean().default(false), private_remote: z.boolean().default(true), player_words: z.string().optional()
     },
     async (a) => {
-      if (a.create_remote && (role === 'bot' || !a.player_words?.trim())) return fail('creating a remote repo is outward-facing: it needs the player\'s explicit consent (player_words)')
+      if (a.create_remote && role === 'bot') return fail('creating a remote repo is outward-facing: it waits for the player')
+      const noRemote = a.create_remote ? unheard('creating a remote repo', a.player_words, 'remote') : undefined
+      if (noRemote) return fail(noRemote)
       const p = await getCtx().projects.create({ name: a.name, engine: a.engine, description: a.description, mode: a.mode, createRemote: a.create_remote, privateRemote: a.private_remote })
       did('settings', `project ${p.name}`)
       return ok(`project ${p.name} created at ${p.path} (${a.engine} scaffold, detected engine ${p.engine}, ${modeLabel(p.mode)})`)
@@ -657,7 +733,9 @@ export function createToolRegistry(
       commands: z.object({ setup: z.string().optional(), build: z.string().optional(), test: z.string().optional(), lint: z.string().optional() }).optional()
     },
     async (a) => {
-      if (a.auto_loot === true && (role === 'bot' || !a.player_words?.trim())) return fail('Auto-loot is granted only on the player\'s explicit word (player_words)')
+      if (a.auto_loot === true && role === 'bot') return fail('Auto-loot is granted only by the player')
+      const noLoot = a.auto_loot === true ? unheard('Auto-loot', a.player_words, 'auto-loot') : undefined
+      if (noLoot) return fail(noLoot)
       const patch: Record<string, unknown> = {}
       if (a.mode === 'auto') patch.modeSource = 'auto'
       else if (a.mode) patch.mode = a.mode
@@ -677,7 +755,8 @@ export function createToolRegistry(
 
   t('world_remove', 'Unregister a project (preflight refuses while units/quests are live or work is unlanded). delete_clone deletes Genio\'s clone and REQUIRES player_words.', { world: z.string(), delete_clone: z.boolean().default(false), player_words: z.string().optional() }, async (a) => {
     if (role === 'bot') return fail('removing projects waits for the player')
-    if (a.delete_clone && !a.player_words?.trim()) return fail('deleting a clone needs the player\'s explicit words')
+    const noDelete = a.delete_clone ? unheard('deleting a clone', a.player_words, 'delete-clone') : undefined
+    if (noDelete) return fail(noDelete)
     const r = await getCtx().projects.remove(a.world, a.delete_clone)
     return r.ok ? ok(r.message) : fail(r.message)
   })
@@ -822,13 +901,38 @@ export function createToolRegistry(
       const c = fal.catalogue(a.world)
       return ok(json({ ...c, entries: c.entries.filter(e => (!a.job || e.job === a.job) && (!a.query || JSON.stringify(e).toLowerCase().includes(a.query.toLowerCase()))) }))
     })
-    t('fal_generate', 'Generate FAL media in the background. Follow assets skill: asset_locate, then pass place and the player request. Quote card above threshold; monthly cap is a hard stop. Up to four outputs, $2 maximum; delegate larger work.', falGenerateShape, async a => ok(json(await agentGeneration(getCtx()).fal(home.name, a, role))))
-    t('uthana_motion', 'Generate a motion in the background. Stock Manny humanoid by default; FBX for Unity, GLB otherwise. Follow assets and uthana skills; no import settings are changed.', uthanaMotionShape, async a => ok(json(await agentGeneration(getCtx()).motion(home.name, a, role))))
-    t('uthana_character', 'Reuse an uploaded character by project source and sha256, or upload this project-relative FBX/GLB. Prefer stock humanoids; rigging can cost $0.15.', uthanaCharacterShape, async a => ok(json(await agentGeneration(getCtx()).character(home.name, a, role))))
-    t('asset_place', 'Place a generated run output in its project, uncommitted, with provenance. Media only. Never Bot, forbidden dirs or vendor packs. Requires player_words; overwriting additionally requires overwrite_words quoting explicit confirmation for that file.', assetPlaceShape, async a => ok(json(await agentGeneration(getCtx()).place(home.name, a, role))))
-    t('approve_run', 'Approve the exact pending quote in this chat only when the player agrees; quote their words. Cannot override the monthly cap.', { run: z.string(), player_words: z.string().trim().min(1) }, async a => ok(json(await agentGeneration(getCtx()).approve(a.run, home.name, a.player_words, role))))
+    /** Generation and placement take the player's request (and an overwrite its confirmation) as verified words. */
+    const asked = (action: string, words: string | undefined, purpose: WordsPurpose = 'asset'): void => {
+      const no = unheard(action, words, purpose)
+      if (no) throw new Error(no)
+    }
+    const QUOTE = ' player_words quotes the player\'s request verbatim from their own chat message (Genio checks it).'
+    t('fal_generate', 'Generate FAL media in the background. Follow assets skill: asset_locate, then pass place and the player request. Quote card above threshold; monthly cap is a hard stop. Up to four outputs, $2 maximum; delegate larger work.' + QUOTE, falGenerateShape, async a => {
+      asked('FAL generation', a.player_words)
+      return ok(json(await agentGeneration(getCtx()).fal(home.name, a, role)))
+    })
+    t('uthana_motion', 'Generate a motion in the background. Stock Manny humanoid by default; FBX for Unity, GLB otherwise. Follow assets and uthana skills; no import settings are changed.' + QUOTE, uthanaMotionShape, async a => {
+      asked('Motion generation', a.player_words)
+      return ok(json(await agentGeneration(getCtx()).motion(home.name, a, role)))
+    })
+    t('uthana_character', 'Reuse an uploaded character by project source and sha256, or upload this project-relative FBX/GLB. Prefer stock humanoids; rigging can cost $0.15.' + QUOTE, uthanaCharacterShape, async a => {
+      asked('Character upload', a.player_words)
+      return ok(json(await agentGeneration(getCtx()).character(home.name, a, role)))
+    })
+    t('asset_place', 'Place a generated run output in its project, uncommitted, with provenance. Media only. Never Bot, forbidden dirs or vendor packs. Requires player_words; overwriting additionally requires overwrite_words quoting, verbatim, the player\'s own message saying to replace that file.' + QUOTE, assetPlaceShape, async a => {
+      asked('Asset placement', a.player_words)
+      if (a.overwrite_words?.trim()) asked('Overwriting', a.overwrite_words, 'overwrite')
+      return ok(json(await agentGeneration(getCtx()).place(home.name, a, role)))
+    })
+    t('approve_run', 'Approve the exact pending quote in this chat only when the player agrees; player_words quotes their own reply verbatim (Genio checks it). Cannot override the monthly cap.', { run: z.string(), player_words: z.string().trim().min(1) }, async a => {
+      asked('Approving the paid run', a.player_words, 'spend')
+      return ok(json(await agentGeneration(getCtx()).approve(a.run, home.name, a.player_words, role)))
+    })
     t('generation_status', 'Inspect a background generation and its saved paths or error. Never resubmit uncertain jobs.', { run: z.string() }, a => ok(json(agentGeneration(getCtx()).status(a.run, home.name))))
-    t('generate_image', GENERATE_IMAGE_DESC, generateImageShape, async (a) => ok(json(await agentGeneration(getCtx()).image(home.name, a, role))))
+    t('generate_image', GENERATE_IMAGE_DESC, generateImageShape, async (a) => {
+      if (a.world) asked('Placing a generated image', a.player_words)
+      return ok(json(await agentGeneration(getCtx()).image(home.name, a, role)))
+    })
   }
 
   return tools

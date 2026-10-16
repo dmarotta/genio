@@ -6,6 +6,7 @@ import { playerCopyService } from './player-copy'
 import { playerInstanceService } from './player-instance'
 import { playerSources, sourceUnit } from './player-sources'
 import { modelViewer } from './model-viewer'
+import { standingApprovals } from './standing-approvals'
 /**
  * IPC: one ipcMain.handle per GenioApi method ('genio:<method>'). The table is
  * typed against GenioApi so a missing or mistyped method fails the build.
@@ -225,8 +226,13 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     },
     controlTask: (id, action) => taskHome(id).hc.crew.control(id, action, undefined, true),
     cleanupTask: (id, force) => taskHome(id).hc.crew.cleanup(id, force),
-    // A click on MERGE is the player's explicit word for this merge.
-    mergeTask: (id) => taskHome(id).hc.crew.merge(id),
+    // A click on MERGE is the player's explicit word for this merge. Only this renderer path records ui-button;
+    // the model's merge tool never reaches it.
+    mergeTask: (id) => taskHome(id).hc.crew.merge(id, { kind: 'ui-button', at: new Date().toISOString() }),
+    revokeStandingApproval: async (id) => {
+      const gone = standingApprovals(ctx()).revoke(id)
+      return gone ? { ok: true, message: `Standing merge approval for ${gone.project} revoked.` } : { ok: false, message: 'That standing approval already ended.' }
+    },
     promoteScout: (id, intent) => taskHome(id).hc.crew.promote(id, intent),
     readTaskFile: (id, which) => taskHome(id).hc.crew.readFile(id, which),
 
@@ -411,6 +417,9 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
           if (method === 'memoryReport') return ctx().memory.report(ctx().home(binding.wksp).home)
           if (method === 'memoryArchive') return ctx().memory.archive((args[0] as unknown[]).map(String), String(args[1]), ctx().home(binding.wksp).home)
           if (method === 'addDecision') args[0] = { ...(args[0] as object), project: binding.project, wksp: binding.wksp }
+          if (method === 'revokeStandingApproval' && standingApprovals(ctx()).list().find(a => a.id === args[0])?.project !== binding.project) {
+            return { ok: false, message: 'That standing approval belongs to another project.' }
+          }
           if (method === 'snapshot') return projectSnapshot(ctx().snapshot(), binding)
           if (method === 'terminals') return ctx().terminals.list().filter(t => terminalProject(t, ctx().snapshot()) === binding.project)
           // A login started in a project window runs in that project's folder, so its terminal is routed back to it.

@@ -6,6 +6,7 @@ import {
   buildBoard, PRIORITY_ORDER, queueChips, reorderQueue, visibleBands, type DoneEntry, type FlightCard, type QueueChip
 } from '@shared/quest-board'
 import type { SquadTone } from '@shared/squad-display'
+import { mergeApprovalLabel } from '@shared/merge-approval'
 import { api, errText, focusTask, op, toast, useStore } from '../store'
 import { Confirm, DislikeMarker, Empty, Field, Modal, NeedsYou, ViewHeader, useNow } from '../components/ui'
 import { KIND_LABEL } from '../lib/vocab'
@@ -396,6 +397,7 @@ function DoneTicket({ d, onOpen }: { d: DoneEntry; onOpen: () => void }) {
         {(t?.project ?? d.quest?.project) && <span>· {t?.project ?? d.quest?.project}</span>}
       </div>
       {outcomeText && <div className="quest-outcome mute">{trunc(outcomeText, 120)}</div>}
+      {t?.mergeApproval && <div className="quest-outcome qk-approval mute" title={mergeApprovalLabel(t.mergeApproval, 2000)}>{mergeApprovalLabel(t.mergeApproval, 80)}</div>}
       <div className="qk-foot">
         {t?.pr?.url ? (
           <button className="link-btn" onClick={(e) => { e.stopPropagation(); void api().openExternal(t.pr!.url) }}>
