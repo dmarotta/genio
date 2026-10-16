@@ -58,6 +58,10 @@ export function claimsMeet(a: string, b: string): boolean {
 export const holdsClaims = (t: { kind: string; modeller?: boolean; state: string }): boolean =>
   t.kind === 'ship' && !!t.modeller && t.state !== 'merged' && t.state !== 'cleaned'
 
+/** A Modeller still at its model shows the 3D view from its start: an empty scene until the first step lands. */
+export const modellerCanvas = (t: { kind: string; modeller?: boolean; state: string; landedAt?: string; pr?: { state?: string } }): boolean =>
+  holdsClaims(t) && !t.landedAt && t.pr?.state !== 'MERGED'
+
 /** The first path in `claims` another Modeller of the same project already holds, with its holder. */
 export function claimConflict<T extends { id: string; project: string; kind: string; modeller?: boolean; state: string; claims?: string[] }>(
   claims: string[], project: string, others: T[], self?: string

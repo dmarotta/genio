@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Task } from '../src/shared/types'
 import { squadAttention, squadTone } from '../src/shared/squad-display'
 import { acceptOption, primaryAction } from '../src/shared/unit-page'
+import { modellerCanvas } from '../src/shared/modeller'
 
 const task = (patch: Partial<Task> = {}): Task => ({
   id: 'u1', kind: 'ship', title: 'Watchtower', project: 'game', wksp: 'main', branchPrefix: 'genio/', baseBranch: 'main', branch: 'genio/u1', worktree: 'C:/w/u1',
@@ -30,6 +31,16 @@ describe('Modeller units on the Squad and the unit page', () => {
     expect(primaryAction(task({ modeller: true, state: 'ready', readyAt: '2026-10-16T11:00:00.000Z' }))).toBe('merge-local')
     expect(primaryAction(task({ modeller: true, state: 'merged' }))).toBe('none')
     expect(primaryAction(task({ modeller: true, state: 'exited' }))).toBe('respawn')
+  })
+
+  it('show the 3D view from their start until they land or are despawned', () => {
+    expect(modellerCanvas(task({ modeller: true, state: 'spawning' }))).toBe(true)
+    expect(modellerCanvas(task({ modeller: true, state: 'exited' }))).toBe(true)
+    expect(modellerCanvas(task())).toBe(false)
+    expect(modellerCanvas(task({ kind: 'scout', modeller: true }))).toBe(false)
+    expect(modellerCanvas(task({ modeller: true, state: 'merged' }))).toBe(false)
+    expect(modellerCanvas(task({ modeller: true, state: 'ready', landedAt: '2026-10-16T11:00:00.000Z' }))).toBe(false)
+    expect(modellerCanvas(task({ modeller: true, state: 'cleaned' }))).toBe(false)
   })
 
   it("find the Accept answer of a unit's question", () => {

@@ -10,7 +10,7 @@ import { api, errText, focusTask, op, openDeploy, setState, toast, liveTasks, us
 import { TerminalView } from '../components/Terminal'
 import { ModellerView, useModellerLive } from '../components/ModellerView'
 import { ModellerCardView, ModellerSteps, modelLocked } from '../components/ModellerSteps'
-import type { UnitFilePreview } from '@shared/modeller'
+import { modellerCanvas, type UnitFilePreview } from '@shared/modeller'
 import { Markdown } from '../components/Markdown'
 import { Chip, Confirm, DislikeMarker, Empty, Modal, Field, NeedsYou, Tabs, ViewHeader, useNow } from '../components/ui'
 import { GenioCore } from '../components/GenioCore'
@@ -167,10 +167,10 @@ function UnitCard({ t, term }: { t: Task; term?: TerminalInfo }) {
   )
 }
 
-/** A Modeller's card shows its model, not its terminal: the latest step's render and caption. */
+/** A Modeller's card shows its model, not its terminal: the latest step's render and caption, an empty frame before the first. */
 function ModellerCardSlot({ t, term }: { t: Task; term?: TerminalInfo }) {
   const live = useModellerLive(t.id, !!term?.alive, 4000)
-  if (live) return <ModellerCardView live={live} />
+  if (live || modellerCanvas(t)) return <ModellerCardView live={live} />
   return term?.alive ? <TerminalView id={term.id} fontSize={11} passive interactive={false} /> : <NoSignal t={t} />
 }
 
@@ -349,15 +349,17 @@ function UnitDetail({ id }: { id: string }) {
   const statusRows = useMemo(() => parseStatusLines(status.text ?? ''), [status.text])
   const changes = useMemo(() => parseUnitChanges(changesFile.text ?? ''), [changesFile.text])
   const modeller = useModellerLive(id, live && t?.kind === 'ship')
-  // A Modeller's page is canvas first: the live model is the main area and its steps the first side tab.
-  const canvas = !!modeller && t?.kind === 'ship'
+  // A Modeller's page is canvas first from its start: the live model (an empty scene until the first
+  // step) is the main area and its steps the first side tab.
+  const canvas = t?.kind === 'ship' && (!!modeller || modellerCanvas(t))
   useEffect(() => { if (canvas) { setTab('steps'); setPane('main') } }, [canvas])
   const head = modeller?.steps.at(-1)
   useScreenContext('squad', { facts: t ? [
     { label: 'Unit', value: `${t.title} [${t.id}]` },
     { label: 'State', value: `${unitBadge(t, term).label} (${t.state}) · ${unitKindLabel(t)} · ${t.branch}` },
     { label: 'Tab', value: canvas && pane === 'main' ? 'model (live 3D view)' : tab },
-    modeller && { label: 'Model', value: `${modeller.model} · ${head ? `step ${head.n} of ${modeller.steps.length}: ${head.caption}` : 'no steps yet'} · branch ${modeller.branch}${modeller.running ? ` · now running step ${modeller.running.n}: ${modeller.running.caption}` : ''}` },
+    modeller ? { label: 'Model', value: `${modeller.model} · ${head ? `step ${head.n} of ${modeller.steps.length}: ${head.caption}` : 'no steps yet'} · branch ${modeller.branch}${modeller.running ? ` · now running step ${modeller.running.n}: ${modeller.running.caption}` : ''}` }
+      : canvas && { label: 'Model', value: 'no steps yet' },
     statusRows.length > 0 && { label: 'Last status', value: `${statusRows.at(-1)!.verb}: ${statusRows.at(-1)!.text}` }
   ] : [{ label: 'Unit', value: `${id} (gone)` }] })
 
@@ -378,14 +380,14 @@ function UnitDetail({ id }: { id: string }) {
   const cleaned = t.state === 'cleaned'
   const accept = acceptOption(question)
   const primary = primaryAction(t, term, !!question, !!accept)
-  const acceptOff = !modeller ? 'The model is still loading.' : !head ? 'No step to accept yet.' : modelLocked(t, modeller)
+  const acceptOff = !modeller || !head ? 'No step to accept yet.' : modelLocked(t, modeller)
   const hardcore = !!t.validation || t.mode === 'no-mistakes'
   const lagging = needsInput(t, term, now, settings?.staleSeconds)
   const termLabel = lagging ? 'Terminal ●' : 'Terminal'
   const tabs = ([
     canvas && { id: 'steps', label: 'Steps' },
-    !recon && { id: 'changes', label: 'Changes', badge: changes.files.length },
     canvas && term && { id: 'terminal', label: termLabel },
+    !recon && { id: 'changes', label: 'Changes', badge: changes.files.length },
     { id: 'timeline', label: 'Timeline' },
     { id: 'brief', label: 'Brief' },
     (recon || !!t.reportPath) && { id: 'report', label: 'Report' },
@@ -523,7 +525,7 @@ function UnitDetail({ id }: { id: string }) {
         <Tabs<PaneId> value={shown} onChange={showPane} tabs={[...(main ? [main] : []), ...tabs]} />
       </div>
       <div className={cx('detail-body', !main && 'no-term', shown === 'main' ? 'pane-terminal' : 'pane-side')}>
-        {canvas && modeller ? (
+        {canvas ? (
           <div className="detail-term detail-canvas panel">
             <ModellerView live={modeller} />
           </div>
@@ -537,8 +539,8 @@ function UnitDetail({ id }: { id: string }) {
             <Tabs<TabId> value={current} onChange={setTab} tabs={tabs} />
           </div>
           <div className={cx('detail-tab', current === 'terminal' && 'detail-tab-term')}>
-            {current === 'steps' && modeller && <ModellerSteps t={t} live={modeller} />}
-            {current === 'terminal' && term && <UnitTerminal id={term.id} alive={term.alive} lagging={lagging} />}
+            {current === 'steps' && (modeller ? <ModellerSteps t={t} live={modeller} /> : <div className="mute">No steps yet.</div>)}
+            {current === 'terminal' && term && <UnitTerminal id={term.id} alive={term.alive} lagging={lagging} fit />}
             {current === 'changes' && <ChangesTab t={t} changes={changes} loading={changesFile.text === null} err={changesFile.err} rows={statusRows} />}
             {current === 'timeline' && <TimelineTab t={t} rows={statusRows} loading={status.text === null} />}
             {current === 'brief' && <FileMarkdown t={t} which="brief" empty="No brief." />}
@@ -652,8 +654,12 @@ function UnitDetail({ id }: { id: string }) {
   )
 }
 
-/** The unit's own terminal: the main area of a Build, a side tab of a Modeller. */
-function UnitTerminal({ id, alive, lagging }: { id: string; alive: boolean; lagging: boolean }) {
+/**
+ * The unit's own terminal: the main area of a Build, a side tab of a Modeller. The main area watches
+ * the agent's PTY at its own size, scaled to fit, until clicked; the narrow side tab (`fit`) fits the
+ * PTY to itself at once so it is legible without a click.
+ */
+function UnitTerminal({ id, alive, lagging, fit = false }: { id: string; alive: boolean; lagging: boolean; fit?: boolean }) {
   return (
     <>
       {lagging && (
@@ -661,7 +667,7 @@ function UnitTerminal({ id, alive, lagging }: { id: string; alive: boolean; lagg
           <i className="dot pulse" /> needs input
         </span>
       )}
-      <TerminalView id={id} fontSize={13} passive interactive={alive} />
+      <TerminalView id={id} fontSize={13} passive={!fit} interactive={alive} />
     </>
   )
 }

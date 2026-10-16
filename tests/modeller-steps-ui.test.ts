@@ -92,4 +92,11 @@ describe('Modeller Squad card', () => {
     expect(host.querySelector('img')).toBeNull()
     expect(host.querySelector('.modeller-card-caption')!.className).toContain('warn')
   })
+
+  it('is an empty frame before the unit started a model', async () => {
+    await render(React.createElement(ModellerCardView, { live: null }))
+    expect(host.querySelector('img')).toBeNull()
+    expect(host.querySelector('.modeller-card-empty')!.textContent).toBe('')
+    expect(text()).toBe('No steps yet')
+  })
 })

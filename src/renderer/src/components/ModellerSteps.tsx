@@ -93,15 +93,15 @@ export function ModellerSteps({ t, live }: { t: Task; live: ModellerLive }) {
   )
 }
 
-/** A Squad card's picture of a Modeller: the latest step's render and what it is doing now. */
-export function ModellerCardView({ live }: { live: ModellerLive }) {
-  const head = live.steps.at(-1)
-  const caption = live.running ? `Step ${live.running.n} · ${live.running.caption}…` : live.failure ? `Step ${live.failure.n} failed · ${live.failure.caption}` : head ? `Step ${head.n} · ${head.caption}` : 'Waiting for the first step…'
+/** A Squad card's picture of a Modeller: the latest step's render and what it is doing now; an empty frame before any model. */
+export function ModellerCardView({ live }: { live: ModellerLive | null }) {
+  const head = live?.steps.at(-1)
+  const caption = live?.running ? `Step ${live.running.n} · ${live.running.caption}…` : live?.failure ? `Step ${live.failure.n} failed · ${live.failure.caption}` : head ? `Step ${head.n} · ${head.caption}` : 'No steps yet'
   return (
     <div className="modeller-card">
-      {head?.view ? <img src={head.view} alt={`${live.model}, step ${head.n}`} /> : <div className="modeller-card-empty mute">{live.model}</div>}
-      <div className={cx('modeller-card-caption', live.failure && !live.running && 'warn')} title={caption}>
-        {live.running && <i className="dot pulse" />}<span>{caption}</span>
+      {head?.view && live ? <img src={head.view} alt={`${live.model}, step ${head.n}`} /> : <div className="modeller-card-empty mute">{live?.model}</div>}
+      <div className={cx('modeller-card-caption', live?.failure && !live.running && 'warn')} title={caption}>
+        {live?.running && <i className="dot pulse" />}<span>{caption}</span>
       </div>
     </div>
   )

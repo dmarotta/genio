@@ -241,6 +241,17 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
     scene.add(model.grid)
   }
 
+  // With nothing loaded (a Modeller before its first step) the scene is an empty floor: a ground grid
+  // seen from the usual 3/4 angle. The first model frames itself as before.
+  let floor: THREE.GridHelper | undefined
+  function placeFloor(): void {
+    if (floor) { scene.remove(floor); floor.dispose() }
+    const [c1, c2] = GRID_COLORS[settings.background === 'light' ? 'light' : 'dark']
+    floor = new THREE.GridHelper(10, 20, c1, c2)
+    floor.visible = !model && settings.grid
+    scene.add(floor)
+  }
+
   /** World bounds of what is drawn: meshes, or the joints of an animation-only file. */
   function measure(m: Loaded): THREE.Box3 {
     m.pivot.updateMatrixWorld(true)
@@ -523,6 +534,7 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
     if (!model) return
     const m = model
     model = undefined
+    if (floor) floor.visible = settings.grid
     m.mixer?.stopAllAction()
     m.mixer?.uncacheRoot(m.root)
     scene.remove(m.pivot)
@@ -645,6 +657,7 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
     }
     const previous = keep ? model : undefined
     model = loaded
+    if (floor) floor.visible = false
     scene.add(pivot)
     applyBackground()
     applyMaterials()
@@ -721,6 +734,9 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
     settings = { ...settings, ...patch }
     applyBackground()
     controls.autoRotate = settings.turntable
+    if (before.background !== settings.background) placeFloor()
+    if (floor) floor.visible = !model && settings.grid
+    dirty = true
     if (!model) return
     if (before.upAxis !== settings.upAxis) layout()
     else if (before.background !== settings.background) placeGrid()
@@ -802,6 +818,11 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
   }
 
   applyBackground()
+  placeFloor()
+  camera.position.set(1, 0.62, 1.3).normalize().multiplyScalar(9)
+  controls.target.set(0, 0.5, 0)
+  controls.update()
+  clip(4, 9)
   raf = requestAnimationFrame(tick)
   return {
     renderer, open, clear, set, playback, frame, texturePreviews, snapshot,
@@ -811,6 +832,7 @@ export function createViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): Vi
     dispose() {
       clear()
       cancelAnimationFrame(raf)
+      floor?.dispose()
       controls.dispose()
       clay.dispose()
       environment.dispose()

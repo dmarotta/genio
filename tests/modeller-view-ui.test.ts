@@ -18,7 +18,7 @@ const model = (diff?: ModelLoaded['diff']): ModelLoaded => ({
 let root: Root, host: HTMLDivElement
 const text = (): string => host.textContent ?? ''
 const frame = (): HTMLIFrameElement => host.querySelector('iframe')!
-const render = async (live: ModellerLive): Promise<void> => { await act(async () => root.render(React.createElement(ModellerView, { live }))) }
+const render = async (live: ModellerLive | null): Promise<void> => { await act(async () => root.render(React.createElement(ModellerView, { live }))) }
 const fromFrame = async (data: unknown, source: MessageEventSource | null = frame().contentWindow): Promise<void> => {
   await act(async () => { window.dispatchEvent(new MessageEvent('message', { data, source })) })
 }
@@ -67,7 +67,23 @@ describe('Modeller live view (app side of the sandboxed frame)', () => {
     expect(text()).toContain("NameError: name 'plank' is not defined. The model stays at s001.")
     expect(text()).not.toContain('at line 4')
     await render(state({ steps: [] }))
-    expect(text()).toContain('Waiting for the first step…')
+    expect(host.querySelector('[role="status"]')).toBeNull()
+  })
+
+  it('shows an empty scene before the unit started a model, then the first step in the same frame', async () => {
+    await render(null as unknown as ModellerLive)
+    const empty = frame()
+    expect(empty.getAttribute('src')).toBe(VIEWER_APP_URL)
+    expect(empty.getAttribute('title')).toBe('Live 3D view')
+    expect(host.querySelector('[role="status"]')).toBeNull()
+    expect(host.querySelectorAll('.modeller-view-note')).toHaveLength(0)
+    const posted = vi.spyOn(empty.contentWindow!, 'postMessage')
+    await fromFrame({ type: 'ready' })
+    expect(posted.mock.calls.map(c => c[0].type)).toEqual(['settings'])
+    await render(state())
+    expect(frame()).toBe(empty)
+    expect(posted.mock.calls.at(-1)![0]).toEqual({ type: 'open', url: `${BASE}/s001/model.glb`, name: 'tower step 1', requestId: 1, keep: true })
+    expect(text()).toContain('Step 1 · Raising four timber legs')
   })
 
   it('has exactly the wireframe, clay and turntable toggles, sent to the frame and kept for the next unit', async () => {

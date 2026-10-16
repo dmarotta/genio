@@ -7,8 +7,9 @@ import { UNIT_ACTION_HINT } from '../src/shared/unit-actions'
 
 // The agent terminal is xterm; here it only records how the page mounts it.
 vi.mock('../src/renderer/src/components/Terminal', () => ({
-  TerminalView: (p: { id: string; passive?: boolean; interactive?: boolean; autoFocus?: boolean }) =>
-    React.createElement('div', { className: 'term-mock', 'data-id': p.id, 'data-passive': String(!!p.passive), 'data-interactive': String(p.interactive ?? true), 'data-autofocus': String(!!p.autoFocus) })
+  TerminalView: (p: { id: string; fontSize?: number; passive?: boolean; interactive?: boolean; autoFocus?: boolean }) =>
+    React.createElement('div', { className: 'term-mock', 'data-id': p.id, 'data-font-size': String(p.fontSize ?? 12), 'data-passive': String(!!p.passive),
+      'data-interactive': String(p.interactive ?? true), 'data-autofocus': String(!!p.autoFocus) })
 }))
 import { Squad } from '../src/renderer/src/views/Squad'
 import { getState, setState } from '../src/renderer/src/store'
@@ -355,5 +356,63 @@ describe('Play this unit', () => {
     await openUnity(unit({ state: 'cleaned', cleanedAt: NOW }))
     await click(button('More'))
     expect(document.querySelector<HTMLButtonElement>('.unit-menu-item')!.disabled).toBe(true)
+  })
+})
+
+describe('Modeller unit before its first step', () => {
+  const step = { id: 's001', n: 1, caption: 'Raising four timber legs', triangles: 12, parts: 4, warnings: 0, ms: 1500, glb: 'genio-media://model/x/modeller/tower/steps/s001/model.glb', view: 'genio-media://model/x/modeller/tower/steps/s001/view.png' }
+  const model = (steps: typeof step[]) => ({ model: 'tower', branch: 'main', branches: ['main'], steps, checks: [], running: null, failure: null, stamp: String(steps.length) })
+  const sideTabs = (): string[] => [...host.querySelectorAll('.detail-side-tabs [role="tab"]')].map((b) => b.textContent!.trim())
+  const sideTab = (label: string): HTMLButtonElement => [...host.querySelectorAll<HTMLButtonElement>('.detail-side-tabs [role="tab"]')].find((b) => b.textContent!.trim() === label)!
+
+  it('is canvas first from the start: an empty 3D scene, Steps then Terminal then Changes, no steps yet, Accept off', async () => {
+    calls.set('modellerLive', vi.fn(async () => null))
+    await live({ modeller: true })
+    const canvas = host.querySelector('.detail-body .detail-canvas')!
+    expect(canvas.querySelector('iframe')!.getAttribute('title')).toBe('Live 3D view')
+    expect(canvas.querySelector('[role="status"]')).toBeNull()
+    expect(canvas.textContent).not.toMatch(/Waiting|loading|step/i)
+    expect(host.querySelector('.detail-body > .detail-term .term-mock')).toBeNull()
+    expect([...host.querySelectorAll('.detail-switch [role="tab"]')].map((b) => b.textContent!.trim())).toEqual(['Model', 'Steps', 'Terminal', 'Changes', 'Timeline', 'Brief'])
+    expect(sideTabs()).toEqual(['Steps', 'Terminal', 'Changes', 'Timeline', 'Brief'])
+    expect(host.querySelector('.detail-tab')!.textContent).toBe('No steps yet.')
+    const accept = button('Accept')
+    expect(accept.disabled).toBe(true)
+    expect(accept.title).toBe('No step to accept yet.')
+  })
+
+  it('shows its terminal tab at the legible size, fitted to the tab, with no enlarge or click-to-type control', async () => {
+    calls.set('modellerLive', vi.fn(async () => null))
+    await live({ modeller: true })
+    await click(sideTab('Terminal'))
+    const term = host.querySelector('.detail-tab-term .term-mock')!
+    expect([term.getAttribute('data-font-size'), term.getAttribute('data-passive'), term.getAttribute('data-interactive')]).toEqual(['13', 'false', 'true'])
+    expect(host.querySelector('.detail-tab-term')!.querySelectorAll('button')).toHaveLength(0)
+    expect(host.textContent).not.toMatch(/enlarge|click to type/i)
+  })
+
+  it('accepts the head step once one exists', async () => {
+    calls.set('modellerLive', vi.fn(async () => model([step])))
+    await live({ modeller: true })
+    expect(button('Accept step 1').disabled).toBe(false)
+    expect(host.querySelector('.detail-canvas [role="status"]')!.textContent).toBe('Step 1 · Raising four timber legs')
+  })
+
+  it('a landed Modeller with no model data falls back to its terminal', async () => {
+    calls.set('modellerLive', vi.fn(async () => null))
+    await live({ modeller: true, state: 'merged', landedAt: NOW })
+    expect(host.querySelector('.detail-canvas')).toBeNull()
+    expect(host.querySelector('.detail-term .term-mock')).not.toBeNull()
+  })
+
+  it('its Squad card shows an empty frame, never the terminal', async () => {
+    calls.set('modellerLive', vi.fn(async () => null))
+    setState({ ...initial, focus: null, terminals: { 'pty-1': pty() }, snap: { ...initial.snap, tasks: [unit({ modeller: true, terminalId: 'pty-1' })], projects: [project] } })
+    await act(async () => root.render(React.createElement(Squad)))
+    const card = host.querySelector('.unit-card .unit-term')!
+    expect(card.querySelector('.term-mock')).toBeNull()
+    expect(card.querySelector('.modeller-card img')).toBeNull()
+    expect(card.querySelector('.modeller-card-empty')!.textContent).toBe('')
+    expect(card.querySelector('.modeller-card-caption')!.textContent).toBe('No steps yet')
   })
 })

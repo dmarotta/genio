@@ -33,8 +33,9 @@ const firstLine = (s: string): string => s.split(/\r?\n/).map(x => x.trim()).fin
 /**
  * The Modeller's live view: the sandboxed viewer frame showing the head step, hot swapped as each step
  * lands (the camera stays, changed parts glow), with the running step's caption as a live status.
+ * Without `live` (no model started yet) the frame shows the viewer's empty scene.
  */
-export function ModellerView({ live }: { live: ModellerLive }) {
+export function ModellerView({ live }: { live: ModellerLive | null }) {
   const frame = useRef<HTMLIFrameElement>(null)
   const ready = useRef(false)
   const request = useRef(0)
@@ -43,9 +44,9 @@ export function ModellerView({ live }: { live: ModellerLive }) {
   const [error, setError] = useState('')
   const [settings, setSettings] = useState<ViewerSettings>(() => ({ ...DEFAULT_VIEWER_SETTINGS, ...remembered }))
   const now = useNow(1000)
-  const head = live.steps.at(-1)
+  const head = live?.steps.at(-1)
   const target = useRef({ url: head?.glb ?? undefined, name: '', settings })
-  target.current = { url: head?.glb ?? undefined, name: head ? `${live.model} step ${head.n}` : live.model, settings }
+  target.current = { url: head?.glb ?? undefined, name: head && live ? `${live.model} step ${head.n}` : live?.model ?? '', settings }
   const send = (message: ToViewer): void => frame.current?.contentWindow?.postMessage(message, '*')
   const show = (): void => {
     const { url, name } = target.current
@@ -79,20 +80,21 @@ export function ModellerView({ live }: { live: ModellerLive }) {
     send({ type: 'settings', settings: next })
   }
 
-  const run = live.running, failed = live.failure
-  const status = run ? `Step ${run.n} · ${run.caption}…` : failed ? `Step ${failed.n} failed · ${failed.caption}` : head ? `Step ${head.n} · ${head.caption}` : 'Waiting for the first step…'
+  const run = live?.running, failed = live?.failure
+  // Before the first step the scene stays empty: no caption.
+  const status = run ? `Step ${run.n} · ${run.caption}…` : failed ? `Step ${failed.n} failed · ${failed.caption}` : head ? `Step ${head.n} · ${head.caption}` : ''
   const d = model?.diff
   const parts = d && d.added + d.changed + d.removed > 0
     ? `+${d.added} added · ${d.changed} changed · −${d.removed} removed${d.names.length ? `: ${d.names.slice(0, 4).join(', ')}${d.names.length > 4 ? '…' : ''}` : ''}`
     : ''
   return <div className="modeller-view">
     <div className="modeller-view-stage">
-      <iframe ref={frame} src={VIEWER_APP_URL} sandbox="allow-scripts" title={`Live view of ${live.model}`} referrerPolicy="no-referrer" />
-      <div className={cx('modeller-view-caption', failed && !run && 'warn')} role="status">
+      <iframe ref={frame} src={VIEWER_APP_URL} sandbox="allow-scripts" title={live ? `Live view of ${live.model}` : 'Live 3D view'} referrerPolicy="no-referrer" />
+      {status && <div className={cx('modeller-view-caption', failed && !run && 'warn')} role="status">
         {run && <i className="dot pulse" />}
         <span className="modeller-view-text" title={status}>{status}</span>
         {run && <span className="mute">{Math.max(0, Math.round((now - run.startedAt) / 1000))} s</span>}
-      </div>
+      </div>}
     </div>
     <div className="modeller-view-tools" role="toolbar" aria-label="View options">
       {TOGGLES.map(([k, label, title]) =>
@@ -100,7 +102,7 @@ export function ModellerView({ live }: { live: ModellerLive }) {
     </div>
     {failed && !run && <p className="modeller-view-note warn" title={failed.error}>{firstLine(failed.error)}</p>}
     {error && <p className="modeller-view-note warn">{error}</p>}
-    {model && <p className="modeller-view-note">{model.stats.triangles.toLocaleString()} triangles · {model.stats.meshes.toLocaleString()} parts{live.branch !== 'main' ? ` · branch ${live.branch}` : ''}</p>}
+    {model && <p className="modeller-view-note">{model.stats.triangles.toLocaleString()} triangles · {model.stats.meshes.toLocaleString()} parts{live && live.branch !== 'main' ? ` · branch ${live.branch}` : ''}</p>}
     {parts && <p className="modeller-view-note">{parts}</p>}
   </div>
 }
