@@ -54,42 +54,45 @@ A Modeller builds one model in small steps that the player watches live. Each st
 
 ```
 node "{{SKILL_DIR}}/scripts/modeller.mjs" init watchtower --target unity [--budget 5000] [--size 4x4x10]
-node "{{SKILL_DIR}}/scripts/modeller.mjs" batch watchtower .genio/modeller/watchtower/s01_legs.py .genio/modeller/watchtower/s02_bracing.py .genio/modeller/watchtower/s03_deck.py
-node "{{SKILL_DIR}}/scripts/modeller.mjs" step watchtower .genio/modeller/watchtower/s04_railing.py
+node "{{SKILL_DIR}}/scripts/modeller.mjs" step watchtower .genio/modeller/watchtower/s01_legs.py
+node "{{SKILL_DIR}}/scripts/modeller.mjs" step watchtower .genio/modeller/watchtower/s02_bracing.py
 node "{{SKILL_DIR}}/scripts/modeller.mjs" status watchtower
 ```
 
 Every step prints JSON: `ok`, `id` (s001, s002...), `caption`, `triangles`, `vertices`, `bounds`, `warnings` and the paths of `sheet` (review PNG), `glb`, `blend` and `receipt`. Exit code 2 means the step failed; 1 means a usage or kernel error.
 
-**Batches.** `batch <model>` takes several scripts in order: their paths, one folder (its `.py` files sorted by name) or a `.json` list (`["s01_body.py", ...]` or `{"steps": [{"script": "s01_body.py", "name": "body"}]}`, paths relative to the file). One Blender runs them back to back; each is a normal step with its own id, receipt, snapshot and GLB, so revert and branch work per step. Each step lands in the live view as soon as its GLB is written (at least 0.6 s apart, so the player sees every change), and its caption shows while it is on its way. Only the last step renders the review sheet (`--every-sheet` renders one per step). `--timeout` is per step. The JSON has `steps` (one entry per landed step), `sheet` and `warnings` of the last one, and on a failure `failure` (as a failed step prints it) and `not_run` (the scripts after it, which did not run). A failing script stops the batch; the steps before it stay.
-
 **The loop:**
-1. One step is one idea (body, wheels, wings, cockpit; legs, bracing, deck, roof) with 3 to 15 named parts. Its docstring is one line saying what it adds ("Now adding the roof"), because the player reads it live.
-2. Block the model out in batches of 3 to 6 steps. Use single steps for fixes and fine details.
-3. After each batch or step, open the `sheet` PNG with your file-read tool. It is 1024 px: 3/4 view top left, front (looking at the model's front, -Y) top right, right side bottom left, top view bottom right. Workbench colours come from your materials.
-4. Read `warnings` (a batch's earlier steps have theirs in `steps[].warnings`). Compare the sheet with what you meant: proportions, parts floating or poking through, missing pieces, wrong facing.
+1. One step per script: one idea (body, wheels, wings, cockpit; legs, bracing, deck, roof) with 3 to 15 named parts. Write the script and run its `step` command in the same response (the file write, then the command), never in a separate turn.
+2. The first step is one small script that blocks out the main mass with simple parts, so the player sees the model within about a minute. Do not plan or write later steps before it has run; detail comes one step at a time.
+3. After each step, open the `sheet` PNG with your file-read tool. It is 1024 px: 3/4 view top left, front (looking at the model's front, -Y) top right, right side bottom left, top view bottom right. Workbench colours come from your materials.
+4. Read `warnings`. Compare the sheet with what you meant: proportions, parts floating or poking through, missing pieces, wrong facing.
 5. Fix before you continue. A fix is its own step ("Fixing the ladder rails"), or re-run the last step with `--amend` (it replaces the head, keeping the step count honest).
 6. Steering from the player becomes the next step.
 7. When you judge the model done, export the head step, place it, commit and report done like any Build (the brief's Modeller delivery says what to commit). In a Unity project the model's `.meta` belongs to the change: never hand-write one; `genio-unity import` generates it, and you commit it with the FBX (if Unity cannot run for you, commit without it and say it appears on the first import). There is no separate review: the player merges as usual. Ask the player something only when it is a real question.
 
-**A step script** starts with a docstring; its first line is the caption the player sees live ("Now adding the roof: corner posts and a pyramid of shingles"). `bpy` and the helpers `p` are preloaded. Build parts with the helpers: a part made again under the same name replaces the old one, so a script can run twice with the same result (idempotent) and the live view can tell parts apart. Reach existing parts with `p.part('Deck planks')`. Prints appear in the receipt's `output`.
+**Replays only.** `batch <model>` replays scripts that already exist, in one Blender (restoring work after a revert or on a new branch); never build new steps with it. It takes their paths, one folder (its `.py` files sorted by name) or a `.json` list (`["s01_body.py", ...]` or `{"steps": [{"script": "s01_body.py", "name": "body"}]}`, paths relative to the file). Each is a normal step with its own id and snapshot; only the last renders a sheet (`--every-sheet` renders one per step); `--timeout` is per step. The JSON has `steps`, the last one's `sheet` and `warnings`, and on a failure `failure` and `not_run`. A failing script stops the batch; the steps before it stay.
+
+**API card** (enough to start: never read `genio_step.py`, `genio_parts.py` or `modeller.mjs`):
+- A step script runs in headless Blender on the previous step's scene with `bpy` and the helpers `p` preloaded (do not import them; `math` and `mathutils` may be imported). Line 1 is a one-line docstring caption in plain words; the player reads it live as the step lands.
+- Metres, Z up, the model stands on z = 0 with its footprint centred on the origin and its front facing -Y (its left side is +X).
+- A part made again under the same name replaces the old one, so a script can run twice. Part helpers return the object and take `mat=` and `col=`; `rot` is Euler radians.
+- Parts: `p.box(name, (sx, sy, sz), loc, rot, mat, bevel=0.0)` centred on loc; `p.cylinder(name, radius, depth, loc, rot, mat, segments=16, radius_top=None)` along local Z; `p.cone(name, radius, depth, loc, rot, mat)`; `p.sphere(name, radius, loc, mat, subdiv=2)`; `p.beam(name, a, b, thickness, mat)` from point a to b; `p.prism(name, [(x, y), ...], depth, loc, rot, mat)` counter-clockwise outline extruded along local Z; `p.lathe(name, [(radius, z), ...], segments, loc, rot, mat)` turned shape; `p.plane(name, (x, y), loc, rot, mat)`; `p.jitter(ob, amount, seed)`.
+- Materials: `p.material(name, '#rrggbb', rough=0.8, metal=0.0, emission=0.0)`, one per name, reused.
+- Modifiers, named so adding one again replaces it: `p.bevel(ob, width, segments=2, angle=30)`, `p.array(ob, count, (dx, dy, dz))`, `p.mirror(ob, axes=(True, False, False), about=other)`, `p.solidify(ob, thickness)`, `p.subsurf(ob, levels)`, `p.boolean_cut(ob, cutter)` (the cutter never ships).
+- Structure: `p.collection('Legs')` (a group inside `Export`, passed as `col=`), `p.parent(child, parent)`, `p.part(name)`, `p.remove(*names)`, `p.ground()`, `p.center()`, `p.origin_to_base(ob)`, `p.apply_scale(ob)`, `p.stats()`.
 
 ```python
-"""Raising four tapered timber legs on stone footings"""
-wood = p.material('Wood', '#8a5a2b')
-stone = p.material('Stone', (0.48, 0.48, 0.5), rough=0.95)
-for i, (sx, sy) in enumerate([(1, 1), (-1, 1), (-1, -1), (1, -1)]):
-    p.beam(f'Leg {i + 1}', (sx * 1.6, sy * 1.6, 0.0), (sx * 1.2, sy * 1.2, 6.1), 0.28, wood)
-    p.cylinder(f'Footing {i + 1}', 0.36, 0.3, (sx * 1.6, sy * 1.6, 0.15), mat=stone, segments=6)
+"""Blocking out the main mass: hull, cabin and four wheels"""
+import math
+paint = p.material('Paint', '#b03a2e', rough=0.5)
+tyre = p.material('Tyre', '#222222', rough=0.9)
+p.box('Hull', (1.8, 4.2, 0.7), loc=(0, 0, 0.75), mat=paint, bevel=0.05)
+p.box('Cabin', (1.6, 2.0, 0.6), loc=(0, 0.3, 1.4), mat=paint)
+for i, (x, y) in enumerate([(1.05, -1.3), (-1.05, -1.3), (1.05, 1.3), (-1.05, 1.3)]):
+    p.cylinder(f'Wheel {i + 1}', 0.4, 0.3, loc=(x, y, 0.4), rot=(0, math.pi / 2, 0), mat=tyre)
 ```
 
-**Helpers** (`genio_parts.py`, data API only, so nothing fails a poll in background mode):
-- Parts: `box(name, size, loc, rot, mat, col, bevel)`, `cylinder(name, radius, depth, loc, rot, mat, col, segments, radius_top)`, `cone`, `sphere(name, radius, loc, subdiv)`, `plane(name, (x, y))`, `beam(name, a, b, thickness)`, `prism(name, [(x, y)...], depth)` for any outline with thickness, `lathe(name, [(radius, z)...], segments)` for turned shapes (barrels, vases, columns), `jitter(ob, amount, seed)` for rocks and foliage.
-- Modifiers, named so re-adding replaces: `bevel(ob, width)`, `array(ob, count, (dx, dy, dz))`, `mirror(ob, axes, about=other)`, `solidify(ob, thickness)`, `subsurf(ob, levels)`, `boolean_cut(ob, cutter)` (the cutter moves to the hidden `Cutters` collection and never ships). The step GLB, counts and checks follow the modifier rule above.
-- Materials: `material(name, colour, rough, metal, emission)`; colour is `'#rrggbb'` (sRGB) or a linear `(r, g, b)`. One material per name, reused; it sets the Principled BSDF and the Workbench colour. Names must be real names; `.001` suffixes are refused.
-- Structure: `collection('Roof')` groups parts inside `Export`; `parent(child, parent)`; `remove(*names)`; `part(name)`.
-- Conventions: metres, Z up, the model stands on z = 0 with its footprint centred on the origin and its front facing -Y. `ground()` and `center()` move the whole model there; `origin_to_base(ob)` puts a part's origin at its foot; `apply_scale(ob)` bakes object scale so bevels stay even. The exporters turn Blender -Y front into Unity +Z (FBX `unity` preset) and glTF +Z (Godot and web GLB); see `p.CONVENTIONS`.
-- `cleanup()` drops unused cutters, unlinked objects and orphan meshes and materials; it never touches `Export`. `stats()` gives shipped triangle and vertex counts per part.
+**Beyond the card.** The helpers use the data API only, so nothing fails a poll in background mode. Prints appear in the receipt's `output`. A colour can also be a linear `(r, g, b)`; a material sets the Principled BSDF and the Workbench colour, and `.001` names are refused. `boolean_cut` moves the cutter to the hidden `Cutters` collection. The step GLB, counts and checks follow the modifier rule above. `jitter` is seeded, for rocks and foliage; `apply_scale` keeps bevels even; `cleanup()` drops unused cutters, unlinked objects and orphan meshes and materials, never touching `Export`; `stats()` counts shipped triangles and vertices per part. The exporters turn Blender -Y front into Unity +Z (FBX `unity` preset) and glTF +Z (Godot and web GLB); see `p.CONVENTIONS`.
 
 **Checks** run on the geometry as it ships after every step: `g.validate()`'s report plus the Modeller's own. They land in the receipt's `checks` and `warnings` and are information for you and the player, never a gate: triangle budget (when `init --budget` set one), ground contact (lowest point at z = 0), footprint centring, scale sanity (and `--size` when given, 25 % tolerance), open or non-manifold parts, inward-facing faces, modifiers held back by shape keys, negative or uneven scale under bevel/solidify, objects outside `Export`, `.001` names, and parts passing through each other. The pass-through check warns only when a part goes deep into another and sticks out again (a post through a roof, a ladder rail inside a leg); every contact, joints included, is listed in `checks.pierces`.
 
@@ -128,6 +131,7 @@ for i, (sx, sy) in enumerate([(1, 1), (-1, 1), (-1, -1), (1, -1)]):
 
 - Blender processes CLI options in order: when writing custom render commands, `-o` must come before `-f`. The runner is for Python scripts; set `scene.render.filepath` before `bpy.ops.render.render(write_still=True)`.
 - Workbench background previews need a working graphics driver and show geometry, not final materials. There is no interactive viewport context in batch mode. A render can show both sides and cannot prove correct winding; read validation too.
+- Low-poly web models (a few thousand triangles) take 1024 px textures: about a third of the 2048 px file size, and enough texel density at that triangle count. Use 2048 px only when the mission asks for it.
 - For texture baking choose explicit padding for the texture size. `scene.render.bake.margin_type = 'EXTEND'` avoids adjacent-face bleed in workflows that need extended texels; set `margin` deliberately and inspect UV seams/mips.
 - Project conventions stay in the project repo: no universal game scale, AO formula, tint masks, LOD policy, naming rules or Unity import settings belong in this skill.
 - No MCP/live bridge, .blend thumbnail system, or concept-to-engine pipeline is involved.

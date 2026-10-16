@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { renderBrief, type BriefInput } from '../src/main/brief'
 import { assertIsolatedHomes } from './support/isolated-homes.mjs'
-import { blenderSkillDir, codexImageSkillDir, falSkillDir, genioUnityScript, installUnitPlugin, modellerBrief, modellerScript, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief, unitySkillDir } from '../src/main/unitskills'
+import { blenderSkillDir, codexImageSkillDir, falSkillDir, genioUnityScript, installUnitPlugin, MODELLER_API_CARD, modellerBrief, modellerScript, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief, unitySkillDir } from '../src/main/unitskills'
 
 const APP_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SCRIPT = path.join(unitPluginSource(APP_ROOT), 'skills', 'fal', 'scripts', 'fal.mjs')
@@ -161,8 +161,17 @@ describe('brief tools section', () => {
     expect(b).toMatch(/Fix what is wrong before adding anything new/)
     expect(b).toMatch(/never a gate/)
     expect(b).toMatch(/docstring caption/)
-    expect(b).toContain('node "C:/genio/skills/genio/skills/blender/scripts/modeller.mjs" batch <model> <script.py> <script.py>...')
-    expect(b).toMatch(/batches of 3 to 6 steps.*single steps for fixes and fine details/)
+    // One step per script, written and run in the same response; a small first step; batch only replays.
+    expect(b).toMatch(/One step per script.*in the same response/)
+    expect(b).toMatch(/first step is one small script that blocks out the main mass/)
+    expect(b).toContain('node "C:/genio/skills/genio/skills/blender/scripts/modeller.mjs" batch <model> <script.py>...` only replays scripts that already exist')
+    expect(b).toMatch(/Never build new steps with it/)
+    expect(b).not.toMatch(/batches of \d/)
+    expect(b).toMatch(/low-poly web model, bake or paint at 1024 px/)
+    // The API card replaces reading the Python sources.
+    expect(b).toContain(MODELLER_API_CARD)
+    expect(b).toMatch(/never read `genio_step\.py`, `genio_parts\.py` or `modeller\.mjs`/)
+    expect(MODELLER_API_CARD.length).toBeLessThan(2600)
     expect(renderBrief({ ...base, tools: unitToolsBrief(plugin) })).not.toContain('# Modeller')
   })
 
@@ -173,6 +182,12 @@ describe('brief tools section', () => {
     expect(skill).toContain('## Modeller steps')
     expect(skill).toContain(`node "${fwd(blenderSkillDir(target))}/scripts/modeller.mjs" init watchtower`)
     expect(skill).toMatch(/\| `scene\.render\.engine = 'BLENDER_EEVEE'` \| error \| ok \|/)
+    // The skill carries the brief's API card word for word, and the same one-step loop.
+    expect(skill).toContain(MODELLER_API_CARD)
+    expect(skill).toMatch(/One step per script.*in the same response/)
+    expect(skill).toMatch(/`batch <model>` replays scripts that already exist/)
+    expect(skill).not.toMatch(/batches of \d/)
+    expect(skill).toMatch(/1024 px textures/)
     for (const f of ['modeller.mjs', 'genio_step.py', 'genio_parts.py', 'blender.mjs', 'genio_bpy.py']) expect(fs.existsSync(path.join(blenderSkillDir(target), 'scripts', f))).toBe(true)
     expect(fwd(modellerScript(target))).toBe(`${fwd(blenderSkillDir(target))}/scripts/modeller.mjs`)
   })

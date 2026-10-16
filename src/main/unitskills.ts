@@ -114,22 +114,52 @@ export function openRouterEnv(harnessId: string, worldAllows: boolean, key: stri
   return harnessId === 'opencode' && worldAllows && k ? { OPENROUTER_API_KEY: k } : {}
 }
 
+/**
+ * The Modeller helper API in about 2 KB, so a unit starts without reading the Python sources.
+ * The blender SKILL.md carries the same lines (a test keeps them in step).
+ */
+export const MODELLER_API_CARD = [
+  '**API card** (enough to start: never read `genio_step.py`, `genio_parts.py` or `modeller.mjs`):',
+  '- A step script runs in headless Blender on the previous step\'s scene with `bpy` and the helpers `p` preloaded (do not import them; `math` and `mathutils` may be imported). Line 1 is a one-line docstring caption in plain words; the player reads it live as the step lands.',
+  '- Metres, Z up, the model stands on z = 0 with its footprint centred on the origin and its front facing -Y (its left side is +X).',
+  '- A part made again under the same name replaces the old one, so a script can run twice. Part helpers return the object and take `mat=` and `col=`; `rot` is Euler radians.',
+  '- Parts: `p.box(name, (sx, sy, sz), loc, rot, mat, bevel=0.0)` centred on loc; `p.cylinder(name, radius, depth, loc, rot, mat, segments=16, radius_top=None)` along local Z; `p.cone(name, radius, depth, loc, rot, mat)`; `p.sphere(name, radius, loc, mat, subdiv=2)`; `p.beam(name, a, b, thickness, mat)` from point a to b; `p.prism(name, [(x, y), ...], depth, loc, rot, mat)` counter-clockwise outline extruded along local Z; `p.lathe(name, [(radius, z), ...], segments, loc, rot, mat)` turned shape; `p.plane(name, (x, y), loc, rot, mat)`; `p.jitter(ob, amount, seed)`.',
+  '- Materials: `p.material(name, \'#rrggbb\', rough=0.8, metal=0.0, emission=0.0)`, one per name, reused.',
+  '- Modifiers, named so adding one again replaces it: `p.bevel(ob, width, segments=2, angle=30)`, `p.array(ob, count, (dx, dy, dz))`, `p.mirror(ob, axes=(True, False, False), about=other)`, `p.solidify(ob, thickness)`, `p.subsurf(ob, levels)`, `p.boolean_cut(ob, cutter)` (the cutter never ships).',
+  '- Structure: `p.collection(\'Legs\')` (a group inside `Export`, passed as `col=`), `p.parent(child, parent)`, `p.part(name)`, `p.remove(*names)`, `p.ground()`, `p.center()`, `p.origin_to_base(ob)`, `p.apply_scale(ob)`, `p.stats()`.',
+  '',
+  '```python',
+  '"""Blocking out the main mass: hull, cabin and four wheels"""',
+  'import math',
+  'paint = p.material(\'Paint\', \'#b03a2e\', rough=0.5)',
+  'tyre = p.material(\'Tyre\', \'#222222\', rough=0.9)',
+  'p.box(\'Hull\', (1.8, 4.2, 0.7), loc=(0, 0, 0.75), mat=paint, bevel=0.05)',
+  'p.box(\'Cabin\', (1.6, 2.0, 0.6), loc=(0, 0.3, 1.4), mat=paint)',
+  'for i, (x, y) in enumerate([(1.05, -1.3), (-1.05, -1.3), (1.05, 1.3), (-1.05, 1.3)]):',
+  '    p.cylinder(f\'Wheel {i + 1}\', 0.4, 0.3, loc=(x, y, 0.4), rot=(0, math.pi / 2, 0), mat=tyre)',
+  '```'
+].join('\n')
+
 /** The brief addition for a Modeller unit: how to work in small, reviewed Blender steps. */
 export function modellerBrief(pluginDir: string, taskDataDir: string): string {
   const skill = fwd(blenderSkillDir(pluginDir))
   const kernel = fwd(modellerScript(pluginDir))
   const data = fwd(modellerDataDir(taskDataDir))
   return [
-    `You are a Modeller: you build a 3D model in small steps that the player watches live. Read \`${skill}/SKILL.md\`, section "Modeller steps", before the first step. Every kind of model is in scope.`,
+    `You are a Modeller: you build a 3D model in small steps that the player watches live. Every kind of model is in scope. The API card below is enough to start; \`${skill}/SKILL.md\`, section "Modeller steps", has the rest (checks, kernel operations, Blender 4.2 and 5.2 traps in raw bpy) for when you need it.`,
     '- You write Python (bpy) step scripts; Genio runs each in its own headless Blender. There is no MCP and no live Blender session.',
-    `- Start each model once: \`node "${kernel}" init <model> --target <unity|godot|web>\` (add \`--budget <triangles>\` or \`--size <x>x<y>x<z>\` when the mission gives them). Run a batch of steps: \`node "${kernel}" batch <model> <script.py> <script.py>...\` (or a folder of them); run one step: \`node "${kernel}" step <model> <script.py>\`.`,
-    '- One step is one idea (legs, bracing, deck, roof) with 3 to 15 named parts. Put step scripts in your worktree under `.genio/modeller/<model>/`, numbered `s01_legs.py`, `s02_bracing.py`. The first line of each script is a one-line docstring caption in plain words ("Now adding the roof: corner posts and shingles"): the player reads it live as that step lands. Build with the preloaded `p` helpers so a script can run again without duplicating parts.',
-    '- Block the model out in batches of 3 to 6 steps (body, wheels, wings, cockpit): write the scripts, then run them as one batch. Each lands in the live view as Blender finishes it, every second or so, and stays a normal step for revert and branch. Use single steps for fixes and fine details.',
-    '- After every batch or step, open the review sheet PNG it prints (3/4, front, side and top views of the last step) and read its warnings. Fix what is wrong before adding anything new: a fix is its own step, or `--amend` the last one. A batch stops at a failing script: the steps before it stay, and the JSON lists the scripts that did not run.',
+    `- Start each model once: \`node "${kernel}" init <model> --target <unity|godot|web>\` (add \`--budget <triangles>\` or \`--size <x>x<y>x<z>\` when the mission gives them). Run one step: \`node "${kernel}" step <model> <script.py>\`.`,
+    '- One step per script: one idea (legs, bracing, deck, roof) with 3 to 15 named parts, in your worktree under `.genio/modeller/<model>/`, numbered `s01_legs.py`, `s02_bracing.py`. Write the script and run its `step` command in the same response (the file write, then the command), never in a separate turn.',
+    '- The first step is one small script that blocks out the main mass with simple parts, so the player sees the model within about a minute. Do not plan or write later steps before it has run; detail comes one step at a time.',
+    `- \`node "${kernel}" batch <model> <script.py>...\` only replays scripts that already exist (restoring work after a revert or on a new branch). Never build new steps with it.`,
+    '- After every step, open the review sheet PNG it prints (3/4, front, side and top views) and read its warnings. Fix what is wrong before adding anything new: a fix is its own step, or `--amend` the last one.',
+    '- Textures: for a low-poly web model, bake or paint at 1024 px (2048 px only when the mission asks for it).',
     '- The warnings and checks are information for you and the player, never a gate. You decide when the model is done; then deliver it as the Modeller delivery under Definition of done says, like any Build.',
     '- Steering ("steeper roof") becomes the next step. `revert <model> <step>` or `branch <model> <name> --from <step>` goes back to an earlier version; `status <model>` lists the steps.',
     `- Steps, .blend snapshots, GLBs and review sheets live in \`${data}/\` (GENIO_MODELLER_DATA). Never copy them into the worktree or commit them, except what the Modeller delivery under Definition of done names for the finished model.`,
-    '- A failed, crashed or hung step leaves the model at its last good step. Read the error and trace it prints, fix the script and run it again; do not retry it unchanged.'
+    '- A failed, crashed or hung step leaves the model at its last good step. Read the error and trace it prints, fix the script and run it again; do not retry it unchanged.',
+    '',
+    MODELLER_API_CARD
   ].join('\n')
 }
 
