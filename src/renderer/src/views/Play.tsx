@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ChevronDown, GitBranch, MoreHorizontal, Pause, Play as PlayIcon, Power, RotateCcw, Square, StepForward, X } from 'lucide-react'
+import { AlertTriangle, ChevronDown, GitBranch, MoreHorizontal, Pause, Play as PlayIcon, Power, RotateCcw, StepForward, X } from 'lucide-react'
 import { PLAYER_INSTANCE_ANCHOR, sameSource, sourceGoneText, type PlayConsole, type PlayerInstanceStatus, type PlayerScene, type PlayerSourceOption } from '@shared/play'
-import { controls, type PlayButtonAction, type UnityAction } from '@shared/play-controls'
+import { controls, look, type PlayButtonAction, type UnityAction } from '@shared/play-controls'
 import { PROJECT_WINDOW, api, errText, useStore } from '../store'
 import { onPlaySourceRequest, takePlaySource } from '../lib/play-nav'
 import { cx } from '../lib/format'
@@ -255,6 +255,16 @@ function PlayScreen({ world }: { world: string }) {
   ] })
 
   const UnityIcon = { start: Power, 'start-anyway': AlertTriangle, cancel: X, stop: Power, restart: RotateCcw, 'close-again': Power }[bar.unity.action]
+  // Starting Unity or entering Play needs a source; until the list loads both stay off and say so.
+  const noSource = option ? undefined : 'Choose a source first'
+  const unityOn = usable(bar.unity) && !((bar.unity.action === 'start' || bar.unity.action === 'start-anyway') && noSource)
+  const playOn = usable(bar.play) && !(bar.play.action !== 'exit' && noSource)
+  const looks = {
+    unity: look('unity', bar.unity, unityOn, usable(bar.unity) ? noSource : undefined),
+    play: look('play', bar.play, playOn, usable(bar.play) ? noSource : undefined),
+    pause: look('pause', bar.pause, usable(bar.pause)),
+    step: look('step', bar.step, usable(bar.step))
+  }
 
   return <div className={cx('view play-view', narrow && 'narrow')}>
     <header className="play-head">
@@ -276,17 +286,17 @@ function PlayScreen({ world }: { world: string }) {
     </header>
 
     <div className="play-toolbar" role="toolbar" aria-label="Play controls">
-      <button className={cx('btn sm play-unity', bar.unity.warn && 'amber solid', bar.unity.action === 'start' && 'solid')} disabled={!usable(bar.unity) || ((bar.unity.action === 'start' || bar.unity.action === 'start-anyway') && !option)}
-        title={bar.unity.label} aria-label={bar.unity.label} onClick={() => unityPress(bar.unity.action)}>
+      <button className={cx('btn sm play-unity', looks.unity.className)} disabled={!unityOn}
+        title={looks.unity.title} aria-label={bar.unity.label} onClick={() => unityPress(bar.unity.action)}>
         <UnityIcon size={13} aria-hidden /><span className="play-unity-label">{bar.unity.label}</span>
       </button>
       <div className="play-transport">
-        <button className={cx('btn sm icon', bar.play.active && 'on', bar.play.action === 'enter-anyway' && 'amber')} disabled={!usable(bar.play) || (bar.play.action !== 'exit' && !option)}
-          title={`${bar.play.label} (Ctrl+P)`} aria-label={bar.play.label} aria-pressed={!!bar.play.active} onClick={() => playPress(bar.play.action)}>
-          {bar.play.action === 'exit' ? <Square size={12} aria-hidden /> : <PlayIcon size={13} aria-hidden />}
+        <button className={cx('btn sm icon', looks.play.className)} disabled={!playOn}
+          title={looks.play.title} aria-label={bar.play.label} aria-pressed={looks.play.pressed} onClick={() => playPress(bar.play.action)}>
+          <PlayIcon size={13} fill="currentColor" aria-hidden />
         </button>
-        <button className={cx('btn sm icon', bar.pause.active && 'on')} disabled={!usable(bar.pause)} title={`${bar.pause.label} (Ctrl+Shift+P)`} aria-label={bar.pause.label} aria-pressed={!!bar.pause.active} onClick={pause}><Pause size={13} aria-hidden /></button>
-        <button className="btn sm icon" disabled={!usable(bar.step)} title="Step one frame (Ctrl+Alt+P)" aria-label={bar.step.label} onClick={step}><StepForward size={13} aria-hidden /></button>
+        <button className={cx('btn sm icon', looks.pause.className)} disabled={!usable(bar.pause)} title={looks.pause.title} aria-label={bar.pause.label} aria-pressed={looks.pause.pressed} onClick={pause}><Pause size={13} fill="currentColor" aria-hidden /></button>
+        <button className={cx('btn sm icon', looks.step.className)} disabled={!usable(bar.step)} title={looks.step.title} aria-label={bar.step.label} onClick={step}><StepForward size={13} fill="currentColor" aria-hidden /></button>
       </div>
       <span className="play-toolbar-gap" />
       <label className="play-pick" title={scene}>

@@ -6,8 +6,9 @@ Play (rail, Ctrl 0, or "Go to Play" in the command palette) appears only in a pr
 - **`⋯` menu**: Restart Unity, Open Unity visibly (debug), Unity console, and Idle time and editor limit… (Settings › Unity & Play, for all projects).
 - **Toolbar**, driven only by `controls(state)` (`src/shared/play-controls.ts`):
   - **Unity button**: Start Unity (off, crashed) → Cancel (copying, starting) → Stop Unity (ready, playing, paused) → Stopping…. On low memory, Genio asks before copying and the button reads **Start anyway**. On a stuck dialog it reads **Restart Unity**; on an editor that would not close, **Close again**. Stop Unity keeps the copy between sessions, so the next start reuses its Library and only syncs changed files.
-  - **▶ / ■**: Enter Play (from Off it starts Unity first) and Exit Play, which stays pressed while Play runs.
+  - **▶**: Enter Play (from Off it starts Unity first); it stays pressed while Play runs, and pressing it again exits Play.
   - **‖ Pause** (pressed while paused) and **⏭ Step**, which pauses first and advances one frame.
+  - Every button has one of three looks (`look()` in the same file): off is dim grey and its tooltip says why; ready is its color (green ▶, amber ‖ and warnings, plain text for the rest); on, the game being in that state now, is filled and framed with `aria-pressed`.
   - **Scene**: the build-settings scenes first, then the project's other scenes. While Unity is off the choice is kept for the next Play; while ready it opens; while playing Genio exits Play, opens it and enters again.
   - **Resolution**: 1280 × 720, 1920 × 1080, 960 × 540, 640 × 360 and 720 × 1280 portrait, remembered per project on this computer. A change while playing resizes the stream behind the same port, so Play continues. The canvas follows the chosen aspect.
   - Keyboard, as in Unity, while the game does not hold the keyboard: Ctrl+P toggles Play, Ctrl+Shift+P pauses, Ctrl+Alt+P steps.

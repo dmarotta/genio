@@ -20,7 +20,14 @@
 .play-toolbar { display: flex; align-items: center; gap: 8px; min-height: 32px; min-width: 0; }
 .play-unity { flex: none; }
 .play-transport { display: flex; gap: 4px; flex: none; }
-.play-transport .btn.on { background: var(--neon-soft); border-color: var(--neon); box-shadow: var(--glow); }
+/* One look per toolbar button (look() in shared/play-controls): off is dim grey, ready is its tone, on is filled and framed. */
+.play-toolbar .btn.plain { --c: var(--text); }
+.play-toolbar .btn:focus-visible { outline: none; background: color-mix(in srgb, var(--c) 14%, transparent); box-shadow: inset 0 0 0 2px var(--c); }
+.play-toolbar .btn.is-off:disabled { --c: var(--text-mute); opacity: 0.4; filter: grayscale(1); }
+.play-toolbar .btn.is-on { background: var(--c); border-color: var(--c); color: var(--void); box-shadow: inset 0 0 0 2px var(--void); text-shadow: none; }
+.play-toolbar .btn.is-on:hover:not(:disabled) { background: color-mix(in srgb, var(--c) 82%, white); text-shadow: none; }
+.play-toolbar .btn.is-on:focus-visible { box-shadow: inset 0 0 0 2px var(--void), inset 0 0 0 4px var(--text); }
+.play-toolbar .btn.is-on:disabled { opacity: 0.6; }
 .play-toolbar-gap { flex: 1; min-width: 0; }
 .play-pick { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 0 1 220px; }
 .play-toolbar .select { height: 26px; padding: 0 8px; font-size: 12px; min-width: 0; }
