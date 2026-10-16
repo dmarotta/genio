@@ -3,7 +3,6 @@ import type { Metrics } from './dsp.mjs'
 export const FAL_SCRIPT: string
 export const SCHEMA: 'genio.sound.v1'
 export const STEP_SCHEMA: 'genio.sound-step.v1'
-export const DEFAULT_BUDGET_USD: number
 export const PUBLISH_GAP_MS: number
 export const KINDS: string[]
 export const DEFAULT_ENDPOINT: string
@@ -23,12 +22,12 @@ export interface StepEntry {
 }
 export interface Manifest {
   schema: 'genio.sound.v1'; set: string; created: string; updated: string; kind: string; target: string | null
-  budget_usd: number; spent_usd: number; branch: string; branches: Record<string, { head: string | null; from: string | null }>; next: number
+  budget_usd: number | null; spent_usd: number; branch: string; branches: Record<string, { head: string | null; from: string | null }>; next: number
   steps: StepEntry[]; failures: { id: string; name: string; kind: string; parent: string | null; branch: string; t: string; error: string; dir: string | null; paid?: { take: string; request_id: string; est_usd: number }[] }[]
   history: Record<string, unknown>[]
 }
 export interface Summary {
-  ok: true; set: string; dir: string; kind: string; target: string | null; budget_usd: number; spent_usd: number
+  ok: true; set: string; dir: string; kind: string; target: string | null; budget_usd: number | null; spent_usd: number
   branch: string; head: string | null
   steps: { id: string; name: string; caption: string; takes: string[]; dropped: string[]; warnings: number; est_usd: number }[]
   takes: Record<string, SetTake>
@@ -76,5 +75,5 @@ export function revert(o: Common & { to: string | number }): Promise<Summary & {
 export function branch(o: Common & { name: string; from?: string }): Promise<Summary>
 export function switchBranch(o: Common & { name: string }): Promise<Summary>
 export function status(o: Common): Promise<Summary>
-export function budgetInfo(o: Common & { world?: string; budget?: number | string; env?: Env }): Promise<{ ok: true; set: string; budget_usd: number; spent_usd: number; remaining_usd: number; set_spent_usd: number; by: string }>
+export function budgetInfo(o: Common & { world?: string; budget?: number | string; env?: Env }): Promise<{ ok: true; set: string; grant_usd: number; approval: string; budget_usd: number | null; spent_usd: number; remaining_usd: number; set_spent_usd: number; by: string }>
 export function exportSet(o: Common & { world?: string; step?: string; takes?: string[]; to: string | Record<string, string>; bits?: 16 | 24; overwrite?: boolean; env?: Env }): Promise<{ ok: true; set: string; step: string; exported: Exported[]; recipes: string; est_usd: number; message: string }>

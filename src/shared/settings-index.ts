@@ -67,7 +67,7 @@ const ROWS: Partial<Record<SettingsPageId, RowSpec[]>> = {
     ['Main branch', ['Sync', 'Push'], 'settings-main-branch']
   ],
   'project-commands': [['Commands', ['setup', 'build', 'test', 'lint'], 'settings-commands']],
-  'project-assets': [['Generation settings', ['Monthly budget', 'Ask before runs over', 'Confirm runs over', 'Codex images', 'Asset folders'], 'generation-settings']],
+  'project-assets': [['Generation settings', ['Monthly budget', 'Codex images', 'Asset folders'], 'generation-settings']],
   'project-unity': [['Unity slots for units', ['Maximum slots', 'Slot editor windows', 'Slot windows'], 'unity-slots']],
   general: [
     ['Gamertag', ['Name']],

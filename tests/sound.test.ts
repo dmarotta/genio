@@ -8,6 +8,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import * as dsp from '../resources/unit-skills/genio/skills/sound/scripts/dsp.mjs'
 import * as kernel from '../resources/unit-skills/genio/skills/sound/scripts/sound.mjs'
 import type { Manifest, Receipt, Recipe, StepDone, StepFailed } from '../resources/unit-skills/genio/skills/sound/scripts/sound.mjs'
+import { grantEnv } from './support/spend-grant'
 
 const CLI = path.resolve('resources/unit-skills/genio/skills/sound/scripts/sound.mjs')
 const KEY = 'fal-test-key-sound:0123456789abcdef'
@@ -41,8 +42,11 @@ function slam(seconds: number, { amp = 0.6, lead = 0.2, channels = 1, seed = 7 }
 }
 
 let dataDir = '', world = ''
+/** What the player approved for the test unit (USD per grant); none: no grant. */
+let grantUsd: number[] = [0.5]
 beforeEach(() => {
   const t = fs.mkdtempSync(path.join(root, 't-'))
+  grantUsd = [0.5]
   dataDir = path.join(t, 'data')
   world = path.join(t, 'world')
   fs.mkdirSync(path.join(world, 'src'), { recursive: true })
@@ -95,7 +99,7 @@ beforeEach(async () => {
 afterEach(() => new Promise<void>((r) => server.close(() => r())))
 
 const env = (extra: Record<string, string | undefined> = {}): Record<string, string | undefined> => {
-  const e: Record<string, string | undefined> = { ...process.env, FAL_KEY: KEY, GENIO_FAL_TEST_BASE: base, GENIO_TASK_ID: 't-sound1', ...extra }
+  const e: Record<string, string | undefined> = { ...process.env, FAL_KEY: KEY, GENIO_FAL_TEST_BASE: base, ...grantEnv(path.join(path.dirname(dataDir), 'unit'), 't-sound1', ...grantUsd), ...extra }
   delete e.GENIO_ART_BIBLE
   return e
 }
@@ -107,11 +111,11 @@ const fal = (name: string, seconds: number, extra: Record<string, unknown> = {},
 })
 
 describe('Sound Studio kernel', { timeout: 60000 }, () => {
-  it('creates a set outside the project with the default USD 0.50 cap, and refuses music, bad names and data inside the project', async () => {
+  it('creates a set outside the project with no budget of its own (the grant governs), and refuses music, bad names and data inside the project', async () => {
     const r = await init({ kind: 'sfx', target: 'unity' })
-    expect(r).toMatchObject({ ok: true, existing: false, set: 'door', kind: 'sfx', target: 'unity', budget_usd: 0.5, branch: 'main', head: null, takes: {} })
+    expect(r).toMatchObject({ ok: true, existing: false, set: 'door', kind: 'sfx', target: 'unity', budget_usd: null, branch: 'main', head: null, takes: {} })
     expect(await init({ budget: 1.25 })).toMatchObject({ existing: true, budget_usd: 1.25 })
-    expect(manifest().history).toMatchObject([{ op: 'budget', from: 0.5, to: 1.25 }])
+    expect(manifest().history).toMatchObject([{ op: 'budget', from: null, to: 1.25 }])
     await expect(init({ kind: 'music' })).rejects.toThrow(/kind is sfx, ui, ambience/)
     await expect(kernel.init({ dataDir: path.join(world, 'data'), set: 'door', cwd: world })).rejects.toThrow(/outside the project/)
     await expect(init({ set: '../escape' })).rejects.toThrow(/Set name/)
@@ -222,7 +226,7 @@ describe('Sound Studio kernel', { timeout: 60000 }, () => {
     expect(files(world).sort()).toEqual(['.genio/spend.jsonl', 'src/door.wav'])
     expect(fs.existsSync(path.join(dataDir, 'door', 'raw', 's001-door-01', 'door-01.wav'))).toBe(true)
     expect(manifest()).toMatchObject({ spent_usd: 0.0066 })
-    expect(await kernel.budgetInfo({ dataDir, set: 'door', world, env: env() })).toMatchObject({ budget_usd: 0.5, spent_usd: 0.0066, remaining_usd: 0.4934 })
+    expect(await kernel.budgetInfo({ dataDir, set: 'door', world, env: env() })).toMatchObject({ grant_usd: 0.5, budget_usd: null, spent_usd: 0.0066, remaining_usd: 0.4934 })
   })
 
   it('flags a quiet FAL take (regenerate, do not normalize) and a short delivery as length drift, without refusing either', async () => {
@@ -235,6 +239,7 @@ describe('Sound Studio kernel', { timeout: 60000 }, () => {
   })
 
   it('stops at the budget before any paid call: for the whole step, against what was already spent, and in fal.mjs per call', async () => {
+    grantUsd = [2]
     await init({ budget: 0.01 })
     // 3 x 2 s at USD 0.002/s = 0.012 > 0.01: refused up front, nothing submitted
     const three = { caption: 'Three takes', takes: ['a', 'b', 'c'].map((n) => fal(n, 2)) }
@@ -258,6 +263,22 @@ describe('Sound Studio kernel', { timeout: 60000 }, () => {
     expect(stopped.error).toMatch(/Budget hard stop/)
     expect(posts).toHaveLength(1)
     expect(ledger().map((l) => l.request_id)).toEqual(['old', 'r1'])
+  })
+
+  it('pays for no take without the player\'s grant, and stops at the grant for the whole step', async () => {
+    grantUsd = []
+    await init()
+    // local work needs no approval
+    done(await step({ caption: 'Free', takes: [{ name: 'a', source: { file: 'src/door.wav' } }] }))
+    await expect(step({ caption: 'Paid', takes: [fal('b', 2)] })).rejects.toThrow(/No spend grant.*Nothing was submitted.*needs-decision \[key=spend\]/)
+    expect(posts).toHaveLength(0)
+    expect(await kernel.budgetInfo({ dataDir, set: 'door', world, env: env() })).toMatchObject({ grant_usd: 0, remaining_usd: 0 })
+    // USD 0.01 approved: 2 s (0.004) fits, then 2 x 2 s more (0.008) does not
+    grantUsd = [0.01]
+    done(await step({ caption: 'Paid, approved', takes: [fal('b', 2)] }))
+    await expect(step({ caption: 'Two more', takes: [fal('c', 2), fal('d', 2)] })).rejects.toThrow(/Spend grant exceeded/)
+    expect(posts).toHaveLength(1)
+    expect(ledger()).toMatchObject([{ est_usd: 0.004, by: 'unit:t-sound1', grant_usd: 0.01, approved_by: 'player' }])
   })
 
   it('needs the FAL key only for paid takes', async () => {
@@ -388,7 +409,7 @@ describe('Sound Studio kernel', { timeout: 60000 }, () => {
     const cli = (...args: string[]) => new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
       execFile(process.execPath, [CLI, ...args, '--data', dataDir, '--world', world], { cwd: world, env: env() as NodeJS.ProcessEnv }, (err, stdout, stderr) => resolve({ code: err ? Number((err as { code?: number }).code ?? 1) : 0, stdout, stderr }))
     })
-    expect(JSON.parse((await cli('init', 'door', '--kind', 'ambience')).stdout)).toMatchObject({ ok: true, kind: 'ambience', budget_usd: 0.5 })
+    expect(JSON.parse((await cli('init', 'door', '--kind', 'ambience')).stdout)).toMatchObject({ ok: true, kind: 'ambience', budget_usd: null })
     const recipe = path.join(path.dirname(dataDir), 's01_bed.json')
     // written with a BOM, as Windows PowerShell's Set-Content -Encoding utf8 does
     fs.writeFileSync(recipe, '﻿' + JSON.stringify({ caption: 'A looped bed', takes: [{ name: 'bed', source: { file: 'src/door.wav' }, ops: [{ loop: { crossfade_ms: 200 } }] }] }))

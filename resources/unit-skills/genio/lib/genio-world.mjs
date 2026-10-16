@@ -9,7 +9,8 @@
  *
  * Units read everything but write only provenance files and spend lines, in
  * their own worktree, so the records land with their branch. Config and
- * recipes belong to the player and are never written here.
+ * recipes belong to the player and are never written here. A paid call needs
+ * the unit's spend grant (spend-grant.mjs), which only Genio records.
  */
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -135,28 +136,40 @@ const usd = (n) => Math.round(n * 1e6) / 1e6
 const sum = (lines) => usd(lines.reduce((a, l) => a + (isNum(l.est_usd) ? l.est_usd : 0), 0))
 
 /**
- * Budget gate before a paid call. The unit budget (from the brief) is a hard
- * stop on this unit's own spend; the world's monthly cap counts every line of
- * the current UTC month; a call above `confirm_over_usd` needs the player's
- * approval, which a stated unit budget gives up to its amount.
+ * Budget gate before a paid call. No paid call runs without the player's
+ * approval: `grant` (readGrant in spend-grant.mjs) is what the player approved
+ * for this unit, and this unit's spend plus the call must fit in it. A
+ * `unitBudget` (--budget) is the unit's own lower limit on top of it; the
+ * world's monthly cap counts every line of the current UTC month and stops
+ * everything. A call estimated at zero is not a spend and needs no grant.
+ * `confirm_over_usd` is no longer a threshold: every paid call needs a grant.
  */
-export function checkBudget({ lines, by, estUsd, unitBudget, config, now = new Date() }) {
+export function checkBudget({ lines, by, estUsd, unitBudget, grant, config, now = new Date() }) {
   const month = now.toISOString().slice(0, 7)
   const spentByUnit = sum(lines.filter((l) => l.by === by))
   const spentMonth = sum(lines.filter((l) => typeof l.t === 'string' && l.t.startsWith(month)))
   const b = config?.budget ?? {}
-  const out = { est_usd: usd(estUsd), spent_by_unit: spentByUnit, spent_this_month: spentMonth, unit_budget_usd: unitBudget ?? null, monthly_usd: b.monthly_usd ?? null }
+  const granted = grant?.ok ? grant.total_usd : 0
+  const out = { est_usd: usd(estUsd), spent_by_unit: spentByUnit, spent_this_month: spentMonth, grant_usd: granted, unit_budget_usd: unitBudget ?? null, monthly_usd: b.monthly_usd ?? null }
   const eps = 1e-9
+  if (estUsd > eps && !grant?.ok) {
+    return { ...out, ok: false, reason: `${grant?.reason ?? 'No spend grant: the player has approved no spending for you yet.'} This call is est. USD ${usd(estUsd)}.` }
+  }
+  if (estUsd > eps && spentByUnit + estUsd > granted + eps) {
+    return { ...out, ok: false, reason: `Spend grant exceeded: this call (est. USD ${usd(estUsd)}) on top of USD ${spentByUnit} already spent exceeds the USD ${granted} the player approved for you.` }
+  }
   if (unitBudget != null && spentByUnit + estUsd > unitBudget + eps) {
     return { ...out, ok: false, reason: `Budget hard stop: this call (est. USD ${usd(estUsd)}) on top of USD ${spentByUnit} already spent exceeds your USD ${unitBudget} budget.` }
   }
   if (isNum(b.monthly_usd) && spentMonth + estUsd > b.monthly_usd + eps) {
     return { ...out, ok: false, reason: `Project budget: this call (est. USD ${usd(estUsd)}) on top of USD ${spentMonth} spent in ${month} exceeds the project's USD ${b.monthly_usd} monthly cap (.genio/fal/config.json).` }
   }
-  if (unitBudget == null && isNum(b.confirm_over_usd) && estUsd > b.confirm_over_usd + eps) {
-    return { ...out, ok: false, reason: `This call (est. USD ${usd(estUsd)}) is above the project's USD ${b.confirm_over_usd} confirm threshold and your brief states no budget that approves it.` }
-  }
   return { ...out, ok: true }
+}
+
+/** What a unit's spend line says about its approval: the grant's total and who approved it how. */
+export function approvalFields(grant) {
+  return grant?.ok ? { grant_usd: grant.total_usd, approved_by: 'player', approval: grant.approval } : {}
 }
 
 /** Read-only placement helpers. Inputs are world-relative POSIX paths from Inventory.

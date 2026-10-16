@@ -14,7 +14,7 @@ export function GenerationCard({ card, wksp }: { card: Card; wksp: string }) {
     <strong>{card.status === 'awaiting_approval' ? 'Approve generation' : card.status === 'completed' ? 'Asset ready' : card.status === 'failed' ? 'Generation failed' : card.status === 'placing' ? 'Saving asset…' : 'Generating…'}</strong>
     <div>{card.model}{card.world ? ` · ${card.world}` : ''}</div>
     {card.progress && card.status === 'running' && <div className="mute">{card.progress}</div>}
-    <div className="mute">{card.provider === 'codex' ? 'ChatGPT plan · no API charge' : `Estimated $${card.estimatedUsd.toFixed(3)} · month $${card.spentUsd.toFixed(3)}${card.capUsd !== undefined ? ` / $${card.capUsd.toFixed(2)}` : ''}`}</div>
+    <div className="mute">{card.provider === 'codex' ? 'ChatGPT plan · no API charge' : `Estimated $${card.estimatedUsd.toFixed(3)} · month $${card.spentUsd.toFixed(3)}${card.capUsd !== undefined ? ` / $${card.capUsd.toFixed(2)}` : ''}${card.approval ? ` · ${card.approval}` : ''}`}</div>
     {card.status === 'awaiting_approval' && <button className="btn primary" disabled={busy} onClick={() => void approve()}>{busy ? 'Starting…' : `Approve $${card.estimatedUsd.toFixed(3)}`}</button>}
     {card.paths.map(p => <div className="mono selectable" key={p}>{p}</div>)}
     {card.outputs?.filter(o => o.url).map(o => <div key={o.name}>

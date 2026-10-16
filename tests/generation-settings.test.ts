@@ -42,19 +42,20 @@ const toggle = async () => act(async () => {
 it('loads world settings and saves both existing config formats while preserving unrelated fields, with no Save button', async () => {
   await mount()
   expect(input('Monthly budget (USD)').value).toBe('10')
-  expect(input('Ask before runs over (USD)').placeholder).toBe('0.25')
+  // every paid run asks first: there is no ask-above threshold to set
+  expect(host.querySelector('input[aria-label="Ask before runs over (USD)"]')).toBeNull()
+  expect(host.textContent).toContain('Every paid run asks you first.')
   expect(input('Images folder').placeholder).toBe('Game/Assets/Art/Generated')
   expect(host.querySelector<HTMLInputElement>('[type="checkbox"]')!.checked).toBe(false)
   expect(host.querySelector('button')).toBeNull()
   await change('Monthly budget (USD)', '')
-  await change('Ask before runs over (USD)', '0')
   await change('Images folder', 'Game/Assets/Art')
   await change('Animations folder', 'Game/Assets/Motions')
   expect(api.falWorldConfig).not.toHaveBeenCalled()
   await toggle()
   expect(api.falWorldConfig).toHaveBeenCalledTimes(1)
   expect(api.falWorldConfig).toHaveBeenCalledWith('test', { ...fal.config,
-    budget: { monthly_usd: undefined, confirm_over_usd: 0 }, folders: { image: 'Game/Assets/Art' },
+    budget: { monthly_usd: undefined }, folders: { image: 'Game/Assets/Art' },
     providers: { ...fal.config.providers, codex: { enabled: true, custom: 1 } }
   })
   expect(api.uthanaWorldConfig).not.toHaveBeenCalled()
@@ -67,7 +68,7 @@ it('loads world settings and saves both existing config formats while preserving
   expect(api.uthanaWorldConfig).toHaveBeenCalledTimes(1)
 })
 
-it('rejects invalid budgets, supports default confirmation, and reports a failed folder save for retry', async () => {
+it('rejects invalid budgets and reports a failed folder save for retry', async () => {
   await mount()
   await change('Monthly budget (USD)', '-1')
   await blur('Monthly budget (USD)')
@@ -75,7 +76,7 @@ it('rejects invalid budgets, supports default confirmation, and reports a failed
   expect(host.textContent).toContain('Enter a non-negative amount')
   await change('Monthly budget (USD)', '2')
   await blur('Monthly budget (USD)')
-  expect(api.falWorldConfig.mock.calls[0][1].budget).toEqual({ monthly_usd: 2, confirm_over_usd: undefined })
+  expect(api.falWorldConfig.mock.calls[0][1].budget).toStrictEqual({ monthly_usd: 2 })
   api.uthanaWorldConfig.mockRejectedValueOnce(new Error('Folder outside world'))
   await change('Animations folder', '../outside')
   await blur('Animations folder')

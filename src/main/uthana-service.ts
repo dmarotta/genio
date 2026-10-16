@@ -571,7 +571,7 @@ export function createUthanaService(getCtx: () => AppCtx, fetchFn: FetchFn = (u,
           created: run.completedAt ?? run.createdAt,
           ...(run.artBible ? { art_bible: run.artBible } : {})
         },
-        spend: { t: run.createdAt, provider: 'uthana', endpoint, request_id: uthanaRequestId(run), units: run.outputSeconds ?? null, unit: 'seconds', est_usd: cost ?? 0, by: req.by ?? 'player' }
+        spend: { t: run.createdAt, provider: 'uthana', endpoint, request_id: uthanaRequestId(run), units: run.outputSeconds ?? null, unit: 'seconds', est_usd: cost ?? 0, by: req.by ?? 'player', ...(req.approval ? { approved_by: 'player', approval: req.approval } : {}) }
       })
       return { ...placed, warnings: [...(placed.warnings ?? []), ...exportWarnings(req.format, req.options, run.characterId)] }
     },

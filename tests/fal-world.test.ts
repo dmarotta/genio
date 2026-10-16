@@ -166,17 +166,18 @@ describe('world-tied runs and Save to world', () => {
 })
 
 describe('budget and cost', () => {
-  it('warns and asks above the confirm threshold or the monthly cap, never otherwise', () => {
-    expect(budgetCheck(0, 0.04, undefined)).toEqual({ confirm: false, reasons: [] })
-    expect(budgetCheck(0, 0.04, { monthly_usd: 20, confirm_over_usd: 0.5 }).confirm).toBe(false)
-    const big = budgetCheck(1, 0.8, { monthly_usd: 20, confirm_over_usd: 0.5 }, 'golem')
-    expect(big.confirm).toBe(true)
-    expect(big.reasons[0]).toMatch(/\$0\.80.*\$0\.50 confirm threshold/)
+  it('asks before every paid run, whatever the amount, and names the monthly cap', () => {
+    // a free run never asks; any paid one does, an old confirm_over_usd notwithstanding
+    expect(budgetCheck(0, 0, undefined)).toEqual({ confirm: false, reasons: [] })
+    const cent = budgetCheck(0, 0.01, undefined)
+    expect(cent.confirm).toBe(true)
+    expect(cent.reasons[0]).toMatch(/^This run is estimated at \$0\.01/)
+    expect(budgetCheck(0, 0.04, { monthly_usd: 20, confirm_over_usd: 0.5 }).confirm).toBe(true)
     const cap = budgetCheck(19.9, 0.2, { monthly_usd: 20 }, 'golem')
-    expect(cap.reasons).toEqual(['This run would bring golem to $20.10 of its $20.00 monthly cap.'])
-    expect(budgetCheck(21, undefined, { monthly_usd: 20 }, 'golem').reasons[0]).toMatch(/already \$21\.00 of its \$20\.00 cap/)
-    // unknown estimate: only the cap that is already reached asks
-    expect(budgetCheck(5, undefined, { monthly_usd: 20, confirm_over_usd: 0.1 }).confirm).toBe(false)
+    expect(cap.reasons).toContain('This run would bring golem to $20.10 of its $20.00 monthly cap.')
+    expect(budgetCheck(21, undefined, { monthly_usd: 20 }, 'golem').reasons[1]).toMatch(/already \$21\.00 of its \$20\.00 cap/)
+    // an unknown estimate may cost anything: it asks
+    expect(budgetCheck(5, undefined, { monthly_usd: 20, confirm_over_usd: 0.1 }).confirm).toBe(true)
   })
 
   it("sums this month's ledger plus unsaved runs, without double counting", () => {

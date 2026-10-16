@@ -10,6 +10,7 @@ import { UTHANA_BUILTINS, UTHANA_DEFAULTS, UTHANA_MODELS, UTHANA_PRICES_CHECKED,
 import { readUnitCharacters } from '../src/main/uthana-service'
 import { unitLaunchExtras, unitPluginSource, unitToolsBrief } from '../src/main/unitskills'
 import { assertIsolatedHomes } from './support/isolated-homes.mjs'
+import { grantEnv } from './support/spend-grant'
 
 const APP_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SKILL = path.join(unitPluginSource(APP_ROOT), 'skills', 'uthana')
@@ -37,7 +38,7 @@ afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }))
 
 function runScript(args: string[], env: Record<string, string | undefined> = {}): Promise<Run> {
   const childEnv: NodeJS.ProcessEnv = { ...process.env }
-  for (const k of ['UTHANA_API_KEY', 'GENIO_UTHANA_TEST_BASE', 'GENIO_UTHANA_DATA', 'GENIO_UTHANA_POLL_MS', 'GENIO_TASK_ID', 'GENIO_PROJECT', 'GENIO_ART_BIBLE', 'FAL_KEY']) delete childEnv[k]
+  for (const k of ['UTHANA_API_KEY', 'GENIO_UTHANA_TEST_BASE', 'GENIO_UTHANA_DATA', 'GENIO_UTHANA_POLL_MS', 'GENIO_TASK_ID', 'GENIO_PROJECT', 'GENIO_ART_BIBLE', 'FAL_KEY', 'GENIO_SPEND_GRANT', 'GENIO_SPEND_KEY']) delete childEnv[k]
   Object.assign(childEnv, env)
   assertIsolatedHomes(childEnv)
   return new Promise((resolve) => {
@@ -132,7 +133,7 @@ describe('uthana.mjs (fake Uthana)', () => {
   })
 
   const env = (extra: Record<string, string> = {}): Record<string, string> => ({
-    UTHANA_API_KEY: KEY, GENIO_UTHANA_TEST_BASE: base, GENIO_UTHANA_POLL_MS: '20', GENIO_UTHANA_DATA: data, GENIO_TASK_ID: 't-uth1', GENIO_PROJECT: 'Knights', ...extra
+    UTHANA_API_KEY: KEY, GENIO_UTHANA_TEST_BASE: base, GENIO_UTHANA_POLL_MS: '20', GENIO_UTHANA_DATA: data, GENIO_PROJECT: 'Knights', ...grantEnv(path.join(tmp, 'unit-data'), 't-uth1', 10), ...extra
   })
   const receipt = (name: string): string => path.join(tmp, 'scratch', `${name}.job.json`)
   const motionArgs = (name: string, more: string[] = []): string[] => [
@@ -155,6 +156,28 @@ describe('uthana.mjs (fake Uthana)', () => {
     fs.writeFileSync(path.join(world, '.genio', 'fal', 'config.json'), JSON.stringify({ schema: 'genio.fal-config.v1', budget: { monthly_usd: 2 } }))
     expect((await runScript(motionArgs('jog', ['--budget', '10']), env())).stderr).toMatch(/monthly cap/)
     expect(calls).toEqual([])
+  })
+
+  it('sends nothing without the player\'s grant and stops at its amount', async () => {
+    const none = await runScript(motionArgs('jog'), env(grantEnv(path.join(tmp, 'no-grant'), 't-uth1')))
+    expect(none.code).toBe(6)
+    expect(none.stderr).toMatch(/No spend grant/)
+    expect(none.stderr).toMatch(/needs-decision \[key=spend\]/)
+    const rig = path.join(world, 'Rig.fbx')
+    fs.writeFileSync(rig, 'rig')
+    const upload = await runScript(['character', '--world', world, '--file', rig, '--receipt', receipt('rig')], env(grantEnv(path.join(tmp, 'no-grant'), 't-uth1')))
+    expect(upload.code).toBe(6)
+    expect(calls).toEqual([])
+    expect(fs.existsSync(receipt('jog'))).toBe(false)
+    // USD 0.80 approved: one 8 s motion (USD 0.80) fits, the next does not
+    const small = (): Record<string, string> => env(grantEnv(path.join(tmp, 'small-grant'), 't-uth1', 0.8))
+    const first = await runScript(motionArgs('jog'), small())
+    expect(first.code, first.stderr).toBe(0)
+    expect(spendLines()).toEqual([expect.objectContaining({ est_usd: 0.8, grant_usd: 0.8, approved_by: 'player' })])
+    const second = await runScript(motionArgs('jog-2'), small())
+    expect(second.code).toBe(6)
+    expect(second.stderr).toMatch(/Spend grant exceeded/)
+    expect(calls.filter((c) => c.op.startsWith('Create'))).toHaveLength(1)
   })
 
   it('estimates without a key or the network, with the same prices as Genio', async () => {
@@ -254,7 +277,7 @@ describe('uthana.mjs (fake Uthana)', () => {
     const c = await runScript(['check'])
     expect(c.code).toBe(3)
     expect(c.stderr).toMatch(/UTHANA_API_KEY/)
-    const noKey = await runScript(motionArgs('jog', ['--budget', '2']), { GENIO_UTHANA_TEST_BASE: base })
+    const noKey = await runScript(motionArgs('jog', ['--budget', '2']), { GENIO_UTHANA_TEST_BASE: base, ...grantEnv(path.join(tmp, 'unit-data'), 't-uth1', 10) })
     expect(noKey.code).toBe(3)
     expect(fs.existsSync(receipt('jog'))).toBe(false)
     fs.mkdirSync(path.join(world, 'Assets', 'Animations'), { recursive: true })

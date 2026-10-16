@@ -173,8 +173,28 @@ export function modellerBrief(pluginDir: string, taskDataDir: string): string {
   ].join('\n')
 }
 
-/** The brief's pointer to the bundled skills and Genio's help docs. Paths only; never a key. */
-export function unitToolsBrief(pluginDir: string, helpDocs?: string): string {
+/**
+ * How a unit spends money: only under the player's approval (a spend grant), and how to ask for one.
+ * `approvedUsd` is what the player approved at deploy, if anything.
+ */
+export function spendRulesBrief(approvedUsd?: number): string {
+  const start = approvedUsd && approvedUsd > 0
+    ? `The player approved USD ${approvedUsd.toFixed(2)} for you at deploy: that is your spend grant.`
+    : 'You start with no spend grant (USD 0).'
+  return (
+    `- Spending: no paid call (FAL, Uthana, the Sound Studio's FAL steps, any paid provider) runs without the player's approval. ${start} ` +
+    'The paid helpers check your grant and refuse with exit 6, sending nothing, when there is none or the call would pass it. ' +
+    'To ask: append `needs-decision [key=spend]: <what you want to generate and why>` with JSON metadata `{"spend_usd": <amount>, "details": "<plan, estimate per call, total>"}`, then stop and wait for the ping. ' +
+    'The player\'s approval records exactly that amount (grants add up); a decline records nothing, so work without that spend. Never write or edit your grant file (GENIO_SPEND_GRANT): only Genio signs grants. The project\'s monthly cap stops everything. ' +
+    'Codex images on the ChatGPT plan are not a spend: use them freely, no approval needed.'
+  )
+}
+
+/**
+ * The brief's pointer to the bundled skills and Genio's help docs, and how the unit may spend.
+ * Paths only; never a key. `approvedUsd` is what the player approved at deploy, if anything.
+ */
+export function unitToolsBrief(pluginDir: string, helpDocs?: string, approvedUsd?: number): string {
   const help = helpDocs ? `- Genio help (what a Genio feature, mode or setting does): read \`${fwd(helpDocs)}/help/glossary.md\`, then the docs listed in \`${fwd(helpDocs)}/help/help-set.json\` (folder also in GENIO_HELP_DOCS).\n` : ''
   const assets = fwd(assetsSkillDir(pluginDir))
   const uthana = fwd(uthanaSkillDir(pluginDir))
@@ -186,11 +206,12 @@ export function unitToolsBrief(pluginDir: string, helpDocs?: string): string {
     help +
     `- Unity (Unity projects only): read \`${unity}/SKILL.md\`. Compile, test, import, build, play, send editor commands and read the console only with \`node "${unity}/scripts/genio-unity.mjs" <verb>\` (also in GENIO_UNITY). It targets only your own copy or your leased Play slot. Never start Unity.exe, Unity Hub or the \`unity\` CLI yourself, never control the main editor and never touch Toolbox.\n` +
     `- Assets: read \`${assets}/SKILL.md\` first for provider routing and project-type placement. Use asset_locate / the shared suggestLocation helper.\n` +
-    `- Uthana (character motions, rigged characters): read \`${uthana}/SKILL.md\` and use \`node "${uthana}/scripts/uthana.mjs"\` with --world <your worktree root> and --budget, like the FAL helper. The key, when the player set one, is only in your UTHANA_API_KEY environment variable: never print or write it.\n` +
+    `${spendRulesBrief(approvedUsd)}\n` +
+    `- Uthana (character motions, rigged characters): read \`${uthana}/SKILL.md\` and use \`node "${uthana}/scripts/uthana.mjs"\` with --world <your worktree root>, like the FAL helper. Its motions and auto-rigged uploads are paid calls under your spend grant. The key, when the player set one, is only in your UTHANA_API_KEY environment variable: never print or write it.\n` +
     `- Blender (batch modelling, validation, export and conversion): read \`${blender}/SKILL.md\` and use \`node "${blender}/scripts/blender.mjs"\`. Requires local Blender; no MCP or live session. Logs go to GENIO_BLENDER_SCRATCH.\n` +
-    `- Images (default): Codex images on the player's ChatGPT plan, on in every project unless it opted out. For concept art, sprites, icons, transparent cutouts and edits from references read \`${codex}/SKILL.md\` and use \`node "${codex}/scripts/codex-image.mjs"\`.\n` +
+    `- Images (default): Codex images on the player's ChatGPT plan, on in every project unless it opted out, free of approval. For concept art, sprites, icons, transparent cutouts and edits from references read \`${codex}/SKILL.md\` and use \`node "${codex}/scripts/codex-image.mjs"\`.\n` +
     `- FAL.ai (specific needs: seamless/PBR textures, 3D, audio, music, video, pixel-art conversion, upscaling, background removal, exact size/seed/reproducibility): before any FAL work read \`${dir}/SKILL.md\` and use its helper \`node "${dir}/scripts/fal.mjs"\`. ` +
-    'Every model run is a paid call: the USD budget stated in this brief or a ping is a hard stop; pass it as --budget and report what you spent. ' +
+    'Every model run is a paid call under your spend grant (Spending above); report what you spent. ' +
     'The key, when the player set one, is only in your FAL_KEY environment variable: never print or write it. ' +
     "Generate with --world <your worktree root>: it follows the project's .genio/fal/ config and recipes and records provenance and spend lines in .genio/, which you commit with the assets; never edit .genio/fal/config.json or recipes.json."
   )

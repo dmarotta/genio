@@ -26,8 +26,9 @@ the main area of its page, card and rail row.
 ## Brief
 
 `generatorBrief` in `src/main/brief.ts` renders a short `# Generator` section:
-the job list, a USD 0.50 hard spend cap (raised only by the player's words in
-the mission) passed as `--budget` to fal.mjs, sound.mjs and uthana.mjs, the helper per job
+the job list, spending only under the spend grant the player approved (no
+default budget: an approved budget at deploy, or the player's approval of the
+unit's `needs-decision [key=spend]` question; see docs/agent-generation.md), the helper per job
 (Codex images on the ChatGPT plan for ordinary images; FAL for textures, 3D,
 audio and music; the Uthana helper uthana.mjs for motions), the
 Sound Studio steps for trimming, looping and normalizing, the Art Bible applied

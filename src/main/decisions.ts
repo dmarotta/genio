@@ -144,6 +144,13 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
             }
           }
         }
+        // A re-asked spend question approves only what it asks now: a new amount, or no spend at all.
+        const spend = extra?.action?.kind === 'spend-grant' ? extra.action : undefined
+        if ((spend || existing.action?.kind === 'spend-grant') && JSON.stringify(existing.action) !== JSON.stringify(spend)) {
+          if (spend) existing.action = spend
+          else delete existing.action
+          changed = true
+        }
         if (changed) {
           existing.revision = (existing.revision ?? 0) + 1
           save()
@@ -336,6 +343,8 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
           ? 'Genio pins a picked engine root itself in .genio/project.json (uncommitted); deploy nothing. Tell the player to commit it; "Keep detecting automatically" needs nothing.'
           : d.action?.kind === 'merge-approval'
           ? `This was the merge choice for unit ${d.action.task}. If the answer approves it, merge it now with merge(task=${d.action.task}): the answer is the player's approval, no player_words needed. Any other answer: leave it ready and do not merge.`
+          : d.action?.kind === 'spend-grant'
+          ? `This was unit ${d.action.task}'s spend question (USD ${d.action.usd}). Genio already recorded the grant if the player's own answer approved it (nothing for any other answer) and pinged the unit. Do nothing else, and never approve spending yourself.`
           : d.action?.kind === 'plan-paused'
           ? `This was plan ${d.action.plan}'s pause choice for step "${d.action.step}". "Resume the plan" and "Cancel the plan": Genio already did it; check plan_status and relaunch a failed step's unit if it says so. "Edit the step first" or other words: rewrite the step with plan_update edit_step following the player, then plan_update resume.`
           : d.action?.kind === 'reaction'

@@ -1,6 +1,6 @@
 ---
 name: sound
-description: Sound Studio steps - make a set of game SFX, UI sounds or an ambience loop in small reviewed JSON recipes (a FAL generation or an earlier take, then local trim, fade, normalize, loop, pitch, layer), with a waveform and spectrogram sheet and level/seam metrics per take, revert and branch, a hard USD budget, and export to WAV with provenance. Genio's own Node audio code, no install.
+description: Sound Studio steps - make a set of game SFX, UI sounds or an ambience loop in small reviewed JSON recipes (a FAL generation or an earlier take, then local trim, fade, normalize, loop, pitch, layer), with a waveform and spectrogram sheet and level/seam metrics per take, revert and branch, paid takes only under the player's approved spend grant, and export to WAV with provenance. Genio's own Node audio code, no install.
 ---
 
 # Sound Studio
@@ -11,7 +11,7 @@ A sound set (for example `door_wood`: four slam variations, or `forest_bed`: one
 node "{{SKILL_DIR}}/scripts/sound.mjs" <command> <set> [args] --world <your worktree root>
 ```
 
-Every command prints JSON on stdout. Exit codes: 0 ok, 1 error (nothing changed), 2 the step failed (recorded, the set stays at its last good step), 6 budget stop (nothing was submitted).
+Every command prints JSON on stdout. Exit codes: 0 ok, 1 error (nothing changed), 2 the step failed (recorded, the set stays at its last good step), 6 no approval: no spend grant, over it or the set's budget, or over a cap (nothing was submitted).
 
 v1 covers **SFX, UI sounds and ambience**. No music loops and no voice: those are not part of this skill.
 
@@ -30,7 +30,7 @@ revert <set> <step>                  move this branch's head back to a step (lat
 branch <set> <name> [--from <step>]  start a branch at a step (default: the head) and switch to it
 switch <set> <branch>
 status <set>                         the steps on this branch and the set's takes at its head
-budget <set> [--budget <usd>]        budget, spent by you and what is left (no network)
+budget <set> [--budget <usd>]        your grant, the set's budget, spent by you and what is left (no network)
 export <set> --to <path.wav|folder> [--take <name>]... [--step <step>] [--bits 16|24] [--overwrite]
 ```
 
@@ -56,7 +56,7 @@ The caption is what the player reads next to the step: say what changed and why.
 
 **Sources** (exactly one per take):
 
-- `{"fal": {"endpoint": "...", "input": {...}}}`: a paid generation through the FAL skill's `fal.mjs` (`--world`, `--budget`, spend line). The input uses the model's own field names:
+- `{"fal": {"endpoint": "...", "input": {...}}}`: a paid generation through the FAL skill's `fal.mjs` (`--world`, your spend grant, spend line). The input uses the model's own field names:
   - `fal-ai/elevenlabs/sound-effects/v2` (default, USD 0.002/s): `text`, `duration_seconds` (0.5-22, required so the call is priced), `loop` (true for ambience beds), `prompt_influence`. `output_format` is set to `pcm_48000`; MP3 and Opus are refused because the kernel decodes WAV/PCM only.
   - `sonilo/v1.1/text-to-sound-effects` (alternative, USD 0.0018/s, longer beds up to 180 s): `prompt`, `duration` (required); `audio_format` is set to `wav`.
 - `{"take": "<name>"}`: a take made earlier in this step, else in the set at the parent step. `{"take": "s003:<name>"}` takes it from the set at any step, on any branch. Free: make variations this way before paying for new takes.
@@ -82,10 +82,12 @@ Everything is resampled to the **48 kHz master** first. `"loop": true` on a take
 
 The whole recipe (names, sources, prices, ops) is checked before anything runs or is paid.
 
-## Budget: a hard stop
+## Spending: ask first, then a hard stop
 
-- The mission's USD budget is the cap: `init --budget` sets it for the set (default **USD 0.50**, the player's default; a mission raises it), `--budget` on `step`/`batch` overrides it for that run. Use the amount your brief states.
-- Before the first call of a step or batch the kernel prices every paid take (catalogue price x seconds) and adds what you already spent (the project's `.genio/spend.jsonl`, by your unit id). If it does not fit, nothing is submitted (exit 6). `fal.mjs` checks each call again on FAL's live price.
+- Paid takes (FAL sources) need your spend grant: the USD the player approved for you, at deploy or by answering your spend question. You start with none unless your brief says otherwise, and there is no default budget. `budget <set>` shows your grant and what is left. Local steps and takes from earlier takes are free and need no approval; so are Codex images.
+- To ask: price the plan (catalogue price x seconds per paid take), append `needs-decision [key=spend]: <what and why>` with JSON metadata `{"spend_usd": <amount>, "details": "<plan, estimate per take, total>"}` and stop until Genio pings you. An approval records exactly that grant (grants add up); a decline records nothing. Never write or edit your grant file.
+- `init --budget` optionally sets the set's own lower limit; `--budget` on `step`/`batch` overrides it for that run. Neither can go past your grant.
+- Before the first call of a step or batch the kernel prices every paid take and adds what you already spent (the project's `.genio/spend.jsonl`, by your unit id). If it does not fit your grant (or the set's budget, or the monthly cap), nothing is submitted (exit 6). `fal.mjs` checks each call again on FAL's live price.
 - A paid take is kept in step data even when a later part of the step fails. Re-running the same recipe resumes it from its FAL receipt without paying again; a changed input is a new call.
 - No automatic retries. Vary earlier takes for free before paying for new ones. Report what you spent: `budget <set>` gives it.
 

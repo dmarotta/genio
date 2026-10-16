@@ -463,7 +463,7 @@ export function createFalService(getCtx: () => AppCtx, fetchFn: FetchFn = (u, i)
           created: r.completedAt ?? r.createdAt,
           ...(r.artBible ? { art_bible: r.artBible } : {})
         },
-        spend: { t: r.createdAt, provider: 'fal', endpoint: r.endpoint, request_id: r.requestId ?? null, units: null, unit: price?.unit ?? null, est_usd: est ?? 0, by: req.by ?? 'player' }
+        spend: { t: r.createdAt, provider: 'fal', endpoint: r.endpoint, request_id: r.requestId ?? null, units: null, unit: price?.unit ?? null, est_usd: est ?? 0, by: req.by ?? 'player', ...(req.approval ? { approved_by: 'player', approval: req.approval } : {}) }
       })
       return placed
     },

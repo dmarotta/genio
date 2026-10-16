@@ -9,9 +9,12 @@
  * never written to receipts. Paid calls are never retried automatically, and
  * an existing receipt is never resubmitted.
  *
+ * Every call that can cost money needs the unit's spend grant (the player's
+ * approval, recorded by Genio; lib/spend-grant.mjs): without one, or when the
+ * call would pass it, nothing is sent and the helper exits 6 with how to ask.
  * With --world <worktree root> it follows the world's .genio/ folder like the
- * FAL helper: a budget gate before every paid call (your --budget, the
- * project's monthly cap and confirm threshold in .genio/fal/config.json), one
+ * FAL helper: a budget gate before every paid call (your grant, your optional
+ * --budget, the project's monthly cap in .genio/fal/config.json), one
  * spend.jsonl line per paid call and a provenance file for the saved export.
  * The project Art Bible's Animation line follows the prompt (--no-bible turns
  * it off). Characters this helper uploads are remembered in Genio's data
@@ -19,14 +22,15 @@
  * itself uploaded) and reused by project source and sha256.
  *
  * Every command prints one JSON document on stdout; progress goes to stderr.
- * Exit codes: 0 ok, 2 usage, 3 key missing, 4 Uthana/network error, 5 still pending, 6 over budget.
+ * Exit codes: 0 ok, 2 usage, 3 key missing, 4 Uthana/network error, 5 still pending, 6 no approval (no grant, over it, or over a cap).
  */
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  WorldError, appendSpend, checkBudget, openWorld, readSpend, sha256File, spendFile, unitBy, worldRel, writeProvenance
+  WorldError, appendSpend, approvalFields, checkBudget, openWorld, readSpend, sha256File, spendFile, unitBy, worldRel, writeProvenance
 } from '../../../lib/genio-world.mjs'
+import { ASK, readGrant } from '../../../lib/spend-grant.mjs'
 import { ArtBibleError, applyToMotion, loadArtBible } from '../../../lib/art-bible.mjs'
 
 const EXIT = { usage: 2, nokey: 3, api: 4, pending: 5, budget: 6 }
@@ -358,15 +362,23 @@ function ledgerOf(opts, world) {
   return path.resolve(req(opts, 'ledger'))
 }
 
-/** Budget gate before a paid call; exit 6 with nothing sent when it fails. */
+/**
+ * Budget gate before a paid call; exit 6 with nothing sent when it fails. A call that can cost
+ * money needs the unit's spend grant (the player's approval) and a ledger to count it against.
+ */
 function gate(opts, world, estUsd) {
   const budget = opts.budget === undefined ? null : positive(opts, 'budget', true)
   const ledger = ledgerOf(opts, world)
   if (budget != null && !ledger) throw new Fail('--budget outside project mode needs --ledger <spend.jsonl> to count what you already spent.', EXIT.usage)
-  if (!ledger) return { ledger: null, budget: null }
-  const g = checkBudget({ lines: readSpend(ledger), by: unitBy(), estUsd, unitBudget: budget, config: world?.config })
-  if (!g.ok) throw new Fail(`${g.reason} Nothing was sent to Uthana. Append needs-decision with the plan, the estimate and the budget, then stop.`, EXIT.budget, { budget: g })
-  return { ledger, budget: { ...g, ok: undefined, reason: undefined } }
+  const grant = readGrant()
+  if (estUsd > 0 && !grant.ok) throw new Fail(`${grant.reason} Nothing was sent to Uthana. ${ASK}`, EXIT.budget, { budget: { est_usd: estUsd, grant_usd: 0 } })
+  if (!ledger) {
+    if (estUsd > 0) throw new Fail('A paid call counts against your spend grant: run it with --world <your worktree root> (or --ledger <spend.jsonl> outside a project).', EXIT.usage)
+    return { ledger: null, budget: null, approval: {} }
+  }
+  const g = checkBudget({ lines: readSpend(ledger), by: unitBy(), estUsd, unitBudget: budget, grant, config: world?.config })
+  if (!g.ok) throw new Fail(`${g.reason} Nothing was sent to Uthana. ${ASK}`, EXIT.budget, { budget: g })
+  return { ledger, budget: { ...g, ok: undefined, reason: undefined }, approval: approvalFields(grant) }
 }
 
 /** Genio's Uthana data folder (characters Genio and units uploaded), or null outside Genio. */
@@ -482,7 +494,7 @@ async function motion(opts) {
       if (!g.ledger) return
       appendSpend(g.ledger, {
         t: nowUtc(), provider: 'uthana', endpoint: `uthana/${m.id}`, request_id: id ? `uthana:${id}` : null, units: est.seconds, unit: 'seconds', est_usd: est.usd, by,
-        ...(uncertain ? { uncertain: true } : {})
+        ...g.approval, ...(uncertain ? { uncertain: true } : {})
       })
     }
     process.stderr.write(`[uthana] ${m.id} for ${character.name ?? character.id}, est. USD ${est.usd}${est.up_to ? ' (ceiling)' : ''}\n`)
@@ -606,7 +618,7 @@ async function character(opts) {
   }
   const spend = (id, cost, uncertain) => {
     if (!g.ledger) return
-    appendSpend(g.ledger, { t: nowUtc(), provider: 'uthana', endpoint: 'uthana/auto-rig', request_id: id ? `uthana:${id}` : null, units: 1, unit: 'rig', est_usd: cost, by, ...(uncertain ? { uncertain: true } : {}) })
+    appendSpend(g.ledger, { t: nowUtc(), provider: 'uthana', endpoint: 'uthana/auto-rig', request_id: id ? `uthana:${id}` : null, units: 1, unit: 'rig', est_usd: cost, by, ...g.approval, ...(uncertain ? { uncertain: true } : {}) })
   }
   let c
   try {
@@ -641,13 +653,14 @@ const USAGE = `Genio Uthana helper (key from UTHANA_API_KEY only).
   estimate [--model <id>] [--length <s>]             motion cost from the price snapshot (no network)
   estimate --kind character [--no-auto-rig]          character upload cost (no network)
   characters                                         stock characters and the ones already uploaded (no network)
-  motion   --world <root> --prompt <text> --out <file.fbx|.glb|.bvh> --receipt <x.job.json> --budget <usd>
+  motion   --world <root> --prompt <text> --out <file.fbx|.glb|.bvh> --receipt <x.job.json> [--budget <usd>]
            [--model text-to-motion-3.0|text-to-motion-bucmd|text-to-motion] [--length <s>] [--character <id|stock name>]
            [--format fbx|glb|bvh] [--fps 24|30|60] [--in-place] [--no-bible] [--timeout <s>] [--overwrite]
            one paid generation, then a free download to --out with provenance; the same command resumes a receipt
-  character --world <root> --file <rig.fbx|.glb|.gltf> --receipt <x.job.json> --budget <usd> [--name <name>] [--no-auto-rig]
+  character --world <root> --file <rig.fbx|.glb|.gltf> --receipt <x.job.json> [--budget <usd>] [--name <name>] [--no-auto-rig]
            reuses an uploaded character with the same project path and sha256 (free), else uploads it
-  motion/character ... --budget <usd> --ledger <spend.jsonl>   the same budget stop outside a project`
+  motion/character ... --ledger <spend.jsonl> [--budget <usd>]   the same gate outside a project
+Paid calls need your spend grant (the player's approval, recorded by Genio) and exit 6 without one; --budget is your own lower limit.`
 
 const COMMANDS = { check, estimate, characters, motion, character }
 

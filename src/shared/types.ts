@@ -482,6 +482,8 @@ export type DecisionAction =
   | { kind: 'merge-approval'; task: string }
   /** a plan paused at a discarded or failed step: resume, edit or cancel it */
   | { kind: 'plan-paused'; plan: string; step: string }
+  /** a unit asks to spend money: the player's approving answer records a grant of exactly `usd` for it */
+  | { kind: 'spend-grant'; task: string; usd: number }
 
 export type WakeKind = 'signal' | 'stale' | 'check' | 'heartbeat' | 'answer' | 'reaction' | 'plan'
 
@@ -657,7 +659,7 @@ export interface LedgerRecord {
     | 'task.dispatched' | 'task.status' | 'task.pr_ready' | 'task.merged' | 'task.cleaned_up' | 'task.relaunched'
     | 'decision.opened' | 'decision.resolved' | 'backlog.added' | 'backlog.state'
     | 'project.added' | 'project.removed' | 'project.remote_changed' | 'project.engine_changed' | 'project.pushed' | 'project.push_refused' | 'project.engine_declared'
-    | 'presence.changed' | 'achievement' | 'approval.standing' | 'approval.revoked'
+    | 'presence.changed' | 'achievement' | 'approval.standing' | 'approval.revoked' | 'spend.granted'
   task?: string
   project?: string
   data?: Record<string, unknown>

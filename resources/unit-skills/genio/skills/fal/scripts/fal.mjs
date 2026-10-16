@@ -9,6 +9,11 @@
  * automatically, and an existing receipt is never resubmitted.
  *
  *
+ * Every model run is a paid call and needs the unit's spend grant: the
+ * player's approval, recorded by Genio (lib/spend-grant.mjs). Without one, or
+ * when the call would pass it, nothing is sent and the helper exits 6 with
+ * how to ask.
+ *
  * With --world <worktree root> it follows the world's .genio/ folder: player
  * defaults and recipes from .genio/fal/, a budget gate before every paid call,
  * one spend.jsonl line per paid call and a provenance file per downloaded
@@ -18,15 +23,16 @@
  * --no-bible turns it off) and is recorded as art_bible in provenance.
  *
  * Every command prints one JSON document on stdout; progress goes to stderr.
- * Exit codes: 0 ok, 2 usage, 3 key missing, 4 FAL/network error, 5 still pending, 6 over budget.
+ * Exit codes: 0 ok, 2 usage, 3 key missing, 4 FAL/network error, 5 still pending, 6 no approval (no grant, over it, or over a cap).
  */
 import fs from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import {
-  WorldError, suggestLocation, appendSpend, checkBudget, codexEnabled, findRecipe, folderFor, openWorld, readSpend, spendFile, unitBy, worldRel, writeProvenance
+  WorldError, suggestLocation, appendSpend, approvalFields, checkBudget, codexEnabled, findRecipe, folderFor, openWorld, readSpend, spendFile, unitBy, worldRel, writeProvenance
 } from '../../../lib/genio-world.mjs'
+import { ASK, readGrant } from '../../../lib/spend-grant.mjs'
 import { ArtBibleError, applyToFal, loadArtBible } from '../../../lib/art-bible.mjs'
 
 const EXIT = { usage: 2, nokey: 3, api: 4, pending: 5, budget: 6 }
@@ -280,18 +286,17 @@ async function submit(opts) {
   if (fs.existsSync(receipt)) {
     throw new Fail(`Receipt ${receipt} already exists. It records an earlier call; use status/result on it, or pick a new receipt name for a new paid call.`, EXIT.usage)
   }
+  // Every FAL run costs money: no grant, no call, whatever the estimate says.
+  const grant = readGrant()
+  if (!grant.ok) throw new Fail(`${grant.reason} Nothing was submitted. ${ASK}`, EXIT.budget, { budget: { grant_usd: 0 } })
   needKey()
   const { body, stamp, notes } = withBible(world, endpoint, merged, opts)
   const by = unitBy()
   const est = await estimateFor(opts, endpoint)
-  let gate = null
-  if (ledger) {
-    if (!est) throw new Fail('Price the call first: add --units <billing units> (priced through FAL, free) or --est-usd <n>. It is checked against your budget and logged.', EXIT.usage)
-    gate = checkBudget({ lines: readSpend(ledger), by, estUsd: est.price.estimated_usd, unitBudget: budget, config: world?.config })
-    if (!gate.ok) {
-      throw new Fail(`${gate.reason} Nothing was submitted. Append needs-decision with the plan, the estimate and the budget, then stop.`, EXIT.budget, { budget: gate })
-    }
-  }
+  if (!est) throw new Fail('Price the call first: add --units <billing units> (priced through FAL, free) or --est-usd <n>. It is checked against your spend grant and logged.', EXIT.usage)
+  if (!ledger) throw new Fail('A paid call counts against your spend grant: run it with --world <your worktree root> (or --ledger <spend.jsonl> outside a project).', EXIT.usage)
+  const gate = checkBudget({ lines: readSpend(ledger), by, estUsd: est.price.estimated_usd, unitBudget: budget, grant, config: world?.config })
+  if (!gate.ok) throw new Fail(`${gate.reason} Nothing was submitted. ${ASK}`, EXIT.budget, { budget: gate })
   const payload = inlineFiles(body)
   const record = { state: 'submission_unknown', endpoint, created_utc: nowUtc(), input: body }
   if (est) record.price = est.price
@@ -303,10 +308,9 @@ async function submit(opts) {
     throw e
   }
   const spend = (requestId, uncertain) => {
-    if (!ledger) return
     appendSpend(ledger, {
       t: nowUtc(), provider: 'fal', endpoint, request_id: requestId, units: est.units, unit: est.price.unit, est_usd: est.price.estimated_usd, by,
-      ...(uncertain ? { uncertain: true } : {})
+      ...approvalFields(grant), ...(uncertain ? { uncertain: true } : {})
     })
   }
   let sub
@@ -338,7 +342,7 @@ async function submit(opts) {
     ...(est ? { est_usd: est.price.estimated_usd } : {}),
     ...(stamp ? { art_bible: stamp } : {}),
     ...(notes.length ? { art_bible_notes: notes } : {}),
-    ...(gate ? { budget: { ...gate, ok: undefined, reason: undefined } } : {})
+    budget: { ...gate, ok: undefined, reason: undefined }
   }
 }
 
@@ -559,12 +563,13 @@ function check() {
 
 const folderOf = (world, kind) => (typeof kind === 'string' && typeof world.config.folders?.[kind] === 'string' ? world.config.folders[kind] : null)
 
-/** What the world's .genio/ says: folders, budget and spend so far, defaults, recipes, providers. No network. */
+/** What the world's .genio/ says: folders, your spend grant, budget and spend so far, defaults, recipes, providers. No network. */
 function worldInfo(opts) {
   const world = needWorld(opts)
   const by = unitBy()
   const budget = opts.budget === undefined ? null : positive(opts, 'budget', true)
-  const g = checkBudget({ lines: readSpend(spendFile(world)), by, estUsd: 0, unitBudget: budget, config: world.config })
+  const grant = readGrant()
+  const g = checkBudget({ lines: readSpend(spendFile(world)), by, estUsd: 0, unitBudget: budget, grant, config: world.config })
   const b = world.config.budget ?? {}
   return {
     world: world.root,
@@ -572,12 +577,14 @@ function worldInfo(opts) {
     folders: world.config.folders ?? {},
     budget: {
       monthly_usd: b.monthly_usd ?? null,
-      confirm_over_usd: b.confirm_over_usd ?? null,
       spent_this_month: g.spent_this_month,
       remaining_this_month: b.monthly_usd == null ? null : usd(Math.max(0, b.monthly_usd - g.spent_this_month)),
       you: by,
       spent_by_you: g.spent_by_unit,
-      ...(budget == null ? {} : { your_budget_usd: budget, your_remaining_usd: usd(Math.max(0, budget - g.spent_by_unit)) })
+      your_grant_usd: g.grant_usd,
+      your_grant_remaining_usd: usd(Math.max(0, g.grant_usd - g.spent_by_unit)),
+      approval: grant.ok ? grant.approval : grant.reason,
+      ...(budget == null ? {} : { your_budget_usd: budget, your_remaining_usd: usd(Math.max(0, Math.min(budget, g.grant_usd) - g.spent_by_unit)) })
     },
     defaults: world.config.defaults ?? {},
     recipes: world.recipes.map((r) => ({ id: r?.id, label: r?.label ?? null, endpoint: r?.endpoint, save_to: r?.save_to ?? null, folder: folderOf(world, r?.save_to) })),
@@ -606,13 +613,14 @@ const USAGE = `Genio FAL helper (key from FAL_KEY only).
   result   --receipt <x.job.json> [--out <x.result.json>]
   download --result <x.result.json> --dir <out dir> [--name <base>] [--overwrite]
   cancel   --receipt <x.job.json>
+Every run/submit is a paid call: it needs your spend grant (the player's approval, recorded by Genio) and exits 6 without one.
 Project mode (.genio/ in your worktree):
-  world    --world <root> [--budget <usd>]           folders, budget and spend, defaults, recipes (no network)
+  world    --world <root> [--budget <usd>]           folders, your grant, budget and spend, defaults, recipes (no network)
   recipe   --world <root> --id <recipe> [--subject <text>]   a recipe with its prompt filled in (no network)
   run/submit ... --world <root> (--units <n>|--est-usd <n>) [--budget <usd>] [--recipe <id>] [--kind <image|audio|model|video>]
-           priced and checked against the budgets first; logs .genio/spend.jsonl and writes .genio/provenance/
+           priced and checked against your grant, your --budget and the monthly cap first; logs .genio/spend.jsonl and writes .genio/provenance/
            [--type <asset type>] [--no-bible]   the project's Art Bible wraps the prompt when it has one
-  run/submit ... --budget <usd> --ledger <spend.jsonl> (--units <n>|--est-usd <n>)   the same budget stop outside a project`
+  run/submit ... --ledger <spend.jsonl> (--units <n>|--est-usd <n>) [--budget <usd>]   the same gate outside a project`
 
 function catalogue(opts) {
   const file = fileURLToPath(new URL('../references/catalogue.json', import.meta.url))

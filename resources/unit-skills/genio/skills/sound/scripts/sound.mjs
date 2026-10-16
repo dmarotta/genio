@@ -16,8 +16,9 @@
  * A step is a JSON recipe: each take has one source (a FAL generation, an earlier take or a
  * WAV file) and a list of local ops. A step changes some takes of the set; the set at a step
  * is every take its line made, the latest of each name winning. Paid generation goes through
- * the FAL skill's fal.mjs with --world and --budget: the budget is a hard stop checked for the
- * whole step (or batch) before the first call, and again by fal.mjs per call. Takes stay in
+ * the FAL skill's fal.mjs with --world: the unit's spend grant (the player's approval, recorded
+ * by Genio) and the set's optional --budget are hard stops checked for the whole step (or batch)
+ * before the first call, and again by fal.mjs per call. Takes stay in
  * step data and are never committed; `export` writes the final WAV into the project with a
  * provenance record for the derived file and the recipes under .genio/sound/<set>/.
  */
@@ -28,6 +29,7 @@ import { execFile } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import * as dsp from './dsp.mjs'
 import { appendSpend, checkBudget, openWorld, readSpend, sha256File, spendFile, worldRel, writeProvenance } from '../../../lib/genio-world.mjs'
+import { ASK, readGrant } from '../../../lib/spend-grant.mjs'
 import {
   addBranch, assertOutside, byId, chain, checkName, dirBytes, line, now, readJson, rel, renameRetry, resolveStep, revertHead, sleep, stepId, switchTo, withLock as lockDir, writeManifest
 } from '../../../lib/step-kernel.mjs'
@@ -38,8 +40,6 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 export const FAL_SCRIPT = path.resolve(here, '..', '..', 'fal', 'scripts', 'fal.mjs')
 export const SCHEMA = 'genio.sound.v1'
 export const STEP_SCHEMA = 'genio.sound-step.v1'
-/** The player's default per-mission cap, in USD; a mission raises it with --budget. */
-export const DEFAULT_BUDGET_USD = 0.5
 /** Least time between two steps of a batch landing, so a live view shows each one. */
 export const PUBLISH_GAP_MS = 600
 export const KINDS = ['sfx', 'ui', 'ambience']
@@ -119,7 +119,7 @@ export async function init({ dataDir = soundDataDir(), set, kind, target, budget
   return withLock(dir, async () => {
     let m = readJson(path.join(dir, 'manifest.json'))
     const existing = Boolean(m)
-    if (!m) m = { schema: SCHEMA, set, created: now(), kind: kind ?? 'sfx', target: target ?? null, budget_usd: DEFAULT_BUDGET_USD, spent_usd: 0, branch: 'main', branches: { main: { head: null, from: null } }, next: 1, steps: [], failures: [], history: [] }
+    if (!m) m = { schema: SCHEMA, set, created: now(), kind: kind ?? 'sfx', target: target ?? null, budget_usd: null, spent_usd: 0, branch: 'main', branches: { main: { head: null, from: null } }, next: 1, steps: [], failures: [], history: [] }
     if (kind != null) m.kind = kind
     if (target != null) m.target = target
     if (budget != null && Number(budget) !== m.budget_usd) {
@@ -202,9 +202,9 @@ export function batchRecipes(args) {
 // ---------------------------------------------------------------------------------------------
 // Budget
 
-/** USD this unit has spent so far, from the world's ledger (the same count fal.mjs gates on). */
+/** The gate fal.mjs applies per call, for a whole plan: this unit's spend grant, the set's budget and the monthly cap, against the world's ledger. */
 function ledgerGate(world, env, budget, estUsd) {
-  return checkBudget({ lines: readSpend(spendFile(world)), by: byOf(env), estUsd, unitBudget: budget, config: world.config })
+  return checkBudget({ lines: readSpend(spendFile(world)), by: byOf(env), estUsd, unitBudget: budget, grant: readGrant(env), config: world.config })
 }
 
 /** The FAL files of one paid take; an unchanged input with a receipt resumes for free. */
@@ -237,7 +237,7 @@ function budgetStop(m, world, env, budget, plan) {
   if (!plan.calls) return null
   const gate = ledgerGate(world, env, budget, plan.est_usd)
   if (gate.ok) return null
-  return new BudgetStop(`${gate.reason} This needs ${plan.calls} paid take(s), est. USD ${plan.est_usd}. Nothing was submitted. Vary earlier takes (source "take") for free, or ask the player to raise the budget.`, gate)
+  return new BudgetStop(`${gate.reason} This needs ${plan.calls} paid take(s), est. USD ${plan.est_usd}. Nothing was submitted. Vary earlier takes (source "take") for free, or: ${ASK}`, gate)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -268,13 +268,13 @@ async function generate(dir, m, id, take, fal, { world, env, budget, paid }) {
   if (!env.FAL_KEY) throw new StepError('fal', 'FAL key missing: FAL_KEY is not set. The player sets it in Genio under Settings -> Accounts & keys -> API keys.')
   const resuming = resumable(files, fal.input)
   fs.writeFileSync(files.input, JSON.stringify(fal.input, null, 1))
-  const args = ['run', '--world', world.root, '--budget', String(budget), '--units', String(fal.units), '--endpoint', fal.endpoint, '--input', files.input, '--receipt', files.receipt, '--dir', files.raw, '--name', take, '--timeout', String(FAL_TIMEOUT_S)]
+  const args = ['run', '--world', world.root, ...(budget != null ? ['--budget', String(budget)] : []), '--units', String(fal.units), '--endpoint', fal.endpoint, '--input', files.input, '--receipt', files.receipt, '--dir', files.raw, '--name', take, '--timeout', String(FAL_TIMEOUT_S)]
   const r = await runNode(FAL_SCRIPT, args, env)
   const rec = readJson(files.receipt)
   if (!resuming && rec?.submission?.request_id) paid.push({ take, request_id: rec.submission.request_id, est_usd: rec.price?.estimated_usd ?? fal.est_usd, raw: files.raw })
   let err = null
   try { err = JSON.parse(r.stderr.slice(r.stderr.indexOf('{')))?.error } catch { /* progress lines only */ }
-  if (r.code === 6) throw new StepError('budget', `${err ?? 'Budget hard stop.'} (take ${take})`)
+  if (r.code === 6) throw new StepError('budget', `${err ?? 'No approval for this paid call.'} (take ${take})`)
   if (r.code !== 0) throw new StepError('fal', `FAL generation for ${take} failed (exit ${r.code}): ${err ?? r.stderr.trim().split(/\r?\n/).slice(-4).join(' ')}`)
   const out = JSON.parse(r.stdout)
   let audio = null
@@ -472,8 +472,8 @@ async function runSteps(dir, m, recipes, { amend = false, world, env, budget, ga
 
 function context({ world, env, budget, m }) {
   const w = openWorld(world ?? process.cwd())
-  const b = budget != null ? Number(budget) : m.budget_usd ?? DEFAULT_BUDGET_USD
-  if (!(b >= 0)) throw new Error('budget is a USD amount, like 0.50')
+  const b = budget != null ? Number(budget) : m.budget_usd ?? null
+  if (b != null && !(b >= 0)) throw new Error('budget is a USD amount, like 0.50')
   return { world: w, env, budget: b }
 }
 
@@ -546,12 +546,14 @@ export async function status({ dataDir = soundDataDir(), set } = {}) {
   return { ok: true, ...summary(dir, readManifest(dir)) }
 }
 
-/** The budget as the world's ledger sees it: no network, nothing paid. */
+/** Your spend grant and the set's budget as the world's ledger sees them: no network, nothing paid. */
 export async function budgetInfo({ dataDir = soundDataDir(), set, world, budget, env = process.env } = {}) {
   const m = readManifest(setDir(dataDir, set))
   const ctx = context({ world, env, budget, m })
   const g = ledgerGate(ctx.world, env, ctx.budget, 0)
-  return { ok: true, set: m.set, budget_usd: ctx.budget, spent_usd: g.spent_by_unit, remaining_usd: usd(Math.max(0, ctx.budget - g.spent_by_unit)), set_spent_usd: m.spent_usd, by: byOf(env), endpoints: Object.fromEntries(Object.entries(ENDPOINTS).map(([k, v]) => [k, { label: v.label, usd_per_s: v.usd_per_s }])) }
+  const grant = readGrant(env)
+  const limit = ctx.budget == null ? g.grant_usd : Math.min(ctx.budget, g.grant_usd)
+  return { ok: true, set: m.set, grant_usd: g.grant_usd, approval: grant.ok ? grant.approval : grant.reason, budget_usd: ctx.budget, spent_usd: g.spent_by_unit, remaining_usd: usd(Math.max(0, limit - g.spent_by_unit)), set_spent_usd: m.spent_usd, by: byOf(env), endpoints: Object.fromEntries(Object.entries(ENDPOINTS).map(([k, v]) => [k, { label: v.label, usd_per_s: v.usd_per_s }])) }
 }
 
 // ---------------------------------------------------------------------------------------------

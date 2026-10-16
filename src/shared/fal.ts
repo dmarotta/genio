@@ -103,17 +103,17 @@ export function estimateRun(
 // ---------------------------------------------------------------- budget
 
 export interface BudgetCheck {
-  /** ask the player before the paid call (warn and confirm, never block) */
+  /** ask the player before the paid call */
   confirm: boolean
   reasons: string[]
 }
 
+/** Every paid run asks the player first, whatever the amount; `confirm_over_usd` no longer lowers that. */
 export function budgetCheck(spentUsd: number, estUsd: number | undefined, budget: FalBudget | undefined, worldLabel = 'this project'): BudgetCheck {
   const reasons: string[] = []
   const cap = budget?.monthly_usd
-  const over = budget?.confirm_over_usd
-  if (estUsd !== undefined && over !== undefined && over >= 0 && estUsd > over) {
-    reasons.push(`This run is estimated at ${fmtUsd(estUsd)}, above the ${fmtUsd(over)} confirm threshold.`)
+  if (estUsd === undefined || estUsd > 0) {
+    reasons.push(estUsd === undefined ? 'This run has no price estimate; it costs money.' : `This run is estimated at ${fmtUsd(estUsd)}.`)
   }
   if (cap !== undefined && cap >= 0) {
     if (spentUsd >= cap) reasons.push(`Spend in ${worldLabel} this month is already ${fmtUsd(spentUsd)} of its ${fmtUsd(cap)} cap.`)

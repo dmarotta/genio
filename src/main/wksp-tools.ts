@@ -14,8 +14,9 @@ import type { AnswerOrigin, AppCtx, HomeCtx } from './services'
 import type { Home } from './home'
 import { readText, slugify, truncate } from './util'
 import {
-  HISTORY_DEPTH, MERGE_CHOICE_OPTIONS, mergeChoiceApproval, refusal, verifyMergeWords, verifyPlayerWords, type MergeTarget, type WordsPurpose
+  HISTORY_DEPTH, MERGE_CHOICE_OPTIONS, mergeChoiceApproval, refusal, verifyMergeWords, verifyPlayerWords, verifySpendWords, type MergeTarget, type WordsPurpose
 } from './player-words'
+import { answerSpendChoice, fmtUsd } from './spend-grants'
 import { standingApprovals } from './standing-approvals'
 import { relaunchPolicy } from './relaunch-policy'
 import { mergeApprovalLabel } from '@shared/merge-approval'
@@ -179,7 +180,12 @@ async function sendChoiceAnswer(ctx: AppCtx, id: string, answer: string, origin:
     const t = findTask(ctx, d.taskId, hc.home)
     if (t && !['cleaned', 'done', 'merged'].includes(t.task.state)) {
       recipient = t
-      const r = await t.hc.crew.send(d.taskId, `Answer to your open question (${d.key}): ${answer}`, [])
+      // A spend question: the player's approving answer records the grant before the unit hears it.
+      const grant = d.action?.kind === 'spend-grant' ? answerSpendChoice(ctx, d, answer, origin, t.task) : undefined
+      if (grant?.recorded) {
+        try { hc.wksp.say(`Spend approved for ${t.task.id} ("${t.task.title}"): USD ${fmtUsd(grant.recorded.granted)}; its total approved spend is USD ${fmtUsd(grant.recorded.total)}.`, 'system') } catch { /* the grant record is what counts */ }
+      }
+      const r = await t.hc.crew.send(d.taskId, `Answer to your open question (${d.key}): ${answer}${grant?.note ?? ''}`, [])
       if (!r.ok) return { ok: false, message: `Ping failed: ${r.message}. The choice remains pending.` }
       note = ' and pinged the unit'
     } else {
@@ -410,8 +416,9 @@ export function createToolRegistry(
       force: z.boolean().default(false),
       player_words: z.string().trim().min(1).optional(),
       modeller: z.boolean().optional().describe('kind=ship only: a Modeller, which builds a 3D model in live Blender steps (any model kind; needs local Blender). Absent = the quest\'s flag.'),
-      generator: z.boolean().optional().describe('kind=ship only: a Generator, which runs one or more asset generation jobs (images, textures, sounds, music, 3D, motions) with the asset helpers and delivers them like any Build; its terminal is the main view. List the jobs in intent/spec; the spend cap is USD 0.50 unless the player names another. Never together with modeller. Absent = the quest\'s flag.'),
-      claims: z.array(z.string()).optional().describe('Modeller or Generator only: the project paths it will write (export, .blend, generated assets), from asset_locate. Refused while another Modeller or Generator holds one.')
+      generator: z.boolean().optional().describe('kind=ship only: a Generator, which runs one or more asset generation jobs (images, textures, sounds, music, 3D, motions) with the asset helpers and delivers them like any Build; its terminal is the main view. List the jobs in intent/spec. It has no default budget: it spends only under budget_usd or what the player approves when it asks. Never together with modeller. Absent = the quest\'s flag.'),
+      claims: z.array(z.string()).optional().describe('Modeller or Generator only: the project paths it will write (export, .blend, generated assets), from asset_locate. Refused while another Modeller or Generator holds one.'),
+      budget_usd: z.number().positive().optional().describe('Spend the player approved up front for this unit (USD), recorded as its first spend grant. REQUIRES player_words quoting, verbatim, the player\'s own message that approves spending and names this amount (Genio checks it). Without it the unit starts with no grant and asks the player before any paid call. Never above the project\'s monthly cap. Codex images need no budget.')
     },
     async (a) => {
       if (/^\s*(captain|player|boss)\b[:,]/i.test(a.intent)) return fail('intent must be the player\'s words without a speaker label or direct address')
@@ -426,6 +433,14 @@ export function createToolRegistry(
         const no = unheard('early start', a.player_words, 'early-start', { what: 'this quest' })
         if (no) return fail(no)
       }
+      let approvedBudget: { usd: number; via: 'chat'; words: string } | undefined
+      if (a.budget_usd !== undefined) {
+        // Spending is the player's call: the budget counts only with their own words approving this amount.
+        if (role === 'bot') return fail('deploy refused: only the player approves spending; deploy without budget_usd and the unit asks them')
+        const r = verifySpendWords(chatLog(), a.player_words, a.budget_usd)
+        if (!r.ok) return fail(refusal('the approved budget', r.reason, `Quote the player's own message that approves USD ${fmtUsd(a.budget_usd)} as player_words, ask them, or deploy without budget_usd (the unit then asks before any paid call).`))
+        approvedBudget = { usd: a.budget_usd, via: 'chat', words: a.player_words! }
+      }
       try {
         const owner = a.quest_id ? questHome(a.quest_id) : hc()
         // a plan step keeps its stored spec, loadout and handoff note; explicit arguments win
@@ -434,11 +449,11 @@ export function createToolRegistry(
           kind: a.kind, project: a.world, title: a.title, intent: a.intent, spec: a.spec ?? step?.spec, mode: a.mode, yolo: a.auto_loot,
           baseBranch: a.base_branch, harness: a.harness ?? step?.harness, model: a.model ?? step?.model, effort: a.effort ?? step?.effort,
           category: a.category ?? step?.category, backlogId: a.quest_id, wksp: owner.home.name, planContext: step?.planContext, force: a.force,
-          modeller: a.modeller, generator: a.generator, claims: a.claims
+          modeller: a.modeller, generator: a.generator, claims: a.claims, approvedBudget
         })
         did('units', task.id)
         did('quests', task.backlogId)
-        return ok(`deployed ${task.id}: ${task.kind === 'scout' ? 'Recon' : task.modeller ? 'Modeller' : task.generator ? 'Generator' : 'Build'} "${task.title}" in ${task.project} (unit tool ${task.harness}${task.model ? ` / ${task.model}` : ''}${task.effort ? ` / ${task.effort}` : ''}, mode ${modeLabel(task.mode)}, branch ${task.branch})${task.loadout?.length ? `\nloadout reasons:\n- ${task.loadout.join('\n- ')}` : ''}`)
+        return ok(`deployed ${task.id}: ${task.kind === 'scout' ? 'Recon' : task.modeller ? 'Modeller' : task.generator ? 'Generator' : 'Build'} "${task.title}" in ${task.project} (unit tool ${task.harness}${task.model ? ` / ${task.model}` : ''}${task.effort ? ` / ${task.effort}` : ''}, mode ${modeLabel(task.mode)}, branch ${task.branch}${approvedBudget ? `, approved spend USD ${fmtUsd(approvedBudget.usd)}` : ''})${task.loadout?.length ? `\nloadout reasons:\n- ${task.loadout.join('\n- ')}` : ''}`)
       } catch (e) {
         const msg = (e as Error).message ?? String(e)
         if (/claimed by (Modeller|Generator)/.test(msg)) return ok(msg)
@@ -806,7 +821,7 @@ export function createToolRegistry(
     }
   )
 
-  t('choice_resolve', "Close a choice with the player's answer (pings the unit with resolve key and records it on a held quest). For a merge choice the answer must be the player's own chat reply, quoted verbatim (Genio checks it).", { id: z.string(), answer: z.string().min(1) }, async ({ id, answer }) => {
+  t('choice_resolve', "Close a choice with the player's answer (pings the unit with resolve key and records it on a held quest). For a merge choice the answer must be the player's own chat reply, quoted verbatim (Genio checks it). A unit's spend question approves spending only with the player's own reply quoted verbatim (or their click in the choice panel); any other answer closes it with no spend approved. Never approve spend yourself.", { id: z.string(), answer: z.string().min(1) }, async ({ id, answer }) => {
     if (role === 'bot') return fail('only the player can answer a choice; it stays open until they return')
     const found = findDecision(getCtx(), id)
     if (!home.isMain && found?.hc.home.name !== home.name) return fail('Choice is outside this conversation.')
@@ -816,6 +831,12 @@ export function createToolRegistry(
       const r = verifyPlayerWords(chatLog(), answer, 'choice', { after: found.d.createdAt, what: 'the merge choice' })
       if (!r.ok) return fail(refusal('answering the merge choice', r.reason, 'Quote the player\'s reply exactly, or let them answer it in the answer panel.'))
       message = r.messageId
+    }
+    if (found?.d.action?.kind === 'spend-grant' && !found.d.resolvedAt) {
+      // Only the player approves spending: a chat answer counts only as their own reply, typed after the question opened.
+      // Any other answer still closes the question, and records no grant.
+      const r = verifyPlayerWords(chatLog(), answer, 'spend', { after: found.d.createdAt, what: 'the spend question' })
+      if (r.ok) message = r.messageId
     }
     const r = await answerChoice(getCtx(), id, answer, { via: 'chat', chat: home.name, ...(message ? { message } : {}) })
     return r.ok ? ok(r.message) : fail(r.message)
@@ -1067,7 +1088,7 @@ export function createToolRegistry(
       if (no) throw new Error(no)
     }
     const QUOTE = ' player_words quotes the player\'s request verbatim from their own chat message (Genio checks it).'
-    t('fal_generate', 'Generate FAL media in the background. Follow assets skill: asset_locate, then pass place and the player request. Quote card above threshold; monthly cap is a hard stop. Up to four outputs, $2 maximum; delegate larger work.' + QUOTE, falGenerateShape, async a => {
+    t('fal_generate', 'Generate FAL media in the background. Follow assets skill: asset_locate, then pass place and the player request. Every paid request shows a quote card and waits for the player\'s approval; monthly cap is a hard stop. Up to four outputs, $2 maximum; delegate larger work.' + QUOTE, falGenerateShape, async a => {
       asked('FAL generation', a.player_words)
       return ok(json(await agentGeneration(getCtx()).fal(home.name, a, role)))
     })
@@ -1084,8 +1105,10 @@ export function createToolRegistry(
       if (a.overwrite_words?.trim()) asked('Overwriting', a.overwrite_words, 'overwrite')
       return ok(json(await agentGeneration(getCtx()).place(home.name, a, role)))
     })
-    t('approve_run', 'Approve the exact pending quote in this chat only when the player agrees; player_words quotes their own reply verbatim (Genio checks it). Cannot override the monthly cap.', { run: z.string(), player_words: z.string().trim().min(1) }, async a => {
-      asked('Approving the paid run', a.player_words, 'spend')
+    t('approve_run', 'Approve the exact pending quote in this chat only when the player agrees; player_words quotes their own reply to the quote verbatim, sent after it appeared (Genio checks it). Cannot override the monthly cap.', { run: z.string(), player_words: z.string().trim().min(1) }, async a => {
+      // The quote card is shown for every paid request, so the request itself never approves it: the reply must come after.
+      const no = unheard('Approving the paid run', a.player_words, 'spend', { after: agentGeneration(getCtx()).quotedAt(a.run, home.name), what: 'the quote' })
+      if (no) throw new Error(no)
       return ok(json(await agentGeneration(getCtx()).approve(a.run, home.name, a.player_words, role)))
     })
     t('generation_status', 'Inspect a background generation and its saved paths or error. Never resubmit uncertain jobs.', { run: z.string() }, a => ok(json(agentGeneration(getCtx()).status(a.run, home.name))))

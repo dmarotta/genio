@@ -44,6 +44,12 @@ export interface SpawnRequest {
   generator?: boolean
   /** a Modeller's or Generator's target paths, from asset_locate (absent = the quest's claims) */
   claims?: string[]
+  /**
+   * Spend the player approved for this unit up front (USD): Genio records it as the unit's first
+   * spend grant. The Deploy dialog sends `via: 'dialog'`; the deploy tool sets `via: 'chat'` only
+   * after verifying the player's own words that approve this amount.
+   */
+  approvedBudget?: { usd: number; via: 'dialog' | 'chat'; words?: string }
 }
 
 export interface ProjectAddRequest {
@@ -385,6 +391,7 @@ export interface FalSearchHit {
 
 export interface FalBudget {
   monthly_usd?: number
+  /** kept for older configs; ignored: every paid run asks the player */
   confirm_over_usd?: number
 }
 
@@ -428,6 +435,8 @@ export interface FalWorldState {
 
 export interface FalSaveRequest {
   by?: string
+  /** who approved the paid run and how, for its spend line */
+  approval?: string
   runId: string
   output: number
   project: string

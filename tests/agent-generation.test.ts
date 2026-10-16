@@ -10,10 +10,10 @@ import type { FalRun } from '../src/shared/api'
 import type { UthanaRun } from '../src/shared/uthana'
 import type { Home } from '../src/main/home'
 import { createInventoryService } from '../src/main/inventory'
-import { AgentGeneration, falGenerateShape, uthanaMotionShape } from '../src/main/agent-generation'
+import { AgentGeneration, agentGeneration, falGenerateShape, uthanaMotionShape } from '../src/main/agent-generation'
 import { placementTarget, placeOutput } from '../src/main/asset-placement'
 import { checkGenerationBudget, generationSpent, recordGenerationSpend } from '../src/main/generation-spend'
-import { buildTools } from '../src/main/wksp-tools'
+import { buildTools, createToolRegistry } from '../src/main/wksp-tools'
 import { bus } from '../src/main/bus'
 import { readSpend, sha256File, type Provenance } from '../src/main/fal-world'
 
@@ -66,37 +66,66 @@ afterEach(() => {
   service.stop(); ctx.inventory.stop(); fs.rmSync(dir, { recursive: true, force: true })
 })
 
-it('starts below and at the default threshold, asks only above it, and binds approval to one chat and request', async () => {
-  price = 0.25
-  expect((await service.fal('main', args())).status).toBe('running')
-  price = 0.26
+it('shows the quote card for every paid request, even USD 0.01, and binds approval to one chat and request', async () => {
+  // an old confirm_over_usd no longer lets a paid request run without asking
+  write('.genio/fal/config.json', { budget: { confirm_over_usd: 0.25 } })
+  price = 0.01
   const card = await service.fal('main', args())
   expect(card.status).toBe('awaiting_approval')
-  expect(ctx.fal.run).toHaveBeenCalledTimes(1)
+  expect(card.approval).toBeUndefined()
+  expect((ctx.main.wksp.post as Mock).mock.lastCall?.[0]).toMatchObject({ id: card.id, generation: { status: 'awaiting_approval', estimatedUsd: 0.01 } })
+  price = 0.25
+  expect((await service.fal('main', args())).status).toBe('awaiting_approval')
+  expect(ctx.fal.run).not.toHaveBeenCalled()
   await expect(service.approve(card.id, 'another', 'yes')).rejects.toThrow('No such')
   await expect(service.approve(card.id, 'main', '')).rejects.toThrow('player')
   await expect(service.approve(card.id, 'main', 'yes', 'bot')).rejects.toThrow('Bot')
-  await Promise.all([service.approve(card.id, 'main', 'yes'), service.approve(card.id, 'main', 'yes')])
-  expect(ctx.fal.run).toHaveBeenCalledTimes(2)
-  expect(runs[1].input).toEqual({ prompt: 'door creak' })
+  await Promise.all([service.approve(card.id, 'main', 'yes', 'genio', 'card'), service.approve(card.id, 'main', 'yes', 'genio', 'card')])
+  expect(ctx.fal.run).toHaveBeenCalledTimes(1)
+  expect(runs[0].input).toEqual({ prompt: 'door creak' })
+  expect(service.status(card.id, 'main').approval).toBe('approved by you on this card')
+  // a request that costs nothing is not a spend: it runs without a card
+  price = 0
+  expect((await service.fal('main', args())).status).toBe('running')
 })
 
-it('uses a custom threshold and hard cap, including concurrent reservations and cap changes before approval', async () => {
-  write('.genio/fal/config.json', { budget: { confirm_over_usd: 0.05, monthly_usd: 0.15 } })
+it('approve_run takes only the player\'s own reply, sent after the quote appeared', async () => {
+  price = 0.01
+  const history = [{ id: 'm1', role: 'player', text: 'make a door sound in test, go ahead', ts: new Date(Date.now() - 60_000).toISOString() }]
+  Object.assign(ctx.main.wksp, { history: () => history })
+  const approveRun = createToolRegistry(() => ctx, ctx.main.home, 'genio').find(t => t.name === 'approve_run')!
+  const card = await service.fal('main', args())
+  // the request itself never approves its own quote
+  expect((await approveRun.invoke({ run: card.id, player_words: 'make a door sound in test, go ahead' })).isError).toBe(true)
+  expect((await approveRun.invoke({ run: card.id, player_words: 'yes, run it' })).isError).toBe(true)
+  expect(ctx.fal.run).not.toHaveBeenCalled()
+  history.push({ id: 'm2', role: 'player', text: 'yes, run it', ts: new Date(Date.now() + 1000).toISOString() })
+  const ok = await approveRun.invoke({ run: card.id, player_words: 'yes, run it' })
+  expect(ok.isError).toBeFalsy()
+  expect(ctx.fal.run).toHaveBeenCalledTimes(1)
+  // the tool works on Genio's own generation service, which read the quote from disk
+  expect(agentGeneration(ctx).status(card.id, 'main').approval).toBe('approved by you in your own words')
+  agentGeneration(ctx).stop()
+})
+
+it('keeps the hard cap over approvals, including concurrent approvals and cap changes before approval', async () => {
+  write('.genio/fal/config.json', { budget: { monthly_usd: 0.15 } })
   const q = await service.fal('main', args())
   expect(q.status).toBe('awaiting_approval')
   write('.genio/fal/config.json', { budget: { monthly_usd: 0.05 } })
   await expect(service.approve(q.id, 'main', 'yes')).rejects.toThrow('hard stop')
   expect(ctx.fal.run).not.toHaveBeenCalled()
   write('.genio/fal/config.json', { budget: { monthly_usd: 0.15 } })
-  const results = await Promise.allSettled([service.fal('main', args()), service.fal('main', args())])
-  expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1)
+  const [a, b] = [await service.fal('main', args()), await service.fal('main', args())]
+  const results = await Promise.allSettled([service.approve(a.id, 'main', 'yes'), service.approve(b.id, 'main', 'yes')])
+  expect(results.map(r => (r.status === 'fulfilled' ? r.value.status : 'rejected')).sort()).toEqual(['failed', 'running'])
   expect(ctx.fal.run).toHaveBeenCalledTimes(1)
   expect(generationSpent(ctx, 'test')).toBeCloseTo(0.1)
 })
 
 it('places completed provider output through asset_locate into the nested engine, records provenance and never overwrites', async () => {
   const card = await service.fal('main', args())
+  await service.approve(card.id, 'main', 'yes', 'genio', 'card')
   const source = path.join(dir, 'sound.wav'); fs.writeFileSync(source, 'RIFF-new')
   const r = runs[0]; r.status = 'completed'; r.requestId = 'request'; r.outputs = [{ fileName: 'sound.wav', field: 'audio', kind: 'audio', url: '', localPath: source }]
   recordGenerationSpend(ctx, 'fal', r)
@@ -134,10 +163,11 @@ it("applies the project's Art Bible to every generation tool and records it in p
   const ref = path.join(project.path, 'Game', 'Art', 'icons.png')
   // FAL: the catalogue marks fal-ai/test as audio, so only the Audio section applies
   const card = await service.fal('main', args())
+  await service.approve(card.id, 'main', 'yes')
   expect(runs[0].input).toEqual({ prompt: 'door creak. Warm acoustic medieval.' })
   expect(runs[0].artBible).toMatchObject({ type: 'audio', applied: ['type'], refs: [] })
   expect(card.artBible).toMatchObject({ type: 'audio', applied: ['type'] })
-  await service.fal('main', args({ art_bible: false }))
+  await service.fal('main', args({ art_bible: false })).then(q => service.approve(q.id, 'main', 'yes'))
   expect(runs[1].input).toEqual({ prompt: 'door creak' })
   expect(runs[1].artBible).toBeUndefined()
 
@@ -166,9 +196,9 @@ it('stops a generation on an Art Bible that cannot compile, and applies nothing 
   write('.genio/art-bible.md', '---\nsource: docs/missing.md\n---\n# B\n')
   await expect(service.fal('main', args())).rejects.toThrow('art_bible: false')
   expect(ctx.fal.run).not.toHaveBeenCalled()
-  await service.fal('main', args({ art_bible: false }))
+  await service.fal('main', args({ art_bible: false })).then(q => service.approve(q.id, 'main', 'yes'))
   write('.genio/art-bible.md', '  \n')
-  await service.fal('main', args())
+  await service.fal('main', args()).then(q => service.approve(q.id, 'main', 'yes'))
   expect(runs.map(r => r.input)).toEqual([{ prompt: 'door creak' }, { prompt: 'door creak' }])
   expect(runs.every(r => r.artBible === undefined)).toBe(true)
 })

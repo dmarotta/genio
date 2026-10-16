@@ -46,12 +46,17 @@ export function generationSpent(ctx: AppCtx, world?: string): number {
   return usd
 }
 
+/**
+ * The monthly cap is a hard stop; every paid request asks the player first, whatever the amount
+ * (`confirm_over_usd` is kept in configs for compatibility but no longer lowers that to "above it").
+ * Only a request that costs nothing runs without asking.
+ */
 export function checkGenerationBudget(ctx: AppCtx, world: string | undefined, usd: number | undefined): { confirm: boolean; spent: number; cap?: number } {
   const budget = generationBudget(ctx, world)
   const spent = generationSpent(ctx, world), cap = budget?.monthly_usd
   if (usd !== undefined && (!Number.isFinite(usd) || usd < 0)) throw new Error('Invalid generation estimate')
   if (cap !== undefined && (usd === undefined || spent >= cap || spent + usd > cap + 1e-9)) throw new Error(`Monthly cap is a hard stop: $${spent.toFixed(3)} spent, $${cap.toFixed(3)} cap`)
-  return { confirm: usd === undefined || usd > (budget?.confirm_over_usd ?? 0.25), spent, cap }
+  return { confirm: usd === undefined || usd > 0, spent, cap }
 }
 
 /** Persist before submitting; retain uncertain/failed charges conservatively, even when history is removed. */

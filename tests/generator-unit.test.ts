@@ -13,7 +13,7 @@ import { runUnityGate } from '../src/main/gauntlet-unity'
 import * as git from '../src/main/git'
 import { createGauntlet } from '../src/main/gauntlet'
 import { Home } from '../src/main/home'
-import { GENERATOR_DEFAULT_BUDGET_USD, generatorBrief, renderBrief, type BriefInput } from '../src/main/brief'
+import { generatorBrief, renderBrief, type BriefInput } from '../src/main/brief'
 import { generatorReport } from '../src/main/modeller-landing'
 import { createBacklogService } from '../src/main/backlog'
 import { claimConflict, claimHolderKind, holdsClaims, modellerCanvas } from '../src/shared/modeller'
@@ -68,16 +68,19 @@ describe('Generator brief', () => {
   }
   const rules = generatorBrief('C:\\skills\\genio', 'C:\\d\\sfx-a1', { engine: 'unity', engineRoot: 'Game', claims: ['Game/Assets/Audio/door.wav'] })
 
-  it('covers the jobs, the hard spend cap, a helper per job, sound steps, the Art Bible, paths, takes, .meta, provenance and checking results', () => {
-    expect(GENERATOR_DEFAULT_BUDGET_USD).toBe(0.5)
+  it('covers the jobs, spending only under the player approval, a helper per job, sound steps, the Art Bible, paths, takes, .meta, provenance and checking results', () => {
     expect(rules).toContain('one or more jobs; each is its own file or set')
-    expect(rules).toContain('Spend cap: USD 0.50 for the whole mission, unless the player\'s own words in the mission raise it. It is a hard stop')
-    expect(rules).toContain('`--budget <usd>` on every paid call')
+    // No default budget: paid calls need the player's approval, asked for with a spend question.
+    expect(rules).toContain('you spend money only under the spend grant the player approved')
+    expect(rules).toContain('there is no default budget')
+    expect(rules).not.toMatch(/USD 0\.50|--budget <usd>/)
+    expect(rules).toContain('needs-decision [key=spend] with spend_usd')
+    expect(rules).toContain('no USD and no approval')
     expect(rules).toContain('node "C:/skills/genio/skills/imagegen-codex/scripts/codex-image.mjs"')
     expect(rules).toContain("Codex images on the player's ChatGPT plan")
     expect(rules).toContain('textures, 3D, audio and music with FAL, `node "C:/skills/genio/skills/fal/scripts/fal.mjs"`')
     expect(rules).toContain('motions (and custom rigged characters) with Uthana, `node "C:/skills/genio/skills/uthana/scripts/uthana.mjs"`')
-    expect(rules).toContain('(fal.mjs, sound.mjs, uthana.mjs)')
+    expect(rules).toContain('(fal.mjs, sound.mjs FAL steps, uthana.mjs)')
     expect(rules).not.toContain('if the uthana helper is available')
     expect(rules).toContain('`C:/skills/genio/skills/assets/SKILL.md`')
     expect(rules).toContain('node "C:/skills/genio/skills/sound/scripts/sound.mjs"')

@@ -73,11 +73,15 @@ export class AgentGeneration {
     bus.publish({ type: 'generation', wksp: j.wksp, id: j.id, active: j.status === 'running' || j.status === 'placing' })
   }
   private card(j: Job): GenerationCard {
-    const { id, provider, world, model, status, estimatedUsd, spentUsd, capUsd, paths, warnings, error, progress, outputs, artBible } = j
-    return { id, provider, world, model, status, estimatedUsd, spentUsd, capUsd, paths, warnings, error, progress, outputs, ...(artBible ? { artBible } : {}) }
+    const { id, provider, world, model, status, estimatedUsd, spentUsd, capUsd, paths, warnings, error, progress, outputs, artBible, approval } = j
+    return { id, provider, world, model, status, estimatedUsd, spentUsd, capUsd, paths, warnings, error, progress, outputs, ...(approval ? { approval } : {}), ...(artBible ? { artBible } : {}) }
   }
   status(id: string, wksp: string): GenerationCard {
     return this.card(this.owned(id, wksp))
+  }
+  /** When the quote was shown: an approval in words must come after it. */
+  quotedAt(id: string, wksp: string): string {
+    return this.owned(id, wksp).ts
   }
   private owned(id: string, wksp: string): Job {
     const j = this.jobs.find(j => j.id === id && j.wksp === wksp)
@@ -190,7 +194,8 @@ export class AgentGeneration {
     this.post(j); if (j.status === 'running') this.start(j)
     return this.card(j)
   }
-  async approve(id: string, wksp: string, playerWords: string, role = 'genio'): Promise<GenerationCard> {
+  /** The player's approval of one quote: their click on the card, or their own words verified by approve_run. */
+  async approve(id: string, wksp: string, playerWords: string, role = 'genio', via: 'card' | 'words' = 'words'): Promise<GenerationCard> {
     this.requirePlayer(role, playerWords)
     const j = this.owned(id, wksp)
     if (j.status !== 'awaiting_approval') return this.card(j)
@@ -198,6 +203,7 @@ export class AgentGeneration {
     if (j.target) await this.guardTarget(j.world!, j.target)
     // Re-check state after async preflight: double clicks submit exactly once.
     if (j.status === 'awaiting_approval') {
+      j.approval = via === 'card' ? 'approved by you on this card' : 'approved by you in your own words'
       j.status = 'running'; this.start(j)
       if (j.status === 'running') this.ctx.stats.unlock('spend-approve')
     }
@@ -261,7 +267,7 @@ export class AgentGeneration {
     const overwrite = !!a.overwrite_words?.trim()
     await this.guardTarget(a.world, a.path, overwrite)
     const by = wksp === 'main' ? 'genio' : `ally:${wksp}`
-    const common = { project: a.world, folder: path.posix.dirname(a.path), fileName: path.posix.basename(a.path), overwrite, by }
+    const common = { project: a.world, folder: path.posix.dirname(a.path), fileName: path.posix.basename(a.path), overwrite, by, ...(j.approval ? { approval: j.approval.replace('by you', 'by the player') } : {}) }
     let result
     if (j.provider === 'fal') {
       const run = this.ctx.fal.runs().find(r => r.id === j.providerRun)

@@ -62,7 +62,10 @@ export function parseStatusLine(raw: string, taskId: string, ts = new Date().toI
         for (const field of ['recommendation', 'details', 'batch']) {
           if (value[field] !== undefined && typeof value[field] !== 'string') throw new Error('Invalid metadata')
         }
-        fields.choice = JSON.stringify({ options: value.options, recommendation: value.recommendation, context: value.details, batch: value.batch })
+        // A spend question names the USD amount the unit asks the player to approve.
+        const spend = kind === 'needs-decision' && value.spend_usd !== undefined ? Number(value.spend_usd) : undefined
+        if (spend !== undefined && !(Number.isFinite(spend) && spend > 0)) throw new Error('Invalid spend amount')
+        fields.choice = JSON.stringify({ options: value.options, recommendation: value.recommendation, context: value.details, batch: value.batch, spend })
         text = text.slice(0, split).trim()
       } catch { /* Malformed metadata remains visible as legacy prose. */ }
     }

@@ -5,7 +5,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import type { DeliveryMode, LoadoutInput, Project, StatusEvent, Task, TaskCounters, TaskState, TerminalInfo } from '@shared/types'
+import type { Decision, DeliveryMode, LoadoutInput, Project, StatusEvent, Task, TaskCounters, TaskState, TerminalInfo } from '@shared/types'
 import type { OpResult, SpawnRequest, TaskFile } from '@shared/api'
 import type { AppCtx, CrewService } from './services'
 import { placeWorktree, type Home } from './home'
@@ -44,6 +44,7 @@ import { artBibleBriefLines, unitArtBible, unitArtBibleEnv } from './art-bible-g
 import {
   appendJsonl, appendLine, ensureDir, exists, fwd, nowIso, readJson, readText, rid, slugify, stripAnsi, truncate, writeJson, writeText
 } from './util'
+import { checkDeployBudget, fmtUsd, grantAtDeploy, grantedUsd, grantEnv, grantsFor, spendChoice, writeUnitGrant } from './spend-grants'
 
 /** States with an expected live process. */
 const ACTIVE: TaskState[] = ['spawning', 'working', 'paused', 'blocked', 'needs-decision', 'stale', 'validating']
@@ -167,7 +168,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
   /** Bundled unit skills live in the main base, outside every world. */
   const mainHome = home.parent ?? home
   const pluginDir = unitPluginDir(mainHome.root)
-  const toolsBrief = (): string => unitToolsBrief(pluginDir, helpDocsDir(getCtx().appRoot))
+  const toolsBrief = (approvedUsd?: number): string => unitToolsBrief(pluginDir, helpDocsDir(getCtx().appRoot), approvedUsd)
   /** The brief's Art Bible lines: none without a bible, and never fatal. */
   const artBibleBrief = (main: string, wt: string, id: string): string[] => {
     try {
@@ -208,6 +209,11 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     const project = getCtx().projects.get(t.project)
     const extras = unitLaunchExtras(harnessId, { pluginDir: installed, falKey, uthanaKey, dataDir: mainHome.data, taskDataDir: home.taskDir(t.id), project: project?.name, helpDocs: helpDocsDir(getCtx().appRoot) })
     Object.assign(extras.env, project ? engineEnv(project) : {})
+    // The paid helpers read the unit's signed grant; a launch re-signs it from Genio's own record.
+    safe(() => {
+      Object.assign(extras.env, grantEnv(mainHome.data, home.taskDir(t.id)))
+      if (grantsFor(mainHome.data, t.id).length) writeUnitGrant(mainHome.data, home.taskDir(t.id), t.id, t.project)
+    })
     // genio-unity shares the player's Play pool; the unit sees only its own targets.
     const unity = unityUnitConfig(project, { task: t.id, worktree: t.worktree, data: mainHome.data, taskDir: home.taskDir(t.id), cli: findUnityCli() })
     if (unity) {
@@ -491,13 +497,15 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         break
       case 'needs-decision':
       case 'blocked':
-        safe(() =>
+        safe(() => {
+          const { spend, ...choice } = (e.fields.choice ? JSON.parse(e.fields.choice) : {}) as Partial<Decision> & { spend?: number }
           decisions.openForTask(t.id, e.key ?? 'default', e.text || (e.kind === 'blocked' ? 'The unit is blocked.' : 'The unit needs a choice.'), 'unit', {
             project: t.project,
             context: e.kind === 'blocked' ? 'blocked' : undefined,
-            ...(e.fields.choice ? JSON.parse(e.fields.choice) : {})
+            ...choice,
+            ...(spend ? spendChoice(t, spend, grantedUsd(ctx.main.home.data, t.id), choice.context) : {})
           })
-        )
+        })
         update(t.id, { state: e.kind, stateReason: e.text })
         break
       case 'paused':
@@ -599,6 +607,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       }
 
       if (req.modeller && req.generator) throw new Error('A Build runs as a Modeller or as a Generator, not both.')
+      if (req.approvedBudget) checkDeployBudget(ctx, project.name, req.approvedBudget.usd)
 
       // quest log gate
       const backlog = hc().backlog
@@ -715,7 +724,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
             engineHints: engineHints(effectiveEngine(project).engine),
             briefInclude: s.briefInclude,
             summaryWords: req.kind === 'scout' ? ctx.dispatch.reportWords(project.name, loadout.harness) : undefined,
-            tools: toolsBrief(),
+            tools: toolsBrief(req.approvedBudget?.usd),
             modeller: modeller ? modellerBrief(pluginDir, home.taskDir(id)) : undefined,
             modellerDone: modeller
               ? modellerDoneLines({ engine: effectiveEngine(project).engine, engineRoot: effectiveEngine(project).root, locate: path.join(falSkillDir(pluginDir), 'scripts', 'fal.mjs'), claims })
@@ -768,6 +777,17 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         reservation.listed()
         persist()
         bus.publish({ type: 'task', task })
+        // The player's up-front approval becomes the unit's first spend grant, before it launches.
+        if (req.approvedBudget) {
+          const b = req.approvedBudget
+          const how = b.via === 'dialog' ? 'approved budget in the Deploy dialog' : `approved budget at deploy, in their own words: "${truncate(b.words ?? '', 160)}"`
+          try {
+            const g = grantAtDeploy(ctx, task, b.usd, how)
+            appendLine(home.statusFile(id), formatStatusLine('note', `spend grant from the player: USD ${fmtUsd(g.granted)} (${how})`, { key: 'spend' }))
+          } catch (e) {
+            appendLine(home.statusFile(id), formatStatusLine('note', `the approved budget could not be recorded (${(e as Error).message}); no spend is approved`, { key: 'spend' }))
+          }
+        }
         try {
           const term = await launch(task, { resume: false, prompt: kickoffPrompt(briefPath), check: reservation.check })
           update(id, { terminalId: term.id, state: 'working', stateReason: posture.warning ?? 'deployed' })

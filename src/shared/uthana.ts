@@ -523,6 +523,8 @@ export interface UthanaPreviewRequest {
 
 export interface UthanaExportRequest {
   by?: string
+  /** who approved the paid run and how, for its spend line */
+  approval?: string
   runId: string
   motionId?: string
   format: UthanaFormat

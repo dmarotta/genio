@@ -12,7 +12,7 @@ const KINDS:[FalOutputKind, string][] = [['image', 'Images'], ['audio', 'Audio']
 const amount = (s: string): number | undefined => s.trim() ? Number(s) : undefined
 const invalid = (s: string): boolean => !!s.trim() && (!Number.isFinite(Number(s)) || Number(s) < 0)
 
-interface FalDraft { cap: string; threshold: string; folders: Partial<Record<FalOutputKind, string>>; codex: boolean }
+interface FalDraft { cap: string; folders: Partial<Record<FalOutputKind, string>>; codex: boolean }
 
 /** Saves like the rest of Settings: a field commits on blur or Enter, the toggle at once. */
 export function GenerationSettings({ world }: { world: string }) {
@@ -20,7 +20,6 @@ export function GenerationSettings({ world }: { world: string }) {
   const [error, setError] = useState('')
   const [retry, setRetry] = useState(0)
   const [cap, setCap] = useState('')
-  const [threshold, setThreshold] = useState('')
   const [folders, setFolders] = useState<Partial<Record<FalOutputKind, string>>>({})
   const [animation, setAnimation] = useState('')
   const [codex, setCodex] = useState(true)
@@ -37,7 +36,6 @@ export function GenerationSettings({ world }: { world: string }) {
       setState({ fal, uthana })
       saved.current = { fal, uthana }
       setCap(fal.config.budget?.monthly_usd?.toString() ?? '')
-      setThreshold(fal.config.budget?.confirm_over_usd?.toString() ?? '')
       setFolders(fal.config.folders ?? {})
       setAnimation(uthana.config.folder ?? '')
       const provider = fal.config.providers?.codex
@@ -48,7 +46,7 @@ export function GenerationSettings({ world }: { world: string }) {
 
   const enqueue = (fn: () => Promise<void>): void => { queue.current = queue.current.then(fn) }
   const saveFal = (draft: FalDraft): void => {
-    if (invalid(draft.cap) || invalid(draft.threshold)) return
+    if (invalid(draft.cap)) return
     enqueue(async () => {
       const current = saved.current
       if (!current) return
@@ -56,7 +54,7 @@ export function GenerationSettings({ world }: { world: string }) {
       const provider = cfg.providers?.codex
       const next = {
         ...cfg, folders: draft.folders,
-        budget: { ...cfg.budget, monthly_usd: amount(draft.cap), confirm_over_usd: amount(draft.threshold) },
+        budget: { ...cfg.budget, monthly_usd: amount(draft.cap) },
         providers: { ...cfg.providers, codex: { ...(provider && typeof provider === 'object' ? provider : {}), enabled: draft.codex } }
       }
       if (JSON.stringify(next) === JSON.stringify(cfg)) return
@@ -82,7 +80,7 @@ export function GenerationSettings({ world }: { world: string }) {
       setError(`The animation folder could not be saved. ${errText(e)}`)
     }
   })
-  const draft: FalDraft = { cap, threshold, folders, codex }
+  const draft: FalDraft = { cap, folders, codex }
   const commit = { onBlur: () => saveFal(draft), onKeyDown: (e: KeyboardEvent) => { if (e.key === 'Enter') saveFal(draft) } }
 
   return <section id={GENERATION_ANCHOR} tabIndex={-1} className="world-generation" aria-label="Generation settings">
@@ -90,17 +88,14 @@ export function GenerationSettings({ world }: { world: string }) {
     {error && <p role="alert" className="alert-text">{error}</p>}
     {!state ? error ? <button className="btn sm" onClick={() => setRetry((n) => n + 1)}>Retry settings</button> : <p className="mute">Loading generation settings…</p> : <>
       <div className="generation-fields form-grid">
-        <Field label="Monthly budget (USD)" hint="Shared paid-generation cap. Runs above it stop. Blank means no cap.">
+        <Field label="Monthly budget (USD)" hint="Shared paid-generation cap. Runs above it stop. Blank means no cap. Every paid run asks you first.">
           <input className="input" aria-label="Monthly budget (USD)" inputMode="decimal" value={cap} placeholder="No cap" aria-invalid={invalid(cap)} onChange={(e) => setCap(e.target.value)} {...commit} />
-        </Field>
-        <Field label="Ask before runs over (USD)" hint="Ask before a paid run above this amount. Blank uses $0.25; 0 asks for every paid run.">
-          <input className="input" aria-label="Ask before runs over (USD)" inputMode="decimal" value={threshold} placeholder="0.25" aria-invalid={invalid(threshold)} onChange={(e) => setThreshold(e.target.value)} {...commit} />
         </Field>
         <Field label="Codex images" hint="Use the ChatGPT plan for images. Enabled by default; no paid-run confirmation." wide>
           <Toggle checked={codex} onChange={(v) => { setCodex(v); saveFal({ ...draft, codex: v }) }} label="Enable Codex images in this project" />
         </Field>
       </div>
-      {(invalid(cap) || invalid(threshold)) && <p role="alert">Enter a non-negative amount, or leave it blank.</p>}
+      {invalid(cap) && <p role="alert">Enter a non-negative amount, or leave it blank.</p>}
       <details className="generation-folders">
         <summary className="label">Asset folders</summary>
         <div className="generation-fields form-grid">

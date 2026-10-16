@@ -32,6 +32,8 @@ export function DeployModal() {
   const [effort, setEffort] = useState('')
   const [category, setCategory] = useState<TaskCategory | ''>('')
   const [base, setBase] = useState('')
+  /** Spend the player approves up front (USD); blank: the unit asks before any paid call. */
+  const [budget, setBudget] = useState('')
   const [busy, setBusy] = useState(false)
   const [override, setOverride] = useState(false)
   const [preview, setPreview] = useState<Loadout | null>(null)
@@ -51,6 +53,7 @@ export function DeployModal() {
     setEffort(draft.effort ?? '')
     setCategory(draft.category ?? '')
     setBase(draft.baseBranch ?? '')
+    setBudget('')
     setOverride(Boolean(draft.harness || draft.model || draft.effort))
     setYolo(draft.yolo ?? projects.find((x) => x.name === project)?.yolo ?? false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -106,7 +109,9 @@ export function DeployModal() {
   const asModeller = kind === 'ship' && modeller
   const asGenerator = kind === 'ship' && !modeller && generator
   const noBlender = asModeller && blender === false
-  const valid = project && proj?.gitRepo !== false && title.trim() && intent.trim() && !noBlender
+  const budgetUsd = budget.trim() ? Number(budget) : undefined
+  const badBudget = budgetUsd !== undefined && !(Number.isFinite(budgetUsd) && budgetUsd >= 0)
+  const valid = project && proj?.gitRepo !== false && title.trim() && intent.trim() && !noBlender && !badBudget
   const pick = (k: TaskKind, flavor?: 'modeller' | 'generator'): void => {
     setKind(k)
     setModeller(flavor === 'modeller')
@@ -134,7 +139,8 @@ export function DeployModal() {
         backlogId: draft.backlogId,
         wksp: draft.wksp,
         ...(asModeller ? { modeller: true } : {}),
-        ...(asGenerator ? { generator: true } : {})
+        ...(asGenerator ? { generator: true } : {}),
+        ...(budgetUsd ? { approvedBudget: { usd: budgetUsd, via: 'dialog' as const } } : {})
       })
       playSfx('spawn', settings)
       toast('success', 'Unit deployed', `${t.title} is on the field`)
@@ -266,6 +272,9 @@ export function DeployModal() {
             </select>
           </Field>
         )}
+        <Field label="Approved spend (USD)" hint={badBudget ? 'Enter an amount, like 0.50, or leave it blank.' : 'Paid calls (FAL, Uthana) up to this amount. Blank: the unit asks you first. Codex images are free.'}>
+          <input className="input" aria-label="Approved spend (USD)" inputMode="decimal" value={budget} placeholder="Ask me" aria-invalid={badBudget} onChange={(e) => setBudget(e.target.value)} />
+        </Field>
         <Field label="Base branch">
           <input className="input mono" value={base} placeholder={proj?.defaultBranch ?? 'main'} onChange={(e) => setBase(e.target.value)} />
         </Field>

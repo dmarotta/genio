@@ -149,12 +149,10 @@ export function modellerDoneLines(o: { engine?: Engine; engineRoot?: string; loc
   return out
 }
 
-/** A Generator's spend cap when the player named none: a hard stop, raised only on the player's word. */
-export const GENERATOR_DEFAULT_BUDGET_USD = 0.5
-
 /**
- * A Generator's working rules: the player's generation jobs, the spend cap, which helper makes what,
- * placement and claims, takes, provenance and checking every result. It finishes like any Build.
+ * A Generator's working rules: the player's generation jobs, spending only under the player's approval,
+ * which helper makes what, placement and claims, takes, provenance and checking every result. It
+ * finishes like any Build. There is no default budget: paid calls need a spend grant (Spending under Tools).
  */
 export function generatorBrief(pluginDir: string, taskDataDir: string, o: { engine?: Engine; engineRoot?: string; claims?: string[] } = {}): string {
   const assets = fwd(assetsSkillDir(pluginDir))
@@ -164,13 +162,12 @@ export function generatorBrief(pluginDir: string, taskDataDir: string, o: { engi
   const uthana = fwd(uthanaSkillDir(pluginDir))
   const takes = fwd(path.join(taskDataDir, 'takes'))
   const root = o.engineRoot && o.engineRoot !== '.' ? o.engineRoot : ''
-  const cap = GENERATOR_DEFAULT_BUDGET_USD.toFixed(2)
   return [
     "You are a Generator: you run the player's asset generation jobs (images, textures, sounds, music, 3D, motions) and deliver the files into the project like any Build. The player follows you in your terminal; there is no live view.",
     '- Jobs: the mission lists one or more jobs; each is its own file or set. Work through them in order and keep a short list of what each one produced.',
-    `- Spend cap: USD ${cap} for the whole mission, unless the player's own words in the mission raise it. It is a hard stop, not a target: pass what is left of it as \`--budget <usd>\` on every paid call (fal.mjs, sound.mjs, uthana.mjs), never retry a paid call automatically, and when it runs out stop and deliver what you have.`,
-    `- Helper per job (routing in \`${assets}/SKILL.md\`; read a helper's SKILL.md before its first call): ordinary images (concept art, sprites, icons, cutouts, edits) with Codex images on the player's ChatGPT plan, \`node "${codex}/scripts/codex-image.mjs"\` (no USD, but the plan is shared with other units: stop when it warns about the plan meter); textures, 3D, audio and music with FAL, \`node "${fal}/scripts/fal.mjs"\`; motions (and custom rigged characters) with Uthana, \`node "${uthana}/scripts/uthana.mjs"\` (stock Manny by default; see \`${uthana}/SKILL.md\`).`,
-    `- Audio: trim, loop, fade, normalize and layer with the Sound Studio steps, \`${sound}/SKILL.md\` and \`node "${sound}/scripts/sound.mjs"\` (its FAL steps take \`--budget\` too).`,
+    "- Spend: you spend money only under the spend grant the player approved (Spending under Tools); there is no default budget. Before the first paid call (fal.mjs, sound.mjs FAL steps, uthana.mjs) check what is left of your grant (the FAL helper's project summary prints it); when it is missing or too small, ask once for the whole plan (needs-decision [key=spend] with spend_usd) and wait. Do the free work (Codex images, local Sound Studio steps) meanwhile or first. Never retry a paid call automatically; when the grant runs out, ask again or stop and deliver what you have.",
+    `- Helper per job (routing in \`${assets}/SKILL.md\`; read a helper's SKILL.md before its first call): ordinary images (concept art, sprites, icons, cutouts, edits) with Codex images on the player's ChatGPT plan, \`node "${codex}/scripts/codex-image.mjs"\` (no USD and no approval, but the plan is shared with other units: stop when it warns about the plan meter); textures, 3D, audio and music with FAL, \`node "${fal}/scripts/fal.mjs"\`; motions (and custom rigged characters) with Uthana, \`node "${uthana}/scripts/uthana.mjs"\` (stock Manny by default; see \`${uthana}/SKILL.md\`).`,
+    `- Audio: trim, loop, fade, normalize and layer with the Sound Studio steps, \`${sound}/SKILL.md\` and \`node "${sound}/scripts/sound.mjs"\` (its FAL steps spend under your grant too).`,
     "- Art Bible: when the project has one, the helpers apply it automatically in `--world .` mode; pass each job's asset type as `--type <asset type>`.",
     `- Paths: the mission's, or from asset_locate: \`node "${fal}/scripts/fal.mjs" locate --world . --kind <image|audio|model|animation|video> --name <file> --engine ${o.engine ?? 'other'}${root ? ` --engine-root ${root}` : ''}\`. Replacing an existing asset keeps its path.`,
     o.claims?.length
@@ -180,7 +177,7 @@ export function generatorBrief(pluginDir: string, taskDataDir: string, o: { engi
     '- Unity: commit each asset with its `.meta`, which `genio-unity import` generates (never hand-write one). If Unity cannot run for you, commit the asset without it and say so in your final note.',
     '- Provenance: commit the `.genio/provenance/` files and the `.genio/spend.jsonl` lines the helpers write, together with the assets. Never edit `.genio/fal/config.json` or `recipes.json`.',
     "- Check every result before you keep it: open the file and look at it (the image itself, a render of a model, the sound sheet's waveform, spectrogram and levels) and judge it against the job. Report honestly what works and what does not; never claim quality from metadata alone.",
-    '- Finish like any Build (Definition of done below): commit the chosen assets, then `done: <jobs delivered> (spend: est. USD <spent> of <cap>; Codex images: <n>)`. Ask the player only a real question.'
+    '- Finish like any Build (Definition of done below): commit the chosen assets, then `done: <jobs delivered> (spend: est. USD <spent> of USD <granted> approved; Codex images: <n>)`. Ask the player only a real question.'
   ].join('\n')
 }
 

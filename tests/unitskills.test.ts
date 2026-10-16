@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { renderBrief, type BriefInput } from '../src/main/brief'
 import { assertIsolatedHomes } from './support/isolated-homes.mjs'
+import { grantEnv } from './support/spend-grant'
 import { blenderSkillDir, codexImageSkillDir, falSkillDir, genioUnityScript, installUnitPlugin, MODELLER_API_CARD, modellerBrief, modellerScript, unitLaunchExtras, unitPluginDir, unitPluginSource, unitToolsBrief, unitySkillDir } from '../src/main/unitskills'
 
 const APP_ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -133,7 +134,14 @@ describe('brief tools section', () => {
     expect(b).toContain('C:/genio/skills/genio/skills/fal/SKILL.md')
     expect(b.indexOf('# Tools')).toBeGreaterThan(b.indexOf('# Engine notes'))
     expect(b.indexOf('# Tools')).toBeLessThan(b.indexOf('# Definition of done'))
-    expect(b).toMatch(/budget/i)
+    // Spending: none without the player's approval, how to ask, and Codex images are free.
+    expect(b).toContain("no paid call (FAL, Uthana, the Sound Studio's FAL steps, any paid provider) runs without the player's approval")
+    expect(b).toContain('You start with no spend grant (USD 0).')
+    expect(b).toContain('needs-decision [key=spend]')
+    expect(b).toContain('`{"spend_usd": <amount>')
+    expect(b).toContain('Codex images on the ChatGPT plan are not a spend')
+    expect(b).not.toMatch(/--budget/)
+    expect(unitToolsBrief('C:\\genio\\skills\\genio', undefined, 0.5)).toContain('The player approved USD 0.50 for you at deploy: that is your spend grant.')
     expect(b).toContain('--world')
     expect(b).toContain('C:/genio/skills/genio/skills/imagegen-codex/SKILL.md')
     // Codex is the default for images, FAL the specialist (listed after it)
@@ -225,7 +233,7 @@ describe('fal.mjs helper', () => {
     expect(r.stderr).toMatch(/FAL key missing/)
     expect(r.stderr).toMatch(/Settings -> Accounts/)
     fs.writeFileSync(path.join(tmp, 'in.json'), '{"prompt":"x"}')
-    const s = await runScript(['submit', '--endpoint', 'fal-ai/flux/dev', '--input', 'in.json', '--receipt', 'a.job.json'], {})
+    const s = await runScript(['submit', '--endpoint', 'fal-ai/flux/dev', '--input', 'in.json', '--receipt', 'a.job.json', '--est-usd', '0.03', '--ledger', 'spend.jsonl'], grantEnv(path.join(tmp, 'grant'), 't-k1', 1))
     expect(s.code).toBe(3)
     expect(fs.existsSync(path.join(tmp, 'a.job.json'))).toBe(false)
   })
@@ -275,8 +283,8 @@ describe('fal.mjs helper', () => {
 
     it('runs a model end to end, downloads unauthenticated, and resumes without resubmitting', async () => {
       fs.writeFileSync(path.join(tmp, 'hero.input.json'), JSON.stringify({ prompt: 'a knight' }))
-      const args = ['run', '--endpoint', 'fal-ai/test/model', '--input', 'hero.input.json', '--receipt', 'art/hero.job.json', '--dir', 'art/out', '--name', 'hero']
-      const env = { FAL_KEY: KEY, GENIO_FAL_TEST_BASE: base }
+      const args = ['run', '--endpoint', 'fal-ai/test/model', '--input', 'hero.input.json', '--receipt', 'art/hero.job.json', '--dir', 'art/out', '--name', 'hero', '--est-usd', '0.03', '--ledger', 'spend.jsonl']
+      const env = { FAL_KEY: KEY, GENIO_FAL_TEST_BASE: base, ...grantEnv(path.join(tmp, 'grant'), 't-k1', 1) }
       const r = await runScript(args, env)
       expect(r.stderr).not.toContain(KEY)
       expect(r.code).toBe(0)
@@ -299,8 +307,8 @@ describe('fal.mjs helper', () => {
     })
 
     it('records a rejected input and refuses to reuse its receipt', async () => {
-      const env = { FAL_KEY: KEY, GENIO_FAL_TEST_BASE: base }
-      const args = ['submit', '--endpoint', 'fal-ai/test/bad', '--json', '{"prompt":"x"}', '--receipt', 'bad.job.json']
+      const env = { FAL_KEY: KEY, GENIO_FAL_TEST_BASE: base, ...grantEnv(path.join(tmp, 'grant'), 't-k1', 1) }
+      const args = ['submit', '--endpoint', 'fal-ai/test/bad', '--json', '{"prompt":"x"}', '--receipt', 'bad.job.json', '--est-usd', '0.03', '--ledger', 'spend.jsonl']
       const r = await runScript(args, env)
       expect(r.code).toBe(4)
       expect(JSON.parse(fs.readFileSync(path.join(tmp, 'bad.job.json'), 'utf8'))).toMatchObject({ state: 'rejected' })

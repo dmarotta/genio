@@ -124,6 +124,52 @@ export function verifyPlayerWords(history: ChatMessage[], words: string | undefi
   return { ok: false, reason: first! }
 }
 
+// ------------------------------------------------------------------ spend budget
+
+/** Dollar amounts a message names: "$0.50", "0.5 USD", "USD 2", "2 dollars", "50 cents", "2 bucks". */
+export function moneyAmounts(text: string): number[] {
+  const n = normalizeWords(text)
+  const out: number[] = []
+  const num = '(\\d+(?:[.,]\\d+)?)'
+  const add = (v: string, cents = false): void => {
+    const x = Number(v.replace(',', '.'))
+    if (Number.isFinite(x)) out.push(cents ? Math.round(x) / 100 : x)
+  }
+  for (const m of n.matchAll(new RegExp(`(?:\\$|usd\\s*)${num}`, 'g'))) add(m[1])
+  for (const m of n.matchAll(new RegExp(`${num}\\s*(?:\\$|usd\\b|dollars?\\b|bucks?\\b)`, 'g'))) add(m[1])
+  for (const m of n.matchAll(new RegExp(`${num}\\s*(?:cents?\\b|c\\b|¢)`, 'g'))) add(m[1], true)
+  // a bare decimal ("up to 0.50") is a price; a bare whole number ("3 sounds") is not
+  for (const m of n.matchAll(/(?<![\d.,])(\d+[.,]\d{1,2})(?![\d.,])/g)) add(m[1])
+  return out
+}
+
+const SPEND_INTENT = /\b(?:yes|yep|yeah|ok|okay|sure|approv\w*|go ahead|fine|spend|pay|budget|allow\w*|can use|up to|cap|limit|authori[sz]\w*|give (?:it|them|him|her)|let (?:it|them) (?:spend|use))\b/
+
+/**
+ * Words that approve a unit's up-front budget: a verbatim quote of a real
+ * player message (like merge words) that says to spend or approves, is not a
+ * question, a maybe or a "later", and names this exact USD amount.
+ */
+export function verifySpendWords(history: ChatMessage[], quote: string | undefined, usd: number): WordsCheck {
+  const { found, reason } = matching(history, quote ?? '')
+  if (!found.length) return { ok: false, reason: reason! }
+  let first: string | undefined
+  for (const m of found) {
+    let why: string | undefined = `the player's message ${quoted(m)} does not approve spending`
+    for (const sentence of sentences(m.text)) {
+      const at = sentence.search(SPEND_INTENT)
+      if (at < 0 || NEGATED.test(sentence.slice(0, at))) continue
+      if (isQuestion(sentence)) { why = `the player's message ${quoted(m)} is a question, not an approval`; continue }
+      if (HEDGE.test(sentence) || DEFER.test(sentence)) { why = `the player's message ${quoted(m)} is tentative or deferred, not an approval`; continue }
+      why = moneyAmounts(m.text).some((a) => Math.abs(a - usd) < 1e-9) ? undefined : `the player's message ${quoted(m)} does not name the amount USD ${usd}`
+      if (!why) break
+    }
+    if (!why) return { ok: true, messageId: m.id, at: m.ts, text: m.text }
+    first ??= why
+  }
+  return { ok: false, reason: first! }
+}
+
 // ------------------------------------------------------------------ merge
 
 /**

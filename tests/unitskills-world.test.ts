@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { unitPluginSource } from '../src/main/unitskills'
 import { assertIsolatedHomes } from './support/isolated-homes.mjs'
+import { grantEnv, TEST_GRANT_KEY } from './support/spend-grant'
 
 const APP_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const PLUGIN = unitPluginSource(APP_ROOT)
@@ -40,7 +41,7 @@ interface Run {
 
 function runNode(script: string, args: string[], env: Record<string, string | undefined> = {}): Promise<Run> {
   const childEnv: NodeJS.ProcessEnv = { ...process.env }
-  for (const k of ['FAL_KEY', 'GENIO_FAL_TEST_BASE', 'GENIO_TASK_ID', 'GENIO_CODEX_BIN', 'GENIO_CODEX_IMAGE_SCRATCH', 'GENIO_ART_BIBLE']) delete childEnv[k]
+  for (const k of ['FAL_KEY', 'GENIO_FAL_TEST_BASE', 'GENIO_TASK_ID', 'GENIO_CODEX_BIN', 'GENIO_CODEX_IMAGE_SCRATCH', 'GENIO_ART_BIBLE', 'GENIO_SPEND_GRANT', 'GENIO_SPEND_KEY']) delete childEnv[k]
   Object.assign(childEnv, env)
   assertIsolatedHomes(childEnv)
   return new Promise((resolve) => {
@@ -157,23 +158,41 @@ describe('.genio/ records', () => {
     { t: '2026-10-06T10:00:00Z', provider: 'codex', est_usd: 0, plan: 'chatgpt', by: 'unit:a' }
   ]
 
-  it('stops a unit at its brief budget (hard stop)', () => {
-    const g = lib.checkBudget({ lines, by: 'unit:a', estUsd: 0.7, unitBudget: 10, config: {}, now })
-    expect(g).toMatchObject({ ok: false, spent_by_unit: 9.4 })
-    expect(g.reason).toMatch(/hard stop/)
-    expect(lib.checkBudget({ lines, by: 'unit:b', estUsd: 0.7, unitBudget: 1, config: {}, now }).ok).toBe(true)
-    expect(lib.checkBudget({ lines, by: 'unit:b', estUsd: 1, unitBudget: 1, config: {}, now }).ok).toBe(true)
+  const granted = (usd: number): Record<string, unknown> => ({ ok: true, total_usd: usd, grants: [], approval: `USD ${usd} by the player` })
+
+  it('allows no paid call without the player\'s grant, and none past it', () => {
+    // no grant (none written, or one that did not verify): nothing paid, whatever the estimate
+    for (const grant of [undefined, { ok: false, reason: 'No spend grant: the player has approved no spending for you yet.' }]) {
+      const g = lib.checkBudget({ lines: [], by: 'unit:b', estUsd: 0.01, unitBudget: null, grant, config: {}, now })
+      expect(g).toMatchObject({ ok: false, grant_usd: 0 })
+      expect(g.reason).toMatch(/No spend grant/)
+    }
+    // up to the grant, counting what the unit already spent
+    expect(lib.checkBudget({ lines, by: 'unit:b', estUsd: 0.5, unitBudget: null, grant: granted(0.5), config: {}, now })).toMatchObject({ ok: true, grant_usd: 0.5 })
+    const over = lib.checkBudget({ lines, by: 'unit:a', estUsd: 0.1, unitBudget: null, grant: granted(9.45), config: {}, now })
+    expect(over).toMatchObject({ ok: false, spent_by_unit: 9.4 })
+    expect(over.reason).toMatch(/Spend grant exceeded.*USD 9\.45 the player approved/)
+    // a call that costs nothing is not a spend
+    expect(lib.checkBudget({ lines: [], by: 'unit:b', estUsd: 0, unitBudget: null, grant: undefined, config: {}, now }).ok).toBe(true)
   })
 
-  it('respects the world monthly cap and the confirm threshold', () => {
+  it('stops a unit at its own --budget under its grant (hard stop)', () => {
+    const g = lib.checkBudget({ lines, by: 'unit:a', estUsd: 0.7, unitBudget: 10, grant: granted(100), config: {}, now })
+    expect(g).toMatchObject({ ok: false, spent_by_unit: 9.4 })
+    expect(g.reason).toMatch(/hard stop/)
+    expect(lib.checkBudget({ lines, by: 'unit:b', estUsd: 0.7, unitBudget: 1, grant: granted(100), config: {}, now }).ok).toBe(true)
+    expect(lib.checkBudget({ lines, by: 'unit:b', estUsd: 1, unitBudget: 1, grant: granted(100), config: {}, now }).ok).toBe(true)
+  })
+
+  it('keeps the world monthly cap a hard stop over any grant, and no longer has a confirm threshold', () => {
     const config = { budget: { monthly_usd: 1, confirm_over_usd: 0.25 } }
-    const cap = lib.checkBudget({ lines, by: 'unit:b', estUsd: 0.2, unitBudget: 5, config, now })
+    const cap = lib.checkBudget({ lines, by: 'unit:b', estUsd: 0.2, unitBudget: 5, grant: granted(100), config, now })
     expect(cap).toMatchObject({ ok: false, spent_this_month: 0.9 })
     expect(cap.reason).toMatch(/monthly cap/)
-    expect(lib.checkBudget({ lines, by: 'unit:b', estUsd: 0.1, unitBudget: 5, config, now }).ok).toBe(true)
-    // above the confirm threshold: only a stated unit budget approves it
-    expect(lib.checkBudget({ lines: [], by: 'unit:b', estUsd: 0.3, unitBudget: null, config, now }).reason).toMatch(/confirm threshold/)
-    expect(lib.checkBudget({ lines: [], by: 'unit:b', estUsd: 0.3, unitBudget: 0.5, config, now }).ok).toBe(true)
+    expect(lib.checkBudget({ lines, by: 'unit:b', estUsd: 0.1, unitBudget: 5, grant: granted(100), config, now }).ok).toBe(true)
+    // the grant is the approval: an old confirm_over_usd neither stops a granted call nor approves an ungranted one
+    expect(lib.checkBudget({ lines: [], by: 'unit:b', estUsd: 0.3, unitBudget: null, grant: granted(0.5), config, now }).ok).toBe(true)
+    expect(lib.checkBudget({ lines: [], by: 'unit:b', estUsd: 0.1, unitBudget: null, grant: undefined, config, now }).ok).toBe(false)
   })
 
   it('turns Codex on by default; only an explicit opt-out turns it off', () => {
@@ -258,7 +277,7 @@ describe('fal.mjs --world', () => {
     defaults: { 'fal-ai/test/model': { output_format: 'png' } }
   }
   const RECIPES = [{ id: 'icon', label: 'UI icon', endpoint: 'fal-ai/test/model', prompt_template: '{subject}, flat game UI icon', input: { aspect_ratio: '1:1' }, save_to: 'image' }]
-  const env = (): Record<string, string> => ({ FAL_KEY: KEY, GENIO_FAL_TEST_BASE: base, GENIO_TASK_ID: 't-x1' })
+  const env = (...usd: number[]): Record<string, string> => ({ FAL_KEY: KEY, GENIO_FAL_TEST_BASE: base, ...grantEnv(path.join(tmp, 'unit-data'), 't-x1', ...(usd.length ? usd : [5])) })
 
   it('merges defaults and the recipe, logs spend, writes provenance, and never edits config or recipes', async () => {
     const world = makeWorld(CONFIG, RECIPES)
@@ -315,19 +334,85 @@ describe('fal.mjs --world', () => {
     expect(readLines(ledger)).toHaveLength(1)
   })
 
-  it('stops at the world monthly cap and above the confirm threshold without a brief budget', async () => {
+  it('stops at the world monthly cap whatever the grant, and ignores an old confirm threshold', async () => {
     const world = makeWorld({ ...CONFIG, budget: { monthly_usd: 0.05 } }, RECIPES)
     const args = (name: string, extra: string[]): string[] => ['submit', '--world', world, '--endpoint', 'fal-ai/test/model', '--json', '{"prompt":"x"}', '--receipt', path.join(tmp, `${name}.job.json`), ...extra]
-    const cap = await runNode(FAL, args('cap', ['--units', '2', '--budget', '5']), env())
+    const cap = await runNode(FAL, args('cap', ['--units', '2']), env(100))
     expect(cap.code).toBe(6)
     expect(cap.stderr).toMatch(/monthly cap/)
-
-    const world2 = path.join(tmp, 'world')
-    fs.writeFileSync(path.join(world2, '.genio', 'fal', 'config.json'), JSON.stringify({ ...CONFIG, budget: { confirm_over_usd: 0.05 } }))
-    const confirm = await runNode(FAL, args('confirm', ['--units', '2']), env())
-    expect(confirm.code).toBe(6)
-    expect(confirm.stderr).toMatch(/confirm threshold/)
     expect(posts).toHaveLength(0)
+
+    fs.writeFileSync(path.join(world, '.genio', 'fal', 'config.json'), JSON.stringify({ ...CONFIG, budget: { confirm_over_usd: 0.01 } }))
+    const granted = await runNode(FAL, args('granted', ['--units', '2']), env(1))
+    expect(granted.code).toBe(0)
+    expect(posts).toHaveLength(1)
+  })
+
+  it('sends nothing without a grant, and lets calls through up to the grant', async () => {
+    const world = makeWorld(CONFIG, RECIPES)
+    const ledger = path.join(world, '.genio', 'spend.jsonl')
+    const args = (name: string): string[] => ['submit', '--world', world, '--endpoint', 'fal-ai/test/model', '--json', '{"prompt":"x"}', '--units', '2', '--receipt', path.join(tmp, `${name}.job.json`)]
+    // no grant: exit 6 before pricing, no receipt, no spend line, nothing sent
+    const none = await runNode(FAL, args('none'), { FAL_KEY: KEY, GENIO_FAL_TEST_BASE: base, ...grantEnv(path.join(tmp, 'unit-data'), 't-x1') })
+    expect(none.code).toBe(6)
+    expect(none.stderr).toMatch(/No spend grant/)
+    expect(none.stderr).toMatch(/needs-decision \[key=spend\]/)
+    expect(none.stderr).toMatch(/spend_usd/)
+    expect(fs.existsSync(path.join(tmp, 'none.job.json'))).toBe(false)
+    // outside Genio (no grant variables at all) is the same
+    const bare = await runNode(FAL, args('bare'), { FAL_KEY: KEY, GENIO_FAL_TEST_BASE: base, GENIO_TASK_ID: 't-x1' })
+    expect(bare.code).toBe(6)
+    expect(posts).toHaveLength(0)
+    expect(readLines(ledger)).toHaveLength(0)
+
+    // a USD 0.06 grant covers exactly one 2-image call at USD 0.03 each
+    const one = await runNode(FAL, args('one'), env(0.06))
+    expect(one.code).toBe(0)
+    const lines = readLines(ledger)
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ est_usd: 0.06, by: 'unit:t-x1', grant_usd: 0.06, approved_by: 'player', approval: 'USD 0.06 by the player (approved budget in the Deploy dialog)' })
+    const two = await runNode(FAL, args('two'), env(0.06))
+    expect(two.code).toBe(6)
+    expect(two.stderr).toMatch(/Spend grant exceeded/)
+    expect(posts).toHaveLength(1)
+    // the player approves more: the grants add up and the next call goes through
+    expect((await runNode(FAL, args('three'), env(0.06, 0.06))).code).toBe(0)
+    expect(posts).toHaveLength(2)
+  })
+
+  it('refuses a grant the unit wrote, raised, signed itself or took from another unit', async () => {
+    const world = makeWorld(CONFIG, RECIPES)
+    const dir = path.join(tmp, 'unit-data')
+    const args = (name: string): string[] => ['submit', '--world', world, '--endpoint', 'fal-ai/test/model', '--json', '{"prompt":"x"}', '--units', '2', '--receipt', path.join(tmp, `${name}.job.json`)]
+    const base0 = env(0.01)
+    const file = base0.GENIO_SPEND_GRANT
+    const signed = readJson(file)
+    const attempts: Record<string, unknown>[] = [
+      // written from scratch, unsigned
+      { schema: 'genio.spend-grant.v1', unit: 't-x1', total_usd: 50, grants: [{ usd: 50, at: '2026-10-16T10:00:00Z', by: 'player', how: 'me' }], updated: '2026-10-16T10:00:00Z' },
+      // Genio's grant, raised
+      { ...signed, total_usd: 50, grants: [{ ...signed.grants[0], usd: 50 }] },
+      // Genio's signature carried over to an extra entry
+      { ...signed, total_usd: 50.01, grants: [...signed.grants, { usd: 50, at: '2026-10-16T11:00:00Z', by: 'player', how: 'me' }] }
+    ]
+    // signed with a key the unit made itself
+    const own = crypto.generateKeyPairSync('ed25519')
+    const sign = (g: Record<string, unknown>): Record<string, unknown> => ({ ...g, signature: crypto.sign(null, Buffer.from(JSON.stringify(g)), own.privateKey).toString('base64') })
+    const { signature: _s, ...unsigned } = attempts[0] as Record<string, unknown> & { signature?: string }
+    attempts.push(sign(unsigned))
+    for (const [i, forged] of attempts.entries()) {
+      fs.writeFileSync(file, JSON.stringify(forged))
+      const r = await runNode(FAL, args(`forged-${i}`), { ...base0, GENIO_SPEND_GRANT: file })
+      expect(r.code, `attempt ${i}`).toBe(6)
+      expect(r.stderr).toMatch(/does not carry Genio's signature|does not add up/)
+    }
+    // another unit's genuine grant approves nothing for this one
+    const other = grantEnv(path.join(tmp, 'other-unit'), 't-other', 50)
+    const borrowed = await runNode(FAL, args('borrowed'), { ...base0, GENIO_SPEND_GRANT: other.GENIO_SPEND_GRANT })
+    expect(borrowed.code).toBe(6)
+    expect(borrowed.stderr).toMatch(/belongs to unit t-other/)
+    expect(posts).toHaveLength(0)
+    expect(TEST_GRANT_KEY).toBe(base0.GENIO_SPEND_KEY)
   })
 
   it('needs a cost estimate in world mode', async () => {
@@ -381,12 +466,15 @@ describe('fal.mjs --world', () => {
   it('summarises the world and fills recipes without a key or network', async () => {
     const world = makeWorld({ ...CONFIG, providers: { codex: { enabled: true } } }, RECIPES)
     fs.writeFileSync(path.join(world, '.genio', 'spend.jsonl'), JSON.stringify({ t: new Date().toISOString(), provider: 'fal', est_usd: 0.25, by: 'unit:t-x1' }) + '\n')
-    const w = await runNode(FAL, ['world', '--world', world, '--budget', '1'], { GENIO_TASK_ID: 't-x1' })
+    const w = await runNode(FAL, ['world', '--world', world, '--budget', '1'], grantEnv(path.join(tmp, 'unit-data'), 't-x1', 2))
     expect(w.code).toBe(0)
     expect(JSON.parse(w.stdout)).toMatchObject({
       config: true,
       folders: { image: 'Assets/Gen' },
-      budget: { monthly_usd: 20, spent_this_month: 0.25, remaining_this_month: 19.75, you: 'unit:t-x1', spent_by_you: 0.25, your_remaining_usd: 0.75 },
+      budget: {
+        monthly_usd: 20, spent_this_month: 0.25, remaining_this_month: 19.75, you: 'unit:t-x1', spent_by_you: 0.25,
+        your_grant_usd: 2, your_grant_remaining_usd: 1.75, approval: 'USD 2 by the player (approved budget in the Deploy dialog)', your_remaining_usd: 0.75
+      },
       recipes: [{ id: 'icon', endpoint: 'fal-ai/test/model', save_to: 'image', folder: 'Assets/Gen' }],
       providers: { codex: true }
     })
@@ -421,6 +509,7 @@ describe('codex-image.mjs', () => {
   })
 
   it('runs by default in a world with no config or a config that does not mention Codex', async () => {
+    // Codex images are not a spend: no grant, no question (this unit has none)
     const { codexHome, env } = setup()
     const world = makeWorld()
     const noConfig = await runNode(CODEX_IMAGE, ['--world', world, '--prompt', 'a', '--out', path.join(world, 'a.png')], env)

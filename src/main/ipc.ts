@@ -299,7 +299,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     uthanaWorldConfig: (world, config) => ctx().uthana.saveWorldConfig(world, config),
 
     // ---- comms
-    approveGeneration: (wksp, run) => agentGeneration(ctx()).approve(run, wksp, 'Approved this exact quote in chat'),
+    approveGeneration: (wksp, run) => agentGeneration(ctx()).approve(run, wksp, 'Approved this exact quote in chat', 'genio', 'card'),
     chatHistory: (wksp, limit) => ctx().home(wksp).wksp.history(limit),
     sendChat: (wksp, text, images, context) => { refuseShellText(text); return sendPlayerChat(ctx(), wksp, text, images, context) },
     unqueueChat: async (wksp, id) => ctx().home(wksp).wksp.unqueue(id),
@@ -313,7 +313,8 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     save: () => ctx().main.wksp.send('/save', 'player'),
 
     // ---- squad
-    spawnTask: (req) => ctx().home(req.wksp ?? 'main').crew.spawn(req),
+    // A budget typed into the Deploy dialog is the player's own approval; nothing else from the renderer is.
+    spawnTask: (req) => ctx().home(req.wksp ?? 'main').crew.spawn({ ...req, approvedBudget: req.approvedBudget ? { usd: Number(req.approvedBudget.usd), via: 'dialog' } : undefined }),
     previewLoadout: async (req) => resolveLoadout(req, ctx().settings, ctx().dispatch.signals(req.project, { preview: true })),
     rateTask: async (id, verdict, note) => ctx().dispatch.rate(id, verdict, note),
     dispatchScores: async () => ctx().dispatch.scores(),

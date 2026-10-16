@@ -471,11 +471,26 @@ describe('Generator', () => {
     expect(t.modeller).toBeUndefined()
     const brief = fs.readFileSync(t.briefPath, 'utf8')
     expect(brief).toContain('# Generator')
-    expect(brief).toContain('Spend cap: USD 0.50')
+    // no default budget: a paid call waits for the player's approval
+    expect(brief).toContain('there is no default budget')
+    expect(brief).toContain('You start with no spend grant (USD 0).')
+    expect(brief).not.toContain('USD 0.50')
+    expect(fs.existsSync(path.join(home.taskDir(t.id), 'spend-grant.json'))).toBe(false)
     expect(brief).toContain('`Assets/Audio/door.wav`')
     expect(brief).toContain('--engine web')
     expect(brief).not.toContain('# Modeller')
     expect(brief).not.toContain('Modeller delivery')
+  })
+
+  it("records the Deploy dialog's approved budget as the unit's signed grant before it launches", async () => {
+    modellerWorld()
+    ;(ctx as any).ledger = { record: () => undefined }
+    const t = await ctx.main.crew.spawn({ project: 'world', kind: 'ship', title: 'Door sounds', intent: 'a door creak', generator: true, approvedBudget: { usd: 0.5, via: 'dialog' } })
+    expect(fs.readFileSync(t.briefPath, 'utf8')).toContain('The player approved USD 0.50 for you at deploy: that is your spend grant.')
+    const { readGrant } = await import('../resources/unit-skills/genio/lib/spend-grant.mjs')
+    const { grantEnv } = await import('../src/main/spend-grants')
+    expect(readGrant({ ...grantEnv(home.data, home.taskDir(t.id)), GENIO_TASK_ID: t.id })).toMatchObject({ ok: true, total_usd: 0.5, grants: [{ usd: 0.5, by: 'player', how: 'approved budget in the Deploy dialog' }] })
+    expect(fs.readFileSync(home.statusFile(t.id), 'utf8')).toMatch(/note \[key=spend\][^:]*: spend grant from the player: USD 0\.50 \(approved budget in the Deploy dialog\)/)
   })
 
   it('deploy and quest_add carry the flag on Builds only and never with the Modeller flag', async () => {
