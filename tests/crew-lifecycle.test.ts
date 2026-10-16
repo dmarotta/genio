@@ -335,7 +335,7 @@ describe('per-launch premium approval', () => {
   function world() {
     ctx.projects.get = vi.fn(() => ({ name: 'world', path: task.worktree, defaultBranch: 'main', engine: 'other' }) as any)
     ctx.projects.resolvePosture = vi.fn(() => ({ mode: 'local-only' as const, yolo: true, branchPrefix: 'genio/' }))
-    ctx.main.backlog = { get: () => ({ id: 'quest' }), add: () => ({ id: 'quest' }), update: vi.fn(), markInFlight: vi.fn() } as any
+    ctx.main.backlog = { get: () => ({ id: 'quest' }), add: () => ({ id: 'quest' }), update: vi.fn(), markInFlight: vi.fn(), unresolved: () => [] } as any
     ctx.dispatch.reportWords = () => 400
     ctx.dispatch.usagePercent = () => undefined
   }

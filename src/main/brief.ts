@@ -19,6 +19,8 @@ export interface BriefInput {
   yolo?: boolean
   intent: string
   spec?: string
+  /** A plan step's handoff note: the plan, this step's acceptance, and what landed before it */
+  planContext?: string
   statusFile: string
   inboxDir: string
   taskDataDir: string
@@ -172,6 +174,12 @@ export function renderBrief(i: BriefInput): string {
   out.push('## Genio spec')
   out.push('')
   out.push(i.spec?.trim() || 'No extra build instructions. Deliver exactly the intent above; anything beyond it is out of scope.')
+  if (i.planContext?.trim()) {
+    out.push('')
+    out.push('## Plan context')
+    out.push('')
+    out.push(i.planContext.trim())
+  }
   if (i.carriedReport) {
     out.push('')
     out.push('## Recon report carried into this build')

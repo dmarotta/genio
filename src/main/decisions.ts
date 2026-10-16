@@ -186,6 +186,9 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
           // "keep going" resumes what the dislike paused; any other answer leaves it paused for Genio
           const owner = safeHome(ctx, d.action.wksp)
           void owner?.reactions?.answered(d, answer).catch(() => undefined)
+        } else if (d.action?.kind === 'plan-paused') {
+          // "resume" and "cancel" act at once; "edit the step first" stays paused for the chat to follow through
+          void safeHome(ctx, home.name)?.plans?.answered(d, answer).catch(() => undefined)
         } else if (d.action && d.action.kind !== 'merge-approval') {
           try {
             ctx.dispatch.answered(d, answer)
@@ -333,6 +336,8 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
           ? 'Genio pins a picked engine root itself in .genio/project.json (uncommitted); deploy nothing. Tell the player to commit it; "Keep detecting automatically" needs nothing.'
           : d.action?.kind === 'merge-approval'
           ? `This was the merge choice for unit ${d.action.task}. If the answer approves it, merge it now with merge(task=${d.action.task}): the answer is the player's approval, no player_words needed. Any other answer: leave it ready and do not merge.`
+          : d.action?.kind === 'plan-paused'
+          ? `This was plan ${d.action.plan}'s pause choice for step "${d.action.step}". "Resume the plan" and "Cancel the plan": Genio already did it; check plan_status and relaunch a failed step's unit if it says so. "Edit the step first" or other words: rewrite the step with plan_update edit_step following the player, then plan_update resume.`
           : d.action?.kind === 'reaction'
           ? 'This asks what is wrong with a Genio message the player disliked. "Keep going": Genio already resumed the paused work; carry on. "Stop this work": keep it stopped: recall the paused units (control exit) and drop the held quests; never despawn or discard work without the player\'s words. "Let me explain" or other words: follow their explanation; nothing paused resumes until it says so.'
           : found && !unitDone

@@ -20,6 +20,10 @@ holds still gate deployment. Project filtering happens before selecting a capped
 batch, so another project's higher-priority rows cannot starve this opening.
 Already attempted failures are also excluded before capping that batch, so a
 failed pinned launch does not hide eligible work behind it.
+A WorkPlan step launches from its stored spec, loadout and handoff note, never
+from the quest notes, and a paused plan's steps stay queued. A queued quest
+whose work another quest or unit already covers (same title, done, in flight or
+delivered) is flagged as a duplicate instead of started.
 This opening reconciliation resumes queued authorized work independently of the
 routine `autoDispatchQueued` heartbeat preference. Failed/deferred launches are
 reported in the recap and do not cause duplicate dispatch on repeated opens.

@@ -14,8 +14,8 @@ import { standingApprovals } from './standing-approvals'
 import { bus } from './bus'
 import { app, BrowserWindow, dialog, ipcMain, shell, MessageChannelMain } from 'electron'
 import { createExplorerIntegration, explorerCommand } from './explorer'
-import { API_PREFIX, type GenioApi, type WindowList } from '@shared/api'
-import type { Task } from '@shared/types'
+import { API_PREFIX, type GenioApi, type OpResult, type WindowList } from '@shared/api'
+import type { BacklogItem, Task } from '@shared/types'
 import { listAccounts, openAccountSession } from './accounts'
 import { answerChoice, clarifyChoice, applyRecommendations, findDecision, findTask } from './wksp-tools'
 import { resolveLoadout } from './loadout'
@@ -63,6 +63,28 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
   const backlogHome = (id: string): HomeCtx => {
     for (const hc of ctx().homes.values()) if (hc.backlog.get(id)) return hc
     throw new Error(`no quest ${id}`)
+  }
+  /**
+   * The quest page Dispatch button: a quest that waits on unlanded dependencies
+   * is refused, unless the player chose Dispatch anyway. That click is their word
+   * for this one early start, recorded on the quest for the launch to honour.
+   */
+  const dependencyGate = (hc: HomeCtx, id: string, force?: boolean): OpResult | undefined => {
+    const waits = hc.backlog.unresolved(id)
+    if (!waits.length) return undefined
+    if (force) {
+      hc.backlog.update(id, { depsOverride: { at: new Date().toISOString(), via: 'ui-button' } })
+      return undefined
+    }
+    const names = waits.map((d) => [...ctx().homes.values()].map((x) => x.backlog.get(d)).find(Boolean)?.title ?? d)
+    return { ok: false, message: `This quest waits on ${names.map((n) => `"${n}"`).join(', ')}: it starts once ${waits.length > 1 ? 'they land' : 'that lands'}. Use Dispatch anyway to start it now.` }
+  }
+  const dispatchMessage = (hc: HomeCtx, item: BacklogItem, force?: boolean): string => {
+    const step = hc.plans?.stepOf(item.id)
+    const how = step
+      ? `it is step ${step.step.index} of plan ${step.plan.id}: deploy it with quest_id=${item.id}; the plan supplies its spec, loadout and handoff note`
+      : `resolve its posture, write the unit's intent from the quest notes, and deploy it with quest_id=${item.id}`
+    return `Dispatch quest ${item.id} ("${item.title}"${item.project ? ` in ${item.project}` : ''}) now: ${how}.${force ? ' The player chose Dispatch anyway: it starts before the quests it waits on land (Genio recorded their click on the quest).' : ''}${step ? '' : `\nQuest notes: ${item.notes}`}`
   }
 
   const h: Handlers = {
@@ -264,15 +286,14 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     backlogUpdate: (id, patch) => backlogHome(id).backlog.update(id, patch),
     backlogHold: (id, reason, until) => backlogHome(id).backlog.hold(id, reason, until),
     backlogRelease: (id) => backlogHome(id).backlog.release(id),
-    backlogDispatch: async (id) => {
+    backlogDispatch: async (id, force) => {
       const hc = backlogHome(id)
       const item = hc.backlog.get(id)!
       if (item.hold) return { ok: false, message: 'this quest is held for you; release it first' }
+      const waits = dependencyGate(hc, id, force)
+      if (waits) return waits
       // Writing the brief needs judgment: hand the quest to Genio.
-      await hc.wksp.send(
-        `Dispatch quest ${id} ("${item.title}"${item.project ? ` in ${item.project}` : ''}) now: resolve its posture, write the unit's intent from the quest notes, and deploy it with quest_id=${id}.`,
-        'system'
-      )
+      await hc.wksp.send(dispatchMessage(hc, item, force), 'system')
       return { ok: true, message: 'Genio is deploying this quest' }
     },
     backlogRemove: (id) => backlogHome(id).backlog.remove(id),
@@ -442,7 +463,9 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
             const quest = backlogHome(String(args[0])).backlog.get(String(args[0]))!
             if (quest.project !== binding.project) throw new Error('Quest is outside this project.')
             if (quest.hold) return { ok: false, message: 'Release this quest first.' }
-            await ctx().home(binding.wksp).wksp.send(`Dispatch quest ${quest.id} (${quest.title}): ${quest.notes}`, 'system')
+            const waits = dependencyGate(backlogHome(quest.id), quest.id, Boolean(args[1]))
+            if (waits) return waits
+            await ctx().home(binding.wksp).wksp.send(dispatchMessage(backlogHome(quest.id), quest, Boolean(args[1])), 'system')
             return { ok: true, message: 'Sent to project chat.' }
           }
           if (method === 'backlogReorder') {

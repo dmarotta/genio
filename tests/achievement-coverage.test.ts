@@ -19,7 +19,7 @@ const SUPPORTING_TOOLS = [
   'fal_models', 'approve_run', 'generation_status',
   'fleet_view', 'unit_state', 'read_task_file', 'terminal_tail', 'ping', 'control',
   'despawn', 'upgrade_recon', 'quest_list', 'quest_update', 'quest_hold', 'quest_release',
-  'quest_remove', 'choice_open', 'choice_resolve', 'choice_list', 'world_list',
+  'quest_remove', 'plan_create', 'plan_update', 'plan_status', 'choice_open', 'choice_resolve', 'choice_list', 'world_list',
   'world_posture', 'world_update', 'world_engine_root', 'world_remove', 'world_sync', 'status_report',
   'memory_read', 'memory_report', 'memory_archive', 'mail_list', 'mail_ack', 'mail_reply',
   'dispatch_profiles', 'toolchain_check', 'presence_set', 'ally_list', 'ally_route',

@@ -36,6 +36,7 @@ import { formatStatusLine } from './status'
 import { settingsPath } from '@shared/settings-pages'
 import { declareEngineRoot, projectEngineSummary } from './engine-facts'
 import { choiceGroup, choiceRevision, recommendationAnswer, type RecommendationReview, type RecommendationResult } from '@shared/choice'
+import type { PlanStepInput, PlanUpdateOp } from './plans'
 
 export type ToolRole = 'genio' | 'ally' | 'bot'
 
@@ -372,7 +373,7 @@ export function createToolRegistry(
 
   t(
     'deploy',
-    'Deploy a unit on a Build (kind=ship: produces a change) or Recon (kind=scout: produces a report) mission in an isolated copy of a project. intent = the player\'s own words (no speaker labels); spec = only the build instructions the ask requires. category = what kind of work it is (drives the category table). mode/auto_loot default to the project posture (resolve with world_posture first). Files a quest automatically unless quest_id is given. Omit harness/model/effort to let the loadout picker choose (rules, the Usage mode, category table, quota protection, learning); preview it with loadout_preview.',
+    'Deploy a unit on a Build (kind=ship: produces a change) or Recon (kind=scout: produces a report) mission in an isolated copy of a project. intent = the player\'s own words (no speaker labels); spec = only the build instructions the ask requires. category = what kind of work it is (drives the category table). mode/auto_loot default to the project posture (resolve with world_posture first). Files a quest automatically unless quest_id is given. Omit harness/model/effort to let the loadout picker choose (rules, the Usage mode, category table, quota protection, learning); preview it with loadout_preview. A quest_id that waits on unlanded dependencies (depends_on) is refused: it starts once they land (plan steps start by themselves). force=true starts it anyway and REQUIRES player_words quoting, verbatim, the player\'s own message that says to start it before what it waits on. A plan step deployed by quest_id gets its stored step spec and loadout unless you pass them.',
     {
       kind: z.enum(['ship', 'scout']),
       world: z.string(),
@@ -386,17 +387,28 @@ export function createToolRegistry(
       harness: z.string().optional(),
       model: z.string().optional(),
       effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
-      quest_id: z.string().optional()
+      quest_id: z.string().optional(),
+      force: z.boolean().default(false),
+      player_words: z.string().trim().min(1).optional()
     },
     async (a) => {
       if (/^\s*(captain|player|boss)\b[:,]/i.test(a.intent)) return fail('intent must be the player\'s words without a speaker label or direct address')
       const held = a.quest_id ? questHeld(a.quest_id) : undefined
       if (held) return fail(`deploy refused: quest ${a.quest_id} is ${held}`)
+      if (a.force) {
+        if (role === 'bot') return fail('deploy refused: starting work before its dependencies land waits for the player')
+        if (!a.quest_id) return fail('force only applies to a quest_id that waits on dependencies')
+        const no = unheard('early start', a.player_words, 'early-start', { what: 'this quest' })
+        if (no) return fail(no)
+      }
       try {
         const owner = a.quest_id ? questHome(a.quest_id) : hc()
+        // a plan step keeps its stored spec, loadout and handoff note; explicit arguments win
+        const step = a.quest_id ? owner.plans?.spawnRequest(a.quest_id) : undefined
         const task = await owner.crew.spawn({
-          kind: a.kind, project: a.world, title: a.title, intent: a.intent, spec: a.spec, mode: a.mode, yolo: a.auto_loot,
-          baseBranch: a.base_branch, harness: a.harness, model: a.model, effort: a.effort, category: a.category, backlogId: a.quest_id, wksp: owner.home.name
+          kind: a.kind, project: a.world, title: a.title, intent: a.intent, spec: a.spec ?? step?.spec, mode: a.mode, yolo: a.auto_loot,
+          baseBranch: a.base_branch, harness: a.harness ?? step?.harness, model: a.model ?? step?.model, effort: a.effort ?? step?.effort,
+          category: a.category ?? step?.category, backlogId: a.quest_id, wksp: owner.home.name, planContext: step?.planContext, force: a.force
         })
         did('units', task.id)
         did('quests', task.backlogId)
@@ -536,14 +548,14 @@ export function createToolRegistry(
 
   t(
     'quest_add',
-    'File a quest (work item). kind: ship (Build), scout (Recon), choice (a decision waiting for the player). Programs are retired: kind=program files no quest and returns a label; put it in tags on the related quests.',
+    'File a quest (work item). kind: ship (Build), scout (Recon), choice (a decision waiting for the player). Whenever this work needs another quest to land first, ALWAYS pass depends_on: prose in the notes ("after step 1") is invisible to Genio, and a restart starts every queued quest without recorded dependencies at once. For 2 or more units in a set order, prefer plan_create. Programs are retired: kind=program files no quest and returns a label; put it in tags on the related quests.',
     {
       title: z.string().min(3),
       world: z.string().optional(),
       kind: z.enum(['ship', 'scout', 'choice', 'program']).default('ship'),
       notes: z.string().default(''),
       priority: z.enum(['low', 'normal', 'high', 'critical']).default('normal'),
-      depends_on: z.array(z.string()).default([]),
+      depends_on: z.array(z.string()).default([]).describe('Quest ids that must land (merged Build, delivered Recon) before this quest may start. Genio never starts it before then, on any path (deploy, Dispatch, restart), unless the player says so.'),
       not_before: z.string().optional(),
       tags: z.array(z.string()).default([])
     },
@@ -564,7 +576,8 @@ export function createToolRegistry(
     {
       id: z.string(), title: z.string().optional(), notes: z.string().optional(),
       priority: z.enum(['low', 'normal', 'high', 'critical']).optional(), rank: z.number().int().min(1).optional(),
-      depends_on: z.array(z.string()).optional(), tags: z.array(z.string()).optional(),
+      depends_on: z.array(z.string()).optional().describe('Replaces the quest ids that must land before this quest may start (see quest_add). A plan step\'s order changes with plan_update instead.'),
+      tags: z.array(z.string()).optional(),
       world: z.string().optional(), not_before: z.string().optional(), duplicate_of: z.string().optional(),
       state: z.enum(['queued', 'blocked', 'dropped', 'held']).optional()
     },
@@ -614,6 +627,110 @@ export function createToolRegistry(
     questHome(id).backlog.remove(id)
     return ok(`quest ${id} removed`)
   })
+
+  // ------------------------------------------------------------ plans
+  /** The base holding a plan: this chat's own, or any base for the main chat. */
+  const planHome = (id: string): HomeCtx => {
+    const owner = home.isMain ? [...getCtx().homes.values()].find(h => h.plans?.get(id)) : hc().plans?.get(id) ? hc() : undefined
+    if (!owner) throw new Error(`no plan with id "${id}" in this chat`)
+    return owner
+  }
+  const stepShape = {
+    title: z.string().min(3),
+    kind: z.enum(['ship', 'scout']).default('ship').describe('ship = a Build that lands a change; scout = a Recon that delivers a report.'),
+    spec: z.string().min(20).describe('The complete Genio spec this step\'s unit receives as its brief, written in full now: it is stored once and used at release, with no second spec at dispatch.'),
+    category: z.enum(CATEGORY_IDS).optional(),
+    harness: z.string().optional(),
+    model: z.string().optional(),
+    effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
+    after: z.array(z.string()).default([]).describe('Keys of the steps that must MERGE (a Recon: deliver) before this step starts. Serial by default: name the previous step. Leave empty only for steps that may start at once.'),
+    files: z.array(z.string()).default([]).describe('Files or globs this step is expected to touch that other steps also touch (handoff and rebase hints).'),
+    acceptance: z.string().min(5).describe('One line: how we know this step is done.')
+  }
+  const planStep = z.object({ key: z.string().min(1).max(40).describe('Short unique step id (e.g. "core", "ui"); other steps name it in after.'), ...stepShape })
+  const stepInput = (s: z.infer<typeof planStep>): PlanStepInput => ({
+    key: s.key, title: s.title, kind: s.kind, spec: s.spec, category: s.category, harness: s.harness, model: s.model, effort: s.effort,
+    after: s.after, files: s.files, acceptance: s.acceptance
+  })
+
+  t(
+    'plan_create',
+    'File a plan: work that needs 2 or more units in a set order (a Recon proposed builds, several subsystems, or more than about an hour of unit work). Each step becomes a quest whose dependencies mirror its after; Genio starts each step by itself, from its stored spec and loadout plus a handoff note on what landed, once every step it comes after has MERGED. Merges still need the usual approval: the plan waits at an unapproved merge. A discarded or failed step pauses the plan and asks the player (resume, edit or cancel). Serial by default; mark steps parallel only when they share no API and few files. Refuses a duplicate of an active plan. Returns the plan id, step quest ids and a one-line announcement to post once.',
+    {
+      world: z.string(),
+      title: z.string().min(3),
+      intent: z.string().min(3).describe('The player\'s own words that asked for this work (no speaker label): the intent of every step\'s brief.'),
+      goal: z.string().optional().describe('One or two lines on what the whole plan achieves.'),
+      auto_advance: z.boolean().default(true).describe('Start each next step by itself when its prerequisites merge (default). false: steps start only when deployed.'),
+      max_parallel: z.number().int().min(1).max(3).default(2).describe('Steps of this plan working at once.'),
+      start: z.boolean().default(true).describe('true when the player already asked for the work: the first steps start now. false files the plan paused until plan_update resume (a plan the player has not asked for yet).'),
+      steps: z.array(planStep).min(1).max(20)
+    },
+    async (a) => {
+      const r = await hc().plans.create({
+        world: a.world, title: a.title, intent: a.intent, goal: a.goal, autoAdvance: a.auto_advance, maxParallel: a.max_parallel,
+        start: role === 'bot' ? false : a.start, steps: a.steps.map(stepInput)
+      })
+      for (const s of r.plan.steps) did('quests', s.questId)
+      for (const line of r.released) {
+        const unit = line.match(/ started as (\S+)$/)?.[1]
+        if (unit) did('units', unit)
+      }
+      return ok(json({
+        plan_id: r.plan.id, state: r.plan.state,
+        steps: r.plan.steps.map(s => ({ key: s.key, index: s.index, title: s.title, quest_id: s.questId, after: s.after })),
+        released: r.released, announcement: r.announcement
+      }))
+    }
+  )
+
+  t(
+    'plan_update',
+    'The only way to change a plan\'s steps (never rewrite step quests with quest_update). op: edit_step (step + patch; only a step not started yet), add_step (new_step), remove_step (step; not started yet; the steps after it inherit its prerequisites), reorder (order = every step key, prerequisites first), pause (no new step starts; running units keep running), resume (after a discarded or failed step: queues it again and carries on), cancel (drops the steps not started; nothing landed is undone), settings (auto_advance, max_parallel).',
+    {
+      plan_id: z.string(),
+      op: z.enum(['edit_step', 'add_step', 'remove_step', 'reorder', 'pause', 'resume', 'cancel', 'settings']),
+      step: z.string().optional().describe('The step key for edit_step and remove_step.'),
+      patch: z.object(stepShape).partial().optional().describe('edit_step: only the fields that change.'),
+      new_step: planStep.optional().describe('add_step: the complete new step.'),
+      order: z.array(z.string()).optional().describe('reorder: every step key, prerequisites first.'),
+      reason: z.string().optional().describe('pause: why, in one line.'),
+      auto_advance: z.boolean().optional(),
+      max_parallel: z.number().int().min(1).max(3).optional()
+    },
+    async (a) => {
+      if (role === 'bot' && a.op !== 'pause') return fail('plan changes wait for the player; the Bot may only pause a plan')
+      const need = <T>(v: T | undefined, what: string): T => {
+        if (v === undefined) throw new Error(`${a.op} needs ${what}`)
+        return v
+      }
+      const op: PlanUpdateOp =
+        a.op === 'edit_step' ? { op: 'edit_step', step: need(a.step, 'step'), patch: need(a.patch, 'patch') }
+          : a.op === 'add_step' ? { op: 'add_step', step: stepInput(need(a.new_step, 'new_step')) }
+            : a.op === 'remove_step' ? { op: 'remove_step', step: need(a.step, 'step') }
+              : a.op === 'reorder' ? { op: 'reorder', order: need(a.order, 'order') }
+                : a.op === 'pause' ? { op: 'pause', reason: a.reason }
+                  : a.op === 'settings' ? { op: 'settings', autoAdvance: a.auto_advance, maxParallel: a.max_parallel }
+                    : { op: a.op }
+      const owner = planHome(a.plan_id)
+      const r = await owner.plans.update(a.plan_id, op)
+      return ok(`${r.message}\n${json(owner.plans.view(a.plan_id))}`)
+    }
+  )
+
+  t(
+    'plan_status',
+    'Plans and their steps: each step\'s state (waiting, queued, in-flight, ready, merged, blocked, discarded) derived from its quest and unit, the steps Genio starts next, what blocks the plan, and the landed commits. plan_id for one plan; otherwise every active or paused plan (include_done adds finished and cancelled ones).',
+    { plan_id: z.string().optional(), include_done: z.boolean().default(false) },
+    async ({ plan_id, include_done }) => {
+      if (plan_id) return ok(json(planHome(plan_id).plans.view(plan_id)))
+      const homes = home.isMain ? [...getCtx().homes.values()] : [hc()]
+      const views = homes.flatMap(h => (h.plans?.list() ?? [])
+        .filter(p => include_done || p.state === 'active' || p.state === 'paused')
+        .map(p => h.plans.view(p.id)))
+      return ok(views.length ? json(views) : 'no plans')
+    }
+  )
 
   // ------------------------------------------------------------ choices
   t(

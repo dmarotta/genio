@@ -10,6 +10,7 @@ import { createBacklogService } from '../src/main/backlog'
 import { createDecisionService } from '../src/main/decisions'
 import { createWakeService } from '../src/main/wakes'
 import { createSupervisor } from '../src/main/supervisor'
+import { createPlanService } from '../src/main/plans'
 import { ensureProjectBase, startProjectBase, stopProjectBase } from '../src/main/ctx'
 import { BUILTIN_HARNESSES } from '../src/main/harness'
 import type { AppCtx, HomeCtx } from '../src/main/services'
@@ -45,6 +46,7 @@ beforeEach(() => {
     base.decisions = createDecisionService(() => ctx, base.home)
     base.wakes = createWakeService(() => ctx, base.home)
     base.supervisor = createSupervisor(() => ctx, base.home)
+    base.plans = createPlanService(() => ctx, base.home)
   }
 })
 afterEach(() => {
@@ -232,6 +234,70 @@ describe('project window startup reconciliation', () => {
     expect(hc.backlog.get('q-landed')?.state).toBe('done')
     expect(hc.crew.get('landed-late')?.state).toBe('merged')
     expect(ctx.terminals.create).not.toHaveBeenCalled()
+  })
+
+  it('replays the 10-14 restart: only work whose prerequisites landed starts, from its step spec; the rest starts when they merge', async () => {
+    cap = 4
+    vi.spyOn(ctx.projects, 'get').mockReturnValue({ name: 'world', path: root, capacity: 4, gitRepo: true } as never)
+    const spec = (s: string) => `Implement ${s} as the Recon describes, with tests.`
+    const steps = (keys: [string, string[]][]) => keys.map(([key, after]) => ({ key, title: key, spec: spec(key), after, acceptance: `${key} passes its tests` }))
+    // CLI 1 → {CLI 2, CLI 3}; Fast copies 4 → 5, with 4 also waiting on the slots change (another quest)
+    const cli = (await hc.plans.create({ world: 'world', title: 'Unity CLI', intent: 'add the genio-unity CLI', start: false, steps: steps([['cli1', []], ['cli2', ['cli1']], ['cli3', ['cli1']]]) })).plan
+    const fc = (await hc.plans.create({ world: 'world', title: 'Fast copies', intent: 'make Unity copies fast', start: false, steps: steps([['fc4', []], ['fc5', ['fc4']]]) })).plan
+    const quest = (p: typeof cli, key: string) => p.steps.find(s => s.key === key)!.questId
+    hc.backlog.add({ id: 'slots', title: 'Unity slots settings', project: 'world' })
+    hc.backlog.markInFlight('slots', 'slots-unit')
+    hc.backlog.update(quest(fc, 'fc4'), { dependsOn: ['slots'] })
+    // CLI 1 was in flight when Genio went down
+    unit('cli1-unit')
+    hc.crew.update('cli1-unit', { backlogId: quest(cli, 'cli1') })
+    hc.backlog.markInFlight(quest(cli, 'cli1'), 'cli1-unit')
+    const originalList = hc.crew.list.bind(hc.crew)
+    vi.spyOn(hc.crew, 'list').mockImplementation(() => [...originalList(), ...extra])
+    let windowOpen = false
+    const spawn = vi.spyOn(hc.crew, 'spawn').mockImplementation(async req => {
+      if (!windowOpen) throw new Error('Open the project window before starting units.')
+      if (hc.backlog.get(req.backlogId!)?.state === 'in-flight') throw new Error('already in flight')
+      if (hc.backlog.unresolved(req.backlogId!).length) throw new Error('waits on its dependencies')
+      const terminal = ctx.terminals.create({} as never)
+      const task = { id: `task-${req.backlogId}`, title: req.title, project: req.project, state: 'working', terminalId: terminal.id, backlogId: req.backlogId } as Task
+      extra.push(task); hc.backlog.markInFlight(req.backlogId!, task.id); return task
+    })
+    // the slots change landed while Genio was down; the plans' own drain cannot start anything with the window closed
+    hc.backlog.markDone('slots', 'landed')
+    await hc.plans.update(cli.id, { op: 'resume' })
+    await hc.plans.update(fc.id, { op: 'resume' })
+    await hc.plans.idle()
+    spawn.mockClear()
+    windowOpen = true
+    await open()
+    await hc.plans.idle()
+    // the incident started CLI 2, CLI 3, FC 4 and FC 5 in 4 s; now only FC 4 may start
+    expect(hc.crew.get('cli1-unit')?.state).toBe('working')
+    expect(spawn.mock.calls.map(([r]) => r.title)).toEqual(['fc4'])
+    expect(spawn.mock.calls[0][0]).toMatchObject({ spec: spec('fc4'), intent: 'make Unity copies fast', planContext: expect.stringContaining('step 1/2 "fc4"') })
+    expect(hc.wksp.wakeProject).toHaveBeenCalledWith(expect.stringContaining(`(plan ${fc.id} step fc4)`))
+    // CLI 1 merges: both CLI steps after it start by themselves, with the handoff note
+    hc.crew.update('cli1-unit', { state: 'merged', landedAt: new Date().toISOString(), landedCommit: 'f404066aaaaaaaaa' })
+    await hc.plans.idle()
+    expect(spawn.mock.calls.map(([r]) => r.title)).toEqual(['fc4', 'cli2', 'cli3'])
+    expect(spawn.mock.calls[1][0].planContext).toContain('- Step 1 "cli1": commit f404066aaaaa')
+    expect(hc.backlog.get(quest(fc, 'fc5'))?.state).toBe('queued')
+  })
+
+  it('never restarts a queued quest whose work another quest or unit already delivered (10-13 duplicate Recons)', async () => {
+    const delivered = unit('recon-delivered', 'done')
+    hc.backlog.add({ id: 'twin', title: 'Why unit status pops', project: 'world', kind: 'scout' })
+    hc.backlog.update('twin', { duplicateOf: '' })
+    hc.backlog.add({ id: 'orig', title: 'Why unit status pops', project: 'world', kind: 'scout', state: 'done' })
+    hc.backlog.add({ id: 'by-unit', title: 'Audit the slot pool', project: 'world', kind: 'scout' })
+    hc.crew.update(delivered.id, { title: 'Audit the slot pool', kind: 'scout', createdAt: new Date(Date.now() + 1000).toISOString() })
+    const spawn = vi.spyOn(hc.crew, 'spawn')
+    await open()
+    expect(spawn).not.toHaveBeenCalled()
+    expect(hc.backlog.get('twin')).toMatchObject({ state: 'queued', duplicateOf: 'orig' })
+    expect(hc.backlog.get('by-unit')?.duplicateOf).toBe('recon-delivered')
+    expect(hc.wksp.wakeProject).toHaveBeenCalledWith(expect.stringContaining('Quest twin: not started, already handled by quest orig (done)'))
   })
 
   it('always wakes an empty project and scopes landed history to the previous visit', async () => {

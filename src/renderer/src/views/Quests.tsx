@@ -435,6 +435,9 @@ function QuestDetails({ item, chips, onClose }: { item: BacklogItem; chips: Queu
   const [deps, setDeps] = useState<string[]>(item.dependsOn)
   const [notBefore, setNotBefore] = useState(dateInput(item.notBefore))
   const [confirmDel, setConfirmDel] = useState(false)
+  const [confirmEarly, setConfirmEarly] = useState(false)
+  // a quest that waits on unlanded work starts only on an explicit second click
+  const waitsOn = chips.find((c) => c.kind === 'depends')
   const units = tasks.filter((t) => t.backlogId === item.id || t.id === item.taskId).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   const dup = item.duplicateOf ? all.find((b) => b.id === item.duplicateOf) : undefined
   const closed = item.state === 'done' || item.state === 'dropped'
@@ -476,11 +479,16 @@ function QuestDetails({ item, chips, onClose }: { item: BacklogItem; chips: Queu
               <RotateCcw size={13} /> Re-queue
             </button>
           )}
-          {(item.state === 'queued' || item.state === 'blocked') && !item.hold && (
-            <button className="btn volt" onClick={() => void op('Dispatch', () => api().backlogDispatch(item.id)).then((r) => r?.ok && onClose())}>
-              <Play size={13} /> Dispatch
+          {(item.state === 'queued' || item.state === 'blocked') && !item.hold && (waitsOn && !confirmEarly ? (
+            <button className="btn ghost" title={`${waitsOn.title ?? waitsOn.label}\nIt starts by itself once that lands.`} onClick={() => setConfirmEarly(true)}>
+              <Play size={13} /> Dispatch anyway…
             </button>
-          )}
+          ) : (
+            <button className="btn volt" title={waitsOn ? 'Start it now, before what it waits on lands' : undefined}
+              onClick={() => void op('Dispatch', () => api().backlogDispatch(item.id, Boolean(waitsOn))).then((r) => r?.ok && onClose())}>
+              <Play size={13} /> {waitsOn ? 'Start before it lands' : 'Dispatch'}
+            </button>
+          ))}
           <button className="btn solid" onClick={() => void save()}>
             Save
           </button>

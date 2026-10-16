@@ -177,6 +177,11 @@ export async function diffStat(dir: string, base: string): Promise<string> {
   return out(dir, ['diff', '--stat', `${base}...HEAD`])
 }
 
+/** Files a branch changed since it forked from base (empty when either ref is unknown). */
+export async function changedFiles(repo: string, base: string, branch: string): Promise<string[]> {
+  return (await out(repo, ['diff', '--name-only', `${base}...${branch}`])).split(/\r?\n/).map((f) => f.trim()).filter(Boolean)
+}
+
 export async function diff(dir: string, base: string, maxBytes = 400_000): Promise<string> {
   const r = await git(dir, ['diff', `${base}...HEAD`])
   const unstaged = await git(dir, ['diff', 'HEAD'])

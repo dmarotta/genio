@@ -15,6 +15,7 @@
  *   supervisor.ts   createSupervisor(getCtx, home)
  *   wksp.ts         createWkspService(getCtx, home, ally?)
  *   reactions.ts    createReactionService(getCtx, home)
+ *   plans.ts        createPlanService(getCtx, home)
  *   away.ts         createAwayService(getCtx)
  *   notifier.ts     createNotifierService(getCtx)
  *   inbox.ts        createInboxService(getCtx)
@@ -44,6 +45,7 @@ import { createToolchainService } from './toolchain'
 import { createForgeService } from './forge'
 import { createCrewService } from './crew'
 import { createBacklogService } from './backlog'
+import { createPlanService } from './plans'
 import { createDecisionService } from './decisions'
 import { createWakeService } from './wakes'
 import { createSupervisor } from './supervisor'
@@ -112,7 +114,8 @@ export function makeHomeCtx(home: Home, ally?: Ally): HomeCtx {
     wakes: createWakeService(getCtx, home),
     supervisor: createSupervisor(getCtx, home),
     wksp: createWkspService(getCtx, home, ally, home.isMain, () => !!ally?.projects.some(p => openProjects.get(getCtx())?.has(p))),
-    reactions: createReactionService(getCtx, home)
+    reactions: createReactionService(getCtx, home),
+    plans: createPlanService(getCtx, home)
   }
   // Guard service calls as well as buttons: chat tools and queued quests also spawn units.
   const spawn = hc.crew.spawn

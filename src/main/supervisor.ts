@@ -640,10 +640,10 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
       /* no decisions */
     }
 
-    // quests ready to deploy
+    // quests ready to deploy (a plan's steps start by themselves)
     let dispatchable: { id: string; title: string; project?: string; kind: string }[] = []
     try {
-      dispatchable = hc().backlog.dispatchable()
+      dispatchable = hc().backlog.dispatchable().filter((q) => !q.planId)
     } catch {
       dispatchable = []
     }
@@ -722,6 +722,8 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
         step('idle-close', () => stepIdleClose(hc().crew.get(t0.id) ?? t, tr, now))
       }
       step('triggers', () => stepTriggers(now, s))
+      // capacity or quota may have freed: plan steps waiting for a place start now, without a model turn
+      step('plans', () => void hc().plans?.drain().catch(() => undefined))
       step('tick', () => stepTick(now, s))
     } finally {
       running = false

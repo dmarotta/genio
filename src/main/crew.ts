@@ -70,6 +70,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
   const bypassWarned = new Set<string>()
   const controlling = new Set<string>()
   const restarting = new Set<string>()
+  /** quests whose unit is being prepared: a second start path must not launch them twice */
+  const launching = new Set<string>()
 
   const persist = (): void => writeJson(home.tasksFile, tasks)
   const hc = () => getCtx().home(home.name)
@@ -121,6 +123,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       if (ENDED.includes(next.state) && (next.state !== 'failed' || launched)) safe(() => getCtx().dispatch.record(next))
       // the quest follows its unit: landed, delivered or despawned closes it
       if (next.backlogId) safe(() => hc().backlog.followUnit(next))
+      // a landed plan step releases the steps after it; a discarded or failed one pauses its plan
+      safe(() => hc().plans?.followUnit(next))
     }
     return next
   }
@@ -541,6 +545,16 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         if (b.state === 'in-flight' && b.taskId && get(b.taskId) && get(b.taskId)!.state !== 'cleaned') {
           throw new Error(`Quest ${backlogId} is already in flight as ${b.taskId}.`)
         }
+        if (launching.has(backlogId)) throw new Error(`Quest ${backlogId} is already starting.`)
+        // every start path: a quest never starts before what it waits on landed, unless the player said so
+        const waits = backlog.unresolved(backlogId)
+        if (waits.length && !req.force && !b.depsOverride) {
+          const names = waits.map((d) => {
+            const dep = [...ctx.homes.values()].map((h) => h.backlog.get(d)).find(Boolean)
+            return dep ? `${d} "${truncate(dep.title, 80)}" (${dep.state})` : `${d} (missing)`
+          })
+          throw new Error(`Quest ${backlogId} waits on ${names.join(', ')}: it starts once ${waits.length > 1 ? 'they land' : 'that lands'}. Start it early only on the player's explicit word.`)
+        }
       } else {
         const b = backlog.add({
           title: req.title,
@@ -561,7 +575,14 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         priority: quest?.priority,
         sticky: prev ? { from: prev.id, harness: prev.harness, model: prev.model, effort: prev.effort, category: prev.category } : undefined
       }
-      const reservation = await ctx.dispatch.reserve(pickInput)
+      launching.add(backlogId!)
+      let reservation: Awaited<ReturnType<typeof ctx.dispatch.reserve>>
+      try {
+        reservation = await ctx.dispatch.reserve(pickInput)
+      } catch (e) {
+        launching.delete(backlogId!)
+        throw e
+      }
       const loadout = reservation.loadout
       try {
         const id = uniqueId(req.title)
@@ -601,6 +622,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
             yolo: posture.yolo,
             intent: req.intent,
             spec: req.spec,
+            planContext: req.planContext,
             statusFile: home.statusFile(id),
             inboxDir: inboxDir(id),
             taskDataDir: home.taskDir(id),
@@ -668,6 +690,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         safe(() => ctx.notifier.sfx('spawn'))
         return get(id)!
       } finally {
+        launching.delete(backlogId!)
         reservation.release()
       }
     },
@@ -900,7 +923,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         await git.deleteBranch(repo, t.branch, t.kind === 'scout' || force)
       }
       // update() closes the quest this unit was flying (followUnit); a re-queued follow-up stays queued
-      update(id, { state: 'cleaned', cleanedAt: nowIso(), terminalId: undefined, stateReason: `despawned: ${via}` })
+      const discarded = via === 'forced' || via === 'forced by the player' || via === 'recon ended without a report'
+      update(id, { state: 'cleaned', cleanedAt: nowIso(), terminalId: undefined, stateReason: `despawned: ${via}`, ...(discarded ? { discarded } : {}) })
       sourceRemoved(t.worktree)
       ledger('task.cleaned_up', t, { via })
       safe(() => ctx.stats.award('cleanup', id))
@@ -925,6 +949,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       let result: OpResult
       let mergeVia: 'pr' | 'local'
       let landedCommit: string | undefined
+      // what the branch changed, read while it still exists: the next plan step's handoff note
+      const landedFiles = (await git.changedFiles(project.path, t.baseBranch, t.branch).catch(() => [] as string[])).slice(0, 200)
       if (t.pr?.url) {
         mergeVia = 'pr'
         result = await ctx.forge.merge(t.pr.url, (await git.isWorktreeOf(project.path, t.worktree)) ? t.worktree : project.path)
@@ -938,7 +964,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         return { ok: false, message: `${id} has no registered PR to merge yet.` }
       }
       if (!result.ok) return result
-      update(id, { state: 'merged', landedAt: nowIso(), landedCommit, stateReason: mergeVia === 'pr' ? 'PR merged' : `landed in local ${t.baseBranch}`,
+      update(id, { state: 'merged', landedAt: nowIso(), landedCommit, ...(landedFiles.length ? { landedFiles } : {}), stateReason: mergeVia === 'pr' ? 'PR merged' : `landed in local ${t.baseBranch}`,
         pr: t.pr ? { ...t.pr, state: 'MERGED', checkedAt: nowIso() } : undefined, ...(approval ? { mergeApproval: approval } : {}) })
       ledger('task.merged', t, { via: mergeVia, pr: t.pr?.url, ...(approval ? { approval } : {}) })
       safe(() => ctx.stats.award('merge', id))

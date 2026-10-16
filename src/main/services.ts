@@ -374,6 +374,8 @@ export interface BacklogService {
   release(id: string): BacklogItem
   /** items whose deps are Done, time gates passed, not held, capacity free */
   dispatchable(project?: string, exclude?: ReadonlySet<string>): BacklogItem[]
+  /** dependency quest ids of this quest that are not done (missing ones included) */
+  unresolved(id: string): string[]
   /** hold bucket per companion: blocked → dated → aged(14d) → live */
   bucket(item: BacklogItem): 'blocked' | 'dated' | 'aged' | 'live' | 'none'
   markInFlight(id: string, taskId: string): void
@@ -384,6 +386,31 @@ export interface BacklogService {
   followUnit(task: import('@shared/types').Task): void
   /** fix drift: in-flight quests whose unit landed or despawned, and unflagged duplicates; returns what changed */
   reconcile(): string[]
+}
+
+/** WorkPlans (plans.ts): named steps compiled into quests; Genio releases each step when its prerequisites merge. */
+export interface PlanService {
+  list(): import('@shared/types').WorkPlan[]
+  get(id: string): import('@shared/types').WorkPlan | undefined
+  /** validate, file one quest per step and store the plan; start releases the steps that are ready now */
+  create(input: import('./plans').PlanCreateInput): Promise<import('./plans').PlanCreateResult>
+  update(id: string, op: import('./plans').PlanUpdateOp): Promise<import('./plans').PlanUpdateResult>
+  /** the plan as plan_status reports it (shared selector, work-plan.ts) */
+  view(id: string): import('@shared/work-plan').PlanView | undefined
+  /** the plan and step a quest belongs to */
+  stepOf(questId: string): { plan: import('@shared/types').WorkPlan; step: import('@shared/types').PlanStep } | undefined
+  /** the launch for a step's quest: its stored spec and loadout plus the handoff note */
+  spawnRequest(questId: string): SpawnRequest | undefined
+  /** why automatic dispatch must leave this plan step alone (paused plan, auto-advance off, at max parallel) */
+  holds(questId: string): string | undefined
+  /** a unit changed state: a landed step releases the steps after it; a discarded or failed step pauses the plan */
+  followUnit(task: Task): void
+  /** release every startable step of the active plans through the normal cap and quota gates (serialized) */
+  drain(): Promise<string[]>
+  /** the player answered a plan's pause choice */
+  answered(d: Decision, answer: string): Promise<void>
+  /** settles once queued work (landings, drains) is done; tests and shutdown */
+  idle(): Promise<void>
 }
 
 /** Where the player answered a choice: a UI surface (Your Move, Hub, inline card), or typed to a chat. */
@@ -489,6 +516,7 @@ export interface HomeCtx {
   supervisor: SupervisorService
   wksp: WkspService
   reactions: ReactionService
+  plans: PlanService
 }
 
 export interface AppCtx {

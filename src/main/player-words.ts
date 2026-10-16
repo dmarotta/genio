@@ -39,7 +39,8 @@ export const PURPOSES = {
   remote: { needs: 'agree to create the remote repository', intent: /\b(?:github|remote|repo|repository|publish\w*|push\w*)\b/ },
   'auto-loot': { needs: 'turn on Auto-loot', intent: /\bauto[- ]?loot\b|\bmerge\s+(?:finished\s+work\s+)?automatically\b|\bauto[- ]?merg\w*/ },
   'delete-clone': { needs: 'say to delete the clone', intent: /\b(?:delet\w*|remov\w*|wipe\w*|trash\w*)\b/ },
-  choice: { needs: 'answer this choice' }
+  choice: { needs: 'answer this choice' },
+  'early-start': { needs: 'say to start this work before what it waits on lands', intent: /\b(?:now|anyway|already|early|before|without\s+waiting|don'?t\s+wait|do\s+not\s+wait|ignore|skip|in\s+parallel|at\s+the\s+same\s+time|start|deploy|dispatch|launch|go)\b/ }
 } satisfies Record<string, PurposeRule>
 
 export type WordsPurpose = keyof typeof PURPOSES

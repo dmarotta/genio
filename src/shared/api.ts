@@ -34,6 +34,10 @@ export interface SpawnRequest {
   category?: TaskCategory
   backlogId?: string
   wksp?: string
+  /** a plan step's handoff note: becomes "## Plan context" in the brief */
+  planContext?: string
+  /** start the quest although its dependencies have not landed (only on the player's word) */
+  force?: boolean
 }
 
 export interface ProjectAddRequest {
@@ -601,7 +605,8 @@ export interface GenioApi {
   backlogUpdate(id: string, patch: Partial<BacklogItem>): Promise<BacklogItem>
   backlogHold(id: string, reason: string, until?: string): Promise<BacklogItem>
   backlogRelease(id: string): Promise<BacklogItem>
-  backlogDispatch(id: string): Promise<OpResult>
+  /** Refused while the quest waits on unlanded dependencies, unless the player forces it (Dispatch anyway). */
+  backlogDispatch(id: string, force?: boolean): Promise<OpResult>
   backlogRemove(id: string): Promise<void>
   /** persist a manual queue order: each quest's priority band and rank within it */
   backlogReorder(patches: { id: string; priority: Priority; rank: number }[]): Promise<BacklogItem[]>

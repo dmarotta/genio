@@ -213,7 +213,11 @@ export interface Task {
   landedAt?: string
   /** Local fast-forward merges record the landed commit; PR merges keep the PR link. */
   landedCommit?: string
+  /** Files the branch changed against its base, recorded when Genio merged it (a plan step's handoff note). */
+  landedFiles?: string[]
   cleanedAt?: string
+  /** Despawned without landing: the player discarded the work, or a Recon ended without a report. */
+  discarded?: boolean
   /** When the unit first finished (Squad DONE), kept through a later despawn; cleared on respawn. */
   finishedAt?: string
   /** A finished Recon left with no choice or follow-up was surfaced once as needing the player's call. */
@@ -342,6 +346,68 @@ export interface BacklogItem {
   updatedAt: string
   doneAt?: string
   outcome?: string
+  /** a step of this WorkPlan (data/plans.json); dependsOn mirrors the step's `after` */
+  planId?: string
+  /** the step's key inside its plan */
+  planStep?: string
+  /** the player chose to start this quest before its dependencies landed (used once by the next launch) */
+  depsOverride?: { at: string; via: 'ui-button' | 'player-words'; words?: string }
+}
+
+// ---------------------------------------------------------------- work plans
+
+/** Named WorkPlan: `PlanId`/`PlanStatus` already mean provider quota plans (usage-mode.ts). */
+export type WorkPlanState = 'active' | 'paused' | 'done' | 'cancelled'
+
+export interface PlanStep {
+  key: string
+  /** 1-based position in the plan (topological order) */
+  index: number
+  questId: string
+  title: string
+  kind: TaskKind
+  /** stored once: this is the brief's Genio spec at release */
+  spec: string
+  category?: TaskCategory
+  harness?: string
+  model?: string
+  effort?: string
+  /** step keys that must be merged (a Recon: delivered) before this step starts */
+  after: string[]
+  /** shared-file hints (paths or globs) */
+  files: string[]
+  /** one line: how we know the step is done */
+  acceptance: string
+  /** the landing that released the steps after this one */
+  landedCommit?: string
+  landedPr?: string
+  landedAt?: string
+  doneLine?: string
+  changedFiles?: string[]
+  /** every unit that worked this step, oldest first */
+  taskIds: string[]
+  /** the last automatic release that did not start (capacity, quota, a closed project window) */
+  lastAttempt?: { at: string; message: string }
+}
+
+export interface WorkPlan {
+  id: string
+  world: string
+  title: string
+  /** the player's own words that asked for the work: every step brief's intent */
+  intent: string
+  goal?: string
+  state: WorkPlanState
+  /** release the next steps by themselves when their prerequisites merge */
+  autoAdvance: boolean
+  /** plan steps working at once */
+  maxParallel: number
+  steps: PlanStep[]
+  createdAt: string
+  updatedAt: string
+  /** why the plan is paused (a discarded or failed step), and the choice it opened */
+  pause?: { reason: string; step?: string; choiceId?: string; at: string }
+  doneAt?: string
 }
 
 export type DecisionSource = 'unit' | 'genio' | 'validation' | 'ally' | 'system'
@@ -387,8 +453,10 @@ export type DecisionAction =
   | { kind: 'reaction'; wksp: string; message: string }
   /** "Merge now?" for one ready Build: an approving answer is the player's specific approval of that merge */
   | { kind: 'merge-approval'; task: string }
+  /** a plan paused at a discarded or failed step: resume, edit or cancel it */
+  | { kind: 'plan-paused'; plan: string; step: string }
 
-export type WakeKind = 'signal' | 'stale' | 'check' | 'heartbeat' | 'answer' | 'reaction'
+export type WakeKind = 'signal' | 'stale' | 'check' | 'heartbeat' | 'answer' | 'reaction' | 'plan'
 
 export interface Wake {
   seq: number

@@ -54,6 +54,15 @@ export const unitFinished = (t: Task): boolean =>
   t.state === 'merged' || t.state === 'done' || t.state === 'cleaned' || !!t.landedAt || t.pr?.state === 'MERGED'
 
 /**
+ * Despawned without landing: the player discarded the work, or a Recon ended
+ * without a report. Such a unit finished, but its plan step did not: the steps
+ * after it must not start. Older records only say so in the despawn reason.
+ */
+export const unitDiscarded = (t: Task): boolean =>
+  t.state === 'cleaned' && !t.landedAt && t.pr?.state !== 'MERGED' &&
+  (!!t.discarded || /despawned: (forced by the player|recon ended without a report)/.test(t.stateReason ?? ''))
+
+/**
  * Column for a quest given its unit. A quest follows its unit: a live unit puts
  * it In flight, a landed one puts an in-flight quest in Done, and an in-flight
  * quest whose unit failed, exited or vanished stays In flight (red) until resolved.

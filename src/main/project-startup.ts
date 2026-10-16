@@ -1,5 +1,6 @@
 import path from 'node:path'
-import type { Task } from '@shared/types'
+import type { BacklogItem, Task } from '@shared/types'
+import { findDuplicate, titleKey, unitDiscarded } from '@shared/quest-board'
 import { unitCaps } from '@shared/usage-mode'
 import type { AppCtx } from './services'
 import { globalMode, worldUsage } from './usage-policy'
@@ -14,6 +15,23 @@ function hasCapacity(ctx: AppCtx, project: string): boolean {
   const caps = unitCaps(globalMode(settings), { mode: own.source === 'global' ? undefined : own.mode, capacity: world?.capacity })
   const used = [...ctx.homes.values()].reduce((n, h) => n + h.crew.capacityUsed(project), 0)
   return caps.world === undefined || used < caps.world
+}
+
+/**
+ * A queued quest whose work another quest or unit already covers (10-13: two
+ * queued Recons restarted after the same Recon had delivered): a quest with the
+ * same title that is done or in flight, or a unit with its title and kind started
+ * after it was filed that landed, delivered or is still at work.
+ */
+function alreadyHandled(ctx: AppCtx, quest: BacklogItem): { quest: string; by: string } | undefined {
+  const homes = [...ctx.homes.values()]
+  const quests = homes.flatMap(h => h.backlog.list())
+  const dup = quest.planId ? undefined : findDuplicate(quest, quests)
+  if (dup && (dup.state === 'done' || dup.state === 'in-flight')) return { quest: dup.id, by: `quest ${dup.id} (${dup.state})` }
+  const key = titleKey(quest.title)
+  const unit = homes.flatMap(h => h.crew.list()).find(t => t.backlogId !== quest.id && t.project === quest.project && t.kind === quest.kind &&
+    titleKey(t.title) === key && t.createdAt >= quest.createdAt && !unitDiscarded(t) && !['failed', 'exited'].includes(t.state))
+  return unit ? { quest: unit.backlogId ?? unit.id, by: `unit ${unit.id} (${unit.state})` } : undefined
 }
 
 /** One call per window open, after app startup; deliberately independent of the Hub UI. */
@@ -74,17 +92,26 @@ async function reconcile(ctx: AppCtx, project: string, wksp: string, isOpen: () 
 
   // Ask each owning quest log again after every launch: cap usage and in-flight
   // state may change during preparation. Never dispatch another project's rows.
+  // dispatchable() keeps quests whose dependencies have not landed queued, and a
+  // paused plan's steps; a plan step starts from its stored spec and loadout.
   for (const home of homes) {
     const attempted = new Set<string>()
     while (isOpen() && hasCapacity(ctx, project)) {
       const quest = home.backlog.dispatchable(project, attempted).find(q => q.project === project)
       if (!quest) break
       attempted.add(quest.id)
+      const handled = alreadyHandled(ctx, quest)
+      if (handled) {
+        home.backlog.update(quest.id, { duplicateOf: handled.quest })
+        results.push(`Quest ${quest.id}: not started, already handled by ${handled.by}; flagged as a duplicate.`)
+        continue
+      }
       if (quest.hold) home.backlog.release(quest.id) // only an expired dated hold is dispatchable
       try {
-        const task = await home.crew.spawn({ kind: quest.kind as 'ship' | 'scout', project, title: quest.title,
-          intent: quest.notes.trim() || quest.title, backlogId: quest.id, mode: quest.mode, yolo: quest.yolo, wksp: home.home.name })
-        results.push(`Quest ${quest.id}: started as ${task.id}.`)
+        const req = home.plans?.spawnRequest(quest.id) ?? { kind: quest.kind as 'ship' | 'scout', project, title: quest.title,
+          intent: quest.notes.trim() || quest.title, backlogId: quest.id, mode: quest.mode, yolo: quest.yolo, wksp: home.home.name }
+        const task = await home.crew.spawn(req)
+        results.push(`Quest ${quest.id}: started as ${task.id}${quest.planId ? ` (plan ${quest.planId} step ${quest.planStep})` : ''}.`)
       } catch (error) {
         results.push(`Quest ${quest.id}: still queued (${truncate(String((error as Error).message), 300)}).`)
       }

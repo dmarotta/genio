@@ -16,7 +16,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { BacklogItem, BacklogState, Priority, Task } from '@shared/types'
-import { findDuplicate, migrateLegacyQuests, questOrder, unitFinished } from '@shared/quest-board'
+import { findDuplicate, migrateLegacyQuests, questOrder, unitDiscarded, unitFinished } from '@shared/quest-board'
 import { bus } from './bus'
 import type { Home } from './home'
 import type { AppCtx, BacklogService } from './services'
@@ -201,6 +201,26 @@ export function createBacklogService(getCtx: () => AppCtx, home: Home): BacklogS
     }
   }
 
+  /** a WorkPlan step whose plan is paused, cancelled, hand-started or at its parallel limit */
+  function planHolds(it: BacklogItem): boolean {
+    if (!it.planId) return false
+    try {
+      return Boolean(getCtx().home(home.name).plans?.holds(it.id))
+    } catch {
+      return false
+    }
+  }
+
+  /** A plan step whose unit was discarded did not get done: the steps after it must wait (its plan pauses). */
+  function discardedStep(it: BacklogItem, t: Task): boolean {
+    if (!it.planId || !unitDiscarded(t)) return false
+    it.outcome = `unit ${t.id} was discarded without landing`
+    delete it.hold
+    setState(it, 'blocked')
+    it.updatedAt = nowIso()
+    return true
+  }
+
   /** queued until a plan resets: stays queued, just not offered for automatic dispatch */
   function waitsForQuota(it: BacklogItem): boolean {
     try {
@@ -282,9 +302,14 @@ export function createBacklogService(getCtx: () => AppCtx, home: Home): BacklogS
         tags: input.tags ?? [],
         createdAt: ts,
         updatedAt: ts,
-        outcome: input.outcome
+        outcome: input.outcome,
+        planId: input.planId,
+        planStep: input.planStep
       })
-      it.duplicateOf = findDuplicate(it, load())?.id
+      if (!it.planId) delete it.planId
+      if (!it.planStep) delete it.planStep
+      // a plan's steps are one piece of work each, never duplicates of each other
+      it.duplicateOf = it.planId ? undefined : findDuplicate(it, load())?.id
       if (!it.duplicateOf) delete it.duplicateOf
       load().push(it)
       ledger('backlog.added', it)
@@ -393,6 +418,7 @@ export function createBacklogService(getCtx: () => AppCtx, home: Home): BacklogS
         if (it.duplicateOf) continue // flagged duplicates wait for the player or Genio to confirm
         if (it.notBefore && Date.parse(it.notBefore) > now) continue
         if (unresolvedDeps(it).length) continue
+        if (planHolds(it)) continue
         // the Usage mode's cap counts units in every world and base
         if (global && global.used + picked.length >= global.cap) break
         if (waitsForQuota(it)) continue
@@ -409,6 +435,11 @@ export function createBacklogService(getCtx: () => AppCtx, home: Home): BacklogS
       return picked
     },
 
+    unresolved(id) {
+      const it = load().find((i) => i.id === id)
+      return it ? unresolvedDeps(it) : []
+    },
+
     bucket(item) {
       if (!item.hold || item.state === 'done' || item.state === 'dropped') return 'none'
       if (unresolvedDeps(item).length) return 'blocked'
@@ -423,6 +454,7 @@ export function createBacklogService(getCtx: () => AppCtx, home: Home): BacklogS
       if (!it) return
       it.taskId = taskId
       delete it.hold
+      delete it.depsOverride // used once, by this launch
       setState(it, 'in-flight')
       it.updatedAt = nowIso()
       save()
@@ -443,6 +475,10 @@ export function createBacklogService(getCtx: () => AppCtx, home: Home): BacklogS
       const it = load().find((i) => i.id === task.backlogId)
       // only the quest this unit is flying; a re-queued follow-up keeps its own course
       if (!it || it.state !== 'in-flight' || (it.taskId && it.taskId !== task.id)) return
+      if (discardedStep(it, task)) {
+        save()
+        return
+      }
       svc.markDone(it.id, unitOutcomeText(task))
     },
 
@@ -453,6 +489,11 @@ export function createBacklogService(getCtx: () => AppCtx, home: Home): BacklogS
         if (it.state !== 'in-flight' || !it.taskId) continue
         const t = taskOf(it.taskId)
         if (!t || !unitFinished(t)) continue
+        if (discardedStep(it, t)) {
+          fixed.push(`${it.id}: blocked (plan step's unit ${t.id} was discarded)`)
+          dirty = true
+          continue
+        }
         it.outcome = it.outcome || unitOutcomeText(t)
         delete it.hold
         setState(it, 'done')
@@ -462,7 +503,7 @@ export function createBacklogService(getCtx: () => AppCtx, home: Home): BacklogS
         dirty = true
       }
       for (const it of load()) {
-        if (it.duplicateOf !== undefined || (it.state !== 'queued' && it.state !== 'blocked' && it.state !== 'in-flight')) continue
+        if (it.planId || it.duplicateOf !== undefined || (it.state !== 'queued' && it.state !== 'blocked' && it.state !== 'in-flight')) continue
         const dup = findDuplicate(it, load())
         if (!dup) continue
         it.duplicateOf = dup.id

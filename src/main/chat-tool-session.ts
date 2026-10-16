@@ -21,7 +21,7 @@ export interface ChatToolBinding {
 }
 
 const BOT_READS = new Set(['play_status', 'play_console', 'play_stats', 'play_frame', 'assets_find', 'asset_info', 'asset_locate', 'fleet_view', 'unit_state', 'read_task_file',
-  'terminal_tail', 'quest_list', 'choice_list', 'world_list', 'world_posture', 'status_report', 'memory_read',
+  'terminal_tail', 'quest_list', 'plan_status', 'choice_list', 'world_list', 'world_posture', 'status_report', 'memory_read',
   'memory_report', 'mail_list', 'dispatch_profiles', 'loadout_preview', 'toolchain_check', 'ally_list', 'escalate',
   'procedure_read', 'skill_read', 'settings_read', 'event_read', 'events_ack'])
 // These services aggregate across worlds or create new authority. Until they
@@ -93,6 +93,11 @@ export function createChatToolSession(getCtx: () => AppCtx, binding: ChatToolBin
         if (args.quest_id !== undefined) checkQuest(args.quest_id)
         if (Array.isArray(args.depends_on)) for (const id of args.depends_on) checkQuest(id)
         if (name.startsWith('quest_') && args.id !== undefined) checkQuest(args.id)
+        if (name.startsWith('plan_') && args.plan_id !== undefined) {
+          const plan = [...getCtx().homes.values()].map(h => h.plans?.get(String(args.plan_id))).find(Boolean)
+          if (!plan) throw new Error('Plan is outside this chat')
+          checkWorld(plan.world)
+        }
         if (name === 'choice_resolve') {
           const d = findDecision(getCtx(), String(args.id))?.d
           if (!d) throw new Error('Choice is outside this chat')
@@ -122,6 +127,10 @@ export function createChatToolSession(getCtx: () => AppCtx, binding: ChatToolBin
         })
         if (worlds && name === 'world_list') return pages.read(name, args, () => result(getCtx().projects.list().filter(p => within(p.name)).map(p => ({ ...p, engineSummary: projectEngineSummary(p) }))))
         if (worlds && name === 'quest_list') return pages.read(name, args, () => result([...getCtx().homes.values()].flatMap(h => h.backlog.list()).filter(q => within(q.project) && (args.include_done || !['done', 'dropped'].includes(q.state)))))
+        if (worlds && name === 'plan_status' && args.plan_id === undefined) {
+          return result([...getCtx().homes.values()].flatMap(h => (h.plans?.list() ?? [])
+            .filter(p => within(p.world) && (args.include_done || p.state === 'active' || p.state === 'paused')).map(p => h.plans.view(p.id))))
+        }
         if (worlds && name === 'choice_list') return pages.read(name, args, () => result([...getCtx().homes.values()].flatMap(h => h.decisions.list(Boolean(args.include_resolved))).filter(withinChoice)))
         return await tool.invoke(args)
       } catch {
