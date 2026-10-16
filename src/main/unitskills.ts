@@ -6,7 +6,7 @@
  * runtime gets the SKILL.md paths in its brief and as GENIO_FAL_SKILL,
  * GENIO_IMAGEGEN_CODEX_SKILL and the like, and the genio-unity wrapper as
  * GENIO_UNITY. The FAL key reaches a unit only as the FAL_KEY
- * environment variable of its process.
+ * environment variable of its process, the Uthana key only as UTHANA_API_KEY.
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -82,8 +82,11 @@ export interface UnitLaunchExtras {
   env: Record<string, string>
 }
 
-/** Launch additions for a unit: the plugin dir for Claude Code, the skill paths, Codex image scratch and the FAL key for all. */
-export function unitLaunchExtras(harnessId: string, opts: { pluginDir?: string; falKey?: string; dataDir?: string; taskDataDir?: string }): UnitLaunchExtras {
+/** Characters Genio and its units uploaded to Uthana: Genio's data, never a world. */
+export const uthanaDataDir = (dataDir: string): string => path.join(dataDir, 'uthana')
+
+/** Launch additions for a unit: the plugin dir for Claude Code, the skill paths, Codex image scratch and the FAL and Uthana keys for all. */
+export function unitLaunchExtras(harnessId: string, opts: { pluginDir?: string; falKey?: string; uthanaKey?: string; dataDir?: string; taskDataDir?: string; project?: string }): UnitLaunchExtras {
   const args: string[] = []
   const env: Record<string, string> = {}
   if (opts.pluginDir) {
@@ -99,9 +102,13 @@ export function unitLaunchExtras(harnessId: string, opts: { pluginDir?: string; 
     env.GENIO_FAL_SKILL = fwd(falSkillDir(opts.pluginDir))
     env.GENIO_IMAGEGEN_CODEX_SKILL = fwd(codexImageSkillDir(opts.pluginDir))
     if (opts.dataDir) env.GENIO_CODEX_IMAGE_SCRATCH = fwd(codexImageScratch(opts.dataDir))
+    if (opts.dataDir) env.GENIO_UTHANA_DATA = fwd(uthanaDataDir(opts.dataDir))
+    if (opts.project) env.GENIO_PROJECT = opts.project
   }
   const key = opts.falKey?.trim()
   if (key) env.FAL_KEY = key
+  const uthana = opts.uthanaKey?.trim()
+  if (uthana) env.UTHANA_API_KEY = uthana
   return { args, env }
 }
 
@@ -175,7 +182,8 @@ export function unitToolsBrief(pluginDir: string): string {
   const unity = fwd(unitySkillDir(pluginDir))
   return (
     `- Unity (Unity projects only): read \`${unity}/SKILL.md\`. Compile, test, import, build, play, send editor commands and read the console only with \`node "${unity}/scripts/genio-unity.mjs" <verb>\` (also in GENIO_UNITY). It targets only your own copy or your leased Play slot. Never start Unity.exe, Unity Hub or the \`unity\` CLI yourself, never control the main editor and never touch Toolbox.\n` +
-    `- Assets: read \`${assets}/SKILL.md\` first for provider routing and project-type placement. Use asset_locate / the shared suggestLocation helper. Uthana motions use Genio tools described in \`${uthana}/SKILL.md\`; units have no Uthana CLI.\n` +
+    `- Assets: read \`${assets}/SKILL.md\` first for provider routing and project-type placement. Use asset_locate / the shared suggestLocation helper.\n` +
+    `- Uthana (character motions, rigged characters): read \`${uthana}/SKILL.md\` and use \`node "${uthana}/scripts/uthana.mjs"\` with --world <your worktree root> and --budget, like the FAL helper. The key, when the player set one, is only in your UTHANA_API_KEY environment variable: never print or write it.\n` +
     `- Blender (batch modelling, validation, export and conversion): read \`${blender}/SKILL.md\` and use \`node "${blender}/scripts/blender.mjs"\`. Requires local Blender; no MCP or live session. Logs go to GENIO_BLENDER_SCRATCH.\n` +
     `- Images (default): Codex images on the player's ChatGPT plan, on in every project unless it opted out. For concept art, sprites, icons, transparent cutouts and edits from references read \`${codex}/SKILL.md\` and use \`node "${codex}/scripts/codex-image.mjs"\`.\n` +
     `- FAL.ai (specific needs: seamless/PBR textures, 3D, audio, music, video, pixel-art conversion, upscaling, background removal, exact size/seed/reproducibility): before any FAL work read \`${dir}/SKILL.md\` and use its helper \`node "${dir}/scripts/fal.mjs"\`. ` +

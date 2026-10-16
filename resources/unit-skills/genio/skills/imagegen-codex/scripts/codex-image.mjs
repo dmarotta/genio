@@ -185,6 +185,7 @@ function runCodex(runDir, prompt, refs, timeoutMs) {
   const args = [...pre, 'exec', '--skip-git-repo-check', '-C', runDir, '-s', 'workspace-write', '-c', 'model_reasoning_effort="low"', '--json', '-', ...refs.flatMap((r) => ['-i', r])]
   const env = { ...process.env }
   delete env.FAL_KEY // Codex needs no Genio secrets
+  delete env.UTHANA_API_KEY
   return new Promise((resolve, reject) => {
     const child = spawn(file, args, { cwd: runDir, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
     let stdout = ''

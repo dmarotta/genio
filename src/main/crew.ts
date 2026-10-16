@@ -187,13 +187,15 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       /* launch without the skills */
     }
     let falKey: string | undefined
+    let uthanaKey: string | undefined
     try {
       falKey = getSecret('fal', mainHome.data)
+      uthanaKey = getSecret('uthana', mainHome.data)
     } catch {
-      /* no OS encryption: the skill reports the key as missing */
+      /* no OS encryption: the skills report the key as missing */
     }
-    const extras = unitLaunchExtras(harnessId, { pluginDir: installed, falKey, dataDir: mainHome.data, taskDataDir: home.taskDir(t.id) })
     const project = getCtx().projects.get(t.project)
+    const extras = unitLaunchExtras(harnessId, { pluginDir: installed, falKey, uthanaKey, dataDir: mainHome.data, taskDataDir: home.taskDir(t.id), project: project?.name })
     Object.assign(extras.env, project ? engineEnv(project) : {})
     // genio-unity shares the player's Play pool; the unit sees only its own targets.
     const unity = unityUnitConfig(project, { task: t.id, worktree: t.worktree, data: mainHome.data, taskDir: home.taskDir(t.id), cli: findUnityCli() })

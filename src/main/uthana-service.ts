@@ -116,6 +116,29 @@ export class UthanaHistory {
   }
 }
 
+/** Characters units uploaded with the unit helper: one JSON record per line, appended by the unit, never rewritten by it. */
+export const UNIT_CHARACTERS_FILE = 'unit-characters.jsonl'
+
+export function readUnitCharacters(dir: string): UthanaCharacterRecord[] {
+  let raw: string
+  try {
+    raw = fs.readFileSync(path.join(dir, UNIT_CHARACTERS_FILE), 'utf8')
+  } catch {
+    return []
+  }
+  const out: UthanaCharacterRecord[] = []
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line.trim()) continue
+    try {
+      const c = JSON.parse(line) as UthanaCharacterRecord
+      if (c && typeof c.id === 'string' && typeof c.createdAt === 'string') out.push(c)
+    } catch {
+      /* a torn line never hides the others */
+    }
+  }
+  return out
+}
+
 export function readUthanaConfig(root: string): UthanaWorldConfig {
   const c = readJson<UthanaWorldConfig>(genioPath(root, 'uthana', 'config.json'), {})
   return c && typeof c === 'object' && !Array.isArray(c) ? c : {}
@@ -128,10 +151,12 @@ export function createUthanaService(getCtx: () => AppCtx, fetchFn: FetchFn = (u,
   const key = (): string | undefined => getSecret('uthana', getCtx().main.home.data)
   const client = (): UthanaClient => new UthanaClient(key, fetchFn)
   const charactersFile = (): string => path.join(dataDir(), 'characters.json')
-  const readCharacters = (): UthanaCharacterRecord[] => {
+  const savedCharacters = (): UthanaCharacterRecord[] => {
     const v = readJson<unknown>(charactersFile(), [])
     return Array.isArray(v) ? (v as UthanaCharacterRecord[]).filter((c) => c && typeof c.id === 'string') : []
   }
+  /** Genio's own uploads plus the ones units appended through the unit helper (uthana.mjs). */
+  const readCharacters = (): UthanaCharacterRecord[] => [...savedCharacters(), ...readUnitCharacters(dataDir())]
 
   const project = (name: string): Project => {
     const p = getCtx().projects.get(name)
@@ -298,7 +323,7 @@ export function createUthanaService(getCtx: () => AppCtx, fetchFn: FetchFn = (u,
         createdAt: nowIso()
       }
       // Uthana returns the first id again for a duplicate upload: keep one record per world
-      writeJson(charactersFile(), [rec, ...readCharacters().filter((c) => !(c.id === rec.id && (c.world ?? null) === (world ?? null)))])
+      writeJson(charactersFile(), [rec, ...savedCharacters().filter((c) => !(c.id === rec.id && (c.world ?? null) === (world ?? null)))])
       set(id, { status: 'completed', character: rec, characterId: rec.id, characterName: rec.name, completedAt: nowIso() })
       bus.publish({ type: 'sfx', sound: 'ready' })
     } catch (e) {
@@ -391,7 +416,10 @@ export function createUthanaService(getCtx: () => AppCtx, fetchFn: FetchFn = (u,
     },
 
     forgetCharacter(world: string | null, id: string): UthanaWorldState {
-      writeJson(charactersFile(), readCharacters().filter((c) => !(c.id === id && (c.world ?? null) === world)))
+      const keep = (c: UthanaCharacterRecord): boolean => !(c.id === id && (c.world ?? null) === world)
+      writeJson(charactersFile(), savedCharacters().filter(keep))
+      const units = readUnitCharacters(dataDir())
+      if (!units.every(keep)) fs.writeFileSync(path.join(dataDir(), UNIT_CHARACTERS_FILE), units.filter(keep).map((c) => JSON.stringify(c) + '\n').join(''), 'utf8')
       return svc.world(world)
     },
 
