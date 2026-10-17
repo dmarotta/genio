@@ -9,6 +9,7 @@ import {
 } from '@shared/quest-board'
 import type { SquadTone } from '@shared/squad-display'
 import { mergeApprovalLabel } from '@shared/merge-approval'
+import { playerStatusText } from '@shared/unit-page'
 import { api, errText, focusTask, op, toast, useStore } from '../store'
 import { Confirm, DislikeMarker, Empty, Field, Modal, NeedsYou, ViewHeader, useNow } from '../components/ui'
 import { KIND_LABEL } from '../lib/vocab'
@@ -376,8 +377,9 @@ function PlanGroup({ plan, children }: { plan: WorkPlan; children: ReactNode }) 
 // ------------------------------------------------------------------ in flight
 
 function progressLine(task?: Task, events?: StatusEvent[]): string {
-  const last = [...(events ?? [])].reverse().find((e) => e.kind !== 'unknown' && e.text.trim())
-  return last?.text || task?.stateReason || (task?.lastOutputAt ? 'working' : 'standing by')
+  // Genio's own bookkeeping notes (helper runs, claims, node_modules) are not progress.
+  const last = [...(events ?? [])].reverse().find((e) => e.kind !== 'unknown' && playerStatusText(e)?.trim())
+  return (last && playerStatusText(last)) || task?.stateReason || (task?.lastOutputAt ? 'working' : 'standing by')
 }
 
 function FlightTicket({ c, now, events, onOpen }: { c: FlightCard; now: number; events?: StatusEvent[]; onOpen: () => void }) {

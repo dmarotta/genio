@@ -43,7 +43,13 @@ rated in the Merge confirm.
 Side tabs: Changes (diffstat, changed and uncommitted files, commits, and the
 test status: the Gauntlet, PR checks, or the unit's own reported words),
 Timeline (status lines and pings, newest first), Brief, Report (Recons) and
-Checks (Hardcore). Under 900 px one strip switches between the terminal and the
+Checks (Hardcore). The Timeline labels a `note` line EVENT and a ping YOU, and
+never shows a line's `[key=…]`. Notes under Genio's own bookkeeping keys
+(`INTERNAL_STATUS_KEYS` in `shared/unit-page.ts`: `genio-blender-run`,
+`genio-codex-image`, `genio-uthana-run`, `deps`, `claim`) stay in the status
+log for stats, landing and the unit but are hidden from the Timeline, the page's
+status line and the quest log's progress line, except a failed node_modules
+setup, shown as a plain sentence. It is the same for every unit kind. Under 900 px one strip switches between the terminal and the
 tabs. The ping box spans the page under them, with an "interrupt and send"
 option while the agent runs. A "needs input" badge marks the terminal when the
 agent has printed nothing for the lagging window (Settings: Call a unit lagging

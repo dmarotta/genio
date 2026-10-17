@@ -236,6 +236,34 @@ describe('unit page content', () => {
     expect(rows).toEqual(['working tests next', 'you keep the old input map', 'working wiring the jump'])
   })
 
+  const kinds: [string, Partial<Task>][] = [['Build', {}], ['Recon', { kind: 'scout', mode: undefined }], ['Modeller', { modeller: true }], ['Generator', { generator: true }]]
+  it.each(kinds)('a %s timeline: notes read EVENT, no [key=…], Genio\'s bookkeeping hidden, problems still shown', async (_, patch) => {
+    calls.set('modellerLive', vi.fn(async () => null))
+    files.status = [
+      'working [at=1791892000]: wiring the jump',
+      'note [key=deps] [at=1791892010]: node_modules ready (robocopy from the main checkout, 56 s).',
+      'note [key=claim] [at=1791892020]: assets/Models/ui-check-ship.glb',
+      'note [key=genio-blender-run] [at=1791892030]: blender-1792224401267-38768-rmsx.log',
+      'note [key=genio-codex-image] [at=1791892040]: 9b2e/exec-1',
+      'note [key=genio-uthana-run] [at=1791892050]: m_1',
+      'note [key=deps] [at=1791892060]: node_modules setup failed: disk full. Run npm ci in your worktree.',
+      'blocked [key=steam] [at=1791892070]: need the Steam app id',
+      'note [key=genio-blender-run] [at=1791892080]: blender-2.log'
+    ].join('\n')
+    await open(unit(patch))
+    const tab = [...host.querySelectorAll<HTMLButtonElement>('.detail-side-tabs [role="tab"], .detail-side-tabs .tab')].find((b) => b.textContent!.trim() === 'Timeline')!
+    await click(tab)
+    const rows = [...host.querySelectorAll('.tl-row')].map((r) => `${r.querySelector('.tl-verb')!.textContent} ${r.querySelector('.tl-text')!.textContent}`)
+    expect(rows).toEqual([
+      'blocked need the Steam app id',
+      'event Genio could not set up this worktree\'s node_modules: disk full.',
+      'working wiring the jump'
+    ])
+    expect(host.querySelector('.timeline')!.textContent).not.toMatch(/\[key=|note/i)
+    // the page's status line reads the last entry the player can use, not the hidden helper run
+    expect(host.textContent).not.toContain('blender-2.log')
+  })
+
   it('keeps Changes, Timeline and Brief one click away in narrow windows, with the terminal as the default pane', async () => {
     await live({ mode: 'no-mistakes' })
     const strip = (): string[] => [...host.querySelectorAll('.detail-switch .tab')].map((t) => t.textContent!)

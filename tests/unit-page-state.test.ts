@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Task, TerminalInfo } from '../src/shared/types'
 import {
   canRate, deliveryLabel, mergeTimeline, needsInput, parseDiffStat, parsePings, parseStatusLines, parseUnitChanges, primaryAction, prMergeBlock,
-  reportedTests, unitBadge
+  INTERNAL_STATUS_KEYS, playerStatusText, reportedTests, timelineLabel, timelineRows, unitBadge
 } from '../src/shared/unit-page'
 
 const NOW = Date.parse('2026-10-13T12:00:00Z')
@@ -107,9 +107,56 @@ describe('Changes and Timeline data', () => {
 
   it('parses status lines without their JSON metadata', () => {
     expect(parseStatusLines('needs-decision [key=k] [at=1791892800]: Keep it? || {"options":["a","b"]}\nfree text')).toEqual([
-      { verb: 'needs-decision', tags: '[key=k]', text: 'Keep it?', at: 1791892800000 },
-      { verb: 'note', tags: '', text: 'free text' }
+      { verb: 'needs-decision', key: 'k', text: 'Keep it?', at: 1791892800000 },
+      { verb: 'note', text: 'free text' }
     ])
+    // a key may also lead the text; it is taken off either way
+    expect(parseStatusLines('blocked: [key=steam] need the app id')).toEqual([{ verb: 'blocked', key: 'steam', text: 'need the app id', at: undefined }])
+  })
+
+  it('labels a note EVENT and a ping you, and keeps every other kind label', () => {
+    expect(['note', 'ping', 'done', 'working', 'blocked', 'failed', 'paused', 'needs-decision', 'resolved'].map(timelineLabel))
+      .toEqual(['event', 'you', 'done', 'working', 'blocked', 'failed', 'paused', 'needs-decision', 'resolved'])
+  })
+
+  it('hides Genio\'s own bookkeeping notes from the timeline and keeps what the player can use', () => {
+    const raw = [
+      'working [at=1791892000]: wiring the jump',
+      'note [key=genio-blender-run] [at=1791892010]: blender-1792224401267-38768-rmsx.log',
+      'note [key=deps] [at=1791892020]: Genio is setting up this worktree\'s own node_modules in the background; wait until C:/x/deps.json says ready before running node tools.',
+      'note [key=deps] [at=1791892030]: node_modules ready (robocopy from the main checkout, 56 s).',
+      'note [key=claim] [at=1791892040]: assets/Models/ui-check-ship.glb',
+      'note [key=genio-codex-image] [at=1791892050]: 0f76a0ef-3518-4474/exec-1',
+      'note [key=genio-uthana-run] [at=1791892060]: m_123',
+      'note [key=spend] [at=1791892070]: spend grant from the player: USD 2.00 (approved)',
+      'note [key=unity-guard] [at=1791892080]: Stopped unit-spawned Unity editor outside your allowed targets.',
+      'needs-decision [key=scene] [at=1791892090]: May I close my test scene? || {"options":["a","b"]}',
+      'note [at=1791892095]: trying the second jump curve',
+      'paused [at=1791892100]: waiting on the lease',
+      'done [at=1791892200]: ready in branch genio/u1'
+    ].join('\n')
+    const rows = timelineRows(parseStatusLines(raw))
+    expect(rows.map((r) => `${timelineLabel(r.verb)} ${r.text}`)).toEqual([
+      'working wiring the jump',
+      'event spend grant from the player: USD 2.00 (approved)',
+      'event Stopped unit-spawned Unity editor outside your allowed targets.',
+      'needs-decision May I close my test scene?',
+      'event trying the second jump curve',
+      'paused waiting on the lease',
+      'done ready in branch genio/u1'
+    ])
+    for (const r of rows) expect(r.text).not.toMatch(/\[key=/)
+    // display only: the parsed log still holds every line, keys included
+    expect(parseStatusLines(raw).filter((r) => r.key && INTERNAL_STATUS_KEYS.includes(r.key))).toHaveLength(6)
+  })
+
+  it('still shows a problem that only a hidden entry reports, as a plain sentence', () => {
+    const rows = timelineRows(parseStatusLines('note [key=deps] [at=1791892000]: node_modules setup failed: EBUSY copying electron.exe. Run npm ci in your worktree.'))
+    expect(rows).toEqual([{ verb: 'note', key: 'deps', text: 'Genio could not set up this worktree\'s node_modules: EBUSY copying electron.exe.', at: 1791892000000 }])
+    expect(timelineLabel(rows[0].verb)).toBe('event')
+    // the same rule reads main's parsed status events (the quest log's progress line)
+    expect(playerStatusText({ kind: 'note', key: 'genio-blender-run', text: 'b.log' })).toBeUndefined()
+    expect(playerStatusText({ kind: 'blocked', key: 'claim', text: 'another Modeller holds assets/a.glb' })).toBe('another Modeller holds assets/a.glb')
   })
 
   it('reads pings with or without a time, and merges them with status lines newest first', () => {

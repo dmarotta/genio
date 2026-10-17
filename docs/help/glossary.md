@@ -146,6 +146,15 @@ also says NOT RUNNING, RECALLED, STOPPED or WAITING when the agent is not runnin
 Where: Squad (Ctrl+2) and unit pages.
 Source: [squad-display.md](../squad-display.md)
 
+## Unit timeline
+
+A unit's reports and your pings, newest first, each with its time and a kind label such as WORKING, DONE, BLOCKED, FAILED,
+PAUSED, NEEDS-DECISION, YOU (your ping) or EVENT (anything else the unit or Genio noted, such as a spend grant or a
+guard that stopped something). Genio's own bookkeeping (helper runs, file claims, node_modules setup) stays out of it
+unless it is the only sign of a problem. The same for every unit kind.
+Where: the unit page's Timeline tab.
+Source: [squad-display.md](../squad-display.md)
+
 ## Quests
 
 Work items. A quest is a Build, a Recon or a choice waiting for you. Genio files one for every deploy and can queue

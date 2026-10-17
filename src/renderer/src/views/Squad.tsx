@@ -25,7 +25,7 @@ import { squadAttention, squadBadge, squadState, squadTone, unitClock } from '@s
 import { UNIT_ACTION_HINT, canRespawn, hasOpenPr } from '@shared/unit-actions'
 import {
   canRate, deliveryLabel, mergeTimeline, needsInput, parsePings, parseStatusLines, parseUnitChanges, primaryAction, prMergeBlock,
-  reportedTests, unitBadge, unitPlay, type TimelineRow, type UnitChanges
+  reportedTests, timelineLabel, timelineRows, unitBadge, unitPlay, type TimelineRow, type UnitChanges
 } from '@shared/unit-page'
 import { pendingDecision } from '@shared/decisions'
 import { mergeApprovalLabel } from '@shared/merge-approval'
@@ -348,6 +348,8 @@ function UnitDetail({ id }: { id: string }) {
   const status = useTaskFile(id, 'status', [events, t?.state], undefined, !!t)
   const changesFile = useTaskFile(id, 'diffstat', [events, t?.state], live ? 8000 : undefined, !!t && t.kind === 'ship')
   const statusRows = useMemo(() => parseStatusLines(status.text ?? ''), [status.text])
+  // What the player sees of the status log: no internal bookkeeping, no keys.
+  const shownRows = useMemo(() => timelineRows(statusRows), [statusRows])
   const changes = useMemo(() => parseUnitChanges(changesFile.text ?? ''), [changesFile.text])
   // A Generator has no live view: its terminal stays the main area.
   const modeller = useModellerLive(id, live && t?.kind === 'ship' && !t.generator)
@@ -362,7 +364,7 @@ function UnitDetail({ id }: { id: string }) {
     { label: 'Tab', value: canvas && pane === 'main' ? 'model (live 3D view)' : tab },
     modeller ? { label: 'Model', value: `${modeller.model} · ${head ? `step ${head.n} of ${modeller.steps.length}: ${head.caption}` : 'no steps yet'} · branch ${modeller.branch}${modeller.running ? ` · now running step ${modeller.running.n}: ${modeller.running.caption}` : ''}` }
       : canvas && { label: 'Model', value: 'no steps yet' },
-    statusRows.length > 0 && { label: 'Last status', value: `${statusRows.at(-1)!.verb}: ${statusRows.at(-1)!.text}` }
+    shownRows.length > 0 && { label: 'Last status', value: `${timelineLabel(shownRows.at(-1)!.verb)}: ${shownRows.at(-1)!.text}` }
   ] : [{ label: 'Unit', value: `${id} (gone)` }] })
 
   if (!t) {
@@ -401,15 +403,15 @@ function UnitDetail({ id }: { id: string }) {
     if (p !== 'main') setTab(p)
   }
 
-  const latest = statusRows.at(-1)
+  const latest = shownRows.at(-1)
   // What the live view says the unit is doing while no step runs: only while it works.
   const activity: ModellerActivity | null = canvas && live && badge.label === 'WORKING'
-    ? { status: latest ? (latest.verb === 'working' ? latest.text : `${latest.verb}: ${latest.text}`) : '', since: Date.parse(t.createdAt) || now }
+    ? { status: latest ? (latest.verb === 'working' ? latest.text : `${timelineLabel(latest.verb)}: ${latest.text}`) : '', since: Date.parse(t.createdAt) || now }
     : null
   const stopped = primary === 'respawn'
   const line = stopped
     ? `Stopped: ${stopReason(t)}`
-    : latest ? `${latest.verb}: ${latest.text}${latest.at ? ` · ${since(new Date(latest.at).toISOString(), now)}` : ''}` : t.stateReason ?? ''
+    : latest ? `${timelineLabel(latest.verb)}: ${latest.text}${latest.at ? ` · ${since(new Date(latest.at).toISOString(), now)}` : ''}` : t.stateReason ?? ''
 
   // Play this unit: beside the primary action (never instead of it); under More on narrow widths.
   const play = unitPlay(t, !!project && supportsUnitySlots(effectiveEngine(project).engine), changes.removed)
@@ -1013,19 +1015,18 @@ const VERB_TONE: Record<string, string> = {
   ping: 'violet'
 }
 
-/** Status lines and pings in one list, newest first. */
+/** Status lines (as the player sees them) and pings in one list, newest first. The same for every unit kind. */
 function TimelineTab({ t, rows, loading }: { t: Task; rows: TimelineRow[]; loading: boolean }) {
   const inbox = useTaskFile(t.id, 'inbox', [t.inbox.seq, t.inbox.acked], t.state === 'cleaned' ? undefined : 8000)
-  const list = useMemo(() => mergeTimeline(rows, parsePings(inbox.text ?? '')), [rows, inbox.text])
+  const list = useMemo(() => mergeTimeline(timelineRows(rows), parsePings(inbox.text ?? '')), [rows, inbox.text])
   if (loading) return <div className="bar indeterminate"><i /></div>
   if (!list.length) return <div className="mute">No status reported and no pings sent yet.</div>
   return (
     <div className="timeline">
       {list.map((r, i) => (
         <div key={i} className={cx('tl-row', r.verb === 'ping' && 'tl-ping')}>
-          <span className={cx('tl-verb', VERB_TONE[r.verb] ?? 'mute')}>{r.verb === 'ping' ? 'you' : r.verb}</span>
+          <span className={cx('tl-verb', VERB_TONE[r.verb] ?? 'mute')}>{timelineLabel(r.verb)}</span>
           <div className="tl-text selectable">
-            {r.tags && <span className="mono mute">{r.tags} </span>}
             {r.text}
             {r.unread && <span className="mono mute"> · unread</span>}
           </div>

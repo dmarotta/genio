@@ -150,7 +150,8 @@ export function reportedTests(lines: { text: string }[]): string | undefined {
 export interface TimelineRow {
   /** status verb, or 'ping' for a message sent to the unit */
   verb: string
-  tags: string
+  /** the line's `[key=k]`, never shown to the player */
+  key?: string
   text: string
   /** epoch ms, when known */
   at?: number
@@ -158,15 +159,46 @@ export interface TimelineRow {
   unread?: boolean
 }
 
-/** Status file lines: `<verb> [key=k] [at=epoch]: text || {json}`. */
+/** Status file lines: `<verb> [key=k] [at=epoch]: text || {json}`. A key may also lead the text. */
 export function parseStatusLines(raw: string): TimelineRow[] {
   return raw.split(/\r?\n/).filter((l) => l.trim()).map((l) => {
     const m = l.match(/^\s*([a-z-]+)((?:\s*\[[^\]]*\])*)\s*:\s*(.*)$/i)
-    if (!m) return { verb: 'note', tags: '', text: l }
+    if (!m) return { verb: 'note', text: l }
     const at = m[2].match(/\[at=(\d{1,12})\]/)
-    return { verb: m[1].toLowerCase(), tags: m[2].replace(/\[at=\d+\]/, '').trim(), text: m[3].replace(/\s+\|\|\s+\{.*\}\s*$/, ''), at: at ? parseInt(at[1], 10) * 1000 : undefined }
+    const lead = m[3].match(/^\[key=([^\]]*)\]\s*/)
+    const key = (m[2].match(/\[key=([^\]]*)\]/)?.[1] ?? lead?.[1])?.trim() || undefined
+    const text = (lead ? m[3].slice(lead[0].length) : m[3]).replace(/\s+\|\|\s+\{.*\}\s*$/, '')
+    return { verb: m[1].toLowerCase(), ...(key ? { key } : {}), text, at: at ? parseInt(at[1], 10) * 1000 : undefined }
   })
 }
+
+/**
+ * Status keys Genio and its helpers write for their own bookkeeping (helper run records, claims, the
+ * worktree's node_modules): kept in the status log for stats, landing and the unit, never on the timeline.
+ */
+export const INTERNAL_STATUS_KEYS = ['genio-blender-run', 'genio-codex-image', 'genio-uthana-run', 'deps', 'claim']
+
+/**
+ * How a status entry reads to the player: undefined when it is internal bookkeeping, otherwise its text.
+ * An internal entry that is the only sign of a problem (node_modules setup failed) becomes a plain sentence.
+ */
+export function playerStatusText(e: { verb?: string; kind?: string; key?: string; text: string }): string | undefined {
+  const verb = e.verb ?? e.kind
+  if (!e.key || verb !== 'note' || !INTERNAL_STATUS_KEYS.includes(e.key)) return e.text
+  const failed = e.key === 'deps' && e.text.match(/^node_modules setup failed: (.*?)\.?(?:\s*Run npm ci in your worktree\.)?$/)
+  return failed ? `Genio could not set up this worktree's node_modules: ${failed[1]}.` : undefined
+}
+
+/** The status entries the timeline shows, in their player wording. */
+export function timelineRows(rows: TimelineRow[]): TimelineRow[] {
+  return rows.flatMap((r) => {
+    const text = playerStatusText(r)
+    return text === undefined ? [] : [{ ...r, text }]
+  })
+}
+
+/** The kind label on the left of a timeline entry: a note is an event, a ping is from you. */
+export const timelineLabel = (verb: string): string => (verb === 'ping' ? 'you' : verb === 'note' ? 'event' : verb)
 
 /** The `inbox` task file: `--- PENDING 001.msg at=<iso> ---` headers, each followed by the message. */
 export function parsePings(raw: string): TimelineRow[] {
@@ -175,7 +207,7 @@ export function parsePings(raw: string): TimelineRow[] {
     const m = part.match(/^--- (PENDING|READ) (\S+)(?: at=(\S+))? ---\r?\n?([\s\S]*)$/)
     if (!m) continue
     const at = m[3] ? Date.parse(m[3]) : NaN
-    rows.push({ verb: 'ping', tags: '', text: m[4].trim(), at: Number.isFinite(at) ? at : undefined, unread: m[1] === 'PENDING' })
+    rows.push({ verb: 'ping', text: m[4].trim(), at: Number.isFinite(at) ? at : undefined, unread: m[1] === 'PENDING' })
   }
   return rows
 }

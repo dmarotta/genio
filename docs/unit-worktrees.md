@@ -34,7 +34,7 @@ worktree, in the background, and does nothing if the worktree has no `package.js
   `waiting: 'a Play is starting'`, and the final report records `deferredMs`.
 
 Progress goes to `data/<task>/deps.json` (`installing`, `ready`, `failed` or `skipped`, plus the method) and to
-`note [key=deps]` status lines, which are shown on the unit page. The brief (`nodeDepsLines` in `brief.ts`)
+`note [key=deps]` status lines, which the unit page's Timeline hides unless setup failed. The brief (`nodeDepsLines` in `brief.ts`)
 covers three things. The unit's `node_modules` is private, so it may run `npm install` or `npm ci` in its
 worktree. It must never link, junction or move `node_modules`, or touch the main checkout's. And
 `node "<plugin>/lib/npm-guard.mjs" setup` repairs a missing or linked `node_modules`. That script is also in
