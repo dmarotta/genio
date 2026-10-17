@@ -25,6 +25,10 @@ Say what you did about each in your final note.
   `npx vitest run tests/<name>.test.ts`.
 - Remove `GIT_CONFIG_*` variables from the shell before running tests (they
   break the git tests). PowerShell: `Get-ChildItem env:GIT_CONFIG* | Remove-Item`.
+- Tests and experiments never touch real user config or credentials (the
+  player's `~/.codex`, `~/.claude`, `~/.genio`). Set `CODEX_HOME`,
+  `CLAUDE_CONFIG_DIR` and similar to a temp folder in the same command, and never
+  run login or logout commands.
 - Run the full suite as a blocking foreground command with a long timeout.
 - Some git and fake-Unity tests can flake under machine load: rerun those files
   alone before assuming a real failure.

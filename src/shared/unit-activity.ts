@@ -54,7 +54,8 @@ export const IDLE_CHROME: Record<string, RegExp[]> = {
     /bypasspermissions|shift\+tab|esctocancel|ctrl\+[a-z]to/, /^[>›❯│|─━—\-_=*·•.]+$/
   ],
   claude: [/^\d+tokens/, /auto-?compact/, /compactingearlier|keepauto\(|enterconfirm|escnotnow|re-sendsthewholeconversation|summarizedonyournext/],
-  codex: [/^codex(v[\d.]+)?$/, /^\/(model|status|approvals)/, /workingdirectory|sendmessage|pressenter/]
+  codex: [/^codex(v[\d.]+)?$/, /^\/(model|status|approvals)/, /workingdirectory|sendmessage|pressenter/,
+    /folderaccess|trustthisfolder|trustandcontinue|repositoryroot|subdirectoryofagitproject|yourtrustdecision|foldersettingscanrun|^\d\.quit$|entercontinue/]
 }
 
 export interface ActivityMeterOptions {

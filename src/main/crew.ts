@@ -15,11 +15,11 @@ import { appendProgressNote, doorbellLine, engineHints, kickoffPrompt, renderBri
 import { claimConflict, claimHolderKind } from '@shared/modeller'
 import { pruneModellerData } from './modeller-landing'
 import { holdsCapacity } from './usage-policy'
-import { autocompactOfferKey, buildArgs, CLAUDE_BYPASS_DIALOG, TUI_WORKING } from './harness'
+import { autocompactOfferKey, buildArgs, CLAUDE_BYPASS_DIALOG, codexTrustDialog, TUI_WORKING } from './harness'
 import { discoverCodexSession } from './codex-session'
 import { answerAutoCompactOffer, claudeLaunch, claudeTrustFiles, playerSkipsBypassPrompt, setClaudeTrust, UNIT_UNSET_ENV } from './claude-home'
 import { scheduleUnitArchive, unarchiveCodexThread } from './codex-archive'
-import { codexLaunch, genioCodexHome, setCodexTrust } from './codex-home'
+import { codexLaunch, codexUnitFolders, genioCodexHome, isCodexUnitFolder, setCodexTrust } from './codex-home'
 import { foldOpenDecisions, formatStatusLine, parseStatusLine, parseStatusLog } from './status'
 import { createGauntlet } from './gauntlet'
 import { relaunchPolicy } from './relaunch-policy'
@@ -57,6 +57,10 @@ const ENDED: TaskState[] = ['merged', 'done', 'failed', 'cleaned']
 const AUTOCOMPACT_SETTLE_MS = 2_000
 /** After an answer, the offer's lingering redraws are not a new appearance for this long. */
 const AUTOCOMPACT_COOLDOWN_MS = 10_000
+/** Codex's folder trust dialog is answered once its output has been quiet this long. */
+const CODEX_TRUST_SETTLE_MS = 1_000
+/** After an answer, the dialog's lingering redraws are not a new appearance for this long. */
+const CODEX_TRUST_COOLDOWN_MS = 10_000
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
@@ -266,6 +270,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         )
         return
       }
+      // Codex's folder dialog is watchCodexTrust's: it answers only for the unit's own folders.
+      if (t.harness === 'codex' && codexTrustDialog(tail)) return
       if (answered < 3 && Date.now() - lastAnswer > 2000 && patterns.some((p) => tail.includes(p))) {
         answered++
         lastAnswer = Date.now()
@@ -313,6 +319,58 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           if (svc.unreadInbox(t.id).length) void svc.ring(t.id).catch(() => false)
         }, 1_500)
       }, AUTOCOMPACT_SETTLE_MS)
+    })
+    terms.onExit(terminalId, () => {
+      off()
+      clearTimeout(settle)
+    })
+  }
+
+  /**
+   * Codex's "Folder access … Trust this folder?" dialog holds a unit before its
+   * first turn (a new, moved or never-seen folder). Pre-trust keeps it away in
+   * Genio's home only; if it still shows, answer "Trust and continue" when the
+   * folder is this unit's worktree or its registered project's root, once per
+   * appearance. Any other folder is left alone with one clear stale signal.
+   */
+  const watchCodexTrust = (t: Task, terminalId: string, folders: string[]): void => {
+    const terms = getCtx().terminals
+    let tail = ''
+    let settle: ReturnType<typeof setTimeout> | undefined
+    let handledAt = 0
+    let seenAt = 0
+    let answers = 0
+    let signalled = false
+    const off = terms.onData(terminalId, (d) => {
+      tail = (tail + squashTui(d)).slice(-4000)
+      if (signalled || Date.now() - handledAt < CODEX_TRUST_COOLDOWN_MS || !codexTrustDialog(tail)) return
+      // A redraw restarts the wait, but a screen that never goes quiet is answered anyway.
+      if (settle && Date.now() - seenAt > 5_000) return
+      if (!settle) seenAt = Date.now()
+      clearTimeout(settle)
+      settle = setTimeout(() => {
+        settle = undefined
+        const dialog = codexTrustDialog(tail)
+        tail = ''
+        const cur = get(t.id)
+        if (!dialog || !cur || cur.terminalId !== terminalId) return
+        handledAt = Date.now()
+        if (dialog.onTrust && isCodexUnitFolder(dialog.folder, folders) && answers < 3) {
+          answers++
+          terms.write(terminalId, '\r')
+          setTimeout(() => {
+            if (svc.unreadInbox(t.id).length) void svc.ring(t.id).catch(() => false)
+          }, 1_500)
+          return
+        }
+        signalled = true
+        const why = answers >= 3 ? 'kept asking after Genio answered it 3 times'
+          : !isCodexUnitFolder(dialog.folder, folders) ? `names "${dialog.folder}", which is not this unit's worktree or its project's root`
+          : 'has its pointer off "Trust and continue"'
+        safe(() => hc().wakes.enqueue({ kind: 'stale', taskId: t.id, routine: false,
+          reason: `${cur.kind === 'scout' ? 'RECON' : 'BUILD'} "${cur.title}" (${cur.project}): Codex's "Trust this folder?" dialog ${why}; Genio left it unanswered and the unit has not started`,
+          lines: terms.tail(terminalId, 8).split('\n').filter((l) => l.trim()).map((l) => `| ${truncate(l, 200)}`) }))
+      }, CODEX_TRUST_SETTLE_MS)
     })
     terms.onExit(terminalId, () => {
       off()
@@ -377,7 +435,9 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     const codex = adapter.env?.CODEX_HOME ? undefined
       : await codexLaunch({ resume: isCodex && opts.resume ? { cwd: t.worktree, home: t.codexHome } : undefined, visible: isCodex })
     const codexHome = adapter.env?.CODEX_HOME ?? codex?.codexHome
-    if (isCodex && codex?.isolated) setCodexTrust(codex.codexHome, [t.worktree, project?.path ?? ''], true)
+    const trustFolders = isCodex ? codexUnitFolders(t.worktree, project?.path) : []
+    // Only Genio's own home: the player's Codex config is never edited.
+    if (isCodex && codex?.isolated) setCodexTrust(codex.codexHome, trustFolders, true)
     let sessionId = opts.resume && isCodex ? await discoverCodexSession(t.worktree, codexHome, t.codexSessionId) : undefined
     // Codex refuses to resume an archived thread; one it will not restore starts fresh instead.
     if (sessionId && !(await unarchiveCodexThread(sessionId, { dataDir: mainHome.data, codexHome, task: t.id, cwd: t.worktree }))) sessionId = undefined
@@ -418,6 +478,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     if (!term.alive) throw new Error(`Could not start ${adapter.name} (${adapter.command}). Is it installed? Check SYSTEMS.`)
     watchConsent(t, term.id, adapter.trustPatterns, adapter.trustResponse, isClaude)
     if (isClaude) watchAutocompactOffer(t, term.id)
+    if (isCodex) watchCodexTrust(t, term.id, trustFolders)
     ctx.terminals.onExit(term.id, (code) => {
       const cur = get(t.id)
       if (!cur || cur.terminalId !== term.id) return

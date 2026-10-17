@@ -141,6 +141,26 @@ export function autocompactOfferKey(squashed: string): string | undefined {
   return pointed('keepauto(') > pointed('autocompactat') ? '\r' : '\x1b'
 }
 
+/**
+ * Codex's first-run folder dialog (codex-cli 0.162: "Folder access" … "Note:
+ * You're in a subdirectory of a Git project. Trusting will apply to the
+ * repository root: f:\…" … "Trust this folder?" … "› 1. Trust and continue
+ * 2. Quit"), on whitespace-squashed lower-case text. Returns the folder it asks
+ * about (squashed, as shown: the repository root when it names one) and whether
+ * the pointer is on "Trust and continue". Undefined until the options are drawn.
+ */
+export function codexTrustDialog(squashed: string): { folder: string; onTrust: boolean } | undefined {
+  const at = squashed.lastIndexOf('folderaccess')
+  const ask = at < 0 ? -1 : squashed.indexOf('trustthisfolder?', at)
+  const option = ask < 0 ? -1 : squashed.indexOf('1.trustandcontinue', ask)
+  if (option < 0) return undefined
+  const shown = squashed.slice(at + 'folderaccess'.length, ask)
+  const root = shown.lastIndexOf('repositoryroot:')
+  const folder = (root < 0 ? shown : shown.slice(root + 'repositoryroot:'.length)).replace(/^[:│|]+|[.│|]+$/g, '')
+  const pointed = (o: string): number => Math.max(...['›', '>', '❯'].map(p => squashed.lastIndexOf(`${p}${o}`)))
+  return { folder, onTrust: pointed('1.trustandcontinue') >= Math.max(pointed('2.'), pointed('3.')) }
+}
+
 export interface LaunchVars {
   model?: string
   effort?: string

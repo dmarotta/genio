@@ -11,6 +11,8 @@
  * falls back to the player's normal home (despawned units are still archived
  * there) and Genio says so once, with the way to sign in.
  */
+import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { runCodexCli, type CodexCli } from './codex-archive'
 import { spawnCodexChat, type CodexRpc, type CodexWireEvents } from './codex-chat-driver'
@@ -58,7 +60,63 @@ function headerPath(line: string): string | undefined {
   return m[1] ?? (JSON.parse(`"${m[2]}"`) as string)
 }
 
-const tomlKey = (p: string): string => (p.includes("'") ? JSON.stringify(p) : `'${p}'`)
+const tomlKey = (p: string): string => (p.includes("'") || /[\r\n]/.test(p) ? JSON.stringify(p) : `'${p}'`)
+
+/**
+ * A folder as Codex keys its trust (verified on codex-cli 0.162.1: the match
+ * ignores case, but a `\\?\` prefix or forward slashes never match): absolute,
+ * no extended-length prefix, native separators, no trailing separator.
+ */
+export function codexTrustKey(p: string): string {
+  let s = p.trim()
+  if (/^[\\/]{2}[?.][\\/]UNC[\\/]/i.test(s)) s = `\\\\${s.slice(8)}`
+  else if (/^[\\/]{2}[?.][\\/]/.test(s)) s = s.slice(4)
+  return path.resolve(s)
+}
+
+const sameFolder = (a: string, b: string): boolean => {
+  const real = (p: string): string => { try { return fs.realpathSync.native(codexTrustKey(p)) } catch { return codexTrustKey(p) } }
+  return sameHome(real(a), real(b))
+}
+
+/** The main checkout a git worktree belongs to, read the way Codex does (.git file, gitdir, commondir). */
+function worktreeRepoRoot(worktree: string): string | undefined {
+  try {
+    const dotGit = path.join(worktree, '.git')
+    if (fs.statSync(dotGit).isDirectory()) return worktree
+    const m = /^gitdir:\s*(.+?)\s*$/m.exec(fs.readFileSync(dotGit, 'utf8'))
+    if (!m) return undefined
+    const gitDir = path.resolve(worktree, m[1])
+    const common = path.resolve(gitDir, readText(path.join(gitDir, 'commondir')).trim() || '.')
+    return path.basename(common).toLowerCase() === '.git' ? path.dirname(common) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The folders a Codex unit may be asked to trust: its own worktree and its
+ * registered project's repository root (Codex applies trust to the root). The
+ * root named by the worktree's own git link counts only when it is that same
+ * registered folder (another spelling of it, a link to it); nothing else ever.
+ */
+export function codexUnitFolders(worktree: string, projectRoot?: string): string[] {
+  const out = [worktree, projectRoot ?? ''].filter(Boolean).map(codexTrustKey)
+  const linked = worktree && projectRoot ? worktreeRepoRoot(worktree) : undefined
+  if (linked && sameFolder(linked, projectRoot!)) out.push(codexTrustKey(linked))
+  return out.filter((p, i) => out.findIndex(x => sameHome(x, p)) === i)
+}
+
+/**
+ * True when the folder Codex's trust dialog shows (whitespace-squashed, lower
+ * case, maybe `~`-shortened) is one of `folders`: any separator, drive case,
+ * `\\?\` prefix or trailing separator.
+ */
+export function isCodexUnitFolder(shown: string, folders: string[], home = os.homedir()): boolean {
+  const norm = (p: string): string => p.replace(/\s+/g, '').toLowerCase().replace(/^[\\/]{2}[?.][\\/]/, '').replace(/[\\/]+/g, '/').replace(/\/$/, '')
+  const s = norm(shown.replace(/^~(?=[\\/]|$)/, () => home))
+  return !!s && folders.some(f => norm(codexTrustKey(f)) === s)
+}
 
 /**
  * Pre-trust unit folders in Genio's config.toml (`[projects.'<path>'] trust_level`),
@@ -71,8 +129,8 @@ export function setCodexTrust(dir: string, dirs: string[], trusted: boolean): vo
     let lines = readText(file).split(/\r?\n/)
     let changed = false
     for (const d of dirs.filter(Boolean)) {
-      const target = path.resolve(d)
-      const start = lines.findIndex(l => { const p = headerPath(l); return p !== undefined && sameHome(p, target) })
+      const target = codexTrustKey(d)
+      const start = lines.findIndex(l => { const p = headerPath(l); return p !== undefined && sameHome(codexTrustKey(p), target) })
       let end = start + 1
       while (start >= 0 && end < lines.length && !/^\s*\[/.test(lines[end])) end++
       if (trusted) {

@@ -16,8 +16,37 @@ so without help each one stays in the player's sidebar forever.
   login; the player's `auth.json` is never copied or linked. "Sign out" runs
   `codex logout` there only.
 - Genio seeds only `config.toml` with `model = "gpt-6.1-sol"`. Sandbox and
-  approvals come from launch flags. A unit's worktree (and its project) is
-  trusted there at launch, and the worktree entry is dropped at despawn.
+  approvals come from launch flags.
+
+## Folder trust
+
+Codex asks "Folder access … Trust this folder?" the first time it runs in a
+folder it has not seen. For a unit's worktree, Codex says "Trusting will apply
+to the repository root". Nothing answers it on its own, so a new project, a moved
+project or a new Dev Drive path would hold the unit before its first turn.
+
+- Prevent: at launch Genio writes `[projects.'<folder>'] trust_level = "trusted"`
+  into its own home's `config.toml` (`setCodexTrust`, `codexUnitFolders`). It
+  writes one entry for the unit's worktree and one for the registered project's
+  repository root. The root the worktree's `.git` link names is also written,
+  but only when it is that same registered folder under another spelling or
+  through a link. The keys use the form Codex 0.162.1 matches: case does not
+  matter; no `\\?\` prefix, backslashes, no trailing separator. Every other
+  entry in the file stays. The worktree entry is dropped at despawn. The
+  player's own Codex config is never edited.
+- Backstop: if the dialog still shows (for example in the player's home before
+  Genio's is signed in), `watchCodexTrust` in `crew.ts` reads the folder it
+  names. It answers Enter on "1. Trust and continue" once per appearance, and
+  only when that folder is the unit's worktree or its project's root. It leaves
+  any other folder, or a pointer moved off option 1, unanswered, and raises one
+  stale signal that says why. The dialog never counts as unit work.
+- The other runtimes: Claude Code's "Quick safety check … Yes, I trust this
+  folder" is pre-accepted in Genio's Claude home (`setClaudeTrust`) and answered
+  on screen. Gemini runs with `GEMINI_CLI_TRUST_WORKSPACE=true`, which its folder
+  trust check honours. OpenCode 1.19 has no folder trust prompt. Cursor Agent
+  runs with `--trust`.
+
+## Signing in and falling back
 - `codex login status` in that home must report ChatGPT. Until it does (not
   signed in, an API key, an error), every process falls back to the player's
   `$CODEX_HOME` and despawned units are archived there as below. Units and the
