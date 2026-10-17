@@ -4,7 +4,7 @@ import type { VoiceStatus } from '@shared/api'
 import { api, errText } from '../store'
 import { cx } from '../lib/format'
 import { MicBlockedError, record, type Recording } from '../lib/mic'
-import { stopSpeaking } from '../lib/voice'
+import { onVoiceOffer, stopSpeaking } from '../lib/voice'
 import { Popover } from './Layer'
 import { useChatDocument } from './ChatDocument'
 
@@ -23,6 +23,14 @@ function pickF8(doc: Document): Target | undefined {
     return !!el && el.ownerDocument === doc && el.getClientRects().length > 0
   })
   return shown.find((t) => t.box.current!.contains(doc.activeElement)) ?? shown.sort((a, b) => b.used - a.used)[0]
+}
+
+/** The chat box that shows the natural voice offer: a visible one in a focused window first, else the last used. */
+function pickOffer(): Target | undefined {
+  const shown = [...targets].filter((t) => !!t.box.current && t.box.current.getClientRects().length > 0)
+  const focused = shown.filter((t) => t.box.current!.ownerDocument.hasFocus())
+  const pool = focused.length ? focused : shown
+  return pool.find((t) => t.box.current!.contains(t.box.current!.ownerDocument.activeElement)) ?? pool.sort((a, b) => b.used - a.used)[0]
 }
 
 /**
@@ -44,6 +52,10 @@ export function useVoiceInput({ box, insert }: { box: RefObject<HTMLElement | nu
   const [error, setError] = useState('')
   const [consent, setConsent] = useState<VoiceStatus | null>(null)
   const [download, setDownload] = useState<{ received: number; total: number } | null>(null)
+  // The natural voice for replies: its offer, and its download once this chat box's offer was accepted (never blocks the mic).
+  const [offer, setOffer] = useState<{ received: number; total: number } | null>(null)
+  const [natural, setNatural] = useState<{ received: number; total: number } | null>(null)
+  const naturalMine = useRef(false)
   const button = useRef<HTMLButtonElement>(null)
   const recording = useRef<Recording | null>(null)
   // A stop that came while the mic was still opening (a quick F8 tap).
@@ -67,6 +79,38 @@ export function useVoiceInput({ box, insert }: { box: RefObject<HTMLElement | nu
     setDownload(e.state === 'downloading' ? { received: e.received, total: e.total } : null)
     if (e.error) setError(`Speech model download failed: ${e.error}`)
   }), [])
+
+  useEffect(() => onVoiceOffer((status) => {
+    if (pickOffer() !== target.current) return false
+    setOffer(status)
+    return true
+  }), [])
+
+  useEffect(() => window.genio?.on?.((e) => {
+    if (e.type !== 'voice-output-install' || !naturalMine.current) return
+    setNatural(e.state === 'downloading' ? { received: e.received, total: e.total } : null)
+    if (e.error) setError(`Natural voice download failed: ${e.error}`)
+  }), [])
+
+  const acceptVoice = async (): Promise<void> => {
+    const status = offer
+    setOffer(null)
+    if (status) setNatural({ received: status.received, total: status.total })
+    naturalMine.current = true
+    try {
+      await api().voiceOutputInstall()
+    } catch {
+      /* the 'voice-output-install' event carries the reason */
+    } finally {
+      naturalMine.current = false
+      setNatural(null)
+    }
+  }
+
+  const declineVoice = (): void => {
+    setOffer(null)
+    void api().voiceOutputDecline().catch(() => undefined)
+  }
 
   const finish = async (): Promise<void> => {
     const r = recording.current
@@ -154,11 +198,12 @@ export function useVoiceInput({ box, insert }: { box: RefObject<HTMLElement | nu
     }
   }
 
-  const progress = download && download.total ? download.received / download.total : 0
+  const ring = download ?? natural
+  const progress = ring && ring.total ? ring.received / ring.total : 0
   const node = <>
     <button ref={button} type="button" aria-label={phase === 'listening' ? 'Stop listening' : 'Talk'} aria-pressed={phase === 'listening'}
       title={phase === 'listening' ? 'Stop (Enter)' : 'Talk (click, or hold F8)'}
-      className={cx('btn ghost icon composer-mic', phase === 'listening' && 'on', download && 'loading')}
+      className={cx('btn ghost icon composer-mic', phase === 'listening' && 'on', ring && 'loading')}
       style={{ '--level': level, '--progress': progress } as CSSProperties}
       disabled={phase === 'working' || phase === 'starting'}
       onClick={() => (phase === 'listening' ? stop() : void start())}>
@@ -171,6 +216,16 @@ export function useVoiceInput({ box, insert }: { box: RefObject<HTMLElement | nu
         <div className="voice-consent-actions">
           <button type="button" className="btn ghost sm" onClick={() => setConsent(null)}>Not now</button>
           <button type="button" className="btn solid sm" onClick={() => void accept()}>Download</button>
+        </div>
+      </Popover>
+    )}
+    {offer && !consent && (
+      <Popover anchor={button} placement="bottom-end" className="voice-consent panel" onClose={() => setOffer(null)} role="dialog" aria-label="Natural voice">
+        <p>Read replies in a natural voice? It runs on this PC and needs a one-time {Math.round(offer.total / 1e6)} MB download.
+          Until then, Windows' voice reads them.</p>
+        <div className="voice-consent-actions">
+          <button type="button" className="btn ghost sm" onClick={declineVoice}>Not now</button>
+          <button type="button" className="btn solid sm" onClick={() => void acceptVoice()}>Download</button>
         </div>
       </Popover>
     )}

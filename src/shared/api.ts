@@ -490,6 +490,16 @@ export interface VoiceStatus {
   mic: 'granted' | 'denied' | 'restricted' | 'not-determined' | 'unknown'
 }
 
+/** The natural voice for replies (src/main/voice-output.ts): Kokoro, a separate opt-in download. */
+export interface VoiceOutputStatus {
+  state: 'missing' | 'downloading' | 'ready'
+  /** bytes of the whole download, and how many have arrived */
+  received: number
+  total: number
+  /** the player said Not now; offered again once Read replies aloud is turned off and on */
+  declined: boolean
+}
+
 export interface GenioApi {
   /** Settings › This project › Unity slots: the shared slot pool. */
   playPool(world: string): Promise<import('./play').PlayPoolState>
@@ -576,6 +586,15 @@ export interface GenioApi {
   voiceInstall(): Promise<VoiceStatus>
   /** 16 kHz mono audio from the mic button, held in memory only; '' when no speech was heard. */
   voiceTranscribe(audio: Float32Array): Promise<string>
+  voiceOutputStatus(): Promise<VoiceOutputStatus>
+  /** The one-time natural voice download, after the player's yes; 'voice-output-install' events report progress. */
+  voiceOutputInstall(): Promise<VoiceOutputStatus>
+  /** Not now: replies keep the Windows voice. */
+  voiceOutputDecline(): Promise<VoiceOutputStatus>
+  /** One sentence of a reply in the natural voice, as mono PCM. */
+  voiceSynth(text: string): Promise<{ rate: number; pcm: Float32Array }>
+  /** The mic, Esc or a newer reply: every pending voiceSynth fails at once. */
+  voiceSynthCancel(): Promise<void>
   featureUsed(feature: 'screenshot' | 'model-picker' | 'character-sheet' | 'play-fullscreen'): Promise<void>
   /** Character Sheet: pin an unlocked achievement to the front of the grid (three at most) */
   trophyPin(id: string, pinned: boolean): Promise<OpResult>
@@ -802,7 +821,7 @@ export const API_METHODS = [
   'playerCopies', 'playerCopyStatus', 'playerCopyEnsure', 'playerCopySync', 'playerCopyCancel', 'playerCopyDelete', 'playerCopySizes',
   'inventoryOpen', 'inventoryClose', 'inventoryRefresh', 'inventoryList', 'inventoryInfo', 'inventoryModelUrl', 'inventoryModelRelease', 'modellerLive', 'unitFilePreview',
   'artBibleRead', 'artBibleWrite', 'designNotes', 'designNoteWrite',
-  'voiceStatus', 'voiceInstall', 'voiceTranscribe',
+  'voiceStatus', 'voiceInstall', 'voiceTranscribe', 'voiceOutputStatus', 'voiceOutputInstall', 'voiceOutputDecline', 'voiceSynth', 'voiceSynthCancel',
   'featureUsed',
   'trophyPin',
   'titleEquip',

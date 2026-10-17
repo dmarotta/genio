@@ -164,6 +164,38 @@ async function sha256File(file: string): Promise<string> {
   return hash.digest('hex')
 }
 
+/**
+ * Download to `<file>.part`, resuming what an earlier try left; verify; then move into place. `progress` gets the bytes
+ * of this file so far, at most every 250 ms. Shared with voice output (voice-output.ts).
+ */
+export async function fetchVerified(d: VoiceDownload, file: string, opts: { fetch?: typeof fetch; progress?: (have: number) => void } = {}): Promise<void> {
+  const part = file + '.part'
+  let have = fs.existsSync(part) ? fs.statSync(part).size : 0
+  if (have > d.size) { fs.rmSync(part, { force: true }); have = 0 }
+  if (have < d.size) {
+    const res = await (opts.fetch ?? fetch)(d.url, { headers: have ? { Range: `bytes=${have}-` } : {} })
+    if (!res.ok || !res.body) throw new Error(`Download failed (HTTP ${res.status}).`)
+    // A server that ignores the range sends the whole file again.
+    if (res.status !== 206) have = 0
+    const out = fs.createWriteStream(part, { flags: have ? 'a' : 'w' })
+    let last = 0
+    try {
+      for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+        if (!out.write(chunk)) await new Promise<void>(r => out.once('drain', () => r()))
+        have += chunk.length
+        if (Date.now() - last > 250) { last = Date.now(); opts.progress?.(have) }
+      }
+    } finally {
+      await new Promise<void>(r => out.end(() => r()))
+    }
+  }
+  if (await sha256File(part) !== d.sha256) {
+    fs.rmSync(part, { force: true })
+    throw new Error('The download was damaged and has been deleted. Try again.')
+  }
+  fs.renameSync(part, file)
+}
+
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const s = net.createServer()
@@ -251,34 +283,8 @@ export class VoiceInput {
     fs.writeFileSync(this.marker, JSON.stringify({ runtime: runtime.sha256, model: model.sha256 }, null, 2))
   }
 
-  /** Download to `<file>.part`, resuming what an earlier try left; verify; then move into place. */
   private async fetchVerified(d: VoiceDownload, file: string, before: number): Promise<void> {
-    const part = file + '.part'
-    let have = fs.existsSync(part) ? fs.statSync(part).size : 0
-    if (have > d.size) { fs.rmSync(part, { force: true }); have = 0 }
-    if (have < d.size) {
-      const res = await (this.opts.fetch ?? fetch)(d.url, { headers: have ? { Range: `bytes=${have}-` } : {} })
-      if (!res.ok || !res.body) throw new Error(`Download failed (HTTP ${res.status}).`)
-      // A server that ignores the range sends the whole file again.
-      if (res.status !== 206) have = 0
-      const out = fs.createWriteStream(part, { flags: have ? 'a' : 'w' })
-      let last = 0
-      try {
-        for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
-          if (!out.write(chunk)) await new Promise<void>(r => out.once('drain', () => r()))
-          have += chunk.length
-          this.received = before + have
-          if (Date.now() - last > 250) { last = Date.now(); this.publish() }
-        }
-      } finally {
-        await new Promise<void>(r => out.end(() => r()))
-      }
-    }
-    if (await sha256File(part) !== d.sha256) {
-      fs.rmSync(part, { force: true })
-      throw new Error('The download was damaged and has been deleted. Try again.')
-    }
-    fs.renameSync(part, file)
+    await fetchVerified(d, file, { fetch: this.opts.fetch, progress: have => { this.received = before + have; this.publish() } })
   }
 
   /** Text for the chat box ('' when no speech was heard). One request at a time. */

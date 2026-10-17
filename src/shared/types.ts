@@ -1108,9 +1108,12 @@ export type GenioEvent =
   | { type: 'settings'; settings: Settings }
   | { type: 'allies'; allies: Ally[] }
   | { type: 'sfx'; sound: SfxName }
-  | { type: 'speak'; text: string }
+  /** A reply to read aloud, in the windows that show this wksp's chat. */
+  | { type: 'speak'; wksp: string; text: string }
   /** The speech model download (voice input): progress, the end, or why it failed. */
   | { type: 'voice-install'; state: 'missing' | 'downloading' | 'ready'; received: number; total: number; error?: string }
+  /** The natural voice download (voice output): progress, the end, or why it failed. */
+  | { type: 'voice-output-install'; state: 'missing' | 'downloading' | 'ready'; received: number; total: number; error?: string }
   | { type: 'fal-run'; run: FalRun }
   | { type: 'navigate'; target: NotifyTarget }
   | { type: 'fal-catalogue' }

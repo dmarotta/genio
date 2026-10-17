@@ -52,28 +52,84 @@ no voice setting beyond the existing **Read replies aloud**.
 
 ## Read replies aloud
 
-- **Settings → General → Read replies aloud** (off by default). Genio speaks the last text of each successful main
-  chat turn with the system voice (Windows' OneCore voices start in under 0.15 s).
+- **Settings → General → Read replies aloud** (off by default). Genio speaks the last text of each successful chat
+  turn, in the windows that show that chat (never twice, never in the Hub). Speech starts at the end of the turn.
 - What is spoken: code blocks become "code block omitted", tables are skipped, URLs become "link", file paths become
   "path", and a long reply is cut at a sentence end near 600 characters.
-- **Pressing the mic, or Esc in the chat box, stops it.** A newer reply replaces an older one.
+- **Pressing the mic, or Esc in the chat box, stops it at once.** A newer reply replaces an older one.
 - Tool calls, permission asks and system lines are never spoken. **The Bot never speaks**, and sending any message
   still ends AFK as typed text does.
 
-## Achievement
+### The natural voice (Kokoro)
 
-**Say It Out Loud** (`chat-voice`): unlocked by the first recording that types words into the chat box.
+- **Offered once, opt-in.** The first time a reply is read aloud while the natural voice is missing, a small panel at
+  the mic button of the chat box in use offers it: a one-time download of about 329 MB (about 392 MB on disk), with
+  Download and Not now. That reply, and every reply until the voice is ready, uses the Windows voice.
+  - **Not now** is remembered: replies keep the Windows voice and the panel stays away. Turning Read replies aloud off
+    and on again brings the offer back on the next reply.
+  - The download is separate from the speech model's, with its own consent. The mic button shows its progress ring
+    and stays usable; a failure shows one line under that chat box.
+- **What is downloaded** (pinned URLs with pinned SHA-256; resumable; verified before use; a bad hash deletes the file):
+  - the sherpa-onnx 1.13.8 Node addon for Windows x64 (`sherpa-onnx-win-x64` from the npm registry, 8.9 MB: the addon,
+    its C API and onnxruntime; Apache-2.0 and MIT, with espeak-ng built in, GPL-3.0-or-later);
+  - Kokoro en v0.19 from the sherpa-onnx `tts-models` release (320 MB: the 82M-parameter model, 11 voices, the token
+    list and espeak-ng's phoneme data; weights Apache-2.0). Genio speaks with voice 0 (af).
+  - Stored in `<Genio home>/data/voice/kokoro/`; only the addon's binaries and the model folder are kept.
+- **Removing it:** quit Genio (or leave the voice idle for 10 minutes) and delete `<Genio home>/data/voice/kokoro/`;
+  the next spoken reply offers it again.
+- **How it speaks.** The cleaned reply is split into sentences. Genio's helper (below) makes one sentence at a time and
+  the chat window plays each through its own audio (an `AudioContext` queue) as soon as it arrives, while the next one
+  is made. Because the audio now plays through Chromium, the microphone's echo canceller can hear it.
+- **The helper** is `resources/kokoro-helper.cjs`, run as its own process (Genio's Electron run as Node) on the first
+  sentence: 2 threads, CPU only, above-normal priority. It loads the model once and holds about 0.5 GB of RAM; it exits
+  after 10 idle minutes, when Genio quits, and when its pipe to Genio closes.
+  - Measured on the Ryzen 7 5800X: start and model load 2.0 s, then about 1.2 s for a short first sentence; with the
+    CPU saturated by other work, 4.8 s and 3.0 s. Later sentences are made while earlier ones play.
+- **Stopping** (the mic, Esc, a newer reply): every queued buffer stops at once and every sentence still pending in
+  Genio's main process fails; a sentence the helper is already making is dropped when it arrives.
+- **The Windows voice stays the fallback**: whenever the natural voice is missing, declined, still downloading, or
+  fails (for the rest of that reply).
+
+### License check (espeak-ng)
+
+Kokoro's weights are Apache-2.0, but sherpa-onnx turns text into phonemes with espeak-ng, which is GPL-3.0-or-later
+and is compiled into the addon (`cmake/espeak-ng-for-piper.cmake` builds it as a static library, also in the shared
+builds). Genio is MIT. Shipping it this way is fine:
+
+- **Genio never distributes espeak-ng.** The player downloads the addon and the model from their publishers, after a
+  yes. GPL-3.0 §2: "You may make, run and propagate covered works that you do not convey, without conditions"; §9:
+  "You are not required to accept this License in order to receive or run a copy of the Program." The publishers
+  convey it with its source (k2-fsa/sherpa-onnx and the pinned espeak-ng fork, both public).
+- **It runs as a separate program.** Only `kokoro-helper.cjs` loads the addon, in its own process; Genio's main
+  process and windows send it plain text over a pipe and get PCM back. The GPL FAQ (MereAggregation): "pipes, sockets
+  and command-line arguments are communication mechanisms normally used between two separate programs", unless they
+  exchange "complex internal data structures".
+- **The one module that links it is GPL-compatible.** GPL FAQ (IfLibraryIsGPL): "The software modules that link with
+  the library may be under various GPL compatible licenses, but the work as a whole must be licensed under the GPL."
+  The helper script is MIT, which the FSF lists as GPL-compatible, so even the helper process taken as one combined work
+  (helper plus addon) can be under GPL-3.0, and it only ever comes together on the player's PC.
+- Anyone who bundles the addon or the model with Genio has to meet GPL-3.0 for that part (offer espeak-ng's source).
+  Genio itself does not bundle them.
+
+## Achievements
+
+- **Say It Out Loud** (`chat-voice`): unlocked by the first recording that types words into the chat box.
+- **Natural Voice** (`voice-natural`): unlocked by the first sentence of a reply spoken in the natural voice.
 
 ## Code
 
 - `src/main/voice-input.ts`: download, verification, the lazy server, splitting, the prompt and the silence filter.
+- `src/main/voice-output.ts`: the natural voice's download, the helper's lifetime, sentence requests and cancel;
+  `resources/kokoro-helper.cjs`: the helper process.
 - `src/main/window-permissions.ts` and `guardPermissions()` in `src/main/index.ts`: the permission handlers.
-- `src/main/ipc.ts`: `voiceStatus`, `voiceInstall`, `voiceTranscribe` and the `voice-install` progress event; the
-  status also reports Windows' microphone switch.
+- `src/main/ipc.ts`: `voiceStatus`, `voiceInstall`, `voiceTranscribe` and the `voice-install` progress event (the
+  status also reports Windows' microphone switch); `voiceOutputStatus`, `voiceOutputInstall`, `voiceOutputDecline`,
+  `voiceSynth`, `voiceSynthCancel` and the `voice-output-install` progress event.
 - `src/renderer/src/lib/mic.ts` and `mic-worklet.ts`: recording; `src/renderer/src/components/MicButton.tsx`: the
-  button, F8 and the consent panel; `src/renderer/src/lib/voice.ts`: speech of replies.
+  button, F8 and both consent panels; `src/renderer/src/lib/voice.ts`: speech of replies (the natural voice's queue and
+  the Windows voice).
 
 ## Later
 
-A natural local voice for replies (Kokoro, opt-in) is the next step. Not planned for now: hands-free listening, a GPU
-path, other languages and Codex's realtime voice.
+Not planned for now: speaking during a turn, hands-free listening, a GPU path, other languages and voices, and Codex's
+realtime voice.

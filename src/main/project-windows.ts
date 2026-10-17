@@ -49,7 +49,7 @@ export function terminalProject(t: TerminalInfo, s: FleetSnapshot): string | und
 }
 
 /** Chat traffic belongs to a project window; the Hub has no chat screen and never carries it. */
-const CHAT_ONLY = new Set<GenioEvent['type']>(['chat', 'chat-delta', 'generation', 'design-chats', 'design-chat', 'design-chat-delta'])
+const CHAT_ONLY = new Set<GenioEvent['type']>(['chat', 'chat-delta', 'generation', 'design-chats', 'design-chat', 'design-chat-delta', 'speak'])
 
 /**
  * Hub observes the fleet; project windows receive only their own scoped events.
@@ -68,7 +68,7 @@ export function routeProjectEvent(ev: GenioEvent, binding: WindowBinding | undef
     case 'status': return project(snap().tasks.find(t => t.id === ev.event.taskId)?.project)
     case 'modeller-live': return project(snap().tasks.find(t => t.id === ev.taskId)?.project)
     case 'chat': return wksp(ev.message.wksp)
-    case 'chat-delta': case 'generation': return wksp(ev.wksp)
+    case 'chat-delta': case 'generation': case 'speak': return wksp(ev.wksp)
     case 'design-chats': case 'design-chat': case 'design-chat-delta': return wksp(ev.wksp)
     case 'wksp': return wksp(ev.wksp.name)
     case 'permission': return wksp(ev.request.wksp)

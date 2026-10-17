@@ -16,6 +16,7 @@ import { standingApprovals } from './standing-approvals'
 import { readArtBibleView, writeArtBibleFile } from './art-bible'
 import { saveScreenNote, screenNotes } from './design-notes'
 import { VOICE_MAX_SAMPLES, voiceInput } from './voice-input'
+import { SYNTH_MAX_CHARS, voiceOutput } from './voice-output'
 /**
  * IPC: one ipcMain.handle per GenioApi method ('genio:<method>'). The table is
  * typed against GenioApi so a missing or mistyped method fails the build.
@@ -230,6 +231,22 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     voiceTranscribe: async (audio) => {
       if (!(audio instanceof Float32Array) || audio.length > VOICE_MAX_SAMPLES) throw new Error('Voice input takes up to 60 seconds of audio.')
       return voiceInput(ctx()).transcribe(audio)
+    },
+    voiceOutputStatus: async () => voiceOutput(ctx()).status(),
+    voiceOutputInstall: async () => {
+      await voiceOutput(ctx()).installVoice()
+      return voiceOutput(ctx()).status()
+    },
+    voiceOutputDecline: async () => {
+      voiceOutput(ctx()).decline()
+      return voiceOutput(ctx()).status()
+    },
+    voiceSynth: async (text) => {
+      if (typeof text !== 'string' || !text.trim() || text.length > SYNTH_MAX_CHARS) throw new Error('The natural voice takes one sentence at a time.')
+      return voiceOutput(ctx()).synth(text)
+    },
+    voiceSynthCancel: async () => {
+      voiceOutput(ctx()).cancel()
     },
     featureUsed: async (feature) => {
       if (feature === 'screenshot' || feature === 'model-picker' || feature === 'character-sheet' || feature === 'play-fullscreen') bus.publish({ type: 'feature-used', feature })

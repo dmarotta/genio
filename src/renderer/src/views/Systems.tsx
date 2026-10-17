@@ -361,7 +361,7 @@ function SectionBody({ sec, s, setAdvanced, open }: { sec: SettingsPageId; s: Se
           <Row label="Gamertag" hint="The name Genio calls you, e.g. Ace.">
             <CommitInput value={s.gamertag} onCommit={(v) => set({ gamertag: v.trim() || 'Player' })} />
           </Row>
-          <Row label="Read replies aloud" hint="Genio speaks its chat replies with your system voice.">
+          <Row label="Read replies aloud" hint="Genio speaks its chat replies with a voice that runs on this PC.">
             <Toggle checked={s.voice} onChange={(v) => set({ voice: v })} />
           </Row>
           <Row label="Scanlines and grid" hint="The retro screen effects behind every screen. Turn off for a plainer look.">

@@ -361,7 +361,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
         }
         if (ok && !nothingToSay) {
           bus.publish({ type: 'sfx', sound: 'blip' })
-          if (settings().voice) bus.publish({ type: 'speak', text: lastText })
+          if (settings().voice) bus.publish({ type: 'speak', wksp: name, text: lastText })
         }
         publishInfo()
         setTimeout(() => svc.deliverWakes(), 250)

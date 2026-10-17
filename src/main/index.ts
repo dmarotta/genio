@@ -29,6 +29,7 @@ import { windowTitle } from '@shared/window-title'
 import { COPY_SIGNAL, genioInstallReport, logInstallReport, recoveryCardHtml, type GenioInstallReport } from './install-health'
 import { allowPermission } from './window-permissions'
 import { voiceInput } from './voice-input'
+import { voiceOutput } from './voice-output'
 
 // Validate before single-instance locking, Base writes, or provider startup.
 const captureData = captureUserData()
@@ -125,6 +126,8 @@ async function boot(): Promise<void> {
   registerMediaProtocols()
   guardPermissions()
   wireEvents()
+  // Created up front so turning Read replies aloud back on can bring back a put-off natural voice offer.
+  try { voiceOutput(ctx) } catch (e) { console.error('[voice-output]', e) }
   await launch(process.argv, process.cwd())
   for (const pending of pendingLaunches.splice(0)) await launch(pending.argv, pending.cwd)
 }
@@ -464,7 +467,7 @@ function wireEvents(): void {
 
 async function shutdown(code = 0): Promise<void> {
   try {
-    if (ctx) voiceInput(ctx).stop()
+    if (ctx) { voiceInput(ctx).stop(); voiceOutput(ctx).stop() }
   } catch {
     /* ignore */
   }
