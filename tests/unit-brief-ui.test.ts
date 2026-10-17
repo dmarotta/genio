@@ -3,7 +3,7 @@ import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Task } from '../src/shared/types'
-const f = vi.hoisted(() => ({ read: vi.fn(), refs: vi.fn(async () => []), open: vi.fn(async () => undefined) }))
+const f = vi.hoisted(() => ({ read: vi.fn(), refs: vi.fn(async (): Promise<unknown[]> => []), open: vi.fn(async () => undefined) }))
 vi.mock('../src/renderer/src/store', () => ({ api: () => ({ readTaskFile: f.read, taskReferences: f.refs, openPath: f.open }), errText: (e: unknown) => String((e as Error)?.message ?? e) }))
 import { BriefSummaryView, BriefTab } from '../src/renderer/src/components/BriefTab'
 import { briefSummary, SUMMARY_CHARS } from '../src/shared/unit-brief'
