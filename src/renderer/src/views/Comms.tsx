@@ -58,6 +58,9 @@ export function Comms() {
   )
 }
 
+/** One empty list until the chat loads: a new [] per store change would re-render the whole chat each time. */
+const NO_MESSAGES: ChatMessage[] = []
+
 /** What a chat pane reads of its session: the project chat's WkspInfo, or a design chat's own state. */
 type ChatSessionInfo = Pick<WkspInfo, 'activity' | 'activityDetail' | 'steerable' | 'queued' | 'limit' | 'botLimit' | 'lastError'>
 
@@ -76,7 +79,7 @@ export function ChatPanel({ wksp, conversation, context, surface = 'screen', act
   const wkspInfo = useStore((s) => s.snap.wksps.find((m) => m.name === wksp))
   const designInfo = useStore((s) => (conversation ? s.designChats?.find((c) => c.id === conversation) : undefined))
   const info: ChatSessionInfo | undefined = conversation ? designInfo : wkspInfo
-  const messages = useStore((s) => s.chats[key] ?? [])
+  const messages = useStore((s) => s.chats[key] ?? NO_MESSAGES)
   const settings = useStore((s) => s.settings)
   const gamertag = settings?.gamertag || 'Player'
   const calm = !!settings?.calm

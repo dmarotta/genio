@@ -532,10 +532,19 @@ export function squadRoster(s: State): SquadRoster {
   return rosterCache.v
 }
 
-/** Choices asking now (the popup and its count); one set aside with Later or Ask Genio waits quietly under Deferred. */
+/**
+ * Choices asking now (the popup and its count); one set aside with Later or Ask Genio waits quietly under Deferred.
+ * The same array until the decisions change or a deferral expires: always-mounted components select it, and a
+ * new array per store change (every streamed delta) re-rendered them all.
+ */
+let openCache: { decisions?: FleetSnapshot['decisions']; until: number; v: FleetSnapshot['decisions'] } = { until: 0, v: [] }
 export function openDecisions(s: State): FleetSnapshot['decisions'] {
   const now = Date.now()
-  return s.snap.decisions.filter(d => askingDecision(d, now))
+  if (openCache.decisions === s.snap.decisions && now < openCache.until) return openCache.v
+  // The next instant a deferred choice comes back, after which the list must be recomputed.
+  const until = Math.min(Infinity, ...s.snap.decisions.map(d => (!d.resolvedAt && d.until ? Date.parse(d.until) : NaN)).filter(t => t > now))
+  openCache = { decisions: s.snap.decisions, until, v: s.snap.decisions.filter(d => askingDecision(d, now)) }
+  return openCache.v
 }
 
 

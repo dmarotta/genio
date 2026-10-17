@@ -6,7 +6,7 @@ import { PRESENCE } from '../lib/vocab'
 import { clock, cx } from '../lib/format'
 import { playSfx } from '../lib/sfx'
 import { PANE_SHORTCUT, togglePane } from '../lib/terminal-pane'
-import type { AwayMode } from '@shared/types'
+import type { AwayMode, FleetSnapshot } from '@shared/types'
 
 export function TitleBar() {
   useNow(30_000)
@@ -90,10 +90,13 @@ export function TitleBar() {
   )
 }
 
+/** One empty list: a new [] per store change would re-render the chips on every streamed delta. */
+const NO_APPROVALS: NonNullable<FleetSnapshot['standing']> = []
+
 /** "Standing merge approval until 21:40 · Revoke": the player's "keep merging everything", visible and one click to end. */
 function StandingChips() {
   const now = useNow(30_000)
-  const standing = useStore((s) => s.snap.standing ?? [])
+  const standing = useStore((s) => s.snap.standing ?? NO_APPROVALS)
   const active = standing.filter((a) => Date.parse(a.expiresAt) > now)
   if (!active.length) return null
   return (

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Backpack, IdCard, Globe, Lightbulb, MessageSquare, Palette, ScrollText, Settings, Swords, Gamepad2, type LucideIcon } from 'lucide-react'
 import { PROJECT_WINDOW, go, useStore, runningUnits, playAvailable, type ViewId } from '../store'
 import { cx } from '../lib/format'
@@ -35,7 +35,8 @@ export function Rail() {
   const live = useStore(runningUnits)
   const mail = useStore((s) => s.snap.inbox.filter((n) => !n.ackedAt).length)
   const thinking = useStore((s) => s.snap.wksps.some((m) => m.activity === 'thinking' || m.activity === 'tool'))
-  const quests = useStore((s) => questCounts(s.snap.backlog))
+  const backlog = useStore((s) => s.snap.backlog)
+  const quests = useMemo(() => questCounts(backlog), [backlog])
   const badge: Partial<Record<ViewId, { n: number; tone: string }>> = {
     squad: { n: live, tone: 'neon' },
     systems: { n: mail, tone: 'violet' }
