@@ -2,29 +2,30 @@
 // renderer (npm run build) in Electron, with Chromium metrics per screen. Read-only for the source Base and projects.
 // Usage: node scripts/screen-benchmark.mjs <output-dir> [--base <Base root>] [--project <name>] [--runs <n>] [--units <n>]
 //        [--screens squad,quests,...] [--profile] [--trace <phase,...>]
+//        node scripts/screen-benchmark.mjs --freeze <dir> [--base <Base root>]
 // The copy skips worktrees, Play pools, player copies and the Claude/Codex homes; Base paths inside it are remapped
 // into the copy, project folders stay where they are and are only read. results.json and summary.json go to <output-dir>.
+// A live Base changes while units run: --freeze keeps one filtered snapshot, and --base <that dir> compares revisions
+// on the same data. Run from the checkout to measure (this file can live elsewhere, e.g. to measure an older revision).
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { build } from 'esbuild'
-import { assertChildHomes, createIsolatedHomes } from '../tests/support/isolated-homes.mjs'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const args = process.argv.slice(2)
 const flag = (name, fallback) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : fallback }
-const output = path.resolve(args[0] ?? '')
-if (!args[0] || args[0].startsWith('--')) throw new Error('Usage: node scripts/screen-benchmark.mjs <output-dir> [--base <Base root>] [--project <name>] [--runs <n>]')
 const root = process.cwd()
+const here = path.dirname(fileURLToPath(import.meta.url))
+const { build } = await import(pathToFileURL(createRequire(path.join(root, 'package.json')).resolve('esbuild')).href)
+const { assertChildHomes, createIsolatedHomes } = await import(pathToFileURL(path.join(root, 'tests', 'support', 'isolated-homes.mjs')).href)
 const source = path.resolve(flag('base', path.join(os.homedir(), '.genio')))
 const project = flag('project', 'genio')
 const runs = Number(flag('runs', '3'))
-if (!fs.existsSync(path.join(root, 'out', 'renderer', 'index.html'))) throw new Error('Run npm run build first: the benchmark drives the built renderer.')
-fs.mkdirSync(output, { recursive: true })
 
 // Large or private folders never enter the copy. A unit's data folder keeps its brief and report; a live unit's also
-// keeps its other top-level files and its Modeller steps.
+// keeps its other top-level files and its Modeller steps. Matched below the copied Base's own root.
 const SKIP = /[\\/](worktrees|projects|node_modules|chat-images|validation-node_modules|play-pools|player-copies|claude-home|codex-home|skills)([\\/]|$)/
 const TASK_DIR = /[\\/]data[\\/]([^\\/]+-[0-9a-f]{4})(?:[\\/]|$)/
 const norm = p => path.resolve(p).replaceAll('\\', '/').toLowerCase()
@@ -38,17 +39,19 @@ function liveTaskIds() {
   return ids
 }
 
+/** Copy `source` to `destination`; `env` (the sandbox) replaces agent home settings, none keeps them. */
 function copyBase(destination, env) {
   const live = liveTaskIds()
   fs.cpSync(source, destination, {
     recursive: true,
-    filter: src => {
+    filter: abs => {
+      const src = path.sep + path.relative(source, abs)
       if (SKIP.test(src)) return false
       const task = TASK_DIR.exec(src)
       if (!task) return true
       const inside = src.slice(task.index + task[0].length)
       if (!inside) return true
-      if (live.has(task[1])) return /^modeller([\\/]|$)/.test(inside) || (!/[\\/]/.test(inside) && fs.statSync(src).isFile())
+      if (live.has(task[1])) return /^modeller([\\/]|$)/.test(inside) || (!/[\\/]/.test(inside) && fs.statSync(abs).isFile())
       return /^(brief|report)\.md$/.test(inside)
     }
   })
@@ -58,7 +61,7 @@ function copyBase(destination, env) {
   const rewrite = (value, key = '') => {
     if (Array.isArray(value)) return value.map(item => rewrite(item))
     if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, rewrite(v, k)]))
-    if (HOME_KEYS.includes(key) && typeof value === 'string') return env[key]
+    if (env && HOME_KEYS.includes(key) && typeof value === 'string') return env[key]
     if (typeof value === 'string' && path.isAbsolute(value) && (norm(value) === from || norm(value).startsWith(from + '/'))) return path.join(destination, path.relative(source, value))
     return value
   }
@@ -76,10 +79,23 @@ function copyBase(destination, env) {
   walk(destination)
 }
 
+const frozen = flag('freeze')
+if (frozen) {
+  if (fs.existsSync(frozen)) throw new Error(`${frozen} exists: freeze into a new folder`)
+  const t0 = Date.now()
+  copyBase(path.resolve(frozen))
+  console.log(`[screens] froze ${source} into ${path.resolve(frozen)} in ${Date.now() - t0} ms`)
+  process.exit(0)
+}
+const output = path.resolve(args[0] ?? '')
+if (!args[0] || args[0].startsWith('--')) throw new Error('Usage: node scripts/screen-benchmark.mjs <output-dir> [--base <Base root>] [--project <name>] [--runs <n>]')
+if (!fs.existsSync(path.join(root, 'out', 'renderer', 'index.html'))) throw new Error('Run npm run build first: the benchmark drives the built renderer.')
+fs.mkdirSync(output, { recursive: true })
+
 const mainFile = path.join(root, 'out', 'screen-benchmark', 'main.cjs')
 await build({
-  entryPoints: [path.join(root, 'scripts', 'screen-benchmark-main.mjs')], bundle: true, platform: 'node', format: 'cjs', outfile: mainFile,
-  alias: { '@shared': path.join(root, 'src', 'shared') }, packages: 'external', logLevel: 'warning',
+  entryPoints: [path.join(here, 'screen-benchmark-main.mjs')], bundle: true, platform: 'node', format: 'cjs', outfile: mainFile,
+  alias: { '@shared': path.join(root, 'src', 'shared'), '@main': path.join(root, 'src', 'main') }, packages: 'external', logLevel: 'warning',
   // As in Genio's own bundle, plugin modules find their resources from out/<folder>/ (resource-path.mjs).
   define: { 'import.meta.url': '__benchModuleUrl' }, banner: { js: "const __benchModuleUrl = require('node:url').pathToFileURL(__filename).href;" }
 })
