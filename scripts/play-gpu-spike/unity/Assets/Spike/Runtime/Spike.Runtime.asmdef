@@ -1,1 +1,1 @@
-{ "name": "Spike.Runtime", "references": ["Genio.Play", "Genio.Play.GpuShare"], "defineConstraints": ["GENIO_PLAY_GPU_SHARE"] }
+{ "name": "Spike.Runtime", "references": ["Genio.Play"] }

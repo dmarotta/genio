@@ -363,6 +363,20 @@ Recommended for a Unity unit, which can run and profile it:
 - Flip in the `Blit` with a negative scale, not on the CPU.
 - Measure with Unity's profiler plus this benchmark's send-to-paint stamps.
 
+#### The GPU stream (2026-10-17)
+
+The D3D shared texture was then built as Play's fast path, with the JPEG stream kept as the automatic fallback ([play-gpu-stream.md](play-gpu-stream.md)). Measured end to end in a real Unity 6000.5.1f1 editor on a hidden desktop against Genio's own stream code, two 15 s runs per row, from Unity's end of frame to the canvas draw:
+
+| Play stream | 1280 × 720 before → after | 1920 × 1080 before → after |
+|---|---|---|
+| Shown frames per second | 30.0 → 59.9 | 20.6 → 59.7–59.8 |
+| End of frame to drawn, p50 | 27.1–27.4 → 1.1–1.3 ms | 41.3–41.8 → 1.5–1.6 ms |
+| End of frame to drawn, p95 | 30.6–30.7 → 1.8–2.5 ms | 44–52 → 2.8–4.3 ms |
+| Electron CPU, % of one core (main + GPU + renderer) | 19.4–19.5 → 22.3–23.1 | 21.8–24.0 → 23.8–24.4 |
+| Unity editor CPU, % of one core | 4–5 → 4 | 16 → 4–5 |
+
+"Before" is the JPEG stream as it ships (and as it still runs for projects that need Direct3D 12): readback, encode at quality 75, 30 fps cadence, one frame in flight. "After" draws twice the frames for about the same Electron CPU, and takes the 1080p encode off the editor.
+
 ### Left alone, and why
 
 - **The unit page still spends about 5 s of renderer CPU in the tour.** xterm's

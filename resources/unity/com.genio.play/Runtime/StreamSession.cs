@@ -25,6 +25,10 @@ namespace Genio.Play
         readonly SemaphoreSlim sending = new SemaphoreSlim(1, 1);
         RenderTexture target;
         RenderTexture screen;
+        // The fast path while it runs (Genio passed its process id and the editor renders with Direct3D 11).
+        GpuFrames gpu;
+        int genioPid;
+        volatile bool wantJpeg;
         volatile bool pending;
         bool step;
         string latestInput;
@@ -32,17 +36,19 @@ namespace Genio.Play
         float inputAt;
         int width, height;
 
+        /// genioPid asks for the fast path: frames as D3D11 textures shared into that process (GpuFrames), JPEG otherwise.
         [CliCommand("genio_stream_start", "Connect Genio's local video session", MainThreadRequired = true)]
-        public static string StartStream(int port, string token, int width = 1280, int height = 720)
+        public static string StartStream(int port, string token, int width = 1280, int height = 720, int genioPid = 0)
         {
             if (!Application.isPlaying) throw new InvalidOperationException("Enter Play Mode first");
             if (port < 1 || port > 65535 || token == null || !System.Text.RegularExpressions.Regex.IsMatch(token, "^[a-f0-9]{64}$")) throw new ArgumentException("Invalid local session");
             if (width < 16 || height < 16 || width > 1920 || height > 1920) throw new ArgumentException("Stream dimensions must be 16–1920");
+            if (genioPid < 0) throw new ArgumentException("Invalid local session");
             StopStream();
             var go = new GameObject("Genio Play (temporary)") { hideFlags = HideFlags.HideAndDontSave };
             DontDestroyOnLoad(go);
             current = go.AddComponent<StreamSession>();
-            current.width = width; current.height = height;
+            current.width = width; current.height = height; current.genioPid = genioPid;
             current.oldBackground = Application.runInBackground;
             Application.runInBackground = true;
             current.cancel = new CancellationTokenSource();
@@ -78,13 +84,18 @@ namespace Genio.Play
                 if (this == null || cancel.IsCancellationRequested) return;
                 target = new RenderTexture(width, height, 0, GraphicsFormat.R8G8B8A8_UNorm);
                 target.Create();
+                if (genioPid > 0) StartGpu();
                 StartCoroutine(Capture());
                 var buffer = new byte[8192];
                 while (!cancel.IsCancellationRequested && socket.State == WebSocketState.Open)
                 {
                     var result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), cancel.Token);
                     if (result.MessageType != WebSocketMessageType.Text || !result.EndOfMessage) break;
-                    Interlocked.Exchange(ref latestInput, Encoding.UTF8.GetString(buffer, 0, result.Count));
+                    var text = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                    if (text == "{\"type\":\"jpeg\"}") wantJpeg = true;
+                    // A free that arrives after the fast path ended is not input either.
+                    else if (text.StartsWith("{\"type\":\"free\"", StringComparison.Ordinal)) gpu?.Free(text);
+                    else Interlocked.Exchange(ref latestInput, text);
                 }
             }
             catch (Exception) { /* No credentials or URLs in logs; disconnect is expected on reload. */ }
@@ -98,6 +109,13 @@ namespace Genio.Play
             while (socket != null && socket.State == WebSocketState.Open)
             {
                 yield return endOfFrame;
+                if (gpu != null)
+                {
+                    bool gpuStep = step; step = false;
+                    if (wantJpeg) EndGpu(0, "Genio asked for JPEG frames");
+                    else if (!gpu.Capture(gpuStep, target, Grab, out string reason)) EndGpu(GpuFrames.CopyFailed, reason);
+                    continue;
+                }
                 // A fixed 30 fps cadence with a quarter-frame tolerance. Gating on "now + 1/30" skipped every
                 // other frame of a 30 fps game whose frames land a hair early (about 20 fps streamed).
                 const float interval = 1f / 30f;
@@ -107,14 +125,7 @@ namespace Genio.Play
                 // After a stall, restart the cadence from now instead of bursting to catch up.
                 if (!stepped) next = next + interval < now ? now + interval : next + interval;
                 pending = true;
-                if (screen == null || screen.width != Screen.width || screen.height != Screen.height)
-                {
-                    if (screen != null) Destroy(screen);
-                    screen = new RenderTexture(Screen.width, Screen.height, 0, GraphicsFormat.R8G8B8A8_UNorm);
-                    screen.Create();
-                }
-                ScreenCapture.CaptureScreenshotIntoRenderTexture(screen);
-                Graphics.Blit(screen, target);
+                Grab();
                 AsyncGPUReadback.Request(target, 0, TextureFormat.RGBA32, request =>
                 {
                     if (request.hasError || cancel == null || cancel.IsCancellationRequested) { pending = false; return; }
@@ -137,6 +148,34 @@ namespace Genio.Play
                 });
                 if (stepped) AsyncGPUReadback.WaitAllRequests();
             }
+        }
+        /// The Game view's last frame, scaled into the stream texture.
+        void Grab()
+        {
+            if (screen == null || screen.width != Screen.width || screen.height != Screen.height)
+            {
+                if (screen != null) Destroy(screen);
+                screen = new RenderTexture(Screen.width, Screen.height, 0, GraphicsFormat.R8G8B8A8_UNorm);
+                screen.Create();
+            }
+            ScreenCapture.CaptureScreenshotIntoRenderTexture(screen);
+            Graphics.Blit(screen, target);
+        }
+        void StartGpu()
+        {
+            gpu = GpuFrames.Start(this, target, genioPid, out byte code, out string reason);
+            if (gpu == null) Fallback(code, reason);
+        }
+        /// The fast path ends for the rest of the session; JPEG frames follow on the same socket. A request from Genio needs no answer.
+        void EndGpu(byte code, string reason)
+        {
+            gpu.Dispose(); gpu = null;
+            if (code != 0) Fallback(code, reason);
+        }
+        void Fallback(byte code, string reason)
+        {
+            Debug.LogWarning("Genio Play: streaming JPEG frames; the GPU stream is unavailable (" + reason + ")");
+            _ = Send(GpuFrames.EndMessage(code));
         }
         /// Any thread. One message at a time: ClientWebSocket allows a single outstanding send, and audio and frames
         /// share the socket. Dropped quietly before the connection opens and after it closes.
@@ -165,6 +204,7 @@ namespace Genio.Play
             if (cancel == null) return;
             cancel.Cancel(); socket?.Abort(); socket?.Dispose(); socket = null;
             StopAudio?.Invoke(this);
+            if (gpu != null) { gpu.Dispose(); gpu = null; }
             // Readback callbacks may still complete; cancellation fences them before encoding.
             if (target != null) { Destroy(target); target = null; }
             if (screen != null) { Destroy(screen); screen = null; }

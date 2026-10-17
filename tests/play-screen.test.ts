@@ -513,6 +513,35 @@ it('decodes one live frame per credit, forwards held input only while focused, a
   } finally { context.mockRestore(); vi.unstubAllGlobals() }
 })
 
+it('draws fast-path GPU frames on the same canvas, returns each credit on the port, and still takes JPEG after a fallback', async () => {
+  const bitmap = { close: vi.fn() }, drawImage = vi.fn()
+  vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue(bitmap))
+  const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage } as unknown as CanvasRenderingContext2D)
+  const channel = { postMessage: vi.fn(), start: vi.fn(), close: vi.fn(), onmessage: null as ((e: { data: unknown }) => Promise<void>) | null }
+  let listener: ((frame: unknown, meta: object) => void) | undefined
+  const off = vi.fn(), genio = (window as unknown as { genio: Record<string, unknown> }).genio
+  genio.onPlayFrame = vi.fn((world: string, fn: typeof listener) => { expect(world).toBe('game'); listener = fn; return off })
+  try {
+    await act(async () => root.render(React.createElement(PlayLive, { world: 'game', width: 1280, height: 720, input: true, onClosed: vi.fn() })))
+    await act(async () => window.dispatchEvent(new MessageEvent('message', { source: window, data: { type: 'genio:play-port', world: 'game' }, ports: [channel as unknown as MessagePort] })))
+    channel.postMessage.mockClear()
+    const frame = { codedWidth: 1280 }
+    act(() => listener!(frame, { seq: 1, width: 1280, height: 720 }))
+    // Drawn as it came, no decode and no layout work; then the one credit goes back.
+    expect(drawImage).toHaveBeenCalledWith(frame, 0, 0, 1280, 720)
+    expect(createImageBitmap).not.toHaveBeenCalled()
+    expect(channel.postMessage.mock.calls).toEqual([[{ type: 'ready' }]])
+    // A frame that fails to draw still returns the credit, so the stream never stalls.
+    drawImage.mockImplementationOnce(() => { throw new Error('lost') })
+    expect(() => listener!(frame, { seq: 2, width: 1280, height: 720 })).toThrow('lost')
+    expect(channel.postMessage).toHaveBeenCalledTimes(2)
+    await act(async () => channel.onmessage!({ data: { type: 'frame', bytes: new Uint8Array([255, 216, 255, 217]) } }))
+    expect(drawImage).toHaveBeenLastCalledWith(bitmap, 0, 0, 1280, 720)
+    await act(async () => root.render(null))
+    expect(off).toHaveBeenCalledOnce()
+  } finally { delete genio.onPlayFrame; context.mockRestore(); vi.unstubAllGlobals() }
+})
+
 it('normalizes wheel notches across deltaMode, with up positive as in Unity', () => {
   expect(wheelNotches({ deltaY: -100, deltaMode: 0 })).toBe(1)
   expect(wheelNotches({ deltaY: 3, deltaMode: 1 })).toBe(-1)

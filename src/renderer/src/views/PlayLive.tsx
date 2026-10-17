@@ -64,9 +64,10 @@ export function wheelNotches(e: Pick<WheelEvent, 'deltaY' | 'deltaMode'>): numbe
 }
 
 /**
- * The player instance's live Game view: one JPEG frame per credit over the MessagePort main transfers, drawn on a
- * canvas; keyboard, mouse and gamepad state goes back while the canvas has focus. A new width or height resizes
- * Unity's stream behind the same port, so Play continues. The game's sound plays from the same port unless `muted`;
+ * The player instance's live Game view: one frame per credit, drawn on a canvas. Frames are JPEGs over the MessagePort
+ * main transfers or, on the fast path, GPU frames from the preload (shared textures, drawn as they come with no decode);
+ * either way the credit goes back on the port. Keyboard, mouse and gamepad state goes back while the canvas has focus.
+ * A new width or height resizes Unity's stream behind the same port, so Play continues. The game's sound plays from the same port unless `muted`;
  * `onSound` says whether any arrived. Unmounting closes the port and the sound; unless main closed the port first
  * (Stop, a new Play), that also exits Play and starts the idle timer.
  */
@@ -137,6 +138,10 @@ export function PlayLive({ world, width, height, input, muted = false, onClosed,
       channel.start(); channel.postMessage({ type: 'ready' })
     }
     const blur = (): void => { release(); if (document.pointerLockElement === canvas.current) void document.exitPointerLock() }
+    const offFrames = window.genio.onPlayFrame?.(world, frame => {
+      try { const c = canvas.current; if (!closed && c) c.getContext('2d')?.drawImage(frame, 0, 0, c.width, c.height) }
+      finally { if (!closed) port.current?.postMessage({ type: 'ready' }) }
+    })
     window.addEventListener('message', connect); window.addEventListener('blur', blur)
     document.addEventListener('visibilitychange', blur)
     void window.genio.api.playerInstanceStream(world, true, size.current.width, size.current.height).catch(e => end(message(e)))
@@ -151,7 +156,7 @@ export function PlayLive({ world, width, height, input, muted = false, onClosed,
       scroll.current = 0
     }, 33)
     return () => {
-      closed = true; clearInterval(timer); clearTimeout(quiet); release()
+      closed = true; clearInterval(timer); clearTimeout(quiet); release(); offFrames?.()
       audio.close(); if (sound.current === audio) sound.current = undefined
       const open = port.current
       port.current = undefined

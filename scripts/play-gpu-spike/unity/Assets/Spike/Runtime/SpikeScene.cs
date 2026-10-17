@@ -41,6 +41,13 @@ namespace Genio.Spike
             cam = new GameObject("Spike camera").AddComponent<Camera>();
             cam.orthographic = true; cam.clearFlags = CameraClearFlags.SolidColor; cam.allowMSAA = false;
             cam.transform.position = new Vector3(0, 0, -100); cam.nearClipPlane = 0.1f; cam.farClipPlane = 1000;
+            // A quiet tone on the only listener, so the run shows the game's sound still flowing beside the frames.
+            foreach (var l in FindObjectsByType<AudioListener>(FindObjectsSortMode.None)) l.enabled = false;
+            cam.gameObject.AddComponent<AudioListener>();
+            var tone = AudioClip.Create("tone", 48000, 1, 48000, false);
+            var samples = new float[48000]; for (int i = 0; i < samples.Length; i++) samples[i] = 0.05f * Mathf.Sin(2 * Mathf.PI * 440 * i / 48000f);
+            tone.SetData(samples, 0);
+            var source = cam.gameObject.AddComponent<AudioSource>(); source.clip = tone; source.loop = true; source.Play();
             black = Unlit(Color.black); white = Unlit(Color.white);
             var grey = Unlit(new Color(0.5f, 0.5f, 0.5f));
             stripBack = Quad("strip", grey, 2).transform;
@@ -97,7 +104,7 @@ namespace Genio.Spike
             {
                 yield return wait;
                 if (!Logging || LogCount >= LogFrames.Length) continue;
-                LogFrames[LogCount] = Time.frameCount; LogT0[LogCount] = Genio.Play.GpuShare.D3D11Ring.NowMs(); LogCount++;
+                LogFrames[LogCount] = Time.frameCount; LogT0[LogCount] = Genio.Play.D3D11Ring.NowMs(); LogCount++;
             }
         }
     }

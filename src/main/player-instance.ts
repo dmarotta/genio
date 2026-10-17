@@ -15,6 +15,8 @@ import { playerCopyService } from './player-copy'
 import { playService } from './play'
 import { UnityAdapter } from './play-unity'
 import { PlayStream } from './play-stream'
+import { d3d11Rule, MACHINE_FALLBACKS, type GpuFallback, type TextureFrame } from './play-gpu'
+import { textureApi, type TextureApi } from './shared-texture'
 import { biggestConsumers, closePlayerRoot, opensRoot, playerSystem, playerTree, sameProcess, type PlayerProcess, type PlayerSystem } from './player-process'
 import { repoTop, sameFolder } from './git'
 import { leaseSource, onSourceRemoved, type SourceLease } from './source-leases'
@@ -54,7 +56,7 @@ const gb = (bytes: number) => (bytes / GiB).toFixed(1)
 type CopyAfterClose = 'delete' | 'keep' | 'restart'
 export interface PlayerRuntime {
   request<T = unknown>(command: string, parameters?: object): Promise<T>
-  stream(width: number, height: number, onFrame: (b: Buffer) => void, onDisconnect: () => void, onAudio?: (b: Buffer) => void): Promise<void>
+  stream(width: number, height: number, onFrame: (f: Buffer | TextureFrame) => void, onDisconnect: () => void, onAudio?: (b: Buffer) => void): Promise<void>
   /** A new stream size behind the same frame, audio and disconnect callbacks, so the renderer's port and Play stay. */
   resize(width: number, height: number): Promise<void>
   stopStream(): void
@@ -63,35 +65,60 @@ export interface PlayerRuntime {
 export interface PlayerInstanceOptions {
   copies?: PlayerCopies; system?: PlayerSystem; desktop?: DesktopApi
   launch?: typeof launchEditor; executable?: (version: string) => string | undefined
-  runtime?: (root: string, pid: () => number | undefined) => PlayerRuntime
+  runtime?: (root: string, pid: () => number | undefined, gpu?: RuntimeGpu) => PlayerRuntime
+  /** Electron's shared textures (the fast path); the real adapter by default. */
+  textures?: TextureApi
   ownerCreated?: () => Promise<string>; readyMs?: number; graceMs?: number; forceMs?: number
   idleSlots?: () => Promise<IdleEditor[]>
 }
-function runtime(root: string, pid: () => number | undefined): PlayerRuntime {
+/** The fast path as one editor's runtime sees it: whether its editor runs on Direct3D 11 for it, and whether the game plays. */
+export interface RuntimeGpu {
+  fast(): boolean
+  playing(): boolean
+  textures?: TextureApi
+  fellBack?(reason: GpuFallback): void
+}
+function runtime(root: string, pid: () => number | undefined, gpu?: RuntimeGpu): PlayerRuntime {
   const adapter = new UnityAdapter(root, async () => {}, pid)
   let stream: PlayStream | undefined
+  // The first fallback holds for this editor's lifetime: its later sessions stream JPEG from the start.
+  let fallback: GpuFallback | undefined
+  let sink: ((f: Buffer | TextureFrame) => void) | undefined
+  const open = async (width: number, height: number) => {
+    const api = gpu?.textures ?? textureApi()
+    if (!gpu?.fast() || fallback || !api.available) return new PlayStream()
+    return new PlayStream({ api, devices: await api.gpus(), width, height, playing: gpu.playing, onFallback: (reason, detail) => {
+      fallback ??= reason; gpu.fellBack?.(reason)
+      console.log(`[play-stream] JPEG frames from now on: ${reason}${detail ? ` (${detail})` : ''}`)
+    } })
+  }
   const connect = async (next: PlayStream, width: number, height: number) => {
     const credentials = await next.listen()
-    await adapter.request('genio_set_resolution', { width, height }); await adapter.request('genio_stream_start', { ...credentials, width, height })
+    const fast = next.gpuActive
+    await adapter.request('genio_set_resolution', { width, height }); await adapter.request('genio_stream_start', { ...credentials, width, height, ...(fast ? { genioPid: process.pid } : {}) })
+    console.log(`[play-stream] ${width}x${height}: ${fast ? 'GPU shared textures, JPEG as the fallback' : 'JPEG frames'}`)
   }
+  const wire = (next: PlayStream, onFrame: (f: Buffer | TextureFrame) => void) => { next.onFrame = onFrame; next.onTexture = onFrame }
   return {
     request: (command, parameters) => adapter.request(command, parameters),
     async stream(width, height, onFrame, onDisconnect, onAudio) {
-      stream?.close(); const next = stream = new PlayStream()
-      next.onFrame = onFrame; next.onAudio = onAudio; next.onDisconnect = onDisconnect
+      stream?.close(); stream = undefined
+      const next = stream = await open(width, height)
+      sink = onFrame; wire(next, onFrame); next.onAudio = onAudio; next.onDisconnect = onDisconnect
       try { await connect(next, width, height) }
       catch (e) { next.close(); if (stream === next) stream = undefined; throw e }
     },
     async resize(width, height) {
       const old = stream
       if (!old) throw new Error('Start the player stream first')
-      const { onFrame, onAudio, onDisconnect } = old, next = stream = new PlayStream()
-      next.onFrame = onFrame; next.onAudio = onAudio; next.onDisconnect = onDisconnect
-      // Unity drops the old session when the new one starts: a swap, not a disconnect that would exit Play.
-      old.onDisconnect = undefined
+      const { onAudio, onDisconnect } = old, next = stream = await open(width, height)
+      if (sink) wire(next, sink); next.onAudio = onAudio; next.onDisconnect = onDisconnect
+      // Unity drops the old session when the new one starts: a swap, not a disconnect that would exit Play. The old
+      // ring's handles close with it, so its frames are never imported from here on.
+      old.onDisconnect = undefined; old.holdTextures(true)
       try { await connect(next, width, height); old.close() }
       catch (e) {
-        next.close(); old.onDisconnect = onDisconnect
+        next.close(); old.onDisconnect = onDisconnect; old.holdTextures(false)
         if (stream === next) stream = old
         if (!old.connected) { old.close(); if (stream === old) stream = undefined; onDisconnect?.() }
         throw e
@@ -152,6 +179,10 @@ export class PlayerInstanceService {
   /** Projects whose Unity is starting: their editor.log, read for the phase. */
   private startLogs = new Map<string, StartLog>()
   private launches: Promise<unknown> = Promise.resolve()
+  /** Each running editor's graphics choice at launch: on Direct3D 11 for the fast path, and the project rule then. */
+  private graphics = new Map<string, { d3d11: boolean; rule: boolean }>()
+  /** Set when a session found this machine's GPUs unfit (hybrid or different GPUs): later editors start as today. */
+  private noFastPath?: GpuFallback
   private timer?: ReturnType<typeof setInterval>
   private cleanupTimer?: ReturnType<typeof setInterval>
   private cleanupRun?: Promise<unknown>
@@ -249,7 +280,11 @@ export class PlayerInstanceService {
   }
   private local(i: Instance) {
     let r = this.runtimes.get(i.project)
-    if (!r) { r = (this.options.runtime ?? runtime)(i.root!, () => i.launch?.pid); this.runtimes.set(i.project, r) }
+    if (!r) {
+      r = (this.options.runtime ?? runtime)(i.root!, () => i.launch?.pid, { fast: () => this.graphics.get(i.project)?.d3d11 === true, playing: () => i.state === 'playing', textures: this.options.textures,
+        fellBack: reason => { if (MACHINE_FALLBACKS.includes(reason)) this.noFastPath ??= reason } })
+      this.runtimes.set(i.project, r)
+    }
     return r
   }
   private serial<T>(project: string, fn: () => Promise<T>): Promise<T> {
@@ -435,8 +470,10 @@ export class PlayerInstanceService {
         const engineRoot = this.copies.status(i.project)?.engineRoot ?? ''
         this.startLogs.set(i.project, new StartLog(log, this.system.now(), { copy: path.join(i.root!, 'Library/PackageCache'), main: path.join(i.project, engineRoot, 'Library/PackageCache') }))
       }
-      const launched = await (this.options.launch ?? launchEditor)({ file: executable, args: ['-automated', '-projectPath', i.root!, '-logFile', log], cwd: i.root, data: this.data, api: this.desktop, visible, label: 'player', owner: i.owner })
-      i.launch = launched
+      // The fast stream runs this editor on Direct3D 11; its first start compiles that API's shaders once, inside Starting Unity.
+      const graphics = await this.fastLaunch(i)
+      const launched = await (this.options.launch ?? launchEditor)({ file: executable, args: ['-automated', '-projectPath', i.root!, '-logFile', log, ...(graphics.d3d11 ? ['-force-d3d11'] : [])], cwd: i.root, data: this.data, api: this.desktop, visible, label: 'player', owner: i.owner })
+      i.launch = launched; this.graphics.set(i.project, graphics)
       if (!launched.created) {
         const p = (await this.system.list()).find(p => p.pid === launched.pid && opensRoot(p, i.root!))
         if (p) launched.created = p.created
@@ -446,6 +483,26 @@ export class PlayerInstanceService {
       this.runtimes.delete(i.project)
     })
     this.launches = next.catch(() => {}); await next
+  }
+  /**
+   * Whether the Play editor starts with -force-d3d11 for the fast stream: Electron's shared textures work here, Chromium
+   * sees one GPU (hybrid laptops stream JPEG), no session found this machine unfit, and the project can run on
+   * Direct3D 11 (d3d11Rule). Otherwise it starts as today, on the project's own API, and streams JPEG.
+   */
+  private async fastLaunch(i: Instance, known?: { ok: boolean; reason?: string }): Promise<{ d3d11: boolean; rule: boolean }> {
+    const rule = known ?? await d3d11Rule(i.root!)
+    const api = this.options.textures ?? textureApi()
+    const gpus = rule.ok && api.available && !this.noFastPath ? await api.gpus().catch(() => []) : []
+    const d3d11 = gpus.length === 1
+    console.log(`[player-instance] ${path.basename(i.project)}: ${d3d11 ? 'Direct3D 11 for the GPU stream' : `the project's own graphics API and JPEG frames (${!rule.ok ? rule.reason : !api.available ? 'no shared textures' : this.noFastPath ?? (gpus.length ? 'several GPUs' : 'GPU unknown')})`}`)
+    return { d3d11, rule: rule.ok }
+  }
+  /** The graphics API is part of the warm editor: a project that now needs Direct3D 12, or now allows 11, restarts it. */
+  private async graphicsChanged(i: Instance): Promise<boolean> {
+    const had = this.graphics.get(i.project)
+    if (!had) return false
+    const rule = await d3d11Rule(i.root!)
+    return rule.ok !== had.rule && (await this.fastLaunch(i, rule)).d3d11 !== had.d3d11
   }
   private async embed(i: Instance) {
     const from = path.join(this.ctx.appRoot, 'resources/unity/com.genio.play'), to = path.join(i.root!, 'Packages/com.genio.play')
@@ -573,6 +630,10 @@ export class PlayerInstanceService {
         await this.embed(i)
         if (report.lfs.pointers.length) throw new Error(`This source has ${report.lfs.pointers.length} LFS files that are not downloaded`)
         if (suspended) { await this.local(i).request('genio_sync_end'); suspended = false }
+        if (i.launch && await this.graphicsChanged(i)) {
+          await this.close(i, 'the graphics API changed', 'restart')
+          if (i.launch) throw new Error(i.message)
+        }
         if (!i.launch) await this.launch(i, options.visible === true, controller.signal)
         await this.ready(i, undefined, controller.signal)
         // Pipeline's console may retain errors from an earlier compile; query Unity's current flag.
@@ -747,7 +808,7 @@ export class PlayerInstanceService {
         () => this.local(i).request('eval', { code: QUIT }), this.options.graceMs, this.options.forceMs)
       if (!result.closed) { this.state(i, 'close-stuck', `${result.reason} (PIDs ${result.pids.join(', ')})`); return }
     }
-    this.runtimes.delete(i.project); i.tracked = []
+    this.runtimes.delete(i.project); this.graphics.delete(i.project); i.tracked = []
     if (i.root) for (const name of ['Library/EditorInstance.json', 'Library/Pipeline/.unity-pipeline-port', 'Temp/UnityLockfile']) {
       try { await checkCopyPath(path.join(i.root, name)); fs.rmSync(path.join(i.root, name), { force: true }) } catch { this.state(i, 'close-stuck', 'The editor still holds this copy, or its metadata path contains a link'); return }
     }
@@ -814,7 +875,7 @@ export class PlayerInstanceService {
     if (!i?.launch || (i.state !== 'playing' && i.state !== 'paused')) throw new Error('Play this project before streaming')
     return i
   }
-  async stream(world: string, width: number, height: number, frame: (b: Buffer) => void, disconnect: () => void, audio?: (b: Buffer) => void) {
+  async stream(world: string, width: number, height: number, frame: (f: Buffer | TextureFrame) => void, disconnect: () => void, audio?: (b: Buffer) => void) {
     const { project } = this.project(world)
     if (![width, height].every(n => Number.isInteger(n) && n >= 16 && n <= 1920)) throw new Error('Stream dimensions must be 16–1920')
     return this.serial(project, async () => { await this.local(this.streamable(project)).stream(width, height, frame, disconnect, audio) })

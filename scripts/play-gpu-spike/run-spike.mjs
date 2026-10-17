@@ -1,8 +1,10 @@
 // Spike orchestration, from a Genio checkout (Node 18+, Windows):
 //   node run-spike.mjs launch --data <scratch dir>     scratch project in a new temp folder; editor on a hidden desktop
-//                                                      with -force-d3d11, launched like Genio's Play editor; stays in the
-//                                                      foreground watching dialogs until the editor exits (run it in the background)
-//   node run-spike.mjs run --data <dir> --label L -- <consumer args>    one consumer run against that editor
+//                                                      with -force-d3d11 (--d3d12: without it, the project's own API),
+//                                                      launched like Genio's Play editor; stays in the foreground
+//                                                      watching dialogs until the editor exits (run it in the background)
+//   node run-spike.mjs run --data <dir> --label L -- <consumer args>    one consumer run against that editor, with
+//                                                      Genio's src/main/play-stream.ts bundled into <data>/bundle
 //   node run-spike.mjs quit --data <dir>               quits that editor (forced after 90 s), deletes the scratch project
 // Only the editor this script launched (pid and creation time recorded in <data>/spike-state.json) is ever stopped.
 import fs from 'node:fs'
@@ -47,15 +49,15 @@ if (verb === 'launch') {
   delete manifest.dependencies['com.unity.pipeline']
   fs.writeFileSync(path.join(pkg, 'package.json'), JSON.stringify(manifest, null, 2))
   fs.writeFileSync(path.join(root, 'Packages', 'manifest.json'), JSON.stringify({ dependencies: Object.fromEntries(
-    ['imageconversion', 'screencapture', 'physics', 'jsonserialize', 'imgui'].map(m => [`com.unity.modules.${m}`, '1.0.0'])) }, null, 2))
+    ['imageconversion', 'screencapture', 'physics', 'jsonserialize', 'imgui', 'audio'].map(m => [`com.unity.modules.${m}`, '1.0.0'])) }, null, 2))
   fs.mkdirSync(path.join(root, 'ProjectSettings'), { recursive: true })
   fs.writeFileSync(path.join(root, 'ProjectSettings', 'ProjectVersion.txt'), 'm_EditorVersion: 6000.5.1f1\n')
   fs.mkdirSync(path.join(root, 'spike'), { recursive: true })
   fs.rmSync(path.join(root, 'spike', 'request.json'), { force: true })  // a kept project's last request is the quit
   const log = path.join(data, 'editor.log')
   fs.rmSync(log, { force: true })
-  // As player-instance.ts launches the Play editor, plus -force-d3d11.
-  const args = ['-automated', '-projectPath', root, '-logFile', log, '-force-d3d11', ...extra]
+  // As player-instance.ts launches the Play editor for the GPU stream (with --d3d12, as it launches one that cannot use it).
+  const args = ['-automated', '-projectPath', root, '-logFile', log, ...(own.includes('--d3d12') ? [] : ['-force-d3d11']), ...extra]
   const launched = await launchEditor({ file: UNITY, args, cwd: root, data, label: 'spike83f6' })
   const state = { root, log, args, ...launched, startedAt: new Date().toISOString() }
   fs.writeFileSync(stateFile, JSON.stringify(state, null, 2))
@@ -73,7 +75,12 @@ if (verb === 'launch') {
   const label = opt('label') ?? fail('--label is required')
   const results = path.join(data, 'results'); fs.mkdirSync(results, { recursive: true })
   const electron = path.join(repo, 'node_modules/electron/dist/electron.exe')
-  const args = [path.join(here, 'consumer'), '--label', label, '--project', state.root, '--out', results, '--ws', path.join(repo, 'node_modules/ws'), ...extra]
+  // Genio's own stream code (PlayStream, the fast path, the shared-texture adapter), as the app bundles it.
+  const bundle = path.join(data, 'bundle', 'genio-play-stream.cjs')
+  const { build } = await import(new URL('file:///' + path.join(repo, 'node_modules/esbuild/lib/main.js').replace(/\\/g, '/')).href)
+  await build({ stdin: { contents: `export { PlayStream } from './src/main/play-stream'; export { textureApi } from './src/main/shared-texture'`, resolveDir: repo, loader: 'ts' },
+    bundle: true, platform: 'node', format: 'cjs', target: 'node20', outfile: bundle, tsconfig: path.join(repo, 'tsconfig.node.json'), external: ['electron', 'bufferutil', 'utf-8-validate'], logLevel: 'warning' })
+  const args = [path.join(here, 'consumer'), '--label', label, '--project', state.root, '--out', results, '--bundle', bundle, ...extra]
   const out = fs.openSync(path.join(results, `${label}.out`), 'w')
   const child = spawn(electron, args, { stdio: ['ignore', out, out], windowsHide: true })
   const code = await new Promise(r => child.once('exit', r))

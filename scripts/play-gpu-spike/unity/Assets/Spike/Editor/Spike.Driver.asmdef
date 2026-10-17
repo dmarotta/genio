@@ -1,1 +1,1 @@
-{ "name": "Spike.Driver", "references": ["Genio.Play", "Genio.Play.GpuShare", "Spike.Runtime"], "includePlatforms": ["Editor"], "defineConstraints": ["GENIO_PLAY_GPU_SHARE"] }
+{ "name": "Spike.Driver", "references": ["Genio.Play", "Spike.Runtime"], "includePlatforms": ["Editor"] }

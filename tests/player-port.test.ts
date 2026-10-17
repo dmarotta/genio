@@ -26,11 +26,11 @@ vi.mock('../src/main/player-instance', () => ({ playerInstanceService: () => ({
   detach: f.detach, stop: f.stop, play: f.play, input: f.input, enterPlay: f.play, resize: f.resize, pause: f.pause, step: f.pause, stopUnity: f.stop
 }) }))
 import { registerIpc, AUDIO_BACKLOG, AUDIO_IN_FLIGHT } from '../src/main/ipc'
-let sender: EventEmitter & { id: number; isDestroyed(): boolean; postMessage: ReturnType<typeof vi.fn> }
+let sender: EventEmitter & { id: number; isDestroyed(): boolean; postMessage: ReturnType<typeof vi.fn>; mainFrame: object }
 beforeEach(() => {
   f.handlers.clear(); f.ports = []; f.frames = []; f.audio = []; vi.clearAllMocks()
   f.input.mockImplementation((_world, input) => validateInput(input))
-  sender = Object.assign(new EventEmitter(), { id: 1, isDestroyed: () => false, postMessage: vi.fn() })
+  sender = Object.assign(new EventEmitter(), { id: 1, isDestroyed: () => false, postMessage: vi.fn(), mainFrame: { main: true } })
   registerIpc(() => ({} as AppCtx), { binding: id => id === 1 ? { project: 'A', wksp: 'ally' } : { project: 'B', wksp: 'ally' }, list: () => [], close() {}, openHub: async () => {}, openProject: async () => {} })
 })
 const call = (method: string, ...args: unknown[]) => f.handlers.get(`genio:${method}`)!({ sender }, ...args)
@@ -98,4 +98,49 @@ it('sends audio outside the frame credits, bounded by acks, dropping the oldest 
   audio(packet(99)); expect(sent().at(-1)).toBe(99)
   port.emit('message', { data: { type: 'ready' } }); expect(port.messages.at(-1)).toEqual({ type: 'frame', bytes: new Uint8Array(Buffer.from('frame')) })
   port.close(); const before = port.messages.length; audio(packet(100)); expect(port.messages).toHaveLength(before)
+})
+
+/** A fast-path frame as the sink sees it: deliver resolves as the fake texture send does. */
+function texture(seq: number, { live = true, sent = true } = {}) {
+  let resolve!: (sent: boolean) => void
+  const frame = { kind: 'texture' as const, width: 1280, height: 720, seq, live, drop: vi.fn(),
+    deliver: vi.fn((_to: unknown, _world: string) => new Promise<boolean>(r => { resolve = r })), finish: () => resolve(sent) }
+  return frame
+}
+it('keeps the newest GPU frame per credit, frees superseded ones, and gets the credit back from the renderer', async () => {
+  await call('playerInstanceStream', 'A', true)
+  const port = f.ports[0].port1, frame = f.frames[0] as unknown as (t: unknown) => void
+  const a = texture(1), b = texture(2), c = texture(3), d = texture(4)
+  frame(a); frame(b)
+  expect(a.drop).toHaveBeenCalledOnce(); expect(b.deliver).not.toHaveBeenCalled()
+  port.emit('message', { data: { type: 'ready' } })
+  expect(b.deliver).toHaveBeenCalledExactlyOnceWith(sender.mainFrame, 'A')
+  // In flight: newer frames wait for the next credit, superseding each other; nothing goes over the port.
+  frame(c); frame(d); expect(c.drop).toHaveBeenCalledOnce(); expect(d.deliver).not.toHaveBeenCalled()
+  b.finish(); await Promise.resolve()
+  expect(d.deliver).not.toHaveBeenCalled()
+  port.emit('message', { data: { type: 'ready' } }); expect(d.deliver).toHaveBeenCalledOnce()
+  expect(port.messages).toEqual([])
+  expect(b.drop).not.toHaveBeenCalled(); expect(d.drop).not.toHaveBeenCalled()
+})
+it('returns the credit when a GPU frame did not reach the renderer, drops dead frames, and takes JPEG after a fallback', async () => {
+  await call('playerInstanceStream', 'A', true)
+  const port = f.ports[0].port1, frame = f.frames[0] as unknown as (t: unknown) => void
+  const failed = texture(1, { sent: false }), dead = texture(2, { live: false }), next = texture(3)
+  port.emit('message', { data: { type: 'ready' } })
+  frame(failed); expect(failed.deliver).toHaveBeenCalledOnce()
+  frame(dead); failed.finish(); await new Promise(r => setTimeout(r, 0))
+  // The credit came back: the dead frame was freed unseen, and the next one goes at once.
+  expect(dead.drop).toHaveBeenCalledOnce(); expect(dead.deliver).not.toHaveBeenCalled()
+  frame(next); expect(next.deliver).toHaveBeenCalledOnce(); next.finish(); await Promise.resolve()
+  frame(Buffer.from('jpeg')); expect(port.messages).toEqual([])
+  port.emit('message', { data: { type: 'ready' } }); expect(port.messages).toEqual([{ type: 'frame', bytes: new Uint8Array(Buffer.from('jpeg')) }])
+})
+it('frees a waiting GPU frame when the port closes, and every later one', async () => {
+  await call('playerInstanceStream', 'A', true)
+  const frame = f.frames[0] as unknown as (t: unknown) => void
+  const waiting = texture(1), late = texture(2)
+  frame(waiting); f.ports[0].port1.close()
+  expect(waiting.drop).toHaveBeenCalledOnce()
+  frame(late); expect(late.drop).toHaveBeenCalledOnce(); expect(late.deliver).not.toHaveBeenCalled()
 })

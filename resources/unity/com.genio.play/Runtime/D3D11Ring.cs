@@ -1,39 +1,39 @@
-// Experimental (spike): Play frames through D3D11 shared textures from C# only, no native plugin. See README.md.
+// Play's fast path: frames through D3D11 shared textures from C# only, no native plugin (docs/play-gpu-stream.md).
 // Plain C# 5 with no Unity types, so the same file also builds with the csc.exe of .NET Framework 4 for a standalone test.
 using System;
 using System.Runtime.InteropServices;
 using System.Threading;
 
-namespace Genio.Play.GpuShare
+namespace Genio.Play
 {
     /// <summary>
     /// A ring of D3D11 textures shared by NT handle into one other process (Genio's main), filled on the GPU by
     /// CopyResource from a texture of the same device. The device is the one behind the source texture's native
     /// pointer (ID3D11DeviceChild::GetDevice), so it is Unity's own. Create, Copy and Dispose use the device's
     /// immediate context: call them on the thread that renders (Unity's main thread when it has no render thread, else
-    /// a plugin event). Completion is signalled on a wait handle per slot that any thread may wait on.
+    /// a plugin event). Completion is signalled through an ID3D11Fence on a wait handle per slot that any thread may
+    /// wait on; a device without fences (ID3D11Device5) gets no ring, and the stream stays JPEG.
     /// </summary>
     public sealed class D3D11Ring : IDisposable
     {
         public readonly int Width, Height, Slots, SourceFormat;
         /// <summary>The slots' NT handles, valid in the target process only.</summary>
         public readonly long[] Handles;
-        /// <summary>The adapter's LUID, to compare with the consumer's GPU (hybrid laptops).</summary>
+        /// <summary>The adapter's LUID, PCI vendor and device ids, to compare with the consumer's GPU (hybrid laptops).</summary>
         public long AdapterLuid { get; private set; }
-        /// <summary>True with an ID3D11Fence (Windows 10 1703+ drivers); false falls back to event queries polled by Poll.</summary>
-        public bool HasFence { get; private set; }
+        public int VendorId { get; private set; }
+        public int DeviceId { get; private set; }
         public readonly AutoResetEvent[] Done;
 
         IntPtr device, context, context4, fence, targetProcess;
-        readonly IntPtr[] textures, queries;
-        readonly ulong[] pendingValue;
+        readonly IntPtr[] textures;
         ulong fenceValue;
         bool disposed;
 
         D3D11Ring(int width, int height, int slots, int format)
         {
             Width = width; Height = height; Slots = slots; SourceFormat = format;
-            Handles = new long[slots]; textures = new IntPtr[slots]; queries = new IntPtr[slots]; pendingValue = new ulong[slots];
+            Handles = new long[slots]; textures = new IntPtr[slots];
             Done = new AutoResetEvent[slots];
             for (int s = 0; s < slots; s++) Done[s] = new AutoResetEvent(false);
         }
@@ -83,7 +83,14 @@ namespace Genio.Play.GpuShare
                 if (Fn<GetAdapter>(dxgi, Dxgi_GetAdapter)(dxgi, out adapter) >= 0)
                 {
                     var desc = Marshal.AllocHGlobal(AdapterDescSize);
-                    try { if (Fn<GetAdapterDesc>(adapter, Adapter_GetDesc)(adapter, desc) >= 0) AdapterLuid = Marshal.ReadInt64(desc, AdapterLuidOffset); }
+                    try
+                    {
+                        if (Fn<GetAdapterDesc>(adapter, Adapter_GetDesc)(adapter, desc) >= 0)
+                        {
+                            AdapterLuid = Marshal.ReadInt64(desc, AdapterLuidOffset);
+                            VendorId = Marshal.ReadInt32(desc, AdapterVendorOffset); DeviceId = Marshal.ReadInt32(desc, AdapterDeviceOffset);
+                        }
+                    }
                     finally { Marshal.FreeHGlobal(desc); }
                     Release(adapter);
                 }
@@ -91,12 +98,12 @@ namespace Genio.Play.GpuShare
             }
 
             IntPtr device5; iid = IID_ID3D11Device5;
-            if (Fn<QI>(device, 0)(device, ref iid, out device5) >= 0)
-            {
-                Guid fiid = IID_ID3D11Fence; iid = IID_ID3D11DeviceContext4;
-                if (Fn<CreateFence>(device5, Dev5_CreateFence)(device5, 0, 0, ref fiid, out fence) >= 0 && Fn<QI>(context, 0)(context, ref iid, out context4) >= 0) HasFence = true;
-                Release(device5);
-            }
+            if (Fn<QI>(device, 0)(device, ref iid, out device5) < 0) return "the device has no ID3D11Device5 (fences)";
+            Guid fiid = IID_ID3D11Fence; iid = IID_ID3D11DeviceContext4;
+            int fhr = Fn<CreateFence>(device5, Dev5_CreateFence)(device5, 0, 0, ref fiid, out fence);
+            Release(device5);
+            Check(fhr, "CreateFence");
+            Check(Fn<QI>(context, 0)(context, ref iid, out context4), "QueryInterface ID3D11DeviceContext4");
 
             targetProcess = OpenProcess(PROCESS_DUP_HANDLE, false, targetPid);
             if (targetProcess == IntPtr.Zero) return "OpenProcess(" + targetPid + ") failed (" + Marshal.GetLastWin32Error() + ")";
@@ -114,7 +121,6 @@ namespace Genio.Play.GpuShare
                 CloseHandle(local);
                 if (!ok) return "DuplicateHandle into " + targetPid + " failed (" + lastError + ")";
                 Handles[s] = remote.ToInt64();
-                if (!HasFence) { var qd = new QueryDesc { Query = 0 /* EVENT */ }; Check(Fn<CreateQuery>(device, Dev_CreateQuery)(device, ref qd, out queries[s]), "CreateQuery"); }
             }
             return null;
         }
@@ -124,30 +130,14 @@ namespace Genio.Play.GpuShare
         {
             if (disposed) throw new ObjectDisposedException("D3D11Ring");
             Fn<CopyResource>(context, Ctx_CopyResource)(context, textures[slot], source);
-            if (HasFence)
-            {
-                ulong value = ++fenceValue;
-                Check(Fn<Signal>(context4, Ctx4_Signal)(context4, fence, value), "Signal");
-                Check(Fn<SetEventOnCompletion>(fence, Fence_SetEventOnCompletion)(fence, value, Done[slot].SafeWaitHandle.DangerousGetHandle()), "SetEventOnCompletion");
-            }
-            else { Fn<End>(context, Ctx_End)(context, queries[slot]); pendingValue[slot] = 1; }
+            ulong value = ++fenceValue;
+            Check(Fn<Signal>(context4, Ctx4_Signal)(context4, fence, value), "Signal");
+            Check(Fn<SetEventOnCompletion>(fence, Fence_SetEventOnCompletion)(fence, value, Done[slot].SafeWaitHandle.DangerousGetHandle()), "SetEventOnCompletion");
             // Submit now rather than at Unity's next present, so the copy is not held back for a frame.
             Fn<Flush>(context, Ctx_Flush)(context);
         }
 
-        /// <summary>Without a fence: polls the event queries (render thread) and sets Done for the finished slots.</summary>
-        public void Poll()
-        {
-            if (HasFence || disposed) return;
-            var getData = Fn<GetData>(context, Ctx_GetData);
-            for (int s = 0; s < Slots; s++)
-            {
-                if (pendingValue[s] == 0) continue;
-                int done; if (getData(context, queries[s], out done, 4, 1 /* DONOTFLUSH */) == 0) { pendingValue[s] = 0; Done[s].Set(); }
-            }
-        }
-
-        /// <summary>Releases the textures and closes the handles in the target process: call once the consumer released every slot.</summary>
+        /// <summary>Releases the textures and closes the handles in the target process. Anything the target imported stays alive there until it lets go.</summary>
         public void Dispose()
         {
             if (disposed) return;
@@ -157,7 +147,6 @@ namespace Genio.Play.GpuShare
                 if (Handles[s] != 0 && targetProcess != IntPtr.Zero) DuplicateHandle(targetProcess, new IntPtr(Handles[s]), IntPtr.Zero, IntPtr.Zero, 0, false, DUPLICATE_CLOSE_SOURCE);
                 Handles[s] = 0;
                 if (textures[s] != IntPtr.Zero) { Release(textures[s]); textures[s] = IntPtr.Zero; }
-                if (queries[s] != IntPtr.Zero) { Release(queries[s]); queries[s] = IntPtr.Zero; }
                 Done[s].Set();
             }
             if (fence != IntPtr.Zero) { Release(fence); fence = IntPtr.Zero; }
@@ -170,8 +159,6 @@ namespace Genio.Play.GpuShare
         /// <summary>Unix time in milliseconds, at the system clock's full precision (the clock Electron's performance.timeOrigin follows).</summary>
         public static double NowMs() { long ft; GetSystemTimePreciseAsFileTime(out ft); return (ft - 116444736000000000L) / 10000.0; }
 
-
-
         static void Check(int hr, string what) { if (hr < 0) throw new InvalidOperationException(what + " failed (0x" + hr.ToString("x8") + ")"); }
         static void Release(IntPtr obj) { Fn<Rel>(obj, 2)(obj); }
         static T Fn<T>(IntPtr obj, int slot) where T : class
@@ -182,10 +169,11 @@ namespace Genio.Play.GpuShare
 
         // COM vtable slots, checked against the Windows SDK 10.0.22000 C declarations (offsetof over the *Vtbl structs).
         const int Child_GetDevice = 3, Tex_GetDesc = 10;
-        const int Dev_CreateTexture2D = 5, Dev_CreateQuery = 24, Dev_GetImmediateContext = 40, Dev5_CreateFence = 68;
-        const int Ctx_End = 28, Ctx_GetData = 29, Ctx_CopyResource = 47, Ctx_Flush = 111, Ctx4_Signal = 147;
+        const int Dev_CreateTexture2D = 5, Dev_GetImmediateContext = 40, Dev5_CreateFence = 68;
+        const int Ctx_CopyResource = 47, Ctx_Flush = 111, Ctx4_Signal = 147;
         const int Fence_SetEventOnCompletion = 9, Res1_CreateSharedHandle = 13, Dxgi_GetAdapter = 7, Adapter_GetDesc = 8;
-        const int AdapterDescSize = 304, AdapterLuidOffset = 296;
+        // DXGI_ADAPTER_DESC: Description WCHAR[128], VendorId, DeviceId, SubSysId, Revision, three SIZE_T, AdapterLuid.
+        const int AdapterDescSize = 304, AdapterVendorOffset = 256, AdapterDeviceOffset = 260, AdapterLuidOffset = 296;
         const uint R8G8B8A8_UNORM = 28, BIND_SHADER_RESOURCE = 0x8, BIND_RENDER_TARGET = 0x20, MISC_SHARED = 0x2, MISC_SHARED_NTHANDLE = 0x800;
         const uint SHARED_READ = 0x80000000, SHARED_WRITE = 1, PROCESS_DUP_HANDLE = 0x40, DUPLICATE_CLOSE_SOURCE = 1, DUPLICATE_SAME_ACCESS = 2;
         static readonly Guid IID_ID3D11Texture2D = new Guid("6f15aaf2-d208-4e89-9ab4-489535d34f9c");
@@ -196,7 +184,6 @@ namespace Genio.Play.GpuShare
         static readonly Guid IID_IDXGIDevice = new Guid("54ec77fa-1377-44e6-8c32-88fd5f44c84c");
 
         [StructLayout(LayoutKind.Sequential)] struct TexDesc { public uint Width, Height, MipLevels, ArraySize, Format, SampleCount, SampleQuality, Usage, BindFlags, CPUAccessFlags, MiscFlags; }
-        [StructLayout(LayoutKind.Sequential)] struct QueryDesc { public uint Query, MiscFlags; }
 
         [UnmanagedFunctionPointer(CallingConvention.StdCall)] delegate int QI(IntPtr self, ref Guid iid, out IntPtr obj);
         [UnmanagedFunctionPointer(CallingConvention.StdCall)] delegate uint Rel(IntPtr self);
@@ -204,11 +191,8 @@ namespace Genio.Play.GpuShare
         [UnmanagedFunctionPointer(CallingConvention.StdCall)] delegate void GetDesc(IntPtr self, ref TexDesc desc);
         [UnmanagedFunctionPointer(CallingConvention.StdCall)] delegate void GetImmediateContext(IntPtr self, out IntPtr context);
         [UnmanagedFunctionPointer(CallingConvention.StdCall)] delegate int CreateTexture2D(IntPtr self, ref TexDesc desc, IntPtr init, out IntPtr tex);
-        [UnmanagedFunctionPointer(CallingConvention.StdCall)] delegate int CreateQuery(IntPtr self, ref QueryDesc desc, out IntPtr query);
         [UnmanagedFunctionPointer(CallingConvention.StdCall)] delegate int CreateFence(IntPtr self, ulong initial, uint flags, ref Guid iid, out IntPtr fence);
         [UnmanagedFunctionPointer(CallingConvention.StdCall)] delegate void CopyResource(IntPtr self, IntPtr dst, IntPtr src);
-        [UnmanagedFunctionPointer(CallingConvention.StdCall)] delegate void End(IntPtr self, IntPtr query);
-        [UnmanagedFunctionPointer(CallingConvention.StdCall)] delegate int GetData(IntPtr self, IntPtr query, out int data, uint size, uint flags);
         [UnmanagedFunctionPointer(CallingConvention.StdCall)] delegate void Flush(IntPtr self);
         [UnmanagedFunctionPointer(CallingConvention.StdCall)] delegate int Signal(IntPtr self, IntPtr fence, ulong value);
         [UnmanagedFunctionPointer(CallingConvention.StdCall)] delegate int SetEventOnCompletion(IntPtr self, ulong value, IntPtr evt);

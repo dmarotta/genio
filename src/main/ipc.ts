@@ -5,6 +5,7 @@ import { readWorldMetadata } from './world-metadata'
 import { assertProjectWindow, playService } from './play'
 import { playerCopyService } from './player-copy'
 import { playerInstanceService } from './player-instance'
+import type { TextureFrame } from './play-gpu'
 import { playerSources, sourceUnit } from './player-sources'
 import { modelViewer } from './model-viewer'
 import { readModellerLive } from './modeller-live'
@@ -565,11 +566,22 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
           playConnections.get(world)?.()
           if (!enabled) { await playerInstanceService(ctx()).detach(world); return }
           const { port1, port2 } = new MessageChannelMain()
-          let credit = false, closed = false, latest: Buffer | undefined, framed = false, handsOn = false, heard = false
+          let credit = false, closed = false, latest: Buffer | TextureFrame | undefined, framed = false, handsOn = false, heard = false
+          const shown = (): void => { if (!framed) { framed = true; unlockQuietly('play-stream') } }
+          // One frame per credit, newest wins. A JPEG goes over the port; a GPU frame goes to the window's preload as a
+          // shared texture, and the renderer returns the credit on the port after drawing it, as it does for a JPEG.
           const send = (): void => {
             if (!credit || !latest || closed) return
-            credit = false; port1.postMessage({ type: 'frame', bytes: new Uint8Array(latest) }); latest = undefined
-            if (!framed) { framed = true; unlockQuietly('play-stream') }
+            const frame = latest; latest = undefined
+            if (Buffer.isBuffer(frame)) { credit = false; port1.postMessage({ type: 'frame', bytes: new Uint8Array(frame) }); shown(); return }
+            if (!frame.live) { frame.drop(); return }
+            credit = false
+            void frame.deliver(_e.sender.mainFrame, world).then(sent => { if (sent) shown(); else if (!closed) { credit = true; send() } })
+          }
+          const offer = (frame: Buffer | TextureFrame): void => {
+            if (closed) { if (!Buffer.isBuffer(frame)) frame.drop(); return }
+            if (latest && !Buffer.isBuffer(latest)) latest.drop()
+            latest = frame; send()
           }
           // A renderer that falls behind hears the newest sound, not a growing delay.
           const audio: Buffer[] = []
@@ -584,7 +596,9 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
           }
           const close = (): void => {
             if (closed) return
-            closed = true; latest = undefined; audio.length = 0
+            closed = true; audio.length = 0
+            if (latest && !Buffer.isBuffer(latest)) latest.drop()
+            latest = undefined
             try { port1.postMessage({ type: 'closed' }); port1.close(); port2.close() } catch { /* window gone */ }
             _e.sender.removeListener('destroyed', detach)
             if (playConnections.get(world) === close) playConnections.delete(world)
@@ -612,7 +626,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
           port1.on('close', detach); port1.start()
           _e.sender.once('destroyed', detach)
           try {
-            await playerInstanceService(ctx()).stream(world, width, height, frame => { latest = frame; send() }, detach, queueAudio)
+            await playerInstanceService(ctx()).stream(world, width, height, offer, detach, queueAudio)
             if (closed || _e.sender.isDestroyed()) throw new Error('Play window closed')
             _e.sender.postMessage('genio:play-port', { world }, [port2])
           } catch (error) { close(); throw error }

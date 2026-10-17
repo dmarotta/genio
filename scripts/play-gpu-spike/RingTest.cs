@@ -3,7 +3,7 @@
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using Genio.Play.GpuShare;
+using Genio.Play;
 
 static class RingTest
 {
@@ -23,13 +23,13 @@ static class RingTest
         var sw = Stopwatch.StartNew();
         var ring = D3D11Ring.Create(rt, Process.GetCurrentProcess().Id, 3, out error);
         if (ring == null) { Console.WriteLine("create failed: " + error); return 3; }
-        Console.WriteLine("ring " + sw.Elapsed.TotalMilliseconds.ToString("F2") + " ms fence=" + ring.HasFence + " luid=" + ring.AdapterLuid.ToString("x") + " handles=" + string.Join(",", Array.ConvertAll(ring.Handles, x => x.ToString())));
+        Console.WriteLine("ring " + sw.Elapsed.TotalMilliseconds.ToString("F2") + " ms luid=" + ring.AdapterLuid.ToString("x") + " gpu=" + ring.VendorId.ToString("x") + ":" + ring.DeviceId.ToString("x") + " handles=" + string.Join(",", Array.ConvertAll(ring.Handles, x => x.ToString())));
         double cpu = 0, gpu = 0; int n = 300;
         for (int i = 0; i < n; i++)
         {
             int slot = i % 3; double t0 = D3D11Ring.NowMs();
             ring.Copy(rt, slot); double t1 = D3D11Ring.NowMs();
-            while (!ring.Done[slot].WaitOne(0)) ring.Poll();
+            ring.Done[slot].WaitOne();
             double t2 = D3D11Ring.NowMs(); cpu += t1 - t0; gpu += t2 - t1;
         }
         Console.WriteLine("copy cpu avg " + (cpu / n).ToString("F3") + " ms, submit->done avg " + (gpu / n).ToString("F3") + " ms");

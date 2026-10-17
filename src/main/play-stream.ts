@@ -2,6 +2,8 @@ import http from 'node:http'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { WebSocketServer, WebSocket } from 'ws'
 import { PLAY_SCROLL_LIMIT, type PlayInput } from '@shared/play'
+import { GpuSession, type GpuFallback, type TextureFrame } from './play-gpu'
+import type { GpuDevice, TextureApi } from './shared-texture'
 
 export const MAX_FRAME = 4 * 1024 * 1024
 /** The 'GA' v1 audio header (com.genio.play's AudioTap): 'G' 'A', version, channels, seq u32, rate u32, frames u16,
@@ -11,18 +13,26 @@ export const AUDIO_MAX_FRAMES = 4096
 export interface PlayAudio { seq: number; rate: number; channels: number; frames: number; time: number }
 /**
  * Where a Play's frames and sound come from, as the playerInstanceStream sink (one frame per renderer credit,
- * latest wins; audio outside the credits) consumes them. PlayStream is Unity's loopback WebSocket; another
- * transport (a shared GPU texture, say) plugs in by offering the same callbacks and input.
+ * latest wins; audio outside the credits) consumes them. PlayStream is Unity's loopback WebSocket; frames arrive as JPEGs
+ * or, on the fast path, as shared GPU textures (play-gpu.ts), and the sink takes either.
  */
 export interface PlayFrameSource {
   /** A complete frame, newest first: a source keeps at most one, never a queue. */
   onFrame?: (frame: Buffer) => void
+  /** A shared-texture frame on the fast path; the sink frees every one it does not deliver. */
+  onTexture?: (frame: TextureFrame) => void
   /** A 'GA' v1 audio packet, header included, in arrival order. */
   onAudio?: (packet: Buffer) => void
   onDisconnect?: () => void
   readonly connected: boolean
   input(input: PlayInput): void
   close(): void
+}
+/** What a fast-path session needs: the texture API, Chromium's GPUs, the size asked of Unity, and whether the game plays. */
+export interface PlayStreamGpu {
+  api: TextureApi; devices: GpuDevice[]; width: number; height: number
+  playing(): boolean
+  onFallback(reason: GpuFallback, detail?: string): void
 }
 /** One authenticated Unity client; bounded latest-frame storage, never a frame queue. Audio packets pass straight through. */
 export class PlayStream implements PlayFrameSource {
@@ -35,12 +45,25 @@ export class PlayStream implements PlayFrameSource {
   private pendingScroll = 0
   private lastFrame = 0
   private closed = false
+  private gpu?: GpuSession
+  private watchdog?: ReturnType<typeof setInterval>
   latest?: Buffer
   onFrame?: (frame: Buffer) => void
+  onTexture?: (frame: TextureFrame) => void
   /** Every valid audio packet, header included, in arrival order: never throttled or coalesced. */
   onAudio?: (packet: Buffer) => void
   onDisconnect?: () => void
   get connected(): boolean { return this.client?.readyState === WebSocket.OPEN }
+  /** With gpu, Unity is asked for the fast path; JPEG frames are taken either way (its fallback). */
+  constructor(gpu?: PlayStreamGpu) {
+    if (!gpu) return
+    this.gpu = new GpuSession({ ...gpu, send: m => this.text(m), onTexture: f => this.onTexture?.(f), onFallback: gpu.onFallback })
+    this.watchdog = setInterval(() => this.gpu?.watch(gpu.playing()), 250); this.watchdog.unref?.()
+  }
+  /** Still on the fast path: asked for, and no fallback yet. */
+  get gpuActive(): boolean { return this.gpu?.active === true }
+  /** During a resize: this session's frames stop being live until released (a failed swap). */
+  holdTextures(on: boolean): void { this.gpu?.hold(on) }
   async listen(): Promise<{ port: number; token: string }> {
     this.server.on('upgrade', (req, socket, head) => {
       const auth = Buffer.from(req.headers.authorization ?? '')
@@ -50,6 +73,7 @@ export class PlayStream implements PlayFrameSource {
       }
       this.ws.handleUpgrade(req, socket, head, client => {
         this.client = client
+        this.gpu?.connected()
         client.on('error', () => client.terminate())
         client.on('message', (data, binary) => {
           const frame = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer)
@@ -58,12 +82,14 @@ export class PlayStream implements PlayFrameSource {
             if (!validateAudio(frame)) { client.close(1003); return }
             this.onAudio?.(frame); return
           }
+          // The fast path's ring, frame and end messages; only a session that asked for it may send them.
+          if (binary && frame[0] === 0x47) { if (!this.gpu?.message(frame)) client.close(1003); return }
           if (!binary || frame.length < 4 || frame.length > MAX_FRAME || frame[0] !== 255 || frame[1] !== 216 || frame.at(-2) !== 255 || frame.at(-1) !== 217) { client.close(1003); return }
           const now = Date.now()
           if (now - this.lastFrame < 25) return
           this.lastFrame = now; this.latest = frame; this.onFrame?.(frame)
         })
-        client.once('close', () => { if (this.client === client) { this.client = undefined; this.latest = undefined; this.onDisconnect?.() } })
+        client.once('close', () => { if (this.client === client) { this.client = undefined; this.latest = undefined; this.gpu?.close(); this.onDisconnect?.() } })
       })
     })
     await new Promise<void>((resolve, reject) => { this.server.once('error', reject); this.server.listen(0, '127.0.0.1', resolve) })
@@ -83,8 +109,13 @@ export class PlayStream implements PlayFrameSource {
     this.pendingScroll = 0
     this.client!.send(JSON.stringify(input))
   }
+  /** A fast-path message to Unity (free a slot, switch to JPEG); dropped when the socket is gone. */
+  private text(message: object): void {
+    try { if (this.connected) this.client!.send(JSON.stringify(message)) } catch { /* closing */ }
+  }
   close(): void {
-    this.closed = true; this.onFrame = undefined; this.onAudio = undefined; this.latest = undefined
+    this.closed = true; this.onFrame = undefined; this.onTexture = undefined; this.onAudio = undefined; this.latest = undefined
+    clearInterval(this.watchdog); this.gpu?.close()
     this.client?.terminate(); this.ws.close(); this.server.close()
   }
 }

@@ -4,7 +4,8 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppCtx } from '../src/main/services'
-import { PlayerInstanceService, type PlayerInstanceOptions, type PlayerRuntime } from '../src/main/player-instance'
+import { PlayerInstanceService, type PlayerInstanceOptions, type PlayerRuntime, type RuntimeGpu } from '../src/main/player-instance'
+import type { GpuDevice, TextureApi } from '../src/main/shared-texture'
 import { biggestConsumers, closePlayerRoot, type MemoryProcess, type PlayerProcess, type PlayerSystem } from '../src/main/player-process'
 import { PlayerCopies, PLAYER_COPY_CLEANUP_INTERVAL_MS, PLAYER_COPY_MAX_AGE_MS } from '../resources/unit-skills/genio/lib/player-copy.mjs'
 import type { DesktopApi, DesktopWindow } from '../resources/unit-skills/genio/lib/hidden-desktop.mjs'
@@ -24,6 +25,8 @@ let graceful: boolean, killed: boolean, compilerErrors: boolean, installed: bool
 let commit: number | undefined, usage: MemoryProcess[], slots: { label: string; close(): Promise<unknown> }[]
 /** Test hooks: just before Unity starts, and on every Pipeline command. */
 let beforeLaunch: (() => void) | undefined, onCommand: ((command: string) => void) | undefined
+/** The fast-path hooks the service gave the last runtime it made. */
+let runtimeGpu: RuntimeGpu | undefined
 const GiB = 2 ** 30
 const services: PlayerInstanceService[] = []
 function project(name: string) {
@@ -38,7 +41,7 @@ function project(name: string) {
 }
 function service(extra: Partial<PlayerInstanceOptions> = {}) {
   const r = new PlayerInstanceService(ctx, { copies, system, desktop, ownerCreated: async () => '100', executable: () => { beforeLaunch?.(); return installed ? 'FakeUnity.exe' : undefined }, graceMs: 500, forceMs: 500, readyMs: 2000, idleSlots: async () => slots,
-    runtime: root => ({
+    runtime: (root, _pid, gpu) => (runtimeGpu = gpu, {
       async request(command: string, parameters?: object) {
         events.push(command)
         onCommand?.(command)
@@ -742,5 +745,48 @@ describe('a Play source that vanishes', () => {
     expect(log).toHaveBeenCalled(); log.mockRestore()
     desktop.windows = async () => dialogs
     expect((await svc.enterPlay('A', source())).state).toBe('playing')
+  })
+})
+
+describe('the GPU stream\'s editor', () => {
+  const NVIDIA: GpuDevice = { vendorId: 0x10de, deviceId: 0x2486, active: true }
+  const textures = (gpus: GpuDevice[] = [NVIDIA], available = true): TextureApi => ({ available, gpus: async () => gpus, importTexture: () => ({ release() {} }), send: async () => {}, onGpuGone: () => () => {} })
+  const commands = () => (desktop.launch as ReturnType<typeof vi.fn>).mock.calls.map(([o]) => (o as { command: string }).command)
+  const d3d12Only = 'activeInputHandler: 1\nPlayerSettings:\n  m_BuildTargetGraphicsAPIs:\n  - m_BuildTarget: WindowsStandaloneSupport\n    m_APIs: 12000000\n    m_Automatic: 0\n'
+  it('starts the Play editor on Direct3D 11 when the project and one GPU allow it, and tells the runtime', async () => {
+    const s = service({ textures: textures() })
+    expect((await s.play('A', { path: projects.get('A')!.path })).state).toBe('playing')
+    expect(commands()).toHaveLength(1); expect(commands()[0]).toContain('-force-d3d11')
+    expect(runtimeGpu?.fast()).toBe(true); expect(runtimeGpu?.playing()).toBe(true)
+    await s.pause('A'); expect(runtimeGpu?.playing()).toBe(false)
+  })
+  it.each([
+    ['a project that needs Direct3D 12', () => write(path.join(projects.get('A')!.path, 'ProjectSettings/ProjectSettings.asset'), d3d12Only), textures()],
+    ['a hybrid GPU', () => {}, textures([{ ...NVIDIA, active: false }, { vendorId: 0x8086, deviceId: 1, active: true }])],
+    ['no shared textures', () => {}, textures([NVIDIA], false)]
+  ])('starts the editor as today for %s', async (_name, arrange, api) => {
+    arrange()
+    const s = service({ textures: api })
+    expect((await s.play('A', { path: projects.get('A')!.path })).state).toBe('playing')
+    expect(commands()[0]).not.toContain('-force-d3d11'); expect(runtimeGpu?.fast()).toBe(false)
+  })
+  it('starts later editors as today after a session found the GPUs unfit', async () => {
+    const s = service({ textures: textures() })
+    await s.play('A', { path: projects.get('A')!.path })
+    runtimeGpu!.fellBack!('gpu-mismatch')
+    await s.restart('A')
+    expect(commands()).toHaveLength(2); expect(commands()[1]).not.toContain('-force-d3d11')
+  })
+  it('keeps the warm editor for a session fallback, and restarts it when the project now needs Direct3D 12', async () => {
+    const s = service({ textures: textures() }), root = projects.get('A')!.path
+    await s.play('A', { path: root })
+    runtimeGpu!.fellBack!('import')
+    await s.stop('A'); await s.play('A', { path: root })
+    expect(commands()).toHaveLength(1)
+    write(path.join(root, 'ProjectSettings/ProjectSettings.asset'), d3d12Only)
+    await s.stop('A')
+    expect((await s.play('A', { path: root })).state).toBe('playing')
+    expect(commands()).toHaveLength(2); expect(commands()[1]).not.toContain('-force-d3d11')
+    expect(runtimeGpu?.fast()).toBe(false)
   })
 })

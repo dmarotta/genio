@@ -1,7 +1,8 @@
 import { afterEach, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { once } from 'node:events'
-import { PlayStream, validateInput, validateAudio, MAX_FRAME, AUDIO_HEADER } from '../src/main/play-stream'
+import { PlayStream, validateInput, validateAudio, MAX_FRAME, AUDIO_HEADER, type PlayStreamGpu } from '../src/main/play-stream'
+import type { TextureFrame } from '../src/main/play-gpu'
 
 /** A 'GA' v1 packet as com.genio.play's AudioTap writes it; `extra` pads or (negative) truncates the samples. */
 function ga({ seq = 0, rate = 48000, channels = 2, frames = 1024, time = 1.7e12, version = 1, extra = 0 } = {}) {
@@ -90,4 +91,46 @@ it('closes a malformed audio packet with 1003', async () => {
     const closed = once(c,'close'); c.send(bad)
     expect((await closed)[0]).toBe(1003); expect(heard).toBe(false)
   }
+})
+
+/** The fast path over the real socket: a fake texture API, Unity's ring and frame messages, and Genio's answers. */
+function gpuOptions(fallbacks: string[] = []): PlayStreamGpu {
+  return { api: { available: true, importTexture: () => ({ release() {} }), send: async () => {}, gpus: async () => [], onGpuGone: () => () => {} },
+    devices: [{ vendorId: 0x10de, deviceId: 0x2486, active: true }], width: 1280, height: 720, playing: () => true, onFallback: reason => fallbacks.push(reason) }
+}
+function ringMessage() {
+  const b = Buffer.alloc(64); b.write('GR', 0, 'latin1'); b[2] = 2; b[3] = 3
+  b.writeUInt32LE(1, 4); b.writeUInt32LE(1280, 8); b.writeUInt32LE(720, 12); b.writeUInt32LE(28, 24); b.writeUInt32LE(0x10de, 32); b.writeUInt32LE(0x2486, 36)
+  for (let s = 0; s < 3; s++) b.writeBigUInt64LE(BigInt(0x100 + 4 * s), 40 + 8 * s)
+  return b
+}
+function frameMessage(slot: number, seq: number) {
+  const b = Buffer.alloc(32); b.write('GF', 0, 'latin1'); b[2] = 1; b[3] = slot; b.writeUInt32LE(1, 4); b.writeUInt32LE(seq, 8); b.writeDoubleLE(1, 16); b.writeDoubleLE(2, 24)
+  return b
+}
+it('takes the fast path\'s ring and frames, frees slots and asks for JPEG over the same socket, and still takes JPEG', async () => {
+  const fallbacks: string[] = []
+  const stream = new PlayStream(gpuOptions(fallbacks)); streams.push(stream)
+  const {port,token} = await stream.listen()
+  const c = client(port,token); await once(c,'open')
+  const textures: TextureFrame[] = [], jpegs: Buffer[] = [], texts: unknown[] = []
+  stream.onTexture = f => textures.push(f); stream.onFrame = f => jpegs.push(f); c.on('message', d => texts.push(JSON.parse(d.toString())))
+  expect(stream.gpuActive).toBe(true)
+  c.send(ringMessage()); c.send(frameMessage(2, 41))
+  await new Promise(r => setTimeout(r, 30))
+  expect(textures.map(f => [f.seq, f.live])).toEqual([[41, true]])
+  textures[0].drop()
+  c.send(Buffer.from([0x47, 0x58, 1, 3]))
+  c.send(Buffer.from([255,216,9,255,217]))
+  await new Promise(r => setTimeout(r, 30))
+  expect(texts).toEqual([{ type: 'free', gen: 1, slot: 2 }])
+  expect(fallbacks).toEqual(['unity']); expect(stream.gpuActive).toBe(false)
+  expect(jpegs.map(f => f[2])).toEqual([9])
+})
+it('closes fast-path messages from a session that did not ask for them, or malformed ones, with 1003', async () => {
+  const plain = await setup(); const a = client(plain.port, plain.token); await once(a,'open')
+  const closedA = once(a,'close'); a.send(ringMessage()); expect((await closedA)[0]).toBe(1003)
+  const stream = new PlayStream(gpuOptions()); streams.push(stream)
+  const {port,token} = await stream.listen(); const b = client(port,token); await once(b,'open')
+  const closedB = once(b,'close'); b.send(ringMessage().subarray(0, 60)); expect((await closedB)[0]).toBe(1003)
 })
