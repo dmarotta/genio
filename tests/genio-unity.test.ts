@@ -273,7 +273,7 @@ describe('genio-unity play session', () => {
 
   it('leases a slot copy, serves cmd, console and slot compile, and releases on stop', async () => {
     const { ready, exit } = await start()
-    expect(path.relative(data, ready.project).startsWith('play-pools')).toBe(true)
+    expect(path.relative(data, ready.project).split(path.sep)[0]).toBe('ps')
     expect(fs.existsSync(path.join(ready.project, 'Library', 'warm'))).toBe(true)
     const status = await unity(['cmd', 'editor_status'])
     expect(status.code).toBe(EXIT.ok)

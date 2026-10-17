@@ -33,7 +33,7 @@ export async function playerSources(ctx: AppCtx, world: string): Promise<PlayerS
   const data = ctx.main.home.data
   const genioCopy = (dir: string): boolean => {
     const rel = path.relative(data, dir)
-    return (!rel.startsWith('..') && !path.isAbsolute(rel) && /^(play-pools|player-copies)([\\/]|$)/.test(rel)) || /[\\/]\.genio[\\/][^\\/]+[\\/](play-pools|player-copies)[\\/]/i.test(dir)
+    return (!rel.startsWith('..') && !path.isAbsolute(rel) && /^(play-pools|player-copies|pc|ps)([\\/]|$)/.test(rel)) || /[\\/]\.genio[\\/][^\\/]+[\\/](play-pools|player-copies|pc|ps)[\\/]/i.test(dir)
   }
   const options: PlayerSourceOption[] = []
   const main = trees.find((t) => sameFolder(t.path, top))

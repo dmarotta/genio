@@ -624,6 +624,16 @@ describe('playLine: one status line and one progress bar per state', () => {
     expect(playLine({ status: at('ready', { start: { phase: 'scene' } }) })).toEqual({ text: 'Ready', kind: 'ready' })
   })
 
+  it('says a path too long for Unity while Unity starts and after a failed or crashed start, nowhere else', () => {
+    const pathWarning = "Paths in com.unity.visualscripting reach 262 characters, over Windows' 260 limit, so Unity may fail to load them. Remove that package or shorten the Unity folder name."
+    expect(playLine({ status: at('starting', { pathWarning, start: { phase: 'packages', bar: 40 } }) })).toEqual({ text: pathWarning, kind: 'work', bar: 40 })
+    expect(playLine({ status: at('error', { pathWarning }) })).toEqual({ text: pathWarning, kind: 'problem', action: 'retry' })
+    expect(playLine({ status: at('crashed', { pathWarning }) })).toEqual({ text: pathWarning, kind: 'problem' })
+    expect(playLine({ status: at('ready', { pathWarning }) })).toEqual({ text: 'Ready', kind: 'ready' })
+    expect(playLine({ status: at('playing', { pathWarning }) })).toEqual({ text: 'Playing', kind: 'live' })
+    expect(playLine({ status: at('compile-errors', { pathWarning }) }).text).toBe('The game has compile errors.')
+  })
+
   it('answers a press at once: Preparing, Starting Play or Stopping while the call runs', () => {
     expect(playLine({ status: at('idle'), busy: 'start' })).toEqual({ text: 'Preparing', kind: 'work', bar: 'indeterminate' })
     expect(playLine({ status: at('crashed'), busy: 'enter' })).toEqual({ text: 'Preparing', kind: 'work', bar: 'indeterminate' })

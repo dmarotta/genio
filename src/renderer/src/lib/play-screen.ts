@@ -66,7 +66,7 @@ export function playLine({ status, busy, error, missing, streamEnded }: PlayLine
   if (state === 'copying' || state === 'syncing') return { text: 'Preparing', kind: 'work', bar: percent(status) }
   if (state === 'starting') {
     const start = status.start
-    return { text: start ? `Starting Unity · ${START_STEP[start.phase]}` : 'Starting Unity', kind: 'work', bar: start?.bar ?? 'indeterminate' }
+    return { text: status.pathWarning ?? (start ? `Starting Unity · ${START_STEP[start.phase]}` : 'Starting Unity'), kind: 'work', bar: start?.bar ?? 'indeterminate' }
   }
   if (state === 'entering-play') return { text: 'Starting Play', kind: 'work', bar: 'indeterminate' }
   if (state === 'exiting-play' || state === 'shutting-down' || (busy && STOPS.has(busy))) return { text: 'Stopping', kind: 'work' }
@@ -74,7 +74,8 @@ export function playLine({ status, busy, error, missing, streamEnded }: PlayLine
     return state === 'ready' && ENTERS.has(busy) ? { text: 'Starting Play', kind: 'work', bar: 'indeterminate' } : { text: 'Preparing', kind: 'work', bar: 'indeterminate' }
   }
   const problem = state && PROBLEM[state]
-  if (problem) return { text: problem.text, kind: 'problem', action: problem.action }
+  // A path too long for Unity explains a failed or crashed start better than the general sentence.
+  if (problem) return { text: (state === 'error' || state === 'crashed') && status.pathWarning || problem.text, kind: 'problem', action: problem.action }
   if (error) return { text: 'Something went wrong.', kind: 'problem' }
   if (missing) return { text: 'That source is gone. Pick another one.', kind: 'problem' }
   if (streamEnded && (state === 'playing' || state === 'paused')) return { text: 'The live view stopped.', kind: 'problem', action: 'reconnect' }

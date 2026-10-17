@@ -8,6 +8,7 @@ import { PlayerCopies, PLAYER_COPY_CLEANUP_INTERVAL_MS, processCreated } from '.
 import { createDesktopApi, inspectDesktop, launchEditor, type DesktopApi, type EditorLaunch } from '../../resources/unit-skills/genio/lib/hidden-desktop.mjs'
 import { sourceMissing, unityVersionOf } from '../../resources/unit-skills/genio/lib/git-mirror.mjs'
 import { checkCopyPath } from '../../resources/unit-skills/genio/lib/unity-seed.mjs'
+import { longPathWarning } from '../../resources/unit-skills/genio/lib/path-length.mjs'
 import { clearPlayStarting, markPlayStarting } from '../../resources/unit-skills/genio/lib/quiet-start.mjs'
 import { editorHolders, editorSeatsDir } from '../../resources/unit-skills/genio/lib/unity-editors.mjs'
 import { poolDirectory } from '../../resources/unit-skills/genio/skills/play/scripts/pool.mjs'
@@ -70,6 +71,8 @@ export interface PlayerInstanceOptions {
   /** Electron's shared textures (the fast path); the real adapter by default. */
   textures?: TextureApi
   ownerCreated?: () => Promise<string>; readyMs?: number; graceMs?: number; forceMs?: number
+  /** The platform the path-length check runs for (Windows only); process.platform by default. */
+  platform?: string
   idleSlots?: () => Promise<IdleEditor[]>
 }
 /** The fast path as one editor's runtime sees it: whether its editor runs on Direct3D 11 for it, and whether the game plays. */
@@ -635,7 +638,13 @@ export class PlayerInstanceService {
           await this.close(i, 'the graphics API changed', 'restart')
           if (i.launch) throw new Error(i.message)
         }
-        if (!i.launch) await this.launch(i, options.visible === true, controller.signal)
+        if (!i.launch) {
+          // Windows: Unity cannot open a file whose path reaches 260 characters. A warning only; the start goes on.
+          const long = await longPathWarning(i.root!, { platform: this.options.platform, packageCache: path.join(project, engineRoot, 'Library/PackageCache') })
+          if (long) i.pathWarning = long; else delete i.pathWarning
+          check()
+          await this.launch(i, options.visible === true, controller.signal)
+        }
         await this.ready(i, undefined, controller.signal)
         // Pipeline's console may retain errors from an earlier compile; query Unity's current flag.
         const compilation = await this.local(i).request<{ success: boolean; result: boolean }>('eval', { code: 'return UnityEditor.EditorUtility.scriptCompilationFailed;' })

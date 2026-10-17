@@ -206,8 +206,9 @@ describe('placement on the project volume', () => {
     const pool = new PlayPool(data, world)
     expect(pool.slots()).toBe(pool.dir)
     fs.mkdirSync(path.join(pool.dir, 'slot-1'))
-    await pool.place()
-    expect(JSON.parse(fs.readFileSync(path.join(pool.dir, 'placement.json'), 'utf8')).dir).toBe(pool.dir)
+    // A pool made before short folders keeps its slots until relocate() moves them.
+    expect(await pool.place()).toBe(pool.dir)
+    expect(fs.existsSync(path.join(pool.dir, 'placement.json'))).toBe(false)
     const moved = path.join(root, 'devdrive', 'play-pools', 'x')
     fs.writeFileSync(path.join(pool.dir, 'placement.json'), JSON.stringify({ dir: moved }))
     const next = new PlayPool(data, world)

@@ -1,7 +1,10 @@
 /**
  * The player's own Play copy: one per project (one per project window), outside the units' Play slots, cap
- * and queue. A record per project at <data>/player-copies/<key>/instance.json names the copy folder, which
- * sits on the project's volume when that volume block clones (like the slots) so the first copy is cheap.
+ * and queue. A record per project at <data>/player-copies/<key>/instance.json names the copy folder,
+ * <base>/pc/<id> with the Unity folder directly inside, where <base> is the project's volume when that volume
+ * block clones (like the slots, so the first copy is cheap) or else Genio's data folder. The short folder keeps
+ * Unity's deepest paths under Windows' 260 characters; a copy made before it (<base>/player-copies/<key>/copy)
+ * moves there at its next Play when no editor has it open, else stays and keeps working.
  * The copy follows any source of its project through the git-guided mirror and keeps one Library, seeded
  * once from the main checkout. Copies survive editor and Genio shutdown; cleanup removes unused copies
  * after 24 hours or when their volume is short of space. Unity is never started or stopped here: the lifecycle calls
@@ -13,7 +16,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { checkCopyPath, seedLibrary, treeStats } from './unity-seed.mjs'
-import { volumeChild, volumeHome, volumePlacement } from '../skills/play/scripts/clone.mjs'
+import { SHORT_ID_LENGTHS, claimShortFolder, isShortId, volumeChild, volumeHome, volumePlacement } from '../skills/play/scripts/clone.mjs'
 import { applyMirror, describeSource, removeFile, resolveSource, scanSource, sourceMissing, unityVersionOf } from './git-mirror.mjs'
 import { waitForQuiet } from './quiet-start.mjs'
 const exec = promisify(execFile)
@@ -25,6 +28,8 @@ export const PLAYER_COPY_CLEANUP_INTERVAL_MS = 60 * 60 * 1000
 /** The editor quits this long after the last Play stopped; its copy stays on disk. */
 export const DEFAULT_IDLE_MS = 10 * 60 * 1000
 const SUB = 'player-copies'
+/** Copy folders: <base>/pc/<short id of the key>. */
+const SHORT = 'pc'
 const MARKER = 'genio-player-copy.json'
 const MANIFEST = 'mirror-manifest.json'
 const TRASH = 'trash'
@@ -37,6 +42,11 @@ const inside = (child, parent) => { const r = path.relative(key(parent), key(chi
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const yieldNow = () => new Promise(r => setImmediate(r))
 const safeVersion = v => typeof v === 'string' && /^[\w.]+$/.test(v) ? v : undefined
+const safeName = n => n.replace(/[^\w .-]/g, '_').replace(/^[ .]+|[ .]+$/g, '') || 'project'
+/** A copy made before short folders: <base>/player-copies/<key>/copy. */
+const legacyDir = dir => path.basename(dir) === 'copy'
+/** The short-folder area beside a legacy copy's <base>/player-copies. */
+const shortArea = dir => path.join(path.dirname(path.dirname(path.dirname(path.resolve(dir)))), SHORT)
 
 /** Process creation time (FILETIME, UTC) so a reused PID is never taken for the Genio that owned a copy. */
 export async function processCreated(pid) {
@@ -101,6 +111,10 @@ export class PlayerCopies {
   markerOk(rec) {
     try { const m = JSON.parse(fs.readFileSync(path.join(rec.dir, MARKER), 'utf8')); return m.kind === KIND && m.id === rec.id } catch { return false }
   }
+  /** The project key a marked copy folder belongs to, or undefined when it is not a player copy. */
+  markedKey(dir) {
+    try { const m = JSON.parse(fs.readFileSync(path.join(dir, MARKER), 'utf8')); return m.kind !== KIND ? undefined : m.key ?? (typeof m.project === 'string' ? this.keyOf(m.project) : undefined) } catch { return undefined }
+  }
 
   /** Every project's record, with live sync or deletion progress. */
   list() {
@@ -141,28 +155,59 @@ export class PlayerCopies {
           if (rec) fs.rmSync(this.recordFile(k), { force: true })
           rec = undefined
         } else {
-          if (!fs.existsSync(rec.dir)) this.makeDir(rec)
+          if (!fs.existsSync(rec.dir)) { if (!this.adoptMoved(k, rec)) this.makeDir(rec, k) }
           else if (!this.markerOk(rec)) throw new Error(`${rec.dir} is not marked as this project's player copy; Genio will not reuse or delete it`)
           if (rec.state === 'syncing' && !this.syncs.has(k)) { rec.state = 'ready'; if (rec.lastSync) rec.lastSync.complete = false }
+          if (!this.syncs.has(k)) this.relocate(k, rec)
           this.write(k, rec)
           return this.view(k, rec)
         }
       }
       const volume = await volumePlacement(world, this.dir, this.clone)
-      const base = volume ? path.join(volumeHome(this.data, volume), SUB, k) : path.join(this.dir, k)
-      const dir = path.join(base, 'copy')
-      const name = path.basename(path.resolve(world)).replace(/[^\w .-]/g, '_').replace(/^[ .]+|[ .]+$/g, '') || 'project'
-      rec = { version: 1, id: randomUUID(), project: path.resolve(world), engineRoot, dir, root: path.join(dir, name, engineRoot), state: 'ready', createdAt: Date.now(), owner: await this.me(), idleMs: DEFAULT_IDLE_MS }
-      // The record comes first: a copy folder never exists without a record that can delete it.
+      const owner = await this.me()
+      // The Unity folder sits directly in the copy folder, under its own name (the project's, at a root checkout).
+      const dir = claimShortFolder(path.join(volume ? volumeHome(this.data, volume) : this.data, SHORT), k, d => this.markedKey(d) === k)
+      const name = safeName(path.basename(engineRoot || path.resolve(world)))
+      rec = { version: 1, id: randomUUID(), project: path.resolve(world), engineRoot, dir, root: path.join(dir, name), state: 'ready', createdAt: Date.now(), owner, idleMs: DEFAULT_IDLE_MS }
+      // The record comes first: a copy folder never holds files without a record that can delete it.
       this.write(k, rec)
-      if (fs.existsSync(dir)) this.trashStray(dir)
-      this.makeDir(rec)
+      if (fs.readdirSync(dir).length) this.trashStray(dir)
+      this.makeDir(rec, k)
       return this.view(k, rec)
     })
   }
-  makeDir(rec) {
+  makeDir(rec, k) {
     fs.mkdirSync(rec.dir, { recursive: true })
-    fs.writeFileSync(path.join(rec.dir, MARKER), JSON.stringify({ kind: KIND, id: rec.id, project: rec.project, createdAt: rec.createdAt }, null, 2))
+    fs.writeFileSync(path.join(rec.dir, MARKER), JSON.stringify({ kind: KIND, id: rec.id, ...(k ? { key: k } : {}), project: rec.project, createdAt: rec.createdAt }, null, 2))
+  }
+  /**
+   * A legacy copy moves to a short folder on its own volume in one rename, Library and all, when it is safe to
+   * delete (the same checks) and no editor has it open. Any failure leaves it where it was, still working.
+   */
+  relocate(k, rec) {
+    if (!legacyDir(rec.dir) || !fs.existsSync(rec.dir) || this.refusal(k, rec) || this.editorPids(rec.root).length) return
+    const from = path.resolve(rec.dir), old = { dir: rec.dir, root: rec.root }
+    let to
+    try {
+      to = claimShortFolder(shortArea(from), k)
+      // Windows renames a folder only onto a missing name: the empty claim goes just before the rename.
+      fs.rmdirSync(to)
+      fs.renameSync(from, to)
+    } catch { return }
+    Object.assign(rec, { dir: to, root: path.join(to, path.relative(from, path.resolve(old.root))) })
+    try { this.write(k, rec) } catch { try { fs.renameSync(to, from); Object.assign(rec, old) } catch { /* adoptMoved finds it by its marker. */ } return }
+    const parent = path.dirname(from)
+    for (const n of listing(parent)) if (n.startsWith(`${TRASH}-`)) this.removeInBackground(path.join(parent, n))
+    try { fs.rmdirSync(parent) } catch { /* Holds the record (in Genio's data) or trash. */ }
+  }
+  /** A relocation stopped between its rename and its record: the copy is found in the short area by its marker. */
+  adoptMoved(k, rec) {
+    if (!legacyDir(rec.dir)) return false
+    for (const n of SHORT_ID_LENGTHS) {
+      const dir = path.join(shortArea(rec.dir), k.slice(0, n))
+      if (this.markerOk({ ...rec, dir })) { Object.assign(rec, { dir, root: path.join(dir, path.relative(path.resolve(rec.dir), path.resolve(rec.root))) }); return true }
+    }
+    return false
   }
   /** A copy folder left without its record: only a marked one is moved aside and deleted. */
   trashStray(dir) {
@@ -349,9 +394,9 @@ export class PlayerCopies {
 
   /** Why this record's folder must not be deleted, or undefined when it is safe. */
   refusal(k, rec) {
-    const dir = path.resolve(rec.dir)
-    if (!path.isAbsolute(rec.dir) || path.basename(dir) !== 'copy' || path.basename(path.dirname(dir)) !== k) return 'its folder is not a player-copy folder'
-    if (!inside(dir, this.dir) && volumeChild(dir, this.data, SUB) !== k) return 'its folder is outside Genio\'s player-copy area'
+    const dir = path.resolve(rec.dir), folder = path.basename(dir), legacy = folder === 'copy'
+    if (!path.isAbsolute(rec.dir) || !(legacy ? path.basename(path.dirname(dir)) === k : isShortId(folder, k) && path.basename(path.dirname(dir)) === SHORT)) return 'its folder is not a player-copy folder'
+    if (legacy ? !inside(dir, this.dir) && volumeChild(dir, this.data, SUB) !== k : !inside(dir, path.join(this.data, SHORT)) && volumeChild(dir, this.data, SHORT) !== folder) return 'its folder is outside Genio\'s player-copy area'
     if (inside(dir, rec.project) || inside(rec.project, dir)) return 'its folder overlaps the project'
     if (!fs.existsSync(dir)) return undefined
     try { if (fs.lstatSync(dir).isSymbolicLink()) return 'its folder is a link' } catch { return undefined }
@@ -506,7 +551,6 @@ export class PlayerCopies {
       }
       if (this.locks.has(k) || this.syncs.has(k) || isInUse(rec)) { out.push({ key: k, action: 'kept' }); continue }
       if (!await this.mine(rec) && await this.ownerAlive(rec.owner)) { out.push({ key: k, project: rec.project, action: 'owned', pid: rec.owner.pid }); continue }
-      const listing = dir => { try { return fs.readdirSync(dir) } catch { return [] } }
       // Folders moved aside by an earlier copy of this project.
       for (const n of listing(path.dirname(rec.dir))) if (n.startsWith(`${TRASH}-`)) this.removeInBackground(path.join(path.dirname(rec.dir), n))
       if (rec.state === 'pending-delete' || rec.state === 'deleting') { this.startDeletion(k, isInUse); out.push({ key: k, project: rec.project, action: 'deleting' }); continue }
@@ -519,6 +563,20 @@ export class PlayerCopies {
       this.write(k, rec)
       this.startDeletion(k)
       out.push({ key: k, project: rec.project, action: 'deleting' })
+    }
+    // Short folders in Genio's data whose record is gone (one on another volume is only found through its record).
+    const short = path.join(this.data, SHORT)
+    for (const n of listing(short)) {
+      const dir = path.join(short, n)
+      if (n.startsWith(`${TRASH}-`)) { this.removeInBackground(dir); continue }
+      const k = this.markedKey(dir), rec = k && this.read(k)
+      if (!k || protectedKeys.includes(k) || this.locks.has(k) || rec && key(rec.dir) === key(dir)) continue
+      try {
+        const marker = JSON.parse(fs.readFileSync(path.join(dir, MARKER), 'utf8'))
+        const editor = fs.readdirSync(dir, { withFileTypes: true }).filter(e => e.isDirectory()).some(e => this.editorPids(path.join(dir, e.name)).length)
+        // Moved aside first: a new copy of the project may claim this folder name again while the deletion waits.
+        if (!editor && !isInUse(marker)) { this.trashStray(dir); out.push({ key: k, action: 'stray-deleted' }) }
+      } catch { /* Unreadable or in use: kept. */ }
     }
     return out
   }
@@ -560,6 +618,8 @@ function scanVersion(scan) {
   if (e?.kind !== 'file') return undefined
   try { return fs.readFileSync(e.abs, 'utf8').match(/^m_EditorVersion:\s*(\S+)/m)?.[1] } catch { return undefined }
 }
+
+function listing(dir) { try { return fs.readdirSync(dir) } catch { return [] } }
 
 async function libraryDirs(root) {
   try { return (await fs.promises.readdir(root, { withFileTypes: true })).filter(e => e.isDirectory() && /^library(@.*)?$/i.test(e.name)).map(e => e.name) } catch { return [] }

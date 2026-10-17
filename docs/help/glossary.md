@@ -297,7 +297,10 @@ Source: [play.md](../play.md), [player-instance.md](../player-instance.md)
 ## Play copy
 
 Your Play instance's private copy of the project. It survives closing the window and Genio; an unused copy is removed
-after more than 24 hours since its last Play (sooner when the disk runs low).
+after more than 24 hours since its last Play (sooner when the disk runs low). It lives in a short folder (`pc`) on the
+project's Dev Drive, else in Genio's data folder, so Unity's paths stay under Windows' 260-character limit; when a
+project's own paths still come near it, the Play status line says so while Unity starts. There is no setting for the
+location: it follows the project's drive, or Genio's home (`GENIO_HOME`).
 Where: managed automatically; Settings → Unity & Play for idle time and the editor limit.
 Source: [play.md](../play.md), [player-instance.md](../player-instance.md)
 
@@ -463,7 +466,8 @@ Source: [mcp-servers.md](../mcp-servers.md)
 ## Slots
 
 Extra copies of a Unity project, each with its own editor, that units lease to play and test in Unity at the same
-time. They are separate from your own Play copy.
+time. They are separate from your own Play copy. Like it, they live in short folders (`ps`), and a slot whose paths
+come near Windows' 260-character limit shows a warning on its row.
 Where: Settings → This project → Unity slots (cap, editor windows, states, Close slot editor).
 Source: [ARCHITECTURE.md](../ARCHITECTURE.md), [unity-copies.md](../unity-copies.md)
 

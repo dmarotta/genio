@@ -82,10 +82,25 @@ plain NTFS behaves exactly as above.
 
 Cloning needs the copies on the project's volume. When a project's own drive block
 clones and Genio's base lives elsewhere, Play slots go to
-`<drive>\.genio\<key>\play-pools\<pool>` (decided once per pool, recorded in the
-pool folder's `placement.json`; lease state stays in Genio's data folder) and new
-unit worktrees go to `<drive>\.genio\<key>\worktrees\<world>\<id>`. A pool that
-already has slots keeps them where they are. Genio never creates, mounts, resizes
+`<drive>\.genio\<key>\ps\<id>\slot-N` (decided once per pool, recorded in the
+pool folder's `placement.json`; lease state stays in Genio's data folder), the
+player's Play copy to `<drive>\.genio\<key>\pc\<id>`, and new unit worktrees go to
+`<drive>\.genio\<key>\worktrees\<world>\<id>`. Otherwise slots go to
+`<data>\ps\<id>\slot-N` and the Play copy to `<data>\pc\<id>`.
+
+The short `ps` and `pc` folders and the 8-hex `<id>` (longer only when another
+pool or project already took that name; `genio-pool.json` names the folder's pool)
+keep Unity's deepest paths, in `Library/PackageCache`, under Windows' 260
+characters, which Unity's Mono runtime cannot exceed even with long paths enabled
+([player-instance.md](player-instance.md#where-copies-live-windows-path-length)).
+Slots made before (`<data>\play-pools\<pool>\slot-N` or
+`<drive>\.genio\<key>\play-pools\<pool>`) move there at the next lease while no
+slot is leased, preparing, closing, stuck or open in an editor: one rename per slot
+on its own volume, clone and Library kept (`PlayPool.relocate`). A failed rename
+moves back what moved, and the slots keep working where they were. Before a slot
+editor starts, the same path-length check as the Play copy runs; a warning is added
+to the slot editor's `warning` (shown on the slot in Settings → This project → Unity
+slots, and printed by the unit's `play.mjs` session). It never blocks the launch. Genio never creates, mounts, resizes
 or formats a volume. If a project's drive is not mounted (a Dev Drive VHDX not
 re-attached after a reboot), Genio says so and asks for Disk Management >
 Action > Attach VHD. Free-space prechecks still budget the full logical size,

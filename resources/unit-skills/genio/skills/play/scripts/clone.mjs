@@ -32,6 +32,27 @@ export function volumeChild(p, dir, sub) {
   return at < 0 ? undefined : original.slice(at + marker.length).split('/')[0] || undefined
 }
 
+/**
+ * Short folder ids keep Unity's deepest paths (Library/PackageCache) under Windows' 260 characters: a Play copy
+ * or slot folder is named by the first 8 hex of its 24-hex key, or a longer prefix when another key took that one.
+ */
+export const SHORT_ID_LENGTHS = [8, 12, 16, 24]
+/** True when name is one of key's short ids. */
+export function isShortId(name, key) { return SHORT_ID_LENGTHS.includes(name.length) && key.startsWith(name) && /^[0-9a-f]+$/.test(name) }
+/**
+ * Claims <parent>/<short id of key>: the first id whose folder is created now, is empty, or owns(dir) says is
+ * already this key's. mkdir is atomic, so two keys never share a folder. Returns the folder.
+ */
+export function claimShortFolder(parent, key, owns = () => false) {
+  fs.mkdirSync(parent, { recursive: true })
+  for (const n of SHORT_ID_LENGTHS) {
+    const dir = path.join(parent, key.slice(0, n))
+    try { fs.mkdirSync(dir); return dir } catch (e) { if (e.code !== 'EEXIST') throw e }
+    try { if (owns(dir) || !fs.readdirSync(dir).length) return dir } catch { /* Not a readable folder: try the next id. */ }
+  }
+  throw new Error(`No free folder for ${key} under ${parent}`)
+}
+
 /** True when the volume holding p is not mounted, such as a Dev Drive VHDX that was not re-attached after a reboot. */
 export function volumeMissing(p, options = {}) { return !{ ...defaultSystem, ...options.system }.mounted(rootOf(p)) }
 /** Throws a player-facing error when p is missing because its whole drive is not mounted. */

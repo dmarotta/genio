@@ -20,6 +20,9 @@ export function cloneMethod(build?: number): 'copyfile' | 'fsctl'
 export function volumeKey(dir: string): string
 export function volumeHome(dir: string, volumeRoot: string): string
 export function volumeChild(p: string, dir: string, sub: string): string | undefined
+export const SHORT_ID_LENGTHS: number[]
+export function isShortId(name: string, key: string): boolean
+export function claimShortFolder(parent: string, key: string, owns?: (dir: string) => boolean): string
 export function volumeMissing(p: string, options?: CloneOptions): boolean
 export function assertMounted(p: string, options?: CloneOptions): void
 export function parseProbe(line: string): VolumeInfo | VolumeError

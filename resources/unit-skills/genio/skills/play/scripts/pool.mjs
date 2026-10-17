@@ -5,7 +5,8 @@ import { createHash, randomUUID } from 'node:crypto'
 import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import { checkCopyPath, checkFreeSpace, seedLibrary, treeStats } from '../../../lib/unity-seed.mjs'
-import { assertMounted, volumeHome, volumeMissing, volumePlacement } from './clone.mjs'
+import { assertMounted, claimShortFolder, isShortId, volumeHome, volumeMissing, volumePlacement } from './clone.mjs'
+import { longPathWarning } from '../../../lib/path-length.mjs'
 import { createDesktopApi, inspectDesktop, launchEditor } from '../../../lib/hidden-desktop.mjs'
 import { initSubmodules, noHooksPath } from '../../../lib/git-submodules.mjs'
 import { waitForQuiet } from '../../../lib/quiet-start.mjs'
@@ -17,6 +18,10 @@ const LEASE_MS = 30000
 // A first open of a seeded copy compiles every script and imports for minutes before Pipeline is serviceable.
 export const READY_MS = 20 * 60000
 const PORT_FILE = 'Library/Pipeline/.unity-pipeline-port'
+/** Slot folders: <base>/ps/<short id of the pool>/slot-N, named by genio-pool.json. */
+const SHORT = 'ps'
+const OWNER = 'genio-pool.json'
+const poolOf = dir => { try { return JSON.parse(fs.readFileSync(path.join(dir, OWNER), 'utf8')).pool } catch { return undefined } }
 const QUIT = 'UnityEditor.EditorApplication.delayCall += () => UnityEditor.EditorApplication.Exit(0); return true;'
 const slashed = p => path.resolve(p).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
 /** True when a command line opens exactly this project root (not a sibling such as slot-1/Game2). */
@@ -106,40 +111,77 @@ export class PlayPool {
     this.desktop = options.desktop ?? createDesktopApi(data)
     this.spawnVisible = options.spawnVisible
     this.quiet = options.quiet
+    this.platform = options.platform ?? process.platform
     this.closes = new Set()
     fs.mkdirSync(this.dir, { recursive: true })
   }
-  /** Folder holding slot-N copies. Decided once per pool by place(); until then, the pool folder. */
+  /**
+   * Folder holding slot-N copies, read from placement.json on every call (relocate() may move it once).
+   * Unplaced, the pool folder.
+   */
   slots() {
-    if (this.slotsDir) return this.slotsDir
     try {
       const { dir } = JSON.parse(fs.readFileSync(path.join(this.dir, 'placement.json'), 'utf8'))
       // A placement on a detached volume falls back to the pool folder rather than failing every call.
-      if (typeof dir === 'string' && path.isAbsolute(dir) && !volumeMissing(dir)) return (this.slotsDir = dir)
+      if (typeof dir === 'string' && path.isAbsolute(dir) && !volumeMissing(dir)) return dir
     } catch { /* Not placed yet. */ }
     return this.dir
   }
   slotDir(id) { return path.join(this.slots(), `slot-${id}`) }
+  /** The short slots folder under base (Genio's data, or the project volume's .genio/<key>), claimed for this pool. */
+  claim(base) {
+    const pool = path.basename(this.dir)
+    const dir = claimShortFolder(path.join(base, SHORT), pool, d => poolOf(d) === pool)
+    fs.writeFileSync(path.join(dir, OWNER), JSON.stringify({ pool, world: this.world }))
+    return dir
+  }
   /**
-   * Block cloning needs the copies on the project's volume. When the project sits on a Dev Drive (or other
-   * block-cloning volume) apart from Genio's data, slots go to <volume>/.genio/<key>/play-pools/<pool>.
+   * Slots go to <base>/ps/<id>: short, so Unity's deepest paths stay under Windows' 260 characters. Block cloning
+   * needs the copies on the project's volume, so when the project sits on a Dev Drive (or other block-cloning
+   * volume) apart from Genio's data, <base> is <volume>/.genio/<key>; else it is Genio's data folder.
    * Decided once, before the first slot exists, and shared by every process through placement.json.
    */
   async place() {
     const file = path.join(this.dir, 'placement.json')
     if (fs.existsSync(file)) return this.slots()
-    // Probed once per process; an unplaced pool keeps using the pool folder.
+    // Probed once per process. A pool that already has slots in its own folder waits for relocate().
     return this.placing ??= (async () => {
-      let dir = this.dir
-      if (!fs.readdirSync(this.dir).some(n => /^slot-\d+$/.test(n))) {
-        const volume = await volumePlacement(this.world, this.dir, this.clone)
-        if (!volume) return this.dir
-        dir = path.join(volumeHome(this.data, volume), 'play-pools', path.basename(this.dir))
-        try { fs.mkdirSync(dir, { recursive: true }) } catch { dir = this.dir }
-      }
+      if (fs.readdirSync(this.dir).some(n => /^slot-\d+$/.test(n))) return this.dir
+      const volume = await volumePlacement(this.world, this.dir, this.clone)
+      let dir
+      try { dir = this.claim(volume ? volumeHome(this.data, volume) : this.data) } catch { return this.dir }
       try { fs.writeFileSync(file, JSON.stringify({ dir, at: Date.now() }), { flag: 'wx' }) } catch (e) { if (e.code !== 'EEXIST') return this.dir }
       return this.slots()
     })()
+  }
+  /**
+   * Slots made before short folders (<data>/play-pools/<pool>/slot-N, or <volume>/.genio/<key>/play-pools/<pool>)
+   * move to <base>/ps/<id> on the same volume while no slot is leased, preparing, closing, stuck or open in an
+   * editor: one rename per slot keeps each clone and Library. On any failure what moved goes back and the slots
+   * stay where they were, still working. Returns the slots folder.
+   */
+  async relocate() {
+    const from = this.slots(), pool = path.basename(this.dir)
+    if (path.basename(path.dirname(from)) === SHORT && isShortId(path.basename(from), pool)) return from
+    if (path.basename(from) !== pool || path.basename(path.dirname(from)) !== 'play-pools') return from
+    const names = () => { try { return fs.readdirSync(from).filter(n => /^slot-\d+$/.test(n)) } catch { return [] } }
+    return this.transaction(s => {
+      if (s.slots.some(v => v.lease || v.preparing || v.closing || v.stuck || this.editorRunning(v))) return from
+      const slots = names()
+      if (slots.some(n => this.editorAlive(Number(n.slice(5))))) return from
+      let to
+      try { to = this.claim(path.dirname(path.dirname(from))) } catch { return from }
+      const moved = []
+      const back = () => { for (const n of moved) { try { fs.renameSync(path.join(to, n), path.join(from, n)) } catch { /* Left in the short folder: placement still names the old one. */ } } }
+      try {
+        for (const n of slots) { fs.renameSync(path.join(from, n), path.join(to, n)); moved.push(n) }
+        const file = path.join(this.dir, 'placement.json'), temp = `${file}.${process.pid}.tmp`
+        fs.writeFileSync(temp, JSON.stringify({ dir: to, at: Date.now(), from }))
+        fs.renameSync(temp, file)
+      } catch { back(); return from }
+      if (from !== this.dir) { try { fs.rmdirSync(from) } catch { /* Not empty. */ } }
+      return to
+    })
   }
   async transaction(fn) {
     const lock = path.join(this.dir, 'mutex')
@@ -233,6 +275,7 @@ export class PlayPool {
     if (typeof owner !== 'string' || !owner || owner.length > 160 || !Number.isInteger(pid) || pid <= 0 || !alive(pid)) throw new Error('Invalid Play owner')
     if (preferred !== undefined) this.root(preferred)
     await this.place()
+    await this.relocate()
     return this.transaction(s => {
       if (preferred > s.cap) throw new Error(`Slot ${preferred} is above the cap of ${s.cap}; it takes no new leases`)
       const existing = s.slots.find(v => v.lease?.owner === owner && v.lease.pid === pid)
@@ -291,7 +334,10 @@ export class PlayPool {
   async launchEditor(id, token, executable, { env = process.env, cwd } = {}) {
     await this.validateCopy(id)
     const visible = await this.transaction(s => { const v = s.slots.find(v => v.id === id); if (v?.lease?.token !== token) throw this.lost(v, token); return s.launch === 'visible' })
+    // Windows: Unity cannot open a file whose path reaches 260 characters. A warning only; the launch goes on.
+    const long = await longPathWarning(this.root(id), { platform: this.platform, packageCache: path.join(this.world, this.engineRoot, 'Library', 'PackageCache') })
     const launch = await launchEditor({ file: executable, args: ['-automated', '-projectPath', this.root(id)], cwd, env, data: this.data, visible, label: `slot${id}`, api: this.desktop, ...(this.spawnVisible ? { spawnVisible: this.spawnVisible } : {}) })
+    if (long) launch.warning = launch.warning ? `${launch.warning} ${long}` : long
     await this.recordEditor(id, token, launch.pid, launch)
     return launch
   }

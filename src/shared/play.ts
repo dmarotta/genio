@@ -70,6 +70,8 @@ export interface PlayerInstanceStatus {
   sourceGone?: PlayerSourceGone
   /** While Unity starts: the phase read from its editor.log, and the bar when real counts back it. */
   start?: PlayerStartStatus
+  /** Windows: the copy's longest path is near or over 260 characters, checked before each Unity start (path-length.mjs). */
+  pathWarning?: string
 }
 /** A Unity start's phases, in the order they happen; see docs/player-instance.md. */
 export const PLAYER_START_PHASES = ['opening', 'packages', 'compiling', 'loading', 'importing', 'scene'] as const

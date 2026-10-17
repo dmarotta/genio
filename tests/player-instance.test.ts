@@ -426,6 +426,19 @@ it('starts Unity into ready with an idle deadline and no Play, and a second Star
   await expect(svc.stream('A', 1280, 720, () => {}, () => {})).rejects.toThrow('Play')
   expect(() => svc.input('A', input)).toThrow('not playing')
 })
+it("warns before Unity starts when the copy's deepest path nears 260 characters, and starts anyway", async () => {
+  const world = projects.get('A')!.path
+  // The main checkout's PackageCache stands in for the one the copy's first start unpacks: the same relative paths.
+  const root = path.join(data, 'pc', copies.keyOf(world).slice(0, 8), 'A'), cache = path.join('Library', 'PackageCache', 'com.unity.visualscripting@8bed5ad90189')
+  write(path.join(world, cache, 'p'.repeat(250 - root.length - cache.length - 2 - 'x.dll'.length - 1), 'x.dll'), 'dll')
+  // Not Windows: no check.
+  const other = service({ platform: 'linux' })
+  expect((await other.startUnity('A', source())).pathWarning).toBeUndefined()
+  await other.shutdown()
+  const ready = await service({ platform: 'win32' }).startUnity('A', source())
+  expect(ready).toMatchObject({ state: 'ready', root, pathWarning: expect.stringMatching(/^Paths in com.unity.visualscripting reach 250 characters, near Windows' 260 limit/) })
+  expect(events).toContain('launch')
+})
 it('enters Play from ready without a new editor and exits back to ready', async () => {
   const ready = await svc.startUnity('A', source())
   const playing = await svc.enterPlay('A', source())
