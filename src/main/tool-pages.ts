@@ -13,7 +13,7 @@ export interface PageArgs { cursor?: string; page_size?: number; full?: boolean 
 const PAGED = new Set(['fleet_view', 'unit_state', 'read_task_file', 'terminal_tail', 'quest_list', 'choice_list',
   'world_list', 'world_posture', 'status_report', 'memory_read', 'memory_report', 'mail_list', 'dispatch_profiles',
   'loadout_preview', 'toolchain_check', 'ally_list', 'assets_find', 'asset_info', 'asset_locate', 'fal_models',
-  'generation_status', 'play_status', 'play_console', 'play_stats', 'procedure_read', 'skill_read', 'genio_help', 'settings_read', 'event_read'])
+  'generation_status', 'play_status', 'play_console', 'play_stats', 'procedure_read', 'skill_read', 'genio_help', 'settings_read', 'event_read', 'design_notes'])
 export const isPagedTool = (name: string): boolean => PAGED.has(name)
 
 interface Snapshot { key: string; text: string; at: number }

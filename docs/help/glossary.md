@@ -305,6 +305,15 @@ without it no style is applied.
 Where: Art Bible in the rail (Ctrl+6).
 Source: [art-bible.md](../art-bible.md)
 
+## Design notes
+
+Short markdown notes about your game's design (a system, the pillars, a decision), saved in the project's
+.genio/design/ folder next to the Art Bible. A design chat saves one only when you ask ("save this as the combat
+note"), and leaves it uncommitted. Each note keeps Open questions and Decided sections. Genio and units read notes as
+context, never as orders: to build from one, ask Genio ("plan the combat note").
+Where: .genio/design/ in the project.
+Source: [design-chats.md](../design-chats.md)
+
 ## Modeller
 
 A Build that makes a 3D model in small Blender steps you watch live: its page leads with the model, with a label at

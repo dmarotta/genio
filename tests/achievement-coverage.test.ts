@@ -9,7 +9,7 @@ import { SETTINGS_PAGES } from '../src/shared/settings-pages'
 const PLAYER_FACING_TOOLS: Record<string, string> = {
   play_frame: 'play_frame', play_control: 'play',
   fal_generate: 'fal_generate', uthana_motion: 'uthana_motion', uthana_character: 'agent_generation', asset_place: 'asset_place',
-  approve_run: 'approve_run', art_bible: 'art_bible', genio_help: 'genio_help',
+  approve_run: 'approve_run', art_bible: 'art_bible', design_notes: 'design_notes', genio_help: 'genio_help',
   deploy: 'deploy', merge: 'move', run_gauntlet: 'squad', quest_add: 'quests', plan_create: 'plans', plan_update: 'plans',
   world_add: 'worlds', world_create: 'worlds', world_push: 'world_push',
   memory_write: 'memory', generate_image: 'generate_image', rate_task: 'rate_task',

@@ -24,10 +24,11 @@ const BOT_READS = new Set(['play_status', 'play_console', 'play_stats', 'play_fr
   'terminal_tail', 'quest_list', 'plan_status', 'choice_list', 'world_list', 'world_posture', 'status_report', 'memory_read',
   'memory_report', 'mail_list', 'dispatch_profiles', 'loadout_preview', 'toolchain_check', 'ally_list', 'escalate',
   'procedure_read', 'skill_read', 'genio_help', 'settings_read', 'event_read', 'events_ack'])
-/** A design chat thinks with the player and starts no work: reads, references and free Codex images on the
- * player's ChatGPT plan. Never deploy, merge, quests, plans, choices, events, settings, memory writes or paid tools. */
+/** A design chat thinks with the player and starts no work: reads, references, design notes (written only when the player
+ * asks) and free Codex images on the player's ChatGPT plan. Never deploy, merge, quests, plans, choices, events, settings,
+ * memory writes or paid tools. */
 export const DESIGN_TOOLS = new Set(['art_bible', 'assets_find', 'asset_info', 'memory_read', 'world_list', 'quest_list',
-  'plan_status', 'genio_help', 'generate_image', 'generation_status'])
+  'plan_status', 'genio_help', 'generate_image', 'generation_status', 'design_notes'])
 // These services aggregate across worlds or create new authority. Until they
 // offer scoped APIs, limited-world connections cannot call them at all.
 const GLOBAL_ONLY = new Set(['status_report', 'dispatch_profiles', 'world_add', 'world_create',

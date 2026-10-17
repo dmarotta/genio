@@ -44,6 +44,8 @@ export interface BriefInput {
   generator?: string
   /** The project's Art Bible lines under Tools (artBibleBriefLines); absent without a bible */
   artBible?: string[]
+  /** The design notes line under Project memory (designNotesBriefLines); absent when the copy has no notes folder */
+  designNotes?: string[]
   /** Recon: the report summary's word target from the Usage mode */
   summaryWords?: number
   /** Submodules Genio checked out in the worktree (initWorktreeSubmodules) */
@@ -337,6 +339,7 @@ export function renderBrief(i: BriefInput): string {
   out.push('# Project memory')
   out.push('')
   out.push("Edit the project's AGENTS.md or CLAUDE.md only to correct information that is factually wrong (including what your own change made wrong). Never add new knowledge to them.")
+  out.push(...(i.designNotes ?? []))
   out.push('')
   out.push('# Engine notes')
   out.push('')

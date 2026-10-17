@@ -41,6 +41,7 @@ import { helpDocsDir } from './help'
 import { installUnitPlugin, modellerDataDir, openRouterEnv, unitLaunchExtras, unitPluginDir, unitPluginSource } from './unitskills'
 import { findUnityCli, unityUnitConfig, unityUnitEnv } from './unity-unit'
 import { artBibleBriefLines, unitArtBible, unitArtBibleEnv } from './art-bible-gen'
+import { designNotesBriefLines } from './design-notes'
 import {
   appendJsonl, appendLine, ensureDir, exists, fwd, nowIso, readJson, readText, rid, slugify, stripAnsi, truncate, writeJson, writeText
 } from './util'
@@ -788,6 +789,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
             ...unitBriefSections({ pluginDir, taskDataDir: home.taskDir(id), helpDocs: helpDocsDir(ctx.appRoot), approvedUsd: req.approvedBudget?.usd,
               modeller, generator, engine: effectiveEngine(project).engine, engineRoot: effectiveEngine(project).root, claims }),
             artBible: artBibleBrief(project.path, wt, id),
+            designNotes: designNotesBriefLines(wt),
             submodules,
             nodeDeps: nodeDeps(id, wt)
           })
@@ -1222,6 +1224,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           // The same skill set as at deploy, and the grant the player approved so far.
           ...unitBriefSections({ pluginDir, taskDataDir: home.taskDir(id), helpDocs: helpDocsDir(ctx.appRoot), approvedUsd: grantedUsd(mainHome.data, id) }),
           artBible: artBibleBrief(project.path, t.worktree, id),
+          designNotes: designNotesBriefLines(t.worktree),
           nodeDeps: nodeDeps(id, t.worktree),
           carriedReport: report || '(the recon report was empty)'
         })
