@@ -394,6 +394,18 @@ app.whenReady().then(async () => {
   }
   if (screens.includes('squad')) await stream('stream-on-squad', '2')
   await stream('stream-on-comms', '1')
+  // A quest changes once a second (as units land, quests move): each save publishes a backlog event, which a project
+  // window receives as a whole project snapshot.
+  const quest = ctx.home(binding.wksp).backlog.list().find(q => q.project === PROJECT)
+  if (quest && screens.includes('quests')) {
+    await js(`__bench.press('3')`); await sleep(1500)
+    await phase('quest-updates', async () => {
+      const at = now()
+      void (async () => { for (let i = 0; i < 5; i++) { ctx.home(binding.wksp).backlog.update(quest.id, { notes: `${quest.notes ?? ''}${' '.repeat(i + 1)}` }); await sleep(1000) } })()
+      return at
+    }, undefined, 5500)
+    await js(`__bench.press('1')`); await sleep(1500)
+  }
 
   result.notes.consoleErrors = consoleErrors
   result.notes.ipcErrors = calls.filter(c => c.error).map(c => `${c.method}: ${c.error}`).slice(0, 30)
