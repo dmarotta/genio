@@ -185,7 +185,7 @@ function PlayScreen({ world }: { world: string }) {
   }
   const pause = (): void => void run('pause', () => api().playerInstancePause(world))
   const step = (): void => void run('step', () => api().playerInstanceStep(world))
-  const restart = (visible = false): void => void run(visible ? 'visible' : 'restart', () => api().playerInstanceRestart(world, visible))
+  const openVisibly = (): void => void run('visible', () => api().playerInstanceRestart(world, true))
   const settings = (): void => openSettings('play', PLAYER_INSTANCE_ANCHOR)
   // A new source applies on the next ▶; while playing it re-plays at once. One that vanished since the list was read says so.
   const chooseSource = (id: string): void => {
@@ -244,7 +244,7 @@ function PlayScreen({ world }: { world: string }) {
     switch (action) {
       case 'retry': playPress('enter'); return
       case 'console': setDrawer(true); return
-      case 'visible': restart(true); return
+      case 'visible': openVisibly(); return
       case 'settings': settings(); return
       case 'reconnect': setStreamEnded(undefined); return
       case 'main': playMain()
@@ -285,20 +285,17 @@ function PlayScreen({ world }: { world: string }) {
 
   return <div className={cx('view play-view', narrow && 'narrow')}>
     <header className="play-head">
-      <h1 className="title">Play{!narrow && <span className="dim play-world"> {world}</span>}</h1>
-      <label className="play-chip" title={option ? sourceText(option) : 'Play source'}>
+      <h1 className="title">Play</h1>
+      <label className="play-chip">
         <GitBranch size={12} aria-hidden /><span>{option ? chipText(option) : 'Loading…'}</span><ChevronDown size={12} aria-hidden />
         <select aria-label="Play source" value={choice ?? ''} disabled={!sources?.length} onChange={e => chooseSource(e.target.value)}>
-          {!sources && <option value="">Loading sources…</option>}
           {grouped.map(g => <optgroup key={g.group} label={g.label}>{g.options.map(o => <option key={o.id} value={o.id}>{sourceText(o)}</option>)}</optgroup>)}
           {!!sources && <option value={REFRESH}>Refresh sources</option>}
         </select>
       </label>
       <Overflow items={[
-        { label: 'Restart Unity', disabled: !status?.source || working, run: () => restart() },
-        { label: 'Open Unity visibly (debug)', disabled: !status?.source || working, run: () => restart(true) },
-        { label: 'Unity console', run: () => setDrawer(true) },
-        { label: 'Idle time and editor limit…', run: settings }
+        { label: 'Open Unity', disabled: !status?.source || working, run: openVisibly },
+        { label: 'Unity console', run: () => setDrawer(true) }
       ]} />
     </header>
 
@@ -316,8 +313,7 @@ function PlayScreen({ world }: { world: string }) {
         <button className={cx('btn sm icon', looks.step.className)} disabled={!usable(bar.step)} title={looks.step.title} aria-label={bar.step.label} onClick={step}><StepForward size={13} fill="currentColor" aria-hidden /></button>
       </div>
       <span className="play-toolbar-gap" />
-      <label className="play-pick" title={scene}>
-        {!narrow && <span className="label">Scene</span>}
+      <label className="play-pick">
         <select className="select" aria-label="Scene" value={scene ?? ''} disabled={!bar.scene.enabled || !!busy || !scenes.length} onChange={e => chooseScene(e.target.value)}>
           {!scene && <option value="">{scenes.length ? 'Choose a scene' : 'No scenes'}</option>}
           {scene && !scenes.some(s => s.path === scene) && <option value={scene}>{sceneName}</option>}
@@ -339,7 +335,7 @@ function PlayScreen({ world }: { world: string }) {
 
     {drawer && <section className="play-console" aria-label="Unity console">
       <header className="play-console-head">
-        <span>Unity console{logs.length ? ` (${logs.length})` : ''}</span>
+        <span>Unity console</span>
         <button className="btn sm icon ghost" aria-label="Close the console" title="Close" onClick={() => setDrawer(false)}><X size={13} /></button>
       </header>
       <div className="play-console-body">
@@ -369,7 +365,7 @@ function StatusLine({ line, detail, over, onAction, actionOff }: { line: PlayLin
   </div>
 }
 
-/** The ⋯ menu: the rare actions (Restart Unity, Open visibly, console, settings). */
+/** The ⋯ menu: the rare actions (open Unity visibly, the console). */
 function Overflow({ items }: { items: { label: string; disabled?: boolean; run: () => void }[] }) {
   const [open, setOpen] = useState(false)
   const wrap = useRef<HTMLDivElement>(null)

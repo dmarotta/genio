@@ -42,7 +42,8 @@ const text = (): string => host.textContent ?? ''
 const button = (label: string, within: ParentNode = document): HTMLButtonElement | undefined =>
   [...within.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === label)
 const items = (group: string): string[] => [...host.querySelectorAll(`[role="group"][aria-label="${group}"] .design-item`)].map(b => b.textContent ?? '')
-const title = (): string | null | undefined => host.querySelector('.design-title, .design-picker b')?.textContent
+/** What is open: the highlighted list item, or the picker's face when narrow. */
+const title = (): string | null | undefined => host.querySelector('.design-item.on, .design-picker b')?.textContent
 const fact = () => getScreenContext('design')?.facts?.filter(Boolean)
 async function typeInto(area: HTMLTextAreaElement, value: string): Promise<void> {
   await act(async () => {
@@ -87,6 +88,7 @@ describe('Design screen', () => {
     expect(items('Notes')).toEqual(['combat.md', 'economy.md'])
     expect(host.querySelector('.design-item.on')?.textContent).toBe('Gold sinks and the market')
     expect(title()).toBe('Gold sinks and the market')
+    expect(host.querySelector('.design-head')).toBeNull()
     expect(api.chatHistory).toHaveBeenCalledWith(WKSP, 300, 'd-0000000b')
     // the chat view with its model and effort only: no status bar, approval mode, Clean HUD, shell or quick links
     expect(host.querySelector('textarea')?.placeholder).toBe('Message the design chat')

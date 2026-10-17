@@ -22,13 +22,13 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove() })
 
 describe('Modeller Steps tab', () => {
-  it('is a plain list of steps, newest first, each with its render, caption, triangles and parts', async () => {
+  it('is a plain list of steps, newest first, each with its render, caption and triangles', async () => {
     await render(React.createElement(ModellerSteps, { live: state() }))
     const imgs = [...host.querySelectorAll('.ms-step img')].map(i => i.getAttribute('src'))
     expect(imgs).toEqual([`${BASE}/s003/view.png`, `${BASE}/s002/view.png`, `${BASE}/s001/view.png`])
     expect([...host.querySelectorAll('.ms-title')].map(e => e.textContent)).toEqual(['3 · Roof', '2 · Deck', '1 · Legs'])
     expect(host.querySelector('.ms-step.current .ms-title')!.textContent).toBe('3 · Roof')
-    expect([...host.querySelectorAll('.ms-meta')].map(e => e.textContent)).toEqual(['300 triangles · 3 parts', '200 triangles · 2 parts', '100 triangles · 1 part'])
+    expect([...host.querySelectorAll('.ms-meta')].map(e => e.textContent)).toEqual(['300 triangles', '200 triangles', '100 triangles'])
   })
 
   it('has no buttons, no branch name, no warnings and no checks', async () => {
@@ -41,6 +41,7 @@ describe('Modeller Steps tab', () => {
     await render(React.createElement(ModellerSteps, { live: state({ running: { id: 's004', n: 4, caption: 'Railing', startedAt: 0 } }) }))
     expect(host.querySelector('.ms-step.running .ms-title')!.textContent).toBe('4 · Railing')
     expect(host.querySelectorAll('.ms-step')).toHaveLength(4)
+    expect(text()).not.toContain('running in Blender')
     await render(React.createElement(ModellerSteps, { live: state({ steps: [] }) }))
     expect(text()).toBe('No steps yet.')
   })

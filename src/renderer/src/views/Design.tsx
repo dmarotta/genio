@@ -165,13 +165,11 @@ function DesignScreen({ wksp, world }: { wksp: string; world: string }) {
         </aside>
       )}
       <section className="design-main">
-        {(narrow || title !== undefined) && (
+        {(narrow || (note && !draft)) && (
           <header className="design-head">
-            {narrow
-              ? <button ref={picker} className="design-picker" aria-haspopup="dialog" aria-expanded={picking} onClick={() => setPicking(p => !p)}>
-                <b>{title ?? 'Design'}</b><ChevronDown size={14} />
-              </button>
-              : <h2 className="design-title">{title}</h2>}
+            {narrow && <button ref={picker} className="design-picker" aria-haspopup="dialog" aria-expanded={picking} onClick={() => setPicking(p => !p)}>
+              <b>{title ?? 'Design'}</b><ChevronDown size={14} />
+            </button>}
             {note && !draft && <button className="btn sm" onClick={edit}>Edit</button>}
           </header>
         )}

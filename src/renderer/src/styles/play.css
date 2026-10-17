@@ -2,7 +2,6 @@
 
 .play-head { display: flex; align-items: center; gap: 12px; min-height: 32px; }
 .play-head .title { font-size: 22px; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.play-world { font-size: 15px; letter-spacing: 0.02em; }
 .play-chip { position: relative; display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; max-width: 280px; min-width: 0;
   border: 1px solid var(--line); background: rgba(0, 0, 0, 0.3); color: var(--text-dim); font-size: 12px; cursor: pointer; flex: none; }
 .play-chip:hover, .play-chip:focus-within { color: var(--text); border-color: var(--line-strong); }
@@ -87,7 +86,6 @@
 .play-view.narrow .play-status { gap: 12px; max-width: calc(100% - 24px); }
 .play-view.narrow .play-status-line { font-size: 16px; gap: 8px; }
 .play-view.narrow .play-live-bar { position: absolute; right: 4px; top: 4px; border: 0; padding: 0; min-height: 0; gap: 2px; background: rgba(0, 0, 0, 0.45); }
-.play-view.narrow .play-live-label { display: none; }
 .play-view.narrow .play-live-bar .btn { width: 26px; padding: 0; }
 .play-view.narrow .play-console-body { max-height: 110px; }
 .play-view.narrow .play-screen { min-height: 60px; }

@@ -2,9 +2,6 @@
 .art-bible { gap: 16px; }
 /* The view scrolls; its rows keep their height (narrow windows make .tabs a scroller, which would shrink to nothing). */
 .art-bible > * { flex: none; }
-.ab-kicker { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.ab-kicker .mono { font-size: 11.5px; color: var(--text-dim); letter-spacing: 0; }
-.ab-from { font-size: 12px; margin-top: -6px; }
 .ab-empty { margin: 0; font-size: 14px; }
 .ab-issues { list-style: none; margin: 0; padding: 8px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; background: rgba(0, 0, 0, 0.3); border-left: 2px solid var(--amber); }
 
@@ -23,10 +20,6 @@
 .ab-ref img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .ab-ref-none { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 0 8px 18px; text-align: center; font-size: 10.5px; color: var(--text-mute); }
 .ab-ref figcaption { position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 6px 5px; font-size: 10.5px; line-height: 1.3; color: #fff; background: linear-gradient(transparent, rgba(5, 6, 10, 0.92)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ab-ref .ab-role { position: absolute; top: 5px; left: 5px; height: 16px; padding: 0 5px; font-size: 8.5px; background: rgba(5, 6, 10, 0.75); }
-.ab-weight { position: absolute; top: 6px; right: 6px; display: flex; gap: 2px; }
-.ab-weight i { width: 5px; height: 5px; background: var(--neon); box-shadow: var(--glow); }
-.ab-weight i.off { background: rgba(255, 255, 255, 0.25); box-shadow: none; }
 
 .ab-dd { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
 .ab-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; font-size: 13px; color: var(--text); }
@@ -46,19 +39,12 @@
 /* File tabs are paths: shown as written. */
 .ab-markdown .tab { text-transform: none; letter-spacing: 0; font-family: var(--font-mono); font-size: 12px; }
 
-/* The palette strip replaces the palette card on narrow windows. */
-.ab-strip { display: none; height: 22px; flex: none; }
-.ab-strip b { flex: 1; }
-
 @media (max-width: 900px) {
   .ab-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 560px) {
   .view.art-bible { padding: 12px 12px 20px; gap: 10px; }
   .art-bible .view-head .title { font-size: 22px; }
-  .ab-kicker .mono { display: none; }
-  .ab-strip { display: flex; }
-  .ab-palette { display: none; }
   .ab-card { padding: 10px 12px 12px; }
   .ab-mood { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .ab-style { font-size: 12.5px; }

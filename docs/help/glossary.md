@@ -370,7 +370,7 @@ Source: [design-chats.md](../design-chats.md)
 ## Modeller
 
 A Build that makes a 3D model in small Blender steps you watch live: its page leads with the model, with a label at
-the bottom saying what the unit is doing, and a Steps tab lists every step with its picture, triangles and parts. To
+the bottom saying what the unit is doing, and a Steps tab lists every step with its picture and triangles. To
 go back to an earlier step or try another direction, say so in the ping box: the unit does it. It exports, places
 and commits the model, then merges like any Build.
 Needs Blender on this computer.

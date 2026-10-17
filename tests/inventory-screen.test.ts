@@ -50,31 +50,28 @@ describe('Inventory screen lifecycle', () => {
     expect(localStorage.length).toBe(0)
   })
 
-  it('describes the refresh rescan in its tooltip and accessible label and refreshes the current project', async () => {
+  it('refreshes the index when the window gains focus, with no refresh button', async () => {
     await render()
-    const label = 'Refresh the asset list (rescan, includes newly generated assets)'
-    const refresh = host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!
-    expect(refresh.title).toBe(label)
-    await click(`button[aria-label="${label}"]`)
+    expect(host.querySelector('button[aria-label^="Refresh"]')).toBeNull()
+    await act(async () => { window.dispatchEvent(new Event('focus')) })
     expect(f.refresh).toHaveBeenCalledWith('alpha')
   })
 
-  it('browses the window\'s own project with no project selector in the header', async () => {
+  it('browses the window\'s own project with only the title in the header', async () => {
     f.world = 'beta'
     await render()
     const head = host.querySelector('.inventory-head')!
-    expect(head.querySelector('select')).toBeNull()
-    expect(head.textContent).not.toContain('alpha')
-    expect(head.querySelector('h1')?.textContent).toBe('Inventory')
+    expect(head.textContent).toBe('Inventory')
+    expect(head.querySelector('button, select')).toBeNull()
     expect(f.open.mock.calls.map(c => c[0])).toEqual(['beta', 'beta'])
     expect(localStorage.length).toBe(0)
   })
 
-  it('deep-links Generation settings to This project, scrolled to the Generation section', async () => {
+  it('keeps no counts, hints, breadcrumb, tags field or status footer once indexed', async () => {
     await render()
-    const button = [...host.querySelectorAll('.inventory-head button')].find(b => b.textContent?.includes('Generation settings'))!
-    await act(async () => (button as HTMLButtonElement).click())
-    expect(f.request).toHaveBeenCalledWith('project-assets', 'generation-settings')
+    expect(host.querySelector('.inventory-breadcrumb, .inventory-result-count, .inventory-status, [aria-label="Asset tags"], [aria-label="Thumbnail size"]')).toBeNull()
+    expect(host.textContent).not.toMatch(/matching assets|Ctrl click|indexed media|Watching|INSPECTOR|HIERARCHY/)
+    expect(host.querySelector('.inventory-folder-name')?.textContent).toBe('Assets')
   })
 
   it('shows a plain empty state when the window project is not loaded', async () => {

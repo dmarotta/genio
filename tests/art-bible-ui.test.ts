@@ -69,21 +69,20 @@ describe('Art Bible screen', () => {
     f.read.mockResolvedValue(bible())
     await render()
     expect([...host.querySelectorAll('[role="tab"]')].map(t => t.textContent)).toEqual(['Overview', 'Markdown'])
-    expect(text()).toContain('.genio/art-bible.md')
+    expect(text()).not.toContain('.genio/art-bible.md')
     expect(text()).toContain('Chunky low-poly shapes.')
-    expect(text()).toContain('Moodboard · 2 references')
+    expect(host.querySelector('.ab-mood')?.previousElementSibling?.textContent).toBe('Moodboard')
     const img = host.querySelector<HTMLImageElement>('.ab-ref img')!
     expect(img.getAttribute('src')).toBe('genio-media://art-bible/alpha/docs/smithy.png')
     expect(host.querySelectorAll('.ab-ref')[1].textContent).toContain('Missing file')
-    expect(host.querySelectorAll('.ab-weight i:not(.off)')).toHaveLength(4)
+    expect(host.querySelector('.ab-weight, .ab-role')).toBeNull()
     expect(text()).toContain('Limestone')
     expect(text()).toContain('#53D9D1')
     expect(text()).toContain('Big roofs')
     expect(text()).toContain('Tiny shingles')
     expect(host.querySelector('.ab-avoid')?.textContent).toBe('grunge')
     expect(host.querySelector('.ab-issues')?.textContent).toContain('gone.png')
-    expect(host.querySelectorAll('.ab-strip b')).toHaveLength(2)
-    expect(host.querySelector('.ab-from')).toBeNull()
+    expect(host.querySelector('.ab-strip, .ab-from')).toBeNull()
     expect(text()).not.toMatch(/Try it|Import|Template|Extract|History/)
   })
 
@@ -120,12 +119,11 @@ describe('Art Bible screen', () => {
     expect(host.querySelector('textarea')?.value).toBe(TEXT)
   })
 
-  it('with a source: line, says where it comes from and edits both files', async () => {
+  it('with a source: line, edits both files from the Markdown tab', async () => {
     const source = { path: 'docs/ART.md', text: '# Art direction\n' }
     f.read.mockResolvedValue(bible({ source, text: '---\nsource: docs/ART.md\n---\n' }))
     f.write.mockImplementation(async () => bible({ source: { ...source, text: '# Changed\n' }, text: '---\nsource: docs/ART.md\n---\n' }))
     await render()
-    expect(host.querySelector('.ab-from')?.textContent).toBe('From docs/ART.md')
     await act(async () => tab('Markdown').click())
     expect(host.querySelector('textarea')?.value).toBe('---\nsource: docs/ART.md\n---\n')
     await act(async () => tab('docs/ART.md').click())

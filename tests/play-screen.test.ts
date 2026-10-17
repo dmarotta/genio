@@ -224,19 +224,18 @@ describe('Play screen', () => {
     expect(host.querySelector('.play-console')).toBeNull()
   })
 
-  it('keeps Restart, Open visibly, the console and Settings › Unity & Play in the ⋯ menu', async () => {
+  it('keeps only Open Unity and the console in the ⋯ menu, with the project name left to the title bar', async () => {
     status = { state: 'ready', project: 'C:/games/game', source: { path: 'C:/games/game' }, pid: 7, copy: copy() as never }
     await mount()
+    expect(host.querySelector('.play-head h1')?.textContent).toBe('Play')
+    expect(text()).not.toMatch(/Scene/)
     await click('More Play actions')
-    expect([...document.querySelectorAll('[role=menuitem]')].map(b => b.textContent)).toEqual(['Restart Unity', 'Open Unity visibly (debug)', 'Unity console', 'Idle time and editor limit…'])
-    await click('Open Unity visibly (debug)')
+    expect([...document.querySelectorAll('[role=menuitem]')].map(b => b.textContent)).toEqual(['Open Unity', 'Unity console'])
+    await click('Open Unity')
     expect(api.playerInstanceRestart).toHaveBeenCalledWith('game', true)
     await click('More Play actions')
     await click('Unity console')
-    expect(host.querySelector('.play-console')).not.toBeNull()
-    await click('More Play actions')
-    await click('Idle time and editor limit…')
-    expect(nav.section).toHaveBeenCalledWith('play', 'player-instance')
+    expect(host.querySelector('.play-console-head')?.textContent).toBe('Unity console')
   })
 
   it('pauses, steps, resizes without reconnecting, re-plays on a new scene or source, and exits Play', async () => {
@@ -495,7 +494,8 @@ it('decodes one live frame per credit, forwards held input only while focused, a
   try {
     await act(async () => root.render(React.createElement(PlayLive, { world: 'game', width: 640, height: 360, input: true, onClosed: vi.fn() })))
     expect(api.playerInstanceStream).toHaveBeenCalledWith('game', true, 640, 360)
-    expect(host.textContent).toBe('LockFull screen')
+    expect(host.textContent).toBe('')
+    expect([...host.querySelectorAll('button')].map(b => b.getAttribute('aria-label'))).toEqual(['Lock pointer', 'Full screen'])
     await act(async () => window.dispatchEvent(new MessageEvent('message', { source: window, data: { type: 'genio:play-port', world: 'game' }, ports: [channel as unknown as MessagePort] })))
     expect(channel.postMessage).toHaveBeenCalledWith({ type: 'ready' })
     await act(async () => channel.onmessage!({ data: { type: 'frame', bytes: new Uint8Array([255, 216, 255, 217]) } }))

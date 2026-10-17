@@ -6,7 +6,7 @@ const tris = (n: number): string => `${n.toLocaleString()} ${n === 1 ? 'triangle
 
 /**
  * The Steps tab: the model's steps as a thumbnail list (each step's Blender review render), newest
- * first, with its caption, triangles and parts. The player steers in words through the ping box.
+ * first, with its caption and triangles. The player steers in words through the ping box.
  */
 export function ModellerSteps({ live }: { live: ModellerLive }) {
   const head = live.steps.at(-1)
@@ -17,7 +17,6 @@ export function ModellerSteps({ live }: { live: ModellerLive }) {
           <div className="ms-thumb"><i className="dot pulse" /></div>
           <div className="ms-main">
             <div className="ms-title">{live.running.n} · {live.running.caption}</div>
-            <div className="mute ms-meta">running in Blender…</div>
           </div>
         </div>
       )}
@@ -27,7 +26,7 @@ export function ModellerSteps({ live }: { live: ModellerLive }) {
           <div className="ms-thumb">{s.view ? <img src={s.view} alt={`Step ${s.n}: ${s.caption}`} loading="lazy" /> : <span className="mute">no render</span>}</div>
           <div className="ms-main">
             <div className="ms-title" title={s.caption}>{s.n} · {s.caption}</div>
-            <div className="mute ms-meta">{tris(s.triangles)} · {s.parts} {s.parts === 1 ? 'part' : 'parts'}</div>
+            <div className="mute ms-meta">{tris(s.triangles)}</div>
           </div>
         </div>
       ))}

@@ -72,6 +72,16 @@ On main now:
   XP bar, the rail's usage gauge, shortcut hints and version label, the floating panel's screen
   name, counts and pop-out labels, presence and welcome-back toasts, and the Hub's sort menu
   and engine column.
+- **The project screens trim** (UI trim pass, area 4). Gone: the project name beside the Play title, the Play menu's
+  Restart Unity and settings link, the Scene label, the console's entry count and the Lock and Full screen captions;
+  Inventory's kicker, tagline, Generation settings button, refresh button, tags field, thumbnail slider, breadcrumb,
+  folder and result counts, select hint, panel labels, status footer (kept only while indexing), extension labels,
+  Type, Modified and Importer rows, image zoom and the repeated open and reveal buttons on a preview that cannot
+  show; the 3D viewer's grid, clay and background toggles, speed, loop and follow buttons, clip time, unit and format
+  notes and seven of its eleven stats; the Art Bible's file path, kicker, palette strip, "From" line, reference role and
+  weight, editor hints and saved toast; the Design title that repeated the list; the Modeller's clay and turntable
+  toggles and step parts; the project name and "uncommitted" line on generation cards; and the first-run screen's
+  step labels, tagline, explanations and project-loaded toast.
 
 Also removed or being removed from the unit pages, described generally because they have not
 all reached main yet:

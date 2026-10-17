@@ -82,8 +82,8 @@ When text runs over a budget it is cut in this order: per-type line, do/don't li
 **Art Bible** sits in the rail after Inventory (**Ctrl+6**) in every project window. It reads the file every few seconds, so a bible Genio writes from chat shows up while the screen is open.
 
 - **No bible** (missing or empty file): one line, "No Art Bible yet. Ask Genio to create one." Nothing else: no import, template or suggestions.
-- **Overview**: style, a moodboard of the references (role, weight, caption; missing and external ones show as placeholders), palette and accents, do and don't, avoid terms, and any problems the bible has. A bible with `source:` shows a quiet "From <path>" line.
-- **Markdown**: the raw file in the Memory editor pattern (preview, Ctrl+S, size against the 16 and 64 KB limits). With `source:` it edits both the bible and the source doc in place. Saves are plain file writes that Genio never commits; a bible that would not compile is refused.
+- **Overview**: under the title only (no file path), style, a moodboard of the references (the picture and its caption; missing and external ones show as placeholders; role and weight stay in the Markdown), palette and accents (the same cards at every width), do and don't, avoid terms, and any problems the bible has.
+- **Markdown**: the raw file in the Memory editor pattern (preview, Ctrl+S, size against the 16 and 64 KB limits), with no hint line and no saved toast. With `source:` two tabs name the bible and the source doc and it edits both in place. Saves are plain file writes that Genio never commits; a bible that would not compile is refused.
 
 Code: `src/renderer/src/views/ArtBible.tsx` and `src/main/art-bible.ts`, which also serves reference images over `genio-media://art-bible/<project>/<path>` (only paths the bible lists).
 

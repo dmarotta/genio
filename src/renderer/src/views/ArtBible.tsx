@@ -6,7 +6,6 @@ import { Markdown } from '../components/Markdown'
 import { MarkdownEditor } from '../components/MarkdownEditor'
 import { Tabs } from '../components/ui'
 import { useScreenContext } from '../lib/screen-context'
-import { cx } from '../lib/format'
 import '../styles/art-bible.css'
 
 type Tab = 'overview' | 'markdown'
@@ -26,17 +25,10 @@ export function ArtBible() {
   )
 }
 
-function Head({ view }: { view?: ArtBibleView }) {
-  const shown = hasArtBible(view)
+function Head() {
   return (
     <header className="view-head ab-head">
-      <div>
-        <div className="ab-kicker">
-          <span className="label">Project art direction</span>
-          {shown && <span className="mono">{view!.path}</span>}
-        </div>
-        <h1 className="title">Art <span className="accent">Bible</span></h1>
-      </div>
+      <h1 className="title">Art <span className="accent">Bible</span></h1>
     </header>
   )
 }
@@ -80,12 +72,12 @@ function WorldArtBible({ world }: { world: string }) {
     setRev(n => n + 1)
   }
 
-  if (!view) return <><Head />{error ? <p className="alert-text">{error}</p> : <div className="bar indeterminate"><i /></div>}</>
-  if (!shown) return <><Head view={view} /><p className="dim ab-empty">{ART_BIBLE_EMPTY}</p></>
+  if (!view) return <><Head />{error && <p className="alert-text">{error}</p>}</>
+  if (!shown) return <><Head /><p className="dim ab-empty">{ART_BIBLE_EMPTY}</p></>
 
   return (
     <>
-      <Head view={view} />
+      <Head />
       <Tabs<Tab> value={tab} onChange={setTab} tabs={[{ id: 'overview', label: 'Overview' }, { id: 'markdown', label: 'Markdown' }]} />
       {error && <p className="alert-text">{error}</p>}
       {tab === 'overview'
@@ -102,10 +94,8 @@ function Overview({ view }: { view: ArtBibleView }) {
   const empty = !b.style && !strip.length && !b.references.length && !b.do.length && !b.dont.length && !b.avoid.length
   return (
     <>
-      {b.source && <div className="mute ab-from">From {b.source}</div>}
       {b.issues.length > 0 && <Issues issues={b.issues} />}
-      {empty && <p className="dim">Nothing to show yet: this Art Bible has no style, palette, references, do and don't lines or avoid terms.</p>}
-      {strip.length > 0 && <div className="ab-strip" aria-hidden>{strip.map((hex, i) => <b key={i} style={{ background: hex }} />)}</div>}
+      {empty && <p className="dim">This Art Bible is empty.</p>}
       <div className="ab-grid">
         <div className="ab-col">
           {b.style && (
@@ -116,7 +106,7 @@ function Overview({ view }: { view: ArtBibleView }) {
           )}
           {b.references.length > 0 && (
             <section className="panel ab-card">
-              <div className="label ab-card-head">Moodboard · {b.references.length} reference{b.references.length === 1 ? '' : 's'}</div>
+              <div className="label ab-card-head">Moodboard</div>
               <div className="ab-mood">{b.references.map((r, i) => <RefTile key={`${r.href}-${i}`} r={r} />)}</div>
             </section>
           )}
@@ -130,7 +120,7 @@ function Overview({ view }: { view: ArtBibleView }) {
         {(strip.length > 0 || b.avoid.length > 0) && (
           <div className="ab-col">
             {strip.length > 0 && (
-              <section className="panel ab-card ab-palette">
+              <section className="panel ab-card">
                 <div className="label ab-card-head">Palette</div>
                 <Swatches colors={b.palette} />
                 {b.accents.length > 0 && <><div className="label ab-sub">Accents</div><Swatches colors={b.accents} /></>}
@@ -162,12 +152,10 @@ function RefTile({ r }: { r: ArtBibleRef }) {
   const label = refLabel(r)
   const why = r.external ? 'External link: not shown and never sent' : !r.exists ? 'Missing file' : 'Cannot be shown'
   return (
-    <figure className="ab-ref" title={[r.path ?? r.href, r.types.length ? r.types.join(', ') : 'all types', `weight ${r.weight}`].join(' · ')}>
+    <figure className="ab-ref">
       {r.url && !broken
         ? <img src={r.url} alt={label} loading="lazy" draggable={false} onError={() => setBroken(true)} />
         : <div className="ab-ref-none"><ImageOff size={18} /><span>{why}</span></div>}
-      <span className="chip neon ab-role">{r.role}</span>
-      <span className="ab-weight" aria-label={`weight ${r.weight} of 3`}>{[1, 2, 3].map(n => <i key={n} className={cx(n > r.weight && 'off')} />)}</span>
       <figcaption>{label}</figcaption>
     </figure>
   )
@@ -189,7 +177,7 @@ function Swatches({ colors }: { colors: ArtBibleColor[] }) {
   return (
     <div className="ab-swatches">
       {colors.map((c, i) => (
-        <div key={`${c.hex}-${i}`} className="ab-swatch" title={[c.name, c.hex, c.use].filter(Boolean).join(' · ')}>
+        <div key={`${c.hex}-${i}`} className="ab-swatch">
           <b style={{ background: c.hex }} />
           <span>{c.name}<span className="mono">{c.hex}</span>{c.use && <span className="mute">{c.use}</span>}</span>
         </div>
@@ -215,7 +203,7 @@ function MarkdownTab({ world, view, drafts, setDraft, onSaved }: {
 
   const save = async (): Promise<void> => {
     if (!dirty) return
-    const r = await op('Save Art Bible', () => api().artBibleWrite(world, current, text), () => `${path} saved`)
+    const r = await op('Save Art Bible', () => api().artBibleWrite(world, current, text))
     if (!r) return
     setDraft(current, undefined)
     onSaved(r)
@@ -229,14 +217,13 @@ function MarkdownTab({ world, view, drafts, setDraft, onSaved }: {
           { id: 'bible', label: view.path, badge: drafts.bible !== undefined && drafts.bible !== (view.text ?? '') ? 1 : undefined },
           { id: 'source', label: view.source.path, badge: drafts.source !== undefined && drafts.source !== view.source.text ? 1 : undefined }
         ]} />
-        : <span className="mono dim">{view.path}</span>}
+        : undefined}
       label={`${path} text`}
       text={text}
       dirty={dirty}
       maxBytes={ART_BIBLE_MAX_BYTES}
       warnBytes={ART_BIBLE_WARN_BYTES}
       sizeTitle={`Warns above ${ART_BIBLE_WARN_BYTES / 1024} KB; above ${ART_BIBLE_MAX_BYTES / 1024} KB generators cannot use it`}
-      hint={current === 'source' ? 'The existing doc this Art Bible extends, edited where it is.' : 'Saved as a plain file; Genio never commits it.'}
       onChange={t => setDraft(current, t)}
       onSave={() => void save()}
       onDiscard={() => setDraft(current, undefined)}

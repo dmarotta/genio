@@ -99,10 +99,10 @@ lagging window (Settings: Call a unit lagging after) or the unit is lagging.
 
 A Modeller (a Build deployed with the Modeller flag, or one that started a 3D model) leads with its live model instead
 of the terminal, which becomes a side tab after Steps (a plain list, newest first:
-each step's render, caption, triangles and parts). There are no Revert or Branch
+each step's render, caption and triangles). There are no Revert or Branch
 buttons and no branch names: the player steers in words through the ping box and
 the unit runs the kernel's revert, branch and switch itself. Its Squad card
-shows the latest step's render; Changes shows binaries before and after.
+shows the latest step's render; Changes shows binaries before and after. The live view has one toggle, Wireframe.
 
 The live view shows each step the moment Blender has exported its GLB: the
 kernel publishes it then, and the snapshot, checks and review sheet follow

@@ -1,20 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
-import { Crosshair, Focus, Maximize2, Minimize2, Pause, Play, Repeat } from 'lucide-react'
+import { Focus, Maximize2, Minimize2, Pause, Play } from 'lucide-react'
 import type { InventoryInfo } from '@shared/inventory'
-import { DEFAULT_VIEWER_SETTINGS, MODEL_PREVIEW_TIMEOUT_MS, VIEWER_APP_URL, formatLength, readViewerMessage, type ModelFailure, type ModelLoaded, type ModelPlayback, type ToViewer, type ViewerBackground, type ViewerSettings } from '@shared/model-viewer'
+import { DEFAULT_VIEWER_SETTINGS, MODEL_PREVIEW_TIMEOUT_MS, VIEWER_APP_URL, formatLength, readViewerMessage, type ModelFailure, type ModelLoaded, type ModelPlayback, type ToViewer, type ViewerSettings } from '@shared/model-viewer'
 import { api, errText } from '../store'
 import { cx } from '../lib/format'
 import { modelTooLarge, type PreviewUnavailable as Unavailable } from '../lib/inventory'
 import { PreviewUnavailable } from './PreviewUnavailable'
 import '../styles/model-viewer.css'
 
-const SPEEDS = [0.25, 0.5, 1, 1.5, 2]
-const BACKGROUNDS: ViewerBackground[] = ['dark', 'light', 'checker']
 const FAILED: Record<ModelFailure, string> = { 'too-large': 'Too large to preview', timeout: 'Preview stopped', unreadable: 'This model can\'t be previewed', 'no-webgl': '3D previews need WebGL' }
-type Toggle = 'wireframe' | 'grid' | 'bounds' | 'skeleton' | 'clay'
+type Toggle = 'wireframe' | 'bounds' | 'skeleton'
 const TOGGLES: [Toggle, string, string][] = [
-  ['wireframe', 'Wireframe', 'Draw triangle edges'], ['grid', 'Grid', 'Floor grid under the model'], ['bounds', 'Bounds', 'Bounding box with its dimensions'],
-  ['skeleton', 'Skeleton', 'Draw the bones over the mesh'], ['clay', 'Clay', 'Plain clay material instead of the file\'s materials']
+  ['wireframe', 'Wireframe', 'Draw triangle edges'], ['bounds', 'Bounds', 'Bounding box with its dimensions'], ['skeleton', 'Skeleton', 'Draw the bones over the mesh']
 ]
 // View toggles carry over from model to model; the up axis belongs to each file.
 let remembered: ViewerSettings = { ...DEFAULT_VIEWER_SETTINGS }
@@ -32,7 +29,7 @@ function missingReason(name: string): string {
  * this component only exchanges validated messages with it and draws the controls around it.
  * Selections reuse a warm frame. Failure, cancellation and the host watchdog discard a stuck frame.
  */
-export function ModelViewer({ world, info, path, active = true }: { world: string; info: InventoryInfo; path: string; active?: boolean }) {
+export function ModelViewer({ world, info, active = true }: { world: string; info: InventoryInfo; active?: boolean }) {
   const tooLarge = modelTooLarge(info)
   const frame = useRef<HTMLIFrameElement>(null)
   const ready = useRef(false)
@@ -119,8 +116,8 @@ export function ModelViewer({ world, info, path, active = true }: { world: strin
 
   useEffect(() => { if (tab === 'textures' && model?.textures.length && !previews) send({ type: 'texture-previews' }) }, [tab, model, previews])
 
-  if (tooLarge) return <PreviewUnavailable {...tooLarge} path={path} />
-  if (failure) return <><PreviewUnavailable {...failure} path={path} /><button className="btn sm" onClick={() => { ready.current = false; setAttempt(a => a + 1) }}>Retry</button></>
+  if (tooLarge) return <PreviewUnavailable {...tooLarge} />
+  if (failure) return <><PreviewUnavailable {...failure} /><button className="btn sm" onClick={() => { ready.current = false; setAttempt(a => a + 1) }}>Retry</button></>
 
   const change = (patch: Partial<ViewerSettings>): void => {
     const next = { ...current.current, ...patch }
@@ -140,7 +137,7 @@ export function ModelViewer({ world, info, path, active = true }: { world: strin
     <div className="model-viewer-panel" role={popped ? 'dialog' : undefined} aria-label={popped ? `3D preview of ${info.name}` : undefined}>
       <div className="model-viewer-stage">
         <iframe ref={frame} src={VIEWER_APP_URL} sandbox="allow-scripts" title={`3D preview of ${info.name}`} referrerPolicy="no-referrer" />
-        {!model && <div className={cx('model-viewer-loading', geometry && 'geometry-ready')} role="status">{!geometry && <span>Loading model…</span>}<span>{progress}</span><button className="btn sm" onClick={() => cancel.current()}>Cancel</button></div>}
+        {!model && <div className={cx('model-viewer-loading', geometry && 'geometry-ready')} role="status"><span>{progress}</span><button className="btn sm" onClick={() => cancel.current()}>Cancel</button></div>}
         <div className="model-viewer-corner">
           <button className="btn sm ghost icon" title="Frame the model (or double-click it)" aria-label="Frame the model" disabled={!model} onClick={() => send({ type: 'frame' })}><Focus size={13} /></button>
           <button className="btn sm ghost icon" title={popped ? 'Back to the inspector (Esc)' : 'Pop out a larger view'} aria-label={popped ? 'Close the larger view' : 'Pop out a larger view'} onClick={() => setPopped(!popped)}>{popped ? <Minimize2 size={13} /> : <Maximize2 size={13} />}</button>
@@ -150,43 +147,30 @@ export function ModelViewer({ world, info, path, active = true }: { world: strin
         <div className="model-viewer-tools" role="toolbar" aria-label="View options">
           {TOGGLES.filter(([k]) => k !== 'skeleton' || model.stats.bones > 0 && !model.animationOnly).map(([k, label, title]) =>
             <button key={k} className={cx('btn sm ghost', settings[k] && 'on')} title={title} aria-pressed={settings[k]} onClick={() => change({ [k]: !settings[k] })}>{label}</button>)}
-          <button className="btn sm ghost" title="Background" onClick={() => change({ background: BACKGROUNDS[(BACKGROUNDS.indexOf(settings.background) + 1) % BACKGROUNDS.length] })}>BG: {settings.background[0].toUpperCase() + settings.background.slice(1)}</button>
           <button className={cx('btn sm ghost', settings.upAxis === 'z' && 'on')} title="Turn a Z-up model upright (glTF is Y-up; FBX, Collada and USD files that state Z-up are turned already)" aria-pressed={settings.upAxis === 'z'} onClick={() => change({ upAxis: settings.upAxis === 'z' ? 'y' : 'z' })}>Z-up</button>
         </div>
         {clip && <div className="model-viewer-player">
           <button className="btn sm ghost icon" title={playback.playing ? 'Pause' : 'Play'} aria-label={playback.playing ? 'Pause' : 'Play'} onClick={() => play({ playing: !playback.playing })}>{playback.playing ? <Pause size={13} /> : <Play size={13} />}</button>
           <input type="range" aria-label="Animation time" min={0} max={clip.duration} step={0.001} value={Math.min(playback.time, clip.duration)} onChange={e => play({ time: Number(e.target.value), playing: false })} />
-          <span className="model-viewer-time">{playback.time.toFixed(2)} / {clip.duration.toFixed(2)} s</span>
-          <select className="select compact" aria-label="Playback speed" value={playback.speed} onChange={e => play({ speed: Number(e.target.value) })}>{SPEEDS.map(s => <option key={s} value={s}>{s}×</option>)}</select>
           {model.clips.length > 1 && <select className="select compact" aria-label="Animation clip" value={playback.clip} onChange={e => play({ clip: Number(e.target.value), time: 0, playing: true })}>{model.clips.map((c, i) => <option key={i} value={i}>{c.name}</option>)}</select>}
-          <button className={cx('btn sm ghost icon', playback.loop && 'on')} title="Loop" aria-label="Loop" aria-pressed={playback.loop} onClick={() => play({ loop: !playback.loop })}><Repeat size={13} /></button>
-          <button className={cx('btn sm ghost icon', playback.follow && 'on')} title={playback.follow ? 'Camera follows the root (click to let it travel)' : 'Camera fixed (click to follow the root)'} aria-label="Follow the root" aria-pressed={playback.follow} onClick={() => play({ follow: !playback.follow })}><Crosshair size={13} /></button>
         </div>}
         {model.animationOnly && <p className="model-viewer-note">No meshes in this file: showing its skeleton{model.clips.length ? ' and animation' : ''}.</p>}
-        {model.unityClips && <p className="model-viewer-note">Clip names and frame ranges come from the model's Unity .meta.</p>}
         {model.missing.length > 0 && <p className="model-viewer-note warn">{count(model.missing.length, 'file')} did not load: {model.missing.slice(0, 4).join(', ')}{model.missing.length > 4 ? '…' : ''}</p>}
         {model.clayFallback > 0 && <p className="model-viewer-note warn">{count(model.clayFallback, 'material')} shown in clay because {model.clayFallback === 1 ? 'its texture' : 'their textures'} did not load.</p>}
         <div className="model-viewer-tabs" role="tablist" aria-label="Model details">
           <button role="tab" aria-selected={tab === 'stats'} onClick={() => setTab('stats')}>Stats</button>
-          <button role="tab" aria-selected={tab === 'textures'} onClick={() => setTab('textures')}>Textures ({model.textures.length})</button>
+          <button role="tab" aria-selected={tab === 'textures'} onClick={() => setTab('textures')}>Textures</button>
         </div>
         {tab === 'stats' ? <dl className="model-viewer-stats">
           <dt>Triangles</dt><dd>{model.stats.triangles.toLocaleString()}</dd>
-          <dt>Vertices</dt><dd>{model.stats.vertices.toLocaleString()}</dd>
-          <dt>Meshes</dt><dd>{model.stats.meshes.toLocaleString()}</dd>
           <dt>Materials</dt><dd>{model.stats.materials.toLocaleString()}</dd>
-          <dt>Textures</dt><dd>{model.stats.textures.toLocaleString()}</dd>
           <dt>Bones</dt><dd>{model.stats.bones.toLocaleString()}</dd>
-          <dt>Clips</dt><dd>{model.clips.length ? model.clips.map(c => `${c.name} (${c.duration.toFixed(2)} s)`).join(', ') : 'None'}</dd>
           <dt>Size</dt><dd>{formatLength(w)} × {formatLength(h)} × {formatLength(d)}</dd>
-          <dt>Format</dt><dd>{model.format}</dd>
-          <dt>Units</dt><dd>{model.units}{settings.upAxis !== model.upAxis ? settings.upAxis === 'z' ? '; turned from Z-up' : '; shown as stored' : ''}</dd>
-          <dt>Loaded in</dt><dd>{model.loadMs.toLocaleString()} ms</dd>
         </dl> : <ul className="model-viewer-textures">
           {model.textures.map(t => <li key={t.id}>
             <span className="model-viewer-thumb">{previews?.[t.id] && <img src={previews[t.id]} alt="" />}</span>
             <div><strong>{t.name}</strong>
-              <small>{t.width} × {t.height}{t.compressed ? ' · KTX2' : ''}{t.original ? ` · downscaled from ${t.original.width} × ${t.original.height}` : ''}</small>
+              <small>{t.width} × {t.height}</small>
               <small>{t.uses.join(', ')}</small></div>
           </li>)}
           {model.missing.map(name => <li key={`missing-${name}`} className="missing"><span className="model-viewer-thumb">?</span><div><strong>{name}</strong><small>{missingReason(name)}</small></div></li>)}

@@ -26,9 +26,10 @@ const model: ModelLoaded = {
 const TOKEN_URL = `genio-media://model/${'a'.repeat(32)}/robot.glb`
 let root: Root, host: HTMLDivElement
 const text = (): string => host.textContent ?? ''
+const loading = (): boolean => !!host.querySelector('.model-viewer-loading')
 const frame = (): HTMLIFrameElement | null => host.querySelector('iframe')
 async function render(info: InventoryInfo) {
-  await act(async () => root.render(React.createElement(ModelViewer, { world: 'zoo', info, path: `C:/zoo/${info.path}` })))
+  await act(async () => root.render(React.createElement(ModelViewer, { world: 'zoo', info })))
   await act(async () => { await vi.advanceTimersByTimeAsync(10) })
 }
 /** A message as the viewer frame would post it (or, with `source`, as anything else would). */
@@ -58,12 +59,12 @@ describe('Inventory 3D preview (app side of the sandboxed frame)', () => {
     await fromFrame({ type: 'ready' })
     expect(posted.mock.calls.map(c => (c[0] as { type: string }).type)).toEqual(['settings', 'open'])
     expect(posted.mock.calls[1][0]).toMatchObject({ type: 'open', url: TOKEN_URL })
-    expect(text()).toContain('Loading model…')
+    expect(loading()).toBe(true)
     await fromFrame({ type: 'loaded', model })
-    expect(text()).not.toContain('Loading model…')
-    for (const s of ['Triangles348', 'Vertices219', 'Bones3', '60.0 cm × 2.00 m × 60.0 cm', 'Bend (1.71 s), Wave (1.71 s)']) expect(text()).toContain(s)
+    expect(loading()).toBe(false)
+    for (const s of ['Triangles348', 'Materials1', 'Bones3', '60.0 cm × 2.00 m × 60.0 cm']) expect(text()).toContain(s)
+    expect(text()).not.toMatch(/Vertices|Loaded in|Format/)
     await fromFrame({ type: 'time', clip: 1, time: 0.5, playing: true })
-    expect(text()).toContain('0.50 / 1.71 s')
     expect(host.querySelector<HTMLSelectElement>('select[aria-label="Animation clip"]')!.value).toBe('1')
   })
 
@@ -72,7 +73,7 @@ describe('Inventory 3D preview (app side of the sandboxed frame)', () => {
     await fromFrame({ type: 'loaded', model }, window)
     await fromFrame({ type: 'failed', code: 'unreadable', reason: 'spoofed' }, null)
     await fromFrame({ type: 'loaded', model: { ...model, stats: { triangles: '348' } } })
-    expect(text()).toContain('Loading model…')
+    expect(loading()).toBe(true)
     expect(text()).not.toContain('spoofed')
   })
 
@@ -96,20 +97,18 @@ describe('Inventory 3D preview (app side of the sandboxed frame)', () => {
     expect(posted.mock.calls.at(-1)?.[0]).toEqual({ type: 'texture-previews' })
     await fromFrame({ type: 'texture-previews', previews: [{ id: 0, url: 'data:image/png;base64,iVBORw0KGgo=' }] })
     expect(host.querySelector('.model-viewer-textures img')?.getAttribute('src')).toBe('data:image/png;base64,iVBORw0KGgo=')
-    expect(text()).toContain('2048 × 2048 · downscaled from 4096 × 4096')
+    expect(text()).toContain('2048 × 2048')
+    expect(text()).not.toContain('downscaled')
   })
 
-  it('says why a model did not load, removes the frame and offers actions that work', async () => {
+  it('says why a model did not load and removes the frame, leaving open and reveal to the inspector', async () => {
     await render(asset('robot.gltf'))
     await fromFrame({ type: 'ready' })
     await fromFrame({ type: 'failed', code: 'unreadable', reason: 'A file this model needs did not load: robot.bin.' })
     expect(frame()).toBeNull()
     expect(text()).toContain('This model can\'t be previewed')
     expect(text()).toContain('A file this model needs did not load: robot.bin.')
-    await act(async () => button('Open in default app').click())
-    await act(async () => button('Reveal').click())
-    expect(f.openPath).toHaveBeenCalledWith('C:/zoo/Assets/robot.gltf')
-    expect(f.revealPath).toHaveBeenCalledWith('C:/zoo/Assets/robot.gltf')
+    expect([...host.querySelectorAll('button')].map(b => b.textContent)).toEqual(['Retry'])
   })
 
   it('cancels a load that runs past the timeout by removing the frame', async () => {
@@ -125,17 +124,17 @@ describe('Inventory 3D preview (app side of the sandboxed frame)', () => {
     expect(f.grant).not.toHaveBeenCalled()
     expect(frame()).toBeNull()
     expect(text()).toContain('Too large to preview: 76.2 MB (limit 64.0 MB)')
-    expect(button('Open in default app')).toBeTruthy()
-    expect(button('Reveal')).toBeTruthy()
+    expect(host.querySelector('button')).toBeNull()
   })
 
-  it('shows the format, the file\'s units and axis, Unity clip names and why each texture is missing', async () => {
+  it('says which textures are missing and why, and turns a Z-up file upright', async () => {
     await render(asset('robot.fbx'))
     await fromFrame({ type: 'ready' })
     await fromFrame({ type: 'loaded', model: { ...model, format: 'FBX binary', units: 'Centimetres, shown in metres; Z-up in the file, turned upright', unityClips: true, missing: ['wood.psd', 'bark.png'], clayFallback: 2 } })
-    for (const s of ['FormatFBX binary', 'UnitsCentimetres, shown in metres; Z-up in the file, turned upright', 'Clip names and frame ranges come from the model\'s Unity .meta.', '2 materials shown in clay']) expect(text()).toContain(s)
+    expect(text()).toContain('2 materials shown in clay')
+    expect(text()).not.toMatch(/Unity \.meta|Centimetres/)
     await act(async () => button('Z-up').click())
-    expect(text()).toContain('turned upright; turned from Z-up')
+    expect(button('Z-up').getAttribute('aria-pressed')).toBe('true')
     await act(async () => [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')][1].click())
     expect(text()).toContain('wood.psdGenio\'s viewer cannot decode .psd images')
     expect(text()).toContain('bark.pngNot found beside or below the model')
@@ -147,10 +146,9 @@ describe('Inventory 3D preview (app side of the sandboxed frame)', () => {
     const posted = vi.spyOn(frame()!.contentWindow!, 'postMessage')
     await fromFrame({ type: 'loaded', model: { ...model, format: '3DS', units: 'No unit in the file, read as metres; Z-up by convention, turned upright', upAxis: 'z', clips: [] } })
     expect(button('Z-up').getAttribute('aria-pressed')).toBe('true')
-    expect(text()).not.toContain('turned from Z-up')
     await act(async () => button('Z-up').click())
     expect(posted.mock.calls.at(-1)?.[0]).toMatchObject({ type: 'settings', settings: { upAxis: 'y' } })
-    expect(text()).toContain('turned upright; shown as stored')
+    expect(button('Z-up').getAttribute('aria-pressed')).toBe('false')
   })
 
   it('reports a grant failure in plain words', async () => {
@@ -183,7 +181,6 @@ describe('Inventory 3D preview (app side of the sandboxed frame)', () => {
     await fromFrame({ type: 'ready' })
     await fromFrame({ type: 'progress', progress: { phase: 'geometry', completed: 0, total: 0, elapsedMs: 40 } })
     await fromFrame({ type: 'progress', progress: { phase: 'textures', completed: 2, total: 5, elapsedMs: 60 } })
-    expect(text()).not.toContain('Loading model…')
     expect(text()).toContain('Textures 2 of 5')
     await act(async () => button('Cancel').click())
     expect(frame()).toBeNull()
@@ -208,7 +205,7 @@ describe('Inventory 3D preview (app side of the sandboxed frame)', () => {
     expect(posted.mock.calls.filter(c => (c[0] as { type: string }).type === 'open')).toHaveLength(2)
     await fromFrame({ type: 'loaded', requestId: 1, model })
     await fromFrame({ type: 'failed', requestId: 1, code: 'timeout', reason: 'stale' })
-    expect(text()).toContain('Loading model…')
+    expect(loading()).toBe(true)
     expect(text()).not.toContain('stale')
     await fromFrame({ type: 'loaded', model })
     expect(text()).toContain('Triangles348')

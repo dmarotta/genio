@@ -14,7 +14,6 @@
 .model-viewer-player { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 5px 6px; border: 1px solid var(--line); background: var(--surface-2); }
 .model-viewer-player input[type='range'] { flex: 1 1 110px; min-width: 70px; accent-color: var(--neon); }
 .model-viewer-player .select.compact { padding: 2px 6px; font-size: 11.5px; max-width: 140px; }
-.model-viewer-time { font: 11px var(--font-mono); color: var(--text-dim); white-space: nowrap; }
 .model-viewer-note { margin: 0; font-size: 11px; color: var(--text-dim); overflow-wrap: anywhere; }
 .model-viewer-note.warn { color: var(--amber); }
 .model-viewer-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); }

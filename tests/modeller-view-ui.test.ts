@@ -87,18 +87,18 @@ describe('Modeller live view (app side of the sandboxed frame)', () => {
     expect(text()).toContain('Step 1 · Raising four timber legs')
   })
 
-  it('has exactly the wireframe, clay and turntable toggles, sent to the frame and kept for the next unit', async () => {
+  it('has exactly one toggle, Wireframe, sent to the frame and kept for the next unit', async () => {
     await render(state())
     const posted = vi.spyOn(frame().contentWindow!, 'postMessage')
-    expect([...host.querySelectorAll('button')].map(b => b.textContent)).toEqual(['Wireframe', 'Clay', 'Turntable'])
-    await act(async () => button('Turntable').click())
-    expect(posted.mock.calls.at(-1)![0]).toMatchObject({ type: 'settings', settings: { turntable: true, wireframe: false } })
-    expect(button('Turntable').getAttribute('aria-pressed')).toBe('true')
+    expect([...host.querySelectorAll('button')].map(b => b.textContent)).toEqual(['Wireframe'])
+    await act(async () => button('Wireframe').click())
+    expect(posted.mock.calls.at(-1)![0]).toMatchObject({ type: 'settings', settings: { wireframe: true, clay: false, turntable: false } })
+    expect(button('Wireframe').getAttribute('aria-pressed')).toBe('true')
     await act(async () => root.unmount())
     root = createRoot(host)
     await render(state())
-    expect(button('Turntable').getAttribute('aria-pressed')).toBe('true')
-    await act(async () => button('Turntable').click())
+    expect(button('Wireframe').getAttribute('aria-pressed')).toBe('true')
+    await act(async () => button('Wireframe').click())
   })
 
   it('polls the unit while it is live and re-renders only when the state changed', async () => {
@@ -178,7 +178,7 @@ describe('Modeller live view (app side of the sandboxed frame)', () => {
     await renderWith(null, null)
     expect(host.querySelector('[role="status"]')).toBeNull()
     // text only: no new buttons
-    expect([...host.querySelectorAll('button')].map(b => b.textContent)).toEqual(['Wireframe', 'Clay', 'Turntable'])
+    expect([...host.querySelectorAll('button')].map(b => b.textContent)).toEqual(['Wireframe'])
   })
 
   it('shows a sign of life beside the caption only while the unit works', async () => {

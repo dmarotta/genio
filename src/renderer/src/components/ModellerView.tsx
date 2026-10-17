@@ -7,12 +7,8 @@ import { pollWhileVisible } from '../lib/visible-poll'
 import { useNow } from './ui'
 import '../styles/modeller-view.css'
 
-type Toggle = 'wireframe' | 'clay' | 'turntable'
-const TOGGLES: [Toggle, string, string][] = [
-  ['wireframe', 'Wireframe', 'Draw triangle edges'], ['clay', 'Clay', 'Plain clay material instead of the model\'s colours'], ['turntable', 'Turntable', 'Slowly orbit the model']
-]
-// The toggles carry over from unit to unit.
-let remembered: Pick<ViewerSettings, Toggle> = { wireframe: false, clay: false, turntable: false }
+// Wireframe carries over from unit to unit.
+let wireframe = false
 
 /** How often the unit page reads the model while Blender runs: a batch lands a step every 600 ms or so. */
 const RUNNING_POLL_MS = 250
@@ -54,7 +50,7 @@ export function ModellerView({ live, activity }: { live: ModellerLive | null; ac
   const request = useRef(0)
   const sent = useRef<string | undefined>(undefined)
   const [error, setError] = useState('')
-  const [settings, setSettings] = useState<ViewerSettings>(() => ({ ...DEFAULT_VIEWER_SETTINGS, ...remembered }))
+  const [settings, setSettings] = useState<ViewerSettings>(() => ({ ...DEFAULT_VIEWER_SETTINGS, wireframe }))
   const now = useNow(1000)
   const head = live?.steps.at(-1)
   const target = useRef({ url: head?.glb ?? undefined, name: '', settings })
@@ -85,9 +81,9 @@ export function ModellerView({ live, activity }: { live: ModellerLive | null; ac
   }, [])
   useEffect(show, [head?.glb])
 
-  const change = (k: Toggle): void => {
-    const next = { ...settings, [k]: !settings[k] }
-    remembered = { wireframe: next.wireframe, clay: next.clay, turntable: next.turntable }
+  const toggleWireframe = (): void => {
+    const next = { ...settings, wireframe: !settings.wireframe }
+    wireframe = next.wireframe
     setSettings(next)
     send({ type: 'settings', settings: next })
   }
@@ -107,8 +103,7 @@ export function ModellerView({ live, activity }: { live: ModellerLive | null; ac
       </div>}
     </div>
     <div className="modeller-view-tools" role="toolbar" aria-label="View options">
-      {TOGGLES.map(([k, label, title]) =>
-        <button key={k} className={cx('btn sm ghost', settings[k] && 'on')} title={title} aria-pressed={settings[k]} onClick={() => change(k)}>{label}</button>)}
+      <button className={cx('btn sm ghost', settings.wireframe && 'on')} title="Draw triangle edges" aria-pressed={settings.wireframe} onClick={toggleWireframe}>Wireframe</button>
     </div>
     {error && <p className="modeller-view-note warn">{error}</p>}
   </div>

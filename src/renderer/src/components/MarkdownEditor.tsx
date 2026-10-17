@@ -8,7 +8,7 @@ import { cx } from '../lib/format'
  * its limit. The Art Bible's Markdown tab and the Design screen's notes use it. With `onCancel` (a note), Cancel
  * drops the draft and leaves the editor, and Preview is left to the view it came from.
  */
-export function MarkdownEditor({ head, label, text, dirty, maxBytes, warnBytes, sizeTitle, hint, className, onChange, onSave, onDiscard, onCancel }: {
+export function MarkdownEditor({ head, label, text, dirty, maxBytes, warnBytes, sizeTitle, className, onChange, onSave, onDiscard, onCancel }: {
   head?: ReactNode
   /** the textarea's accessible name */
   label: string
@@ -17,7 +17,6 @@ export function MarkdownEditor({ head, label, text, dirty, maxBytes, warnBytes, 
   maxBytes: number
   warnBytes?: number
   sizeTitle?: string
-  hint?: ReactNode
   className?: string
   onChange: (text: string) => void
   onSave: () => void
@@ -47,7 +46,6 @@ export function MarkdownEditor({ head, label, text, dirty, maxBytes, warnBytes, 
           </button>
         </div>
       </div>
-      {hint && <div className="mute memory-hint">{hint}</div>}
       {preview ? (
         <div className="memory-preview">
           <Markdown text={text} />

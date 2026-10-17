@@ -19,6 +19,6 @@ it('shows a one-click quote, exact cost and budget, and replaces it with saved p
   await act(() => root.render(createElement(GenerationCard, { card: { ...card, status: 'completed', paths: ['Assets/door.wav'] }, wksp: 'ally' })))
   expect(el.querySelector('button')).toBeNull()
   expect(el.textContent).toContain('Assets/door.wav')
-  expect(el.textContent).toContain('uncommitted')
+  expect(el.textContent).not.toMatch(/uncommitted|· world/)
   await act(() => root.unmount())
 })

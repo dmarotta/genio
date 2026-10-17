@@ -19,6 +19,7 @@ This page covers the Design screen, the runtime and the design notes.
   "New chat" until then), then **Notes** (the files in `.genio/design/`). Right-click a chat, or press the
   context-menu key on it, for **Delete chat**, which stops it and deletes its transcript. New chat reuses a chat
   that has no message yet instead of adding another empty one.
+- **No title over the open item**: the highlighted row in the list already names it; a note's header holds only Edit.
 - **A chat** opens in the project chat's own chat view (`ChatPanel` with a conversation id): the same log, queue,
   steering, images and composer, with only the chat's **model and effort** under it. There is no approval mode,
   shell mode or Interrupt: the design chat starts no work. Its replies carry no name, so they never read as Genio.

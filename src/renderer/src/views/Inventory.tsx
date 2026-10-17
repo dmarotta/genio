@@ -1,9 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { Backpack, Box, ChevronDown, ChevronRight, FileImage, Film, Folder, FolderOpen, Grid2X2, List, Music, RefreshCw, Search, Settings } from 'lucide-react'
+import { Box, ChevronDown, ChevronRight, FileImage, Film, Folder, FolderOpen, Grid2X2, List, Music, Search } from 'lucide-react'
 import type { AssetKind, InventoryAsset, InventoryFolder, InventoryInfo, InventoryQuery, InventoryState } from '@shared/inventory'
 import { PROJECT_WINDOW, api, errText, op, useStore } from '../store'
-import { GENERATION_ANCHOR } from '../components/GenerationSettings'
-import { openSettings } from '../lib/settings-nav'
 import { cx } from '../lib/format'
 import { MODEL_THUMB_NOTES, assetBytes, breadcrumbs, modelTile, previewKind, thumbnailUrl, unavailablePreview, virtualWindow, type TileNote } from '../lib/inventory'
 import { readModelFailure } from '@shared/model-viewer'
@@ -17,7 +15,8 @@ const ICONS = { image: FileImage, audio: Music, video: Film, model: Box, animati
 type AssetScope = 'all' | 'ours' | 'generated'
 // Loaded only when a model is selected; three itself loads inside the viewer frame, never in this bundle.
 const ModelViewer = lazy(() => import('../components/ModelViewer').then(m => ({ default: m.ModelViewer })))
-const REFRESH_LABEL = 'Refresh the asset list (rescan, includes newly generated assets)'
+/** The grid's tile width in px. */
+const TILE = 150
 // Serialize watcher ownership, including React StrictMode's setup/cleanup/setup cycle.
 let lifecycle: Promise<unknown> = Promise.resolve()
 function inventoryLifecycle(fn: () => Promise<unknown>): Promise<unknown> {
@@ -29,13 +28,9 @@ function inventoryLifecycle(fn: () => Promise<unknown>): Promise<unknown> {
 export function Inventory() {
   const project = useStore(s => s.snap.projects.find(p => p.name === PROJECT_WINDOW))
   return <div className="inventory">
-    <header className="inventory-head">
-      <div><div className="label">PROJECT ASSETS</div><h1>Inventory</h1></div>
-      {project && <button className="btn sm ghost" onClick={() => openSettings('project-assets', GENERATION_ANCHOR)}><Settings size={14} /> Generation settings</button>}
-      <span className="dim">Explore · select · preview</span>
-    </header>
+    <header className="inventory-head"><h1>Inventory</h1></header>
     {project ? <WorldInventory key={project.name} world={project.name} root={project.path} />
-      : <div className="inventory-empty"><Backpack size={42} /><h2>Project not loaded</h2><p>Open this project from the Hub to browse its media.</p></div>}
+      : <p className="inventory-empty">Project not loaded. Open it from the Hub.</p>}
   </div>
 }
 
@@ -47,11 +42,9 @@ function WorldInventory({ world, root }: { world: string; root: string }) {
   const [query, setQuery] = useState('')
   const [kinds, setKinds] = useState<AssetKind[]>([])
   const [scope, setScope] = useState<AssetScope>('all')
-  const [tags, setTags] = useState('')
   const [sort, setSort] = useState<InventoryQuery['sort']>('name')
   const [descending, setDescending] = useState(false)
   const [list, setList] = useState(false)
-  const [tile, setTile] = useState(150)
   const [selected, setSelected] = useState<InventoryAsset>()
   const [selection, setSelection] = useState<InventoryAsset[]>([])
   const browseFolder = (path: string) => { setFolder(path); setSelected(undefined); setSelection([]) }
@@ -68,12 +61,12 @@ function WorldInventory({ world, root }: { world: string; root: string }) {
     window.addEventListener('focus', focus)
     return () => { alive = false; off(); window.removeEventListener('focus', focus); void inventoryLifecycle(() => api().inventoryClose(world)).catch(() => undefined) }
   }, [world])
-  const filters = useMemo<InventoryQuery>(() => ({ query, kinds, scope: scope === 'ours' ? 'ours' : 'all', tags: tags.split(',').map(t => t.trim()).filter(Boolean), generated: scope === 'generated' || undefined, sort, descending }), [query, kinds, scope, tags, sort, descending])
+  const filters = useMemo<InventoryQuery>(() => ({ query, kinds, scope: scope === 'ours' ? 'ours' : 'all', generated: scope === 'generated' || undefined, sort, descending }), [query, kinds, scope, sort, descending])
   const filterKey = JSON.stringify(filters)
   const browseQuery = useMemo(() => ({ ...filters, folder }), [filters, folder])
   const revision = state?.revision ?? 0
   const [visible, setVisible] = useState<{ names: string[]; total: number }>()
-  const filtered = [query && `search "${query}"`, kinds.length && kinds.join('/'), scope === 'ours' && 'ours', scope === 'generated' && 'generated only', tags.trim() && `tags ${tags.trim()}`].filter(Boolean).join(', ')
+  const filtered = [query && `search "${query}"`, kinds.length && kinds.join('/'), scope === 'ours' && 'ours', scope === 'generated' && 'generated only'].filter(Boolean).join(', ')
   useScreenContext('inventory', { world, engine: state?.engine, engineRoot: state?.engineRoot, folder, preview: selected && contextAsset(selected), selection: selection.length > 1 ? selection.map(contextAsset) : undefined,
     facts: [visible && { label: 'Visible', value: `${visible.total} matching: ${listFact(visible.names, visible.total)}` }, !!filtered && { label: 'Filters', value: filtered }] })
   const selectedPaths = JSON.stringify(selection.map(a => a.path))
@@ -91,33 +84,28 @@ function WorldInventory({ world, root }: { world: string; root: string }) {
   }, [world, revision, selectedPaths, selected?.path])
   return <>
     <div className="inventory-toolbar">
-      <label className="inventory-search"><Search size={16} /><input aria-label="Search assets" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or path · t:sfx  ext:png  in:UI" /></label>
+      <label className="inventory-search"><Search size={16} /><input aria-label="Search assets" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search · t:sfx  ext:png  in:UI" /></label>
       <select className="select compact" aria-label="Asset scope" value={scope} onChange={e => setScope(e.target.value as AssetScope)}><option value="all">All</option><option value="ours">Ours</option><option value="generated">AI Generated</option></select>
-      <button className="btn sm" title={REFRESH_LABEL} aria-label={REFRESH_LABEL} disabled={state?.refreshing} onClick={() => { setError(''); void op('Refresh Inventory', () => api().inventoryRefresh(world)) }}><RefreshCw size={14} className={state?.refreshing ? 'spin' : ''} /></button>
     </div>
     <div className="inventory-toolbar inventory-filters">
       {TYPES.map(([kind, label]) => <button className={cx('btn sm ghost', kinds.includes(kind) && 'on')} key={kind} aria-pressed={kinds.includes(kind)} onClick={() => setKinds(kinds.includes(kind) ? kinds.filter(k => k !== kind) : [...kinds, kind])}>{label}</button>)}
-      <input className="input inventory-tags" aria-label="Asset tags" placeholder="Tags: sfx, sprite…" value={tags} onChange={e => setTags(e.target.value)} />
       <div className="inventory-view-controls">
         <select className="select compact" aria-label="Sort assets" value={sort} onChange={e => setSort(e.target.value as InventoryQuery['sort'])}><option value="name">Name</option><option value="type">Type</option><option value="size">Size</option><option value="modified">Modified</option></select>
         <button className="btn sm" aria-label="Reverse sort" aria-pressed={descending} onClick={() => setDescending(!descending)}>{descending ? '↓' : '↑'}</button>
         <button className={cx('btn sm', !list && 'on')} aria-label="Grid view" aria-pressed={!list} onClick={() => setList(false)}><Grid2X2 size={15} /></button>
         <button className={cx('btn sm', list && 'on')} aria-label="List view" aria-pressed={list} onClick={() => setList(true)}><List size={15} /></button>
-        {!list && <input className="inventory-size" type="range" min="120" max="220" step="10" aria-label="Thumbnail size" value={tile} onChange={e => setTile(Number(e.target.value))} />}
       </div>
     </div>
     {(error || state?.error) && <div className="inventory-error" role="alert">{error || state?.error}</div>}
-    <nav className="inventory-breadcrumb" aria-label="Asset folder">{breadcrumbs(folder).map((b, i) => <span key={b.path}>{i > 0 && <ChevronRight size={12} />}<button onClick={() => browseFolder(b.path)}>{b.name}</button></span>)}</nav>
     <div className="inventory-body">
       <aside className="inventory-tree" aria-label="Asset folders">
-        <div className="label">PROJECT HIERARCHY</div>
         <button className={cx('inventory-folder', !folder && 'on')} onClick={() => browseFolder('')}><FolderOpen size={15} /><span>All assets</span></button>
-        {state ? <FolderChildren key={filterKey} world={world} parent="" filters={filters} revision={revision} selected={folder} select={browseFolder} depth={0} /> : <p className="dim">Indexing project…</p>}
+        {state && <FolderChildren key={filterKey} world={world} parent="" filters={filters} revision={revision} selected={folder} select={browseFolder} depth={0} />}
       </aside>
-      {state ? <AssetBrowser key={filterKey + folder + list + tile} world={world} query={browseQuery} revision={revision} indexing={state.indexing} list={list} tile={tile} selected={selection.map(a => a.path)} select={select} onVisible={setVisible} /> : <div className="inventory-empty">Indexing supported media…</div>}
+      {state ? <AssetBrowser key={filterKey + folder + list} world={world} query={browseQuery} revision={revision} indexing={state.indexing} list={list} selected={selection.map(a => a.path)} select={select} onVisible={setVisible} /> : <p className="inventory-empty">Indexing…</p>}
       <Inspector key={selected?.path ?? 'empty'} world={world} root={root} asset={selected} revision={revision} />
     </div>
-    <footer className="inventory-status"><span>{(state?.total ?? 0).toLocaleString()} indexed media</span><span>{state?.indexing ? indexingText(state.indexing) : state?.refreshing ? 'Refreshing…' : state?.watching ? '● Watching for changes' : 'Refreshes on focus'}</span><span>{state?.engine}{state?.engineRoot ? ` · ${state.engineRoot}` : ''}</span>{scope === 'ours' && <span className="dim">Vendor packs excluded from Ours</span>}</footer>
+    {state?.indexing && <footer className="inventory-status">{indexingText(state.indexing)}</footer>}
   </>
 }
 
@@ -135,7 +123,7 @@ function FolderChildren({ world, parent, filters, revision, selected, select, de
     return <div key={f.path}>
       <div className={cx('inventory-folder', selected === f.path && 'on')} style={{ paddingLeft: 6 + depth * 12 }}>
         <button aria-label={`${open ? 'Collapse' : 'Expand'} ${f.name}`} aria-expanded={open} onClick={() => setExpanded(prev => { const next = new Set(prev); if (open) next.delete(f.path); else next.add(f.path); return next })}>{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</button>
-        <button className="inventory-folder-name" title={f.path} onClick={() => { select(f.path); setExpanded(prev => new Set([...prev, f.path])) }}><Folder size={14} /><span>{f.name}</span>{f.vendor && <small title="Vendor pack">ⓥ</small>}<small>{f.count}</small></button>
+        <button className="inventory-folder-name" title={f.path} onClick={() => { select(f.path); setExpanded(prev => new Set([...prev, f.path])) }}><Folder size={14} /><span>{f.name}</span>{f.vendor && <small title="Vendor pack">ⓥ</small>}</button>
       </div>
       {open && <FolderChildren world={world} parent={f.path} filters={filters} revision={revision} selected={selected} select={select} depth={depth + 1} />}
     </div>
@@ -146,12 +134,12 @@ function indexingText(p: NonNullable<InventoryState['indexing']>): string {
   return p.total ? `Indexing ${p.done.toLocaleString()} / ${p.total.toLocaleString()}…` : 'Listing project files…'
 }
 
-function AssetBrowser({ world, query, revision, indexing, list, tile, selected, select, onVisible }: { world: string; query: InventoryQuery; revision: number; indexing?: InventoryState['indexing']; list: boolean; tile: number; selected: string[]; select: (asset: InventoryAsset, multiple: boolean) => void; onVisible: (v: { names: string[]; total: number }) => void }) {
+function AssetBrowser({ world, query, revision, indexing, list, selected, select, onVisible }: { world: string; query: InventoryQuery; revision: number; indexing?: InventoryState['indexing']; list: boolean; selected: string[]; select: (asset: InventoryAsset, multiple: boolean) => void; onVisible: (v: { names: string[]; total: number }) => void }) {
   const ref = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width: 600, height: 500, top: 0 })
   const [page, setPage] = useState<{ items: InventoryAsset[]; offset: number; total: number }>()
   const [error, setError] = useState('')
-  const range = virtualWindow(page?.total ?? 0, size.width, size.height, size.top, tile, list)
+  const range = virtualWindow(page?.total ?? 0, size.width, size.height, size.top, TILE, list)
   // What the player can see in the grid, for the Genio panel's screen context.
   const shown = page?.items.slice(Math.max(0, range.offset - page.offset)).map(a => a.name) ?? []
   const shownKey = JSON.stringify([shown.slice(0, 6), page?.total])
@@ -168,15 +156,14 @@ function AssetBrowser({ world, query, revision, indexing, list, tile, selected, 
     return () => { alive = false; clearTimeout(t) }
   }, [world, query, revision, range.offset, range.limit])
   return <section className="inventory-browser">
-    <div className="inventory-result-count">{page ? `${page.total.toLocaleString()} matching assets` : 'Loading assets…'}<span className="dim">Ctrl click to select up to 20</span></div>
-    {list && <div className="inventory-list-head"><span>Name</span><span>Type</span><span>Size</span></div>}
+    {list && <div className="inventory-list-head"><span>Name</span><span /><span>Size</span></div>}
     <div ref={ref} className="inventory-scroll" onScroll={e => { const top = e.currentTarget.scrollTop; setSize(s => ({ ...s, top })) }}>
-      {error ? <p className="inventory-error" role="alert">{error}</p> : page?.total === 0 ? indexing ? <div className="inventory-empty"><RefreshCw size={32} className="spin" /><h3>{indexingText(indexing)}</h3><p>Assets appear here as they are indexed.</p></div> : <div className="inventory-empty"><Search size={32} /><h3>No matching media</h3><p>Try another folder, scope or search.</p></div> : <div style={{ height: range.height, position: 'relative' }} role="group" aria-label="Assets">
+      {error ? <p className="inventory-error" role="alert">{error}</p> : page?.total === 0 ? !indexing && <p className="inventory-empty">No matching media.</p> : <div style={{ height: range.height, position: 'relative' }} role="group" aria-label="Assets">
         <div className={cx('inventory-tiles', list && 'is-list')} style={{ top: Math.floor((page?.offset ?? 0) / range.columns) * range.rowHeight, gridTemplateColumns: `repeat(${range.columns}, minmax(0, 1fr))`, gridAutoRows: range.rowHeight }}>
           {page?.items.map(asset => <button key={asset.path} title={asset.path} className={cx('inventory-tile', selected.includes(asset.path) && 'selected')} aria-pressed={selected.includes(asset.path)} onClick={e => select(asset, e.ctrlKey || e.metaKey || e.shiftKey)}>
             <AssetThumbnail world={world} asset={asset} />
             <span className="inventory-asset-name">{asset.generated && <b className="accent">✦ </b>}{asset.name}</span>
-            <span className="inventory-asset-type">{asset.vendor ? 'ⓥ ' : ''}{asset.lfs ? 'Not pulled' : asset.ext.toUpperCase()}</span>
+            <span className="inventory-asset-type">{asset.lfs ? 'Not pulled' : ''}</span>
             {list && <span className="inventory-asset-size">{assetBytes(asset.size)}</span>}
           </button>)}
         </div>
@@ -268,17 +255,16 @@ function Inspector({ world, root, asset, revision }: { world: string; root: stri
     return () => { alive = false }
   }, [world, asset?.path, revision])
   const fullPath = asset ? root.replace(/[\\/]$/, '') + '/' + asset.path : ''
-  return <aside className="inventory-inspector" aria-label="Asset inspector"><div className="label">INSPECTOR</div>
-    {!asset ? <div className="inventory-empty"><Box size={40} /><h3>Select an asset</h3><p>Preview media and inspect its source.</p></div> : <>
+  return <aside className="inventory-inspector" aria-label="Asset inspector">
+    {!asset ? <p className="inventory-empty">Select an asset.</p> : <>
       <h2>{asset.name}</h2>
       {error && <p className="inventory-error" role="alert">{error}</p>}
-      {info ? <AssetPreview key={previewKind(info) === 'model' ? 'model' : info.mediaUrl + info.mtimeMs} world={world} info={info} active={info.path === asset.path} path={info.path === asset.path ? fullPath : root.replace(/[\\/]$/, '') + '/' + info.path} /> : !error && <p className="dim">Loading preview…</p>}
+      {info ? <AssetPreview key={previewKind(info) === 'model' ? 'model' : info.mediaUrl + info.mtimeMs} world={world} info={info} active={info.path === asset.path} /> : !error && <p className="dim">Loading preview…</p>}
       <div className="inventory-path">{asset.path}</div>
-      <dl><dt>Type</dt><dd>{asset.kind} · {asset.ext.toUpperCase()}</dd><dt>Size</dt><dd>{assetBytes(asset.lfsSize ?? asset.size)}</dd><dt>Modified</dt><dd>{new Date(asset.mtimeMs).toLocaleString()}</dd><dt>Source</dt><dd>{asset.vendor ? 'Vendor pack' : 'Project asset'} · {asset.tracked ? 'Tracked' : 'Untracked'}</dd>
+      <dl><dt>Size</dt><dd>{assetBytes(asset.lfsSize ?? asset.size)}</dd><dt>Source</dt><dd>{asset.vendor ? 'Vendor pack' : 'Project asset'} · {asset.tracked ? 'Tracked' : 'Untracked'}</dd>
         {!!info?.tags.length && <><dt>Tags</dt><dd>{info.tags.join(', ')}</dd></>}
-        {info?.meta?.importer && <><dt>Importer</dt><dd>{info.meta.importer}</dd></>}
       </dl>
-      {info?.provenance && <div className="inventory-provenance"><div className="label accent">✦ GENERATED BY GENIO</div><p>{info.provenance.provider} · {info.provenance.endpoint}</p><p>By {info.provenance.by} · {info.provenance.created}</p></div>}
+      {info?.provenance && <div className="inventory-provenance"><div className="label accent">✦ GENERATED BY GENIO</div><p>{info.provenance.provider} · {info.provenance.by} · {info.provenance.created}</p></div>}
       <button className="btn sm" onClick={() => { void op('Copy path', () => navigator.clipboard.writeText(fullPath), () => 'Path copied') }}>Copy path</button>
       <button className="btn sm" onClick={() => { void op('Open asset', () => api().openPath(fullPath)) }}>Open in default app</button>
       <button className="btn sm ghost" onClick={() => { void op('Open folder', () => api().openPath(root + '/' + asset.folder)) }}>Open containing folder</button>
@@ -286,17 +272,16 @@ function Inspector({ world, root, asset, revision }: { world: string; root: stri
   </aside>
 }
 
-function AssetPreview({ world, info, path, active }: { world: string; info: InventoryInfo; path: string; active: boolean }) {
+function AssetPreview({ world, info, active }: { world: string; info: InventoryInfo; active: boolean }) {
   const kind = previewKind(info)
   const [failed, setFailed] = useState(false)
-  const [zoom, setZoom] = useState(1)
   const [loop, setLoop] = useState(false)
-  if (failed) return <PreviewUnavailable title="This file could not be previewed" reason={`Its ${info.ext.toUpperCase()} data or codec isn't one Genio can show. Open it in its default app.`} path={path} />
-  if (kind === 'image') return <><div className="inventory-image"><img src={info.mediaUrl} alt={info.name} onError={() => setFailed(true)} style={{ width: `${zoom * 100}%`, maxWidth: 'none' }} /></div><label className="inventory-zoom">Zoom <input type="range" aria-label="Image zoom" min="1" max="4" step="0.1" value={zoom} onChange={e => setZoom(Number(e.target.value))} /></label></>
-  if (kind === 'model') return <Suspense fallback={<p className="dim">Loading 3D viewer…</p>}><ModelViewer world={world} info={info} path={path} active={active} /></Suspense>
+  if (failed) return <PreviewUnavailable title="This file could not be previewed" reason={`Its ${info.ext.toUpperCase()} data or codec isn't one Genio can show. Open it in its default app.`} />
+  if (kind === 'image') return <div className="inventory-image"><img src={info.mediaUrl} alt={info.name} onError={() => setFailed(true)} /></div>
+  if (kind === 'model') return <Suspense fallback={<p className="dim">Loading 3D viewer…</p>}><ModelViewer world={world} info={info} active={active} /></Suspense>
   if (kind === 'audio' || kind === 'video') return <div className="inventory-media">
-    {kind === 'audio' ? <><Music size={50} strokeWidth={1} /><audio controls preload="metadata" loop={loop} src={info.mediaUrl} onError={() => setFailed(true)} /></> : <video controls preload="metadata" loop={loop} src={info.mediaUrl} onError={() => setFailed(true)} />}
+    {kind === 'audio' ? <audio controls preload="metadata" loop={loop} src={info.mediaUrl} onError={() => setFailed(true)} /> : <video controls preload="metadata" loop={loop} src={info.mediaUrl} onError={() => setFailed(true)} />}
     <label><input type="checkbox" checked={loop} onChange={e => setLoop(e.target.checked)} /> Loop</label>
   </div>
-  return <PreviewUnavailable {...unavailablePreview(info)} path={path} />
+  return <PreviewUnavailable {...unavailablePreview(info)} />
 }

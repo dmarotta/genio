@@ -186,8 +186,8 @@ export function PlayLive({ world, width, height, input, muted = false, onClosed,
     </div>
     {/* Left-aligned: the floating Genio chat sits over the bottom-right corner. */}
     <div className="play-live-bar">
-      <button className="btn sm ghost" disabled={!input} title={input ? 'Lock pointer' : 'View only: this game reads legacy input'} aria-label="Lock pointer" onClick={() => { canvas.current?.focus(); void canvas.current?.requestPointerLock() }}><Lock size={13} /><span className="play-live-label">Lock</span></button>
-      <button className="btn sm ghost" title="Full screen" aria-label="Full screen" onClick={() => { if (canvas.current) void canvas.current.requestFullscreen().then(() => window.genio.api.featureUsed('play-fullscreen')).catch(() => {}) }}><Maximize size={13} /><span className="play-live-label">Full screen</span></button>
+      <button className="btn sm ghost" disabled={!input} title={input ? 'Lock pointer' : 'View only: this game reads legacy input'} aria-label="Lock pointer" onClick={() => { canvas.current?.focus(); void canvas.current?.requestPointerLock() }}><Lock size={13} /></button>
+      <button className="btn sm ghost" title="Full screen" aria-label="Full screen" onClick={() => { if (canvas.current) void canvas.current.requestFullscreen().then(() => window.genio.api.featureUsed('play-fullscreen')).catch(() => {}) }}><Maximize size={13} /></button>
     </div>
   </div>
 }

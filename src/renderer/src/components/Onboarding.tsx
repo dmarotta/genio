@@ -42,7 +42,6 @@ export function Onboarding() {
           <div className="title" style={{ fontSize: 34, marginTop: 18 }}>
             NEW <span className="accent">GAME</span>
           </div>
-          <p className="dim">Talk to Genio. Genio runs the squad. You make the calls that matter.</p>
           <ol className="onboard-steps">
             {steps.map((s, i) => (
               <li key={s} className={cx(i === step && 'on', i < step && 'done')}>
@@ -55,9 +54,7 @@ export function Onboarding() {
         <div className="onboard-main">
           {step === 0 && (
             <>
-              <div className="label">Step 1</div>
               <h2 className="modal-title">Choose your gamertag</h2>
-              <p className="dim">Genio addresses you by it. Change it anytime in Settings.</p>
               <Field label="Gamertag">
                 <input className="input big" autoFocus value={tag} placeholder="Player" maxLength={32} onChange={(e) => setTag(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && setStep(1)} />
               </Field>
@@ -71,9 +68,7 @@ export function Onboarding() {
           )}
           {step === 1 && (
             <>
-              <div className="label">Step 2</div>
               <h2 className="modal-title">Check your loadout</h2>
-              <p className="dim">Units are coding-agent CLIs. Git is required; GitHub CLI unlocks PRs. Nothing installs without your click.</p>
               <div className="tool-list">
                 {!tools && <div className="bar indeterminate"><i /></div>}
                 {tools?.map((t) => (
@@ -111,9 +106,7 @@ export function Onboarding() {
           )}
           {step === 2 && (
             <>
-              <div className="label">Step 3</div>
               <h2 className="modal-title">Load your first project</h2>
-              <p className="dim">A git repo with your game: a URL, owner/repo, or a folder on disk. Genio detects the engine.</p>
               {projects.length > 0 ? (
                 <div className="tool-list">
                   {projects.map((p) => (
@@ -153,8 +146,7 @@ export function Onboarding() {
                         setBusy(true)
                         try {
                           const isLocal = /^[a-zA-Z]:[\\/]|^[\\/]/.test(source.trim())
-                          const p = await api().projectAdd({ source: source.trim(), inPlace: isLocal && inPlace })
-                          toast('success', 'Project loaded', `${p.name} · ${p.engine}`)
+                          await api().projectAdd({ source: source.trim(), inPlace: isLocal && inPlace })
                           setSource('')
                         } catch (e) {
                           toast('error', 'Could not add project', errText(e))
