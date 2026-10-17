@@ -21,6 +21,7 @@ import { biggestConsumers, closePlayerRoot, opensRoot, playerSystem, playerTree,
 import { repoTop, sameFolder } from './git'
 import { leaseSource, onSourceRemoved, type SourceLease } from './source-leases'
 import { StartLog, validDurations, type StartDurations } from './player-start'
+import { notePlayed } from './project-setup'
 
 const GiB = 2 ** 30
 /** First-run estimate until a session teaches the project's steady working set, and the RAM kept back on top. */
@@ -656,6 +657,7 @@ export class PlayerInstanceService {
         check()
         await this.copies.playing(project, this.system.now()); this.state(i, 'playing')
         this.ctx.stats.unlock('play-first')
+        try { notePlayed(this.ctx, world) } catch { /* setup state optional */ }
         return this.status(world)
       } catch (e) {
         if (suspended && i.launch) await this.local(i).request('genio_sync_end').catch(() => {})

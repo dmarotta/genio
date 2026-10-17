@@ -209,13 +209,15 @@ it('migration notifies the player once and a dismissed proposal stays gone', asy
   expect(fs.existsSync(path.join(root, 'folder', '.genio'))).toBe(false)
 })
 
-it('a new project is scaffolded for its engine but not pinned to it', async () => {
+it('an opened empty folder gets its engine .gitignore from project init but is not pinned to it', async () => {
   const home = new Home(path.join(root, 'home'))
   const ctx = { main: { home }, ledger: { record() {} } } as unknown as AppCtx
   const svc = createProjectsService(() => ctx)
-  const created = await svc.create({ name: 'space-goblins', engine: 'godot' })
+  fs.mkdirSync(path.join(root, 'space-goblins'))
+  const { project: opened } = await svc.openFolder(path.join(root, 'space-goblins'))
+  const created = await svc.init(opened.name, { engine: 'godot' })
   expect(fs.readFileSync(path.join(created.path, '.gitignore'), 'utf8')).toMatch(/\.godot\//)
-  expect(created).toMatchObject({ engine: 'other', engineRoot: '' })
+  expect(created).toMatchObject({ engine: 'other', engineRoot: '', gitRepo: true })
   expect(created).not.toHaveProperty('engineSource')
   fs.writeFileSync(path.join(created.path, 'project.godot'), '')
   expect((await svc.rescan('space-goblins'))[0]).toMatchObject({ engine: 'godot', engineRoot: '' })

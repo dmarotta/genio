@@ -112,6 +112,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'assets-50', feature: 'assets', name: 'Asset Factory', description: 'Generate 50 assets.' },
   { id: 'quest-first', feature: 'quests', name: 'Side Quest', description: 'Add a quest.' },
   { id: 'world-first', feature: 'worlds', name: 'New Game', description: 'Register a project.' },
+  { id: 'project-setup', feature: 'setup', name: 'Character Creation', description: 'Finish setting up a new project with Genio.' },
   { id: 'lore-first', feature: 'memory', name: 'Save Point', description: 'Save your first memory update.' },
   { feature: 'ship', id: 'first-blood', name: 'First Blood', description: 'Merge your first build.' },
   { feature: 'modeller', id: 'modeller-first', name: 'Model Citizen', description: 'Merge a Modeller build: a unit that makes a 3D model step by step.' },

@@ -75,12 +75,12 @@ export interface PushStatus {
   remoteMissing: boolean
 }
 
-export interface ProjectCreateRequest {
-  name: string
-  /** the scaffold (.gitignore, README, AGENTS.md); the project's engine is detected once its project files exist */
-  engine: Engine
-  description?: string
-  mode?: ProjectMode
+/** project_init: start the git repo of an opened folder (git init, .gitignore, AGENTS.md, first commit). */
+export interface ProjectInitRequest {
+  /** picks the .gitignore only; the project's engine is detected once its project files exist (default: the detected one) */
+  engine?: Engine
+  /** the pitch for the AGENTS.md seed (default: the project's description) */
+  pitch?: string
   /** create a GitHub repo too (needs the player's explicit consent: outward-facing) */
   createRemote?: boolean
   privateRemote?: boolean
@@ -744,7 +744,6 @@ export interface GenioApi {
   // ---- projects
   projectAdd(req: ProjectAddRequest): Promise<Project>
   projectOpen(folder: string): Promise<void>
-  projectCreate(req: ProjectCreateRequest): Promise<Project>
   projectUpdate(name: string, patch: Partial<Project> & { commands?: ProjectCommands }): Promise<Project>
   projectRemove(name: string, deleteClone: boolean): Promise<OpResult>
   projectSync(name?: string): Promise<OpResult>
@@ -913,7 +912,6 @@ export const API_METHODS = [
   'addDecision',
   'projectAdd',
   'projectOpen',
-  'projectCreate',
   'projectUpdate',
   'projectRemove',
   'projectSync',

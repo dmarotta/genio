@@ -4,6 +4,7 @@ import { findDuplicate, titleKey, unitDiscarded } from '@shared/quest-board'
 import { unitCaps } from '@shared/usage-mode'
 import type { AppCtx } from './services'
 import { globalMode, worldUsage } from './usage-policy'
+import { openSetup } from './project-setup'
 import { nowIso, readJson, truncate, writeJsonAtomic } from './util'
 
 /** The regular launch services remain authoritative for reservations, quota and consent. */
@@ -130,8 +131,12 @@ async function reconcile(ctx: AppCtx, project: string, wksp: string, isOpen: () 
   const waiting = tasks.filter(t => ['blocked', 'needs-decision', 'paused', 'failed', 'detached'].includes(t.state))
   const describe = (t: Task): string => `${t.id}: ${truncate(t.title, 120)} (${t.state}${t.stateReason ? `; ${truncate(t.stateReason, 180)}` : ''})${t.pr?.url ? ` ${t.pr.url}` : ''}`
   const section = (label: string, rows: string[]): string => `${label} (${rows.length}):\n${rows.slice(0, 8).map(s => `- ${s}`).join('\n') || '- none'}${rows.length > 8 ? '\n- More in fleet_view.' : ''}`
+  // Setup asks once per opening; a failure to read it never blocks the greeting.
+  let setup: string | undefined
+  try { setup = openSetup(ctx, project, target.home.state) } catch { /* no setup line */ }
   const recap = [
     `Project: ${project}. Previous visit: ${previous ?? 'first recorded visit'}. Opened: ${openedAt}.`,
+    ...(setup ? [setup] : []),
     section('Startup reconciliation', results), section('Landed since last visit', landed.map(describe)),
     section('Running', running.map(describe)), section('Blocked or waiting units', waiting.map(describe)),
     section('Ready outcomes', tasks.filter(t => t.state === 'ready' || t.state === 'done').map(describe)),

@@ -11,7 +11,7 @@ const PLAYER_FACING_TOOLS: Record<string, string> = {
   fal_generate: 'fal_generate', uthana_motion: 'uthana_motion', uthana_character: 'agent_generation', asset_place: 'asset_place',
   approve_run: 'approve_run', art_bible: 'art_bible', design_notes: 'design_notes', genio_help: 'genio_help',
   deploy: 'deploy', merge: 'move', run_gauntlet: 'squad', quest_add: 'quests', plan_create: 'plans', plan_update: 'plans',
-  world_add: 'worlds', world_create: 'worlds', world_push: 'world_push',
+  world_add: 'worlds', world_push: 'world_push', project_setup: 'setup',
   memory_write: 'memory', generate_image: 'generate_image', rate_task: 'rate_task',
   loadout_preview: 'loadout_preview', assets_find: 'assets_find', asset_locate: 'asset_locate'
 }
@@ -23,7 +23,7 @@ const SUPPORTING_TOOLS = [
   'fleet_view', 'unit_state', 'read_task_file', 'terminal_tail', 'ping', 'control',
   'despawn', 'upgrade_recon', 'quest_list', 'quest_update', 'quest_hold', 'quest_release',
   'quest_remove', 'plan_status', 'choice_open', 'choice_resolve', 'choice_list', 'world_list',
-  'world_posture', 'world_update', 'world_engine_root', 'world_remove', 'world_sync', 'status_report',
+  'world_posture', 'world_update', 'world_engine_root', 'project_init', 'world_remove', 'world_sync', 'status_report',
   'memory_read', 'memory_report', 'memory_archive', 'mail_list', 'mail_ack', 'mail_reply',
   'dispatch_profiles', 'toolchain_check', 'presence_set', 'ally_list', 'ally_route',
   'report_to_main', 'escalate', 'asset_info', 'procedure_read', 'skill_read', 'settings_read', 'settings_update', 'event_read', 'events_ack'

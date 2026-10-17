@@ -15,7 +15,7 @@ import type {
   DeliveryMode, SfxName, NotifyTarget, Verdict, TaskCounters, PlaystyleId, ReactionKind
 } from '@shared/types'
 import type {
-  OpResult, ProjectAddRequest, ProjectCreateRequest, AllyCreateRequest, SpawnRequest, TaskFile, MemoryFile,
+  OpResult, ProjectAddRequest, ProjectInitRequest, AllyCreateRequest, SpawnRequest, TaskFile, MemoryFile,
   FalRun, FalRunRequest, FalSaveRequest, FalSaveResult, FalCatalogue, FalModelInfo, FalSearchHit, FalWorldState, FalWorldConfig, FalRecipe,
   AccountStatus, UsageReport, PushStatus
 } from '@shared/api'
@@ -46,7 +46,8 @@ export interface ProjectsService {
   openFolder(folder: string): Promise<{ project: Project; registered: boolean }>
   get(name: string): Project | undefined
   add(req: ProjectAddRequest): Promise<Project>
-  create(req: ProjectCreateRequest): Promise<Project>
+  /** start the git repo of a registered folder: git init, .gitignore, AGENTS.md, first commit, optional GitHub repo */
+  init(name: string, req: ProjectInitRequest): Promise<Project>
   update(name: string, patch: Partial<Project>): Project
   /** preflight refuses while work is in flight/queued or unlanded worktrees exist */
   remove(name: string, deleteClone: boolean): Promise<OpResult>

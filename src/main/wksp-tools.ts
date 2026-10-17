@@ -33,6 +33,7 @@ import { GENERATE_IMAGE_DESC, generateImageShape } from './chat-imagegen'
 import { findAssets, assetInfo, locateAsset } from './asset-tools'
 import { agentGeneration, falGenerateShape, uthanaMotionShape, uthanaCharacterShape, assetPlaceShape } from './agent-generation'
 import { readBibleFile, writeBibleFile } from './art-bible-gen'
+import { SETUP_STEP_IDS, setupTool } from './project-setup'
 import { helpDocsDir, searchHelp } from './help'
 
 const HELP_DESC =
@@ -913,26 +914,34 @@ export function createToolRegistry(
   )
 
   t(
-    'world_create',
-    'Create a new game project (git init with an engine scaffold: .gitignore, README, AGENTS.md). The engine is not pinned: Genio detects it once its project files exist. create_remote makes a GitHub repo too and REQUIRES player_words with their explicit consent to the name and visibility.',
+    'project_init',
+    "Start the git repo of an opened folder that has none (or is empty), the first setup step: git init on main, a .gitignore for the engine (kept if one exists), an AGENTS.md seed with the pitch (kept if one exists) and a first commit of everything in the folder, so units can start. engine only picks the .gitignore (default: the detected one); detection takes over once its project files exist. pitch also becomes the project's description when it has none. ONLY on the player's yes to starting it: player_words quotes it verbatim (Genio checks it). create_remote also makes a GitHub repo and pushes; its player_words must agree to the repo, name and visibility.",
     {
-      name: z.string(), engine: z.enum(['godot', 'unity', 'unreal', 'bevy', 'web', 'love2d', 'gamemaker', 'defold', 'monogame', 'other']),
-      description: z.string().optional(), mode: z.enum(['no-mistakes', 'direct-PR', 'local-only', 'no-mistakes-prod-only']).optional(),
-      create_remote: z.boolean().default(false), private_remote: z.boolean().default(true), player_words: z.string().optional()
+      world: z.string(), engine: z.enum(['godot', 'unity', 'unreal', 'bevy', 'web', 'love2d', 'gamemaker', 'defold', 'monogame', 'other']).optional(),
+      pitch: z.string().optional(), create_remote: z.boolean().default(false), private_remote: z.boolean().default(true), player_words: z.string().trim().min(1)
     },
     async (a) => {
-      if (a.create_remote && role === 'bot') return fail('creating a remote repo is outward-facing: it waits for the player')
-      const noRemote = a.create_remote ? unheard('creating a remote repo', a.player_words, 'remote') : undefined
-      if (noRemote) return fail(noRemote)
-      const p = await getCtx().projects.create({ name: a.name, engine: a.engine, description: a.description, mode: a.mode, createRemote: a.create_remote, privateRemote: a.private_remote })
+      if (role === 'bot') return fail('starting a git repo waits for the player')
+      const no = unheard('Starting the git repo', a.player_words, 'init') ?? (a.create_remote ? unheard('Creating a remote repo', a.player_words, 'remote') : undefined)
+      if (no) return fail(no)
+      const p = await getCtx().projects.init(a.world, { engine: a.engine, pitch: a.pitch, createRemote: a.create_remote, privateRemote: a.private_remote })
       did('settings', `project ${p.name}`)
-      return ok(`project ${p.name} created at ${p.path} (${a.engine} scaffold, detected engine ${p.engine}, ${modeLabel(p.mode)})`)
+      return ok(`${p.name}: git repo started on ${p.defaultBranch || 'main'} with a first commit (${modeLabel(p.mode)}${p.remote ? `, remote ${p.remote}` : ''}). Units can start now.`)
     }
   )
 
   t(
+    'project_setup',
+    'Project setup in the chat (procedure_read("setup")): the steps still open, ticked from real facts. read returns the status, the next step and every step with its fact. skip records that the player skipped a step (default: the next one) or answered it with nothing to change; stop ends setup when they say so; resume starts or continues it ("set up this project", "continue setup") and re-asks skipped steps. Skips and stops are remembered across restarts.',
+    { world: z.string(), action: z.enum(['read', 'skip', 'stop', 'resume']).default('read'), step: z.enum(SETUP_STEP_IDS).optional() },
+    async (a) => {
+      if (role === 'bot' && a.action !== 'read') return fail('setup waits for the player')
+      return ok(json(setupTool(getCtx(), a.world, home.state, a.action, a.step)))
+    }
+  )
+  t(
     'world_update',
-    `Change a project's registry entry: mode (pins it; mode=auto makes it follow the remote again), Auto-loot (only on the player's word), branch prefix, capacity, engine commands (setup/build/test/lint), description. The engine and its root are detected, never set here. The player sees these under Settings → This project: capacity is Max units at once (General), Auto-loot is Merge finished work automatically and the prefix is Branch name prefix (Delivery), commands are on Commands.`,
+    `Change a project's registry entry: mode (pins it; mode=auto makes it follow the remote again; only on the player's word), Auto-loot (only on the player's word; player_words quotes it verbatim), branch prefix, capacity, engine commands (setup/build/test/lint), description. The engine and its root are detected, never set here. The player sees these under Settings → This project: capacity is Max units at once (General), Auto-loot is Merge finished work automatically and the prefix is Branch name prefix (Delivery), commands are on Commands.`,
     {
       world: z.string(), mode: z.enum(['no-mistakes', 'direct-PR', 'local-only', 'no-mistakes-prod-only', 'auto']).optional(),
       auto_loot: z.boolean().optional(), player_words: z.string().optional(), branch_prefix: z.string().optional(),
@@ -943,6 +952,9 @@ export function createToolRegistry(
       if (a.auto_loot === true && role === 'bot') return fail('Auto-loot is granted only by the player')
       const noLoot = a.auto_loot === true ? unheard('Auto-loot', a.player_words, 'auto-loot') : undefined
       if (noLoot) return fail(noLoot)
+      if (a.mode !== undefined && role === 'bot') return fail('the delivery mode is changed only by the player')
+      const noMode = a.mode !== undefined ? unheard('Changing the delivery mode', a.player_words, 'delivery') : undefined
+      if (noMode) return fail(noMode)
       const patch: Record<string, unknown> = {}
       if (a.mode === 'auto') patch.modeSource = 'auto'
       else if (a.mode) patch.mode = a.mode

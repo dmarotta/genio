@@ -277,7 +277,9 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     installTool: (name) => ctx().toolchain.install(name),
     pickDirectory: async () => {
       const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows().find(w => w.isFocusable())
-      const r = win ? await dialog.showOpenDialog(win, { properties: ['openDirectory'] }) : await dialog.showOpenDialog({ properties: ['openDirectory'] })
+      // createDirectory: macOS needs it for New Folder; Windows always offers it. Projects live wherever the player makes one.
+      const properties: Electron.OpenDialogOptions['properties'] = ['openDirectory', 'createDirectory']
+      const r = win ? await dialog.showOpenDialog(win, { properties }) : await dialog.showOpenDialog({ properties })
       return r.canceled || !r.filePaths[0] ? null : r.filePaths[0]
     },
     // The caller's window is resolved from the IPC sender below.
@@ -486,7 +488,6 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
       if (!windows) throw new Error('Project windows are unavailable.')
       return windows.openProject(folder)
     },
-    projectCreate: (req) => ctx().projects.create(req),
     projectUpdate: (name, patch) => ctx().projects.update(name, patch),
     projectRemove: (name, deleteClone) => ctx().projects.remove(name, deleteClone),
     projectSync: (name) => ctx().projects.sync(name),

@@ -1,7 +1,7 @@
 # Project opening and automatic greeting
 
 The Hub owns project selection and nothing else: it shows the project list (with
-Open folder, Add project, New project, Sync all and Settings) and no project's
+Open folder, Add project, Sync all and Settings) and no project's
 work, choices or presence. Opening a project, from the Hub or anywhere else,
 closes the Hub once the project window has loaded (a failed open leaves it up to
 show the error). Genio keeps running while any window is open; closing the last
@@ -48,6 +48,19 @@ its event batch, preserving the recap and excluding individually acknowledged
 events. A successful turn acknowledges only its delivered batch; later arrivals
 follow separately. Oversized events retain the usual `event_read` continuation.
 
+## A new folder: project setup
+
+There is no New project form: the player makes or picks any folder in the
+system folder dialog (it has New folder) and opens it. The first open of a
+folder writes nothing into it; Genio registers it in its own data and infers the
+engine. A folder that is empty or has no git repo starts project setup
+([project-setup.md](project-setup.md)): the recap carries one line such as
+`Setup: new project; next: git repo.`, and the greeting ends with that step as one
+question. Its first step is git: `project_init` runs only on the player's yes.
+On later openings the line says `Setup: reopened; next: …; skipped: …` and Genio
+asks once whether to pick setup up there; after two openings in a row with no
+answer, setup stops without a word. While the player is DND or AFK the line is
+left out. Stopped, finished or never started setup adds no line.
 Coverage lives in `project-startup.test.ts`, `chat-queue.test.ts`, and
 `window-manager.test.ts`, with the existing status, backlog, lifecycle and
 achievement guard suites. Tests use fake terminals and SDK streams; they do not

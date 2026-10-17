@@ -91,7 +91,7 @@ describe('project window lifecycle', () => {
     expect(f.windows[0].destroyed).toBe(true)
     expect(f.windows[1].destroyed).toBe(false)
     expect(f.app.exit).not.toHaveBeenCalled()
-    expect(f.windows[1].query).toEqual({ project: 'one', wksp: 'ally-one', registered: '1' })
+    expect(f.windows[1].query).toEqual({ project: 'one', wksp: 'ally-one' })
     expect(f.windows[1].setMenu).toHaveBeenCalledExactlyOnceWith(null)
     expect(f.windows[1].title).toBe('Genio - one')
     const preventDefault = vi.fn()

@@ -1,21 +1,16 @@
-import { detectedLine, detectedView, proposalLine } from '@shared/engine'
-import { PROJECT_WINDOW, api, op, setState, useStore } from '../store'
-import { MODE_LABEL } from '../lib/vocab'
+import { proposalLine } from '@shared/engine'
+import { PROJECT_WINDOW, api, op, useStore } from '../store'
 import { openSettings } from '../lib/settings-nav'
 
-/** Registration is informational and dismissible; settings remain one click away. In the window shell, apart from Settings. */
+/** A retired engine set by hand that detection does not pick: shown until dismissed. In the window shell, apart from Settings.
+ * Opening a folder shows no notice: the setup greeting in the chat says what a new folder needs. */
 export function ProjectNotice() {
-  const registered = useStore(s => s.registeredProject)
   const project = useStore(s => s.snap.projects.find(p => p.name === PROJECT_WINDOW))
   const proposal = project && proposalLine(project)
-  if (!project || (!registered && !proposal && project.gitRepo !== false)) return null
-  const view = detectedView(project)
+  if (!project || !proposal) return null
   return <div role="status" className="project-notice">
-    <span className="project-notice-text">{registered ? `Registered ${project.name} · ${detectedLine(view)}${view.ambiguous ? ' · ambiguous' : ''} · ${MODE_LABEL[project.mode]}` : project.name}
-      {project.gitRepo === false ? ' · Git actions need a git repo' : !project.remote ? ' · No remote' : ''}
-      {proposal && <span className="amber-text"> · {proposal}</span>}</span>
-    {(registered || proposal) && <button className="btn sm ghost" onClick={() => openSettings('project', 'settings-engine')}>{registered ? 'Change' : 'Settings'}</button>}
-    {registered && <button className="btn sm ghost" aria-label="Dismiss registration" onClick={() => setState({ registeredProject: undefined })}>Dismiss</button>}
-    {!registered && proposal && <button className="btn sm ghost" aria-label="Dismiss engine proposal" onClick={() => void op('Engine proposal', () => api().projectUpdate(project.name, { engineProposal: undefined }))}>Dismiss</button>}
+    <span className="project-notice-text">{project.name}<span className="amber-text"> · {proposal}</span></span>
+    <button className="btn sm ghost" onClick={() => openSettings('project', 'settings-engine')}>Settings</button>
+    <button className="btn sm ghost" aria-label="Dismiss engine proposal" onClick={() => void op('Engine proposal', () => api().projectUpdate(project.name, { engineProposal: undefined }))}>Dismiss</button>
   </div>
 }

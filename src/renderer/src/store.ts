@@ -33,7 +33,6 @@ export type DesignOpen = { kind: 'chat'; id: string } | { kind: 'note'; name: st
 export type Focus ={ type: 'task'; id: string } | { type: 'terminal'; id: string } | null
 
 export interface State {
-  registeredProject?: string
   booted: boolean
   connected: boolean
   snap: FleetSnapshot
@@ -132,7 +131,6 @@ let state: State = {
   achievements: [],
   signIn: [],
   view: DEFAULT_VIEW,
-  registeredProject: windowParams.has('registered') ? PROJECT_WINDOW : undefined,
   focus: null,
   deploy: null,
   palette: false,

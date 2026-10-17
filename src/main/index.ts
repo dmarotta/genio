@@ -207,11 +207,11 @@ async function openHub(): Promise<void> {
 
 export function openProject(folder: string): Promise<void> {
   const operation = openQueue.then(async () => {
-    const { project, registered } = await ctx!.projects.openFolder(folder)
+    const { project } = await ctx!.projects.openFolder(folder)
     const existing = [...windows].find(([, b]) => b?.project === project.name)?.[0]
     if (existing) { focusWindow(existing); closeHub(); return }
     const wksp = await ensureProjectBase(ctx!, project.name)
-    const win = createWindow({ project: project.name, wksp }, registered)
+    const win = createWindow({ project: project.name, wksp })
     await windowLoads.get(win)
     if (!win.isDestroyed()) closeHub()
     ctx!.stats.unlock('project-window-open')
@@ -250,7 +250,7 @@ function brandTaskbar(win: BrowserWindow, folder?: string): void {
   if (process.platform === 'win32') win.setAppDetails(windowAppDetails(appRoot(), folder))
 }
 
-function createWindow(binding?: WindowBinding, registered = false): BrowserWindow {
+function createWindow(binding?: WindowBinding): BrowserWindow {
   const isWin = process.platform === 'win32'
   const projectPath = binding && ctx?.projects.get(binding.project)?.path
   let projectName = binding && (ctx?.projects.get(binding.project)?.name ?? binding.project)
@@ -407,7 +407,7 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
     if (binding && ctx) void Promise.resolve().then(() => playerInstanceService(ctx!).quit(binding.project)).catch(() => {})
   })
 
-  const query: Record<string, string> = binding ? { project: binding.project, wksp: binding.wksp, ...(registered ? { registered: '1' } : {}) } : {}
+  const query: Record<string, string> = binding ? { project: binding.project, wksp: binding.wksp } : {}
   let loading: Promise<void>
   if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
     const url = new URL(process.env.ELECTRON_RENDERER_URL)

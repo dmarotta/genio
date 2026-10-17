@@ -48,7 +48,7 @@ import type { AppCtx, WkspService } from '../src/main/services'
 const FORBIDDEN = ['deploy', 'merge', 'despawn', 'control', 'ping', 'upgrade_recon', 'run_gauntlet', 'quest_add', 'quest_update', 'quest_hold',
   'quest_release', 'quest_remove', 'quest_answer', 'plan_create', 'plan_update', 'choice_open', 'choice_resolve', 'choice_list', 'event_read', 'events_ack',
   'settings_update', 'settings_read', 'memory_write', 'memory_archive', 'fal_generate', 'fal_models', 'uthana_motion', 'uthana_character', 'asset_place',
-  'approve_run', 'world_add', 'world_create', 'world_push', 'world_sync', 'world_remove', 'world_engine_root', 'presence_set', 'play_control',
+  'approve_run', 'world_add', 'project_init', 'project_setup', 'world_push', 'world_sync', 'world_remove', 'world_engine_root', 'presence_set', 'play_control',
   'rate_task', 'escalate', 'ally_route', 'report_to_main', 'mail_reply', 'mail_ack']
 
 let root: string

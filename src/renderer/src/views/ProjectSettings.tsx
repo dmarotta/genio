@@ -2,7 +2,7 @@ import { GenerationSettings } from '../components/GenerationSettings'
 import { useState } from 'react'
 import { FolderOpen, RefreshCw } from 'lucide-react'
 import { modeSourceOf } from '@shared/vocab'
-import type { Engine, Project, ProjectCommands, ProjectMode } from '@shared/types'
+import type { Project, ProjectCommands, ProjectMode } from '@shared/types'
 import { cheapModelsAllowed } from '@shared/dispatch'
 import { settingAnchor } from '@shared/settings-index'
 import type { SettingsPageId } from '@shared/settings-pages'
@@ -10,8 +10,7 @@ import { SettingsTitle } from '../components/SettingsTitle'
 import { MODE_PRESETS, USAGE_MODES, USAGE_MODE_LABEL, type UsageMode } from '@shared/usage-mode'
 import { PROJECT_WINDOW, api, errText, op, toast, useStore } from '../store'
 import { CommitInput, Confirm, Field, Modal, Toggle } from '../components/ui'
-import { ENGINES, ENGINE_LABEL, MODE_LABEL, PROJECT_MODES } from '../lib/vocab'
-import { cx } from '../lib/format'
+import { ENGINE_LABEL, MODE_LABEL, PROJECT_MODES } from '../lib/vocab'
 import { detectedView, effectiveEngine, proposalLine } from '@shared/engine'
 import { supportsUnitySlots } from '@shared/play'
 import { UnitySlots } from './UnitySlots'
@@ -244,79 +243,6 @@ export function AddProject({ onClose, onAdded }: { onClose: () => void; onAdded?
           <Field label="Local folder" wide>
             <Toggle checked={inPlace} onChange={setInPlace} label="Use in place (Genio reads it and builds in isolated copies; never edits it directly)" />
           </Field>
-        )}
-      </div>
-    </Modal>
-  )
-}
-
-export function NewProject({ onClose, onCreated }: { onClose: () => void; onCreated?: (p: Project) => Promise<void> }) {
-  const [name, setName] = useState('')
-  const [engine, setEngine] = useState<Engine>('godot')
-  const [description, setDescription] = useState('')
-  const [remote, setRemote] = useState(false)
-  const [priv, setPriv] = useState(true)
-  const [busy, setBusy] = useState(false)
-  const valid = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(name)
-  return (
-    <Modal
-      kicker="New game"
-      title="Create a project"
-      onClose={onClose}
-      width={620}
-      footer={
-        <>
-          <button className="btn ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            className="btn solid"
-            disabled={busy || !valid}
-            onClick={async () => {
-              setBusy(true)
-              try {
-                const p = await api().projectCreate({ name, engine, description: description.trim() || undefined, createRemote: remote, privateRemote: priv })
-                toast('success', 'Project created', p.name)
-                onClose()
-                await onCreated?.(p)
-              } catch (e) {
-                toast('error', 'Could not create project', errText(e))
-              } finally {
-                setBusy(false)
-              }
-            }}
-          >
-            Create
-          </button>
-        </>
-      }
-    >
-      <div className="form-grid">
-        <Field label="Name" hint={name && !valid ? 'Letters, digits, . _ - only' : undefined}>
-          <input className="input mono" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="space-goblins" />
-        </Field>
-        <Field label="Scaffold for" hint="Sets up .gitignore and AGENTS.md. Genio detects the engine once its project files exist.">
-          <select className="select" value={engine} onChange={(e) => setEngine(e.target.value as Engine)}>
-            {ENGINES.map((x) => (
-              <option key={x} value={x}>
-                {ENGINE_LABEL[x]}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Pitch" wide>
-          <textarea className="textarea" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="One-liner: what's the game?" />
-        </Field>
-      </div>
-      <div className={cx('outward', remote && 'on')}>
-        <Toggle checked={remote} onChange={setRemote} label="Also create a GitHub repository" />
-        {remote && (
-          <>
-            <p className="amber-text" style={{ fontSize: 13, margin: '10px 0' }}>
-              Outward-facing: this creates a repository on GitHub under your account and pushes to it.
-            </p>
-            <Toggle checked={priv} onChange={setPriv} label={priv ? 'Private repository' : 'Public repository'} />
-          </>
         )}
       </div>
     </Modal>

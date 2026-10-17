@@ -115,7 +115,7 @@ The helpers and `genio-art` read `GENIO_ART_BIBLE` when it is set. The brief get
 
 ### Chat
 
-The contract has one line, and the assets skill one step. The `art_bible(world, action: read | write, text?, player_words?)` tool is a plain file tool, used only when the player asks: `read` returns the text, a summary and issues; `write` replaces the whole file through `writeArtBible`, which refuses text that would not compile. It needs `player_words` quoting the player's request, and leaves the file uncommitted. Turning an existing art doc into a bible is an ordinary write with a `source:` line. Nothing asks the player for a bible or creates one on its own.
+The contract has one line, and the assets skill one step. The `art_bible(world, action: read | write, text?, player_words?)` tool is a plain file tool, used only when the player asks: `read` returns the text, a summary and issues; `write` replaces the whole file through `writeArtBible`, which refuses text that would not compile. It needs `player_words` quoting the player's request, and leaves the file uncommitted. Turning an existing art doc into a bible is an ordinary write with a `source:` line. Only project setup asks, once, in the chat ([project-setup.md](project-setup.md)); nothing creates one on its own.
 
 ## Helpers and CLI
 

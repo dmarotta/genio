@@ -42,6 +42,8 @@ export const PURPOSES = {
   overwrite: { needs: 'say to replace the existing file', intent: /\b(?:overwrit\w*|replac\w*|overrid\w*|swap\w*)\b/ },
   play: { needs: 'ask for this Play action' },
   remote: { needs: 'agree to create the remote repository', intent: /\b(?:github|remote|repo|repository|publish\w*|push\w*)\b/ },
+  init: { needs: 'agree to start the git repo', intent: /\b(?:yes|yep|yeah|ok|okay|sure|go|go ahead|do it|init\w*|start\w*|set\s+(?:it\s+)?up|create|make|git)\b/, noQuestions: true },
+  delivery: { needs: 'ask for this delivery mode', intent: /\b(?:yes|yep|yeah|ok|okay|sure|go ahead|do it|hardcore|standard|offline|prod|mode|delivery|prs?|pull\s+requests?|local\w*|auto|remote|switch\w*|chang\w*|use|set)\b/, noQuestions: true },
   'auto-loot': { needs: 'turn on Auto-loot', intent: /\bauto[- ]?loot\b|\bmerge\s+(?:finished\s+work\s+)?automatically\b|\bauto[- ]?merg\w*/ },
   'delete-clone': { needs: 'say to delete the clone', intent: /\b(?:delet\w*|remov\w*|wipe\w*|trash\w*)\b/ },
   choice: { needs: 'answer this choice' },

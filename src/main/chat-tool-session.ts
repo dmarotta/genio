@@ -31,7 +31,7 @@ export const DESIGN_TOOLS = new Set(['art_bible', 'assets_find', 'asset_info', '
   'plan_status', 'genio_help', 'generate_image', 'generation_status', 'design_notes'])
 // These services aggregate across worlds or create new authority. Until they
 // offer scoped APIs, limited-world connections cannot call them at all.
-const GLOBAL_ONLY = new Set(['status_report', 'dispatch_profiles', 'world_add', 'world_create',
+const GLOBAL_ONLY = new Set(['status_report', 'dispatch_profiles', 'world_add',
   'mail_list', 'mail_ack', 'mail_reply', 'ally_list', 'ally_route', 'report_to_main', 'presence_set', 'settings_update'])
 const fail = (text: string): CallToolResult => ({ isError: true, content: [{ type: 'text', text }] })
 const result = (value: unknown): CallToolResult => ({ content: [{ type: 'text', text: JSON.stringify(value, null, 1) }] })

@@ -686,7 +686,7 @@ export interface LedgerRecord {
   event:
     | 'task.dispatched' | 'task.status' | 'task.pr_ready' | 'task.merged' | 'task.cleaned_up' | 'task.relaunched'
     | 'decision.opened' | 'decision.resolved' | 'backlog.added' | 'backlog.state'
-    | 'project.added' | 'project.removed' | 'project.remote_changed' | 'project.engine_changed' | 'project.pushed' | 'project.push_refused' | 'project.engine_declared'
+    | 'project.added' | 'project.initialized' | 'project.removed' | 'project.remote_changed' | 'project.engine_changed' | 'project.pushed' | 'project.push_refused' | 'project.engine_declared'
     | 'presence.changed' | 'achievement' | 'approval.standing' | 'approval.revoked' | 'spend.granted'
   task?: string
   project?: string

@@ -5,7 +5,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { DeliveryMode, Engine, EngineCandidate, EngineProposal, Forge, Project, ProjectMode } from '@shared/types'
-import type { OpResult, ProjectAddRequest, ProjectCreateRequest } from '@shared/api'
+import type { OpResult, ProjectAddRequest, ProjectInitRequest } from '@shared/api'
 import { engineSummary, proposalLine } from '@shared/engine'
 import { modeLabel, modeSourceOf } from '@shared/vocab'
 import { settingsPath } from '@shared/settings-pages'
@@ -295,35 +295,42 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
       return register(dest, name, req, true)
     },
 
-    async create(req: ProjectCreateRequest) {
-      const name = slugify(req.name, 48)
-      if (!name) throw new Error('A project needs a name.')
-      if (svc.get(name)) throw new Error(`A project named "${name}" already exists.`)
-      const dir = path.join(mainHome().projects, name)
-      if (exists(dir) && fs.readdirSync(dir).length) throw new Error(`${dir} already exists and is not empty.`)
-      const init = await git.initRepo(dir, 'main')
-      if (init.code !== 0) throw new Error(`git init failed: ${init.stderr.trim()}`)
-      writeText(path.join(dir, '.gitignore'), `# Genio project: ${name}\n${GITIGNORE[req.engine] ?? ''}`)
-      writeText(path.join(dir, 'README.md'), `# ${req.name}\n\n${req.description ?? ''}\n\nEngine: ${req.engine}\n`)
-      writeText(
-        path.join(dir, 'AGENTS.md'),
-        `# ${req.name}\n\nGuidance for coding agents working on this game.\n\n- Engine: ${req.engine}\n${req.description ? `- Pitch: ${req.description}\n` : ''}`
-      )
-      const c = await git.commitAll(dir, 'Initial commit')
-      if (c.code !== 0) {
-        // commit may fail without git identity configured; surface clearly
-        throw new Error(`Initial commit failed: ${(c.stderr || c.stdout).trim()}`)
+    async init(name, req: ProjectInitRequest) {
+      const p = svc.get(name)
+      if (!p) throw new Error(`Unknown project: ${name}`)
+      const dir = p.path
+      if (!exists(dir)) throw new Error(`${dir} is missing.`)
+      // A repo with no commit yet (an earlier init stopped before its commit) is finished, never redone.
+      if (await git.isRepo(dir) && (await git.git(dir, ['rev-parse', '--verify', 'HEAD'])).code === 0) throw new Error(`${name} already has a git repo.`)
+      if (req.createRemote && !which('gh')) throw new Error(`Creating a GitHub repo needs the gh CLI (${settingsPath('toolchain', 'Install')}).`)
+      if (!(await git.isRepo(dir))) {
+        const init = await git.initRepo(dir, 'main')
+        if (init.code !== 0) throw new Error(`git init failed: ${init.stderr.trim()}`)
       }
+      // The player's own .gitignore and AGENTS.md are kept as they are.
+      const engine = req.engine ?? p.engine
+      const pitch = req.pitch?.trim() || p.description?.trim()
+      if (!exists(path.join(dir, '.gitignore'))) writeText(path.join(dir, '.gitignore'), `# Genio project: ${name}\n${GITIGNORE[engine] ?? ''}`)
+      if (!exists(path.join(dir, 'AGENTS.md'))) {
+        writeText(path.join(dir, 'AGENTS.md'), `# ${name}\n\nGuidance for coding agents working on this game.\n\n- Engine: ${engine}\n${pitch ? `- Pitch: ${pitch}\n` : ''}`)
+      }
+      const c = await git.commitAll(dir, 'Initial commit')
+      // commit may fail without git identity configured; surface clearly
+      if (c.code !== 0) throw new Error(`Initial commit failed: ${(c.stderr || c.stdout).trim()}`)
       if (req.createRemote) {
-        if (!which('gh')) throw new Error('Creating a GitHub repo needs the gh CLI. Install it from SYSTEMS first.')
         const vis = req.privateRemote === false ? '--public' : '--private'
         const r = await run(which('gh')!, ['repo', 'create', name, vis, '--source', '.', '--push'], { cwd: dir, timeoutMs: 300_000 })
         if (r.code !== 0) bus.toast('warn', 'GitHub repo not created', (r.stderr || r.stdout).trim())
       }
-      // The engine choice is a scaffold, not a pin: detection takes over once the engine's project files exist.
-      return register(dir, name, { mode: req.mode }, true)
+      if (pitch && !p.description?.trim()) svc.update(name, { description: pitch })
+      try {
+        getCtx().ledger.record({ event: 'project.initialized', project: name, data: { engine, remote: !!req.createRemote } })
+      } catch {
+        /* ledger optional */
+      }
+      // Re-read the folder: git present, delivery follows the remote. The engine choice only picked the .gitignore.
+      return (await svc.openFolder(dir)).project
     },
-
     update(name, patch) {
       const list = load()
       const i = list.findIndex((p) => p.name === name)

@@ -401,11 +401,23 @@ Source: [unit-generator.md](../unit-generator.md)
 ## Hub
 
 The window for opening a project, shown when Genio starts with no project. It lists your projects (most recently
-opened first) with Open folder, Add project, New project, Sync all and Settings, and nothing else: no choices, units
-or chat. Click a project to open it; the Hub closes once the project window is up. Choices from closed projects come
-as desktop notifications and wait in that project's window.
+opened first) with Open folder, Add project, Sync all and Settings, and nothing else: no choices, units or chat.
+There is no New project: make or pick any folder in Open folder (it can make a new one) and Genio sets it up (see
+Project setup). Click a project to open it; the Hub closes once the project window is up. Choices from closed
+projects come as desktop notifications and wait in that project's window.
 Where: on start, or File › Hub (Ctrl+N) in a project window.
 Source: [project-startup.md](../project-startup.md)
+
+## Project setup
+
+Genio guiding a new project in the chat, one question at a time: a git repo (started only on your yes), the game in
+a sentence, the engine, how work lands, art direction, a design one-pager, missing tools, Unity and Play, paid
+generation, and the first work. Steps tick by themselves when the fact is true, wherever you did it. Say "skip" for
+any step, "stop setup" to end it, "set up this project" or "continue setup" to start or resume it. Skips and stops
+are remembered. It starts by itself only on the first open of an empty folder or one without git; it never deploys,
+spends, installs or changes a setting without your words.
+Where: the project's chat (Comms).
+Source: [project-setup.md](../project-setup.md)
 
 ## Settings pages
 

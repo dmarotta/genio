@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { FolderOpen, Plus, RefreshCw, Trash } from 'lucide-react'
 import { api, op, useStore } from '../store'
-import { AddProject, NewProject, RemoveProject } from './ProjectSettings'
+import { AddProject, RemoveProject } from './ProjectSettings'
 import { worldList } from '../lib/worlds'
 import { byRecent, readRecent, rememberRecent } from '../lib/recent'
 import type { WorldMetadata } from '@shared/api'
@@ -15,7 +15,6 @@ export function Hub() {
   const connected = useStore(s => s.connected)
   const [recent, setRecent] = useState(readRecent)
   const [adding, setAdding] = useState(false)
-  const [creating, setCreating] = useState(false)
   const [removing, setRemoving] = useState<Project | null>(null)
   const [opening, setOpening] = useState(false)
   const [syncing, setSyncing] = useState(false)
@@ -55,7 +54,6 @@ export function Hub() {
           if (folder) await openProject(folder)
         })}><FolderOpen size={16} /> Open folder…</button>
         <button className="btn" disabled={!available} onClick={() => setAdding(true)}><Plus size={16} /> Add project</button>
-        <button className="btn" disabled={!available} onClick={() => setCreating(true)}><Plus size={16} /> New project</button>
         <button className="btn ghost" disabled={!available || syncing || !projects.some(project => project.gitRepo !== false)} onClick={async () => {
           setSyncing(true)
           await op('Sync all projects', () => api().projectSync())
@@ -78,11 +76,10 @@ export function Hub() {
                 <Trash size={14} />
               </button>
             </div>
-          )}</div> : <p className="mute">{query ? `No projects match "${query}".` : "No recent projects. Open a folder or create your first project."}</p>}
+          )}</div> : <p className="mute">{query ? `No projects match "${query}".` : "No recent projects. Open a folder, even an empty one."}</p>}
       </section>
       {adding && <AddProject onClose={() => setAdding(false)} onAdded={p => openProject(p.path)} />}
       {removing && <RemoveProject p={removing} onClose={() => setRemoving(null)} />}
-      {creating && <NewProject onClose={() => setCreating(false)} onCreated={p => openProject(p.path)} />}
     </div>
   </div>
 }
