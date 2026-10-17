@@ -44,7 +44,7 @@ the answer no.
    the same header, timeline and details. Add an extra only where a kind genuinely needs it, and
    say which use case needs it.
 10. **Plain names, not jargon or game-flavored words where they would confuse.** Say project,
-    not world. Say EVENT, not NOTE. Genio's gamer vocabulary ([VOCABULARY.md](VOCABULARY.md))
+    not `world`. Say EVENT, not NOTE. Genio's gamer vocabulary ([VOCABULARY.md](VOCABULARY.md))
     stays where it is already established; do not invent new flavor.
 11. **Nothing automatic or forced on the user.** Opt-in: the player asks. No auto-opened
     panels, no auto-started work, no settings changed for them.

@@ -12,10 +12,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
+import { DESIGN_NOTE_MAX_BYTES, type DesignNote } from '@shared/design-notes'
 import { readJson, writeJsonAtomic } from './util'
 
 export const NOTES_DIR = '.genio/design'
-export const NOTE_LIMITS = Object.freeze({ noteBytes: 16 * 1024, totalBytes: 64 * 1024, nameChars: 64 })
+export const NOTE_LIMITS = Object.freeze({ noteBytes: DESIGN_NOTE_MAX_BYTES, totalBytes: 64 * 1024, nameChars: 64 })
 
 export const noteVersion = (text: string): string => createHash('sha256').update(text).digest('hex').slice(0, 16)
 const kb = (bytes: number): string => `${Math.round(bytes / 102.4) / 10} KB`
@@ -187,6 +188,28 @@ export function writeNote(root: string, name: string, text: string, since?: stri
   remember(cacheFile, `${key}|${target.file.toLowerCase()}`, version, body)
   return { name: target.file.slice(0, -3), path: rel(target.file), version, created: current === undefined, size: kb(bytes),
     note: 'Saved uncommitted. The player sees it in the project and commits it when they want units to have it.' }
+}
+
+/** The Design screen's notes: every plain note with its text and version (the folder holds 64 KB at most). */
+export function screenNotes(root: string): DesignNote[] {
+  const dir = notesDir(root)
+  return dir ? notes(dir).map(x => ({ name: x.file.slice(0, -3), file: x.file, text: x.text, version: noteVersion(x.text) })) : []
+}
+
+/**
+ * The player's own edit from the Design screen: the same limits and checks as a chat's write (no player_words:
+ * the player typed it), refused in plain words when the note changed since the editor opened it.
+ */
+export function saveScreenNote(root: string, name: string, text: string, since: string): DesignNote[] {
+  try {
+    writeNote(root, name, text, since)
+  } catch (e) {
+    const m = (e as Error).message
+    if (/changed since you read it/.test(m)) throw new Error('Not saved: the note changed while you edited it. Copy your text, Cancel, and edit the new version.')
+    if (/no longer exists/.test(m)) throw new Error('Not saved: the note was deleted or renamed while you edited it.')
+    throw e
+  }
+  return screenNotes(root)
 }
 
 /** The unit brief's design notes line: only when its copy has the folder. Units read notes as context, never as specs. */

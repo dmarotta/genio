@@ -19,6 +19,7 @@ import { ProjectNotice } from './views/ProjectSettings'
 import { Systems } from './views/Systems'
 import { Inventory } from './views/Inventory'
 import { ArtBible } from './views/ArtBible'
+import { Design } from './views/Design'
 import { Play } from './views/Play'
 import { GenioPanel } from './components/GenioPanel'
 import { TerminalPane } from './components/TerminalPane'
@@ -28,6 +29,7 @@ const VIEW: Partial<Record<ViewId, ComponentType>> = {
   comms: Comms,
   squad: Squad,
   quests: Quests,
+  design: Design,
   status: CharacterSheet,
   systems: Systems,
   inventory: Inventory,

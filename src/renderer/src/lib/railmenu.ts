@@ -1,4 +1,4 @@
-export type ViewId = 'play' | 'inventory' | 'art-bible' | 'comms' | 'squad' | 'quests' | 'status' | 'worlds' | 'systems'
+export type ViewId = 'play' | 'inventory' | 'art-bible' | 'design' | 'comms' | 'squad' | 'quests' | 'status' | 'worlds' | 'systems'
 
 /** One screen reachable from the rail; key is its Ctrl shortcut. */
 export interface NavItem {
@@ -18,6 +18,7 @@ export const RAIL: RailEntry[] = [
   view('comms', 'Comms', '1'),
   view('squad', 'Squad', '2'),
   view('quests', 'Quests', '3'),
+  view('design', 'Design', '7'),
   view('status', 'Character Sheet', '5'),
   view('inventory', 'Inventory', '9'),
   view('art-bible', 'Art Bible', '6'),
@@ -26,7 +27,7 @@ export const RAIL: RailEntry[] = [
 ]
 
 /** Screens that only exist inside a project window. */
-const PROJECT_VIEWS: ViewId[] = ['comms', 'inventory', 'art-bible', 'play']
+const PROJECT_VIEWS: ViewId[] = ['comms', 'design', 'inventory', 'art-bible', 'play']
 
 /** Whether a window offers this screen: the Hub has no project screens; Play needs a supported engine (supportsUnitySlots). */
 export function viewAvailable(view: ViewId, projectWindow: boolean, play: boolean): boolean {

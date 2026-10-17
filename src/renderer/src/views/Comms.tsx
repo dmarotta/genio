@@ -3,9 +3,9 @@ import { ComingNext } from '../components/ComingNext'
 import { GenerationCard } from '../components/GenerationCard'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
 import { ArrowDown, ChevronDown, ChevronRight, ChevronsUp, CircleStop, CornerUpRight, Pencil, Play, RefreshCw, Rocket, Send, ShieldCheck, ThumbsDown, ThumbsUp, TriangleAlert, Wrench, X } from 'lucide-react'
-import type { Ally, ChatMessage, ReactionKind, Settings, ShellRun } from '@shared/types'
+import type { Ally, ChatMessage, WkspInfo, ReactionKind, Settings, ShellRun } from '@shared/types'
 import { formatDuration, isShellCommandMessage, isShellText } from '@shared/terminal-pane'
-import { chatControls, routedRequest, splitQueued, type ChatControls, type UnqueuedChat } from '@shared/chat'
+import { chatControls, chatKey, routedRequest, splitQueued, type ChatControls, type UnqueuedChat } from '@shared/chat'
 import { MAX_IMAGES_PER_MESSAGE } from '@shared/chat-images'
 import {
   PROJECT_WKSP, PROJECT_WINDOW, api, errText, focusTask, getState, go, loadChat, op, openDeploy, saveChatControls, saveSettings, setState, toast, useStore
@@ -58,10 +58,25 @@ export function Comms() {
   )
 }
 
-/** The project chat: its own status bar, log and composer. */
-export function ChatPanel({ wksp, context, surface = 'screen', active: _active = true }: { wksp: string; context?: InventoryContext; surface?: 'screen' | 'panel'; active?: boolean }) {
-  const info = useStore((s) => s.snap.wksps.find((m) => m.name === wksp))
-  const messages = useStore((s) => s.chats[wksp] ?? [])
+/** What a chat pane reads of its session: the project chat's WkspInfo, or a design chat's own state. */
+type ChatSessionInfo = Pick<WkspInfo, 'activity' | 'activityDetail' | 'steerable' | 'queued' | 'limit' | 'botLimit' | 'lastError'>
+
+/** Who answers in this chat, in the copy: Genio, or a design chat (which never speaks as Genio). */
+const DESIGN_AUTHOR = 'Design chat'
+const speaker = (conversation?: string): string => (conversation ? 'The design chat' : ASSISTANT_NAME)
+/** A design chat's id as a call's last argument; the project chat's calls keep their shape. */
+const onDesign = (conversation?: string): [] | [string] => (conversation ? [conversation] : [])
+
+/**
+ * The project chat: its own status bar, log and composer. With `conversation`, one of the project's design chats
+ * (the Design screen): the same log and composer with only its model and effort, no status bar.
+ */
+export function ChatPanel({ wksp, conversation, context, surface = 'screen', active: _active = true }: { wksp: string; conversation?: string; context?: InventoryContext; surface?: 'screen' | 'panel'; active?: boolean }) {
+  const key = chatKey(wksp, conversation)
+  const wkspInfo = useStore((s) => s.snap.wksps.find((m) => m.name === wksp))
+  const designInfo = useStore((s) => (conversation ? s.designChats?.find((c) => c.id === conversation) : undefined))
+  const info: ChatSessionInfo | undefined = conversation ? designInfo : wkspInfo
+  const messages = useStore((s) => s.chats[key] ?? [])
   const settings = useStore((s) => s.settings)
   const gamertag = settings?.gamertag || 'Player'
   const calm = !!settings?.calm
@@ -71,8 +86,8 @@ export function ChatPanel({ wksp, context, surface = 'screen', active: _active =
   const isAlly = wksp !== MAIN_PANEL
 
   useEffect(() => {
-    void loadChat(wksp)
-  }, [wksp])
+    void loadChat(wksp, false, conversation)
+  }, [wksp, conversation])
 
   const visible = useMemo(() => (calm ? messages.filter((m) => !calmHidden(m)) : messages), [messages, calm])
 
@@ -81,28 +96,28 @@ export function ChatPanel({ wksp, context, surface = 'screen', active: _active =
   const fill = useRef<((c: UnqueuedChat) => void) | undefined>(undefined)
   const takeBack = useCallback(async (m: ChatMessage, edit: boolean): Promise<void> => {
     try {
-      const got = await api().unqueueChat(wksp, m.id)
-      if (!got) toast('info', 'Already sent', `${ASSISTANT_NAME} picked that message up before it could be changed.`)
+      const got = await api().unqueueChat(wksp, m.id, ...onDesign(conversation))
+      if (!got) toast('info', 'Already sent', `${speaker(conversation)} picked that message up before it could be changed.`)
       else if (edit) fill.current?.(got)
     } catch (e) {
       toast('error', edit ? 'Message not editable' : 'Message not cancelled', errText(e))
     }
-  }, [wksp])
+  }, [wksp, conversation])
   // A queued message jumps the queue and steers: the turn in progress stops at a safe point and reads it first.
   // The message turns to "Steering" at once; a toast says what it waits for, or why it cannot be sent now.
   const sendNow = useCallback(async (m: ChatMessage): Promise<void> => {
     try {
-      const r = await api().sendQueuedNow(wksp, m.id)
+      const r = await api().sendQueuedNow(wksp, m.id, ...onDesign(conversation))
       if (!r.ok) toast('info', 'Not sent now', r.reason)
       else if (r.note) toast('info', 'Steering', r.note)
     } catch (e) {
       toast('error', 'Message not sent now', errText(e))
     }
-  }, [wksp])
+  }, [wksp, conversation])
 
   return (
     <div className="chat-panel">
-      <header className="comms-head">
+      {!conversation && <header className="comms-head">
         <div className="chat-title">
           <span className="label neon-text">{ASSISTANT_NAME}</span>
         </div>
@@ -127,7 +142,7 @@ export function ChatPanel({ wksp, context, surface = 'screen', active: _active =
             <RefreshCw size={13} />
           </button>
         </div>
-      </header>
+      </header>}
 
       {(['genio', 'bot'] as const).map(role => {
         const limit = role === 'bot' ? info?.botLimit : info?.limit
@@ -137,14 +152,14 @@ export function ChatPanel({ wksp, context, surface = 'screen', active: _active =
             ? 'Claude still reports an expired limit. Restart the session to try again.'
             : `Claude limit reached${limit.resetsAt ? ` ? back at ${new Date(limit.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ' ? waiting for reset'}`)}</span>
           {limit.provider === 'codex' && <button className="btn sm" onClick={() => openSettings('accounts')}>Accounts &amp; keys</button>}
-          {!limit.restartRequired && <button className="btn sm" onClick={() => void op('Retry', () => api().restartWksp(wksp, false, role))}>Retry now</button>}
-          <button className="btn sm ghost" onClick={() => void op('Restart', () => api().restartWksp(wksp, false, role))}>Restart session</button>
+          {!limit.restartRequired && <button className="btn sm" onClick={() => void op('Retry', () => api().restartWksp(wksp, false, role, ...onDesign(conversation)))}>Retry now</button>}
+          <button className="btn sm ghost" onClick={() => void op('Restart', () => api().restartWksp(wksp, false, role, ...onDesign(conversation)))}>Restart session</button>
         </div>
       })}
 
-      <ChatLog key={wksp} wksp={wksp} surface={surface} messages={visible} calm={calm} busy={busy} gamertag={gamertag} activityDetail={info?.activityDetail} lastError={info?.lastError} onTakeBack={takeBack} onSendNow={sendNow} />
+      <ChatLog key={key} wksp={wksp} conversation={conversation} surface={surface} messages={visible} calm={calm} busy={busy} gamertag={gamertag} activityDetail={info?.activityDetail} lastError={info?.lastError} onTakeBack={takeBack} onSendNow={sendNow} />
 
-      <Composer wksp={wksp} busy={busy} steerable={steerable} fill={fill} context={context} />
+      <Composer wksp={wksp} conversation={conversation} busy={busy} steerable={steerable} fill={fill} context={context} />
     </div>
   )
 }
@@ -197,10 +212,11 @@ function topMessage(el: HTMLElement): { id: string; offset: number } | undefined
   return undefined
 }
 
-function ChatLog({ wksp, surface, messages: all, calm, busy, gamertag, activityDetail, lastError, onTakeBack, onSendNow }: { wksp: string; surface: string; messages: ChatMessage[]; calm: boolean; busy: boolean; gamertag: string; activityDetail?: string; lastError?: string; onTakeBack: TakeBack; onSendNow?: SendNow }) {
+function ChatLog({ wksp, conversation, surface, messages: all, calm, busy, gamertag, activityDetail, lastError, onTakeBack, onSendNow }: { wksp: string; conversation?: string; surface: string; messages: ChatMessage[]; calm: boolean; busy: boolean; gamertag: string; activityDetail?: string; lastError?: string; onTakeBack: TakeBack; onSendNow?: SendNow }) {
   const ref = useRef<HTMLDivElement>(null)
   const body = useRef<HTMLDivElement>(null)
-  const memoryKey = `${wksp}:${surface}`
+  const memoryKey = `${chatKey(wksp, conversation)}:${surface}`
+  const design = !!conversation
   // Follow the latest message unless the player scrolled up by hand. Off-screen messages are laid
   // out late (content-visibility), so the bottom keeps moving after a scroll: only wheel, touch,
   // keys or a scrollbar drag count as the player leaving it, never a scroll caused by layout.
@@ -294,7 +310,7 @@ function ChatLog({ wksp, surface, messages: all, calm, busy, gamertag, activityD
         }}
       >
         <div className="chat-log-body" ref={body}>
-          {all.length === 0 && wksp !== MAIN_PANEL && (
+          {all.length === 0 && wksp !== MAIN_PANEL && !design && (
             <div className="chat-empty rise">
               <GenioCore size={80} state={busy ? 'active' : 'idle'} />
               <h2 className="title" style={{ fontSize: 24 }}>
@@ -303,7 +319,7 @@ function ChatLog({ wksp, surface, messages: all, calm, busy, gamertag, activityD
               <p className="dim">Tell Genio what to build in this project. Your conversation and controls stay with this window.</p>
             </div>
           )}
-          {all.length === 0 && wksp === MAIN_PANEL && (
+          {all.length === 0 && wksp === MAIN_PANEL && !design && (
             <div className="chat-empty rise">
               <GenioCore size={110} state={busy ? 'active' : 'idle'} />
               <h2 className="title" style={{ fontSize: 30 }}>
@@ -324,15 +340,15 @@ function ChatLog({ wksp, surface, messages: all, calm, busy, gamertag, activityD
             </div>
           )}
           {messages.map((m) => (
-            <Message key={m.id} m={m} calm={calm} gamertag={gamertag} onTakeBack={onTakeBack} />
+            <Message key={m.id} m={m} calm={calm} gamertag={gamertag} design={design} onTakeBack={onTakeBack} />
           ))}
           {busy && (
             <div className="msg genio working rise">
-              <div className="msg-avatar">
+              {!design && <div className="msg-avatar">
                 <GenioCore size={34} state="active" />
-              </div>
+              </div>}
               <div className="working-line">
-                <span className="working-text">{activityDetail ? trunc(activityDetail, 60) : `${ASSISTANT_NAME} is on it`}</span>
+                <span className="working-text">{activityDetail ? trunc(activityDetail, 60) : design ? 'Thinking' : `${ASSISTANT_NAME} is on it`}</span>
                 <span className="working-dots">
                   <i />
                   <i />
@@ -341,9 +357,9 @@ function ChatLog({ wksp, surface, messages: all, calm, busy, gamertag, activityD
               </div>
             </div>
           )}
-          {lastError && !busy && <div className="msg-error mono">{lastError} <button className="btn sm" onClick={() => void op('Restart', () => api().restartWksp(wksp, false))}>Restart session</button></div>}
+          {lastError && !busy && <div className="msg-error mono">{lastError} <button className="btn sm" onClick={() => void op('Restart', () => (conversation ? api().restartWksp(wksp, false, undefined, conversation) : api().restartWksp(wksp, false)))}>Restart session</button></div>}
           {queued.map((m) => (
-            <Message key={m.id} m={m} calm={calm} gamertag={gamertag} onTakeBack={onTakeBack} onSendNow={onSendNow} />
+            <Message key={m.id} m={m} calm={calm} gamertag={gamertag} design={design} onTakeBack={onTakeBack} onSendNow={onSendNow} />
           ))}
         </div>
       </div>
@@ -362,7 +378,7 @@ function ChatLog({ wksp, surface, messages: all, calm, busy, gamertag, activityD
  * One message. Memoised: a streamed delta replaces only the message it belongs to, so the
  * other messages of a long transcript keep their rendered output (and parsed Markdown).
  */
-const Message = memo(function Message({ m, calm, gamertag, onTakeBack, onSendNow }: { m: ChatMessage; calm: boolean; gamertag: string; onTakeBack: TakeBack; onSendNow?: SendNow }) {
+const Message = memo(function Message({ m, calm, gamertag, design = false, onTakeBack, onSendNow }: { m: ChatMessage; calm: boolean; gamertag: string; design?: boolean; onTakeBack: TakeBack; onSendNow?: SendNow }) {
   const [open, setOpen] = useState(false)
   if (m.role === 'player') {
     const waiting = m.queue === 'queued' || m.queue === 'unsent'
@@ -417,7 +433,7 @@ const Message = memo(function Message({ m, calm, gamertag, onTakeBack, onSendNow
       </div>
     )
   }
-  const routed = m.wksp !== MAIN_PANEL ? routedRequest(m) : null
+  const routed = m.wksp !== MAIN_PANEL && !design ? routedRequest(m) : null
   if (routed) {
     return (
       <div data-msg={m.id} className="msg player from-genio rise">
@@ -449,9 +465,9 @@ const Message = memo(function Message({ m, calm, gamertag, onTakeBack, onSendNow
   const tools = m.tools ?? []
   return (
     <div data-msg={m.id} className={cx('msg genio rise', noop && 'noop', calm && noop && 'calm-noop')}>
-      <div className="msg-avatar">
+      {!design && <div className="msg-avatar">
         <GenioCore size={34} state={m.partial ? 'active' : 'idle'} />
-      </div>
+      </div>}
       <div className="msg-content">
         {m.text && !m.generation && <Markdown text={m.text} className={m.partial ? 'streaming' : ''} />}
         {m.generation && <GenerationCard card={m.generation} wksp={m.wksp} />}
@@ -477,11 +493,12 @@ const Message = memo(function Message({ m, calm, gamertag, onTakeBack, onSendNow
             )}
           </div>
         )}
-        {!m.partial && <ReactionNote m={m} />}
+        {/* reactions steer Genio's work; a design chat starts none */}
+        {!m.partial && !design && <ReactionNote m={m} />}
         <div className="msg-meta">
-          {ASSISTANT_NAME} · {clock(m.ts)}
+          {design ? DESIGN_AUTHOR : ASSISTANT_NAME} · {clock(m.ts)}
           <CopyMessageButton text={m.text} />
-          {!m.partial && (m.text || m.generation) && <Reactions m={m} />}
+          {!m.partial && !design && (m.text || m.generation) && <Reactions m={m} />}
         </div>
       </div>
     </div>
@@ -588,20 +605,23 @@ function ReactionNote({ m }: { m: ChatMessage }) {
   )
 }
 
-function Composer({ wksp, busy, steerable = false, fill, context }: { wksp: string; busy: boolean; steerable?: boolean; context?: InventoryContext; fill: RefObject<((c: UnqueuedChat) => void) | undefined> }) {
+function Composer({ wksp, conversation, busy, steerable = false, fill, context }: { wksp: string; conversation?: string; busy: boolean; steerable?: boolean; context?: InventoryContext; fill: RefObject<((c: UnqueuedChat) => void) | undefined> }) {
+  // A design chat's composer: text and images, its model and effort; no commands, shell or quick links.
+  const design = !!conversation
+  const key = chatKey(wksp, conversation)
   // Client-side commands drive the whole app, so they live in the main chat; an ally gets its text (and its own /help, /status, /save) as typed.
-  const isMain = wksp === MAIN_PANEL
+  const isMain = wksp === MAIN_PANEL && !design
   // '!' as the first character: shell mode. The '!' becomes the prompt glyph; the draft keeps it.
-  const [shell, setShell] = useState(() => isShellText(getDraft(wksp)))
-  const [text, setText] = useState(() => withoutBang(getDraft(wksp)))
+  const [shell, setShell] = useState(() => !design && isShellText(getDraft(key)))
+  const [text, setText] = useState(() => withoutBang(getDraft(key)))
   const unavailable = useStore(shellUnavailable)
   const history = useRef<{ list: string[]; at: number; draft: string }>({ list: [], at: -1, draft: '' })
   const [sel, setSel] = useState(0)
   const ta = useRef<HTMLTextAreaElement>(null)
   const composer = useRef<HTMLDivElement>(null)
   const box = useRef<HTMLDivElement>(null)
-  const att = useAttachments(wksp)
-  const inventory = useInventoryContext(wksp, context)
+  const att = useAttachments(key)
+  const inventory = useInventoryContext(key, context)
   const canSend = !!text.trim() || att.images.length > 0
   // Recap runs as its own turn: hold it while one runs or messages wait, and when the chat cannot take a turn.
   const info = useStore((s) => s.snap.wksps.find((m) => m.name === wksp))
@@ -612,7 +632,7 @@ function Composer({ wksp, busy, steerable = false, fill, context }: { wksp: stri
       : ''
   const update = (v: string, inShell = shell): void => {
     setText(v)
-    setDraft(wksp, (inShell ? '!' : '') + v)
+    setDraft(key, (inShell ? '!' : '') + v)
   }
   const shellMode = (on: boolean, v = ''): void => {
     setShell(on)
@@ -622,21 +642,21 @@ function Composer({ wksp, busy, steerable = false, fill, context }: { wksp: stri
 
   // Restore this chat's draft (on mount or chat switch) with the caret at the end.
   useLayoutEffect(() => {
-    const raw = getDraft(wksp)
+    const raw = getDraft(key)
     const d = withoutBang(raw)
-    setShell(isShellText(raw))
+    setShell(!design && isShellText(raw))
     setText(d)
     const el = ta.current
     if (el && d) {
       el.value = d
       el.setSelectionRange(d.length, d.length)
     }
-  }, [wksp])
+  }, [key, design])
   // A queued message taken back for editing: its text goes first (ahead of any draft), its images join the strip.
   useEffect(() => {
     fill.current = (c) => {
       inventory.restore(c.context)
-      const draft = withoutBang(getDraft(wksp))
+      const draft = withoutBang(getDraft(key))
       const next = [c.text, draft].filter((s) => s.trim()).join('\n\n')
       setShell(false)
       update(next, false)
@@ -669,7 +689,7 @@ function Composer({ wksp, busy, steerable = false, fill, context }: { wksp: stri
     })
     observer.observe(el)
     return () => observer.disconnect()
-  }, [text, wksp])
+  }, [text, key])
 
   const localSystem = (t: string): void => {
     const s = getState()
@@ -767,8 +787,8 @@ function Composer({ wksp, busy, steerable = false, fill, context }: { wksp: stri
     att.set([])
     try {
       const sendable = images.length ? toSendable(images) : undefined
-      if (steer) await api().steerChat(wksp, t, sendable, inventory.context)
-      else await api().sendChat(wksp, t, sendable, inventory.context)
+      if (steer) await api().steerChat(wksp, t, sendable, inventory.context, ...onDesign(conversation))
+      else await api().sendChat(wksp, t, sendable, inventory.context, ...onDesign(conversation))
       inventory.sent()
     } catch (e) {
       toast('error', 'Message not sent', errText(e))
@@ -846,17 +866,19 @@ function Composer({ wksp, busy, steerable = false, fill, context }: { wksp: stri
             shell
               ? 'run a shell command'
               : steerable
-              ? `${ASSISTANT_NAME} is working… Send queues it for next; Steer reads it now.`
+              ? `${speaker(conversation)} is working… Send queues it for next; Steer reads it now.`
               : busy
-              ? `${ASSISTANT_NAME} is working… you can still send; it queues and is read next.`
-              : isMain
+              ? `${speaker(conversation)} is working… you can still send; it queues and is read next.`
+              : design
+                ? 'Message the design chat…'
+                : isMain
                 ? 'Message Genio  ·  / for commands'
                 : `Message ${ASSISTANT_NAME}  ·  it answers you here`
           }
           onChange={(e) => {
             const v = e.target.value
             setSel(0)
-            if (!shell && isShellText(v) && !unavailable) shellMode(true, v.slice(1))
+            if (!shell && !design && isShellText(v) && !unavailable) shellMode(true, v.slice(1))
             else update(v)
           }}
           onKeyDown={(e) => {
@@ -883,7 +905,7 @@ function Composer({ wksp, busy, steerable = false, fill, context }: { wksp: stri
                 return
               }
             }
-            if (e.key === 'Tab' && e.shiftKey) {
+            if (e.key === 'Tab' && e.shiftKey && !design) {
               e.preventDefault()
               cycleShellMode(wksp)
               return
@@ -913,8 +935,12 @@ function Composer({ wksp, busy, steerable = false, fill, context }: { wksp: stri
           </button>
         )}
       </div>
-      {!shell && unavailable && isShellText(text) && <div className="composer-shell-off alert-text" role="status">Shell mode is unavailable: {unavailable}</div>}
-      <div className="composer-hints mute">
+      {!shell && !design && unavailable && isShellText(text) && <div className="composer-shell-off alert-text" role="status">Shell mode is unavailable: {unavailable}</div>}
+      {design ? (
+        <div className="composer-hints mute">
+          <span><DesignModelControls wksp={wksp} conversation={conversation} /></span>
+        </div>
+      ) : <div className="composer-hints mute">
         <span>
           <ShellModeButton wksp={wksp} />
           <ChatModelControls wksp={wksp} />
@@ -939,7 +965,7 @@ function Composer({ wksp, busy, steerable = false, fill, context }: { wksp: stri
           </button>
           {isMain && <button className="link-btn" onClick={() => openDeploy()}>Deploy</button>}
         </span>
-      </div>
+      </div>}
     </div>
   )
 }
@@ -1007,6 +1033,43 @@ function ChatModelControls({ wksp }: { wksp: string }) {
         title={`${who} effort${ally ? inherits(ally.effort) : ''}. ${APPLY_HINT}`}
         style={{ ...COMPACT_SELECT, marginRight: 12 }}
         onChange={(v) => void saveChatControls(wksp, { effort: v })}
+      />
+    </>
+  )
+}
+
+/** A design chat's own model and effort, following the project chat's until changed here. */
+function DesignModelControls({ wksp, conversation }: { wksp: string; conversation: string }) {
+  const chat = useStore((s) => s.designChats?.find((c) => c.id === conversation))
+  const project = useChatControls(wksp)
+  const model = chat?.model || project.model
+  const save = async (patch: { model?: string; effort?: string }): Promise<void> => {
+    const swap = (next: (c: NonNullable<typeof chat>) => NonNullable<typeof chat>): void =>
+      setState((s) => ({ designChats: s.designChats?.map((c) => (c.id === conversation ? next(c) : c)) }))
+    const before = chat
+    swap((c) => ({ ...c, ...patch }))
+    try {
+      const saved = await api().designChatConfigure(wksp, conversation, patch)
+      swap(() => saved)
+    } catch (e) {
+      if (before) swap(() => before)
+      toast('error', 'Design chat settings not saved', errText(e))
+    }
+  }
+  return (
+    <>
+      <ModelSelect
+        value={model}
+        title={`Design chat model${chat?.model ? '' : ' (following Genio)'}. ${APPLY_HINT}`}
+        style={COMPACT_SELECT}
+        onChange={(v) => void save({ model: v, effort: '' })}
+      />
+      <EffortSelect
+        model={model}
+        value={chat?.effort || project.effort}
+        title={`Design chat effort${chat?.effort ? '' : ' (following Genio)'}. ${APPLY_HINT}`}
+        style={COMPACT_SELECT}
+        onChange={(v) => void save({ effort: v })}
       />
     </>
   )

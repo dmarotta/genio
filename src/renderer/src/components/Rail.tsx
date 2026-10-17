@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Backpack, IdCard, Globe, MessageSquare, Palette, ScrollText, Settings, Swords, Gamepad2, type LucideIcon } from 'lucide-react'
+import { Backpack, IdCard, Globe, Lightbulb, MessageSquare, Palette, ScrollText, Settings, Swords, Gamepad2, type LucideIcon } from 'lucide-react'
 import { PROJECT_WINDOW, go, useStore, runningUnits, playAvailable, type ViewId } from '../store'
 import { cx } from '../lib/format'
 import { entryActive, initialIndex, menuKey, navItems, opensMenu, windowRail, type NavItem, type RailEntry } from '../lib/railmenu'
@@ -13,6 +13,7 @@ const ICON: Record<string, LucideIcon> = {
   comms: MessageSquare,
   squad: Swords,
   quests: ScrollText,
+  design: Lightbulb,
   status: IdCard,
   worlds: Globe,
   systems: Settings,

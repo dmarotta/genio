@@ -8,8 +8,34 @@ stays the only door to work. A project can have several design chats at once, on
 There is one kind of design chat. The player sets its role in words ("be a harsh critic", "you are a narrative
 designer"), and the chat keeps that stance until they change it. There are no persona presets.
 
-This page covers the runtime and the design notes in the main process. The Design screen that shows the chats
-and notes is built separately.
+This page covers the Design screen, the runtime and the design notes.
+
+## The Design screen
+
+**Design** sits in the rail after Quests (**Ctrl+7**) in every project window, never in the Hub.
+(`src/renderer/src/views/Design.tsx`.)
+
+- **One list** on the left: **New chat**, then **Chats** (newest first; a chat is named by its first message,
+  "New chat" until then), then **Notes** (the files in `.genio/design/`). Right-click a chat, or press the
+  context-menu key on it, for **Delete chat**, which stops it and deletes its transcript. New chat reuses a chat
+  that has no message yet instead of adding another empty one.
+- **A chat** opens in the project chat's own chat view (`ChatPanel` with a conversation id): the same log, queue,
+  steering, images and composer, with only the chat's **model and effort** under it. There is no status bar,
+  approval mode, Clean HUD, shell mode, slash commands, Recap, Deploy or reactions: the design chat starts no work.
+  Its replies are signed "Design chat", never Genio.
+- **A note** reads as rendered markdown (its front matter hidden). **Edit** opens it in the Art Bible's markdown
+  editor (`MarkdownEditor`): Ctrl+S or Save file saves it, Cancel drops the edit. The save is refused when the note
+  changed since Edit (a design chat saved it meanwhile), and over the size limits. Like the Art Bible screen, the
+  notes are read every few seconds and on focus, so a note a chat saves appears while the screen is open.
+- **Empty**: with no design chats, one line: "No design chats yet. Start one with New chat."
+- **Narrow windows** (720 px and below): the list becomes a picker in the header ("Combat loop ▾") that opens it as
+  a sheet.
+- **Screen context** for the floating Genio panel: one fact, the open chat's title or the note's file name. The
+  floating panel stays the only door to work ("Genio, plan the combat note"); the screen has no Send to Genio
+  button.
+
+The screen adds no setting, toast or label beyond these; errors (a refused save, a chat that cannot start) show as
+the usual error toast.
 
 ## Where things live
 
@@ -119,7 +145,8 @@ Who gets what:
   folder: read the notes as context, never as specs, and edit them only when the mission says so. Units see committed
   notes; Genio puts what matters from an uncommitted note into the unit's spec.
 
-Achievement: Noted (`design-note-saved`), for the first note a design chat saves.
+Achievements: Sounding Board (`design-chat-reply`, the Design screen's), for the first reply a design chat
+gives; Noted (`design-note-saved`), for the first note a design chat saves.
 
 ## IPC
 
@@ -127,6 +154,14 @@ The chat calls take an optional conversation id as their last argument (`chatHis
 `unqueueChat`, `sendQueuedNow`, `interruptWksp`, `restartWksp`). Without one they address the project chat as
 before. `designChats`, `designChatCreate`, `designChatDelete` and `designChatConfigure` manage the list. Every
 call keeps the window binding: a project window reaches only its own base's chats.
+
+`designNotes(world)` gives the Design screen every note with its text and version, and
+`designNoteWrite(world, name, text, since)` saves the player's edit (`screenNotes` and `saveScreenNote` in
+`design-notes.ts`): the same name, size and link checks as a chat's write, no `player_words` (the player typed it),
+and refused when the note changed since `since`. Both belong to the project window, like the Art Bible calls.
+
+The renderer keeps a design chat's messages, draft and scroll position under `chatKey(wksp, id)`
+(`src/shared/chat.ts`), apart from the project chat's.
 
 Design chat messages travel as their own events (`design-chats`, `design-chat`, `design-chat-delta`), routed only
 to the project's window, so they never appear in the project chat.
@@ -138,8 +173,14 @@ settings, memory writes or paid tools, over the SDK tools and the HTTP bridge; t
 in parallel with their own transcript, prompt, model and effort; no wake reaching a design chat while the project
 chat handles it; a provider switch handing off within one chat only; Claude's custom system prompt and tool list.
 
+`tests/design-screen.test.ts`: the empty line; the two groups and the newest chat opening in the chat view with
+model and effort only; sending to the open chat and its replies signed "Design chat"; New chat and its reuse of an
+untouched chat; Delete chat from the context menu; a note rendered, edited and saved (and a refused save kept, then
+Cancel); the narrow picker; the screen context; the rail entry and Ctrl+7.
+
 `tests/design-notes.test.ts`: refusals for paths outside the folder, traversal, non-markdown names and links;
 the 16 KB and 64 KB limits; stale versions; missing, unmatched and project-chat `player_words`; versioned and paged
 reads; "save this as the combat note" in a design chat writing `.genio/design/combat.md`, which the main chat and the
 project chat can read but not write; the contract line within its budget and the intake detail; the design prompt's
-note format; the unit brief line only when the folder exists.
+note format; the unit brief line only when the folder exists; the Design screen's note list and the player's save,
+refused over a stale version.

@@ -1,0 +1,34 @@
+/* Design screen: one list of chats and notes beside the open chat (the chat view) or note (markdown, or the editor). */
+.design-view { flex: 1; min-height: 0; display: grid; grid-template-columns: 260px minmax(0, 1fr); }
+.design-view.narrow { grid-template-columns: minmax(0, 1fr); }
+
+.design-list { min-height: 0; overflow: auto; padding: 22px 12px; display: flex; flex-direction: column; gap: 2px; border-right: 1px solid var(--line); background: rgba(12, 15, 22, 0.6); }
+.design-list > .title { font-size: 26px; margin: 2px 4px 14px; }
+.design-new { justify-content: flex-start; margin-bottom: 8px; }
+.design-group { display: flex; flex-direction: column; gap: 2px; margin-top: 12px; }
+.design-group > .label { margin: 0 6px 6px; }
+.design-item { display: block; width: 100%; padding: 7px 10px; text-align: left; font-size: 13.5px; color: var(--text-dim); background: none; border: 1px solid transparent; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; outline: none; }
+.design-item.mono { font-size: 12.5px; }
+.design-item:hover, .design-item:focus-visible { color: var(--text); background: rgba(0, 229, 255, 0.06); }
+.design-item:focus-visible { border-color: var(--line-strong); }
+.design-item.on { color: var(--text); background: var(--neon-soft); border-color: var(--line-strong); box-shadow: inset 2px 0 0 var(--neon); }
+
+.design-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.design-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 58px; padding: 10px 24px; border-bottom: 1px solid var(--line); }
+.design-title { margin: 0; min-width: 0; font-family: var(--font-display); font-size: 20px; font-weight: 700; letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.design-empty { margin: 28px 24px; font-size: 14px; }
+
+.design-note { flex: 1; min-height: 0; overflow: auto; padding: 22px 32px 40px; }
+.design-note > * { max-width: 860px; }
+.design-note .memory-editor { margin-top: 0; }
+.design-note-body { line-height: 1.65; }
+
+/* Narrow: the list is a picker in the header ("Combat loop ▾") that opens it as a sheet. */
+.design-picker { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; padding: 4px 10px; font-family: var(--font-display); font-size: 16px; color: var(--text); background: var(--surface-2); border: 1px solid var(--line-strong); cursor: pointer; }
+.design-picker b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.design-picker > svg { flex: none; color: var(--text-dim); transition: transform 0.15s var(--ease); }
+.design-picker[aria-expanded='true'] > svg { transform: rotate(180deg); }
+.design-sheet { width: min(320px, calc(100vw - 24px)); padding: 10px; display: flex; flex-direction: column; gap: 2px; box-shadow: 0 12px 28px rgba(0, 0, 0, 0.55); }
+.design-view.narrow .design-head { min-height: 0; padding: 8px 12px; }
+.design-view.narrow .design-note { padding: 12px 12px 64px; }
+.design-view.narrow .design-empty { margin: 16px 12px; }

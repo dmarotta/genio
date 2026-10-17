@@ -4,7 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatMessage } from '@shared/types'
 import { Home } from '../src/main/home'
-import { designNotesBriefLines, listNotes, NOTE_LIMITS, readNote, writeNote } from '../src/main/design-notes'
+import { designNotesBriefLines, listNotes, NOTE_LIMITS, readNote, saveScreenNote, screenNotes, writeNote } from '../src/main/design-notes'
 import { createChatToolSession } from '../src/main/chat-tool-session'
 import { renderBrief, type BriefInput } from '../src/main/brief'
 import { customContract, CUSTOM_CONTRACT_BUDGET, designContract, DESIGN_CONTRACT_BUDGET, procedureText } from '../src/main/prompts'
@@ -45,6 +45,22 @@ describe('design notes on disk', () => {
     expect(apply(NOTE, d.delta)).toBe(edited)
     expect(readNote(project, 'combat', 'unknown', cache)).toMatchObject({ reset: true, text: edited })
     expect(() => readNote(project, 'missing')).toThrow(/No note named "missing"/)
+  })
+
+  it('gives the Design screen every note with its text, and saves the player\'s edit only over the version it opened', () => {
+    expect(screenNotes(project)).toEqual([])
+    const w = writeNote(project, 'combat', NOTE)
+    expect(screenNotes(project)).toEqual([{ name: 'combat', file: 'combat.md', text: NOTE, version: w.version }])
+    const mine = NOTE.replace('no stamina bar', 'no stamina bar, ever')
+    const saved = saveScreenNote(project, 'combat', mine, w.version as string)
+    expect(saved).toMatchObject([{ name: 'combat', text: mine }])
+    expect(fs.readFileSync(notePath('combat.md'), 'utf8')).toBe(mine)
+    // a chat saved it meanwhile: the old version is refused in plain words and the file is kept
+    expect(() => saveScreenNote(project, 'combat', '# Older\n', w.version as string)).toThrow('Not saved: the note changed while you edited it.')
+    expect(fs.readFileSync(notePath('combat.md'), 'utf8')).toBe(mine)
+    fs.rmSync(notePath('combat.md'))
+    expect(() => saveScreenNote(project, 'combat', '# Gone\n', saved[0].version)).toThrow('Not saved: the note was deleted or renamed while you edited it.')
+    expect(() => saveScreenNote(project, '../escape', '# x\n', 'v')).toThrow(/plain name/)
   })
 
   it('refuses any path outside the folder, traversal, and names that are not markdown', () => {

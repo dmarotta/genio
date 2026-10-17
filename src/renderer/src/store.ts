@@ -1,10 +1,10 @@
 import { useRef, useSyncExternalStore } from 'react'
 import type {
-  Achievement, Ally, ChatMessage, FleetSnapshot, GenioEvent, PermissionRequest, Settings, StatusEvent,
+  Achievement, Ally, ChatMessage, DesignChatInfo, FleetSnapshot, GenioEvent, PermissionRequest, Settings, StatusEvent,
   TerminalInfo
 } from '@shared/types'
 import type { SpawnRequest } from '@shared/api'
-import { applyChatEvent, cleanChatMessage, patchAllyControls, type AllyControlsPatch } from '@shared/chat'
+import { applyChatEvent, chatKey, cleanChatMessage, patchAllyControls, type AllyControlsPatch } from '@shared/chat'
 import { askingDecision } from '@shared/decisions'
 import { occupiedUnits } from '@shared/unit-capacity'
 import { squadSections } from '@shared/squad-display'
@@ -28,7 +28,9 @@ export interface Toast {
   body?: string
 }
 
-export type Focus = { type: 'task'; id: string } | { type: 'terminal'; id: string } | null
+export type DesignOpen = { kind: 'chat'; id: string } | { kind: 'note'; name: string }
+
+export type Focus ={ type: 'task'; id: string } | { type: 'terminal'; id: string } | null
 
 export interface State {
   registeredProject?: string
@@ -36,8 +38,13 @@ export interface State {
   connected: boolean
   snap: FleetSnapshot
   settings: Settings | null
+  /** Keyed by chat: the project chat by its wksp, a design chat by chatKey(wksp, id). */
   chats: Record<string, ChatMessage[]>
   chatLoaded: Record<string, boolean>
+  /** This project window's design chats; undefined until the Design screen first loads them. */
+  designChats?: DesignChatInfo[]
+  /** The chat or note the Design screen shows, kept while the player visits other screens. */
+  designOpen?: DesignOpen
   /** Generations in flight per chat, from generation events (seeded once from cards when the chat loads). */
   generating: Record<string, string[]>
   statusByTask: Record<string, StatusEvent[]>
@@ -261,19 +268,32 @@ export async function saveSettings(patch: Partial<Settings>): Promise<void> {
   }
 }
 
-export async function loadChat(wksp: string, force = false): Promise<void> {
+export async function loadChat(wksp: string, force = false, conversation?: string): Promise<void> {
   if (PROJECT_WKSP && wksp !== PROJECT_WKSP) return
-  if (state.chatLoaded[wksp] && !force) return
+  const key = chatKey(wksp, conversation)
+  if (state.chatLoaded[key] && !force) return
   try {
-    const hist = (await api().chatHistory(wksp, 300)).map(cleanChatMessage)
+    const hist = (await (conversation ? api().chatHistory(wksp, 300, conversation) : api().chatHistory(wksp, 300))).map(cleanChatMessage)
     const running = hist.filter(m => m.generation?.status === 'running' || m.generation?.status === 'placing').map(m => m.id)
     setState((s) => ({
-      chats: { ...s.chats, [wksp]: mergeChat(hist, s.chats[wksp] ?? []) },
-      chatLoaded: { ...s.chatLoaded, [wksp]: true },
-      generating: { ...s.generating, [wksp]: [...new Set([...(s.generating[wksp] ?? []), ...running])] }
+      chats: { ...s.chats, [key]: mergeChat(hist, s.chats[key] ?? []) },
+      chatLoaded: { ...s.chatLoaded, [key]: true },
+      ...(conversation ? {} : { generating: { ...s.generating, [wksp]: [...new Set([...(s.generating[wksp] ?? []), ...running])] } })
     }))
   } catch {
     /* main not ready yet */
+  }
+}
+
+/** The project's design chats, for the Design screen; events keep them current afterwards. */
+export async function loadDesignChats(): Promise<void> {
+  if (!PROJECT_WKSP) return
+  try {
+    const chats = await api().designChats(PROJECT_WKSP)
+    setState({ designChats: chats })
+  } catch (e) {
+    setState({ designChats: [] })
+    toast('error', 'Design chats unavailable', errText(e))
   }
 }
 
@@ -306,6 +326,15 @@ function upsertBy<T>(list: T[], item: T, key: (t: T) => string): T[] {
   const copy = list.slice()
   copy[i] = item
   return copy
+}
+
+/** A streamed piece of a reply: appended to its message, or the start of a new partial one. */
+function withDelta(list: ChatMessage[], wksp: string, id: string, text: string): ChatMessage[] {
+  const i = list.findIndex((x) => x.id === id)
+  if (i < 0) return [...list, cleanChatMessage({ id, wksp, role: 'genio', text, ts: new Date().toISOString(), partial: true })]
+  const next = list.slice()
+  next[i] = cleanChatMessage({ ...next[i], text: next[i].text + text, partial: true })
+  return next
 }
 
 export function handleEvent(ev: GenioEvent): void {
@@ -345,17 +374,23 @@ export function handleEvent(ev: GenioEvent): void {
       setState({ chats: { ...s.chats, [m.wksp]: applyChatEvent(s.chats[m.wksp] ?? [], m) } })
       break
     }
-    case 'chat-delta': {
-      const list = s.chats[ev.wksp] ?? []
-      const i = list.findIndex((x) => x.id === ev.id)
-      let next: ChatMessage[]
-      if (i < 0) {
-        next = [...list, cleanChatMessage({ id: ev.id, wksp: ev.wksp, role: 'genio', text: ev.text, ts: new Date().toISOString(), partial: true })]
-      } else {
-        next = list.slice()
-        next[i] = cleanChatMessage({ ...next[i], text: next[i].text + ev.text, partial: true })
-      }
-      setState({ chats: { ...s.chats, [ev.wksp]: next } })
+    case 'chat-delta':
+      setState({ chats: { ...s.chats, [ev.wksp]: withDelta(s.chats[ev.wksp] ?? [], ev.wksp, ev.id, ev.text) } })
+      break
+    // A design chat's messages stay under its own key; only this window's project has them.
+    case 'design-chats':
+      if (ev.wksp === PROJECT_WKSP) setState({ designChats: ev.chats })
+      break
+    case 'design-chat': {
+      if (ev.wksp !== PROJECT_WKSP) break
+      const key = chatKey(ev.wksp, ev.conversation)
+      setState({ chats: { ...s.chats, [key]: applyChatEvent(s.chats[key] ?? [], cleanChatMessage(ev.message)) } })
+      break
+    }
+    case 'design-chat-delta': {
+      if (ev.wksp !== PROJECT_WKSP) break
+      const key = chatKey(ev.wksp, ev.conversation)
+      setState({ chats: { ...s.chats, [key]: withDelta(s.chats[key] ?? [], ev.wksp, ev.id, ev.text) } })
       break
     }
     case 'generation': {

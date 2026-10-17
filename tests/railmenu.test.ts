@@ -20,8 +20,18 @@ describe('rail entries', () => {
   it('keeps every screen and its shortcut reachable for the palette', () => {
     const keys = Object.fromEntries(navItems().map((n) => [n.id, n.key]))
     expect(keys).toEqual({
-      comms: '1', squad: '2', quests: '3', status: '5', systems: '8', inventory: '9', 'art-bible': '6', play: '0'
+      comms: '1', squad: '2', quests: '3', design: '7', status: '5', systems: '8', inventory: '9', 'art-bible': '6', play: '0'
     })
+  })
+
+  it('puts Design (Ctrl+7) after Quests, in every project window and never in the Hub', () => {
+    const ids = navItems().map((i) => i.id)
+    expect(ids.indexOf('design')).toBe(ids.indexOf('quests') + 1)
+    expect(navItems().find((i) => i.id === 'design')).toEqual({ id: 'design', label: 'Design', key: '7' })
+    for (const play of [true, false]) {
+      expect(navItems(windowRail(true, play)).map((i) => i.id)).toContain('design')
+      expect(navItems(windowRail(false, play)).map((i) => i.id)).not.toContain('design')
+    }
   })
 
   it('puts Art Bible right after Inventory, in every project window and never in the Hub', () => {

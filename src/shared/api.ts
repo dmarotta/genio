@@ -535,6 +535,10 @@ export interface GenioApi {
   artBibleRead(world: string): Promise<import('./art-bible').ArtBibleView>
   /** Save the bible (refused when it would not compile) or its source doc in place; never committed. */
   artBibleWrite(world: string, file: import('./art-bible').ArtBibleFile, text: string): Promise<import('./art-bible').ArtBibleView>
+  /** The Design screen: the notes in `.genio/design/` with their text (project window only). */
+  designNotes(world: string): Promise<import('./design-notes').DesignNote[]>
+  /** Save the player's edit of a note, refused when it changed since `since`; never committed. */
+  designNoteWrite(world: string, name: string, text: string, since: string): Promise<import('./design-notes').DesignNote[]>
   featureUsed(feature: 'screenshot' | 'model-picker' | 'character-sheet' | 'play-fullscreen'): Promise<void>
   /** Character Sheet: pin an unlocked achievement to the front of the grid (three at most) */
   trophyPin(id: string, pinned: boolean): Promise<OpResult>
@@ -748,7 +752,7 @@ export const API_METHODS = [
   'playerInstanceStatus', 'playerInstancePlay', 'playerInstanceStartUnity', 'playerInstanceEnterPlay', 'playerInstanceExitPlay', 'playerInstanceStopUnity', 'playerInstancePause', 'playerInstanceStep', 'playerInstanceScenes', 'playerInstanceSetScene', 'playerInstanceResize', 'playerInstanceStop', 'playerInstanceQuit', 'playerInstanceRestart', 'playerInstanceDetach', 'playerInstanceSettings', 'playerInstanceMachine', 'playerInstanceConsole', 'playerInstanceStream', 'playerSources', 'playerSourceAvailable',
   'playerCopies', 'playerCopyStatus', 'playerCopyEnsure', 'playerCopySync', 'playerCopyCancel', 'playerCopyDelete', 'playerCopySizes',
   'inventoryOpen', 'inventoryClose', 'inventoryRefresh', 'inventoryList', 'inventoryInfo', 'inventoryModelUrl', 'inventoryModelRelease', 'modellerLive', 'unitFilePreview',
-  'artBibleRead', 'artBibleWrite',
+  'artBibleRead', 'artBibleWrite', 'designNotes', 'designNoteWrite',
   'featureUsed',
   'trophyPin',
   'titleEquip',

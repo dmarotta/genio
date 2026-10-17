@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Check, Eye, ImageOff, Pencil, X } from 'lucide-react'
+import { Check, ImageOff, X } from 'lucide-react'
 import { ART_BIBLE_MAX_BYTES, ART_BIBLE_WARN_BYTES, hasArtBible, paletteStrip, refLabel, type ArtBibleColor, type ArtBibleFile, type ArtBibleOverview, type ArtBibleRef, type ArtBibleView } from '@shared/art-bible'
 import { PROJECT_WINDOW, api, errText, op, useStore } from '../store'
 import { Markdown } from '../components/Markdown'
+import { MarkdownEditor } from '../components/MarkdownEditor'
 import { Tabs } from '../components/ui'
 import { useScreenContext } from '../lib/screen-context'
 import { cx } from '../lib/format'
@@ -197,7 +198,7 @@ function Swatches({ colors }: { colors: ArtBibleColor[] }) {
   )
 }
 
-/** The raw files, in the Memory editor pattern: one textarea per file, preview, Ctrl+S, size against the limits. */
+/** The raw files in the shared markdown editor: one textarea per file, preview, Ctrl+S, size against the limits. */
 function MarkdownTab({ world, view, drafts, setDraft, onSaved }: {
   world: string
   view: ArtBibleView
@@ -206,13 +207,11 @@ function MarkdownTab({ world, view, drafts, setDraft, onSaved }: {
   onSaved: (v: ArtBibleView) => void
 }) {
   const [file, setFile] = useState<ArtBibleFile>('bible')
-  const [preview, setPreview] = useState(false)
   const current: ArtBibleFile = file === 'source' && view.source ? 'source' : 'bible'
   const disk = (current === 'source' ? view.source?.text : view.text) ?? ''
   const text = drafts[current] ?? disk
   const dirty = text !== disk
   const path = current === 'source' ? view.source!.path : view.path
-  const bytes = new TextEncoder().encode(text).length
 
   const save = async (): Promise<void> => {
     if (!dirty) return
@@ -223,49 +222,24 @@ function MarkdownTab({ world, view, drafts, setDraft, onSaved }: {
   }
 
   return (
-    <section className="memory-editor ab-markdown">
-      <div className="memory-top">
-        {view.source
-          ? <Tabs<ArtBibleFile> value={current} onChange={setFile} tabs={[
-            { id: 'bible', label: view.path, badge: drafts.bible !== undefined && drafts.bible !== (view.text ?? '') ? 1 : undefined },
-            { id: 'source', label: view.source.path, badge: drafts.source !== undefined && drafts.source !== view.source.text ? 1 : undefined }
-          ]} />
-          : <span className="mono dim">{view.path}</span>}
-        <div className="memory-tools">
-          <span className={cx('mono', bytes > ART_BIBLE_MAX_BYTES ? 'alert-text' : bytes > ART_BIBLE_WARN_BYTES ? 'amber-text' : 'mute')} title={`Warns above ${ART_BIBLE_WARN_BYTES / 1024} KB; above ${ART_BIBLE_MAX_BYTES / 1024} KB generators cannot use it`}>
-            {(bytes / 1024).toFixed(1)} KB
-          </span>
-          <button className={cx('btn sm ghost', preview && 'on')} onClick={() => setPreview(p => !p)}>
-            {preview ? <Pencil size={12} /> : <Eye size={12} />} {preview ? 'Edit' : 'Preview'}
-          </button>
-          {dirty && <button className="btn sm ghost" onClick={() => setDraft(current, undefined)}>Discard</button>}
-          <button className="btn sm solid" disabled={!dirty} onClick={() => void save()}>
-            <Check size={12} /> Save file
-          </button>
-        </div>
-      </div>
-      <div className="mute memory-hint">
-        {current === 'source' ? 'The existing doc this Art Bible extends, edited where it is.' : 'Saved as a plain file; Genio never commits it.'}
-      </div>
-      {preview ? (
-        <div className="memory-preview">
-          <Markdown text={text} />
-        </div>
-      ) : (
-        <textarea
-          className="textarea mono memory-text"
-          aria-label={`${path} text`}
-          value={text}
-          spellCheck={false}
-          onChange={e => setDraft(current, e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 's' && (e.ctrlKey || e.metaKey)) {
-              e.preventDefault()
-              void save()
-            }
-          }}
-        />
-      )}
-    </section>
+    <MarkdownEditor
+      className="ab-markdown"
+      head={view.source
+        ? <Tabs<ArtBibleFile> value={current} onChange={setFile} tabs={[
+          { id: 'bible', label: view.path, badge: drafts.bible !== undefined && drafts.bible !== (view.text ?? '') ? 1 : undefined },
+          { id: 'source', label: view.source.path, badge: drafts.source !== undefined && drafts.source !== view.source.text ? 1 : undefined }
+        ]} />
+        : <span className="mono dim">{view.path}</span>}
+      label={`${path} text`}
+      text={text}
+      dirty={dirty}
+      maxBytes={ART_BIBLE_MAX_BYTES}
+      warnBytes={ART_BIBLE_WARN_BYTES}
+      sizeTitle={`Warns above ${ART_BIBLE_WARN_BYTES / 1024} KB; above ${ART_BIBLE_MAX_BYTES / 1024} KB generators cannot use it`}
+      hint={current === 'source' ? 'The existing doc this Art Bible extends, edited where it is.' : 'Saved as a plain file; Genio never commits it.'}
+      onChange={t => setDraft(current, t)}
+      onSave={() => void save()}
+      onDiscard={() => setDraft(current, undefined)}
+    />
   )
 }

@@ -63,7 +63,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'play-snapshot', name: 'In the Frame', description: 'Capture a game snapshot.', feature: 'play', retired: true },
   { id: 'chat-provider-switch', feature: 'comms', name: 'New Perspective', description: 'Switch the chat provider.' },
   { id: 'codex-chat-turn', feature: 'comms', name: 'Codex Companion', description: 'Complete a Codex-driven chat turn.' },
-  { id: 'design-chat-reply', feature: 'design-chat', name: 'Sounding Board', description: 'Get a reply from a design chat.' },
+  { id: 'design-chat-reply', feature: 'design', name: 'Sounding Board', description: 'Get a reply from a design chat.' },
   { id: 'design-note-saved', feature: 'design_notes', name: 'Noted', description: 'Have a design chat save a design note.' },
   { id: 'inventory-chat', name: 'Shared View', description: 'Ask Genio about the assets you picked in Inventory.', feature: 'inventory-chat' },
   { id: 'genio-panel-context', name: 'Over the Shoulder', description: 'Ask Genio from the floating panel on any screen.', feature: 'genio-panel' },

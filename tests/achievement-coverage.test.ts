@@ -71,9 +71,7 @@ const OTHER_FEATURES: Record<string, [file: string, needle: string]> = {
   assets: ['resources/unit-skills/genio/skills/imagegen-codex/scripts/codex-image.mjs', 'genio-codex-image'],
   blender: ['resources/unit-skills/genio/skills/blender/scripts/blender.mjs', 'genio-blender-run'],
   'unit-uthana': ['resources/unit-skills/genio/skills/uthana/scripts/uthana.mjs', 'genio-uthana-run'],
-  'spend-grant': ['src/main/spend-grants.ts', 'export function recordGrant'],
-  // the design chat runtime; the Design screen (a Rail view) arrives with its own screen
-  'design-chat': ['src/main/design-chats.ts', 'export function createDesignChatService']
+  'spend-grant': ['src/main/spend-grants.ts', 'export function recordGrant']
 }
 
 // Retired achievements and why. Their ids stay in ACHIEVEMENTS for saved stats; they never unlock again and never cover a
@@ -133,6 +131,11 @@ describe('achievement feature coverage', () => {
     expect(instance).toContain("unlock('play-kept-copy')")
     for (const id of ['play-stream', 'play-input', 'play-unit', 'play-step', 'play-resolution', 'play-audio']) expect(ipc, id).toMatch(new RegExp(`unlock\\w*\\('${id}'\\)`))
     expect(FEATURE_MAP['play-fullscreen']).toBe('play-fullscreen')
+  })
+  it('ties the Design screen to the first design chat reply, unlocked when a design chat answers', () => {
+    expect(navItems().find((v) => v.id === 'design')).toMatchObject({ label: 'Design', key: '7' })
+    expect(ACHIEVEMENTS.find((a) => a.id === 'design-chat-reply')?.feature).toBe('design')
+    expect(readFileSync('src/main/design-chats.ts', 'utf8')).toMatch(/onTurnEnd[\s\S]*if \(lastText\.trim\(\)\) safe\(\(\) => getCtx\(\)\.stats\.unlock\('design-chat-reply'\)\)/)
   })
   it('keeps Character Sheet tied to the stable streak achievement and screen id', () => {
     expect(navItems().find((v) => v.label === 'Character Sheet')?.id).toBe('status')

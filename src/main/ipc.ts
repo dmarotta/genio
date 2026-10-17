@@ -14,6 +14,7 @@ import { baseRef } from './git'
 import { modellerDataDir } from './unitskills'
 import { standingApprovals } from './standing-approvals'
 import { readArtBibleView, writeArtBibleFile } from './art-bible'
+import { saveScreenNote, screenNotes } from './design-notes'
 /**
  * IPC: one ipcMain.handle per GenioApi method ('genio:<method>'). The table is
  * typed against GenioApi so a missing or mistyped method fails the build.
@@ -210,6 +211,8 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
       unlockQuietly('art-bible-edit')
       return view
     },
+    designNotes: async (world) => screenNotes(projectRoot(world)),
+    designNoteWrite: async (world, name, text, since) => saveScreenNote(projectRoot(world), name, text, since),
     featureUsed: async (feature) => {
       if (feature === 'screenshot' || feature === 'model-picker' || feature === 'character-sheet' || feature === 'play-fullscreen') bus.publish({ type: 'feature-used', feature })
     },
@@ -482,6 +485,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
         if (method.startsWith('playPool') || method === 'playCloseSlotEditor' || method.startsWith('playerCopy')) assertProjectWindow(binding, args[0])
         if (method.startsWith('playerInstance') || method === 'playerSources' || method === 'playerSourceAvailable') assertProjectWindow(binding, args[0])
         if (windows && method.startsWith('artBible') && (!binding || args[0] !== binding.project)) throw new Error('The Art Bible belongs to its project window.')
+        if (windows && method.startsWith('designNote') && (!binding || args[0] !== binding.project)) throw new Error('Design notes belong to their project window.')
         // The pane lives in its project window only; a '!' result goes to that window's own chat.
         if (windows && method.startsWith('pane') && (!binding || args[0] !== binding.project || (method === 'paneRun' && args[1] !== binding.wksp))) {
           throw new Error('The terminal belongs to its project window.')
