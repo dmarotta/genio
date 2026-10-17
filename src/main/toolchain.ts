@@ -2,16 +2,44 @@
  * Systems check: which CLIs exist on this machine, and consent-gated installs
  * (companion "detects and offers to install supported missing tools after you approve").
  */
+import { Worker } from 'node:worker_threads'
+import { pathToFileURL } from 'node:url'
 import type { ToolStatus } from '@shared/types'
 import type { OpResult } from '@shared/api'
 import type { AppCtx, ToolchainService } from './services'
 import { findBlender } from '../../resources/unit-skills/genio/lib/blender-path.mjs'
+import { pluginFile } from '../../resources/unit-skills/genio/lib/resource-path.mjs'
 import { bus } from './bus'
 import { clearWhichCache, run, runShell, which } from './util'
 
+/**
+ * findBlender reads the registry and asks each candidate for its version with synchronous child processes
+ * (about 1.3 s on Windows), so a check runs that same module on a worker thread and the main process keeps
+ * serving the windows. Where no worker can run it, it runs here as before.
+ */
+export function findBlenderOffThread(): Promise<string | null> {
+  let file: string
+  try { file = pluginFile('lib/blender-path.mjs') } catch { return Promise.resolve(findBlender()) }
+  return new Promise((resolve) => {
+    let settled = false
+    const worker = new Worker(`import(${JSON.stringify(pathToFileURL(file).href)}).then(m => require('node:worker_threads').parentPort.postMessage(m.findBlender()))`, { eval: true })
+    const done = (found: unknown): void => {
+      if (settled) return
+      settled = true
+      void worker.terminate()
+      resolve(typeof found === 'string' || found === null ? found : findBlender())
+    }
+    worker.once('message', done)
+    worker.once('error', () => done(undefined))
+    worker.once('exit', () => done(undefined))
+  })
+}
+
 interface ToolDef {
   name: string
-  probe?: () => string | null
+  probe?: () => Promise<string | null>
+  /** The same probe for has(), which answers synchronously. */
+  probeSync?: () => string | null
   purpose: string
   required: boolean
   versionArgs: string[]
@@ -21,7 +49,7 @@ interface ToolDef {
 }
 
 const TOOLS: ToolDef[] = [
-  { name: 'blender', purpose: 'Batch 3D modelling, mesh validation and export', required: false, versionArgs: ['--version'], winget: 'BlenderFoundation.Blender', probe: findBlender },
+  { name: 'blender', purpose: 'Batch 3D modelling, mesh validation and export', required: false, versionArgs: ['--version'], winget: 'BlenderFoundation.Blender', probe: findBlenderOffThread, probeSync: findBlender },
   { name: 'git', purpose: 'Worktrees, branches and merges for every project', required: true, versionArgs: ['--version'], winget: 'Git.Git', brew: 'git' },
   { name: 'gh', purpose: 'GitHub pull requests, checks and merges', required: false, versionArgs: ['--version'], winget: 'GitHub.cli', brew: 'gh' },
   { name: 'glab', purpose: 'GitLab merge requests (best effort)', required: false, versionArgs: ['--version'], winget: 'GLab.GLab', brew: 'glab' },
@@ -45,7 +73,7 @@ function installHint(t: ToolDef): string | undefined {
 }
 
 async function probeTool(t: ToolDef): Promise<ToolStatus> {
-  const p = t.probe ? t.probe() : which(t.name)
+  const p = t.probe ? await t.probe() : which(t.name)
   const st: ToolStatus = { name: t.name, found: Boolean(p), path: p ?? undefined, required: t.required, purpose: t.purpose, install: installHint(t) }
   if (p) {
     const r = /\.(cmd|bat)$/i.test(p)
@@ -80,7 +108,7 @@ export function createToolchainService(_getCtx: () => AppCtx): ToolchainService 
     has(name) {
       if (!found.has(name)) {
         const t = TOOLS.find(x => x.name === name)
-        found.set(name, Boolean(t?.probe ? t.probe() : which(name)))
+        found.set(name, Boolean(t?.probeSync ? t.probeSync() : which(name)))
       }
       return found.get(name) ?? false
     },
