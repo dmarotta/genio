@@ -303,6 +303,22 @@ per project on this computer; it does not touch Genio's own sounds or Unity's Mu
 Where: Play toolbar, after Resolution.
 Source: [play.md](../play.md)
 
+## Voice input
+
+Talk instead of typing. Click the mic button in the chat box, or hold F8 (not while the game view has the keys), and
+speak; click again, press Enter or release F8 to stop. A speech model on this PC types your words into the box, where
+they wait for you: Enter sends (or queues), Ctrl+Enter steers, as if you had typed them. The first press asks to
+download the model once (about 206 MB); your voice never leaves the PC and is never saved. English only.
+Where: the mic button in every chat box, before Send.
+Source: [voice.md](../voice.md)
+
+## Read replies aloud
+
+Genio speaks the end of each chat reply with your system voice: code, tables, links and file paths are skipped and a
+long reply is cut at a sentence end. Pressing the mic or Esc in the chat box stops it. The Bot never speaks.
+Where: Settings → General → Read replies aloud (off by default).
+Source: [voice.md](../voice.md)
+
 ## Inventory
 
 Browse the project's media: images, audio, video and 3D models with previews, search tokens (t:sfx, in:UI, via:fal)

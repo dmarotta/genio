@@ -4,7 +4,7 @@ import type { GenioEvent } from '../src/shared/types'
 import { WINDOW_MIN } from '../src/shared/window'
 import { APP_ID, windowAppDetails, windowIcon } from '../src/main/win-identity'
 
-const f = vi.hoisted(() => ({ windows: [] as any[], ctx: undefined as any, app: undefined as any, screen: undefined as any, popouts: undefined as any, choice: 1, prompts: 0, ipc: undefined as any, stop: vi.fn(async () => {}), start: vi.fn(async () => {}), terminalData: undefined as any, loadError: undefined as Error | undefined, loadGate: undefined as Promise<void> | undefined }))
+const f = vi.hoisted(() => ({ windows: [] as any[], ctx: undefined as any, app: undefined as any, screen: undefined as any, popouts: undefined as any, choice: 1, prompts: 0, ipc: undefined as any, stop: vi.fn(async () => {}), start: vi.fn(async () => {}), terminalData: undefined as any, loadError: undefined as Error | undefined, loadGate: undefined as Promise<void> | undefined, permissionRequest: undefined as any, permissionCheck: undefined as any }))
 vi.mock('../src/main/ctx', () => ({
   createApp: () => f.ctx, getCtx: () => f.ctx, startApp: async () => {}, stopApp: async () => {},
   ensureProjectBase: async (_ctx: unknown, project: string) => `ally-${project}`, startProjectBase: f.start, stopProjectBase: f.stop
@@ -42,6 +42,7 @@ vi.mock('electron', async () => {
     isMinimized = () => this.minimized
     isDestroyed = () => this.destroyed
     static getFocusedWindow() { return null }
+    static fromWebContents(wc: unknown) { return f.windows.find((w) => w.webContents === wc) ?? null }
     constructor(options: { title: string }) { super(); this.title = options.title; this.options = options; f.windows.push(this) }
     async loadFile(_file: string, options: any) {
       this.query = options.query
@@ -59,7 +60,7 @@ vi.mock('electron', async () => {
     displays: [{ workArea: { x: 0, y: 0, width: 1920, height: 1040 } }, { workArea: { x: 1920, y: 0, width: 1280, height: 984 } }],
     getAllDisplays() { return this.displays }, getPrimaryDisplay() { return this.displays[0] }
   })
-  return { app: f.app, BrowserWindow: Window, screen: f.screen, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, shell: {}, dialog: { showMessageBoxSync: () => { f.prompts++; return f.choice }, showErrorBox: vi.fn() } }
+  return { app: f.app, BrowserWindow: Window, screen: f.screen, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, shell: {}, session: { defaultSession: { setPermissionRequestHandler: (fn: any) => { f.permissionRequest = fn }, setPermissionCheckHandler: (fn: any) => { f.permissionCheck = fn } } }, dialog: { showMessageBoxSync: () => { f.prompts++; return f.choice }, showErrorBox: vi.fn() } }
 })
 
 let openProject: (folder: string) => Promise<void>
@@ -129,6 +130,17 @@ describe('project window lifecycle', () => {
     bus.publish(global)
     for (const w of f.windows) expect(w.webContents.send).toHaveBeenCalledWith('genio:event', global)
   })
+  it("grants the microphone (audio only) to Genio's own windows and denies other pages and permissions", () => {
+    const ask = (wc: unknown, permission: string, details: object): boolean => { const cb = vi.fn(); f.permissionRequest(wc, permission, cb, details); return cb.mock.calls[0][0] }
+    const own = f.windows[1].webContents
+    expect(ask(own, 'media', { isMainFrame: true, mediaTypes: ['audio'] })).toBe(true)
+    expect(ask(own, 'media', { isMainFrame: true, mediaTypes: ['audio', 'video'] })).toBe(false)
+    expect(ask(own, 'media', { isMainFrame: false, mediaTypes: ['audio'] })).toBe(false)
+    expect(ask(own, 'geolocation', { isMainFrame: true })).toBe(false)
+    expect(ask({ isDestroyed: () => false }, 'media', { isMainFrame: true, mediaTypes: ['audio'] })).toBe(false)
+    expect(f.permissionCheck(own, 'media', 'file://', { isMainFrame: true, mediaType: 'audio' })).toBe(true)
+    expect(f.permissionCheck(null, 'media', 'file://', { isMainFrame: true, mediaType: 'audio' })).toBe(false)
+  })
   it('allows only the bound same-page chat popup and closes it with its owner', async () => {
     const owner = f.windows[1]
     const handler = owner.openHandler
@@ -142,8 +154,12 @@ describe('project window lifecycle', () => {
       isDestroyed: () => false, isMinimized: () => false, isVisible: vi.fn(() => false), show: vi.fn(), showInactive: vi.fn(), moveTop: vi.fn(), focus: vi.fn(), destroy: vi.fn(),
       setTitle: vi.fn(), setAppDetails: vi.fn(),
       getBounds: () => bounds, getNormalBounds: () => bounds, setBounds: vi.fn((b: typeof bounds) => { bounds = b }),
-      webContents: { setWindowOpenHandler: vi.fn(), on: vi.fn(), once: vi.fn() } })
+      webContents: { setWindowOpenHandler: vi.fn(), on: vi.fn(), once: vi.fn(), isDestroyed: () => false } })
     owner.webContents.emit('did-create-window', child)
+    // The pop-out may use the microphone like its owner.
+    const granted = vi.fn()
+    f.permissionRequest(child.webContents, 'media', granted, { isMainFrame: true, mediaTypes: ['audio'] })
+    expect(granted).toHaveBeenCalledWith(true)
     if (process.platform === 'win32') expect(child.setAppDetails).toHaveBeenCalledExactlyOnceWith(windowAppDetails('.', 'one'))
     const preventTitle = vi.fn()
     child.emit('page-title-updated', { preventDefault: preventTitle }, 'Genio')

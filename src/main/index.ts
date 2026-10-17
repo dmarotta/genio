@@ -4,7 +4,7 @@
  */
 import path from 'node:path'
 import fs from 'node:fs'
-import { app, BrowserWindow, clipboard, dialog, protocol, screen, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, protocol, screen, session, shell, type WebContents } from 'electron'
 import { EVENT_CHANNEL } from '@shared/api'
 import { bus } from './bus'
 import { createApp, ensureProjectBase, getCtx, startApp, startProjectBase, stopApp, stopProjectBase } from './ctx'
@@ -27,12 +27,16 @@ import { WINDOW_MIN } from '@shared/window'
 import { captureUserData } from './capture-isolation'
 import { windowTitle } from '@shared/window-title'
 import { COPY_SIGNAL, genioInstallReport, logInstallReport, recoveryCardHtml, type GenioInstallReport } from './install-health'
+import { allowPermission } from './window-permissions'
+import { voiceInput } from './voice-input'
 
 // Validate before single-instance locking, Base writes, or provider startup.
 const captureData = captureUserData()
 if (captureData) app.setPath('userData', captureData)
 
 const windows = new Map<BrowserWindow, WindowBinding | undefined>()
+/** Chat pop-outs of Genio's windows: with the windows themselves, the only pages that may use the microphone. */
+const popouts = new WeakSet<WebContents>()
 const windowLoads = new WeakMap<BrowserWindow, Promise<void>>()
 let openQueue: Promise<unknown> = Promise.resolve()
 const pendingLaunches: { argv: string[]; cwd: string }[] = []
@@ -119,6 +123,7 @@ async function boot(): Promise<void> {
     close: id => sender(id)?.close()
   })
   registerMediaProtocols()
+  guardPermissions()
   wireEvents()
   await launch(process.argv, process.cwd())
   for (const pending of pendingLaunches.splice(0)) await launch(pending.argv, pending.cwd)
@@ -145,6 +150,22 @@ function registerMediaProtocols(): void {
     decoderLibs: devUrl && path.join(appRoot(), 'node_modules', 'three', 'examples', 'jsm', 'libs'),
     devUrl
   })
+}
+
+/** Without handlers Electron grants every permission; only Genio's own windows get the few they use (window-permissions.ts). */
+function guardPermissions(): void {
+  const own = (wc: WebContents | null): boolean => {
+    if (!wc || wc.isDestroyed()) return false
+    if (popouts.has(wc)) return true
+    const win = BrowserWindow.fromWebContents(wc)
+    return !!win && windows.has(win)
+  }
+  session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
+    const mediaTypes = 'mediaTypes' in details ? details.mediaTypes : undefined
+    callback(allowPermission(permission, { own: own(wc), isMainFrame: details.isMainFrame, mediaTypes }))
+  })
+  session.defaultSession.setPermissionCheckHandler((wc, permission, _origin, details) =>
+    allowPermission(permission, { own: own(wc), isMainFrame: details.isMainFrame, mediaTypes: details.mediaType ? [details.mediaType] : undefined }))
 }
 
 function focusWindow(win: BrowserWindow): void {
@@ -300,6 +321,7 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
   })
   win.webContents.on('did-create-window', child => {
     chatWindow = child
+    popouts.add(child.webContents)
     brandTaskbar(child, projectPath)
     child.on('page-title-updated', event => event.preventDefault())
     child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
@@ -441,6 +463,11 @@ function wireEvents(): void {
 }
 
 async function shutdown(code = 0): Promise<void> {
+  try {
+    if (ctx) voiceInput(ctx).stop()
+  } catch {
+    /* ignore */
+  }
   try {
     if (ctx) await Promise.race([Promise.allSettled([stopApp(ctx), playerInstanceService(ctx).shutdown()]), new Promise((r) => setTimeout(r, 4000))])
   } catch {

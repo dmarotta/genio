@@ -362,6 +362,15 @@ button.usage-toggle:hover { color: var(--text); }
 .msg-act.msg-send-now { display: inline-flex; gap: 3px; width: auto; padding: 0 6px; color: var(--amber); font: inherit; letter-spacing: inherit; text-transform: inherit; }
 .msg-act.msg-send-now:hover { border-color: var(--amber); }
 .composer-steer { flex: none; gap: 6px; padding: 0 12px; }
+/* The mic button is its own indicator: pressed with a ring that follows the voice, a progress ring while downloading. */
+.composer-mic { flex: none; position: relative; border-radius: 50%; }
+.composer-mic.on { color: var(--neon); border-color: var(--neon); box-shadow: 0 0 0 calc(var(--level, 0) * 6px) rgba(0, 229, 255, 0.35); transition: box-shadow 0.06s linear; }
+.composer-mic.loading::after { content: ''; position: absolute; inset: -2px; border-radius: 50%; pointer-events: none;
+  background: conic-gradient(var(--neon) calc(var(--progress, 0) * 360deg), transparent 0);
+  -webkit-mask: radial-gradient(circle, transparent 62%, #000 64%); mask: radial-gradient(circle, transparent 62%, #000 64%); }
+.voice-consent { max-width: 300px; padding: 12px; font-size: 13px; }
+.voice-consent p { margin: 0 0 10px; }
+.voice-consent-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .msg-copy { width: 26px; height: 26px; border-radius: 4px; }
 .msg-copy:focus-visible { outline: 2px solid var(--neon); outline-offset: 2px; }
 .msg-copy:disabled { opacity: 0.5; cursor: default; }

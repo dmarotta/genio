@@ -27,6 +27,8 @@ import { EffortSelect, ModelSelect } from '../components/ModelSelect'
 import { openSettings } from '../lib/settings-nav'
 import { Popover } from '../components/Layer'
 import { settingsPath } from '@shared/settings-pages'
+import { useVoiceInput } from '../components/MicButton'
+import { stopSpeaking } from '../lib/voice'
 
 const SLASH: { cmd: string; hint: string }[] = [
   { cmd: '/recap', hint: 'Previously on… then your pending moves, one at a time' },
@@ -634,6 +636,18 @@ function Composer({ wksp, conversation, busy, steerable = false, fill, context }
     setText(v)
     setDraft(key, (inShell ? '!' : '') + v)
   }
+  /** Spoken words land at the caret like typed text (a space keeps them apart from what is there). */
+  const voice = useVoiceInput({ box, insert: (said) => {
+    const el = ta.current
+    const at = el ? el.selectionStart : text.length, to = el ? el.selectionEnd : text.length
+    const before = text.slice(0, at), after = text.slice(to)
+    const piece = (before && !/\s$/.test(before) ? ' ' : '') + said + (after && !/^\s/.test(after) ? ' ' : '')
+    update(before + piece + after)
+    if (el) {
+      el.focus()
+      requestAnimationFrame(() => el.setSelectionRange(at + piece.length, at + piece.length))
+    }
+  } })
   const shellMode = (on: boolean, v = ''): void => {
     setShell(on)
     history.current = { list: [], at: -1, draft: '' }
@@ -878,10 +892,18 @@ function Composer({ wksp, conversation, busy, steerable = false, fill, context }
           onChange={(e) => {
             const v = e.target.value
             setSel(0)
+            voice.clearError()
             if (!shell && !design && isShellText(v) && !unavailable) shellMode(true, v.slice(1))
             else update(v)
           }}
           onKeyDown={(e) => {
+            if (e.key === 'Escape') stopSpeaking()
+            // Enter while listening ends the recording; the words then wait in the box for the next Enter.
+            if (voice.listening && e.key === 'Enter') {
+              e.preventDefault()
+              voice.stop()
+              return
+            }
             if (shell && shellKey(e)) return
             if (matches.length) {
               if (e.key === 'ArrowDown') {
@@ -917,6 +939,7 @@ function Composer({ wksp, conversation, busy, steerable = false, fill, context }
             }
           }}
         />
+        {voice.button}
         {steerable && !shell && (
           <button className="btn amber composer-steer" disabled={!canSend || att.pending > 0} onClick={() => void submit(text, true)}
             title={`Steer (Ctrl+Enter): ${ASSISTANT_NAME} stops the current turn at a safe point and reads this first`}>
@@ -936,6 +959,7 @@ function Composer({ wksp, conversation, busy, steerable = false, fill, context }
         )}
       </div>
       {!shell && !design && unavailable && isShellText(text) && <div className="composer-shell-off alert-text" role="status">Shell mode is unavailable: {unavailable}</div>}
+      {voice.error && <div className="composer-shell-off alert-text" role="status">{voice.error}</div>}
       {design ? (
         <div className="composer-hints mute">
           <span><DesignModelControls wksp={wksp} conversation={conversation} /></span>

@@ -15,14 +15,15 @@ import { modellerDataDir } from './unitskills'
 import { standingApprovals } from './standing-approvals'
 import { readArtBibleView, writeArtBibleFile } from './art-bible'
 import { saveScreenNote, screenNotes } from './design-notes'
+import { VOICE_MAX_SAMPLES, voiceInput } from './voice-input'
 /**
  * IPC: one ipcMain.handle per GenioApi method ('genio:<method>'). The table is
  * typed against GenioApi so a missing or mistyped method fails the build.
  */
 import { bus } from './bus'
-import { app, BrowserWindow, dialog, ipcMain, shell, MessageChannelMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell, systemPreferences, MessageChannelMain } from 'electron'
 import { createExplorerIntegration, explorerCommand } from './explorer'
-import { API_PREFIX, type GenioApi, type OpResult, type WindowList } from '@shared/api'
+import { API_PREFIX, type GenioApi, type OpResult, type VoiceStatus, type WindowList } from '@shared/api'
 import type { BacklogItem, Task } from '@shared/types'
 import { listAccounts, openAccountSession } from './accounts'
 import { currentSignInNeeds, noteSignInAccounts } from './sign-in-watch'
@@ -43,6 +44,11 @@ import { isShellCommandMessage } from '@shared/terminal-pane'
 /** A '!' message is a shell command the composer runs itself: it never reaches the model as chat text. */
 function refuseShellText(text: string): void {
   if (isShellCommandMessage(text)) throw new Error('Messages starting with ! are shell commands: they run in the terminal and are never sent to Genio as chat.')
+}
+
+/** Windows' microphone switch for desktop apps; elsewhere the browser's own prompt decides. */
+function micAccess(): VoiceStatus['mic'] {
+  try { return process.platform === 'win32' ? systemPreferences.getMediaAccessStatus('microphone') : 'unknown' } catch { return 'unknown' }
 }
 
 /** Play audio rides outside the frame credits: at most AUDIO_IN_FLIGHT packets (about 250 ms) the renderer has not
@@ -215,6 +221,15 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     },
     designNotes: async (world) => screenNotes(projectRoot(world)),
     designNoteWrite: async (world, name, text, since) => saveScreenNote(projectRoot(world), name, text, since),
+    voiceStatus: async () => ({ ...voiceInput(ctx()).status(), mic: micAccess() }),
+    voiceInstall: async () => {
+      await voiceInput(ctx()).installModel()
+      return { ...voiceInput(ctx()).status(), mic: micAccess() }
+    },
+    voiceTranscribe: async (audio) => {
+      if (!(audio instanceof Float32Array) || audio.length > VOICE_MAX_SAMPLES) throw new Error('Voice input takes up to 60 seconds of audio.')
+      return voiceInput(ctx()).transcribe(audio)
+    },
     featureUsed: async (feature) => {
       if (feature === 'screenshot' || feature === 'model-picker' || feature === 'character-sheet' || feature === 'play-fullscreen') bus.publish({ type: 'feature-used', feature })
     },

@@ -86,6 +86,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'smart-pick', feature: 'loadout_preview', name: 'Adaptive Build', description: 'Deploy a unit whose tool Genio picked to try something new or to save quota.' },
   { id: 'queue-edit', feature: 'comms', name: 'Second Thoughts', description: 'Edit or cancel a queued message.' },
   { id: 'chat-steer', feature: 'comms', name: 'Change Course', description: 'Steer Genio mid-turn (Steer or Send now): it stops and reads your message first.' },
+  { id: 'chat-voice', feature: 'comms', name: 'Say It Out Loud', description: 'Talk to Genio: speak a message into the chat.' },
   { id: 'shell-command', feature: 'terminal', name: 'Command Line', description: 'Run a shell command from chat with ! and see it in the terminal pane.' },
   { id: 'reaction-like', feature: 'comms', name: 'Right Track', description: 'Like a Genio message to confirm the path.' },
   { id: 'reaction-dislike', feature: 'comms', name: 'Hold Up', description: 'Dislike a Genio message so it pauses and asks what is wrong.' },

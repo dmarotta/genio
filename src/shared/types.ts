@@ -1109,6 +1109,8 @@ export type GenioEvent =
   | { type: 'allies'; allies: Ally[] }
   | { type: 'sfx'; sound: SfxName }
   | { type: 'speak'; text: string }
+  /** The speech model download (voice input): progress, the end, or why it failed. */
+  | { type: 'voice-install'; state: 'missing' | 'downloading' | 'ready'; received: number; total: number; error?: string }
   | { type: 'fal-run'; run: FalRun }
   | { type: 'navigate'; target: NotifyTarget }
   | { type: 'fal-catalogue' }

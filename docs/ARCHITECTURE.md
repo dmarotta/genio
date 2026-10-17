@@ -57,7 +57,7 @@ Vocabulary is gaming, not nautical: see [VOCABULARY.md](VOCABULARY.md).
 | process-event sources | `settings.eventSources` | SYSTEMS › Triggers |
 | calm mode | `settings.calm` | Clean HUD |
 | seatbelt / subagent guard | `canUseTool` policy in `wksp.ts` | permission prompt |
-| voice relay | text-to-speech of Genio replies | toggle |
+| voice relay | text-to-speech of Genio replies (`voice.ts`) and push-to-talk voice input with a local Whisper model (`voice-input.ts`, [voice.md](voice.md)) | Read replies aloud toggle, mic button / F8 |
 
 Game-dev additions: engine detection (Godot, Unity, Unreal, Bevy, LÖVE,
 GameMaker, Defold, MonoGame, web), engine-aware command presets, shared Unity

@@ -479,6 +479,17 @@ export interface FalSaveResult extends OpResult {
   warnings?: string[]
 }
 
+/** Voice input (src/main/voice-input.ts): the local speech model and Windows' microphone switch. */
+export interface VoiceStatus {
+  /** missing: needs the one-time download the player agrees to; downloading; ready */
+  state: 'missing' | 'downloading' | 'ready'
+  /** bytes of the whole download, and how many have arrived */
+  received: number
+  total: number
+  /** Windows' 'Let desktop apps access your microphone' */
+  mic: 'granted' | 'denied' | 'restricted' | 'not-determined' | 'unknown'
+}
+
 export interface GenioApi {
   /** Settings › This project › Unity slots: the shared slot pool. */
   playPool(world: string): Promise<import('./play').PlayPoolState>
@@ -560,6 +571,11 @@ export interface GenioApi {
   designNotes(world: string): Promise<import('./design-notes').DesignNote[]>
   /** Save the player's edit of a note, refused when it changed since `since`; never committed. */
   designNoteWrite(world: string, name: string, text: string, since: string): Promise<import('./design-notes').DesignNote[]>
+  voiceStatus(): Promise<VoiceStatus>
+  /** The one-time speech model download, after the player's yes; 'voice-install' events report progress. */
+  voiceInstall(): Promise<VoiceStatus>
+  /** 16 kHz mono audio from the mic button, held in memory only; '' when no speech was heard. */
+  voiceTranscribe(audio: Float32Array): Promise<string>
   featureUsed(feature: 'screenshot' | 'model-picker' | 'character-sheet' | 'play-fullscreen'): Promise<void>
   /** Character Sheet: pin an unlocked achievement to the front of the grid (three at most) */
   trophyPin(id: string, pinned: boolean): Promise<OpResult>
@@ -782,6 +798,7 @@ export const API_METHODS = [
   'playerCopies', 'playerCopyStatus', 'playerCopyEnsure', 'playerCopySync', 'playerCopyCancel', 'playerCopyDelete', 'playerCopySizes',
   'inventoryOpen', 'inventoryClose', 'inventoryRefresh', 'inventoryList', 'inventoryInfo', 'inventoryModelUrl', 'inventoryModelRelease', 'modellerLive', 'unitFilePreview',
   'artBibleRead', 'artBibleWrite', 'designNotes', 'designNoteWrite',
+  'voiceStatus', 'voiceInstall', 'voiceTranscribe',
   'featureUsed',
   'trophyPin',
   'titleEquip',
