@@ -25,6 +25,7 @@ import bpy
 import bmesh
 import numpy
 from mathutils import Matrix, Vector
+from mathutils.bvhtree import BVHTree
 
 import genio_bpy
 
@@ -213,6 +214,32 @@ def lathe(name, profile, segments=16, loc=(0, 0, 0), rot=(0, 0, 0), mat=None, co
     return _object(name, bm, mat, col, loc, rot, smooth)
 
 
+def loft(name, sections, loc=(0, 0, 0), rot=(0, 0, 0), mat=None, col=None, closed=True, caps=True, smooth=False):
+    """Skin a surface through cross-sections in order: hulls, fuselages, bottles, sails. Each section
+    is a list of (x, y, z) points, all with the same count; a section of one point is a pointed tip.
+    closed: each section is a loop, and caps fills the first and last loops. closed=False gives an
+    open sheet through open lines (a sail, a roof skin)."""
+    if len(sections) < 2:
+        raise ValueError(f'{name}: loft needs at least two sections')
+    n = max(len(s) for s in sections)
+    if n < (3 if closed else 2) or any(len(s) not in (1, n) for s in sections):
+        raise ValueError(f'{name}: every section needs the same number of points ({n}; at least {3 if closed else 2}), or one for a tip')
+    bm = bmesh.new()
+    rings = [[bm.verts.new(pt) for pt in s] for s in sections]
+    for a, b in zip(rings, rings[1:]):
+        if len(a) == len(b) == 1:
+            raise ValueError(f'{name}: two one-point sections in a row')
+        for i in range(n if closed else n - 1):
+            j = (i + 1) % n
+            bm.faces.new((a[0], b[j], b[i]) if len(a) == 1 else (a[i], a[j], b[0]) if len(b) == 1 else (a[i], a[j], b[j], b[i]))
+    if closed and caps:
+        for ring in (rings[0], rings[-1]):
+            if len(ring) > 1:
+                bm.faces.new(ring)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return _object(name, bm, mat, col, loc, rot, smooth)
+
+
 def jitter(ob, amount, seed):
     """Seeded vertex noise for rocks and foliage; the same seed gives the same shape."""
     rng = random.Random(seed)
@@ -303,9 +330,217 @@ def remove(*names):
 
 def parent(child, parent_ob):
     """Parent without moving the child."""
+    bpy.context.view_layer.update()  # a part placed in this script has no world matrix until the layer syncs
     child.parent = parent_ob
     child.matrix_parent_inverse = parent_ob.matrix_world.inverted()
     return child
+
+
+def _get(ob):
+    return part(ob) if isinstance(ob, str) else ob
+
+
+def _flip(mesh):
+    """Reverse the winding of every face (a mirrored mesh would otherwise face inwards)."""
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bmesh.ops.reverse_faces(bm, faces=bm.faces)
+    bm.to_mesh(mesh)
+    bm.free()
+
+
+def join(name, parts, col=None):
+    """One part from several (parts or names), as they ship: modifiers applied, materials kept. It
+    takes the first part's origin, rotation and parent; the parts are removed and their children
+    move to the new part without moving. `name` may be one of theirs."""
+    name = _clean(name)
+    obs = list(dict.fromkeys(_get(o) for o in parts))
+    if not obs:
+        raise ValueError('join needs at least one part')
+    other = [o.name for o in obs if o.type != 'MESH']
+    if other:
+        raise ValueError(f'join takes mesh parts only, not {_names_of(other)}')
+    bpy.context.view_layer.update()
+    first = obs[0]
+    at, turn, _ = first.matrix_world.decompose()
+    frame = Matrix.LocRotScale(at, turn, None)
+    up = first.parent
+    while up in obs:
+        up = up.parent
+    col = col or (first.users_collection[0] if first.users_collection else None)
+    kids = [(c, c.matrix_world.copy()) for o in obs for c in o.children if c not in obs]
+    mats, bm = [], bmesh.new()
+    with evaluated(obs) as shipped:
+        for ob in obs:
+            me = shipped[ob].copy()
+            m = frame.inverted() @ ob.matrix_world
+            me.transform(m)
+            if m.determinant() < 0:
+                _flip(me)
+            slots = [s.material for s in ob.material_slots] or [None]
+            for s in slots:
+                if s not in mats:
+                    mats.append(s)
+            remap = [mats.index(s) for s in slots]
+            index = numpy.zeros(len(me.polygons), dtype=numpy.int32)
+            me.polygons.foreach_get('material_index', index)
+            me.polygons.foreach_set('material_index', numpy.array(remap, dtype=numpy.int32)[numpy.minimum(index, len(remap) - 1)])
+            bm.from_mesh(me)
+            bpy.data.meshes.remove(me)
+    for n in [o.name for o in obs]:
+        _replace(n)
+    ob = _object(name, bm, None, col, (0, 0, 0), (0, 0, 0))
+    for m in mats:
+        ob.data.materials.append(m)
+    ob.matrix_world = frame
+    if up is not None:
+        parent(ob, up)
+    for c, world in kids:
+        c.parent = ob
+        c.matrix_parent_inverse = frame.inverted()
+        c.matrix_basis = world
+    return ob
+
+
+_join = join  # ring() takes a `join` flag that shadows the function
+
+
+def _world_mesh(objects):
+    """World-space vertices (n, 3) and polygons of the shipped meshes of `objects`, as one mesh."""
+    pts, polys, at = [], [], 0
+    with evaluated(objects) as shipped:
+        for ob, me in shipped.items():
+            pts.append(world_vertices(ob, me))
+            polys += [tuple(i + at for i in pl.vertices) for pl in me.polygons]
+            at += len(me.vertices)
+    return (numpy.concatenate(pts) if pts else numpy.empty((0, 3))), polys
+
+
+def _gap(pts, polys, below, below_polys):
+    """The smallest vertical gap between the bottom of one mesh and the top of another under it,
+    probed along vertical rays through both meshes' vertices; None when nothing is under it."""
+    if not len(below) or not below_polys:
+        return None
+    mine, theirs = BVHTree.FromPolygons(pts.tolist(), polys), BVHTree.FromPolygons(below.tolist(), below_polys)
+    top = max(pts[:, 2].max(), below[:, 2].max()) + 1.0
+    bottom = min(pts[:, 2].min(), below[:, 2].min()) - 1.0
+    gaps = []
+    for x, y, z in pts:
+        hit = theirs.ray_cast(Vector((x, y, top)), Vector((0, 0, -1)))[0]
+        if hit is not None:
+            gaps.append(z - hit.z)
+    lo, hi = pts[:, :2].min(axis=0), pts[:, :2].max(axis=0)
+    for x, y, z in below:
+        if lo[0] <= x <= hi[0] and lo[1] <= y <= hi[1]:
+            hit = mine.ray_cast(Vector((x, y, bottom)), Vector((0, 0, 1)))[0]
+            if hit is not None:
+                gaps.append(hit.z - z)
+    return min(gaps) if gaps else None
+
+
+def drop(ob, on=None, gap=0.0):
+    """Move a part (with its children) straight down or up until it rests on the ground, z = 0, or
+    on top of `on` (a part, a name or a list) under it; `gap` leaves a space. Returns the move in metres."""
+    ob = _get(ob)
+    bpy.context.view_layer.update()
+    group = [o for o in (ob, *ob.children_recursive) if o.type == 'MESH']
+    pts, polys = _world_mesh(group)
+    if not len(pts):
+        raise ValueError(f'{ob.name} has no mesh to rest on anything')
+    if on is None:
+        rest = pts[:, 2].min()
+    else:
+        targets = [_get(o) for o in (on if isinstance(on, (list, tuple)) else [on])]
+        rest = _gap(pts, polys, *_world_mesh([o for o in targets if o.type == 'MESH' and o not in group]))
+        if rest is None:
+            raise ValueError(f'Nothing of {_names_of([o.name for o in targets])} is under {ob.name}')
+    move = gap - rest
+    ob.matrix_world = Matrix.Translation((0, 0, move)) @ ob.matrix_world
+    return move
+
+
+_SIDE = re.compile(r'(?<![^\s_.\-])(Left|Right|left|right|LEFT|RIGHT|L|R|l|r)(?![^\s_.\-\d])')
+_OTHER_SIDE = {'Left': 'Right', 'left': 'right', 'LEFT': 'RIGHT', 'L': 'R', 'l': 'r'}
+_OTHER_SIDE.update({v: k for k, v in list(_OTHER_SIDE.items())})
+
+
+def _other_side(name):
+    """`Arm L` -> `Arm R`, `Left Wing` -> `Right Wing`; None when the name has no side."""
+    swapped = _SIDE.sub(lambda m: _OTHER_SIDE[m.group(1)], name)
+    return swapped if swapped != name else None
+
+
+def _copy(ob, name):
+    """A copy of an object with its own mesh, in the same collections and under the same parent."""
+    _replace(name)
+    copy = ob.copy()
+    if ob.data is not None:
+        copy.data = ob.data.copy()
+        copy.data.name = name
+    copy.name = name
+    for c in ob.users_collection:
+        c.objects.link(copy)
+    return copy
+
+
+def _mirrored(ob, name, across, flip, under):
+    world = across @ ob.matrix_world @ flip
+    copy = _copy(ob, name)
+    if ob.type == 'MESH':
+        copy.data.transform(flip, shape_keys=True)
+        _flip(copy.data)
+    for m in [m for m in copy.modifiers if m.type == 'BOOLEAN']:
+        copy.modifiers.remove(m)
+    if under is None:
+        copy.matrix_world = world
+    else:
+        copy.parent = under[0]
+        copy.matrix_parent_inverse = under[1].inverted()
+        copy.matrix_basis = world
+    for child in ob.children:
+        _mirrored(child, _clean(_other_side(child.name) or f'{name} {child.name}'), across, flip, (copy, world))
+    return copy
+
+
+def mirror_pair(ob, name=None):
+    """The part's twin on the other side, with its children: a real copy mirrored across the model's
+    centre plane x = 0 (across its parent's own x = 0 when it has a parent). Named by swapping
+    L/R or Left/Right (`Arm L` makes `Arm R`) unless `name` is given. Modifiers come along; boolean
+    cuts do not (cut the twin too)."""
+    ob = _get(ob)
+    new = name or _other_side(ob.name)
+    if not new:
+        raise ValueError(f"{ob.name!r} has no side in its name (L, R, Left, Right): pass name='...'")
+    bpy.context.view_layer.update()
+    flip = Matrix.Diagonal((-1.0, 1.0, 1.0, 1.0))
+    frame = ob.parent.matrix_world if ob.parent else Matrix.Identity(4)
+    return _mirrored(ob, _clean(new), frame @ flip @ frame.inverted(), flip, None)
+
+
+def ring(ob, count, center=(0, 0, 0), axis='Z', arc=360.0, join=True):
+    """`count` copies of a part turned around an axis through `center` (posts round a well, crenels,
+    spokes, bolts): build the first one where it goes, then ring it. A full circle spaces them
+    evenly; a smaller `arc` (degrees) puts the last one at its end. join=True makes them one part
+    under the part's name; join=False keeps them apart as name_1 ... name_N."""
+    ob = _get(ob)
+    if count < 2:
+        raise ValueError('ring needs a count of 2 or more')
+    if str(axis).upper() not in ('X', 'Y', 'Z'):
+        raise ValueError("axis is 'X', 'Y' or 'Z'")
+    c = Vector((*center, 0.0)[:3])
+    bpy.context.view_layer.update()
+    step = math.radians(arc) / (count if abs(arc) >= 360 else count - 1)
+    base, world = ob.name, ob.matrix_world.copy()
+    parts = [ob]
+    for i in range(1, count):
+        copy = _copy(ob, _clean(f'{base}_{i + 1}'))
+        copy.matrix_world = Matrix.Translation(c) @ Matrix.Rotation(step * i, 4, str(axis).upper()) @ Matrix.Translation(-c) @ world
+        parts.append(copy)
+    if join:
+        return _join(base, parts)
+    _replace(f'{base}_1')
+    ob.name = f'{base}_1'
+    return parts
 
 
 def export_objects(col=EXPORT):

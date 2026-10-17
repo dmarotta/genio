@@ -5,7 +5,7 @@ export const STEP_TIMEOUT: number
 export const PUBLISH_GAP_MS: number
 
 export interface PinnedBlender { path: string; version: string; size: number; mtimeMs: number }
-export interface StepFiles { script: string; blend: string | null; glb: string | null; sheet: string | null; view: string | null; receipt: string }
+export interface StepFiles { script: string; lib?: string | null; blend: string | null; glb: string | null; sheet: string | null; view: string | null; receipt: string }
 export interface StepEntry {
   id: string; n: number; parent: string | null; branch: string; name: string; caption: string; t: string; ms: number
   triangles: number; vertices: number; objects: number; warnings: number; blend_sha256: string | null; files: StepFiles
@@ -32,6 +32,8 @@ export interface StepDone {
   /** Warnings new since the parent step; `known_warnings` counts the unchanged rest, all in the receipt. */
   warnings: string[]; known_warnings: number
   sheet: string | null; glb: string | null; blend: string | null; receipt: string; ms: number; pruned: string[]
+  /** The lib.py this step ran first (a copy of the one next to its script), or null. */
+  lib: string | null
   /** What p.bake_maps did in this step, when it baked. */
   bakes?: Bake[]
 }
@@ -58,7 +60,7 @@ export function stepName(script: string): string
 export function line(m: Manifest, branch?: string): StepEntry[]
 export function chooseBlender(choice?: string | { path: string; version: string }, env?: Record<string, string | undefined>): PinnedBlender
 export function prune(m: Manifest, dir: string, keep?: number): string[]
-export function planThreads(plan: { replay: string[]; steps: { script: string | null }[] }, threads?: number): number | undefined
+export function planThreads(plan: { replay: (string | { script: string; lib?: string | null })[]; steps: { script: string | null; lib?: string | null }[] }, threads?: number): number | undefined
 export function init(o: Common & { blender?: string | { path: string; version: string }; target?: string; budget?: number | string; size?: string | number[]; repin?: boolean; cwd?: string; env?: Record<string, string | undefined> }): Promise<Summary & { existing: boolean }>
 export function step(o: Common & { script: string; name?: string; amend?: boolean; timeout?: number; threads?: number; runner?: Runner }): Promise<StepDone | StepFailed>
 export function batchScripts(args: string | string[]): BatchScript[]

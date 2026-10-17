@@ -5,6 +5,7 @@
  * A model is a folder in the unit's data directory (never the worktree):
  *   manifest.json            steps, branches, the pinned Blender, history
  *   steps/<id>/script.py     the agent's step script, as it ran
+ *   steps/<id>/lib.py        the lib.py next to that script, as the step ran with it (run first)
  *   steps/<id>/model.blend   compressed snapshot (pruned to the last few per branch)
  *   steps/<id>/model.glb     modifier-applied GLB, what the live view loads
  *   steps/<id>/sheet.png     2x2 Workbench review sheet (3/4, front, side, top); a batch's last step only
@@ -18,7 +19,8 @@
  * finishes the step. A step that fails before its GLB never lands, so a crash or
  * a hang leaves the model at its last good snapshot; one that stops after landing
  * stays, without its sheet. Snapshots older than the retention window are
- * rebuilt on demand by replaying the scripts that made them.
+ * rebuilt on demand by replaying the scripts that made them, each after the
+ * lib.py it ran with.
  */
 import fs from 'node:fs'
 import os from 'node:os'
@@ -147,15 +149,24 @@ export async function init({ dataDir = modellerDataDir(), model, blender, target
   })
 }
 
-/** The snapshot to open and the scripts to replay on it to reach `parentId`. */
+/** A step to replay: its script and the lib.py it ran with. */
+const replayOf = (dir, s) => ({ script: path.join(dir, s.files.script), lib: s.files.lib ? path.join(dir, s.files.lib) : null })
+
+/** The snapshot to open and the steps to replay on it to reach `parentId`. */
 function baseFor(m, dir, parentId) {
   const chain = []
   for (let s = parentId && byId(m, parentId); s; s = s.parent && byId(m, s.parent)) {
     const blend = s.files.blend && path.join(dir, s.files.blend)
-    if (blend && fs.existsSync(blend)) return { blend, replay: chain.reverse().map((x) => path.join(dir, x.files.script)) }
+    if (blend && fs.existsSync(blend)) return { blend, replay: chain.reverse().map((x) => replayOf(dir, x)) }
     chain.push(s)
   }
-  return { blend: null, replay: chain.reverse().map((x) => path.join(dir, x.files.script)) }
+  return { blend: null, replay: chain.reverse().map((x) => replayOf(dir, x)) }
+}
+
+/** The step folder's helper file, run before each of its scripts: lib.py next to the script. */
+function libFor(script) {
+  const lib = path.join(path.dirname(script), 'lib.py')
+  return fs.statSync(lib, { throwIfNoEntry: false })?.isFile() ? lib : null
 }
 
 /** Drop snapshots outside the last `keep` steps of every branch, except kept steps. Scripts stay. */
@@ -177,12 +188,13 @@ const BAKES = /\bp\.bake_maps\s*\(/
 
 /**
  * Blender's --threads caps Cycles too, and a script cannot raise it: a plan whose scripts (replays
- * included) call p.bake_maps runs on every core, others on the runner's default. An explicit
- * `threads` wins.
+ * and lib.py files included) call p.bake_maps runs on every core, others on the runner's default.
+ * An explicit `threads` wins.
  */
 export function planThreads(plan, threads) {
   if (threads) return threads
-  const scripts = [...plan.replay, ...plan.steps.map((s) => s.script)].filter(Boolean)
+  const replay = plan.replay.map((r) => typeof r === 'string' ? { script: r } : r)
+  const scripts = [...replay, ...plan.steps].flatMap((s) => [s.script, s.lib]).filter(Boolean)
   return scripts.some((f) => BAKES.test(fs.readFileSync(f, 'utf8'))) ? os.availableParallelism() : undefined
 }
 
@@ -218,7 +230,7 @@ function newWarnings(dir, parentId, warnings) {
   return { fresh, known: warnings.length - fresh.length }
 }
 
-/** A batch's step scripts, in order: one folder of .py files (sorted by name), a batch .json, or several .py files. */
+/** A batch's step scripts, in order: one folder of .py files (sorted by name, lib.py aside), a batch .json, or several .py files. */
 export function batchScripts(args) {
   const raw = Array.isArray(args) ? args : [args]
   if (raw.some((a) => a && typeof a === 'object')) return raw.map((a) => typeof a === 'object' ? { script: path.resolve(String(a.script ?? '')), name: a.name } : { script: path.resolve(String(a)) })
@@ -226,7 +238,7 @@ export function batchScripts(args) {
   let items = list.map((script) => ({ script }))
   const one = list.length === 1 ? fs.statSync(list[0], { throwIfNoEntry: false }) : undefined
   if (one?.isDirectory()) {
-    items = fs.readdirSync(list[0]).filter((f) => /\.py$/i.test(f)).sort((a, b) => a.localeCompare(b, 'en', { numeric: true })).map((f) => ({ script: path.join(list[0], f) }))
+    items = fs.readdirSync(list[0]).filter((f) => /\.py$/i.test(f) && !/^lib\.py$/i.test(f)).sort((a, b) => a.localeCompare(b, 'en', { numeric: true })).map((f) => ({ script: path.join(list[0], f) }))
   } else if (one && /\.json$/i.test(list[0])) {
     const doc = readJson(list[0])
     const entries = Array.isArray(doc) ? doc : doc?.steps
@@ -251,7 +263,7 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
   const items = scripts.map((it) => {
     const source = path.resolve(it.script)
     if (!fs.statSync(source, { throwIfNoEntry: false })?.isFile()) throw new Error(`No step script at ${source}`)
-    return { source, name: checkName('Step', it.name ?? stepName(source)) }
+    return { source, lib: libFor(source), name: checkName('Step', it.name ?? stepName(source)) }
   })
   const head = m.branches[m.branch].head
   if (amend && !head) throw new Error('Nothing to amend: this branch has no steps yet.')
@@ -263,8 +275,10 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
     fs.rmSync(staging, { recursive: true, force: true })
     fs.mkdirSync(staging, { recursive: true })
     fs.copyFileSync(it.source, path.join(staging, 'script.py'))
+    // The lib.py as it is now: a later edit never changes what this step ran with.
+    if (it.lib) fs.copyFileSync(it.lib, path.join(staging, 'lib.py'))
     const sheet = everySheet || k === items.length - 1
-    plan.steps.push({ out: staging, script: path.join(staging, 'script.py'), outputs: ['blend', 'glb', ...(sheet ? ['sheet'] : [])], step: { id, n, name: it.name, model: m.model } })
+    plan.steps.push({ out: staging, script: path.join(staging, 'script.py'), lib: it.lib && path.join(staging, 'lib.py'), outputs: ['blend', 'glb', ...(sheet ? ['sheet'] : [])], step: { id, n, name: it.name, model: m.model } })
     return { ...it, id, n, staging }
   })
 
@@ -302,9 +316,10 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
     const t = now(), final = path.join(dir, 'steps', s.id)
     fs.mkdirSync(final, { recursive: true })
     fs.copyFileSync(path.join(s.staging, 'script.py'), path.join(final, 'script.py'))
+    if (s.lib) fs.copyFileSync(path.join(s.staging, 'lib.py'), path.join(final, 'lib.py'))
     if (fs.existsSync(path.join(s.staging, 'model.glb'))) renameRetry(path.join(s.staging, 'model.glb'), path.join(final, 'model.glb'))
     const has = (f) => fs.existsSync(path.join(final, f))
-    const files = { script: `steps/${s.id}/script.py`, blend: null, glb: has('model.glb') ? `steps/${s.id}/model.glb` : null, sheet: null, view: null, receipt: `steps/${s.id}/receipt.json` }
+    const files = { script: `steps/${s.id}/script.py`, lib: s.lib ? `steps/${s.id}/lib.py` : null, blend: null, glb: has('model.glb') ? `steps/${s.id}/model.glb` : null, sheet: null, view: null, receipt: `steps/${s.id}/receipt.json` }
     const entry = {
       id: s.id, n: s.n, parent, branch: m.branch, name: s.name, caption: r.caption || s.name, t, ms: Math.max(0, Math.round(Date.now() - prevAt)),
       triangles: r.triangles ?? 0, vertices: r.vertices ?? 0, objects: r.objects ?? 0, warnings: r.warnings?.length ?? 0, blend_sha256: null, files
@@ -352,7 +367,7 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
     published[k] = {
       ok: true, model: m.model, id: s.id, n: s.n, name: s.name, caption: entry.caption, branch: m.branch, parent: entry.parent,
       triangles: entry.triangles, vertices: entry.vertices, objects: entry.objects, bounds: receipt.bounds ?? null,
-      warnings: fresh, known_warnings: known, sheet: abs.sheet, glb: abs.glb, blend: abs.blend, receipt: abs.receipt, ms, pruned,
+      warnings: fresh, known_warnings: known, sheet: abs.sheet, glb: abs.glb, blend: abs.blend, receipt: abs.receipt, lib: abs.lib, ms, pruned,
       ...(receipt.bakes ? { bakes: receipt.bakes } : {})
     }
     completed++
@@ -401,7 +416,7 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
   const failDir = path.join(dir, 'failed', `${s.id}-${kind}-${Date.now()}`)
   fs.mkdirSync(path.dirname(failDir), { recursive: true })
   renameRetry(s.staging, failDir)
-  for (const f of fs.readdirSync(failDir)) if (!['script.py', 'receipt.json', 'plan.json'].includes(f)) fs.rmSync(path.join(failDir, f), { recursive: true, force: true })
+  for (const f of fs.readdirSync(failDir)) if (!['script.py', 'lib.py', 'receipt.json', 'plan.json'].includes(f)) fs.rmSync(path.join(failDir, f), { recursive: true, force: true })
   const notRun = staged.slice(published.length + 1)
   for (const x of notRun) fs.rmSync(x.staging, { recursive: true, force: true })
   const at = m.branches[m.branch].head
@@ -480,7 +495,7 @@ export async function materialize({ dataDir = modellerDataDir(), model, step: re
     const staging = path.join(dir, 'steps', `.rebuild-${s.id}`)
     fs.rmSync(staging, { recursive: true, force: true })
     fs.mkdirSync(staging, { recursive: true })
-    const plan = { replay: [...base.replay, path.join(dir, s.files.script)], steps: [{ out: staging, script: null, outputs: ['blend'], step: { id: s.id, n: s.n, name: s.name, model: m.model } }], checks: m.checks }
+    const plan = { replay: [...base.replay, replayOf(dir, s)], steps: [{ out: staging, script: null, outputs: ['blend'], step: { id: s.id, n: s.n, name: s.name, model: m.model } }], checks: m.checks }
     const run = await runPlan(m, dir, plan, base, { timeout, threads, runner })
     const receipt = readJson(path.join(staging, 'receipt.json'))
     if (run.timedOut || run.code !== 0 || !receipt?.ok) {

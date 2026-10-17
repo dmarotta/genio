@@ -109,7 +109,10 @@ describe('Modeller live state', () => {
       expect(readModellerLive(data, base, worktree)!.next).toBeNull()
       fs.writeFileSync(path.join(scripts, 's03_roof.py'), '"""Pitched roof with shingles"""\nimport bpy\n')
       fs.writeFileSync(path.join(scripts, 'notes.txt'), '"""not a step"""')
+      // the shared helper file runs before every step but is never one itself, even edited last
+      fs.writeFileSync(path.join(scripts, 'lib.py'), '"""Helpers for the tower"""\n')
       at('s03_roof.py', '2026-10-16T10:03:00.000Z')
+      at('lib.py', '2026-10-16T10:03:30.000Z')
       const live = readModellerLive(data, base, worktree)!
       expect(live.next).toEqual({ caption: 'Pitched roof with shingles', at: expect.any(Number) })
       expect(live.stamp).not.toBe(readModellerLive(data, base)!.stamp)

@@ -179,6 +179,9 @@ describe('brief tools section', () => {
     // Paint is presets plus one joined bake, never a bake loop of the unit's own.
     expect(b).toMatch(/bake once with `p\.bake_maps\(\)`, never with your own bake loop/)
     expect(MODELLER_API_CARD).toMatch(/`p\.uv_atlas\(\)`.*`p\.camo\(mat, 'red'\|'woodland'\|'desert'\|'digital'\)`.*`p\.weathering\(mat.*`p\.bake_maps\(size=1024\)`/)
+    // Helpers are written once, in lib.py, and the card names the ones units used to write themselves.
+    expect(MODELLER_API_CARD).toMatch(/Write each helper of yours once, in `lib\.py` beside the step scripts: it runs before every step/)
+    for (const helper of ['p.join(', 'p.drop(', 'p.mirror_pair(', 'p.ring(', 'p.loft(']) expect(MODELLER_API_CARD).toContain(helper)
     // The API card replaces reading the Python sources.
     expect(b).toContain(MODELLER_API_CARD)
     expect(b).toMatch(/never read `genio_step\.py`, `genio_parts\.py` or `modeller\.mjs`/)

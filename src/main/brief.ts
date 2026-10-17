@@ -151,7 +151,7 @@ export function modellerDoneLines(o: { engine?: Engine; engineRoot?: string; loc
           '- Unity axis: after that import, check the FBX\'s root rotation. A static FBX usually arrives with a -90° X root rotation unless "Bake Axis Conversion" is ticked in its import settings. Say in your done line whether it arrived upright.'
         ]
       : []),
-    `- Commit exactly: the export${unity ? ' and its `.meta`' : ''}; a compressed \`.blend\` of the same step under \`${artSource}/\`${unity ? ' (never under `Assets/`: Unity would import it through a local Blender)' : ''}; and the step scripts in \`.genio/modeller/<model>/\` with a copy of the model's manifest.json. Never commit step data (snapshots, step GLBs, review sheets).`,
+    `- Commit exactly: the export${unity ? ' and its `.meta`' : ''}; a compressed \`.blend\` of the same step under \`${artSource}/\`${unity ? ' (never under `Assets/`: Unity would import it through a local Blender)' : ''}; and the step scripts and \`lib.py\` in \`.genio/modeller/<model>/\` with a copy of the model's manifest.json. Never commit step data (snapshots, step GLBs, review sheets).`,
     '- Git LFS: if `.gitattributes` uses `filter=lfs`, run `git check-attr filter -- <file>` for each binary. A binary over 1 MB, or one whose type the LFS rules do not cover, is a `needs-decision` before you commit it. Never edit `.gitattributes`.',
     '- Ask the player only a real question, as any unit would; the player steers you through pings while you work and merges your branch as with any Build.',
     ''

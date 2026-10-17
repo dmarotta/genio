@@ -47,13 +47,13 @@ export const hasModellerModel = (dataDir: string): boolean => !!latestModel(data
 /** Where a unit writes a model's step scripts: `.genio/modeller/<model>/` in its worktree. */
 export const modellerScriptsDir = (worktree: string, model: string): string => path.join(worktree, '.genio', 'modeller', model)
 
-/** The newest step script in `scripts` written after `after` (epoch ms), with its caption. */
+/** The newest step script in `scripts` written after `after` (epoch ms), with its caption. lib.py, the helpers every step runs first, is not a step. */
 function newestScript(scripts: string, after: number): { caption: string; at: number } | null {
   let best: { file: string; at: number } | undefined
   let names: string[]
   try { names = fs.readdirSync(scripts) } catch { return null }
   for (const n of names) {
-    if (!/\.py$/i.test(n)) continue
+    if (!/\.py$/i.test(n) || /^lib\.py$/i.test(n)) continue
     try {
       const at = fs.statSync(path.join(scripts, n)).mtimeMs
       if (at > after && (!best || at > best.at)) best = { file: path.join(scripts, n), at: Math.round(at) }

@@ -144,6 +144,46 @@ describe('Modeller kernel with a fake Blender', { timeout: 60000 }, () => {
     expect(manifest().steps.find((s) => s.id === 's003')?.files.blend).toBe('steps/s003/model.blend')
   })
 
+  it('runs the lib.py next to the step scripts before each step, and replays every step with the lib it ran with', async () => {
+    await fakeModel()
+    const lib = (caption: string, ...helpers: string[]) => fs.writeFileSync(path.join(src, 'lib.py'), [`"""${caption}"""`, ...helpers.map((h) => `# def: ${h}`)].join('\n'))
+    // without a lib, a helper written for an earlier step is unknown (the village wrote join() 12 times)
+    expect(failed(await step(script('s01_walls.py', 'Walls', '# use: cottage', '# part: Walls')))).toMatchObject({ kind: 'error', error: "NameError: name 'cottage' is not defined" })
+    lib('v1', 'cottage')
+    const walls = done(await step(script('s01_walls.py', 'Walls', '# use: cottage', '# part: Walls')))
+    expect(walls).toMatchObject({ id: 's001', lib: path.join(dataDir, 'tower', 'steps', 's001', 'lib.py') })
+    expect(manifest().steps[0].files).toMatchObject({ script: 'steps/s001/script.py', lib: 'steps/s001/lib.py' })
+    done(await step(script('s02_roof.py', 'Roof', '# use: cottage', '# part: Roof')))
+    // the lib changes: the next steps run with the new one, the earlier ones keep their copy
+    lib('v2', 'fence')
+    for (let i = 3; i <= 7; i++) done(await step(script(`s0${i}.py`, `Part ${i}`, '# use: fence', `# part: P${i}`)))
+    expect(fs.readFileSync(path.join(dataDir, 'tower', 'steps', 's002', 'lib.py'), 'utf8')).toContain('v1')
+    expect(fs.readFileSync(path.join(dataDir, 'tower', 'steps', 's007', 'lib.py'), 'utf8')).toContain('v2')
+    expect(manifest().steps.filter((s) => s.files.blend).map((s) => s.id)).toEqual(['s003', 's004', 's005', 's006', 's007'])
+    // revert to a pruned step: s001 and s002 replay with lib v1 (lib v2 no longer has cottage), the new step runs with v2
+    await kernel.revert({ dataDir, model: 'tower', to: 's002' })
+    const gate = done(await step(script('s08_gate.py', 'Gate', '# use: fence', '# part: Gate')))
+    expect(JSON.parse(fs.readFileSync(gate.receipt, 'utf8'))).toMatchObject({ replayed: 2, base: null })
+    expect(snapshot(gate.blend!).scripts).toEqual(['Walls + lib v1', 'Roof + lib v1', 'Gate + lib v2'])
+    // a branch from a pruned step, and materialize, replay the same way
+    await kernel.branch({ dataDir, model: 'tower', name: 'alt', from: 's001' })
+    const alt = done(await step(script('s09_alt.py', 'Alt', '# part: Alt')))
+    expect(snapshot(alt.blend!).scripts).toEqual(['Walls + lib v1', 'Alt + lib v2'])
+    const rebuilt = await kernel.materialize({ dataDir, model: 'tower', step: 's002', runner: fake })
+    expect(snapshot(rebuilt.blend).scripts).toEqual(['Walls + lib v1', 'Roof + lib v1'])
+    // an error in the lib names the lib's line; the failure keeps the lib it ran with
+    fs.appendFileSync(path.join(src, 'lib.py'), '\n# fake: error')
+    const broken = failed(await step(script('s10.py', 'Broken lib', '# part: X')))
+    expect(broken).toMatchObject({ kind: 'error', error: 'RuntimeError: fake lib failure', trace: ['lib.py:2: raise RuntimeError'], head: 's009' })
+    expect(fs.readFileSync(path.join(path.dirname(broken.script), 'lib.py'), 'utf8')).toContain('# fake: error')
+    // no lib.py next to the script: none runs
+    fs.rmSync(path.join(src, 'lib.py'))
+    const plain = done(await step(script('s10.py', 'Plain', '# part: Y')))
+    expect(plain.lib).toBeNull()
+    expect(manifest().steps.at(-1)!.files.lib).toBeNull()
+    expect(snapshot(plain.blend!).scripts.at(-1)).toBe('Plain')
+  })
+
   it('recovers from a hang, a crash and a script error at the last good snapshot', async () => {
     await fakeModel()
     const good = done(await step(script('s01_legs.py', 'Legs', '# part: Legs')))
@@ -273,6 +313,7 @@ describe('Modeller kernel with a fake Blender', { timeout: 60000 }, () => {
     const folder = fs.mkdtempSync(path.join(src, 'batch-'))
     for (const [f, part] of [['s10_roof.py', 'Roof'], ['s2_deck.py', 'Deck'], ['s1_legs.py', 'Legs']]) fs.writeFileSync(path.join(folder, f), `"""Adding ${part}"""\n# part: ${part}\n`)
     fs.writeFileSync(path.join(folder, 'notes.txt'), 'not a step')
+    fs.writeFileSync(path.join(folder, 'lib.py'), '"""Helpers, run before each step"""\n')
     expect(kernel.batchScripts(folder).map((s) => path.basename(s.script))).toEqual(['s1_legs.py', 's2_deck.py', 's10_roof.py'])
     const r = await kernel.batch({ dataDir, model: 'tower', scripts: folder, everySheet: true, runner: fake, timeout: 20, gapMs: 0 })
     expect(r.steps.map((s) => [s.name, s.sheet !== null])).toEqual([['legs', true], ['deck', true], ['roof', true]])
@@ -441,6 +482,9 @@ describe('Modeller kernel with a fake Blender', { timeout: 60000 }, () => {
     expect(kernel.planThreads({ replay: [paintFile], steps: [{ script: plain }] })).toBe(os.availableParallelism())
     expect(kernel.planThreads({ replay: [], steps: [{ script: plain }, { script: null }] })).toBeUndefined()
     expect(kernel.planThreads({ replay: [paintFile], steps: [] }, 3)).toBe(3)
+    // a bake in a lib.py counts too
+    expect(kernel.planThreads({ replay: [{ script: plain, lib: paintFile }], steps: [] })).toBe(os.availableParallelism())
+    expect(kernel.planThreads({ replay: [], steps: [{ script: plain, lib: paintFile }] })).toBe(os.availableParallelism())
   })
 
   it('derives step names and the data folder', () => {
@@ -720,5 +764,125 @@ describe.skipIf(!blender)(`Modeller with Blender ${blender?.version.join('.') ??
     // the 3/4 view the live view shows has no marker
     const view = pngPixels(last.sheet.replace(/sheet\.png$/, 'view.png'))
     expect(view.slice(-120).flatMap((row) => row.slice(0, 120)).filter(red)).toEqual([])
+  }, 300000)
+
+  it('runs lib.py before every step and replays with the lib each step ran with', async () => {
+    await cmd('init', 'shed', '--target', 'web')
+    const dir = fs.mkdtempSync(path.join(src, 'shed-'))
+    const write = (name: string, ...lines: string[]) => {
+      fs.writeFileSync(path.join(dir, name), lines.join('\n'))
+      return path.join(dir, name)
+    }
+    const lib = (size: number) => write('lib.py', '"""Shed helpers"""', `def crate(name, x, size=${size}):`, "    return p.box(name, (size, size, size), loc=(x, 0, size / 2), mat=p.material('Crate wood', '#8a5a33'))")
+    lib(0.4)
+    const first = await cmd('step', 'shed', write('s01_crates.py', '"""Two crates"""', "crate('Crate 1', 0)", "crate('Crate 2', 1)"))
+    expect(first).toMatchObject({ ok: true, objects: 2, bounds: { max: [1.2, 0.2, 0.4] } })
+    expect(fs.readFileSync(first.lib, 'utf8')).toContain('size=0.4')
+    lib(0.8)
+    expect(await cmd('step', 'shed', write('s02_crate.py', '"""A big crate"""', "crate('Crate 3', 2.5)"))).toMatchObject({ ok: true, objects: 3, bounds: { max: [2.9, 0.4, 0.8] } })
+    // forget s001's snapshot, as retention does: a branch from it replays s001 with the lib it ran with
+    const file = path.join(dataDir, 'shed', 'manifest.json')
+    const m = JSON.parse(fs.readFileSync(file, 'utf8')) as Manifest
+    fs.rmSync(path.join(dataDir, 'shed', m.steps[0].files.blend!))
+    m.steps[0].files.blend = null
+    fs.writeFileSync(file, JSON.stringify(m))
+    await cmd('branch', 'shed', 'low', '--from', 's001')
+    const replayed = await cmd('step', 'shed', write('s03_low.py', '"""One more crate"""', "assert abs(p.bounds([p.part('Crate 1')])[1].z - 0.4) < 1e-6, 'replayed with the new lib'", "crate('Crate 4', -1.5)"))
+    expect(replayed).toMatchObject({ ok: true, parent: 's001', objects: 3, bounds: { min: [-1.9, -0.4, 0], max: [1.2, 0.4, 0.8] } })
+    expect(JSON.parse(fs.readFileSync(replayed.receipt, 'utf8')).timings_ms.replay).toBeGreaterThan(0)
+    // an error inside a lib helper names the lib's line after the script's
+    write('lib.py', '"""Shed helpers"""', 'def crate(name, x):', '    return p.box(name, 1)')
+    const broken = await cmd('step', 'shed', write('s04_broken.py', '"""Broken"""', "crate('Crate 5', 3)"))
+    expect(broken).toMatchObject({ ok: false, kind: 'error' })
+    expect(broken.trace.slice(0, 2)).toEqual(["script.py:2: crate('Crate 5', 3)", 'lib.py:3: return p.box(name, 1)'])
+  }, 300000)
+
+  it('joins, drops, mirrors, rings and lofts parts', async () => {
+    await cmd('init', 'helpers', '--target', 'web')
+    const file = path.join(src, 's01_helpers.py')
+    fs.writeFileSync(file, [
+      '"""Every new helper once, checked from inside Blender"""',
+      'import bmesh, math',
+      'from mathutils import Vector',
+      "stone, wood = p.material('Stone', '#9a9a94'), p.material('Wood', '#8a5a33')",
+      'near = lambda a, b: (Vector(a) - Vector(b)).length < 1e-5',
+      'world = lambda ob: sorted(tuple(round(c, 4) for c in ob.matrix_world @ v.co) for v in ob.data.vertices)',
+      '# join: as they ship (the bevel applied), both materials, the first part\'s origin; a child stays put',
+      "a = p.box('A', (1, 1, 1), loc=(3, 0, 0.5), mat=stone, bevel=0.05)",
+      "b = p.box('B', (1, 1, 1), loc=(4, 0, 0.5), mat=wood)",
+      "c = p.box('C', (1, 1, 1), loc=(5, 0, 0.5), mat=stone)",
+      "kid = p.parent(p.box('Kid', (0.2, 0.2, 0.2), loc=(4, 0, 1.2), mat=wood), b)",
+      'shipped = p.stats([a, b, c])[\'triangles\']',
+      "wall = p.join('Wall', [a, 'B', c])",
+      "assert not {'A', 'B', 'C'} & set(bpy.data.objects.keys())",
+      "assert [m.name for m in wall.data.materials] == ['Stone', 'Wood'] and not wall.modifiers",
+      "assert p.stats([wall])['triangles'] == shipped and sum(f.material_index == 1 for f in wall.data.polygons) == 6",
+      'bpy.context.view_layer.update()',
+      'assert near(wall.matrix_world.translation, (3, 0, 0.5)) and kid.parent == wall and near(kid.matrix_world.translation, (4, 0, 1.2))',
+      '# drop: on the ground, on a box, on the tip of a cone (rays from both sides)',
+      "crate = p.box('Crate', (0.4, 0.4, 0.4), loc=(-3, 0, 2))",
+      'assert abs(p.drop(crate) + 1.8) < 1e-5 and abs(p.bounds([crate])[0].z) < 1e-5',
+      "base = p.box('Base', (2, 2, 1), loc=(-3, 3, 0.5))",
+      "top = p.box('Top', (0.4, 0.4, 0.4), loc=(-3.2, 3.1, 3))",
+      'p.drop(top, on=base)',
+      'assert abs(p.bounds([top])[0].z - 1) < 1e-5',
+      "p.cone('Spire', 1, 2, loc=(-3, -3, 1), segments=8)",
+      "cap = p.box('Cap', (1, 1, 0.2), loc=(-3, -3, 5))",
+      "p.drop(cap, on='Spire', gap=0.01)",
+      'assert abs(p.bounds([cap])[0].z - 2.01) < 1e-5, p.bounds([cap])[0].z',
+      '# mirror_pair: the twin across x = 0 with its child, named by side, facing outwards',
+      "arm = p.box('Arm L', (0.6, 0.2, 0.2), loc=(1.5, 0.5, 2), rot=(0.3, 0.2, 0.4), mat=wood)",
+      "hand = p.parent(p.sphere('Hand L', 0.15, loc=(1.9, 0.6, 2.1)), arm)",
+      'twin = p.mirror_pair(arm)',
+      "hand_r = bpy.data.objects['Hand R']",
+      'bpy.context.view_layer.update()',
+      "assert twin.name == 'Arm R' and hand_r.parent == twin and twin.matrix_world.determinant() > 0",
+      'for one, other in ((arm, twin), (hand, hand_r)):',
+      '    assert world(other) == sorted((-x, y, z) for x, y, z in world(one)), other.name',
+      '    m = other.matrix_world',
+      '    assert all((m.to_3x3().inverted().transposed() @ f.normal).dot(m @ f.center - m.translation) > 0 for f in other.data.polygons), other.name',
+      "house = p.box('House', (2, 2, 2), loc=(0, -4, 1), rot=(0, 0, math.pi / 2))",
+      "window = p.parent(p.box('Window L', (0.3, 0.1, 0.3), loc=(0, -3.1, 1.2)), house)",
+      'twin = p.mirror_pair(window)',
+      'bpy.context.view_layer.update()',
+      "assert twin.name == 'Window R' and near(twin.matrix_world.translation, (0, -4.9, 1.2)), twin.matrix_world.translation",
+      'try:',
+      "    p.mirror_pair(p.box('Mast', (0.1, 0.1, 1), loc=(1, 0, 0.5)))",
+      'except ValueError as e:',
+      "    assert 'no side' in str(e)",
+      'else:',
+      "    raise AssertionError('Mast has no side')",
+      "p.remove('Mast')",
+      '# ring: joined round a centre, or apart round another axis',
+      "fence = p.ring(p.box('Post', (0.1, 0.1, 0.6), loc=(6, 5, 0.3), mat=wood), 8, center=(6, 4))",
+      'lo, hi = p.bounds([fence])',
+      "assert fence.name == 'Post' and p.stats([fence])['triangles'] == 8 * 12 and near((lo + hi) / 2, (6, 4, 0.3))",
+      "spokes = p.ring(p.beam('Spoke', (6, 8, 1), (6, 8, 1.5), 0.05), 4, center=(6, 8, 1), axis='Y', join=False)",
+      "assert [s.name for s in spokes] == ['Spoke_1', 'Spoke_2', 'Spoke_3', 'Spoke_4']",
+      'assert abs(p.bounds([spokes[2]])[0].z - 0.5) < 1e-5',
+      "arc = p.ring(p.box('Crenel', (0.2, 0.2, 0.2), loc=(7, 0, 3)), 3, center=(6, 0), arc=180, join=False)",
+      'bpy.context.view_layer.update()',
+      'assert near(arc[1].matrix_world.translation, (6, 1, 3)) and near(arc[2].matrix_world.translation, (5, 0, 3))',
+      '# loft: a closed hull from three sections and a tip, and an open sail',
+      'loop = ((1, 0.5), (0.8, 0), (-0.8, 0), (-1, 0.5))',
+      "hull = p.loft('Hull', [[(x * w, y, z) for x, z in loop] for y, w in ((-1, 0.3), (0, 0.5), (1, 0.4))] + [[(0, 1.5, 0.4)]], loc=(0, -7, 0), mat=wood)",
+      'bm = bmesh.new()',
+      'bm.from_mesh(hull.data)',
+      'assert all(e.is_manifold for e in bm.edges) and len(bm.faces) == 13 and bm.calc_volume(signed=True) > 0',
+      'bm.free()',
+      "sail = p.loft('Sail', [[(x, -7, 1) for x in (-0.5, 0, 0.5)], [(x, -7.2, 2) for x in (-0.4, 0, 0.4)]], closed=False)",
+      'assert len(sail.data.polygons) == 2',
+      'try:',
+      "    p.loft('Bad', [[(0, 0, 0), (1, 0, 0), (0, 1, 0)], [(0, 0, 1), (1, 0, 1)]])",
+      'except ValueError as e:',
+      "    assert 'same number of points' in str(e)",
+      'else:',
+      "    raise AssertionError('uneven sections')"
+    ].join('\n'))
+    const r = await cmd('step', 'helpers', file)
+    if (!r.ok) throw new Error(`${r.error}\n${r.trace.join('\n')}`)
+    // Wall, Kid, Crate, Base, Top, Spire, Cap, Arm L/R, Hand L/R, House, Window L/R, Post, 4 spokes, 3 crenels, Hull, Sail
+    expect(r.objects).toBe(24)
+    expect(r.warnings.join('\n')).not.toMatch(/inwards|Negative scale|\.00\d/)
   }, 300000)
 })

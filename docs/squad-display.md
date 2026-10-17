@@ -118,7 +118,8 @@ stopped or its step failed. While the unit works and no step runs, it says what 
 before the first step, its latest status line and the time since it started;
 between steps, the last step's caption with "working on the next step · N s";
 as soon as the next step's script exists under `.genio/modeller/<model>/`, its
-caption ("next: …"). A step Blender runs shows "Step N · caption…" and its
+caption ("next: …"); `lib.py` there, the unit's helpers that run before every step,
+is never taken for a step. A step Blender runs shows "Step N · caption…" and its
 seconds.
 
 A Generator (a Build deployed or filed with the Generator flag: one or more

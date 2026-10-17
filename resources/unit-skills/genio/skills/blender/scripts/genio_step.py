@@ -1,10 +1,12 @@
 """Modeller steps inside one headless Blender. modeller.mjs runs this; agents do not.
 
 The only argument after `--` is a plan JSON written by modeller.mjs:
-  replay    step scripts to re-run first (rebuilding a pruned snapshot)
+  replay    step scripts to re-run first (rebuilding a pruned snapshot), each
+              {script, lib} (or a bare script path)
   steps     one or more steps, run back to back in this session, each with
               out      staging folder for this step's files
               script   the step script, or null to only rebuild a snapshot
+              lib      the model's lib.py as this step runs with it, or null
               outputs  any of blend, glb, sheet
               step     id, n, name, model (for the receipt)
   checks    budget (triangles) and size ([x, y, z] metres), both optional
@@ -54,26 +56,29 @@ def caption_of(code):
     return doc.strip().splitlines()[0].strip() if doc and doc.strip() else None
 
 
-def _trace(path):
+def _trace(paths):
     frames = traceback.extract_tb(sys.exc_info()[2])
-    # The agent's own lines first; the deepest frame shows where a helper refused.
-    mine = [f for f in frames if f.filename == path]
+    # The agent's own lines first (its script and lib.py); the deepest frame shows where a helper refused.
+    mine = [f for f in frames if f.filename in paths]
     keep = mine + [f for f in frames[-2:] if f not in mine]
     return [f'{os.path.basename(f.filename)}:{f.lineno}: {(f.line or "").strip()}' for f in keep]
 
 
-def run_script(path, kind, api):
+def run_script(path, kind, api, lib=None):
+    """Run a step script, after the model's lib.py when it has one: the lib's helpers are the script's globals."""
     code = open(path, encoding='utf-8-sig').read()  # Windows PowerShell 5.1 writes a BOM
+    sources = ([(lib, open(lib, encoding='utf-8-sig').read())] if lib else []) + [(path, code)]
     env = {'__name__': '__genio_step__', '__file__': path, 'bpy': bpy, 'p': p}
     buf = io.StringIO()
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter('always')
         try:
             with contextlib.redirect_stdout(buf):
-                exec(compile(code, path, 'exec'), env)
+                for file, text in sources:
+                    exec(compile(text, file, 'exec'), env)
         except (Exception, SystemExit) as e:  # noqa: BLE001 - the step's own error is the result
             sys.stdout.write(buf.getvalue())
-            raise StepError(kind, f'{type(e).__name__}: {e}', _trace(path), buf.getvalue()[-4000:]) from None
+            raise StepError(kind, f'{type(e).__name__}: {e}', _trace({path, lib}), buf.getvalue()[-4000:]) from None
     sys.stdout.write(buf.getvalue())
     for w in caught:
         where = f'{os.path.basename(w.filename)}:{w.lineno}'
@@ -438,12 +443,14 @@ def run_step(item, plan, replay, first, last):
                 bpy.ops.wm.read_factory_settings(use_empty=True)
             p.collection(p.EXPORT)
             lap('setup')
-            for path in replay:
-                run_script(path, 'replay', [])
+            for entry in replay:
+                if isinstance(entry, str):
+                    entry = {'script': entry}
+                run_script(entry['script'], 'replay', [], entry.get('lib'))
             lap('replay')
         if script:
             p.BAKES.clear()
-            code, printed = run_script(script, 'error', receipt['api_warnings'])
+            code, printed = run_script(script, 'error', receipt['api_warnings'], item.get('lib'))
             receipt['caption'] = caption_of(code)
             receipt['output'] = printed
             if p.BAKES:
