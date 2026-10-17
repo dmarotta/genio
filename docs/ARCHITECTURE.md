@@ -270,8 +270,9 @@ column; quests waiting for the player stay in its Queued column. Existing `move`
 
 
 Choices retain their project and conversation ownership while a project is closed.
-Project windows show and answer only their own choices; the Hub provides waiting
-counts across projects and access to the fleet's answer history. Pending answers
+Project windows show and answer only their own choices; the Hub shows no choices,
+counts or history. A closed project's choices reach the player as desktop
+notifications and wait in that project's window for when it opens. Pending answers
 include Answered and Deferred filters, with Resume for deferred and set-aside choices. Desktop
 notification clicks open or focus the owning project and reveal the exact choice,
 including its history if it has since been answered or deferred. Answer resolution

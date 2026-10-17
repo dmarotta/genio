@@ -81,12 +81,16 @@ beforeAll(async () => {
 })
 
 describe('project window lifecycle', () => {
-  it('opens a Hub and reuses one project window for concurrent opens', async () => {
+  it('opens a Hub, closes it once a project opens and reuses one project window for concurrent opens', async () => {
     expect(f.windows[0].query).toEqual({})
     expect(f.windows[0].menu).toBeNull()
     expect(f.windows[0].title).toBe('Genio - Hub')
     await Promise.all([openProject('one'), openProject('one')])
     expect(f.windows).toHaveLength(2)
+    // The Hub is only a dialog for opening a project: it closes, and Genio keeps running for the project window.
+    expect(f.windows[0].destroyed).toBe(true)
+    expect(f.windows[1].destroyed).toBe(false)
+    expect(f.app.exit).not.toHaveBeenCalled()
     expect(f.windows[1].query).toEqual({ project: 'one', wksp: 'ally-one', registered: '1' })
     expect(f.windows[1].setMenu).toHaveBeenCalledExactlyOnceWith(null)
     expect(f.windows[1].title).toBe('Genio - one')
@@ -128,7 +132,7 @@ describe('project window lifecycle', () => {
     expect(f.windows[2].webContents.send).not.toHaveBeenCalled()
     const global = { type: 'settings', settings: {} } as GenioEvent
     bus.publish(global)
-    for (const w of f.windows) expect(w.webContents.send).toHaveBeenCalledWith('genio:event', global)
+    for (const w of f.windows.filter(w => !w.destroyed)) expect(w.webContents.send).toHaveBeenCalledWith('genio:event', global)
   })
   it("grants the microphone (audio only) to Genio's own windows and denies other pages and permissions", () => {
     const ask = (wc: unknown, permission: string, details: object): boolean => { const cb = vi.fn(); f.permissionRequest(wc, permission, cb, details); return cb.mock.calls[0][0] }
@@ -203,10 +207,6 @@ describe('project window lifecycle', () => {
     expect(f.stop).toHaveBeenCalledWith(f.ctx, 'one', 'ally-one')
     expect(f.windows[1].chatChild.destroy).toHaveBeenCalledOnce()
     expect(f.windows[2].destroyed).toBe(false)
-    expect(f.windows[0].destroyed).toBe(false)
-    f.windows[0].close()
-    expect(f.windows[0].destroyed).toBe(true)
-    expect(f.windows[2].destroyed).toBe(false)
     expect(f.app.exit).not.toHaveBeenCalled()
   })
 })
@@ -249,6 +249,30 @@ describe('File menu window controls', () => {
     f.ipc.close(hub.webContents.id)
     expect(hub.destroyed).toBe(true)
     expect(open()).toEqual([two, one])
+  })
+  it('closes the Hub when it opens a new project or focuses an open one, and keeps it up when the open fails', async () => {
+    await f.ipc.openHub()
+    let hub = f.windows.at(-1)
+    await openProject('one')
+    expect(hub.destroyed).toBe(true)
+    await f.ipc.openHub()
+    hub = f.windows.at(-1)
+    await openProject('three')
+    const three = f.windows.at(-1)
+    expect(three.query.project).toBe('three')
+    expect(hub.destroyed).toBe(true)
+    f.ipc.close(three.webContents.id)
+    await vi.waitFor(() => expect(three.destroyed).toBe(true))
+    await f.ipc.openHub()
+    hub = f.windows.at(-1)
+    const openFolder = f.ctx.projects.openFolder
+    f.ctx.projects.openFolder = async () => { throw new Error('Folder unavailable') }
+    try {
+      await expect(openProject('gone')).rejects.toThrow('Folder unavailable')
+    } finally { f.ctx.projects.openFolder = openFolder }
+    expect(hub.destroyed).toBe(false)
+    hub.destroy()
+    expect(f.app.exit).not.toHaveBeenCalled()
   })
   it('waits for a new Hub to load and focuses a single instance for concurrent requests', async () => {
     let ready!: () => void

@@ -209,10 +209,11 @@ export function openProject(folder: string): Promise<void> {
   const operation = openQueue.then(async () => {
     const { project, registered } = await ctx!.projects.openFolder(folder)
     const existing = [...windows].find(([, b]) => b?.project === project.name)?.[0]
-    if (existing) { focusWindow(existing); return }
+    if (existing) { focusWindow(existing); closeHub(); return }
     const wksp = await ensureProjectBase(ctx!, project.name)
     const win = createWindow({ project: project.name, wksp }, registered)
     await windowLoads.get(win)
+    if (!win.isDestroyed()) closeHub()
     ctx!.stats.unlock('project-window-open')
     if ([...windows.values()].filter(Boolean).length >= 2) ctx!.stats.unlock('project-windows-two')
     await startup
@@ -220,6 +221,11 @@ export function openProject(folder: string): Promise<void> {
   })
   openQueue = operation.catch(() => undefined)
   return operation
+}
+
+/** The Hub is only a dialog for opening a project: it closes once a project window is on screen. */
+function closeHub(): void {
+  for (const [win, binding] of [...windows]) if (!binding && !win.isDestroyed()) win.close()
 }
 
 // Pop-out chat bounds per project, reopened only where a current display shows its title bar.

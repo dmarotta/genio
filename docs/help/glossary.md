@@ -394,6 +394,15 @@ results and merges like any Build. No default budget: it spends only what you ap
 Where: Deploy dialog (Generator option) or ask Genio.
 Source: [unit-generator.md](../unit-generator.md)
 
+## Hub
+
+The window for opening a project, shown when Genio starts with no project. It lists your projects (most recently
+opened first) with Open folder, Add project, New project, Sync all and Settings, and nothing else: no choices, units
+or chat. Click a project to open it; the Hub closes once the project window is up. Choices from closed projects come
+as desktop notifications and wait in that project's window.
+Where: on start, or File › Hub (Ctrl+N) in a project window.
+Source: [project-startup.md](../project-startup.md)
+
 ## Settings pages
 
 Settings has three groups. This project: General (with the build and test commands), Delivery, Asset generation,

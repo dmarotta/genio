@@ -1,7 +1,13 @@
 # Project opening and automatic greeting
 
-The Hub owns project selection. Its companion UI change opens project windows
-on Comms. After the renderer loads and app startup finishes, the main process
+The Hub owns project selection and nothing else: it shows the project list (with
+Open folder, Add project, New project, Sync all and Settings) and no project's
+work, choices or presence. Opening a project, from the Hub or anywhere else,
+closes the Hub once the project window has loaded (a failed open leaves it up to
+show the error). Genio keeps running while any window is open; closing the last
+project window quits as before, and File › Hub (Ctrl+N) in a project window brings
+the Hub back. Project windows open on Comms and add their own folder to the
+recent list the Hub sorts by. After the renderer loads and app startup finishes, the main process
 runs `startProjectBase` once for that window. Focusing or reloading an existing
 window does not repeat the reconciliation or greeting. Closing resets this
 guard; reopening resumes the same conversation with a fresh recap.

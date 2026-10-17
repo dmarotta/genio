@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { FolderOpen, Plus, RefreshCw, Trash } from 'lucide-react'
-import { api, op, openDecisions, useStore } from '../store'
-import { useNow } from '../components/ui'
+import { api, op, useStore } from '../store'
 import { AddProject, NewProject, RemoveProject } from './ProjectSettings'
 import { worldList } from '../lib/worlds'
 import { byRecent, readRecent, rememberRecent } from '../lib/recent'
@@ -9,10 +8,8 @@ import type { WorldMetadata } from '@shared/api'
 import type { Project } from '@shared/types'
 import '../styles/hub.css'
 
-/** The Hub selects projects; all work and controls live in the project window. */
+/** The Hub is only a dialog for opening a project: it shows no project's work, and closes once a project window opens. */
 export function Hub() {
-  useNow(30_000)
-  const choices = useStore(s => openDecisions(s))
   const projects = useStore(s => s.snap.projects)
   const booted = useStore(s => s.booted)
   const connected = useStore(s => s.connected)
@@ -76,7 +73,6 @@ export function Hub() {
               <button className="hub-project" disabled={!available} onClick={() => void openProject(p.path)}>
                 <FolderOpen size={20} className="neon-text" />
                 <span className="hub-project-identity"><strong>{p.name}</strong><span className="mono mute hub-project-path" title={p.path}>{p.path}</span></span>
-                {choices.some(d => d.project === p.name) && <span className="chip amber">{choices.filter(d => d.project === p.name).length} choices waiting</span>}
               </button>
               <button className="btn ghost icon hub-project-remove" disabled={!available} title={`Remove ${p.name} from Genio`} aria-label={`Remove ${p.name} from Genio`} onClick={() => setRemoving(p)}>
                 <Trash size={14} />

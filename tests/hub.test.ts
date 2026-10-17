@@ -155,51 +155,16 @@ it('keeps failed opens out of recents and leaves the selection usable', async ()
 })
 
 
-it('shows waiting counts for closed projects while keeping their persisted choices accessible', async () => {
+it('shows no choices, counts or history from any project, even with choices pending', async () => {
   const state = getState()
-  setState({ answersOpen: false, snap: { ...state.snap, decisions: [{ id: 'choice', key: 'k', project: 'beta', wksp: 'beta', question: 'Which route?', options: [], source: 'genio', urgency: 'normal', createdAt: new Date().toISOString() }] } })
+  const now = new Date().toISOString()
+  setState({ answersOpen: true, answerHistory: 'answered', snap: { ...state.snap, decisions: [
+    { id: 'choice', key: 'k', project: 'beta', wksp: 'beta', question: 'Which route?', options: ['A'], source: 'genio', urgency: 'normal', createdAt: now },
+    { id: 'answered', key: 'k', project: 'beta', wksp: 'beta', question: 'Old choice?', answer: 'Yes', resolvedAt: now, options: [], source: 'genio', urgency: 'normal', createdAt: now }
+  ] } })
   await render()
-  expect(host.querySelectorAll('.hub-project')[1]?.textContent).toContain('1 choices waiting')
-  await click('Pending answers and history')
-  expect(host.textContent).toContain('Which route?')
-  expect(open).not.toHaveBeenCalled()
-  await act(async () => setState({ snap: { ...state.snap, decisions: [] }, answersOpen: true }))
-})
-
-
-it('opens history from the Hub even when all choices are already answered', async () => {
-  const state = getState()
-  setState({ answersOpen: true, answerHistory: undefined, snap: { ...state.snap, decisions: [{ id: 'answered', key: 'k', project: 'beta', wksp: 'beta', question: 'Old choice?', answer: 'Yes', resolvedAt: new Date().toISOString(), options: [], source: 'genio', urgency: 'normal', createdAt: new Date().toISOString() }] } })
-  await render()
-  expect(host.textContent).not.toContain('Old choice?')
-  await click('Pending answers and history')
-  expect(host.textContent).toContain('Old choice?')
-  await act(async () => setState({ snap: { ...state.snap, decisions: [] }, answerHistory: undefined, answersOpen: true }))
-})
-
-
-it('floats pending cards over the screen without changing the layout underneath', async () => {
-  const state = getState()
-  const decisions = [1, 2, 3, 4, 5, 6].map(i => ({ id: `c${i}`, key: 'k', wksp: 'main', question: `Route ${i}?`, options: ['A'], source: 'genio' as const, urgency: 'normal' as const, createdAt: `2026-10-13T10:0${i}:00Z` }))
-  setState({ answersOpen: false, answerHistory: undefined, snap: { ...state.snap, decisions } })
-  await render()
-  const body = host.querySelector('.app-body')!
-  const without = body.outerHTML
-  await act(async () => setState({ answersOpen: true }))
-  const lane = host.querySelector('.answers-float')!
-  expect(lane.querySelectorAll('.answer-card')).toHaveLength(3)
-  expect(body.contains(lane)).toBe(false)
-  expect(body.outerHTML).toBe(without)
-  await act(async () => setState({ snap: { ...state.snap, decisions: [] }, answersOpen: true }))
-})
-
-it('refreshes a closed project waiting count as its deferred choice becomes due', async () => {
-  vi.useFakeTimers()
-  const state = getState()
-  setState({ answersOpen: false, answerHistory: undefined, snap: { ...state.snap, decisions: [{ id: 'later', key: 'k', project: 'beta', wksp: 'beta', question: 'Deferred route?', until: new Date(Date.now() + 10_000).toISOString(), options: [], source: 'genio', urgency: 'normal', createdAt: new Date().toISOString() }] } })
-  await render()
-  expect(host.querySelectorAll('.hub-project')[1]?.textContent).not.toContain('choices waiting')
-  await act(async () => vi.advanceTimersByTime(30_000))
-  expect(host.querySelectorAll('.hub-project')[1]?.textContent).toContain('1 choices waiting')
-  await act(async () => setState({ snap: { ...state.snap, decisions: [] }, answersOpen: true }))
+  expect([...host.querySelectorAll('button')].map(b => b.textContent)).toEqual(['File', ' Settings', ' Open folder…', ' Add project', ' New project', ' Sync all', 'alphaC:/alpha', '', 'betaC:/beta', ''])
+  expect(document.querySelector('.answers-float, .answer-card, .chip')).toBeNull()
+  expect(document.body.textContent).not.toMatch(/Which route\?|Old choice\?|waiting|Pending answers/)
+  await act(async () => setState({ snap: { ...state.snap, decisions: [] }, answerHistory: undefined }))
 })

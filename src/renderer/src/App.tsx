@@ -1,7 +1,8 @@
 import { Suspense, lazy, useEffect, type ComponentType } from 'react'
 import { FolderOpen, Settings as SettingsIcon } from 'lucide-react'
-import { PROJECT_WINDOW, go, setState, toggleAnswers, registerViews, useStore, type ViewId } from './store'
+import { PROJECT_WINDOW, go, setState, registerViews, useStore, type ViewId } from './store'
 import { cx } from './lib/format'
+import { rememberRecent } from './lib/recent'
 import { TitleBar } from './components/TitleBar'
 import { FileMenu } from './components/FileMenu'
 import { Rail } from './components/Rail'
@@ -77,9 +78,14 @@ export function App() {
   const booted = useStore((s) => s.booted)
   const connected = useStore((s) => s.connected)
   const view = useStore((s) => s.view)
-  const hubChoices = useStore(s => s.snap.decisions.length)
   const fx = useStore((s) => s.settings?.fx)
+  const projectPath = useStore(s => PROJECT_WINDOW ? s.snap.projects.find(p => p.name === PROJECT_WINDOW)?.path : undefined)
   useGlobalKeys(!!PROJECT_WINDOW)
+
+  // The Hub closes as a project opens, before it could note the open; the project window records itself.
+  useEffect(() => {
+    if (projectPath) rememberRecent(projectPath)
+  }, [projectPath])
 
   useEffect(() => {
     document.body.classList.toggle('fx-off', fx === false)
@@ -102,10 +108,9 @@ export function App() {
         <button className={cx('btn sm ghost hub-settings-btn', hubSettings && 'on')} aria-pressed={hubSettings} title="Settings (Ctrl+,)" onClick={() => (hubSettings ? setState({ view: 'worlds' }) : go('systems'))}>
           {hubSettings ? <><FolderOpen size={13} /> Projects</> : <><SettingsIcon size={13} /> Settings</>}
         </button>
-        <span className="wordmark-text">GENIO</span>{hubChoices > 0 && <button className="btn sm ghost" onClick={toggleAnswers}>Pending answers and history</button>}
+        <span className="wordmark-text">GENIO</span>
       </header>
       <div className="app-body"><main className="stage" key={hubSettings ? 'systems' : 'hub'}><Suspense fallback={LOADING}>{hubSettings ? <Systems /> : <Hub />}</Suspense></main></div>
-      <Answers />
       <Toasts />
       <BootSplash ready={booted} />
     </div>
