@@ -12,6 +12,9 @@ runs `startProjectBase` once for that window. Focusing or reloading an existing
 window does not repeat the reconciliation or greeting. Closing resets this
 guard; reopening resumes the same conversation with a fresh recap.
 
+Project rows have a fixed height and share the available width, with aligned remove
+buttons. Names and paths each stay on one line and truncate with an ellipsis.
+
 `project-startup.ts` clears stale terminals, replays unread status through the
 same durable batches as overwatch, and applies outcomes before deciding which
 units to resume. Detached unfinished units use the deliberate Respawn path:

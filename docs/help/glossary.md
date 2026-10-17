@@ -406,6 +406,7 @@ There is no New project: make or pick any folder in Open folder (it can make a n
 Project setup). Click a project to open it; the Hub closes once the project window is up. Choices from closed
 projects come as desktop notifications and wait in that project's window.
 Where: on start, or File › Hub (Ctrl+N) in a project window.
+Project rows stay the same size with aligned remove buttons; long names and paths truncate on one line.
 Source: [project-startup.md](../project-startup.md)
 
 ## Project setup
