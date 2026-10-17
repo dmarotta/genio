@@ -64,26 +64,46 @@ it('has Settings with only the global pages, from its gear button and Ctrl+,', a
   expect(host.textContent).not.toContain('Delivery')
 })
 
-it('removes a project from its quiet Hub item, typed and through the guarded service', async () => {
+it('removes a project from its quiet Hub item with a plain confirmation, through the guarded service', async () => {
   remove.mockResolvedValue({ ok: true })
   await render()
   const item = host.querySelector<HTMLButtonElement>('button[aria-label="Remove alpha from Genio"]')!
   expect(item.textContent).toBe('')
   await act(async () => item.click())
   const dialog = document.querySelector('.modal')!
-  expect(dialog.textContent).toContain('Remove alpha?')
-  expect(dialog.textContent).toContain('Genio refuses while units are working')
-  expect(dialog.textContent).toContain('Genio never deletes it')
-  const confirm = [...dialog.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Remove project')!
-  expect(confirm.disabled).toBe(true)
-  const input = dialog.querySelector('input')!
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'alpha')
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-  })
+  expect(dialog.querySelector('.modal-title')?.textContent).toBe('Remove alpha from the list?')
+  expect(dialog.querySelector('.modal-body')).toBeNull()
+  expect([...dialog.querySelectorAll('.modal-foot button')].map(b => b.textContent?.trim())).toEqual(['Cancel', 'Remove'])
+  const confirm = [...dialog.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Remove')!
+  expect(confirm.disabled).toBe(false)
   await act(async () => confirm.click())
   expect(remove).toHaveBeenCalledWith('alpha', false)
   expect(open).not.toHaveBeenCalled()
+})
+
+it('shows the service refusal as an error toast when a project cannot be removed', async () => {
+  remove.mockResolvedValue({ ok: false, message: 'alpha has live units' })
+  await render()
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Remove alpha from Genio"]')!.click())
+  const confirm = [...document.querySelectorAll('.modal button')].find(b => b.textContent?.trim() === 'Remove') as HTMLButtonElement
+  await act(async () => confirm.click())
+  expect(getState().toasts).toEqual([expect.objectContaining({ level: 'error', title: 'Remove project', body: 'alpha has live units' })])
+})
+
+it('offers to delete only a clone Genio made, off by default', async () => {
+  remove.mockResolvedValue({ ok: true })
+  const state = getState()
+  setState({ snap: { ...state.snap, projects: [{ ...project('alpha'), managed: true }] } })
+  await render()
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Remove alpha from Genio"]')!.click())
+  const dialog = document.querySelector('.modal')!
+  expect(dialog.querySelector('.confirm-body')?.textContent).toBe("Also delete Genio's clone from disk")
+  const toggle = dialog.querySelector<HTMLInputElement>('.confirm-body input[type="checkbox"]')!
+  expect(toggle.checked).toBe(false)
+  await act(async () => toggle.click())
+  const confirm = [...dialog.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Remove')!
+  await act(async () => confirm.click())
+  expect(remove).toHaveBeenCalledWith('alpha', true)
 })
 
 it('opens selected projects and restores their order on the next Hub mount', async () => {

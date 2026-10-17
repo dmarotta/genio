@@ -65,24 +65,17 @@ function ProjectGeneral({ p }: { p: Project }) {
   </>
 }
 
-/** Removing a project from Genio: typed confirmation, delegated to the guarded service. Shown from the Hub's project list. */
+/**
+ * Removing a project from Genio's list: a plain confirmation, delegated to the guarded service, which keeps the
+ * folder and refuses while work is live. Only a clone Genio made can be deleted too. Shown from the Hub's project list.
+ */
 export function RemoveProject({ p, onClose }: { p: Project; onClose: () => void }) {
   const [delClone, setDelClone] = useState(false)
   return (
     <Confirm
-      title={`Remove ${p.name}?`}
-      tone="alert"
-      typed={p.name}
-      confirmLabel="Remove project"
-      body={
-        <>
-          <p>Genio refuses while units are working, quests are queued, or any isolated copy holds unlanded work.</p>
-          {p.managed && (
-            <Toggle checked={delClone} onChange={setDelClone} label="Also delete Genio's clone from disk" />
-          )}
-          {!p.managed && <p className="mute">This project is your own folder; Genio never deletes it.</p>}
-        </>
-      }
+      title={`Remove ${p.name} from the list?`}
+      confirmLabel="Remove"
+      body={p.managed ? <Toggle checked={delClone} onChange={setDelClone} label="Also delete Genio's clone from disk" /> : undefined}
       onConfirm={async () => {
         await op('Remove project', () => api().projectRemove(p.name, p.managed && delClone))
       }}

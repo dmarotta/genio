@@ -128,15 +128,14 @@ export function ViewHeader({ kicker, title, children }: { kicker?: string; title
 }
 
 /**
- * Confirm dialog; with `typed`, the player must type the word to arm the button. The click closes it at
- * once and starts `onConfirm` exactly once; the caller reports how the action ended (a toast).
+ * Confirm dialog. The click closes it at once and starts `onConfirm` exactly once; the caller reports how
+ * the action ended (a toast).
  */
 export function Confirm({
   title,
   body,
   confirmLabel,
   tone = 'amber',
-  typed,
   onConfirm,
   onClose
 }: {
@@ -145,13 +144,10 @@ export function Confirm({
   body?: ReactNode
   confirmLabel: string
   tone?: Tone
-  typed?: string
   onConfirm: () => void | Promise<void>
   onClose: () => void
 }) {
-  const [txt, setTxt] = useState('')
   const fired = useRef(false)
-  const armed = !typed || txt.trim().toUpperCase() === typed.toUpperCase()
   return (
     <Modal
       title={title}
@@ -166,7 +162,6 @@ export function Confirm({
           </button>
           <button
             className={cx('btn solid', tone !== 'neon' && tone !== 'mute' && tone)}
-            disabled={!armed}
             onClick={() => {
               if (fired.current) return
               fired.current = true
@@ -179,16 +174,7 @@ export function Confirm({
         </>
       }
     >
-      {body || typed ? (
-        <>
-          {body && <div className="confirm-body">{body}</div>}
-          {typed && (
-            <Field label={`Type ${typed} to confirm`}>
-              <input className="input mono" autoFocus value={txt} onChange={(e) => setTxt(e.target.value)} />
-            </Field>
-          )}
-        </>
-      ) : null}
+      {body ? <div className="confirm-body">{body}</div> : null}
     </Modal>
   )
 }

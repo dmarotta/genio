@@ -427,7 +427,8 @@ Settings has three groups. This project: General (with the build and test comman
 Unity slots. All projects: General (with notifications and away alerts), Usage & limits, Accounts & keys, Memory,
 Units, Unity & Play, Inbox & automation, System (with hiding Genio's past sessions from the Codex and Claude apps).
 Advanced: Model routing (Dispatch), Agent tools (Harnesses). To remove a project from Genio, use the bin icon beside
-it in the Hub's project list, or ask Genio.
+it in the Hub's project list, or ask Genio. It only takes the project off the list and keeps your folder; for a clone
+Genio made you can choose to delete the clone too.
 Where: Settings in the rail (Ctrl+8).
 Source: [VOCABULARY.md](../VOCABULARY.md)
 
