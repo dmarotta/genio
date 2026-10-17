@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Home } from '../src/main/home'
 import { createBacklogService } from '../src/main/backlog'
 import type { AppCtx, BacklogService } from '../src/main/services'
@@ -252,5 +252,26 @@ describe('kanban quest log', () => {
     backlog.update(again.id, { duplicateOf: '' })
     expect(backlog.reconcile()).toEqual([])
     expect(backlog.dispatchable().map((q) => q.id)).toContain(again.id)
+  })
+})
+
+describe('done archive', () => {
+  it('archives each older done quest once and stops re-reading the archive once all are known', () => {
+    const ctx = makeCtx()
+    const svc = createBacklogService(() => ctx, home)
+    const ids: string[] = []
+    for (let i = 0; i < 40; i++) {
+      const q = svc.add({ title: `old quest ${i}`, priority: 'normal' } as never)
+      svc.update(q.id, { state: 'done', doneAt: new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString() } as never)
+      ids.push(q.id)
+    }
+    const file = path.join(home.data, 'done-archive.md')
+    const once = (text: string): boolean => ids.slice(0, 10).every(id => text.split(`] ${id} - `).length === 2)
+    expect(once(fs.readFileSync(file, 'utf8'))).toBe(true)
+    const reads = vi.spyOn(fs, 'readFileSync')
+    for (let i = 0; i < 5; i++) svc.update(ids[39], { notes: `edit ${i}` } as never)
+    expect(reads.mock.calls.filter(([p]) => String(p) === file)).toHaveLength(0)
+    reads.mockRestore()
+    expect(once(fs.readFileSync(file, 'utf8'))).toBe(true)
   })
 })

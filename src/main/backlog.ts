@@ -253,16 +253,27 @@ export function createBacklogService(getCtx: () => AppCtx, home: Home): BacklogS
     writeText(mdFile(), renderBacklogMirror(home, all, findAnywhere))
   }
 
+  /**
+   * Ids known to be in the archive. It only grows, so a save reads it only for ids not seen there yet: every save
+   * passes all older done quests, and reading and searching the whole file each time cost most of a save.
+   */
+  const archived = new Set<string>()
   /** append-only archive of older loot; never duplicates an id */
   function archive(list: BacklogItem[]): void {
-    if (!list.length) return
+    const unknown = list.filter((i) => !archived.has(i.id))
+    if (!unknown.length) return
     const existing = readText(archiveFile())
-    const fresh = list.filter((i) => !existing.includes(`] ${i.id} - `))
+    const fresh = unknown.filter((i) => {
+      if (!existing.includes(`] ${i.id} - `)) return true
+      archived.add(i.id)
+      return false
+    })
     if (!fresh.length) return
     const header = existing ? '' : `# Done archive\n\n`
     try {
       fs.mkdirSync(path.dirname(archiveFile()), { recursive: true })
       fs.appendFileSync(archiveFile(), header + fresh.map(row).join('\n') + '\n', 'utf8')
+      for (const i of fresh) archived.add(i.id)
     } catch {
       /* archive is best effort */
     }
