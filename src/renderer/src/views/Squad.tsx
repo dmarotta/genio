@@ -25,7 +25,7 @@ import { squadAttention, squadBadge, squadState, squadTone, unitClock } from '@s
 import { UNIT_ACTION_HINT, canRespawn, hasOpenPr } from '@shared/unit-actions'
 import {
   canRate, deliveryLabel, mergeTimeline, needsInput, parsePings, parseStatusLines, parseUnitChanges, primaryAction, prMergeBlock,
-  reportedTests, timelineLabel, timelineRows, unitBadge, unitPlay, type TimelineRow, type UnitChanges
+  reportedTests, statusWorthShowing, timelineLabel, timelineRows, unitBadge, unitPlay, type TimelineRow, type UnitChanges
 } from '@shared/unit-page'
 import { pendingDecision } from '@shared/decisions'
 import { mergeApprovalLabel } from '@shared/merge-approval'
@@ -117,6 +117,7 @@ function UnitCard({ t, term }: { t: Task; term?: TerminalInfo }) {
   const badge = squadBadge(t, term)
   const attention = squadAttention(t, term, pending)
   const recon = t.kind === 'scout'
+  const reason = statusWorthShowing(t, attention) ? t.stateReason ?? '' : ''
   return (
     <article className={cx('unit-card panel', `tone-${tone}`, recon && 'recon', t.modeller && 'modeller', !t.modeller && t.generator && 'generator', attention && 'attention')}>
       <header className="unit-head" onClick={() => focusTask(t.id)}>
@@ -151,8 +152,8 @@ function UnitCard({ t, term }: { t: Task; term?: TerminalInfo }) {
         )}
       </div>
       <footer className="unit-foot">
-        <span className="mute unit-reason" title={t.stateReason}>
-          {t.stateReason || (t.lastOutputAt ? `last output ${ago(t.lastOutputAt, now)} ago` : 'standing by')}
+        <span className="mute unit-reason" title={reason || undefined}>
+          {reason || (t.lastOutputAt ? `last output ${ago(t.lastOutputAt, now)} ago` : 'standing by')}
         </span>
         {t.pr?.url && (
           <a className="chip neon" onClick={() => void api().openExternal(t.pr!.url)}>
@@ -362,7 +363,7 @@ function UnitDetail({ id }: { id: string }) {
     { label: 'Unit', value: `${t.title} [${t.id}]` },
     { label: 'State', value: `${unitBadge(t, term).label} (${t.state}) · ${unitKindLabel(t)} · ${t.branch}` },
     { label: 'Tab', value: canvas && pane === 'main' ? 'model (live 3D view)' : tab },
-    modeller ? { label: 'Model', value: `${modeller.model} · ${head ? `step ${head.n} of ${modeller.steps.length}: ${head.caption}` : 'no steps yet'} · branch ${modeller.branch}${modeller.running ? ` · now running step ${modeller.running.n}: ${modeller.running.caption}` : ''}` }
+    modeller ? { label: 'Model', value: `${modeller.model} · ${head ? `step ${head.n} of ${modeller.steps.length}: ${head.caption}` : 'no steps yet'}${modeller.running ? ` · now running step ${modeller.running.n}: ${modeller.running.caption}` : ''}` }
       : canvas && { label: 'Model', value: 'no steps yet' },
     shownRows.length > 0 && { label: 'Last status', value: `${timelineLabel(shownRows.at(-1)!.verb)}: ${shownRows.at(-1)!.text}` }
   ] : [{ label: 'Unit', value: `${id} (gone)` }] })
@@ -408,10 +409,8 @@ function UnitDetail({ id }: { id: string }) {
   const activity: ModellerActivity | null = canvas && live && badge.label === 'WORKING'
     ? { status: latest ? (latest.verb === 'working' ? latest.text : `${timelineLabel(latest.verb)}: ${latest.text}`) : '', since: Date.parse(t.createdAt) || now }
     : null
-  const stopped = primary === 'respawn'
-  const line = stopped
-    ? `Stopped: ${stopReason(t)}`
-    : latest ? `${timelineLabel(latest.verb)}: ${latest.text}${latest.at ? ` · ${since(new Date(latest.at).toISOString(), now)}` : ''}` : t.stateReason ?? ''
+  // No status subtitle under the title on any unit kind: only a stopped unit says why, beside its Respawn.
+  const stopped = primary === 'respawn' ? `Stopped: ${stopReason(t)}` : ''
 
   // Play this unit: beside the primary action (never instead of it); under More on narrow widths.
   const play = unitPlay(t, !!project && supportsUnitySlots(effectiveEngine(project).engine), changes.removed)
@@ -474,7 +473,7 @@ function UnitDetail({ id }: { id: string }) {
           </div>
         )}
         <div className="uh-actions">
-          <div className={cx('uh-line', stopped ? 'alert-text' : 'dim')} title={line}>{line}</div>
+          {stopped && <div className="uh-line alert-text" title={stopped}>{stopped}</div>}
           {canRate(t, term) && <VerdictButtons t={t} label={false} />}
           {primary === 'merge-local' && (
             <button className="btn sm solid volt uh-primary" disabled={!!mergeOff} title={mergeOff || `Fast-forwards ${t.branch} into ${t.baseBranch} in your local copy`} onClick={() => setConfirm('merge')}>
@@ -534,7 +533,7 @@ function UnitDetail({ id }: { id: string }) {
             <Tabs<TabId> value={current} onChange={setTab} tabs={tabs} />
           </div>
           <div className={cx('detail-tab', current === 'terminal' && 'detail-tab-term')}>
-            {current === 'steps' && (modeller ? <ModellerSteps t={t} live={modeller} /> : <div className="mute">No steps yet.</div>)}
+            {current === 'steps' && (modeller ? <ModellerSteps live={modeller} /> : <div className="mute">No steps yet.</div>)}
             {current === 'terminal' && term && <UnitTerminal id={term.id} alive={term.alive} lagging={lagging} fit />}
             {current === 'changes' && <ChangesTab t={t} changes={changes} loading={changesFile.text === null} err={changesFile.err} rows={statusRows} />}
             {current === 'timeline' && <TimelineTab t={t} rows={statusRows} loading={status.text === null} />}
@@ -705,7 +704,6 @@ function UnitInfo({ t }: { t: Task }) {
     ['Effort', t.effort ?? 'default'],
     t.category && ['Category', categoryLabel(t.category)],
     ['Delivery', deliveryLabel(t.kind === 'scout' ? undefined : t.mode, t.baseBranch)],
-    t.kind === 'ship' && ['Auto-loot', t.yolo ? 'On: Genio may merge green work itself' : 'Off: merging waits for you'],
     t.landedCommit && ['Commit', <span className="mono selectable">{t.landedCommit.slice(0, 12)}</span>],
     t.relaunches > 0 && ['Respawned', `${t.relaunches}×`]
   ] as ([string, ReactNode] | false | undefined | '')[]).filter((r): r is [string, ReactNode] => !!r)
@@ -724,12 +722,6 @@ function UnitInfo({ t }: { t: Task }) {
               </div>
             ))}
           </dl>
-          {!!t.loadout?.length && (
-            <div className="ui-loadout">
-              <div className="label">Loadout{t.explored ? ' · exploring' : ''}</div>
-              <ul>{t.loadout.map((r, i) => <li key={i}>{r}</li>)}</ul>
-            </div>
-          )}
         </Popover>
       )}
     </div>
@@ -938,7 +930,6 @@ function ChangesTab({ t, changes, loading, err, rows }: { t: Task; changes: Unit
       <div className="ch-tests">
         <div className="label">Tests</div>
         <div className={cx('ch-tests-line', tests.tone)}>{tests.text}</div>
-        {tests.note && <div className="mute ch-note">{tests.note}</div>}
       </div>
       {!changes.removed && (changes.files.length > 0 || changes.uncommitted.length > 0) && (
         <>
@@ -978,21 +969,20 @@ function BinaryPreview({ t, file, rev }: { t: Task; file: string; rev: string })
   )
 }
 
-function testsLine(t: Task, rows: TimelineRow[]): { text: string; tone: string; note?: string } {
+function testsLine(t: Task, rows: TimelineRow[]): { text: string; tone: string } {
   const v = t.validation
   if (v) {
     const failed = v.steps.find((s) => s.state === 'failed')
     if (v.state === 'running') return { text: `◐ The Gauntlet is running (round ${v.round})`, tone: 'neon-text' }
     if (v.state === 'passed') return { text: `✓ The Gauntlet passed (round ${v.round})`, tone: 'volt-text' }
-    return { text: `✕ The Gauntlet ${v.state === 'findings' ? 'has findings' : v.state}${failed ? `: ${failed.name}` : ''}`, tone: 'alert-text', note: 'See Checks.' }
+    return { text: `✕ The Gauntlet ${v.state === 'findings' ? 'has findings' : v.state}${failed ? `: ${failed.name}` : ''}`, tone: 'alert-text' }
   }
   if (t.pr?.url && t.pr.checks) {
     const c = t.pr.checks
     return { text: c === 'passing' ? '✓ PR checks are green' : c === 'failing' ? '✕ PR checks are failing' : c === 'pending' ? '◐ PR checks are running' : 'This PR has no checks', tone: c === 'passing' ? 'volt-text' : c === 'failing' ? 'alert-text' : '' }
   }
   const said = reportedTests(rows)
-  const note = t.mode === 'local-only' ? 'Genio runs no tests before a local merge; this is the unit\'s own word.' : undefined
-  return said ? { text: `The unit reported: “${said}”`, tone: '', note } : { text: 'No test result reported yet.', tone: 'mute', note }
+  return said ? { text: `The unit reported: “${said}”`, tone: '' } : { text: 'No test result reported yet.', tone: 'mute' }
 }
 
 function FullDiff({ t }: { t: Task }) {

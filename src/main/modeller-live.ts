@@ -87,10 +87,8 @@ export function readModellerLive(dataDir: string, base: () => string, worktree?:
   // n is the step's place on this branch: the kernel's ids also count amended, reverted and other branches' steps.
   const steps: ModellerStep[] = line.map((s, i) => ({
     id: s.id, n: i + 1, caption: String(s.caption || s.name || s.id), triangles: Number(s.triangles) || 0,
-    parts: Number(s.objects) || 0, warnings: Number(s.warnings) || 0, ms: Number(s.ms) || 0, at: Date.parse(s.t ?? '') || 0, glb: url(s.files?.glb), view: url(s.files?.view)
+    parts: Number(s.objects) || 0, ms: Number(s.ms) || 0, at: Date.parse(s.t ?? '') || 0, glb: url(s.files?.glb), view: url(s.files?.view)
   }))
-  const branches = Object.keys(m.branches && typeof m.branches === 'object' ? m.branches : {})
-  if (!branches.includes(branch)) branches.unshift(branch)
   // The head step's advisory checks, as genio_step.py wrote them into its receipt.
   const headReceipt = line.at(-1)?.files?.receipt
   const receipt = typeof headReceipt === 'string' && /^steps\/s\d+\/receipt\.json$/.test(headReceipt) ? readJson(path.join(folder, ...headReceipt.split('/'))) as { warnings?: unknown } | undefined : undefined
@@ -120,13 +118,13 @@ export function readModellerLive(dataDir: string, base: () => string, worktree?:
   // The failed attempt would have followed its parent on this branch.
   const parentAt = last?.parent ? line.findIndex(s => s.id === last.parent) : -1
   const failure: ModellerLive['failure'] = last && typeof last.id === 'string' && String(last.t ?? '') > moved
-    ? { id: last.id, n: last.parent === null ? 1 : parentAt >= 0 ? parentAt + 2 : line.length + 1, caption: (last.dir && captionOf(path.join(folder, last.dir, 'script.py'))) || String(last.name ?? last.id), kind: String(last.kind ?? 'error'), error: String(last.error ?? '').slice(0, 2000) }
+    ? { id: last.id, n: last.parent === null ? 1 : parentAt >= 0 ? parentAt + 2 : line.length + 1, caption: (last.dir && captionOf(path.join(folder, last.dir, 'script.py'))) || String(last.name ?? last.id), kind: String(last.kind ?? 'error') }
     : null
 
   const model = typeof m.model === 'string' ? m.model : dir
   // The script being written: newer than the head step (or the model, before its first step), not yet running.
   const since = Math.max(steps.at(-1)?.at ?? 0, Date.parse(String(m.created ?? '')) || 0)
   const next = worktree && !running ? newestScript(modellerScriptsDir(worktree, dir), since) : null
-  const stamp = JSON.stringify([model, branch, branches, m.updated, steps.map(s => s.id), running?.id, failure?.id, next?.caption])
-  return { model, branch, branches, steps, checks, running, failure, next, stamp }
+  const stamp = JSON.stringify([model, branch, m.updated, steps.map(s => s.id), running?.id, failure?.id, next?.caption])
+  return { model, branch, steps, checks, running, failure, next, stamp }
 }

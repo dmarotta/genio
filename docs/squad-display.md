@@ -13,10 +13,18 @@ units only.
 ## Unit page
 
 The agent terminal stays the main area (watched until the player clicks into
-it). The header holds the back link, the kind and state chips, the clock and an
-ⓘ details popover with the facts: project, branch to base, model, effort,
-category, loadout, delivery ("Merge into main" for Offline), Auto-loot and the
-landed commit. Beside More sits one primary action, by state
+it). Every unit kind (Build, Recon, Modeller, Generator) has the same header:
+the back link, the kind and state chips, the clock and an ⓘ details popover with
+the facts (project, branch to base, model, effort, category, delivery ("Merge
+into main" for Offline), and the landed commit or respawn count when there is
+one; the loadout reasons and Auto-loot are not shown there), then the title.
+There is no status subtitle under the title: the unit's words are in the
+Timeline, an open question shows inline, and only a stopped unit says why
+("Stopped: …") beside its Respawn. A Squad card's footer and an in-flight quest
+ticket show the unit's last words only when it needs the player or is stuck
+(question, blocked, failed, waiting, stopped; `statusWorthShowing`); otherwise
+the card says when the unit last printed and the ticket shows only its state.
+Beside More sits one primary action, by state
 (`primaryAction` in `src/shared/unit-page.ts`):
 
 | State | Primary |
@@ -41,7 +49,8 @@ no manual Gauntlet button. 👍/👎 shows on finished units only; a ready unit 
 rated in the Merge confirm.
 
 Side tabs: Changes (diffstat, changed and uncommitted files, commits, and the
-test status: the Gauntlet, PR checks, or the unit's own reported words),
+test status: the Gauntlet, PR checks, or the unit's own reported words, with no
+explanatory notes under it),
 Timeline (status lines and pings, newest first), Brief, Report (Recons) and
 Checks (Hardcore). The Timeline labels a `note` line EVENT and a ping YOU, and
 never shows a line's `[key=…]`. Notes under Genio's own bookkeeping keys
@@ -56,8 +65,10 @@ agent has printed nothing for the lagging window (Settings: Call a unit lagging
 after) or the unit is lagging.
 
 A Modeller (a Build deployed with the Modeller flag, or one that started a 3D model) leads with its live model instead
-of the terminal, which becomes a side tab after Steps (thumbnails, Revert to N,
-Branch from N, the head step's checks as information only). Its Squad card and
+of the terminal, which becomes a side tab after Steps (a plain list, newest first:
+each step's render, caption, triangles and parts). There are no Revert or Branch
+buttons and no branch names: the player steers in words through the ping box and
+the unit runs the kernel's revert, branch and switch itself. Its Squad card and
 rail row show the latest step's render; Changes shows binaries before and after.
 
 The live view shows each step the moment Blender has exported its GLB: the

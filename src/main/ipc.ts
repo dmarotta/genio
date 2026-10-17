@@ -9,10 +9,9 @@ import { playerSources, sourceUnit } from './player-sources'
 import { modelViewer } from './model-viewer'
 import { readModellerLive } from './modeller-live'
 import { createLiveWatch } from './modeller-watch'
-import { modellerAction } from './modeller-actions'
 import { unitFilePreview } from './unit-file-preview'
 import { baseRef } from './git'
-import { modellerDataDir, modellerScript, unitPluginSource } from './unitskills'
+import { modellerDataDir } from './unitskills'
 import { standingApprovals } from './standing-approvals'
 import { readArtBibleView, writeArtBibleFile } from './art-bible'
 /**
@@ -192,14 +191,6 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
       if (live && !task.modeller && !task.generator && task.kind === 'ship') hc.crew.update(id, { modeller: true })
       if (!task.generator && task.state !== 'cleaned') watchUnitModel(hc, task, live?.stamp)
       return live
-    },
-    modellerAct: async (id, act) => {
-      const { hc, task } = taskHome(id)
-      if (task.state === 'cleaned') return { ok: false, message: 'This unit was despawned; its model can no longer change.' }
-      const done = await modellerAction(modellerScript(unitPluginSource(ctx().appRoot)), modellerDataDir(hc.home.taskDir(id)), act)
-      const told = await hc.crew.send(id, done.ping)
-      if (act.op === 'revert' || act.op === 'branch') unlockQuietly('modeller-rewind')
-      return { ok: true, message: told.ok ? done.message : `${done.message} The unit was not told: ${told.message}` }
     },
     unitFilePreview: async (id, file) => {
       const { hc, task } = taskHome(id)

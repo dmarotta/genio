@@ -8,7 +8,6 @@ export interface ModellerStep {
   triangles: number
   /** Objects in the step's scene. */
   parts: number
-  warnings: number
   ms: number
   /** When the step reached the live view (epoch ms), 0 when unknown. */
   at: number
@@ -19,9 +18,8 @@ export interface ModellerStep {
 }
 export interface ModellerLive {
   model: string
+  /** The kernel's current branch (the unit may branch when the player asks in words); not shown to the player. */
   branch: string
-  /** Every branch of the model, the current one included. */
-  branches: string[]
   /** The current branch from its first step to its head. */
   steps: ModellerStep[]
   /** The head step's advisory checks (budget, ground, piercing parts…): information, never a gate. */
@@ -29,7 +27,7 @@ export interface ModellerLive {
   /** A step Blender is running now (in a batch, the next one to land); n is the place it will take. */
   running: { id: string; n: number; caption: string; startedAt: number } | null
   /** The last attempt on this branch failed; the model stays at its head. */
-  failure: { id: string; n: number; caption: string; kind: string; error: string } | null
+  failure: { id: string; n: number; caption: string; kind: string } | null
   /** The step script the unit is writing or about to run: its newest one under .genio/modeller/<model>/ in the worktree,
    * written after the head step landed and not running yet. `at` is its last write (epoch ms). */
   next: { caption: string; at: number } | null
@@ -69,12 +67,6 @@ export function modellerCaption(live: ModellerLive | null, activity: ModellerAct
   if (!activity) return null
   return { text: next ? `Next: ${next.caption}` : activity.status || 'Working', side: '', clock: elapsed(now - activity.since), tone: 'idle' }
 }
-
-/** What the player does to a model from the unit page; main runs it through the kernel and tells the unit. */
-export type ModellerAct =
-  | { op: 'revert'; model: string; step: string }
-  | { op: 'branch'; model: string; step: string }
-  | { op: 'switch'; model: string; branch: string }
 
 /** Where a Modeller commits a model's build scripts and manifest: also the path it claims for that model. */
 export const modelScriptsDir = (model: string): string => `.genio/modeller/${model}/`

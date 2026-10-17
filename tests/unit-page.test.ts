@@ -4,6 +4,7 @@ import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { Decision, Project, Task, TerminalInfo } from '../src/shared/types'
 import { UNIT_ACTION_HINT } from '../src/shared/unit-actions'
+import { statusWorthShowing } from '../src/shared/unit-page'
 
 // The agent terminal is xterm; here it only records how the page mounts it.
 vi.mock('../src/renderer/src/components/Terminal', () => ({
@@ -191,16 +192,33 @@ describe('unit page header and primary action', () => {
     expect(host.querySelector('.uq-hint')?.textContent).toBe('Answer in the ping box below.')
   })
 
-  it('keeps the facts in a details popover: branch, model, effort, delivery as Merge into main, Auto-loot, commit', async () => {
-    await open(unit({ state: 'merged', category: 'bugfix', landedCommit: '8f2c1e9a4b7d03', loadout: ['Rule: bugfix → claude/opus'] }))
-    expect(document.querySelector('.unit-info-pop')).toBeNull()
-    await click(host.querySelector<HTMLButtonElement>('.uh-info')!)
-    const facts = Object.fromEntries([...document.querySelectorAll('.ui-row')].map((r) => [r.querySelector('dt')!.textContent, r.querySelector('dd')!.textContent]))
-    expect(facts).toMatchObject({ Project: 'world', Branch: 'genio/u1 → main', Model: 'claude / opus', Effort: 'high', Delivery: 'Merge into main',
-      'Auto-loot': 'Off: merging waits for you', Commit: '8f2c1e9a4b7d' })
-    expect(facts.Category).toBeTruthy()
-    expect(document.querySelector('.ui-loadout')?.textContent).toContain('Rule: bugfix')
-    expect(document.body.textContent).not.toMatch(/Offline/)
+  it('keeps the facts in a details popover: project, branch, model, effort, category, delivery as Merge into main, commit; no loadout, no Auto-loot', async () => {
+    for (const kind of [{}, { kind: 'scout' as const, mode: undefined }, { modeller: true }, { generator: true }]) {
+      await open(unit({ state: 'merged', category: 'bugfix', landedCommit: '8f2c1e9a4b7d03', loadout: ['Rule: bugfix → claude/opus'], explored: true, ...kind }))
+      expect(document.querySelector('.unit-info-pop')).toBeNull()
+      await click(host.querySelector<HTMLButtonElement>('.uh-info')!)
+      const facts = Object.fromEntries([...document.querySelectorAll('.ui-row')].map((r) => [r.querySelector('dt')!.textContent, r.querySelector('dd')!.textContent]))
+      expect(Object.keys(facts)).toEqual(['Project', 'Branch', 'Model', 'Effort', 'Category', 'Delivery', 'Commit'])
+      expect(facts).toMatchObject({ Project: 'world', Branch: 'genio/u1 → main', Model: 'claude / opus', Effort: 'high', Commit: '8f2c1e9a4b7d' })
+      if (!('kind' in kind)) expect(facts.Delivery).toBe('Merge into main')
+      const pop = document.querySelector('.unit-info-pop')!.textContent
+      expect(pop).not.toMatch(/Loadout|Auto-loot|Rule: bugfix|exploring/)
+      expect(document.body.textContent).not.toMatch(/Offline/)
+      await click(host.querySelector<HTMLButtonElement>('.uh-info')!)
+    }
+  })
+
+  it('has no status subtitle under the title on any unit kind; only a stopped unit says why', async () => {
+    files.status = 'working [at=1791892000]: wiring the jump buffer\ndone [at=1791892500]: ready in branch genio/u1\n'
+    for (const kind of [{}, { kind: 'scout' as const, mode: undefined }, { modeller: true }, { generator: true }]) {
+      for (const state of ['working', 'ready', 'done'] as const) {
+        await open(unit({ state, readyAt: NOW, stateReason: 'ready in branch genio/u1', ...kind }))
+        expect(host.querySelector('.uh-line')).toBeNull()
+        expect(host.querySelector('.unit-head')!.textContent).not.toMatch(/ready in branch|wiring the jump buffer/)
+        // the same layout for every kind: chips row, title, actions
+        expect([...host.querySelector('.unit-head')!.children].map((c) => c.className.split(' ')[0])).toEqual(['uh-row', 'title', 'uh-actions'])
+      }
+    }
   })
 })
 
@@ -224,6 +242,8 @@ describe('unit page content', () => {
     expect(host.querySelector('.ch-sum')?.textContent).toBe('+13 −3 · 2 files · 1 commit · 1 uncommitted')
     expect([...host.querySelectorAll('.ch-files .ch-path')].map((p) => p.textContent)).toEqual(['src/a.ts', 'src/b.ts', ' M src/c.ts'])
     expect(host.querySelector('.ch-tests-line')?.textContent).toBe('The unit reported: “branch ready, tests green”')
+    // the result only: no explanatory sentence under it
+    expect(host.querySelector('.ch-tests')!.textContent).toBe('TestsThe unit reported: “branch ready, tests green”')
     expect(host.querySelector('.detail-side-tabs .tab.on')?.textContent).toBe('Changes2')
   })
 
@@ -388,8 +408,8 @@ describe('Play this unit', () => {
 })
 
 describe('Modeller unit before its first step', () => {
-  const step = { id: 's001', n: 1, caption: 'Raising four timber legs', triangles: 12, parts: 4, warnings: 0, ms: 1500, at: 0, glb: 'genio-media://model/x/modeller/tower/steps/s001/model.glb', view: 'genio-media://model/x/modeller/tower/steps/s001/view.png' }
-  const model = (steps: typeof step[]) => ({ model: 'tower', branch: 'main', branches: ['main'], steps, checks: [], running: null, failure: null, next: null, stamp: String(steps.length) })
+  const step = { id: 's001', n: 1, caption: 'Raising four timber legs', triangles: 12, parts: 4, ms: 1500, at: 0, glb: 'genio-media://model/x/modeller/tower/steps/s001/model.glb', view: 'genio-media://model/x/modeller/tower/steps/s001/view.png' }
+  const model = (steps: typeof step[]) => ({ model: 'tower', branch: 'main', steps, checks: [], running: null, failure: null, next: null, stamp: String(steps.length) })
   const sideTabs = (): string[] => [...host.querySelectorAll('.detail-side-tabs [role="tab"]')].map((b) => b.textContent!.trim())
   const sideTab = (label: string): HTMLButtonElement => [...host.querySelectorAll<HTMLButtonElement>('.detail-side-tabs [role="tab"]')].find((b) => b.textContent!.trim() === label)!
 
@@ -453,5 +473,23 @@ describe('Modeller unit before its first step', () => {
     expect(card.querySelector('.modeller-card img')).toBeNull()
     expect(card.querySelector('.modeller-card-empty')!.textContent).toBe('')
     expect(card.querySelector('.modeller-card-caption')!.textContent).toBe('No steps yet')
+  })
+})
+
+describe("a unit's last words outside its page", () => {
+  it('show only when the unit needs the player or is stuck', () => {
+    for (const state of ['working', 'spawning', 'validating', 'ready', 'done', 'merged'] as const) expect(statusWorthShowing({ state }, false)).toBe(false)
+    for (const state of ['needs-decision', 'blocked', 'failed', 'stale', 'paused', 'exited', 'detached'] as const) expect(statusWorthShowing({ state }, false)).toBe(true)
+    expect(statusWorthShowing({ state: 'working' }, true)).toBe(true)
+  })
+
+  it('a Squad card footer: the liveness line for a working or ready unit, the reason for a blocked one', async () => {
+    const cards = async (...tasks: Task[]): Promise<string[]> => {
+      setState({ ...initial, focus: null, snap: { ...initial.snap, tasks, projects: [project] } })
+      await act(async () => root.render(React.createElement(Squad)))
+      return [...host.querySelectorAll('.unit-card .unit-reason')].map((e) => e.textContent!.trim())
+    }
+    expect(await cards(unit({ stateReason: 'wiring the jump buffer' }), unit({ id: 'u2', state: 'ready', stateReason: 'ready in branch genio/u2' }))).toEqual(['standing by', 'standing by'])
+    expect(await cards(unit({ state: 'blocked', stateReason: 'need the Steam app id' }))).toEqual(['need the Steam app id'])
   })
 })

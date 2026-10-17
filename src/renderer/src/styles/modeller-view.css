@@ -37,8 +37,6 @@
 
 /* The Steps tab (components/ModellerSteps.tsx). */
 .modeller-steps { display: flex; flex-direction: column; gap: 8px; }
-.ms-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.ms-branch { width: auto; padding: 2px 6px; font-size: 12px; }
 .ms-step { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; padding: 6px; border: 1px solid var(--line); }
 .ms-step.current { border-color: var(--orange); background: var(--orange-soft); }
 .ms-step.running { border-style: dashed; }
@@ -48,10 +46,6 @@
 .ms-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .ms-title { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ms-meta { font-size: 11px; }
-.ms-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: auto; }
-.ms-actions .btn { padding: 2px 8px; font-size: 11px; }
-.ms-checks { font-size: 12px; }
-.ms-checks ul { margin: 4px 0 0; padding-left: 18px; color: var(--text-dim); }
 
 /* A Modeller's Squad card and rail row show its model instead of a terminal. */
 .modeller-card { position: absolute; inset: 0; display: flex; flex-direction: column; background: #0b0f16; }

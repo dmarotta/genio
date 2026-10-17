@@ -69,6 +69,15 @@ export function unitBadge(t: Task, term?: TerminalInfo): { label: string; tone: 
   return badge
 }
 
+/**
+ * Whether a unit's last status words belong on its Squad card or quest ticket: only when it needs the
+ * player or is stuck (a question, blocked, failed, waiting, stopped). A working or ready unit's
+ * chip already says what it is; its words stay in the Timeline.
+ */
+export function statusWorthShowing(t: Pick<Task, 'state'>, attention: boolean): boolean {
+  return attention || ['needs-decision', 'blocked', 'failed', 'stale', 'paused', 'exited', 'detached'].includes(t.state)
+}
+
 /** Delivery mode in words: what landing this unit means. */
 export function deliveryLabel(mode: DeliveryMode | undefined, base: string): string {
   switch (mode) {

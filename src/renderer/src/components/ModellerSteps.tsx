@@ -1,47 +1,17 @@
-import { useState } from 'react'
-import type { ModellerAct, ModellerLive, ModellerStep } from '@shared/modeller'
-import type { Task } from '@shared/types'
-import { api, op } from '../store'
+import type { ModellerLive } from '@shared/modeller'
 import { cx } from '../lib/format'
-import { Confirm } from './ui'
 import '../styles/modeller-view.css'
-
-/** Why the model cannot change right now, or ''. */
-function modelLocked(t: Task, live: ModellerLive): string {
-  if (t.state === 'cleaned') return 'Despawned: the model can no longer change.'
-  if (live.running) return `Wait for step ${live.running.n} to finish.`
-  return ''
-}
 
 const tris = (n: number): string => `${n.toLocaleString()} ${n === 1 ? 'triangle' : 'triangles'}`
 
 /**
- * The Steps tab: the current branch as a thumbnail strip (each step's Blender review render), newest
- * first, with Revert to N and Branch from N, a branch switch, and the head step's checks as
- * information only. Every change goes through the kernel and the unit is told what the player did.
+ * The Steps tab: the model's steps as a thumbnail list (each step's Blender review render), newest
+ * first, with its caption, triangles and parts. The player steers in words through the ping box.
  */
-export function ModellerSteps({ t, live }: { t: Task; live: ModellerLive }) {
-  const [busy, setBusy] = useState(false)
-  const [reverting, setReverting] = useState<ModellerStep | null>(null)
-  const locked = modelLocked(t, live)
+export function ModellerSteps({ live }: { live: ModellerLive }) {
   const head = live.steps.at(-1)
-  const act = async (label: string, a: ModellerAct): Promise<void> => {
-    setBusy(true)
-    try { await op(label, () => api().modellerAct(t.id, a)) } finally { setBusy(false) }
-  }
-  const off = busy || !!locked
-  const later = (s: ModellerStep): number => live.steps.length - 1 - live.steps.indexOf(s)
   return (
     <div className="modeller-steps">
-      <div className="ms-head">
-        <span className="label">{live.model}</span>
-        {live.branches.length > 1 ? (
-          <select className="input ms-branch" aria-label="Branch" value={live.branch} disabled={off} title={locked || 'Switch the model to another branch'}
-            onChange={(e) => void act('Switch branch', { op: 'switch', model: live.model, branch: e.target.value })}>
-            {live.branches.map((b) => <option key={b} value={b}>{b}</option>)}
-          </select>
-        ) : <span className="mute">branch {live.branch}</span>}
-      </div>
       {live.running && (
         <div className="ms-step running">
           <div className="ms-thumb"><i className="dot pulse" /></div>
@@ -52,43 +22,15 @@ export function ModellerSteps({ t, live }: { t: Task; live: ModellerLive }) {
         </div>
       )}
       {!live.steps.length && !live.running && <div className="mute">No steps yet.</div>}
-      {[...live.steps].reverse().map((s) => {
-        const current = s === head
-        return (
-          <div key={s.id} className={cx('ms-step', current && 'current')}>
-            <div className="ms-thumb">{s.view ? <img src={s.view} alt={`Step ${s.n}: ${s.caption}`} loading="lazy" /> : <span className="mute">no render</span>}</div>
-            <div className="ms-main">
-              <div className="ms-title" title={s.caption}>{s.n} · {s.caption}</div>
-              <div className="mute ms-meta">
-                {tris(s.triangles)} · {s.parts} {s.parts === 1 ? 'part' : 'parts'}{s.warnings ? ` · ${s.warnings} ${s.warnings === 1 ? 'warning' : 'warnings'}` : ''}
-              </div>
-              <div className="ms-actions">
-                {current ? <span className="chip orange">Current</span> : (
-                  <button className="btn sm ghost" disabled={off} title={locked || `Go back to step ${s.n} on ${live.branch}`} onClick={() => setReverting(s)}>Revert to {s.n}</button>
-                )}
-                <button className="btn sm ghost" disabled={off} title={locked || `Start a new branch at step ${s.n}; ${live.branch} keeps its steps`}
-                  onClick={() => void act('Branch', { op: 'branch', model: live.model, step: s.id })}>Branch from {s.n}</button>
-              </div>
-            </div>
+      {[...live.steps].reverse().map((s) => (
+        <div key={s.id} className={cx('ms-step', s === head && 'current')}>
+          <div className="ms-thumb">{s.view ? <img src={s.view} alt={`Step ${s.n}: ${s.caption}`} loading="lazy" /> : <span className="mute">no render</span>}</div>
+          <div className="ms-main">
+            <div className="ms-title" title={s.caption}>{s.n} · {s.caption}</div>
+            <div className="mute ms-meta">{tris(s.triangles)} · {s.parts} {s.parts === 1 ? 'part' : 'parts'}</div>
           </div>
-        )
-      })}
-      {head && (
-        <div className="ms-checks">
-          <div className="label">Checks on step {head.n} · information only</div>
-          {live.checks.length ? <ul>{live.checks.map((c, i) => <li key={i}>{c}</li>)}</ul> : <div className="mute">Nothing to report.</div>}
         </div>
-      )}
-      {reverting && (
-        <Confirm
-          title={`Revert to step ${reverting.n}?`}
-          tone="orange"
-          confirmLabel={`Revert to ${reverting.n}`}
-          body={<p>The model goes back to step {reverting.n} · {reverting.caption}. {later(reverting)} later {later(reverting) === 1 ? 'step leaves' : 'steps leave'} branch {live.branch}; use Branch from {reverting.n} instead to keep them. The unit is told and continues from there.</p>}
-          onConfirm={() => act('Revert', { op: 'revert', model: live.model, step: reverting.id })}
-          onClose={() => setReverting(null)}
-        />
-      )}
+      ))}
     </div>
   )
 }

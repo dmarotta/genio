@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { DEFAULT_VIEWER_SETTINGS, VIEWER_APP_URL, readViewerMessage, type ModelLoaded, type ToViewer, type ViewerSettings } from '@shared/model-viewer'
+import { DEFAULT_VIEWER_SETTINGS, VIEWER_APP_URL, readViewerMessage, type ToViewer, type ViewerSettings } from '@shared/model-viewer'
 import { modellerCaption, type ModellerActivity, type ModellerLive } from '@shared/modeller'
 import { api } from '../store'
 import { cx } from '../lib/format'
@@ -40,8 +40,6 @@ export function useModellerLive(id: string, poll: boolean, everyMs = 1000): Mode
   return live
 }
 
-const firstLine = (s: string): string => s.split(/\r?\n/).map(x => x.trim()).find(Boolean) ?? ''
-
 /**
  * The Modeller's live view: the sandboxed viewer frame showing the head step, hot swapped as each step
  * lands (the camera stays, changed parts glow), with the running step's caption as a live status.
@@ -53,7 +51,6 @@ export function ModellerView({ live, activity }: { live: ModellerLive | null; ac
   const ready = useRef(false)
   const request = useRef(0)
   const sent = useRef<string | undefined>(undefined)
-  const [model, setModel] = useState<ModelLoaded>()
   const [error, setError] = useState('')
   const [settings, setSettings] = useState<ViewerSettings>(() => ({ ...DEFAULT_VIEWER_SETTINGS, ...remembered }))
   const now = useNow(1000)
@@ -78,7 +75,7 @@ export function ModellerView({ live, activity }: { live: ModellerLive | null; ac
         send({ type: 'settings', settings: target.current.settings })
         show()
       } else if (m?.type === 'failed' && (m.requestId === undefined || m.requestId === request.current)) setError(m.reason)
-      else if (m?.type === 'loaded' && m.requestId === request.current) { setModel(m.model); setError('') }
+      else if (m?.type === 'loaded' && m.requestId === request.current) setError('')
     }
     window.addEventListener('message', onMessage)
     send({ type: 'hello' })
@@ -93,15 +90,10 @@ export function ModellerView({ live, activity }: { live: ModellerLive | null; ac
     send({ type: 'settings', settings: next })
   }
 
-  const run = live?.running, failed = live?.failure
   // Before the first step the scene is empty: the caption is what the unit is doing, while it works.
   const caption = modellerCaption(live, activity, now)
   // A sign of life beside the caption while a step runs or the unit works between steps; not once it is ready, failed or stopped.
   const working = !!caption && (caption.tone === 'run' || (!!activity && caption.tone !== 'warn'))
-  const d = model?.diff
-  const parts = d && d.added + d.changed + d.removed > 0
-    ? `+${d.added} added · ${d.changed} changed · −${d.removed} removed${d.names.length ? `: ${d.names.slice(0, 4).join(', ')}${d.names.length > 4 ? '…' : ''}` : ''}`
-    : ''
   return <div className="modeller-view">
     <div className="modeller-view-stage">
       <iframe ref={frame} src={VIEWER_APP_URL} sandbox="allow-scripts" title={live ? `Live view of ${live.model}` : 'Live 3D view'} referrerPolicy="no-referrer" />
@@ -116,9 +108,6 @@ export function ModellerView({ live, activity }: { live: ModellerLive | null; ac
       {TOGGLES.map(([k, label, title]) =>
         <button key={k} className={cx('btn sm ghost', settings[k] && 'on')} title={title} aria-pressed={settings[k]} onClick={() => change(k)}>{label}</button>)}
     </div>
-    {failed && !run && <p className="modeller-view-note warn" title={failed.error}>{firstLine(failed.error)}</p>}
     {error && <p className="modeller-view-note warn">{error}</p>}
-    {model && <p className="modeller-view-note">{model.stats.triangles.toLocaleString()} triangles · {model.stats.meshes.toLocaleString()} parts{live && live.branch !== 'main' ? ` · branch ${live.branch}` : ''}</p>}
-    {parts && <p className="modeller-view-note">{parts}</p>}
   </div>
 }

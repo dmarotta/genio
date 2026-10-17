@@ -13,8 +13,8 @@ const put = (root: string, rel: string, bytes: Buffer | string): void => {
   fs.writeFileSync(path.join(root, rel), bytes)
 }
 const live = (): ModellerLive => ({
-  model: 'tower', branch: 'main', branches: ['main'], checks: [], running: null, failure: null, next: null, stamp: '1',
-  steps: [{ id: 's005', n: 5, caption: 'Roof', triangles: 2802, parts: 9, warnings: 0, ms: 1500, at: 0, glb: 'genio-media://model/t/modeller/tower/steps/s005/model.glb', view: 'genio-media://model/t/modeller/tower/steps/s005/view.png' }]
+  model: 'tower', branch: 'main', checks: [], running: null, failure: null, next: null, stamp: '1',
+  steps: [{ id: 's005', n: 5, caption: 'Roof', triangles: 2802, parts: 9, ms: 1500, at: 0, glb: 'genio-media://model/t/modeller/tower/steps/s005/model.glb', view: 'genio-media://model/t/modeller/tower/steps/s005/view.png' }]
 })
 
 beforeAll(() => {

@@ -566,7 +566,7 @@ button.usage-toggle:hover { color: var(--text); }
 .uh-row .detail-clock, .uh-row .uh-since { font-size: 12px; white-space: nowrap; }
 .uh-approval { display: flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .unit-head .title.unit-name { font-size: 24px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.uh-actions { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 30px; }
+.uh-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; min-height: 30px; }
 .uh-line { flex: 1; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .uh-actions > :not(.uh-line) { flex: none; }
 .unit-info, .unit-more { position: relative; }
@@ -577,8 +577,6 @@ button.usage-toggle:hover { color: var(--text); }
 .ui-row { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 10px; }
 .ui-row dt { color: var(--text-mute); }
 .ui-row dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
-.ui-loadout { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
-.ui-loadout ul { margin: 6px 0 0; padding-left: 18px; color: var(--text-dim); line-height: 1.45; }
 .unit-menu { width: min(340px, calc(100vw - 32px)); display: flex; flex-direction: column; padding: 6px;
   background: var(--surface-3); border: 1px solid var(--line-strong); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); }
 .unit-menu-item { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 7px 10px; background: none; border: 1px solid transparent; border-bottom-color: var(--line); color: var(--text); cursor: pointer; outline: none; }
@@ -616,7 +614,6 @@ button.usage-toggle:hover { color: var(--text); }
 .ch-commits summary { cursor: pointer; margin-bottom: 6px; }
 .ch-tests { display: flex; flex-direction: column; gap: 4px; }
 .ch-tests-line { font-size: 13px; }
-.ch-note { font-size: 12px; }
 .tl-row.tl-ping .tl-text { color: var(--text); }
 .tl-verb.violet { color: var(--violet); }
 .detail-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 14px; }

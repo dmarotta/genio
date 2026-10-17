@@ -33,10 +33,10 @@ describe('Modeller live state', () => {
   it('lists the current branch from its root with GLBs and review renders through the unit grant', () => {
     write('tower/manifest.json', JSON.stringify(manifest()))
     const live = readModellerLive(data, base)!
-    expect(live).toMatchObject({ model: 'tower', branch: 'main', branches: ['main', 'wide'], running: null, failure: null })
+    expect(live).toMatchObject({ model: 'tower', branch: 'main', running: null, failure: null })
     expect(live.steps).toEqual([
-      { id: 's001', n: 1, caption: 'Legs on stone footings', triangles: 100, parts: 1, warnings: 0, ms: 1501, at: Date.parse('2026-10-16T10:01:00.000Z'), glb: 'genio-media://model/abc/modeller/tower/steps/s001/model.glb', view: null },
-      { id: 's002', n: 2, caption: 'Deck of planks', triangles: 200, parts: 2, warnings: 1, ms: 1502, at: Date.parse('2026-10-16T10:02:00.000Z'), glb: 'genio-media://model/abc/modeller/tower/steps/s002/model.glb', view: 'genio-media://model/abc/modeller/tower/steps/s002/view.png' }
+      { id: 's001', n: 1, caption: 'Legs on stone footings', triangles: 100, parts: 1, ms: 1501, at: Date.parse('2026-10-16T10:01:00.000Z'), glb: 'genio-media://model/abc/modeller/tower/steps/s001/model.glb', view: null },
+      { id: 's002', n: 2, caption: 'Deck of planks', triangles: 200, parts: 2, ms: 1502, at: Date.parse('2026-10-16T10:02:00.000Z'), glb: 'genio-media://model/abc/modeller/tower/steps/s002/model.glb', view: 'genio-media://model/abc/modeller/tower/steps/s002/view.png' }
     ])
     write('tower/manifest.json', JSON.stringify(manifest({ branch: 'wide', updated: '2026-10-16T10:06:00.000Z' })))
     const wide = readModellerLive(data, base)!
@@ -129,7 +129,7 @@ describe('Modeller live state', () => {
     const failure = { id: 's004', name: 'roof', kind: 'error', parent: 's002', branch: 'main', t: '2026-10-16T10:04:00.000Z', error: "NameError: name 'roff' is not defined. The model stays at s002.\nTraceback", dir: 'failed/s004-error-1' }
     write('tower/failed/s004-error-1/script.py', '"""Pitched roof"""\n')
     write('tower/manifest.json', JSON.stringify(manifest({ failures: [failure] })))
-    expect(readModellerLive(data, base)!.failure).toEqual({ id: 's004', n: 3, caption: 'Pitched roof', kind: 'error', error: failure.error })
+    expect(readModellerLive(data, base)!.failure).toEqual({ id: 's004', n: 3, caption: 'Pitched roof', kind: 'error' })
     write('tower/manifest.json', JSON.stringify(manifest({ failures: [failure], history: [{ op: 'revert', t: '2026-10-16T10:04:30.000Z' }] })))
     expect(readModellerLive(data, base)!.failure).toBeNull()
     write('tower/manifest.json', JSON.stringify(manifest({ failures: [{ ...failure, branch: 'wide' }] })))

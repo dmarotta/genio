@@ -106,7 +106,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'lore-first', feature: 'memory', name: 'Save Point', description: 'Save your first memory update.' },
   { feature: 'ship', id: 'first-blood', name: 'First Blood', description: 'Merge your first build.' },
   { feature: 'modeller', id: 'modeller-first', name: 'Model Citizen', description: 'Merge a Modeller build: a unit that makes a 3D model step by step.' },
-  { feature: 'modeller', id: 'modeller-rewind', name: 'Take Two', description: "Revert or branch a Modeller's model from its unit page." },
+  { feature: 'modeller', id: 'modeller-rewind', name: 'Take Two', description: "Revert or branch a Modeller's model from its unit page.", retired: true },
   { feature: 'generator', id: 'generator-first', name: 'Production Line', description: 'Merge a Generator build: a unit that runs asset generation jobs.' },
   { feature: 'plans', id: 'plan-first', name: 'Battle Plan', description: 'Have Genio file a plan: one job split into steps for several units.' },
   { feature: 'plans', id: 'plan-control', name: 'Hold Everything', description: 'Pause or cancel a plan from a step chip.' },

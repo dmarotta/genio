@@ -10,8 +10,8 @@ vi.mock('../src/renderer/src/store', () => ({ api: () => ({ modellerLive: f.live
 import { ModellerView, useModellerLive } from '../src/renderer/src/components/ModellerView'
 
 const BASE = `genio-media://model/${'a'.repeat(32)}/modeller/tower/steps`
-const step = (n: number, caption: string) => ({ id: `s00${n}`, n, caption, triangles: 12 * n, parts: n, warnings: 0, ms: 1500, at: 0, glb: `${BASE}/s00${n}/model.glb`, view: `${BASE}/s00${n}/view.png` })
-const state = (patch: Partial<ModellerLive> = {}): ModellerLive => ({ model: 'tower', branch: 'main', branches: ['main'], steps: [step(1, 'Raising four timber legs')], checks: [], running: null, failure: null, next: null, stamp: '1', ...patch })
+const step = (n: number, caption: string) => ({ id: `s00${n}`, n, caption, triangles: 12 * n, parts: n, ms: 1500, at: 0, glb: `${BASE}/s00${n}/model.glb`, view: `${BASE}/s00${n}/view.png` })
+const state = (patch: Partial<ModellerLive> = {}): ModellerLive => ({ model: 'tower', branch: 'main', steps: [step(1, 'Raising four timber legs')], checks: [], running: null, failure: null, next: null, stamp: '1', ...patch })
 const model = (diff?: ModelLoaded['diff']): ModelLoaded => ({
   stats: { triangles: 2802, vertices: 1500, meshes: 9, materials: 3, textures: 0, bones: 0, size: [2, 6, 2] }, clips: [], textures: [], missing: [], clayFallback: 0,
   animationOnly: false, loadMs: 20, format: 'GLB', units: 'Metres', upAxis: 'y', unityClips: false, ...(diff ? { diff } : {})
@@ -47,26 +47,26 @@ describe('Modeller live view (app side of the sandboxed frame)', () => {
     expect(posted).toHaveBeenCalledTimes(2)
     await fromFrame({ type: 'loaded', requestId: 1, model: model() })
     expect(text()).toContain('Step 1 · Raising four timber legs')
-    expect(text()).toContain('2,802 triangles · 9 parts')
     await render(state({ steps: [step(1, 'Raising four timber legs'), step(2, 'Deck of planks')], stamp: '2' }))
     expect(posted.mock.calls[2][0]).toEqual({ type: 'open', url: `${BASE}/s002/model.glb`, name: 'tower step 2', requestId: 2, keep: true })
-    // A late answer for the step before is ignored.
-    await fromFrame({ type: 'loaded', requestId: 1, model: model({ added: 9, changed: 0, removed: 0, names: [], swapMs: 1 }) })
-    expect(text()).not.toContain('9 added')
     await fromFrame({ type: 'loaded', requestId: 2, model: model({ added: 1, changed: 2, removed: 0, names: ['deck', 'leg_1', 'leg_2', 'leg_3', 'leg_4'], swapMs: 0.3 }) })
-    expect(text()).toContain('+1 added · 2 changed · −0 removed: deck, leg_1, leg_2, leg_3…')
+    // The changed parts glow in the frame; no text about them, no triangle or part counts, no branch.
+    expect(text()).not.toMatch(/added|changed|removed|deck, leg_1|triangles|parts|branch/)
+    expect(host.querySelectorAll('.modeller-view-note')).toHaveLength(0)
+    // A load failure still says why the scene is empty.
+    await fromFrame({ type: 'failed', requestId: 2, code: 'unreadable', reason: 'The model could not be read.' })
+    expect(host.querySelector('.modeller-view-note.warn')!.textContent).toBe('The model could not be read.')
   })
 
-  it('shows the running step as a live status, and a failed attempt with its reason', async () => {
+  it('shows the running step as a live status, and a failed attempt without technical detail', async () => {
     await render(state({ running: { id: 's002', n: 2, caption: 'Deck of planks', startedAt: Date.now() - 12_000 } }))
     expect(host.querySelector('[role="status"]')!.textContent).toBe('Step 2 · Deck of planks…12 s')
     await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
     expect(text()).toContain('15 s')
-    await render(state({ failure: { id: 's002', n: 2, caption: 'Deck of planks', kind: 'error', error: "NameError: name 'plank' is not defined. The model stays at s001.\n  at line 4" } }))
+    await render(state({ failure: { id: 's002', n: 2, caption: 'Deck of planks', kind: 'error' } }))
     expect(host.querySelector('[role="status"]')!.className).toContain('warn')
-    expect(text()).toContain('Step 2 failed · Deck of planks')
-    expect(text()).toContain("NameError: name 'plank' is not defined. The model stays at s001.")
-    expect(text()).not.toContain('at line 4')
+    expect(host.querySelector('[role="status"]')!.textContent).toBe('Step 2 failed · Deck of planks')
+    expect(host.querySelectorAll('.modeller-view-note')).toHaveLength(0)
     await render(state({ steps: [] }))
     expect(host.querySelector('[role="status"]')).toBeNull()
   })
@@ -203,7 +203,7 @@ describe('Modeller live view (app side of the sandboxed frame)', () => {
     await renderWith(state({ steps: [landed] }), null)
     expect(live()).toBeNull()
     expect(status()!.className).not.toContain('working')
-    await renderWith(state({ steps: [landed], failure: { id: 's002', n: 2, caption: 'Deck', kind: 'error', error: 'boom' } }), working)
+    await renderWith(state({ steps: [landed], failure: { id: 's002', n: 2, caption: 'Deck', kind: 'error' } }), working)
     expect(live()).toBeNull()
     await renderWith(null, null)
     expect(status()).toBeNull()

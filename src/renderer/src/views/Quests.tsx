@@ -9,7 +9,7 @@ import {
 } from '@shared/quest-board'
 import type { SquadTone } from '@shared/squad-display'
 import { mergeApprovalLabel } from '@shared/merge-approval'
-import { playerStatusText } from '@shared/unit-page'
+import { playerStatusText, statusWorthShowing } from '@shared/unit-page'
 import { api, errText, focusTask, op, toast, useStore } from '../store'
 import { Confirm, DislikeMarker, Empty, Field, Modal, NeedsYou, ViewHeader, useNow } from '../components/ui'
 import { KIND_LABEL } from '../lib/vocab'
@@ -398,11 +398,14 @@ function FlightTicket({ c, now, events, onOpen }: { c: FlightCard; now: number; 
         {c.attention && <NeedsYou className="qk-chip" />}
         {t && <span className="mono mute qk-age">{duration(t.createdAt, new Date(now).toISOString())}</span>}
       </div>
-      <div className="qk-progress mute" title={progressLine(t, events)}>
-        {failed
-          ? `${t ? (t.stateReason ?? 'The unit ended without landing').replace(/[.\s]*$/, '.') : 'Its unit is gone.'} Re-queue or drop the quest.`
-          : trunc(progressLine(t, events), 140)}
-      </div>
+      {failed ? (
+        <div className="qk-progress mute">
+          {`${t ? (t.stateReason ?? 'The unit ended without landing').replace(/[.\s]*$/, '.') : 'Its unit is gone.'} Re-queue or drop the quest.`}
+        </div>
+      ) : t && statusWorthShowing(t, !!c.attention) && (
+        // The unit's words only when it needs the player or is stuck; the state chip says the rest.
+        <div className="qk-progress mute" title={progressLine(t, events)}>{trunc(progressLine(t, events), 140)}</div>
+      )}
       <TicketMeta q={q} task={t} />
       {(t?.dislikePause || q?.hold?.reaction) ? <div className="quest-hold"><DislikeMarker /></div>
         : q?.hold && <div className="quest-hold"><Hand size={11} /> {trunc(q.hold.reason, 120)}</div>}

@@ -80,7 +80,8 @@ const RETIRED: Record<string, string> = {
   'play-package': 'the old Play screen: package install',
   'play-slot': 'the old Play screen: shared slot lease',
   'play-takeover': 'the old Play screen: slot takeover',
-  'play-snapshot': 'the old Play screen: snapshots'
+  'play-snapshot': 'the old Play screen: snapshots',
+  'modeller-rewind': 'the Modeller Steps tab lost Revert to N and Branch from N: the player steers in words, the unit runs the kernel itself'
 }
 // Un-retired by the new Play screen (Step and the resolution dropdown by the minimal one): same ids, so earned dates carry over.
 const UNRETIRED = ['play-stream', 'play-input', 'play-fullscreen', 'play-step', 'play-resolution']
