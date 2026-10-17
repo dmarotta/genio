@@ -20,6 +20,7 @@ import { API_PREFIX, EVENT_CHANNEL } from '@shared/api'
 const env = process.env
 const BASE = env.GENIO_SCREEN_BASE, PROJECT = env.GENIO_SCREEN_PROJECT || 'genio', OUT = env.GENIO_SCREEN_OUT, APP_ROOT = env.GENIO_SCREEN_APP_ROOT
 const UNITS = Number(env.GENIO_SCREEN_UNITS || 6), PROFILE = env.GENIO_SCREEN_PROFILE === '1'
+const RENDERER = env.GENIO_SCREEN_RENDERER || path.join(APP_ROOT, 'out', 'renderer'), PRELOAD = env.GENIO_SCREEN_PRELOAD || path.join(APP_ROOT, 'out', 'preload', 'index.js')
 const FILL = 1_400_000
 const now = () => performance.timeOrigin + performance.now()
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -103,7 +104,7 @@ app.whenReady().then(async () => {
     ipcMain.removeHandler(API_PREFIX + m)
     realHandle(API_PREFIX + m, async () => { throw new Error('not in the benchmark') })
   }
-  registerMedia(getCtx, { rendererDir: path.join(APP_ROOT, 'out', 'renderer') })
+  registerMedia(getCtx, { rendererDir: RENDERER })
   const router = createEventRouter({
     snapshot: () => ctx.snapshot(), terminal: id => ctx.terminals.get(id),
     windows: () => win && !win.isDestroyed() ? [{ binding, alive: () => !win.isDestroyed() && !win.webContents.isDestroyed(), send: (channel, payload) => { events.push({ at: now(), channel, type: payload?.type, payload }); win.webContents.send(channel, payload) } }] : []
@@ -114,7 +115,7 @@ app.whenReady().then(async () => {
   win = new BrowserWindow({
     width: 1440, height: 900, show: false, backgroundColor: '#07090e', autoHideMenuBar: true, titleBarStyle: 'hidden',
     titleBarOverlay: { color: '#07090e', symbolColor: '#00e5ff', height: 44 },
-    webPreferences: { preload: path.join(APP_ROOT, 'out', 'preload', 'index.js'), sandbox: false, contextIsolation: true, nodeIntegration: false, spellcheck: false, backgroundThrottling: false }
+    webPreferences: { preload: PRELOAD, sandbox: false, contextIsolation: true, nodeIntegration: false, spellcheck: false, backgroundThrottling: false }
   })
   win.setMenu(null)
   win.once('ready-to-show', () => win.showInactive())
@@ -203,7 +204,7 @@ app.whenReady().then(async () => {
   console.log('[screens] window ready, loading the renderer')
   const loadAt = now()
   const query = { project: PROJECT, wksp: binding.wksp }
-  await phase('boot', async () => { void win.loadFile(path.join(APP_ROOT, 'out', 'renderer', 'index.html'), { query }); return loadAt },
+  await phase('boot', async () => { void win.loadFile(path.join(RENDERER, 'index.html'), { query }); return loadAt },
     `() => document.querySelector('.chat-log [data-msg], .chat-log .msg')`, 6000)
   const fcp = await js(`(performance.getEntriesByName('first-contentful-paint')[0]?.startTime ?? -1)`)
   result.phases.boot.fcpMs = fcp > 0 ? fcp + (await js('performance.timeOrigin')) - loadAt : undefined
