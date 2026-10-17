@@ -21,7 +21,7 @@ const REQUIRED_TERMS = [
   'Presence', 'Online', 'DND', 'AFK', 'The Bot', 'Welcome back', 'Auto-loot', 'Standing approval', 'Merge approval',
   'Delivery modes', 'Offline', 'Standard', 'Hardcore', 'Plans', 'Plan steps', 'Units', 'Unit kinds and colors', 'Squad states',
   'Despawn and discard', 'Quests', 'Quest log', 'Choices', 'Your Move', 'Usage modes', 'Quota protection', 'Effort levels', 'Spend approval',
-  'Unit capabilities', 'Skills', 'Play', 'Play copy', 'Play GPU stream', 'Game sound', 'Inventory', 'Art Bible', 'Design', 'Design notes', 'Modeller', 'Generator',
+  'Unit capabilities', 'Skills', 'Play', 'Play copy', 'Play GPU stream', 'Game sound', 'Inventory', 'Art Bible', 'Lore', 'Design notes', 'Modeller', 'Generator',
   'Settings pages', 'Gauntlet', 'Worktrees', 'MCP servers', 'Slots', 'Hidden desktop', 'Dev Drive'
 ]
 

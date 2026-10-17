@@ -79,7 +79,7 @@ On main now:
   Type, Modified and Importer rows, image zoom and the repeated open and reveal buttons on a preview that cannot
   show; the 3D viewer's grid, clay and background toggles, speed, loop and follow buttons, clip time, unit and format
   notes and seven of its eleven stats; the Art Bible's file path, kicker, palette strip, "From" line, reference role and
-  weight, editor hints and saved toast; the Design title that repeated the list; the Modeller's clay and turntable
+  weight, editor hints and saved toast; the Lore title that repeated the list; the Modeller's clay and turntable
   toggles and step parts; the project name and "uncommitted" line on generation cards; and the first-run screen's
   step labels, tagline, explanations and project-loaded toast.
 

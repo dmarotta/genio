@@ -1,4 +1,4 @@
-import { Backpack, IdCard, Globe, Lightbulb, MessageSquare, Palette, ScrollText, Settings, Swords, Gamepad2, type LucideIcon } from 'lucide-react'
+import { Backpack, BookOpenText, IdCard, Globe, MessageSquare, Palette, ScrollText, Settings, Swords, Gamepad2, type LucideIcon } from 'lucide-react'
 import { PROJECT_WINDOW, go, useStore, runningUnits, playAvailable, type ViewId } from '../store'
 import { cx } from '../lib/format'
 import { navItems, windowRail, type NavItem } from '../lib/railmenu'
@@ -10,7 +10,7 @@ const ICON: Record<string, LucideIcon> = {
   comms: MessageSquare,
   squad: Swords,
   quests: ScrollText,
-  design: Lightbulb,
+  design: BookOpenText,
   status: IdCard,
   worlds: Globe,
   systems: Settings,

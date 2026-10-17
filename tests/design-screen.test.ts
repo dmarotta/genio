@@ -68,7 +68,7 @@ afterEach(async () => {
   window.genio = previous; window.matchMedia = media
 })
 
-describe('Design screen', () => {
+describe('Lore screen', () => {
   it('with nothing yet, shows one plain line and New chat', async () => {
     await render()
     expect(api.designChats).toHaveBeenCalledWith(WKSP)
@@ -215,17 +215,17 @@ describe('Design screen', () => {
     expect(button('Edit')).toBeDefined()
   })
 
-  it('narrow with nothing yet: the picker reads Design and the plain line stays', async () => {
+  it('narrow with nothing yet: the picker reads Lore and the plain line stays', async () => {
     window.matchMedia = vi.fn(() => ({ matches: true, addEventListener: () => {}, removeEventListener: () => {} })) as never
     await render()
-    expect(host.querySelector('.design-picker')?.textContent).toBe('Design')
+    expect(host.querySelector('.design-picker')?.textContent).toBe('Lore')
     expect(host.querySelector('.design-empty')?.textContent).toBe(DESIGN_EMPTY)
   })
 })
 
-describe('Design in the rail', () => {
+describe('Lore in the rail', () => {
   it('is a rail entry with Ctrl+7', async () => {
-    expect(RAIL.some(e => e.kind === 'view' && e.item.id === 'design' && e.item.label === 'Design')).toBe(true)
+    expect(RAIL.some(e => e.kind === 'view' && e.item.id === 'design' && e.item.label === 'Lore')).toBe(true)
     expect(navItems().find(i => i.key === '7')?.id).toBe('design')
     setState({ view: 'comms' })
     function Keys() { useGlobalKeys(true); return null }

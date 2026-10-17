@@ -8,11 +8,11 @@ stays the only door to work. A project can have several design chats at once, on
 There is one kind of design chat. The player sets its role in words ("be a harsh critic", "you are a narrative
 designer"), and the chat keeps that stance until they change it. There are no persona presets.
 
-This page covers the Design screen, the runtime and the design notes.
+This page covers the Lore screen, the runtime and the design notes.
 
-## The Design screen
+## The Lore screen
 
-**Design** sits in the rail after Quests (**Ctrl+7**) in every project window, never in the Hub.
+**Lore** (an open book icon) sits in the rail between Inventory and Art Bible (**Ctrl+7**) in every project window, never in the Hub.
 (`src/renderer/src/views/Design.tsx`.)
 
 - **One list** on the left: **New chat**, then **Chats** (newest first; a chat is named by its first message,
@@ -145,7 +145,7 @@ Who gets what:
   folder: read the notes as context, never as specs, and edit them only when the mission says so. Units see committed
   notes; Genio puts what matters from an uncommitted note into the unit's spec.
 
-Achievements: Sounding Board (`design-chat-reply`, the Design screen's), for the first reply a design chat
+Achievements: Sounding Board (`design-chat-reply`, the Lore screen's), for the first reply a design chat
 gives; Noted (`design-note-saved`), for the first note a design chat saves.
 
 ## IPC
@@ -155,7 +155,7 @@ The chat calls take an optional conversation id as their last argument (`chatHis
 before. `designChats`, `designChatCreate`, `designChatDelete` and `designChatConfigure` manage the list. Every
 call keeps the window binding: a project window reaches only its own base's chats.
 
-`designNotes(world)` gives the Design screen every note with its text and version, and
+`designNotes(world)` gives the Lore screen every note with its text and version, and
 `designNoteWrite(world, name, text, since)` saves the player's edit (`screenNotes` and `saveScreenNote` in
 `design-notes.ts`): the same name, size and link checks as a chat's write, no `player_words` (the player typed it),
 and refused when the note changed since `since`. Both belong to the project window, like the Art Bible calls.
@@ -182,5 +182,5 @@ Cancel); the narrow picker; the screen context; the rail entry and Ctrl+7.
 the 16 KB and 64 KB limits; stale versions; missing, unmatched and project-chat `player_words`; versioned and paged
 reads; "save this as the combat note" in a design chat writing `.genio/design/combat.md`, which the main chat and the
 project chat can read but not write; the contract line within its budget and the intake detail; the design prompt's
-note format; the unit brief line only when the folder exists; the Design screen's note list and the player's save,
+note format; the unit brief line only when the folder exists; the Lore screen's note list and the player's save,
 refused over a stale version.

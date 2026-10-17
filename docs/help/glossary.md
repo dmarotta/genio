@@ -358,13 +358,13 @@ without it no style is applied.
 Where: Art Bible in the rail (Ctrl+6).
 Source: [art-bible.md](../art-bible.md)
 
-## Design
+## Lore
 
 A screen for thinking through your game's design apart from Genio's chat. Design chats ask, challenge and offer
 options, but start no work and spend nothing; you set a chat's role in words ("be a harsh critic"). Keep several,
 one per topic: New chat starts one, right-click a chat to delete it. Each chat has its own model and effort. To build
 something, ask Genio in the floating panel.
-Where: Design in the rail (Ctrl+7).
+Where: Lore in the rail (Ctrl+7).
 Source: [design-chats.md](../design-chats.md)
 
 ## Design notes
@@ -372,9 +372,9 @@ Source: [design-chats.md](../design-chats.md)
 Short markdown notes about your game's design (a system, the pillars, a decision), saved in the project's
 .genio/design/ folder next to the Art Bible. A design chat saves one only when you ask ("save this as the combat
 note"), and leaves it uncommitted. Each note keeps Open questions and Decided sections. Read and edit them on the
-Design screen. Genio and units read notes as context, never as orders: to build from one, ask Genio ("plan the
+Lore screen. Genio and units read notes as context, never as orders: to build from one, ask Genio ("plan the
 combat note").
-Where: Notes on the Design screen (Ctrl+7); the files are in .genio/design/ in the project.
+Where: Notes on the Lore screen (Ctrl+7); the files are in .genio/design/ in the project.
 Source: [design-chats.md](../design-chats.md)
 
 ## Modeller

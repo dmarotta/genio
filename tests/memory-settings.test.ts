@@ -67,10 +67,10 @@ async function type(el: HTMLTextAreaElement, value: string) {
 }
 
 describe('navigation', () => {
-  it('has no Lore screen or rail entry; Memory is a plainly named Settings section', () => {
+  it('has no memory screen or rail entry (Lore is the design screen); Memory is a plainly named Settings section', () => {
     const ids: string[] = navItems().map((n) => n.id)
     expect(ids).not.toContain('lore')
-    expect(navItems().some((n) => /\blore\b/i.test(n.label))).toBe(false)
+    expect(navItems().filter((n) => /\blore\b/i.test(n.label)).map((n) => n.id)).toEqual(['design'])
     expect(SECTIONS.find((s) => s.id === 'memory')?.label).toBe('Memory')
     expect(SECTIONS.some((s) => /\blore\b/i.test(s.label))).toBe(false)
   })

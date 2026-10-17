@@ -22,19 +22,18 @@ describe('rail entries', () => {
     })
   })
 
-  it('puts Design (Ctrl+7) after Quests, in every project window and never in the Hub', () => {
+  it('puts Lore (Ctrl+7) between Inventory and Art Bible, in every project window and never in the Hub', () => {
     const ids = navItems().map((i) => i.id)
-    expect(ids.indexOf('design')).toBe(ids.indexOf('quests') + 1)
-    expect(navItems().find((i) => i.id === 'design')).toEqual({ id: 'design', label: 'Design', key: '7' })
+    expect(ids.indexOf('design')).toBe(ids.indexOf('inventory') + 1)
+    expect(ids.indexOf('art-bible')).toBe(ids.indexOf('design') + 1)
+    expect(navItems().find((i) => i.id === 'design')).toEqual({ id: 'design', label: 'Lore', key: '7' })
     for (const play of [true, false]) {
       expect(navItems(windowRail(true, play)).map((i) => i.id)).toContain('design')
       expect(navItems(windowRail(false, play)).map((i) => i.id)).not.toContain('design')
     }
   })
 
-  it('puts Art Bible right after Inventory, in every project window and never in the Hub', () => {
-    const ids = navItems().map((i) => i.id)
-    expect(ids.indexOf('art-bible')).toBe(ids.indexOf('inventory') + 1)
+  it('puts Art Bible in every project window and never in the Hub', () => {
     expect(navItems().find((i) => i.id === 'art-bible')?.label).toBe('Art Bible')
     for (const play of [true, false]) {
       expect(navItems(windowRail(true, play)).map((i) => i.id)).toContain('art-bible')
@@ -42,9 +41,9 @@ describe('rail entries', () => {
     }
   })
 
-  it('has no Lore entry: memory lives in Settings → Memory', () => {
+  it('has no memory entry: memory lives in Settings → Memory, and Lore names the design screen', () => {
     expect(navItems().map((i) => i.id as string)).not.toContain('lore')
-    expect(navItems().some((i) => /\blore\b/i.test(i.label))).toBe(false)
+    expect(navItems().filter((i) => /\blore\b/i.test(i.label)).map((i) => i.id)).toEqual(['design'])
     expect(existsSync('src/renderer/src/views/Lore.tsx')).toBe(false)
     expect(readFileSync('src/renderer/src/App.tsx', 'utf8')).not.toMatch(/\blore\b/i)
   })
@@ -53,8 +52,9 @@ describe('rail entries', () => {
 describe('rail icons', () => {
   const rail = readFileSync('src/renderer/src/components/Rail.tsx', 'utf8')
 
-  it('uses game-metaphor glyphs: id card, backpack, gear', () => {
+  it('uses game-metaphor glyphs: id card, backpack, spellbook, gear', () => {
     expect(rail).toMatch(/status: IdCard,/)
+    expect(rail).toMatch(/design: BookOpenText,/)
     expect(rail).toMatch(/inventory: Backpack\b/)
     expect(rail).toMatch(/'art-bible': Palette\b/)
     expect(rail).toMatch(/systems: Settings,/)
