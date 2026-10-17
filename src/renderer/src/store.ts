@@ -350,7 +350,8 @@ export function handleEvent(ev: GenioEvent): void {
       setState({ snap: { ...s.snap, tasks: s.snap.tasks.filter((t) => t.id !== ev.id) } })
       break
     case 'backlog':
-      if (s.snap.allies.some((a) => !a.retiredAt)) scheduleRefresh()
+      // A project window gets its project's quests in the event (main filters them); the Hub refreshes.
+      if (!PROJECT_WINDOW && s.snap.allies.some((a) => !a.retiredAt)) scheduleRefresh()
       else setState({ snap: { ...s.snap, backlog: ev.items } })
       break
     case 'plans':

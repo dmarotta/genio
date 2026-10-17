@@ -77,7 +77,9 @@ export function routeProjectEvent(ev: GenioEvent, binding: WindowBinding | undef
     case 'allies': return { ...ev, allies: ev.allies.filter(a => a.name === binding.wksp) }
     case 'standing-approvals': return { ...ev, approvals: ev.approvals.filter(a => a.project === binding.project) }
     case 'plans': return { ...ev, plans: ev.plans.filter(p => p.world === binding.project) }
-    case 'backlog': case 'decisions': return { type: 'snapshot', data: projectSnapshot(snap(), binding) }
+    // The quests of every home, as the snapshot lists them: the window gets its project's, not a whole snapshot.
+    case 'backlog': return { ...ev, items: ev.items.filter(t => t.project === binding.project) }
+    case 'decisions': return { type: 'snapshot', data: projectSnapshot(snap(), binding) }
     case 'terminal': return project(terminalOwner ?? terminalProject(ev.terminal, snap()))
     case 'terminal-removed': return project(terminalOwner)
     case 'inventory': return project(ev.state.world)

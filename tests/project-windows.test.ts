@@ -111,6 +111,17 @@ describe('window routing', () => {
     expect(routeProjectEvent({ type: 'status', event: { taskId: 'task-one' } } as GenioEvent, binding, lazy)).toBeTruthy()
     expect(built).toBe(1)
   })
+  it('sends a project window its own quests, as its snapshot lists them, without building a snapshot', () => {
+    const quests = [{ id: 'q1', project: 'one' }, { id: 'q2', project: 'two' }, { id: 'q3', project: 'one' }] as FleetSnapshot['backlog']
+    let built = 0
+    const lazy = (): FleetSnapshot => { built++; return { ...snapshot, backlog: quests } }
+    const ev = { type: 'backlog', items: quests } as GenioEvent
+    expect(routeProjectEvent(ev, binding, lazy)).toEqual({ type: 'backlog', items: projectSnapshot(lazy(), binding).backlog })
+    expect(built).toBe(1)
+    expect(routeProjectEvent(ev, undefined, lazy)).toBe(ev)
+    // Choices still arrive as the window's snapshot.
+    expect(routeProjectEvent({ type: 'decisions', decisions: [] }, binding, lazy)).toMatchObject({ type: 'snapshot' })
+  })
   it('scopes pending unit counts on both snapshots and events, including clearing the count', () => {
     const pending = { ...snapshot, pendingUnits: ['one', 'two', 'one'] }
     expect(projectSnapshot(pending, binding).pendingUnits).toEqual(['one', 'one'])
