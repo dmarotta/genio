@@ -171,22 +171,7 @@ export function planStepOf(plans: WorkPlan[], questId: string): { plan: WorkPlan
   return undefined
 }
 
-// ---------------------------------------------------------------- step chips
-
-/** The plan step a unit works: its own quest, else any plan step that lists it. */
-export function planStepOfTask(plans: WorkPlan[], task: Pick<Task, 'id' | 'backlogId'>): { plan: WorkPlan; step: PlanStep } | undefined {
-  const own = task.backlogId ? planStepOf(plans, task.backlogId) : undefined
-  if (own) return own
-  for (const plan of plans) {
-    const step = plan.steps.find((s) => s.taskIds.includes(task.id))
-    if (step) return { plan, step }
-  }
-  return undefined
-}
-
-/** The chip text: "Step 2/3 · New Play". */
-export const stepChipLabel = (plan: Pick<WorkPlan, 'title' | 'steps'>, step: Pick<PlanStep, 'index'>): string =>
-  `Step ${step.index}/${plan.steps.length} · ${plan.title}`
+// ---------------------------------------------------------------- plan chip
 
 /** The quest log group header: "plan · 1/3 merged", plus why it does not move on by itself. */
 export function planSummary(v: Pick<PlanView, 'state' | 'merged' | 'total'>): string {

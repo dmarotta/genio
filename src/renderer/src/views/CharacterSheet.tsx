@@ -6,7 +6,7 @@ import type { Achievement, LandingDay, PlaystyleId, PlaystyleTitleId, PlaystyleV
 import { titleName } from '@shared/playstyle'
 import { api, errText, toast, useStore } from '../store'
 import { ViewHeader } from '../components/ui'
-import { cx, dateShort, usd } from '../lib/format'
+import { cx, dateShort } from '../lib/format'
 import { useScreenContext } from '../lib/screen-context'
 
 const MAX_PINS = 3
@@ -32,7 +32,7 @@ export function CharacterSheet() {
 
   return (
     <div className="view character-sheet">
-      <ViewHeader kicker="Level, XP & achievements" title={<>Character <span className="accent">Sheet</span></>} />
+      <ViewHeader title={<>Character <span className="accent">Sheet</span></>} />
 
       <section className="panel stats-card ticks">
         <div className="level-big">
@@ -45,11 +45,9 @@ export function CharacterSheet() {
           <Playstyle p={stats.playstyle} pct={pct} xp={`${stats.xp} / ${stats.xpNext} XP`} />
         </div>
         <div className="stat-tiles">
-          <Tile label="Shipped today" value={stats.shippedToday} tone="volt" />
           <Tile label="Shipped total" value={stats.shippedTotal} tone="neon" />
           <Tile label="Recons" value={stats.scoutsTotal} tone="violet" />
           <Tile label="Streak" value={`${stats.streakDays}d`} tone="amber" icon={<Flame size={14} />} />
-          <Tile label="Chat/review estimate today" value={usd(stats.costTodayUsd)} tone="mute" />
         </div>
         <Landings days={stats.landings ?? []} />
       </section>
@@ -57,14 +55,9 @@ export function CharacterSheet() {
       <section className="panel achv-grid-card ticks">
         <header className="card-head">
           <span className="label">Achievements</span>
-          <span className="achv-head-meta">
-            <span className="achv-pins" title="Pin up to three unlocked trophies to the front of the grid">
-              <Pin size={12} aria-hidden /> <span className="num">{pinned.length}/{MAX_PINS}</span> pinned
-            </span>
-            <span className="achv-count">
-              <span className="num">{unlocked}/{counted.length}</span>
-              <span className="mute"> unlocked</span>
-            </span>
+          <span className="achv-count">
+            <span className="num">{unlocked}/{counted.length}</span>
+            <span className="mute"> unlocked</span>
           </span>
         </header>
         <Achievements ordered={ordered} pinned={pinned} />
@@ -75,9 +68,8 @@ export function CharacterSheet() {
 
 const TITLE_ICON: Record<PlaystyleTitleId, LucideIcon> = { builder: Hammer, scout: Compass, artificer: Palette, warden: Shield, adventurer: Swords }
 
-/** Level meta: "Level" with the playstyle title on one line, then XP and why the title was earned. */
+/** Level meta: "Level" with the playstyle title on one line, then XP. */
 function Playstyle({ p, pct, xp }: { p: PlaystyleView; pct: number; xp: string }) {
-  const whyId = useId()
   const Icon = TITLE_ICON[p.shown] ?? Swords
   const face = (
     <>
@@ -91,7 +83,6 @@ function Playstyle({ p, pct, xp }: { p: PlaystyleView; pct: number; xp: string }
       .then((r) => { if (!r.ok) toast('warn', 'Title not equipped', r.message) })
       .catch((e) => toast('error', 'Title not equipped', errText(e)))
   }
-  const why = p.equipped && p.equipped !== p.current && p.why ? `Recent play: ${titleName(p.current)} · ${p.why}` : p.why
   return (
     <div className="lv-meta">
       <div className="lv-line">
@@ -100,22 +91,21 @@ function Playstyle({ p, pct, xp }: { p: PlaystyleView; pct: number; xp: string }
           <span className={cx('ps-title', 'equip', `ps-${p.shown}`)}>
             {face}
             <ChevronDown size={12} aria-hidden className="ps-caret" />
-            <select aria-label="Playstyle title" aria-describedby={whyId} value={p.equipped ?? ''} onChange={(e) => equip(e.target.value)}>
+            <select aria-label="Playstyle title" value={p.equipped ?? ''} onChange={(e) => equip(e.target.value)}>
               <option value="">Follow playstyle ({titleName(p.current)})</option>
               {p.earned.map((t) => (
-                <option key={t.id} value={t.id}>{titleName(t.id)} · earned {dateShort(t.at)}</option>
+                <option key={t.id} value={t.id}>{titleName(t.id)}</option>
               ))}
             </select>
           </span>
         ) : (
-          <span className={cx('ps-title', `ps-${p.shown}`)} aria-describedby={whyId}>{face}</span>
+          <span className={cx('ps-title', `ps-${p.shown}`)}>{face}</span>
         )}
       </div>
       <div className="bar" style={{ ['--c' as string]: 'var(--volt)', marginTop: 8 }}>
         <i style={{ width: `${pct}%` }} />
       </div>
       <div className="mute mono" style={{ marginTop: 6, fontSize: 12 }}>{xp}</div>
-      <div className="ps-why" id={whyId}>{why}</div>
     </div>
   )
 }
@@ -218,7 +208,7 @@ function AchievementTile({ a, pinned, full, tileRef, tabIndex, onKeyDown, onEnte
           className="achv-pin"
           aria-pressed={pinned}
           aria-label={`Pin ${a.name}`}
-          title={pinned ? 'Unpin from the front of the grid' : blocked ? `${MAX_PINS} trophies pinned: unpin one first` : 'Pin to the front of the grid'}
+          title={blocked ? `${MAX_PINS} trophies pinned: unpin one first` : undefined}
           disabled={blocked}
           onClick={toggle}
         >
@@ -227,7 +217,7 @@ function AchievementTile({ a, pinned, full, tileRef, tabIndex, onKeyDown, onEnte
       )}
       <div className="achv-ico" aria-hidden>{a.unlockedAt ? <Trophy size={17} /> : <Lock size={14} />}</div>
       <div className="achv-tname">{a.name}</div>
-      <div className="achv-tdesc">{a.unlockedAt ? `${pinned ? 'Earned ' : ''}${dateShort(a.unlockedAt)}` : a.description}</div>
+      <div className="achv-tdesc">{a.unlockedAt ? dateShort(a.unlockedAt) : a.description}</div>
     </div>
   )
 }
@@ -239,7 +229,7 @@ function AchievementTip({ a, anchor }: { a: Achievement; anchor: HTMLElement | n
     <div ref={ref} className="landings-tip achv-tip ticks" aria-hidden style={style}>
       <div className="landings-tip-date">{a.name}</div>
       <div className="achv-tip-desc">{a.description}</div>
-      <div className={cx('achv-tip-state', a.unlockedAt ? 'got' : 'mute')}>{a.unlockedAt ? `Earned ${dateShort(a.unlockedAt)}${a.retired ? ' · retired' : ''}` : 'Locked'}</div>
+      <div className={cx('achv-tip-state', a.unlockedAt ? 'got' : 'mute')}>{a.unlockedAt ? `Earned ${dateShort(a.unlockedAt)}` : 'Locked'}</div>
     </div>,
     layerRoot()
   )
@@ -265,7 +255,6 @@ function useTipPosition(anchor: HTMLElement | null, key: string): [RefObject<HTM
 // ------------------------------------------------------------------ landings heatmap
 
 const WEEKDAYS = ['M', '', 'W', '', 'F', '', '']
-const LEGEND = ['l0', 'l1', 'l2', 'l3', 'l4']
 
 const level = (n: number): string => (n <= 0 ? 'l0' : n === 1 ? 'l1' : n === 2 ? 'l2' : n <= 4 ? 'l3' : 'l4')
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
@@ -290,8 +279,6 @@ function Landings({ days }: { days: LandingDay[] }) {
   const cells = useRef<(HTMLSpanElement | null)[]>([])
   const labelId = useId()
   const tabStop = focus !== null && focus <= last ? focus : last
-  const total = days.reduce((n, d) => n + d.builds + d.recons, 0)
-  const recorded = days.some((d) => d.state === 'recorded')
 
   const move = (to: number): void => {
     const i = Math.max(0, Math.min(last, to))
@@ -313,9 +300,7 @@ function Landings({ days }: { days: LandingDay[] }) {
     <div className="landings" role="group" aria-labelledby={labelId}>
       <div className="landings-head">
         <span className="label" id={labelId}>Landings</span>
-        <span className="landings-total"><span className="num">{recorded ? total : '–'}</span><span className="mute"> in {weeks} wk</span></span>
       </div>
-      <div className="landings-sub">Recorded activity</div>
       <div className="landings-map">
         <div className="landings-wd" aria-hidden>{WEEKDAYS.map((w, i) => <span key={i}>{w}</span>)}</div>
         <div className="landings-grid" role="grid" aria-label={`Landings, last ${weeks} weeks`} style={{ gridTemplateColumns: `repeat(${weeks}, 12px)` }}>
@@ -344,13 +329,6 @@ function Landings({ days }: { days: LandingDay[] }) {
             </div>
           ))}
         </div>
-      </div>
-      <div className="landings-legend" aria-hidden>
-        <span>Less</span>
-        {LEGEND.map((l) => <span key={l} className={cx('lc', l)} />)}
-        <span>More</span>
-        <span className="lc unknown" />
-        <span>Not recorded</span>
       </div>
       {tip !== null && days[tip] && <LandingTip day={days[tip]} anchor={cells.current[tip] ?? null} />}
     </div>

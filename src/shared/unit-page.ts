@@ -1,4 +1,4 @@
-import type { DeliveryMode, PrInfo, Task, TerminalInfo } from './types'
+import type { PrInfo, Task, TerminalInfo } from './types'
 import { squadBadge, squadState, type SquadTone } from './squad-display'
 
 /**
@@ -52,7 +52,7 @@ export function prMergeBlock(pr: Pick<PrInfo, 'checks'>): string {
   return 'Genio has not read this PR\'s checks yet.'
 }
 
-/** Rating belongs to finished units; a ready one is rated in the Merge confirm. */
+/** Rating belongs to finished units. */
 export const canRate = (t: Task, term?: TerminalInfo): boolean => squadState(t, term) === 'DONE'
 
 /**
@@ -76,16 +76,6 @@ export function unitBadge(t: Task, term?: TerminalInfo): { label: string; tone: 
  */
 export function statusWorthShowing(t: Pick<Task, 'state'>, attention: boolean): boolean {
   return attention || ['needs-decision', 'blocked', 'failed', 'stale', 'paused', 'exited', 'detached'].includes(t.state)
-}
-
-/** Delivery mode in words: what landing this unit means. */
-export function deliveryLabel(mode: DeliveryMode | undefined, base: string): string {
-  switch (mode) {
-    case 'local-only': return `Merge into ${base}`
-    case 'direct-PR': return `Pull request into ${base}`
-    case 'no-mistakes': return `Gauntlet, then a pull request into ${base}`
-    default: return 'Recon: a report, nothing to merge'
-  }
 }
 
 /**

@@ -7,25 +7,37 @@ their clock stops when the unit is ready or finished ("took 54 min"). The unit
 page also says when the agent is simply not running: NOT RUNNING (detached),
 RECALLED, STOPPED (a clean exit without a final status) or WAITING (paused).
 Internal lifecycle states and capacity rules are unchanged. Completed units
-leave both active rosters immediately; header counts include working and ready
-units only.
+leave the Squad rail and page immediately (`squadActive`); their record is the
+Quest log's Done column. Neither the rail nor the page shows a unit count.
+
+## Squad rail and page
+
+A rail row is the unit's title, its kind and its state (with the yellow "needs
+you" mark when it waits on the player); a click opens its page. There is no
+project, plan step, clock, model thumbnail or tooltip, and no list of finished
+units. With no unit deployed the rail says "No units deployed." and the Squad
+page the same line under its Deploy button.
+
+A Squad card shows the kind, the title, the state chip ("needs you" and "paused
+by your dislike" when they apply), the live terminal (a Modeller's latest
+render) and Open. Its footer shows the unit's last words only when it needs the
+player or is stuck (question, blocked, failed, waiting, stopped;
+`statusWorthShowing`). No project, tool, model, category, clock, PR link or
+rating: those live on the unit page. A card whose agent is not running reads
+"No signal" (or "Despawned"); Respawn is on the unit page.
 
 ## Unit page
 
 The agent terminal stays the main area (watched until the player clicks into
 it). Every unit kind (Build, Recon, Modeller, Generator) has the same header:
-the back link, the kind and state chips, the clock and an ⓘ details popover with
-the facts (project, branch to base, model, effort, category, delivery ("Merge
-into main" for Offline), and the landed commit or respawn count when there is
-one; the loadout reasons and Auto-loot are not shown there), then the title.
-There is no status subtitle under the title: the unit's words are in the
-Timeline, an open question shows inline, and only a stopped unit says why
-("Stopped: …") beside its Respawn. A Squad card's footer and an in-flight quest
-ticket show the unit's last words only when it needs the player or is stuck
-(question, blocked, failed, waiting, stopped; `statusWorthShowing`); otherwise
-the card says when the unit last printed and the ticket shows only its state.
-Beside More sits one primary action, by state
-(`primaryAction` in `src/shared/unit-page.ts`):
+the back link, the kind and state chips, the clock and a "details" popover with
+the branch to base, the model, the effort and the landed commit when there is
+one (no project, category, delivery, respawn count, loadout or Auto-loot), then
+the title. There is no plan chip, "needs you" chip, "ready since" time or merge
+approval line in the header. There is no status subtitle under the title: the
+unit's words are in the Timeline, an open question shows inline, and only a
+stopped unit says why ("Stopped: …") beside its Respawn. Beside More sits one
+primary action, by state (`primaryAction` in `src/shared/unit-page.ts`):
 
 | State | Primary |
 |---|---|
@@ -34,15 +46,16 @@ Beside More sits one primary action, by state
 | ready, Offline | Merge into main |
 | ready, PR | Merge PR #n (off until checks are green) and Open PR |
 | failed, exited, detached | Respawn, with the stop reason in words |
-| Recon done | Build from this report, and Archive (despawns the copy, keeps the report) |
+| Recon done | Build from this report (Despawn stays under More) |
 | merged, despawned | none |
 
 A Modeller offers the same: it exports, places and commits its model when it
 judges it done, reports ready, and merges like any Build (Auto-loot or the
 player's approval). So does a Generator, with no Accept step either.
 
-More holds Interrupt (working only), Respawn, Recall (live only), Open folder
-and Despawn (red), each with its one-line consequence (`UNIT_ACTION_HINT`).
+More holds Interrupt (working only), Recall (live only), Open folder and
+Despawn (red), labels only; Respawn is the primary action of a stopped unit, and
+on narrow widths Play joins the menu with its reason when it is off.
 Despawn asks one line with Cancel and one button (`despawnConfirm` in
 `src/shared/unit-actions.ts`): "Discard this unit and its unmerged work?" with
 Discard, or "Despawn this unit?" with Despawn once it is merged (an open PR adds
@@ -50,14 +63,17 @@ that it stays open). The click does it at once, unlanded work included; there
 is no second dialog and nothing to type.
 There is no shell button: the player's own shell is the project window's
 terminal pane (docs/terminal-pane.md), which can run in a unit's copy. There is
-no manual Gauntlet button. 👍/👎 shows on finished units only; a ready unit is
-rated in the Merge confirm.
+no manual Gauntlet button. 👍/👎 shows on finished units only, on their page;
+the Merge confirm is one line (what goes where) with Cancel and Merge. Recall's
+confirm says the copy stays and reopening the project respawns it.
 
-Side tabs: Changes (diffstat, changed and uncommitted files, commits, and the
-test status: the Gauntlet, PR checks, or the unit's own reported words, with no
-explanatory notes under it),
-Timeline (status lines and pings, newest first), Brief, Report (Recons) and
-Checks (Hardcore). The Timeline labels a `note` line EVENT and a ping YOU, and
+Side tabs: Changes (lines added and removed, the uncommitted count, the changed
+and uncommitted files with their line counts, before and after pictures of
+images and models, and the test status: PR checks or the unit's own reported
+words; no file or commit counts, no commit log, no sizes), Timeline (status
+lines and pings, newest first), Brief, Report (Recons) and Checks (Hardcore:
+the Gauntlet's state, its steps and findings, and the log). No tab carries a
+count or a dot. The Timeline labels a `note` line EVENT and a ping YOU, and
 never shows a line's `[key=…]`. Notes under Genio's own bookkeeping keys
 (`INTERNAL_STATUS_KEYS` in `shared/unit-page.ts`: `genio-blender-run`,
 `genio-codex-image`, `genio-uthana-run`, `deps`, `claim`) stay in the status
@@ -76,17 +92,17 @@ file stays on disk, unchanged, for the unit. The quest details dialog shows the
 same summary.
 
 Under 900 px one strip switches between the terminal and the side
-tabs. The ping box spans the page under them, with an "interrupt and send"
-option while the agent runs. A "needs input" badge marks the terminal when the
-agent has printed nothing for the lagging window (Settings: Call a unit lagging
-after) or the unit is lagging.
+tabs. The ping box ("Ping this unit") spans the page under them; to stop the
+agent first, use More → Interrupt. A despawned unit has no ping box. A "needs
+input" badge marks the terminal when the agent has printed nothing for the
+lagging window (Settings: Call a unit lagging after) or the unit is lagging.
 
 A Modeller (a Build deployed with the Modeller flag, or one that started a 3D model) leads with its live model instead
 of the terminal, which becomes a side tab after Steps (a plain list, newest first:
 each step's render, caption, triangles and parts). There are no Revert or Branch
 buttons and no branch names: the player steers in words through the ping box and
-the unit runs the kernel's revert, branch and switch itself. Its Squad card and
-rail row show the latest step's render; Changes shows binaries before and after.
+the unit runs the kernel's revert, branch and switch itself. Its Squad card
+shows the latest step's render; Changes shows binaries before and after.
 
 The live view shows each step the moment Blender has exported its GLB: the
 kernel publishes it then, and the snapshot, checks and review sheet follow
@@ -106,8 +122,8 @@ caption ("next: …"). A step Blender runs shows "Step N · caption…" and its
 seconds.
 
 A Generator (a Build deployed or filed with the Generator flag: one or more
-asset generation jobs, see docs/unit-generator.md) has no live view: its page,
-card and rail row keep the terminal, like any Build. Only its color and its
+asset generation jobs, see docs/unit-generator.md) has no live view: its page
+and card keep the terminal, like any Build. Only its color and its
 Generator chip (sparkles icon) tell it apart. It never becomes a Modeller.
 
 Build work uses blue, Modeller work orange, Generator work magenta (`--magenta`);

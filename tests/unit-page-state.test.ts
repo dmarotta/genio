@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Task, TerminalInfo } from '../src/shared/types'
 import {
-  canRate, deliveryLabel, mergeTimeline, needsInput, parseDiffStat, parsePings, parseStatusLines, parseUnitChanges, primaryAction, prMergeBlock,
+  canRate, mergeTimeline, needsInput, parseDiffStat, parsePings, parseStatusLines, parseUnitChanges, primaryAction, prMergeBlock,
   INTERNAL_STATUS_KEYS, playerStatusText, reportedTests, timelineLabel, timelineRows, unitBadge
 } from '../src/shared/unit-page'
 
@@ -66,13 +66,6 @@ describe('header pieces', () => {
     expect(canRate(unit({ state: 'ready', readyAt: NOW.toString() }))).toBe(false)
     expect(canRate(unit())).toBe(false)
     for (const state of ['merged', 'done', 'failed', 'cleaned'] as const) expect(canRate(unit({ state }))).toBe(true)
-  })
-
-  it('words the delivery mode as what landing means', () => {
-    expect(deliveryLabel('local-only', 'main')).toBe('Merge into main')
-    expect(deliveryLabel('direct-PR', 'dev')).toBe('Pull request into dev')
-    expect(deliveryLabel('no-mistakes', 'main')).toMatch(/^Gauntlet/)
-    expect(deliveryLabel(undefined, 'main')).toMatch(/^Recon/)
   })
 
   it('flags "needs input" from the lagging window or the stale state', () => {

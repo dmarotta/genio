@@ -65,12 +65,6 @@ export function cx(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(' ')
 }
 
-/** yyyy-mm-dd for <input type=date> */
-export function dateInput(iso?: string): string {
-  if (!iso) return ''
-  return iso.slice(0, 10)
-}
-
 export function shortPath(p: string, keep = 2): string {
   const parts = p.split(/[\\/]/).filter(Boolean)
   return parts.length <= keep ? p : '…/' + parts.slice(-keep).join('/')

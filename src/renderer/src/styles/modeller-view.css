@@ -56,13 +56,9 @@
 .modeller-card-caption span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .modeller-card-caption .dot { --c: var(--orange); }
 .modeller-card-caption.warn { color: var(--amber); }
-.roster-row.has-thumb { grid-template-columns: 10px 1fr auto auto; }
-.roster-thumb { width: 28px; height: 28px; background: #0b0f16; border: 1px solid var(--line); overflow: hidden; }
-.roster-thumb img { width: 100%; height: 100%; object-fit: cover; }
 
 /* Changes tab: before and after of a binary file. */
 .ch-preview { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 0 4px; }
 .ch-thumb { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .ch-thumb > img, .ch-thumb > span { width: 96px; height: 96px; display: grid; place-items: center; object-fit: contain; background: #0b0f16; border: 1px solid var(--line); font-size: 11px; }
 .ch-thumb figcaption { font-size: 11px; }
-.ch-preview-note { flex-basis: 100%; font-size: 11px; }

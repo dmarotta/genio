@@ -27,7 +27,7 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove() })
 
 const render = (queue: BacklogItem[]): Promise<void> =>
-  act(async () => { root.render(React.createElement(QueuedColumn, { queue, chipsFor: () => [], now: Date.parse(T0), onOpen: () => undefined })) })
+  act(async () => { root.render(React.createElement(QueuedColumn, { queue, chipsFor: () => [], onOpen: () => undefined })) })
 const bands = (): string[] => [...host.querySelectorAll('.qk-band')].map((b) => b.querySelector('.prio-label')!.textContent!)
 const fire = (el: Element, type: string): Promise<void> => act(async () => {
   const e = new Event(type, { bubbles: true, cancelable: true })

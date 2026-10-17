@@ -128,7 +128,8 @@ Source: [plans.md](../plans.md)
 ## Units
 
 The workers: autonomous coding agents (Claude Code, Codex and others), each in its own terminal and its own isolated
-copy of the project. Genio deploys and steers them; they never talk to you directly.
+copy of the project. Genio deploys and steers them; they never talk to you directly. Squad and the Squad list beside
+the chat show the active units only; finished ones are in the Quest log's Done column.
 Where: Squad (Ctrl+2); click one for its page.
 Source: [ARCHITECTURE.md](../ARCHITECTURE.md), [squad-display.md](../squad-display.md)
 
@@ -183,7 +184,9 @@ Source: [VOCABULARY.md](../VOCABULARY.md), [project-startup.md](../project-start
 ## Quest log
 
 The list of quests in dispatch order (priority, then rank, then age): Queued (including quests waiting for you or
-"Queued until reset" by quota protection), in flight, and the Done column with completed history.
+"Queued until reset" by quota protection), in flight, and the Done column with completed history. Drag a queued quest
+to reorder it or change its priority; click one to edit its title, kind, priority and notes, or to drop or dispatch
+it. Ask Genio in the chat to make a quest wait for another, set a start date or change its labels.
 Where: Quests (Ctrl+3).
 Source: [VOCABULARY.md](../VOCABULARY.md), [squad-display.md](../squad-display.md)
 

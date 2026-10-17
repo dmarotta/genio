@@ -11,7 +11,7 @@ import { createPlanService, type PlanStepInput } from '../src/main/plans'
 import { bus } from '../src/main/bus'
 import { projectSnapshot, routeProjectEvent } from '../src/main/project-windows'
 import {
-  planGroups, planStepOf, planStepOfTask, planSummary, planView, stepChipLabel, stepStateText, stepTone
+  planGroups, planStepOf, planSummary, planView, stepStateText, stepTone
 } from '../src/shared/work-plan'
 import { queueChips } from '../src/shared/quest-board'
 import type { AppCtx, CrewService, HomeCtx } from '../src/main/services'
@@ -128,19 +128,14 @@ describe('plan popover controls', () => {
 })
 
 describe('step chips (shared selector)', () => {
-  it('labels steps, summarises the plan and finds the step of a unit', async () => {
+  it('summarises the plan and words each step', async () => {
     const plan = await createPlan()
     const v = planView(hc.plans.get(plan.id)!, hc.backlog.list(), tasks)
-    expect(stepChipLabel(plan, plan.steps[1])).toBe('Step 2/3 · New Play')
     expect(planSummary(v)).toBe('plan · 0/3 merged')
     expect(planSummary({ ...v, state: 'done', merged: 3 })).toBe('plan · 3/3 merged · complete')
     expect(planSummary({ ...v, state: 'paused' })).toBe('plan · 0/3 merged · paused')
     expect(v.steps.map((s) => stepStateText(s, v.steps))).toEqual(['working', 'waits on step 1', 'waits on step 2'])
     expect(v.steps.map((s) => stepTone(s))).toEqual(['blue', 'mute', 'mute'])
-    expect(planStepOfTask([plan], tasks[0])?.step.key).toBe('copy')
-    // a respawned unit without the quest link still finds its step through the plan's record
-    expect(planStepOfTask([hc.plans.get(plan.id)!], { id: tasks[0].id })?.step.key).toBe('copy')
-    expect(planStepOfTask([plan], { id: 'other' })).toBeUndefined()
     expect(stepStateText({ state: 'merged', kind: 'scout', waitsOn: [] }, [])).toBe('delivered')
     expect(stepTone({ state: 'discarded', kind: 'ship' })).toBe('alert')
   })

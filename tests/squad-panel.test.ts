@@ -17,50 +17,41 @@ beforeEach(() => {
 })
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); setState(initial) })
 
-it('counts only active units and moves completed units into the done history without a Killfeed', async () => {
+it('lists only active units; a finished one leaves the rail for the Quest log, without a Killfeed or done list', async () => {
   await act(async () => root.render(React.createElement(Roster)))
-  expect(host.querySelector('.num')?.textContent).toBe('3')
+  expect(host.querySelector('.num')).toBeNull()
   expect([...host.querySelectorAll('.roster-state')].map(n => n.textContent)).toEqual(['WORKING', 'WORKING', 'READY TO MERGE'])
   expect(host.querySelector('.roster-state')?.getAttribute('style')).toContain('--blue')
-  expect(host.querySelector('.roster-divider')).toBeNull()
   await act(async () => {
     handleEvent({ type: 'task', task: task('Build', { state: 'merged', finishedAt: '2026-10-13T10:05:00Z' }) })
     handleEvent({ type: 'task', task: task('Recon', { state: 'needs-decision', kind: 'scout' }) })
   })
-  expect(host.querySelector('.num')?.textContent).toBe('2')
-  expect([...host.querySelectorAll('.roster-active .roster-title')].map(n => n.textContent)).not.toContain('Build')
+  expect([...host.querySelectorAll('.roster-title')].map(n => n.textContent)).toEqual(['Recon', 'Ready'])
   // the Recon asking the player keeps its purple and gains the yellow indicator
   expect(host.querySelector('.roster-state')?.getAttribute('style')).toContain('--violet')
   expect(host.querySelector('.roster-state')?.textContent).toBe('WORKING')
   expect(host.querySelector('.roster-state .needs-you.amber')).not.toBeNull()
-  expect(host.querySelector('.roster-divider')?.textContent).toBe('Recently done (1)')
-  const done = host.querySelector('.roster-done .done-row')!
-  expect(done.querySelector('.roster-title')?.textContent).toBe('Build')
-  expect(done.querySelector('.roster-state')?.textContent).toBe('merged')
-  expect(done.querySelector('.roster-state')?.getAttribute('style')).toContain('--volt')
-  expect(done.textContent).toContain('· 1:05:00') // created 09:00, finished 10:05
+  expect(host.querySelector('.roster-divider, .roster-done')).toBeNull()
   expect(host.textContent).not.toContain('Killfeed')
   expect('feed' in getState()).toBe(false)
   expect(getState().snap.tasks.find(t => t.id === 'Build')?.state).toBe('merged')
-  await act(async () => (done as HTMLButtonElement).click())
-  expect(getState().focus).toEqual({ type: 'task', id: 'Build' })
+  await act(async () => (host.querySelector('.roster-row') as HTMLButtonElement).click())
+  expect(getState().focus).toEqual({ type: 'task', id: 'Recon' })
 })
 
-it('shows the 25 most recent finished units newest first, red for failures, from persisted records', async () => {
-  const finished = Array.from({ length: 32 }, (_, i) => task(`done-${i}`, {
-    state: i === 31 ? 'failed' : i === 30 ? 'exited' : 'cleaned', landedAt: i % 2 || i >= 30 ? undefined : `2026-10-13T08:${String(i).padStart(2, '0')}:00Z`,
-    finishedAt: `2026-10-13T08:${String(i).padStart(2, '0')}:00Z`, createdAt: '2026-10-13T07:00:00Z',
-    stateReason: i === 30 ? 'unit process exited (code 1) without a final status' : undefined }))
-  setState({ snap: { ...getState().snap, tasks: [task('Live'), ...finished] } })
+it('a row is the title, the kind and the state: no project, plan step, clock or tooltip', async () => {
   await act(async () => root.render(React.createElement(Roster)))
-  expect(host.querySelector('.num')?.textContent).toBe('1')
-  expect(host.querySelector('.roster-divider')?.textContent).toBe('Recently done (25)')
-  const rows = [...host.querySelectorAll('.roster-done .done-row')]
-  expect(rows.map(r => r.querySelector('.roster-title')?.textContent)).toEqual(Array.from({ length: 25 }, (_, i) => `done-${31 - i}`))
-  expect(rows.slice(0, 4).map(r => r.querySelector('.roster-state')?.textContent)).toEqual(['failed', 'exited abnormally', 'done', 'merged'])
-  expect(rows[0].querySelector('.roster-state')?.getAttribute('style')).toContain('--alert')
-  expect(rows[1].querySelector('.roster-state')?.getAttribute('style')).toContain('--alert')
-  expect(rows[3].querySelector('.roster-state')?.getAttribute('style')).toContain('--volt')
+  const row = host.querySelector('.roster-row')!
+  expect(row.querySelector('.roster-sub')?.textContent?.trim()).toBe('Build')
+  expect(row.textContent).not.toMatch(/world|\d:\d\d/)
+  expect(row.getAttribute('title')).toBeNull()
+})
+
+it('says so in one line when no unit is deployed', async () => {
+  setState({ snap: { ...getState().snap, tasks: [task('Old', { state: 'merged' })] } })
+  await act(async () => root.render(React.createElement(Roster)))
+  expect(host.querySelector('.side-empty')?.textContent).toBe('No units deployed.')
+  expect(host.querySelector('button')).toBeNull()
 })
 
 it('turns a stale ready label into WORKING on resumed work, never on idle CLI output', async () => {

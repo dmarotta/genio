@@ -53,8 +53,6 @@ it('colors the Squad rail by kind and flags attention with a yellow indicator', 
     ['build-blocked', 'blue', 'WORKING', 'blue', true],
     ['build-ready', 'volt', 'READY TO MERGE', 'volt', false]
   ])
-  const done = host.querySelector('.roster-done .roster-row')
-  expect([done?.querySelector('.roster-title')?.textContent, color(done?.querySelector('.roster-state'))]).toEqual(['recon-failed', 'alert'])
 })
 
 it('snapshots the Squad page card class names', async () => {

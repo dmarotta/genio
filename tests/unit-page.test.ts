@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { Decision, Project, Task, TerminalInfo } from '../src/shared/types'
-import { UNIT_ACTION_HINT } from '../src/shared/unit-actions'
 import { statusWorthShowing } from '../src/shared/unit-page'
 
 // The agent terminal is xterm; here it only records how the page mounts it.
@@ -52,7 +51,7 @@ const menu = async (): Promise<{ label: string; hint: string; tone: string }[]> 
   const more = button('More')
   if (!more) return []
   await click(more)
-  const items = [...document.querySelectorAll('.unit-menu-item')].map((i) => ({ label: i.querySelector('.umi-label')!.textContent!, hint: i.querySelector('.umi-hint')!.textContent!,
+  const items = [...document.querySelectorAll('.unit-menu-item')].map((i) => ({ label: i.querySelector('.umi-label')!.textContent!, hint: i.querySelector('.umi-hint')?.textContent ?? '',
     tone: i.classList.contains('danger') ? 'danger' : i.classList.contains('warn') ? 'warn' : '' }))
   await click(more)
   return items
@@ -97,25 +96,24 @@ describe('unit page header and primary action', () => {
     expect(host.querySelector('.verdict')).toBeNull()
   })
 
-  it('puts Interrupt, Respawn, Recall, Open folder and Despawn under More, each with its one-line consequence', async () => {
+  it('puts Interrupt, Recall, Open folder and Despawn under More, labels only', async () => {
     await live()
     const items = await menu()
-    expect(items.map((i) => i.label)).toEqual(['Interrupt', 'Respawn', 'Recall', 'Open folder', 'Despawn…'])
-    expect(items.map((i) => i.hint)).toEqual([UNIT_ACTION_HINT.interrupt, UNIT_ACTION_HINT.respawn, UNIT_ACTION_HINT.recall, UNIT_ACTION_HINT.folder, UNIT_ACTION_HINT.despawn])
-    for (const i of items) expect(i.hint).not.toMatch(/\n/)
+    expect(items.map((i) => i.label)).toEqual(['Interrupt', 'Recall', 'Open folder', 'Despawn…'])
+    expect(items.map((i) => i.hint)).toEqual(['', '', '', ''])
     expect(items.find((i) => i.label === 'Despawn…')!.tone).toBe('danger')
   })
 
-  it('a ready Offline Build: Merge into main, the clock stopped, no Respawn, rating left to the Merge confirm', async () => {
+  it('a ready Offline Build: Merge into main, the clock stopped, no Respawn, no rating before the merge', async () => {
     await open(unit({ state: 'ready', readyAt: '2026-10-13T11:54:00Z' }))
     expect(badge().textContent).toBe('READY TO MERGE')
     expect(host.querySelector('.detail-clock')?.textContent).toBe('took 54 min')
-    expect(host.querySelector('.uh-since')?.textContent).toBe('· ready 6m ago')
+    expect(host.querySelector('.uh-since')).toBeNull()
     expect(primary()).toEqual(['Merge into main', 'More'])
     expect((await menu()).map((i) => i.label)).toEqual(['Open folder', 'Despawn…'])
     await click(button('Merge into main'))
     expect(document.body.textContent).toContain('Fast-forward genio/u1 into main')
-    expect(document.querySelector('.verdict-pick')).not.toBeNull()
+    expect(document.querySelector('.verdict')).toBeNull()
     await click(button('Merge'))
     expect(calls.get('mergeTask')).toHaveBeenCalledWith('u1')
   })
@@ -152,27 +150,24 @@ describe('unit page header and primary action', () => {
     expect(host.querySelector('.uh-line')?.textContent).toBe('Stopped: Genio restarted while it ran; its copy is intact.')
   })
 
-  it('a merged, despawned Build: MERGED, no primary action and no More menu, the ping box off', async () => {
+  it('a merged, despawned Build: MERGED, no primary action, no More menu and no ping box', async () => {
     await open(unit({ state: 'cleaned', landedAt: '2026-10-13T11:40:00Z', finishedAt: '2026-10-13T11:40:00Z', cleanedAt: '2026-10-13T11:41:00Z', landedCommit: '8f2c1e9a4b7d03' }))
     expect(badge().textContent).toBe('MERGED')
     expect(host.querySelector('.detail-clock')?.textContent).toBe('took 40 min')
     expect(primary()).toEqual(['verdict'])
-    expect(host.querySelector<HTMLTextAreaElement>('.unit-ping textarea')!.disabled).toBe(true)
+    expect(host.querySelector('.unit-ping')).toBeNull()
   })
 
-  it('a finished Recon: its report first, Build from this report and Archive, never Respawn', async () => {
+  it('a finished Recon: its report first, Build from this report, Despawn under More, never Respawn', async () => {
     await open(unit({ kind: 'scout', state: 'done', reportPath: 'C:/r.md', mode: undefined }))
-    expect(primary()).toEqual(['verdict', 'Build from this report', 'Archive', 'More'])
-    expect((await menu()).map((i) => i.label)).not.toContain('Respawn')
+    expect(primary()).toEqual(['verdict', 'Build from this report', 'More'])
+    expect((await menu()).map((i) => i.label)).toEqual(['Open folder', 'Despawn…'])
     expect(host.querySelector('.detail-side-tabs .tab.on')?.textContent).toBe('Report')
     expect(calls.get('readTaskFile')).toHaveBeenCalledWith('u1', 'report')
-    await click(button('Archive'))
-    expect(document.body.textContent).toContain('report, timeline and record stay')
-    await click([...document.querySelectorAll<HTMLButtonElement>('.modal button')].find((b) => b.textContent?.trim() === 'Archive')!)
-    expect(calls.get('cleanupTask')).toHaveBeenCalledWith('u1', true)
-    await open(unit({ kind: 'scout', state: 'done', reportPath: 'C:/r.md', mode: undefined }))
     await click(button('Build from this report'))
-    expect(document.body.textContent).toContain("The Recon's report becomes the context for a Build")
+    expect(document.querySelector('.modal')).not.toBeNull()
+    await click([...document.querySelectorAll<HTMLButtonElement>('.modal button')].find((b) => b.textContent?.trim() === 'Build it')!)
+    expect(calls.get('promoteScout')).toHaveBeenCalledWith('u1', undefined)
   })
 
   it('a unit waiting on the player: the open question inline, answered with one click', async () => {
@@ -185,24 +180,24 @@ describe('unit page header and primary action', () => {
     expect(calls.get('answerDecision')).toHaveBeenCalledWith('d1', 'Remove it')
   })
 
-  it('a blocked unit with no recorded choice shows its last word and points to the ping box', async () => {
+  it('a blocked unit with no recorded choice shows its last word, the ping box below answers it', async () => {
     files.status = 'blocked [at=1791892800]: need the Steam app id\n'
     await live({ state: 'blocked' })
     expect(host.querySelector('.uq-q')?.textContent).toBe('need the Steam app id')
-    expect(host.querySelector('.uq-hint')?.textContent).toBe('Answer in the ping box below.')
+    expect(host.querySelector('.uq-hint')).toBeNull()
+    expect(host.querySelector('.unit-ping textarea')).not.toBeNull()
   })
 
-  it('keeps the facts in a details popover: project, branch, model, effort, category, delivery as Merge into main, commit; no loadout, no Auto-loot', async () => {
+  it('keeps the facts in a details popover: branch, model, effort, commit; no project, category, delivery, loadout or Auto-loot', async () => {
     for (const kind of [{}, { kind: 'scout' as const, mode: undefined }, { modeller: true }, { generator: true }]) {
-      await open(unit({ state: 'merged', category: 'bugfix', landedCommit: '8f2c1e9a4b7d03', loadout: ['Rule: bugfix → claude/opus'], explored: true, ...kind }))
+      await open(unit({ state: 'merged', category: 'bugfix', landedCommit: '8f2c1e9a4b7d03', loadout: ['Rule: bugfix → claude/opus'], explored: true, relaunches: 2, ...kind }))
       expect(document.querySelector('.unit-info-pop')).toBeNull()
       await click(host.querySelector<HTMLButtonElement>('.uh-info')!)
       const facts = Object.fromEntries([...document.querySelectorAll('.ui-row')].map((r) => [r.querySelector('dt')!.textContent, r.querySelector('dd')!.textContent]))
-      expect(Object.keys(facts)).toEqual(['Project', 'Branch', 'Model', 'Effort', 'Category', 'Delivery', 'Commit'])
-      expect(facts).toMatchObject({ Project: 'world', Branch: 'genio/u1 → main', Model: 'claude / opus', Effort: 'high', Commit: '8f2c1e9a4b7d' })
-      if (!('kind' in kind)) expect(facts.Delivery).toBe('Merge into main')
+      expect(Object.keys(facts)).toEqual(['Branch', 'Model', 'Effort', 'Commit'])
+      expect(facts).toMatchObject({ Branch: 'genio/u1 → main', Model: 'claude / opus', Effort: 'high', Commit: '8f2c1e9a4b7d' })
       const pop = document.querySelector('.unit-info-pop')!.textContent
-      expect(pop).not.toMatch(/Loadout|Auto-loot|Rule: bugfix|exploring/)
+      expect(pop).not.toMatch(/Loadout|Auto-loot|Rule: bugfix|exploring|Respawned/)
       expect(document.body.textContent).not.toMatch(/Offline/)
       await click(host.querySelector<HTMLButtonElement>('.uh-info')!)
     }
@@ -239,12 +234,14 @@ describe('unit page content', () => {
     files.status = 'working [at=1791892000]: wiring\ndone [at=1791892500]: branch ready, tests green\n'
     await open(unit({ state: 'ready', readyAt: NOW }))
     expect(calls.get('readTaskFile')).toHaveBeenCalledWith('u1', 'diffstat')
-    expect(host.querySelector('.ch-sum')?.textContent).toBe('+13 −3 · 2 files · 1 commit · 1 uncommitted')
+    // the files are listed below: no file or commit counts, no commit log
+    expect(host.querySelector('.ch-sum')?.textContent).toBe('+13 −3 · 1 uncommitted')
     expect([...host.querySelectorAll('.ch-files .ch-path')].map((p) => p.textContent)).toEqual(['src/a.ts', 'src/b.ts', ' M src/c.ts'])
+    expect(host.querySelector('.ch-commits, .ch-bar')).toBeNull()
     expect(host.querySelector('.ch-tests-line')?.textContent).toBe('The unit reported: “branch ready, tests green”')
     // the result only: no explanatory sentence under it
     expect(host.querySelector('.ch-tests')!.textContent).toBe('TestsThe unit reported: “branch ready, tests green”')
-    expect(host.querySelector('.detail-side-tabs .tab.on')?.textContent).toBe('Changes2')
+    expect(host.querySelector('.detail-side-tabs .tab.on')?.textContent).toBe('Changes')
   })
 
   it('merges status lines and pings into one Timeline, newest first', async () => {
@@ -295,21 +292,14 @@ describe('unit page content', () => {
     expect(host.querySelector('.detail-side-tabs .tab.on')?.textContent).toBe('Brief')
   })
 
-  it('sends a ping full width under the content, optionally interrupting first', async () => {
+  it('sends a ping full width under the content, with no interrupt toggle (Interrupt is under More)', async () => {
     await live()
+    expect(host.querySelector('.ping-interrupt')).toBeNull()
     const box = host.querySelector<HTMLTextAreaElement>('.unit-ping textarea')!
     await type(box, 'use the old input map')
-    await click(host.querySelector<HTMLInputElement>('.ping-interrupt input')!)
-    await act(async () => {
-      host.querySelector<HTMLButtonElement>('.unit-ping .btn')!.click()
-      await new Promise((r) => setTimeout(r, 600))
-    })
-    expect(calls.get('controlTask')).toHaveBeenCalledWith('u1', 'interrupt')
-    expect(calls.get('sendToTask')).toHaveBeenCalledWith('u1', 'use the old input map')
-    expect(calls.get('controlTask')!.mock.invocationCallOrder[0]).toBeLessThan(calls.get('sendToTask')!.mock.invocationCallOrder[0])
-    await type(box, 'just a note')
     await act(async () => host.querySelector<HTMLButtonElement>('.unit-ping .btn')!.click())
-    expect(calls.get('controlTask')).toHaveBeenCalledTimes(1)
+    expect(calls.get('sendToTask')).toHaveBeenCalledWith('u1', 'use the old input map')
+    expect(calls.has('controlTask')).toBe(false)
   })
 
   it('offers no shell: not under More, not in the Squad header; the unit page keeps only the agent terminal', async () => {
@@ -370,7 +360,7 @@ describe('unit page content', () => {
     await live()
     await click(button('More'))
     await click([...document.querySelectorAll<HTMLButtonElement>('.unit-menu-item')].find((b) => b.textContent?.startsWith('Recall'))!)
-    expect(document.body.textContent).toContain('reopening the project respawns it automatically')
+    expect(document.body.textContent).toMatch(/reopening the project respawns it automatically/i)
     expect(document.body.textContent).not.toContain('respawn any time')
   })
 })
@@ -522,13 +512,15 @@ describe("a unit's last words outside its page", () => {
     expect(statusWorthShowing({ state: 'working' }, true)).toBe(true)
   })
 
-  it('a Squad card footer: the liveness line for a working or ready unit, the reason for a blocked one', async () => {
+  it('a Squad card footer: nothing for a working or ready unit, the reason for a blocked one; no project, model, clock, PR or rating', async () => {
     const cards = async (...tasks: Task[]): Promise<string[]> => {
       setState({ ...initial, focus: null, snap: { ...initial.snap, tasks, projects: [project] } })
       await act(async () => root.render(React.createElement(Squad)))
       return [...host.querySelectorAll('.unit-card .unit-reason')].map((e) => e.textContent!.trim())
     }
-    expect(await cards(unit({ stateReason: 'wiring the jump buffer' }), unit({ id: 'u2', state: 'ready', stateReason: 'ready in branch genio/u2' }))).toEqual(['standing by', 'standing by'])
+    expect(await cards(unit({ stateReason: 'wiring the jump buffer' }), unit({ id: 'u2', state: 'ready', stateReason: 'ready in branch genio/u2', pr: { url: 'https://x/pull/3', number: 3, state: 'OPEN' } }))).toEqual(['', ''])
+    expect(host.querySelector('.unit-card')!.textContent).not.toMatch(/world|opus|claude|working \d|took|PR #3/)
+    expect(host.querySelector('.unit-card .verdict')).toBeNull()
     expect(await cards(unit({ state: 'blocked', stateReason: 'need the Steam app id' }))).toEqual(['need the Steam app id'])
   })
 })

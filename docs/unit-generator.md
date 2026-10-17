@@ -4,7 +4,7 @@ A Generator is a Build with the `generator` flag: a unit that takes one or more
 asset generation jobs (images, textures, sounds, music, 3D, motions), makes
 them with the bundled asset helpers, places them in the project and finishes
 like any worker. It is the Modeller flow without a live view: the terminal is
-the main area of its page, card and rail row.
+the main area of its page and its Squad card.
 
 ## Starting one
 

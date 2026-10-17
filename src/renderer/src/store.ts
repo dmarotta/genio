@@ -7,7 +7,7 @@ import type { SpawnRequest } from '@shared/api'
 import { applyChatEvent, chatKey, cleanChatMessage, patchAllyControls, type AllyControlsPatch } from '@shared/chat'
 import { askingDecision } from '@shared/decisions'
 import { occupiedUnits } from '@shared/unit-capacity'
-import { squadSections } from '@shared/squad-display'
+import { squadActive } from '@shared/squad-display'
 import { playSfx } from './lib/sfx'
 import { speak } from './lib/voice'
 import { viewAvailable, type ViewId } from './lib/railmenu'
@@ -526,16 +526,11 @@ export const runningUnits = (s: State): number => occupiedUnits(s.snap.tasks, s.
 
 export const LIVE_STATES = new Set(['spawning', 'working', 'paused', 'blocked', 'needs-decision', 'validating', 'ready', 'stale', 'detached', 'exited', 'merged'])
 
+/** The Squad's active units (rail and page). Memoised per snapshot. */
+let rosterCache: { tasks?: FleetSnapshot['tasks']; terminals?: State['terminals']; v: FleetSnapshot['tasks'] } = { v: [] }
 export function liveTasks(s: State): FleetSnapshot['tasks'] {
-  return squadRoster(s).active
-}
-
-/** Squad list: active units, then the most recent finished ones (newest first, capped). Memoised per snapshot. */
-type SquadRoster = Record<'active' | 'done', FleetSnapshot['tasks']>
-let rosterCache: { tasks?: FleetSnapshot['tasks']; terminals?: State['terminals']; v: SquadRoster } = { v: { active: [], done: [] } }
-export function squadRoster(s: State): SquadRoster {
   if (rosterCache.tasks !== s.snap.tasks || rosterCache.terminals !== s.terminals) {
-    rosterCache = { tasks: s.snap.tasks, terminals: s.terminals, v: squadSections(s.snap.tasks, (t) => (t.terminalId ? s.terminals[t.terminalId] : undefined)) }
+    rosterCache = { tasks: s.snap.tasks, terminals: s.terminals, v: squadActive(s.snap.tasks, (t) => (t.terminalId ? s.terminals[t.terminalId] : undefined)) }
   }
   return rosterCache.v
 }

@@ -1,22 +1,19 @@
 import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
-import { Box, Check, Clock, Copy, ExternalLink, GitMerge, Hand, Link2, Pause, Play, Plus, Radar, RotateCcw, Rocket, Sparkles, Trash, X } from 'lucide-react'
+import { Box, Check, Clock, Copy, ExternalLink, Hand, Link2, Pause, Play, Radar, RotateCcw, Rocket, Sparkles, X } from 'lucide-react'
 import type { BacklogItem, BacklogKind, PlanStep, Priority, StatusEvent, Task, WorkPlan } from '@shared/types'
-import { planGroups, planStepOf, planStepOfTask, planSummary, stepChipLabel } from '@shared/work-plan'
+import { planGroups, planStepOf, planSummary } from '@shared/work-plan'
 import { PlanChip, usePlanView } from '../components/PlanChip'
 import { PRIORITIES } from '@shared/api'
 import {
-  buildBoard, PRIORITY_ORDER, queueChips, reorderQueue, visibleBands, type DoneEntry, type FlightCard, type QueueChip
+  buildBoard, queueChips, reorderQueue, visibleBands, type DoneEntry, type FlightCard, type QueueChip
 } from '@shared/quest-board'
 import type { SquadTone } from '@shared/squad-display'
-import { mergeApprovalLabel } from '@shared/merge-approval'
 import { playerStatusText, statusWorthShowing } from '@shared/unit-page'
 import { api, errText, focusTask, op, toast, useStore } from '../store'
-import { Confirm, DislikeMarker, Empty, Field, Modal, NeedsYou, ViewHeader, useNow } from '../components/ui'
-import { KIND_LABEL } from '../lib/vocab'
-import { ago, clock, cx, dateInput, dateShort, duration, trunc } from '../lib/format'
+import { DislikeMarker, Empty, Field, Modal, NeedsYou, ViewHeader, useNow } from '../components/ui'
+import { clock, cx, dateShort, trunc } from '../lib/format'
 import { useUsagePolicy } from '../components/PlanMeter'
 import { useScreenContext } from '../lib/screen-context'
-import { Popover } from '../components/Layer'
 
 const DONE_PAGE = 12
 const DONE_MORE = 25
@@ -41,7 +38,6 @@ export function Quests() {
   const [title, setTitle] = useState('')
   /** 'modeller' and 'generator' file a Build quest with that flag. */
   const [kind, setKind] = useState<BacklogKind | 'modeller' | 'generator'>('ship')
-  const [priority, setPriority] = useState<Priority>('normal')
   const [openId, setOpenId] = useState<string | null>(null)
   const [doneShown, setDoneShown] = useState(DONE_PAGE)
 
@@ -61,16 +57,14 @@ export function Quests() {
       quota: wait ? { reason: wait.reason, until: wait.until } : undefined
     })
   }
-  // the head of the queue is what dispatch picks next; the rest are ready behind it
-  const nextUp = board.queued.find((q) => reasons(q)[0]?.kind === 'ready')?.id
-  const chipsFor = (q: BacklogItem): QueueChip[] =>
-    q.id === nextUp ? reasons(q).map((c) => (c.kind === 'ready' ? { ...c, label: 'next up' } : c)) : reasons(q)
+  // only what keeps a quest from starting: a ready quest needs no chip
+  const chipsFor = (q: BacklogItem): QueueChip[] => reasons(q).filter((c) => c.kind !== 'ready')
 
   const add = async (): Promise<void> => {
     if (!title.trim()) return
     try {
       // The window's project is applied by the main process.
-      await api().backlogAdd({ title: title.trim(), priority, ...(kind === 'modeller' ? { kind: 'ship', modeller: true } : kind === 'generator' ? { kind: 'ship', generator: true } : { kind }) })
+      await api().backlogAdd({ title: title.trim(), priority: 'normal', ...(kind === 'modeller' ? { kind: 'ship', modeller: true } : kind === 'generator' ? { kind: 'ship', generator: true } : { kind }) })
       setTitle('')
     } catch (e) {
       toast('error', 'Quest not added', errText(e))
@@ -94,7 +88,6 @@ export function Quests() {
   return (
     <div className="view quests-view">
       <ViewHeader
-        kicker={`${board.inFlight.length} in flight · ${board.queued.length} queued · ${board.done.length} done`}
         title={
           <>
             Quest <span className="accent">Log</span>
@@ -102,10 +95,9 @@ export function Quests() {
         }
       />
       <div className="quest-add panel ticks">
-        <Plus size={16} className="neon-text" />
         <input
           className="input bare"
-          placeholder="New quest — what needs doing?"
+          placeholder="New quest"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && void add()}
@@ -117,39 +109,28 @@ export function Quests() {
           <option value="scout">Recon</option>
           <option value="choice">Choice</option>
         </select>
-        <select className="select compact" value={priority} onChange={(e) => setPriority(e.target.value as Priority)}>
-          {PRIORITIES.map((p) => (
-            <option key={p} value={p}>
-              {PRIORITY_LABEL[p]}
-            </option>
-          ))}
-        </select>
         <button className="btn solid" disabled={!title.trim()} onClick={() => void add()}>
           Add
         </button>
       </div>
 
       {total === 0 && board.done.length === 0 ? (
-        <Empty icon={<span className="big-glyph">◆</span>} title="Quest log is empty">
-          Add quests here, or tell Genio about work in Comms — it files and dispatches them as capacity frees up.
-        </Empty>
+        <Empty title="No quests yet." />
       ) : (
         <div className="kanban qk">
-          <QueuedColumn queue={board.queued} plans={plans} chipsFor={chipsFor} now={now} onOpen={(q) => open(q)} />
+          <QueuedColumn queue={board.queued} plans={plans} chipsFor={chipsFor} onOpen={(q) => open(q)} />
           <section className="kan-col col-in-flight">
             <header className="kan-head">
               <span className="label">In flight</span>
-              <span className="num">{board.inFlight.length}</span>
             </header>
-            <div className="kan-hint mute">The Squad's active units: working or ready to merge</div>
             <div className="kan-list">
               {board.inFlight.length === 0 && <div className="qk-empty mute">No units on the field.</div>}
               {planGroups(board.inFlight, (c) => (c.quest ? questPlan(plans, c.quest) : undefined)).map((b) => 'item' in b ? (
-                <FlightTicket key={b.item.key} c={b.item} now={now} events={b.item.task ? statusByTask[b.item.task.id] : undefined} onOpen={() => open(b.item.quest, b.item.task)} />
+                <FlightTicket key={b.item.key} c={b.item} events={b.item.task ? statusByTask[b.item.task.id] : undefined} onOpen={() => open(b.item.quest, b.item.task)} />
               ) : (
                 <PlanGroup key={`plan-${b.plan.id}`} plan={b.plan}>
                   {b.items.map((c) => (
-                    <FlightTicket key={c.key} c={c} now={now} events={c.task ? statusByTask[c.task.id] : undefined} onOpen={() => open(c.quest, c.task)} />
+                    <FlightTicket key={c.key} c={c} events={c.task ? statusByTask[c.task.id] : undefined} onOpen={() => open(c.quest, c.task)} />
                   ))}
                 </PlanGroup>
               ))}
@@ -158,9 +139,7 @@ export function Quests() {
           <section className="kan-col col-done">
             <header className="kan-head">
               <span className="label">Done</span>
-              <span className="num">{board.done.length}</span>
             </header>
-            <div className="kan-hint mute">Finished quests and units, newest first</div>
             <div className="kan-list">
               {board.done.length === 0 && <div className="qk-empty mute">Nothing finished yet.</div>}
               {board.done.slice(0, doneShown).map((d) => (
@@ -168,12 +147,7 @@ export function Quests() {
               ))}
               {board.done.length > doneShown && (
                 <button className="btn ghost sm qk-more" onClick={() => setDoneShown((n) => n + DONE_MORE)}>
-                  Show {Math.min(DONE_MORE, board.done.length - doneShown)} more · {board.done.length - doneShown} older
-                </button>
-              )}
-              {doneShown > DONE_PAGE && (
-                <button className="link-btn qk-less" onClick={() => setDoneShown(DONE_PAGE)}>
-                  Collapse to the last {DONE_PAGE}
+                  Show more
                 </button>
               )}
             </div>
@@ -187,8 +161,8 @@ export function Quests() {
 
 // ------------------------------------------------------------------ queued
 
-export function QueuedColumn({ queue: all, plans, chipsFor, now, onOpen }: {
-  queue: BacklogItem[]; plans?: WorkPlan[]; chipsFor: (q: BacklogItem) => QueueChip[]; now: number; onOpen: (q: BacklogItem) => void
+export function QueuedColumn({ queue: all, plans, chipsFor, onOpen }: {
+  queue: BacklogItem[]; plans?: WorkPlan[]; chipsFor: (q: BacklogItem) => QueueChip[]; onOpen: (q: BacklogItem) => void
 }) {
   // a plan's steps start in plan order, not by priority: they sit in their plan's group above the bands
   const groups = planGroups(all, (q) => questPlan(plans, q)).filter((b) => 'plan' in b)
@@ -226,14 +200,12 @@ export function QueuedColumn({ queue: all, plans, chipsFor, now, onOpen }: {
     <section className="kan-col col-queued">
       <header className="kan-head">
         <span className="label">Queued</span>
-        <span className="num">{all.length}</span>
       </header>
-      <div className="kan-hint mute">Runs next, top first · drag to reorder or change priority</div>
       <div className="kan-list">
         {all.length === 0 && <div className="qk-empty mute">Nothing queued</div>}
         {groups.map((g) => 'plan' in g && (
           <PlanGroup key={`plan-${g.plan.id}`} plan={g.plan}>
-            {g.items.map((q) => <QueueTicket key={q.id} q={q} chips={chipsFor(q)} now={now} onOpen={() => onOpen(q)} />)}
+            {g.items.map((q) => <QueueTicket key={q.id} q={q} chips={chipsFor(q)} onOpen={() => onOpen(q)} />)}
           </PlanGroup>
         ))}
         {visibleBands(queue, !!drag).map((band) => {
@@ -247,7 +219,7 @@ export function QueuedColumn({ queue: all, plans, chipsFor, now, onOpen }: {
             >
               <div className="qk-band-head">
                 <span className={cx('prio-label', `p-${band}`)}>{PRIORITY_LABEL[band]}</span>
-                {list.length ? <span className="mono mute">{list.length}</span> : <span className="qk-drop mute">Drop here</span>}
+                {!list.length && <span className="qk-drop mute">Drop here</span>}
               </div>
               {list.map((q) => (
                 <div
@@ -258,7 +230,7 @@ export function QueuedColumn({ queue: all, plans, chipsFor, now, onOpen }: {
                   onDragEnd={end}
                   onDragOver={allow(band, q.id)}
                 >
-                  <QueueTicket q={q} chips={chipsFor(q)} now={now} onOpen={() => onOpen(q)} />
+                  <QueueTicket q={q} chips={chipsFor(q)} onOpen={() => onOpen(q)} />
                 </div>
               ))}
             </div>
@@ -269,33 +241,30 @@ export function QueuedColumn({ queue: all, plans, chipsFor, now, onOpen }: {
   )
 }
 
-function QueueTicket({ q, chips, now, onOpen }: { q: BacklogItem; chips: QueueChip[]; now: number; onOpen: () => void }) {
+function QueueTicket({ q, chips, onOpen }: { q: BacklogItem; chips: QueueChip[]; onOpen: () => void }) {
+  // a held quest shows its question; the "waiting for you" chip would say the same
+  const held = !!q.hold && !q.hold.until
+  const shown = held ? chips.filter((c) => c.kind !== 'waiting') : chips
   return (
     <div className={cx('quest qk-ticket panel', q.duplicateOf && 'dup')} onClick={onOpen}>
       <div className="quest-top">
-        <PriorityLabel q={q} />
         <span className="quest-title">{q.title}</span>
       </div>
       <TicketMeta q={q} />
-      {chips.length > 0 && (
+      {shown.length > 0 && (
         <div className="quest-meta">
-          {chips.map((c, i) => <ReasonChip key={i} c={c} />)}
+          {shown.map((c, i) => <ReasonChip key={i} c={c} />)}
         </div>
       )}
       {q.hold?.reaction ? <div className="quest-hold"><DislikeMarker /></div>
-        : q.hold && !q.hold.until && <div className="quest-hold"><Hand size={11} /> {trunc(q.hold.reason, 120)}</div>}
-      {q.answer && <div className="quest-outcome mute">Your words: “{trunc(q.answer, 100)}”</div>}
-      <div className="qk-foot mute">
-        <span title={q.createdAt}>age {ago(q.createdAt, now)}</span>
-        {q.taskId && <span title="Worked on before">· follow-up</span>}
-      </div>
+        : held && <div className="quest-hold"><Hand size={11} /> {trunc(q.hold!.reason, 120)}</div>}
     </div>
   )
 }
 
 function ReasonChip({ c }: { c: QueueChip }) {
   const icon = c.kind === 'waiting' ? <Hand size={10} /> : c.kind === 'depends' ? <Link2 size={10} /> : c.kind === 'duplicate' ? <Copy size={10} />
-    : c.kind === 'later' || c.kind === 'quota' ? <Clock size={10} /> : c.kind === 'ready' ? <Play size={10} /> : c.kind === 'plan' ? <Pause size={10} /> : null
+    : c.kind === 'later' || c.kind === 'quota' ? <Clock size={10} /> : c.kind === 'plan' ? <Pause size={10} /> : null
   return (
     <span className={cx('chip qk-chip', c.tone !== 'mute' && c.tone)} title={c.title}>
       {icon} {trunc(c.label, 48)}{c.date ? ` ${dateShort(c.date)}` : ''}
@@ -303,37 +272,10 @@ function ReasonChip({ c }: { c: QueueChip }) {
   )
 }
 
-/** Click the label to change the priority in place. */
-function PriorityLabel({ q }: { q: BacklogItem }) {
-  const [menu, setMenu] = useState(false)
-  const wrap = useRef<HTMLSpanElement>(null)
-  const set = (p: Priority): void => {
-    setMenu(false)
-    if (p !== q.priority) void op('Priority', () => api().backlogUpdate(q.id, { priority: p }))
-  }
-  return (
-    <span className="prio-wrap" ref={wrap} onClick={(e) => e.stopPropagation()}>
-      <button className={cx('prio-label', `p-${q.priority}`)} title="Change priority" onClick={() => setMenu((m) => !m)}>
-        {PRIORITY_LABEL[q.priority]}
-      </button>
-      {menu && (
-        <Popover anchor={wrap} gap={4} className="prio-menu panel" onMouseLeave={() => setMenu(false)} onClose={() => setMenu(false)}>
-          {PRIORITY_ORDER.map((p) => (
-            <button key={p} className={cx('prio-label', `p-${p}`, p === q.priority && 'on')} onClick={() => set(p)}>
-              {PRIORITY_LABEL[p]}
-            </button>
-          ))}
-        </Popover>
-      )}
-    </span>
-  )
-}
 
+/** The kind chip: a plan step sits in its plan's group, and the project is the window's own. */
 function TicketMeta({ q, task }: { q?: BacklogItem; task?: Task }) {
-  const plans = useStore((s) => s.snap.plans)
   const kind = q?.kind ?? task?.kind ?? 'ship'
-  const world = q?.project ?? task?.project
-  const step = q ? questPlan(plans, q) : undefined
   return (
     <div className="quest-meta">
       {(task?.modeller || q?.modeller) && kind === 'ship' ? (
@@ -346,11 +288,6 @@ function TicketMeta({ q, task }: { q?: BacklogItem; task?: Task }) {
           {KIND_NAME[kind] ?? kind}
         </span>
       )}
-      {world && <span className="chip">{world}</span>}
-      {step && <PlanChip plan={step.plan} step={step.step} />}
-      {task?.category && <span className="chip qk-chip">{task.category}</span>}
-      {/* the step chip already names the plan its label stands for */}
-      {q?.tags.filter((t) => !(step && t.startsWith('plan:'))).map((t) => <span key={t} className="chip qk-chip qk-tag">#{t}</span>)}
     </div>
   )
 }
@@ -366,7 +303,7 @@ function PlanGroup({ plan, children }: { plan: WorkPlan; children: ReactNode }) 
   return (
     <div className="qk-plan">
       <div className="qk-plan-head">
-        <PlanChip plan={plan} label={plan.title} />
+        <PlanChip plan={plan} />
         {v && <span className="mute">{planSummary(v)}</span>}
       </div>
       {children}
@@ -382,25 +319,23 @@ function progressLine(task?: Task, events?: StatusEvent[]): string {
   return (last && playerStatusText(last)) || task?.stateReason || (task?.lastOutputAt ? 'working' : 'standing by')
 }
 
-function FlightTicket({ c, now, events, onOpen }: { c: FlightCard; now: number; events?: StatusEvent[]; onOpen: () => void }) {
+function FlightTicket({ c, events, onOpen }: { c: FlightCard; events?: StatusEvent[]; onOpen: () => void }) {
   const { quest: q, task: t } = c
   const failed = c.state === 'FAILED'
   const color = toneColor(c.tone)
   return (
     <div className={cx('quest qk-ticket qk-flight panel', failed && 'failed', c.attention && 'attention')} style={{ ['--c' as string]: color }} onClick={onOpen}>
       <div className="quest-top">
-        {q && <PriorityLabel q={q} />}
         <span className="quest-title">{q?.title ?? t?.title}</span>
       </div>
       <div className="qk-state">
         <span className="dot" style={{ ['--c' as string]: color }} />
         <span className="qk-state-label" style={{ color }}>{failed ? (t ? `UNIT ${t.state.toUpperCase()}` : 'UNIT MISSING') : c.state}</span>
         {c.attention && <NeedsYou className="qk-chip" />}
-        {t && <span className="mono mute qk-age">{duration(t.createdAt, new Date(now).toISOString())}</span>}
       </div>
       {failed ? (
         <div className="qk-progress mute">
-          {`${t ? (t.stateReason ?? 'The unit ended without landing').replace(/[.\s]*$/, '.') : 'Its unit is gone.'} Re-queue or drop the quest.`}
+          {t ? (t.stateReason ?? 'The unit ended without landing').replace(/[.\s]*$/, '.') : 'Its unit is gone.'}
         </div>
       ) : t && statusWorthShowing(t, !!c.attention) && (
         // The unit's words only when it needs the player or is stuck; the state chip says the rest.
@@ -412,20 +347,15 @@ function FlightTicket({ c, now, events, onOpen }: { c: FlightCard; now: number; 
       <div className="qk-foot">
         {t && (
           <button className="link-btn" onClick={(e) => { e.stopPropagation(); focusTask(t.id) }}>
-            View unit →
-          </button>
-        )}
-        {t?.pr?.url && (
-          <button className="link-btn" onClick={(e) => { e.stopPropagation(); void api().openExternal(t.pr!.url) }}>
-            PR{t.pr.number ? ` #${t.pr.number}` : ''}
+            Unit →
           </button>
         )}
         {failed && q && (
           <span className="qk-actions">
-            <button className="btn sm amber" onClick={(e) => { e.stopPropagation(); void op('Re-queue', () => api().backlogUpdate(q.id, { state: 'queued' }), () => 'Back in the queue') }}>
+            <button className="btn sm amber" onClick={(e) => { e.stopPropagation(); void op('Re-queue', () => api().backlogUpdate(q.id, { state: 'queued' })) }}>
               <RotateCcw size={11} /> Re-queue
             </button>
-            <button className="btn sm ghost" onClick={(e) => { e.stopPropagation(); void op('Drop', () => api().backlogUpdate(q.id, { state: 'dropped' }), () => 'Quest dropped') }}>
+            <button className="btn sm ghost" onClick={(e) => { e.stopPropagation(); void op('Drop', () => api().backlogUpdate(q.id, { state: 'dropped' })) }}>
               <X size={11} /> Drop
             </button>
           </span>
@@ -438,11 +368,10 @@ function FlightTicket({ c, now, events, onOpen }: { c: FlightCard; now: number; 
 // ------------------------------------------------------------------ done
 
 function DoneTicket({ d, onOpen }: { d: DoneEntry; onOpen: () => void }) {
-  const plans = useStore((s) => s.snap.plans)
   const t = d.task
   const color = toneColor(d.tone)
-  const step = d.quest ? questPlan(plans, d.quest) : t && plans?.length ? planStepOfTask(plans, t) : undefined
-  const outcomeText = d.quest?.outcome && !/^https:\/\//.test(d.quest.outcome) ? d.quest.outcome : undefined
+  // a Choice's outcome is the decision; any other outcome repeats the badge
+  const outcomeText = d.quest?.kind === 'choice' && d.quest.outcome && !/^https:\/\//.test(d.quest.outcome) ? d.quest.outcome : undefined
   return (
     <div className="quest qk-ticket qk-done panel" style={{ ['--c' as string]: color }} onClick={onOpen}>
       <div className="quest-top">
@@ -450,18 +379,9 @@ function DoneTicket({ d, onOpen }: { d: DoneEntry; onOpen: () => void }) {
         <span className="quest-title">{d.title}</span>
       </div>
       <div className="qk-foot mute">
-        <span title={d.at}>{dateShort(d.at)} {clock(d.at)}</span>
-        {duration(d.startedAt, d.at) && <span>· took {duration(d.startedAt, d.at)}</span>}
-        {(t?.project ?? d.quest?.project) && <span>· {t?.project ?? d.quest?.project}</span>}
+        <span>{dateShort(d.at)} {clock(d.at)}</span>
       </div>
-      {step && (
-        <div className="quest-meta">
-          <PlanChip plan={step.plan} step={step.step}
-            label={`${stepChipLabel(step.plan, step.step)}${step.plan.state === 'done' ? ' · plan complete' : step.plan.state === 'cancelled' ? ' · plan cancelled' : ''}`} />
-        </div>
-      )}
       {outcomeText && <div className="quest-outcome mute">{trunc(outcomeText, 120)}</div>}
-      {t?.mergeApproval && <div className="quest-outcome qk-approval mute" title={mergeApprovalLabel(t.mergeApproval, 2000)}>{mergeApprovalLabel(t.mergeApproval, 80)}</div>}
       <div className="qk-foot">
         {t?.pr?.url ? (
           <button className="link-btn" onClick={(e) => { e.stopPropagation(); void api().openExternal(t.pr!.url) }}>
@@ -471,8 +391,6 @@ function DoneTicket({ d, onOpen }: { d: DoneEntry; onOpen: () => void }) {
           <button className="link-btn" onClick={(e) => { e.stopPropagation(); void api().openExternal(d.quest!.outcome!) }}>
             <ExternalLink size={11} /> link
           </button>
-        ) : t && d.outcome === 'merged' && t.mode === 'local-only' ? (
-          <span className="mono mute" title="Fast-forwarded into the local base branch"><GitMerge size={11} /> {t.branch}</span>
         ) : null}
         {t && (
           <button className="link-btn" onClick={(e) => { e.stopPropagation(); focusTask(t.id) }}>
@@ -488,65 +406,50 @@ function DoneTicket({ d, onOpen }: { d: DoneEntry; onOpen: () => void }) {
 
 function QuestDetails({ item, chips, onClose }: { item: BacklogItem; chips: QueueChip[]; onClose: () => void }) {
   const all = useStore((s) => s.snap.backlog)
-  const tasks = useStore((s) => s.snap.tasks)
   const [title, setTitle] = useState(item.title)
   const [notes, setNotes] = useState(item.notes)
   const [priority, setPriority] = useState<Priority>(item.priority)
   const [kind, setKind] = useState<BacklogKind>(item.kind === 'program' ? 'choice' : item.kind)
-  const [tags, setTags] = useState(item.tags.join(', '))
-  const [deps, setDeps] = useState<string[]>(item.dependsOn)
-  const [notBefore, setNotBefore] = useState(dateInput(item.notBefore))
-  const [confirmDel, setConfirmDel] = useState(false)
   const [confirmEarly, setConfirmEarly] = useState(false)
   // a quest that waits on unlanded work starts only on an explicit second click
   const waitsOn = chips.find((c) => c.kind === 'depends')
-  const units = tasks.filter((t) => t.backlogId === item.id || t.id === item.taskId).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   const dup = item.duplicateOf ? all.find((b) => b.id === item.duplicateOf) : undefined
   const closed = item.state === 'done' || item.state === 'dropped'
+  // the hold and duplicate boxes below already say what their chips would
+  const why = chips.filter((c) => !(item.hold && (c.kind === 'waiting' || c.kind === 'later')) && !(dup && c.kind === 'duplicate'))
 
   const save = async (): Promise<void> => {
     const r = await op('Quest', () =>
-      api().backlogUpdate(item.id, {
-        title: title.trim() || item.title,
-        notes,
-        priority,
-        kind,
-        tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
-        dependsOn: deps,
-        notBefore: notBefore ? new Date(notBefore).toISOString() : undefined
-      })
+      api().backlogUpdate(item.id, { title: title.trim() || item.title, notes, priority, kind })
     )
     if (r) onClose()
   }
 
   return (
     <Modal
-      kicker={`Quest · ${item.id} · ${closed ? item.state : item.state === 'in-flight' ? 'in flight' : 'queued'}`}
+      kicker={closed ? item.state : item.state === 'in-flight' ? 'in flight' : 'queued'}
       title={item.title}
       onClose={onClose}
       width={680}
       footer={
         <>
-          <button className="btn alert ghost" onClick={() => setConfirmDel(true)}>
-            <Trash size={13} /> Remove
-          </button>
-          <span style={{ flex: 1 }} />
           {!closed && (
-            <button className="btn ghost" onClick={() => void op('Drop', () => api().backlogUpdate(item.id, { state: 'dropped' }), () => 'Quest dropped').then((r) => r && onClose())}>
+            <button className="btn ghost" onClick={() => void op('Drop', () => api().backlogUpdate(item.id, { state: 'dropped' })).then((r) => r && onClose())}>
               <X size={13} /> Drop
             </button>
           )}
           {closed && (
-            <button className="btn ghost" onClick={() => void op('Re-queue', () => api().backlogUpdate(item.id, { state: 'queued' }), () => 'Back in the queue').then((r) => r && onClose())}>
+            <button className="btn ghost" onClick={() => void op('Re-queue', () => api().backlogUpdate(item.id, { state: 'queued' })).then((r) => r && onClose())}>
               <RotateCcw size={13} /> Re-queue
             </button>
           )}
+          <span style={{ flex: 1 }} />
           {(item.state === 'queued' || item.state === 'blocked') && !item.hold && (waitsOn && !confirmEarly ? (
-            <button className="btn ghost" title={`${waitsOn.title ?? waitsOn.label}\nIt starts by itself once that lands.`} onClick={() => setConfirmEarly(true)}>
+            <button className="btn ghost" onClick={() => setConfirmEarly(true)}>
               <Play size={13} /> Dispatch anyway…
             </button>
           ) : (
-            <button className="btn volt" title={waitsOn ? 'Start it now, before what it waits on lands' : undefined}
+            <button className="btn volt"
               onClick={() => void op('Dispatch', () => api().backlogDispatch(item.id, Boolean(waitsOn))).then((r) => r?.ok && onClose())}>
               <Play size={13} /> {waitsOn ? 'Start before it lands' : 'Dispatch'}
             </button>
@@ -557,9 +460,9 @@ function QuestDetails({ item, chips, onClose }: { item: BacklogItem; chips: Queu
         </>
       }
     >
-      {(item.hold || dup || chips.length > 0) && !closed && (
+      {(item.hold || dup || why.length > 0) && !closed && (
         <div className="qk-why">
-          {chips.length > 0 && <div className="quest-meta">{chips.map((c, i) => <ReasonChip key={i} c={c} />)}</div>}
+          {why.length > 0 && <div className="quest-meta">{why.map((c, i) => <ReasonChip key={i} c={c} />)}</div>}
           {item.hold && (
             <div className="hold-box">
               <div>
@@ -567,7 +470,7 @@ function QuestDetails({ item, chips, onClose }: { item: BacklogItem; chips: Queu
                 <div>{item.hold.reason}</div>
                 {item.answer && <div className="mute">Your words: “{item.answer}”</div>}
               </div>
-              <button className="btn amber" onClick={() => void op('Ready', () => api().backlogRelease(item.id), () => 'Quest is ready to run')}>
+              <button className="btn amber" onClick={() => void op('Ready', () => api().backlogRelease(item.id))}>
                 <Check size={13} /> Clear wait
               </button>
             </div>
@@ -576,9 +479,9 @@ function QuestDetails({ item, chips, onClose }: { item: BacklogItem; chips: Queu
             <div className="hold-box">
               <div>
                 <div className="label amber-text">Possible duplicate</div>
-                <div>Same title as “{dup.title}” ({dup.state}). Not dispatched until you decide.</div>
+                <div>Same title as “{dup.title}” ({dup.state}).</div>
               </div>
-              <button className="btn amber" onClick={() => void op('Duplicate', () => api().backlogUpdate(item.id, { duplicateOf: '' }), () => 'Not a duplicate')}>
+              <button className="btn amber" onClick={() => void op('Duplicate', () => api().backlogUpdate(item.id, { duplicateOf: '' }))}>
                 <Check size={13} /> Not a duplicate
               </button>
             </div>
@@ -611,61 +514,10 @@ function QuestDetails({ item, chips, onClose }: { item: BacklogItem; chips: Queu
             ))}
           </select>
         </Field>
-        <Field label="Not before">
-          <input className="input" type="date" value={notBefore} onChange={(e) => setNotBefore(e.target.value)} />
-        </Field>
-        <Field label="Labels" wide hint="Comma separated, e.g. workspace, character-sheet">
-          <input className="input" value={tags} onChange={(e) => setTags(e.target.value)} />
-        </Field>
-        <Field label="Depends on" wide hint="This quest waits until these are done.">
-          <div className="dep-picker">
-            {all
-              .filter((b) => b.id !== item.id && b.state !== 'dropped')
-              .slice(0, 60)
-              .map((b) => (
-                <button key={b.id} className={cx('chip dep', deps.includes(b.id) && 'neon')} onClick={() => setDeps((d) => (d.includes(b.id) ? d.filter((x) => x !== b.id) : [...d, b.id]))}>
-                  {trunc(b.title, 34)}
-                </button>
-              ))}
-          </div>
-        </Field>
         <Field label="Notes" wide>
           <textarea className="textarea" rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </Field>
       </div>
-
-      <hr className="divider" />
-      <div className="label">History</div>
-      <ul className="qk-history">
-        <li><span className="mono mute">{dateShort(item.createdAt)} {clock(item.createdAt)}</span> Filed</li>
-        {units.map((t) => (
-          <li key={t.id}>
-            <span className="mono mute">{dateShort(t.createdAt)} {clock(t.createdAt)}</span>{' '}
-            {KIND_LABEL[t.kind]} unit <button className="link-btn" onClick={() => focusTask(t.id)}>{t.id}</button> · {t.state}
-            {t.landedAt && ` · landed ${dateShort(t.landedAt)}`}
-            {t.pr?.url && <> · <button className="link-btn" onClick={() => void api().openExternal(t.pr!.url)}>PR{t.pr.number ? ` #${t.pr.number}` : ''}</button></>}
-          </li>
-        ))}
-        {closed && (
-          <li>
-            <span className="mono mute">{dateShort(item.doneAt ?? item.updatedAt)} {clock(item.doneAt ?? item.updatedAt)}</span> {item.state === 'dropped' ? 'Dropped' : 'Done'}
-            {item.outcome && <span className="mute"> · {trunc(item.outcome, 200)}</span>}
-          </li>
-        )}
-      </ul>
-      {confirmDel && (
-        <Confirm
-          title="Remove quest?"
-          tone="alert"
-          confirmLabel="Remove"
-          body={`“${item.title}” leaves the Quest Log. Units already deployed keep running.`}
-          onConfirm={async () => {
-            await op('Remove', () => api().backlogRemove(item.id))
-            onClose()
-          }}
-          onClose={() => setConfirmDel(false)}
-        />
-      )}
     </Modal>
   )
 }

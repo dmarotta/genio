@@ -40,8 +40,9 @@ async function mount(component: React.ComponentType) {
 
 it('shows RPG stats above the achievements grid, with no loot, operational queue or report UI', async () => {
   await mount(CharacterSheet)
-  for (const label of ['Character Sheet', '40 / 100 XP', 'Shipped today', 'Shipped total', 'Recons', 'Streak', '7d', 'Achievements', 'On a Roll', '1/2', 'Chat/review estimate today', '$1.25']) expect(host.textContent).toContain(label)
-  for (const label of ['Loot', 'Your Move', 'Up Next', 'In Progress', 'Include PRs', 'File report', 'Replay log']) expect(host.textContent).not.toContain(label)
+  for (const label of ['Character Sheet', '40 / 100 XP', 'Shipped total', 'Recons', 'Streak', '7d', 'Achievements', 'On a Roll', '1/2']) expect(host.textContent).toContain(label)
+  // no cost estimate, no "today" tile the landings map already shows, no kicker restating the screen
+  for (const label of ['Loot', 'Your Move', 'Up Next', 'In Progress', 'Include PRs', 'File report', 'Replay log', 'Shipped today', 'estimate', '$1.25', 'Level, XP']) expect(host.textContent).not.toContain(label)
   const rows = [...host.querySelector('.character-sheet')!.children].filter((el) => el.tagName === 'SECTION')
   expect(rows.map((el) => el.className)).toEqual(['panel stats-card ticks', 'panel achv-grid-card ticks'])
   expect(host.querySelector('.achv-tile.got')?.textContent).toContain('On a Roll')
@@ -78,7 +79,7 @@ const withStats = (patch: Partial<FleetStats>): void => {
   setState({ snap: { ...s.snap, stats: { ...s.snap.stats, ...patch } } })
 }
 
-it('shows the playstyle title on the level line with its evidence, and equips earned titles', async () => {
+it('shows the playstyle title on the level line, without its evidence, and equips earned titles', async () => {
   withStats({ playstyle: {
     current: 'warden', shown: 'warden', why: '13 of last 20 landings were fixes, tests, reviews or CI (65%)', samples: 20,
     counts: { builder: 4, scout: 3, artificer: 0, warden: 13 }, earned: [{ id: 'builder', at: '2026-10-01' }, { id: 'warden', at: '2026-10-12' }]
@@ -89,8 +90,9 @@ it('shows the playstyle title on the level line with its evidence, and equips ea
   expect(line.textContent).toContain('Warden')
   const select = line.querySelector('select')!
   expect(select.getAttribute('aria-label')).toBe('Playstyle title')
-  expect(document.getElementById(select.getAttribute('aria-describedby')!)?.textContent).toContain('13 of last 20 landings')
+  expect(host.textContent).not.toContain('13 of last 20 landings')
   expect([...select.options].map((o) => o.value)).toEqual(['', 'builder', 'warden'])
+  expect([...select.options].map((o) => o.textContent)).not.toContainEqual(expect.stringMatching(/earned/))
   await act(async () => { select.value = 'builder'; select.dispatchEvent(new Event('change', { bubbles: true })) })
   expect(titleEquip).toHaveBeenCalledWith('builder')
 })
@@ -108,8 +110,8 @@ it('draws 8 weeks of landings in the stats row with unknown days and keyboard to
   await mount(CharacterSheet)
   const stats = host.querySelector('.stats-card')!
   expect(stats.querySelector('.landings .label')?.textContent).toBe('Landings')
-  expect(stats.textContent).toContain('Recorded activity')
-  expect(stats.textContent).toContain('3 in 8 wk')
+  // the map only: no total, no subtitle, no legend
+  expect(stats.textContent).not.toMatch(/Recorded activity|in 8 wk|Less|More|Not recorded/)
   const cells = [...stats.querySelectorAll<HTMLElement>('.landings-grid [role="gridcell"][aria-label]')]
   expect(cells).toHaveLength(51)
   expect(stats.querySelectorAll('.lc.unknown[aria-label$="Not recorded"]')).toHaveLength(10)
@@ -141,8 +143,9 @@ it('shows pinned trophies first with earned dates and pins or unpins from the ti
   const tiles = [...host.querySelectorAll('.achv-tile')]
   expect(tiles.map((t) => t.querySelector('.achv-tname')?.textContent)).toEqual(['Charlie', 'Alpha', 'Bravo', 'Delta', 'Echo'])
   expect(tiles[0].className).toContain('pinned')
-  expect(tiles[0].querySelector('.achv-tdesc')?.textContent).toMatch(/^Earned /)
-  expect(host.textContent).toContain('3/3 pinned')
+  // a pinned tile reads like any earned one: its date
+  expect(tiles[0].querySelector('.achv-tdesc')?.textContent).not.toMatch(/Earned/)
+  expect(host.textContent).not.toContain('pinned')
   expect(tiles[4].querySelector('.achv-pin')).toBeNull()
   const deltaPin = tiles[3].querySelector<HTMLButtonElement>('.achv-pin')!
   expect(deltaPin.disabled).toBe(true)
@@ -164,7 +167,8 @@ it('shows an earned retired trophy without counting retired ones toward the tota
   const tiles = [...host.querySelectorAll<HTMLElement>('.achv-tile')]
   expect(tiles.map((t) => t.className.includes('got'))).toEqual([true, false, true])
   await act(async () => tiles[2].focus())
-  expect(document.querySelector('.achv-tip')?.textContent).toContain('retired')
+  expect(document.querySelector('.achv-tip')?.textContent).toContain('Earned')
+  expect(document.querySelector('.achv-tip')?.textContent).not.toContain('retired')
 })
 
 it('keeps compact tiles to an inline icon and two lines, with the full hint in a hover or focus tip', async () => {

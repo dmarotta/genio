@@ -49,8 +49,6 @@ it('the Squad rail shows a working Generator in magenta and names it Generator',
     ['modeller-working', 'orange', 'WORKING', 'Modeller'],
     ['build-working', 'blue', 'WORKING', 'Build']
   ])
-  const done = host.querySelector('.roster-done .roster-row')
-  expect([done?.querySelector('.roster-title')?.textContent, color(done?.querySelector('.roster-state'))]).toEqual(['gen-failed', 'alert'])
 })
 
 it('the Squad page card is magenta with the Generator kind, and keeps its terminal slot (no model view)', async () => {

@@ -106,21 +106,20 @@ export function Tabs<T extends string>({ tabs, value, onChange }: { tabs: { id: 
   )
 }
 
-export function Empty({ icon, title, children }: { icon?: ReactNode; title: string; children?: ReactNode }) {
+export function Empty({ title, children }: { title: string; children?: ReactNode }) {
   return (
     <div className="empty rise">
-      {icon && <div className="empty-icon">{icon}</div>}
       <div className="empty-title">{title}</div>
       {children && <div className="empty-body">{children}</div>}
     </div>
   )
 }
 
-export function ViewHeader({ kicker, title, children }: { kicker: string; title: ReactNode; children?: ReactNode }) {
+export function ViewHeader({ kicker, title, children }: { kicker?: string; title: ReactNode; children?: ReactNode }) {
   return (
     <header className="view-head">
       <div>
-        <div className="label">{kicker}</div>
+        {kicker && <div className="label">{kicker}</div>}
         <h1 className="title">{title}</h1>
       </div>
       <div className="view-actions">{children}</div>

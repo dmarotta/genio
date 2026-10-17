@@ -91,4 +91,8 @@ glob (`*`, `**`, `?`). Always-hot files never trigger a hint, because most
 concurrent pairs touch them: `types.ts`, `api.ts`, `ipc.ts`, `app.css`,
 tsconfigs and lockfiles.
 
-Achievements: Battle Plan (`plan-first`, a plan filed), Hold Everything (`plan-control`, Pause or Cancel from a step chip's popover) and According to Plan (`plan-done`, every step merged).
+In the Quest log a plan's quests sit in one group under the plan's chip and its
+progress ("plan · 1/3 merged"). The chip opens the steps with Pause plan and
+Cancel plan; unit pages and tickets carry no plan chip.
+
+Achievements: Battle Plan (`plan-first`, a plan filed), Hold Everything (`plan-control`, Pause or Cancel from the plan chip's popover in the Quest log) and According to Plan (`plan-done`, every step merged).
