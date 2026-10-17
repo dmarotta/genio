@@ -116,6 +116,15 @@ describe('bounded custom contract and lazy procedures', () => {
     for (const text of [batch, sessionStartPrompt('Dani'), botContract('Dani'), projectOpenPrompt('Dani', 'Project: x.', ''), events, voice]) for (const re of old) expect(text).not.toMatch(re)
   })
 
+  it('tells the chats to attach only what the player pasted or named, and leaves it out of the Bot, which attaches nothing', () => {
+    const rule = 'Attach only what the player pasted or named; never guess a path.'
+    for (const isAlly of [false, true]) {
+      expect(customContract({ gamertag: 'Dani', base: 'b', isAlly })).toContain(rule)
+      expect(customContract({ gamertag: 'Dani', base: 'b', isAlly }, true)).not.toContain(rule)
+    }
+    expect(procedureText('units', { gamertag: 'Dani', base: 'b', isAlly: false })).toContain('**attachments** (deploy, quest_add, plan steps, upgrade_recon)')
+  })
+
   it('leaves budget for provider instructions even with long identity fields', () => {
     expect(customContract({ gamertag: 'x'.repeat(1000), base: 'b'.repeat(1000), isAlly: true }, true, 'u'.repeat(300)).length)
       .toBeLessThanOrEqual(CUSTOM_CONTRACT_BUDGET)

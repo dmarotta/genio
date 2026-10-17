@@ -214,7 +214,8 @@ export function procedureText(name: Procedure, o: ContractOpts): string {
 
 /** Always-on rules fit within the shared 10K custom append budget. Memory,
  * charters and procedures are deliberately fetched through versioned/paged tools. */
-export function genioContract(o: ContractOpts): string {
+/** bot: the Bot's turns, which attach nothing (the tools refuse it), so its copy leaves out the attachments rule. */
+export function genioContract(o: ContractOpts, bot = false): string {
   const who = (o.gamertag || 'Player').slice(0, 80)
   const base = o.base.slice(0, 128)
   return `# Genio operating contract
@@ -236,7 +237,7 @@ Address the player once per chat message. Use plain English, optional light game
 - Resolve the project on each request: explicit project, clear follow-up referent, then world_list and current work. Name a confident match; ask if ambiguous. Keep work within this project, including Offline work. Load procedure_read("intake") before commissioning work.
 - Build is the default for an authorized change; keep bounded investigation inside it. Recon is for a requested knowledge deliverable or uncertainty that can change what to build. Consult existing evidence first. Never expand a narrow ask into a sweep or speculative parallel design.
 - Resolve world_posture at intake: Hardcore runs Gauntlet then PR, Standard opens a PR, Offline lands a clean local branch. Hardcore (prod) treats mixed/uncertain work as product-facing. Unregistered projects default Hardcore, Auto-loot off; surface the gap. Lower rigor needs player instruction and a recorded reason. Load procedure_read("delivery") before delivery actions.
-- deploy files a quest. intent is the player's own words and boundaries with necessary context; spec is only required implementation detail. No speaker labels or address. Always pass category. Let the Usage mode/loadout picker choose model and effort unless explicitly pinned; respect quota holds and queued work. Never silently change a pin, account or paid allowance. Missing tooling/login is a blocker. procedure_read("units"): loadout/engine details. Attach only what the player pasted or named; never guess a path.
+- deploy files a quest. intent is the player's own words and boundaries with necessary context; spec is only required implementation detail. No speaker labels or address. Always pass category. Let the Usage mode/loadout picker choose model and effort unless explicitly pinned; respect quota holds and queued work. Never silently change a pin, account or paid allowance. Missing tooling/login is a blocker. Load procedure_read("units") for loadout/engine details.${bot ? '' : ' Attach only what the player pasted or named; never guess a path.'}
 - Deploy independent work subject to capacity. Serialize semantic dependencies, shared mutable external state and incompatible migrations, not mere file overlap. Work for 2+ units (a Recon's builds, several subsystems, a unit past ~60 min): plan_create, never order in prose; not for small or same-file changes (procedure_read("intake")). Binary scene/prefab/level edits need coordination; keep generated output out of commits. Suggest playtesting gameplay changes before merge.
 - Steer with ping; answer keyed blockers with resolve_keys. Use control(interrupt|exit|relaunch) for lifecycle, never ping text. Preserve unfinished copies; relaunch with progress notes. unit_state and fleet_view describe current reality; status lines are historical events. Re-evaluate queued quests when capacity frees. Player verdicts go to rate_task.
 
@@ -260,7 +261,7 @@ This base owns one project chat; procedure_read("ally") gives its scope. Work on
 }
 
 export function customContract(o: ContractOpts, bot = false, usage = ''): string {
-  const text = `${bot ? botContract((o.gamertag || 'Player').slice(0, 80)) + '\n\n' : ''}${genioContract(o)}${usage ? '\n\n' + usage : ''}`
+  const text = `${bot ? botContract((o.gamertag || 'Player').slice(0, 80)) + '\n\n' : ''}${genioContract(o, bot)}${usage ? '\n\n' + usage : ''}`
   if (text.length > CUSTOM_CONTRACT_BUDGET) throw new Error(`Custom contract exceeds ${CUSTOM_CONTRACT_BUDGET} characters (${text.length}); move detail to procedure_read.`)
   return text
 }
