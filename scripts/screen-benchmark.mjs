@@ -1,7 +1,7 @@
 // Screen benchmark: Genio's real main-process services and IPC over a sandboxed copy of a Base, driving the built
 // renderer (npm run build) in Electron, with Chromium metrics per screen. Read-only for the source Base and projects.
 // Usage: node scripts/screen-benchmark.mjs <output-dir> [--base <Base root>] [--project <name>] [--runs <n>] [--units <n>]
-//        [--screens squad,quests,...] [--profile] [--trace <phase,...>] [--shots]
+//        [--screens squad,quests,...] [--profile] [--trace <phase,...>] [--shots] [--play-stream]
 //        node scripts/screen-benchmark.mjs --freeze <dir> [--base <Base root>]
 //        node scripts/screen-benchmark.mjs --snapshot <name>   (after npm run build, on the checkout to keep)
 //        node scripts/screen-benchmark.mjs <output-dir> --apps <a>,<b> [...]   (snapshots in turn: a b a b ...)
@@ -135,7 +135,7 @@ for (let run = 0; run < runs; run++) {
       const out = path.join(output, app.name, `run-${run + 1}`)
       const env = { ...process.env, ...homes.env, GENIO_SCREEN_BASE: base, GENIO_SCREEN_PROJECT: project, GENIO_SCREEN_OUT: out,
         GENIO_SCREEN_APP_ROOT: root, GENIO_SCREEN_RENDERER: app.renderer ?? path.join(app.dir, 'renderer'), GENIO_SCREEN_PRELOAD: path.join(app.preload ?? path.join(app.dir, 'preload'), 'index.js'),
-        GENIO_SCREEN_UNITS: flag('units', '6'), GENIO_SCREEN_LIST: flag('screens', ''), GENIO_SCREEN_PROFILE: args.includes('--profile') ? '1' : '', GENIO_SCREEN_SHOTS: args.includes('--shots') ? '1' : '', GENIO_SCREEN_TRACE: flag('trace', '') }
+        GENIO_SCREEN_UNITS: flag('units', '6'), GENIO_SCREEN_LIST: flag('screens', ''), GENIO_SCREEN_PROFILE: args.includes('--profile') ? '1' : '', GENIO_SCREEN_SHOTS: args.includes('--shots') ? '1' : '', GENIO_SCREEN_PLAY_STREAM: args.includes('--play-stream') ? '1' : '', GENIO_SCREEN_TRACE: flag('trace', '') }
       delete env.ELECTRON_RUN_AS_NODE
       delete env.ELECTRON_RENDERER_URL
       for (const key of Object.keys(env)) if (key.startsWith('GIT_CONFIG_')) delete env[key]
@@ -171,14 +171,14 @@ for (const [name, list] of results) {
 fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify(Object.fromEntries(results), null, 2))
 fs.writeFileSync(path.join(output, 'summary.json'), JSON.stringify(apps.length === 1 && !apps[0].name ? summaries.this : summaries, null, 2))
 const num = v => v === undefined ? '' : Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1)
-const cols = ['firstFrameMs', 'contentMs', 'dataMs', 'taskMs', 'scriptMs', 'layoutMs', 'styleMs', 'longTasks', 'longTaskMs', 'ipcCalls', 'ipcKB', 'eventKB', 'mainLagMaxMs']
+const cols = ['firstFrameMs', 'contentMs', 'dataMs', 'taskMs', 'threadMs', 'layouts', 'styles', 'longTaskMs', 'ipcCalls', 'ipcKB', 'eventKB', 'mainCpuMs', 'mainLagMaxMs']
 for (const [name, summary] of Object.entries(summaries)) {
   console.log(['', `| ${name === 'this' ? 'phase' : name} (median of ${runs}) | ${cols.join(' | ')} |`, `|---|${cols.map(() => '---').join('|')}|`,
     ...Object.entries(summary).map(([phase, v]) => `| ${phase} | ${cols.map(c => num(v[c])).join(' | ')} |`), ''].join('\n'))
 }
 if (apps.length > 1) {
   const all = apps.map(app => summaries[app.name])
-  const pick = ['contentMs', 'taskMs', 'scriptMs', 'layoutMs', 'styleMs', 'longTaskMs', 'mainLagMaxMs']
+  const pick = ['contentMs', 'threadMs', 'processMs', 'layouts', 'styles', 'longTaskMs', 'mainCpuMs', 'mainLagMaxMs']
   console.log(['', `| phase: ${apps.map(app => app.name).join(' → ')} | ${pick.join(' | ')} |`, `|---|${pick.map(() => '---').join('|')}|`,
     ...Object.keys(all[0]).map(phase => `| ${phase} | ${pick.map(c => all.every(s => s[phase]?.[c] === undefined) ? '' : all.map(s => num(s[phase]?.[c])).join(' → ')).join(' | ')} |`), ''].join('\n'))
 }
