@@ -420,7 +420,7 @@ def stats(objects=None):
 # Paint ----------------------------------------------------------------------------------------
 
 # Camo palettes: the ground colour, then patch colours from the widest patches to the smallest,
-# and the pattern ('blotch', or 'digital' pixels). 'red' is the committed mech's.
+# and the pattern ('blotch', or 'digital' pixels).
 CAMO = {
     'red': (('#8e1f1c', '#a33d22', '#4a0f13', '#c8433a', '#211b1c'), 'blotch'),
     'woodland': (('#55603a', '#6f6a3d', '#2f3b23', '#76593a', '#1d1e19'), 'blotch'),
@@ -431,7 +431,7 @@ CAMO = {
 }
 # Per patch colour: noise offset, noise scale (per metre at scale 1) and threshold.
 _PATCHES = (((13.1, 7.3, 2.9), 0.48, 0.57), ((0.0, 0.0, 0.0), 0.4, 0.58), ((21.0, 3.0, 11.0), 0.62, 0.61), ((5.0, 31.0, 17.0), 0.8, 0.635))
-_MECH_HEIGHT = 8.5  # preset sizes are the committed mech's at this height; scale=None fits the model
+_MECH_HEIGHT = 8.5  # reference height for preset sizes; scale=None fits the model
 _PAINT = 'genio_paint'  # material custom property: the presets applied, so a repaint is exact
 _OBJECT_CO = 'genio_object'  # object-space positions carried onto the joined bake copy
 MAPS = ('basecolor', 'roughmetal')
