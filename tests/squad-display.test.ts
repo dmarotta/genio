@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Task, TaskState, TerminalInfo } from '../src/shared/types'
 import {
-  finishedAt, outcomeTone, squadActive, squadAttention, squadBadge, squadOutcome, squadState, squadTone, unitClock, type SquadTone
+  finishedAt, outcomeTone, squadActive, squadAttention, squadBadge, squadOutcome, squadState, squadTone, unitClock, unitClockShort, type SquadTone
 } from '../src/shared/squad-display'
 import { canRespawn, hasOpenPr } from '../src/shared/unit-actions'
 
@@ -114,6 +114,15 @@ describe('Unit badge, clock and lifecycle rules', () => {
     // A merged unit's clock no longer moves.
     const merged = task('merged', { finishedAt: '2026-10-13T09:40:00Z' })
     expect(unitClock(merged, undefined, now)).toBe(unitClock(merged, undefined, now + 3_600_000))
+  })
+  it('gives the Squad rail the same clock in short form', () => {
+    const now = Date.parse('2026-10-13T12:00:00Z')
+    expect(unitClockShort(task('working'), undefined, now)).toBe('3h 00m')
+    expect(unitClockShort(task('working', { createdAt: '2026-10-13T11:37:10Z' }), undefined, now)).toBe('22m')
+    expect(unitClockShort(task('working', { createdAt: '2026-10-13T11:59:30Z' }), undefined, now)).toBe('<1m')
+    expect(unitClockShort(task('ready', { readyAt: '2026-10-13T10:05:00Z' }), undefined, now)).toBe('1h 05m')
+    const ready = task('ready', { readyAt: '2026-10-13T09:54:00Z' })
+    expect(unitClockShort(ready, undefined, now)).toBe(unitClockShort(ready, undefined, now + 3_600_000))
   })
   it('offers Respawn only where it resumes unfinished work', () => {
     const allowed: Record<TaskState, boolean> = {

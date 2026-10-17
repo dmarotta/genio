@@ -1,4 +1,4 @@
-import { squadAttention, squadState, squadTone } from '@shared/squad-display'
+import { squadAttention, squadState, squadTone, unitClockShort } from '@shared/squad-display'
 import { pendingDecision } from '@shared/decisions'
 import type { Task } from '@shared/types'
 import { focusTask, liveTasks, useStore } from '../store'
@@ -31,6 +31,7 @@ function RosterRow({ t, now }: { t: Task; now: number }) {
     </div>
     <div className="roster-right">
       <span className="roster-state" style={{ color: `var(--${tone})` }}>{attention && <NeedsYou compact />}{state}</span>
+      <span className="mono mute">{unitClockShort(t, terminal, now)}</span>
     </div>
   </button>
 }

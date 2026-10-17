@@ -76,13 +76,27 @@ const minutes = (ms: number): string => {
   return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min`
 }
 
-/** "working 23 min" while active; the clock stops when the unit is ready or finished: "took 54 min". */
-export function unitClock(task: Task, terminal?: TerminalInfo, now = Date.now()): string {
+/** How long the unit has run: live while WORKING, stopped once it is ready or finished. */
+function unitRunMs(task: Task, terminal: TerminalInfo | undefined, now: number): { ms: number; working: boolean } {
   const start = Date.parse(task.createdAt) || now
   const state = squadState(task, terminal)
-  if (state === 'WORKING') return `working ${minutes(now - start)}`
+  if (state === 'WORKING') return { ms: now - start, working: true }
   const end = Date.parse(state === 'DONE' ? finishedAt(task) : task.readyAt ?? task.lastStatusAt ?? task.updatedAt) || now
-  return `took ${minutes(end - start)}`
+  return { ms: end - start, working: false }
+}
+
+/** "working 23 min" while active; the clock stops when the unit is ready or finished: "took 54 min". */
+export function unitClock(task: Task, terminal?: TerminalInfo, now = Date.now()): string {
+  const run = unitRunMs(task, terminal, now)
+  return `${run.working ? 'working' : 'took'} ${minutes(run.ms)}`
+}
+
+/** The Squad rail's short form of the same clock: "<1m", "12m", "1h 05m". */
+export function unitClockShort(task: Task, terminal?: TerminalInfo, now = Date.now()): string {
+  const m = Math.floor(Math.max(0, unitRunMs(task, terminal, now).ms) / 60_000)
+  if (m < 1) return '<1m'
+  if (m < 60) return `${m}m`
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`
 }
 
 /** Squad list: the active units in their given order; finished ones live in the Quest log's Done column. */

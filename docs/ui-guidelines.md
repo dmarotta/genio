@@ -95,7 +95,8 @@ all reached main yet:
 - The Brief tab as a wall of text.
 - The UI trim pass on the Squad, unit pages, Quest log and Character Sheet: unit and quest
   counts, kickers under titles, project, model and category labels on cards and tickets,
-  clocks and ages, a list of finished units in the Squad rail, the unit page's plan chip, merge
+  clocks and ages (the Squad rail's running time per unit later came back on the player's
+  request), a list of finished units in the Squad rail, the unit page's plan chip, merge
   approval line and Archive button, one-line hints under every More item, the ping box's
   interrupt toggle, file and commit counts, the commit log, a cost tile, the landings legend and
   total, and the quest editor's labels, dependencies, start date and history (the chat sets those).

@@ -12,9 +12,12 @@ Quest log's Done column. Neither the rail nor the page shows a unit count.
 
 ## Squad rail and page
 
-A rail row is the unit's title, its kind and its state (with the yellow "needs
-you" mark when it waits on the player); a click opens its page. There is no
-project, plan step, clock, model thumbnail or tooltip, and no list of finished
+A rail row is the unit's title, its kind, its state (with the yellow "needs
+you" mark when it waits on the player) and, small and muted under the state, how
+long the unit has run ("12m", "1h 05m"); a click opens its page. That time is
+the unit page's clock in short form (`unitClockShort`, same start and stop as
+`unitClock`): it ticks while the unit works and stops when it is ready. There
+is no project, plan step, model thumbnail or tooltip, and no list of finished
 units. With no unit deployed the rail says "No units deployed." and the Squad
 page the same line under its Deploy button.
 

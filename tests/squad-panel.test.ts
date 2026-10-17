@@ -39,12 +39,18 @@ it('lists only active units; a finished one leaves the rail for the Quest log, w
   expect(getState().focus).toEqual({ type: 'task', id: 'Recon' })
 })
 
-it('a row is the title, the kind and the state: no project, plan step, clock or tooltip', async () => {
-  await act(async () => root.render(React.createElement(Roster)))
-  const row = host.querySelector('.roster-row')!
-  expect(row.querySelector('.roster-sub')?.textContent?.trim()).toBe('Build')
-  expect(row.textContent).not.toMatch(/world|\d:\d\d/)
-  expect(row.getAttribute('title')).toBeNull()
+it('a row is the title, the kind, the state and how long the unit has run: no project, plan step or tooltip', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-10-13T10:12:30Z'))
+  try {
+    await act(async () => root.render(React.createElement(Roster)))
+    const row = host.querySelector('.roster-row')!
+    expect(row.querySelector('.roster-sub')?.textContent?.trim()).toBe('Build')
+    expect(row.textContent).not.toMatch(/world/)
+    expect(row.getAttribute('title')).toBeNull()
+    // the same clock as the unit page, short: live while working, stopped at the ready time
+    expect([...host.querySelectorAll('.roster-right .mono')].map(n => n.textContent)).toEqual(['1h 12m', '1h 12m', '1h 00m'])
+  } finally { vi.useRealTimers() }
 })
 
 it('says so in one line when no unit is deployed', async () => {
