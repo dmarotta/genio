@@ -1,0 +1,436 @@
+{
+ "schema": "genio.modeller.v1",
+ "model": "fantasy-village-diorama",
+ "created": "2026-10-17T07:09:19.906Z",
+ "blender": {
+  "path": "C:\\Program Files\\Blender Foundation\\Blender 4.2\\blender.exe",
+  "version": "4.2.1",
+  "size": 82745984,
+  "mtimeMs": 1724115650000
+ },
+ "target": "web",
+ "checks": {
+  "budget": 25000,
+  "size": [
+   2,
+   2,
+   1
+  ]
+ },
+ "branch": "main",
+ "branches": {
+  "main": {
+   "head": "s015",
+   "from": null
+  }
+ },
+ "next": 16,
+ "steps": [
+  {
+   "id": "s001",
+   "n": 1,
+   "parent": null,
+   "branch": "main",
+   "name": "base",
+   "caption": "Blocking out the base: a round soil plinth with a grassy top",
+   "t": "2026-10-17T07:09:31.938Z",
+   "ms": 2182,
+   "triangles": 324,
+   "vertices": 168,
+   "objects": 3,
+   "warnings": 1,
+   "blend_sha256": null,
+   "files": {
+    "script": "steps/s001/script.py",
+    "blend": null,
+    "glb": "steps/s001/model.glb",
+    "sheet": "steps/s001/sheet.png",
+    "view": "steps/s001/view.png",
+    "receipt": "steps/s001/receipt.json"
+   }
+  },
+  {
+   "id": "s002",
+   "n": 2,
+   "parent": "s001",
+   "branch": "main",
+   "name": "path_water",
+   "caption": "Laying a winding dirt path, a little stream and a pond",
+   "t": "2026-10-17T07:10:13.224Z",
+   "ms": 2975,
+   "triangles": 1428,
+   "vertices": 820,
+   "objects": 53,
+   "warnings": 2,
+   "blend_sha256": null,
+   "files": {
+    "script": "steps/s002/script.py",
+    "blend": null,
+    "glb": "steps/s002/model.glb",
+    "sheet": "steps/s002/sheet.png",
+    "view": "steps/s002/view.png",
+    "receipt": "steps/s002/receipt.json"
+   },
+   "superseded_by": "s003"
+  },
+  {
+   "id": "s003",
+   "n": 3,
+   "parent": "s001",
+   "branch": "main",
+   "name": "path_water",
+   "caption": "Laying a winding dirt path, a little stream and a pond",
+   "t": "2026-10-17T07:10:38.633Z",
+   "ms": 1790,
+   "triangles": 1416,
+   "vertices": 812,
+   "objects": 52,
+   "warnings": 2,
+   "blend_sha256": null,
+   "files": {
+    "script": "steps/s003/script.py",
+    "blend": null,
+    "glb": "steps/s003/model.glb",
+    "sheet": "steps/s003/sheet.png",
+    "view": "steps/s003/view.png",
+    "receipt": "steps/s003/receipt.json"
+   }
+  },
+  {
+   "id": "s004",
+   "n": 4,
+   "parent": "s003",
+   "branch": "main",
+   "name": "cottages_a",
+   "caption": "Building the first three cottages: thatched, red-tiled and a blue gable",
+   "t": "2026-10-17T07:12:59.035Z",
+   "ms": 1996,
+   "triangles": 2040,
+   "vertices": 1178,
+   "objects": 72,
+   "warnings": 2,
+   "blend_sha256": null,
+   "files": {
+    "script": "steps/s004/script.py",
+    "blend": null,
+    "glb": "steps/s004/model.glb",
+    "sheet": "steps/s004/sheet.png",
+    "view": "steps/s004/view.png",
+    "receipt": "steps/s004/receipt.json"
+   },
+   "superseded_by": "s005"
+  },
+  {
+   "id": "s005",
+   "n": 5,
+   "parent": "s003",
+   "branch": "main",
+   "name": "cottages_a",
+   "caption": "Building the first three cottages: thatched, red-tiled and a blue gable",
+   "t": "2026-10-17T07:13:21.955Z",
+   "ms": 1850,
+   "triangles": 2040,
+   "vertices": 1178,
+   "objects": 72,
+   "warnings": 2,
+   "blend_sha256": null,
+   "files": {
+    "script": "steps/s005/script.py",
+    "blend": null,
+    "glb": "steps/s005/model.glb",
+    "sheet": "steps/s005/sheet.png",
+    "view": "steps/s005/view.png",
+    "receipt": "steps/s005/receipt.json"
+   }
+  },
+  {
+   "id": "s006",
+   "n": 6,
+   "parent": "s005",
+   "branch": "main",
+   "name": "cottages_b",
+   "caption": "Building three more cottages: a mossy one across the stream, a hipped terracotta and a teal one",
+   "t": "2026-10-17T07:14:09.057Z",
+   "ms": 2248,
+   "triangles": 2660,
+   "vertices": 1540,
+   "objects": 91,
+   "warnings": 2,
+   "blend_sha256": null,
+   "files": {
+    "script": "steps/s006/script.py",
+    "blend": null,
+    "glb": "steps/s006/model.glb",
+    "sheet": "steps/s006/sheet.png",
+    "view": "steps/s006/view.png",
+    "receipt": "steps/s006/receipt.json"
+   }
+  },
+  {
+   "id": "s007",
+   "n": 7,
+   "parent": "s006",
+   "branch": "main",
+   "name": "tavern",
+   "caption": "Raising the tavern: stone ground floor, timber-framed upper floor and a hanging sign",
+   "t": "2026-10-17T07:14:51.738Z",
+   "ms": 1906,
+   "triangles": 3148,
+   "vertices": 1850,
+   "objects": 102,
+   "warnings": 2,
+   "blend_sha256": null,
+   "files": {
+    "script": "steps/s007/script.py",
+    "blend": null,
+    "glb": "steps/s007/model.glb",
+    "sheet": "steps/s007/sheet.png",
+    "view": "steps/s007/view.png",
+    "receipt": "steps/s007/receipt.json"
+   },
+   "superseded_by": "s008"
+  },
+  {
+   "id": "s008",
+   "n": 8,
+   "parent": "s006",
+   "branch": "main",
+   "name": "tavern",
+   "caption": "Raising the tavern: stone ground floor, timber-framed upper floor and a hanging sign",
+   "t": "2026-10-17T07:15:07.625Z",
+   "ms": 1907,
+   "triangles": 3148,
+   "vertices": 1850,
+   "objects": 102,
+   "warnings": 2,
+   "blend_sha256": null,
+   "files": {
+    "script": "steps/s008/script.py",
+    "blend": null,
+    "glb": "steps/s008/model.glb",
+    "sheet": "steps/s008/sheet.png",
+    "view": "steps/s008/view.png",
+    "receipt": "steps/s008/receipt.json"
+   }
+  },
+  {
+   "id": "s009",
+   "n": 9,
+   "parent": "s008",
+   "branch": "main",
+   "name": "well_windmill",
+   "caption": "Adding the stone well in the square and a windmill with four sails and a flag",
+   "t": "2026-10-17T07:15:52.696Z",
+   "ms": 1949,
+   "triangles": 3778,
+   "vertices": 2245,
+   "objects": 117,
+   "warnings": 2,
+   "blend_sha256": null,
+   "files": {
+    "script": "steps/s009/script.py",
+    "blend": null,
+    "glb": "steps/s009/model.glb",
+    "sheet": "steps/s009/sheet.png",
+    "view": "steps/s009/view.png",
+    "receipt": "steps/s009/receipt.json"
+   }
+  },
+  {
+   "id": "s010",
+   "n": 10,
+   "parent": "s009",
+   "branch": "main",
+   "name": "bridge_fences_garden",
+   "caption": "Spanning the stream with a little wooden bridge, adding fences and a vegetable garden",
+   "t": "2026-10-17T07:16:43.504Z",
+   "ms": 2030,
+   "triangles": 4846,
+   "vertices": 2941,
+   "objects": 125,
+   "warnings": 2,
+   "blend_sha256": "84f7e8dc1a11a6513ffa3b764865818141131dd9308590c604857b2a6ac5d694",
+   "files": {
+    "script": "steps/s010/script.py",
+    "blend": "steps/s010/model.blend",
+    "glb": "steps/s010/model.glb",
+    "sheet": "steps/s010/sheet.png",
+    "view": "steps/s010/view.png",
+    "receipt": "steps/s010/receipt.json"
+   }
+  },
+  {
+   "id": "s011",
+   "n": 11,
+   "parent": "s010",
+   "branch": "main",
+   "name": "trees_rocks",
+   "caption": "Planting round trees and pines, bushes, and scattering rocks",
+   "t": "2026-10-17T07:17:39.702Z",
+   "ms": 2364,
+   "triangles": 5854,
+   "vertices": 3553,
+   "objects": 156,
+   "warnings": 2,
+   "blend_sha256": null,
+   "files": {
+    "script": "steps/s011/script.py",
+    "blend": null,
+    "glb": "steps/s011/model.glb",
+    "sheet": "steps/s011/sheet.png",
+    "view": "steps/s011/view.png",
+    "receipt": "steps/s011/receipt.json"
+   },
+   "superseded_by": "s012"
+  },
+  {
+   "id": "s012",
+   "n": 12,
+   "parent": "s010",
+   "branch": "main",
+   "name": "trees_rocks",
+   "caption": "Planting round trees and pines, bushes, and scattering rocks",
+   "t": "2026-10-17T07:17:53.355Z",
+   "ms": 2369,
+   "triangles": 5854,
+   "vertices": 3553,
+   "objects": 156,
+   "warnings": 2,
+   "blend_sha256": "0c8ea58761f7d5f0979b6a8883bcd79cdc588b8da01d227849ff60f292310c2c",
+   "files": {
+    "script": "steps/s012/script.py",
+    "blend": "steps/s012/model.blend",
+    "glb": "steps/s012/model.glb",
+    "sheet": "steps/s012/sheet.png",
+    "view": "steps/s012/view.png",
+    "receipt": "steps/s012/receipt.json"
+   }
+  },
+  {
+   "id": "s013",
+   "n": 13,
+   "parent": "s012",
+   "branch": "main",
+   "name": "props",
+   "caption": "Lighting the lanes with lanterns and stacking barrels, crates and flour sacks",
+   "t": "2026-10-17T07:18:41.268Z",
+   "ms": 2255,
+   "triangles": 7188,
+   "vertices": 4334,
+   "objects": 185,
+   "warnings": 2,
+   "blend_sha256": "abbf1c9bb5afbd3d757efc311b96a7de995ee9e8ff263b2b6216883225c6f70a",
+   "files": {
+    "script": "steps/s013/script.py",
+    "blend": "steps/s013/model.blend",
+    "glb": "steps/s013/model.glb",
+    "sheet": "steps/s013/sheet.png",
+    "view": "steps/s013/view.png",
+    "receipt": "steps/s013/receipt.json"
+   }
+  },
+  {
+   "id": "s014",
+   "n": 14,
+   "parent": "s013",
+   "branch": "main",
+   "name": "polish",
+   "caption": "Polishing: rocks set in the soil edge, grass tufts, wildflowers, lily pads and reeds",
+   "t": "2026-10-17T07:19:31.724Z",
+   "ms": 2499,
+   "triangles": 9306,
+   "vertices": 5923,
+   "objects": 190,
+   "warnings": 2,
+   "blend_sha256": "f62b0ae83b4a5ebffcc070cca62ecb7b3b2e1a142dd0279e2e2068c53784a42b",
+   "files": {
+    "script": "steps/s014/script.py",
+    "blend": "steps/s014/model.blend",
+    "glb": "steps/s014/model.glb",
+    "sheet": "steps/s014/sheet.png",
+    "view": "steps/s014/view.png",
+    "receipt": "steps/s014/receipt.json"
+   }
+  },
+  {
+   "id": "s015",
+   "n": 15,
+   "parent": "s014",
+   "branch": "main",
+   "name": "pier_cart_sign",
+   "caption": "Adding a fishing pier on the pond, a hay cart by the windmill and a signpost at the square",
+   "t": "2026-10-17T07:20:11.994Z",
+   "ms": 7288,
+   "triangles": 9762,
+   "vertices": 6209,
+   "objects": 197,
+   "warnings": 2,
+   "blend_sha256": "c3bdbb0041e500ffa44e7a54d096e496e13077c120c7d4eff4ba3a878d95c5af",
+   "files": {
+    "script": "steps/s015/script.py",
+    "blend": "steps/s015/model.blend",
+    "glb": "steps/s015/model.glb",
+    "sheet": "steps/s015/sheet.png",
+    "view": "steps/s015/view.png",
+    "receipt": "steps/s015/receipt.json"
+   }
+  }
+ ],
+ "failures": [
+  {
+   "id": "s010",
+   "name": "bridge_fences_garden",
+   "kind": "error",
+   "parent": "s009",
+   "branch": "main",
+   "t": "2026-10-17T07:16:37.280Z",
+   "ms": 898,
+   "log": "C:\\Users\\alice\\.genio\\wksps\\genio\\data\\model-a-little-fantasy-village-diorama-8da7\\modeller\\fantasy-village-diorama\\logs\\blender-1792221396391-71416-a7mv.log",
+   "error": "ValueError: 'fence_garden_r0_0.025': pick a real name instead of a .001 suffix",
+   "dir": "failed/s010-error-1792221397278"
+  },
+  {
+   "id": "s014",
+   "name": "polish",
+   "kind": "error",
+   "parent": "s013",
+   "branch": "main",
+   "t": "2026-10-17T07:19:24.122Z",
+   "ms": 972,
+   "log": "C:\\Users\\alice\\.genio\\wksps\\genio\\data\\model-a-little-fantasy-village-diorama-8da7\\modeller\\fantasy-village-diorama\\logs\\blender-1792221563159-26716-01wi.log",
+   "error": "AttributeError: 'str' object has no attribute 'objects'",
+   "dir": "failed/s014-error-1792221564120"
+  }
+ ],
+ "history": [
+  {
+   "op": "amend",
+   "t": "2026-10-17T07:10:38.633Z",
+   "branch": "main",
+   "replaced": "s002",
+   "by": "s003"
+  },
+  {
+   "op": "amend",
+   "t": "2026-10-17T07:13:21.955Z",
+   "branch": "main",
+   "replaced": "s004",
+   "by": "s005"
+  },
+  {
+   "op": "amend",
+   "t": "2026-10-17T07:15:07.625Z",
+   "branch": "main",
+   "replaced": "s007",
+   "by": "s008"
+  },
+  {
+   "op": "amend",
+   "t": "2026-10-17T07:17:53.355Z",
+   "branch": "main",
+   "replaced": "s011",
+   "by": "s012"
+  }
+ ],
+ "updated": "2026-10-17T07:20:13.048Z"
+}
