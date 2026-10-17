@@ -9,6 +9,10 @@ servers, and nothing else.
   runtimes get none, and neither do the Bot, design chats and the Codex chat (see The Claude chat below).
 - **Scope.** Each server is for all projects or for one project. A unit gets the servers of its own project; a
   project's chat gets the same ones.
+- **Used by.** Each server is for **units and chat** (the default, and what servers added earlier keep) or **chat
+  only**. Work tools such as mail, calendar, documents or meeting notes belong in the chat you talk to, not in every
+  unit that works on code: a Chat only server reaches the Claude chat and no unit, whatever its runtime (see Chat only
+  below).
 - Servers a project declares in its own files stay off for units: `.mcp.json` (Claude Code), `.codex/config.toml`
   (Codex), `.gemini/settings.json` (Gemini CLI), `opencode.json` and `.opencode/` (OpenCode). A unit can work in a
   project that has these files; it simply does not start their servers.
@@ -26,13 +30,14 @@ Each entry has:
 - **secrets**: environment variables for a command, headers for a URL (for example `Authorization` with the value
   `Bearer <token>`). Values are masked, encrypted with your OS keychain like the FAL and Uthana keys, and never shown
   again. Leave a value empty to keep the stored one;
-- the **projects** it is for: all projects, or one.
+- the **projects** it is for: all projects, or one;
+- **used by**: units and chat, or chat only.
 
 Genio installs and fetches nothing. It runs exactly the command you typed: an `npx -y <package>` command downloads that
 package each time it starts.
 
-Where things are kept (main base): the list in `data/mcp-servers.json` (names, commands, URLs, secret names and scope,
-no values); the values in `data/secrets.json`, encrypted, keyed `mcp:<server id>:<name>`. No value is written into a
+Where things are kept (main base): the list in `data/mcp-servers.json` (names, commands, URLs, secret names, scope and
+`chatOnly: true` for a Chat only server, no values); the values in `data/secrets.json`, encrypted, keyed `mcp:<server id>:<name>`. No value is written into a
 project, a brief, a log, the status file or a unit's environment.
 
 ## Not supported
@@ -137,7 +142,25 @@ reach the chat as `mcp__<server>__<tool>`.
 - **Design chats** get none; they only read and talk.
 
 The chat can always hand the work to a unit instead ("check Linear for X and fix it"): the unit gets the same
-servers.
+servers, except Chat only ones.
+
+## Chat only
+
+A server set to **Chat only** in its row is for the Claude chat and never for a unit, so no unit can read your mail or
+documents through it. Main enforces it in three places, all from one filter (`mcpServersFor(list, project, 'unit' |
+'chat')` in `src/shared/mcp.ts`):
+
+- **Launch.** `unitMcpServers` (`src/main/mcp-servers.ts`) gives `crew.ts` the list for a unit's launch and its
+  brief: a Chat only server is not in a Claude unit's `--mcp-config` file, not in a Codex unit's `mcp_servers` tables
+  and not named in the brief.
+- **Grant.** The gateway drops a Chat only server from any grant whose caller is not the chat, even when the caller
+  passes it.
+- **Connection.** When a relay connects and on every tool call, the gateway reads the list again for the caller's
+  kind: a unit that asks for a Chat only server by name gets its relay closed, and a running unit whose server you set
+  to Chat only gets its next call refused ("… no longer applies to this project or to units") and its relay closed.
+
+The Claude chat gets Chat only servers like the others (with the same approval prompts); the Bot, design chats and
+the Codex chat still get none.
 
 ## How each runtime is launched
 
@@ -208,6 +231,14 @@ denial, the narrower subagent guard and that Genio's own tools are unaffected. `
 model endpoint in a throwaway home, with `ENABLE_TOOL_SEARCH=true`: the first request offered `ToolSearch` and
 Genio's tool but not the server's; after a search the server's tool came with `defer_loading`, went through Genio's
 policy (asked in Ask mode, not in YOLO) and was called through the gateway.
+
+Chat only (2026-10-17): `tests/mcp-servers.test.ts` checks that the choice persists through save and edit, that a
+server saved before it existed stays for units and chat, and that units on every runtime get none.
+`tests/unit-mcp.test.ts` builds a Claude unit's file, a Codex unit's tables and the brief from the unit list and finds
+no Chat only server, and checks that `crew.ts` takes every unit list from `unitMcpServers`. `tests/mcp-gateway.test.ts`
+tries it as a unit: a grant handed the whole list, a relay asking for the Chat only server by name, and a running
+unit's server switched to Chat only; each is refused, while a chat caller lists and calls it.
+`tests/chat-mcp.test.ts` checks that the chat gets and calls it.
 
 To repeat the live check, use a throwaway home for each CLI and set its variable in the same command: `CLAUDE_CONFIG_DIR`
 and `CLAUDE_SECURESTORAGE_CONFIG_DIR`, `CODEX_HOME` (a short path: Codex's socket path has a length limit),

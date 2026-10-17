@@ -49,10 +49,10 @@ afterEach(async () => {
 
 const opts = (o: Partial<ChatMcp> = {}): ChatMcp => ({
   chat: 'alpha-base', project: 'alpha', cwd, dataDir: dir, logFile: path.join(dir, 'chat', 'mcp-calls.jsonl'),
-  command: process.execPath, appRoot: ROOT, gateway, onSuccess: (s, t) => calls.push(`${s}/${t}`), ...o
+  command: process.execPath, appRoot: ROOT, gateway, onSuccess: (s, t, chatOnly) => calls.push(`${s}/${t}${chatOnly ? ' (chat only)' : ''}`), ...o
 })
-const addLocal = (name: string, project?: string) =>
-  saveMcpServer({ name, command: process.execPath, args: [SERVER], secrets: [{ name: 'SERVER_TOKEN', value: SECRET }], project }, dir, ['alpha', 'beta'])
+const addLocal = (name: string, project?: string, chatOnly?: boolean) =>
+  saveMcpServer({ name, command: process.execPath, args: [SERVER], secrets: [{ name: 'SERVER_TOKEN', value: SECRET }], project, chatOnly }, dir, ['alpha', 'beta'])
 
 /** Start an entry exactly as Claude Code starts a stdio MCP server: its command, args and env over the chat's environment. */
 function start(entry: McpStdioServerConfig) {
@@ -90,6 +90,21 @@ describe('the Claude chat gets the player servers through the gateway', () => {
     expect(JSON.stringify(entries)).not.toContain(SECRET)
     // A chat with no project gets only the servers for all projects.
     expect(Object.keys(await chatMcpServers(opts({ project: '' })))).toEqual(['everywhere'])
+  })
+
+  it('gets a Chat only server like any other and calls it through the gateway', async () => {
+    addLocal('everywhere')
+    addLocal('mail', undefined, true)
+    addLocal('beta-docs', 'beta', true)
+    const entries = await chatMcpServers(opts())
+    expect(Object.keys(entries)).toEqual(['everywhere', 'mail'])
+    const r = start(entries.mail)
+    await r.init()
+    expect((await r.rpc('tools/call', { name: 'echo', arguments: { text: 'inbox' } })).result?.content?.[0].text).toBe('ECHO: inbox')
+    const e = start(entries.everywhere)
+    await e.init()
+    await e.rpc('tools/call', { name: 'echo', arguments: { text: 'x' } })
+    expect(calls).toEqual(['mail/echo (chat only)', 'everywhere/echo'])
   })
 
   it('gives nothing when the player added no server', async () => {
@@ -181,5 +196,8 @@ describe('wksp.ts wiring', () => {
     expect(wksp).toMatch(/if \(role === 'bot'\) \{[\s\S]*?opts\.mcpServers = \{ genio: \{ command: process\.execPath, args: \[bridge\.entry\]/)
     expect(wksp).toMatch(/createSdkMcpServer\(\{ name: 'genio', version: '1\.0\.0', tools: toolDefs, alwaysLoad: true \}\)/)
     expect(wksp).toMatch(/mcpGateway\(\)\.revoke\(chatMcpCaller\(name\)\)/)
+  })
+  it('counts a Chat only tool in the chat for its own achievement', () => {
+    expect(wksp).toMatch(/onSuccess: \(_server, _tool, chatOnly\) => safe\(\(\) => \{\s*getCtx\(\)\.stats\.unlock\('mcp-chat-call'\)\s*if \(chatOnly\) getCtx\(\)\.stats\.unlock\('mcp-chat-only'\)/)
   })
 })

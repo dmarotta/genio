@@ -1029,11 +1029,11 @@ function Harnesses({ s }: { s: Settings }) {
   )
 }
 
-interface McpDraft { id?: string; name: string; remote: boolean; command: string; args: string; url: string; project: string; secrets: { name: string; value: string; set: boolean }[] }
+interface McpDraft { id?: string; name: string; remote: boolean; command: string; args: string; url: string; project: string; chatOnly: boolean; secrets: { name: string; value: string; set: boolean }[] }
 
 const mcpDraft = (s?: McpServerView): McpDraft => ({
   id: s?.id, name: s?.name ?? '', remote: Boolean(s?.url), command: s?.command ?? '', args: joinArgs(s?.args ?? []), url: s?.url ?? '',
-  project: s?.project ?? '', secrets: (s?.secrets ?? []).map((n) => ({ name: n, value: '', set: Boolean(s?.secretSet[n]) }))
+  project: s?.project ?? '', chatOnly: Boolean(s?.chatOnly), secrets: (s?.secrets ?? []).map((n) => ({ name: n, value: '', set: Boolean(s?.secretSet[n]) }))
 })
 
 /** Agent tools › MCP servers: the only place a server is added. Secret values go to the OS-encrypted store and never come back. */
@@ -1050,7 +1050,7 @@ function McpServers() {
     if (!draft) return
     const d = draft
     const input: McpServerInput = {
-      id: d.id, name: d.name.trim(), project: d.project || undefined,
+      id: d.id, name: d.name.trim(), project: d.project || undefined, chatOnly: d.chatOnly || undefined,
       ...(d.remote ? { url: d.url.trim() } : { command: d.command.trim(), args: splitArgs(d.args) }),
       secrets: d.secrets.filter((x) => x.name.trim()).map((x) => ({ name: x.name.trim(), value: x.value || undefined }))
     }
@@ -1100,6 +1100,12 @@ function McpServers() {
             {projects.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
           </select>
         </Field>
+        <Field label="Used by">
+          <select className="select" value={d.chatOnly ? 'chat' : 'all'} onChange={(e) => edit({ chatOnly: e.target.value === 'chat' })}>
+            <option value="all">Units and chat</option>
+            <option value="chat">Chat only</option>
+          </select>
+        </Field>
       </div>
       <div className="label" style={{ margin: '12px 0 6px' }}>{d.remote ? 'Secret headers' : 'Secret environment variables'}</div>
       {d.secrets.map((x, i) => (
@@ -1131,7 +1137,7 @@ function McpServers() {
               <b className="mono">{s.name}</b>
               <span className="mono mute mcp-target">{s.url ?? [s.command, joinArgs(s.args ?? [])].filter(Boolean).join(' ')}</span>
               <span style={{ flex: 1 }} />
-              <span className="mute mcp-scope">{s.project ?? 'All projects'}</span>
+              <span className="mute mcp-scope">{s.project ?? 'All projects'}{s.chatOnly && ' · Chat only'}</span>
               {s.signIn && (s.signedIn
                 ? <button className="btn sm ghost" onClick={() => void signOut(s.id)}>Sign out</button>
                 : <button className="btn sm" onClick={() => void signIn(s.id)}>Sign in</button>)}

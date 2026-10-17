@@ -51,8 +51,8 @@ const caller = (o: Partial<McpCaller> = {}): McpCaller => ({
   id: 'u1', project: 'alpha', cwd: worktree, dataDir: dir, logFile: path.join(dir, 'u1', 'mcp-calls.jsonl'),
   onFailure: (t) => failures.push(t), ...o
 })
-const addLocal = (name = 'envsrv', project?: string) =>
-  saveMcpServer({ name, command: process.execPath, args: [SERVER], secrets: [{ name: 'SERVER_TOKEN', value: SERVER_SECRET }], project }, dir, ['alpha', 'beta'])
+const addLocal = (name = 'envsrv', project?: string, chatOnly?: boolean, id?: string) =>
+  saveMcpServer({ id, name, command: process.execPath, args: [SERVER], secrets: [{ name: 'SERVER_TOKEN', value: SERVER_SECRET }], project, chatOnly }, dir, ['alpha', 'beta'])
 const logLines = (file = path.join(dir, 'u1', 'mcp-calls.jsonl')): Record<string, unknown>[] =>
   fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []
 
@@ -80,7 +80,7 @@ describe('the gateway with a local server', () => {
   it('lists and calls tools through the relay; the server gets only system variables and its own secret, in the worktree', async () => {
     process.env.GENIO_TEST_PARENT_ONLY = 'main-process-variable'
     addLocal()
-    const servers = mcpServersFor(readMcpServers(dir), 'alpha')
+    const servers = mcpServersFor(readMcpServers(dir), 'alpha', 'unit')
     const grant = await gateway.grant(caller(), servers)
     expect(grant.env.GENIO_MCP_GATEWAY).toMatch(/^127\.0\.0\.1:\d+$/)
     expect(grant.env.GENIO_MCP_SECRET).toMatch(/^[a-f0-9]{64}$/)
@@ -134,6 +134,38 @@ describe('the gateway with a local server', () => {
     const all = await gateway.grant(caller(), list)
     expect(await relay('beta-only', all.env).exited).toBe(0)
     expect(logLines()).toEqual([])
+  })
+
+  it('refuses a Chat only server to a unit, even when its grant names it and the relay asks for it; the chat gets it', async () => {
+    addLocal('envsrv')
+    addLocal('mail', undefined, true)
+    // The unit's caller hands the gateway the whole list, Chat only server included.
+    const grant = await gateway.grant(caller(), readMcpServers(dir))
+    expect(grant.servers.map((s) => s.name)).toEqual(['envsrv'])
+    expect(await relay('mail', grant.env).exited).toBe(0)
+    // A unit with no kind set is a unit too.
+    expect(await relay('mail', (await gateway.grant(caller({ id: 'u2', kind: 'unit' }), readMcpServers(dir))).env).exited).toBe(0)
+    expect(logLines()).toEqual([])
+
+    const chat = await gateway.grant(caller({ id: 'chat:alpha', kind: 'chat', logFile: path.join(dir, 'chat', 'mcp-calls.jsonl') }), readMcpServers(dir))
+    expect(chat.servers.map((s) => s.name)).toEqual(['envsrv', 'mail'])
+    const r = relay('mail', chat.env)
+    await r.init()
+    expect((await r.rpc('tools/call', { name: 'echo', arguments: { text: 'inbox' } })).result?.content?.[0].text).toBe('ECHO: inbox')
+  })
+
+  it('stops a running unit at once when the player sets its server to Chat only', async () => {
+    const [s] = addLocal()
+    const grant = await gateway.grant(caller(), readMcpServers(dir))
+    const r = relay('envsrv', grant.env)
+    await r.init()
+    expect((await r.rpc('tools/call', { name: 'echo', arguments: { text: 'x' } })).result?.content?.[0].text).toBe('ECHO: x')
+    addLocal('envsrv', undefined, true, s.id)
+    const res = await r.rpc('tools/call', { name: 'echo', arguments: { text: 'y' } })
+    expect(res.result?.isError).toBe(true)
+    expect(res.result?.content?.[0].text).toMatch(/no longer applies to this project or to units/)
+    expect(await r.exited).toBe(0)
+    expect(await relay('envsrv', grant.env).exited).toBe(0)
   })
 
   it('stops a removed server at once and closes the relays when the unit stops', async () => {

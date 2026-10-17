@@ -14,7 +14,7 @@ vi.mock('electron', () => ({
 }))
 
 import { joinArgs, mcpServerProblem, mcpServersFor, splitArgs, type McpServerInput } from '../src/shared/mcp'
-import { mcpServerViews, readMcpServers, removeMcpServer, saveMcpServer } from '../src/main/mcp-servers'
+import { mcpServerViews, readMcpServers, removeMcpServer, saveMcpServer, unitMcpServers } from '../src/main/mcp-servers'
 import { getMcpSecret, getSecret, secretStatus, setSecret } from '../src/main/secrets'
 import { mcpBriefLines, renderBrief } from '../src/main/brief'
 
@@ -69,8 +69,38 @@ describe('the Settings list', () => {
     saveMcpServer(local({ name: 'alpha-only', project: 'alpha' }), dir, ['alpha', 'beta'])
     expect(() => saveMcpServer(local({ name: 'ghost', project: 'gamma' }), dir, ['alpha'])).toThrow('There is no project called "gamma".')
     const list = readMcpServers(dir)
-    expect(mcpServersFor(list, 'alpha').map((s) => s.name)).toEqual(['everywhere', 'alpha-only'])
-    expect(mcpServersFor(list, 'beta').map((s) => s.name)).toEqual(['everywhere'])
+    expect(mcpServersFor(list, 'alpha', 'unit').map((s) => s.name)).toEqual(['everywhere', 'alpha-only'])
+    expect(mcpServersFor(list, 'beta', 'unit').map((s) => s.name)).toEqual(['everywhere'])
+  })
+
+  it('keeps the Chat only choice beside the scope; existing servers stay for units and chat', () => {
+    // A server saved before the choice existed has no field: units and chat.
+    fs.writeFileSync(path.join(dir, 'mcp-servers.json'), JSON.stringify([{ id: 'old1', name: 'older', command: 'node', args: [], secrets: [] }]))
+    expect(readMcpServers(dir)[0].chatOnly).toBeUndefined()
+    const [, mail] = saveMcpServer(local({ name: 'mail', chatOnly: true }), dir, ['alpha'])
+    expect(mail).toMatchObject({ name: 'mail', chatOnly: true })
+    expect(JSON.parse(fs.readFileSync(path.join(dir, 'mcp-servers.json'), 'utf8'))[1]).toMatchObject({ name: 'mail', chatOnly: true })
+    // Edits keep the choice beside the scope, the secret and the name; turning it off removes the field.
+    let [, v] = saveMcpServer({ ...local({ name: 'mail', chatOnly: true, project: 'alpha' }), id: mail.id, secrets: [{ name: 'LINEAR_TOKEN' }] }, dir, ['alpha'])
+    expect(v).toMatchObject({ chatOnly: true, project: 'alpha', secretSet: { LINEAR_TOKEN: true } })
+    ;[, v] = saveMcpServer({ ...local({ name: 'mail', project: 'alpha' }), id: mail.id, secrets: [{ name: 'LINEAR_TOKEN' }] }, dir, ['alpha'])
+    expect(v.chatOnly).toBeUndefined()
+    expect(fs.readFileSync(path.join(dir, 'mcp-servers.json'), 'utf8')).not.toContain('chatOnly')
+    // Only a real true counts, from the renderer or a hand edit.
+    saveMcpServer(local({ name: 'odd', chatOnly: 'yes' as unknown as boolean }), dir, [])
+    expect(readMcpServers(dir).find((s) => s.name === 'odd')?.chatOnly).toBeUndefined()
+  })
+
+  it('gives a Chat only server to the chat and never to a unit, on any runtime', () => {
+    saveMcpServer(local({ name: 'everywhere' }), dir, ['alpha', 'beta'])
+    saveMcpServer(local({ name: 'mail', chatOnly: true }), dir, ['alpha', 'beta'])
+    saveMcpServer(local({ name: 'alpha-docs', chatOnly: true, project: 'alpha' }), dir, ['alpha', 'beta'])
+    const list = readMcpServers(dir)
+    expect(mcpServersFor(list, 'alpha', 'chat').map((s) => s.name)).toEqual(['everywhere', 'mail', 'alpha-docs'])
+    expect(mcpServersFor(list, 'beta', 'chat').map((s) => s.name)).toEqual(['everywhere', 'mail'])
+    expect(mcpServersFor(list, 'alpha', 'unit').map((s) => s.name)).toEqual(['everywhere'])
+    for (const h of ['claude', 'codex']) expect(unitMcpServers(dir, 'alpha', h).map((s) => s.name), h).toEqual(['everywhere'])
+    for (const h of ['gemini', 'opencode', 'cursor', 'custom']) expect(unitMcpServers(dir, 'alpha', h), h).toEqual([])
   })
 
   it('refuses what a unit or Codex could not use, in plain words', () => {

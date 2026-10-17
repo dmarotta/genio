@@ -105,6 +105,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'blender-first', feature: 'blender', name: 'Polygon Power', description: 'Complete a Blender skill run.' },
   { id: 'mcp-call', feature: 'mcp', name: 'Plugged In', description: 'A unit uses a tool from an MCP server you added in Settings.' },
   { id: 'mcp-chat-call', feature: 'mcp-chat', name: 'Party Line', description: 'Genio uses a tool from an MCP server you added in Settings, right in the chat.' },
+  { id: 'mcp-chat-only', feature: 'mcp-chat-only', name: 'Need to Know', description: 'Genio uses a tool from a Chat only MCP server, right in the chat.' },
   { id: 'mcp-signin', feature: 'mcp-signin', name: 'Valet Key', description: 'Sign Genio in to an MCP server from Settings.' },
   { id: 'inventory-index', feature: 'inventory-index', name: 'Loot Catalog', description: "Index a project's assets for the first time." },
   { id: 'assets-10', feature: 'assets', name: 'Asset Combo', description: 'Generate 10 assets.' },

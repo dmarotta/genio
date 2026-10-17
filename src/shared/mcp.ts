@@ -17,6 +17,8 @@ export interface McpServer {
   secrets: string[]
   /** A project name, or absent for every project. */
   project?: string
+  /** For the Claude chat only, never a unit (work tools such as mail or documents); absent means units and chat. */
+  chatOnly?: boolean
   /** A remote server that answered Genio's check with OAuth sign-in and dynamic registration: it gets a Sign in action. */
   signIn?: boolean
 }
@@ -37,6 +39,7 @@ export interface McpServerInput {
   url?: string
   secrets: { name: string; value?: string }[]
   project?: string
+  chatOnly?: boolean
 }
 
 /** Reserved: Genio's own tool server in the chat. */
@@ -83,9 +86,9 @@ export function mcpServerProblem(s: McpServerInput, others: Pick<McpServer, 'id'
   return undefined
 }
 
-/** The servers a unit in `project` gets: every project's, plus the ones scoped to it. */
-export const mcpServersFor = <T extends Pick<McpServer, 'project'>>(list: T[], project: string): T[] =>
-  list.filter((s) => !s.project || s.project === project)
+/** The servers a unit or the chat in `project` gets: every project's, plus the ones scoped to it; a unit never gets a Chat only one. */
+export const mcpServersFor = <T extends Pick<McpServer, 'project' | 'chatOnly'>>(list: T[], project: string, who: 'unit' | 'chat'): T[] =>
+  list.filter((s) => (!s.project || s.project === project) && (who === 'chat' || !s.chatOnly))
 
 /** Arguments as the player types them: spaces separate, double quotes keep spaces. */
 export function splitArgs(text: string): string[] {

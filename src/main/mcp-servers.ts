@@ -6,8 +6,9 @@
  * list: no chat tool, unit or repository can add a server.
  */
 import path from 'node:path'
-import { mcpServerProblem, type McpServer, type McpServerInput, type McpServerView } from '@shared/mcp'
+import { mcpServerProblem, mcpServersFor, type McpServer, type McpServerInput, type McpServerView } from '@shared/mcp'
 import { clearMcpOAuth, clearMcpSecrets, hasMcpOAuth, mcpSecretsSet, setMcpSecret } from './secrets'
+import { MCP_RELAY_HARNESSES } from './unit-mcp'
 import { readJson, rid, writeJson } from './util'
 
 const fileIn = (dataDir: string): string => path.join(dataDir, 'mcp-servers.json')
@@ -25,12 +26,17 @@ export function readMcpServers(dataDir: string): McpServer[] {
       ...(typeof r.url === 'string' ? { url: r.url } : {}),
       secrets: Array.isArray(r.secrets) ? r.secrets.filter((n): n is string => typeof n === 'string') : [],
       ...(typeof r.project === 'string' && r.project ? { project: r.project } : {}),
+      ...(r.chatOnly === true ? { chatOnly: true } : {}),
       ...(r.signIn === true && typeof r.url === 'string' ? { signIn: true } : {})
     }
     if (!mcpServerProblem({ ...s, secrets: s.secrets.map((name) => ({ name })) }, out, s.project ? [s.project] : [])) out.push(s)
   }
   return out
 }
+
+/** The servers a unit on `harness` in `project` gets, for its launch and its brief: none on another runtime, never a Chat only one. */
+export const unitMcpServers = (dataDir: string, project: string, harness: string): McpServer[] =>
+  MCP_RELAY_HARNESSES.includes(harness) ? mcpServersFor(readMcpServers(dataDir), project, 'unit') : []
 
 export function mcpServerViews(dataDir: string): McpServerView[] {
   return readMcpServers(dataDir).map((s) => ({ ...s, secretSet: mcpSecretsSet(s.id, s.secrets, dataDir), signedIn: Boolean(s.signIn) && hasMcpOAuth(s.id, dataDir) }))
@@ -51,6 +57,7 @@ export function saveMcpServer(input: McpServerInput, dataDir: string, projects: 
     ...(command ? { command, args: [...(input.args ?? [])] } : { url: input.url!.trim() }),
     secrets: input.secrets.map((x) => x.name.trim()),
     ...(input.project ? { project: input.project } : {}),
+    ...(input.chatOnly === true ? { chatOnly: true } : {}),
     // The sign-in check is kept for the same URL; a new URL is checked again (mcp-signin.ts) and signed out.
     ...(prev?.signIn && prev.url === input.url?.trim() ? { signIn: true } : {})
   }

@@ -1,8 +1,20 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('electron', () => ({
+  safeStorage: {
+    isEncryptionAvailable: () => true,
+    getSelectedStorageBackend: () => 'dpapi',
+    encryptString: (s: string) => Buffer.from('enc:' + Buffer.from(s, 'utf8').toString('hex'), 'utf8'),
+    decryptString: (b: Buffer) => Buffer.from(b.toString('utf8').slice(4), 'hex').toString('utf8')
+  }
+}))
+
+import { renderBrief } from '../src/main/brief'
 import { buildArgs, BUILTIN_HARNESSES } from '../src/main/harness'
+import { saveMcpServer, unitMcpServers } from '../src/main/mcp-servers'
 import {
   CLAUDE_UNIT_MCP_CONFIG, claudeUnitMcpConfig, codexMcpOffArgs, codexMcpServers, codexRelayArgs, GEMINI_NO_MCP, MCP_RELAY_HARNESSES, opencodeConfigFiles,
   opencodeMcpOffContent, parseJsonc, unitMcpLaunch
@@ -192,9 +204,42 @@ describe("the player's servers through relays", () => {
       if (!/\.ts$/.test(f) || ['crew.ts', 'ipc.ts', 'mcp-gateway.ts', 'mcp-servers.ts', 'mcp-signin.ts', 'chat-mcp.ts', 'wksp.ts'].includes(f)) continue
       expect(src(f), f).not.toMatch(/from '\.\/(mcp-(gateway|servers)|chat-mcp)'/)
     }
-    expect(src('crew.ts')).toMatch(/MCP_RELAY_HARNESSES\.includes\(adapter\.id\) \? mcpServersFor\(readMcpServers/)
+    expect(src('crew.ts')).toMatch(/const mcpServers = unitMcpServers\(mainHome\.data, t\.project, adapter\.id\)/)
     // wksp.ts: only the Claude chat's options read the list, and only for a role that is not the Bot (tests/chat-mcp.test.ts).
     expect(src('wksp.ts').match(/chatMcpServers\(/g)).toHaveLength(1)
     expect(src('wksp.ts')).not.toMatch(/readMcpServers|mcpServersFor/)
+  })
+})
+
+describe('a Chat only server', () => {
+  const RELAY = { command: 'C:/Genio/Genio.exe', script: 'C:/Genio/resources/genio-mcp-relay.mjs' }
+
+  it('reaches no unit on any launch path: not the Claude file, not the Codex tables, not the brief', () => {
+    const data = tmp()
+    saveMcpServer({ name: 'linear', command: 'npx', args: [], secrets: [] }, data, ['alpha'])
+    saveMcpServer({ name: 'mail', command: 'npx', args: [], secrets: [], chatOnly: true }, data, ['alpha'])
+    saveMcpServer({ name: 'docs', url: 'https://docs.example/mcp', secrets: [], chatOnly: true, project: 'alpha' }, data, ['alpha'])
+    for (const h of ['claude', 'codex']) {
+      const servers = unitMcpServers(data, 'alpha', h)
+      expect(servers.map((s) => s.name), h).toEqual(['linear'])
+      const relays = { ...RELAY, servers: servers.map((s) => s.name) }
+      const launch = h === 'claude'
+        ? JSON.stringify([claudeUnitMcpConfig(relays), unitMcpLaunch(h, { worktree: REPO, claudeConfig: 'C:/state/u1/.mcp-config.json', relays })])
+        : JSON.stringify(unitMcpLaunch(h, { worktree: REPO, codexHome: tmp(), relays }))
+      expect(launch, h).toMatch(/genio-mcp-relay\.mjs\\?",\\?"linear/)
+      expect(launch, h).not.toMatch(/mail|docs/)
+    }
+    expect(renderBrief({ taskId: 'u1', kind: 'ship', project: 'alpha', worktree: 'W', branch: 'b', baseBranch: 'main', intent: 'x', statusFile: 'S', inboxDir: 'I', taskDataDir: 'D',
+      mcpServers: unitMcpServers(data, 'alpha', 'claude').map((s) => s.name) })).not.toMatch(/`mail`|`docs`/)
+  })
+
+  it('is filtered in one place that every unit launch and brief goes through', () => {
+    const crew = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'crew.ts'), 'utf8')
+    expect(crew).not.toMatch(/readMcpServers|mcpServersFor/)
+    expect(crew.match(/unitMcpServers\(/g)).toHaveLength(2)
+    expect(crew).toMatch(/unitMcpServers\(mainHome\.data, project, harness\)\.map\(\(s\) => s\.name\)/)
+    // The gateway grant, the Claude file and the Codex tables all come from that one list.
+    expect(crew).toMatch(/servers: mcpServers\.map\(\(m\) => m\.name\)/)
+    expect(crew).toMatch(/\}, mcpServers\) : undefined/)
   })
 })

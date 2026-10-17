@@ -407,7 +407,8 @@ headers, kept encrypted like your API keys), for all projects or one. Claude and
 which starts or calls the real server, adds the secrets, never passes on a unit's keys, and logs every call in the
 unit's data folder; a failed call shows on the unit's timeline. The chat gets them too when it runs on a Claude model:
 each call asks you first in Ask and Auto-approve shell and runs in YOLO, and they never replace Genio's own deploy,
-merge or spending tools. Gemini and OpenCode units, the Bot, design chats and the Codex chat get none (the Codex chat
+merge or spending tools. Set a server to **Chat only** (for mail, calendar or documents) and it reaches the Claude
+chat but never a unit. Gemini and OpenCode units, the Bot, design chats and the Codex chat get none (the Codex chat
 blocks every tool that is not Genio's own; ask it to deploy a unit instead). Servers a project declares in its own
 files (such as `.mcp.json`) and your own CLI servers stay off for units. Paid servers are
 not supported: Genio cannot price an MCP call, so spending stays with FAL and Uthana under your approvals. Unity MCP

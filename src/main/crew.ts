@@ -39,10 +39,9 @@ import { isLink, removeLinkSafely } from '../../resources/unit-skills/genio/lib/
 import { sourceRemoved, yieldSource } from './source-leases'
 import { helpDocsDir } from './help'
 import { installUnitPlugin, modellerDataDir, openRouterEnv, unitLaunchExtras, unitPluginDir, unitPluginSource } from './unitskills'
-import { claudeUnitMcpConfig, MCP_RELAY_HARNESSES, unitMcpLaunch, type McpRelays } from './unit-mcp'
+import { claudeUnitMcpConfig, unitMcpLaunch, type McpRelays } from './unit-mcp'
 import { mcpGateway } from './mcp-gateway'
-import { readMcpServers } from './mcp-servers'
-import { mcpServersFor } from '@shared/mcp'
+import { unitMcpServers } from './mcp-servers'
 import { findUnityCli, unityUnitConfig, unityUnitEnv } from './unity-unit'
 import { artBibleBriefLines, unitArtBible, unitArtBibleEnv } from './art-bible-gen'
 import { designNotesBriefLines } from './design-notes'
@@ -203,7 +202,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
   const toldLinks = new Set<string>()
   /** The player's MCP servers a unit on this runtime gets in this project, by name, for its brief. */
   const mcpBriefNames = (harness: string, project: string): string[] =>
-    MCP_RELAY_HARNESSES.includes(harness) ? mcpServersFor(readMcpServers(mainHome.data), project).map((s) => s.name) : []
+    unitMcpServers(mainHome.data, project, harness).map((s) => s.name)
   /** The brief's dependency lines for a worktree with a package.json. */
   const nodeDeps =(id: string, wt: string): BriefInput['nodeDeps'] =>
     exists(path.join(wt, 'package.json')) ? { stateFile: depsStateFile(home.taskDir(id)), setup: depsGuard } : undefined
@@ -462,9 +461,9 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     if (sessionId && !(await unarchiveCodexThread(sessionId, { dataDir: mainHome.data, codexHome, task: t.id, cwd: t.worktree }))) sessionId = undefined
     if (isCodex) update(t.id, { codexHome, ...(opts.resume ? { codexSessionId: sessionId } : {}) })
     // Only the MCP servers Genio passes: relays to the gateway for the player's servers in this project
-    // (Claude and Codex units), never the repository's or the player's own CLI servers.
+    // (Claude and Codex units, never a Chat only one), never the repository's or the player's own CLI servers.
     const mcpConfig = isClaude ? home.taskStateFile(t.id, '.mcp-config.json') : undefined
-    const mcpServers = MCP_RELAY_HARNESSES.includes(adapter.id) ? mcpServersFor(readMcpServers(mainHome.data), t.project) : []
+    const mcpServers = unitMcpServers(mainHome.data, t.project, adapter.id)
     const relays: McpRelays | undefined = mcpServers.length
       ? { command: process.execPath, script: path.join(ctx.appRoot, 'resources', 'genio-mcp-relay.mjs'), servers: mcpServers.map((m) => m.name) }
       : undefined

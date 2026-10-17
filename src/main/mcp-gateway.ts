@@ -15,7 +15,8 @@
  *   count in the unit's data folder, never arguments or results, and reports a
  *   failed call once as a plain timeline line;
  * - drops a unit's relays when the unit stops, and refuses a server removed
- *   from Settings or out of the unit's project.
+ *   from Settings or out of the unit's project, and a Chat only server to any
+ *   caller that is not the chat, whatever its grant names.
  * Units never see a secret value, and no harness sees an HTTP server, so their
  * own OAuth never runs.
  */
@@ -48,7 +49,7 @@ export function mcpServerEnv(secrets: Record<string, string>, base: NodeJS.Proce
 export interface McpCaller {
   /** The unit's id, or `chat:<base>` for a Claude chat. */
   id: string
-  /** Who reads a refusal: a unit stops and asks with a keyed choice, the chat tells the player. Default unit. */
+  /** Who reads a refusal: a unit stops and asks with a keyed choice, the chat tells the player. Only the chat gets Chat only servers. Default unit. */
   kind?: 'unit' | 'chat'
   /** Its project: servers scoped to another project are refused. */
   project: string
@@ -83,6 +84,9 @@ interface Upstream {
 }
 
 interface Grant { caller: McpCaller; servers: Set<string>; sockets: Set<net.Socket> }
+
+/** The caller's servers as Settings has them now: its project's, and Chat only ones for the chat alone. */
+const inScope = (caller: McpCaller): McpServer[] => mcpServersFor(readMcpServers(caller.dataDir), caller.project, caller.kind === 'chat' ? 'chat' : 'unit')
 
 type Rpc = { jsonrpc?: string; id?: string | number | null; method?: string; params?: { name?: unknown }; result?: { isError?: boolean; tools?: unknown[]; protocolVersion?: string }; error?: unknown }
 
@@ -152,10 +156,10 @@ export function createMcpGateway(o: { secret?: (s: McpServer, name: string, data
       sock.destroy()
       void up?.close().catch(() => undefined)
     }
-    /** The server as Settings has it now: removed, or moved to another project, means refused. */
+    /** The server as Settings has it now: removed, moved to another project or made Chat only (for a unit) means refused. */
     const current = (): McpServer | undefined => {
       if (!grant || !srv) return undefined
-      const now = mcpServersFor(readMcpServers(grant.caller.dataDir), grant.caller.project).find((s) => s.id === srv!.id)
+      const now = inScope(grant.caller).find((s) => s.id === srv!.id)
       return now && grant.servers.has(now.id) ? now : undefined
     }
     const refused = (e: unknown): number | undefined => {
@@ -270,7 +274,7 @@ export function createMcpGateway(o: { secret?: (s: McpServer, name: string, data
       try { h = JSON.parse(line) } catch { shut(); return }
       grant = typeof h.secret === 'string' ? grants.get(h.secret) : undefined
       const name = typeof h.server === 'string' ? h.server : ''
-      srv = grant ? mcpServersFor(readMcpServers(grant.caller.dataDir), grant.caller.project).find((s) => s.name === name && grant!.servers.has(s.id)) : undefined
+      srv = grant ? inScope(grant.caller).find((s) => s.name === name && grant!.servers.has(s.id)) : undefined
       if (!grant || !srv) { grant = undefined; shut(); return }
       grant.sockets.add(sock)
       ready = open()
@@ -288,7 +292,8 @@ export function createMcpGateway(o: { secret?: (s: McpServer, name: string, data
       ready!.then(() => {
         if (m.method === 'tools/call' && !current()) {
           if (key) pending.delete(key)
-          fail(m, new Error('the player removed this server or it no longer applies to this project'))
+          fail(m, new Error(grant!.caller.kind === 'chat' ? 'the player removed this server or it no longer applies to this project'
+            : 'the player removed this server, or it no longer applies to this project or to units'))
           shut()
           return
         }
@@ -318,6 +323,8 @@ export function createMcpGateway(o: { secret?: (s: McpServer, name: string, data
     async grant(caller, servers) {
       await listen()
       const secret = randomBytes(32).toString('hex')
+      // A unit's grant never holds a Chat only server, even when its caller passes one.
+      if (caller.kind !== 'chat') servers = servers.filter((s) => !s.chatOnly)
       const g: Grant = { caller, servers: new Set(servers.map((s) => s.id)), sockets: new Set() }
       grants.set(secret, g)
       const revoke = (): void => {

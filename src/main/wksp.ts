@@ -184,7 +184,10 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
       mcpServers: { genio: server, ...(role === 'bot' ? {} : await chatMcpServers({
         chat: name, project: liveAlly()?.projects[0] ?? '', cwd: chatCwd(), dataDir: ctx.main.home.data, logFile: path.join(home.data, 'mcp-calls.jsonl'),
         command: process.execPath, appRoot: ctx.appRoot,
-        onSuccess: () => safe(() => getCtx().stats.unlock('mcp-chat-call'))
+        onSuccess: (_server, _tool, chatOnly) => safe(() => {
+          getCtx().stats.unlock('mcp-chat-call')
+          if (chatOnly) getCtx().stats.unlock('mcp-chat-only')
+        })
       })) },
       disallowedTools: DISALLOWED,
       canUseTool: makePolicy(role),

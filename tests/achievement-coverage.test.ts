@@ -74,6 +74,7 @@ const OTHER_FEATURES: Record<string, [file: string, needle: string]> = {
   'spend-grant': ['src/main/spend-grants.ts', 'export function recordGrant'],
   mcp: ['src/main/mcp-gateway.ts', 'export function createMcpGateway'],
   'mcp-chat': ['src/main/chat-mcp.ts', 'export async function chatMcpServers'],
+  'mcp-chat-only': ['src/shared/mcp.ts', 'chatOnly?: boolean'],
   'mcp-signin': ['src/main/mcp-signin.ts', 'export async function mcpSignIn']
 }
 
