@@ -11,6 +11,7 @@ import {
 } from '../store'
 import { readShellHistory, rememberShellCommand, shellUnavailable, showPane } from '../lib/terminal-pane'
 import { Markdown } from '../components/Markdown'
+import { CopyMessageButton } from '../components/CopyMessageButton'
 import { GenioCore } from '../components/GenioCore'
 import { Roster } from '../components/SquadPanel'
 import { clock, cx, trunc } from '../lib/format'
@@ -305,6 +306,7 @@ const Message = memo(function Message({ m, design = false, onTakeBack, onSendNow
           {m.queue === 'queued' && (m.steering ? <span className="msg-queue steering">Steering ·{' '}</span> : <span className="msg-queue">Queued ·{' '}</span>)}
           {m.queue === 'unsent' && <span className="msg-queue">Not sent ·{' '}</span>}
           {clock(m.ts)}
+          <CopyMessageButton text={m.text} />
           {waiting && (
             <span className="msg-acts">
               {m.queue === 'queued' && !m.steering && onSendNow && (
@@ -330,6 +332,7 @@ const Message = memo(function Message({ m, design = false, onTakeBack, onSendNow
         <span className="msg-wake-text"><span className="neon-text">⚡</span> {trunc(m.text.split('\n')[0], 140)}
           <span className="mute"> · {clock(m.ts)}</span>
         </span>
+        <CopyMessageButton text={m.text} />
       </div>
     )
   }
@@ -341,7 +344,7 @@ const Message = memo(function Message({ m, design = false, onTakeBack, onSendNow
         <div className="msg-bubble selectable">
           <Markdown text={routed.text} />
         </div>
-        <div className="msg-meta">{clock(m.ts)}</div>
+        <div className="msg-meta">{clock(m.ts)}<CopyMessageButton text={routed.text} /></div>
       </div>
     )
   }
@@ -350,11 +353,12 @@ const Message = memo(function Message({ m, design = false, onTakeBack, onSendNow
     return (
       <div data-msg={m.id} className="msg-system rise">
         <Markdown text={m.text} />
+        <CopyMessageButton text={m.text} />
       </div>
     )
   }
   if (m.role === 'error') {
-    return <div data-msg={m.id} className="msg-error mono selectable">{m.text}</div>
+    return <div data-msg={m.id} className="msg-error mono selectable">{m.text}<CopyMessageButton text={m.text} /></div>
   }
   return (
     <div data-msg={m.id} className="msg genio rise">
@@ -366,7 +370,7 @@ const Message = memo(function Message({ m, design = false, onTakeBack, onSendNow
         {m.generation && <GenerationCard card={m.generation} wksp={m.wksp} />}
         {m.generating ? <GeneratingImages count={m.generating} /> : null}
         {m.images?.length ? <MessageImages wksp={m.wksp} images={m.images} /> : null}
-        <div className="msg-meta">{clock(m.ts)}</div>
+        <div className="msg-meta">{clock(m.ts)}<CopyMessageButton text={m.text} /></div>
       </div>
     </div>
   )
@@ -398,6 +402,7 @@ function ShellResult({ id, run, ts }: { id: string; run: ShellRun; ts: string })
         <code className="msg-shell-cmd selectable">$ {run.command}</code>
         <span className={cx('msg-shell-exit mono', ok ? 'volt-text' : 'alert-text')}>{run.error ? 'did not run' : `exit ${run.exitCode ?? '?'}`}</span>
         <span className="mute mono msg-shell-time">{clock(ts)}</span>
+        <CopyMessageButton text={`$ ${run.command}\n${run.output}`} />
       </div>
       {open && (
         <div className="msg-shell-body">

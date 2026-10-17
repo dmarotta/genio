@@ -67,11 +67,12 @@ On main now:
   every unit kind.
 - **The chat and window shell trim** (UI trim pass, area 2). Gone: the chat's header row (name,
   status word, queued chip, Clean HUD toggle, restart icon; Interrupt moved to the working line),
-  copy and like/dislike buttons on every message, names and correlation ids on message lines,
+  like/dislike buttons on every message, names and correlation ids on message lines,
   tool traces, the Recap link and key hints under the composer, the title bar's unit count and
   XP bar, the rail's usage gauge, shortcut hints and version label, the floating panel's screen
   name, counts and pop-out labels, presence and welcome-back toasts, and the Hub's sort menu
-  and engine column.
+  and engine column. The copy button on messages and shell results came back, shown only on
+  hover or focus: no words to the chat put a message on the clipboard.
 - **The project screens trim** (UI trim pass, area 4). Gone: the project name beside the Play title, the Play menu's
   Restart Unity and settings link, the Scene label, the console's entry count and the Lock and Full screen captions;
   Inventory's kicker, tagline, Generation settings button, refresh button, tags field, thumbnail slider, breadcrumb,
