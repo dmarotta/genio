@@ -62,8 +62,7 @@ export class PlayService {
     if (status.connected && status.state === 'playing') this.ctx.stats.unlock('play-first')
     return status
   }
-  async act(world: string, action: PlayAction, words: string) {
-    if (!words?.trim()) throw new Error('Play control requires player_words quoting the explicit request')
+  async act(world: string, action: PlayAction) {
     await this.adapter(world).act(action)
   }
   async frame(world: string, width = 1280, height = 720) {

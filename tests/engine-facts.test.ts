@@ -103,9 +103,9 @@ describe('engine root declaration', () => {
 
   const declared = (): unknown => JSON.parse(fs.readFileSync(path.join(dir, '.genio', 'project.json'), 'utf8'))
 
-  it('refuses without the player\'s words and for the Bot', async () => {
-    await expect(declareEngineRoot(ctx, { world: 'game', root: 'client', actor: 'genio' })).rejects.toThrow('player_words')
-    await expect(declareEngineRoot(ctx, { world: 'game', root: 'client', playerWords: '  ', actor: 'genio' })).rejects.toThrow('player_words')
+  it('refuses without the player\'s answer or a cleared request, and for the Bot', async () => {
+    await expect(declareEngineRoot(ctx, { world: 'game', root: 'client', actor: 'genio' })).rejects.toThrow("the player's answer")
+    await expect(declareEngineRoot(ctx, { world: 'game', root: 'client', playerWords: '  ', actor: 'genio' })).rejects.toThrow("the player's answer")
     await expect(declareEngineRoot(ctx, { world: 'game', root: 'client', playerWords: 'use client', actor: 'bot' })).rejects.toThrow('Bot')
     expect(fs.existsSync(path.join(dir, '.genio'))).toBe(false)
   })
@@ -133,20 +133,27 @@ describe('engine root declaration', () => {
     expect(await declareEngineRoot(ctx, { world: 'game', root: 'tools/LevelEditor', playerWords: 'yes that one', actor: 'genio' })).not.toContain('Detection still reports')
   })
 
-  it('the chat tool requires the player\'s own words and refuses the Bot', async () => {
+  it('the chat tool is cleared by the approval mode, never by quoted words, and refuses the Bot', async () => {
     const home = new Home(path.join(dir, 'home'))
-    const said: { id: string; wksp: string; role: 'player' | 'genio'; text: string; ts: string }[] = [{ id: 'g1', wksp: 'main', role: 'genio', text: 'use client', ts: new Date().toISOString() }]
-    Object.assign(ctx.main.wksp, { history: () => said })
+    let mode: 'ask' | 'auto-shell' | 'all' = 'ask'
+    const ask = vi.fn(async () => false)
+    Object.assign(ctx, { settings: { get: () => ({ chatShellMode: mode }) }, permissions: { ask } })
+    Object.assign(ctx.main.wksp, { history: () => [{ id: 'p1', wksp: 'main', role: 'player', text: 'use client', ts: new Date().toISOString() }] })
     const tool = (role: 'genio' | 'bot') => createToolRegistry(() => ctx, home, role).find(t => t.name === 'world_engine_root')!
-    expect(await tool('genio').invoke({ world: 'game', root: 'client' })).toMatchObject({ isError: true })
-    // Words only Genio wrote are not the player's instruction.
+    // Deny leaves the repo untouched; the player's typed words do not stand in for the click.
     expect(await tool('genio').invoke({ world: 'game', root: 'client', player_words: 'use client' })).toMatchObject({ isError: true })
-    said.push({ id: 'p1', wksp: 'main', role: 'player', text: 'use client', ts: new Date().toISOString() })
-    expect(await tool('bot').invoke({ world: 'game', root: 'client', player_words: 'use client' })).toMatchObject({ isError: true })
+    expect(ask).toHaveBeenCalledWith(expect.objectContaining({ tool: 'world_engine_root', input: expect.stringContaining('client/') }))
+    expect(await tool('bot').invoke({ world: 'game', root: 'client' })).toMatchObject({ isError: true })
+    expect(ask).toHaveBeenCalledTimes(1)
     expect(fs.existsSync(path.join(dir, '.genio', 'project.json'))).toBe(false)
-    const ok = await tool('genio').invoke({ world: 'game', root: 'client', player_words: 'use client' })
-    expect(ok.isError).toBeUndefined()
+    ask.mockResolvedValueOnce(true)
+    expect((await tool('genio').invoke({ world: 'game', root: 'client' })).isError).toBeUndefined()
     expect(declared()).toEqual({ engineRoot: 'client' })
+    expect(ctx.ledger.record).toHaveBeenCalledWith(expect.objectContaining({ event: 'project.engine_declared', data: expect.objectContaining({ approval: 'prompt' }) }))
+    mode = 'all'
+    expect((await tool('genio').invoke({ world: 'game', root: 'tools/LevelEditor' })).isError).toBeUndefined()
+    expect(ask).toHaveBeenCalledTimes(2)
+    expect(declared()).toEqual({ engineRoot: 'tools/LevelEditor' })
   })
 
   it('surfaces an ambiguity once as a choice and pins the picked root', async () => {

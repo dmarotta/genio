@@ -75,17 +75,23 @@ describe('opening a folder and project_init', () => {
   let ctx: AppCtx
   let home: Home
   let said: ChatMessage[]
+  let mode: 'ask' | 'auto-shell' | 'all'
+  const ask = vi.fn(async () => false)
   const unlock = vi.fn()
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-setup-'))
     home = new Home(path.join(root, 'home'))
     home.ensure()
     said = []
+    mode = 'ask'
+    ask.mockReset()
+    ask.mockResolvedValue(false)
     unlock.mockReset()
     const hc = { home, backlog: { list: () => [] }, crew: { list: () => [] }, wksp: { history: () => said } }
     const c = {
       main: hc, homes: new Map([['main', hc]]), home: () => hc, allies: { list: () => [] }, ledger: { record() {} },
-      toolchain: { has: () => true }, away: { state: () => ({ mode: 'online', held: [] }) }, stats: { unlock }
+      toolchain: { has: () => true }, away: { state: () => ({ mode: 'online', held: [] }) }, stats: { unlock },
+      settings: { get: () => ({ chatShellMode: mode }) }, permissions: { ask }
     } as unknown as AppCtx
     c.projects = createProjectsService(() => c)
     ctx = c
@@ -103,7 +109,7 @@ describe('opening a folder and project_init', () => {
     expect(readSetup(setupFile(home.state))).toMatchObject({ new: true })
   })
 
-  it('starts the git repo only on the player\'s yes, keeping their own files', async () => {
+  it('starts the git repo once the approval mode clears it, never on quoted words, keeping their own files', async () => {
     const dir = path.join(root, 'space-goblins')
     fs.mkdirSync(dir)
     fs.writeFileSync(path.join(dir, 'notes.txt'), 'mine')
@@ -111,22 +117,23 @@ describe('opening a folder and project_init', () => {
     const { project } = await ctx.projects.openFolder(dir)
     expect(openSetup(ctx, project.name, home.state)).toBe('Setup: new project; next: git repo.')
     const init = { world: project.name, engine: 'unity', pitch: 'Goblins in space.' }
-    expect(await tool('project_init').invoke({ ...init, player_words: 'yes' })).toMatchObject({ isError: true })
-    player('no, not yet')
-    expect(await tool('project_init').invoke({ ...init, player_words: 'no, not yet' })).toMatchObject({ isError: true })
-    player('should you start a git repo?')
-    expect(await tool('project_init').invoke({ ...init, player_words: 'should you start a git repo?' })).toMatchObject({ isError: true })
+    // the player's typed yes does not answer the prompt; a Deny starts nothing
     player('yes, start it')
-    expect(await tool('project_init', 'bot').invoke({ ...init, player_words: 'yes, start it' })).toMatchObject({ isError: true })
+    expect(await tool('project_init').invoke({ ...init, player_words: 'yes, start it' })).toMatchObject({ isError: true })
+    expect(ask).toHaveBeenCalledWith(expect.objectContaining({ tool: 'project_init', input: expect.stringContaining('Start the git repo in space-goblins') }))
+    expect(await tool('project_init', 'bot').invoke(init)).toMatchObject({ isError: true })
+    expect(ask).toHaveBeenCalledTimes(1)
     expect(fs.existsSync(path.join(dir, '.git'))).toBe(false)
-    const r = await tool('project_init').invoke({ ...init, player_words: 'yes, start it' })
+    ask.mockResolvedValueOnce(true)
+    const r = await tool('project_init').invoke(init)
     expect(r.isError).toBeUndefined()
     expect(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8')).toBe('keep-me/\n')
     expect(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')).toContain('- Pitch: Goblins in space.')
     expect((await git(dir, ['log', '--oneline'])).stdout.trim().split('\n')).toHaveLength(1)
     expect((await git(dir, ['status', '--porcelain'])).stdout.trim()).toBe('')
     expect(ctx.projects.get(project.name)).toMatchObject({ gitRepo: true, defaultBranch: 'main', description: 'Goblins in space.' })
-    expect(await tool('project_init').invoke({ ...init, player_words: 'yes, start it' })).toMatchObject({ isError: true })
+    mode = 'all'
+    expect(await tool('project_init').invoke(init)).toMatchObject({ isError: true })
     // git and the pitch are ticked: the next opening asks once about the engine
     expect(openSetup(ctx, project.name, home.state)).toBe('Setup: reopened; next: engine.')
   }, 60_000)
@@ -161,15 +168,17 @@ describe('opening a folder and project_init', () => {
     expect(unlock).toHaveBeenCalledWith('project-setup')
   })
 
-  it('changes the delivery mode only on the player\'s words', async () => {
+  it('changes the delivery mode once the approval mode clears it', async () => {
     const dir = path.join(root, 'space-goblins')
     fs.mkdirSync(dir)
     const { project } = await ctx.projects.openFolder(dir)
     await ctx.projects.init(project.name, {})
     expect(await tool('world_update').invoke({ world: project.name, mode: 'no-mistakes' })).toMatchObject({ isError: true })
-    player('switch to hardcore please')
-    expect(await tool('world_update', 'bot').invoke({ world: project.name, mode: 'no-mistakes', player_words: 'switch to hardcore please' })).toMatchObject({ isError: true })
-    expect((await tool('world_update').invoke({ world: project.name, mode: 'no-mistakes', player_words: 'switch to hardcore please' })).isError).toBeUndefined()
+    expect(ask).toHaveBeenLastCalledWith(expect.objectContaining({ tool: 'world_update', input: expect.stringContaining('delivery mode to Hardcore') }))
+    expect(ctx.projects.get(project.name)?.modeSource).not.toBe('manual')
+    expect(await tool('world_update', 'bot').invoke({ world: project.name, mode: 'no-mistakes' })).toMatchObject({ isError: true })
+    ask.mockResolvedValueOnce(true)
+    expect((await tool('world_update').invoke({ world: project.name, mode: 'no-mistakes' })).isError).toBeUndefined()
     expect(ctx.projects.get(project.name)).toMatchObject({ mode: 'no-mistakes', modeSource: 'manual' })
   }, 60_000)
 })

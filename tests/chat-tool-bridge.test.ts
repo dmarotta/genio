@@ -32,7 +32,7 @@ beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-bridge-'))
   home = new Home(root)
   abort = new AbortController()
-  task = { id: 'unit', project: 'safe', kind: 'ship', mode: 'local-only', state: 'done' } as Task
+  task = { id: 'unit', title: 'Unit work', project: 'safe', kind: 'ship', mode: 'local-only', state: 'done' } as Task
   const hc = { home, crew: { get: (id: string) => id === task.id ? task : undefined,
     merge: vi.fn(async () => ({ ok: true, message: 'merged' })), cleanup: vi.fn(),
     crewState: vi.fn(async () => 'ready'), readFile: vi.fn(async () => 'report'),
@@ -258,12 +258,16 @@ describe('authority and unchanged deterministic handlers', () => {
     ctx.settings.save = vi.fn(patch => Object.assign(settings, patch) as any)
     const read = await call(b, 'settings_read')
     expect(read.content[0].text).not.toContain('private-')
-    expect(await call(b, 'settings_update', { player_words: 'turn sound off', patch: { sound: false } })).toMatchObject({ isError: true })
-    expect(settings.sound).toBe(true)
+    // quoted words are no longer an argument; the approval mode decides, and a Deny changes nothing
     say('turn sound off')
-    expect(await call(b, 'settings_update', { player_words: 'turn sound off', patch: { sound: false } })).not.toHaveProperty('isError')
+    expect(await call(b, 'settings_update', { player_words: 'turn sound off', patch: { sound: false } })).toMatchObject({ isError: true })
+    vi.mocked(ctx.permissions.ask).mockResolvedValueOnce(false)
+    expect(await call(b, 'settings_update', { patch: { sound: false } })).toMatchObject({ isError: true })
+    expect(settings.sound).toBe(true)
+    expect(await call(b, 'settings_update', { patch: { sound: false } })).not.toHaveProperty('isError')
+    expect(ctx.permissions.ask).toHaveBeenLastCalledWith(expect.objectContaining({ tool: 'settings_update', input: 'Change preferences: sound to false?' }))
     expect(settings.sound).toBe(false)
-    expect(await call(b, 'settings_update', { player_words: 'yes', patch: { chatShellMode: 'all' } })).toMatchObject({ isError: true })
+    expect(await call(b, 'settings_update', { patch: { chatShellMode: 'all' } })).toMatchObject({ isError: true })
   })
 
   it('returns SDK-equivalent schemas and results, including errors and defaults', async () => {
@@ -276,8 +280,7 @@ describe('authority and unchanged deterministic handlers', () => {
       expect(list.find((t: any) => t.name === def.name).inputSchema).toEqual(z.toJSONSchema(z.strictObject(def.inputSchema), { io: 'input' }))
     }
     for (const [name, args] of [['memory_read', { which: 'lore' }], ['unit_state', { task: 'unit' }],
-      ['read_task_file', { task: 'unit', which: 'report' }], ['quest_list', {}], ['merge', { task: 'unit' }],
-      ['merge', { task: 'unit', player_words: 'land this' }]] as const) {
+      ['read_task_file', { task: 'unit', which: 'report' }], ['quest_list', {}], ['merge', { task: 'unit' }]] as const) {
       const direct = await defs.find(t => t.name === name)!.handler(args, {} as any)
       expect(await call(b, name, args)).toEqual(direct)
     }
@@ -334,22 +337,39 @@ describe('authority and unchanged deterministic handlers', () => {
     expect(await call(b, 'memory_read', { which: 'lore' })).not.toHaveProperty('isError')
     expect(ctx.main.crew.merge).not.toHaveBeenCalled()
   })
-  it('preserves merge, Auto-loot, AFK and PR checks', async () => {
+  it('merge and Auto-loot follow the approval mode at the bridge; red, running and draft PRs merge only when cleared', async () => {
     const b = await bridge()
+    const ask = vi.mocked(ctx.permissions.ask)
+    ask.mockResolvedValue(false)
     expect(await call(b, 'merge', { task: 'unit' })).toMatchObject({ isError: true })
     expect(await call(b, 'world_update', { world: 'safe', auto_loot: true })).toMatchObject({ isError: true })
     expect(ctx.projects.update).not.toHaveBeenCalled()
+    expect(ctx.main.crew.merge).not.toHaveBeenCalled()
+    expect(ask).toHaveBeenCalledTimes(2)
+    task.state = 'ready'
     task.yolo = true
-    expect(await call(b, 'merge', { task: 'unit' })).not.toHaveProperty('isError')
+    // Auto-loot clears green, ready work with no prompt, also while the player is AFK (only the Bot waits then)
     ctx.away.state = () => ({ mode: 'afk', held: [], returnSummaryPending: false })
-    expect(await call(b, 'merge', { task: 'unit', player_words: 'yes' })).toMatchObject({ isError: true })
+    expect(await call(b, 'merge', { task: 'unit' })).not.toHaveProperty('isError')
+    expect(ctx.main.crew.merge).toHaveBeenLastCalledWith('unit', expect.objectContaining({ kind: 'autoloot' }), undefined)
+    expect(ask).toHaveBeenCalledTimes(2)
     ctx.away.state = () => ({ mode: 'online', held: [], returnSummaryPending: false })
     task.pr = { url: 'https://example.test/pr/1' } as Task['pr']
-    for (const check of [{ isDraft: true }, { checks: 'failing', failing: ['test'] }, { checks: 'pending', pending: ['test'] }]) {
+    const checks = [[{ isDraft: true }, 'draft'], [{ checks: 'failing', failing: ['test'] }, 'red (test)'], [{ checks: 'pending', pending: ['lint'] }, 'still running (lint)']] as const
+    for (const [check, said] of checks) {
       ctx.forge.view = vi.fn(async () => ({ ok: true, ...check })) as any
       expect(await call(b, 'merge', { task: 'unit' })).toMatchObject({ isError: true })
+      expect(ask).toHaveBeenLastCalledWith(expect.objectContaining({ tool: 'merge', input: expect.stringContaining(said) }))
     }
     expect(ctx.main.crew.merge).toHaveBeenCalledTimes(1)
+    ask.mockResolvedValue(true)
+    expect(await call(b, 'merge', { task: 'unit' })).not.toHaveProperty('isError')
+    expect(ctx.main.crew.merge).toHaveBeenLastCalledWith('unit', expect.objectContaining({ kind: 'prompt' }), { override: true })
+    ctx.settings.get = () => ({ chatShellMode: 'all' }) as any
+    const asked = ask.mock.calls.length
+    expect(await call(b, 'merge', { task: 'unit' })).not.toHaveProperty('isError')
+    expect(ctx.main.crew.merge).toHaveBeenLastCalledWith('unit', expect.objectContaining({ kind: 'mode' }), { override: true })
+    expect(ask).toHaveBeenCalledTimes(asked)
   })
   it('preserves placement consent, forbidden directories and cross-chat ownership at the bridge', async () => {
     fs.mkdirSync(home.data, { recursive: true })

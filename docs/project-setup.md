@@ -35,10 +35,10 @@ mode chosen in Settings) ticks the step too.
 
 | Step | Ticked when | What Genio asks or does |
 |---|---|---|
-| git repo | the folder is a git repo | Offers `git init` on `main`, a `.gitignore` for the engine, an `AGENTS.md` seed with the pitch and a first commit, through `project_init`, only on the player's yes. A GitHub repo only when they ask for it. |
+| git repo | the folder is a git repo | Offers `git init` on `main`, a `.gitignore` for the engine, an `AGENTS.md` seed with the pitch and a first commit, through `project_init`, when the player says yes. A GitHub repo only when they ask for it. |
 | the game in a sentence | the project has a description | Confirms or writes the pitch and saves it as the description. |
 | engine | an engine is detected | Says what was detected. With no engine files yet: Unity, create the project in Unity Hub in this folder; Godot, open the folder in Godot; web, offer a Build that scaffolds it. |
-| how work lands | Auto-loot is on or the delivery mode was chosen | "Merge green, in-scope work yourself (Auto-loot), or ask me each time?" Both need the player's words. |
+| how work lands | Auto-loot is on or the delivery mode was chosen | "Merge green, in-scope work yourself (Auto-loot), or ask me each time?" The player picks; Genio sets it. |
 | art direction | `.genio/art-bible.md` exists | Link an existing style doc, write a short Art Bible together, or skip. Skipped for apps unless asked. |
 | design one-pager | a note exists in `.genio/design/` | Points to Lore (Ctrl+7) to ask a Lore chat for a one-pager. Skipped for apps unless asked. |
 | tools | nothing is missing (Godot for Godot projects, gh for a GitHub remote) | Names what is missing; installing stays with the player. |
@@ -48,18 +48,19 @@ mode chosen in Settings) ticks the step too.
 
 ## project_init
 
-`project_init(world, engine?, pitch?, create_remote?, private_remote?, player_words)`
-starts the git repo of an opened folder. It refuses unless `player_words` quotes
-the player's own yes (a question, a "no" or Genio's own text never counts) and
-refuses the Bot. It keeps an existing `.gitignore` and `AGENTS.md`, commits
+`project_init(world, engine?, pitch?, create_remote?, private_remote?)`
+starts the git repo of an opened folder. The chat's approval mode decides whether
+the player is asked first ("Start the git repo in X with a first commit of
+everything in the folder?"; [chat-authority.md](chat-authority.md)); it refuses
+the Bot. It keeps an existing `.gitignore` and `AGENTS.md`, commits
 everything in the folder as the first commit, and fails clearly when git has no
 identity. The engine only picks the `.gitignore`; detection takes over when the
 engine's files appear. `create_remote` makes a GitHub repo with `gh` and pushes,
-and its words must agree to the repo. Genio then re-reads the folder: git
+and the same prompt names the repo. Genio then re-reads the folder: git
 present, delivery following the remote. Only that first commit is committed;
 everything setup writes later stays uncommitted.
 
-A delivery mode change through `world_update` needs the player's words too.
+A delivery mode change through `world_update` is cleared by the approval mode too.
 
 ## State
 
@@ -78,7 +79,8 @@ pointing to `procedure_read("setup")`, which holds the rules above.
 ## What setup never does
 
 - Deploy, spend, install, sign in, or change a setting, the delivery mode or the
-  Art Bible without the player's words for that exact thing.
+  Art Bible on its own initiative: the player picks, and the change then goes
+  through the approval mode (spend through its own approval).
 - Create an Art Bible or Lore note by itself, or open screens or panels.
 - Deploy because the quest log is empty.
 

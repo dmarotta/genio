@@ -10,6 +10,8 @@ export function mergeApprovalLabel(a: MergeApproval | undefined, max = 120): str
   if (!a) return undefined
   if (a.kind === 'autoloot') return 'Merged by Auto-loot'
   if (a.kind === 'ui-button') return 'Merged by you (Merge button)'
+  if (a.kind === 'prompt') return 'Merged by you (Allow once)'
+  if (a.kind === 'mode') return 'Merged by Genio in YOLO'
   const words = a.words ? `: "${clip(a.words, max)}"` : ''
   return a.kind === 'standing' ? `Merged on your standing word${words}` : `Merged on your word${words}`
 }

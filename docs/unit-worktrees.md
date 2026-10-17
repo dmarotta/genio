@@ -88,11 +88,11 @@ leftovers git no longer knows.
   touched. A live unit's link is left alone: the unit is told once through its inbox to remove it and run setup.
 - **Despawn.** The unit is stopped first (its agent and any terminal open in its copy). Its own `node_modules`
   link is removed before `git worktree remove`, so removing the worktree cannot reach through it. Work that has
-  not landed is refused, with the exact files and commits, unless the player discards it. Two paths can: the
+  not landed is refused, with the exact files and commits, unless it is discarded. Two paths can: the
   Despawn confirm's Discard click (the `cleanupTask` IPC, the only path that records `by: click`), and the chat's
-  despawn tool with force and the player's own verified words (`verifyDiscardWords` in `player-words.ts`: any
-  plain removal words, sent after the unit existed, naming it or replying to Genio's message about it; never a
-  question). Force only goes past what would be lost: a landed unit despawns as without it. The main copy and
+  despawn tool with force, cleared by the chat's approval mode (`by: prompt` for the player's Allow once, `by: mode`
+  in YOLO; [chat-authority.md](chat-authority.md)). Force only goes past what would be lost: a landed unit despawns
+  as without it, with no prompt. The main copy and
   any registered project's folder are never removed, forced or not. Deleting a copy takes from about 15 s
   to a minute, nearly all of it the copy's own `node_modules` (tens of thousands of files; `git worktree
   remove` is faster than `rmdir /s /q` there), so the unit page never waits on it: the unit leaves the

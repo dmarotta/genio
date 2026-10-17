@@ -355,7 +355,7 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
       return next
     },
 
-    async remove(name, deleteClone): Promise<OpResult> {
+    async remove(name, deleteClone, force = false): Promise<OpResult> {
       const p = svc.get(name)
       if (!p) return { ok: false, message: `Unknown project: ${name}` }
       const ctx = getCtx()
@@ -383,7 +383,7 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
           reasons.push('the clone has no remote: deleting it would lose the only copy')
         }
       }
-      if (reasons.length) return { ok: false, message: `Refusing to remove ${name}: ${reasons.join('; ')}.` }
+      if (reasons.length && !force) return { ok: false, message: `Refusing to remove ${name}: ${reasons.join('; ')}.` }
       if (deleteClone && p.managed && exists(p.path)) {
         try {
           fs.rmSync(p.path, { recursive: true, force: true, maxRetries: 3 })
@@ -393,7 +393,7 @@ export function createProjectsService(getCtx: () => AppCtx): ProjectsService {
       }
       save(load().filter((x) => x.name !== name))
       try {
-        ctx.ledger.record({ event: 'project.removed', project: name })
+        ctx.ledger.record({ event: 'project.removed', project: name, ...(force && reasons.length ? { data: { forced: reasons } } : {}) })
       } catch {
         /* ignore */
       }

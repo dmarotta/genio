@@ -13,7 +13,8 @@ const PLAYER_FACING_TOOLS: Record<string, string> = {
   deploy: 'deploy', merge: 'move', run_gauntlet: 'squad', quest_add: 'quests', plan_create: 'plans', plan_update: 'plans',
   world_add: 'worlds', world_push: 'world_push', project_setup: 'setup',
   memory_write: 'memory', generate_image: 'generate_image', rate_task: 'rate_task',
-  loadout_preview: 'loadout_preview', assets_find: 'assets_find', asset_locate: 'asset_locate'
+  loadout_preview: 'loadout_preview', assets_find: 'assets_find', asset_locate: 'asset_locate',
+  run_command: 'run_command', write_file: 'run_command'
 }
 // Supporting reads, orchestration and maintenance. New tools must be classified
 // explicitly so adding a registration cannot silently bypass the coverage guard.

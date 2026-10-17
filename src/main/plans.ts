@@ -552,7 +552,7 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
     save()
     if (pause) resolvePauseChoice({ ...p, pause }, PAUSE_OPTIONS[2])
     ledger('plan.cancelled', p)
-    return `plan cancelled${dropped.length ? `; dropped step ${dropped.join(', ')}` : ''}${running.length ? `; step ${running.join(', ')} keeps running (recall it with control exit only on the player's word)` : ''}`
+    return `plan cancelled${dropped.length ? `; dropped step ${dropped.join(', ')}` : ''}${running.length ? `; step ${running.join(', ')} keeps running (recall it with control exit if the player wants it)` : ''}`
   }
 
   // ------------------------------------------------------------- service

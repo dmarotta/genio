@@ -125,10 +125,12 @@ reach the chat as `mcp__<server>__<tool>`.
 - **Approval** (`src/main/chat-tool-policy.ts`). Your tools follow the chat's approval mode: in Ask and Auto-approve shell
   they go to the permission prompt every time; in YOLO they run. Only `mcp__genio__*` carries Genio's authority
   (deploy, merge, discard, spend, placement), and no server may be called `genio`, so a server's tool never stands in
-  for Genio's guarded tools; the chat's rules say not to use one to bypass a guard.
-- **Subagent guard.** The chat denies Claude Code's own delegation tools (Agent, Task, Workflow, Cron, RemoteTrigger,
-  SendMessage, Monitor and similar). That word match applies to Claude Code's tool names only, so a server tool such as
-  `list_workflow_runs`, `get_remote_config` or `monitor_list` is an ordinary tool.
+  for Genio's own tools.
+- **Claude Code's own tools.** Edits, writes and delegation tools (Agent, Task, Workflow, Cron, Monitor and similar)
+  follow the same approval mode as your tools ([chat-authority.md](chat-authority.md)); only the Bot denies them, by
+  a word match on Claude Code's tool names only, so a server tool such as `list_workflow_runs`, `get_remote_config` or
+  `monitor_list` is an ordinary tool. A tool input that names your credentials, logins or spend records is refused in
+  every mode.
 - **Tool search.** Genio's own server is always loaded. Your servers' tools are deferred behind Claude Code's tool
   search when it is on: their schemas are not in each request until the model searches for them.
 - **Sign-in and refused credentials.** The chat's model gets a plain instruction to tell you, for example: "`<server>`
@@ -137,7 +139,7 @@ reach the chat as `mcp__<server>__<tool>`.
   to a timeline.
 - **The Bot** keeps only its guarded bridge: no server, and its policy denies any other tool.
 - **The Codex chat** gets none. It blocks every tool that is not one of Genio's own, MCP included, even in YOLO, by
-  design; after a switch to a Codex model your tools are simply absent. To use a server from a Codex chat, ask it to
+  design; after a switch to a Codex model your tools are simply absent (it runs commands and edits files through Genio's own run_command and write_file). To use a server from a Codex chat, ask it to
   deploy a unit: units have the servers.
 - **Lore chats** get none; they only read and talk.
 
@@ -226,7 +228,7 @@ real vendor server and no real account was tested, and Electron's `safeStorage` 
 The Claude chat (2026-10-17): `tests/chat-mcp.test.ts` starts the chat's relay entries exactly as Claude Code does
 and lists and calls the local test server through the gateway (scope, cwd, no unit key, the call log, a new session
 revoking the old secret), checks the plain-words sign-in answer, the Ask, Auto-approve shell and YOLO paths, the Bot's
-denial, the narrower subagent guard and that Genio's own tools are unaffected. `tests/e2e/mcp-chat.e2e.ts`
+denial, the Bot's narrower delegation-tool match and that Genio's own tools are unaffected. `tests/e2e/mcp-chat.e2e.ts`
 (`npm run test:e2e -- mcp-chat`) runs the chat's shape with the real Agent SDK (Claude Code 2.1.302) against a fake
 model endpoint in a throwaway home, with `ENABLE_TOOL_SEARCH=true`: the first request offered `ToolSearch` and
 Genio's tool but not the server's; after a search the server's tool came with `defer_loading`, went through Genio's

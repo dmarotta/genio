@@ -56,7 +56,7 @@ Vocabulary is gaming, not nautical: see [VOCABULARY.md](VOCABULARY.md).
 | fleet ledger | `ledger.ts` | Replay log |
 | process-event sources | `settings.eventSources` | SYSTEMS › Triggers |
 | calm mode | `settings.calm` | Clean chat |
-| seatbelt / subagent guard | `canUseTool` policy in `wksp.ts` | permission prompt |
+| seatbelt | `canUseTool` policy in `wksp.ts` and `clearAction` in `chat-tool-policy.ts`: the approval mode alone decides ([chat-authority.md](chat-authority.md)) | permission prompt |
 | voice relay | text-to-speech of Genio replies (`voice.ts`: the opt-in Kokoro voice through `voice-output.ts` and its helper process, else the Windows voice) and push-to-talk voice input with a local Whisper model (`voice-input.ts`, [voice.md](voice.md)) | Read replies aloud toggle, mic button / F8 |
 
 Game-dev additions: engine detection (Godot, Unity, Unreal, Bevy, LÖVE,
@@ -99,7 +99,7 @@ pool ([player-instance.md](player-instance.md)). The rest serves units and Genio
   visible slot editor windows, slot states and Close slot editor,
   through `PlayService` in `play.ts`.
 - **Genio's chat tools** `play_status`, `play_frame`, `play_console`,
-  `play_stats` and `play_control` (player's quoted words only) drive the
+  `play_stats` and `play_control` (cleared by the chat's approval mode) drive the
   project's main editor through the Pipeline adapter (`play-unity.ts`) under the
   pool's main lease; `play_slot_recover` closes a stuck slot editor.
 
@@ -200,14 +200,16 @@ fire the alarm.
 - **Offline** (`local-only`): the unit leaves a clean fast-forward branch:
   `done: ready in branch <b>`.
 - **Auto-loot** (`yolo`, per project, granted by the Player) lets Genio merge
-  green, in-scope work itself. Never merge red, pending or draft work.
-  Destructive things always escalate.
+  green, in-scope work itself. Any other merge from the chat (red, still
+  running or draft PRs included) is cleared by the chat's approval mode: the
+  permission prompt in Ask and Auto-approve shell, straight through in YOLO.
+  The Bot merges only under Auto-loot.
 
 Despawn refuses unlanded work: uncommitted changes, or commits that are not
 reachable from any remote-tracking branch, not in base, and not in a merged PR.
-Forcing requires the Player's word: a click on Discard in the unit page's
-Despawn confirm, or their own chat message telling Genio to get rid of that
-unit (verified like a merge approval).
+Forcing it discards that work: a click on Discard in the unit page's Despawn
+confirm, or the chat's `despawn force=true`, cleared by its approval mode
+("Discard unit X and its unmerged work?"). See [chat-authority.md](chat-authority.md).
 
 ## Base layout
 

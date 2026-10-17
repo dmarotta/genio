@@ -60,19 +60,31 @@ Source: [ARCHITECTURE.md](../ARCHITECTURE.md)
 
 ## Auto-loot
 
-A per-project switch that lets Genio merge finished, green, in-scope Builds without asking you. Red, pending, draft,
-destructive or risky work still waits for your word. Off by default; only you can turn it on.
+A per-project switch that lets Genio merge finished, green, in-scope Builds without asking you. Red, still running or
+draft work is not covered: merging it goes through the chat's approval mode. Off by default; Genio can turn it on
+for you, through the approval mode too.
 Where: Settings → This project → Delivery → Merge finished work automatically.
 Source: [ARCHITECTURE.md](../ARCHITECTURE.md), [VOCABULARY.md](../VOCABULARY.md)
 
+## Approval mode
+
+How much the chat asks you before it acts: Ask (anything that changes something asks first), Auto-approve shell
+(commands run, everything else asks) or YOLO (nothing asks). It is the only thing that decides whether Genio needs
+your OK for its own actions: merging, discarding a unit's work, relaunching a held unit, editing files, committing,
+creating a GitHub repository, turning on Auto-loot. When it asks, the permission prompt says in one line what will
+happen; your Allow once is the approval, and Genio records it. Typing "yes" in chat does not answer the prompt.
+It never approves spending, and Genio never reads or changes your logins, keys or spend records in any mode.
+Where: the approval-mode button under the chat box (Shift+Tab cycles it).
+Source: [chat-authority.md](../chat-authority.md)
+
 ## Merge approval
 
-Without Auto-loot, every merge needs you. Genio announces ready work and merges when you clearly say so in chat
-(naming the work, "everything", or "merge it" in reply to its message), when you answer yes to its "Merge now?"
-choice, or under a standing approval. Questions, maybes and design picks are not approval. Genio checks your words
-itself and records every approval.
+Genio merges on its own under Auto-loot or a standing approval, and when you click yes on its "Merge now?" choice.
+Otherwise a merge follows the approval mode: in Ask and Auto-approve shell you get a prompt ("Merge u-3 ("Menu
+rework"): its PR …?"), in YOLO it merges. A red PR, one still running checks or a draft can be merged too, and the
+prompt says so. Every merge records what approved it.
 Where: the ready unit's Merge button in Squad, the "Merge now?" choice card, or chat.
-Source: [squad-display.md](../squad-display.md), the chat contract (src/main/prompts.ts)
+Source: [chat-authority.md](../chat-authority.md), [squad-display.md](../squad-display.md)
 
 ## Standing approval
 
@@ -181,9 +193,9 @@ Source: [squad-display.md](../squad-display.md)
 
 Despawn removes a unit: Genio stops it, deletes its copy and branch, and keeps its record. When its work is not
 merged, one question asks "Discard this unit and its unmerged work?"; Discard does it at once: the unit disappears
-right away while its copy is deleted in the background, and comes back with the reason if that fails. In chat, tell Genio to
-get rid of a unit in any plain words (kill, remove, drop, discard…) and name it or reply to its message about it.
-Genio never discards work on its own, and never touches your main copy or other units.
+right away while its copy is deleted in the background, and comes back with the reason if that fails. In chat, Genio
+can discard a unit's work too; the approval mode decides whether you get the same question first. It never removes
+your main copy.
 Where: a unit page's More → Despawn…, or chat.
 Source: [squad-display.md](../squad-display.md), [unit-worktrees.md](../unit-worktrees.md)
 
@@ -458,7 +470,7 @@ Source: [VOCABULARY.md](../VOCABULARY.md)
 ## Worktrees
 
 Each unit's isolated copy of the project: a git worktree on its own branch, with its own node_modules. Your main copy
-is only read. Despawning a unit removes its copy; work that is not merged goes only after you confirm Discard.
+is only read. Despawning a unit removes its copy; work that is not merged goes only after you confirm Discard, or when the chat's approval mode lets Genio discard it.
 Where: a unit page's More → Open folder; Despawn in the same menu.
 Source: [unit-worktrees.md](../unit-worktrees.md)
 

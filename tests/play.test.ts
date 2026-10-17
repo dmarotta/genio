@@ -81,23 +81,21 @@ it('serializes the safety preflight and control and maps normalized clicks to re
   await expect(adapter.act({type:'scene',path:'Assets/Game.unity'})).rejects.toThrow('Stop Play')
   await expect(adapter.act({type:'pointer',x:2,y:0})).rejects.toThrow('normalized')
 })
-it('binds Unity slots to the owning project window and gates Genio actions on player words', async () => {
+it('binds Unity slots to the owning project window', async () => {
   expect(() => assertProjectWindow(undefined, 'game')).toThrow('bound')
   expect(() => assertProjectWindow({project:'game'}, 'other')).toThrow('bound')
   expect(() => assertProjectWindow({project:'game'}, 'game')).not.toThrow()
-  const svc = new PlayService({} as AppCtx)
-  await expect(svc.act('game', {type:'play'}, ' ')).rejects.toThrow('player_words')
 })
 it('drives the main editor for Genio under the main lease, with no stream, step or resolution commands', async () => {
   const data = path.join(root, 'genio-data')
   const unlocked: string[] = []
   const ctx = { projects: { get: () => ({ path: root, engine: 'unity' }) }, main: { home: { data } }, stats: { unlock: (id: string) => unlocked.push(id) } } as unknown as AppCtx
   const svc = new PlayService(ctx)
-  await svc.act('game', { type: 'play' }, 'press play')
+  await svc.act('game', { type: 'play' })
   expect((await svc.status('game')).state).toBe('playing')
   expect((await svc.frame('game', 64, 36)).base64).toBe(png)
   expect(unlocked).toEqual(['play-first', 'play-observed'])
   expect(JSON.parse(fs.readFileSync(path.join(svc.pool('game').dir, 'state.json'), 'utf8')).main.pid).toBe(process.pid)
-  await expect(svc.act('game', { type: 'step' } as never, 'step')).rejects.toThrow('Unknown Play action')
+  await expect(svc.act('game', { type: 'step' } as never)).rejects.toThrow('Unknown Play action')
   expect(requests.some(r => /^genio_/.test(r.command))).toBe(false)
 })

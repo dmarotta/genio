@@ -56,19 +56,28 @@ describe('dependency hardening on every start path', () => {
     await expect(hc.crew.spawn(req)).rejects.toThrow('reserve reached')
   })
 
-  it('deploy(quest_id) is refused while it waits, and force needs the player\'s own words', async () => {
+  it('deploy(quest_id) is refused while it waits, and force is cleared by the approval mode, never by quoted words', async () => {
     const { first, second } = chain()
+    let mode = 'ask'
+    const ask = vi.fn(async () => false)
+    Object.assign(ctx, { settings: { get: () => ({ chatShellMode: mode }), harness: () => undefined }, permissions: { ask } })
     const deploy = createToolRegistry(() => ctx, home, 'genio').find(t => t.name === 'deploy')!
     const args = { kind: 'ship', world: 'world', title: second.title, intent: 'wire the Gauntlet', quest_id: second.id }
     const refused = await deploy.invoke(args)
     expect(refused).toMatchObject({ isError: true, content: [{ text: expect.stringContaining(`waits on ${first.id}`) }] })
-    expect(await deploy.invoke({ ...args, force: true, player_words: 'start step 2 now anyway' })).toMatchObject({ isError: true })
-    expect(ctx.dispatch.reserve).not.toHaveBeenCalled()
+    // The player's own words in chat do not answer the prompt; Deny starts nothing.
     playerSays('start step 2 now anyway')
-    expect(await deploy.invoke({ ...args, force: true, player_words: 'start step 2 now anyway' })).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('reserve reached') }] })
+    expect(await deploy.invoke({ ...args, force: true, player_words: 'start step 2 now anyway' })).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('denied') }] })
+    expect(ask).toHaveBeenCalledWith(expect.objectContaining({ tool: 'deploy', input: expect.stringContaining('before the work it waits on lands') }))
+    expect(ctx.dispatch.reserve).not.toHaveBeenCalled()
+    ask.mockResolvedValueOnce(true)
+    expect(await deploy.invoke({ ...args, force: true })).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('reserve reached') }] })
     expect(ctx.dispatch.reserve).toHaveBeenCalledOnce()
+    mode = 'all'
+    expect(await deploy.invoke({ ...args, force: true })).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('reserve reached') }] })
+    expect(ask).toHaveBeenCalledTimes(2)
     const bot = createToolRegistry(() => ctx, home, 'bot').find(t => t.name === 'deploy')!
-    expect(await bot.invoke({ ...args, force: true, player_words: 'start step 2 now anyway' })).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('waits for the player') }] })
+    expect(await bot.invoke({ ...args, force: true })).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('waits for the player') }] })
   })
 
   it('the quest page Dispatch button refuses with "waits on", and Dispatch anyway records the player\'s click for one launch', async () => {

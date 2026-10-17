@@ -166,9 +166,11 @@ describe('the chat policy for player MCP tools', () => {
     for (const n of names) for (const mode of ['ask', 'auto-shell', 'all'] as const) expect(decideTool('bot', n, {}, mode).behavior, n).toBe('deny')
   })
 
-  it('keeps the subagent guard on Claude Code tools and Genio tools allowed', () => {
+  it('puts Claude Code\'s own delegation tools under the approval mode, keeps them from the Bot, and Genio tools allowed', () => {
     for (const n of ['Workflow', 'RemoteTrigger', 'Monitor', 'CronCreate', 'TaskCreate', 'ScheduleWakeup', 'ListAgents', 'SendMessage', 'Agent']) {
-      for (const mode of ['ask', 'all'] as const) expect(decideTool('genio', n, {}, mode).behavior, n).toBe('deny')
+      expect(decideTool('genio', n, {}, 'ask').behavior, n).toBe('ask')
+      expect(decideTool('genio', n, {}, 'all').behavior, n).toBe('allow')
+      expect(decideTool('bot', n, {}, 'all').behavior, n).toBe('deny')
     }
     for (const n of ['mcp__genio__deploy', 'mcp__genio__merge', 'mcp__genio__fal_generate']) expect(decideTool('genio', n, {}, 'ask')).toEqual({ behavior: 'allow' })
   })

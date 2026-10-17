@@ -131,7 +131,7 @@ describe('the design tool role', () => {
 
     // reads work; the Art Bible stays read-only and images stay in the chat
     expect(await session.call('memory_read', { which: 'player' })).not.toHaveProperty('isError')
-    expect(await session.call('art_bible', { world: 'game', action: 'write', text: '# Art', player_words: 'write it' }))
+    expect(await session.call('art_bible', { world: 'game', action: 'write', text: '# Art' }))
       .toMatchObject({ isError: true, content: [{ text: expect.stringMatching(/only reads the Art Bible/) }] })
     expect(await session.call('generate_image', { prompt: 'a knight', world: 'game', place: 'Art/knight.png', player_words: 'make it' }))
       .toMatchObject({ isError: true, content: [{ text: expect.stringMatching(/stay in this chat/) }] })

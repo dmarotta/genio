@@ -682,7 +682,7 @@ function Composer({ wksp, conversation, steerable = false, fill, context }: { wk
 const SHELL_MODES: { id: Settings['chatShellMode']; label: string; hint: string }[] = [
   { id: 'ask', label: 'Ask', hint: 'Read-only commands run; anything else asks you first.' },
   { id: 'auto-shell', label: 'Auto-approve shell', hint: 'Every Bash/PowerShell command in this chat runs without asking. Other tools still ask; the Bot stays read-only.' },
-  { id: 'all', label: 'YOLO', hint: 'Nothing will ask for permission: every command and tool this chat can use runs without asking. The Bot stays read-only.' }
+  { id: 'all', label: 'YOLO', hint: 'Nothing asks but spending and Fable or Astra launches: every command, edit, merge and discard this chat can do runs without asking. The Bot stays read-only.' }
 ]
 
 /** This chat's saved controls: Genio settings for the main chat, the ally's own values (falling back to Genio's) for an ally. */

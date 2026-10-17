@@ -113,14 +113,22 @@ describe('non-destructive lifecycle recovery', () => {
     expect(ctx.main.backlog.get(quest.id)).toMatchObject({ state: 'done', outcome: 'https://example.com/pull/9' })
   })
 
-  it('holds automatic repeats; chat resumes a held unit only on the player\'s own words, the UI Respawn needs none', async () => {
+  it('holds automatic repeats; the chat resumes a held unit once its approval mode clears it, the UI Respawn needs nothing', async () => {
     const crew = ctx.main.crew
     expect((await crew.control(task.id, 'relaunch')).ok).toBe(false)
     const tool = createToolRegistry(() => ctx, home, 'genio').find(t => t.name === 'control')!
-    expect(await tool.invoke({ task: task.id, action: 'relaunch' })).toMatchObject({ isError: true })
-    expect(await tool.invoke({ task: task.id, action: 'relaunch', player_words: 'respawn it' })).toMatchObject({ isError: true })
+    // The player's own words in chat do not answer the prompt: only their click does. Deny keeps it held.
     playerSays('respawn it')
-    expect(await tool.invoke({ task: task.id, action: 'relaunch', player_words: 'respawn it' })).not.toHaveProperty('isError')
+    const denied = tool.invoke({ task: task.id, action: 'relaunch', player_words: 'respawn it' })
+    const ask = await approval()
+    expect(ask).toMatchObject({ tool: 'control', input: 'Relaunch unit? It is held after its automatic relaunch.' })
+    ctx.permissions.resolve(ask.id, false)
+    expect(await denied).toMatchObject({ isError: true })
+    expect(crew.get(task.id)).toMatchObject({ automaticRelaunches: 1, relaunches: 1 })
+    expect(ctx.terminals.create).not.toHaveBeenCalled()
+    const allowed = tool.invoke({ task: task.id, action: 'relaunch' })
+    ctx.permissions.resolve((await approval()).id, true)
+    expect(await allowed).not.toHaveProperty('isError')
     expect(crew.get(task.id)).toMatchObject({ state: 'working', automaticRelaunches: 0, relaunches: 2, branch: task.branch, worktree: task.worktree })
     crew.update(task.id, { automaticRelaunches: 1 })
     registerIpc(() => ctx)
@@ -145,10 +153,12 @@ describe('non-destructive lifecycle recovery', () => {
   it('allows repeated deliberate chat relaunches and a fresh automatic retry afterward', async () => {
     const crew = ctx.main.crew
     const tool = createToolRegistry(() => ctx, home, 'ally').find(t => t.name === 'control')!
-    playerSays('resume the unit')
+    // YOLO clears the held relaunch with no prompt
+    ctx.settings.get = () => ({ chatShellMode: 'all' }) as any
     for (let i = 0; i < 3; i++) {
       crew.update(task.id, { automaticRelaunches: 1 })
-      expect(await tool.invoke({ task: task.id, action: 'relaunch', player_words: 'resume the unit' })).not.toHaveProperty('isError')
+      expect(await tool.invoke({ task: task.id, action: 'relaunch' })).not.toHaveProperty('isError')
+      expect(ctx.permissions.pending()).toHaveLength(0)
       expect(crew.get(task.id)?.automaticRelaunches).toBe(0)
     }
     expect((await crew.control(task.id, 'relaunch')).ok).toBe(true)

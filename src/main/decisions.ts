@@ -363,7 +363,7 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
         d.action?.kind === 'engine-root'
           ? 'Genio pins a picked engine root itself in .genio/project.json (uncommitted); deploy nothing. Tell the player to commit it; "Keep detecting automatically" needs nothing.'
           : d.action?.kind === 'merge-approval'
-          ? `This was the merge choice for unit ${d.action.task}. If the answer approves it, merge it now with merge(task=${d.action.task}): the answer is the player's approval, no player_words needed. Any other answer: leave it ready and do not merge.`
+          ? `This was the merge choice for unit ${d.action.task}. If the answer approves it, merge it now with merge(task=${d.action.task}): an answer from the choice panel is the player's approval and merge needs no prompt. Any other answer: leave it ready and do not merge.`
           : d.action?.kind === 'spend-grant'
           ? `This was unit ${d.action.task}'s spend question (USD ${d.action.usd}). Genio already recorded the grant if the player's own answer approved it (nothing for any other answer) and pinged the unit. Do nothing else, and never approve spending yourself.`
           : d.action?.kind === 'plan-paused'

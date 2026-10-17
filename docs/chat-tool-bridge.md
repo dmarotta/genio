@@ -2,7 +2,7 @@
 
 `src/main/wksp-tools.ts` now owns Genio's names, Zod schemas, handlers and existing role guards. `wksp-sdk-tools.ts` contains the extracted Claude SDK adapter; `wksp-tools.ts` re-exports it for existing callers. Keeping the registrations at their original source location also preserves the existing achievement coverage check unchanged. Both adapters validate arguments and invoke the same service handlers in the existing `AppCtx`. No second application, fleet manager or worker harness is started.
 
-`chat-tool-policy.ts` owns the existing Claude policy and the common asynchronous `enforceTool` interface. It reads the current approval mode at call time and uses `AppCtx.permissions.ask`, so the existing permission UI and Ask / Auto-approve shell / YOLO behavior are preserved. Registered Genio tools retain their handler-owned consent checks; YOLO does not bypass merge or placement guards.
+`chat-tool-policy.ts` owns the existing Claude policy and the common asynchronous `enforceTool` interface. It reads the current approval mode at call time and uses `AppCtx.permissions.ask`, so the existing permission UI and Ask / Auto-approve shell / YOLO behavior are preserved. Registered Genio tools clear their own destructive and outward-facing steps through `clearAction`, which asks the same broker according to the same mode, whichever runtime called them ([chat authority](chat-authority.md)); spend and placement keep their own approvals, which YOLO does not bypass.
 
 ## Opening a runtime session
 
@@ -25,10 +25,10 @@ The helper implements newline-delimited stdio MCP initialize, ping, tool discove
 
 `chatDriverCapabilities` feeds the catalogue's `canDrive` gate. Claude and Codex are drivers; Codex discovery/startup validate authentication and native confinement before sending any prompt. Gemini and OpenCode remain consultation-only capabilities. See [chat drivers](chat-drivers.md) for lifecycle and release gates.
 
-The common enforcer denies **every** non-Claude native identity, including shell/edit/subagent/plugin aliases and names impersonating `mcp__genio__*`, even under YOLO. A future adapter must prove that native tools and global plugins cannot bypass the enforcer before enabling its driver capability. Merely installing this MCP server is insufficient. Never copy launch settings from `harness.ts`: those are worker settings, not chat settings.
+The common enforcer denies **every** non-Claude native identity, including shell/edit/subagent/plugin aliases and names impersonating `mcp__genio__*`, even under YOLO. The Codex chat reaches commands and edits through Genio's own `run_command` and `write_file`, under the approval mode like the Claude chat's native tools. A future adapter must prove that native tools and global plugins cannot bypass the enforcer before enabling its driver capability. Merely installing this MCP server is insufficient. Never copy launch settings from `harness.ts`: those are worker settings, not chat settings.
 
 The driver layer owns provider sessions, bounded handoff, achievements and AFK inheritance. The bridge never selects a provider or introduces a paid fallback.
 
 ## Verification
 
-`tests/chat-tool-bridge.test.ts` exercises real loopback HTTP and the shipped stdio process, authentication, token rotation, scope forgery, Bot denial, merge and placement guards, SDK result parity, approval modes, native-tool denial, rate/body limits and chat shutdown. Existing SDK tool and policy tests run unchanged.
+`tests/chat-tool-bridge.test.ts` exercises real loopback HTTP and the shipped stdio process, authentication, token rotation, scope forgery, Bot denial, merge clearance by approval mode, placement guards, SDK result parity, approval modes, native-tool denial, rate/body limits and chat shutdown. `tests/chat-authority.test.ts` covers every guarded action in each mode.

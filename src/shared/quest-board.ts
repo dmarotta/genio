@@ -60,7 +60,7 @@ export const unitFinished = (t: Task): boolean =>
  */
 export const unitDiscarded = (t: Task): boolean =>
   t.state === 'cleaned' && !t.landedAt && t.pr?.state !== 'MERGED' &&
-  (!!t.discarded || /despawned: (forced by the player|recon ended without a report)/.test(t.stateReason ?? ''))
+  (!!t.discarded || /despawned: (forced by the player|forced in YOLO|recon ended without a report)/.test(t.stateReason ?? ''))
 
 /**
  * Column for a quest given its unit. A quest follows its unit: a live unit puts

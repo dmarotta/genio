@@ -41,12 +41,13 @@ function declaredRoot(projectPath: string, raw: string): string {
   return root
 }
 
-export interface DeclareRequest { world: string; root: string; playerWords?: string; actor: ToolRole | 'player' }
+/** playerWords: the player's answer to the engine choice; approval: how the chat's request was cleared (Allow once or YOLO). */
+export interface DeclareRequest { world: string; root: string; playerWords?: string; approval?: 'prompt' | 'mode'; actor: ToolRole | 'player' }
 
 /** Pin the engine root in the repo, then rescan. Never on the Bot's or Genio's own judgment. */
 export async function declareEngineRoot(ctx: AppCtx, a: DeclareRequest): Promise<string> {
   if (a.actor === 'bot') throw new Error('The Bot cannot pin the engine root; it waits for the player')
-  if (!a.playerWords?.trim()) throw new Error("Pinning the engine root needs player_words quoting the player's explicit instruction")
+  if (!a.playerWords?.trim() && !a.approval) throw new Error("Pinning the engine root needs the player's answer or the chat's cleared request")
   const project = ctx.projects.get(a.world)
   if (!project) throw new Error(`Unknown project: ${a.world}`)
   const root = declaredRoot(project.path, a.root)
@@ -58,7 +59,7 @@ export async function declareEngineRoot(ctx: AppCtx, a: DeclareRequest): Promise
   fs.mkdirSync(path.dirname(file), { recursive: true })
   fs.writeFileSync(file, JSON.stringify({ ...current, engineRoot: root }, null, 2) + '\n', 'utf8')
   try {
-    ctx.ledger.record({ event: 'project.engine_declared', project: project.name, data: { root, engine: marker.engine, playerWords: a.playerWords.trim() } })
+    ctx.ledger.record({ event: 'project.engine_declared', project: project.name, data: { root, engine: marker.engine, ...(a.playerWords?.trim() ? { playerWords: a.playerWords.trim() } : {}), ...(a.approval ? { approval: a.approval } : {}) } })
   } catch { /* optional */ }
   await ctx.projects.rescan(project.name).catch(() => undefined)
   const now = effectiveEngine(ctx.projects.get(project.name) ?? project)

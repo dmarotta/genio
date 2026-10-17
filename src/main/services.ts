@@ -50,7 +50,8 @@ export interface ProjectsService {
   init(name: string, req: ProjectInitRequest): Promise<Project>
   update(name: string, patch: Partial<Project>): Project
   /** preflight refuses while work is in flight/queued or unlanded worktrees exist */
-  remove(name: string, deleteClone: boolean): Promise<OpResult>
+  /** force: past the preflight (live units, open quests, unpushed work), once the chat's request was cleared */
+  remove(name: string, deleteClone: boolean, force?: boolean): Promise<OpResult>
   /** guarded fleet sync (fast-forward default branch, prune merged gone branches) */
   sync(name?: string): Promise<OpResult>
   /** re-detect each world's engine (git repos and ordinary folders) and re-read its remote; auto modes follow a changed remote (manual ones are kept). Returns notices. */
@@ -193,7 +194,8 @@ export interface ForgeService {
     message?: string
   }>
   /** guarded merge: refuses draft/conflicting/red/pending; squash with --match-head-commit; reads back */
-  merge(url: string, cwd?: string): Promise<OpResult>
+  /** override: the player (or YOLO) cleared merging it red, still running or as a draft; conflicts still refuse */
+  merge(url: string, cwd?: string, opts?: { override?: boolean }): Promise<OpResult>
   findPrForBranch(cwd: string, branch: string): Promise<string | undefined>
   myOpenPrs(): Promise<{ url: string; title: string; repo: string; checks: string }[]>
 }
@@ -334,9 +336,9 @@ export interface CrewService {
   send(id: string, text: string, resolveKeys?: string[]): Promise<OpResult>
   control(id: string, action: 'interrupt' | 'exit' | 'relaunch', note?: string, manual?: boolean): Promise<OpResult>
   /** force discards unlanded work; by = who said so: the player's click (Despawn confirm) or their verified chat words */
-  cleanup(id: string, force?: boolean, by?: 'click' | 'words'): Promise<OpResult>
+  cleanup(id: string, force?: boolean, by?: 'click' | 'prompt' | 'mode'): Promise<OpResult>
   /** approval: what authorized it, recorded on the task and in the ledger */
-  merge(id: string, approval?: import('@shared/types').MergeApproval): Promise<OpResult>
+  merge(id: string, approval?: import('@shared/types').MergeApproval, opts?: { override?: boolean }): Promise<OpResult>
   promote(id: string, intent?: string): Promise<Task>
   /** run the no-mistakes validation pipeline (review → fixes → checks → push → PR → CI) */
   validate(id: string): Promise<OpResult>

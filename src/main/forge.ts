@@ -112,16 +112,21 @@ export function createForgeService(getCtx: () => AppCtx): ForgeService {
       }
     },
 
-    async merge(url, cwd): Promise<OpResult> {
+    async merge(url, cwd, opts = {}): Promise<OpResult> {
       const v = await svc.view(url, cwd)
       if (!v.ok) return { ok: false, message: `Could not read the PR: ${v.message ?? 'unknown error'}` }
       if (v.state === 'MERGED') return { ok: true, message: `Already merged: ${url}` }
       if (v.state !== 'OPEN') return { ok: false, message: `PR is ${v.state?.toLowerCase()}, not open: ${url}` }
-      if (v.isDraft) return { ok: false, message: `PR is a draft; refusing to merge: ${url}` }
+      if (v.isDraft && !opts.override) return { ok: false, message: `PR is a draft; refusing to merge: ${url}` }
       if (v.mergeable === 'CONFLICTING') return { ok: false, message: `PR has merge conflicts; the unit must rebase first: ${url}` }
-      if (v.checks === 'failing') return { ok: false, message: `Refusing to merge a red PR. Failing checks: ${v.failing.join(', ')}` }
-      if (v.checks === 'pending') return { ok: false, message: `Checks still running: ${v.pending.join(', ')}. Merge once they report green.` }
+      if (v.checks === 'failing' && !opts.override) return { ok: false, message: `Refusing to merge a red PR. Failing checks: ${v.failing.join(', ')}` }
+      if (v.checks === 'pending' && !opts.override) return { ok: false, message: `Checks still running: ${v.pending.join(', ')}. Merge once they report green.` }
       let r: ExecResult
+      // A cleared draft is marked ready first: the forge never squash-merges a draft.
+      if (v.isDraft) {
+        r = isGitlab(url) ? await tool('glab', ['mr', 'update', url, '--ready'], cwd) : await tool('gh', ['pr', 'ready', url], cwd)
+        if (r.code !== 0) return { ok: false, message: `Could not mark the draft ready: ${(r.stderr || r.stdout).trim()}` }
+      }
       if (isGitlab(url)) {
         r = await tool('glab', ['mr', 'merge', url, '--squash', '--yes', ...(v.headSha ? ['--sha', v.headSha] : [])], cwd, 300_000)
       } else {

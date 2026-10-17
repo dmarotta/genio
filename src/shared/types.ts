@@ -253,9 +253,12 @@ export interface Task {
   mergeApproval?: MergeApproval
 }
 
-/** The authority behind one merge: Auto-loot, the player's verified words, a standing approval, or the Merge button. */
+/**
+ * The authority behind one merge: Auto-loot, a standing approval, the player's answer to its Merge now? choice
+ * (specific), the Merge button, the player's Allow once on the chat's permission prompt, or the chat's YOLO approval mode.
+ */
 export interface MergeApproval {
-  kind: 'autoloot' | 'specific' | 'standing' | 'ui-button'
+  kind: 'autoloot' | 'specific' | 'standing' | 'ui-button' | 'prompt' | 'mode'
   at: string
   /** the player's words, quoted from a real player message (or their answer to a merge choice) */
   words?: string
@@ -687,7 +690,7 @@ export interface LedgerRecord {
     | 'task.dispatched' | 'task.status' | 'task.pr_ready' | 'task.merged' | 'task.cleaned_up' | 'task.relaunched'
     | 'decision.opened' | 'decision.resolved' | 'backlog.added' | 'backlog.state'
     | 'project.added' | 'project.initialized' | 'project.removed' | 'project.remote_changed' | 'project.engine_changed' | 'project.pushed' | 'project.push_refused' | 'project.engine_declared'
-    | 'presence.changed' | 'achievement' | 'approval.standing' | 'approval.revoked' | 'spend.granted'
+    | 'presence.changed' | 'achievement' | 'approval.standing' | 'approval.revoked' | 'approval.action' | 'spend.granted'
   task?: string
   project?: string
   data?: Record<string, unknown>

@@ -149,15 +149,22 @@ describe('dislike grace period', () => {
     expect(paused.lines.join('\n')).toContain('Interrupted and paused Build u1')
     expect(paused.lines.join('\n')).toContain('Merge on hold for Build u3')
 
-    // Genio's own tools wait for the player's answer
+    // Going past the dislike is the chat's call, cleared by its approval mode: here the player denies each prompt
+    const ask = vi.fn(async () => false)
+    Object.assign(ctx, { permissions: { ask } })
     const tools = createToolRegistry(() => ctx, home, 'genio')
     const tool = (name: string) => tools.find(t => t.name === name)!
     const merge = vi.spyOn(hc.crew, 'merge')
-    expect((await tool('merge').invoke({ task: 'u3', player_words: 'merge it' })).content[0]).toMatchObject({ text: expect.stringContaining(`paused by the player's dislike; wait for their answer to choice ${d.id}`) })
+    expect((await tool('merge').invoke({ task: 'u3', player_words: 'merge it' })).content[0]).toMatchObject({ text: expect.stringContaining('Dani denied it: Merge u3') })
+    expect(ask).toHaveBeenLastCalledWith(expect.objectContaining({ tool: 'merge', input: expect.stringContaining('Your dislike paused it') }))
     expect(merge).not.toHaveBeenCalled()
     expect((await tool('control').invoke({ task: 'u1', action: 'relaunch' })).isError).toBe(true)
     expect((await tool('quest_release').invoke({ id: q1.id })).isError).toBe(true)
+    expect(ask).toHaveBeenCalledTimes(3)
     expect(calls('relaunch')).toEqual([])
+    const bot = createToolRegistry(() => ctx, home, 'bot')
+    expect((await bot.find(t => t.name === 'control')!.invoke({ task: 'u1', action: 'relaunch' })).content[0]).toMatchObject({ text: expect.stringContaining(`wait for their answer to choice ${d.id}`) })
+    expect(ask).toHaveBeenCalledTimes(3)
 
     const undone = await hc.reactions.react('m-1', null)
     expect(calls('relaunch')).toEqual(['u1'])

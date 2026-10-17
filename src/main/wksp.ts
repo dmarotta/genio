@@ -53,7 +53,7 @@ import { appendJsonl, nowIso, readJson, rid, writeJson } from './util'
 import { AgentSession, loadSdk, sessionConfig, inboundMessage, type TurnItem } from './claude-chat-driver'
 export { AgentSession, sessionConfig, applyLiveConfig, inboundMessage, sendPlayerChat, userMessage, decideTool, isReadOnlyCommand } from './claude-chat-driver'
 export type { SessionConfig, LiveControls, ToolDecision } from './claude-chat-driver'
-import { DISALLOWED, enforceTool } from './chat-tool-policy'
+import { CHAT_DISALLOWED, enforceTool } from './chat-tool-policy'
 import { chatMcpCaller, chatMcpServers } from './chat-mcp'
 import { mcpGateway } from './mcp-gateway'
 import { QuietTurn } from './quiet-turn'
@@ -189,7 +189,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
           if (chatOnly) getCtx().stats.unlock('mcp-chat-only')
         })
       })) },
-      disallowedTools: DISALLOWED,
+      disallowedTools: CHAT_DISALLOWED,
       canUseTool: makePolicy(role),
       permissionMode: 'default',
       model,
@@ -272,7 +272,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
       handoff: () => handoffContext(),
       config: () => ({ model: config().model!, effort: config().effort }),
       instructions: () => customContract({ gamertag: gamertag(), base: name, isAlly: !home.isMain }, role === 'bot',
-        `${chatUsageLine(globalMode(settings()))}\nUse only genio_ tools. Native shell, edits, agents and plugins are unavailable. Never replay completed mutations from a handoff.`),
+        `${chatUsageLine(globalMode(settings()))}\nUse only genio_ tools: native shell, edits, agents and plugins are unavailable here, so commands and git go through genio_run_command and edits through genio_write_file. Never replay completed mutations from a handoff.`),
       bridge: signal => openCodexBridge(getCtx, { home, role: role === 'bot' ? 'bot' : home.isMain ? 'genio' : 'ally',
         worlds: home.isMain ? '*' : liveAlly()?.projects ?? [], signal, hooks: toolHooks(role) }),
       approvalMode: () => chatControls(settings(), liveAlly()).shellMode,

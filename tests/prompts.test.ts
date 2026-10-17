@@ -14,7 +14,8 @@ describe('bounded custom contract and lazy procedures', () => {
       expect(prompt).toContain('skill_read')
       expect(prompt).toContain('events_ack')
       expect(prompt).toContain('Auto-loot')
-      expect(prompt).toContain('Never merge')
+      expect(prompt).toContain('full authority over units')
+      expect(prompt).toContain('the approval mode never approves spend')
     }
   })
 
@@ -32,13 +33,13 @@ describe('bounded custom contract and lazy procedures', () => {
       const o = { gamertag: 'Dani', base: 'world', isAlly }
       const rule = customContract(o).split('\n').find(l => l.startsWith('- Recon ended:'))
       expect(rule).toBe('- Recon ended: relay the finding; deploy the follow-up at once only if the player\'s earlier words authorized it (never the Recon alone; an "only" Recon stays report-only), else open ONE such choice (task=Recon) and wait. Its answer event: deploy the chosen work now (quests, dependencies, serial order; queue the rest), then report.')
-      expect(customContract(o)).toContain('Never merge without the player\'s explicit approval')
+      expect(customContract(o)).toContain('Only the chat\'s approval mode decides whether the player is asked')
       const intake = procedureText('intake', o)
       expect(intake).toContain('**Recon follow-through.**')
       expect(intake).toContain('open ONE choice with choice_open (task = the Recon, options, recommendation) rather than a wall of questions, and wait')
       expect(intake).toContain('a Recon Dani ordered "only" stays report-only until they choose')
       expect(intake).toContain('respect dependencies and serial order, deploy what is unblocked and queue the rest, then report')
-      expect(intake).toContain('merging still needs Dani\'s explicit approval or Auto-loot')
+      expect(intake).toContain('Merging follows the merge rules (section 7).')
       const events = procedureText('events', o)
       expect(events).toContain('- **answer** (Dani answered a choice in the answer panel, the Hub or another chat): act on it now')
       expect(events).toContain('do not echo the answer back')
@@ -46,14 +47,14 @@ describe('bounded custom contract and lazy procedures', () => {
     }
   })
 
-  it('explains reactions: a like confirms the path but never authorizes a merge, a dislike pauses and asks', () => {
+  it('explains reactions: a like confirms the path but is no click on a prompt, a dislike pauses and asks', () => {
     for (const isAlly of [false, true]) {
       const o = { gamertag: 'Dani', base: 'world', isAlly }
-      expect(customContract(o)).toContain('Never infer authority from a diagnosis, report, recommendation, implementation-ready finding or liked message.')
+      expect(customContract(o)).toContain('Act on the player\'s wishes, not on a diagnosis, report, recommendation or liked message alone.')
       const events = procedureText('events', o)
       expect(events).toContain('- **reaction** (Dani liked or disliked one of your messages, or undid it): reply with a very short acknowledgement.')
-      expect(events).toContain('A like confirms that path: proceed confidently and stop re-asking about it; it never authorizes a merge, force, spending or a destructive step (merge approval and Auto-loot rules are unchanged).')
-      expect(events).toContain('do not relaunch, release, merge or redo that work until Dani answers')
+      expect(events).toContain('A like confirms that path: proceed confidently and stop re-asking about it; it is not a click on a prompt or a spend approval, so merges, discards and spending are cleared as usual.')
+      expect(events).toContain('wait for Dani\'s answer before you relaunch, release, merge or redo that work (going ahead anyway is cleared by the approval mode)')
     }
   })
 

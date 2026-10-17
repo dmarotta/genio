@@ -738,7 +738,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
             const dep = [...ctx.homes.values()].map((h) => h.backlog.get(d)).find(Boolean)
             return dep ? `${d} "${truncate(dep.title, 80)}" (${dep.state})` : `${d} (missing)`
           })
-          throw new Error(`Quest ${backlogId} waits on ${names.join(', ')}: it starts once ${waits.length > 1 ? 'they land' : 'that lands'}. Start it early only on the player's explicit word.`)
+          throw new Error(`Quest ${backlogId} waits on ${names.join(', ')}: it starts once ${waits.length > 1 ? 'they land' : 'that lands'}. Deploying it with force starts it early.`)
         }
       } else {
         const b = backlog.add({
@@ -1120,12 +1120,12 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       } else if (repo) {
         const verdict = await git.landedVerdict(repo, t.worktree, t.branch, t.baseBranch, t.pr?.state === 'MERGED', t.mode === 'local-only')
         if (!verdict.landed && !force) {
-          return { ok: false, message: `Refusing to despawn ${id}: unlanded work (${verdict.reasons.join('; ')}). Only the player can authorise discarding it.${git.unlandedDetail(verdict)}` }
+          return { ok: false, message: `Refusing to despawn ${id}: unlanded work (${verdict.reasons.join('; ')}). Despawning with force discards it.${git.unlandedDetail(verdict)}` }
         }
         forced = !verdict.landed
-        via = verdict.landed ? `landed (${verdict.via})` : 'forced by the player'
+        via = verdict.landed ? `landed (${verdict.via})` : by === 'mode' ? 'forced in YOLO' : 'forced by the player'
       } else if (!force) {
-        return { ok: false, message: `Cannot verify ${id}'s work: its project is not registered. Force only with the player's word.` }
+        return { ok: false, message: `Cannot verify ${id}'s work: its project is not registered. Despawning with force discards whatever it holds.` }
       }
       // The agent and every terminal tied to the unit (a terminal pane open in its copy): a shell there would block its removal.
       if (t.terminalId) ctx.terminals.kill(t.terminalId)
@@ -1178,7 +1178,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         await git.deleteBranch(repo, t.branch, t.kind === 'scout' || forced)
       }
       // update() closes the quest this unit was flying (followUnit); a re-queued follow-up stays queued
-      const discarded = via === 'forced' || via === 'forced by the player' || via === 'recon ended without a report'
+      const discarded = via === 'forced' || via === 'forced by the player' || via === 'forced in YOLO' || via === 'recon ended without a report'
       update(id, { state: 'cleaned', cleanedAt: nowIso(), terminalId: undefined, stateReason: `despawned: ${via}`, ...(discarded ? { discarded } : {}) })
       sourceRemoved(t.worktree)
       // A Modeller's step snapshots and GLBs go; manifests, renders and scripts stay as history.
@@ -1202,7 +1202,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       return next
     },
 
-    async merge(id, approval): Promise<OpResult> {
+    async merge(id, approval, opts): Promise<OpResult> {
       const t = get(id)
       if (!t) return { ok: false, message: `Unknown unit: ${id}` }
       if (t.kind !== 'ship') return { ok: false, message: 'Recon missions have nothing to merge.' }
@@ -1216,9 +1216,9 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       const landedFiles = (await git.changedFiles(project.path, t.baseBranch, t.branch).catch(() => [] as string[])).slice(0, 200)
       if (t.pr?.url) {
         mergeVia = 'pr'
-        result = await ctx.forge.merge(t.pr.url, (await git.isWorktreeOf(project.path, t.worktree)) ? t.worktree : project.path)
+        result = await ctx.forge.merge(t.pr.url, (await git.isWorktreeOf(project.path, t.worktree)) ? t.worktree : project.path, opts)
       } else if (t.mode === 'local-only') {
-        if (t.state !== 'ready') return { ok: false, message: `${id} has not reported a ready branch yet.` }
+        if (t.state !== 'ready' && !opts?.override) return { ok: false, message: `${id} has not reported a ready branch yet.` }
         mergeVia = 'local'
         const r = await git.mergeLocalFastForward(project.path, t.branch, t.baseBranch)
         result = r.code === 0 ? { ok: true, message: `Landed ${t.branch} into local ${t.baseBranch}.` } : { ok: false, message: r.stderr.trim() || 'fast-forward merge failed' }
