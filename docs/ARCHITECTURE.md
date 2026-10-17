@@ -69,7 +69,9 @@ language.
 The player adds MCP servers in Settings → Advanced → Agent tools; nothing else can
 (`mcp-servers.ts`, secret values in `secrets.ts`). Genio's main process is the
 gateway (`mcp-gateway.ts`): Claude and Codex units get one stdio relay per server
-in scope (`resources/genio-mcp-relay.mjs`, `unit-mcp.ts`), and main starts the
+in scope (`resources/genio-mcp-relay.mjs`, `unit-mcp.ts`), and so does the Claude
+chat, beside its `genio` server (`chat-mcp.ts`; not the Bot or the Codex chat;
+the chat's tool policy asks for them outside YOLO), and main starts the
 real server with a scrubbed environment in the unit's worktree, or calls a remote
 one with its secret headers, and logs every call. A remote server that asks for
 OAuth gets Genio's own sign-in (`mcp-signin.ts`: system browser, loopback

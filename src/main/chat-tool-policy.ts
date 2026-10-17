@@ -5,8 +5,13 @@ import { truncate } from './util'
 
 // ------------------------------------------------------------------ tool policy
 
-/** companion subagent guard: Genio delegates to units, never to in-session subagents. */
-const SUBAGENT_RE = /agent|subagent|^task$|^task(create|update|output|stop|get|list)?$|workflow|cron|schedul|worktree|delegate|spawn|dispatch|handoff|remote|sendmessage|monitor/i
+/**
+ * companion subagent guard: Genio delegates to units, never to in-session subagents. It matches Claude Code's own
+ * tool names only: an MCP tool (`mcp__<server>__<tool>`) cannot start a subagent in this session, and a player
+ * server's `list_workflow_runs`, `get_remote_config` or `monitor_list` is an ordinary tool.
+ */
+const MCP_TOOL = /^mcp__/
+const SUBAGENT_RE =/agent|subagent|^task$|^task(create|update|output|stop|get|list)?$|workflow|cron|schedul|worktree|delegate|spawn|dispatch|handoff|remote|sendmessage|monitor/i
 export const DISALLOWED = ['Skill', 'Agent', 'Task', 'Workflow', 'CronCreate', 'CronDelete', 'EnterWorktree', 'ExitWorktree', 'RemoteTrigger', 'SendMessage', 'Monitor', 'Write', 'Edit', 'NotebookEdit', 'MultiEdit']
 const ALLOWED = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebSearch', 'WebFetch', 'TodoWrite', 'ToolSearch'])
 /** A design chat's native tools: reading the project and the web for references. No shell, no edits. */
@@ -69,7 +74,7 @@ export function decideTool(role: ToolRole, toolName: string, input: unknown, she
   if (toolName.startsWith('mcp__genio__')) return { behavior: 'allow' }
   if (ALLOWED.has(toolName)) return { behavior: 'allow' }
   if (toolName === 'Skill') return { behavior: 'deny', message: 'Use skill_read for a named bundled skill, procedure_read for Genio procedures, or settings_read/settings_update. Broad configuration skills are not loaded into chat.' }
-  if (DISALLOWED.includes(toolName) || SUBAGENT_RE.test(toolName)) {
+  if (DISALLOWED.includes(toolName) || (!MCP_TOOL.test(toolName) && SUBAGENT_RE.test(toolName))) {
     return { behavior: 'deny', message: 'Genio delegates work to units (deploy) and never writes projects or spawns in-session subagents.' }
   }
   if (toolName === 'Bash' || toolName === 'PowerShell') {
@@ -80,6 +85,8 @@ export function decideTool(role: ToolRole, toolName: string, input: unknown, she
     if (shellMode === 'auto-shell' || shellMode === 'all') return { behavior: 'allow' }
     return { behavior: 'ask', input: cmd, reason: 'Not on the read-only list' }
   }
+  // Everything else, the player's MCP tools included: denied to the Bot, run in YOLO, asked otherwise. Only
+  // mcp__genio__ carries Genio's authority (deploy, merge, discard, spend), and no player server may be named genio.
   if (role === 'bot') return { behavior: 'deny', message: 'Not available to the Bot.' }
   if (shellMode === 'all') return { behavior: 'allow' }
   return { behavior: 'ask', input: truncate(JSON.stringify(input), 1500) }

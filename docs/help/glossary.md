@@ -391,17 +391,20 @@ Source: [unit-worktrees.md](../unit-worktrees.md)
 
 ## MCP servers
 
-Extra tools an agent can call through the Model Context Protocol. Only the servers you add in Settings reach units:
-a command Genio starts on this PC or a remote URL, with masked secrets (environment variables or headers, kept
-encrypted like your API keys), for all projects or one. Claude and Codex units get them through Genio, which starts
-or calls the real server, adds the secrets, never passes on a unit's keys, and logs every call in the unit's data
-folder; a failed call shows on the unit's timeline. Gemini and OpenCode units, the chat and the Bot get none. Servers a
-project declares in its own files (such as `.mcp.json`) and your own CLI servers stay off for units. Paid servers are
+Extra tools an agent can call through the Model Context Protocol. Only the servers you add in Settings reach units
+and the chat: a command Genio starts on this PC or a remote URL, with masked secrets (environment variables or
+headers, kept encrypted like your API keys), for all projects or one. Claude and Codex units get them through Genio,
+which starts or calls the real server, adds the secrets, never passes on a unit's keys, and logs every call in the
+unit's data folder; a failed call shows on the unit's timeline. The chat gets them too when it runs on a Claude model:
+each call asks you first in Ask and Auto-approve shell and runs in YOLO, and they never replace Genio's own deploy,
+merge or spending tools. Gemini and OpenCode units, the Bot, design chats and the Codex chat get none (the Codex chat
+blocks every tool that is not Genio's own; ask it to deploy a unit instead). Servers a project declares in its own
+files (such as `.mcp.json`) and your own CLI servers stay off for units. Paid servers are
 not supported: Genio cannot price an MCP call, so spending stays with FAL and Uthana under your approvals. Unity MCP
 servers are not supported either; units use Unity only through Genio. A remote server that asks for a sign-in (OAuth)
 shows **Sign in**, which opens your browser once; Genio keeps the sign-in encrypted, refreshes it itself and adds it to
 every call, and the button turns into **Sign out**. When a sign-in expires for good, the entry shows Sign in again
-and a unit that needs the server stops and asks you. A server that does not let apps register themselves needs a
+and a unit that needs the server stops and asks you; the chat tells you to sign in again. A server that does not let apps register themselves needs a
 token header instead.
 Where: Settings → Advanced → Agent tools (Harnesses) → MCP servers.
 Source: [mcp-servers.md](../mcp-servers.md)

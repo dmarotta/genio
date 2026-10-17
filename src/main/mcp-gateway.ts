@@ -1,6 +1,7 @@
 /**
  * The MCP gateway (docs/mcp-servers.md). Genio's main process is the only MCP
- * client of the player's servers. A Claude or Codex unit gets one thin stdio
+ * client of the player's servers. A Claude or Codex unit, and the Claude chat
+ * (chat-mcp.ts), gets one thin stdio
  * relay per server in scope (resources/genio-mcp-relay.mjs), which pipes
  * JSON-RPC to this loopback listener with a per-launch secret bound to that
  * unit and those servers. The gateway then:
@@ -22,6 +23,7 @@ import net from 'node:net'
 import { randomBytes } from 'node:crypto'
 import type { McpServer } from '@shared/mcp'
 import { mcpServersFor } from '@shared/mcp'
+import { settingsPath } from '@shared/settings-pages'
 import { readMcpServers } from './mcp-servers'
 import { mcpAccessToken, mcpSignInRefused, mcpTokenRefused } from './mcp-signin'
 import { getMcpSecret } from './secrets'
@@ -44,8 +46,10 @@ export function mcpServerEnv(secrets: Record<string, string>, base: NodeJS.Proce
 }
 
 export interface McpCaller {
-  /** The unit's id. */
+  /** The unit's id, or `chat:<base>` for a Claude chat. */
   id: string
+  /** Who reads a refusal: a unit stops and asks with a keyed choice, the chat tells the player. Default unit. */
+  kind?: 'unit' | 'chat'
   /** Its project: servers scoped to another project are refused. */
   project: string
   /** Its worktree: the cwd of every local server it uses. */
@@ -164,12 +168,17 @@ export function createMcpGateway(o: { secret?: (s: McpServer, name: string, data
       const status = refused(e)
       return status ? `the server refused its credentials, HTTP ${status}` : hide(String((e as Error)?.message ?? e)).replace(/\s+/g, ' ').slice(0, 160)
     }
-    /** What the unit's model reads. */
-    const unavailable = (e: unknown): string => signInNeeded && refused(e) === 401
-      ? `${srv?.name} needs the player to sign in to it again in Settings. Do not retry this server: append needs-decision [key=mcp-auth] naming ${srv?.name}, then stop.`
-      : refused(e)
-      ? `${srv?.name} refused Genio's credentials (HTTP ${refused(e)}). Do not retry this server; ask the player to check its secret in Settings (needs-decision key=mcp-auth).`
-      : `${srv?.name ?? 'The MCP server'} is unavailable: ${hide(String((e as Error)?.message ?? e)).slice(0, 300)}`
+    /** What the caller's model reads: a unit stops and asks with a keyed choice, the chat tells the player in plain words. */
+    const unavailable = (e: unknown): string => {
+      const chat = grant?.caller.kind === 'chat'
+      if (signInNeeded && refused(e) === 401) return chat
+        ? `${srv?.name} needs the player to sign in to it again. Do not retry this server; tell the player in plain words to sign in to ${srv?.name} again in ${settingsPath('harnesses')}.`
+        : `${srv?.name} needs the player to sign in to it again in Settings. Do not retry this server: append needs-decision [key=mcp-auth] naming ${srv?.name}, then stop.`
+      if (refused(e)) return chat
+        ? `${srv?.name} refused Genio's credentials (HTTP ${refused(e)}). Do not retry this server; tell the player in plain words to check its secret in ${settingsPath('harnesses')}.`
+        : `${srv?.name} refused Genio's credentials (HTTP ${refused(e)}). Do not retry this server; ask the player to check its secret in Settings (needs-decision key=mcp-auth).`
+      return `${srv?.name ?? 'The MCP server'} is unavailable: ${hide(String((e as Error)?.message ?? e)).slice(0, 300)}`
+    }
     const fail = (m: Rpc, e: unknown): void => {
       const text = unavailable(e)
       if (m.method === 'tools/call') {

@@ -1,13 +1,14 @@
-# MCP servers in units
+# MCP servers in units and the chat
 
-MCP servers give an agent extra tools (an issue tracker, a studio database, a design tool). Units run **only the MCP
-servers Genio passes them**: the ones you add in Settings → Advanced → Agent tools (Harnesses) → MCP servers, and
-nothing else.
+MCP servers give an agent extra tools (an issue tracker, a studio database, a design tool). Units and the Claude chat
+run **only the MCP servers Genio passes them**: the ones you add in Settings → Advanced → Agent tools (Harnesses) → MCP
+servers, and nothing else.
 
 - **Only you add a server**, in that list. No chat tool, unit or project file can add one.
-- **Claude and Codex units** get every server in scope. Gemini, OpenCode and the other runtimes get none, and neither
-  do the Claude chat, the Bot and the Codex chat (the Claude chat comes in a later build).
-- **Scope.** Each server is for all projects or for one project. A unit gets the servers of its own project.
+- **Claude and Codex units** and **the Claude chat** get every server in scope. Gemini, OpenCode and the other
+  runtimes get none, and neither do the Bot, design chats and the Codex chat (see The Claude chat below).
+- **Scope.** Each server is for all projects or for one project. A unit gets the servers of its own project; a
+  project's chat gets the same ones.
 - Servers a project declares in its own files stay off for units: `.mcp.json` (Claude Code), `.codex/config.toml`
   (Codex), `.gemini/settings.json` (Gemini CLI), `opencode.json` and `.opencode/` (OpenCode). A unit can work in a
   project that has these files; it simply does not start their servers.
@@ -102,9 +103,41 @@ A server that refuses its credentials (HTTP 401 or 403) tells the unit not to re
 Sign in above). Because no CLI sees an HTTP server, Claude's and Codex's own OAuth never runs and
 nothing is written to your `~/.claude` or the Windows credential store.
 
-**Tool-schema cost.** Codex sends every tool's schema with every request; Claude probably defers them behind its tool
-search. A server with many tools makes every request of every unit in its scope larger: the tool counts are in each
+**Tool-schema cost.** Codex sends every tool's schema with every request; Claude defers them behind its tool search
+when that is on (checked for the chat, see Verified; whether it is on by default against Anthropic's API was not
+tested). A server with many tools makes every request of every unit in its scope larger: the tool counts are in each
 unit's `mcp-calls.jsonl`. The project scope is the control.
+
+## The Claude chat
+
+When the chat runs on a Claude model, it gets the same relays as a Claude unit (`src/main/chat-mcp.ts`, called from
+`buildOptions` in `src/main/wksp.ts`): one `mcpServers` entry per server for all projects or for the chat's project,
+beside Genio's own `genio` server. The gateway's caller is `chat:<base>`; local servers start in the chat's folder (its
+project's folder) with the same scrubbed environment; calls are logged in the chat's data folder
+(`mcp-calls.jsonl`). Each new chat session gets a fresh per-launch secret, and the previous one stops working. Tools
+reach the chat as `mcp__<server>__<tool>`.
+
+- **Approval** (`src/main/chat-tool-policy.ts`). Your tools follow the chat's approval mode: in Ask and Auto-approve shell
+  they go to the permission prompt every time; in YOLO they run. Only `mcp__genio__*` carries Genio's authority
+  (deploy, merge, discard, spend, placement), and no server may be called `genio`, so a server's tool never stands in
+  for Genio's guarded tools; the chat's rules say not to use one to bypass a guard.
+- **Subagent guard.** The chat denies Claude Code's own delegation tools (Agent, Task, Workflow, Cron, RemoteTrigger,
+  SendMessage, Monitor and similar). That word match applies to Claude Code's tool names only, so a server tool such as
+  `list_workflow_runs`, `get_remote_config` or `monitor_list` is an ordinary tool.
+- **Tool search.** Genio's own server is always loaded. Your servers' tools are deferred behind Claude Code's tool
+  search when it is on: their schemas are not in each request until the model searches for them.
+- **Sign-in and refused credentials.** The chat's model gets a plain instruction to tell you, for example: "`<server>`
+  needs the player to sign in to it again. Do not retry this server; tell the player in plain words to sign in to
+  `<server>` again in Settings → Advanced → Agent tools (Harnesses)." No keyed choice is opened and nothing is added
+  to a timeline.
+- **The Bot** keeps only its guarded bridge: no server, and its policy denies any other tool.
+- **The Codex chat** gets none. It blocks every tool that is not one of Genio's own, MCP included, even in YOLO, by
+  design; after a switch to a Codex model your tools are simply absent. To use a server from a Codex chat, ask it to
+  deploy a unit: units have the servers.
+- **Design chats** get none; they only read and talk.
+
+The chat can always hand the work to a unit instead ("check Linear for X and fix it"): the unit gets the same
+servers.
 
 ## How each runtime is launched
 
@@ -166,6 +199,15 @@ relays), refresh before expiry, a network failure that keeps the sign-in, a revo
 and then answers with no server traffic, and that no issued token appears in the call log, the timeline, what the unit
 reads, the list file, the views, the console or the store in clear. The browser is simulated: no real browser, no
 real vendor server and no real account was tested, and Electron's `safeStorage` is mocked in the tests.
+
+The Claude chat (2026-10-17): `tests/chat-mcp.test.ts` starts the chat's relay entries exactly as Claude Code does
+and lists and calls the local test server through the gateway (scope, cwd, no unit key, the call log, a new session
+revoking the old secret), checks the plain-words sign-in answer, the Ask, Auto-approve shell and YOLO paths, the Bot's
+denial, the narrower subagent guard and that Genio's own tools are unaffected. `tests/e2e/mcp-chat.e2e.ts`
+(`npm run test:e2e -- mcp-chat`) runs the chat's shape with the real Agent SDK (Claude Code 2.1.302) against a fake
+model endpoint in a throwaway home, with `ENABLE_TOOL_SEARCH=true`: the first request offered `ToolSearch` and
+Genio's tool but not the server's; after a search the server's tool came with `defer_loading`, went through Genio's
+policy (asked in Ask mode, not in YOLO) and was called through the gateway.
 
 To repeat the live check, use a throwaway home for each CLI and set its variable in the same command: `CLAUDE_CONFIG_DIR`
 and `CLAUDE_SECURESTORAGE_CONFIG_DIR`, `CODEX_HOME` (a short path: Codex's socket path has a length limit),

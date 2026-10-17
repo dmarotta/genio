@@ -54,6 +54,8 @@ import { AgentSession, loadSdk, sessionConfig, inboundMessage, type TurnItem } f
 export { AgentSession, sessionConfig, applyLiveConfig, inboundMessage, sendPlayerChat, userMessage, decideTool, isReadOnlyCommand } from './claude-chat-driver'
 export type { SessionConfig, LiveControls, ToolDecision } from './claude-chat-driver'
 import { DISALLOWED, enforceTool } from './chat-tool-policy'
+import { chatMcpCaller, chatMcpServers } from './chat-mcp'
+import { mcpGateway } from './mcp-gateway'
 import { QuietTurn } from './quiet-turn'
 import { isQuietReply, withoutQuietReplies } from '@shared/quiet-reply'
 
@@ -178,7 +180,12 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
       additionalDirectories: worlds,
       settingSources: [],
       includePartialMessages: role !== 'bot',
-      mcpServers: { genio: server },
+      // The player's MCP servers through Genio's gateway, beside Genio's own (never for the Bot).
+      mcpServers: { genio: server, ...(role === 'bot' ? {} : await chatMcpServers({
+        chat: name, project: liveAlly()?.projects[0] ?? '', cwd: chatCwd(), dataDir: ctx.main.home.data, logFile: path.join(home.data, 'mcp-calls.jsonl'),
+        command: process.execPath, appRoot: ctx.appRoot,
+        onSuccess: () => safe(() => getCtx().stats.unlock('mcp-chat-call'))
+      })) },
       disallowedTools: DISALLOWED,
       canUseTool: makePolicy(role),
       permissionMode: 'default',
@@ -782,6 +789,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
       projectReady = undefined
       finishProjectOpen = undefined
       await closeChatToolBridges(getCtx(), name)
+      mcpGateway().revoke(chatMcpCaller(name))
       genio.stop()
       bot?.stop()
       strandWaiting()

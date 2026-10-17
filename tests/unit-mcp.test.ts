@@ -186,12 +186,15 @@ describe("the player's servers through relays", () => {
     expect(unitMcpLaunch('opencode', { worktree: REPO, adapterEnv, relays, env: {}, home: tmp() })).toEqual(unitMcpLaunch('opencode', { worktree: REPO, adapterEnv, env: {}, home: tmp() }))
   })
 
-  it('never reach the chat, the Bot or the Codex chat in this build: only unit launches read the list', () => {
+  it('reach only unit launches and the Claude chat: never the Bot, design chats or the Codex chat', () => {
     const src = (f: string) => fs.readFileSync(path.join(__dirname, '..', 'src', 'main', f), 'utf8')
     for (const f of fs.readdirSync(path.join(__dirname, '..', 'src', 'main'))) {
-      if (!/\.ts$/.test(f) || ['crew.ts', 'ipc.ts', 'mcp-gateway.ts', 'mcp-servers.ts', 'mcp-signin.ts'].includes(f)) continue
-      expect(src(f), f).not.toMatch(/from '\.\/mcp-(gateway|servers)'/)
+      if (!/\.ts$/.test(f) || ['crew.ts', 'ipc.ts', 'mcp-gateway.ts', 'mcp-servers.ts', 'mcp-signin.ts', 'chat-mcp.ts', 'wksp.ts'].includes(f)) continue
+      expect(src(f), f).not.toMatch(/from '\.\/(mcp-(gateway|servers)|chat-mcp)'/)
     }
     expect(src('crew.ts')).toMatch(/MCP_RELAY_HARNESSES\.includes\(adapter\.id\) \? mcpServersFor\(readMcpServers/)
+    // wksp.ts: only the Claude chat's options read the list, and only for a role that is not the Bot (tests/chat-mcp.test.ts).
+    expect(src('wksp.ts').match(/chatMcpServers\(/g)).toHaveLength(1)
+    expect(src('wksp.ts')).not.toMatch(/readMcpServers|mcpServersFor/)
   })
 })

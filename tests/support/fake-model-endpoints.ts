@@ -11,11 +11,13 @@ export interface FakeModel {
   requests: string[][]
   /** The text of each tool result the CLI sent back. */
   results: string[]
+  /** Each request's tool definitions as sent (for `defer_loading`). */
+  tools: Record<string, unknown>[][]
   close(): Promise<void>
 }
 
 async function serve(handle: (body: Record<string, unknown>, res: http.ServerResponse, fake: FakeModel) => void): Promise<FakeModel> {
-  const fake: FakeModel = { url: '', requests: [], results: [], close: async () => undefined }
+  const fake: FakeModel = { url: '', requests: [], results: [], tools: [], close: async () => undefined }
   const server = http.createServer((req, res) => {
     let raw = ''
     req.on('data', (c) => { raw += c })
@@ -24,6 +26,7 @@ async function serve(handle: (body: Record<string, unknown>, res: http.ServerRes
       let body: Record<string, unknown> = {}
       try { body = JSON.parse(raw) } catch { /* empty */ }
       if (req.url?.includes('count_tokens')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"input_tokens":100}'); return }
+      fake.tools.push((body.tools as Record<string, unknown>[] | undefined) ?? [])
       handle(body, res, fake)
     })
   })
@@ -39,7 +42,8 @@ const sse = (res: http.ServerResponse) => {
 }
 const text = (c: unknown): string => typeof c === 'string' ? c : Array.isArray(c) ? c.map((b) => (b as { text?: string }).text ?? '').join('') : JSON.stringify(c)
 
-export function fakeAnthropic(target: RegExp): Promise<FakeModel> {
+/** `search`: a ToolSearch query that loads the target when tool search defers it (a few tries while MCP servers connect). */
+export function fakeAnthropic(target: RegExp, search?: string): Promise<FakeModel> {
   let n = 0
   return serve((body, res, fake) => {
     const tools = (body.tools as { name?: string }[] | undefined ?? []).map((t) => t.name ?? '')
@@ -50,7 +54,10 @@ export function fakeAnthropic(target: RegExp): Promise<FakeModel> {
     const called = blocks.some((b) => b.type === 'tool_use' && target.test(b.name ?? ''))
     const tool = tools.find((t) => target.test(t))
     // MCP tools connect in the background: a harmless built-in call buys one more request.
-    const next = !called && tool ? { name: tool, input: {} } : !called && tools.includes('Glob') && blocks.filter((b) => b.type === 'tool_use').length < 4 ? { name: 'Glob', input: { pattern: 'no-such-file-*.zz' } } : undefined
+    const searches = blocks.filter((b) => b.type === 'tool_use' && b.name === 'ToolSearch').length
+    const next = !called && tool ? { name: tool, input: {} }
+      : !called && search && tools.includes('ToolSearch') && searches < 4 ? { name: 'ToolSearch', input: { query: search, max_results: 5 } }
+      : !called && tools.includes('Glob') && blocks.filter((b) => b.type === 'tool_use').length < 4 ? { name: 'Glob', input: { pattern: 'no-such-file-*.zz' } } : undefined
     const ev = sse(res)
     const id = `msg_fake_${++n}`
     ev('message_start', { message: { id, type: 'message', role: 'assistant', model: body.model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 1 } } })
