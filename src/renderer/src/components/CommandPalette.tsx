@@ -33,7 +33,9 @@ export function CommandPalette() {
     }
   }, [open])
 
+  // Built while the palette is open only: unit changes arrive all the time and a closed palette shows none of it.
   const cmds = useMemo<Cmd[]>(() => {
+    if (!open) return []
     const close = (): void => setState({ palette: false })
     const list: Cmd[] = [
       { id: 'deploy', label: 'Deploy a unit', hint: 'New Build or Recon mission', group: 'Action', run: () => openDeploy() },
@@ -64,7 +66,7 @@ export function CommandPalette() {
       })
     ]
     return PROJECT_WKSP ? list : list.filter(c => !['recap', 'save'].includes(c.id))
-  }, [tasks, nav])
+  }, [open, tasks, nav])
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
