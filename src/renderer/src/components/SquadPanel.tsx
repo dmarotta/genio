@@ -8,7 +8,7 @@ import { Dot, NeedsYou, useNow } from './ui'
 import { unitKindLabel } from '../lib/vocab'
 import { useModellerLive } from './ModellerView'
 import { UnitKindIcon } from './UnitKind'
-import { clock, cx, dateShort, elapsed } from '../lib/format'
+import { clock, cx, dateShort, dateTime, elapsed } from '../lib/format'
 
 export function Roster() {
   const { active, done } = useStore(squadRoster)
@@ -82,7 +82,7 @@ function DoneRow({ t, now }: { t: Task; now: number }) {
     </div>
     <div className="roster-right">
       <span className="roster-state" style={{ color: `var(--${tone})` }}>{outcome}</span>
-      <span className="mono mute" title={new Date(end).toLocaleString()}>{finishLabel(end, now)} · {elapsed(t.createdAt, Date.parse(end))}</span>
+      <span className="mono mute" title={dateTime(end)}>{finishLabel(end, now)} · {elapsed(t.createdAt, Date.parse(end))}</span>
     </div>
   </button>
 }

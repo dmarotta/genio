@@ -30,15 +30,26 @@ export function duration(fromIso?: string, toIso?: string): string {
   return `${Math.floor(h / 24)}d ${h % 24}h`
 }
 
+// One formatter each: toLocale*String builds a new Intl.DateTimeFormat on every call, and a chat or roster
+// formats hundreds of timestamps per render. Same options, same output; an invalid date still reads "Invalid Date".
+const CLOCK = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' })
+const DAY = new Intl.DateTimeFormat([], { month: 'short', day: 'numeric' })
+const DATE_TIME = new Intl.DateTimeFormat([], { year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' })
+const formatted = (f: Intl.DateTimeFormat, d: Date): string => (Number.isNaN(d.getTime()) ? 'Invalid Date' : f.format(d))
+
 export function clock(iso?: string): string {
   if (!iso) return ''
-  const d = new Date(iso)
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return formatted(CLOCK, new Date(iso))
 }
 
 export function dateShort(iso?: string): string {
   if (!iso) return ''
-  return new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' })
+  return formatted(DAY, new Date(iso))
+}
+
+/** Date and time as `toLocaleString()` writes them. */
+export function dateTime(at: string | number): string {
+  return formatted(DATE_TIME, new Date(at))
 }
 
 export function usd(n?: number): string {
