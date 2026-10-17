@@ -148,7 +148,15 @@ for (let run = 0; run < runs; run++) {
       const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', c => resolve(c ?? 1)) }).finally(() => clearTimeout(limit))
       if (code !== 0) throw new Error(`benchmark run ${run + 1} exited with ${code}`)
       results.get(app.name).push(JSON.parse(fs.readFileSync(path.join(out, 'result.json'), 'utf8')))
-    } finally { homes.dispose() }
+    } finally {
+      // A unit's PTY child can hold the sandbox a moment after Electron exits: retry, then leave it to the OS temp cleanup.
+      for (let attempt = 0; ; attempt++) {
+        try { homes.dispose(); break } catch (e) {
+          if (attempt >= 5) { console.warn(`[screens] could not remove ${homes.root}: ${e.message}`); break }
+          await new Promise(r => setTimeout(r, 2000))
+        }
+      }
+    }
   }
 }
 
