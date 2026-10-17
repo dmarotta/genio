@@ -255,7 +255,9 @@ function ChatLog({ wksp, conversation, surface, messages: all, calm, busy, gamer
     const anchor = saved && [...el.querySelectorAll<HTMLElement>('[data-msg]')].find((n) => n.dataset.msg === saved.id)
     if (anchor) el.scrollTop += anchor.getBoundingClientRect().top - el.getBoundingClientRect().top - saved!.offset
     else if (saved) setFollow(true)
-    // Re-pin while late layout, late history or a resize moves the bottom, as long as the player follows it.
+    // Re-pin while new messages, streamed deltas, late layout, late history or a resize move the bottom, as long as
+    // the player follows it. The observer reports after layout, before paint: reading the bottom there forces no
+    // layout of its own, where a layout effect per delta did (once per streamed delta).
     const ro = new ResizeObserver(pin)
     ro.observe(el)
     if (body.current) ro.observe(body.current)
@@ -288,8 +290,6 @@ function ChatLog({ wksp, conversation, surface, messages: all, calm, busy, gamer
       }
     }
   }, [memoryKey, pin, setFollow, finishJump])
-
-  useLayoutEffect(pin, [all, busy, pin])
 
   const markIntent = (): void => { intent.current.at = performance.now(); jumping.current = false }
   // The jump control overlays the viewport as the scroller's sibling, so it never takes part in

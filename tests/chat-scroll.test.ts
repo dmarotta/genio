@@ -70,7 +70,15 @@ beforeEach(() => {
   localStorage.clear()
   Object.assign(globalThis, {
     IS_REACT_ACT_ENVIRONMENT: true,
-    ResizeObserver: class { cb: () => void; constructor(cb: () => void) { this.cb = cb } observe() { observers.add(this.cb) } disconnect() { observers.delete(this.cb) } }
+    // In this fake layout every content change resizes the log's body: the browser reports that to the
+    // observer after layout, so the fake reports each DOM change too (settle() reports late layout), and,
+    // like the browser, it reports every observed element once when observation starts.
+    ResizeObserver: class {
+      cb: () => void; mo: MutationObserver
+      constructor(cb: () => void) { this.cb = cb; this.mo = new MutationObserver(() => this.cb()) }
+      observe(el: Element) { observers.add(this.cb); this.mo.observe(el, { childList: true, subtree: true, characterData: true }); queueMicrotask(() => { if (observers.has(this.cb)) this.cb() }) }
+      disconnect() { observers.delete(this.cb); this.mo.disconnect() }
+    }
   })
   const proto = HTMLElement.prototype
   Object.defineProperty(proto, 'scrollTo', { configurable: true, value: vi.fn(function (this: HTMLElement, options: ScrollToOptions) {
