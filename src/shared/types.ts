@@ -822,6 +822,8 @@ export interface EventSource {
 }
 
 export interface Settings {
+  /** Once-only contextual feature hints, on from the start. */
+  featureTips: boolean
   /** how Genio addresses the player */
   gamertag: string
   wkspModel: string
@@ -1078,7 +1080,11 @@ export interface UpdateInfo {
 export type GenioEvent =
   | { type: 'pending-units'; projects: string[] }
   | { type: 'inventory'; state: import('./inventory').InventoryState }
-  | { type: 'feature-used'; feature: string; id?: string; count?: number }
+  | { type: 'feature-used'; feature: string; id?: string; count?: number; project?: string }
+  | { type: 'tip'; project: string; tip: { id: string; line: string; question: string } }
+  | { type: 'stats-award'; event: string; project?: string; taskId?: string }
+  | { type: 'unit-copy'; project: string; ms: number }
+  | { type: 'player-active'; project: string }
   | { type: 'snapshot'; data: FleetSnapshot }
   | { type: 'task'; task: Task }
   | { type: 'task-removed'; id: string }

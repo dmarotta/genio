@@ -4,13 +4,14 @@ import type { GenioEvent } from '../src/shared/types'
 import { WINDOW_MIN } from '../src/shared/window'
 import { APP_ID, windowAppDetails, windowIcon } from '../src/main/win-identity'
 
-const f = vi.hoisted(() => ({ windows: [] as any[], ctx: undefined as any, app: undefined as any, screen: undefined as any, popouts: undefined as any, choice: 1, prompts: 0, ipc: undefined as any, stop: vi.fn(async () => {}), start: vi.fn(async () => {}), terminalData: undefined as any, loadError: undefined as Error | undefined, loadGate: undefined as Promise<void> | undefined, permissionRequest: undefined as any, permissionCheck: undefined as any }))
+const f = vi.hoisted(() => ({ windows: [] as any[], ctx: undefined as any, app: undefined as any, screen: undefined as any, popouts: undefined as any, choice: 1, prompts: 0, ipc: undefined as any, stop: vi.fn(async () => {}), start: vi.fn(async () => {}), terminalData: undefined as any, loadError: undefined as Error | undefined, loadGate: undefined as Promise<void> | undefined, permissionRequest: undefined as any, permissionCheck: undefined as any, tipsOptions: undefined as any, playerStatus: vi.fn(() => ({ state: 'idle' })) }))
+vi.mock('../src/main/tips', () => ({ createTipsService: (_ctx: unknown, options: unknown) => { f.tipsOptions = options; return { stop: vi.fn() } } }))
 vi.mock('../src/main/ctx', () => ({
   createApp: () => f.ctx, getCtx: () => f.ctx, startApp: async () => {}, stopApp: async () => {},
   ensureProjectBase: async (_ctx: unknown, project: string) => `ally-${project}`, startProjectBase: f.start, stopProjectBase: f.stop
 }))
 vi.mock('../src/main/ipc', () => ({ registerIpc: (_ctx: unknown, windows: unknown) => { f.ipc = windows } }))
-vi.mock('../src/main/player-instance', () => ({ playerInstanceService: () => ({ start: async () => {}, quit: async () => {}, shutdown: async () => {} }) }))
+vi.mock('../src/main/player-instance', () => ({ playerInstanceService: () => ({ start: async () => {}, quit: async () => {}, shutdown: async () => {}, status: f.playerStatus }) }))
 vi.mock('../src/main/win-identity', async (actual) => ({ ...(await actual<object>()), ensureWindowsToastIdentity: () => {}, setWindowsAppId: () => {} }))
 vi.mock('../src/main/fal-service', () => ({ MEDIA_SCHEME: 'genio-media', mediaResponse: () => {} }))
 vi.mock('../src/main/chat-images', () => ({ chatImageDir: () => '', chatImagePath: () => undefined }))
@@ -41,6 +42,8 @@ vi.mock('electron', async () => {
     destroy() { this.destroyed = true; this.emit('closed') }
     isMinimized = () => this.minimized
     isDestroyed = () => this.destroyed
+    isFocused = () => Window.getFocusedWindow() === this
+    isEnabled = () => true
     static getFocusedWindow() { return null }
     static fromWebContents(wc: unknown) { return f.windows.find((w) => w.webContents === wc) ?? null }
     constructor(options: { title: string }) { super(); this.title = options.title; this.options = options; f.windows.push(this) }
@@ -60,7 +63,7 @@ vi.mock('electron', async () => {
     displays: [{ workArea: { x: 0, y: 0, width: 1920, height: 1040 } }, { workArea: { x: 1920, y: 0, width: 1280, height: 984 } }],
     getAllDisplays() { return this.displays }, getPrimaryDisplay() { return this.displays[0] }
   })
-  return { app: f.app, BrowserWindow: Window, screen: f.screen, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, shell: {}, session: { defaultSession: { setPermissionRequestHandler: (fn: any) => { f.permissionRequest = fn }, setPermissionCheckHandler: (fn: any) => { f.permissionCheck = fn } } }, dialog: { showMessageBoxSync: () => { f.prompts++; return f.choice }, showErrorBox: vi.fn() } }
+  return { app: f.app, BrowserWindow: Window, powerMonitor: { getSystemIdleTime: () => 0 }, screen: f.screen, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, shell: {}, session: { defaultSession: { setPermissionRequestHandler: (fn: any) => { f.permissionRequest = fn }, setPermissionCheckHandler: (fn: any) => { f.permissionCheck = fn } } }, dialog: { showMessageBoxSync: () => { f.prompts++; return f.choice }, showErrorBox: vi.fn() } }
 })
 
 let openProject: (folder: string) => Promise<void>
@@ -81,6 +84,18 @@ beforeAll(async () => {
 })
 
 describe('project window lifecycle', () => {
+  it('checks Play only on Unity projects when the registry includes other engines', () => {
+    const list = f.ctx.projects.list
+    f.ctx.projects.list = () => [{ name: 'web', engine: 'web' }, { name: 'unity', engine: 'unity' }]
+    try {
+      f.playerStatus.mockReturnValue({ state: 'playing' })
+      expect(f.tipsOptions.playing()).toBe(true)
+      expect(f.playerStatus).toHaveBeenCalledWith('unity')
+      expect(f.playerStatus).not.toHaveBeenCalledWith('web')
+      f.playerStatus.mockReturnValue({ state: 'idle' })
+      expect(f.tipsOptions.playing()).toBe(false)
+    } finally { f.ctx.projects.list = list }
+  })
   it('opens a Hub, closes it once a project opens and reuses one project window for concurrent opens', async () => {
     expect(f.windows[0].query).toEqual({})
     expect(f.windows[0].menu).toBeNull()
@@ -102,6 +117,15 @@ describe('project window lifecycle', () => {
     expect(f.ctx.stats.unlock).toHaveBeenCalledWith('project-window-open')
     expect(f.start).toHaveBeenCalledExactlyOnceWith(f.ctx, 'one', 'ally-one')
     expect(f.ctx.stats.unlock).not.toHaveBeenCalledWith('project-windows-two')
+  })
+  it('enables tip moments only after input, never merely loading or focusing a window', () => {
+    const project = f.windows[1]
+    const focused = vi.spyOn(project.constructor, 'getFocusedWindow').mockReturnValue(project)
+    try {
+      expect(f.tipsOptions.focused()).toBeUndefined()
+      project.webContents.emit('before-input-event', {}, { type: 'keyDown', isAutoRepeat: false })
+      expect(f.tipsOptions.focused()).toMatchObject({ project: 'one', wksp: 'ally-one', active: true })
+    } finally { focused.mockRestore() }
   })
   it('lets the Hub and project windows resize down to the same small minimum', () => {
     expect(WINDOW_MIN).toEqual({ width: 480, height: 360 })

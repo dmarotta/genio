@@ -36,6 +36,13 @@ the answer no.
 6. **No toast, desktop notification or killfeed entry unless the user must act or would
    otherwise miss something that matters.** An interruption has to earn itself; "done" and
    "started" rarely do.
+   Feature tips are the one bounded exception, explicitly requested on from the start:
+   one relevant line of at most 90 characters, once per feature ever, at most one per
+   day and one per session. Only Online in the focused project, outside Play, replies,
+   dialogs and other choice cards; Ask Genio alone may explain its single waiting choice.
+   Never teach an already-used feature. The card must not block work, fades after
+   20 seconds, and offers Ask Genio, No more tips and dismissal. One Settings row restores
+   tips; no feed, history, tour or per-tip controls. See [Feature tips](feature-tips.md).
 7. **An empty state is one plain line.** What is missing, and if there is a next step, what it
    is. No illustration, no tutorial.
 8. **Do not hide clutter behind a toggle or a popover; delete it.** A hidden thing is still a

@@ -56,6 +56,8 @@ const CHAT_ONLY = new Set<GenioEvent['type']>(['chat', 'chat-delta', 'generation
  * The snapshot may be passed as a getter: it is only built for the few event kinds that need it.
  */
 export function routeProjectEvent(ev: GenioEvent, binding: WindowBinding | undefined, s: FleetSnapshot | (() => FleetSnapshot), terminalOwner?: string): GenioEvent | undefined {
+  if (ev.type === 'stats-award' || ev.type === 'unit-copy' || ev.type === 'player-active') return undefined
+  if (ev.type === 'tip') return binding?.project === ev.project ? ev : undefined
   if (!binding) return CHAT_ONLY.has(ev.type) ? undefined : ev
   const snap = (): FleetSnapshot => (typeof s === 'function' ? s() : s)
   const project = (name?: string): GenioEvent | undefined => name === binding.project ? ev : undefined

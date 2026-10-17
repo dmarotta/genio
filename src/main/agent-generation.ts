@@ -210,7 +210,10 @@ export class AgentGeneration {
     if (j.status === 'awaiting_approval') {
       j.approval = via === 'card' ? 'approved by you on this card' : 'approved by you in your own words'
       j.status = 'running'; this.start(j)
-      if (j.status === 'running') this.ctx.stats.unlock('spend-approve')
+      if (j.status === 'running') {
+        this.ctx.stats.unlock('spend-approve')
+        bus.publish({ type: 'feature-used', feature: 'spend-approve', id: j.id, project: j.world })
+      }
     }
     return this.card(j)
   }

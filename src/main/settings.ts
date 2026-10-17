@@ -67,7 +67,8 @@ export function defaultSettings(): Settings {
     cheapSpendAllowed: false,
     autoReorder: true,
     eventSources: [],
-    firstRunDone: false
+    firstRunDone: false,
+    featureTips: true
   }
 }
 

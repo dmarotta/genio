@@ -26,6 +26,19 @@ beforeEach(() => {
 afterEach(() => { router.stop(); vi.useRealTimers() })
 
 describe('chat streaming', () => {
+  it('delivers a tip only to its focused project window, never the Hub', () => {
+    const tip: GenioEvent = { type: 'tip', project: 'one', tip: { id: 'plans', line: 'Plan work.', question: 'How do plans work?' } }
+    hub.focused = () => true; two.focused = () => true
+    router.publish(tip)
+    expect(events(hub)).toEqual([]); expect(events(one)).toEqual([]); expect(events(two)).toEqual([])
+    one.focused = () => true
+    router.publish(tip)
+    expect(events(one)).toEqual([tip]); expect(events(hub)).toEqual([]); expect(events(two)).toEqual([])
+    router.publish({ type: 'player-active', project: 'one' })
+    router.publish({ type: 'unit-copy', project: 'one', ms: 61_000 })
+    router.publish({ type: 'stats-award', event: 'merge', project: 'one' })
+    expect(events(one)).toEqual([tip])
+  })
   it('coalesces deltas per message, flushes them on a timer, and keeps them off the Hub', () => {
     for (let i = 0; i < 500; i++) router.publish({ type: 'chat-delta', wksp: 'ally-one', id: 'm1', text: `${i} ` })
     router.publish({ type: 'chat-delta', wksp: 'ally-two', id: 'm2', text: 'two' })

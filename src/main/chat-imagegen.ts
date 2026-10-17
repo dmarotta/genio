@@ -147,6 +147,7 @@ export interface ChatImageGen {
   /** this chat's image folder (data/chat-images of its base) */
   chatDir: string
   wksp: string
+  project?: string
   /** upsert a message in this chat; persist=false for the transient placeholder */
   post(m: ChatMessage, persist: boolean): void
   run: CodexImageRun
@@ -162,6 +163,7 @@ export function chatImageGen(ctx: AppCtx, home: Home): ChatImageGen {
   return {
     chatDir: chatImageDir(home.data),
     wksp: home.name,
+    project: ctx.allies.list().find(a => a.name === home.name && !a.retiredAt && a.projects.length === 1)?.projects[0],
     post: (m, persist) => ctx.home(home.name).wksp.post(m, persist),
     run: { script: path.join(codexImageSkillDir(plugin), 'scripts', 'codex-image.mjs'), scratch }
   }
@@ -228,7 +230,8 @@ export async function generateChatImages(gen: ChatImageGen, a: GenerateImageArgs
   ]
   gen.post({ ...base, text: lines.filter(Boolean).join('\n\n'), images: made.map((m) => m.ref) }, true)
   if (!gen.quiet) bus.publish({ type: 'generation', wksp: gen.wksp, id, active: false })
-  bus.publish({ type: 'feature-used', feature: 'chat-image', id: base.id, count: made.length })
+  bus.publish({ type: 'feature-used', feature: 'chat-image', id: base.id, count: made.length,
+    project: gen.project })
 
   const summary = {
     posted_in_chat: true,

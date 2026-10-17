@@ -20,6 +20,7 @@ export const TERMINAL_FLUSH_MS = 16
 
 export interface RoutedWindow {
   binding?: WindowBinding
+  focused?(): boolean
   /** false once the window or its web contents is gone */
   alive(): boolean
   send(channel: string, payload: unknown): void
@@ -74,6 +75,7 @@ export function createEventRouter(opts: EventRouterOptions): EventRouter {
     if (ev.type === 'terminal-removed') removed.add(ev.id)
     const owner = ev.type === 'terminal' ? terminalOwners.get(ev.terminal.id) : ev.type === 'terminal-removed' ? terminalOwners.get(ev.id) : undefined
     for (const win of live()) {
+      if (ev.type === 'tip' && (!win.focused?.() || win.binding?.project !== ev.project)) continue
       const routed = routeProjectEvent(ev, win.binding, snapshot, owner)
       if (routed) win.send(EVENT_CHANNEL, routed)
     }

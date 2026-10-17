@@ -3,6 +3,14 @@
 Plain-language answers to "what does this do?" for the player. One entry per term: what it is, where to find it,
 and the doc with the details. Settings paths are written the way Genio names them.
 
+## Feature tips
+
+Once-only hints chosen from what you are doing, on from the start. At most one a
+day and one per session, only Online in the focused project, outside Play and
+replies, and never for a feature you already used. The rule engine is in place;
+the corner card and Feature tips switch are the next build.
+Source: [Feature tips](../feature-tips.md)
+
 ## Presence
 
 How much Genio interrupts you. Three modes: Online, DND and AFK. Switch with the Online / DND / AFK control in the

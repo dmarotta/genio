@@ -208,7 +208,11 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     exists(path.join(wt, 'package.json')) ? { stateFile: depsStateFile(home.taskDir(id)), setup: depsGuard } : undefined
   /** Background private node_modules for the unit's worktree (once; nothing to do when it already has one). */
   const startDeps = (t: Task, main: string): void => safe(() => {
-    void startWorktreeDeps({ worktree: t.worktree, main, stateFile: depsStateFile(home.taskDir(t.id)), statusFile: home.statusFile(t.id), data: mainHome.data, log: depsLog })
+    void startWorktreeDeps({ worktree: t.worktree, main, stateFile: depsStateFile(home.taskDir(t.id)), statusFile: home.statusFile(t.id), data: mainHome.data, log: depsLog })?.then(report => {
+      if (report.state === 'ready' && report.from && !report.method?.startsWith('clone:')) {
+        bus.publish({ type: 'unit-copy', project: t.project, ms: report.elapsedMs - (report.deferredMs ?? 0) })
+      }
+    }).catch(() => undefined)
   })
 
   /** Launch additions for unit skills; a missing install or key never blocks a launch. */

@@ -4,8 +4,10 @@
  */
 import path from 'node:path'
 import fs from 'node:fs'
-import { app, BrowserWindow, clipboard, dialog, protocol, screen, session, shell, type WebContents } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, powerMonitor, protocol, screen, session, shell, type WebContents } from 'electron'
 import { EVENT_CHANNEL } from '@shared/api'
+import { effectiveEngine } from '@shared/engine'
+import { supportsUnitySlots } from '@shared/play'
 import { bus } from './bus'
 import { createApp, ensureProjectBase, getCtx, startApp, startProjectBase, stopApp, stopProjectBase } from './ctx'
 import { MEDIA_SCHEME } from './fal-service'
@@ -30,12 +32,15 @@ import { COPY_SIGNAL, genioInstallReport, logInstallReport, recoveryCardHtml, ty
 import { allowPermission } from './window-permissions'
 import { voiceInput } from './voice-input'
 import { voiceOutput } from './voice-output'
+import { createTipsService } from './tips'
 
 // Validate before single-instance locking, Base writes, or provider startup.
 const captureData = captureUserData()
 if (captureData) app.setPath('userData', captureData)
 
 const windows = new Map<BrowserWindow, WindowBinding | undefined>()
+const tipActiveWindows = new WeakSet<BrowserWindow>()
+let tips: ReturnType<typeof createTipsService> | undefined
 /** Chat pop-outs of Genio's windows: with the windows themselves, the only pages that may use the microphone. */
 const popouts = new WeakSet<WebContents>()
 const windowLoads = new WeakMap<BrowserWindow, Promise<void>>()
@@ -126,6 +131,25 @@ async function boot(): Promise<void> {
   registerMediaProtocols()
   guardPermissions()
   wireEvents()
+  tips = createTipsService(getCtx, {
+    focused: () => {
+      const win = BrowserWindow.getFocusedWindow()
+      const binding = win && windows.get(win)
+      if (!win || !binding || !tipActiveWindows.has(win) || win.webContents.isLoadingMainFrame()) return undefined
+      return { ...binding, active: powerMonitor.getSystemIdleTime() < 60,
+        dialogOpen: !win.isEnabled() || !ctx!.settings.get().firstRunDone || ctx!.permissions.pending().length > 0 }
+    },
+    playing: () => ctx!.projects.list().some(p =>
+      supportsUnitySlots(effectiveEngine(p).engine) &&
+      ['entering-play', 'playing', 'paused', 'exiting-play'].includes(playerInstanceService(ctx!).status(p.name).state)),
+    canShow: async project => {
+      const win = BrowserWindow.getFocusedWindow()
+      if (!win || windows.get(win)?.project !== project) return false
+      // Dialog is the shared renderer primitive. Read it only for an eligible tip,
+      // so Deploy and other local dialogs also gate tips without adding UI wiring.
+      return await win.webContents.executeJavaScript('!document.querySelector(\'[role="dialog"], dialog[open]\')') === true
+    }
+  })
   // Created up front so turning Read replies aloud back on can bring back a put-off natural voice offer.
   try { voiceOutput(ctx) } catch (e) { console.error('[voice-output]', e) }
   await launch(process.argv, process.cwd())
@@ -283,6 +307,22 @@ function createWindow(binding?: WindowBinding): BrowserWindow {
   windows.set(win, binding)
   win.on('ready-to-show', () => win.show())
   // Coming back from the editor or a file manager: re-detect the engine (the Hub covers every project).
+  // Actual input is an opportunity to help with an old choice; never poll for tips.
+  let lastTipActivity = 0
+  const tipActivity = (): void => {
+    if (binding && win.isFocused() && Date.now() - lastTipActivity >= 30_000) {
+      // A newly loaded window is not a tip moment until the player interacts with it.
+      tipActiveWindows.add(win)
+      lastTipActivity = Date.now()
+      bus.publish({ type: 'player-active', project: binding.project })
+    }
+  }
+  win.webContents.on('before-input-event', (_event, input) => {
+    if (input.type === 'keyDown' && !input.isAutoRepeat) tipActivity()
+  })
+  win.webContents.on('before-mouse-event', (_event, input) => {
+    if (input.type === 'mouseDown') tipActivity()
+  })
   let focusScan: ReturnType<typeof setTimeout> | undefined
   let lastFocusScan = 0
   win.on('focus', () => {
@@ -457,6 +497,7 @@ async function navigateNotification(target: Extract<GenioEvent, { type: 'navigat
 function routedWindows(): RoutedWindow[] {
   return [...windows].map(([win, binding]) => ({
     binding,
+    focused: () => win.isFocused(),
     alive: () => !win.isDestroyed() && !win.webContents.isDestroyed(),
     send: (channel, payload) => win.webContents.send(channel, payload)
   }))
@@ -472,6 +513,7 @@ function wireEvents(): void {
 }
 
 async function shutdown(code = 0): Promise<void> {
+  tips?.stop()
   try {
     if (ctx) { voiceInput(ctx).stop(); voiceOutput(ctx).stop() }
   } catch {
