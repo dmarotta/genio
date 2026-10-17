@@ -107,6 +107,9 @@ def _replace(name):
         bpy.data.objects.remove(old)
         if isinstance(data, bpy.types.Mesh) and data.users == 0:
             bpy.data.meshes.remove(data)
+        # The view layer keeps the removed object's slot (None in view_layer.objects) until it
+        # syncs: anything iterating it after a remove or a rebuild crashed (about 3 ms).
+        bpy.context.view_layer.update()
     orphan = bpy.data.meshes.get(name)
     if orphan is not None and orphan.users == 0:
         bpy.data.meshes.remove(orphan)

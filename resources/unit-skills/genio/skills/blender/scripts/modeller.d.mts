@@ -29,7 +29,9 @@ export interface Runner { prefix?: string[] }
 export interface StepDone {
   ok: true; model: string; id: string; n: number; name: string; caption: string; branch: string; parent: string | null
   triangles: number; vertices: number; objects: number; bounds: { min: number[]; max: number[]; dimensions: number[] } | null
-  warnings: string[]; sheet: string | null; glb: string | null; blend: string | null; receipt: string; ms: number; pruned: string[]
+  /** Warnings new since the parent step; `known_warnings` counts the unchanged rest, all in the receipt. */
+  warnings: string[]; known_warnings: number
+  sheet: string | null; glb: string | null; blend: string | null; receipt: string; ms: number; pruned: string[]
   /** What p.bake_maps did in this step, when it baked. */
   bakes?: Bake[]
 }
@@ -45,8 +47,8 @@ export interface StepFailed {
 export interface BatchScript { script: string; name?: string }
 export interface BatchDone {
   ok: boolean; model: string; branch: string; head: string | null
-  steps: { id: string; n: number; name: string; caption: string; triangles: number; objects: number; warnings: string[]; glb: string | null; sheet: string | null; ms: number }[]
-  sheet: string | null; receipt: string | null; warnings: string[]
+  steps: { id: string; n: number; name: string; caption: string; triangles: number; objects: number; warnings: string[]; known_warnings: number; glb: string | null; sheet: string | null; ms: number }[]
+  sheet: string | null; receipt: string | null; warnings: string[]; known_warnings: number
   failure: StepFailed | null; not_run: { name: string; script: string }[]; message: string
 }
 interface Common { dataDir?: string; model: string }

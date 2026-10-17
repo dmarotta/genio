@@ -207,6 +207,17 @@ function failureMessage(kind, { receipt, run, timeout, head }) {
   return `${receipt.error}. ${at}`
 }
 
+/**
+ * The step's warnings that its parent did not have, word for word, and how many it shares with it.
+ * The same checks repeat on every step until fixed (17 pass-throughs on 14 of 15 village steps), so
+ * the agent reads each warning once; the receipt keeps the full list.
+ */
+function newWarnings(dir, parentId, warnings) {
+  const before = new Set(parentId ? readJson(path.join(dir, 'steps', parentId, 'receipt.json'))?.warnings ?? [] : [])
+  const fresh = warnings.filter((w) => !before.has(w))
+  return { fresh, known: warnings.length - fresh.length }
+}
+
 /** A batch's step scripts, in order: one folder of .py files (sorted by name), a batch .json, or several .py files. */
 export function batchScripts(args) {
   const raw = Array.isArray(args) ? args : [args]
@@ -332,6 +343,7 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
     const mb = dirBytes(dir) / 2 ** 20
     if (mb > SESSION_WARN_MB) receipt.warnings.push(`This model's step data is ${Math.round(mb)} MB; older snapshots are pruned, but GLBs and sheets add up.`)
     entry.warnings = receipt.warnings.length
+    const { fresh, known } = newWarnings(dir, entry.parent, receipt.warnings)
     const abs = absFiles(entry.files)
     Object.assign(receipt, { id: s.id, parent: entry.parent, branch: m.branch, t: entry.t, wall_ms: ms, files: abs })
     delete receipt.stage
@@ -340,7 +352,7 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
     published[k] = {
       ok: true, model: m.model, id: s.id, n: s.n, name: s.name, caption: entry.caption, branch: m.branch, parent: entry.parent,
       triangles: entry.triangles, vertices: entry.vertices, objects: entry.objects, bounds: receipt.bounds ?? null,
-      warnings: receipt.warnings, sheet: abs.sheet, glb: abs.glb, blend: abs.blend, receipt: abs.receipt, ms, pruned,
+      warnings: fresh, known_warnings: known, sheet: abs.sheet, glb: abs.glb, blend: abs.blend, receipt: abs.receipt, ms, pruned,
       ...(receipt.bakes ? { bakes: receipt.bakes } : {})
     }
     completed++
@@ -429,11 +441,11 @@ export async function batch({ dataDir = modellerDataDir(), model, scripts, every
     const m = readManifest(dir)
     const { published, failure, notRun } = await runSteps(dir, m, items, { everySheet, timeout, threads, runner, gapMs })
     const last = published.at(-1)
-    const brief = (s) => ({ id: s.id, n: s.n, name: s.name, caption: s.caption, triangles: s.triangles, objects: s.objects, warnings: s.warnings, glb: s.glb, sheet: s.sheet, ms: s.ms })
+    const brief = (s) => ({ id: s.id, n: s.n, name: s.name, caption: s.caption, triangles: s.triangles, objects: s.objects, warnings: s.warnings, known_warnings: s.known_warnings, glb: s.glb, sheet: s.sheet, ms: s.ms })
     const did = `${published.length} of ${items.length} steps landed`
     return {
       ok: !failure, model: m.model, branch: m.branch, head: m.branches[m.branch].head, steps: published.map(brief),
-      sheet: last?.sheet ?? null, receipt: last?.receipt ?? null, warnings: last?.warnings ?? [], failure, not_run: notRun,
+      sheet: last?.sheet ?? null, receipt: last?.receipt ?? null, warnings: last?.warnings ?? [], known_warnings: last?.known_warnings ?? 0, failure, not_run: notRun,
       message: failure
         ? `${did}; ${failure.id} (${failure.name}) failed. ${failure.message}${notRun.length ? ` Not run: ${notRun.map((x) => x.name).join(', ')}.` : ''}`
         : `${did}. Review ${last.sheet ? `the sheet of ${last.id}` : last.id} before the next batch.`

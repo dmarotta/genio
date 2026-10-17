@@ -3,6 +3,7 @@
 // (plan.steps runs back to back in this one process, as in Blender).
 // A "snapshot" is the zstd magic plus JSON {parts, scripts}. Step scripts drive it with comments:
 //   # part: <name>     add a part        # remove: <name>   drop a part
+//   # warn: <text>     the step's checks report this warning
 //   # fake: error      raise              # fake: crash      exit 3 mid-step
 //   # fake: hang       never finish
 //   # fake: wait-publish   after landed.json, wait (up to 10 s) until the kernel published the
@@ -90,6 +91,7 @@ async function main() {
     if (outputs.has('blend')) fs.writeFileSync(out('model.blend'), Buffer.concat([MAGIC, Buffer.from(JSON.stringify(state))]))
     if (item.script) {
       const warnings = caption ? [] : ['Start the step script with a docstring: its first line is the caption the player sees.']
+      for (const m of code.matchAll(/^# warn: (.+)$/gm)) warnings.push(m[1].trim())
       if (code.includes('# fake: wait-publish')) receipt.sheet_after_publish = await published(item)
       if (outputs.has('sheet') && code.includes('# fake: sheet-error')) warnings.push('The review sheet failed (RuntimeError: fake sheet failure); the step is published without it.')
       else if (outputs.has('sheet')) { fs.writeFileSync(out('sheet.png'), PNG); fs.writeFileSync(out('view.png'), PNG) }

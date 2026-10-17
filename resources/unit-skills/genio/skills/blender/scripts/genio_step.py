@@ -30,7 +30,7 @@ import warnings
 
 import bpy
 import numpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 
 import genio_bpy
@@ -258,12 +258,50 @@ def save_blend(path):
     bpy.ops.wm.save_as_mainfile(filepath=path, copy=True, compress=True)
 
 
-VIEWS = [  # (file, direction from the model's centre, perspective); sheet order: TL, TR, BL, BR
-    ('view', (1.0, -1.25, 0.75), True),
-    ('front', (0.0, -1.0, 0.0), False),
-    ('side', (1.0, 0.0, 0.0), False),
-    ('top', (0.0, 0.0, 1.0), False),
+VIEWS = [  # (file, direction from the model's centre, image up, perspective); sheet order: TL, TR, BL, BR
+    ('view', (1.0, -1.25, 0.75), (0.0, 0.0, 1.0), True),
+    ('front', (0.0, -1.0, 0.0), (0.0, 0.0, 1.0), False),  # +X right
+    ('side', (1.0, 0.0, 0.0), (0.0, 0.0, 1.0), False),  # from +X: +Y right, the front on the left
+    ('top', (0.0, 0.0, 1.0), (0.0, 1.0, 0.0), False),  # plan view: +X right, +Y up, the front at the bottom
 ]
+AXES = [  # (world axis, colour, 5x7 glyph) for the marker in each sheet cell
+    ((1, 0, 0), (0.93, 0.27, 0.27), ('10001', '10001', '01010', '00100', '01010', '10001', '10001')),
+    ((0, 1, 0), (0.30, 0.82, 0.22), ('10001', '10001', '01010', '00100', '00100', '00100', '00100')),
+    ((0, 0, 1), (0.33, 0.55, 1.00), ('11111', '00001', '00010', '00100', '01000', '10000', '11111')),
+]
+
+
+def camera_basis(direction, up):
+    """(right, up, back) of a camera looking at the model from `direction`, with `up` as image up.
+    Explicit, because a camera looking straight down has no up of its own (the top view came out
+    rotated 180 degrees)."""
+    back = Vector(direction).normalized()
+    right = (-back).cross(Vector(up)).normalized()
+    return right, back.cross(right), back
+
+
+def _fill(img, x, y, w, h, colour):
+    """A w x h block of pixels from (x, y), clipped to the image."""
+    x, y = int(round(x)), int(round(y))
+    img[max(0, y):max(0, y + h), max(0, x):max(0, x + w), :3] = colour
+
+
+def draw_axes(img, right, up):
+    """The world axes as seen in this view, in the cell's lower-left corner: a coloured line per
+    axis that lies in the image (an axis pointing at the camera is left out) and its letter.
+    `img` rows run bottom-up, as Blender stores pixels."""
+    ox = oy = 48
+    for axis, colour, glyph in AXES:
+        dx, dy = Vector(axis).dot(right), Vector(axis).dot(up)
+        if math.hypot(dx, dy) < 0.3:
+            continue
+        for k in range(61):
+            _fill(img, ox + dx * k / 2 - 1, oy + dy * k / 2 - 1, 3, 3, colour)
+        gx, gy = ox + dx * 44 - 5, oy + dy * 44 + 7  # the letter's top-left; 2 px per glyph pixel
+        for row, bits in enumerate(glyph):
+            for col, bit in enumerate(bits):
+                if bit == '1':
+                    _fill(img, gx + 2 * col, gy - 2 * row - 2, 2, 2, colour)
 
 
 def render_sheet(out_dir, size, stats):
@@ -297,9 +335,10 @@ def render_sheet(out_dir, size, stats):
     scene.camera = cam
     cam.data.clip_start, cam.data.clip_end = max(radius * 0.001, 1e-4), radius * 40
     spans = {'view': None, 'front': (dims.x, dims.z), 'side': (dims.y, dims.z), 'top': (dims.x, dims.y)}
-    files = []
-    for name, direction, persp in VIEWS:
-        d = Vector(direction).normalized()
+    files, bases = [], []
+    for name, direction, up, persp in VIEWS:
+        right, up, d = camera_basis(direction, up)
+        bases.append((right, up))
         if persp:
             cam.data.type, cam.data.lens = 'PERSP', 50
             distance = radius / math.sin(cam.data.angle / 2) * 1.05
@@ -308,18 +347,20 @@ def render_sheet(out_dir, size, stats):
             cam.data.ortho_scale = max(max(spans[name]) * 1.15, 0.01)
             distance = radius * 4
         cam.location = centre + d * distance
-        cam.rotation_euler = (-d).to_track_quat('-Z', 'Y').to_euler()
+        cam.rotation_euler = Matrix((right, up, d)).transposed().to_euler()
         scene.render.filepath = os.path.join(out_dir, f'{name}.png')
         bpy.ops.render.render(write_still=True)
         files.append(scene.render.filepath)
     full = size * 2
     sheet = numpy.zeros((full, full, 4), dtype=numpy.float32)
     corners = [(size, 0), (size, size), (0, 0), (0, size)]  # (row, col) of each cell's lower-left; rows run bottom-up
-    for path, (row, col) in zip(files, corners):
+    for path, (row, col), (right, up) in zip(files, corners, bases):
         img = bpy.data.images.load(path)
         px = numpy.empty(size * size * 4, dtype=numpy.float32)
         img.pixels.foreach_get(px)
-        sheet[row:row + size, col:col + size] = px.reshape(size, size, 4)
+        cell = px.reshape(size, size, 4)
+        draw_axes(cell, right, up)  # on the sheet only: view.png stays clean for the live view
+        sheet[row:row + size, col:col + size] = cell
         bpy.data.images.remove(img)
     sheet[size - 1:size + 1, :, :3] = 0.12
     sheet[:, size - 1:size + 1, :3] = 0.12
@@ -353,6 +394,9 @@ def selection_kept():
     """The exporter selects and unhides the shipped parts; the snapshot saved after it keeps the
     scene's own selection, active object and hidden parts."""
     layer = bpy.context.view_layer
+    # A script that removed objects itself (bpy.data.objects.remove) leaves None slots until the
+    # layer syncs; the export evaluates the scene anyway.
+    layer.update()
     state = [(o, o.select_get(), o.hide_get()) for o in layer.objects]
     active = layer.objects.active
     try:

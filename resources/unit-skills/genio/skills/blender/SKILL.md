@@ -59,13 +59,13 @@ node "{{SKILL_DIR}}/scripts/modeller.mjs" step watchtower .genio/modeller/watcht
 node "{{SKILL_DIR}}/scripts/modeller.mjs" status watchtower
 ```
 
-Every step prints JSON: `ok`, `id` (s001, s002...), `caption`, `triangles`, `vertices`, `bounds`, `warnings` and the paths of `sheet` (review PNG), `glb`, `blend` and `receipt`. Exit code 2 means the step failed; 1 means a usage or kernel error.
+Every step prints JSON: `ok`, `id` (s001, s002...), `caption`, `triangles`, `vertices`, `bounds`, `warnings` (new since the previous step), `known_warnings` and the paths of `sheet` (review PNG), `glb`, `blend` and `receipt`. Exit code 2 means the step failed; 1 means a usage or kernel error.
 
 **The loop:**
 1. One step per script: one idea (body, wheels, wings, cockpit; legs, bracing, deck, roof) with 3 to 15 named parts. Write the script and run its `step` command in the same response (the file write, then the command), never in a separate turn.
 2. The first step is one small script that blocks out the main mass with simple parts, so the player sees the model within about a minute. Do not plan or write later steps before it has run; detail comes one step at a time.
-3. After each step, open the `sheet` PNG with your file-read tool. It is 1024 px: 3/4 view top left, front (looking at the model's front, -Y) top right, right side bottom left, top view bottom right. Workbench colours come from your materials.
-4. Read `warnings`. Compare the sheet with what you meant: proportions, parts floating or poking through, missing pieces, wrong facing.
+3. After each step, open the `sheet` PNG with your file-read tool. It is 1024 px: 3/4 view top left; front top right (looking at the model's front from -Y: +X right, +Z up); side bottom left (from +X, the model's left side: +Y right, so its front is on the left); top bottom right (a plan view from above: +X right, +Y up, so its front is at the bottom). Each view has its axes in the lower-left corner: X red, Y green, Z blue (an axis pointing at you is left out). Workbench colours come from your materials.
+4. Read `warnings`: the step lists only those new since the previous step on the branch, and `known_warnings` counts the earlier ones still standing (the receipt has them all). Compare the sheet with what you meant: proportions, parts floating or poking through, missing pieces, wrong facing.
 5. Fix before you continue. A fix is its own step ("Fixing the ladder rails"), or re-run the last step with `--amend` (it replaces the head, keeping the step count honest).
 6. Steering from the player becomes the next step.
 7. When you judge the model done, export the head step, place it, commit and report done like any Build (the brief's Modeller delivery says what to commit). In a Unity project the model's `.meta` belongs to the change: never hand-write one; `genio-unity import` generates it, and you commit it with the FBX (if Unity cannot run for you, commit without it and say it appears on the first import). There is no separate review: the player merges as usual. Ask the player something only when it is a real question.

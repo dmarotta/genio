@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import zlib from 'node:zlib'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
@@ -390,6 +391,39 @@ describe('Modeller kernel with a fake Blender', { timeout: 60000 }, () => {
     expect(manifest().branches.main.head).toBe('s005')
   })
 
+  it('lists a warning at the step that brings it, counts the ones still standing and keeps them all in the receipt', async () => {
+    await fakeModel()
+    const pass = 'Parts passing through each other: Bank 1 / Stream 1 (0.20 m inside, 0.05 m out).'
+    const size = 'Size differs from the expected size: z 0.48 m (expected 1.00).'
+    const first = done(await step(script('s01_base.py', 'Base', '# part: Base', `# warn: ${pass}`, `# warn: ${size}`)))
+    expect(first).toMatchObject({ warnings: [pass, size], known_warnings: 0 })
+    // the same two again: the agent reads neither, and learns two still stand
+    const same = done(await step(script('s02_bridge.py', 'Bridge', '# part: Bridge', `# warn: ${pass}`, `# warn: ${size}`)))
+    expect(same).toMatchObject({ warnings: [], known_warnings: 2 })
+    const receipt = (s: StepDone) => JSON.parse(fs.readFileSync(s.receipt, 'utf8'))
+    expect(receipt(same).warnings).toEqual([pass, size])
+    expect(manifest().steps[1].warnings).toBe(2)
+    // the player's live view still lists every check of the head step
+    expect(readModellerLive(dataDir, () => '')!.checks).toEqual([pass, size])
+    // a changed warning is new; one that went away is simply gone
+    const grown = size.replace('0.48', '0.90')
+    const changed = done(await step(script('s03_tower.py', 'Tower', '# part: Tower', `# warn: ${grown}`)))
+    expect(changed).toMatchObject({ warnings: [grown], known_warnings: 0 })
+    // "previous step" is the parent on the branch: an amend compares with the replaced step's parent,
+    // a branch with the step it starts from
+    const amended = done(await step(script('s03_tower_again.py', 'Tower again', '# part: Tower', `# warn: ${pass}`, `# warn: ${grown}`), { amend: true }))
+    expect(amended).toMatchObject({ parent: 's002', warnings: [grown], known_warnings: 1 })
+    await kernel.branch({ dataDir, model: 'tower', name: 'alt', from: 's001' })
+    expect(done(await step(script('s02_alt.py', 'Alt', '# part: Alt', `# warn: ${pass}`)))).toMatchObject({ parent: 's001', warnings: [], known_warnings: 1 })
+    // a batch: each step against the one before it
+    const b = await kernel.batch({ dataDir, model: 'tower', runner: fake, gapMs: 0, scripts: [
+      script('s03_a.py', 'A', '# part: A', `# warn: ${pass}`, `# warn: ${size}`),
+      script('s04_b.py', 'B', '# part: B', `# warn: ${pass}`, `# warn: ${size}`)
+    ] })
+    expect(b.steps.map((s) => [s.warnings, s.known_warnings])).toEqual([[[size], 1], [[], 2]])
+    expect(b).toMatchObject({ warnings: [], known_warnings: 2 })
+  })
+
   it('starts Blender on every core for a step or replay that bakes, and reports its bakes', async () => {
     await fakeModel()
     const receipt = (s: StepDone) => JSON.parse(fs.readFileSync(s.receipt, 'utf8'))
@@ -444,6 +478,29 @@ function glbTriangles(file: string): number {
 const pngSize = (file: string): [number, number] => {
   const b = fs.readFileSync(file)
   return [b.readUInt32BE(16), b.readUInt32BE(20)]
+}
+/** An 8-bit RGB or RGBA PNG as rows of [r, g, b], top row first. */
+function pngPixels(file: string): number[][][] {
+  const b = fs.readFileSync(file)
+  const [w, h] = [b.readUInt32BE(16), b.readUInt32BE(20)]
+  const bpp = { 2: 3, 6: 4 }[b[25]]!
+  expect(b[24]).toBe(8)
+  const idat: Buffer[] = []
+  for (let at = 8; at < b.length; at += 12 + b.readUInt32BE(at)) if (b.toString('ascii', at + 4, at + 8) === 'IDAT') idat.push(b.subarray(at + 8, at + 8 + b.readUInt32BE(at)))
+  const raw = zlib.inflateSync(Buffer.concat(idat))
+  const stride = w * bpp, rows: number[][][] = []
+  let prev = Buffer.alloc(stride)
+  for (let y = 0; y < h; y++) {
+    const filter = raw[y * (stride + 1)], line = Buffer.from(raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1)))
+    for (let i = 0; i < stride; i++) {
+      const a = i >= bpp ? line[i - bpp] : 0, up = prev[i], c = i >= bpp ? prev[i - bpp] : 0
+      const p = a + up - c, pa = Math.abs(p - a), pb = Math.abs(p - up), pc = Math.abs(p - c)
+      line[i] = (line[i] + [0, a, up, (a + up) >> 1, pa <= pb && pa <= pc ? a : pb <= pc ? up : c][filter]) & 255
+    }
+    rows.push(Array.from({ length: w }, (_, x) => [line[x * bpp], line[x * bpp + 1], line[x * bpp + 2]]))
+    prev = line
+  }
+  return rows
 }
 
 describe.skipIf(!blender)(`Modeller with Blender ${blender?.version.join('.') ?? '(none)'}`, () => {
@@ -599,5 +656,69 @@ describe.skipIf(!blender)(`Modeller with Blender ${blender?.version.join('.') ??
     expect(every.steps.map((s: { sheet: string | null }) => s.sheet !== null)).toEqual([true, true])
     expect(every.warnings.join('\n')).not.toMatch(/camera|Not in Export/)
     expect(every.steps[1].triangles).toBe(r.steps[1].triangles)
+  }, 300000)
+
+  it('removes and rebuilds parts without crashing, and draws the top view as a plan view', async () => {
+    await cmd('init', 'yard', '--target', 'web')
+    const write = (name: string, ...lines: string[]) => {
+      const file = path.join(src, name)
+      fs.writeFileSync(file, lines.join('\n'))
+      return file
+    }
+    // red at +X (the model's left), green at +Y (its back); the grey crates come and go
+    expect(await cmd('step', 'yard', write('s01_yard.py',
+      '"""A yard: base, a red block east, a green block north, two crates"""',
+      "grey = p.material('Grey', '#808080')",
+      "p.box('Base', (2, 2, 0.2), loc=(0, 0, 0.1), mat=grey)",
+      "p.box('East', (0.4, 0.4, 0.4), loc=(0.8, 0, 0.4), mat=p.material('Red', '#ff1010'))",
+      "p.box('North', (0.4, 0.4, 0.4), loc=(0, 0.8, 0.4), mat=p.material('Green', '#10ff10'))",
+      "p.box('Crate', (0.3, 0.3, 0.3), loc=(-0.6, -0.6, 0.35), mat=grey)",
+      "p.box('Spare', (0.3, 0.3, 0.3), loc=(-0.6, 0.4, 0.35), mat=grey)"
+    ))).toMatchObject({ ok: true, objects: 5 })
+    // the ship's crash: parts removed, then the export walked the view layer's stale list
+    const removed = await cmd('step', 'yard', write('s02_remove.py', '"""Dropping the spare crate"""', "p.remove('Spare')", "p.box('Crate 2', (0.3, 0.3, 0.3), loc=(-0.6, 0.4, 0.35))"))
+    expect(removed).toMatchObject({ ok: true, objects: 5 })
+    // a part made again under its own name removes the old one the same way
+    expect(await cmd('step', 'yard', write('s03_rebuild.py', '"""A bigger crate"""', "p.box('Crate', (0.4, 0.4, 0.4), loc=(-0.6, -0.6, 0.4))"))).toMatchObject({ ok: true, objects: 5 })
+    // a script that removes objects itself, and the UV atlas walking the layer after a remove
+    expect(await cmd('step', 'yard', write('s04_raw.py', '"""Clearing the crates"""', "bpy.data.objects.remove(bpy.data.objects['Crate 2'])"))).toMatchObject({ ok: true, objects: 4 })
+    const last = await cmd('step', 'yard', write('s05_atlas.py', '"""Unwrapping"""', "p.remove('Crate')", 'p.uv_atlas()'))
+    expect(last).toMatchObject({ ok: true, objects: 3 })
+
+    // Sheet cells, top-down: 3/4 view, front / side, top. Where are the red and green blocks?
+    const px = pngPixels(last.sheet)
+    const half = px.length / 2
+    const centroid = (cell: [number, number], test: (c: number[]) => boolean) => {
+      let x = 0, y = 0, n = 0
+      for (let r = 0; r < half; r++) for (let c = 0; c < half; c++) {
+        if (c < 130 && r > half - 130) continue // the axis marker's corner
+        const v = px[cell[0] * half + r][cell[1] * half + c]
+        if (test(v)) { x += c; y += r; n++ }
+      }
+      expect(n).toBeGreaterThan(50)
+      return { x: x / n / half - 0.5, y: 0.5 - y / n / half } // -0.5..0.5, +y up
+    }
+    const red = (c: number[]) => c[0] > 120 && c[1] < 0.5 * c[0] && c[2] < 0.5 * c[0]
+    const green = (c: number[]) => c[1] > 120 && c[0] < 0.5 * c[1] && c[2] < 0.5 * c[1]
+    // top: a plan view, +X right and +Y up
+    expect(centroid([1, 1], red).x).toBeGreaterThan(0.15)
+    expect(centroid([1, 1], green).y).toBeGreaterThan(0.15)
+    // front, from -Y: +X right; side, from +X: +Y (the back) right
+    expect(centroid([0, 1], red).x).toBeGreaterThan(0.15)
+    expect(centroid([1, 0], green).x).toBeGreaterThan(0.15)
+    // the top view's axis marker: X red to the right of its origin, Y green above it
+    const marker = (test: (c: number[]) => boolean) => {
+      let x = 0, y = 0, n = 0
+      for (let r = half - 120; r < half; r++) for (let c = 0; c < 120; c++) if (test(px[half + r][half + c])) { x += c; y += half - r; n++ }
+      return { x: x / n, y: y / n, n }
+    }
+    const mx = marker(red), my = marker(green)
+    expect(mx.n).toBeGreaterThan(50)
+    expect(my.n).toBeGreaterThan(50)
+    expect(mx.x - my.x).toBeGreaterThan(20)
+    expect(my.y - mx.y).toBeGreaterThan(20)
+    // the 3/4 view the live view shows has no marker
+    const view = pngPixels(last.sheet.replace(/sheet\.png$/, 'view.png'))
+    expect(view.slice(-120).flatMap((row) => row.slice(0, 120)).filter(red)).toEqual([])
   }, 300000)
 })
