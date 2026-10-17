@@ -6,7 +6,6 @@ import type { Ally, ChatMessage, ShellRun, TerminalInfo } from '../src/shared/ty
 
 vi.hoisted(() => window.history.replaceState(null, '', '/?project=forest&wksp=forest'))
 vi.mock('../src/renderer/src/components/ModelSelect', () => ({ ModelSelect: () => null, EffortSelect: () => null }))
-vi.mock('../src/renderer/src/components/ComingNext', () => ({ ComingNext: () => null }))
 // xterm needs a real canvas; here the view only records which terminal it shows.
 vi.mock('../src/renderer/src/components/Terminal', () => ({
   TerminalView: (p: { id: string; pane?: boolean }) => React.createElement('div', { className: 'term-mock', 'data-id': p.id, 'data-pane': String(!!p.pane) })
@@ -76,9 +75,8 @@ describe("'!' shell mode in the composer", () => {
     expect(box().classList.contains('shell')).toBe(true)
     expect(host.querySelector('.composer-shell-glyph')?.textContent).toBe('!')
     expect(textarea().value).toBe('')
-    expect(textarea().placeholder).toBe('run a shell command')
+    expect(textarea().placeholder).toBe('Shell command')
     expect(host.querySelector('.composer-shell-keys')?.textContent).toContain('Shell mode · Enter run')
-    expect(host.querySelector('.composer-shell-keys [title]')?.getAttribute('title')).toContain('Genio reads the output with your next message')
     await type('git status')
     // switching screens keeps the shell draft
     await act(() => root.render(React.createElement('div')))
@@ -155,7 +153,7 @@ describe('the result block', () => {
   const run = (patch: Partial<ShellRun> = {}): ShellRun => ({ command: 'npm test', cwd: 'C:/games/forest', exitCode: 1, durationMs: 2300, output: 'Error: boom', truncated: false, ...patch })
   const block = (r: ShellRun): ChatMessage => ({ id: 'sh-1', wksp: WKSP, role: 'system', text: '! npm test', ts: '2026-10-16T12:00:00Z', shell: r })
 
-  it('shows command, exit code, duration and output, marked run by you', async () => {
+  it('shows command, exit code and output, marked run by you', async () => {
     chatState([block(run())])
     await act(() => root.render(React.createElement(ChatPanel, { wksp: WKSP })))
     const el = host.querySelector('.msg-shell')!
@@ -163,7 +161,7 @@ describe('the result block', () => {
     expect(el.querySelector('.msg-shell-who')?.textContent).toBe('run by you')
     expect(el.querySelector('.msg-shell-cmd')?.textContent).toBe('$ npm test')
     expect(el.querySelector('.msg-shell-exit')?.textContent).toBe('exit 1')
-    expect(el.querySelector('.msg-shell-time')?.textContent).toContain('2.3 s')
+    expect(el.querySelector('.msg-shell-time')?.textContent).not.toContain('2.3 s')
     expect(el.querySelector('.msg-shell-out')?.textContent).toBe('Error: boom')
     await act(async () => el.querySelector<HTMLButtonElement>('.msg-shell-toggle')!.click())
     expect(el.querySelector('.msg-shell-out')).toBeNull()

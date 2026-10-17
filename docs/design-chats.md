@@ -20,9 +20,8 @@ This page covers the Design screen, the runtime and the design notes.
   context-menu key on it, for **Delete chat**, which stops it and deletes its transcript. New chat reuses a chat
   that has no message yet instead of adding another empty one.
 - **A chat** opens in the project chat's own chat view (`ChatPanel` with a conversation id): the same log, queue,
-  steering, images and composer, with only the chat's **model and effort** under it. There is no status bar,
-  approval mode, Clean HUD, shell mode, slash commands, Recap, Deploy or reactions: the design chat starts no work.
-  Its replies are signed "Design chat", never Genio.
+  steering, images and composer, with only the chat's **model and effort** under it. There is no approval mode,
+  shell mode or Interrupt: the design chat starts no work. Its replies carry no name, so they never read as Genio.
 - **A note** reads as rendered markdown (its front matter hidden). **Edit** opens it in the Art Bible's markdown
   editor (`MarkdownEditor`): Ctrl+S or Save file saves it, Cancel drops the edit. The save is refused when the note
   changed since Edit (a design chat saved it meanwhile), and over the size limits. Like the Art Bible screen, the

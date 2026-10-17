@@ -124,17 +124,14 @@ describe('Project settings and registry helpers', () => {
   })
   it('searches names, engine labels and nested roots without mutating the registry', () => {
     const worlds = [project('Zebra'), { ...project('Alpha', 'godot'), engineRoot: 'nested/game' }]
-    expect(worldList(worlds, 'GODOT', 'name').map((p) => p.name)).toEqual(['Alpha'])
-    expect(worldList(worlds, 'nested/game', 'name')).toHaveLength(1)
-    expect(worldList(worlds, ' missing ', 'name')).toEqual([])
+    expect(worldList(worlds, 'GODOT').map((p) => p.name)).toEqual(['Alpha'])
+    expect(worldList(worlds, 'nested/game')).toHaveLength(1)
+    expect(worldList(worlds, ' missing ')).toEqual([])
     expect(worldPath(worlds[1])).toBe('C:/games/Alpha/nested/game')
-    expect(worldList(worlds, '', 'name').map((p) => p.name)).toEqual(['Alpha', 'Zebra'])
+    expect(worldList(worlds, '').map((p) => p.name)).toEqual(['Alpha', 'Zebra'])
     expect(worlds[0].name).toBe('Zebra')
   })
-  it('sorts engines and newest commits, placing unknown timestamps last', () => {
-    const worlds = [project('Zebra'), project('Alpha', 'godot'), project('Beta')]
-    expect(worldList(worlds, '', 'engine').map((p) => p.name)).toEqual(['Alpha', 'Beta', 'Zebra'])
-    expect(worldList(worlds, '', 'modified', { Zebra: { lastCommitAt: '2026-10-13' }, Alpha: { lastCommitAt: '2026-10-12' } }).map((p) => p.name)).toEqual(['Zebra', 'Alpha', 'Beta'])
+  it('labels the last commit, or its absence', () => {
     expect(modifiedLabel('2026-10-12', Date.parse('2026-10-13'))).toBe('1 day ago')
     expect(modifiedLabel()).toBe('No commit yet')
   })

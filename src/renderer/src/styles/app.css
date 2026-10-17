@@ -74,15 +74,6 @@ kbd {
 button.hud-stat:hover { border-color: var(--line); color: var(--text); }
 .hud-stat.amber { color: var(--amber); }
 .hud-stat.amber .num { text-shadow: var(--glow-amber); }
-.level { display: flex; align-items: center; gap: 10px; background: none; border: 0; cursor: pointer; padding: 0 6px 0 10px; }
-.level-badge {
-  display: flex; align-items: baseline; gap: 2px; color: var(--volt); font-size: 18px; line-height: 1;
-  padding: 3px 7px; border: 1px solid rgba(198, 255, 61, 0.45); text-shadow: var(--glow-volt);
-  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
-}
-.level-badge small { font-size: 9px; letter-spacing: 0.1em; opacity: 0.8; }
-.level-xp { display: flex; flex-direction: column; gap: 3px; width: 92px; }
-.level-xp .label { font-size: 9px; letter-spacing: 0.12em; text-align: left; }
 .wc-gap { width: 140px; flex: none; height: 100%; }
 .tb-project { min-width: 0; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .titlebar > :not(.tb-project, .tb-spacer) { flex-shrink: 0; }
@@ -122,7 +113,6 @@ button.hud-stat:hover { border-color: var(--line); color: var(--text); }
   transition: opacity 0.12s, transform 0.12s; z-index: 50;
 }
 .rail-btn:hover .rail-tip { opacity: 1; transform: translate(0, -50%); }
-.rail-foot { margin-top: auto; font-size: 9px; }
 
 /* ---------- generic view ---------- */
 .view { flex: 1; min-height: 0; overflow: auto; padding: 28px 36px 40px; display: flex; flex-direction: column; gap: 22px; }
@@ -227,8 +217,6 @@ button.hud-stat:hover { border-color: var(--line); color: var(--text); }
 .splash-word::after { color: var(--neon); opacity: 0.55; animation: glitch 0.8s steps(2) 2 reverse; left: -2px; }
 .splash-bar { width: 100%; margin-top: 6px; }
 .splash-bar i { transition: width 1.1s var(--ease); }
-.splash-lines { align-self: stretch; font-size: 11px; color: var(--text-mute); }
-.splash-lines div { opacity: 0; animation: rise 0.3s var(--ease) both; }
 
 /* ---------- welcome back ---------- */
 .wb-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -293,23 +281,16 @@ button.usage-toggle:hover { color: var(--text); }
 /* ---------- comms ---------- */
 .comms { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 320px; }
 .comms-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.comms-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 8px 20px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-.comms-status { display: flex; align-items: center; gap: 14px; }
 .chat-panel { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; container: chat-panel / inline-size; }
 .chat-panel .chat-log { padding: 20px 20px 12px; }
 .chat-panel .composer { padding: 10px 20px 14px; }
-.chat-panel .toggle-label { white-space: nowrap; }
 /* A narrow floating panel keeps its controls on as few lines as it can: the key hints go, the gutters shrink. */
 @container chat-panel (max-width: 560px) {
-  .comms-head { padding: 8px 12px; gap: 6px 14px; }
   .chat-panel .chat-log { padding: 16px 12px 10px; }
   .chat-panel .composer { padding: 8px 12px 12px; }
   .composer-keys { display: none; }
 }
-.chat-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex: 1; }
-.chat-scope { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.activity { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-dim); }
 /* The visible chat area: the scroller plus overlays (the jump control) that must not scroll with it. */
 .chat-viewport { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .chat-log { flex: 1; min-height: 0; overflow-y: auto; padding: 26px 28px 12px; display: flex; flex-direction: column; }
@@ -319,7 +300,7 @@ button.usage-toggle:hover { color: var(--text); }
 .chat-log-body > * { width: 100%; }
 /* The jump control floats over the bottom of the viewport, just above the composer, outside the
    scroller so it adds no scroll height and never sits in the messages' flow. Above messages, below
-   the slash menu (30) and the Your Move cards (100) over the floating panel. Only the button takes
+   the Your Move cards (100) over the floating panel. Only the button takes
    the pointer; the dock is click-through. The shadow is a filter on the dock because .btn's
    clip-path would cut off a box-shadow. */
 .chat-jump-dock {
@@ -334,9 +315,7 @@ button.usage-toggle:hover { color: var(--text); }
    Opaque, so message text never shows through it. */
 .chat-jump { pointer-events: auto; background: var(--surface-2); }
 .btn.chat-jump:hover:not(:disabled) { background: color-mix(in srgb, var(--c) 14%, var(--surface-2)); }
-.chat-empty { margin: auto; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 14px; max-width: 520px; }
-.chat-empty p { margin: 0; line-height: 1.6; }
-.quick-chips { display: flex; gap: 10px; margin-top: 6px; }
+.chat-empty { margin: auto; text-align: center; max-width: 520px; line-height: 1.6; }
 
 .msg { display: flex; gap: 14px; }
 /* Long transcripts: messages scrolled out of view are not laid out, painted or animated until they come near the viewport. */
@@ -369,21 +348,6 @@ button.usage-toggle:hover { color: var(--text); }
 .voice-consent { max-width: 300px; padding: 12px; font-size: 13px; }
 .voice-consent p { margin: 0 0 10px; }
 .voice-consent-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.msg-copy { width: 26px; height: 26px; border-radius: 4px; }
-.msg-copy:focus-visible { outline: 2px solid var(--neon); outline-offset: 2px; }
-.msg-copy:disabled { opacity: 0.5; cursor: default; }
-/* Reactions: hidden until the message is hovered or focused, always shown once set; keyboard reachable throughout. */
-.msg-react { opacity: 0; transition: opacity 0.15s var(--ease); }
-.msg.genio:hover .msg-react, .msg-react:focus-within, .msg-react.set { opacity: 1; }
-@media (hover: none) { .msg-react { opacity: 1; } }
-.msg-react .msg-act { width: 24px; height: 24px; border-radius: 4px; }
-.msg-react .msg-act:focus-visible { outline: 2px solid var(--neon); outline-offset: 2px; }
-.msg-react .msg-act:disabled { opacity: 0.5; cursor: default; }
-.msg-react .msg-like.on { color: var(--volt); background: var(--volt-soft); }
-.msg-react .msg-dislike.on { color: var(--alert); background: var(--alert-soft); }
-.msg-reaction-note { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 6px; font-size: 11.5px; color: var(--text-dim); }
-.msg-reaction-note.dislike { color: var(--amber); }
-.msg-acts .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .msg.from-genio { align-items: flex-start; }
 .msg.from-genio .msg-bubble { white-space: normal; background: linear-gradient(135deg, var(--violet-soft), rgba(165, 107, 255, 0.04)); border-color: rgba(165, 107, 255, 0.4); }
 .msg-from { font-size: 10px; margin-bottom: 4px; }
@@ -393,7 +357,6 @@ button.usage-toggle:hover { color: var(--text); }
 .msg.genio .md { color: var(--text); line-height: 1.65; }
 .msg-wake { display: flex; align-items: center; font-size: 11.5px; color: var(--text-dim); padding: 4px 10px; border-left: 2px solid var(--neon-soft); }
 .msg-wake-text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.msg-wake .msg-acts { flex-shrink: 0; }
 .msg-system { color: var(--text-dim); font-size: 13px; padding: 10px 14px; border: 1px dashed var(--line-strong); }
 .msg-error { color: var(--alert); font-size: 12px; padding: 10px 14px; background: var(--alert-soft); white-space: pre-wrap; }
 .working-line { display: flex; align-items: center; gap: 10px; color: var(--neon); font-size: 12px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; padding-top: 9px; }
@@ -402,20 +365,6 @@ button.usage-toggle:hover { color: var(--text); }
 .working-dots i { width: 5px; height: 5px; background: var(--neon); animation: pulse 0.9s infinite; }
 .working-dots i:nth-child(2) { animation-delay: 0.15s; }
 .working-dots i:nth-child(3) { animation-delay: 0.3s; }
-
-.tool-traces { margin-top: 8px; }
-.tool-chip {
-  display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; cursor: pointer;
-  background: rgba(0, 0, 0, 0.3); border: 1px solid var(--line); color: var(--text-mute);
-  font-size: 10.5px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
-}
-.tool-chip:hover { color: var(--text-dim); border-color: var(--line-strong); }
-.tool-list-inline { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
-.trace { border-left: 2px solid var(--line-strong); padding: 4px 0 4px 10px; }
-.trace.err { border-left-color: var(--alert); }
-.trace-name { font-size: 11.5px; color: var(--neon); }
-.trace-io { margin: 4px 0 0; white-space: pre-wrap; word-break: break-word; font-size: 11px; color: var(--text-dim); max-height: 180px; overflow: auto; background: rgba(0, 0, 0, 0.3); padding: 6px 8px; }
-.trace-io.result { color: var(--text-mute); }
 
 .composer { position: relative; padding: 10px 28px 18px; }
 .composer > * { max-width: 860px; margin-left: auto; margin-right: auto; }
@@ -426,7 +375,6 @@ button.usage-toggle:hover { color: var(--text); }
 }
 .composer-box:focus-within { border-color: var(--neon); box-shadow: var(--glow); }
 .composer-box textarea { flex: 1; resize: none; background: none; border: 0; outline: none; color: var(--text); font-size: 15px; line-height: 1.5; padding: 6px 0; max-height: 220px; user-select: text; }
-.composer.disabled .composer-box { opacity: 0.5; }
 .composer-box.dropping { border-color: var(--neon); box-shadow: var(--glow); border-style: dashed; }
 /* '!' shell mode: amber border and a prompt glyph, so a command never looks like a message to Genio. */
 .composer-box.shell { border-color: var(--amber); background: rgba(255, 182, 39, 0.05); }
@@ -471,12 +419,6 @@ button.usage-toggle:hover { color: var(--text); }
 .image-viewer .image-viewer-nav.next { right: 16px; }
 .image-viewer .image-viewer-count { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); color: rgba(255, 255, 255, 0.75); font-size: 12px; pointer-events: none; }
 .composer-hints { display: flex; justify-content: space-between; margin-top: 8px; font-size: 11px; }
-.composer-hints .quick { display: flex; gap: 14px; margin-left: auto; }
-.composer-hints .quick .link-btn:disabled { opacity: 0.4; cursor: default; text-shadow: none; }
-.composer-hints .quick .link-btn { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; }
-.slash-menu { padding: 6px; }
-.slash-item { width: 100%; display: grid; grid-template-columns: 110px 1fr; gap: 14px; padding: 8px 12px; background: none; border: 0; text-align: left; cursor: pointer; color: var(--text); }
-.slash-item.on { background: var(--neon-soft); }
 
 .comms-side { border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: rgba(7, 9, 14, 0.5); }
 .side-block { flex: 1; padding: 16px 16px 10px; display: flex; flex-direction: column; min-height: 0; }
@@ -1033,7 +975,6 @@ body:has(.answers-float .answer-card) .toasts { right: calc(min(380px, 100vw - 2
   .comms { grid-template-columns: minmax(0, 1fr) 270px; }
   .detail-body { grid-template-columns: minmax(0, 1fr) 360px; }
   .kanban { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .level-xp { display: none; }
 }
 @media (max-width: 1150px) {
   .view { padding: 22px 22px 30px; }
@@ -1177,34 +1118,6 @@ ul.loadout-why li { margin: 1px 0; }
   .meter-meta { grid-column: 1 / -1; }
   .usage-preview-grid { grid-template-columns: minmax(0, 1fr); }
 }
-/* rail plan-usage gauge: one icon, details on hover/focus, never clickable */
-:is(.rail-gauge, .gauge-row).tone-ok { --c: var(--volt); }
-:is(.rail-gauge, .gauge-row).tone-warm { --c: var(--amber); }
-:is(.rail-gauge, .gauge-row).tone-hot { --c: var(--alert); }
-:is(.rail-gauge, .gauge-row).tone-unknown { --c: var(--text-mute); }
-.rail-gauge { position: relative; margin-top: auto; width: 46px; height: 36px; display: grid; place-items: center; color: var(--c); cursor: pointer; outline: none; }
-.rail-gauge:focus-visible { box-shadow: inset 0 0 0 1px var(--line-strong); }
-.rail-gauge svg { fill: none; stroke-width: 2.4; filter: drop-shadow(0 0 4px var(--c)); }
-.rail-gauge.tone-unknown svg { filter: none; }
-.rail-gauge .gauge-track { stroke: currentColor; opacity: 0.25; }
-.rail-gauge.tone-unknown .gauge-track { opacity: 0.8; stroke-dasharray: 2.5 2.5; }
-.rail-gauge .gauge-fill { stroke: currentColor; stroke-linecap: round; }
-.rail-gauge .gauge-core { fill: currentColor; stroke: none; }
-.rail-gauge + .rail-foot { margin-top: 4px; }
-.rail-gauge-pop {
-  width: 280px;
-  display: flex; flex-direction: column; gap: 10px; padding: 10px 12px;
-  background: var(--surface-3); border: 1px solid var(--line-strong); color: var(--text);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); font-size: 11.5px; cursor: default;
-  animation: rail-menu-in 0.12s ease-out;
-}
-.rail-gauge-title { font-size: 10px; }
-.gauge-row { display: flex; flex-direction: column; gap: 4px; }
-.gauge-row-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.gauge-pct { color: var(--c); }
-.gauge-meta { font-size: 10.5px; }
-.gauge-error { font-size: 10.5px; color: var(--amber); }
-.gauge-foot { padding-top: 8px; border-top: 1px solid var(--line); font-size: 10.5px; color: var(--text-dim); }
 .quest-hold.quota-wait { flex-direction: column; gap: 2px; }
 
 /* Squad Build work uses blue, Recon purple; ready and done share the same green.
@@ -1340,7 +1253,6 @@ ul.loadout-why li { margin: 1px 0; }
   .wordmark .wordmark-text { display: none; }
   .hud-stats { gap: 2px; }
   .hud-stat { padding: 0 6px; }
-  .level { padding: 0 4px; }
   .view { padding: 16px 14px 22px; gap: 16px; }
   .view-head .title { font-size: 26px; }
   .view.detail { padding: 10px 12px 12px; gap: 8px; }
@@ -1349,7 +1261,6 @@ ul.loadout-why li { margin: 1px 0; }
   /* the status line gets its own row; the actions wrap under it */
   .uh-actions { flex-wrap: wrap; }
   .uh-line { flex-basis: 100%; }
-  .comms-head { padding: 8px 12px; }
   /* Narrow: a sticky one-line picker ("This project › General ▾") opens the search and page list as a sheet. */
   /* The bottom inset keeps the collapsed Genio pill off the last field. */
   .sys-view { gap: 10px; padding-bottom: 64px; }
@@ -1394,7 +1305,6 @@ ul.loadout-why li { margin: 1px 0; }
   .memory-text, .memory-preview { min-height: 200px; }
 }
 @media (max-width: 560px) {
-  .hud-units { display: none; }
   .file-menu-btn { padding: 0 8px; }
   .msg-bubble, .msg-images { max-width: 92%; }
   .status-sec { padding: 14px 14px 12px; }
@@ -1402,13 +1312,11 @@ ul.loadout-why li { margin: 1px 0; }
   .lv-hex, .lv-hex svg { width: 72px; height: 72px; }
   .lv-num { font-size: 32px; }
 }
-/* Short windows: the rail tightens so all its screens and the usage gauge stay on screen. */
+/* Short windows: the rail tightens so all its screens stay on screen. */
 @media (max-height: 560px) {
   .rail { padding: 6px 0; gap: 2px; }
   .rail-btn { height: 34px; }
   .rail-btn.on::before { top: 6px; bottom: 6px; }
-  .rail-foot { display: none; }
-  .rail-gauge { height: 30px; }
   .view { padding-top: 14px; padding-bottom: 18px; }
   .chat-log { padding-top: 12px; }
   .achv { top: calc(var(--hud) + 8px); }

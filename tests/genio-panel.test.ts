@@ -75,14 +75,12 @@ it('restores chat when the native window closes and reports a denied popup', asy
   frame.remove()
 })
 
-it('counts in-flight generations from generation events and notices new messages while collapsed', async () => {
+it('notices new messages while collapsed, with no counts', async () => {
   await render(); await click('Collapse Genio chat')
   f.state.chats = { 'project-chat': [{ id: 'new', wksp: 'project-chat', role: 'genio', text: 'done', ts: 'now' }] }
   f.state.generating = { 'project-chat': ['gen-1', 'g-2'] }
   await render()
-  expect(button('Expand Genio chat').textContent).toContain('2 generating')
   expect(button('Expand Genio chat').textContent).toContain('New')
-  f.state.generating = { 'project-chat': [] }; await render()
   expect(button('Expand Genio chat').textContent).not.toContain('generating')
 })
 
@@ -99,7 +97,7 @@ it('shows Inventory picks as removable chips, sends the screen context without a
   expect(f.send.mock.lastCall?.[0]).toMatchObject({ world: 'beta', preview: { path: 'Assets/stone.png' } })
   await act(async () => publishScreenContext('squad', { facts: [{ label: 'Unit', value: 'Build HUD [t-1]' }] }))
   await render('squad')
-  expect(host.querySelector('.genio-panel-grip')?.textContent).toContain('Squad')
+  expect(host.querySelector('.genio-panel-grip')?.textContent).toBe(' Genio')
   // a screen-only context renders nothing above the composer, yet still goes with every send
   expect(host.querySelector('.inventory-context')).toBeNull()
   expect(host.querySelector('[aria-label^="Remove "]')).toBeNull()

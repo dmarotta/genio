@@ -69,7 +69,7 @@ export function cardCues(before: { queue: readonly string[]; shown: readonly str
 /**
  * Card sounds follow the window: never with sound off or from an unfocused background
  * window. An arrival also stays quiet under DND/AFK (those capture escalations instead)
- * and under Clean HUD unless it is urgent; the dequeue cue answers the player's own
+ * and under Clean chat unless it is urgent; the dequeue cue answers the player's own
  * action, like the send sound, so presence does not mute it.
  */
 export function cardCueAllowed(cue: 'card-in' | 'card-out', ctx: { settings: Settings | null | undefined; away: AwayMode; focused: boolean; urgent?: boolean }): boolean {

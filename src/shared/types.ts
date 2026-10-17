@@ -857,7 +857,7 @@ export interface Settings {
   sound: boolean
   soundVolume: number
   fx: boolean
-  /** Clean HUD: hide tool chatter in Comms */
+  /** Clean chat: hide routine events (wakes) in the chat */
   calm: boolean
   voice: boolean
   desktopNotifications: boolean

@@ -88,8 +88,9 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'chat-steer', feature: 'comms', name: 'Change Course', description: 'Steer Genio mid-turn (Steer or Send now): it stops and reads your message first.' },
   { id: 'chat-voice', feature: 'comms', name: 'Say It Out Loud', description: 'Talk to Genio: speak a message into the chat.' },
   { id: 'shell-command', feature: 'terminal', name: 'Command Line', description: 'Run a shell command from chat with ! and see it in the terminal pane.' },
-  { id: 'reaction-like', feature: 'comms', name: 'Right Track', description: 'Like a Genio message to confirm the path.' },
-  { id: 'reaction-dislike', feature: 'comms', name: 'Hold Up', description: 'Dislike a Genio message so it pauses and asks what is wrong.' },
+  // Retired with the chat's like and dislike buttons: plain words to Genio do the same. Earned dates stay.
+  { id: 'reaction-like', feature: 'comms', name: 'Right Track', description: 'Like a Genio message to confirm the path.', retired: true },
+  { id: 'reaction-dislike', feature: 'comms', name: 'Hold Up', description: 'Dislike a Genio message so it pauses and asks what is wrong.', retired: true },
   { id: 'yolo-chat', feature: 'comms', name: 'No Safety Wheels', description: 'Switch chat to YOLO mode.' },
   { id: 'account-login', feature: 'systems', name: 'Signed In', description: `Log in from ${settingsPath('accounts')}.` },
   { id: 'usage-mode', feature: 'systems', name: 'Gear Shift', description: `Switch the Usage mode between Save, Balanced and Max in ${settingsPath('usage')}.` },

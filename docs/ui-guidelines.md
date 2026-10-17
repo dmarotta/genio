@@ -65,6 +65,13 @@ On main now:
   [key=...] shown, Genio's bookkeeping notes hidden"). Keys are Genio's bookkeeping; the
   timeline shows the sentence. NOTE became EVENT, and the bookkeeping notes are hidden from
   every unit kind.
+- **The chat and window shell trim** (UI trim pass, area 2). Gone: the chat's header row (name,
+  status word, queued chip, Clean HUD toggle, restart icon; Interrupt moved to the working line),
+  copy and like/dislike buttons on every message, names and correlation ids on message lines,
+  tool traces, the Recap link and key hints under the composer, the title bar's unit count and
+  XP bar, the rail's usage gauge, shortcut hints and version label, the floating panel's screen
+  name, counts and pop-out labels, presence and welcome-back toasts, and the Hub's sort menu
+  and engine column.
 
 Also removed or being removed from the unit pages, described generally because they have not
 all reached main yet:

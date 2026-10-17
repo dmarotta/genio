@@ -15,5 +15,4 @@
 .hub-project-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 @media (max-width: 600px) {
   .hub-view { padding: 32px 20px; }
-  .hub-project-engine { display: none; }
 }

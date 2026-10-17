@@ -8,7 +8,7 @@ import { ChatDocument } from './ChatDocument'
 import { ChatPanel } from '../views/Comms'
 import { PROJECT_WKSP, PROJECT_WINDOW, useStore } from '../store'
 import { clampFloatingPanel, PANEL_MIN, readFloatingPanel, writeFloatingPanel, type FloatingPanelState } from '../lib/floating-panel'
-import { PANEL_OPEN_EVENT, panelVisibleOn, screenContextFor, screenLabel, usePublishedScreen } from '../lib/screen-context'
+import { PANEL_OPEN_EVENT, panelVisibleOn, screenContextFor, usePublishedScreen } from '../lib/screen-context'
 import '../styles/genio-panel.css'
 
 /** The project's full Genio chat, floating over every screen but Chat. Mounted once in the window shell. */
@@ -85,9 +85,7 @@ function ProjectGenioPanel({ wksp, project }: { wksp: string; project: string })
     child.addEventListener('load', ready, { once: true })
   }
 
-  const info = useStore(s => s.snap.wksps.find(m => m.name === wksp))
   const last = useStore(s => s.chats[wksp]?.at(-1)?.id)
-  const generating = useStore(s => s.generating[wksp]?.length ?? 0)
   const seen = useRef(last)
   if (popout || (visible && !state.collapsed)) seen.current = last
 
@@ -130,29 +128,27 @@ function ProjectGenioPanel({ wksp, project }: { wksp: string; project: string })
   }
   const handlers = (edge: Edge) => ({ onKeyDown: (e: KeyboardEvent) => nudge(e, edge), onPointerDown: (e: PointerEvent) => start(e, edge), onPointerMove: move, onPointerUp: end, onPointerCancel: end })
 
-  const where = screenLabel(view)
   const expanded = !state.collapsed && !popout
   return <>
     <div ref={panel} hidden={!visible} className={`genio-panel ${expanded ? 'floating' : 'collapsed'}`} aria-label="Genio panel"
       style={expanded ? { left: shown.x, top: shown.y, width: shown.width, height: shown.height } : undefined}>
-      {popout && <div className="genio-panel-pill"><span>Genio is in its own window</span><button className="btn sm ghost" onClick={() => popout.focus()}>Focus Genio chat</button><button className="btn sm ghost" onClick={dock}>Return chat</button></div>}
+      {popout && <div className="genio-panel-pill"><span>Genio is in its own window</span><button className="btn sm ghost" onClick={dock}>Return chat</button></div>}
       {state.collapsed && !popout && <button className="genio-panel-pill" aria-label="Expand Genio chat" onClick={() => setState(s => ({ ...s, collapsed: false }))}>
-        <MessageCircle size={17} /><span className={`activity ${info?.activity ?? ''}`}>●</span> Genio {seen.current !== last && <b>• New</b>}{info?.queued ? ` · ${info.queued} queued` : ''}{generating ? ` · ${generating} generating` : ''}<kbd>Ctrl Space</kbd>
+        <MessageCircle size={17} /> Genio {seen.current !== last && <b>• New</b>}
       </button>}
       <div className="genio-panel-expanded" hidden={!expanded}>
         <header className="genio-panel-bar">
-          <button className="genio-panel-grip" aria-label="Move Genio chat" title="Drag anywhere, or use the arrow keys" {...handlers('move')}><Move size={13} /> {ASSISTANT_NAME} · {where}</button>
-          {generating > 0 && <span className="genio-panel-busy">{generating} generating</span>}
-          <button className="btn sm ghost icon" aria-label="Pop out Genio chat" title="Move chat outside Genio (always on top)" onClick={detach}><ExternalLink size={15} /></button>
+          <button className="genio-panel-grip" aria-label="Move Genio chat" {...handlers('move')}><Move size={13} /> {ASSISTANT_NAME}</button>
+          <button className="btn sm ghost icon" aria-label="Pop out Genio chat" title="Pop out" onClick={detach}><ExternalLink size={15} /></button>
           <button className="btn sm ghost icon" aria-label="Collapse Genio chat" title="Collapse (Ctrl+Space)" onClick={() => setState(s => ({ ...s, collapsed: true }))}><Minus size={15} /></button>
         </header>
         {popoutError && <div role="alert" className="genio-panel-error">{popoutError}</div>}
         <div ref={slot} className="genio-panel-slot" />
-        <button className="genio-panel-resize nw" aria-label="Resize Genio chat from top left" title="Drag or use arrow keys to resize" {...handlers('nw')} />
-        <button className="genio-panel-resize se" aria-label="Resize Genio chat" title="Drag or use arrow keys to resize" {...handlers('se')} />
+        <button className="genio-panel-resize nw" aria-label="Resize Genio chat from top left" {...handlers('nw')} />
+        <button className="genio-panel-resize se" aria-label="Resize Genio chat" {...handlers('se')} />
       </div>
     </div>
     {mounted && createPortal(<ChatDocument.Provider value={popout?.document}><ChatPanel wksp={wksp} context={context} surface="panel" active={!!popout || expanded} /></ChatDocument.Provider>, chatHost)}
-    {popout && createPortal(<header className="genio-panel-bar popout-bar"><span>{ASSISTANT_NAME} · {where} · Always on top</span><button className="btn sm ghost" onClick={dock}>Return chat</button></header>, popout.document.getElementById('root')!)}
+    {popout && createPortal(<header className="genio-panel-bar popout-bar"><span>{ASSISTANT_NAME}</span><button className="btn sm ghost" onClick={dock}>Return chat</button></header>, popout.document.getElementById('root')!)}
   </>
 }

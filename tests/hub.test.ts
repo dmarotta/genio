@@ -36,7 +36,7 @@ async function click(text: string) {
 
 it('shows only project selection even on first run and ignores work shortcuts', async () => {
   await render()
-  expect([...host.querySelectorAll('button')].map(b => b.textContent)).toEqual(['File', ' Settings', ' Open folder…', ' Add project', ' New project', ' Sync all', 'alphaC:/alphaGodot', 'betaC:/betaGodot'])
+  expect([...host.querySelectorAll('button')].map(b => b.textContent)).toEqual(['File', ' Settings', ' Open folder…', ' Add project', ' New project', ' Sync all', 'alphaC:/alpha', 'betaC:/beta'])
   await act(async () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))
     window.dispatchEvent(new KeyboardEvent('keydown', { key: '2', ctrlKey: true }))
@@ -107,7 +107,7 @@ it('adds a repository from the Hub and opens the registered project', async () =
   expect(open).toHaveBeenCalledWith('C:/added')
 })
 
-it('preserves project search, sorting and sync-all in the Hub', async () => {
+it('preserves project search and sync-all in the Hub', async () => {
   await render()
   const search = host.querySelector('input[aria-label="Search projects"]') as HTMLInputElement
   await act(async () => {
@@ -118,8 +118,6 @@ it('preserves project search, sorting and sync-all in the Hub', async () => {
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, '')
     search.dispatchEvent(new Event('input', { bubbles: true }))
-    const sort = host.querySelector('select[aria-label="Sort projects"]') as HTMLSelectElement
-    sort.value = 'name'; sort.dispatchEvent(new Event('change', { bubbles: true }))
   })
   expect([...host.querySelectorAll('.hub-project strong')].map(node => node.textContent)).toEqual(['alpha', 'beta'])
   await click('Sync all')
@@ -182,17 +180,4 @@ it('refreshes a closed project waiting count as its deferred choice becomes due'
   await act(async () => vi.advanceTimersByTime(30_000))
   expect(host.querySelectorAll('.hub-project')[1]?.textContent).toContain('1 choices waiting')
   await act(async () => setState({ snap: { ...state.snap, decisions: [] }, answersOpen: true }))
-})
-
-it('tags an ambiguous detection and names every candidate on hover', async () => {
-  const state = getState()
-  const tied: Project = { ...project('beta'), engine: 'unity', engineRoot: 'client', detected: { candidates: [{ engine: 'unity', root: 'client', strength: 'strong' }, { engine: 'unity', root: 'editor', strength: 'strong' }], ambiguous: true, declared: false, scannedAt: '' } }
-  setState({ snap: { ...state.snap, projects: [project('alpha'), tied] } })
-  await render()
-  const [alpha, beta] = [...host.querySelectorAll('.hub-project')]
-  expect(alpha.querySelector('.chip')).toBeNull()
-  const tag = beta.querySelector('.chip.amber')!
-  expect(tag.textContent).toBe('ambiguous')
-  expect(tag.getAttribute('title')).toBe('Unity at ./client. Also found: Unity at ./editor. Ask Genio to pin one.')
-  expect(beta.querySelector('.hub-project-engine')?.textContent).toBe('Unity')
 })

@@ -55,7 +55,7 @@ Vocabulary is gaming, not nautical: see [VOCABULARY.md](VOCABULARY.md).
 | captain inbox | `inbox.ts` + token-protected local HTTP intake | MAIL |
 | fleet ledger | `ledger.ts` | Replay log |
 | process-event sources | `settings.eventSources` | SYSTEMS › Triggers |
-| calm mode | `settings.calm` | Clean HUD |
+| calm mode | `settings.calm` | Clean chat |
 | seatbelt / subagent guard | `canUseTool` policy in `wksp.ts` | permission prompt |
 | voice relay | text-to-speech of Genio replies (`voice.ts`) and push-to-talk voice input with a local Whisper model (`voice-input.ts`, [voice.md](voice.md)) | Read replies aloud toggle, mic button / F8 |
 

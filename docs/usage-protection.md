@@ -189,8 +189,7 @@ A one-line notice (toast and Settings → Usage & limits) is emitted only when a
 changes; its details give the cause and evidence age. Levels persist in
 `data/usage/policy-state.json`, so restarts do not repeat notices.
 
-**Plan meter.** One component (Accounts, Usage; the rail shows a single gauge
-icon coloured by the worst plan, with these details in a hover/focus popup): a Claude
+**Plan meter.** One component (Settings › Usage & limits; nothing shows it at all times): a Claude
 row and a Codex row, never summed, each reported window with what is left, reset
 time, source and observation age. Expired or missing observations read "unknown",
 never "100% left"; missing standard windows read "not reported". Unit tokens per

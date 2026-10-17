@@ -8,7 +8,7 @@ import { getState, handleEvent, runningUnits, setState } from '../src/renderer/s
 import { Rail } from '../src/renderer/src/components/Rail'
 import { TitleBar } from '../src/renderer/src/components/TitleBar'
 
-vi.mock('../src/renderer/src/components/PlanMeter', () => ({ RailMeter: () => null }))
+vi.mock('../src/renderer/src/components/PlanMeter', () => ({}))
 
 it('renders Units and Queue totals using the cap definition, including live waits and pending reservations', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
@@ -28,19 +28,16 @@ it('renders Units and Queue totals using the cap definition, including live wait
     setState({ ...original, terminals, snap: { ...original.snap, tasks, pendingUnits: ['world'], backlog: [], stats: { ...original.snap.stats, costTodayUsd: 27 } } })
     expect(runningUnits(getState())).toBe(used + 1)
     await act(async () => root.render(React.createElement(React.Fragment, null, React.createElement(Rail), React.createElement(TitleBar))))
-    expect(host.querySelector('[aria-label="Quests"]')?.textContent).toContain('8 running')
     expect(host.querySelector('.rail-badge')?.textContent).toBe('8')
-    expect(host.querySelector('[title="Units in action"] .num')?.textContent).toBe('8')
     expect(host.querySelector('.hud-cost')).toBeNull()
     expect(host.querySelector('.titlebar')?.textContent).not.toMatch(/Chat\/review|\$/)
-    expect(host.querySelector('.hud-stats')?.lastElementChild?.className).toBe('level')
     expect(getState().snap.stats.costTodayUsd).toBe(27)
     await act(async () => {
       handleEvent({ type: 'pending-units', projects: [] })
       for (const terminal of Object.values(terminals)) handleEvent({ type: 'terminal', terminal: { ...terminal, alive: false } })
     })
     expect(runningUnits(getState())).toBe(1) // spawning still holds the launch slot
-    expect(host.textContent).toContain('1 running')
+    expect(host.querySelector('.rail-badge')?.textContent).toBe('1')
   } finally {
     await act(async () => root.unmount())
     host.remove()

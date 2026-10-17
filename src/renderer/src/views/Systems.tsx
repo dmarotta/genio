@@ -373,7 +373,7 @@ function SectionBody({ sec, s, setAdvanced, open }: { sec: SettingsPageId; s: Se
               }}
             />
           </Row>
-          <Row label="Clean chat" hint="Hide tool chatter and routine events (Clean HUD).">
+          <Row label="Clean chat" hint="Hide routine events.">
             <Toggle checked={s.calm} onChange={(v) => set({ calm: v })} />
           </Row>
           <Row label="Replay the intro" hint="Shows the first-run setup again, as on your first launch.">

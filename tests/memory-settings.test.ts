@@ -38,7 +38,7 @@ vi.mock('../src/renderer/src/components/ModelPicker', () => ({ ModelPicker: () =
 vi.mock('../src/renderer/src/components/Markdown', () => ({ Markdown: ({ text }: { text: string }) => React.createElement('div', { className: 'md' }, text) }))
 
 import { SECTIONS, Systems, requestSystemsSection } from '../src/renderer/src/views/Systems'
-import { RAIL, navItems } from '../src/renderer/src/lib/railmenu'
+import { navItems } from '../src/renderer/src/lib/railmenu'
 
 const STALE = 'lore.md: - godot export needs templates <!--a:2020-01-01-->'
 let root: Root
@@ -71,7 +71,6 @@ describe('navigation', () => {
     const ids: string[] = navItems().map((n) => n.id)
     expect(ids).not.toContain('lore')
     expect(navItems().some((n) => /\blore\b/i.test(n.label))).toBe(false)
-    expect(RAIL.some((e) => e.kind === 'menu' && /\blore\b/i.test(e.label))).toBe(false)
     expect(SECTIONS.find((s) => s.id === 'memory')?.label).toBe('Memory')
     expect(SECTIONS.some((s) => /\blore\b/i.test(s.label))).toBe(false)
   })

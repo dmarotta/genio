@@ -7,7 +7,7 @@ import { choiceGroup, reviewRecommendation, type RecommendationReview, type Reco
 import { PROJECT_WKSP, PROJECT_WINDOW, answerNext, api, focusTask, getState, op, openChat, openDecisions, setState, useStore } from '../store'
 import { Markdown } from './Markdown'
 import { Chip, useNow } from './ui'
-import { cx, ago, dateShort } from '../lib/format'
+import { cx, dateShort } from '../lib/format'
 import { playSfx } from '../lib/sfx'
 import { answerKey, askGenioMessage, choiceRows } from '../lib/choice'
 import { getScreenContext, openGenioPanel, screenContextFor } from '../lib/screen-context'
@@ -103,14 +103,12 @@ export function Answers() {
         {(decisions.length > 0 || reviewing) && (
           <div className="answers-foot">
             {waiting > 0 && !reviewing && (
-              <span className="answers-pill" role="status" aria-label={`${waiting} more waiting. Answer next: Ctrl+J`} title="Answer next: Ctrl+J">
-                +{waiting} waiting <kbd>Ctrl J</kbd>
-              </span>
+              <span className="answers-pill" role="status">+{waiting} waiting</span>
             )}
             <RecommendationBatches decisions={decisions} onReview={setReviewing} />
             {!reviewing && <>
-              <button className="btn sm ghost icon" aria-label="Answer history" title="Answered and deferred" onClick={() => setState({ answerHistory: 'answered' })}><History size={14} /></button>
-              <button className="btn sm ghost icon" aria-label="Hide pending answers" title="Hide (the title bar badge brings them back)" onClick={() => setState({ answersOpen: false })}><X size={14} /></button>
+              <button className="btn sm ghost icon" aria-label="Answer history" title="Answer history" onClick={() => setState({ answerHistory: 'answered' })}><History size={14} /></button>
+              <button className="btn sm ghost icon" aria-label="Hide pending answers" title="Hide" onClick={() => setState({ answersOpen: false })}><X size={14} /></button>
             </>}
           </div>
         )}
@@ -200,7 +198,6 @@ function HistoryPanel({ history, pending, target }: { history: 'answered' | 'def
   return (
     <section className="panel answers-history" aria-label="Answer history">
       <header className="answers-head">
-        <span className="label amber-text">{history === 'answered' ? 'Answered' : 'Deferred'} &middot; {rows.length}</span>
         <button className="btn sm ghost icon" aria-label="Hide pending answers" onClick={() => setState({ answersOpen: false })}><X size={14} /></button>
       </header>
       <nav className="choice-actions answers-tabs" aria-label="Answer history">
@@ -211,7 +208,7 @@ function HistoryPanel({ history, pending, target }: { history: 'answered' | 'def
       {rows.length ? rows.slice(p * CARD_LIMIT, (p + 1) * CARD_LIMIT).map(d => (
         <div className="choice answers-row" id={`answer-${d.id}`} key={d.id}>
           <div className="choice-q">{d.question}</div>
-          {d.project && <span className="chip">{d.project}</span>}
+          {d.project && !PROJECT_WINDOW && <span className="chip">{d.project}</span>}
           {(d.resolvedAt || d.until) && <p>{d.resolvedAt ? `Answered ${dateShort(d.resolvedAt)}: ${d.answer ?? ''}` : `Deferred until ${dateShort(d.until!)}`}</p>}
           {!d.resolvedAt && <button className="btn sm" onClick={() => void op('Resume choice', () => api().deferDecision(d.id, '')).then(() => setState({ answerHistory: undefined }))}>Resume</button>}
         </div>
@@ -228,7 +225,7 @@ function HistoryPanel({ history, pending, target }: { history: 'answered' | 'def
 }
 
 function RecommendationBatches({ decisions, onReview }: { decisions: Decision[]; onReview: (reviewing: boolean) => void }) {
-  const [review, setReview] = useState<{ question: string; context?: string; scope: string; row: RecommendationReview }[]>([])
+  const [review, setReview] = useState<{ question: string; context?: string; row: RecommendationReview }[]>([])
   const [results, setResults] = useState<RecommendationResult[] | null>(null)
   const [busy, setBusy] = useState(false)
   const sending = useRef(false)
@@ -251,7 +248,7 @@ function RecommendationBatches({ decisions, onReview }: { decisions: Decision[];
   }
   if (review.length) return (
     <section className="panel choice answers-review" aria-label="Review recommendations">
-      <div className="label">Review recommendations · {review.length} · {review[0].scope}</div>
+      <div className="label">Review recommendations</div>
       <p>Only these choices will be applied. Changed choices stay pending.</p>
       {review.map(({ question, context, row }) => <div key={row.id} className="choice-context">
         <div>{question}</div><strong>Answer: {row.answer}</strong>
@@ -262,10 +259,10 @@ function RecommendationBatches({ decisions, onReview }: { decisions: Decision[];
       <button className="btn sm ghost" disabled={busy} onClick={() => { setReview([]); setResults(null); onReview(false) }}>{results ? 'Close results' : 'Cancel review'}</button>
     </section>
   )
-  return <>{[...groups].filter(([, rows]) => rows.length > 1).map(([key, rows]) => <button key={key} className="btn sm" title={`${rows[0].project ?? rows[0].wksp} · ${rows[0].batch ?? rows[0].taskId ?? rows[0].backlogId}`} onClick={() => {
+  return <>{[...groups].filter(([, rows]) => rows.length > 1).map(([key, rows]) => <button key={key} className="btn sm" onClick={() => {
     setResults(null)
     onReview(true)
-    setReview(rows.map(d => ({ question: d.question, context: d.context, scope: `${d.project ?? d.wksp} · ${d.batch ?? d.taskId ?? d.backlogId ?? d.id}`, row: reviewRecommendation(d)! })))
+    setReview(rows.map(d => ({ question: d.question, context: d.context, row: reviewRecommendation(d)! })))
   }}>Review recommendations ({rows.length})</button>)}</>
 }
 
@@ -358,8 +355,7 @@ export function AnswerCard({ d, phase = 'idle', top, compact = false, onActivate
       <div className="choice-meta">
         <span className={cx('label', urgent ? 'alert-text' : 'amber-text')}>{SOURCE_LABEL[d.source]}</span>
         {urgent && <Chip tone="alert">Urgent</Chip>}
-        {d.project && <span className="chip">{d.project}</span>}
-        <span className="mono mute">{ago(d.createdAt)} ago</span>
+        {d.project && !PROJECT_WINDOW && <span className="chip">{d.project}</span>}
         {task && !compact && (
           <button className="link-btn choice-task" title={task.title} onClick={() => focusTask(task.id)}>
             {task.title} →

@@ -175,7 +175,6 @@ export function createReactionService(getCtx: () => AppCtx, home: Home): Reactio
       BOT_RULE
     ])
     bus.publish({ type: 'toast', level: 'warn', title: any ? `Paused ${summary}` : 'Genio will ask what is wrong', body: 'Click the dislike again to undo.' })
-    safe(() => ctx.stats.unlock('reaction-dislike'))
     deliver()
   }
 
@@ -260,7 +259,6 @@ export function createReactionService(getCtx: () => AppCtx, home: Home): Reactio
     if (kind === 'like') {
       score(m.actions, 1)
       lines.push(LIKE_RULE)
-      safe(() => getCtx().stats.unlock('reaction-like'))
     } else if (kind === 'dislike') {
       note = undefined
       lines.push(m.actions && Object.values(m.actions).some(v => v?.length)

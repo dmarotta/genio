@@ -6,7 +6,6 @@ import type { Engine } from '../src/shared/types'
 
 // The store reads its window binding at import: make this a project window for "game".
 vi.hoisted(() => window.history.replaceState({}, '', '/?project=game'))
-vi.mock('../src/renderer/src/components/PlanMeter', () => ({ RailMeter: () => null }))
 
 import { UNITY_SLOT_ENGINES, supportsUnitySlots } from '../src/shared/play'
 import { effectiveEngine } from '../src/shared/engine'
@@ -53,11 +52,6 @@ describe('window rail', () => {
     expect(viewAvailable('squad', false, false)).toBe(true)
   })
 
-  it('filters submenus and drops one left empty', () => {
-    const menu = { kind: 'menu' as const, id: 'game', label: 'Game', items: [{ id: 'play' as const, label: 'Play', key: '0' }] }
-    expect(windowRail(true, false, [menu])).toEqual([])
-    expect(windowRail(true, true, [menu])).toEqual([menu])
-  })
 })
 
 describe('Play availability in a project window', () => {

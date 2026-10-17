@@ -7,7 +7,6 @@ import type { SendNowResult } from '../src/shared/chat'
 
 vi.hoisted(() => window.history.replaceState(null, '', '/?project=forest&wksp=forest'))
 vi.mock('../src/renderer/src/components/ModelSelect', () => ({ ModelSelect: () => null, EffortSelect: () => null }))
-vi.mock('../src/renderer/src/components/ComingNext', () => ({ ComingNext: () => null }))
 import { ChatPanel } from '../src/renderer/src/views/Comms'
 import { GenioPanel } from '../src/renderer/src/components/GenioPanel'
 import { getState, setState } from '../src/renderer/src/store'
@@ -29,7 +28,6 @@ function show(info: Partial<WkspInfo>, messages: ChatMessage[] = [queued]): void
 const steerButton = () => [...host.querySelectorAll<HTMLButtonElement>('.composer button')].find(b => b.textContent?.includes('Steer'))
 const sendButton = () => host.querySelector<HTMLButtonElement>('[aria-label="Send"]')!
 const textarea = () => host.querySelector('textarea')!
-const keys = () => host.querySelector('.composer-keys')!.textContent
 const type = (value: string): void => {
   Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea(), value)
   textarea().dispatchEvent(new Event('input', { bubbles: true }))
@@ -52,18 +50,16 @@ afterEach(async () => {
 })
 
 describe('the composer while Genio is busy', () => {
-  it('shows Steer next to Send and the Ctrl+Enter hint only while a turn can be steered', async () => {
+  it('shows Steer next to Send only while a turn can be steered', async () => {
     show({ steerable: true })
     setDraft(WKSP, 'use stone')
     await act(() => root.render(React.createElement(ChatPanel, { wksp: WKSP })))
     expect(steerButton()).toBeDefined()
     expect(steerButton()!.nextElementSibling).toBe(sendButton())
-    expect(keys()).toContain('Ctrl+Enter steer')
-    expect(textarea().placeholder).toBe('Genio is working… Send queues it for next; Steer reads it now.')
-    // the turn ended: the button and hint go with it
+    expect(textarea().placeholder).toBe('Message Genio')
+    // the turn ended: the button goes with it
     await act(() => { const s = getState(); setState({ snap: { ...s.snap, wksps: s.snap.wksps.map(m => ({ ...m, activity: 'idle', steerable: false })) } }) })
     expect(steerButton()).toBeUndefined()
-    expect(keys()).not.toContain('steer')
     // an event turn or the Bot's away turn: the session says whether steering applies, not the activity
     await act(() => { const s = getState(); setState({ snap: { ...s.snap, wksps: s.snap.wksps.map(m => ({ ...m, activity: 'tool', steerable: false })) } }) })
     expect(steerButton()).toBeUndefined()
@@ -115,13 +111,13 @@ describe('the composer while Genio is busy', () => {
     expect(getState().toasts).toEqual([])
   })
 
-  it('Send now always tells the player what happened: what it waits for, or why it cannot', async () => {
+  it('Send now turns the message to Steering at once, and a toast says only why it cannot be sent now', async () => {
     show({ steerable: true })
     await act(() => root.render(React.createElement(ChatPanel, { wksp: WKSP })))
     const now = host.querySelector<HTMLButtonElement>('[aria-label="Send queued message now"]')!
     api.sendQueuedNow.mockResolvedValueOnce({ ok: true, note: 'Genio stops as soon as deploy finishes, then reads it first.' })
     await act(async () => now.click())
-    expect(getState().toasts.at(-1)).toMatchObject({ title: 'Steering', body: 'Genio stops as soon as deploy finishes, then reads it first.' })
+    expect(getState().toasts).toHaveLength(0)
     api.sendQueuedNow.mockResolvedValueOnce({ ok: false, reason: 'Genio picked that message up already.' })
     await act(async () => now.click())
     expect(getState().toasts.at(-1)).toMatchObject({ title: 'Not sent now', body: 'Genio picked that message up already.' })

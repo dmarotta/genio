@@ -35,36 +35,27 @@ afterEach(async () => {
 
 it('snapshots the project chat identity, including busy and idle placeholders, independently of saved display names', async () => {
   await act(() => root.render(React.createElement(ChatPanel, { wksp: PROJECT })))
-  const receipt = host.querySelector('.msg.genio .msg-meta')!.textContent!
   expect({
-    header: host.querySelector('.chat-title')!.textContent,
     indicator: host.querySelector('.working-text')!.textContent,
-    messageSpeaker: receipt.split(' · ')[0],
-    placeholder: host.querySelector('textarea')!.placeholder,
-    recapTooltip: host.querySelector<HTMLButtonElement>('.quick .link-btn')!.title
+    placeholder: host.querySelector('textarea')!.placeholder
   }).toMatchInlineSnapshot(`
     {
-      "header": "Genio",
       "indicator": "Genio is on it",
-      "messageSpeaker": "Genio",
-      "placeholder": "Genio is working… you can still send; it queues and is read next.",
-      "recapTooltip": "Genio is working",
+      "placeholder": "Message Genio",
     }
   `)
-  expect(host.querySelector('[aria-label="Model"]')!.getAttribute('title')).toContain('Genio model')
-  expect(host.querySelector('[aria-label="Effort"]')!.getAttribute('title')).toContain('Genio effort')
   await act(() => {
     const s = getState()
     setState({ snap: { ...s.snap, wksps: s.snap.wksps.map(m => ({ ...m, activity: 'idle' })) }, chats: { [PROJECT]: [] } })
   })
-  expect(host.querySelector('textarea')!.placeholder).toMatchInlineSnapshot(`"Message Genio  ·  it answers you here"`)
-  expect(host.querySelector('.chat-empty h2')?.textContent?.trim()).toBe('Genio')
+  expect(host.querySelector('textarea')!.placeholder).toBe('Message Genio')
+  expect(host.querySelector('.chat-empty')?.textContent).toBe('Tell Genio what to build in this project.')
   expect(host.textContent).not.toContain(PROJECT)
 })
 
 it('snapshots the floating panel title and preserves the project only in the native pop-out title and context', async () => {
   await act(() => root.render(React.createElement(GenioPanel)))
-  expect(host.querySelector('.genio-panel-grip')!.textContent).toMatchInlineSnapshot(`" Genio · Inventory"`)
+  expect(host.querySelector('.genio-panel-grip')!.textContent).toBe(' Genio')
   const frame = document.createElement('iframe'); document.body.append(frame)
   const child = frame.contentWindow!
   child.document.body.innerHTML = '<div id="root"></div>'
@@ -74,8 +65,8 @@ it('snapshots the floating panel title and preserves the project only in the nat
     await act(() => host.querySelector<HTMLButtonElement>('[aria-label="Pop out Genio chat"]')!.click())
     await act(() => child.dispatchEvent(new Event('load')))
     expect(child.document.title).toBe('Genio - founders-of-avalon (Chat)')
-    expect(child.document.querySelector('.popout-bar span')!.textContent).toBe('Genio · Inventory · Always on top')
-    expect(child.document.querySelector('.msg.genio .msg-meta')!.textContent!.split(' · ')[0]).toBe('Genio')
+    expect(child.document.querySelector('.popout-bar span')!.textContent).toBe('Genio')
+    expect(child.document.querySelector('.msg.genio')!.textContent).toContain('Ready to build.')
     await act(() => [...child.document.querySelectorAll('button')].find(b => b.textContent === 'Return chat')!.click())
   } finally { frame.remove() }
 })
@@ -83,7 +74,7 @@ it('snapshots the floating panel title and preserves the project only in the nat
 it('labels project permission requests as Genio while retaining their routing key', async () => {
   setState({ permissions: [{ id: 'permission', wksp: PROJECT, tool: 'Bash', input: 'npm test', ts: '2026-10-14' }] })
   await act(() => root.render(React.createElement(PermissionPrompt)))
-  expect(document.querySelector('.modal-head .label')!.textContent).toBe('Access request · Genio')
+  expect(document.querySelector('.modal-head .modal-title')!.textContent).toBe('Genio wants to run Bash')
   expect(getState().permissions[0].wksp).toBe(PROJECT)
 })
 

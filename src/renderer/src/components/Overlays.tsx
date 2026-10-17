@@ -1,6 +1,6 @@
 import { ASSISTANT_NAME } from '@shared/assistant'
 import { useEffect, useState } from 'react'
-import { ShieldCheck, Trophy, X } from 'lucide-react'
+import { ShieldCheck, Trophy } from 'lucide-react'
 import { api, dismissToast, getState, op, setState, useStore } from '../store'
 import { GenioCore } from './GenioCore'
 import { cx, clock } from '../lib/format'
@@ -52,7 +52,6 @@ export function AchievementOverlay() {
 
 export function PermissionPrompt() {
   const req = useStore((s) => s.permissions[0])
-  const more = useStore((s) => s.permissions.length - 1)
   if (!req) return null
   const resolve = (allow: boolean): void => {
     setState((s) => ({ permissions: s.permissions.filter((p) => p.id !== req.id) }))
@@ -62,22 +61,14 @@ export function PermissionPrompt() {
     <Dialog strong dismissible={false} label={`Genio wants to run ${req.tool}`}>
       <div className="modal panel glow ticks rise perm" style={{ width: 600, ['--tone' as string]: 'var(--amber)' }}>
         <header className="modal-head">
-          <div>
-            <div className="label" style={{ color: 'var(--amber)' }}>
-              Access request · {ASSISTANT_NAME}
-            </div>
-            <h2 className="modal-title">
-              <ShieldCheck size={20} style={{ verticalAlign: -3, marginRight: 8, color: 'var(--amber)' }} />
-              Genio wants to run <span className="mono amber-text">{req.tool}</span>
-            </h2>
-          </div>
+          <h2 className="modal-title">
+            <ShieldCheck size={20} style={{ verticalAlign: -3, marginRight: 8, color: 'var(--amber)' }} />
+            {ASSISTANT_NAME} wants to run <span className="mono amber-text">{req.tool}</span>
+          </h2>
         </header>
         <div className="modal-body">
           {req.reason && <p className="dim">{req.reason}</p>}
           <pre className="perm-input selectable">{req.input}</pre>
-          <p className="mute" style={{ fontSize: 12 }}>
-            Genio only reads your projects on its own. Anything that could change them needs your word. {more > 0 && `${more} more waiting.`}
-          </p>
         </div>
         <footer className="modal-foot">
           <button className="btn alert" onClick={() => resolve(false)}>
@@ -107,7 +98,6 @@ export function BootSplash({ ready }: { ready: boolean }) {
     return () => window.clearTimeout(t)
   }, [leaving])
   if (gone) return null
-  const lines = ['LINKING CORE', 'SCANNING SQUAD', 'LOADING QUEST LOG', 'SYSTEMS ONLINE']
   return (
     <Layer>
       <div className={cx('splash', leaving && 'out')} onClick={() => setSkipped(true)}>
@@ -116,16 +106,8 @@ export function BootSplash({ ready }: { ready: boolean }) {
           <div className="splash-word" data-text="GENIO">
             GENIO
           </div>
-          <div className="splash-sub label">AI squad orchestrator · game dev edition</div>
           <div className="bar splash-bar">
             <i style={{ width: ready ? '100%' : '70%' }} />
-          </div>
-          <div className="splash-lines mono">
-            {lines.map((l, i) => (
-              <div key={l} style={{ animationDelay: `${i * 0.22}s` }}>
-                <span className="volt-text">▸</span> {l}
-              </div>
-            ))}
           </div>
         </div>
       </div>
@@ -139,28 +121,16 @@ export function WelcomeBack() {
   const dismissedAt = useStore((s) => s.welcomeDismissedAt)
   const gamertag = useStore((s) => s.settings?.gamertag || 'Player')
   const fresh = away.held.filter((e) => !dismissedAt || e.ts > dismissedAt)
-  if (away.mode !== 'online' || (!fresh.length && !away.returnSummaryPending)) return null
-  if (!fresh.length) return null
+  if (away.mode !== 'online' || !fresh.length) return null
   const sevTone: Record<string, string> = { info: 'neon', decision: 'amber', failure: 'alert', ready: 'volt' }
   const close = (): void => setState({ welcomeDismissedAt: fresh.reduce((m, e) => (e.ts > m ? e.ts : m), getState().welcomeDismissedAt ?? '') })
   return (
     <Dialog onClose={close} label={`Welcome back, ${gamertag}`}>
       <div className="modal panel glow ticks rise" style={{ width: 620 }}>
         <header className="modal-head">
-          <div>
-            <div className="label" style={{ color: 'var(--volt)' }}>
-              Respawned
-            </div>
-            <h2 className="modal-title">Welcome back, {gamertag}</h2>
-          </div>
-          <button className="btn ghost icon sm" onClick={close} aria-label="Close">
-            <X size={16} />
-          </button>
+          <h2 className="modal-title">Welcome back, {gamertag}</h2>
         </header>
         <div className="modal-body">
-          <p className="dim" style={{ marginTop: 0 }}>
-            While you were away the Bot kept the squad moving. Here is what needs your eyes:
-          </p>
           <ul className="wb-list">
             {fresh.map((e, i) => (
               <li key={i}>

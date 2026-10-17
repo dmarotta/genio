@@ -1,20 +1,17 @@
 import { ASSISTANT_NAME } from '@shared/assistant'
-import { ComingNext } from '../components/ComingNext'
 import { GenerationCard } from '../components/GenerationCard'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
-import { ArrowDown, ChevronDown, ChevronRight, ChevronsUp, CircleStop, CornerUpRight, Pencil, Play, RefreshCw, Rocket, Send, ShieldCheck, ThumbsDown, ThumbsUp, TriangleAlert, Wrench, X } from 'lucide-react'
-import type { Ally, ChatMessage, WkspInfo, ReactionKind, Settings, ShellRun } from '@shared/types'
-import { formatDuration, isShellCommandMessage, isShellText } from '@shared/terminal-pane'
+import { ArrowDown, ChevronDown, ChevronRight, ChevronsUp, CircleStop, CornerUpRight, Pencil, Play, Send, ShieldCheck, TriangleAlert, X } from 'lucide-react'
+import type { Ally, ChatMessage, WkspInfo, Settings, ShellRun } from '@shared/types'
+import { isShellCommandMessage, isShellText } from '@shared/terminal-pane'
 import { chatControls, chatKey, routedRequest, splitQueued, type ChatControls, type UnqueuedChat } from '@shared/chat'
 import { MAX_IMAGES_PER_MESSAGE } from '@shared/chat-images'
 import {
-  PROJECT_WKSP, PROJECT_WINDOW, api, errText, focusTask, getState, go, loadChat, op, openDeploy, saveChatControls, saveSettings, setState, toast, useStore
+  PROJECT_WKSP, PROJECT_WINDOW, api, errText, getState, loadChat, op, saveChatControls, setState, toast, useStore
 } from '../store'
 import { readShellHistory, rememberShellCommand, shellUnavailable, showPane } from '../lib/terminal-pane'
 import { Markdown } from '../components/Markdown'
-import { CopyMessageButton } from '../components/CopyMessageButton'
 import { GenioCore } from '../components/GenioCore'
-import { Chip, Dot, Toggle } from '../components/ui'
 import { Roster } from '../components/SquadPanel'
 import { clock, cx, trunc } from '../lib/format'
 import { playSfx } from '../lib/sfx'
@@ -25,22 +22,10 @@ import { InventoryContextChips, useInventoryContext } from '../components/Invent
 const MAIN_PANEL = 'main'
 import { EffortSelect, ModelSelect } from '../components/ModelSelect'
 import { openSettings } from '../lib/settings-nav'
-import { Popover } from '../components/Layer'
 import { settingsPath } from '@shared/settings-pages'
 import { useVoiceInput } from '../components/MicButton'
 import { stopSpeaking } from '../lib/voice'
 
-const SLASH: { cmd: string; hint: string }[] = [
-  { cmd: '/recap', hint: 'Previously on… then your pending moves, one at a time' },
-  { cmd: '/status', hint: 'Character Sheet: level, XP & achievements' },
-  { cmd: '/deploy', hint: 'Open the Deploy panel' },
-  { cmd: '/afk', hint: 'Go AFK — the Bot plays, outcomes replay on return' },
-  { cmd: '/dnd', hint: 'Do not disturb — routine events stay off-screen' },
-  { cmd: '/online', hint: 'Back online — everything reported here' },
-  { cmd: '/save', hint: 'Curate player profile & squad memory (save game)' },
-  { cmd: '/patch', hint: 'Check for a Genio update' },
-  { cmd: '/help', hint: 'List commands' }
-]
 
 export function Comms() {
   if (!PROJECT_WKSP) return null
@@ -62,17 +47,16 @@ export function Comms() {
 const NO_MESSAGES: ChatMessage[] = []
 
 /** What a chat pane reads of its session: the project chat's WkspInfo, or a design chat's own state. */
-type ChatSessionInfo = Pick<WkspInfo, 'activity' | 'activityDetail' | 'steerable' | 'queued' | 'limit' | 'botLimit' | 'lastError'>
+type ChatSessionInfo = Pick<WkspInfo, 'activity' | 'activityDetail' | 'steerable' | 'limit' | 'botLimit' | 'lastError'>
 
 /** Who answers in this chat, in the copy: Genio, or a design chat (which never speaks as Genio). */
-const DESIGN_AUTHOR = 'Design chat'
 const speaker = (conversation?: string): string => (conversation ? 'The design chat' : ASSISTANT_NAME)
 /** A design chat's id as a call's last argument; the project chat's calls keep their shape. */
 const onDesign = (conversation?: string): [] | [string] => (conversation ? [conversation] : [])
 
 /**
- * The project chat: its own status bar, log and composer. With `conversation`, one of the project's design chats
- * (the Design screen): the same log and composer with only its model and effort, no status bar.
+ * The project chat: its log and composer. With `conversation`, one of the project's design chats
+ * (the Design screen): the same log and composer with only its model and effort.
  */
 export function ChatPanel({ wksp, conversation, context, surface = 'screen', active: _active = true }: { wksp: string; conversation?: string; context?: InventoryContext; surface?: 'screen' | 'panel'; active?: boolean }) {
   const key = chatKey(wksp, conversation)
@@ -80,19 +64,16 @@ export function ChatPanel({ wksp, conversation, context, surface = 'screen', act
   const designInfo = useStore((s) => (conversation ? s.designChats?.find((c) => c.id === conversation) : undefined))
   const info: ChatSessionInfo | undefined = conversation ? designInfo : wkspInfo
   const messages = useStore((s) => s.chats[key] ?? NO_MESSAGES)
-  const settings = useStore((s) => s.settings)
-  const gamertag = settings?.gamertag || 'Player'
-  const calm = !!settings?.calm
+  const calm = useStore((s) => !!s.settings?.calm)
   const busy = info?.activity === 'thinking' || info?.activity === 'tool' || info?.activity === 'starting'
   // the session's own turn state: a visible Genio turn runs that a message can steer (never the Bot's)
   const steerable = !!info?.steerable
-  const isAlly = wksp !== MAIN_PANEL
 
   useEffect(() => {
     void loadChat(wksp, false, conversation)
   }, [wksp, conversation])
 
-  const visible = useMemo(() => (calm ? messages.filter((m) => !calmHidden(m)) : messages), [messages, calm])
+  const visible = useMemo(() => messages.filter((m) => !hidden(m, calm)), [messages, calm])
 
   // Edit / cancel a message the session has not picked up yet; edit puts it back in this chat's composer.
   // Stable across renders so memoised messages are not re-rendered by every streamed token.
@@ -107,12 +88,11 @@ export function ChatPanel({ wksp, conversation, context, surface = 'screen', act
     }
   }, [wksp, conversation])
   // A queued message jumps the queue and steers: the turn in progress stops at a safe point and reads it first.
-  // The message turns to "Steering" at once; a toast says what it waits for, or why it cannot be sent now.
+  // The message turns to "Steering" at once; a toast says only why it cannot be sent now.
   const sendNow = useCallback(async (m: ChatMessage): Promise<void> => {
     try {
       const r = await api().sendQueuedNow(wksp, m.id, ...onDesign(conversation))
       if (!r.ok) toast('info', 'Not sent now', r.reason)
-      else if (r.note) toast('info', 'Steering', r.note)
     } catch (e) {
       toast('error', 'Message not sent now', errText(e))
     }
@@ -120,76 +100,31 @@ export function ChatPanel({ wksp, conversation, context, surface = 'screen', act
 
   return (
     <div className="chat-panel">
-      {!conversation && <header className="comms-head">
-        <div className="chat-title">
-          <span className="label neon-text">{ASSISTANT_NAME}</span>
-        </div>
-        <div className="comms-status">
-          <span className={cx('activity', info?.activity)}>
-            <Dot tone={info?.activity === 'error' ? 'alert' : busy ? 'neon' : info?.activity === 'offline' ? 'mute' : 'volt'} pulse={busy} />
-            {activityText(info?.activity, info?.activityDetail)}
-          </span>
-          {!isAlly && <ComingNext />}
-          {info?.queued ? <Chip tone="amber">{info.queued} queued</Chip> : null}
-          <Toggle checked={calm} onChange={(v) => void saveSettings({ calm: v })} label={<span className="label">Clean HUD</span>} />
-          {busy && (
-            <button className="btn sm alert" onClick={() => void op('Interrupt', () => api().interruptWksp(wksp))}>
-              <CircleStop size={13} /> Interrupt
-            </button>
-          )}
-          <button
-            className="btn sm ghost icon"
-            title="Restart session (keeps memory; shift-click for a fresh session)"
-            onClick={(e) => void op('Restart', () => api().restartWksp(wksp, e.shiftKey), () => (e.shiftKey ? 'Fresh session' : 'Session resumed'))}
-          >
-            <RefreshCw size={13} />
-          </button>
-        </div>
-      </header>}
-
       {(['genio', 'bot'] as const).map(role => {
         const limit = role === 'bot' ? info?.botLimit : info?.limit
         if (!limit) return null
         return <div className="chat-limit" role="status" key={role}>
           <span>{role === 'bot' ? 'Bot: ' : ''}{limit.provider === 'codex' ? `${limit.reason || 'Codex unavailable'} Open ${settingsPath('accounts')}, then resume the session.` : limit.reason || (limit.restartRequired
             ? 'Claude still reports an expired limit. Restart the session to try again.'
-            : `Claude limit reached${limit.resetsAt ? ` ? back at ${new Date(limit.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ' ? waiting for reset'}`)}</span>
+            : `Claude limit reached${limit.resetsAt ? `, back at ${new Date(limit.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ', waiting for reset'}`)}</span>
           {limit.provider === 'codex' && <button className="btn sm" onClick={() => openSettings('accounts')}>Accounts &amp; keys</button>}
-          {!limit.restartRequired && <button className="btn sm" onClick={() => void op('Retry', () => api().restartWksp(wksp, false, role, ...onDesign(conversation)))}>Retry now</button>}
-          <button className="btn sm ghost" onClick={() => void op('Restart', () => api().restartWksp(wksp, false, role, ...onDesign(conversation)))}>Restart session</button>
+          <button className="btn sm" onClick={() => void op('Restart', () => api().restartWksp(wksp, false, role, ...onDesign(conversation)))}>{limit.restartRequired ? 'Restart session' : 'Retry now'}</button>
         </div>
       })}
 
-      <ChatLog key={key} wksp={wksp} conversation={conversation} surface={surface} messages={visible} calm={calm} busy={busy} gamertag={gamertag} activityDetail={info?.activityDetail} lastError={info?.lastError} onTakeBack={takeBack} onSendNow={sendNow} />
+      <ChatLog key={key} wksp={wksp} conversation={conversation} surface={surface} messages={visible} busy={busy} activityDetail={info?.activityDetail} lastError={info?.lastError} onTakeBack={takeBack} onSendNow={sendNow} />
 
-      <Composer wksp={wksp} conversation={conversation} busy={busy} steerable={steerable} fill={fill} context={context} />
+      <Composer wksp={wksp} conversation={conversation} steerable={steerable} fill={fill} context={context} />
     </div>
   )
 }
 
-function activityText(a?: string, detail?: string): string {
-  switch (a) {
-    case 'thinking':
-      return 'Thinking'
-    case 'tool':
-      return detail ? trunc(detail, 28) : 'Working'
-    case 'starting':
-      return 'Linking'
-    case 'error':
-      return 'Error'
-    case 'offline':
-      return 'Standby'
-    default:
-      return 'Ready'
-  }
-}
-
 /**
- * Clean HUD drops wakes and any Genio turn with nothing left to show once tool traces are hidden
- * (tool-only turns, empty partials), header and timestamp included, so no bare headers stack up.
+ * A Genio turn with nothing to show (tool-only turns, empty partials) never gets a bare header and timestamp.
+ * Clean chat also drops wakes.
  */
-function calmHidden(m: ChatMessage): boolean {
-  if (m.role === 'wake') return true
+function hidden(m: ChatMessage, calm: boolean): boolean {
+  if (m.role === 'wake') return calm
   return m.role === 'genio' && !m.text.trim() && !m.generation && !m.generating && !m.images?.length
 }
 
@@ -215,7 +150,7 @@ function topMessage(el: HTMLElement): { id: string; offset: number } | undefined
   return undefined
 }
 
-function ChatLog({ wksp, conversation, surface, messages: all, calm, busy, gamertag, activityDetail, lastError, onTakeBack, onSendNow }: { wksp: string; conversation?: string; surface: string; messages: ChatMessage[]; calm: boolean; busy: boolean; gamertag: string; activityDetail?: string; lastError?: string; onTakeBack: TakeBack; onSendNow?: SendNow }) {
+function ChatLog({ wksp, conversation, surface, messages: all, busy, activityDetail, lastError, onTakeBack, onSendNow }: { wksp: string; conversation?: string; surface: string; messages: ChatMessage[]; busy: boolean; activityDetail?: string; lastError?: string; onTakeBack: TakeBack; onSendNow?: SendNow }) {
   const ref = useRef<HTMLDivElement>(null)
   const body = useRef<HTMLDivElement>(null)
   const memoryKey = `${chatKey(wksp, conversation)}:${surface}`
@@ -313,37 +248,9 @@ function ChatLog({ wksp, conversation, surface, messages: all, calm, busy, gamer
         }}
       >
         <div className="chat-log-body" ref={body}>
-          {all.length === 0 && wksp !== MAIN_PANEL && !design && (
-            <div className="chat-empty rise">
-              <GenioCore size={80} state={busy ? 'active' : 'idle'} />
-              <h2 className="title" style={{ fontSize: 24 }}>
-                {ASSISTANT_NAME}
-              </h2>
-              <p className="dim">Tell Genio what to build in this project. Your conversation and controls stay with this window.</p>
-            </div>
-          )}
-          {all.length === 0 && wksp === MAIN_PANEL && !design && (
-            <div className="chat-empty rise">
-              <GenioCore size={110} state={busy ? 'active' : 'idle'} />
-              <h2 className="title" style={{ fontSize: 30 }}>
-                Ready, <span className="accent">{gamertag}</span>
-              </h2>
-              <p className="dim">Tell Genio what to build. It deploys units, watches them, and only pings you for real choices.</p>
-              <div className="quick-chips">
-                <button className="btn" onClick={() => void op('Recap', () => api().recap())}>
-                  Recap
-                </button>
-                <button className="btn" onClick={() => go('status')}>
-                  Character Sheet
-                </button>
-                <button className="btn solid" onClick={() => openDeploy()}>
-                  <Rocket size={14} /> Deploy
-                </button>
-              </div>
-            </div>
-          )}
+          {all.length === 0 && !design && <p className="chat-empty dim rise">Tell {ASSISTANT_NAME} what to build in this project.</p>}
           {messages.map((m) => (
-            <Message key={m.id} m={m} calm={calm} gamertag={gamertag} design={design} onTakeBack={onTakeBack} />
+            <Message key={m.id} m={m} design={design} onTakeBack={onTakeBack} />
           ))}
           {busy && (
             <div className="msg genio working rise">
@@ -357,12 +264,17 @@ function ChatLog({ wksp, conversation, surface, messages: all, calm, busy, gamer
                   <i />
                   <i />
                 </span>
+                {!design && (
+                  <button className="btn sm alert" onClick={() => void op('Interrupt', () => api().interruptWksp(wksp))}>
+                    <CircleStop size={13} /> Interrupt
+                  </button>
+                )}
               </div>
             </div>
           )}
           {lastError && !busy && <div className="msg-error mono">{lastError} <button className="btn sm" onClick={() => void op('Restart', () => (conversation ? api().restartWksp(wksp, false, undefined, conversation) : api().restartWksp(wksp, false)))}>Restart session</button></div>}
           {queued.map((m) => (
-            <Message key={m.id} m={m} calm={calm} gamertag={gamertag} design={design} onTakeBack={onTakeBack} onSendNow={onSendNow} />
+            <Message key={m.id} m={m} design={design} onTakeBack={onTakeBack} onSendNow={onSendNow} />
           ))}
         </div>
       </div>
@@ -381,8 +293,7 @@ function ChatLog({ wksp, conversation, surface, messages: all, calm, busy, gamer
  * One message. Memoised: a streamed delta replaces only the message it belongs to, so the
  * other messages of a long transcript keep their rendered output (and parsed Markdown).
  */
-const Message = memo(function Message({ m, calm, gamertag, design = false, onTakeBack, onSendNow }: { m: ChatMessage; calm: boolean; gamertag: string; design?: boolean; onTakeBack: TakeBack; onSendNow?: SendNow }) {
-  const [open, setOpen] = useState(false)
+const Message = memo(function Message({ m, design = false, onTakeBack, onSendNow }: { m: ChatMessage; design?: boolean; onTakeBack: TakeBack; onSendNow?: SendNow }) {
   if (m.role === 'player') {
     const waiting = m.queue === 'queued' || m.queue === 'unsent'
     return (
@@ -391,33 +302,20 @@ const Message = memo(function Message({ m, calm, gamertag, design = false, onTak
         {m.text && <div className="msg-bubble selectable">{m.text}</div>}
         <InventoryContextChips context={m.context} wksp={m.wksp} />
         <div className="msg-meta">
-          {m.queue === 'queued' && (m.steering ? (
-            <span className="msg-queue steering" title={`Steering: ${ASSISTANT_NAME} stops the current turn at a safe point (a running action finishes first) and reads this first.`}>
-              Steering ·{' '}
-            </span>
-          ) : (
-            <span className="msg-queue" title="Sent while the session was busy: it reads this as soon as the current turn ends.">
-              Queued ·{' '}
-            </span>
-          ))}
-          {m.queue === 'unsent' && (
-            <span className="msg-queue" title="The session stopped (Genio or this project window closed) before reading this message. Edit to send it again.">
-              Not sent ·{' '}
-            </span>
-          )}
-          {gamertag} · {clock(m.ts)}
-          <CopyMessageButton text={m.text} />
+          {m.queue === 'queued' && (m.steering ? <span className="msg-queue steering">Steering ·{' '}</span> : <span className="msg-queue">Queued ·{' '}</span>)}
+          {m.queue === 'unsent' && <span className="msg-queue">Not sent ·{' '}</span>}
+          {clock(m.ts)}
           {waiting && (
             <span className="msg-acts">
               {m.queue === 'queued' && !m.steering && onSendNow && (
-                <button className="msg-act msg-send-now" title={`Send now: ${ASSISTANT_NAME} stops the current turn at a safe point and reads this first`} aria-label="Send queued message now" onClick={() => void onSendNow(m)}>
+                <button className="msg-act msg-send-now" aria-label="Send queued message now" onClick={() => void onSendNow(m)}>
                   <ChevronsUp size={12} /> Send now
                 </button>
               )}
-              <button className="msg-act" title="Edit: put it back in the composer" aria-label="Edit queued message" onClick={() => void onTakeBack(m, true)}>
+              <button className="msg-act" title="Edit" aria-label="Edit queued message" onClick={() => void onTakeBack(m, true)}>
                 <Pencil size={11} />
               </button>
-              <button className="msg-act" title={m.queue === 'queued' ? 'Cancel: remove it from the queue' : 'Remove'} aria-label="Cancel queued message" onClick={() => void onTakeBack(m, false)}>
+              <button className="msg-act" title="Cancel" aria-label="Cancel queued message" onClick={() => void onTakeBack(m, false)}>
                 <X size={12} />
               </button>
             </span>
@@ -432,7 +330,6 @@ const Message = memo(function Message({ m, calm, gamertag, design = false, onTak
         <span className="msg-wake-text"><span className="neon-text">⚡</span> {trunc(m.text.split('\n')[0], 140)}
           <span className="mute"> · {clock(m.ts)}</span>
         </span>
-        <CopyMessageButton text={m.text} />
       </div>
     )
   }
@@ -444,11 +341,7 @@ const Message = memo(function Message({ m, calm, gamertag, design = false, onTak
         <div className="msg-bubble selectable">
           <Markdown text={routed.text} />
         </div>
-        <div className="msg-meta">
-          {ASSISTANT_NAME} · {clock(m.ts)}
-          {routed.corr ? ` · ${routed.corr}` : ''}
-          <CopyMessageButton text={routed.text} />
-        </div>
+        <div className="msg-meta">{clock(m.ts)}</div>
       </div>
     )
   }
@@ -457,14 +350,12 @@ const Message = memo(function Message({ m, calm, gamertag, design = false, onTak
     return (
       <div data-msg={m.id} className="msg-system rise">
         <Markdown text={m.text} />
-        <CopyMessageButton text={m.text} />
       </div>
     )
   }
   if (m.role === 'error') {
-    return <div data-msg={m.id} className="msg-error mono selectable">{m.text}<CopyMessageButton text={m.text} /></div>
+    return <div data-msg={m.id} className="msg-error mono selectable">{m.text}</div>
   }
-  const tools = m.tools ?? []
   return (
     <div data-msg={m.id} className="msg genio rise">
       {!design && <div className="msg-avatar">
@@ -475,33 +366,7 @@ const Message = memo(function Message({ m, calm, gamertag, design = false, onTak
         {m.generation && <GenerationCard card={m.generation} wksp={m.wksp} />}
         {m.generating ? <GeneratingImages count={m.generating} /> : null}
         {m.images?.length ? <MessageImages wksp={m.wksp} images={m.images} /> : null}
-        {!calm && tools.length > 0 && (
-          <div className="tool-traces">
-            <button className="tool-chip" onClick={() => setOpen((o) => !o)}>
-              {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-              <Wrench size={11} /> used {tools.length} tool{tools.length > 1 ? 's' : ''}
-              {tools.some((t) => t.isError) && <span className="alert-text"> · error</span>}
-            </button>
-            {open && (
-              <div className="tool-list-inline">
-                {tools.map((t) => (
-                  <div key={t.id} className={cx('trace', t.isError && 'err')}>
-                    <div className="trace-name mono">{t.name.replace(/^mcp__genio__/, '')}</div>
-                    <pre className="trace-io selectable">{trunc(t.input, 600)}</pre>
-                    {t.result && <pre className="trace-io result selectable">{trunc(t.result, 1200)}</pre>}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        {/* reactions steer Genio's work; a design chat starts none */}
-        {!m.partial && !design && <ReactionNote m={m} />}
-        <div className="msg-meta">
-          {design ? DESIGN_AUTHOR : ASSISTANT_NAME} · {clock(m.ts)}
-          <CopyMessageButton text={m.text} />
-          {!m.partial && !design && (m.text || m.generation) && <Reactions m={m} />}
-        </div>
+        <div className="msg-meta">{clock(m.ts)}</div>
       </div>
     </div>
   )
@@ -513,7 +378,7 @@ const withoutBang = (d: string): string => (isShellText(d) ? d.slice(1) : d)
 const SHELL_PREVIEW_LINES = 12
 
 /**
- * A '!' command the player ran: command, exit code, duration and output (first lines, then Show more).
+ * A '!' command the player ran: command, exit code and output (first lines, then Show more).
  * Marked "run by you" so it never reads as something Genio or a unit did.
  */
 function ShellResult({ id, run, ts }: { id: string; run: ShellRun; ts: string }) {
@@ -529,11 +394,10 @@ function ShellResult({ id, run, ts }: { id: string; run: ShellRun; ts: string })
         <button className="msg-shell-toggle" aria-expanded={open} aria-label={open ? 'Collapse output' : 'Expand output'} onClick={() => setOpen((o) => !o)}>
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </button>
-        <span className="chip amber msg-shell-who" title="You ran this in your own terminal with ! — not Genio, not a unit">run by you</span>
+        <span className="chip amber msg-shell-who">run by you</span>
         <code className="msg-shell-cmd selectable">$ {run.command}</code>
         <span className={cx('msg-shell-exit mono', ok ? 'volt-text' : 'alert-text')}>{run.error ? 'did not run' : `exit ${run.exitCode ?? '?'}`}</span>
-        <span className="mute mono msg-shell-time">{formatDuration(run.durationMs)} · {clock(ts)}</span>
-        <CopyMessageButton text={`$ ${run.command}\n${run.output}`} />
+        <span className="mute mono msg-shell-time">{clock(ts)}</span>
       </div>
       {open && (
         <div className="msg-shell-body">
@@ -545,93 +409,26 @@ function ShellResult({ id, run, ts }: { id: string; run: ShellRun; ts: string })
               {run.truncated && <span>Long output: its start and end are kept.</span>}
             </div>
           )}
-          <div className="msg-shell-foot mute">in {run.cwd} · Genio reads this with your next message</div>
         </div>
       )}
     </div>
   )
 }
 
-const REACTION_HINT = {
-  like: 'Like: this is the right path. Genio proceeds confidently (never approves a merge). Click again to undo.',
-  dislike: 'Dislike: something is wrong. Genio pauses what this message started and asks you. Click again within a second to cancel, or later to resume.'
-}
-
-/** Clicking the reaction already set removes it; the other one replaces it. */
-async function react(m: ChatMessage, kind: ReactionKind, settings: Settings | null | undefined): Promise<void> {
-  const next = m.reaction?.kind === kind ? null : kind
-  try {
-    await api().reactToMessage(m.wksp, m.id, next)
-    playSfx(next ? 'card-in' : 'card-out', settings)
-  } catch (e) {
-    toast('error', 'Reaction not saved', errText(e))
-  }
-}
-
-/** Like / dislike on a Genio message: shown on hover or focus, and always once set. */
-function Reactions({ m }: { m: ChatMessage }) {
-  const settings = useStore((s) => s.settings)
-  const [pending, setPending] = useState(false)
-  const current = m.reaction?.kind
-  const click = async (kind: ReactionKind): Promise<void> => {
-    setPending(true)
-    try { await react(m, kind, settings) } finally { setPending(false) }
-  }
-  return (
-    <span className={cx('msg-acts msg-react', current && 'set')} role="group" aria-label="React to this message">
-      <button type="button" className={cx('msg-act msg-like', current === 'like' && 'on')} aria-pressed={current === 'like'}
-        aria-label={current === 'like' ? 'Remove like' : 'Like'} title={REACTION_HINT.like} disabled={pending} onClick={() => void click('like')}>
-        <ThumbsUp size={12} />
-      </button>
-      <button type="button" className={cx('msg-act msg-dislike', current === 'dislike' && 'on')} aria-pressed={current === 'dislike'}
-        aria-label={current === 'dislike' ? 'Remove dislike' : 'Dislike'} title={REACTION_HINT.dislike} disabled={pending} onClick={() => void click('dislike')}>
-        <ThumbsDown size={12} />
-      </button>
-    </span>
-  )
-}
-
-/** What a dislike paused (or an undo resumed), with a one-click undo while the dislike stands. */
-function ReactionNote({ m }: { m: ChatMessage }) {
-  const settings = useStore((s) => s.settings)
-  const grace = m.reaction?.kind === 'dislike' && m.reaction.pause === 'grace'
-  const text = grace ? 'Pausing what this started…' : m.reactionNote
-  if (!text) return null
-  return (
-    <div className={cx('msg-reaction-note', m.reaction?.kind === 'dislike' && 'dislike')} role="status">
-      <ThumbsDown size={11} aria-hidden /> {text}
-      {m.reaction?.kind === 'dislike' && (
-        <button type="button" className="link-btn" onClick={() => void react(m, 'dislike', settings)}>Undo</button>
-      )}
-    </div>
-  )
-}
-
-function Composer({ wksp, conversation, busy, steerable = false, fill, context }: { wksp: string; conversation?: string; busy: boolean; steerable?: boolean; context?: InventoryContext; fill: RefObject<((c: UnqueuedChat) => void) | undefined> }) {
-  // A design chat's composer: text and images, its model and effort; no commands, shell or quick links.
+function Composer({ wksp, conversation, steerable = false, fill, context }: { wksp: string; conversation?: string; steerable?: boolean; context?: InventoryContext; fill: RefObject<((c: UnqueuedChat) => void) | undefined> }) {
+  // A design chat's composer: text and images, its model and effort; no shell.
   const design = !!conversation
   const key = chatKey(wksp, conversation)
-  // Client-side commands drive the whole app, so they live in the main chat; an ally gets its text (and its own /help, /status, /save) as typed.
-  const isMain = wksp === MAIN_PANEL && !design
   // '!' as the first character: shell mode. The '!' becomes the prompt glyph; the draft keeps it.
   const [shell, setShell] = useState(() => !design && isShellText(getDraft(key)))
   const [text, setText] = useState(() => withoutBang(getDraft(key)))
   const unavailable = useStore(shellUnavailable)
   const history = useRef<{ list: string[]; at: number; draft: string }>({ list: [], at: -1, draft: '' })
-  const [sel, setSel] = useState(0)
   const ta = useRef<HTMLTextAreaElement>(null)
-  const composer = useRef<HTMLDivElement>(null)
   const box = useRef<HTMLDivElement>(null)
   const att = useAttachments(key)
   const inventory = useInventoryContext(key, context)
   const canSend = !!text.trim() || att.images.length > 0
-  // Recap runs as its own turn: hold it while one runs or messages wait, and when the chat cannot take a turn.
-  const info = useStore((s) => s.snap.wksps.find((m) => m.name === wksp))
-  const recapOff = !info || info.limit
-    ? 'Chat unavailable'
-    : busy || info.queued
-      ? `${ASSISTANT_NAME} is working`
-      : ''
   const update = (v: string, inShell = shell): void => {
     setText(v)
     setDraft(key, (inShell ? '!' : '') + v)
@@ -683,8 +480,6 @@ function Composer({ wksp, conversation, busy, steerable = false, fill, context }
     }
   })
   const settings = useStore((s) => s.settings)
-  const showSlash = isMain && !shell && text.startsWith('/') && !text.includes(' ') && !text.includes('\n')
-  const matches = showSlash ? SLASH.filter((s) => s.cmd.startsWith(text.toLowerCase())) : []
 
   useEffect(() => {
     const el = ta.current
@@ -704,12 +499,6 @@ function Composer({ wksp, conversation, busy, steerable = false, fill, context }
     observer.observe(el)
     return () => observer.disconnect()
   }, [text, key])
-
-  const localSystem = (t: string): void => {
-    const s = getState()
-    const msg: ChatMessage = { id: `local-${Date.now()}`, wksp, role: 'system', text: t, ts: new Date().toISOString() }
-    setState({ chats: { ...s.chats, [wksp]: [...(s.chats[wksp] ?? []), msg] } })
-  }
 
   // One submit per draft: a double click or Enter repeated before the cleared composer renders sends nothing more.
   const submitted = useRef(false)
@@ -758,45 +547,6 @@ function Composer({ wksp, conversation, busy, steerable = false, fill, context }
     if (submitted.current) return
     submitted.current = true
     update('')
-    const [cmd, ...rest] = t.split(/\s+/)
-    const words = rest.join(' ')
-    // with images attached, a leading slash is just text for Genio
-    if (isMain && t.startsWith('/') && !images.length) {
-      switch (cmd.toLowerCase()) {
-        case '/recap':
-          await op('Recap', () => api().recap())
-          return
-        case '/status':
-          go('status')
-          return
-        case '/deploy':
-          openDeploy()
-          return
-        case '/afk':
-        case '/dnd':
-        case '/online': {
-          const mode = cmd.slice(1).toLowerCase() as 'afk' | 'dnd' | 'online'
-          if (words) {
-            try {
-              await api().sendChat(wksp, `Heading ${mode.toUpperCase()}: ${words}`)
-            } catch {
-              /* ignore */
-            }
-          }
-          await op('Presence', () => api().setAway(mode), () => (mode === 'afk' ? 'AFK — the Bot has the controls' : mode === 'dnd' ? 'Do not disturb' : 'Online'))
-          return
-        }
-        case '/save':
-          await op('Save', () => api().save(), () => 'Genio is curating memory')
-          return
-        case '/patch':
-          openSettings('system', 'settings-updates')
-          return
-        case '/help':
-          localSystem(['**Commands**', ...SLASH.map((s) => `- \`${s.cmd}\` — ${s.hint}`), '', 'Shortcuts: `Ctrl+K` palette · `Ctrl+1…8` views'].join('\n'))
-          return
-      }
-    }
     playSfx('send', settings)
     att.set([])
     try {
@@ -847,51 +597,20 @@ function Composer({ wksp, conversation, busy, steerable = false, fill, context }
   }
 
   return (
-    <div className="composer" ref={composer}>
-      {matches.length > 0 && (
-        <Popover anchor={composer} span={box} placement="top-span" gap={4} className="slash-menu panel">
-          {matches.map((s, i) => (
-            <button
-              key={s.cmd}
-              className={cx('slash-item', i === sel && 'on')}
-              onMouseEnter={() => setSel(i)}
-              onClick={() => {
-                update(s.cmd + ' ')
-                ta.current?.focus()
-              }}
-            >
-              <span className="mono neon-text">{s.cmd}</span>
-              <span className="mute">{s.hint}</span>
-            </button>
-          ))}
-        </Popover>
-      )}
+    <div className="composer">
       {inventory.chips}
       <AttachmentStrip att={att} />
       <div ref={box} className={cx('composer-box ticks', att.dragging && 'dropping', shell && 'shell')} {...att.dropProps}>
-        {shell && <span className="composer-shell-glyph mono" title="Shell mode: runs in your terminal, not sent to Genio as chat" aria-hidden>!</span>}
+        {shell && <span className="composer-shell-glyph mono" aria-hidden>!</span>}
         <textarea
           ref={ta}
           rows={1}
           value={text}
           onPaste={att.onPaste}
           aria-label={shell ? 'Shell command' : 'Message'}
-          placeholder={
-            shell
-              ? 'run a shell command'
-              : steerable
-              ? `${speaker(conversation)} is working… Send queues it for next; Steer reads it now.`
-              : busy
-              ? `${speaker(conversation)} is working… you can still send; it queues and is read next.`
-              : design
-                ? 'Message the design chat…'
-                : isMain
-                ? 'Message Genio  ·  / for commands'
-                : `Message ${ASSISTANT_NAME}  ·  it answers you here`
-          }
+          placeholder={shell ? 'Shell command' : design ? 'Message the design chat' : `Message ${ASSISTANT_NAME}`}
           onChange={(e) => {
             const v = e.target.value
-            setSel(0)
             voice.clearError()
             if (!shell && !design && isShellText(v) && !unavailable) shellMode(true, v.slice(1))
             else update(v)
@@ -905,28 +624,6 @@ function Composer({ wksp, conversation, busy, steerable = false, fill, context }
               return
             }
             if (shell && shellKey(e)) return
-            if (matches.length) {
-              if (e.key === 'ArrowDown') {
-                e.preventDefault()
-                setSel((s) => (s + 1) % matches.length)
-                return
-              }
-              if (e.key === 'ArrowUp') {
-                e.preventDefault()
-                setSel((s) => (s - 1 + matches.length) % matches.length)
-                return
-              }
-              if (e.key === 'Tab') {
-                e.preventDefault()
-                update(matches[sel].cmd + ' ')
-                return
-              }
-              if (e.key === 'Enter' && !e.shiftKey && text.trim() !== matches[sel].cmd) {
-                e.preventDefault()
-                void submit(matches[sel].cmd)
-                return
-              }
-            }
             if (e.key === 'Tab' && e.shiftKey && !design) {
               e.preventDefault()
               cycleShellMode(wksp)
@@ -941,19 +638,17 @@ function Composer({ wksp, conversation, busy, steerable = false, fill, context }
         />
         {voice.button}
         {steerable && !shell && (
-          <button className="btn amber composer-steer" disabled={!canSend || att.pending > 0} onClick={() => void submit(text, true)}
-            title={`Steer (Ctrl+Enter): ${ASSISTANT_NAME} stops the current turn at a safe point and reads this first`}>
+          <button className="btn amber composer-steer" disabled={!canSend || att.pending > 0} onClick={() => void submit(text, true)} title="Ctrl+Enter">
             <CornerUpRight size={14} /> Steer
           </button>
         )}
         {shell ? (
           <button className="btn amber icon" disabled={!text.trim() || !!unavailable} onClick={() => void runCommand()} aria-label="Run command"
-            title={unavailable ?? 'Run (Enter) in your terminal'}>
+            title={unavailable ?? 'Run'}>
             <Play size={15} />
           </button>
         ) : (
-          <button className="btn solid icon" disabled={!canSend || att.pending > 0} onClick={() => void submit(text)} aria-label="Send"
-            title={steerable ? 'Send (Enter): queued, read when the current turn ends' : 'Send (Enter)'}>
+          <button className="btn solid icon" disabled={!canSend || att.pending > 0} onClick={() => void submit(text)} aria-label="Send" title="Send">
             <Send size={15} />
           </button>
         )}
@@ -968,26 +663,11 @@ function Composer({ wksp, conversation, busy, steerable = false, fill, context }
         <span>
           <ShellModeButton wksp={wksp} />
           <ChatModelControls wksp={wksp} />
-          {shell ? (
+          {shell && (
             <span className="composer-keys composer-shell-keys">
-              <span title="Runs in your own terminal. Genio reads the output with your next message.">Shell mode</span> · <kbd>Enter</kbd> run · <kbd>↑</kbd> history · <kbd>Esc</kbd> chat
-            </span>
-          ) : (
-            <span className="composer-keys">
-              <kbd>Enter</kbd> send · {steerable && <><kbd>Ctrl</kbd>+<kbd>Enter</kbd> steer · </>}<kbd>Shift</kbd>+<kbd>Enter</kbd> newline · <kbd>/</kbd> commands{PROJECT_WINDOW && <> · <kbd>!</kbd> shell</>}
+              Shell mode · <kbd>Enter</kbd> run · <kbd>↑</kbd> history · <kbd>Esc</kbd> chat
             </span>
           )}
-        </span>
-        <span className="quick">
-          <button
-            className="link-btn"
-            disabled={!!recapOff}
-            title={recapOff || 'Previously on… then your pending moves'}
-            onClick={() => void op('Recap', () => api().recap())}
-          >
-            Recap
-          </button>
-          {isMain && <button className="link-btn" onClick={() => openDeploy()}>Deploy</button>}
         </span>
       </div>}
     </div>
@@ -1014,18 +694,16 @@ function cycleShellMode(wksp: string): void {
   void saveChatControls(wksp, { shellMode: SHELL_MODES[(i + 1) % SHELL_MODES.length].id })
 }
 
-const inherits = (own: string | undefined): string => (own ? '' : ' (following Genio)')
-
 /** Chat approval-mode switcher (click or Shift+Tab in the input), à la Claude Code. One per chat. */
 function ShellModeButton({ wksp }: { wksp: string }) {
-  const { shellMode: mode, ally } = useChatControls(wksp)
+  const { shellMode: mode } = useChatControls(wksp)
   const m = SHELL_MODES.find((x) => x.id === mode) ?? SHELL_MODES[0]
   const auto = mode !== 'ask'
   return (
     <button
       className={cx('btn sm', mode === 'all' ? 'alert' : auto ? 'amber' : 'ghost')}
       style={{ marginRight: 12, verticalAlign: 'middle' }}
-      title={`${m.hint}${ally ? inherits(ally.shellMode) : ''}\nClick or Shift+Tab to switch.`}
+      title={m.hint}
       onClick={() => cycleShellMode(wksp)}
     >
       {auto ? <TriangleAlert size={12} /> : <ShieldCheck size={12} />} {m.label}
@@ -1034,27 +712,25 @@ function ShellModeButton({ wksp }: { wksp: string }) {
 }
 
 const COMPACT_SELECT: CSSProperties = { width: 'auto', height: 26, padding: '0 6px', fontSize: 10.5, marginRight: 8, verticalAlign: 'middle' }
-const APPLY_HINT = 'Applies from the next turn; a turn in progress finishes first.'
 
 /**
  * Model/effort for this chat. Genio: the same wkspModel/wkspEffort settings as Settings › Usage & limits › Pin models and effort.
  * An ally: its own saved values, following Genio's until changed here.
  */
 function ChatModelControls({ wksp }: { wksp: string }) {
-  const { model, effort, ally } = useChatControls(wksp)
-  const who = ASSISTANT_NAME
+  const { model, effort } = useChatControls(wksp)
   return (
     <>
       <ModelSelect
         value={model}
-        title={`${who} model (blank = default)${ally ? inherits(ally.model) : ''}. ${APPLY_HINT}`}
+        title="Model"
         style={COMPACT_SELECT}
         onChange={(v) => void saveChatControls(wksp, { model: v, effort: '' })}
       />
       <EffortSelect
         model={model}
         value={effort}
-        title={`${who} effort${ally ? inherits(ally.effort) : ''}. ${APPLY_HINT}`}
+        title="Effort"
         style={{ ...COMPACT_SELECT, marginRight: 12 }}
         onChange={(v) => void saveChatControls(wksp, { effort: v })}
       />
@@ -1084,14 +760,14 @@ function DesignModelControls({ wksp, conversation }: { wksp: string; conversatio
     <>
       <ModelSelect
         value={model}
-        title={`Design chat model${chat?.model ? '' : ' (following Genio)'}. ${APPLY_HINT}`}
+        title="Model"
         style={COMPACT_SELECT}
         onChange={(v) => void save({ model: v, effort: '' })}
       />
       <EffortSelect
         model={model}
         value={chat?.effort || project.effort}
-        title={`Design chat effort${chat?.effort ? '' : ' (following Genio)'}. ${APPLY_HINT}`}
+        title="Effort"
         style={COMPACT_SELECT}
         onChange={(v) => void save({ effort: v })}
       />

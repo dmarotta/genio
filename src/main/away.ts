@@ -225,15 +225,12 @@ export function createAwayService(getCtx: () => AppCtx): AwayService {
       } catch {
         /* optional */
       }
-      const label = mode === 'online' ? 'ONLINE' : mode === 'dnd' ? 'DO NOT DISTURB' : 'AFK'
-      bus.toast('info', `Presence: ${label}`, mode === 'afk' ? 'The Bot has the controls.' : mode === 'dnd' ? 'Routine events stay off-screen.' : undefined)
       if (brief) {
         try {
           ctx.main.wksp.say(brief, 'system')
         } catch {
           /* wksp not ready */
         }
-        bus.toast('success', 'Welcome back', truncate(brief, 300))
       }
       // Events that were routed to the Bot may now belong on Comms.
       try {

@@ -222,7 +222,7 @@ Source: [usage-protection.md](../usage-protection.md)
 Automatic protection of your plans, from the latest reported usage: at 70% a plan runs at most one unit with lower
 effort; at 85% it gets no new automatic units; at 95% or a rejection, low-priority queued quests (or all, if no plan
 has headroom) wait until the reset. Running work is never stopped, and pinned picks are held rather than switched.
-Where: Settings → Usage & limits (notices and the plan meter); the rail's gauge icon.
+Where: Settings → Usage & limits (notices and the plan meter).
 Source: [usage-protection.md](../usage-protection.md), [chat-limits.md](../chat-limits.md)
 
 ## Sign-in warning (Claude and Codex)

@@ -368,7 +368,7 @@ export function createToolRegistry(
     return { usageMode: s.usageMode, sound: s.sound, soundVolume: s.soundVolume, voice: s.voice,
       calm: s.calm, fx: s.fx, desktopNotifications: s.desktopNotifications }
   }
-  t('settings_read', `Read supported chat/app preferences without secrets or large configuration skills. Where the player sees them: usageMode in ${settingsPath('usage')}; calm is Clean chat (Clean HUD), fx is Scanlines and grid, voice is Read replies aloud, all in ${settingsPath('general')}; sound, soundVolume and desktopNotifications in ${settingsPath('notifications')}. Advanced models, accounts and security settings are elsewhere in Settings, e.g. ${settingsPath('accounts')} or ${settingsPath('dispatch')}.`, {}, () => ok(json(preferences())))
+  t('settings_read', `Read supported chat/app preferences without secrets or large configuration skills. Where the player sees them: usageMode in ${settingsPath('usage')}; calm is Clean chat, fx is Scanlines and grid, voice is Read replies aloud, all in ${settingsPath('general')}; sound, soundVolume and desktopNotifications in ${settingsPath('notifications')}. Advanced models, accounts and security settings are elsewhere in Settings, e.g. ${settingsPath('accounts')} or ${settingsPath('dispatch')}.`, {}, () => ok(json(preferences())))
   t('settings_update', 'Change only these named preferences when the player requests it; player_words quotes their request verbatim from their own chat message (Genio checks it). Does not change permissions, accounts or spending allowances.', {
     player_words: z.string().trim().min(1), patch: z.strictObject(preferenceShape)
   }, ({ player_words, patch }) => {

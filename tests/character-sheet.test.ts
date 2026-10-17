@@ -5,7 +5,6 @@ import { createRoot, type Root } from 'react-dom/client'
 import type { BacklogItem, FleetStats, LandingDay, Task } from '../src/shared/types'
 import { getState, handleEvent, setState } from '../src/renderer/src/store'
 import { CharacterSheet } from '../src/renderer/src/views/CharacterSheet'
-import { ComingNext } from '../src/renderer/src/components/ComingNext'
 
 const featureUsed = vi.fn().mockResolvedValue(undefined)
 const trophyPin = vi.fn().mockResolvedValue({ ok: true, message: '' })
@@ -194,19 +193,4 @@ it('keeps compact tiles to an inline icon and two lines, with the full hint in a
   expect(document.querySelector('.achv-tip')).toBeNull()
   await act(async () => tiles[1].dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body })))
   expect(document.querySelector('.achv-tip')?.textContent).toContain(hint)
-})
-
-it('updates the coming-next link from quest events and opens the unchanged board', async () => {
-  await mount(ComingNext)
-  expect(host.textContent).toBe('0 coming next')
-  await act(async () => handleEvent({ type: 'backlog', items: [
-    quest('queued'), quest('blocked', { state: 'blocked' }),
-    quest('held', { state: 'held' }), quest('running', { state: 'in-flight' }),
-    quest('done', { state: 'done' }), quest('dropped', { state: 'dropped' })
-  ] }))
-  expect(host.textContent).toBe('2 coming next')
-  await act(async () => host.querySelector('button')!.click())
-  expect(getState().view).toBe('quests')
-  await act(async () => handleEvent({ type: 'backlog', items: [] }))
-  expect(host.textContent).toBe('0 coming next')
 })

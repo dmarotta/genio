@@ -50,7 +50,7 @@ code comments that cite the original design.
 | heartbeat | **tick** | |
 | fleet ledger | **Replay log** | |
 | captain inbox | **Mail** | |
-| calm mode | **Clean HUD** | |
+| calm mode | **Clean chat** | |
 | fleet view | **Squad view** | |
 | projects | **Projects** | the player's games/repos |
 | bridge (chat) | **Comms** | |
@@ -62,7 +62,7 @@ code comments that cite the original design.
 The rest of the app speaks the vocabulary above. Settings is the exception: its
 pages and fields use plain names, and the game term follows as a hint where the
 app uses it elsewhere, e.g. **Merge finished work automatically** (Auto-loot),
-**Clean chat** (Clean HUD), **Checks & review (Gauntlet)**, **Timing (Overwatch)**,
+**Clean chat**, **Checks & review (Gauntlet)**, **Timing (Overwatch)**,
 **Agent tools (Harnesses)**, **Installed tools (Loadout)**, **Updates (Patch)**.
 Text that sends the player to a setting names its path through `settingsPath()`
 (`src/shared/settings-pages.ts`), e.g. "Settings → Advanced → Checks & review

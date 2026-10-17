@@ -102,7 +102,7 @@ export function App() {
         <button className={cx('btn sm ghost hub-settings-btn', hubSettings && 'on')} aria-pressed={hubSettings} title="Settings (Ctrl+,)" onClick={() => (hubSettings ? setState({ view: 'worlds' }) : go('systems'))}>
           {hubSettings ? <><FolderOpen size={13} /> Projects</> : <><SettingsIcon size={13} /> Settings</>}
         </button>
-        <span className="wordmark-text">GENIO</span><span className="label dim">Hub</span>{hubChoices > 0 && <button className="btn sm ghost" onClick={toggleAnswers}>Pending answers and history</button>}
+        <span className="wordmark-text">GENIO</span>{hubChoices > 0 && <button className="btn sm ghost" onClick={toggleAnswers}>Pending answers and history</button>}
       </header>
       <div className="app-body"><main className="stage" key={hubSettings ? 'systems' : 'hub'}><Suspense fallback={LOADING}>{hubSettings ? <Systems /> : <Hub />}</Suspense></main></div>
       <Answers />

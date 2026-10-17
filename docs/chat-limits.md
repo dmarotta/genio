@@ -20,8 +20,8 @@ evidence. Restarting a session does not clear the account rejection or probe
 budget. A successful probe or a later allowed provider observation releases the
 rejection; an older allowed observation cannot override a newer rejection.
 
-The existing Retry now / Restart session actions retain their queue and query
-recovery behavior but pass through this gate. A stale foreground error may still
+The limit line's one action (Retry now, or Restart session when Claude still reports an expired limit) keeps its queue and query
+recovery behavior but passes through this gate. A stale foreground error may still
 resume once, subject to the shared probe budget. Repeated errors and notices are
 deduplicated by rejection episode. Failed wake turns are not acknowledged.
 Local 30-second checks read persisted evidence only, never the provider. Stopping

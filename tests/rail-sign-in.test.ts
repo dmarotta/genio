@@ -2,11 +2,9 @@
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { UsagePolicyView } from '../src/shared/usage-mode'
 const nav = vi.hoisted(() => ({ open: vi.fn() }))
 vi.mock('../src/renderer/src/lib/settings-nav', () => ({ openSettings: nav.open }))
 import { Rail } from '../src/renderer/src/components/Rail'
-import { RailMeter } from '../src/renderer/src/components/PlanMeter'
 import { handleEvent, setState } from '../src/renderer/src/store'
 
 describe('the sign-in warning on the rail', () => {
@@ -48,26 +46,5 @@ describe('the sign-in warning on the rail', () => {
     await act(async () => handleEvent({ type: 'sign-in-needed', tools: [] }))
     expect(host.querySelector('.rail-badge.amber')).toBeNull()
     expect(host.textContent).not.toContain('not signed in')
-  })
-})
-
-describe('the usage popup without Codex', () => {
-  it('shows only the plans in the view: no Codex row, no error text, when Codex is not signed in', async () => {
-    const now = new Date().toISOString()
-    const claude = { plan: 'claude' as const, label: 'Claude', level: 'ok' as const, windows: [], missing: [], headline: { label: '5-hour', state: 'known' as const, usedPercent: 30, leftPercent: 70, observedAt: now } }
-    const v = { generatedAt: now, mode: 'balanced', unitCap: 8, meter: [claude] } as unknown as UsagePolicyView
-    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
-    Object.assign(window, { genio: { api: { usagePolicy: vi.fn(async () => v) } } })
-    const host = document.createElement('div')
-    document.body.append(host)
-    const root = createRoot(host)
-    await act(async () => root.render(React.createElement(RailMeter)))
-    const g = host.querySelector('.rail-gauge') as HTMLElement
-    await act(async () => g.focus())
-    const text = document.querySelector('[role="tooltip"]')!.textContent!
-    expect(text).toContain('Claude')
-    expect(text).not.toMatch(/Codex|not available|could not/i)
-    await act(async () => root.unmount())
-    host.remove()
   })
 })

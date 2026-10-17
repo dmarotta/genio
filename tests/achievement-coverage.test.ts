@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ACHIEVEMENTS } from '../src/main/stats'
-import { RAIL, navItems } from '../src/renderer/src/lib/railmenu'
+import { navItems } from '../src/renderer/src/lib/railmenu'
 import { SETTINGS_PAGES } from '../src/shared/settings-pages'
 
 // Deliberately explicit: add new player-facing tools here, with their feature tag.
@@ -83,7 +83,9 @@ const RETIRED: Record<string, string> = {
   'play-slot': 'the old Play screen: shared slot lease',
   'play-takeover': 'the old Play screen: slot takeover',
   'play-snapshot': 'the old Play screen: snapshots',
-  'modeller-rewind': 'the Modeller Steps tab lost Revert to N and Branch from N: the player steers in words, the unit runs the kernel itself'
+  'modeller-rewind': 'the Modeller Steps tab lost Revert to N and Branch from N: the player steers in words, the unit runs the kernel itself',
+  'reaction-like': 'the chat lost its like button: telling Genio it is on the right path does the same',
+  'reaction-dislike': 'the chat lost its dislike button: telling Genio to stop and what is wrong does the same'
 }
 // Un-retired by the new Play screen (Step and the resolution dropdown by the minimal one): same ids, so earned dates carry over.
 const UNRETIRED = ['play-stream', 'play-input', 'play-fullscreen', 'play-step', 'play-resolution']
@@ -116,7 +118,7 @@ for (const id of Object.values(FEATURE_MAP)) UNLOCKED.set(id, 'src/main/stats.ts
 
 function liveTags(): Set<string> {
   return new Set([
-    ...navItems().map((v) => v.id), ...RAIL.filter((e) => e.kind === 'menu').map((e) => e.id),
+    ...navItems().map((v) => v.id),
     ...Object.values(PLAYER_FACING_TOOLS), ...Object.values(UNIT_KINDS), ...Object.values(UNIT_FLAGS), ...Object.keys(OTHER_FEATURES)
   ])
 }
@@ -145,9 +147,9 @@ describe('achievement feature coverage', () => {
     expect(ACHIEVEMENTS.find((a) => a.id === 'character-sheet-open')?.feature).toBe('status')
     expect(navItems().some((v) => v.label === 'Status')).toBe(false)
   })
-  it('covers every Rail view and submenu', () => {
+  it('covers every Rail view', () => {
     const tags = new Set(LIVE.map((a) => a.feature))
-    const ids = new Set([...navItems().map((v) => v.id), ...RAIL.filter((e) => e.kind === 'menu').map((e) => e.id)])
+    const ids = new Set(navItems().map((v) => v.id))
     for (const id of ids) expect(tags.has(id), `Rail ${id}: ${add(id)}`).toBe(true)
   })
   it('covers every screen that publishes screen context', () => {

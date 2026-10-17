@@ -343,7 +343,7 @@ describe('deep links', () => {
   it('opens every link into Settings on an existing page, with its anchor shown and focused', async () => {
     const links = deepLinks()
     const files = new Set(links.map((l) => l.file))
-    for (const f of ['PlanMeter.tsx', 'Inventory.tsx', 'Play.tsx', 'UnitySlots.tsx', 'ProjectNotice.tsx', 'Comms.tsx', 'CommandPalette.tsx', 'Systems.tsx']) expect(files, f).toContain(f)
+    for (const f of ['Inventory.tsx', 'Play.tsx', 'UnitySlots.tsx', 'ProjectNotice.tsx', 'Comms.tsx', 'CommandPalette.tsx', 'Systems.tsx']) expect(files, f).toContain(f)
     await mount()
     for (const link of links) {
       vi.mocked(go).mockClear()
@@ -359,7 +359,6 @@ describe('deep links', () => {
       }
     }
     expect(links).toEqual(expect.arrayContaining([
-      { file: 'PlanMeter.tsx', page: 'usage' },
       { file: 'Comms.tsx', page: 'accounts' },
       { file: 'ProjectNotice.tsx', page: 'project', anchor: 'settings-engine' },
       { file: 'Play.tsx', page: 'play', anchor: 'player-instance' },

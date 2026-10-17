@@ -14,7 +14,6 @@ vi.mock('../src/renderer/src/store', () => ({
   api: () => ({}), loadChat: vi.fn(), toast: vi.fn(), errText: String, saveSettings: vi.fn()
 }))
 vi.mock('../src/renderer/src/components/ModelSelect', () => ({ ModelSelect: () => null, EffortSelect: () => null }))
-vi.mock('../src/renderer/src/components/ComingNext', () => ({ ComingNext: () => null }))
 
 let host: HTMLDivElement, root: Root
 beforeEach(() => {
@@ -66,10 +65,11 @@ it('keeps the activity indicator while hidden tool turns stream', async () => {
   expect(host.querySelector('.msg.genio.working')).not.toBeNull()
 })
 
-it('shows tool-only turns with their header when Clean HUD is off', async () => {
+it('never shows tool traces or bare tool-only turns, and shows wakes only when Clean chat is off', async () => {
   f.calm = false
-  f.messages = [genio('a', 'Starting.'), genio('b', '', { tools: [tool] })]
+  f.messages = [genio('a', 'Starting.'), genio('b', '', { tools: [tool] }), { id: 'w', wksp: 'ally', role: 'wake', text: 'unit pinged', ts: '2026-10-13T22:05:00Z' }]
   await render()
-  expect(headers()).toHaveLength(2)
-  expect(host.querySelectorAll('.tool-traces')).toHaveLength(1)
+  expect(headers()).toHaveLength(1)
+  expect(host.querySelector('.tool-traces')).toBeNull()
+  expect(host.querySelector('.msg-wake')).not.toBeNull()
 })

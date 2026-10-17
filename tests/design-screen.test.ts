@@ -10,7 +10,6 @@ vi.mock('../src/renderer/src/components/ModelSelect', () => ({
   ModelSelect: (p: { value: string }) => React.createElement('select', { 'aria-label': 'Model', value: p.value, onChange: () => {} }),
   EffortSelect: (p: { value: string }) => React.createElement('select', { 'aria-label': 'Effort', value: p.value, onChange: () => {} })
 }))
-vi.mock('../src/renderer/src/components/ComingNext', () => ({ ComingNext: () => null }))
 import { DESIGN_EMPTY, Design } from '../src/renderer/src/views/Design'
 import { useGlobalKeys } from '../src/renderer/src/components/CommandPalette'
 import { getState, handleEvent, setState } from '../src/renderer/src/store'
@@ -90,7 +89,7 @@ describe('Design screen', () => {
     expect(title()).toBe('Gold sinks and the market')
     expect(api.chatHistory).toHaveBeenCalledWith(WKSP, 300, 'd-0000000b')
     // the chat view with its model and effort only: no status bar, approval mode, Clean HUD, shell or quick links
-    expect(host.querySelector('textarea')?.placeholder).toBe('Message the design chat…')
+    expect(host.querySelector('textarea')?.placeholder).toBe('Message the design chat')
     expect([...host.querySelectorAll('.composer select')].map(s => s.getAttribute('aria-label'))).toEqual(['Model', 'Effort'])
     expect(host.querySelector('.comms-head')).toBeNull()
     expect(host.querySelector('.composer-keys')).toBeNull()
@@ -111,7 +110,7 @@ describe('Design screen', () => {
     expect(getState().chats[WKSP]).toBeUndefined()
     const reply = host.querySelector('.msg.genio')!
     expect(reply.textContent).toContain('Three loops.')
-    expect(reply.querySelector('.msg-meta')?.textContent).toMatch(/^Design chat · /)
+    expect(reply.querySelector('.msg-meta')?.textContent).not.toMatch(/Genio/)
     expect(reply.querySelector('.msg-avatar')).toBeNull()
     expect(reply.querySelector('.msg-react')).toBeNull()
     // another project's design chat never shows here

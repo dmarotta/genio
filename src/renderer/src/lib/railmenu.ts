@@ -7,10 +7,8 @@ export interface NavItem {
   key: string
 }
 
-/** A rail button: a single screen, or a submenu grouping several. */
-export type RailEntry =
-  | { kind: 'view'; item: NavItem }
-  | { kind: 'menu'; id: string; label: string; items: NavItem[] }
+/** A rail button: one screen. */
+export type RailEntry = { kind: 'view'; item: NavItem }
 
 const view = (id: ViewId, label: string, key: string): RailEntry => ({ kind: 'view', item: { id, label, key } })
 
@@ -37,31 +35,17 @@ export function viewAvailable(view: ViewId, projectWindow: boolean, play: boolea
 
 /** The rail a window shows, keeping only the screens it offers. */
 export function windowRail(projectWindow: boolean, play: boolean, rail: RailEntry[] = RAIL): RailEntry[] {
-  return rail.flatMap((e): RailEntry[] => {
-    if (e.kind === 'view') return viewAvailable(e.item.id, projectWindow, play) ? [e] : []
-    const items = e.items.filter((i) => viewAvailable(i.id, projectWindow, play))
-    return items.length ? [{ ...e, items }] : []
-  })
+  return rail.filter((e) => viewAvailable(e.item.id, projectWindow, play))
 }
 
-/** Every screen in rail order, submenus flattened (command palette, shortcuts). */
+/** Every screen in rail order (command palette, shortcuts). */
 export function navItems(rail: RailEntry[] = RAIL): NavItem[] {
-  return rail.flatMap((e) => (e.kind === 'view' ? [e.item] : e.items))
-}
-
-/** A rail button lights up while its screen, or any screen in its submenu, is open. */
-export function entryActive(e: RailEntry, current: ViewId): boolean {
-  return e.kind === 'view' ? e.item.id === current : e.items.some((i) => i.id === current)
-}
-
-/** Item highlighted when a submenu opens: the current screen if it is in the menu, else the first. */
-export function initialIndex(items: NavItem[], current: ViewId): number {
-  return Math.max(0, items.findIndex((i) => i.id === current))
+  return rail.map((e) => e.item)
 }
 
 export type MenuAction = { type: 'move'; index: number } | { type: 'pick'; index: number } | { type: 'close' }
 
-/** Keyboard handling inside an open submenu; null for keys the menu ignores. */
+/** Keyboard handling inside an open menu (the File menu); null for keys the menu ignores. */
 export function menuKey(key: string, index: number, count: number): MenuAction | null {
   switch (key) {
     case 'ArrowDown':
@@ -82,9 +66,4 @@ export function menuKey(key: string, index: number, count: number): MenuAction |
     default:
       return null
   }
-}
-
-/** Keys on the rail button that open its submenu, besides Enter/Space (which click it). */
-export function opensMenu(key: string): boolean {
-  return key === 'ArrowDown' || key === 'ArrowRight'
 }
