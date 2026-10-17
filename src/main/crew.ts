@@ -94,7 +94,18 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
   /** quests whose unit is being prepared: a second start path must not launch them twice */
   const launching = new Set<string>()
 
-  const persist = (): void => writeJson(home.tasksFile, tasks)
+  /** While a whole-roster pass runs (startup reconciliation), its updates share one write of tasks.json. */
+  let batching = 0, unsaved = false
+  const persist = (): void => {
+    if (batching) { unsaved = true; return }
+    writeJson(home.tasksFile, tasks)
+  }
+  const batch = async (run: () => Promise<void>): Promise<void> => {
+    batching++
+    try { await run() } finally {
+      if (--batching === 0 && unsaved) { unsaved = false; persist() }
+    }
+  }
   const hc = () => getCtx().home(home.name)
   const safe = (fn: () => void): void => {
     try {
@@ -1454,7 +1465,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     statusEvents: (id) => parseStatusLog(readText(home.statusFile(id)), id),
     openDecisionKeys: (id) => resolveKeysFor(id),
 
-    async reconcileOnStart(project) {
+    // One tasks.json write for the pass, not one per unfinished unit (each a rewrite of the whole roster).
+    reconcileOnStart: (project) => batch(async () => {
       const ctx = getCtx()
       for (const t of [...tasks]) {
         if (project && t.project !== project) continue
@@ -1483,7 +1495,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         if (t.validation?.state === 'running') patch.validation = { ...t.validation, state: 'cancelled', endedAt: nowIso() }
         update(t.id, patch)
       }
-    },
+    }),
 
     capacityUsed(project) {
       return tasks.filter((t) => t.project === project && holdsCapacity(t, terminalAlive(t))).length

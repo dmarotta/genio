@@ -166,6 +166,22 @@ describe('non-destructive lifecycle recovery', () => {
     expect((await crew.control(task.id, 'relaunch')).ok).toBe(false)
   })
 
+  it('reconciles a whole roster at startup with one write of tasks.json, every unit updated', async () => {
+    const units = Array.from({ length: 30 }, (_, i) => ({ ...task, id: `unit-${i}`, branch: `genio/unit-${i}`, state: i % 2 ? 'working' : 'exited' }) as Task)
+    fs.writeFileSync(home.tasksFile, JSON.stringify(units))
+    const crew = createCrewService(() => ctx, home)
+    ctx.main.crew = crew
+    const writes = vi.spyOn(fs, 'renameSync')
+    await crew.reconcileOnStart()
+    expect(writes.mock.calls.filter(([, to]) => String(to) === home.tasksFile)).toHaveLength(1)
+    const saved = JSON.parse(fs.readFileSync(home.tasksFile, 'utf8')) as Task[]
+    expect(saved.map(t => t.state)).toEqual(units.map(() => 'detached'))
+    expect(crew.list().map(t => t.state)).toEqual(units.map(() => 'detached'))
+    // Later updates persist at once again.
+    crew.update('unit-0', { stateReason: 'after the pass' })
+    expect(JSON.parse(fs.readFileSync(home.tasksFile, 'utf8'))[0].stateReason).toBe('after the pass')
+  })
+
   it('resets recovery after completed work, but not just a progress note', () => {
     const crew = ctx.main.crew
     crew.update(task.id, { state: 'working', mode: 'local-only' })
