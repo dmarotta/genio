@@ -59,7 +59,10 @@ const sameProcess = (a: UnityProcess, b: UnityProcess): boolean => a.pid === b.p
 const born = (p: UnityProcess): bigint | undefined => /^\d+$/.test(p.created) ? BigInt(p.created) : undefined
 const fileTime = (ms: number): bigint => BigInt(Math.trunc(ms)) * 10000n + 116444736000000000n
 const executable = (command: string): string => command.match(/^\s*(?:"([^"]+)"|'([^']+)'|(\S+))/)?.slice(1).find(Boolean) ?? ''
-const cliInvocation = (command: string): boolean => /^(?:\s*"[^"]+"|\s*'[^']+'|\s*\S+)\s+(?:status|license|auth|editors|install|setup|mcp|run|test|build|recompile|open|close|command|list|job|pipeline|--version|--help)(?:\s|$)/i.test(command)
+// The CLI re-runs its own binary for helpers: --internal-auth-broker-serve (license, test) and --internal-msix-repair.
+const cliInvocation = (command: string): boolean => /^(?:\s*"[^"]+"|\s*'[^']+'|\s*\S+)\s+(?:status|license|auth|editors|install|setup|mcp|run|test|build|recompile|open|close|command|list|job|pipeline|--version|--help|--internal-[\w-]+)(?:\s|$)/i.test(command)
+/** The Store-installed CLI's real binary, which the WindowsApps alias in the config never names. */
+const cliPackaged = (exe: string): boolean => /[\\/]WindowsApps[\\/]UnityTechnologies\.UnityCLI_[^\\/]+[\\/]app[\\/]unity\.exe$/i.test(exe)
 
 export function unityEditorProject(command: string): string | undefined {
   const m = command.match(/(?:^|\s)-projectPath(?:\s+|=)(?:"([^"]+)"|'([^']+)'|([^\s"']+))/i)
@@ -121,7 +124,7 @@ export function createUnityProcessWatch(system: UnityWatchSystem = windowsSystem
           if (!/(?:^|[\\/])Unity(?:\.exe)?$/i.test(exe) || c.cli && canonicalPath(exe) === canonicalPath(c.cli)) continue
           const project = unityEditorProject(p.command)
           // The WindowsApps alias can report a different executable path. Its CLI verbs are not editor launches.
-          if (!project && !/[\\/]Editor[\\/]Unity\.exe$/i.test(exe) && cliInvocation(p.command)) continue
+          if (!project && (cliPackaged(exe) || !/[\\/]Editor[\\/]Unity\.exe$/i.test(exe) && cliInvocation(p.command))) continue
           const target = project && path.isAbsolute(project) ? canonicalPath(project) : undefined
           const main = canonicalPath(path.join(c.play.world, c.engineRoot))
           const own = canonicalPath(path.join(c.worktree, c.engineRoot))
@@ -139,7 +142,8 @@ export function createUnityProcessWatch(system: UnityWatchSystem = windowsSystem
           const killed = await system.killVerified(fresh)
           if (!killed) continue
           const reason = `Stopped unit-spawned Unity editor outside your allowed targets (PID ${p.pid}, project ${(project ?? 'unspecified').replace(/[\r\n]/g, ' ')}). ${RULE}`
-          try { recordUnityIncident(c, { layer: 'watch', pid: p.pid, created: p.created, project, reason }) } catch { /* still notify the unit */ }
+          // Command line and parent let a later review tell a raw launch from a wrapper's own child.
+          try { recordUnityIncident(c, { layer: 'watch', pid: p.pid, ppid: p.ppid, created: p.created, project, command: p.command.slice(0, 1000), parent: byPid.get(p.ppid)?.command.slice(0, 1000), reason }) } catch { /* still notify the unit */ }
           try { fs.appendFileSync(tracked.root.statusFile, `note [key=unity-guard]: ${reason}\n`) } catch { /* inbox remains available */ }
           notify(c.task, reason)
         }

@@ -14,6 +14,9 @@ const alive = pid => { try { process.kill(pid, 0); return true } catch (e) { ret
 const canonical = p => { const v = fs.realpathSync(p); return process.platform === 'win32' ? v.toLowerCase() : v }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const LEASE_MS = 30000
+// A first open of a seeded copy compiles every script and imports for minutes before Pipeline is serviceable.
+export const READY_MS = 20 * 60000
+const PORT_FILE = 'Library/Pipeline/.unity-pipeline-port'
 const QUIT = 'UnityEditor.EditorApplication.delayCall += () => UnityEditor.EditorApplication.Exit(0); return true;'
 const slashed = p => path.resolve(p).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
 /** True when a command line opens exactly this project root (not a sibling such as slot-1/Game2). */
@@ -291,6 +294,58 @@ export class PlayPool {
     const launch = await launchEditor({ file: executable, args: ['-automated', '-projectPath', this.root(id)], cwd, env, data: this.data, visible, label: `slot${id}`, api: this.desktop, ...(this.spawnVisible ? { spawnVisible: this.spawnVisible } : {}) })
     await this.recordEditor(id, token, launch.pid, launch)
     return launch
+  }
+  /**
+   * A slot is ready only when its own editor wrote Library/Pipeline/.unity-pipeline-port for this root and
+   * Pipeline's GET /api/status (answered off the main thread) says "ready". Unity writes that file once the
+   * Pipeline package loads, after the first script compile, and reports "settling" through the first import.
+   * Bounded; the error names what was still missing. A lease lost meanwhile (a blocking dialog) ends the wait.
+   */
+  async waitReady(id, token, { timeoutMs = READY_MS, intervalMs = 1000, reportMs = 30000, onProgress } = {}) {
+    const root = this.root(id), started = Date.now()
+    const editor = await this.transaction(s => { const v = s.slots.find(v => v.id === id); if (v?.lease?.token !== token) throw this.lost(v, token); return v.editor })
+    let cause = `it has not written its Pipeline endpoint file ${PORT_FILE} yet (still compiling or importing, or the Pipeline package did not load)`, reported = started
+    for (;;) {
+      await this.check(id, token)
+      // The editor's own records only: Genio's launch and Unity's instance file, never the descriptor being judged.
+      let instance
+      try { instance = JSON.parse(fs.readFileSync(path.join(root, 'Library/EditorInstance.json'), 'utf8')).process_id } catch { /* Not written yet. */ }
+      const known = [...new Set([editor?.pid, instance].filter(pid => Number.isInteger(pid) && pid > 0))]
+      if (known.length && !known.some(alive)) throw new Error(`Play slot ${id} editor exited before it was ready. Editor log: ${path.join(root, 'Logs', 'Editor.log')}`)
+      const probe = await this.probePipeline(root, known)
+      if (probe.ready) return { port: probe.port, pid: probe.pid, waitedMs: Date.now() - started }
+      if (probe.cause) cause = probe.cause
+      if (Date.now() - started >= timeoutMs) throw new Error(`Play slot ${id} editor was not ready after ${Math.round(timeoutMs / 60000) || 1} min: ${cause}. Editor log: ${path.join(root, 'Logs', 'Editor.log')}. Report "blocked: Play slot ${id} not ready" to Genio; never start or stop Unity yourself.`)
+      if (onProgress && Date.now() - reported >= reportMs) { reported = Date.now(); onProgress({ elapsedSeconds: Math.round((Date.now() - started) / 1000), message: `Play slot ${id} editor is starting: ${cause}.` }) }
+      await sleep(intervalMs)
+    }
+  }
+  /** One readiness probe: { ready, port, pid } or { cause } naming why not. Never throws. */
+  async probePipeline(root, known = []) {
+    let d
+    try { d = JSON.parse(fs.readFileSync(path.join(root, PORT_FILE), 'utf8')) } catch (e) { return e.code === 'ENOENT' ? {} : { cause: 'its Pipeline endpoint file is being written or is unreadable' } }
+    if (!d.projectPath || slashed(d.projectPath) !== slashed(root) || d.mode !== 'editor') return { cause: `the Pipeline endpoint file names another editor (${d.mode ?? 'unknown mode'} for ${d.projectPath ?? 'no project'})` }
+    if (!Number.isInteger(d.pid) || d.pid <= 0 || !alive(d.pid)) return { cause: `the Pipeline endpoint file is stale: its editor (PID ${d.pid}) is gone` }
+    if (known.length && !known.includes(d.pid)) return { cause: `the Pipeline endpoint file belongs to PID ${d.pid}, not this slot's editor (PID ${known.join(', ')})` }
+    if (!Number.isInteger(d.port) || d.port < 1 || d.port > 65535 || typeof d.evalToken !== 'string' || !d.evalToken || /[\r\n]/.test(d.evalToken)) return { cause: 'the Pipeline endpoint file has no valid port or token' }
+    const answer = await new Promise(resolve => {
+      const req = http.request({ hostname: '127.0.0.1', port: d.port, path: '/api/status', method: 'GET', headers: { Authorization: `Bearer ${d.evalToken}` } }, res => {
+        const chunks = []
+        res.on('data', c => { if (chunks.length < 64) chunks.push(c) })
+        res.on('end', () => { let body; try { body = JSON.parse(Buffer.concat(chunks).toString()) } catch { /* not JSON */ } resolve({ code: res.statusCode, body }) })
+        res.on('error', () => resolve({ error: true }))
+      })
+      req.setTimeout(5000, () => req.destroy()); req.on('error', () => resolve({ error: true })); req.end()
+    })
+    if (answer.error) return { cause: `nothing answers on its Pipeline port ${d.port} yet (a half-started editor)` }
+    // The token rotates; the file catches up on the next heartbeat.
+    if (answer.code === 401) return { cause: 'Pipeline refused the token in its endpoint file (HTTP 401; it rotates, retrying with the current file)' }
+    if (answer.code !== 200) return { cause: `Pipeline /api/status answered HTTP ${answer.code}` }
+    const status = answer.body?.status
+    if (status === 'ready') return { ready: true, port: d.port, pid: d.pid }
+    if (status === 'settling') return { cause: 'Pipeline reports "settling": the editor is still importing or compiling' }
+    if (status === 'blocked_by_dialog') return { cause: `a modal dialog blocks the editor${answer.body.dialog?.title ? ` ("${String(answer.body.dialog.title).slice(0, 120)}")` : ''}` }
+    return { cause: `Pipeline reports status ${JSON.stringify(status ?? null)}` }
   }
   /**
    * The dialog watcher, run by the lease holder's heartbeat. Safe buttons are pressed; a blocking dialog

@@ -24,8 +24,8 @@ function lines(child: ChildProcess) {
   createInterface({ input: child.stdout! }).on('line', line => { const v = JSON.parse(line); const w = waiters.shift(); if (w) w(v); else queue.push(v) })
   return () => new Promise<Record<string, unknown>>(resolve => queue.length ? resolve(queue.shift() as Record<string, unknown>) : waiters.push(resolve as (v: unknown) => void))
 }
-async function fakeEditor(project: string, mode: 'graceful' | 'stubborn') {
-  const child = spawn(process.execPath, [fixture, '-projectPath', project, mode], { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true })
+async function fakeEditor(project: string, mode: 'graceful' | 'stubborn', flags: string[] = []) {
+  const child = spawn(process.execPath, [fixture, '-projectPath', project, ...flags, mode], { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true })
   const ready = await lines(child)() as { pid: number; worker: number }
   spawned.push(ready.pid, ready.worker)
   return ready
@@ -220,6 +220,87 @@ it('play.mjs exit closes the editor by default, keep_editor leaves it, and --clo
   const out = execFileSync(process.execPath, [helper, '--close'], { env, encoding: 'utf8', windowsHide: true })
   expect(JSON.parse(out.trim().split('\n')[0])).toMatchObject({ released: true, slot: 1, editor: 'closed' })
   expect(alive(kept.editor.pid)).toBe(false)
+}, 120000)
+
+// ---------------------------------------------------------------- readiness (Founders, 2026-10-17: ready was printed at spawn)
+
+const port = (root: string) => path.join(root, 'Library/Pipeline/.unity-pipeline-port')
+async function leasedEditor(flags: string[], mode: 'graceful' | 'stubborn' = 'graceful') {
+  const pool = fast(), a = (await pool.acquire('unit:a'))!
+  fs.mkdirSync(a.root, { recursive: true })
+  const editor = await fakeEditor(a.root, mode, flags)
+  await pool.recordEditor(1, a.token, editor.pid)
+  return { pool, a, editor }
+}
+
+it('waits for a slow endpoint file and Pipeline settling before the slot is ready', async () => {
+  const { pool, a, editor } = await leasedEditor(['-endpointDelay', '1500', '-settleMs', '1000'])
+  const progress: string[] = [], started = Date.now()
+  const ready = await pool.waitReady(1, a.token, { intervalMs: 100, reportMs: 200, onProgress: p => progress.push(p.message) })
+  expect(Date.now() - started).toBeGreaterThanOrEqual(2000)
+  expect(ready).toMatchObject({ pid: editor.pid })
+  expect(progress.some(m => m.includes('has not written its Pipeline endpoint file'))).toBe(true)
+  expect(progress.some(m => m.includes('"settling"'))).toBe(true)
+  expect(await pool.release(1, a.token)).toMatchObject({ closed: true })
+}, 60000)
+
+it('fails with a bounded timeout naming the missing endpoint file, and when the editor exits first', async () => {
+  const { pool, a, editor } = await leasedEditor(['-endpointDelay', '600000'], 'stubborn')
+  await expect(pool.waitReady(1, a.token, { timeoutMs: 1500, intervalMs: 100 })).rejects.toThrow(/^Play slot 1 editor was not ready after 1 min: it has not written its Pipeline endpoint file Library\/Pipeline\/\.unity-pipeline-port yet.*Editor log: .*Editor\.log\. Report "blocked: Play slot 1 not ready"/)
+  process.kill(editor.pid, 'SIGKILL'); process.kill(editor.worker, 'SIGKILL')
+  while (alive(editor.pid)) await new Promise(r => setTimeout(r, 50))
+  await expect(pool.waitReady(1, a.token, { timeoutMs: 60000, intervalMs: 100 })).rejects.toThrow('exited before it was ready')
+}, 60000)
+
+it('never trusts a stale or foreign endpoint file left in the slot', async () => {
+  // A leftover descriptor (crash, or a Library carried over with its Pipeline folder) points at a server that says ready.
+  let hits = 0
+  const stale = (await import('node:http')).createServer((_req, res) => { hits++; res.end(JSON.stringify({ status: 'ready' })) })
+  await new Promise<void>(r => stale.listen(0, '127.0.0.1', r))
+  try {
+    const pool = fast(), a = (await pool.acquire('unit:a'))!
+    fs.mkdirSync(path.dirname(port(a.root)), { recursive: true })
+    const descriptor = (patch: object) => fs.writeFileSync(port(a.root), JSON.stringify({ projectPath: a.root, mode: 'editor', port: (stale.address() as { port: number }).port, evalToken: 'stale', pid: process.pid, ...patch }))
+    const gone = idle(); process.kill(gone, 'SIGKILL'); while (alive(gone)) await new Promise(r => setTimeout(r, 50))
+    descriptor({ pid: gone })
+    expect(await pool.probePipeline(a.root)).toEqual({ cause: `the Pipeline endpoint file is stale: its editor (PID ${gone}) is gone` })
+    descriptor({ projectPath: world })
+    expect((await pool.probePipeline(a.root)).cause).toContain('names another editor')
+    // A live process that is not this slot's editor (here: the test runner).
+    descriptor({})
+    const editor = await fakeEditor(a.root, 'graceful', ['-endpointDelay', '1500'])
+    await pool.recordEditor(1, a.token, editor.pid)
+    expect(await pool.waitReady(1, a.token, { intervalMs: 100 })).toMatchObject({ pid: editor.pid })
+    expect(hits).toBe(0)
+    expect(await pool.release(1, a.token)).toMatchObject({ closed: true })
+  } finally { await new Promise<void>(r => stale.close(() => r())) }
+}, 60000)
+
+it('play.mjs prints ready only once the slot editor answers, and names Pipeline\'s refusal and a missing endpoint', async () => {
+  commit('v1')
+  const pre = fast(), a = (await pre.acquire('unit:prep'))!
+  await pre.prepare(a.id, a.token)
+  await pre.release(1, a.token)
+  const editor = await fakeEditor(a.root, 'graceful', ['-endpointDelay', '2500', '-execError'])
+  const env = { ...process.env, GENIO_PLAY_DATA: data, GENIO_PLAY_WORLD: world, GENIO_PLAY_SOURCE: world, GENIO_PLAY_ENGINE_ROOT: '', GENIO_TASK_ID: 'probe' }
+  const child = spawn(process.execPath, [helper], { env, stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true })
+  spawned.push(child.pid!)
+  const next = lines(child)
+  expect(await next()).toMatchObject({ ready: true, slot: 1 })
+  expect(fs.existsSync(port(a.root))).toBe(true)
+  child.stdin!.write('{"id":"1","command":"editor_status"}\n')
+  const refused = await next()
+  expect(refused).toMatchObject({ id: '1', error: expect.stringContaining('Pipeline refused editor_status (HTTP 400: Internal Server Error: Main thread operation timed out after 15000ms)') })
+  expect(refused.error).toContain('The editor is busy')
+  fs.renameSync(port(a.root), port(a.root) + '.away')
+  child.stdin!.write('{"id":"2","command":"editor_status"}\n')
+  expect(await next()).toMatchObject({ id: '2', error: expect.stringMatching(/has no Pipeline endpoint \(Library\/Pipeline\/\.unity-pipeline-port is missing\).*still running/) })
+  fs.renameSync(port(a.root) + '.away', port(a.root))
+  child.stdin!.write('{"command":"exit"}\n')
+  expect(await next()).toMatchObject({ released: true, editor: 'closed' })
+  child.stdin!.end()
+  await new Promise(r => child.once('exit', r))
+  expect(alive(editor.pid)).toBe(false)
 }, 120000)
 
 // ---------------------------------------------------------------- hidden desktop (fake desktop API, fake editors)

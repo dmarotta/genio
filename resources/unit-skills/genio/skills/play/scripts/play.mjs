@@ -28,6 +28,40 @@ function waitMessage(w) {
   const capacity = `${w.inUse} of ${w.cap} slot${w.cap === 1 ? '' : 's'} in use.${w.draining.length ? ` Slot ${w.draining.join(', ')} ${w.draining.length === 1 ? 'is' : 'are'} draining above a lowered cap and take${w.draining.length === 1 ? 's' : ''} no new lease.` : ''}`
   return [place, capacity, 'Keep this process running; it takes the slot automatically and you need no other step.', ...stuck].join(' ')
 }
+const PORT_FILE = 'Library/Pipeline/.unity-pipeline-port'
+/** One Pipeline exec in the leased slot: { status, body }. Missing or foreign endpoint files are named, never a bare ENOENT. */
+function exec(request) {
+  let descriptor
+  try { descriptor = JSON.parse(fs.readFileSync(path.join(lease.root, PORT_FILE), 'utf8')) } catch (e) {
+    throw new Error(e.code === 'ENOENT'
+      ? `The slot editor has no Pipeline endpoint (${PORT_FILE} is missing): it exited, or it is still starting or importing. ${pool.editorAlive(lease.id) ? 'It is still running; retry in a minute.' : 'No editor is running in the slot; stop this session and start a new one.'}`
+      : `The slot editor's Pipeline endpoint file is unreadable (${e.message}); retry in a moment.`)
+  }
+  const normalize = p => path.resolve(p).toLowerCase()
+  if (!descriptor.projectPath || normalize(descriptor.projectPath) !== normalize(lease.root) || descriptor.mode !== 'editor' || !Number.isInteger(descriptor.port) || descriptor.port < 1 || descriptor.port > 65535 || !descriptor.evalToken || /[\r\n]/.test(descriptor.evalToken)) throw new Error('No matching slot editor; wait for import')
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({ command: request.command, parameters: request.parameters ?? {}, timeout: 15000 })
+    const req = http.request({ hostname: '127.0.0.1', port: descriptor.port, path: '/api/exec', method: 'POST', headers: { Authorization: `Bearer ${descriptor.evalToken}`, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } }, res => {
+      let size = 0; const chunks = []
+      res.on('data', c => { size += c.length; if (size > 16 * 1024 * 1024) req.destroy(); else chunks.push(c) })
+      res.on('error', () => reject(new Error('Pipeline response interrupted')))
+      res.on('end', () => {
+        let parsed
+        try { parsed = JSON.parse(Buffer.concat(chunks).toString()) } catch { if (res.statusCode === 200) return reject(new Error('Invalid Pipeline response (HTTP 200, not JSON)')) }
+        resolve({ status: res.statusCode, body: parsed })
+      })
+    })
+    activeRequest = req
+    const deadline = setTimeout(() => req.destroy(), 20000)
+    req.once('close', () => clearTimeout(deadline)); req.on('error', () => reject(new Error('Slot disconnected or lease lost'))); req.end(body)
+  })
+}
+/** Pipeline's own reason for a refusal (status, error, details), so a busy editor is not reported as a broken one. */
+function refusal(command, { status, body }) {
+  const text = [body?.error, body?.message, body?.errorDetails].filter(v => typeof v === 'string' && v).map(v => v.replace(/[\r\n]+/g, ' ').slice(0, 300))
+  const busy = /main thread operation timed out|compil|import|domain reload/i.test(text.join(' ')) ? ' The editor is busy (importing, compiling or reloading); retry in a minute.' : ''
+  return `Pipeline refused ${command} (HTTP ${status}${text.length ? `: ${[...new Set(text)].join(': ')}` : ', no details'}).${busy}`
+}
 
 if (process.argv.includes('--close')) {
   // Recovery for this unit: its own leases, kept editors and stuck slots. Never another unit's.
@@ -67,6 +101,8 @@ if (process.argv.includes('--close')) {
       const launch = await pool.launchEditor(lease.id, lease.token, executable)
       if (launch.warning) output({ warning: launch.warning })
     }
+    // Ready means the editor answers, not that it was spawned: wait for its endpoint file and Pipeline's "ready".
+    if (pool.editorAlive(lease.id)) await pool.waitReady(lease.id, lease.token, { onProgress: p => output({ waiting: true, slot: lease.id, phase: 'editor', ...p }) })
     output({ ready: true, slot: lease.id, project: lease.root })
     for await (const line of createInterface({ input: process.stdin })) {
       if (lost) throw new Error('Lease lost; session stopped')
@@ -77,21 +113,11 @@ if (process.argv.includes('--close')) {
         if (request.command === 'exit') { keepEditor = request.keep_editor === true || request.parameters?.keep_editor === true; break }
         if (request.command === 'close_editor') break
         await pool.check(lease.id, lease.token)
-        const descriptor = JSON.parse(fs.readFileSync(path.join(lease.root, 'Library/Pipeline/.unity-pipeline-port'), 'utf8'))
-        const normalize = p => path.resolve(p).toLowerCase()
-        if (!descriptor.projectPath || normalize(descriptor.projectPath) !== normalize(lease.root) || descriptor.mode !== 'editor' || !Number.isInteger(descriptor.port) || descriptor.port < 1 || descriptor.port > 65535 || !descriptor.evalToken || /[\r\n]/.test(descriptor.evalToken)) throw new Error('No matching slot editor; wait for import')
-        const result = await new Promise((resolve, reject) => {
-          const body = JSON.stringify({ command: request.command, parameters: request.parameters ?? {}, timeout: 15000 })
-          const req = http.request({ hostname: '127.0.0.1', port: descriptor.port, path: '/api/exec', method: 'POST', headers: { Authorization: `Bearer ${descriptor.evalToken}`, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } }, res => {
-            let size = 0; const chunks = []
-            res.on('data', c => { size += c.length; if (size > 16 * 1024 * 1024) req.destroy(); else chunks.push(c) })
-            res.on('error', () => reject(new Error('Pipeline response interrupted')))
-            res.on('end', () => { try { if (res.statusCode !== 200) throw new Error('Pipeline refused request'); resolve(JSON.parse(Buffer.concat(chunks).toString())) } catch { reject(new Error('Invalid Pipeline response')) } })
-          })
-          activeRequest = req
-          const deadline = setTimeout(() => req.destroy(), 20000)
-          req.once('close', () => clearTimeout(deadline)); req.on('error', () => reject(new Error('Slot disconnected or lease lost'))); req.end(body)
-        })
+        // The token rotates and the endpoint file catches up on Pipeline's next heartbeat: one retry after a 401.
+        let answer = await exec(request)
+        if (answer.status === 401) { await new Promise(r => setTimeout(r, 1500)); await pool.check(lease.id, lease.token); answer = await exec(request) }
+        if (answer.status !== 200) throw new Error(refusal(request.command, answer))
+        const result = answer.body
         await pool.check(lease.id, lease.token)
         output({ id: request.id, result })
       } catch(e) { output({ id: request?.id, error: e.message }) }

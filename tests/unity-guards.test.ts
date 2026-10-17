@@ -177,6 +177,18 @@ describe('process watch (fake process snapshots only)', () => {
     expect(unitUnityAudit(configFile, '')).toHaveLength(3)
   })
 
+  it('leaves the Store CLI\'s own helpers alone (Founders, 2026-10-17) and records command lines with each incident', async () => {
+    // genio-unity status/test -> the WindowsApps alias -> its packaged unity.exe re-run as auth broker and MSIX repair.
+    const packaged = '"C:\\Program Files\\WindowsApps\\UnityTechnologies.UnityCLI_1.0.0.20013_x64__2vrhnee42bhxm\\app\\unity.exe"'
+    snapshot.push(p(11, 10, 'node genio-unity.mjs status'), p(12, 11, `"${c.cli}" license status --format json --non-interactive --no-banner`),
+      p(13, 12, `${packaged} --internal-auth-broker-serve`), p(14, 12, `${packaged} --internal-msix-repair`), p(15, 12, `${packaged.replace(/"/g, '')} --internal-auth-broker-serve`),
+      editor(16, 11))
+    await watch().poll([root], notify)
+    expect(killed).toEqual([16])
+    const incident = JSON.parse(fs.readFileSync(path.join(c.runs, 'guard-incidents.jsonl'), 'utf8').trim().split('\n').at(-1)!)
+    expect(incident).toMatchObject({ layer: 'watch', pid: 16, ppid: 11, command: '"C:/Hub/Editor/Unity.exe"', parent: 'node genio-unity.mjs status' })
+  })
+
   it('allows only this unit\'s live leased slot; takeover stops its editor but leaves unrelated editors alone', async () => {
     snapshot.push(p(11, 10, 'play-helper'), editor(20, 11, slot), editor(21, 1, slot))
     lease()

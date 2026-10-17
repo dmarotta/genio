@@ -23,6 +23,9 @@ export class PlayPool {
   launchEditor(id: number, token: string, executable: string, options?: { env?: NodeJS.ProcessEnv; cwd?: string }): Promise<import('../../../lib/hidden-desktop.mjs').EditorLaunch>
   /** Dialog watcher pass for the lease holder; throws (and ends the lease) when a dialog blocks the editor. */
   watchEditor(id: number, token: string, options?: { now?: number; graceMs?: number }): Promise<import('../../../lib/hidden-desktop.mjs').InspectResult & { error?: string }>
+  /** Resolves once the slot editor's own Pipeline endpoint answers /api/status "ready"; throws naming the cause after timeoutMs. */
+  waitReady(id: number, token: string, options?: { timeoutMs?: number; intervalMs?: number; reportMs?: number; onProgress?: (p: { elapsedSeconds: number; message: string }) => void }): Promise<{ port: number; pid: number; waitedMs: number }>
+  probePipeline(root: string, known?: number[]): Promise<{ ready?: boolean; port?: number; pid?: number; cause?: string }>
   configureLaunch(visible: boolean): Promise<{ launch: 'hidden' | 'visible' }>
   release(id: number, token: string, options?: { keepEditor?: boolean }): Promise<CloseResult | undefined>
   closeSlot(id: number, options?: { force?: boolean }): Promise<CloseResult>
@@ -37,6 +40,7 @@ export class PlayPool {
   disk(): Promise<Record<number, number>>
   validateCopy(id: number): Promise<void>
 }
+export const READY_MS: number
 export function poolDirectory(data: string, world: string): string
 export function stuckMessage(id: number, result: { reason?: string; pids?: number[] }): string
 export function mentionsRoot(command: string, root: string): boolean
