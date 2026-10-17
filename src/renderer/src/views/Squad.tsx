@@ -22,7 +22,7 @@ import { ago, clock, cx, shortPath } from '../lib/format'
 import { assetBytes } from '../lib/inventory'
 import { playSfx } from '../lib/sfx'
 import { squadAttention, squadBadge, squadState, squadTone, unitClock } from '@shared/squad-display'
-import { UNIT_ACTION_HINT, canRespawn, hasOpenPr } from '@shared/unit-actions'
+import { UNIT_ACTION_HINT, canRespawn, despawnConfirm } from '@shared/unit-actions'
 import {
   canRate, deliveryLabel, mergeTimeline, needsInput, parsePings, parseStatusLines, parseUnitChanges, primaryAction, prMergeBlock,
   reportedTests, statusWorthShowing, timelineLabel, timelineRows, unitBadge, unitPlay, type TimelineRow, type UnitChanges
@@ -341,8 +341,7 @@ function UnitDetail({ id }: { id: string }) {
   const reconFinished = t?.kind === 'scout' && (t.state === 'done' || !!t.reportPath)
   const [tab, setTab] = useState<TabId>(() => (reconFinished ? 'report' : t?.kind === 'scout' ? 'timeline' : 'changes'))
   const [pane, setPane] = useState<'main' | 'side'>(() => (reconFinished ? 'side' : 'main'))
-  const [confirm, setConfirm] = useState<null | 'despawn' | 'archive' | 'force' | 'merge' | 'recall'>(null)
-  const [refusal, setRefusal] = useState('')
+  const [confirm, setConfirm] = useState<null | 'despawn' | 'archive' | 'merge' | 'recall'>(null)
   const [upgrade, setUpgrade] = useState(false)
   const [verdict, setVerdict] = useState<Verdict | undefined>()
   const narrowHeader = useNarrowHeader()
@@ -427,20 +426,21 @@ function UnitDetail({ id }: { id: string }) {
     !cleaned && { id: 'despawn', label: 'Despawn…', hint: UNIT_ACTION_HINT.despawn, tone: 'danger', run: () => setConfirm('despawn') }
   ] as (MoreItem | false)[]).filter((x): x is MoreItem => !!x)
 
-  const despawn = async (force: boolean): Promise<void> => {
+  // The player's click on the confirm is their word: unlanded work goes too, with no second dialog.
+  const despawn = async (): Promise<void> => {
     try {
-      const r = await api().cleanupTask(t.id, force)
+      const r = await api().cleanupTask(t.id, true)
       if (r.ok) {
         toast('success', recon ? 'Archived' : 'Despawned', r.message)
         setState({ focus: null })
       } else {
-        setRefusal(r.message)
-        setConfirm('force')
+        toast('error', 'Despawn failed', r.message)
       }
     } catch (e) {
       toast('error', 'Despawn failed', errText(e))
     }
   }
+  const ask = despawnConfirm(t)
 
   const prNo = t.pr?.number ? ` #${t.pr.number}` : ''
   const mergeOff = primary === 'merge-pr' ? prMergeBlock(t.pr!) : project?.gitRepo === false ? 'Merge needs a git repo.' : ''
@@ -547,47 +547,18 @@ function UnitDetail({ id }: { id: string }) {
 
       <PingBox t={t} live={live} steer={primary === 'steer'} />
 
-      {(confirm === 'despawn' || confirm === 'archive') && (
+      {confirm === 'archive' && (
         <Confirm
-          title={confirm === 'archive' ? 'Archive this Recon?' : 'Despawn this unit?'}
-          tone={confirm === 'archive' ? 'violet' : 'alert'}
-          confirmLabel={confirm === 'archive' ? 'Archive' : 'Despawn'}
-          body={
-            confirm === 'archive' ? (
-              <p>Genio removes the Recon's isolated copy and branch. Its report, timeline and record stay, and Build from this report stops being offered.</p>
-            ) : (
-              <>
-                {hasOpenPr(t) && (
-                  <p className="amber-text despawn-pr">
-                    PR{prNo} is still open. After Despawn, Genio stops watching its checks and you can no longer merge it from here; the PR itself stays open.
-                  </p>
-                )}
-                <p>
-                  Genio deletes the isolated copy and its branch, and closes the unit's shells, only if nothing would be lost: no uncommitted changes, and the work is pushed, merged, or already in{' '}
-                  <span className="mono">{t.baseBranch}</span>. Otherwise it refuses and tells you why.
-                </p>
-              </>
-            )
-          }
-          onConfirm={() => despawn(false)}
-          onClose={() => setConfirm((c) => (c === 'despawn' || c === 'archive' ? null : c))}
-        />
-      )}
-      {confirm === 'force' && (
-        <Confirm
-          title={recon ? 'Archive refused' : 'Despawn refused'}
-          tone="alert"
-          typed="DISCARD"
-          confirmLabel={recon ? 'Force archive' : 'Force despawn'}
-          body={
-            <>
-              <pre className="refusal selectable">{refusal}</pre>
-              <p>Forcing throws away this unit's unlanded work for good. Only do this if you really mean to discard it.</p>
-            </>
-          }
-          onConfirm={() => despawn(true)}
+          title="Archive this Recon?"
+          tone="violet"
+          confirmLabel="Archive"
+          body={<p>Genio removes the Recon's isolated copy and branch. Its report, timeline and record stay, and Build from this report stops being offered.</p>}
+          onConfirm={despawn}
           onClose={() => setConfirm(null)}
         />
+      )}
+      {confirm === 'despawn' && (
+        <Confirm title={ask.line} tone="alert" confirmLabel={ask.button} onConfirm={despawn} onClose={() => setConfirm(null)} />
       )}
       {confirm === 'merge' && (
         <Confirm

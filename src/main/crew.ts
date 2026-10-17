@@ -1036,15 +1036,20 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       }
     },
 
-    async cleanup(id, force = false): Promise<OpResult> {
+    async cleanup(id, force = false, by): Promise<OpResult> {
       const t = get(id)
       if (!t) return { ok: false, message: `Unknown unit: ${id}` }
       if (t.state === 'cleaned') return { ok: true, message: `${id} is already despawned.` }
       const ctx = getCtx()
       const project = ctx.projects.get(t.project)
       const repo = project?.path ?? (exists(t.worktree) ? await git.repoTop(t.worktree) : '')
+      // Never the main copy or any registered project's folder, forced or not.
+      const own = [repo, ...(ctx.projects.list?.() ?? []).map((p) => p.path)].find((p) => p && git.sameFolder(p, t.worktree))
+      if (own) return { ok: false, message: `Refusing to despawn ${id}: its folder ${fwd(own)} is a project's own copy.` }
       const openChoices = hc().decisions.list(false).filter((d) => d.taskId === id)
       let via = 'forced'
+      // force only goes past what would be lost; a landed unit despawns as without it
+      let forced = force
       if (t.kind === 'scout') {
         const reportOk = exists(t.reportPath ?? home.reportFile(id))
         // A recalled or exited Recon (often a duplicate) has nothing left to report.
@@ -1059,6 +1064,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         if (!verdict.landed && !force) {
           return { ok: false, message: `Refusing to despawn ${id}: unlanded work (${verdict.reasons.join('; ')}). Only the player can authorise discarding it.${git.unlandedDetail(verdict)}` }
         }
+        forced = !verdict.landed
         via = verdict.landed ? `landed (${verdict.via})` : 'forced by the player'
       } else if (!force) {
         return { ok: false, message: `Cannot verify ${id}'s work: its project is not registered. Force only with the player's word.` }
@@ -1082,7 +1088,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       await yieldSource(t.worktree)
       let leftover = ''
       if (repo) {
-        const scratch = t.kind === 'scout' || force
+        const scratch = t.kind === 'scout' || forced
         // A folder git no longer knows ("not a working tree") or one already gone is already clean.
         let registered = await git.isWorktreeOf(repo, t.worktree)
         if (registered) {
@@ -1111,7 +1117,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         scheduleUnitArchive(t.worktree, { dataDir: mainHome.data, codexHome: t.codexHome ?? ctx.settings.harness(t.harness)?.env?.CODEX_HOME, task: t.id })
       }
       if (repo && (await git.branchExists(repo, t.branch))) {
-        await git.deleteBranch(repo, t.branch, t.kind === 'scout' || force)
+        await git.deleteBranch(repo, t.branch, t.kind === 'scout' || forced)
       }
       // update() closes the quest this unit was flying (followUnit); a re-queued follow-up stays queued
       const discarded = via === 'forced' || via === 'forced by the player' || via === 'recon ended without a report'
@@ -1125,7 +1131,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           return undefined
         }
       })()
-      ledger('task.cleaned_up', t, { via, ...(pruned?.files ? { modellerPruned: pruned } : {}) })
+      ledger('task.cleaned_up', t, { via, ...(discarded && by ? { by } : {}), ...(pruned?.files ? { modellerPruned: pruned } : {}) })
       safe(() => ctx.stats.award('cleanup', id))
       void svc.sweepWorktrees().catch(() => undefined)
       return { ok: true, message: `Despawned ${id} (${via}).${leftover}` }

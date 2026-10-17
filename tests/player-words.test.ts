@@ -9,7 +9,10 @@ vi.mock('../src/main/accounts', () => ({ listAccounts: async () => [] }))
 import { Home } from '../src/main/home'
 import type { AppCtx } from '../src/main/services'
 import type { ChatMessage, Decision, GenioEvent, Task } from '../src/shared/types'
-import { MERGE_CHOICE_OPTIONS, approvesMerge, isStandingApproval, isStandingRevoke, mergeChoiceApproval, verifyMergeWords, verifyPlayerWords, type MergeTarget } from '../src/main/player-words'
+import {
+  MERGE_CHOICE_OPTIONS, approvesMerge, isStandingApproval, isStandingRevoke, mergeChoiceApproval, verifyDiscardWords, verifyMergeWords, verifyPlayerWords, type DiscardTarget,
+  type MergeTarget
+} from '../src/main/player-words'
 import { STANDING_HOURS, noteStandingWords, standingApprovals } from '../src/main/standing-approvals'
 import { createToolRegistry } from '../src/main/wksp-tools'
 import { registerIpc } from '../src/main/ipc'
@@ -61,7 +64,7 @@ describe('verifyPlayerWords: only the player\'s own words count', () => {
     expect(!q.ok && q.reason).toContain('is a question')
     expect(verifyPlayerWords([player("don't delete the settings work")], "don't delete the settings work", 'discard').ok).toBe(false)
     const none = verifyPlayerWords([player('the settings work looks off')], 'the settings work looks off', 'discard')
-    expect(!none.ok && none.reason).toContain('does not say to discard or delete')
+    expect(!none.ok && none.reason).toContain('does not ask to remove this unit')
   })
 
   it('checks relaunch words and the message time', () => {
@@ -150,6 +153,60 @@ describe('verifyMergeWords: explicit, recent and about this work', () => {
     expect(mergeChoiceApproval([choice({ answeredVia: 'chat', answerMessage: 'm1', answer: 'yes' })], settings)?.id).toBe('ch-1')
     expect(mergeChoiceApproval([choice({ action: { kind: 'merge-approval', task: 'u-audio' } })], settings)).toBeUndefined()
     expect(approvesMerge('no, not yet')).toBe(false)
+  })
+})
+
+describe('verifyDiscardWords: any plain words to get rid of that unit', () => {
+  const boat: DiscardTarget = { id: 'u-boat', title: 'Fishing boat', branch: 'genio/fishing-boat', kind: 'modeller', createdAt: at(-60) }
+  const others: DiscardTarget[] = [{ ...settings, kind: 'build' }, { ...audio, kind: 'build' }]
+  const check = (text: string, chat: ChatMessage[] = [player(text)], target = boat, rest = others) => verifyDiscardWords(chat, text, target, rest)
+
+  it('accepts the messages it used to refuse, typos and all', () => {
+    for (const text of ['you can kill the modl unit without merging', 'ok kill modelling unit', 'I said kill modelling unit of the boart withoug merge']) {
+      expect(check(text), text).toMatchObject({ ok: true })
+    }
+  })
+
+  it('accepts any plain removal words that point at it', () => {
+    for (const text of ['remove the boat unit', 'get rid of u-boat', 'drop the fishing boat', 'scrap the boat model', 'clear the boat unit', 'trash the modeller',
+      'stop and remove the boat unit', 'nuke genio/fishing-boat', 'Discard the boat work', 'delete everything', 'can you remove the boat unit please']) {
+      expect(check(text), text).toMatchObject({ ok: true })
+    }
+  })
+
+  it('accepts "forget it" or "kill it" only as a reply to Genio\'s message about that unit', () => {
+    expect(check('forget it, kill it', [genio('Fishing boat (u-boat) is stuck on the hull.'), player('forget it, kill it')])).toMatchObject({ ok: true })
+    expect(check('kill it', [genio('u-boat and u-audio are both stuck.'), player('kill it')]).ok).toBe(false)
+    expect(check('kill it').ok).toBe(false)
+  })
+
+  it('rejects a question', () => {
+    for (const text of ['should I delete the boat unit?', 'why did you kill the boat unit?', 'is it ok to remove the boat unit?']) {
+      const r = check(text)
+      expect(!r.ok && r.reason, text).toContain('is a question')
+    }
+  })
+
+  it('rejects a message only about merging or keeping it, and a negated one', () => {
+    for (const text of ["don't merge the boat unit", 'hold the boat unit', 'keep the boat unit', "don't kill the boat unit", 'drop the merge of the boat unit']) {
+      const r = check(text)
+      expect(r.ok, text).toBe(false)
+    }
+    const r = check("don't merge it, hold it")
+    expect(!r.ok && r.reason).toBe(`the player's message "don't merge it, hold it" does not ask to remove a unit`)
+  })
+
+  it('rejects a message about a different unit', () => {
+    expect(check('kill the settings unit')).toMatchObject({ ok: false, reason: expect.stringContaining('is about u-settings, not u-boat') })
+    expect(check('remove u-audio')).toMatchObject({ ok: false, reason: expect.stringContaining('is about u-audio, not u-boat') })
+    // two Modellers: "the modelling unit" no longer says which
+    const twin: DiscardTarget = { id: 'u-tower', title: 'Watch tower', kind: 'modeller', createdAt: at(-60) }
+    expect(check('ok kill modelling unit', undefined, boat, [...others, twin]).ok).toBe(false)
+  })
+
+  it('keeps rejecting words the player did not write, or wrote before the unit existed', () => {
+    expect(check('kill the boat unit', [genio('kill the boat unit')])).toMatchObject({ ok: false, reason: expect.stringContaining("not in any of the player's own messages") })
+    expect(check('kill the boat unit', [player('kill the boat unit', -90)])).toMatchObject({ ok: false, reason: expect.stringContaining('was sent before u-boat existed') })
   })
 })
 
@@ -291,17 +348,29 @@ describe('the tools enforce it', () => {
     expect(ctx.main.crew.merge).toHaveBeenCalledWith('u-settings', expect.objectContaining({ kind: 'specific', choiceId: 'ch-1', words: 'yes', messageId: reply.id }))
   })
 
-  it('force despawn uses the same verifier', async () => {
+  it('force despawn needs the player\'s own words to get rid of that unit, and says in one sentence what is missing', async () => {
     expect(text(await tool('despawn').invoke({ task: 'u-settings', force: true, player_words: 'discard it' }))).toContain("not in any of the player's own messages")
     chat.push(player('should I discard the settings work?'))
-    expect(text(await tool('despawn').invoke({ task: 'u-settings', force: true, player_words: 'should I discard the settings work?' }))).toContain('is a question')
+    expect(text(await tool('despawn').invoke({ task: 'u-settings', force: true, player_words: 'should I discard the settings work?' })))
+      .toBe('force despawn refused: the player\'s message "should I discard the settings work?" is a question, not an instruction.')
     chat.push(player('the settings work looks wrong'))
-    expect(text(await tool('despawn').invoke({ task: 'u-settings', force: true, player_words: 'the settings work looks wrong' }))).toContain('does not say to discard')
+    expect(text(await tool('despawn').invoke({ task: 'u-settings', force: true, player_words: 'the settings work looks wrong' }))).toContain('does not ask to remove a unit')
+    chat.push(player('kill the audio unit'))
+    expect(text(await tool('despawn').invoke({ task: 'u-settings', force: true, player_words: 'kill the audio unit' }))).toContain('is about u-audio, not u-settings')
     expect(await tool('despawn', 'bot').invoke({ task: 'u-settings', force: true, player_words: 'the settings work looks wrong' })).toMatchObject({ isError: true })
     expect(ctx.main.crew.cleanup).not.toHaveBeenCalled()
-    chat.push(player('discard the settings work, I will redo it'))
-    expect((await tool('despawn').invoke({ task: 'u-settings', force: true, player_words: 'discard the settings work' })).isError).toBeUndefined()
-    expect(ctx.main.crew.cleanup).toHaveBeenCalledWith('u-settings', true)
+    chat.push(player('ok kill the setings unit without merging'))
+    expect((await tool('despawn').invoke({ task: 'u-settings', force: true, player_words: 'ok kill the setings unit without merging' })).isError).toBeUndefined()
+    expect(ctx.main.crew.cleanup).toHaveBeenCalledWith('u-settings', true, 'words')
+  })
+
+  it('despawn without force still refuses unlanded work and lists it', async () => {
+    const list = 'Refusing to despawn u-settings: unlanded work (1 uncommitted change(s) in the worktree). Only the player can authorise discarding it.\nUncommitted:\n   M src/a.ts'
+    vi.mocked(ctx.main.crew.cleanup).mockResolvedValueOnce({ ok: false, message: list })
+    const r = await tool('despawn').invoke({ task: 'u-settings' })
+    expect(r.isError).toBe(true)
+    expect(text(r)).toBe(`despawn refused: ${list}`)
+    expect(ctx.main.crew.cleanup).toHaveBeenCalledWith('u-settings', false, undefined)
   })
 
   it('relaunching a held unit uses the same verifier; an ordinary relaunch does not need words', async () => {
@@ -321,6 +390,12 @@ describe('the tools enforce it', () => {
     registerIpc(() => ctx)
     expect(await handlers.get('genio:mergeTask')!({ sender: { id: 1 } }, 'u-settings')).toMatchObject({ ok: true })
     expect(ctx.main.crew.merge).toHaveBeenCalledWith('u-settings', { kind: 'ui-button', at: expect.any(String) })
+  })
+
+  it('the Discard click is a direct player action: IPC discards with the click as its word', async () => {
+    registerIpc(() => ctx)
+    expect(await handlers.get('genio:cleanupTask')!({ sender: { id: 1 } }, 'u-settings', true)).toMatchObject({ ok: true })
+    expect(ctx.main.crew.cleanup).toHaveBeenCalledWith('u-settings', true, 'click')
   })
 })
 

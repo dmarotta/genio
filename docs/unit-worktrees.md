@@ -86,8 +86,14 @@ leftovers git no longer knows.
   never `Remove-Item -Recurse`, which can follow a junction in PowerShell 5.1. Before removing, lstat must
   report a link. Afterwards the link must be gone and its target must still exist. A real folder is never
   touched. A live unit's link is left alone: the unit is told once through its inbox to remove it and run setup.
-- **Despawn.** The unit's own `node_modules` link is removed before `git worktree remove`, so removing the
-  worktree cannot reach through it.
+- **Despawn.** The unit is stopped first (its agent and any terminal open in its copy). Its own `node_modules`
+  link is removed before `git worktree remove`, so removing the worktree cannot reach through it. Work that has
+  not landed is refused, with the exact files and commits, unless the player discards it. Two paths can: the
+  Despawn confirm's Discard click (the `cleanupTask` IPC, the only path that records `by: click`), and the chat's
+  despawn tool with force and the player's own verified words (`verifyDiscardWords` in `player-words.ts`: any
+  plain removal words, sent after the unit existed, naming it or replying to Genio's message about it; never a
+  question). Force only goes past what would be lost: a landed unit despawns as without it. The main copy and
+  any registered project's folder are never removed, forced or not.
 - **Leftovers.** A folder git no longer lists is deleted only when its unit is `cleaned` with a landed (or
   Recon) despawn verdict, which is the existing guarded despawn rule. Links inside are removed first.
   Every other leftover is listed with its reason and left untouched. Examples: no unit record, unit still

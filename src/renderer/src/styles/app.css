@@ -156,7 +156,6 @@ button.hud-stat:hover { border-color: var(--line); color: var(--text); }
 .modal-body { padding: 10px 24px 18px; overflow: auto; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 24px 20px; border-top: 1px solid var(--line); }
 .confirm-body { color: var(--text-dim); line-height: 1.6; margin-bottom: 12px; }
-.refusal { white-space: pre-wrap; font-family: var(--font-mono); font-size: 12px; color: var(--alert); background: var(--alert-soft); padding: 10px 12px; margin: 0 0 10px; }
 
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .field.wide { grid-column: 1 / -1; }

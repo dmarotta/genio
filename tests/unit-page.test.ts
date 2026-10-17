@@ -169,7 +169,7 @@ describe('unit page header and primary action', () => {
     await click(button('Archive'))
     expect(document.body.textContent).toContain('report, timeline and record stay')
     await click([...document.querySelectorAll<HTMLButtonElement>('.modal button')].find((b) => b.textContent?.trim() === 'Archive')!)
-    expect(calls.get('cleanupTask')).toHaveBeenCalledWith('u1', false)
+    expect(calls.get('cleanupTask')).toHaveBeenCalledWith('u1', true)
     await open(unit({ kind: 'scout', state: 'done', reportPath: 'C:/r.md', mode: undefined }))
     await click(button('Build from this report'))
     expect(document.body.textContent).toContain("The Recon's report becomes the context for a Build")
@@ -322,12 +322,51 @@ describe('unit page content', () => {
     expect(calls.has('terminalOpenShell')).toBe(false)
   })
 
-  it('warns before despawning a Build with an open PR, and says Recall does not stick', async () => {
-    await open(unit({ state: 'ready', mode: 'direct-PR', pr: { url: 'https://github.com/o/r/pull/7', number: 7, state: 'OPEN' } }))
+  const despawnMenu = async (): Promise<Element> => {
     await click(button('More'))
     await click([...document.querySelectorAll<HTMLButtonElement>('.unit-menu-item')].find((b) => b.textContent?.startsWith('Despawn'))!)
-    expect(document.querySelector('.despawn-pr')?.textContent).toContain('PR #7 is still open')
+    return document.querySelector('.modal')!
+  }
+  const footer = (modal: Element): string[] => [...modal.querySelectorAll('.modal-foot button')].map((b) => b.textContent!.trim())
+
+  it('Despawn on unmerged work asks one plain line with Cancel and Discard, and Discard discards at once', async () => {
+    await open(unit({ state: 'ready', readyAt: NOW }))
+    const modal = await despawnMenu()
+    expect(modal.querySelector('.modal-title')!.textContent).toBe('Discard this unit and its unmerged work?')
+    expect(modal.querySelector('.modal-body')).toBeNull()
+    expect(modal.querySelector('input, pre, ul')).toBeNull()
+    expect(footer(modal)).toEqual(['Cancel', 'Discard'])
+    await click(button('Discard'))
+    expect(calls.get('cleanupTask')).toHaveBeenCalledTimes(1)
+    expect(calls.get('cleanupTask')).toHaveBeenCalledWith('u1', true)
+    expect(document.querySelector('.modal')).toBeNull()
+  })
+
+  it('a refused discard shows no second dialog, only why', async () => {
+    calls.set('cleanupTask', vi.fn(async () => ({ ok: false, message: 'Could not remove the worktree: busy' })))
+    await open(unit({ state: 'ready', readyAt: NOW }))
+    await despawnMenu()
+    await click(button('Discard'))
+    expect(calls.get('cleanupTask')).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('.modal')).toBeNull()
+    expect(getState().toasts.at(-1)).toMatchObject({ level: 'error', body: 'Could not remove the worktree: busy' })
+  })
+
+  it('Despawn on a merged unit or an open PR says so in its one line, then Despawn', async () => {
+    await open(unit({ state: 'merged', landedAt: NOW }))
+    let modal = await despawnMenu()
+    expect(modal.querySelector('.modal-title')!.textContent).toBe('Despawn this unit?')
+    expect(footer(modal)).toEqual(['Cancel', 'Despawn'])
     await click(button('Cancel'))
+    await open(unit({ state: 'ready', mode: 'direct-PR', pr: { url: 'https://github.com/o/r/pull/7', number: 7, state: 'OPEN' } }))
+    modal = await despawnMenu()
+    expect(modal.querySelector('.modal-title')!.textContent).toBe('Despawn this unit? Its PR #7 stays open but can no longer be merged here.')
+    expect(modal.querySelector('.modal-body')).toBeNull()
+    await click(button('Despawn'))
+    expect(calls.get('cleanupTask')).toHaveBeenCalledWith('u1', true)
+  })
+
+  it('says Recall does not stick', async () => {
     await live()
     await click(button('More'))
     await click([...document.querySelectorAll<HTMLButtonElement>('.unit-menu-item')].find((b) => b.textContent?.startsWith('Recall'))!)

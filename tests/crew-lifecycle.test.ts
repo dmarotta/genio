@@ -455,6 +455,8 @@ describe('Modeller landing', () => {
 
   it('a despawn drops step snapshots and GLBs and keeps renders, scripts and manifests', async () => {
     modellerWorld()
+    // the project lives elsewhere: despawn never removes a project's own folder
+    ctx.projects.get = vi.fn(() => ({ name: 'world', path: path.dirname(task.worktree), defaultBranch: 'main', engine: 'web' }) as any)
     vi.spyOn(git, 'landedVerdict').mockResolvedValue({ landed: true, via: 'merged', reasons: [] } as any)
     vi.spyOn(git, 'isWorktreeOf').mockResolvedValue(false)
     vi.spyOn(git, 'pruneWorktrees').mockResolvedValue({ code: 0, stdout: '', stderr: '' } as any)

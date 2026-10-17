@@ -56,7 +56,7 @@ export function Modal({
 }: {
   title: ReactNode
   onClose: () => void
-  children: ReactNode
+  children?: ReactNode
   footer?: ReactNode
   width?: number
   tone?: Tone
@@ -75,7 +75,7 @@ export function Modal({
             <X size={16} />
           </button>
         </header>
-        <div className="modal-body">{children}</div>
+        {children ? <div className="modal-body">{children}</div> : null}
         {footer && <footer className="modal-foot">{footer}</footer>}
       </div>
     </Dialog>
@@ -139,7 +139,8 @@ export function Confirm({
   onClose
 }: {
   title: string
-  body: ReactNode
+  /** absent: the title is the whole question */
+  body?: ReactNode
   confirmLabel: string
   tone?: Tone
   typed?: string
@@ -179,12 +180,16 @@ export function Confirm({
         </>
       }
     >
-      <div className="confirm-body">{body}</div>
-      {typed && (
-        <Field label={`Type ${typed} to confirm`}>
-          <input className="input mono" autoFocus value={txt} onChange={(e) => setTxt(e.target.value)} />
-        </Field>
-      )}
+      {body || typed ? (
+        <>
+          {body && <div className="confirm-body">{body}</div>}
+          {typed && (
+            <Field label={`Type ${typed} to confirm`}>
+              <input className="input mono" autoFocus value={txt} onChange={(e) => setTxt(e.target.value)} />
+            </Field>
+          )}
+        </>
+      ) : null}
     </Modal>
   )
 }

@@ -316,7 +316,9 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
       return r
     },
     controlTask: (id, action) => taskHome(id).hc.crew.control(id, action, undefined, true),
-    cleanupTask: (id, force) => taskHome(id).hc.crew.cleanup(id, force),
+    // A click on Discard in the Despawn confirm is the player's word to discard this unit's unlanded work.
+    // Only this renderer path records a click; the model's despawn tool never reaches it.
+    cleanupTask: (id, discard) => taskHome(id).hc.crew.cleanup(id, !!discard, discard ? 'click' : undefined),
     // A click on MERGE is the player's explicit word for this merge. Only this renderer path records ui-button;
     // the model's merge tool never reaches it.
     mergeTask: (id) => taskHome(id).hc.crew.merge(id, { kind: 'ui-button', at: new Date().toISOString() }),

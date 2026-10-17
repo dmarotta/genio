@@ -20,7 +20,7 @@ const PRESENCE = 'Presence: in **DND** routine events go to a separate *Bot* ses
 const REQUIRED_TERMS = [
   'Presence', 'Online', 'DND', 'AFK', 'The Bot', 'Welcome back', 'Auto-loot', 'Standing approval', 'Merge approval',
   'Delivery modes', 'Offline', 'Standard', 'Hardcore', 'Plans', 'Plan steps', 'Units', 'Unit kinds and colors', 'Squad states',
-  'Quests', 'Quest log', 'Choices', 'Your Move', 'Usage modes', 'Quota protection', 'Effort levels', 'Spend approval',
+  'Despawn and discard', 'Quests', 'Quest log', 'Choices', 'Your Move', 'Usage modes', 'Quota protection', 'Effort levels', 'Spend approval',
   'Unit capabilities', 'Skills', 'Play', 'Play copy', 'Game sound', 'Inventory', 'Art Bible', 'Modeller', 'Generator',
   'Settings pages', 'Gauntlet', 'Worktrees', 'Slots', 'Hidden desktop', 'Dev Drive'
 ]

@@ -190,7 +190,9 @@ fire the alarm.
 
 Despawn refuses unlanded work: uncommitted changes, or commits that are not
 reachable from any remote-tracking branch, not in base, and not in a merged PR.
-Forcing requires the Player's explicit word.
+Forcing requires the Player's word: a click on Discard in the unit page's
+Despawn confirm, or their own chat message telling Genio to get rid of that
+unit (verified like a merge approval).
 
 ## Base layout
 

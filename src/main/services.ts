@@ -332,7 +332,8 @@ export interface CrewService {
   /** ping: durable steering inbox write + doorbell; resolveKeys close open choices */
   send(id: string, text: string, resolveKeys?: string[]): Promise<OpResult>
   control(id: string, action: 'interrupt' | 'exit' | 'relaunch', note?: string, manual?: boolean): Promise<OpResult>
-  cleanup(id: string, force?: boolean): Promise<OpResult>
+  /** force discards unlanded work; by = who said so: the player's click (Despawn confirm) or their verified chat words */
+  cleanup(id: string, force?: boolean, by?: 'click' | 'words'): Promise<OpResult>
   /** approval: what authorized it, recorded on the task and in the ledger */
   merge(id: string, approval?: import('@shared/types').MergeApproval): Promise<OpResult>
   promote(id: string, intent?: string): Promise<Task>

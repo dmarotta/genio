@@ -129,6 +129,39 @@ describe('post-merge cleanup', () => {
     expect(hc.crew.get('ahead2')?.state).toBe('merged')
   }, 60_000)
 
+  it('discards unlanded work on the player\'s click, stopping the unit first and recording who said so', async () => {
+    const t = await readyUnit('scrap')
+    const other = await readyUnit('keep')
+    fs.writeFileSync(path.join(t.worktree, 'half-done.txt'), 'not committed')
+    terminal = { id: 'pty', alive: true }
+    hc.crew.update(t.id, { state: 'working', terminalId: 'pty' })
+    const r = await hc.crew.cleanup(t.id, true, 'click')
+    expect(r).toMatchObject({ ok: true, message: expect.stringContaining('forced by the player') })
+    expect(ctx.terminals.kill).toHaveBeenCalledWith('pty')
+    expect(hc.crew.get(t.id)).toMatchObject({ state: 'cleaned', discarded: true })
+    expect(fs.existsSync(t.worktree)).toBe(false)
+    expect(await git.branchExists(repo, t.branch)).toBe(false)
+    expect(ctx.ledger.record).toHaveBeenCalledWith(expect.objectContaining({ event: 'task.cleaned_up', task: t.id, data: expect.objectContaining({ via: 'forced by the player', by: 'click' }) }))
+    // never another unit's copy
+    expect(fs.existsSync(path.join(other.worktree, 'keep.txt'))).toBe(true)
+    expect(await git.branchExists(repo, other.branch)).toBe(true)
+  }, 60_000)
+
+  it('never despawns the main copy or a registered project\'s folder, even on the player\'s click', async () => {
+    const t = await readyUnit('main-copy')
+    const project = path.join(root, 'other-project')
+    fs.mkdirSync(project)
+    Object.assign(ctx.projects, { list: () => [{ name: 'world', path: repo }, { name: 'other', path: project }] })
+    for (const folder of [repo, project]) {
+      hc.crew.update(t.id, { worktree: folder })
+      const r = await hc.crew.cleanup(t.id, true, 'click')
+      expect(r).toMatchObject({ ok: false, message: expect.stringContaining("is a project's own copy") })
+      expect(fs.existsSync(folder)).toBe(true)
+    }
+    expect(fs.readFileSync(path.join(repo, 'readme.md'), 'utf8')).toBe('world\n')
+    expect(hc.crew.get(t.id)?.state).toBe('ready')
+  }, 60_000)
+
   it('closes a terminal pane open in the unit\'s copy before removing it, and leaves other terminals alone', async () => {
     const t = await readyUnit('shells')
     listed = [

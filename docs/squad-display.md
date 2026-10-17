@@ -43,6 +43,11 @@ player's approval). So does a Generator, with no Accept step either.
 
 More holds Interrupt (working only), Respawn, Recall (live only), Open folder
 and Despawn (red), each with its one-line consequence (`UNIT_ACTION_HINT`).
+Despawn asks one line with Cancel and one button (`despawnConfirm` in
+`src/shared/unit-actions.ts`): "Discard this unit and its unmerged work?" with
+Discard, or "Despawn this unit?" with Despawn once it is merged (an open PR adds
+that it stays open). The click does it at once, unlanded work included; there
+is no second dialog and nothing to type.
 There is no shell button: the player's own shell is the project window's
 terminal pane (docs/terminal-pane.md), which can run in a unit's copy. There is
 no manual Gauntlet button. 👍/👎 shows on finished units only; a ready unit is

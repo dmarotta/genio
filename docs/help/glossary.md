@@ -153,6 +153,15 @@ also says NOT RUNNING, RECALLED, STOPPED or WAITING when the agent is not runnin
 Where: Squad (Ctrl+2) and unit pages.
 Source: [squad-display.md](../squad-display.md)
 
+## Despawn and discard
+
+Despawn removes a unit: Genio stops it, deletes its copy and branch, and keeps its record. When its work is not
+merged, one question asks "Discard this unit and its unmerged work?"; Discard does it at once. In chat, tell Genio to
+get rid of a unit in any plain words (kill, remove, drop, discard…) and name it or reply to its message about it.
+Genio never discards work on its own, and never touches your main copy or other units.
+Where: a unit page's More → Despawn…, or chat.
+Source: [squad-display.md](../squad-display.md), [unit-worktrees.md](../unit-worktrees.md)
+
 ## Unit timeline
 
 A unit's reports and your pings, newest first, each with its time and a kind label such as WORKING, DONE, BLOCKED, FAILED,
@@ -321,7 +330,7 @@ Source: [VOCABULARY.md](../VOCABULARY.md)
 ## Worktrees
 
 Each unit's isolated copy of the project: a git worktree on its own branch, with its own node_modules. Your main copy
-is only read. Despawning a unit removes its copy, and refuses while it holds work that has not landed.
+is only read. Despawning a unit removes its copy; work that is not merged goes only after you confirm Discard.
 Where: a unit page's More → Open folder; Despawn in the same menu.
 Source: [unit-worktrees.md](../unit-worktrees.md)
 

@@ -14,7 +14,8 @@ import type { AnswerOrigin, AppCtx, HomeCtx } from './services'
 import type { Home } from './home'
 import { readText, slugify, truncate } from './util'
 import {
-  HISTORY_DEPTH, MERGE_CHOICE_OPTIONS, mergeChoiceApproval, refusal, verifyMergeWords, verifyPlayerWords, verifySpendWords, type MergeTarget, type WordsPurpose
+  HISTORY_DEPTH, MERGE_CHOICE_OPTIONS, mergeChoiceApproval, refusal, verifyDiscardWords, verifyMergeWords, verifyPlayerWords, verifySpendWords, type DiscardTarget, type MergeTarget,
+  type WordsPurpose
 } from './player-words'
 import { answerSpendChoice, fmtUsd } from './spend-grants'
 import { standingApprovals } from './standing-approvals'
@@ -502,16 +503,19 @@ export function createToolRegistry(
 
   t(
     'despawn',
-    'Despawn a unit and remove its isolated copy. Refuses unlanded work (uncommitted changes, commits not pushed/merged) and lists the exact files/commits. A Recon that has exited (recalled or duplicate) needs no report. force=true discards work and REQUIRES player_words quoting, verbatim, the player\'s own chat message that says to discard or delete this work (Genio checks it; a question does not count).',
+    'Despawn a unit and remove its isolated copy. Without force it refuses unlanded work (uncommitted changes, commits not pushed/merged) and lists the exact files/commits; never force on your own. A Recon that has exited (recalled or duplicate) needs no report. force=true discards that work and REQUIRES player_words quoting, verbatim, the player\'s own chat message, sent after the unit existed, that tells you to get rid of this unit in any plain words (kill, remove, drop, discard…) and names it or replies to your message about it (Genio checks it; a question does not count).',
     { task: z.string(), force: z.boolean().default(false), player_words: z.string().optional() },
     async ({ task, force, player_words }) => {
       if (force && role === 'bot') return fail('force despawn refused: discarding work waits for the player')
       const f = requireTask(task)
       if (force) {
-        const no = unheard('force despawn', player_words, 'discard', { after: f.task.createdAt, what: 'this unit' })
-        if (no) return fail(`${no} Without force, despawn refuses and lists exactly what would be lost.`)
+        const target = (t: Task): DiscardTarget => ({ id: t.id, title: t.title, branch: t.branch, createdAt: t.createdAt, pr: t.pr,
+          kind: t.kind === 'scout' ? 'recon' : t.modeller ? 'modeller' : t.generator ? 'generator' : 'build' })
+        const others = [...getCtx().homes.values()].flatMap(h => h.crew.list?.() ?? []).filter(o => o.id !== task && o.state !== 'cleaned').map(target)
+        const r = verifyDiscardWords(chatLog(), player_words, target(f.task), others)
+        if (!r.ok) return fail(`force despawn refused: ${r.reason}.`)
       }
-      const r = await f.hc.crew.cleanup(task, force)
+      const r = await f.hc.crew.cleanup(task, force, force ? 'words' : undefined)
       return r.ok ? ok(r.message || 'despawned') : fail(`despawn refused: ${r.message}`)
     }
   )

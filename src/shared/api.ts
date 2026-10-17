@@ -615,7 +615,8 @@ export interface GenioApi {
   dispatchScores(): Promise<DispatchScoresView>
   sendToTask(id: string, text: string, resolveKey?: string): Promise<OpResult>
   controlTask(id: string, action: 'interrupt' | 'exit' | 'relaunch'): Promise<OpResult>
-  cleanupTask(id: string, force?: boolean): Promise<OpResult>
+  /** despawn; discard = the player clicked Discard: unlanded work goes too */
+  cleanupTask(id: string, discard?: boolean): Promise<OpResult>
   mergeTask(id: string): Promise<OpResult>
   /** end a standing merge approval (the title bar chip) */
   revokeStandingApproval(id: string): Promise<OpResult>
