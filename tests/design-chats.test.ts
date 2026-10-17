@@ -216,6 +216,28 @@ describe('design chats', () => {
     expect(turns(peers[pd])).toHaveLength(1)
     expect(JSON.stringify(peers[pd].requests)).not.toContain('GENIO EVENTS')
     expect(design.history(a.id).some(m => m.text.includes('unit ready'))).toBe(false)
+    // the project chat's event turn ended with the sentence: it is not a row there, nor in the design chat
+    expect(project.history().some(m => m.text.includes('All clear'))).toBe(false)
+    expect(design.history(a.id).some(m => m.text.includes('All clear'))).toBe(false)
+  })
+
+  it('shows a reply that is the sentence (a design chat has no event turns) and leaves no bubble for an empty message', async () => {
+    const design = designService()
+    const a = design.create()
+    const seen: GenioEvent[] = []
+    const off = bus.onEvent(ev => { if (ev.type === 'design-chat') seen.push(ev) })
+    stops.push(off)
+    await design.send(a.id, 'Anything else to decide?')
+    await vi.waitFor(() => expect(peers[0] && turns(peers[0])).toHaveLength(1))
+    peers[0].events.notification('item/started', { threadId: 'session-1', item: { id: 'empty', type: 'agentMessage', text: '' } })
+    peers[0].events.notification('item/completed', { threadId: 'session-1', item: { id: 'empty', type: 'agentMessage', text: '' } })
+    complete(0, 'All clear, Dani.')
+    const rows = () => design.history(a.id).filter(m => !m.text.startsWith('Provider changed'))
+    await vi.waitFor(() => expect(rows().map(m => [m.role, m.text])).toEqual([['player', 'Anything else to decide?'], ['genio', 'All clear, Dani.']]))
+    // one Genio bubble (its streamed and final versions share an id); the empty message never reached the screen
+    const drawn = seen.filter(ev => ev.type === 'design-chat' && ev.message.role === 'genio').map(ev => (ev as { message: ChatMessage }).message)
+    expect(new Set(drawn.map(m => m.id)).size).toBe(1)
+    expect(drawn.every(m => m.text === 'All clear, Dani.')).toBe(true)
   })
 
   it('hands off within its own chat only on a provider switch', async () => {

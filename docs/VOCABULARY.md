@@ -55,7 +55,7 @@ code comments that cite the original design.
 | projects | **Projects** | the player's games/repos |
 | bridge (chat) | **Comms** | |
 | wedge alarm | **Alarm** | |
-| "Captain, shipshape." no-op | **"All clear."** | |
+| "Captain, shipshape." no-op | nothing: an event turn that needs no one ends with no text | never shown, never "All clear" |
 
 ## Settings: plain names, game term as a hint
 

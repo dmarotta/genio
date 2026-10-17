@@ -424,8 +424,7 @@ export class AgentSession implements ChatDriver {
       if (!cm) continue
       cm.partial = false
       if (id === this.turnMsgIds[this.turnMsgIds.length - 1]) cm.costUsd = cost
-      if (!cm.text && !(cm.tools ?? []).length) continue
-      this.hooks.onMessage({ ...cm }, true)
+      if (cm.text.trim() || (cm.tools ?? []).length) this.hooks.onMessage({ ...cm }, true)
       this.msgs.delete(id)
       this.blockText.delete(id)
     }
@@ -496,7 +495,8 @@ export class AgentSession implements ChatDriver {
         cm.text = texts.join('\n\n')
         if (cm.text) this.lastText = cm.text
         if (am.error) this.hooks.onError(`Model error: ${typeof am.error === 'string' ? am.error : JSON.stringify(am.error)}`)
-        this.hooks.onMessage({ ...cm }, false)
+        // a thinking-only block has nothing to show; it must not leave an empty bubble
+        if (cm.text.trim() || (cm.tools ?? []).length) this.hooks.onMessage({ ...cm }, false)
         return
       }
       case 'user': {

@@ -40,8 +40,6 @@ const SLASH: { cmd: string; hint: string }[] = [
   { cmd: '/help', hint: 'List commands' }
 ]
 
-const NOOP_RE = /^\s*(all clear|gg,? all clear)\b/i
-
 export function Comms() {
   if (!PROJECT_WKSP) return null
 
@@ -464,10 +462,9 @@ const Message = memo(function Message({ m, calm, gamertag, design = false, onTak
   if (m.role === 'error') {
     return <div data-msg={m.id} className="msg-error mono selectable">{m.text}<CopyMessageButton text={m.text} /></div>
   }
-  const noop = NOOP_RE.test(m.text) && m.text.length < 90
   const tools = m.tools ?? []
   return (
-    <div data-msg={m.id} className={cx('msg genio rise', noop && 'noop', calm && noop && 'calm-noop')}>
+    <div data-msg={m.id} className="msg genio rise">
       {!design && <div className="msg-avatar">
         <GenioCore size={34} state={m.partial ? 'active' : 'idle'} />
       </div>}

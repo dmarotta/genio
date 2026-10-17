@@ -54,7 +54,8 @@ import { AgentSession, loadSdk, sessionConfig, inboundMessage, type TurnItem } f
 export { AgentSession, sessionConfig, applyLiveConfig, inboundMessage, sendPlayerChat, userMessage, decideTool, isReadOnlyCommand } from './claude-chat-driver'
 export type { SessionConfig, LiveControls, ToolDecision } from './claude-chat-driver'
 import { DISALLOWED, enforceTool } from './chat-tool-policy'
-const NOOP_RE = /^all clear[,!.]?(\s+[\w .'-]{0,40})?[.!]?$/i
+import { QuietTurn } from './quiet-turn'
+import { isQuietReply, withoutQuietReplies } from '@shared/quiet-reply'
 
 // ------------------------------------------------------------------ service
 
@@ -129,8 +130,13 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
         if (receipt) say(receipt, 'system')
       } catch { /* never blocks the message */ }
     },
+    // rows an older version recorded for event turns that had nothing to say
+    hide: list => withoutQuietReplies(list, [safeGet(gamertag) ?? 'Player']),
     refused: () => (readOnly ? archived : undefined)
   })
+  /** What an event turn may show: never its empty or "All clear" reply. One per session, a turn at a time. */
+  const quiet = new QuietTurn(() => [gamertag()])
+  const botQuiet = new QuietTurn(() => [gamertag()])
   const loadHistory = thread.load
   const record = thread.record
   const say = thread.say
@@ -289,6 +295,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     events: {
       onStart(item) {
         turnActions = {}
+        quiet.begin(item)
         // after an interruption Genio re-checks reality instead of assuming the cut turn finished
         if (interruptedNote) { item.prompt = `${interruptedNote}\n\n${item.prompt}`; interruptedNote = undefined }
         delivered(item)
@@ -300,8 +307,9 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
         publishInfo()
       },
       onMessage(m, final) {
-        let msg = m
-        if (final && msg.text && NOOP_RE.test(msg.text.trim()) && !(msg.tools ?? []).length) msg = { ...msg, role: 'system' }
+        const kept = quiet.message(m, final)
+        if (!kept) return
+        let msg: ChatMessage = kept
         // every tool of the turn has run by the time its messages are final
         if (final && msg.role === 'genio' && hasActions()) msg = { ...msg, actions: turnActions }
         // a reaction the player already gave survives a late rewrite of the same message
@@ -310,7 +318,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
         record(msg, final)
       },
       onDelta(id, text) {
-        bus.publish({ type: 'chat-delta', wksp: name, id, text })
+        const shown = quiet.delta(id, text)
+        if (shown) bus.publish({ type: 'chat-delta', wksp: name, id, text: shown })
       },
       onActivity(a, detail) {
         info.activity = a
@@ -318,6 +327,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
         publishInfo()
       },
       onTurnEnd(item, ok, lastText, cost) {
+        const nothingToSay = !lastText.trim() || quiet.silent(lastText)
+        quiet.end()
         const interrupted = !!thread.steering && !ok
         thread.steering = undefined
         if (interrupted) {
@@ -328,7 +339,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
         }
         if (ok) {
           info.lastError = undefined
-          if (item?.prompt.includes('[GENIO PROJECT OPEN]') && lastText && !NOOP_RE.test(lastText.trim())) safe(() => getCtx().stats.unlock('project-welcome'))
+          if (item?.prompt.includes('[GENIO PROJECT OPEN]') && !nothingToSay) safe(() => getCtx().stats.unlock('project-welcome'))
           if (genio.currentProvider === 'codex') safe(() => getCtx().stats.unlock('codex-chat-turn'))
           else quotaPolicy().succeeded(name + ':genio')
         }
@@ -341,7 +352,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
           // an interrupted batch stays pending (per-event acks hold) and is delivered again after the player's turn
           else if (!interrupted) eventsBackoffUntil = Date.now() + 60_000
         }
-        if (ok && lastText && !NOOP_RE.test(lastText.trim())) {
+        if (ok && !nothingToSay) {
           bus.publish({ type: 'sfx', sound: 'blip' })
           if (settings().voice) bus.publish({ type: 'speak', text: lastText })
         }
@@ -377,8 +388,10 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
       persisted: persisted.botProviders, handoff: handoffContext,
       switched: () => { void closeChatToolBridges(getCtx(), name, 'bot') },
       events: {
+        onStart: item => botQuiet.begin(item),
         onMessage(m, final) {
-          if (final) appendJsonl(botFile, m)
+          const kept = botQuiet.message(m, final)
+          if (final && kept) appendJsonl(botFile, kept)
         },
         onDelta() {
           /* the Bot's turns are off-screen */
@@ -390,6 +403,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
           }
         },
         onTurnEnd(item, ok, _last, cost) {
+          botQuiet.end()
           if (ok && bot?.currentProvider === 'claude') quotaPolicy().succeeded(name + ':bot')
           info.costUsd += cost
           if (cost > 0) safe(() => getCtx().stats.addCost(cost))
@@ -422,6 +436,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
   }
 
   function botEscalate(text: string, severity: 'info' | 'decision' | 'failure' | 'ready'): void {
+    // "All clear" is not something the player must see, even when it arrives through the escalation tool
+    if (isQuietReply(text, [gamertag()])) return
     const ctx = getCtx()
     const mode = ctx.away.state().mode
     if (mode === 'afk') {

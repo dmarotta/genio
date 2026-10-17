@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { customContract, CUSTOM_CONTRACT_BUDGET, procedureText, PROCEDURES, projectOpenPrompt } from '../src/main/prompts'
+import { botContract, customContract, CUSTOM_CONTRACT_BUDGET, eventsPrompt, procedureText, PROCEDURES, projectOpenPrompt, sessionStartPrompt } from '../src/main/prompts'
 import { chatUsageLine } from '../src/shared/usage-mode'
 
 describe('bounded custom contract and lazy procedures', () => {
@@ -86,6 +86,34 @@ describe('bounded custom contract and lazy procedures', () => {
       expect(prompt.length).toBeLessThanOrEqual(CUSTOM_CONTRACT_BUDGET)
     }
     expect(procedureText('voice', { gamertag: 'Dani', base: 'world', isAlly: false })).toContain('Resolve it (choice_resolve) only on Dani\'s stated decision, an option or their own words passed verbatim')
+  })
+
+  it('ends an event turn with no text when nothing needs the player, never with an "All clear" reply', () => {
+    const old = [/Reply exactly/i, /reply exactly "All clear/i, /exact no-op reply/i, /end routine turns with "All clear/i, /Exactly "All clear/i, /still needs an answer/i]
+    for (const isAlly of [false, true]) for (const bot of [false, true]) {
+      const prompt = customContract({ gamertag: 'x'.repeat(80), base: 'b'.repeat(128), isAlly }, bot, chatUsageLine('max'))
+      expect(prompt).toContain('Routine progress, automatic fixes and waiting stay silent. Silent means no text at all, never "All clear"; finished work or a pending choice always gets a message.')
+      for (const re of old) expect(prompt).not.toMatch(re)
+      expect(prompt.length).toBeLessThanOrEqual(CUSTOM_CONTRACT_BUDGET)
+    }
+    const o = { gamertag: 'Dani', base: 'world', isAlly: false }
+    const events = procedureText('events', o)
+    expect(events).toContain('When nothing in the batch needs Dani, finish with no text at all: no "All clear", no summary')
+    expect(events).toContain('call events_ack with its sequence ID') // handling and acknowledging events is unchanged
+    expect(events).toContain('Waiting is silent. Empty polls, elapsed time and no-change updates are not player-facing news.')
+    const voice = procedureText('voice', o)
+    expect(voice).toContain('An event turn with nothing for Dani (an empty tick, an idle re-read, a pure acknowledgement) ends right after its tool calls with no text at all: not "All clear", not a summary.')
+    expect(voice).toContain('Never stay silent about a completed request or anything that needs review, approval, merge or a design pick.')
+    expect(voice).toContain('final message of every turn that has something to say must stand alone')
+    expect(voice).not.toContain('Reply exactly')
+    const batch = eventsPrompt('#1 signal unit finished')
+    expect(batch).toContain('call events_ack immediately for its ID')
+    expect(batch).toContain('otherwise end the turn right after the tool calls with no text at all (no "All clear", no summary): any text you write is shown.')
+    expect(sessionStartPrompt('Dani')).toContain('otherwise end the turn with no text at all (not "All clear")')
+    expect(botContract('Dani')).toContain('end routine turns with no text.')
+    // the visible greeting is never the quiet turn
+    expect(projectOpenPrompt('Dani', 'Project: x.', '')).toContain('never end this turn without the greeting')
+    for (const text of [batch, sessionStartPrompt('Dani'), botContract('Dani'), projectOpenPrompt('Dani', 'Project: x.', ''), events, voice]) for (const re of old) expect(text).not.toMatch(re)
   })
 
   it('leaves budget for provider instructions even with long identity fields', () => {

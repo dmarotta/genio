@@ -36,6 +36,8 @@ export interface ChatThreadOptions {
   sent?(m: ChatMessage): void
   /** why queue changes are refused (an archived chat) */
   refused?(): string | undefined
+  /** rows of the log on disk that are never shown (an older version's records) */
+  hide?(list: ChatMessage[]): ChatMessage[]
 }
 
 /** A player's message, on screen as queued the moment it is submitted: before slow thumbnails or earlier sends. */
@@ -60,7 +62,7 @@ export function createChatThread(o: ChatThreadOptions) {
   const adopt = (log: ChatMessage[]): ChatMessage[] => {
     const { list, stranded } = strandQueued(compactChat(log).slice(-1000))
     if (!o.readOnly) for (const m of stranded) appendJsonl(o.file, m)
-    return (history = list)
+    return (history = o.hide ? o.hide(list) : list)
   }
   const load = (): ChatMessage[] => history ?? adopt(readJsonl<ChatMessage>(o.file))
   /** The same first read without blocking the main process (a long log takes a few hundred ms to open and read). */

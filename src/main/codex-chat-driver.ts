@@ -282,7 +282,8 @@ export class CodexChatDriver implements ChatDriver {
     let text = ''
     for (const m of this.messages.values()) {
       m.partial = false
-      this.events.onMessage({ ...m }, true)
+      // a message with neither words nor tool calls leaves no empty bubble
+      if (m.text.trim() || (m.tools ?? []).length) this.events.onMessage({ ...m }, true)
       if (m.text) text = m.text
     }
     this.messages.clear()
@@ -323,7 +324,7 @@ export class CodexChatDriver implements ChatDriver {
       if (item.type === 'agentMessage') {
         const m = this.message(item.id)
         if (typeof item.text === 'string') m.text = item.text
-        this.events.onMessage({ ...m }, false)
+        if (m.text.trim()) this.events.onMessage({ ...m }, false)
       } else if (item.type === 'dynamicToolCall') {
         const m = this.message(item.id)
         m.tools = [{ id: item.id, name: item.tool, input: JSON.stringify(item.arguments ?? {}).slice(0, 2000),

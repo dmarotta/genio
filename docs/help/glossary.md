@@ -12,7 +12,8 @@ Source: [ARCHITECTURE.md](../ARCHITECTURE.md), [VOCABULARY.md](../VOCABULARY.md)
 
 ## Online
 
-The normal mode. Every event and outcome comes straight to Genio in Comms and Genio talks to you about it.
+The normal mode. Every event and outcome comes straight to Genio in Comms and Genio talks to you about it. An event
+that needs nothing from you leaves no message at all: Genio does not say "All clear".
 Where: title bar presence control, or /online (also /back).
 Source: [ARCHITECTURE.md](../ARCHITECTURE.md)
 
@@ -37,7 +38,8 @@ Source: [ARCHITECTURE.md](../ARCHITECTURE.md)
 
 Genio's away supervisor: a separate, hidden chat session that handles events while you are DND or AFK. It follows the
 same hard rules as Genio. Its tools only read (squad, quests, units, logs) and escalate to you: it does not merge,
-deploy, steer units, answer choices, approve spend or change settings, so that work waits for you.
+deploy, steer units, answer choices, approve spend or change settings, so that work waits for you. A routine turn that
+needs nothing from you leaves no trace in Comms.
 Where: not a screen of its own; its escalations appear in Comms (DND) or the welcome back summary (AFK).
 Source: [ARCHITECTURE.md](../ARCHITECTURE.md)
 

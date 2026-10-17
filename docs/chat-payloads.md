@@ -45,6 +45,12 @@ Driver-retained retries refresh the event body from the durable queue immediatel
 before submission, while retaining any bounded provider handoff. Already handled
 events are therefore removed even when the provider retries the same turn object.
 
+An event turn with nothing for the player ends right after its tool calls with
+no text at all. There is no "All clear" reply to send, and the batch is still
+acknowledged by the successful turn. If the model answers anyway with that
+sentence, an empty message or the Claude CLI's `(no content)` placeholder, the
+reply never reaches the chat ([chat drivers](chat-drivers.md#quiet-event-turns)).
+
 This does not promise exactly-once external side effects: a crash after a side
 effect but before its acknowledgement can still require idempotent re-handling.
 
