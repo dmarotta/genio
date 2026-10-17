@@ -8,6 +8,7 @@ import { mergeCategoryPools } from '@shared/dispatch'
 import { readJson, which, writeJson } from './util'
 import { migrateUsageSettings } from './usage-policy'
 import { DEFAULT_USAGE_MODE } from '@shared/usage-mode'
+import { DEFAULT_REPLY_VOICE } from '@shared/reply-voice'
 
 export function defaultSettings(): Settings {
   return {
@@ -41,6 +42,7 @@ export function defaultSettings(): Settings {
     fx: true,
     calm: false,
     voice: false,
+    replyVoice: DEFAULT_REPLY_VOICE,
     desktopNotifications: true,
     webhookUrl: '',
     webhookKind: 'discord',

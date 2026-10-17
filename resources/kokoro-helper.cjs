@@ -6,8 +6,9 @@
  *   node kokoro-helper.cjs <sherpa-onnx.node> <model dir> <threads>
  *
  * It loads the player's downloaded sherpa-onnx addon (Apache-2.0, with espeak-ng, GPL-3.0, built in) and the Kokoro
- * model once, then reads one JSON line per sentence on stdin, `{"id":1,"text":"..."}`, and answers each with a frame on
- * stdout: a u32 LE header length, the JSON header, a u32 LE payload length, the payload. Headers:
+ * model once, then reads one JSON line per sentence on stdin, `{"id":1,"text":"...","sid":0}` (sid: the speaker, 0 to
+ * 10; anything else is 0), and answers each with a frame on stdout: a u32 LE header length, the JSON header, a u32 LE
+ * payload length, the payload. Headers:
  *   {"type":"ready","rate":24000}            once, after loading (no payload)
  *   {"type":"audio","id":1,"rate":24000}     the sentence as mono Float32 LE PCM
  *   {"type":"error","id":1,"message":"..."}  that sentence failed
@@ -58,8 +59,9 @@ if (tts) {
     let req
     try { req = JSON.parse(line) } catch { return }
     try {
-      // Speaker 0 (af), normal speed.
-      const audio = addon.offlineTtsGenerate(tts, { text: String(req.text || ''), sid: 0, speed: 1.0, enableExternalBuffer: false })
+      // The requested speaker (else 0, af), normal speed.
+      const sid = Number.isInteger(req.sid) && req.sid >= 0 && req.sid <= 10 ? req.sid : 0
+      const audio = addon.offlineTtsGenerate(tts, { text: String(req.text || ''), sid, speed: 1.0, enableExternalBuffer: false })
       const pcm = Float32Array.from(audio.samples)
       frame({ type: 'audio', id: req.id, rate: audio.sampleRate }, Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength))
     } catch (e) {

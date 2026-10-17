@@ -9,6 +9,7 @@ import type { ChatImage } from './chat-images'
 import type { FalRun } from './api'
 import type { UthanaRun } from './uthana'
 import type { UsageMode } from './usage-mode'
+import type { ReplyVoiceId } from './reply-voice'
 
 export type TaskKind = 'ship' | 'scout'
 
@@ -860,6 +861,8 @@ export interface Settings {
   /** Clean chat: hide routine events (wakes) in the chat */
   calm: boolean
   voice: boolean
+  /** the voice that reads replies aloud: a Kokoro voice (the default, 'af', is voice 0) or 'windows' */
+  replyVoice: ReplyVoiceId
   desktopNotifications: boolean
   webhookUrl: string
   webhookKind: 'discord' | 'slack' | 'generic'

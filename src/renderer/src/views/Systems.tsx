@@ -8,6 +8,7 @@ import { USAGE_MODES, USAGE_MODE_LABEL, modeSummary, pctText, planLabel, type Us
 import { SETTINGS_GROUP_LABEL, SETTINGS_PAGES, settingsPage, type SettingsPage, type SettingsPageId } from '@shared/settings-pages'
 import { effectiveEngine } from '@shared/engine'
 import { supportsUnitySlots } from '@shared/play'
+import { REPLY_VOICES } from '@shared/reply-voice'
 import { PlanMeter, useUsagePolicyState } from '../components/PlanMeter'
 import {
   accountActions, GENIO_CODEX, type AccountStatus, type ApiKeyStatus, type ExplorerStatus, type FalSpend, type SessionCleanupPreview, type SessionCleanupProgress,
@@ -315,6 +316,7 @@ function SectionBody({ sec, s }: { sec: SettingsPageId; s: Settings }) {
           <Row label="Read replies aloud" hint="Genio speaks its chat replies with a voice that runs on this PC.">
             <Toggle checked={s.voice} onChange={(v) => set({ voice: v })} />
           </Row>
+          {s.voice && <ReplyVoiceRow value={s.replyVoice} />}
           <Row label="Scanlines and grid">
             <Toggle
               checked={s.fx}
@@ -588,6 +590,25 @@ function pinnedOverrides(s: Settings, view: UsagePolicyView | null): Pin[] {
     })
   }
   return out
+}
+
+/** The voice that reads replies, under Read replies aloud: shown only once the natural voice is downloaded. */
+function ReplyVoiceRow({ value }: { value: Settings['replyVoice'] }) {
+  const [installed, setInstalled] = useState(false)
+  useEffect(() => {
+    let alive = true
+    void api().voiceOutputStatus().then((st) => { if (alive) setInstalled(st.state === 'ready') }).catch(() => undefined)
+    const off = window.genio?.on?.((e) => { if (e.type === 'voice-output-install') setInstalled(e.state === 'ready') })
+    return () => { alive = false; off?.() }
+  }, [])
+  if (!installed) return null
+  return (
+    <Row label="Voice">
+      <select className="select" aria-label="Voice" value={value} onChange={(e) => set({ replyVoice: e.target.value as Settings['replyVoice'] })}>
+        {REPLY_VOICES.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+      </select>
+    </Row>
+  )
 }
 
 /** The stored alarm string stays 'off' | 'auto' | 'command:<cmd>'; the row shows it as a choice plus a command box. */

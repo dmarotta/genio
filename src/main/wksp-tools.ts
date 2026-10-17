@@ -52,6 +52,7 @@ const DESIGN_NOTES_WRITE =
   'An existing note needs since = the version you last read; a note changed since then is refused. 16 KB per note, 64 KB for the folder.'
 import { listNotes, readNote, writeNote } from './design-notes'
 import { CATEGORY_IDS } from '@shared/dispatch'
+import { REPLY_VOICE_IDS } from '@shared/reply-voice'
 import { playService } from './play'
 import { formatStatusLine } from './status'
 import { settingsPath } from '@shared/settings-pages'
@@ -361,14 +362,14 @@ export function createToolRegistry(
     return ok(found)
   })
   const preferenceShape = { usageMode: z.enum(['save', 'balanced', 'max']).optional(), sound: z.boolean().optional(),
-    soundVolume: z.number().min(0).max(1).optional(), voice: z.boolean().optional(), calm: z.boolean().optional(),
+    soundVolume: z.number().min(0).max(1).optional(), voice: z.boolean().optional(), replyVoice: z.enum(REPLY_VOICE_IDS).optional(), calm: z.boolean().optional(),
     fx: z.boolean().optional(), desktopNotifications: z.boolean().optional() }
   const preferences = () => {
     const s = getCtx().settings.get()
-    return { usageMode: s.usageMode, sound: s.sound, soundVolume: s.soundVolume, voice: s.voice,
+    return { usageMode: s.usageMode, sound: s.sound, soundVolume: s.soundVolume, voice: s.voice, replyVoice: s.replyVoice,
       calm: s.calm, fx: s.fx, desktopNotifications: s.desktopNotifications }
   }
-  t('settings_read', `Read supported chat/app preferences without secrets or large configuration skills. Where the player sees them: usageMode in ${settingsPath('usage')}; calm is Clean chat, fx is Scanlines and grid, voice is Read replies aloud, all in ${settingsPath('general')}; sound, soundVolume and desktopNotifications in ${settingsPath('notifications')}. Advanced models, accounts and security settings are elsewhere in Settings, e.g. ${settingsPath('accounts')} or ${settingsPath('dispatch')}.`, {}, () => ok(json(preferences())))
+  t('settings_read', `Read supported chat/app preferences without secrets or large configuration skills. Where the player sees them: usageMode in ${settingsPath('usage')}; calm is Clean chat, fx is Scanlines and grid, voice is Read replies aloud and replyVoice the voice under it (shown once the natural voice is downloaded), all in ${settingsPath('general')}; sound, soundVolume and desktopNotifications in ${settingsPath('notifications')}. Advanced models, accounts and security settings are elsewhere in Settings, e.g. ${settingsPath('accounts')} or ${settingsPath('dispatch')}.`, {}, () => ok(json(preferences())))
   t('settings_update', 'Change only these named preferences when the player requests it; player_words quotes their request verbatim from their own chat message (Genio checks it). Does not change permissions, accounts or spending allowances.', {
     player_words: z.string().trim().min(1), patch: z.strictObject(preferenceShape)
   }, ({ player_words, patch }) => {

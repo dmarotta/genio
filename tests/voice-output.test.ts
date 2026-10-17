@@ -10,6 +10,8 @@ import {
 } from '../src/main/voice-output'
 import { routeProjectEvent } from '../src/main/project-windows'
 import type { FleetSnapshot } from '../src/shared/types'
+import { DEFAULT_REPLY_VOICE, REPLY_VOICES, speakerId } from '../src/shared/reply-voice'
+import { defaultSettings } from '../src/main/settings'
 
 // No real model or download: the real helper script driven by a fake addon (tests/fixtures/fake-kokoro-addon.cjs),
 // run with this Node, and a fake fetch.
@@ -217,6 +219,29 @@ describe('the helper (fake addon, no model)', () => {
     voice.stop()
     expect(voice.running()).toBe(false)
     await expect(voice.synth('After quit.')).rejects.toThrow(/closing/)
+  })
+})
+
+describe('the reply voice', () => {
+  it('defaults to Kokoro voice 0 (af) and maps each of the 11 voices to its speaker id', () => {
+    expect(defaultSettings().replyVoice).toBe(DEFAULT_REPLY_VOICE)
+    expect(speakerId(defaultSettings().replyVoice)).toBe(0)
+    expect(REPLY_VOICES.map((v) => v.id)).toEqual(['af', 'af_bella', 'af_nicole', 'af_sarah', 'af_sky', 'am_adam', 'am_michael', 'bf_emma', 'bf_isabella', 'bm_george', 'bm_lewis', 'windows'])
+    expect(REPLY_VOICES.map((v) => speakerId(v.id))).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0])
+    expect(speakerId('no-such-voice')).toBe(0)
+    expect(speakerId(undefined)).toBe(0)
+  })
+
+  it('sends the saved choice with every sentence, so a new choice applies from the next one without a restart', async () => {
+    let saved = defaultSettings().replyVoice as string
+    const { voice, dir } = installed({ speaker: () => speakerId(saved) })
+    await voice.synth('First.')
+    saved = 'bf_emma'
+    await voice.synth('Second.')
+    saved = 'bm_lewis'
+    await voice.synth('Third.')
+    const requests = fs.readFileSync(path.join(dir, MODEL_DIR, 'requests.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+    expect(requests).toEqual([{ text: 'First.', sid: 0 }, { text: 'Second.', sid: 7 }, { text: 'Third.', sid: 10 }])
   })
 })
 

@@ -64,6 +64,23 @@ describe('ReplyVoice', () => {
     expect(h.calls).toEqual([])
   })
 
+  it('speaks with the Windows voice when it is the chosen voice, even with the natural voice installed', async () => {
+    const h = harness('ready')
+    await h.voice.speak('First reply. With `code`.', 'windows')
+    expect(h.system).toEqual(['First reply. With code.'])
+    expect(h.calls).toEqual([])
+    expect(h.offers).toEqual([])
+    const missing = harness('missing')
+    await missing.voice.speak('Hello.', 'windows')
+    expect(missing.system).toEqual(['Hello.'])
+    expect(missing.offers).toEqual([])
+    const kokoro = harness('ready')
+    void kokoro.voice.speak('Hello.', 'bf_emma')
+    await tick()
+    expect(kokoro.calls.map((c) => c.text)).toEqual(['Hello.'])
+    expect(kokoro.system).toEqual([])
+  })
+
   it('never offers after Not now, nor during the download', async () => {
     for (const h of [harness('missing', true), harness('downloading')]) {
       await h.voice.speak('Hello.')

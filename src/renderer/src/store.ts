@@ -516,7 +516,7 @@ export function handleEvent(ev: GenioEvent): void {
       playSfx(ev.sound, s.settings)
       break
     case 'speak':
-      if (s.settings?.voice) speak(ev.text)
+      if (s.settings?.voice) speak(ev.text, s.settings.replyVoice)
       break
     case 'navigate': {
       // a desktop notification was clicked

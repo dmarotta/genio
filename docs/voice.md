@@ -1,7 +1,7 @@
 # Voice
 
-Talk to Genio's chat and hear its replies, all on this PC: nothing is sent anywhere, nothing costs money, and there is
-no voice setting beyond the existing **Read replies aloud**.
+Talk to Genio's chat and hear its replies, all on this PC: nothing is sent anywhere and nothing costs money. The only
+settings are **Read replies aloud** and, once the natural voice is downloaded, the **Voice** under it.
 
 ## Voice input (push to talk)
 
@@ -55,6 +55,12 @@ no voice setting beyond the existing **Read replies aloud**.
 - **Settings → General → Read replies aloud** (off by default). Genio speaks the last text of each successful chat
   turn, in the windows that show that chat (never twice, never in the Hub). Speech starts at the end of the turn. An
   event turn with nothing to report ends silent and is never spoken.
+- **Settings → General → Voice**, directly under the toggle, picks who speaks. It is shown only while Read replies
+  aloud is on and the natural voice is downloaded, with nothing else around it. It lists the 11 Kokoro voices under
+  plain names (Default for `af`, then Bella, Nicole, Sarah, Sky, Adam, Michael, Emma (British), Isabella (British),
+  George (British), Lewis (British)) and last **Windows voice**, which always speaks with the Windows voice. The default
+  is Default (voice 0), so nothing changes for anyone who never touches it. The choice is saved in the settings
+  (`replyVoice`) and applies from the next spoken sentence; Genio's chat can change it too (`settings_update`).
 - What is spoken: code blocks become "code block omitted", tables are skipped, URLs become "link", file paths become
   "path", and a long reply is cut at a sentence end near 600 characters.
 - **Pressing the mic, or Esc in the chat box, stops it at once.** A newer reply replaces an older one.
@@ -74,7 +80,9 @@ no voice setting beyond the existing **Read replies aloud**.
   - the sherpa-onnx 1.13.8 Node addon for Windows x64 (`sherpa-onnx-win-x64` from the npm registry, 8.9 MB: the addon,
     its C API and onnxruntime; Apache-2.0 and MIT, with espeak-ng built in, GPL-3.0-or-later);
   - Kokoro en v0.19 from the sherpa-onnx `tts-models` release (320 MB: the 82M-parameter model, 11 voices, the token
-    list and espeak-ng's phoneme data; weights Apache-2.0). Genio speaks with voice 0 (af).
+    list and espeak-ng's phoneme data; weights Apache-2.0). The voices, by speaker id: 0 `af`, 1 `af_bella`,
+    2 `af_nicole`, 3 `af_sarah`, 4 `af_sky`, 5 `am_adam`, 6 `am_michael`, 7 `bf_emma`, 8 `bf_isabella`, 9 `bm_george`,
+    10 `bm_lewis` (`src/shared/reply-voice.ts`). Genio speaks with voice 0 unless another is chosen.
   - Stored in `<Genio home>/data/voice/kokoro/`; only the addon's binaries and the model folder are kept.
 - **Removing it:** quit Genio (or leave the voice idle for 10 minutes) and delete `<Genio home>/data/voice/kokoro/`;
   the next spoken reply offers it again.
@@ -84,11 +92,13 @@ no voice setting beyond the existing **Read replies aloud**.
 - **The helper** is `resources/kokoro-helper.cjs`, run as its own process (Genio's Electron run as Node) on the first
   sentence: 2 threads, CPU only, above-normal priority. It loads the model once and holds about 0.5 GB of RAM; it exits
   after 10 idle minutes, when Genio quits, and when its pipe to Genio closes.
+  - Each sentence request carries the speaker id of the saved voice, read by Genio's main process per request, so a new
+    choice needs no restart of the helper.
   - Measured on the Ryzen 7 5800X: start and model load 2.0 s, then about 1.2 s for a short first sentence; with the
     CPU saturated by other work, 4.8 s and 3.0 s. Later sentences are made while earlier ones play.
 - **Stopping** (the mic, Esc, a newer reply): every queued buffer stops at once and every sentence still pending in
   Genio's main process fails; a sentence the helper is already making is dropped when it arrives.
-- **The Windows voice stays the fallback**: whenever the natural voice is missing, declined, still downloading, or
+- **The Windows voice stays the fallback**: whenever it is the chosen voice, or the natural voice is missing, declined, still downloading, or
   fails (for the rest of that reply).
 
 ### License check (espeak-ng)
@@ -132,5 +142,5 @@ builds). Genio is MIT. Shipping it this way is fine:
 
 ## Later
 
-Not planned for now: speaking during a turn, hands-free listening, a GPU path, other languages and voices, and Codex's
-realtime voice.
+Not planned for now: speaking during a turn, hands-free listening, a GPU path, other languages, a sample-play button for
+the voices, and Codex's realtime voice.

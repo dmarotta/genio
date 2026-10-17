@@ -24,10 +24,11 @@ const f = vi.hoisted(() => {
     falWorld: async () => ({ engine: 'unity', engineRoot: '', config: {} }),
     uthanaWorld: async () => ({ folder: 'Assets/Animations', config: {} }),
     projectMetadata: async () => ({}),
-    projectPushStatus: async () => ({ ahead: 0, behind: 0 })
+    projectPushStatus: async () => ({ ahead: 0, behind: 0 }),
+    voiceOutputStatus: async () => ({ state: f.voiceState, declined: false, received: 0, total: 1 })
   }
   const api = new Proxy({}, { get: (_, key: string) => (...args: unknown[]) => { calls.push(key); return (known[key] ?? (async () => ({})))(...args) } })
-  return { calls, api, projects: [] as Project[], window: 'Zebra' as string, settings: undefined as unknown }
+  return { calls, api, projects: [] as Project[], window: 'Zebra' as string, settings: undefined as unknown, voiceState: 'missing' as string }
 })
 vi.mock('../src/renderer/src/store', () => ({
   get PROJECT_WINDOW() { return f.window },
@@ -73,6 +74,7 @@ beforeEach(() => {
   f.settings = defaultSettings()
   f.projects = [project('Zebra', 'unity')]
   f.window = 'Zebra'
+  f.voiceState = 'missing'
   localStorage.clear()
   vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => setTimeout(() => cb(0), 0))
   vi.stubGlobal('cancelAnimationFrame', (id: number) => clearTimeout(id))
@@ -318,6 +320,33 @@ describe('search index', () => {
       }
     }
     expect(hinted).toEqual(['Max units at once', 'OpenRouter models', 'Read replies aloud'])
+  })
+
+  it('shows the Voice drop-down under Read replies aloud only once the natural voice is downloaded, and saves the choice', async () => {
+    const voiceSelect = () => host.querySelector<HTMLSelectElement>('select[aria-label="Voice"]')
+    f.settings = { ...defaultSettings(), voice: true }
+    await mount()
+    await open('general')
+    expect(voiceSelect()).toBeNull()
+    await act(async () => root.unmount())
+    root = createRoot(host)
+    f.voiceState = 'ready'
+    await mount()
+    await open('general')
+    const select = voiceSelect()!
+    expect(select.value).toBe('af')
+    expect([...select.options].map((o) => o.text)).toEqual(['Default', 'Bella', 'Nicole', 'Sarah', 'Sky', 'Adam', 'Michael', 'Emma (British)', 'Isabella (British)', 'George (British)', 'Lewis (British)', 'Windows voice'])
+    const rows = [...host.querySelectorAll('.sys-row-title')].map((e) => e.textContent)
+    expect(rows[rows.indexOf('Read replies aloud') + 1]).toBe('Voice')
+    vi.mocked(saveSettings).mockClear()
+    await act(async () => { select.value = 'bf_emma'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+    expect(saveSettings).toHaveBeenLastCalledWith({ replyVoice: 'bf_emma' })
+    await act(async () => root.unmount())
+    root = createRoot(host)
+    f.settings = { ...defaultSettings(), voice: false }
+    await mount()
+    await open('general')
+    expect(voiceSelect()).toBeNull()
   })
 
   it('shows the alarm as a choice plus a command box, saving the same stored string', async () => {

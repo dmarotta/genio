@@ -64,7 +64,8 @@ const ROWS: Partial<Record<SettingsPageId, RowSpec[]>> = {
   'project-unity': [['Slots', ['Unity slots for units', 'Maximum slots', 'Slot editor windows', 'Slot windows'], 'unity-slots']],
   general: [
     ['Gamertag', ['Name']],
-    ['Read replies aloud', ['Voice', 'Speech']],
+    // The Voice drop-down under it shows only once the natural voice is downloaded, so its words lead here.
+    ['Read replies aloud', ['Voice', 'Speech', 'Reply voice', 'Natural voice', 'Kokoro', 'Windows voice']],
     ['Scanlines and grid', ['Visual FX', 'Effects']],
     ['Clean chat', ['Clean HUD', 'Calm', 'Tool chatter']],
     ['Desktop notifications', ['Toasts', 'Notify']],

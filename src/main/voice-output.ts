@@ -6,8 +6,9 @@
  *   (resources/kokoro-helper.cjs), which Genio talks to over pipes: text in, PCM out.
  * - The helper starts on the first sentence, with 2 threads at above-normal priority, and keeps the model loaded; it
  *   exits after 10 idle minutes and when Genio quits.
- * - One sentence per request, in order. Cancel rejects every pending request at once; a sentence the helper is already
- *   working on is dropped when it arrives.
+ * - One sentence per request, in order, each with the Kokoro speaker id of the saved reply voice (read per request, so a
+ *   new choice applies from the next sentence without restarting the helper). Cancel rejects every pending request at
+ *   once; a sentence the helper is already working on is dropped when it arrives.
  */
 import { spawn, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
@@ -19,6 +20,7 @@ import type { AppCtx } from './services'
 import { bus } from './bus'
 import { killTree } from './util'
 import { fetchVerified, type VoiceDownload } from './voice-input'
+import { speakerId } from '@shared/reply-voice'
 
 const IDLE_MS = 10 * 60_000
 const START_TIMEOUT_MS = 60_000
@@ -98,6 +100,8 @@ export interface VoiceOutputOptions {
   /** Runs the helper as Node; the default is Genio's own Electron with ELECTRON_RUN_AS_NODE. */
   execPath?: string
   unlock: (id: string) => void
+  /** The Kokoro speaker id to speak with (the saved reply voice); 0 when unset. */
+  speaker?: () => number
   publish?: (status: Pick<VoiceOutputStatus, 'state' | 'received' | 'total'> & { error?: string }) => void
   idleMs?: number
   sentenceTimeoutMs?: number
@@ -221,7 +225,7 @@ export class VoiceOutput {
         reject(new Error('The natural voice took too long.'))
       }, this.opts.sentenceTimeoutMs ?? SENTENCE_TIMEOUT_MS)
       h.pending.set(id, { resolve, reject, timer })
-      h.proc.stdin?.write(JSON.stringify({ id, text }) + '\n')
+      h.proc.stdin?.write(JSON.stringify({ id, text, sid: this.opts.speaker?.() ?? 0 }) + '\n')
     })
   }
 
@@ -333,6 +337,7 @@ export function voiceOutput(ctx: AppCtx): VoiceOutput {
       dir: path.join(ctx.main.home.data, 'voice', 'kokoro'),
       helperScript: path.join(ctx.appRoot, 'resources', 'kokoro-helper.cjs'),
       unlock: id => { try { ctx.stats.unlock(id) } catch { /* stats unavailable */ } },
+      speaker: () => speakerId(ctx.settings.get().replyVoice),
       publish: status => bus.publish({ type: 'voice-output-install', ...status })
     })
     // Turning Read replies aloud on again brings back an offer the player put off.

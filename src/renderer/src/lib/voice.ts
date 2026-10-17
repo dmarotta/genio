@@ -1,5 +1,6 @@
 /** Text-to-speech for Genio replies ("Read replies aloud"; the voice relay analogue). docs/voice.md */
 import type { GenioApi } from '@shared/api'
+import { WINDOWS_VOICE } from '@shared/reply-voice'
 
 /** About how much of a reply is read: cut at a sentence end near here. */
 export const SPEAK_LIMIT = 600
@@ -118,8 +119,8 @@ export interface ReplyVoiceDeps {
 /**
  * Speaks replies with the natural voice (Kokoro, through main's helper) when it is installed: one sentence per request,
  * each played through an AudioContext queue as soon as it arrives while the next is synthesized. stop() stops every
- * queued buffer at once and fails what main still has pending. The Windows voice takes over whenever the natural
- * voice is missing, declined or fails (for the rest of the reply).
+ * queued buffer at once and fails what main still has pending. The Windows voice takes over whenever it is the
+ * chosen reply voice, or the natural voice is missing, declined or fails (for the rest of the reply).
  */
 export class ReplyVoice {
   private ticket = 0
@@ -131,10 +132,15 @@ export class ReplyVoice {
 
   constructor(private readonly deps: ReplyVoiceDeps) {}
 
-  async speak(text: string): Promise<void> {
+  /** `voice` is the saved reply voice: 'windows' always speaks with the Windows voice (the Kokoro speaker is main's). */
+  async speak(text: string, voice?: string): Promise<void> {
     const clean = speakable(text)
     if (!clean) return
     this.stop()
+    if (voice === WINDOWS_VOICE) {
+      this.deps.system(clean)
+      return
+    }
     const ticket = this.ticket
     let status: Awaited<ReturnType<ReplyVoiceDeps['status']>> | undefined
     try { status = await this.deps.status() } catch { status = undefined }
@@ -216,9 +222,9 @@ function voice(): ReplyVoice {
   }))
 }
 
-export function speak(text: string): void {
+export function speak(text: string, replyVoice?: string): void {
   try {
-    void voice().speak(text).catch(() => undefined)
+    void voice().speak(text, replyVoice).catch(() => undefined)
   } catch {
     /* no speech */
   }
