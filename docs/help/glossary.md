@@ -220,6 +220,17 @@ has headroom) wait until the reset. Running work is never stopped, and pinned pi
 Where: Settings → Usage & limits (notices and the plan meter); the rail's gauge icon.
 Source: [usage-protection.md](../usage-protection.md), [chat-limits.md](../chat-limits.md)
 
+## Sign-in warning (Claude and Codex)
+
+When Claude or Codex is not signed in, the Systems button on the rail shows an amber mark; hover it for which one
+("Codex is not signed in"), click it to open Accounts & keys and sign in. It clears by itself once you are signed in.
+Only Claude and Codex warn (never FAL, Uthana, GitHub, Unity or other sign-ins). Genio runs Codex only in its own
+Codex home, signed in once with your usual ChatGPT account (Accounts & keys → "Sign in Genio's Codex (same account)");
+it never uses your own Codex login, and an API-key login does not count. Until then Genio picks Claude for units, and
+Codex shows nothing in the usage popup.
+Where: the rail's Systems button; Settings → Accounts & keys.
+Source: [codex-sessions.md](../codex-sessions.md), [usage-protection.md](../usage-protection.md)
+
 ## Effort levels
 
 How hard a model thinks: low, medium, high, xhigh, max. The Usage mode picks it unless you pin one; quota protection

@@ -1103,6 +1103,8 @@ export type GenioEvent =
   | { type: 'terminal'; terminal: TerminalInfo }
   | { type: 'terminal-removed'; id: string }
   | { type: 'model-catalogue-invalidated' }
+  /** The tools that need a sign-in right now ('Claude', 'Codex'); empty when none. Sent when the list changes. */
+  | { type: 'sign-in-needed'; tools: string[] }
   | { type: 'settings'; settings: Settings }
   | { type: 'allies'; allies: Ally[] }
   | { type: 'sfx'; sound: SfxName }

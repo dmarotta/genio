@@ -91,6 +91,21 @@ describe('precedence: explicit > rules > category table > default', () => {
     expect(l.harness).toBe('claude')
     expect(l.reasons.join('\n')).toContain(`Codex CLI / ${CODEX_UNIT_MODEL} skipped: not logged in`)
   })
+
+  it("Codex without Genio's own sign-in is never picked: the job goes to Claude and the reasons say why", () => {
+    const codexOut = env(ALL, { loggedOut: (id) => id === 'codex' })
+    for (const category of ['tests', 'feature', 'bugfix'] as const) {
+      const l = pickLoadout({ ...base, category }, settings(), codexOut)
+      expect(l.harness).toBe('claude')
+      expect(l.reasons.join('\n')).toMatch(/Codex CLI.* skipped: not logged in \(Genio's own Codex sign-in; picking another tool\)/)
+    }
+    // a sticky follow-up on Codex is picked again, not relaunched on Codex
+    const sticky = pickLoadout({ ...base, category: 'tests', sticky: { harness: 'codex', from: 'unit-1', category: 'tests' } }, settings(), codexOut)
+    expect(sticky.harness).toBe('claude')
+    expect(sticky.reasons.join('\n')).toContain('is not available now: picking again')
+    // an explicit Codex pick is refused with the way to sign in
+    expect(() => pickLoadout({ ...base, harness: 'codex' }, settings(), codexOut)).toThrow(/not signed in.*Accounts/)
+  })
 })
 
 describe('mode dial on locked (pinned) rows', () => {

@@ -1,15 +1,15 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  codexHomeReady, codexHomes, codexLaunch, configureCodexHome, genioCodexHomeDir, GENIO_CODEX_MODEL, parseCodexHomeLogin,
-  preflightCodexHome, resetCodexHome, seedCodexHome, setCodexTrust
+  CodexNeedsSignIn, codexEnv, codexHomeReady, codexHomes, codexLaunch, codexSignedOut, configureCodexHome, genioCodexHomeDir, GENIO_CODEX_MODEL,
+  parseCodexHomeLogin, preflightCodexHome, resetCodexHome, seedCodexHome, setCodexTrust
 } from '../src/main/codex-home'
 import { fakeSignIn, fakeThread, installFakeCodex } from './helpers/fake-codex-bin'
 
 // Genio's own Codex home, with temp homes and the fake Codex CLI only: never the player's real ~/.codex.
-let root: string, genio: string, player: string, warn: Mock<(message: string) => void>
+let root: string, genio: string, player: string
 const config = (): string => fs.readFileSync(path.join(genio, 'config.toml'), 'utf8')
 
 beforeEach(() => {
@@ -19,8 +19,7 @@ beforeEach(() => {
   fs.mkdirSync(player, { recursive: true })
   vi.stubEnv('CODEX_HOME', player)
   installFakeCodex(path.join(root, 'bin'))
-  warn = vi.fn<(message: string) => void>()
-  configureCodexHome({ dir: genio, warn })
+  configureCodexHome({ dir: genio })
 })
 afterEach(() => {
   configureCodexHome(undefined)
@@ -91,51 +90,90 @@ describe('sign-in state', () => {
   })
 })
 
-describe('preflight and fallback', () => {
-  it("falls back to the player's home until signed in, warning once and only for visible launches", async () => {
+/** Every file under a folder, relative, to prove a home was neither read into nor written. */
+const tree = (dir: string): string[] => fs.existsSync(dir) ? fs.readdirSync(dir, { recursive: true }).map(String).sort() : []
+
+describe('needs sign-in: Codex runs only in a signed-in Genio home', () => {
+  const needsSignIn = (): Promise<unknown> => expect(codexLaunch()).rejects.toThrow(CodexNeedsSignIn)
+
+  it("refuses every launch until Genio's own home is signed in, whatever the player's own login is", async () => {
     fakeSignIn(player)
-    expect(await codexLaunch()).toEqual({ env: {}, isolated: false, codexHome: player })
-    expect(warn).not.toHaveBeenCalled()
-    await codexLaunch({ visible: true })
-    await codexLaunch({ visible: true })
-    expect(warn).toHaveBeenCalledOnce()
-    expect(warn.mock.calls[0][0]).toMatch(/not signed in yet.*Sign in Genio's Codex \(same account\)/s)
+    await needsSignIn()
+    await needsSignIn()
+    expect(codexSignedOut()).toBe(true)
+    // the player's home is untouched: no config, no thread, nothing but the login the test made
+    expect(tree(player)).toEqual(['fake-login'])
     // the player signs in from Accounts: the next launch moves into Genio's home
     fakeSignIn(genio)
     resetCodexHome()
-    expect(await codexLaunch({ visible: true })).toEqual({ env: { CODEX_HOME: genio }, isolated: true, codexHome: genio })
+    expect(await codexLaunch()).toEqual({ env: { CODEX_HOME: genio }, isolated: true, codexHome: genio })
+    expect(codexSignedOut()).toBe(false)
   })
 
-  it('notices a sign-in made elsewhere after the recheck interval, and keeps a signed-in answer', async () => {
-    configureCodexHome({ dir: genio, warn, recheckMs: 0 })
-    expect((await codexHomeReady()).ok).toBe(false)
+  it('a dummy API-key login in the player home changes nothing: still needs sign-in, nothing written there', async () => {
+    fakeSignIn(player, 'Logged in using an API key - sk-dummy-***abcd')
+    await needsSignIn()
+    expect(tree(player)).toEqual(['fake-login'])
+    expect(fs.readFileSync(path.join(player, 'fake-login'), 'utf8')).toContain('API key')
+  })
+
+  it('an API-key login in Genio\'s own home is not signed in either', async () => {
+    fakeSignIn(genio, 'Logged in using an API key - sk-proj-***abcd')
+    await needsSignIn()
+    expect((await codexHomeReady()).reason).toContain('API key')
+    expect(codexSignedOut()).toBe(true)
+  })
+
+  it('checks once: the answer stands (no repeated probes) until a sign-in resets it or a fresh check is asked', async () => {
+    const cli = vi.fn(async () => ({ code: 1, stdout: 'Not logged in', stderr: '' }))
+    configureCodexHome({ dir: genio, cli })
+    await needsSignIn()
+    await needsSignIn()
+    await codexHomeReady()
+    expect(cli).toHaveBeenCalledOnce()
+    await codexHomeReady(true)
+    expect(cli).toHaveBeenCalledTimes(2)
+    resetCodexHome()
+    await needsSignIn()
+    expect(cli).toHaveBeenCalledTimes(3)
+  })
+
+  it('keeps a signed-in answer for this start, and a fresh check notices a lost sign-in', async () => {
     fakeSignIn(genio)
     expect((await codexHomeReady()).ok).toBe(true)
     fs.rmSync(path.join(genio, 'fake-login'))
     expect((await codexHomeReady()).ok).toBe(true)
     expect((await codexHomeReady(true)).ok).toBe(false)
+    expect(codexSignedOut()).toBe(true)
   })
 
-  it('an API-key login is never used: the fallback names it', async () => {
-    fakeSignIn(genio, 'Logged in using an API key - sk-proj-***abcd')
-    expect((await codexLaunch({ visible: true })).isolated).toBe(false)
-    expect(warn.mock.calls[0][0]).toContain('API key')
-  })
-
-  it('stays quiet when the Codex CLI is missing (the launch itself reports that)', async () => {
+  it('a missing Codex CLI is not "needs sign-in" (nothing to sign in to), and still starts nothing', async () => {
     vi.stubEnv('GENIO_CODEX_BIN', '')
     vi.stubEnv('PATH', path.join(root, 'empty'))
     for (const k of ['APPDATA', 'USERPROFILE', 'HOME']) vi.stubEnv(k, root)
     const { clearWhichCache } = await import('../src/main/util')
     clearWhichCache()
-    expect((await codexLaunch({ visible: true })).isolated).toBe(false)
-    expect(warn).not.toHaveBeenCalled()
+    await expect(codexLaunch()).rejects.toThrow('Codex CLI was not found')
+    expect(codexSignedOut()).toBe(false)
   })
 
   it('without a configured home everything stays as before', async () => {
     configureCodexHome(undefined)
-    expect(await codexLaunch({ visible: true })).toEqual({ env: {}, isolated: false, codexHome: player })
+    expect(await codexLaunch()).toEqual({ env: {}, isolated: false, codexHome: player })
     expect(codexHomes()).toEqual([player])
+  })
+
+  it("no launch path reads or writes the player's home while Genio's is unsigned, resume included", async () => {
+    const cwd = path.join(root, 'worktrees', 'world', 'unit')
+    fakeThread(player, 'legacy-thread', cwd)
+    const before = tree(player)
+    const mtime = fs.statSync(path.join(player, 'sessions')).mtimeMs
+    for (const o of [{}, { resume: { cwd } }, { resume: { cwd, home: player } }]) await expect(codexLaunch(o)).rejects.toThrow(CodexNeedsSignIn)
+    await expect(codexEnv()).rejects.toThrow(CodexNeedsSignIn)
+    expect(tree(player)).toEqual(before)
+    expect(fs.statSync(path.join(player, 'sessions')).mtimeMs).toBe(mtime)
+    // only Genio's own home was seeded (config.toml, no credential)
+    expect(tree(genio)).toEqual(['config.toml'])
   })
 })
 
@@ -145,13 +183,13 @@ describe('resume follows the thread', () => {
   it("resumes in Genio's home when the thread is there", async () => {
     fakeSignIn(genio)
     fakeThread(genio, 'genio-thread', cwd())
-    expect(await codexLaunch({ resume: { cwd: cwd() }, visible: true })).toMatchObject({ isolated: true, codexHome: genio })
+    expect(await codexLaunch({ resume: { cwd: cwd() } })).toMatchObject({ isolated: true, codexHome: genio })
   })
 
-  it("a unit from before Genio's home resumes in the player's home, where its thread is", async () => {
+  it("a unit from before Genio's home resumes in the player's home, where its thread is, once Genio's home is signed in", async () => {
     fakeSignIn(genio)
     fakeThread(player, 'legacy-thread', cwd())
-    expect(await codexLaunch({ resume: { cwd: cwd() }, visible: true })).toEqual({ env: {}, isolated: false, codexHome: player })
+    expect(await codexLaunch({ resume: { cwd: cwd() } })).toEqual({ env: {}, isolated: false, codexHome: player })
   })
 
   it('the recorded home wins, including archived threads', async () => {

@@ -25,6 +25,7 @@ import { createExplorerIntegration, explorerCommand } from './explorer'
 import { API_PREFIX, type GenioApi, type OpResult, type WindowList } from '@shared/api'
 import type { BacklogItem, Task } from '@shared/types'
 import { listAccounts, openAccountSession } from './accounts'
+import { currentSignInNeeds, noteSignInAccounts } from './sign-in-watch'
 import { answerChoice, applyRecommendations, findDecision, findTask } from './wksp-tools'
 import { resolveLoadout } from './loadout'
 import { sendPlayerChat } from './wksp'
@@ -266,8 +267,10 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     accounts: async () => {
       const list = await listAccounts()
       ctx().dispatch.noteLogins(list)
+      noteSignInAccounts(list)
       return list
     },
+    signInNeeded: async () => currentSignInNeeds(),
     accountSession: (tool, action) => openAccountSession(ctx(), tool, action),
     accountUsage: async () => {
       const r = await usageReport(ctx())

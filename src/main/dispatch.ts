@@ -27,6 +27,7 @@ import { SessionQuotaPolicy } from './session-usage'
 import { PolicyNotices, claudeStatus, globalMode, holdsCapacity, liveUnits, worldUsage } from './usage-policy'
 import { readJson } from './util'
 import { claudeProbeError } from './claude-usage-probe'
+import { codexSignedOut } from './codex-home'
 import { settingsPath } from '@shared/settings-pages'
 
 const USAGE_TTL = 5 * 60_000
@@ -84,11 +85,14 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
     return plans
   }
 
+  /** Codex counts as logged out whenever Genio's own Codex home is not signed in, even before the account list refreshes. */
+  const loggedOut = (id: string): boolean => (id === 'codex' && codexSignedOut()) || logins.get(ACCOUNT_OF[id] ?? id) === 'logged-out'
+
   /** Plans automatic units can use on this machine: installed, enabled and not logged out. */
   const automaticPlans = (): PlanStatus[] => {
     const ready = new Set(getCtx().settings.availableHarnesses().map((h) => h.id))
     const plans = plansNow()
-    return (['claude', 'codex'] as const).filter((id) => ready.has(id) && logins.get(id) !== 'logged-out').map((id) => plans[id])
+    return (['claude', 'codex'] as const).filter((id) => ready.has(id) && !loggedOut(id)).map((id) => plans[id])
   }
 
   const queued = (): BacklogItem[] =>
@@ -172,7 +176,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
       const world = ctx.projects.get(project)
       const usage = worldUsage(s, world ? { ...world, name: world.name ?? project } : undefined)
       const env: Omit<PickEnv, 'available'> = {
-        loggedOut: (id) => logins.get(ACCOUNT_OF[id] ?? id) === 'logged-out',
+        loggedOut,
         quota,
         unavailable,
         cheap: cheapFor(cheapModelsAllowed(world)),
@@ -287,7 +291,8 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
           return { ...u, cap: unitCaps(mode, { mode: u.source !== 'global' ? u.mode : undefined, capacity: p.capacity }).world }
         }),
         plans: [plans.claude, plans.codex],
-        meter: meterRows(meterReport),
+        // Codex not signed in: nothing to show for it (the Accounts row says Sign in).
+        meter: meterRows(meterReport).filter((r) => r.plan !== 'codex' || !codexSignedOut()),
         notices: new PolicyNotices(dataDir()).list().slice(0, 10),
         waiting,
         cheap: cheapFor(true)

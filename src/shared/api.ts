@@ -133,13 +133,34 @@ export interface AccountStatus {
 export const GENIO_CODEX = 'codex-genio'
 
 /**
- * The login each runtime actually uses: Codex runs in Genio's own home once it
- * is signed in, so that row stands in for the player's own Codex login.
+ * The login each runtime actually uses: Codex runs only in Genio's own home, so
+ * that row stands in for the player's own Codex login. Not signed in there (or
+ * an API-key login) is logged out for Codex, whatever the player's own login is.
  */
 export function runtimeAccounts(list: AccountStatus[]): AccountStatus[] {
   const genio = list.find(a => a.tool === GENIO_CODEX)
-  if (genio?.state !== 'logged-in') return list
-  return list.map(a => (a.tool === 'codex' ? { ...a, state: genio.state, detail: genio.detail } : a))
+  if (!genio?.installed) return list
+  const own = genio.state === 'logged-in' ? { state: genio.state, detail: genio.detail } : { state: 'logged-out' as LoginState, detail: undefined }
+  return list.map(a => (a.tool === 'codex' ? { ...a, ...own } : a))
+}
+
+/** The warning lines for the tools that need a sign-in: 'Claude is not signed in'. */
+export const signInLines = (tools: string[]): string[] => tools.map(t => `${t} is not signed in`)
+
+/**
+ * The sign-ins Genio warns about, by name: Claude and Codex only (never FAL,
+ * Uthana, GitHub, Unity or any other). Codex counts through the login Genio
+ * runs it with. Unreadable states and tools that are not installed are not
+ * warned about: there is nothing the player can sign in to.
+ */
+export function signInNeeds(list: AccountStatus[]): ('Claude' | 'Codex')[] {
+  const runtime = runtimeAccounts(list)
+  const out: ('Claude' | 'Codex')[] = []
+  const claude = runtime.find(a => a.tool === 'claude')
+  if (claude?.installed && claude.state === 'logged-out') out.push('Claude')
+  const codex = runtime.find(a => a.tool === 'codex')
+  if (codex?.installed && codex.state === 'logged-out') out.push('Codex')
+  return out
 }
 
 /**
@@ -567,6 +588,8 @@ export interface GenioApi {
   // ---- accounts
   modelCatalogue(refresh?: boolean): Promise<ModelCatalogue>
   accounts(): Promise<AccountStatus[]>
+  /** the tools (Claude, Codex) that need a sign-in now; Genio's one sign-in warning */
+  signInNeeded(): Promise<string[]>
   /** runs the tool's own login/logout in a visible terminal */
   accountSession(tool: string, action: 'login' | 'logout'): Promise<TerminalInfo>
   /** plan limits reported by the CLIs plus usage Genio measured from local session logs */
@@ -773,6 +796,7 @@ export const API_METHODS = [
   'openExternal',
   'modelCatalogue',
   'accounts',
+  'signInNeeded',
   'accountSession',
   'accountUsage',
   'usagePolicy',

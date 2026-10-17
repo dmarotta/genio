@@ -9,9 +9,9 @@ vi.mock('../src/main/claude-usage-probe', () => ({ refreshClaudePlanUsage: async
 import { Home } from '../src/main/home'
 import { createCrewService } from '../src/main/crew'
 import { BUILTIN_HARNESSES } from '../src/main/harness'
-import { codexLaunch, configureCodexHome, genioCodexHomeDir } from '../src/main/codex-home'
+import { codexLaunch, configureCodexHome, genioCodexHomeDir, resetCodexHome } from '../src/main/codex-home'
 import { codexRolloutState } from '../src/main/codex-session'
-import { readCodexProbeLimits, refreshCodexPlanUsage } from '../src/main/codex-usage-probe'
+import { codexProbeError, readCodexProbeLimits, refreshCodexPlanUsage } from '../src/main/codex-usage-probe'
 import { codexModels } from '../src/main/model-discovery'
 import { CodexChatDriver } from '../src/main/codex-chat-driver'
 import { generateChatImages, type ChatImageGen } from '../src/main/chat-imagegen'
@@ -26,7 +26,7 @@ import { fakeSignIn, fakeThread, installFakeCodex } from './helpers/fake-codex-b
 import { FakeAppServer } from './helpers/fake-codex-server'
 
 // Every Codex launch site in Genio's own Codex home: temp homes and the fake Codex CLI only.
-let root: string, genio: string, player: string, log: string, warn: Mock<(message: string) => void>
+let root: string, genio: string, player: string, log: string
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-codex-sites-'))
   genio = genioCodexHomeDir(root)
@@ -37,8 +37,7 @@ beforeEach(() => {
   vi.stubEnv('FAKE_CODEX_LOG', log)
   installFakeCodex(path.join(root, 'bin'))
   fakeSignIn(player)
-  warn = vi.fn<(message: string) => void>()
-  configureCodexHome({ dir: genio, warn })
+  configureCodexHome({ dir: genio })
 })
 afterEach(() => {
   configureCodexHome(undefined)
@@ -84,7 +83,6 @@ describe('units', () => {
     expect(config()).toContain(`${key()}\ntrust_level = "trusted"`)
     expect(fs.existsSync(path.join(player, 'config.toml'))).toBe(false)
     expect(ctx.main.crew.get(task.id)?.codexHome).toBe(genio)
-    expect(warn).not.toHaveBeenCalled()
   })
 
   it("a respawn resumes the unit's thread by id inside Genio's home", async () => {
@@ -115,33 +113,30 @@ describe('units', () => {
     expect(await codexRolloutState('player-thread', player)).toBe('live')
   })
 
-  it("until Genio's Codex is signed in, units launch in the player's home with one notice", async () => {
-    await relaunch()
-    await relaunch()
-    expect(launches).toHaveLength(2)
-    for (const launch of launches) expect(launch.env).not.toHaveProperty('CODEX_HOME')
-    expect(ctx.main.crew.get(task.id)?.codexHome).toBe(player)
-    expect(warn).toHaveBeenCalledOnce()
-    expect(fs.existsSync(path.join(genio, 'config.toml'))).toBe(true)
+  it("until Genio's Codex is signed in, no Codex unit starts and the player's home is never used", async () => {
+    for (let i = 0; i < 2; i++) {
+      expect(await ctx.main.crew.control(task.id, 'relaunch', undefined, true)).toMatchObject({ ok: false, message: expect.stringContaining('Codex is not signed in') })
+    }
+    expect(launches).toHaveLength(0)
+    expect(ctx.main.crew.get(task.id)?.codexHome).toBeUndefined()
     expect(config()).not.toContain('[projects.')
+    expect(fs.readdirSync(player)).toEqual(['fake-login'])
   })
 
-  it("a unit started in the player's home keeps resuming there after the sign-in", async () => {
-    await relaunch()
-    fakeThread(player, 'legacy-thread', task.worktree)
+  it("a unit started in the player's home keeps resuming there once Genio's home is signed in", async () => {
     fakeSignIn(genio)
+    fakeThread(player, 'legacy-thread', task.worktree)
     await relaunch()
-    expect(launches[1].env).not.toHaveProperty('CODEX_HOME')
-    expect(launches[1].args?.slice(0, 2)).toEqual(['resume', 'legacy-thread'])
+    expect(launches[0].env).not.toHaveProperty('CODEX_HOME')
+    expect(launches[0].args?.slice(0, 2)).toEqual(['resume', 'legacy-thread'])
   })
 
-  it('other runtimes get CODEX_HOME for Codex image runs, without the unit notice', async () => {
+  it('other runtimes get CODEX_HOME for Codex image runs', async () => {
     fakeSignIn(genio)
     adapter = { ...BUILTIN_HARNESSES.find(h => h.id === 'claude')!, command: 'fake-claude' }
     ctx.main.crew.update(task.id, { harness: 'claude', model: undefined })
     await relaunch()
     expect(launches[0].env).toMatchObject({ CODEX_HOME: genio })
-    expect(warn).not.toHaveBeenCalled()
   })
 
   it("a runtime with its own CODEX_HOME keeps it", async () => {
@@ -164,12 +159,12 @@ describe('one-shots', () => {
     expect(readCodexProbeLimits(data)[0]).toMatchObject({ limitId: 'codex', plan: 'pro', windows: [{ minutes: 10080, usedPercent: 7 }] })
   })
 
-  it("the usage probe falls back to the player's home until Genio's is signed in", async () => {
+  it("until Genio's home is signed in the usage probe starts nothing, reports nothing and never reads the player's home", async () => {
     const data = path.join(root, 'data')
     await refreshCodexPlanUsage(data, true)
-    expect(appServerHomes()).toEqual([player])
-    expect(readCodexProbeLimits(data)[0]).toMatchObject({ windows: [{ usedPercent: 7 }] })
-    expect(warn).not.toHaveBeenCalled()
+    expect(fs.existsSync(log)).toBe(false)
+    expect(readCodexProbeLimits(data)).toEqual([])
+    expect(codexProbeError(data)).toBeUndefined()
   })
 
   it("model discovery reads the catalogue in Genio's home", async () => {
@@ -198,13 +193,13 @@ describe('the Codex chat', () => {
     const hooks = { onMessage: vi.fn(), onDelta: vi.fn(), onActivity: vi.fn(), onTurnEnd: vi.fn(), onSessionId: vi.fn(), onError: vi.fn(), onLimit: vi.fn(), onRequeue: vi.fn() } as ChatDriverEvents
     // The same home wiring as wksp.ts.
     const driver = new CodexChatDriver({ wksp: 'main', cwd: root, config: () => ({ model: 'gpt-test' }), instructions: () => 'contract', approve: async () => false,
-      home: async () => { const l = await codexLaunch({ visible: true }); return { env: l.env, codexHome: l.codexHome } },
+      home: async () => { const l = await codexLaunch(); return { env: l.env, codexHome: l.codexHome } },
       handoff: () => 'HANDOFF: recent chat',
       wire: (events, env) => { envs.push(env); server.events = events; return server },
       bridge: async () => ({ list: async () => [], call: async () => ({ content: [] }), close: async () => {} }) }, hooks)
     driver.sessionId = sessionId
     driver.send({ kind: 'player', prompt: 'hello', msgId: 'p1' })
-    return { driver, server, envs, done: () => vi.waitFor(() => expect(server.turn).toBe(1)) }
+    return { driver, server, envs, hooks, done: () => vi.waitFor(() => expect(server.turn).toBe(1)) }
   }
 
   it("starts in Genio's home and resumes its thread there across restarts", async () => {
@@ -233,16 +228,40 @@ describe('the Codex chat', () => {
     c.driver.stop()
   })
 
-  it("falls back to the player's home with the notice until signed in", async () => {
+  it("does not start against the player's home until Genio's is signed in", async () => {
     const c = chat()
-    await c.done()
-    expect(c.envs).toEqual([{}])
-    expect(warn).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(c.hooks.onError).toHaveBeenCalled())
+    expect(c.envs).toEqual([])
+    expect(c.server.turn).toBe(0)
+    expect(String((c.hooks.onError as Mock).mock.calls[0][0])).toContain('Codex is not signed in')
     c.driver.stop()
   })
 })
 
+it('the usage report shows nothing for Codex while Genio is not signed in, even over old readings and a dummy API-key login', async () => {
+  fakeSignIn(player, 'Logged in using an API key - sk-dummy-***abcd')
+  const data = path.join(root, 'base', 'data')
+  fs.mkdirSync(path.join(data, 'usage'), { recursive: true })
+  const stale = [{ ts: new Date().toISOString(), limitId: 'codex', plan: 'pro', windows: [{ minutes: 10080, usedPercent: 41 }] }]
+  fs.writeFileSync(path.join(data, 'usage', 'codex-limits.json'), JSON.stringify(stale))
+  const home = { root: path.join(root, 'base'), data, wkspFile: path.join(root, 'base', 'state', 'wksp.json'), name: 'main' }
+  const ctx = { main: { home }, homes: new Map([['main', { home }]]), allies: { list: () => [] }, settings: { get: () => ({}) } } as unknown as AppCtx
+  const unsigned = (await usageReport(ctx, { forceCodex: true })).tools.find(t => t.tool === 'codex')
+  expect(unsigned?.limits).toEqual([])
+  expect(unsigned?.error).toBeUndefined()
+  expect(unsigned?.note).toBeUndefined()
+  expect(fs.existsSync(log)).toBe(false)
+  expect(fs.readdirSync(player)).toEqual(['fake-login'])
+  // signed in with ChatGPT: the probe works and the real usage shows
+  fakeSignIn(genio)
+  resetCodexHome()
+  const signed = (await usageReport(ctx, { forceCodex: true })).tools.find(t => t.tool === 'codex')
+  expect(signed?.limits[0]).toMatchObject({ plan: 'pro', windows: [{ usedPercent: 7 }] })
+  expect(appServerHomes()).toEqual([genio])
+})
+
 it("usage counts Genio's units in Genio's home, archived ones included, and older ones in the player's", async () => {
+  fakeSignIn(genio)
   const base = path.join(root, 'base')
   const data = path.join(base, 'data')
   fs.mkdirSync(path.join(data, 'usage'), { recursive: true })

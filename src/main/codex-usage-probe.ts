@@ -6,7 +6,7 @@
  */
 import path from 'node:path'
 import { spawnCodexChat, type CodexRpc, type CodexWireEvents } from './codex-chat-driver'
-import { codexEnv } from './codex-home'
+import { CodexNeedsSignIn, codexEnv, codexSignedOut } from './codex-home'
 import type { CodexSnapshot, CodexWindow } from './usage'
 import { readJson, writeJsonAtomic } from './util'
 
@@ -59,9 +59,10 @@ export function parseCodexRateLimits(result: unknown, at: string): CodexSnapshot
 }
 
 /**
- * initialize → account/read → account/rateLimits/read on a short-lived app-server,
- * in Genio's own Codex home when signed in (plan limits belong to the account,
- * so either home reports the same plan).
+ * initialize → account/read → account/rateLimits/read on a short-lived app-server
+ * in Genio's own Codex home. Not signed in there (or an API-key login, which has
+ * no plan usage) throws CodexNeedsSignIn before any process starts: the probe
+ * never touches the player's own ~/.codex.
  */
 export async function probeCodexRateLimits(wire?: (events: CodexWireEvents) => CodexRpc): Promise<unknown> {
   if (!wire) {
@@ -92,6 +93,8 @@ export async function probeCodexRateLimits(wire?: (events: CodexWireEvents) => C
 
 /** Single-flight per data dir; a failed refresh keeps old evidence on its original observation clock. */
 export async function refreshCodexPlanUsage(data: string, force = false, probe: () => Promise<unknown> = probeCodexRateLimits): Promise<void> {
+  // Not signed in (checked): nothing to read and nothing to report, no probe and no error.
+  if (codexSignedOut()) { probes.delete(data); return }
   const prior = probes.get(data)
   if (prior?.pending) return prior.pending
   if (!force && prior && Date.now() - prior.at < PROBE_TTL) return
@@ -104,7 +107,8 @@ export async function refreshCodexPlanUsage(data: string, force = false, probe: 
       // A successful account snapshot replaces every bucket of the previous one.
       writeJsonAtomic(codexLimitsFile(data), parseCodexRateLimits(value, at))
     } catch (error) {
-      state.error = error instanceof CodexUsageError ? error.message : 'Codex rate-limit read failed'
+      // Needs sign-in is the Accounts row's to say, not a usage error.
+      state.error = error instanceof CodexNeedsSignIn ? undefined : error instanceof CodexUsageError ? error.message : 'Codex rate-limit read failed'
     } finally { state.pending = undefined }
   })()
   return state.pending

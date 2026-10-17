@@ -25,7 +25,7 @@ beforeEach(() => {
   vi.stubEnv('CODEX_HOME', player)
   tools.codex = installFakeCodex(path.join(root, 'bin'))
   fakeSignIn(player)
-  configureCodexHome({ dir: genio, warn: () => {} })
+  configureCodexHome({ dir: genio })
 })
 afterEach(() => {
   configureCodexHome(undefined)
@@ -38,10 +38,12 @@ const row = async (): Promise<AccountStatus> => (await listAccounts()).find(a =>
 it("shows Genio's Codex as not signed in, with the sign-in action and the fallback warning", async () => {
   const a = await row()
   expect(a).toMatchObject({ label: "Genio's Codex", installed: true, state: 'logged-out', stateLabel: 'not signed in',
-    loginLabel: "Sign in Genio's Codex (same account)", logoutLabel: 'Sign out', warning: expect.stringContaining('normal Codex home') })
+    loginLabel: "Sign in Genio's Codex (same account)", logoutLabel: 'Sign out', warning: expect.stringContaining('does not use Codex') })
   expect(accountActions(a)).toEqual({ login: true, logout: false })
-  // the player's own Codex login is reported separately and untouched
-  expect((await listAccounts()).find(x => x.tool === 'codex')).toMatchObject({ state: 'logged-in' })
+  // the player's own Codex login is reported separately, untouched, and never one Genio signs in or out
+  const own = (await listAccounts()).find(x => x.tool === 'codex')!
+  expect(own).toMatchObject({ state: 'logged-in', canLogin: false, canLogout: false })
+  expect(accountActions(own)).toEqual({ login: false, logout: false })
 })
 
 it('shows the account it is signed in as', async () => {
@@ -60,7 +62,9 @@ it('shows an error, with both actions, when the home cannot be used', async () =
   expect(accountActions(a)).toEqual({ login: true, logout: true })
 })
 
-it("dispatch and the model catalogue count Genio's login for Codex once it is signed in", async () => {
+it("dispatch and the model catalogue count only Genio's login for Codex, never the player's own", async () => {
+  // the player's own login is fine, Genio's is not signed in: Codex is still logged out
+  expect(runtimeAccounts(await listAccounts()).find(a => a.tool === 'codex')?.state).toBe('logged-out')
   fs.rmSync(path.join(player, 'fake-login'))
   expect(runtimeAccounts(await listAccounts()).find(a => a.tool === 'codex')?.state).toBe('logged-out')
   fakeSignIn(genio)
@@ -90,7 +94,7 @@ it("sign-in runs `codex login` against Genio's home only, and the next launch mo
   const ctx = { main: { home: { root, data: path.join(root, 'data') } }, settings: { get: () => ({}) },
     terminals: { create: (o: CreateTerminalOpts) => { launches.push(o); return { id: 't1', alive: true } }, onExit: (_id: string, cb: () => void) => { exits.push(cb) } }
   } as unknown as AppCtx
-  expect((await codexLaunch()).isolated).toBe(false)
+  await expect(codexLaunch()).rejects.toThrow('Codex is not signed in')
   await openAccountSession(ctx, GENIO_CODEX, 'login')
   expect(launches[0]).toMatchObject({ file: tools.codex, args: ['login'], env: { CODEX_HOME: genio } })
   // seeded before the browser flow, with no credential copied from the player's home
@@ -105,6 +109,6 @@ it("sign-in runs `codex login` against Genio's home only, and the next launch mo
   expect(launches[1]).toMatchObject({ args: ['logout'], env: { CODEX_HOME: genio } })
   await runCodexCli(['logout'], genio)
   exits[exits.length - 1]()
-  expect((await codexLaunch()).isolated).toBe(false)
+  await expect(codexLaunch()).rejects.toThrow('Codex is not signed in')
   expect(fs.existsSync(path.join(player, 'fake-login'))).toBe(true)
 })

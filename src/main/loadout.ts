@@ -243,7 +243,7 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
         continue
       }
       if (env.loggedOut?.(id)) {
-        reasons.push(`${name} skipped: not logged in`)
+        reasons.push(`${name} skipped: not logged in${id === 'codex' ? " (Genio's own Codex sign-in; picking another tool)" : ''}`)
         continue
       }
       if (quotaBlocked(id)) {
@@ -270,6 +270,7 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
   let explored = false
 
   if (harness) {
+    if (harness === 'codex' && env.loggedOut?.(harness)) throw new Error(`${nameOf(harness)} is not signed in: sign in Genio's Codex in ${settingsPath('accounts')}, or pick another tool.`)
     if (quotaBlocked(harness)) throw new Error(`deferred: ${nameOf(harness)} is held by quota protection. Wait for fresh evidence before resuming this pinned task.`)
     reasons.push(`${nameOf(harness)}: your pick`)
   } else {

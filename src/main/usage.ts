@@ -25,7 +25,7 @@ import { claudeProbeError, refreshClaudePlanUsage } from './claude-usage-probe'
 import { claudeProjectRoots } from './claude-home'
 import { codexProbeError, codexSnapshot, readCodexProbeLimits, refreshCodexPlanUsage } from './codex-usage-probe'
 import { CODEX_SESSION_DIRS } from './codex-session'
-import { codexHomes } from './codex-home'
+import { codexHomes, codexSignedOut } from './codex-home'
 import { volumeChild } from '../../resources/unit-skills/genio/skills/play/scripts/clone.mjs'
 
 const DAY = 86_400_000
@@ -620,6 +620,8 @@ async function claudeUsage(ctx: AppCtx, root: string, now: number): Promise<Tool
 }
 
 async function codexUsage(ctx: AppCtx, root: string, now: number, data: string): Promise<ToolUsage> {
+  // Genio's Codex is not signed in: old plan readings do not describe a login Genio can use, so there is nothing to report.
+  if (codexSignedOut()) return { tool: 'codex', limits: [], measured: measured('measured by Genio', "Genio's units and chats (Codex plan tokens, not cash cost)", [], now) }
   const attribution = usageAttribution(ctx)
   const { weekStart } = usageWindows(now)
   const chats = recentJsonl(path.join(data, 'usage', 'codex-chat'), weekStart)

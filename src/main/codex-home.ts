@@ -7,13 +7,14 @@
  * The player signs this home in once with their usual ChatGPT account (like a
  * second computer: same plan, no second subscription). It is an independent
  * login: Genio never copies or links the player's auth.json. Until it is
- * signed in, or whenever `codex login status` in it fails, every Codex process
- * falls back to the player's normal home (despawned units are still archived
- * there) and Genio says so once, with the way to sign in.
+ * signed in with ChatGPT (an API-key login does not count), Codex is "needs
+ * sign-in": no Codex process starts, and nothing ever runs against the
+ * player's own ~/.codex login.
  */
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { settingsPath } from '@shared/settings-pages'
 import { runCodexCli, type CodexCli } from './codex-archive'
 import { spawnCodexChat, type CodexRpc, type CodexWireEvents } from './codex-chat-driver'
 import { codexHomeDir, findCodexSessions } from './codex-session'
@@ -223,17 +224,11 @@ export async function readCodexAccount(dir: string, wire: (events: CodexWireEven
 export interface CodexHomeOptions {
   /** Genio's folder (genioCodexHomeDir(main base)). */
   dir: string
-  /** Shown once per Genio start while units or chats fall back to the player's home. */
-  warn(message: string): void
   /** Test seam; defaults to the real CLI. */
   cli?: CodexCli
-  /** How long a "not in use" answer stands before the next launch checks again. */
-  recheckMs?: number
 }
 
-const RECHECK_MS = 60_000
-
-let configured: (CodexHomeOptions & { ready?: Promise<CodexHomeState>; at?: number; last?: CodexHomeState; warned?: boolean }) | undefined
+let configured: (CodexHomeOptions & { ready?: Promise<CodexHomeState>; last?: CodexHomeState }) | undefined
 
 export function configureCodexHome(opts: CodexHomeOptions | undefined): void {
   configured = opts && { ...opts }
@@ -250,14 +245,14 @@ export function resetCodexHome(): void {
 }
 
 /**
- * Seed and check once; a signed-in answer stands for this Genio start, any
- * other answer is checked again after a minute (or at once with `fresh`).
+ * Seed and check Genio's home once; the answer stands (no repeated probes)
+ * until a sign-in or sign-out resets it, or a caller asks for a `fresh` check
+ * (Accounts, the sign-in watch).
  */
 export function codexHomeReady(fresh = false): Promise<CodexHomeState> {
   const c = configured
   if (!c) return Promise.resolve({ ok: false, state: 'error', reason: 'not configured' })
-  const stale = c.last && !c.last.ok && Date.now() - (c.at ?? 0) >= (c.recheckMs ?? RECHECK_MS)
-  if (fresh || stale) c.ready = undefined
+  if (fresh) c.ready = undefined
   c.ready ??= (async (): Promise<CodexHomeState> => {
     let result: CodexHomeState
     try {
@@ -267,29 +262,23 @@ export function codexHomeReady(fresh = false): Promise<CodexHomeState> {
       result = { ok: false, state: 'error', reason: (e as Error).message }
     }
     c.last = result
-    c.at = Date.now()
-    if (result.ok) c.warned = false
     return result
   })()
   return c.ready
 }
 
-/** The fallback notice, once per Genio start (again after a sign-in is lost). */
-function warnFallback(state: CodexHomeState): void {
-  const c = configured
-  if (!c || c.warned || state.missing) return
-  c.warned = true
-  const why = state.state === 'signed-out' ? "Genio's own Codex home is not signed in yet" : `Genio could not use its own Codex home (${state.reason})`
-  try {
-    c.warn(`${why}, so Codex units and chats run in your normal Codex home and show in your Codex app while they run (finished units are still archived). ` +
-      'To hide them, open SYSTEMS › Accounts and choose "Sign in Genio\'s Codex (same account)": your usual ChatGPT account, no second subscription.')
-  } catch {
-    /* the warning is best effort */
-  }
-}
+/**
+ * Genio's own Codex home is checked and is not signed in with ChatGPT (signed
+ * out, or an API-key login). False while unchecked, with no Codex CLI, or when
+ * the app has no Codex home: nothing can be signed in then.
+ */
+export const codexSignedOut = (): boolean => !!configured?.last && !configured.last.ok && !configured.last.missing
+
+/** Why a Codex process was not started: Genio's own Codex home is not usable, so Codex is "needs sign-in". */
+export class CodexNeedsSignIn extends Error {}
 
 export interface CodexLaunch {
-  /** Merge into the child's environment ({} = the player's normal home). */
+  /** Merge into the child's environment. */
   env: Record<string, string>
   /** Genio's own home is in use. */
   isolated: boolean
@@ -297,30 +286,29 @@ export interface CodexLaunch {
   codexHome: string
 }
 
-const playerLaunch = (): CodexLaunch => ({ env: {}, isolated: false, codexHome: codexHomeDir() })
+const NEEDS_SIGN_IN = `Codex is not signed in. Open ${settingsPath('accounts')} and choose "Sign in Genio's Codex (same account)".`
 
 /**
- * Where a Codex process should run. New work goes to Genio's home once it is
- * signed in. A unit resume follows its conversation: a thread that lives only
- * in another home (the unit started before Genio's home was signed in) resumes
- * there. `visible` marks launches whose threads would show in the player's
- * Codex app (units, the chat): only those warn when falling back.
+ * Where a Codex process should run: only Genio's own home, and only once it is
+ * signed in with ChatGPT. Genio never falls back to the player's own Codex
+ * login (it may be a dummy or API key, and its threads would show in the
+ * player's Codex app): an unsigned home throws CodexNeedsSignIn before anything
+ * starts. A unit resume follows its conversation: a thread that lives only in
+ * another home (a unit from before Genio's home existed) resumes there, but
+ * still only while Genio's home is signed in.
  */
-export async function codexLaunch(o: { resume?: { cwd: string; home?: string }; visible?: boolean } = {}): Promise<CodexLaunch> {
+export async function codexLaunch(o: { resume?: { cwd: string; home?: string } } = {}): Promise<CodexLaunch> {
   const c = configured
-  if (!c) return playerLaunch()
+  if (!c) return { env: {}, isolated: false, codexHome: codexHomeDir() }
+  const state = await codexHomeReady()
+  if (!state.ok) throw new CodexNeedsSignIn(state.missing ? 'The Codex CLI was not found.' : NEEDS_SIGN_IN)
   if (o.resume) {
     const { cwd, home } = o.resume
     const elsewhere = home && !sameHome(home, c.dir) ? home
       : !home && !(await findCodexSessions(cwd, c.dir)).length ? codexHomeDir() : undefined
     if (elsewhere && (await findCodexSessions(cwd, elsewhere)).length) {
-      return sameHome(elsewhere, codexHomeDir()) ? playerLaunch() : { env: { CODEX_HOME: elsewhere }, isolated: false, codexHome: elsewhere }
+      return sameHome(elsewhere, codexHomeDir()) ? { env: {}, isolated: false, codexHome: elsewhere } : { env: { CODEX_HOME: elsewhere }, isolated: false, codexHome: elsewhere }
     }
-  }
-  const state = await codexHomeReady()
-  if (!state.ok) {
-    if (o.visible) warnFallback(state)
-    return playerLaunch()
   }
   return { env: { CODEX_HOME: c.dir }, isolated: true, codexHome: c.dir }
 }

@@ -51,6 +51,29 @@ $14.7858063 checkpoint; duplicate result IDs; independent snapshot expiry; share
 chat backoff; and the relaunch cap. All tests use local fixtures or fake SDK streams.
 
 
+Codex plan usage is read by a short-lived app-server (`account/rateLimits/read`,
+`codex-usage-probe.ts`) in Genio's own Codex home only, which needs a ChatGPT
+sign-in; an API-key login has no plan usage. What it reports per login state:
+signed in with ChatGPT shows the real windows; not signed in, an API-key login
+(Genio's home or the dummy key in the player's own `~/.codex`), no Codex CLI or
+an unusable home all mean "needs sign-in": no probe process starts, no error
+text is stored, the Codex row is left out of the usage popup and the plan meter,
+and old Codex readings and session snapshots are ignored. The Accounts row
+("Genio's Codex") says Sign in, and the rail warning names "Codex is not signed
+in" (see below). The probe never reads or writes the player's `~/.codex`. A
+signed-in probe that fails (timeout, unexpected format) still shows its
+"could not read" reason.
+
+Genio warns about exactly two sign-ins, Claude and Codex (a Codex API-key login
+and an unsigned Genio home count as not signed in; FAL, Uthana, GitHub, Unity
+and the rest never warn). The warning is one amber mark on the Systems button of
+the rail, whose hover names the tool ("Claude is not signed in"); while it
+shows, the button opens Accounts & keys. It appears at start and in every
+window, again whenever a signed-in tool loses its sign-in, and clears by itself
+once signed in. It is re-read every 10 minutes, whenever a login or logout
+ends and whenever Accounts is read. An unverified quota is not a sign-in issue
+and never warns.
+
 Claude plan usage is refreshed through the SDK's structured `/usage` control request
 (`usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`, SDK 0.3.296), using
 an empty streaming input, no tools and no persisted session. It submits no model

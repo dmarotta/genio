@@ -446,7 +446,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     // A runtime with its own CODEX_HOME keeps it; a resume follows the unit's thread.
     const isCodex = adapter.id === 'codex'
     const codex = adapter.env?.CODEX_HOME ? undefined
-      : await codexLaunch({ resume: isCodex && opts.resume ? { cwd: t.worktree, home: t.codexHome } : undefined, visible: isCodex })
+      : await codexLaunch({ resume: isCodex && opts.resume ? { cwd: t.worktree, home: t.codexHome } : undefined })
     const codexHome = adapter.env?.CODEX_HOME ?? codex?.codexHome
     const trustFolders = isCodex ? codexUnitFolders(t.worktree, project?.path) : []
     // Only Genio's own home: the player's Codex config is never edited.

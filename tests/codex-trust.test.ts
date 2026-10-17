@@ -147,7 +147,7 @@ describe('a Codex unit at launch', () => {
     vi.stubEnv('CODEX_HOME', player)
     installFakeCodex(path.join(root, 'bin'))
     fakeSignIn(player)
-    configureCodexHome({ dir: genio, warn: () => {} })
+    configureCodexHome({ dir: genio })
     home = new Home(path.join(root, 'base')); home.ensure()
     repo = path.join(root, 'founders-of-avalon')
     fs.mkdirSync(path.join(repo, '.git', 'worktrees', 'unit'), { recursive: true })
@@ -209,13 +209,9 @@ describe('a Codex unit at launch', () => {
     expect(wakes.enqueue).not.toHaveBeenCalled()
   })
 
-  it("answers it in the player's home too, without writing the player's config", async () => {
-    await launch()
-    expect(launches[0].env).not.toHaveProperty('CODEX_HOME')
-    vi.useFakeTimers()
-    emit(drawn(task.worktree.replace(/\\/g, '/')))
-    await vi.advanceTimersByTimeAsync(1_100)
-    expect(written).toEqual(['\r'])
+  it("starts no unit in the player's home, so there is no dialog to answer there and no player config is written", async () => {
+    expect(await ctx.main.crew.control(task.id, 'relaunch', undefined, true)).toMatchObject({ ok: false })
+    expect(launches).toHaveLength(0)
     expect(fs.existsSync(path.join(player, 'config.toml'))).toBe(false)
   })
 

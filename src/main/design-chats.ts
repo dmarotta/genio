@@ -198,7 +198,7 @@ export function createDesignChatService(getCtx: () => AppCtx, home: Home, ally?:
       wksp: name, cwd: chatCwd(),
       // Genio's own Codex home keeps the chat thread out of the player's Codex app.
       home: async () => {
-        const launch = await codexLaunch({ visible: true })
+        const launch = await codexLaunch()
         return { env: launch.env, codexHome: launch.codexHome }
       },
       handoff: () => handoff(rt),

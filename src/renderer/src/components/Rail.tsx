@@ -7,6 +7,8 @@ import '../styles/railmenu.css'
 import { RailMeter } from './PlanMeter'
 import { Popover } from './Layer'
 import { questCounts } from '@shared/quest-summary'
+import { signInLines } from '@shared/api'
+import { openSettings } from '../lib/settings-nav'
 
 const ICON: Record<string, LucideIcon> = {
   play: Gamepad2,
@@ -37,9 +39,10 @@ export function Rail() {
   const thinking = useStore((s) => s.snap.wksps.some((m) => m.activity === 'thinking' || m.activity === 'tool'))
   const backlog = useStore((s) => s.snap.backlog)
   const quests = useMemo(() => questCounts(backlog), [backlog])
+  const signIn = useStore((s) => s.signIn)
   const badge: Partial<Record<ViewId, { n: number; tone: string }>> = {
     squad: { n: live, tone: 'neon' },
-    systems: { n: mail, tone: 'violet' }
+    systems: signIn.length ? { n: signIn.length, tone: 'amber' } : { n: mail, tone: 'violet' }
   }
   return (
     <nav className="rail">
@@ -48,13 +51,16 @@ export function Rail() {
         const n = e.item
         const b = badge[n.id]
         const Icon = ICON[n.id]
+        // While Claude or Codex needs a sign-in, the Systems button leads straight to Accounts.
+        const warn = n.id === 'systems' && signIn.length > 0
         return (
-          <button key={n.id} className={cx('rail-btn', view === n.id && 'on')} onClick={() => go(n.id)} aria-label={n.label}>
+          <button key={n.id} className={cx('rail-btn', view === n.id && 'on')} onClick={() => (warn ? openSettings('accounts') : go(n.id))} aria-label={warn ? `${n.label}: ${signInLines(signIn).join(', ')}` : n.label}>
             <Icon size={20} strokeWidth={1.6} />
             {n.id === 'comms' && thinking && <span className="rail-ping" />}
             {b && b.n > 0 && <span className={cx('rail-badge', b.tone)}>{b.n > 99 ? '99' : b.n}</span>}
             <span className="rail-tip">
               {n.label}
+              {warn && signInLines(signIn).map((line) => <span key={line}>{line}</span>)}
               {n.id === 'quests' && <span>{live} running &middot; {quests.planned} planned</span>}
               <kbd>Ctrl {n.key}</kbd>
             </span>

@@ -34,8 +34,8 @@ project or a new Dev Drive path would hold the unit before its first turn.
   matter; no `\\?\` prefix, backslashes, no trailing separator. Every other
   entry in the file stays. The worktree entry is dropped at despawn. The
   player's own Codex config is never edited.
-- Backstop: if the dialog still shows (for example in the player's home before
-  Genio's is signed in), `watchCodexTrust` in `crew.ts` reads the folder it
+- Backstop: if the dialog still shows (for example in a home Genio did not
+  pre-trust, such as a unit resumed from before Genio's home), `watchCodexTrust` in `crew.ts` reads the folder it
   names. It answers Enter on "1. Trust and continue" once per appearance, and
   only when that folder is the unit's worktree or its project's root. It leaves
   any other folder, or a pointer moved off option 1, unanswered, and raises one
@@ -50,17 +50,37 @@ project or a new Dev Drive path would hold the unit before its first turn.
   trust check honours. OpenCode 1.19 has no folder trust prompt. Cursor Agent
   runs with `--trust`.
 
-## Signing in and falling back
+## Needs sign-in: Genio never uses the player's own Codex login
 - `codex login status` in that home must report ChatGPT. Until it does (not
-  signed in, an API key, an error), every process falls back to the player's
-  `$CODEX_HOME` and despawned units are archived there as below. Units and the
-  chat then post one notice per Genio start that links to Accounts.
+  signed in, an API key, an error) Codex is **needs sign-in**, in one place:
+  `codexLaunch()` in `codex-home.ts` throws `CodexNeedsSignIn` before anything
+  starts. Codex units and Recons, the Codex chat and design chats, chat image
+  generation, model discovery and the usage probe all go through it, so none of
+  them ever runs against, reads or writes the player's `~/.codex` (its login may
+  be a dummy or API key, and its threads would show in the player's Codex app).
+  The only exception is a unit from before Genio's home existed: once Genio's
+  home is signed in, it still resumes in the home where its thread lives.
+- The answer is checked once at start (`startSignInWatch`) and then stands: no
+  repeated probes or log lines per launch. A sign-in or sign-out ending in
+  Accounts resets it, as does opening Accounts (a fresh check) and the 10-minute
+  sign-in watch.
+- Accounts shows it in the "Genio's Codex" row ("not signed in", with the
+  existing "Sign in Genio's Codex (same account)" action; an API-key login shows
+  as an error with both actions). The player's own "Codex CLI" row stays as a
+  read-only status: Genio never signs the player's own login in or out.
+- The dispatcher counts Codex as logged out meanwhile: the loadout picker skips
+  it ("Codex ... skipped: not logged in (Genio's own Codex sign-in; picking
+  another tool)"), so a Codex job is picked on Claude, a queued Codex quest
+  waits for or is relaunched on another tool by the picker, and an explicit
+  Codex pick is refused with the way to sign in. A running Codex unit that
+  loses its sign-in fails like any provider auth error.
 - A unit records the home it ran in (`Task.codexHome`); respawns, discovery and
-  archiving use it, so a unit that started in the player's home keeps resuming
-  there. A chat thread the current home does not hold is left where it is; a
-  fresh thread gets the bounded chat handoff.
-- Usage reads `sessions/` and `archived_sessions/` of both homes. Plan limits
-  belong to the account, so the probe reads the same plan from either home.
+  archiving use it. A chat thread the current home does not hold is left where it
+  is; a fresh thread gets the bounded chat handoff.
+- Usage reads `sessions/` and `archived_sessions/` of Genio's home, plus the
+  player's for Genio threads from before it (read-only, never a login). The
+  plan usage probe needs the ChatGPT sign-in; with none it reports nothing
+  (see [usage-protection.md](usage-protection.md)).
 
 ## Despawned units are archived
 

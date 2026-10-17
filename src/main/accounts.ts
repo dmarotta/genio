@@ -13,6 +13,7 @@ import type { AppCtx } from './services'
 import { toolStatus } from './toolchain'
 import { run, runShell, stripAnsi } from './util'
 import { codexHomeReady, genioCodexHome, readCodexAccount, resetCodexHome, seedCodexHome } from './codex-home'
+import { refreshSignInNeeds } from './sign-in-watch'
 
 export interface AuthParse {
   state: LoginState
@@ -177,15 +178,15 @@ export const ACCOUNTS: AccountDef[] = [
   }
 ]
 
-const GENIO_CODEX_PURPOSE = "Genio's own Codex home: units, chat and image runs stay out of your Codex app, even while they run. Sign in with your usual ChatGPT account (same plan, no second subscription)."
-const GENIO_CODEX_FALLBACK = 'Until then, Codex units and chats use your normal Codex home and can show in your Codex app while they run.'
+const GENIO_CODEX_PURPOSE = "Genio's own Codex home: the only Codex login Genio uses (units, chat, images, usage), and it stays out of your Codex app. Sign in with your usual ChatGPT account (same plan, no second subscription)."
+const GENIO_CODEX_NEEDED = 'Until then Genio does not use Codex.'
 let genioAccount: { email?: string; plan?: string } | undefined
 
 async function genioCodexCheck(): ReturnType<NonNullable<AccountDef['check']>> {
   const dir = genioCodexHome()
   const s = await codexHomeReady(true)
-  if (s.state === 'signed-out') return { state: 'logged-out', stateLabel: 'not signed in', warning: GENIO_CODEX_FALLBACK }
-  if (!s.ok || !dir) return { state: 'unknown', stateLabel: 'error', warning: `${s.reason ?? 'Sign-in could not be checked'}. ${GENIO_CODEX_FALLBACK}` }
+  if (s.state === 'signed-out') return { state: 'logged-out', stateLabel: 'not signed in', warning: GENIO_CODEX_NEEDED }
+  if (!s.ok || !dir) return { state: 'unknown', stateLabel: 'error', warning: `${s.reason ?? 'Sign-in could not be checked'}. ${GENIO_CODEX_NEEDED}` }
   genioAccount ??= await readCodexAccount(dir)
   const who = scrubDetail(genioAccount.email)
   return { state: 'logged-in', stateLabel: 'signed in', detail: scrubDetail(['ChatGPT', who ? `signed in as ${who}` : '', genioAccount.plan].filter(Boolean).join(' · ')) }
@@ -211,8 +212,9 @@ async function accountStatus(def: AccountDef): Promise<AccountStatus> {
     version: t?.version,
     install: t?.install,
     state: 'unknown',
-    canLogin: true,
-    canLogout: Boolean(def.logout),
+    // With Genio's own Codex home, the player's own Codex login is never Genio's to sign in or out.
+    canLogin: !(def.tool === 'codex' && genioCodexHome()),
+    canLogout: Boolean(def.logout) && !(def.tool === 'codex' && genioCodexHome()),
     verified: def.verified,
     note: def.note,
     loginLabel: def.loginLabel,
@@ -231,6 +233,11 @@ async function accountStatus(def: AccountDef): Promise<AccountStatus> {
 /** Rows whose home Genio has not set up (no env) are left out. */
 export function listAccounts(): Promise<AccountStatus[]> {
   return Promise.all(ACCOUNTS.filter(def => !def.env || def.env()).map(accountStatus))
+}
+
+/** Only the rows the sign-in warning reads (Claude, the player's Codex and Genio's Codex): no gh, glab or other CLI runs. */
+export function listSignInAccounts(): Promise<AccountStatus[]> {
+  return Promise.all(ACCOUNTS.filter(def => ['claude', 'codex', GENIO_CODEX].includes(def.tool) && (!def.env || def.env())).map(accountStatus))
 }
 
 /** Run the tool's own login/logout in a visible terminal so the player can finish prompts. */
@@ -254,7 +261,7 @@ export async function openAccountSession(ctx: AppCtx, tool: string, action: 'log
     ...(env ? { env } : {})
   })
   invalidateModelCatalogue()
-  ctx.terminals.onExit(terminal.id, () => { def.ended?.(); invalidateModelCatalogue(); void modelCatalogue(ctx.main.home.data, true, ctx.settings.get().claudePath).catch(() => {}) })
+  ctx.terminals.onExit(terminal.id, () => { def.ended?.(); void refreshSignInNeeds(); invalidateModelCatalogue(); void modelCatalogue(ctx.main.home.data, true, ctx.settings.get().claudePath).catch(() => {}) })
   if (action === 'login' && terminal.alive) {
     ctx.terminals.onExit(terminal.id, (code) => {
       if (code !== 0) return

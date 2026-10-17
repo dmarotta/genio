@@ -66,6 +66,7 @@ import { createPermissionBroker } from './permissions'
 import { createFalService } from './fal-service'
 import { createUthanaService } from './uthana-service'
 import { createDispatchService } from './dispatch'
+import { startSignInWatch, stopSignInWatch } from './sign-in-watch'
 import { usageReport } from './usage'
 import { retryPendingArchives } from './codex-archive'
 import { createInventoryService } from './inventory'
@@ -241,14 +242,8 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
       ctx.notifier.notify('Claude sessions may show in your Claude apps', message, 'info', { force: true })
     }
   })
-  // Every Codex process too, once the player has signed Genio's Codex home in (Accounts).
-  configureCodexHome({
-    dir: genioCodexHomeDir(mainHome.root),
-    warn: (message) => {
-      try { ctx.main.wksp.say(message, 'system') } catch { /* chat optional */ }
-      ctx.notifier.notify('Codex units may show in your Codex app', message, 'info', { force: true, target: { view: 'accounts' } })
-    }
-  })
+  // Every Codex process runs only in Genio's own Codex home, once the player has signed it in (Accounts).
+  configureCodexHome({ dir: genioCodexHomeDir(mainHome.root) })
   for (const sm of ctx.allies.list()) {
     if (sm.retiredAt) continue
     homes.set(sm.name, makeHomeCtx(new Home(sm.home, sm.name, mainHome), sm))
@@ -300,6 +295,8 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
 export async function startApp(ctx: AppCtx): Promise<void> {
   // Begin a no-prompt account refresh before supervision/dispatch decisions.
   void usageReport(ctx).then(report => ctx.dispatch.noteUsage(report)).catch(() => undefined)
+  // The startup self-check: Claude and Codex (Genio's own Codex home) signed in or not, once, then on change.
+  startSignInWatch()
   ctx.inbox.configure()
   agentGeneration(ctx)
   ctx.fal.resume()
@@ -331,6 +328,7 @@ export async function startApp(ctx: AppCtx): Promise<void> {
 
 export async function stopApp(ctx: AppCtx): Promise<void> {
   stopEngineChoices()
+  stopSignInWatch()
   agentGeneration(ctx).stop()
   ctx.inventory.stop()
   for (const h of ctx.homes.values()) {
