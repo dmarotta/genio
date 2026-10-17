@@ -300,7 +300,7 @@ export class AgentGeneration {
   }
   async image(wksp: string, a: GenerateImageArgs, role = 'genio', conversation?: string): Promise<GenerationCard> {
     if (role === 'bot') throw new Error('Bot cannot generate images')
-    if (role === 'design' && (a.world || a.place || !conversation)) throw new Error('Design chat images stay in their chat')
+    if (role === 'design' && (a.world || a.place || !conversation)) throw new Error('Lore chat images stay in their chat')
     if (a.place && !a.world) throw new Error('A placement requires a project')
     let target: string | undefined
     let root: string | undefined

@@ -131,7 +131,7 @@ export function createDesignChatService(getCtx: () => AppCtx, home: Home, ally?:
   const publish = (): void => bus.publish({ type: 'design-chats', wksp: name, chats: svc.list() })
   const find = (id: string): DesignRecord => {
     const rec = typeof id === 'string' && ID_RE.test(id) ? records.find(r => r.id === id) : undefined
-    if (!rec) throw new Error('That design chat no longer exists.')
+    if (!rec) throw new Error('That Lore chat no longer exists.')
     return rec
   }
 
@@ -224,15 +224,15 @@ export function createDesignChatService(getCtx: () => AppCtx, home: Home, ally?:
     const rec = find(id)
     const rt = { rec, activity: 'offline' } as Runtime
     rt.thread = createChatThread({
-      wksp: name, file: path.join(dir, `${rec.id}.jsonl`), imageDir, reader: 'The design chat',
+      wksp: name, file: path.join(dir, `${rec.id}.jsonl`), imageDir, reader: 'The Lore chat',
       session: () => rt.session,
       publish: m => bus.publish({ type: 'design-chat', wksp: name, conversation: rec.id, message: m }),
       changed: publish,
       canSteer: () => rt.session.busy && !rt.limit,
       steerNote: () => {
         const tool = rt.session.yieldWait()
-        if (tool) return `The design chat stops as soon as ${tool} finishes, then reads it first.`
-        if (rt.limit) return 'The design chat cannot take a turn right now (see the limit notice); it is read first when it resumes.'
+        if (tool) return `The Lore chat stops as soon as ${tool} finishes, then reads it first.`
+        if (rt.limit) return 'The Lore chat cannot take a turn right now (see the limit notice); it is read first when it resumes.'
         return undefined
       },
       route: () => ({ provider: selection(rec), model: chatRoute(chosen(rec)).model })
@@ -300,7 +300,7 @@ export function createDesignChatService(getCtx: () => AppCtx, home: Home, ally?:
   }
 
   const checkSend = (rec: DesignRecord): void => {
-    if (!isOpen()) throw new Error('Open the project window before using its design chats.')
+    if (!isOpen()) throw new Error('Open the project window before using its Lore chats.')
     const unavailable = chatRouteUnavailable(selection(rec))
     if (unavailable) throw new Error(`${unavailable} Open ${settingsPath('accounts')} and refresh before sending. Your draft has been kept.`)
   }
@@ -396,7 +396,7 @@ export function createDesignChatService(getCtx: () => AppCtx, home: Home, ally?:
       await runtime(id).session.interrupt()
     },
     async restart(id, fresh) {
-      if (!isOpen()) throw new Error('Open the project window before using its design chats.')
+      if (!isOpen()) throw new Error('Open the project window before using its Lore chats.')
       const rt = runtime(id)
       await closeChatToolBridges(getCtx(), name, { conversation: id })
       rt.session.restart(fresh)

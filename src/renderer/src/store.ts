@@ -354,7 +354,7 @@ export async function loadDesignChats(): Promise<void> {
     setState({ designChats: chats })
   } catch (e) {
     setState({ designChats: [] })
-    toast('error', 'Design chats unavailable', errText(e))
+    toast('error', 'Lore chats unavailable', errText(e))
   }
 }
 

@@ -13,7 +13,7 @@ import { useScreenContext } from '../lib/screen-context'
 import { cx } from '../lib/format'
 import '../styles/design.css'
 
-export const DESIGN_EMPTY = 'No design chats yet. Start one with New chat.'
+export const DESIGN_EMPTY = 'No Lore chats yet. Start one with New chat.'
 /** A design chat saves notes while the screen is open; the player may edit them in the project too. */
 const POLL_MS = 3000
 /** Below this width the list becomes a picker in the header. */
@@ -88,7 +88,7 @@ function DesignScreen({ wksp, world }: { wksp: string; world: string }) {
   const note = open?.kind === 'note' ? notes?.find(n => n.name === open.name) : undefined
   const title = chat ? chat.title || UNTITLED : note?.file
 
-  useScreenContext('design', { world, facts: [title !== undefined && { label: chat ? 'Design chat' : 'Design note', value: title }] })
+  useScreenContext('design', { world, facts: [title !== undefined && { label: chat ? 'Lore chat' : 'Lore note', value: title }] })
 
   const show = (o: Open): void => {
     setState({ designOpen: o })
@@ -159,8 +159,8 @@ function DesignScreen({ wksp, world }: { wksp: string; world: string }) {
   return (
     <div className={cx('design-view', narrow && 'narrow')}>
       {!narrow && (
-        <aside className="design-list" aria-label="Design chats and notes">
-          <h1 className="title">De<span className="accent">sign</span></h1>
+        <aside className="design-list" aria-label="Lore chats and notes">
+          <h1 className="title">Lo<span className="accent">re</span></h1>
           {list}
         </aside>
       )}
@@ -194,7 +194,7 @@ function DesignScreen({ wksp, world }: { wksp: string; world: string }) {
             : loaded && !chats.length && <p className="dim design-empty">{DESIGN_EMPTY}</p>}
       </section>
       {picking && (
-        <Popover anchor={picker} placement="bottom-start" className="design-sheet panel" role="dialog" aria-label="Design chats and notes" onClose={() => setPicking(false)}>
+        <Popover anchor={picker} placement="bottom-start" className="design-sheet panel" role="dialog" aria-label="Lore chats and notes" onClose={() => setPicking(false)}>
           {list}
         </Popover>
       )}

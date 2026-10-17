@@ -218,9 +218,9 @@ See `src/main/home.ts`.
 The Hub opens one window per project. Comms and Inventory share the window's
 project wksp, with per-chat controls, queued-message editing, image attachments,
 and in-memory drafts. There are no chat tabs, splits or saved dock layouts.
-A project's design chats are a different kind of chat, not more orchestrators: they
-ask and challenge but start no work, and save design notes in the project's `.genio/design/`
-only when the player asks ([design chats](design-chats.md)). They live on their own
+A project's Lore chats are a different kind of chat, not more orchestrators: they
+ask and challenge but start no work, and save Lore notes in the project's `.genio/design/`
+only when the player asks ([Lore chats](design-chats.md)). They live on their own
 Lore screen (Ctrl+7), which reuses the chat view keyed by conversation id.
 Both chat providers run from the project folder and use scoped tool sessions.
 Project windows and tool sessions include only records belonging to their project.

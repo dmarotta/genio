@@ -18,7 +18,7 @@ Provider/session/model tags accompany messages in the same visible log. A provid
 
 Dynamic call IDs are deduplicated within each turn. Requests from old turns are rejected, including during thread resume. Interruption revokes the bridge before waiting for the runtime, persists partial output, and never requeues the cancelled turn. A lost turn/start reply has an unknown outcome and is not replayed. A login/limit/connection failure pauses work, preserves pending messages, exposes an Accounts action, and requires deliberate restart. Known unavailable routes reject new sends before clearing the draft. There is no automatic provider or API-credit fallback. Cancelled or failed service actions already in progress cannot be undone by disconnecting.
 
-Design chats ([design chats](design-chats.md)) run their own `ProviderChatSession` each, with their own model, effort, transcript and handoff; Claude gets the design prompt as a custom system prompt and Codex as its base instructions.
+Lore chats ([Lore chats](design-chats.md)) run their own `ProviderChatSession` each, with their own model, effort, transcript and handoff; Claude gets the design prompt as a custom system prompt and Codex as its base instructions.
 
 The AFK Bot inherits the main chat's provider/model. Both its Claude MCP connection and Codex dynamic tools use the bridge's read-only Bot registry. The stored `botModel` field and legacy `sessionConfig('bot')` helper remain compatible with old data/callers but do not select the active Bot runtime.
 
@@ -33,7 +33,7 @@ What the model still produces is dropped before it can reach the player. `QuietT
 - a reply that is exactly the old no-op sentence (`All clear` or `All clear, <player>`, any case, quotes, emphasis or closing punctuation, with an optional `GG,`), empty, whitespace, or one of the CLI placeholders is never recorded, published, spoken or given a sound, and the stream is held back while it could still become that sentence, so no bubble flashes;
 - a message that only starts like the sentence, or any other text however short ("Done."), streams and shows as written;
 - a tool trace stays and the sentence beside it goes;
-- a reply to the player's own message, a player message with the same words, and every design chat message are never touched (a design chat has no event turns).
+- a reply to the player's own message, a player message with the same words, and every Lore chat message are never touched (a Lore chat has no event turns).
 
 The drivers also never emit a message with no text and no tool calls (a thinking-only block, an empty Codex `agentMessage`), so no turn leaves an empty bubble. The unread dot of the floating panel follows the last message, so a dropped reply cannot raise it. The Bot's log (`data/bot.jsonl`) skips them too, and its `escalate` tool sends no notification for the sentence. A log written by an older version is cleaned when it loads: sentence rows are hidden unless the row answers a player message directly or carries a tool trace or a reaction. A turn that says nothing leaves the activity line at idle, keeps the player's queued messages queued, and a queued message is read next.
 

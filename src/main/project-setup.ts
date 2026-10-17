@@ -169,7 +169,7 @@ export function setupFacts(ctx: AppCtx, p: Project, s: SetupState | undefined): 
     engine: { done: p.engine !== 'other', fact: p.engine === 'other' ? 'no engine files yet' : `${p.engine} detected` },
     landing: { done: !!p.yolo || p.modeSource === 'manual', fact: `${p.mode}${p.yolo ? ', Auto-loot on' : ''}` },
     art: { done: art, fact: art ? 'Art Bible exists' : 'no Art Bible' },
-    design: { done: hasNotes(path.join(p.path, '.genio', 'design')), fact: 'design notes in .genio/design/' },
+    design: { done: hasNotes(path.join(p.path, '.genio', 'design')), fact: 'Lore notes in .genio/design/' },
     tools: { done: !missing.length, fact: missing.length ? `missing: ${missing.join(', ')}` : 'nothing missing' },
     unity: { done: !!s?.played, fact: s?.played ? 'Play has started here' : 'Play not started yet', applies: p.engine === 'unity' },
     spend: { done: cap !== undefined, fact: cap !== undefined ? `monthly cap $${cap}` : 'no monthly cap' },

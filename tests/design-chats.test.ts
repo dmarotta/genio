@@ -168,7 +168,7 @@ describe('design chats', () => {
     expect(pa).not.toBe(pb)
     for (const p of [pa, pb]) {
       const thread = threadOf(peers[p])
-      expect(thread.baseInstructions).toContain('# Design chat')
+      expect(thread.baseInstructions).toContain('# Lore chat')
       expect(thread.baseInstructions).not.toContain('operating contract')
       for (const t of thread.dynamicTools) expect(DESIGN_TOOLS.has(t.name.replace(/^genio_/, '')), t.name).toBe(true)
     }
@@ -290,7 +290,7 @@ describe('design chats', () => {
     await design.send(a.id, 'Help me name the game')
     await vi.waitFor(() => expect(options).toBeDefined())
     expect(typeof options.systemPrompt).toBe('string')
-    expect(options.systemPrompt).toContain('# Design chat')
+    expect(options.systemPrompt).toContain('# Lore chat')
     expect(options.systemPrompt).toContain('Dani')
     expect(options.model).toBe('claude-test')
     expect(options.tools).toEqual(DESIGN_NATIVE)

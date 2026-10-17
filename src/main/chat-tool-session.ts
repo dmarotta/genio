@@ -82,9 +82,9 @@ export function createChatToolSession(getCtx: () => AppCtx, binding: ChatToolBin
         const validated = z.strictObject(tool.shape).parse(input)
         const args = (tool.shape.world ? normalizeProjectArgs(validated, { world: tool.shape.world }) : validated) as Record<string, unknown>
         if (role === 'bot' && name === 'status_report' && args.file) return fail('Bot reports are read-only')
-        if (role === 'design' && name === 'art_bible' && args.action !== 'read') return fail('A design chat only reads the Art Bible; the player asks Genio to change it')
+        if (role === 'design' && name === 'art_bible' && args.action !== 'read') return fail('A Lore chat only reads the Art Bible; the player asks Genio to change it')
         if (role === 'design' && name === 'generate_image' && (args.world !== undefined || args.place !== undefined)) {
-          return fail('Design chat images stay in this chat; the player asks Genio to put one in the project')
+          return fail('Lore chat images stay in this chat; the player asks Genio to put one in the project')
         }
         if (args.world !== undefined) checkWorld(args.world)
         if (worlds && name === 'generate_image' && Array.isArray(args.refs) && args.refs.some(ref => typeof ref === 'string' && path.isAbsolute(ref))) {

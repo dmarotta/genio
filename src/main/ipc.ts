@@ -118,7 +118,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
   }
   const design = (wksp: string): DesignChatService => {
     const chats = ctx().home(wksp).design
-    if (!chats) throw new Error('Design chats belong to a project window.')
+    if (!chats) throw new Error('Lore chats belong to a project window.')
     return chats
   }
   /**
@@ -555,7 +555,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
         if (method.startsWith('playPool') || method === 'playCloseSlotEditor' || method.startsWith('playerCopy')) assertProjectWindow(binding, args[0])
         if (method.startsWith('playerInstance') || method === 'playerSources' || method === 'playerSourceAvailable') assertProjectWindow(binding, args[0])
         if (windows && method.startsWith('artBible') && (!binding || args[0] !== binding.project)) throw new Error('The Art Bible belongs to its project window.')
-        if (windows && method.startsWith('designNote') && (!binding || args[0] !== binding.project)) throw new Error('Design notes belong to their project window.')
+        if (windows && method.startsWith('designNote') && (!binding || args[0] !== binding.project)) throw new Error('Lore notes belong to their project window.')
         // The pane lives in its project window only; a '!' result goes to that window's own chat.
         if (windows && method.startsWith('pane') && (!binding || args[0] !== binding.project || (method === 'paneRun' && args[1] !== binding.wksp))) {
           throw new Error('The terminal belongs to its project window.')

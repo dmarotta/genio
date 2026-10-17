@@ -65,7 +65,7 @@ function noteFile(dir: string | undefined, name: string): { file: string; exists
     throw new Error(`A note name is a plain name like "combat", never a path: notes live only in ${NOTES_DIR}/.`)
   }
   const ext = path.extname(raw)
-  if (ext && ext.toLowerCase() !== '.md') throw new Error('Design notes are markdown only: name it like "combat" or "combat.md".')
+  if (ext && ext.toLowerCase() !== '.md') throw new Error('Lore notes are markdown only: name it like "combat" or "combat.md".')
   const stem = ext ? raw.slice(0, -ext.length) : raw
   const entries = dir ? fs.readdirSync(dir).filter(f => f.toLowerCase().endsWith('.md')) : []
   const found = entries.find(f => f.toLowerCase() === `${stem}.md`.toLowerCase()) ?? entries.find(f => slug(f.slice(0, -3)) === slug(stem))
@@ -104,7 +104,7 @@ export function noteTitle(text: string): string | undefined {
 /** design_notes list: name, title, size and version of each note, and the folder's total against its limit. */
 export function listNotes(root: string): Record<string, unknown> {
   const dir = notesDir(root)
-  if (!dir) return { folder: `${NOTES_DIR}/`, notes: [], note: 'No design notes yet. A design chat writes one only when the player asks.' }
+  if (!dir) return { folder: `${NOTES_DIR}/`, notes: [], note: 'No Lore notes yet. A Lore chat writes one only when the player asks.' }
   const all = notes(dir)
   const bytes = all.reduce((n, x) => n + Buffer.byteLength(x.text), 0)
   return {
@@ -162,7 +162,7 @@ export function readNote(root: string, name: string, since?: string, cacheFile?:
  */
 export function writeNote(root: string, name: string, text: string, since?: string, cacheFile?: string, key = root): Record<string, unknown> {
   if (typeof text !== 'string' || !text.trim()) throw new Error('Nothing to save: write the whole note as markdown text.')
-  if (text.includes('\0')) throw new Error('Design notes are markdown text only.')
+  if (text.includes('\0')) throw new Error('Lore notes are markdown text only.')
   const body = text.endsWith('\n') ? text : `${text}\n`
   const bytes = Buffer.byteLength(body)
   if (bytes > NOTE_LIMITS.noteBytes) {

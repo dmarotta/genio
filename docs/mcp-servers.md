@@ -6,7 +6,7 @@ servers, and nothing else.
 
 - **Only you add a server**, in that list. No chat tool, unit or project file can add one.
 - **Claude and Codex units** and **the Claude chat** get every server in scope. Gemini, OpenCode and the other
-  runtimes get none, and neither do the Bot, design chats and the Codex chat (see The Claude chat below).
+  runtimes get none, and neither do the Bot, Lore chats and the Codex chat (see The Claude chat below).
 - **Scope.** Each server is for all projects or for one project. A unit gets the servers of its own project; a
   project's chat gets the same ones.
 - **Used by.** Each server is for **units and chat** (the default, and what servers added earlier keep) or **chat
@@ -139,7 +139,7 @@ reach the chat as `mcp__<server>__<tool>`.
 - **The Codex chat** gets none. It blocks every tool that is not one of Genio's own, MCP included, even in YOLO, by
   design; after a switch to a Codex model your tools are simply absent. To use a server from a Codex chat, ask it to
   deploy a unit: units have the servers.
-- **Design chats** get none; they only read and talk.
+- **Lore chats** get none; they only read and talk.
 
 The chat can always hand the work to a unit instead ("check Linear for X and fix it"): the unit gets the same
 servers, except Chat only ones.
@@ -159,7 +159,7 @@ documents through it. Main enforces it in three places, all from one filter (`mc
   kind: a unit that asks for a Chat only server by name gets its relay closed, and a running unit whose server you set
   to Chat only gets its next call refused ("… no longer applies to this project or to units") and its relay closed.
 
-The Claude chat gets Chat only servers like the others (with the same approval prompts); the Bot, design chats and
+The Claude chat gets Chat only servers like the others (with the same approval prompts); the Bot, Lore chats and
 the Codex chat still get none.
 
 ## How each runtime is launched

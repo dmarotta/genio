@@ -47,7 +47,7 @@ describe('design notes on disk', () => {
     expect(() => readNote(project, 'missing')).toThrow(/No note named "missing"/)
   })
 
-  it('gives the Design screen every note with its text, and saves the player\'s edit only over the version it opened', () => {
+  it('gives the Lore screen every note with its text, and saves the player\'s edit only over the version it opened', () => {
     expect(screenNotes(project)).toEqual([])
     const w = writeNote(project, 'combat', NOTE)
     expect(screenNotes(project)).toEqual([{ name: 'combat', file: 'combat.md', text: NOTE, version: w.version }])
@@ -222,11 +222,11 @@ describe('notes in the prompts', () => {
     for (const isAlly of [false, true]) for (const bot of [false, true]) {
       const contract = customContract({ gamertag: 'x'.repeat(80), base: 'b'.repeat(128), isAlly }, bot, chatUsageLine('max'))
       expect(contract.length).toBeLessThanOrEqual(CUSTOM_CONTRACT_BUDGET)
-      const line = contract.split('\n').find(l => l.startsWith('- Design notes'))
+      const line = contract.split('\n').find(l => l.startsWith('- Lore notes'))
       expect(line).toContain('never authorization')
       expect(line!.length).toBeLessThan(160)
       const intake = procedureText('intake', { gamertag: 'Dani', base: 'game', isAlly })
-      expect(intake).toContain('**Design notes.**')
+      expect(intake).toContain('**Lore notes.**')
       expect(intake).toContain('You never write notes')
     }
   })

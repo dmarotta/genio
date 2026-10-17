@@ -74,7 +74,9 @@ describe('Lore screen', () => {
     expect(api.designChats).toHaveBeenCalledWith(WKSP)
     expect(api.designNotes).toHaveBeenCalledWith(WKSP)
     expect(host.querySelector('.design-empty')?.textContent).toBe(DESIGN_EMPTY)
-    expect(DESIGN_EMPTY).toBe('No design chats yet. Start one with New chat.')
+    expect(DESIGN_EMPTY).toBe('No Lore chats yet. Start one with New chat.')
+    expect(host.querySelector('.design-list h1')?.textContent).toBe('Lore')
+    expect(host.querySelector('.design-list')?.getAttribute('aria-label')).toBe('Lore chats and notes')
     expect([...host.querySelectorAll('button')].map(b => b.textContent?.trim())).toEqual(['New chat'])
     expect(host.querySelector('[role="group"]')).toBeNull()
     expect(fact()).toEqual([])
@@ -91,17 +93,17 @@ describe('Lore screen', () => {
     expect(host.querySelector('.design-head')).toBeNull()
     expect(api.chatHistory).toHaveBeenCalledWith(WKSP, 300, 'd-0000000b')
     // the chat view with its model and effort only: no status bar, approval mode, Clean HUD, shell or quick links
-    expect(host.querySelector('textarea')?.placeholder).toBe('Message the design chat')
+    expect(host.querySelector('textarea')?.placeholder).toBe('Message the Lore chat')
     expect([...host.querySelectorAll('.composer select')].map(s => s.getAttribute('aria-label'))).toEqual(['Model', 'Effort'])
     expect(host.querySelector('.comms-head')).toBeNull()
     expect(host.querySelector('.composer-keys')).toBeNull()
     expect(text()).not.toMatch(/Clean HUD|Recap|Deploy|YOLO|Restart/)
     expect([...host.querySelectorAll('.composer-hints button')]).toHaveLength(0)
-    expect(fact()).toEqual([{ label: 'Design chat', value: 'Gold sinks and the market' }])
+    expect(fact()).toEqual([{ label: 'Lore chat', value: 'Gold sinks and the market' }])
     expect(text()).not.toMatch(/Send to Genio/)
   })
 
-  it('sends to the open design chat and shows its replies as the design chat, never Genio', async () => {
+  it('sends to the open Lore chat and shows its replies as the Lore chat, never Genio', async () => {
     api.designChats.mockResolvedValue([chat('d-0000000a', 'Combat loop')])
     await render()
     const area = host.querySelector('textarea')!
@@ -115,7 +117,7 @@ describe('Lore screen', () => {
     expect(reply.querySelector('.msg-meta')?.textContent).not.toMatch(/Genio/)
     expect(reply.querySelector('.msg-avatar')).toBeNull()
     expect(reply.querySelector('.msg-react')).toBeNull()
-    // another project's design chat never shows here
+    // another project's Lore chat never shows here
     await act(async () => handleEvent({ type: 'design-chats', wksp: 'other', chats: [] }))
     expect(items('Chats')).toEqual(['Combat loop'])
   })
@@ -128,7 +130,7 @@ describe('Lore screen', () => {
     expect(api.designChatCreate).toHaveBeenCalledWith(WKSP)
     expect(items('Chats')).toEqual(['New chat', 'Combat loop'])
     expect(title()).toBe('New chat')
-    expect(fact()).toEqual([{ label: 'Design chat', value: 'New chat' }])
+    expect(fact()).toEqual([{ label: 'Lore chat', value: 'New chat' }])
     await act(async () => host.querySelectorAll<HTMLButtonElement>('.design-item')[1].click())
     await act(async () => button('New chat')!.click())
     expect(api.designChatCreate).toHaveBeenCalledTimes(1)
@@ -160,7 +162,7 @@ describe('Lore screen', () => {
     expect(host.querySelector('.design-empty')?.textContent).toBe(DESIGN_EMPTY)
     await act(async () => button('combat.md')!.click())
     expect(title()).toBe('combat.md')
-    expect(fact()).toEqual([{ label: 'Design note', value: 'combat.md' }])
+    expect(fact()).toEqual([{ label: 'Lore note', value: 'combat.md' }])
     expect(host.querySelector('.design-note h1')?.textContent).toBe('Combat: prepare, hold, repair')
     expect(text()).not.toContain('title: Combat')
     expect(host.querySelector('textarea')).toBeNull()

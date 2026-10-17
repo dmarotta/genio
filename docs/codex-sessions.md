@@ -54,7 +54,7 @@ project or a new Dev Drive path would hold the unit before its first turn.
 - `codex login status` in that home must report ChatGPT. Until it does (not
   signed in, an API key, an error) Codex is **needs sign-in**, in one place:
   `codexLaunch()` in `codex-home.ts` throws `CodexNeedsSignIn` before anything
-  starts. Codex units and Recons, the Codex chat and design chats, chat image
+  starts. Codex units and Recons, the Codex chat and Lore chats, chat image
   generation, model discovery and the usage probe all go through it, so none of
   them ever runs against, reads or writes the player's `~/.codex` (its login may
   be a dummy or API key, and its threads would show in the player's Codex app).

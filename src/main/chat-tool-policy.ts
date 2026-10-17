@@ -70,7 +70,7 @@ export type ToolDecision ={ behavior: 'allow' } | { behavior: 'deny'; message: s
 export function decideTool(role: ToolRole, toolName: string, input: unknown, shellMode: Settings['chatShellMode']): ToolDecision {
   // Whatever the chat's approval mode: its Genio tools are already the design list, everything else is closed.
   if (role === 'design') return toolName.startsWith('mcp__genio__') || DESIGN_NATIVE.includes(toolName) ? { behavior: 'allow' }
-    : { behavior: 'deny', message: 'A design chat reads and talks: it runs no commands, edits nothing and starts no work. To build it, the player asks Genio.' }
+    : { behavior: 'deny', message: 'A Lore chat reads and talks: it runs no commands, edits nothing and starts no work. To build it, the player asks Genio.' }
   if (toolName.startsWith('mcp__genio__')) return { behavior: 'allow' }
   if (ALLOWED.has(toolName)) return { behavior: 'allow' }
   if (toolName === 'Skill') return { behavior: 'deny', message: 'Use skill_read for a named bundled skill, procedure_read for Genio procedures, or settings_read/settings_update. Broad configuration skills are not loaded into chat.' }

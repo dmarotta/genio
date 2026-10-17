@@ -6,7 +6,7 @@ settings are **Read replies aloud** and, once the natural voice is downloaded, t
 ## Voice input (push to talk)
 
 - **The mic button** sits in every chat box (the main chat, a project chat, the floating panel, the chat pop-out and
-  design chats), before Steer and Send. It is the only control and the only indicator:
+  Lore chats), before Steer and Send. It is the only control and the only indicator:
   - pressed, with a ring that follows your voice, while it listens;
   - a spinner while the words are worked out (about 2 s; up to about 6 s while Unity compiles);
   - a progress ring during the one-time download.

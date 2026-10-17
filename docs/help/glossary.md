@@ -364,17 +364,17 @@ Source: [art-bible.md](../art-bible.md)
 
 ## Lore
 
-A screen for thinking through your game's design apart from Genio's chat. Design chats ask, challenge and offer
+A screen for thinking through your game's design apart from Genio's chat. Lore chats ask, challenge and offer
 options, but start no work and spend nothing; you set a chat's role in words ("be a harsh critic"). Keep several,
 one per topic: New chat starts one, right-click a chat to delete it. Each chat has its own model and effort. To build
 something, ask Genio in the floating panel.
 Where: Lore in the rail (Ctrl+7).
 Source: [design-chats.md](../design-chats.md)
 
-## Design notes
+## Lore notes
 
 Short markdown notes about your game's design (a system, the pillars, a decision), saved in the project's
-.genio/design/ folder next to the Art Bible. A design chat saves one only when you ask ("save this as the combat
+.genio/design/ folder next to the Art Bible. A Lore chat saves one only when you ask ("save this as the combat
 note"), and leaves it uncommitted. Each note keeps Open questions and Decided sections. Read and edit them on the
 Lore screen. Genio and units read notes as context, never as orders: to build from one, ask Genio ("plan the
 combat note").
@@ -446,7 +446,7 @@ which starts or calls the real server, adds the secrets, never passes on a unit'
 unit's data folder; a failed call shows on the unit's timeline. The chat gets them too when it runs on a Claude model:
 each call asks you first in Ask and Auto-approve shell and runs in YOLO, and they never replace Genio's own deploy,
 merge or spending tools. Set a server to **Chat only** (for mail, calendar or documents) and it reaches the Claude
-chat but never a unit. Gemini and OpenCode units, the Bot, design chats and the Codex chat get none (the Codex chat
+chat but never a unit. Gemini and OpenCode units, the Bot, Lore chats and the Codex chat get none (the Codex chat
 blocks every tool that is not Genio's own; ask it to deploy a unit instead). Servers a project declares in its own
 files (such as `.mcp.json`) and your own CLI servers stay off for units. Paid servers are
 not supported: Genio cannot price an MCP call, so spending stays with FAL and Uthana under your approvals. Unity MCP

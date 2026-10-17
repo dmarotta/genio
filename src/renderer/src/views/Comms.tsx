@@ -51,7 +51,7 @@ const NO_MESSAGES: ChatMessage[] = []
 type ChatSessionInfo = Pick<WkspInfo, 'activity' | 'activityDetail' | 'steerable' | 'limit' | 'botLimit' | 'lastError'>
 
 /** Who answers in this chat, in the copy: Genio, or a design chat (which never speaks as Genio). */
-const speaker = (conversation?: string): string => (conversation ? 'The design chat' : ASSISTANT_NAME)
+const speaker = (conversation?: string): string => (conversation ? 'The Lore chat' : ASSISTANT_NAME)
 /** A design chat's id as a call's last argument; the project chat's calls keep their shape. */
 const onDesign = (conversation?: string): [] | [string] => (conversation ? [conversation] : [])
 
@@ -613,7 +613,7 @@ function Composer({ wksp, conversation, steerable = false, fill, context }: { wk
           value={text}
           onPaste={att.onPaste}
           aria-label={shell ? 'Shell command' : 'Message'}
-          placeholder={shell ? 'Shell command' : design ? 'Message the design chat' : `Message ${ASSISTANT_NAME}`}
+          placeholder={shell ? 'Shell command' : design ? 'Message the Lore chat' : `Message ${ASSISTANT_NAME}`}
           onChange={(e) => {
             const v = e.target.value
             voice.clearError()
@@ -758,7 +758,7 @@ function DesignModelControls({ wksp, conversation }: { wksp: string; conversatio
       swap(() => saved)
     } catch (e) {
       if (before) swap(() => before)
-      toast('error', 'Design chat settings not saved', errText(e))
+      toast('error', 'Lore chat settings not saved', errText(e))
     }
   }
   return (

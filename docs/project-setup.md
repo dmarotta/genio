@@ -12,7 +12,7 @@ There is no New project form. The player makes or picks a folder anywhere in the
 system folder dialog (Open folder… in the Hub or File menu; it has New folder,
 also on macOS) and opens it. The first open writes nothing into the folder: Genio
 registers it in its own data and infers the engine. The project's `.genio/`
-folder appears only when an answer needs it (the Art Bible, design notes,
+folder appears only when an answer needs it (the Art Bible, Lore notes,
 generation settings or a pinned engine root).
 
 ## When setup runs
@@ -40,7 +40,7 @@ mode chosen in Settings) ticks the step too.
 | engine | an engine is detected | Says what was detected. With no engine files yet: Unity, create the project in Unity Hub in this folder; Godot, open the folder in Godot; web, offer a Build that scaffolds it. |
 | how work lands | Auto-loot is on or the delivery mode was chosen | "Merge green, in-scope work yourself (Auto-loot), or ask me each time?" Both need the player's words. |
 | art direction | `.genio/art-bible.md` exists | Link an existing style doc, write a short Art Bible together, or skip. Skipped for apps unless asked. |
-| design one-pager | a note exists in `.genio/design/` | Points to Lore (Ctrl+7) to ask a design chat for a one-pager. Skipped for apps unless asked. |
+| design one-pager | a note exists in `.genio/design/` | Points to Lore (Ctrl+7) to ask a Lore chat for a one-pager. Skipped for apps unless asked. |
 | tools | nothing is missing (Godot for Godot projects, gh for a GitHub remote) | Names what is missing; installing stays with the player. |
 | Unity and Play (Unity only) | Play has started once in this project | Names the Unity version, the Input System for interactive Play, and Unity slots and idle time in Settings. |
 | paid generation | the project has a monthly generation cap | Only if the player plans FAL or Uthana: the cap and keys are in Settings. |
@@ -79,7 +79,7 @@ pointing to `procedure_read("setup")`, which holds the rules above.
 
 - Deploy, spend, install, sign in, or change a setting, the delivery mode or the
   Art Bible without the player's words for that exact thing.
-- Create an Art Bible or design note by itself, or open screens or panels.
+- Create an Art Bible or Lore note by itself, or open screens or panels.
 - Deploy because the quest log is empty.
 
 Finishing setup with its first work earns Character Creation.

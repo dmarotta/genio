@@ -64,8 +64,8 @@ pages before treating a version as loaded. Unknown/evicted versions return a ful
 snapshot with `reset: true`; `full=true` without a cursor also ignores `since`.
 Eight observed versions per file/base survive restart, including manual edits and
 changes to an ally's inherited shared profile. These local snapshots have the same
-sensitivity as the original memory files. `design_notes read` versions a design note the same
-way ([design chats](design-chats.md)).
+sensitivity as the original memory files. `design_notes read` versions a Lore note the same
+way ([Lore chats](design-chats.md)).
 
 Both chat providers enforce a 10,000-character custom instruction budget, including
 Bot rules and provider/Usage notes. The always-on contract keeps authority and

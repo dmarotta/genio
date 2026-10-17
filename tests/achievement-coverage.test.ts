@@ -142,7 +142,7 @@ describe('achievement feature coverage', () => {
     for (const id of ['play-stream', 'play-input', 'play-unit', 'play-step', 'play-resolution', 'play-audio']) expect(ipc, id).toMatch(new RegExp(`unlock\\w*\\('${id}'\\)`))
     expect(FEATURE_MAP['play-fullscreen']).toBe('play-fullscreen')
   })
-  it('ties the Lore screen to the first design chat reply, unlocked when a design chat answers', () => {
+  it('ties the Lore screen to the first Lore chat reply, unlocked when a Lore chat answers', () => {
     expect(navItems().find((v) => v.id === 'design')).toMatchObject({ label: 'Lore', key: '7' })
     expect(ACHIEVEMENTS.find((a) => a.id === 'design-chat-reply')?.feature).toBe('design')
     expect(readFileSync('src/main/design-chats.ts', 'utf8')).toMatch(/onTurnEnd[\s\S]*if \(lastText\.trim\(\)\) safe\(\(\) => getCtx\(\)\.stats\.unlock\('design-chat-reply'\)\)/)
