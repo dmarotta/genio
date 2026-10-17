@@ -5,6 +5,7 @@
  *
  * GENIO_PERF_BASE=<base root> copies a real Base into the temp dir instead.
  * The copy rewrites ally homes to stay inside the temp dir; nothing outside it is written.
+ * Worktrees, Play pools and the Claude/Codex homes (credentials) are never copied.
  */
 import fs from 'node:fs'
 import os from 'node:os'
@@ -105,7 +106,7 @@ export function seedBase(root: string): SeededBase {
   const wksp = 'genio'
   const projectHome = path.join(root, 'wksps', wksp)
   if (real) {
-    fs.cpSync(real, root, { recursive: true, filter: (src: string) => !/[\\/](worktrees|projects|node_modules|inventory|chat-images|validation-node_modules)([\\/]|$)/.test(src) && !/[\\/]data[\\/][^\\/]+-[0-9a-f]{4}[\\/]/.test(src) })
+    fs.cpSync(real, root, { recursive: true, filter: (src: string) => !/[\\/](worktrees|projects|node_modules|inventory|chat-images|validation-node_modules|play-pools|claude-home|codex-home|skills)([\\/]|$)/.test(src) && !/[\\/]data[\\/][^\\/]+-[0-9a-f]{4}[\\/]/.test(src) })
     const alliesFile = path.join(root, 'data', 'allies.json')
     const allies = JSON.parse(fs.readFileSync(alliesFile, 'utf8')) as { name: string; home: string }[]
     for (const a of allies) a.home = path.join(root, 'wksps', a.name)
