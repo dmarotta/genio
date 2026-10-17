@@ -6,7 +6,7 @@ import type { DesignChatInfo } from '../src/shared/types'
 import type { DesignNote } from '../src/shared/design-notes'
 
 vi.hoisted(() => window.history.replaceState(null, '', '/?project=forest&wksp=forest'))
-vi.mock('../src/renderer/src/views/Systems', () => ({
+vi.mock('../src/renderer/src/components/ModelSelect', () => ({
   ModelSelect: (p: { value: string }) => React.createElement('select', { 'aria-label': 'Model', value: p.value, onChange: () => {} }),
   EffortSelect: (p: { value: string }) => React.createElement('select', { 'aria-label': 'Effort', value: p.value, onChange: () => {} })
 }))
