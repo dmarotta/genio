@@ -3,7 +3,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ACHIEVEMENTS } from '../src/main/stats'
 import { navItems } from '../src/renderer/src/lib/railmenu'
-import { SETTINGS_PAGES } from '../src/shared/settings-pages'
+import { SETTINGS_ALIASES, SETTINGS_PAGES } from '../src/shared/settings-pages'
 
 // Deliberately explicit: add new player-facing tools here, with their feature tag.
 const PLAYER_FACING_TOOLS: Record<string, string> = {
@@ -37,25 +37,29 @@ const SPAWN_OPTIONS = ['yolo', 'force']
 
 // Every Settings page: the achievement earned there, or 'none: <why>' (a page of preferences is no feat).
 const SETTINGS_PAGE_ACHIEVEMENTS: Record<string, string> = {
-  project: 'none: the project name, engine and folder',
+  project: 'none: the project engine, limits and build and test commands',
   'project-delivery': 'none: how work lands; landing itself earns First Blood and Go Live',
-  'project-commands': 'none: build and test commands',
-  'project-assets': 'none: generation budget and folders; generating earns the asset achievements',
+  'project-assets': 'none: the generation budget; generating earns the asset achievements',
   'project-unity': 'play-pool-configured',
-  general: 'none: looks and wording',
-  notifications: 'none: alert preferences',
+  general: 'none: looks, wording, notifications and away alerts',
   usage: 'usage-mode',
   accounts: 'account-login',
   memory: 'lore-first',
   units: 'none: unit defaults',
   play: 'none: Play editor preferences; playing earns the Play achievements',
-  inbox: 'none: mail and scheduled checks',
+  inbox: 'none: notes from your phone and scheduled checks',
   system: 'explorer-install',
   dispatch: 'none: advanced tuning',
-  harnesses: 'mcp-call',
-  gauntlet: 'none: advanced tuning',
-  overwatch: 'none: advanced tuning',
-  maintenance: 'none: housekeeping'
+  harnesses: 'mcp-call'
+}
+// Settings pages removed by the UI trim (2026-10-17), and why; no achievement was earned on any of them.
+// Their ids still open a page through SETTINGS_ALIASES in src/shared/settings-pages.ts.
+const RETIRED_SETTINGS_PAGES: Record<string, string> = {
+  'project-commands': 'merged into This project › General',
+  notifications: 'merged into All projects › General',
+  maintenance: 'merged into System',
+  gauntlet: 'its review model and fix rounds are fixed defaults now',
+  overwatch: 'its polling and lag timings are fixed defaults now'
 }
 
 // Feature tags that are neither a Rail view, a tool, a unit kind nor a flag: each names the source that proves it is still live.
@@ -196,6 +200,10 @@ describe('achievement feature coverage', () => {
       "Settings pages changed: map each page in SETTINGS_PAGE_ACHIEVEMENTS to the achievement earned there or 'none: <why>', and add one for a page with a real feat").toEqual(SETTINGS_PAGES.map((p) => p.id).sort())
     for (const [page, v] of Object.entries(SETTINGS_PAGE_ACHIEVEMENTS)) {
       if (!v.startsWith('none: ')) expect(live.has(v), `Settings page ${page}: achievement ${v} is not live. Map the page to a live achievement or 'none: <why>'`).toBe(true)
+    }
+    for (const id of Object.keys(RETIRED_SETTINGS_PAGES)) {
+      expect(SETTINGS_PAGES.some((p) => p.id === id), `${id} is retired`).toBe(false)
+      expect(SETTINGS_ALIASES[id], `${id} still opens a page`).toBeDefined()
     }
   })
   it('points every feature tag at something live, or retires it', () => {

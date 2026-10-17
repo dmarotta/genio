@@ -108,8 +108,10 @@ fresh 70/85/95% readings and rejections remains in place.
 
 # Usage mode and shared plan meter (stage 3)
 
-One control, Settings → Usage & limits: **Usage mode [Save | Balanced* | Max]**; raw model pins are under its collapsed **Pin models and effort**.
-`src/shared/usage-mode.ts` holds the table; the Settings preview, the loadout
+One control, Settings → Usage & limits: **Usage mode [Save | Balanced | Max]**, with a one-line summary of the
+chat model and unit cap (hovering a mode previews its line). Model and effort pins are no longer set there: the
+page lists any pin that exists (chat or unit model and effort, locked routing rows and rules, a project's own
+mode) with Unpin or Open. `src/shared/usage-mode.ts` holds the table; the summary line, the loadout
 picker, the chat sessions, the supervisor and the dispatcher all read it.
 
 | | Save | Balanced (default) | Max |
@@ -185,12 +187,12 @@ the mode (Quality → Max, Cost → Save).
   quests and, when no plan has headroom, all queued quests stay queued until
   reset ("Queued until reset" in Quests). Running work is never stopped.
 
-A one-line notice (toast and Settings → Usage & limits) is emitted only when a plan's level
+A one-line notice (a toast) is emitted only when a plan's level
 changes; its details give the cause and evidence age. Levels persist in
 `data/usage/policy-state.json`, so restarts do not repeat notices.
 
 **Plan meter.** One component (Settings › Usage & limits; nothing shows it at all times): a Claude
 row and a Codex row, never summed, each reported window with what is left, reset
 time, source and observation age. Expired or missing observations read "unknown",
-never "100% left"; missing standard windows read "not reported". Unit tokens per
-project are shown separately as measured consumption, not a share of the plan.
+never "100% left"; missing standard windows read "not reported". While a plan is at
+70% or more, Usage & limits also shows one line for it with what protection is doing.

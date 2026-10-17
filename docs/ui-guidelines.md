@@ -88,6 +88,14 @@ all reached main yet:
   approval line and Archive button, one-line hints under every More item, the ping box's
   interrupt toggle, file and commit counts, the commit log, a cost tile, the landings legend and
   total, and the quest editor's labels, dependencies, start date and history (the chat sets those).
+- The UI trim pass on Settings: the intro line under every page title, "Settings saved with … They don't affect your
+  other projects.", the project summary line and folder path, the engine's "Rescan after an engine upgrade" line, the
+  Danger zone (Remove project moved to a quiet bin icon in the Hub's project list), helper sentences under almost every
+  field, Learn more folds, game-term hints in titles, the Show advanced settings switch, the Timing and Checks & review
+  pages (fixed defaults now), the Usage page's preset table, protection explanation, notices history, per-project
+  tokens and model pins, the Accounts page's usage tables, ids and status dots, the data folder path, the mail compose
+  box and unread badge, the dispatch scorecard and learning log, and knobs nobody needs (branch prefix, inbox port,
+  activity log, alarm and digest timings, memory size limit, Claude Code path, harness editors, asset folders).
 
 The pattern in all of them: information about how Genio works, shown to someone who only wants
 to know how their work is going and what to do next.

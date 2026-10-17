@@ -83,7 +83,7 @@ Source: [ARCHITECTURE.md](../ARCHITECTURE.md), [VOCABULARY.md](../VOCABULARY.md)
 ## Offline
 
 The unit leaves a clean local branch; after your approval (or Auto-loot) Genio fast-forwards it into your main branch
-on this computer. Nothing is pushed unless you ask (the Push button on the Delivery page). Offline landings wait
+on this computer. Nothing is pushed unless you ask Genio to push it. Offline landings wait
 while you are AFK.
 Where: Settings → This project → Delivery.
 Source: [ARCHITECTURE.md](../ARCHITECTURE.md)
@@ -106,7 +106,8 @@ Source: [ARCHITECTURE.md](../ARCHITECTURE.md)
 Genio's automatic validation for Hardcore Builds: rebase check, the project's lint/build/test commands, an AI review
 of the change against your words, fix rounds with the unit, then push, PR and CI. Questions only you can answer
 become choices. There is no manual Gauntlet button; it runs by itself.
-Where: the unit page's Checks tab; settings in Settings → Advanced → Checks & review (Gauntlet).
+Where: the unit page's Checks tab. It runs on Hardcore delivery, set in Settings → This project → Delivery. Its review
+model and number of fix rounds are fixed defaults.
 Source: [ARCHITECTURE.md](../ARCHITECTURE.md), [gauntlet-unity.md](../gauntlet-unity.md)
 
 ## Plans
@@ -222,7 +223,7 @@ Source: [usage-protection.md](../usage-protection.md)
 Automatic protection of your plans, from the latest reported usage: at 70% a plan runs at most one unit with lower
 effort; at 85% it gets no new automatic units; at 95% or a rejection, low-priority queued quests (or all, if no plan
 has headroom) wait until the reset. Running work is never stopped, and pinned picks are held rather than switched.
-Where: Settings → Usage & limits (notices and the plan meter).
+Where: Settings → Usage & limits (the plan meter, and a line per plan while protection is acting).
 Source: [usage-protection.md](../usage-protection.md), [chat-limits.md](../chat-limits.md)
 
 ## Sign-in warning (Claude and Codex)
@@ -238,9 +239,9 @@ Source: [codex-sessions.md](../codex-sessions.md), [usage-protection.md](../usag
 
 ## Effort levels
 
-How hard a model thinks: low, medium, high, xhigh, max. The Usage mode picks it unless you pin one; quota protection
-may lower an automatic effort one step. Fable and Astra models need your approval for every unit launch.
-Where: the chat's model and effort controls; pins in Settings → Usage & limits → Pin models and effort.
+How hard a model thinks: low, medium, high, xhigh, max. The Usage mode picks it unless you pick one in the chat;
+quota protection may lower an automatic effort one step. Fable and Astra models need your approval for every unit launch.
+Where: the chat's model and effort controls; Settings → Usage & limits lists anything pinned, with Unpin.
 Source: [usage-protection.md](../usage-protection.md)
 
 ## Spend approval
@@ -385,10 +386,11 @@ Source: [unit-generator.md](../unit-generator.md)
 
 ## Settings pages
 
-Settings has three groups. This project: General, Delivery, Commands, Asset generation, Unity slots. Genio · all
-projects: General, Notifications, Usage & limits, Accounts & keys, Memory, Units, Unity & Play, Inbox & automation,
-System. Advanced (behind Show advanced settings): Model routing (Dispatch), Agent tools (Harnesses), Checks & review
-(Gauntlet), Timing (Overwatch), Maintenance.
+Settings has three groups. This project: General (with the build and test commands), Delivery, Asset generation,
+Unity slots. All projects: General (with notifications and away alerts), Usage & limits, Accounts & keys, Memory,
+Units, Unity & Play, Inbox & automation, System (with hiding Genio's past sessions from the Codex and Claude apps).
+Advanced: Model routing (Dispatch), Agent tools (Harnesses). To remove a project from Genio, use the bin icon beside
+it in the Hub's project list, or ask Genio.
 Where: Settings in the rail (Ctrl+8).
 Source: [VOCABULARY.md](../VOCABULARY.md)
 
@@ -424,7 +426,7 @@ Source: [mcp-servers.md](../mcp-servers.md)
 
 Extra copies of a Unity project, each with its own editor, that units lease to play and test in Unity at the same
 time. They are separate from your own Play copy.
-Where: Settings → This project → Unity slots (cap, editor windows, states, disk use, Close slot editor).
+Where: Settings → This project → Unity slots (cap, editor windows, states, Close slot editor).
 Source: [ARCHITECTURE.md](../ARCHITECTURE.md), [unity-copies.md](../unity-copies.md)
 
 ## Hidden desktop

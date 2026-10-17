@@ -10,7 +10,7 @@ import { settingsPath } from '@shared/settings-pages'
 const SETTINGS_EXAMPLES = [
   settingsPath('project-delivery', 'Merge finished work automatically (Auto-loot)'),
   settingsPath('project', 'Max units at once'),
-  settingsPath('gauntlet'),
+  settingsPath('dispatch'),
   settingsPath('toolchain')
 ].join(', ')
 

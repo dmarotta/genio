@@ -46,13 +46,9 @@ app.whenReady().then(async () => {
       if (/(auto|scroll)/.test(s.overflowY) && el.scrollHeight > el.clientHeight + 1) scrollers.push(el.className || el.tagName)
     }
     const page = document.scrollingElement
-    const danger = body.querySelector('.danger-zone')?.getBoundingClientRect()
-    const long = view.scrollHeight > view.clientHeight + 1
     return {
       fills: br.bottom >= floor - 1, gap: Math.round(floor - br.bottom), cardOverflow: body.scrollHeight > body.clientHeight + 1,
-      scrollers, pageScrolls: page.scrollHeight > page.clientHeight + 1 || page.scrollWidth > page.clientWidth + 1, sideways: view.scrollWidth > view.clientWidth + 1,
-      // On a short page the danger zone sits at the card's bottom edge; on a long one it is simply last.
-      dangerAtBottom: danger ? long || Math.abs(br.bottom - parseFloat(getComputedStyle(body).paddingBottom) - danger.bottom) < 2 : null
+      scrollers, pageScrolls: page.scrollHeight > page.clientHeight + 1 || page.scrollWidth > page.clientWidth + 1, sideways: view.scrollWidth > view.clientWidth + 1
     }
   })()`)
 
@@ -61,22 +57,16 @@ app.whenReady().then(async () => {
   await win.loadURL(process.env.SETTINGS_URL)
   await until('!!document.querySelector(".sys-nav") || !!document.getElementById("fixture-error")', 'Settings mounted')
   await fail()
-  const advanced = on => js(`(() => { const sw = document.querySelector('.sys-advanced input'); if (sw && sw.checked !== ${on}) sw.click() })()`)
-  // Advanced pages listed too, so every page is checked.
-  await advanced(true)
   const pages = await js(`[...document.querySelectorAll('.sys-nav-item')].map(n => [n.className.match(/sys-in-(\\w+)/)[1], n.querySelector('.sys-link').textContent.trim()])`)
 
   for (const size of SIZES) {
     win.setContentSize(size.width, size.height)
-    await advanced(true)
     await shot()
     for (const [group, label] of pages) {
       await open(group, label)
       const m = await measure()
-      check(`${size.name} ${group} › ${label} fills`, m.fills && !m.cardOverflow && m.scrollers.length <= 1 && !m.pageScrolls && !m.sideways && m.dangerAtBottom !== false, m)
+      check(`${size.name} ${group} › ${label} fills`, m.fills && !m.cardOverflow && m.scrollers.length <= 1 && !m.pageScrolls && !m.sideways, m)
     }
-    // The default nav (no Advanced pages) for the pictures.
-    await advanced(false)
     for (const [group, label] of SHORT_PAGES) {
       await open(group, label)
       await save(`short-${label.toLowerCase().replace(/\W+/g, '-')}-${size.name}`)

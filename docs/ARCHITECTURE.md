@@ -96,7 +96,7 @@ pool ([player-instance.md](player-instance.md)). The rest serves units and Genio
   `unity-unit.ts`, [unity-enforcement.md](unity-enforcement.md); copies:
   [unity-copies.md](unity-copies.md).
 - **Settings › This project › Unity slots** (`UnitySlots.tsx`): cap, hidden or
-  visible slot editor windows, slot states, disk use and Close slot editor,
+  visible slot editor windows, slot states and Close slot editor,
   through `PlayService` in `play.ts`.
 - **Genio's chat tools** `play_status`, `play_frame`, `play_console`,
   `play_stats` and `play_control` (player's quoted words only) drive the

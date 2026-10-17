@@ -116,16 +116,17 @@ MIT. Genio reimplements concepts from companion by The team (MIT).
 
 Project windows keep configuration in **Settings → This project**: General (the
 detected engine and engine root, read-only with Rescan, a repository pins its root
-in `.genio/project.json`; description, usage mode for this project, max units at
-once, the OpenRouter opt-out and guarded removal), Delivery (Offline, Standard PRs,
-or the Hardcore Gauntlet, automatic remote following, merge finished work
-automatically (Auto-loot), branch name prefix, sync and push on demand),
-Commands (setup/build/test/lint), Asset generation and, for Unity, Unity slots.
-Settings stored for every project are under **Genio · all projects**, and expert
-pages under **Show advanced settings**. Pages and fields use plain names with the
-game term as a hint, such as **Checks & review (Gauntlet)** or **Installed tools
-(Loadout)**, and Settings search still finds the old names. Removing a project still refuses live units, queued quests and
-unlanded work; an owned folder is never deleted.
+in `.genio/project.json`; description, usage mode, max units at once, the
+OpenRouter opt-out, and the setup/build/test/lint commands), Delivery (Offline,
+Standard PRs, or the Hardcore Gauntlet, automatic remote following, and merge
+finished work automatically (Auto-loot)), Asset generation and, for Unity, Unity
+slots. Settings stored for every project are under **All projects**, and two
+expert pages under **Advanced**. Pages and fields use plain names, and Settings
+search still finds the old names and game terms (Gauntlet, Loadout, Patch…).
+Sync and push on demand are asked of Genio in chat. A project is removed from Genio
+with the bin icon beside it in the Hub's project list (or by asking Genio); removal
+still refuses live units, queued quests and unlanded work, and an owned folder is
+never deleted.
 
 Existing stored keys and file formats remain compatible. MCP tools with a
 `world` argument also accept `project`; the original argument and tool names

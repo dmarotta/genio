@@ -39,50 +39,43 @@ const toggle = async () => act(async () => {
   await new Promise((r) => setTimeout(r, 0))
 })
 
-it('loads world settings and saves both existing config formats while preserving unrelated fields, with no Save button', async () => {
+it('loads world settings and saves the budget and Codex images while preserving unrelated fields, with no Save button', async () => {
   await mount()
   expect(input('Monthly budget (USD)').value).toBe('10')
   // every paid run asks first: there is no ask-above threshold to set
   expect(host.querySelector('input[aria-label="Ask before runs over (USD)"]')).toBeNull()
-  expect(host.textContent).toContain('Every paid run asks you first.')
-  expect(input('Images folder').placeholder).toBe('Game/Assets/Art/Generated')
+  // UI trim: no helper sentences and no asset folder fields; folders stay in the config untouched.
+  expect(host.querySelector('.field-hint')).toBeNull()
+  expect(host.querySelector('input[aria-label="Images folder"]')).toBeNull()
+  expect(api.uthanaWorld).not.toHaveBeenCalled()
   expect(host.querySelector<HTMLInputElement>('[type="checkbox"]')!.checked).toBe(false)
   expect(host.querySelector('button')).toBeNull()
   await change('Monthly budget (USD)', '')
-  await change('Images folder', 'Game/Assets/Art')
-  await change('Animations folder', 'Game/Assets/Motions')
   expect(api.falWorldConfig).not.toHaveBeenCalled()
   await toggle()
   expect(api.falWorldConfig).toHaveBeenCalledTimes(1)
   expect(api.falWorldConfig).toHaveBeenCalledWith('test', { ...fal.config,
-    budget: { monthly_usd: undefined }, folders: { image: 'Game/Assets/Art' },
+    budget: { monthly_usd: undefined },
     providers: { ...fal.config.providers, codex: { enabled: true, custom: 1 } }
   })
-  expect(api.uthanaWorldConfig).not.toHaveBeenCalled()
-  await blur('Animations folder')
-  expect(api.uthanaWorldConfig).toHaveBeenCalledWith('test', { custom: 'keep', folder: 'Game/Assets/Motions' })
   // Nothing changed since: blurring again writes nothing.
-  await blur('Images folder')
-  await blur('Animations folder')
+  await blur('Monthly budget (USD)')
   expect(api.falWorldConfig).toHaveBeenCalledTimes(1)
-  expect(api.uthanaWorldConfig).toHaveBeenCalledTimes(1)
 })
 
-it('rejects invalid budgets and reports a failed folder save for retry', async () => {
+it('rejects invalid budgets and reports a failed save for retry', async () => {
   await mount()
   await change('Monthly budget (USD)', '-1')
   await blur('Monthly budget (USD)')
   expect(api.falWorldConfig).not.toHaveBeenCalled()
   expect(host.textContent).toContain('Enter a non-negative amount')
+  api.falWorldConfig.mockRejectedValueOnce(new Error('Disk full'))
   await change('Monthly budget (USD)', '2')
   await blur('Monthly budget (USD)')
   expect(api.falWorldConfig.mock.calls[0][1].budget).toStrictEqual({ monthly_usd: 2 })
-  api.uthanaWorldConfig.mockRejectedValueOnce(new Error('Folder outside world'))
-  await change('Animations folder', '../outside')
-  await blur('Animations folder')
-  expect(host.querySelector('[role="alert"]')!.textContent).toContain('animation folder could not be saved')
-  await change('Animations folder', 'Animations')
-  await blur('Animations folder')
+  expect(host.querySelector('[role="alert"]')!.textContent).toContain('Budget and Codex images could not be saved')
+  await change('Monthly budget (USD)', '3')
+  await blur('Monthly budget (USD)')
   expect(host.querySelector('[role="alert"]')).toBeNull()
 })
 

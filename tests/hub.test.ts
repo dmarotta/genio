@@ -7,7 +7,7 @@ import { getState, setState } from '../src/renderer/src/store'
 import type { Project } from '../src/shared/types'
 
 let root: Root, host: HTMLDivElement
-const open = vi.fn(), pick = vi.fn(), create = vi.fn(), add = vi.fn(), sync = vi.fn()
+const open = vi.fn(), pick = vi.fn(), create = vi.fn(), add = vi.fn(), sync = vi.fn(), remove = vi.fn()
 const project = (name: string): Project => ({ name, path: `C:/${name}`, addedAt: '2026-10-13', engine: 'godot',
   defaultBranch: 'main', mode: 'local-only', yolo: false, branchPrefix: 'genio/', forge: 'none', commands: {}, managed: false })
 // Screens load on first use; load them up front so renders are synchronous.
@@ -20,9 +20,9 @@ beforeEach(() => {
   pick.mockResolvedValue('C:/picked')
   create.mockResolvedValue(project('created'))
   add.mockResolvedValue(project('added'))
-  Object.assign(window, { genio: { api: { projectOpen: open, pickDirectory: pick, projectCreate: create, projectAdd: add, projectSync: sync, projectMetadata: async () => ({}) } } })
+  Object.assign(window, { genio: { api: { projectOpen: open, pickDirectory: pick, projectCreate: create, projectAdd: add, projectSync: sync, projectRemove: remove, projectMetadata: async () => ({}) } } })
   const state = getState()
-  setState({ booted: true, connected: true, view: 'worlds', settings: { ...state.settings, fx: false, firstRunDone: false } as typeof state.settings,
+  setState({ booted: true, connected: true, view: 'worlds', settings: { ...state.settings, fx: false, firstRunDone: false, harnesses: [] } as typeof state.settings,
     snap: { ...state.snap, projects: [project('alpha'), project('beta')] }, toasts: [] })
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
 })
@@ -36,7 +36,7 @@ async function click(text: string) {
 
 it('shows only project selection even on first run and ignores work shortcuts', async () => {
   await render()
-  expect([...host.querySelectorAll('button')].map(b => b.textContent)).toEqual(['File', ' Settings', ' Open folder…', ' Add project', ' New project', ' Sync all', 'alphaC:/alpha', 'betaC:/beta'])
+  expect([...host.querySelectorAll('button')].map(b => b.textContent)).toEqual(['File', ' Settings', ' Open folder…', ' Add project', ' New project', ' Sync all', 'alphaC:/alpha', '', 'betaC:/beta', ''])
   await act(async () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))
     window.dispatchEvent(new KeyboardEvent('keydown', { key: '2', ctrlKey: true }))
@@ -49,20 +49,42 @@ it('has Settings with only the global pages, from its gear button and Ctrl+,', a
   await render()
   await click('Settings')
   expect(getState().view).toBe('systems')
-  expect([...host.querySelectorAll('.sys-group')].map(g => g.textContent)).toEqual(['Genio · all projects'])
+  expect([...host.querySelectorAll('.sys-group')].map(g => g.textContent)).toEqual(['All projects', 'Advanced'])
   expect(host.querySelector('.sys-link.on')?.textContent).toBe('General')
   expect(host.querySelector('.sys-in-project')).toBeNull()
   expect(host.querySelector('h1')?.textContent).not.toBe('Choose a project')
   await click('Projects')
   expect(host.querySelector('h1')?.textContent).toBe('Choose a project')
   // Ctrl+, reopens the last page; a project page asked for in the Hub falls back to General.
-  localStorage.setItem('genio.settings.last', 'notifications')
+  localStorage.setItem('genio.settings.last', 'units')
   await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', ctrlKey: true })) })
-  expect(host.querySelector('.sys-link.on')?.textContent).toBe('Notifications')
+  expect(host.querySelector('.sys-link.on')?.textContent).toBe('Units')
   const nav = await import('../src/renderer/src/lib/settings-nav')
   await act(async () => nav.openSettings('project-delivery'))
   expect(host.querySelector('.sys-link.on')?.textContent).toBe('General')
   expect(host.textContent).not.toContain('Delivery')
+})
+
+it('removes a project from its quiet Hub item, typed and through the guarded service', async () => {
+  remove.mockResolvedValue({ ok: true })
+  await render()
+  const item = host.querySelector<HTMLButtonElement>('button[aria-label="Remove alpha from Genio"]')!
+  expect(item.textContent).toBe('')
+  await act(async () => item.click())
+  const dialog = document.querySelector('.modal')!
+  expect(dialog.textContent).toContain('Remove alpha?')
+  expect(dialog.textContent).toContain('Genio refuses while units are working')
+  expect(dialog.textContent).toContain('Genio never deletes it')
+  const confirm = [...dialog.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Remove project')!
+  expect(confirm.disabled).toBe(true)
+  const input = dialog.querySelector('input')!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'alpha')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await act(async () => confirm.click())
+  expect(remove).toHaveBeenCalledWith('alpha', false)
+  expect(open).not.toHaveBeenCalled()
 })
 
 it('opens selected projects and restores their order on the next Hub mount', async () => {

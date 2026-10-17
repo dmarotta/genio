@@ -49,8 +49,8 @@ function settingsMentions(): { at: string; text: string }[] {
 
 describe('Settings paths in text', () => {
   it('name the game term as a hint and parts that retired pages became', () => {
-    expect(settingsPath('gauntlet')).toBe('Settings → Advanced → Checks & review (Gauntlet)')
-    expect(settingsPath('overwatch')).toBe('Settings → Advanced → Timing (Overwatch)')
+    expect(settingsPath('gauntlet')).toBe('Settings → This project → Delivery')
+    expect(settingsPath('maintenance')).toBe("Settings → System → Genio's past sessions")
     expect(settingsPath('harnesses')).toBe('Settings → Advanced → Agent tools (Harnesses)')
     expect(settingsPath('toolchain')).toBe('Settings → System → Installed tools (Loadout)')
     expect(settingsPath('patch')).toBe('Settings → System → Updates (Patch)')

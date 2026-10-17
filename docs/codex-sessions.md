@@ -126,10 +126,10 @@ thread at all. `tests/codex-one-shot-rule.test.ts` enforces this rule. It allows
 only the threads that must persist: the image helper reads its rollout, and the
 chat thread is resumed across restarts.
 
-## Older Genio sessions: Settings > Advanced > Maintenance
+## Older Genio sessions: Settings > System > Genio's past sessions
 
 Threads and Claude folders Genio left before this are hidden only when the player
-clicks "Hide Genio's past sessions from the Codex and Claude apps"
+clicks Preview, then Hide, under "Hide them from the Codex and Claude apps"
 (`session-migration.ts`). It shows a preview first and never runs automatically.
 
 - What is Genio's comes from where it ran: Genio's bases, unit worktrees, data

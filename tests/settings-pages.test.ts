@@ -48,7 +48,7 @@ vi.mock('../src/renderer/src/components/ModelPicker', () => ({ ModelPicker: () =
 import { SETTINGS_ALIASES, SETTINGS_PAGES, resolveSettingsPage, settingsPage, settingsPath } from '../src/shared/settings-pages'
 import { SETTINGS_INDEX, searchSettings, settingAnchor } from '../src/shared/settings-index'
 import type { Settings } from '../src/shared/types'
-import { Systems, readAdvanced, requestSystemsSection, startPage, visiblePages } from '../src/renderer/src/views/Systems'
+import { Systems, requestSystemsSection, startPage, visiblePages } from '../src/renderer/src/views/Systems'
 import { isSettingsShortcut, listKey, openSettings, readLastPage } from '../src/renderer/src/lib/settings-nav'
 import { go, saveSettings } from '../src/renderer/src/store'
 
@@ -60,8 +60,9 @@ const { defaultSettings } = await vi.importActual<{ defaultSettings: () => Setti
 const project = (name: string, engine: Project['engine']): Project => ({ name, path: `C:/games/${name}`, engine, commands: {}, defaultBranch: 'main', mode: 'local-only', forge: 'none', yolo: false, branchPrefix: 'genio/', managed: false, addedAt: '' })
 /** Every section id Settings has used, with the page it opens now. */
 const OLD_IDS: Record<string, string> = {
-  project: 'project', profile: 'general', genio: 'units', units: 'units', overwatch: 'overwatch', gauntlet: 'gauntlet', comms: 'notifications', alerts: 'notifications',
-  mail: 'inbox', memory: 'memory', harnesses: 'harnesses', dispatch: 'dispatch', triggers: 'inbox', toolchain: 'system', accounts: 'accounts', patch: 'system', usage: 'usage', explorer: 'system'
+  project: 'project', profile: 'general', genio: 'units', units: 'units', overwatch: 'units', gauntlet: 'project-delivery', comms: 'general', alerts: 'general',
+  notifications: 'general', mail: 'inbox', memory: 'memory', harnesses: 'harnesses', dispatch: 'dispatch', triggers: 'inbox', toolchain: 'system', accounts: 'accounts',
+  patch: 'system', usage: 'usage', explorer: 'system', maintenance: 'system', 'project-commands': 'project'
 }
 
 let root: Root
@@ -86,7 +87,6 @@ async function open(id: string, anchor?: string) { await act(async () => request
 const active = () => host.querySelector('.sys-link.on')?.textContent
 const navLabels = () => [...host.querySelectorAll('.sys-link')].map((b) => b.textContent)
 const groups = () => [...host.querySelectorAll('.sys-group')].map((g) => g.textContent)
-const toggleAdvanced = () => act(async () => host.querySelector<HTMLInputElement>('.sys-advanced input')!.click())
 
 describe('page registry', () => {
   it('resolves every old section id, and every alias anchor names a page that exists', () => {
@@ -95,14 +95,16 @@ describe('page registry', () => {
     expect(resolveSettingsPage('project', 'generation-settings')).toEqual({ page: 'project-assets', anchor: 'generation-settings' })
     expect(resolveSettingsPage('project', 'unity-slots')).toEqual({ page: 'project-unity', anchor: 'unity-slots' })
     expect(resolveSettingsPage('patch')).toEqual({ page: 'system', anchor: 'settings-updates' })
+    expect(resolveSettingsPage('project-commands')).toEqual({ page: 'project', anchor: 'settings-commands' })
+    expect(resolveSettingsPage('maintenance')).toEqual({ page: 'system', anchor: 'settings-maintenance' })
     expect(resolveSettingsPage('no-such-page').page).toBe('general')
   })
 
   it('uses plain names with the game term kept as a hint, and keeps old names findable', () => {
-    expect(['gauntlet', 'overwatch', 'harnesses', 'dispatch'].map((id) => { const p = settingsPage(id as never); return `${p.label} (${p.term})` }))
-      .toEqual(['Checks & review (Gauntlet)', 'Timing (Overwatch)', 'Agent tools (Harnesses)', 'Model routing (Dispatch)'])
+    expect(['harnesses', 'dispatch'].map((id) => { const p = settingsPage(id as never); return `${p.label} (${p.term})` }))
+      .toEqual(['Agent tools (Harnesses)', 'Model routing (Dispatch)'])
     const findable = SETTINGS_PAGES.flatMap((p) => [p.label, ...(p.synonyms ?? [])])
-    for (const old of ['Overwatch', 'Gauntlet', 'Triggers', 'Loadout', 'Patch', 'Harnesses', 'Mail & replay', 'Comms & FX', 'Auto-loot', 'Clean HUD', 'Housekeeping']) expect(findable, old).toContain(old)
+    for (const old of ['Gauntlet', 'Triggers', 'Loadout', 'Patch', 'Harnesses', 'Mail & replay', 'Comms & FX', 'Auto-loot', 'Clean HUD', 'Housekeeping', 'Notifications', 'Maintenance', 'Commands']) expect(findable, old).toContain(old)
   })
 
   it('names Settings paths in one place for the main process', () => {
@@ -111,25 +113,28 @@ describe('page registry', () => {
     expect(settingsPath('dispatch')).toBe('Settings → Advanced → Model routing (Dispatch)')
     expect(settingsPath('project-delivery')).toBe('Settings → This project → Delivery')
     expect(settingsPath('patch')).toBe('Settings → System → Updates (Patch)')
+    expect(settingsPath('notifications')).toBe('Settings → General')
+    expect(settingsPath('project-commands')).toBe('Settings → This project → General → Commands')
     expect(settingsPath('project-delivery', 'Merge finished work automatically')).toBe('Settings → This project → Delivery → Merge finished work automatically')
   })
 
-  it('gives every page an intro, and every renamed field its old label as a search synonym', () => {
-    for (const p of SETTINGS_PAGES.filter((p) => p.id !== 'project')) expect(p.intro, p.id).toBeTruthy()
+  it('gives no page an intro line, and every renamed field its old label as a search synonym', async () => {
+    await mount()
+    for (const page of SETTINGS_PAGES) {
+      await open(page.id)
+      expect(host.querySelector('.sys-intro, .sys-scope, .sys-more'), page.id).toBeNull()
+    }
     const renamed: Record<string, string> = {
       'Auto-loot': 'Merge finished work automatically', Capacity: 'Max units at once', 'Default harness': 'Default agent tool',
-      'Brief additions': 'Instructions for every unit', 'Clean HUD': 'Clean chat', 'Branch prefix': 'Branch name prefix',
-      'Allow cheap third-party models': 'Allow OpenRouter models for low-stakes work', 'Claude permission posture': 'Claude unit permissions',
-      'Auto-dispatch queued quests': 'Start queued quests automatically', 'Strip AI commit trailers': 'Remove AI co-author lines from commits',
-      'Co-authored by Genio': 'Credit Genio as co-author', 'Genio trailer identity': 'Genio co-author name', 'Visual FX': 'Scanlines and grid',
-      Voice: 'Read replies aloud', 'Replay onboarding': 'Replay the intro', 'Sound effects': 'Sounds', 'Webhook URL': 'Send away alerts to',
-      'Webhook kind': 'Send away alerts to', Alarm: "If you don't respond", 'Alarm after (min)': 'Raise the alarm after',
-      'AFK digest window (s)': 'Bundle away alerts for', 'Paid spend on cheap models': 'Allow paid OpenRouter spend',
-      'Memory budget (tokens)': 'Memory size limit', 'Mail HTTP intake': 'Accept notes from scripts and your phone', 'Replay log': 'Keep an activity log file',
-      Base: 'Data folder', 'Reviewer model': 'Review model', 'Poll every (s)': 'Check units every', 'Lagging after (s)': 'Call a unit lagging after',
-      'Lag escalations': 'Lag warnings before a deep check', 'Paused resurface (h)': 'Bring paused units back after', 'PR poll (min)': 'Check pull requests every',
-      'Ping re-ring (s)': 'Re-send a ping after', 'Ping rings before escalating': 'Re-sends before escalating', 'Maximum slots': 'Unity slots for units',
-      'Quit after idle': 'Your Play editor', 'Maximum player editors': 'Your Play editor', 'Check for patch': 'Updates'
+      'Brief additions': 'Instructions for every unit', 'Clean HUD': 'Clean chat', 'Usage mode for this project': 'Usage mode',
+      'Allow cheap third-party models': 'OpenRouter models', 'Allow OpenRouter models for low-stakes work': 'OpenRouter models', 'Claude permission posture': 'Claude unit permissions',
+      'Auto-dispatch queued quests': 'Start queued quests automatically', 'Strip AI commit trailers': 'Remove AI co-author lines',
+      'Co-authored by Genio': 'Credit Genio as co-author', 'Visual FX': 'Scanlines and grid',
+      Voice: 'Read replies aloud', 'Sound effects': 'Sounds', 'Webhook URL': 'Send away alerts to',
+      'Webhook kind': 'Send away alerts to', Alarm: "If you don't respond", 'Paid spend on cheap models': 'Allow paid OpenRouter spend',
+      'Mail HTTP intake': 'Accept notes from scripts and your phone', 'Maximum slots': 'Slots', 'Unity slots for units': 'Slots',
+      'Quit after idle': 'Your Play editor', 'Maximum player editors': 'Your Play editor', 'Check for patch': 'Updates',
+      Housekeeping: "Genio's past sessions", 'Build command': 'Commands'
     }
     for (const [old, now] of Object.entries(renamed)) {
       const row = SETTINGS_INDEX.find((e) => e.label === now)
@@ -142,31 +147,30 @@ describe('page registry', () => {
   it('shows project pages per engine and Unity & Play only while a Unity project is registered', () => {
     const ids = (opts: Parameters<typeof visiblePages>[0]) => visiblePages(opts).map((p) => p.id)
     const unity = project('Zebra', 'unity'), godot = project('Alpha', 'godot')
-    expect(ids({ project: unity, projects: [unity], advanced: false })).toEqual(['project', 'project-delivery', 'project-commands', 'project-assets', 'project-unity', 'general', 'notifications', 'usage', 'accounts', 'memory', 'units', 'play', 'inbox', 'system'])
-    expect(ids({ project: godot, projects: [godot], advanced: false })).not.toContain('project-unity')
-    expect(ids({ project: godot, projects: [godot], advanced: false })).not.toContain('play')
+    expect(ids({ project: unity, projects: [unity] })).toEqual(['project', 'project-delivery', 'project-assets', 'project-unity', 'general', 'usage', 'accounts', 'memory', 'units', 'play', 'inbox', 'system', 'dispatch', 'harnesses'])
+    expect(ids({ project: godot, projects: [godot] })).not.toContain('project-unity')
+    expect(ids({ project: godot, projects: [godot] })).not.toContain('play')
     // A Unity project elsewhere still lists the global Play page, but not this project's slots.
-    expect(ids({ project: godot, projects: [godot, unity], advanced: false })).toEqual(expect.arrayContaining(['play']))
-    expect(ids({ project: godot, projects: [godot, unity], advanced: false })).not.toContain('project-unity')
-    expect(ids({ projects: [], advanced: false }).some((id) => id.startsWith('project'))).toBe(false)
-    expect(ids({ projects: [], advanced: true }).slice(-5)).toEqual(['dispatch', 'harnesses', 'gauntlet', 'overwatch', 'maintenance'])
-    expect(ids({ projects: [], advanced: false, current: 'gauntlet' })).toContain('gauntlet')
+    expect(ids({ project: godot, projects: [godot, unity] })).toEqual(expect.arrayContaining(['play']))
+    expect(ids({ project: godot, projects: [godot, unity] })).not.toContain('project-unity')
+    expect(ids({ projects: [] }).some((id) => id.startsWith('project'))).toBe(false)
+    expect(ids({ projects: [] }).slice(-2)).toEqual(['dispatch', 'harnesses'])
+    expect(ids({ projects: [], current: 'play' })).toContain('play')
   })
 })
 
 describe('Settings navigation', () => {
-  it('shows two labelled scopes, and the expert pages only behind the advanced switch', async () => {
+  it('shows the scopes with plain labels, the Advanced pages listed, and no switch or scope line', async () => {
     await mount()
-    expect(groups()).toEqual(['This project · Zebra', 'Genio · all projects'])
-    expect(navLabels()).toEqual(['General', 'Delivery', 'Commands', 'Asset generation', 'Unity slots', 'General', 'Notifications', 'Usage & limits', 'Accounts & keys', 'Memory', 'Units', 'Unity & Play', 'Inbox & automation1', 'System'])
+    expect(groups()).toEqual(['This project', 'All projects', 'Advanced'])
+    expect(navLabels()).toEqual(['General', 'Delivery', 'Asset generation', 'Unity slots', 'General', 'Usage & limits', 'Accounts & keys', 'Memory', 'Units', 'Unity & Play', 'Inbox & automation', 'System', 'Model routing', 'Agent tools'])
     expect(active()).toBe('General')
-    expect(host.textContent).toContain('Settings saved with Zebra.')
-    await toggleAdvanced()
-    expect(groups()).toEqual(['This project · Zebra', 'Genio · all projects', 'Advanced'])
-    expect(navLabels().slice(-5)).toEqual(['Model routing', 'Agent tools', 'Checks & review', 'Timing', 'Maintenance'])
-    expect(host.querySelector('.sys-link[title="Gauntlet"]')?.textContent).toBe('Checks & review')
-    await act(async () => [...host.querySelectorAll<HTMLButtonElement>('.sys-link')].find((b) => b.textContent === 'Checks & review')!.click())
-    expect(host.querySelector('.sys-title')?.textContent).toBe('Checks & review(Gauntlet)')
+    expect(host.textContent).not.toContain('Settings saved with Zebra.')
+    expect(host.textContent).not.toContain('Show advanced settings')
+    expect(host.querySelector('.sys-link[title]')).toBeNull()
+    expect(host.querySelector('.view-head .label')).toBeNull()
+    await act(async () => [...host.querySelectorAll<HTMLButtonElement>('.sys-link')].find((b) => b.textContent === 'Model routing')!.click())
+    expect(host.querySelector('.sys-title')?.textContent).toBe('Model routing')
   })
 
   it('hides Unity pages for a project without Unity and This project when no project is open', async () => {
@@ -178,26 +182,8 @@ describe('Settings navigation', () => {
     f.window = ''
     root = createRoot(host)
     await mount()
-    expect(groups()).toEqual(['Genio · all projects'])
+    expect(groups()).toEqual(['All projects', 'Advanced'])
     expect(active()).toBe('General')
-  })
-
-  it('remembers the advanced switch per viewer and seeds it once from the old Usage › Advanced choice', async () => {
-    localStorage.setItem('genio.usage.advanced', '1')
-    expect(readAdvanced()).toBe(true)
-    await mount()
-    expect(groups()).toContain('Advanced')
-    await toggleAdvanced()
-    expect(localStorage.getItem('genio.settings.advanced')).toBe('0')
-    expect(groups()).not.toContain('Advanced')
-    await act(async () => root.unmount())
-    root = createRoot(host)
-    await mount()
-    // The new key wins over the legacy one from now on.
-    expect(groups()).not.toContain('Advanced')
-    await toggleAdvanced()
-    expect(localStorage.getItem('genio.settings.advanced')).toBe('1')
-    expect(readAdvanced()).toBe(true)
   })
 
   it('opens every old section id and anchor on its new page', async () => {
@@ -221,22 +207,32 @@ describe('Settings navigation', () => {
     await mount()
     await open('units')
     expect(host.textContent).not.toContain('Automatic respawns')
-    expect(host.textContent).toContain('Commit attribution')
+    expect(host.textContent).not.toContain('Commit attribution')
+    expect(host.textContent).not.toContain('Genio co-author name')
     await open('genio')
     expect(host.textContent).not.toContain('Model and effort')
     await open('usage')
     expect(host.textContent).not.toContain('Bot model')
+    for (const gone of ['What Balanced sets', 'Automatic protection', 'Attributed to projects', 'Pin models and effort', 'Nothing pinned']) expect(host.textContent, gone).not.toContain(gone)
     expect(host.querySelectorAll('.plan-meter-marker')).toHaveLength(1)
-    expect([...host.querySelectorAll('button')].some((b) => b.textContent === 'Advanced')).toBe(false)
-    expect(host.querySelectorAll('.usage-projects select, .usage-projects input')).toHaveLength(0)
+    expect(host.querySelector('.usage-projects')).toBeNull()
     await open('accounts')
     expect(host.querySelectorAll('.plan-meter-marker')).toHaveLength(0)
-    expect(host.textContent).not.toContain('Housekeeping')
+    expect(host.textContent).not.toContain('Learn more')
     expect(host.textContent).not.toContain("Hide Genio's past sessions")
-    await open('overwatch')
-    expect(host.textContent).not.toContain('Heartbeat')
+    await open('general')
+    for (const gone of ['Replay the intro', 'Raise the alarm after', 'Bundle away alerts for']) expect(host.textContent, gone).not.toContain(gone)
+    await open('inbox')
+    for (const gone of ['Port', 'Keep an activity log file', 'curl']) expect(host.textContent, gone).not.toContain(gone)
+    expect(host.querySelector('textarea[aria-label="Note for Genio"]')).toBeNull()
+    await open('harnesses')
+    expect(host.textContent).not.toContain('Claude Code path')
+    expect(host.textContent).not.toContain('Add custom')
+    await open('dispatch')
+    expect(host.textContent).not.toContain('Scorecard')
     await open('maintenance')
-    expect(host.textContent).toContain("Hide Genio's past sessions from the Codex and Claude apps")
+    expect(active()).toBe('System')
+    expect(host.textContent).toContain('Hide them from the Codex and Claude apps')
   })
 
   it('moves the Play editor settings off the project page and checks for updates only on a click', async () => {
@@ -246,8 +242,8 @@ describe('Settings navigation', () => {
     await open('play')
     expect(host.querySelector('[aria-label="Close your Play editor after (minutes)"]')).not.toBeNull()
     await open('system')
-    for (const part of ['Installed tools(Loadout)', 'Windows integration', 'Updates(Patch)', 'Genio data folder']) expect([...host.querySelectorAll('.sys-subtitle')].map((h) => h.textContent)).toContain(part)
-    expect(host.textContent).toContain('C:/genio-base')
+    expect([...host.querySelectorAll('.sys-subtitle')].map((h) => h.textContent)).toEqual(['Installed tools', 'Windows integration', 'Updates', "Genio's past sessions"])
+    expect(host.textContent).not.toContain('C:/genio-base')
     expect(f.calls).not.toContain('checkUpdate')
     await act(async () => [...host.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes('Check for updates'))!.click())
     expect(f.calls).toContain('checkUpdate')
@@ -271,23 +267,25 @@ function deepLinks(): { file: string; page: string; anchor?: string }[] {
 }
 
 describe('search index', () => {
-  it('finds every old page name and game term on its new page, saying which name matched', () => {
+  it('finds every old page name and game term on its new page', () => {
     const old: Record<string, string> = {
-      Gauntlet: 'gauntlet', Overwatch: 'overwatch', Harnesses: 'harnesses', Dispatch: 'dispatch', Loadout: 'system', Patch: 'system', Explorer: 'system', Triggers: 'inbox',
-      'Mail & replay': 'inbox', 'Comms & FX': 'general', Profile: 'general', Alerts: 'notifications', 'Auto-loot': 'project-delivery', 'Clean HUD': 'general', Housekeeping: 'maintenance',
-      'Your Play instance': 'play', Genio: 'units', Generation: 'project-assets'
+      Gauntlet: 'project-delivery', Harnesses: 'harnesses', Dispatch: 'dispatch', Loadout: 'system', Patch: 'system', Explorer: 'system', Triggers: 'inbox',
+      'Mail & replay': 'inbox', 'Comms & FX': 'general', Profile: 'general', Alerts: 'general', 'Auto-loot': 'project-delivery', 'Clean HUD': 'general', Housekeeping: 'system',
+      'Your Play instance': 'play', Generation: 'project-assets', Notifications: 'general', Maintenance: 'system'
     }
     for (const [name, page] of Object.entries(old)) expect(searchSettings(name)[0]?.page, name).toBe(page)
-    expect(searchSettings('gauntlet')[0]).toMatchObject({ label: 'Checks & review', via: 'Gauntlet', scope: 'Advanced' })
+    expect(searchSettings('dispatch')[0]).toMatchObject({ label: 'Model routing', scope: 'Advanced' })
     expect(searchSettings('loadout').map((h) => h.label)).toEqual(expect.arrayContaining(['System', 'Installed tools']))
     expect(searchSettings('auto-loot')[1]).toMatchObject({ label: 'Merge finished work automatically', anchor: settingAnchor('Merge finished work automatically'), scope: 'This project' })
+    expect(searchSettings('overwatch')).toEqual([])
+    expect(searchSettings('Genio').map((h) => h.page)).toContain('units')
   })
 
   it('searches rows across both scopes with a scope chip, and only the pages a window offers', () => {
-    expect(searchSettings('webhook url')[0]).toMatchObject({ page: 'notifications', anchor: 'setting-send-away-alerts-to', path: 'Notifications › Send away alerts to', scope: 'All projects', via: 'Webhook URL' })
+    expect(searchSettings('webhook url')[0]).toMatchObject({ page: 'general', anchor: 'setting-send-away-alerts-to', path: 'General › Send away alerts to', scope: 'All projects' })
     const usage = searchSettings('usage mode')
     expect(usage.slice(0, 2).map((h) => [h.page, h.scope])).toEqual([['project', 'This project'], ['usage', 'All projects']])
-    expect(searchSettings('reviewer')[0].scope).toBe('Advanced')
+    expect(searchSettings('shell')[0].scope).toBe('Advanced')
     const hub = (id: string) => !id.startsWith('project')
     expect(searchSettings('delivery', hub)).toEqual([])
     expect(searchSettings('branch', hub)).toEqual([])
@@ -298,7 +296,7 @@ describe('search index', () => {
   it('keeps every index anchor rendering on its page, so the index cannot drift from the screens', async () => {
     await mount()
     const anchors = SETTINGS_INDEX.filter((e) => e.anchor)
-    expect(anchors.length).toBeGreaterThan(60)
+    expect(anchors.length).toBeGreaterThan(35)
     for (const e of anchors) {
       await open(e.page, e.anchor)
       expect(active()?.replace(/\d+$/, ''), e.label).toBe(settingsPage(e.page).label)
@@ -308,19 +306,18 @@ describe('search index', () => {
     expect(SETTINGS_PAGES.every((p) => SETTINGS_INDEX.filter((e) => !e.anchor && e.page === p.id).length === 1)).toBe(true)
   })
 
-  it('shows a help text under every field on every page', async () => {
+  it('shows a helper line only where it says what the control cannot: the unit cap, what OpenRouter sends and where the voice runs', async () => {
     f.settings = { ...defaultSettings(), eventSources: [{ id: 't', name: 'Nightly', command: 'git log -1', intervalSec: 3600, trigger: 'match', enabled: true }],
       dispatchRules: [{ id: 'r', match: 'shader', kind: 'any', candidates: [{ harness: 'claude', spendPriority: 0 }] }] }
     await mount()
+    const hinted: string[] = []
     for (const page of SETTINGS_PAGES) {
       await open(page.id)
-      const fields = [...host.querySelectorAll('.sys-body .sys-row, .sys-body .field')]
-      expect(fields.length, page.id).toBeGreaterThan(page.id === 'accounts' ? -1 : 0)
-      for (const el of fields) {
-        const label = el.querySelector('.sys-row-title, .label')?.textContent
-        expect(el.querySelector('.sys-row-hint, .field-hint'), `${page.label} › ${label}`).not.toBeNull()
+      for (const el of host.querySelectorAll('.sys-body .sys-row, .sys-body .field')) {
+        if (el.querySelector('.sys-row-hint, .field-hint')) hinted.push(el.querySelector('.sys-row-title, .label')?.textContent ?? '')
       }
     }
+    expect(hinted).toEqual(['Max units at once', 'OpenRouter models', 'Read replies aloud'])
   })
 
   it('shows the alarm as a choice plus a command box, saving the same stored string', async () => {
@@ -343,7 +340,7 @@ describe('deep links', () => {
   it('opens every link into Settings on an existing page, with its anchor shown and focused', async () => {
     const links = deepLinks()
     const files = new Set(links.map((l) => l.file))
-    for (const f of ['Inventory.tsx', 'Play.tsx', 'UnitySlots.tsx', 'ProjectNotice.tsx', 'Comms.tsx', 'CommandPalette.tsx', 'Systems.tsx']) expect(files, f).toContain(f)
+    for (const f of ['Inventory.tsx', 'Play.tsx', 'ProjectNotice.tsx', 'Comms.tsx', 'CommandPalette.tsx', 'Systems.tsx']) expect(files, f).toContain(f)
     await mount()
     for (const link of links) {
       vi.mocked(go).mockClear()
@@ -394,7 +391,7 @@ describe('keyboard and memory', () => {
     expect(document.activeElement?.textContent).toBe('Delivery')
     expect(links().filter((b) => b.tabIndex === 0).map((b) => b.textContent)).toEqual(['Delivery'])
     await press(document.activeElement!, 'End')
-    expect(document.activeElement?.textContent).toBe('System')
+    expect(document.activeElement?.textContent).toBe('Agent tools')
     await press(document.activeElement!, 'Home')
     expect(document.activeElement?.textContent).toBe('General')
     await press(document.activeElement!, 'ArrowUp')
@@ -410,27 +407,27 @@ describe('keyboard and memory', () => {
     await mount()
     await press(window, 'f', { ctrlKey: true })
     expect(document.activeElement).toBe(search())
-    await type('gauntlet')
+    await type('dispatch')
     expect(host.querySelectorAll('.sys-link')).toHaveLength(0)
     const first = host.querySelector('.sys-result')!
-    expect(first.textContent).toContain('Checks & review')
+    expect(first.textContent).toContain('Model routing')
     expect(first.textContent).toContain('Advanced')
-    expect(first.textContent).toContain('“Gauntlet”')
+    expect(first.textContent).not.toContain('“Dispatch”')
     await press(search(), 'Enter')
     await settle()
-    expect(active()).toBe('Checks & review')
+    expect(active()).toBe('Model routing')
     expect(search().value).toBe('')
     search().blur()
     await press(document.body, '/')
     expect(document.activeElement).toBe(search())
     await type('webhook')
-    expect([...host.querySelectorAll('.sys-result')].map((r) => r.querySelector('.sys-result-label')?.textContent)).toEqual(['Notifications', 'Send away alerts to'])
+    expect([...host.querySelectorAll('.sys-result')].map((r) => r.querySelector('.sys-result-label')?.textContent)).toEqual(['General', 'Send away alerts to'])
     await press(search(), 'ArrowDown')
     expect(host.querySelector('.sys-result.on .sys-result-label')?.textContent).toBe('Send away alerts to')
     expect(search().getAttribute('aria-activedescendant')).toBe('sys-result-1')
     await press(search(), 'Enter')
     await settle()
-    expect(active()).toBe('Notifications')
+    expect(active()).toBe('General')
     expect(document.activeElement).toBe(host.querySelector('#setting-send-away-alerts-to'))
     await type('zzz')
     expect(host.textContent).toContain('No settings match “zzz”.')
@@ -450,7 +447,7 @@ describe('keyboard and memory', () => {
     const zebra = project('Zebra', 'unity')
     expect(startPage({ projects: [], last: 'project-delivery' })).toBe('general')
     expect(startPage({ projects: [], requested: 'project-assets' })).toBe('general')
-    expect(startPage({ project: zebra, projects: [zebra], last: 'gauntlet' })).toBe('gauntlet')
+    expect(startPage({ project: zebra, projects: [zebra], last: 'dispatch' })).toBe('dispatch')
     expect(startPage({ project: project('Alpha', 'godot'), projects: [], last: 'project-unity' })).toBe('project')
     expect(isSettingsShortcut({ key: ',', ctrlKey: true, metaKey: false, altKey: false, shiftKey: false })).toBe(true)
     expect(isSettingsShortcut({ key: ',', ctrlKey: false, metaKey: false, altKey: false, shiftKey: false })).toBe(false)

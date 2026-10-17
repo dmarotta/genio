@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { Project } from '../src/shared/types'
-import { worldList, worldPath, modifiedLabel } from '../src/renderer/src/lib/worlds'
+import { worldList, worldPath } from '../src/renderer/src/lib/worlds'
 const fixture = vi.hoisted(() => ({ projects: [] as Project[], tasks: [], allies: [], enabled: false, go: vi.fn(), deploy: vi.fn(), projectOpen: vi.fn(), update: vi.fn(), rescan: vi.fn(), push: vi.fn(), sync: vi.fn(), openPath: vi.fn(), remove: vi.fn(async () => ({ ok: false, message: 'Active units prevent removal' })) }))
 vi.mock('../src/renderer/src/store', () => ({
   useStore: (selector: (s: unknown) => unknown) => selector({ settings: {}, snap: { projects: fixture.projects, tasks: fixture.tasks, allies: fixture.allies, inbox: [] } }),
@@ -38,7 +38,7 @@ describe('Project settings and registry helpers', () => {
     expect(host.querySelector('h1')?.textContent).toBe('Settings')
     expect(host.querySelector('.sys-link.on')?.textContent).toBe('Delivery')
     expect(host.textContent).not.toContain('C:/games/Other')
-    expect(host.textContent).toContain('Settings saved with Zebra.')
+    expect(host.textContent).not.toContain('Settings saved with Zebra.')
     const select = (label: string) => [...host.querySelectorAll('label.field')].find(field => field.querySelector('.label')?.textContent === label)!.querySelector('select')!
     await act(async () => { select('Delivery').value = 'direct-PR'; select('Delivery').dispatchEvent(new Event('change', { bubbles: true })) })
     expect(fixture.update).toHaveBeenLastCalledWith('Zebra', { mode: 'direct-PR' })
@@ -46,7 +46,7 @@ describe('Project settings and registry helpers', () => {
     expect(fixture.update).toHaveBeenLastCalledWith('Zebra', { modeSource: 'auto' })
     await act(async () => requestSystemsSection('project'))
     expect(host.querySelector('.sys-link.on')?.textContent).toBe('General')
-    await act(async () => { select('Usage mode for this project').value = 'save'; select('Usage mode for this project').dispatchEvent(new Event('change', { bubbles: true })) })
+    await act(async () => { select('Usage mode').value = 'save'; select('Usage mode').dispatchEvent(new Event('change', { bubbles: true })) })
     expect(fixture.update).toHaveBeenLastCalledWith('Zebra', { usageMode: 'save', costDial: undefined })
     // Infer only: no engine picker, no root input.
     expect([...host.querySelectorAll('label.field .label')].map(label => label.textContent)).not.toContain('Engine')
@@ -61,7 +61,7 @@ describe('Project settings and registry helpers', () => {
     ['ambiguous', { engine: 'unity', engineRoot: 'client', detected: { candidates: [{ engine: 'unity', root: 'client', strength: 'strong' }, { engine: 'unity', root: 'editor', strength: 'strong' }], ambiguous: true, declared: false, scannedAt: '' } },
       ['Detected: Unity at ./client', 'Also found: Unity at ./editor. Ask Genio to pin one.'], []],
     ['declared', { engine: 'unity', engineRoot: 'tools/LevelEditor', detected: { candidates: [{ engine: 'unity', root: 'tools/LevelEditor', strength: 'strong' }, { engine: 'unity', root: 'client', strength: 'strong' }], ambiguous: false, declared: true, scannedAt: '' } },
-      ['Detected: Unity at ./tools/LevelEditor (set in .genio/project.json)', 'Also found: Unity at ./client.'], ['Ask Genio to pin one']],
+      ['Detected: Unity at ./tools/LevelEditor', 'Also found: Unity at ./client.'], ['Ask Genio to pin one', 'set in .genio/project.json']],
     ['no game', { engine: 'other', engineRoot: '', detected: { candidates: [], ambiguous: false, declared: false, scannedAt: '' } },
       ['No game engine detected; Genio treats this as a code project'], ['Detected:', 'Play is not available']],
     ['unsupported engine', { engine: 'bevy', engineRoot: '', detected: { candidates: [{ engine: 'bevy', root: '', strength: 'medium' }], ambiguous: false, declared: false, version: '0.14', scannedAt: '' } },
@@ -107,21 +107,6 @@ describe('Project settings and registry helpers', () => {
       vi.unstubAllGlobals()
     }
   })
-  it('keeps removal typed and delegates to the existing guarded service without deleting owned folders', async () => {
-    await mount()
-    await click('Remove')
-    const confirm = [...document.querySelectorAll('.modal button')].find(button => button.textContent?.trim() === 'Remove project') as HTMLButtonElement
-    expect(confirm.disabled).toBe(true)
-    expect(document.querySelector('.modal')!.textContent).toContain('Genio refuses while units are working')
-    expect(document.querySelector('.modal')!.textContent).toContain('Genio never deletes it')
-    const input = document.querySelector('.modal input')!
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Zebra')
-      input.dispatchEvent(new Event('input', { bubbles: true }))
-    })
-    await act(async () => confirm.click())
-    expect(fixture.remove).toHaveBeenCalledWith('Zebra', false)
-  })
   it('searches names, engine labels and nested roots without mutating the registry', () => {
     const worlds = [project('Zebra'), { ...project('Alpha', 'godot'), engineRoot: 'nested/game' }]
     expect(worldList(worlds, 'GODOT').map((p) => p.name)).toEqual(['Alpha'])
@@ -131,12 +116,8 @@ describe('Project settings and registry helpers', () => {
     expect(worldList(worlds, '').map((p) => p.name)).toEqual(['Alpha', 'Zebra'])
     expect(worlds[0].name).toBe('Zebra')
   })
-  it('labels the last commit, or its absence', () => {
-    expect(modifiedLabel('2026-10-12', Date.parse('2026-10-13'))).toBe('1 day ago')
-    expect(modifiedLabel()).toBe('No commit yet')
-  })
   it('keeps launcher actions out of every project page: Open, Inventory, Deploy and Playtest live elsewhere', async () => {
-    for (const page of ['project', 'project-delivery', 'project-commands', 'project-assets', 'project-unity'] as ProjectPageId[]) {
+    for (const page of ['project', 'project-delivery', 'project-assets', 'project-unity'] as ProjectPageId[]) {
       await mount(page)
       for (const action of ['Open', 'Inventory', 'Deploy', 'Playtest']) expect(buttons(), `${page} ${action}`).not.toContain(action)
       await act(async () => root!.unmount()); root = undefined; document.body.innerHTML = ''
@@ -144,26 +125,27 @@ describe('Project settings and registry helpers', () => {
   })
   it('splits This project into General and Delivery and keeps their handlers', async () => {
     await mount()
-    for (const label of ['Usage mode for this project', 'Engine', 'Rescan', 'Allow OpenRouter models for low-stakes work', 'Description', 'Max units at once', 'Danger zone']) expect(host.textContent).toContain(label)
-    for (const label of ['Delivery', 'Auto-loot', 'Branch name prefix', 'Generation', 'Capacity', 'cheap third-party']) expect(host.textContent).not.toContain(label)
+    for (const label of ['Usage mode', 'Engine', 'Rescan', 'OpenRouter models', 'Description', 'Max units at once', 'Commands']) expect(host.textContent).toContain(label)
+    // UI trim: no scope line, summary line, engine helper line, Danger zone or Remove (it lives in the Hub's project list now).
+    for (const label of ['Delivery', 'Auto-loot', 'Branch name prefix', 'Generation', 'Capacity', 'cheap third-party', 'Danger zone', 'Settings saved with', 'Rescan after', 'active /', 'No remote']) expect(host.textContent).not.toContain(label)
+    expect(buttons()).not.toContain('Remove')
     expect(host.querySelector('.world-details')).not.toBeNull()
     await click('Reveal in Explorer'); expect(fixture.openPath).toHaveBeenCalledWith('C:/games/Zebra')
-    await click('Remove'); expect(document.body.textContent).toContain('Remove Zebra?')
     await act(async () => root!.unmount()); document.body.innerHTML = ''
 
     await mount('project-delivery')
-    for (const label of ['Delivery', 'Merge finished work automatically', 'Auto-loot', 'Branch name prefix', '2 commits not pushed']) expect(host.textContent).toContain(label)
-    expect(host.textContent).not.toContain('Usage mode')
-    await click('Sync'); expect(fixture.sync).toHaveBeenCalledWith('Zebra')
-    await click('Push'); expect(fixture.push).toHaveBeenCalledWith('Zebra')
+    for (const label of ['Delivery', 'Merge finished work automatically']) expect(host.textContent).toContain(label)
+    for (const label of ['Usage mode', 'Branch name prefix', 'commits not pushed', 'Main branch']) expect(host.textContent).not.toContain(label)
+    expect(buttons()).not.toContain('Sync')
+    expect(buttons()).not.toContain('Push')
     await act(async () => host.querySelector<HTMLInputElement>('.toggle input')!.click())
     expect(document.body.textContent).toContain('Merge finished work automatically in Zebra?')
   })
-  it('shows Commands open, without the Playtest-only run row, and keeps a stored run command', async () => {
-    await mount('project-commands')
+  it('shows Commands on General, without the Playtest-only run row, and keeps a stored run command', async () => {
+    await mount('project')
     const labels = [...host.querySelectorAll('.world-cmds .field .label')].map((l) => l.textContent)
     expect(labels).toEqual(['setup', 'build', 'test', 'lint'])
-    expect(host.textContent).not.toMatch(/\brun\b|playtest/i)
+    expect(host.querySelector('.world-cmds')!.textContent).not.toMatch(/\brun\b|playtest/i)
     const build = host.querySelectorAll<HTMLInputElement>('.world-cmds input')[1]
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(build, 'make')

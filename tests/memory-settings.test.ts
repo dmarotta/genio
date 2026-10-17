@@ -95,19 +95,19 @@ describe('Settings → Memory', () => {
     expect(button('Save file')!.disabled).toBe(true)
   })
 
-  it('shows sizes against the budget and archives expired entries', async () => {
+  it('says only when memory is over budget, and archives expired entries', async () => {
     await open('memory')
-    const size = host.querySelector('.memory-size')!.textContent!
-    expect(size).toContain('Player profile')
-    expect(size).toContain('Squad memory')
-    expect(size).toContain('~120 tok · over budget')
+    expect(host.querySelector('.memory-size')!.textContent).toBe('~120 tok · over budget')
+    // UI trim: no per-file sizes, file names, marker syntax, token counter, preview or size-limit field.
+    for (const gone of ['player.md', '<!--P-->', 'Preview', 'Memory size limit', 'memory-archive.md']) expect(host.textContent, gone).not.toContain(gone)
     expect(host.querySelector('.memory-stale')!.textContent).toContain('godot export needs templates')
 
     f.api.memoryReport.mockResolvedValue({ tokens: 40, budget: 100, overBudget: false, stale: [], files: [{ file: 'player.md', tokens: 40 }] })
     await act(async () => host.querySelector<HTMLButtonElement>('.memory-stale-row button')!.click())
     expect(f.api.memoryArchive).toHaveBeenCalledWith([STALE], expect.stringMatching(/archived/i))
-    expect(host.textContent).toContain('Nothing expired')
-    expect(button('Archive all')!.disabled).toBe(true)
+    expect(host.querySelector('.memory-size')).toBeNull()
+    expect(host.textContent).not.toContain('Expired entries')
+    expect(button('Archive all')).toBeUndefined()
   })
 
   it('blocks archiving while the open file has unsaved edits', async () => {
@@ -125,11 +125,11 @@ describe('Settings → Memory', () => {
 })
 
 describe('Settings → Inbox & automation', () => {
-  it('keeps the former Lore mailbox under the old mail id: unread badge, notes and acknowledgement', async () => {
+  it('keeps the former Lore mailbox under the old mail id as a read-only list: no badge, compose box or Ack', async () => {
     await open('mail')
-    expect(host.querySelector('.sys-link.on')?.textContent).toBe('Inbox & automation1')
-    expect(host.querySelector('.mail-note.unread')?.textContent).toContain('add a pause menu')
-    await act(async () => button('Ack')!.click())
-    expect(f.api.inboxAck).toHaveBeenCalledWith('n1')
+    expect(host.querySelector('.sys-link.on')?.textContent).toBe('Inbox & automation')
+    expect(host.querySelector('.mail-note')?.textContent).toContain('add a pause menu')
+    expect(button('Ack')).toBeUndefined()
+    expect(host.querySelector('textarea[aria-label="Note for Genio"]')).toBeNull()
   })
 })

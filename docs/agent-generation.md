@@ -4,7 +4,7 @@ Genio and allies use `assets` to select a provider and a project-relative locati
 from `asset_locate`. Paid requests use `fal_generate`, `uthana_motion`, or
 `uthana_character`; `generate_image` uses Codex on the ChatGPT plan. All return
 background job ids. `generation_status` returns progress, outputs, paths and
-errors. Generation runs through agent tools; the FAL and Animation screens have been removed. Settings > This project > Asset generation contains the shared monthly cap (a hard stop), save folders and Codex opt-out. Every paid run asks first, so there is no ask-before threshold; an old `confirm_over_usd` in a config is kept but ignored. Settings use the existing `.genio/fal/config.json` and `.genio/uthana/config.json` files. Provider keys remain in Settings > Accounts & keys > API keys.
+errors. Generation runs through agent tools; the FAL and Animation screens have been removed. Settings > This project > Asset generation contains the shared monthly cap (a hard stop) and the Codex opt-out; save folders stay in the config files below (ask Genio to change them). Every paid run asks first, so there is no ask-before threshold; an old `confirm_over_usd` in a config is kept but ignored. Settings use the existing `.genio/fal/config.json` and `.genio/uthana/config.json` files. Provider keys remain in Settings > Accounts & keys > API keys.
 
 `AgentGeneration` owns durable jobs in `data/generation-jobs.json`, bound to the
 originating chat. It posts progress/result cards through the normal persisted

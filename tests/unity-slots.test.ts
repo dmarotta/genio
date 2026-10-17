@@ -39,17 +39,17 @@ afterEach(async () => { if (root) await act(async () => root!.unmount()); root =
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
 describe('Settings › Unity & Play', () => {
-  it('shows the player idle time, global editor limit, and machine RAM including batch editors', async () => {
+  it('shows the player idle time and global editor limit, with no machine readout or explanation', async () => {
     fixture.projects = [project('unity')]
     fixture.playerInstanceSettings.mockImplementation(async (_: string, patch: object) => { fixture.machine.settings = { ...fixture.machine.settings, ...patch }; return fixture.machine.settings })
     host = document.createElement('div'); document.body.append(host); root = createRoot(host)
     await act(async () => root!.render(React.createElement(PlayerInstanceSettings, { world: 'Zebra' })))
     expect(host.querySelector('#player-instance')?.getAttribute('aria-label')).toBe('Your Play editor')
-    expect(host.textContent).toContain('These settings apply to all projects.')
+    expect(host.textContent).not.toContain('These settings apply to all projects.')
     // The instance's status shows on the Play screen only.
     expect(host.textContent).not.toContain('This project:')
-    expect(host.textContent).toContain('Genio Unity editors: 2 running (1 unit slots, 0 player, 1 batch)')
-    expect(host.textContent).toContain('5.0 GB · 14.0 GB available of 32.0 GB')
+    expect(host.textContent).not.toContain('Genio Unity editors')
+    expect(host.textContent).not.toContain('GB')
     const idle = host.querySelector('[aria-label="Close your Play editor after (minutes)"]') as HTMLInputElement
     expect(idle.value).toBe('10')
     const cap = host.querySelector('[aria-label="Play editors open at once"]') as HTMLSelectElement
@@ -61,14 +61,15 @@ describe('Settings › Unity & Play', () => {
 })
 
 describe('Settings › This project › Unity slots', () => {
-  it('no longer holds the global Play editor settings and links to Unity & Play instead', async () => {
+  it('no longer holds the global Play editor settings, nor a link to them', async () => {
     fixture.pool = { cap: 1, queue: [], slots: [] }
     await mount('unity')
     expect(host.querySelector('[aria-label="Close your Play editor after (minutes)"]')).toBeNull()
     expect(host.querySelector('[aria-label="Play editors open at once"]')).toBeNull()
-    expect([...host.querySelectorAll('button')].some(b => b.textContent === 'Unity & Play →')).toBe(true)
+    expect([...host.querySelectorAll('button')].some(b => b.textContent === 'Unity & Play →')).toBe(false)
+    expect(host.textContent).not.toContain('Nobody is waiting')
   })
-  it('appears for Unity projects with the cap, every slot state, the queue and disk per slot', async () => {
+  it('appears for Unity projects with the cap, every slot state and the queue', async () => {
     fixture.pool = { cap: 2, queue: ['unit:task-9'], slots: [
       slot(1, { owner: 'unit:task-7', expires: 1, editor: true }),
       slot(2, { preparing: true, owner: 'player:42' }),
@@ -81,19 +82,20 @@ describe('Settings › This project › Unity slots', () => {
     const section = host.querySelector('[aria-label="Unity slots"]')!
     expect(section).not.toBeNull()
     expect(section.id).toBe('unity-slots')
-    expect((section.querySelector('select[aria-label="Unity slots for units"]') as HTMLSelectElement).value).toBe('2')
+    expect((section.querySelector('select[aria-label="Slots"]') as HTMLSelectElement).value).toBe('2')
     const rows = [...section.querySelectorAll('li.unity-slot')].map(li => li.textContent)
     expect(rows).toHaveLength(6)
     expect(rows[0]).toContain('Leased by unit fix-jump')
-    expect(rows[0]).toContain('2.0 GB')
+    expect(rows[0]).not.toContain('GB')
+    expect(rows[0]).not.toContain('abcdef')
     expect(rows[1]).toContain('Preparing a copy for you')
     expect(rows[1]).not.toContain('Play screen')
     expect(rows[2]).toContain('Leased by unit task-8 · draining')
     expect(rows[3]).toContain('Retired')
     expect(rows[4]).toContain('Free · editor running · draining')
     expect(rows[5]).toContain('Stuck')
-    expect(section.textContent).toContain('2 of 2 slots in use · 2 draining · 1 waiting')
-    expect(section.textContent).toContain('Draining: slot 3, 5.')
+    expect(section.textContent).not.toContain('slots in use')
+    expect(section.textContent).not.toContain('Draining: slot')
     expect(section.textContent).toContain('1. unit task-9')
     expect([...section.querySelectorAll('button')].filter(b => b.textContent === 'Close slot editor')).toHaveLength(4)
   })
@@ -110,12 +112,12 @@ describe('Settings › This project › Unity slots', () => {
     fixture.pool = { cap: 2, queue: [], slots: [slot(1, { owner: 'unit:task-7' }), slot(2, { owner: 'unit:task-8' })] }
     await mount('unity')
     fixture.playPoolCap.mockImplementationOnce(async () => { fixture.pool = { ...fixture.pool, cap: 1, slots: [fixture.pool.slots[0], { ...fixture.pool.slots[1], draining: true }] }; return { cap: 1, draining: [2] } })
-    const select = host.querySelector('select[aria-label="Unity slots for units"]') as HTMLSelectElement
+    const select = host.querySelector('select[aria-label="Slots"]') as HTMLSelectElement
     await act(async () => { select.value = '1'; select.dispatchEvent(new Event('change', { bubbles: true })) })
     expect(fixture.playPoolCap).toHaveBeenCalledWith('Zebra', 1)
     expect(host.querySelector('[role=alert]')).toBeNull()
-    expect(host.textContent).toContain('Draining: slot 2.')
-    expect(fixture.playPoolDisk).toHaveBeenCalledTimes(2)
+    expect(host.textContent).toContain('· draining')
+    expect(fixture.playPoolDisk).not.toHaveBeenCalled()
   })
 
   it('closes a slot editor only after confirmation', async () => {

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { FolderOpen, Plus, RefreshCw } from 'lucide-react'
+import { FolderOpen, Plus, RefreshCw, Trash } from 'lucide-react'
 import { api, op, openDecisions, useStore } from '../store'
 import { useNow } from '../components/ui'
-import { AddProject, NewProject } from './ProjectSettings'
+import { AddProject, NewProject, RemoveProject } from './ProjectSettings'
 import { worldList } from '../lib/worlds'
 import { byRecent, readRecent, rememberRecent } from '../lib/recent'
 import type { WorldMetadata } from '@shared/api'
+import type { Project } from '@shared/types'
 import '../styles/hub.css'
 
 /** The Hub selects projects; all work and controls live in the project window. */
@@ -18,6 +19,7 @@ export function Hub() {
   const [recent, setRecent] = useState(readRecent)
   const [adding, setAdding] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [removing, setRemoving] = useState<Project | null>(null)
   const [opening, setOpening] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [query, setQuery] = useState('')
@@ -70,14 +72,20 @@ export function Hub() {
         {!booted ? <p className="mute" role="status">Loading projects…</p> : !connected ?
           <p className="alert-text" role="status">Genio’s core is not responding. Restart the app to reconnect.</p> :
           visible.length ? <div className="hub-projects">{visible.map(p =>
-            <button key={p.name} className="hub-project" disabled={!available} onClick={() => void openProject(p.path)}>
-              <FolderOpen size={20} className="neon-text" />
-              <span className="hub-project-identity"><strong>{p.name}</strong><span className="mono mute hub-project-path" title={p.path}>{p.path}</span></span>
-              {choices.some(d => d.project === p.name) && <span className="chip amber">{choices.filter(d => d.project === p.name).length} choices waiting</span>}
-            </button>
+            <div key={p.name} className="hub-project-row">
+              <button className="hub-project" disabled={!available} onClick={() => void openProject(p.path)}>
+                <FolderOpen size={20} className="neon-text" />
+                <span className="hub-project-identity"><strong>{p.name}</strong><span className="mono mute hub-project-path" title={p.path}>{p.path}</span></span>
+                {choices.some(d => d.project === p.name) && <span className="chip amber">{choices.filter(d => d.project === p.name).length} choices waiting</span>}
+              </button>
+              <button className="btn ghost icon hub-project-remove" disabled={!available} title={`Remove ${p.name} from Genio`} aria-label={`Remove ${p.name} from Genio`} onClick={() => setRemoving(p)}>
+                <Trash size={14} />
+              </button>
+            </div>
           )}</div> : <p className="mute">{query ? `No projects match "${query}".` : "No recent projects. Open a folder or create your first project."}</p>}
       </section>
       {adding && <AddProject onClose={() => setAdding(false)} onAdded={p => openProject(p.path)} />}
+      {removing && <RemoveProject p={removing} onClose={() => setRemoving(null)} />}
       {creating && <NewProject onClose={() => setCreating(false)} onCreated={p => openProject(p.path)} />}
     </div>
   </div>
