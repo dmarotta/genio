@@ -27,11 +27,12 @@ it('answers what the in-process probe answers, GENIO_BLENDER included', async ()
 
 it('keeps the event loop free while the machine is searched', async () => {
   delete process.env.GENIO_BLENDER
+  // The in-process answer first: a cold `blender --version` on a loaded machine can pass the probe's 5 s timeout once.
+  const expected = findBlender()
   let last = performance.now(), gap = 0
   const tick = setInterval(() => { const now = performance.now(); gap = Math.max(gap, now - last); last = now }, 10)
   try {
-    const found = await findBlenderOffThread()
-    expect(found).toBe(findBlender())
+    expect(await findBlenderOffThread()).toBe(expected)
   } finally { clearInterval(tick) }
   expect(gap).toBeLessThan(500)
 }, 30_000)
