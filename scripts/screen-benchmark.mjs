@@ -116,7 +116,7 @@ for (let run = 0; run < runs; run++) {
     for (const key of Object.keys(env)) if (key.startsWith('GIT_CONFIG_')) delete env[key]
     assertChildHomes(env)
     fs.mkdirSync(env.GENIO_SCREEN_OUT, { recursive: true })
-    const electron = createRequire(import.meta.url)('electron')
+    const electron = createRequire(path.join(root, 'package.json'))('electron')
     const child = spawn(electron, [mainFile, `--user-data-dir=${path.join(homes.root, 'electron-user-data')}`], { env, cwd: homes.root, stdio: 'inherit', windowsHide: true })
     // A main that fails to load shows Electron's error dialog and never exits.
     const limit = setTimeout(() => child.kill(), 10 * 60_000)
