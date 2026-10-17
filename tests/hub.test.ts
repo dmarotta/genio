@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { App } from '../src/renderer/src/App'
+import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
+import { App, preloadScreens } from '../src/renderer/src/App'
 import { getState, setState } from '../src/renderer/src/store'
 import type { Project } from '../src/shared/types'
 
@@ -10,6 +10,8 @@ let root: Root, host: HTMLDivElement
 const open = vi.fn(), pick = vi.fn(), create = vi.fn(), add = vi.fn(), sync = vi.fn()
 const project = (name: string): Project => ({ name, path: `C:/${name}`, addedAt: '2026-10-13', engine: 'godot',
   defaultBranch: 'main', mode: 'local-only', yolo: false, branchPrefix: 'genio/', forge: 'none', commands: {}, managed: false })
+// Screens load on first use; load them up front so renders are synchronous.
+beforeAll(async () => { await preloadScreens() })
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   localStorage.clear()

@@ -13,7 +13,7 @@ vi.mock('../src/renderer/src/store', () => ({
     select({ snap: { wksps: [{ name: 'ally', activity: f.activity }], allies: [] }, chats: { ally: f.messages }, settings: { calm: f.calm } }),
   api: () => ({}), loadChat: vi.fn(), toast: vi.fn(), errText: String, saveSettings: vi.fn()
 }))
-vi.mock('../src/renderer/src/views/Systems', () => ({ ModelSelect: () => null, EffortSelect: () => null }))
+vi.mock('../src/renderer/src/components/ModelSelect', () => ({ ModelSelect: () => null, EffortSelect: () => null }))
 vi.mock('../src/renderer/src/components/ComingNext', () => ({ ComingNext: () => null }))
 
 let host: HTMLDivElement, root: Root

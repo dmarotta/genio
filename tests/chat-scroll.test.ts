@@ -10,7 +10,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { ChatMessage } from '../src/shared/types'
 
-vi.mock('../src/renderer/src/views/Systems', () => ({ ModelSelect: () => null, EffortSelect: () => null, requestSystemsSection: () => undefined }))
+vi.mock('../src/renderer/src/components/ModelSelect', () => ({ ModelSelect: () => null, EffortSelect: () => null, requestSystemsSection: () => undefined }))
 vi.mock('../src/renderer/src/store', async (importOriginal) => ({
   ...await importOriginal<typeof import('../src/renderer/src/store')>(),
   PROJECT_WINDOW: 'scroll-fixture', PROJECT_WKSP: 'genio'

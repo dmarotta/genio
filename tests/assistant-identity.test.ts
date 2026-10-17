@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { Ally } from '../src/shared/types'
 
 vi.hoisted(() => window.history.replaceState(null, '', '/?project=founders-of-avalon&wksp=founders-of-avalon'))
-vi.mock('../src/renderer/src/views/Systems', () => ({
+vi.mock('../src/renderer/src/components/ModelSelect', () => ({
   ModelSelect: ({ title }: { title: string }) => React.createElement('select', { title, 'aria-label': 'Model' }),
   EffortSelect: ({ title }: { title: string }) => React.createElement('select', { title, 'aria-label': 'Effort' })
 }))

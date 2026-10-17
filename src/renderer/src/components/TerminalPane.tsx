@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { ChevronDown, RotateCcw, SquareTerminal, X } from 'lucide-react'
 import type { TerminalInfo } from '@shared/types'
 import { MAIN_CWD, formatDuration, type PaneCwd } from '@shared/terminal-pane'
@@ -7,8 +7,19 @@ import { cx } from '../lib/format'
 import {
   PANE_SHORTCUT, clampPaneHeight, isPaneShortcut, paneTerminals, readPanePrefs, togglePane, writePanePrefs
 } from '../lib/terminal-pane'
-import { TerminalView } from './Terminal'
 import '../styles/terminal-pane.css'
+
+// xterm (about 400 KB) loads when the pane first opens, not with every project window; once loaded it renders at once.
+type View = typeof import('./Terminal')['TerminalView']
+let loadedView: View | undefined
+const loadView = (): Promise<View> => import('./Terminal').then(m => (loadedView = m.TerminalView))
+const LazyView = lazy(() => loadView().then(view => ({ default: view })))
+/** Load the terminal's code ahead of the pane's first open (the window's idle preload). */
+export const preloadPaneTerminal = (): Promise<unknown> => loadedView ? Promise.resolve() : loadView()
+function PaneTerminal(props: { id: string }) {
+  const View = loadedView
+  return View ? <View {...props} pane /> : <Suspense fallback={null}><LazyView {...props} pane /></Suspense>
+}
 
 /**
  * The player's own terminal, sliding up under every screen of a project window (Ctrl+` or the
@@ -82,10 +93,12 @@ function ProjectTerminalPane({ project }: { project: string }) {
     }
   }, [project])
 
-  // Opening the pane starts its shell once; a shell that ended waits for Restart.
+  // Opening the pane starts its shell once; a shell that ended waits for Restart. The terminal's code loads
+  // meanwhile, so the shell renders (and takes focus) as soon as it starts.
   const autoStarted = useRef(false)
   useEffect(() => {
     if (!open) { autoStarted.current = false; return }
+    if (!loadedView) void loadView().catch(() => undefined)
     if (shell || autoStarted.current) return
     autoStarted.current = true
     void start()
@@ -184,7 +197,7 @@ function ProjectTerminalPane({ project }: { project: string }) {
         <div className="term-pane-body">
           {shell && (
             <div className={cx('term-pane-view', !front && 'on')}>
-              <TerminalView id={shell.id} pane />
+              <PaneTerminal id={shell.id} />
               {ended && <ShellEnded t={shell} busy={starting} onRestart={() => void start(true)} />}
             </div>
           )}
@@ -197,7 +210,7 @@ function ProjectTerminalPane({ project }: { project: string }) {
           )}
           {runs.map((t) => (
             <div key={t.id} className={cx('term-pane-view', front?.id === t.id && 'on')}>
-              <TerminalView id={t.id} pane />
+              <PaneTerminal id={t.id} />
               <RunStatus t={t} />
             </div>
           ))}

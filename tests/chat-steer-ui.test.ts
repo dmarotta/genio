@@ -6,7 +6,7 @@ import type { Ally, ChatMessage, WkspInfo } from '../src/shared/types'
 import type { SendNowResult } from '../src/shared/chat'
 
 vi.hoisted(() => window.history.replaceState(null, '', '/?project=forest&wksp=forest'))
-vi.mock('../src/renderer/src/views/Systems', () => ({ ModelSelect: () => null, EffortSelect: () => null }))
+vi.mock('../src/renderer/src/components/ModelSelect', () => ({ ModelSelect: () => null, EffortSelect: () => null }))
 vi.mock('../src/renderer/src/components/ComingNext', () => ({ ComingNext: () => null }))
 import { ChatPanel } from '../src/renderer/src/views/Comms'
 import { GenioPanel } from '../src/renderer/src/components/GenioPanel'

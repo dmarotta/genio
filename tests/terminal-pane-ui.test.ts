@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Ally, ChatMessage, ShellRun, TerminalInfo } from '../src/shared/types'
 
 vi.hoisted(() => window.history.replaceState(null, '', '/?project=forest&wksp=forest'))
-vi.mock('../src/renderer/src/views/Systems', () => ({ ModelSelect: () => null, EffortSelect: () => null }))
+vi.mock('../src/renderer/src/components/ModelSelect', () => ({ ModelSelect: () => null, EffortSelect: () => null }))
 vi.mock('../src/renderer/src/components/ComingNext', () => ({ ComingNext: () => null }))
 // xterm needs a real canvas; here the view only records which terminal it shows.
 vi.mock('../src/renderer/src/components/Terminal', () => ({
@@ -13,7 +13,7 @@ vi.mock('../src/renderer/src/components/Terminal', () => ({
 }))
 import { ChatPanel } from '../src/renderer/src/views/Comms'
 import { GenioPanel } from '../src/renderer/src/components/GenioPanel'
-import { TerminalPane } from '../src/renderer/src/components/TerminalPane'
+import { TerminalPane, preloadPaneTerminal } from '../src/renderer/src/components/TerminalPane'
 import { getState, setState } from '../src/renderer/src/store'
 import { setDraft } from '../src/renderer/src/drafts'
 import { PANE_DEFAULT, PANE_KEEP_ABOVE, PANE_MIN, clampPaneHeight, readPanePrefs, shellUnavailable } from '../src/renderer/src/lib/terminal-pane'
@@ -51,6 +51,8 @@ const key = async (k: string, init: KeyboardEventInit = {}): Promise<void> => {
 }
 const flush = async (): Promise<void> => { await act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve() }) }
 
+// The pane loads its terminal code on first open; load it up front so renders are synchronous.
+beforeAll(async () => { await preloadPaneTerminal() })
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true, ResizeObserver: class { observe() {} disconnect() {} } })
   Object.assign(Element.prototype, { setPointerCapture() {}, releasePointerCapture() {} })

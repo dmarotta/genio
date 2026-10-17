@@ -13,7 +13,7 @@ vi.mock('../src/renderer/src/components/Markdown', async (importOriginal) => {
   const m = await importOriginal<typeof import('../src/renderer/src/components/Markdown')>()
   return { ...m, Markdown: (props: Parameters<typeof m.Markdown>[0]) => { counters.markdown++; return m.Markdown(props) } }
 })
-vi.mock('../src/renderer/src/views/Systems', () => ({ ModelSelect: () => null, EffortSelect: () => null, requestSystemsSection: () => undefined }))
+vi.mock('../src/renderer/src/components/ModelSelect', () => ({ ModelSelect: () => null, EffortSelect: () => null, requestSystemsSection: () => undefined }))
 
 import { ChatPanel } from '../src/renderer/src/views/Comms'
 import { getState, handleEvent, setState } from '../src/renderer/src/store'

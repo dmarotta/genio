@@ -14,7 +14,7 @@ vi.mock('../src/renderer/src/store', () => ({
   useStore: (select: (s: unknown) => unknown) => select({ snap: { wksps: [], allies: [] }, chats: { ally: f.messages }, settings: undefined }),
   api: () => ({ unqueueChat: f.unqueue }), loadChat: vi.fn(), toast: f.toast, errText: String
 }))
-vi.mock('../src/renderer/src/views/Systems', () => ({ ModelSelect: () => null, EffortSelect: () => null }))
+vi.mock('../src/renderer/src/components/ModelSelect', () => ({ ModelSelect: () => null, EffortSelect: () => null }))
 vi.mock('../src/renderer/src/components/ComingNext', () => ({ ComingNext: () => null }))
 
 let host: HTMLDivElement, root: Root

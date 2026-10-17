@@ -1,7 +1,7 @@
 import { ThisProjectSettings, type ProjectPageId } from './ProjectSettings'
 import { PlayerInstanceSettings } from './PlayerInstanceSettings'
-import { ModelPicker, useModelCatalogue } from '../components/ModelPicker'
-import { Fragment, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
+import { EffortSelect, ModelSelect } from '../components/ModelSelect'
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { ChevronDown, ChevronRight, ChevronUp, Copy, Download, FolderOpen, KeyRound, Lock, LockOpen, LogIn, LogOut, Plus, RefreshCw, Search, Trash, TriangleAlert, Users, Wrench, X } from 'lucide-react'
 import type { CategoryPool, DispatchRule, EventSource, HarnessAdapter, PoolCandidate, Project, Settings, ToolStatus, UpdateInfo } from '@shared/types'
 import {
@@ -887,26 +887,6 @@ function ModelRow({ label, hint, value, onCommit, allowCustom }: { label: string
   return <Row label={label} hint={hint}>{allowCustom && <CommitInput mono value={value} placeholder="(default)" onCommit={v => onCommit(v.trim())} />}<ModelSelect value={value} onChange={onCommit} /></Row>
 }
 
-type SelectProps = { value: string; onChange: (v: string) => void; title?: string; disabled?: boolean; style?: CSSProperties }
-export function ModelSelect(props: SelectProps) {
-  return <ModelPicker {...props} onAccounts={() => openSettings('accounts', 'settings-api-keys')} />
-}
-
-export function EffortSelect({ value, onChange, model, ...rest }: SelectProps & { model?: string }) {
-  const catalogue = useModelCatalogue()
-  const selected = catalogue.routes.flatMap(r => r.models).find(m => (m.key === model || m.runtime === 'claude' && (m.id === model || m.aliases.includes(model || 'default'))))
-  const efforts = (model === undefined ? EFFORTS : selected?.efforts || []).filter(e => e !== 'ultra')
-  return (
-    <select className="select" value={efforts.includes(value) ? value : ""} onChange={(e) => onChange(e.target.value)} {...rest}>
-      <option value="">(auto)</option>
-      {efforts.map((x) => (
-        <option key={x} value={x}>
-          {x}
-        </option>
-      ))}
-    </select>
-  )
-}
 
 function BriefInclude({ value }: { value: string }) {
   const [v, setV] = useState(value)

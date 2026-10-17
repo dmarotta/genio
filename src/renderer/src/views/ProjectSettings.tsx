@@ -5,16 +5,15 @@ import type { PushStatus } from '@shared/api'
 import { modeSourceOf } from '@shared/vocab'
 import type { Engine, Project, ProjectCommands, ProjectMode } from '@shared/types'
 import { cheapModelsAllowed } from '@shared/dispatch'
-import { openSettings } from '../lib/settings-nav'
 import { settingAnchor } from '@shared/settings-index'
 import type { SettingsPageId } from '@shared/settings-pages'
 import { SettingsTitle } from '../components/SettingsTitle'
 import { MODE_PRESETS, USAGE_MODES, USAGE_MODE_LABEL, type UsageMode } from '@shared/usage-mode'
-import { PROJECT_WINDOW, api, errText, op, setState, toast, useStore } from '../store'
+import { PROJECT_WINDOW, api, errText, op, toast, useStore } from '../store'
 import { CommitInput, Confirm, Field, Modal, Toggle } from '../components/ui'
 import { ENGINES, ENGINE_LABEL, MODE_HINT, MODE_LABEL, PROJECT_MODES, isActive } from '../lib/vocab'
 import { ago, cx } from '../lib/format'
-import { detectedLine, detectedView, effectiveEngine, proposalLine } from '@shared/engine'
+import { detectedView, effectiveEngine, proposalLine } from '@shared/engine'
 import { supportsUnitySlots } from '@shared/play'
 import { UnitySlots } from './UnitySlots'
 import { worldPath, modifiedLabel } from '../lib/worlds'
@@ -410,23 +409,6 @@ export function NewProject({ onClose, onCreated }: { onClose: () => void; onCrea
       </div>
     </Modal>
   )
-}
-
-/** Registration is informational and dismissible; settings remain one click away. */
-export function ProjectNotice() {
-  const registered = useStore(s => s.registeredProject)
-  const project = useStore(s => s.snap.projects.find(p => p.name === PROJECT_WINDOW))
-  const proposal = project && proposalLine(project)
-  if (!project || (!registered && !proposal && project.gitRepo !== false)) return null
-  const view = detectedView(project)
-  return <div role="status" className="project-notice">
-    <span className="project-notice-text">{registered ? `Registered ${project.name} · ${detectedLine(view)}${view.ambiguous ? ' · ambiguous' : ''} · ${MODE_LABEL[project.mode]}` : project.name}
-      {project.gitRepo === false ? ' · Git actions need a git repo' : !project.remote ? ' · No remote' : ''}
-      {proposal && <span className="amber-text"> · {proposal}</span>}</span>
-    {(registered || proposal) && <button className="btn sm ghost" onClick={() => openSettings('project', 'settings-engine')}>{registered ? 'Change' : 'Settings'}</button>}
-    {registered && <button className="btn sm ghost" aria-label="Dismiss registration" onClick={() => setState({ registeredProject: undefined })}>Dismiss</button>}
-    {!registered && proposal && <button className="btn sm ghost" aria-label="Dismiss engine proposal" onClick={() => void op('Engine proposal', () => api().projectUpdate(project.name, { engineProposal: undefined }))}>Dismiss</button>}
-  </div>
 }
 
 /** Settings › This project: one page of this window's project. Other projects are set in their own windows. */

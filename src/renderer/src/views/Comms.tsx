@@ -23,7 +23,7 @@ import { AttachmentStrip, GeneratingImages, MessageImages, fromSendable, toSenda
 import type { InventoryContext } from '@shared/inventory-context'
 import { InventoryContextChips, useInventoryContext } from '../components/InventoryContextChips'
 const MAIN_PANEL = 'main'
-import { EffortSelect, ModelSelect } from './Systems'
+import { EffortSelect, ModelSelect } from '../components/ModelSelect'
 import { openSettings } from '../lib/settings-nav'
 import { Popover } from '../components/Layer'
 import { settingsPath } from '@shared/settings-pages'

@@ -13,7 +13,7 @@ vi.mock('../src/renderer/src/store', () => ({
   api: () => ({ recap: f.recap }), op: (_label: string, fn: () => unknown) => fn(),
   loadChat: vi.fn(), toast: vi.fn(), errText: String, saveSettings: vi.fn()
 }))
-vi.mock('../src/renderer/src/views/Systems', () => ({ ModelSelect: () => null, EffortSelect: () => null }))
+vi.mock('../src/renderer/src/components/ModelSelect', () => ({ ModelSelect: () => null, EffortSelect: () => null }))
 vi.mock('../src/renderer/src/components/ComingNext', () => ({ ComingNext: () => null }))
 
 let host: HTMLDivElement, root: Root
