@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import type { Decision, Project, Task, TerminalInfo } from '../src/shared/types'
+import type { BacklogItem, Decision, Project, Task, TerminalInfo } from '../src/shared/types'
 import { statusWorthShowing } from '../src/shared/unit-page'
 
 // The agent terminal is xterm; here it only records how the page mounts it.
@@ -12,7 +12,7 @@ vi.mock('../src/renderer/src/components/Terminal', () => ({
       'data-interactive': String(p.interactive ?? true), 'data-autofocus': String(!!p.autoFocus) })
 }))
 import { Squad } from '../src/renderer/src/views/Squad'
-import { getState, setState } from '../src/renderer/src/store'
+import { despawnUnit, getState, handleEvent, setState } from '../src/renderer/src/store'
 
 const initial = getState()
 let root: Root, host: HTMLDivElement
@@ -340,6 +340,83 @@ describe('unit page content', () => {
     expect(calls.get('cleanupTask')).toHaveBeenCalledTimes(1)
     expect(document.querySelector('.modal')).toBeNull()
     expect(getState().toasts.at(-1)).toMatchObject({ level: 'error', body: 'Could not remove the worktree: busy' })
+  })
+
+  // A pending main-process call the test settles itself.
+  const pending = (name: string): ((r: { ok: boolean; message: string }) => Promise<void>) => {
+    let settle!: (r: { ok: boolean; message: string }) => void
+    calls.set(name, vi.fn(() => new Promise((res) => { settle = res })))
+    return async (r) => { await act(async () => settle(r)) }
+  }
+
+  it('Discard closes the dialog, leaves the page and drops the unit everywhere at once; a failure brings it back', async () => {
+    const finish = pending('cleanupTask')
+    const quest = { id: 'q1', title: 'Fix the jump', kind: 'ship', priority: 'normal', state: 'in-flight', taskId: 'u1', createdAt: NOW, updatedAt: NOW } as unknown as BacklogItem
+    const other = unit({ id: 'u2', title: 'Tune the camera' })
+    setState({ ...initial, focus: { type: 'task', id: 'u1' }, snap: { ...initial.snap, tasks: [unit({ state: 'ready', readyAt: NOW, backlogId: 'q1' }), other], projects: [project], backlog: [quest] } })
+    await act(async () => root.render(React.createElement(Squad)))
+    await despawnMenu()
+    const discard = button('Discard')
+    // a double click on the one button
+    await act(async () => { discard.click(); discard.click() })
+    expect(document.querySelector('.modal')).toBeNull()
+    expect(getState().focus).toBeNull()
+    expect(calls.get('cleanupTask')).toHaveBeenCalledTimes(1)
+    expect(calls.get('cleanupTask')).toHaveBeenCalledWith('u1', true)
+    // gone from the Squad page and the Quest log's in-flight rows, no despawning label anywhere
+    expect([...host.querySelectorAll('.unit-card')].map((c) => c.textContent)).toEqual([expect.stringContaining('Tune the camera')])
+    expect(host.textContent).not.toMatch(/despawning|removing/i)
+    expect(getState().snap.tasks.map((t) => t.id)).toEqual(['u2'])
+    expect(getState().snap.backlog).toEqual([])
+    // main's updates meanwhile keep it out, and no second removal starts
+    await act(async () => handleEvent({ type: 'task', task: unit({ state: 'ready', readyAt: NOW, backlogId: 'q1', updatedAt: NOW }) }))
+    expect(getState().snap.tasks.map((t) => t.id)).toEqual(['u2'])
+    await act(() => despawnUnit('u1'))
+    expect(calls.get('cleanupTask')).toHaveBeenCalledTimes(1)
+    await finish({ ok: false, message: 'Could not remove the worktree: busy' })
+    expect(getState().toasts.at(-1)).toMatchObject({ level: 'error', body: 'Could not remove the worktree: busy' })
+    expect(getState().snap.tasks.map((t) => t.id)).toEqual(['u1', 'u2'])
+    expect(getState().snap.backlog).toEqual([quest])
+    expect(host.querySelectorAll('.unit-card')).toHaveLength(2)
+  })
+
+  it('a removal that succeeds keeps the unit out until main reports it cleaned', async () => {
+    const finish = pending('cleanupTask')
+    await open(unit({ state: 'ready', readyAt: NOW }))
+    await despawnMenu()
+    await click(button('Discard'))
+    await finish({ ok: true, message: 'Despawned u1' })
+    expect(getState().snap.tasks).toEqual([])
+    await act(async () => handleEvent({ type: 'task', task: unit({ state: 'cleaned', cleanedAt: NOW }) }))
+    expect(getState().snap.tasks.map((t) => [t.id, t.state])).toEqual([['u1', 'cleaned']])
+    // a new despawn of another unit is a new removal
+    await open(unit({ id: 'u3', state: 'ready', readyAt: NOW }))
+    await despawnMenu()
+    await click(button('Discard'))
+    expect(calls.get('cleanupTask')).toHaveBeenLastCalledWith('u3', true)
+  })
+
+  it('Merge and Recall close their dialog at once and run once while the action runs', async () => {
+    const merged = pending('mergeTask')
+    await open(unit({ state: 'ready', readyAt: NOW }))
+    await click(button('Merge into main'))
+    await click(button('Merge'))
+    expect(document.querySelector('.modal')).toBeNull()
+    await click(button('Merge into main'))
+    await click(button('Merge'))
+    expect(calls.get('mergeTask')).toHaveBeenCalledTimes(1)
+    await merged({ ok: true, message: 'Landed' })
+    expect(getState().toasts.at(-1)).toMatchObject({ level: 'success', title: 'Merge' })
+
+    pending('controlTask')
+    await live()
+    for (let i = 0; i < 2; i++) {
+      await click(button('More'))
+      await click([...document.querySelectorAll<HTMLButtonElement>('.unit-menu-item')].find((b) => b.textContent?.startsWith('Recall'))!)
+      await click([...document.querySelectorAll<HTMLButtonElement>('.modal-foot button')].find((b) => b.textContent?.trim() === 'Recall')!)
+      expect(document.querySelector('.modal')).toBeNull()
+    }
+    expect(calls.get('controlTask')).toHaveBeenCalledTimes(1)
   })
 
   it('Despawn on a merged unit or an open PR says so in its one line, then Despawn', async () => {

@@ -60,7 +60,11 @@ Despawn asks one line with Cancel and one button (`despawnConfirm` in
 `src/shared/unit-actions.ts`): "Discard this unit and its unmerged work?" with
 Discard, or "Despawn this unit?" with Despawn once it is merged (an open PR adds
 that it stays open). The click does it at once, unlanded work included; there
-is no second dialog and nothing to type.
+is no second dialog and nothing to type. The dialog closes and the page goes at
+once, and the unit leaves every list (Squad, Quest log) while its copy is
+deleted in the background (`despawnUnit` in the renderer store); if the removal
+fails it comes back where it was and a toast says why. Every Confirm closes on
+its button and starts its action once: Merge and Recall report with a toast.
 There is no shell button: the player's own shell is the project window's
 terminal pane (docs/terminal-pane.md), which can run in a unit's copy. There is
 no manual Gauntlet button. 👍/👎 shows on finished units only, on their page;

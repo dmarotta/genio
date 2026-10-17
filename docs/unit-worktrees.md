@@ -93,7 +93,10 @@ leftovers git no longer knows.
   despawn tool with force and the player's own verified words (`verifyDiscardWords` in `player-words.ts`: any
   plain removal words, sent after the unit existed, naming it or replying to Genio's message about it; never a
   question). Force only goes past what would be lost: a landed unit despawns as without it. The main copy and
-  any registered project's folder are never removed, forced or not.
+  any registered project's folder are never removed, forced or not. Deleting a copy takes from about 15 s
+  to a minute, nearly all of it the copy's own `node_modules` (tens of thousands of files; `git worktree
+  remove` is faster than `rmdir /s /q` there), so the unit page never waits on it: the unit leaves the
+  player's lists at once and comes back only if the removal fails.
 - **Leftovers.** A folder git no longer lists is deleted only when its unit is `cleaned` with a landed (or
   Recon) despawn verdict, which is the existing guarded despawn rule. Links inside are removed first.
   Every other leftover is listed with its reason and left untouched. Examples: no unit record, unit still

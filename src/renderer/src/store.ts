@@ -100,6 +100,23 @@ const emptySnap: FleetSnapshot = {
   }
 }
 
+// Units the player despawned while main still removes them (despawnUnit): left out of snap.tasks, and
+// their in-flight quests out of snap.backlog, so every list drops them at once. allTasks and allBacklog
+// keep main's own view, to bring a unit back when its removal fails.
+const despawning = new Set<string>()
+let allTasks = emptySnap.tasks
+let allBacklog = emptySnap.backlog
+
+function shown(snap: FleetSnapshot): FleetSnapshot {
+  if (!despawning.size) return { ...snap, tasks: allTasks, backlog: allBacklog }
+  const quests = new Set(allTasks.filter((t) => despawning.has(t.id) && t.backlogId).map((t) => t.backlogId!))
+  return {
+    ...snap,
+    tasks: allTasks.filter((t) => !despawning.has(t.id)),
+    backlog: allBacklog.filter((q) => q.state !== 'in-flight' || !(quests.has(q.id) || (q.taskId && despawning.has(q.taskId))))
+  }
+}
+
 let state: State = {
   booted: false,
   connected: false,
@@ -132,7 +149,23 @@ export function getState(): State {
 
 export function setState(patch: Partial<State> | ((s: State) => Partial<State>)): void {
   const p = typeof patch === 'function' ? patch(state) : patch
+  const prev = state.snap
   state = { ...state, ...p }
+  // A patch that brings tasks or quests brings main's view of them; a despawning unit stays left out
+  // until main reports it cleaned (or gone).
+  if (p.snap && (p.snap.tasks !== prev.tasks || p.snap.backlog !== prev.backlog)) {
+    if (p.snap.tasks !== prev.tasks) allTasks = p.snap.tasks
+    if (p.snap.backlog !== prev.backlog) allBacklog = p.snap.backlog
+    for (const id of despawning) {
+      const t = allTasks.find((x) => x.id === id)
+      if (!t || t.state === 'cleaned') despawning.delete(id)
+    }
+    state = { ...state, snap: shown(state.snap) }
+  }
+  publish()
+}
+
+function publish(): void {
   // Every way into a screen (shortcut, palette, notification, an engine change) lands here:
   // a screen this window does not offer falls back to the default one, quietly.
   if (!viewAvailable(state.view, !!PROJECT_WINDOW, playAvailable(state))) state = { ...state, view: DEFAULT_VIEW }
@@ -196,6 +229,33 @@ export async function op<T>(label: string, fn: () => Promise<T>, okMsg?: (r: T) 
     playSfx('error', state.settings)
     return undefined
   }
+}
+
+/**
+ * Despawn a unit on the player's word (unlanded work goes too): it leaves every list at once while main
+ * removes its copy, which can take a while. A refusal or error brings it back where it was, with the
+ * reason in a toast. One removal per unit at a time: a second call while one runs does nothing.
+ */
+export async function despawnUnit(id: string): Promise<void> {
+  if (despawning.has(id)) return
+  const hide = (on: boolean): void => {
+    if (on) despawning.add(id)
+    else despawning.delete(id)
+    state = { ...state, snap: shown(state.snap) }
+    publish()
+  }
+  hide(true)
+  let failed = true
+  try {
+    const r = await api().cleanupTask(id, true)
+    if (r.ok) failed = false
+    else toast('error', 'Despawn failed', r.message)
+  } catch (e) {
+    toast('error', 'Despawn failed', errText(e))
+  }
+  // On success it stays left out until main's update says cleaned (that update may have come already).
+  const cleaned = allTasks.every((t) => t.id !== id || t.state === 'cleaned')
+  if (despawning.has(id) && (failed || cleaned)) hide(false)
 }
 
 export function errText(e: unknown): string {
@@ -347,10 +407,10 @@ export function handleEvent(ev: GenioEvent): void {
       setState({ snap: ev.data })
       break
     case 'task':
-      setState({ snap: { ...s.snap, tasks: upsertBy(s.snap.tasks, ev.task, (t) => t.id) } })
+      setState({ snap: { ...s.snap, tasks: upsertBy(allTasks, ev.task, (t) => t.id) } })
       break
     case 'task-removed':
-      setState({ snap: { ...s.snap, tasks: s.snap.tasks.filter((t) => t.id !== ev.id) } })
+      setState({ snap: { ...s.snap, tasks: allTasks.filter((t) => t.id !== ev.id) } })
       break
     case 'backlog':
       // A project window gets its project's quests in the event (main filters them); the Hub refreshes.

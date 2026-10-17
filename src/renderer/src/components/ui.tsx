@@ -127,7 +127,10 @@ export function ViewHeader({ kicker, title, children }: { kicker?: string; title
   )
 }
 
-/** Confirm dialog; with `typed`, the player must type the word to arm the button. */
+/**
+ * Confirm dialog; with `typed`, the player must type the word to arm the button. The click closes it at
+ * once and starts `onConfirm` exactly once; the caller reports how the action ended (a toast).
+ */
 export function Confirm({
   title,
   body,
@@ -147,7 +150,7 @@ export function Confirm({
   onClose: () => void
 }) {
   const [txt, setTxt] = useState('')
-  const [busy, setBusy] = useState(false)
+  const fired = useRef(false)
   const armed = !typed || txt.trim().toUpperCase() === typed.toUpperCase()
   return (
     <Modal
@@ -163,15 +166,12 @@ export function Confirm({
           </button>
           <button
             className={cx('btn solid', tone !== 'neon' && tone !== 'mute' && tone)}
-            disabled={!armed || busy}
-            onClick={async () => {
-              setBusy(true)
-              try {
-                await onConfirm()
-              } finally {
-                setBusy(false)
-              }
+            disabled={!armed}
+            onClick={() => {
+              if (fired.current) return
+              fired.current = true
               onClose()
+              void onConfirm()
             }}
           >
             {confirmLabel}

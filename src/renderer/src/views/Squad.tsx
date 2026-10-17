@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import type { Decision, Task, TerminalInfo, ValidationStep } from '@shared/types'
 import type { TaskFile } from '@shared/api'
-import { api, errText, focusTask, op, openDeploy, setState, toast, liveTasks, useStore } from '../store'
+import { api, despawnUnit, errText, focusTask, op, openDeploy, setState, toast, liveTasks, useStore } from '../store'
 import { TerminalView } from '../components/Terminal'
 import { ModellerView, useModellerLive } from '../components/ModellerView'
 import { ModellerCardView, ModellerSteps } from '../components/ModellerSteps'
@@ -280,6 +280,19 @@ function usePopover() {
   return [open, setOpen, wrap] as const
 }
 
+// A confirmed Merge or Recall runs on after its dialog closes: one at a time per unit, so a dialog
+// reopened meanwhile never starts a second (Despawn has its own guard in despawnUnit).
+const running = new Set<string>()
+async function once(key: string, run: () => Promise<void>): Promise<void> {
+  if (running.has(key)) return
+  running.add(key)
+  try {
+    await run()
+  } finally {
+    running.delete(key)
+  }
+}
+
 function UnitDetail({ id }: { id: string }) {
   const t = useStore((s) => s.snap.tasks.find((x) => x.id === id))
   const term = useStore((s) => (t?.terminalId ? s.terminals[t.terminalId] : undefined))
@@ -371,17 +384,10 @@ function UnitDetail({ id }: { id: string }) {
   ] as (MoreItem | false)[]).filter((x): x is MoreItem => !!x)
 
   // The player's click on the confirm is their word: unlanded work goes too, with no second dialog.
-  const despawn = async (): Promise<void> => {
-    try {
-      const r = await api().cleanupTask(t.id, true)
-      if (r.ok) {
-        setState({ focus: null })
-      } else {
-        toast('error', 'Despawn failed', r.message)
-      }
-    } catch (e) {
-      toast('error', 'Despawn failed', errText(e))
-    }
+  // The unit and its page go at once; deleting its copy (node_modules alone is tens of thousands of files) runs on.
+  const despawn = (): void => {
+    setState({ focus: null })
+    void despawnUnit(t.id)
   }
   const ask = despawnConfirm(t)
 
@@ -496,10 +502,10 @@ function UnitDetail({ id }: { id: string }) {
               </>
             )
           }
-          onConfirm={async () => {
+          onConfirm={() => once(`merge:${t.id}`, async () => {
             const r = await op('Merge', () => api().mergeTask(t.id))
             if (r?.ok) playSfx('merge', settings)
-          }}
+          })}
           onClose={() => setConfirm(null)}
         />
       )}
@@ -509,9 +515,9 @@ function UnitDetail({ id }: { id: string }) {
           tone="amber"
           confirmLabel="Recall"
           body="Its copy and work stay. Reopening the project respawns it automatically."
-          onConfirm={async () => {
+          onConfirm={() => once(`recall:${t.id}`, async () => {
             await op('Recall', () => api().controlTask(t.id, 'exit'))
-          }}
+          })}
           onClose={() => setConfirm(null)}
         />
       )}

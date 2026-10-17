@@ -160,7 +160,8 @@ Source: [squad-display.md](../squad-display.md)
 ## Despawn and discard
 
 Despawn removes a unit: Genio stops it, deletes its copy and branch, and keeps its record. When its work is not
-merged, one question asks "Discard this unit and its unmerged work?"; Discard does it at once. In chat, tell Genio to
+merged, one question asks "Discard this unit and its unmerged work?"; Discard does it at once: the unit disappears
+right away while its copy is deleted in the background, and comes back with the reason if that fails. In chat, tell Genio to
 get rid of a unit in any plain words (kill, remove, drop, discard…) and name it or reply to its message about it.
 Genio never discards work on its own, and never touches your main copy or other units.
 Where: a unit page's More → Despawn…, or chat.
