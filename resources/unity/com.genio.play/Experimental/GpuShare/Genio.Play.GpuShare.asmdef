@@ -1,0 +1,6 @@
+{
+  "name": "Genio.Play.GpuShare",
+  "references": ["Genio.Play", "Unity.Pipeline.Attributes"],
+  "includePlatforms": ["Editor", "WindowsStandalone64"],
+  "defineConstraints": ["GENIO_PLAY_GPU_SHARE"]
+}

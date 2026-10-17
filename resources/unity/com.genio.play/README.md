@@ -18,6 +18,8 @@ The mixer thread downmixes to stereo (quad, 5.0, 5.1 and 7.1 fold down; LFE is l
 - `genio_sync_begin` / `genio_sync_end` (Editor): suspend auto-refresh while the owner mirrors the copy, then resume and refresh. SessionState makes begin/end idempotent across retries.
 - `genio_step` (Editor): retained historical command; no step toolbar or player IPC exposes it.
 
+`Experimental/GpuShare` holds the spike of a D3D11 shared-texture stream; it compiles only with the `GENIO_PLAY_GPU_SHARE` define, which Genio never sets ([its README](Experimental/GpuShare/README.md)).
+
 Runtime commands use Pipeline's `Unity.Pipeline.Attributes` assembly. Editor controls are in a separate Editor assembly. WebGL is unsupported because `ClientWebSocket` requires a desktop runtime.
 
 ## Input and lifecycle
