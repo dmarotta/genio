@@ -250,7 +250,7 @@ app.whenReady().then(async () => {
   const phase = async (name, act, ready, windowMs = 3000) => {
     const m0 = await metrics(), c0 = calls.length, e0 = events.length, s0 = snapshots, l0 = name === 'boot' ? 0 : await js('__bench.long.length'), cpu0 = process.cpuUsage()
     lag.reset()
-    if (TRACE.has(name)) { traceChunks = []; await send('Tracing.start', { traceConfig: { includedCategories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'blink', 'v8.execute'] }, transferMode: 'ReportEvents' }) }
+    if (TRACE.has(name)) { traceChunks = []; await send('Tracing.start', { traceConfig: { includedCategories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'disabled-by-default-devtools.timeline.stack', 'disabled-by-default-devtools.timeline.invalidationTracking', 'blink', 'v8.execute'] }, transferMode: 'ReportEvents' }) }
     if (PROFILE) { await send('Profiler.enable'); await send('Profiler.start'); profileMain.post('Profiler.start') }
     const t0 = await act()
     const content = ready ? await js(`__bench.waitFor(() => (${ready})(), 15000)`) : -1
@@ -305,6 +305,8 @@ app.whenReady().then(async () => {
   const fcp = await js(`(performance.getEntriesByName('first-contentful-paint')[0]?.startTime ?? -1)`)
   result.phases.boot.fcpMs = fcp > 0 ? fcp + (await js('performance.timeOrigin')) - loadAt : undefined
   result.phases.boot.scriptTotalMs = (await metrics()).ScriptDuration * 1000
+  // GENIO_SCREEN_CSS: a diagnostic stylesheet added after boot (to test what a style rule costs), never product code.
+  if (env.GENIO_SCREEN_CSS) await js(`(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify(env.GENIO_SCREEN_CSS)}; document.head.append(s) })()`)
   await sleep(1500)
   await phase('idle-comms', async () => now(), undefined, 5000)
 

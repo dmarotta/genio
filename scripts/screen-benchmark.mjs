@@ -135,7 +135,7 @@ for (let run = 0; run < runs; run++) {
       const out = path.join(output, app.name, `run-${run + 1}`)
       const env = { ...process.env, ...homes.env, GENIO_SCREEN_BASE: base, GENIO_SCREEN_PROJECT: project, GENIO_SCREEN_OUT: out,
         GENIO_SCREEN_APP_ROOT: root, GENIO_SCREEN_RENDERER: app.renderer ?? path.join(app.dir, 'renderer'), GENIO_SCREEN_PRELOAD: path.join(app.preload ?? path.join(app.dir, 'preload'), 'index.js'),
-        GENIO_SCREEN_UNITS: flag('units', '6'), GENIO_SCREEN_LIST: flag('screens', ''), GENIO_SCREEN_PROFILE: args.includes('--profile') ? '1' : '', GENIO_SCREEN_SHOTS: args.includes('--shots') ? '1' : '', GENIO_SCREEN_PLAY_STREAM: args.includes('--play-stream') ? '1' : '', GENIO_SCREEN_TRACE: flag('trace', '') }
+        GENIO_SCREEN_UNITS: flag('units', '6'), GENIO_SCREEN_LIST: flag('screens', ''), GENIO_SCREEN_PROFILE: args.includes('--profile') ? '1' : '', GENIO_SCREEN_SHOTS: args.includes('--shots') ? '1' : '', GENIO_SCREEN_PLAY_STREAM: args.includes('--play-stream') ? '1' : '', GENIO_SCREEN_CSS: flag('css', ''), GENIO_SCREEN_TRACE: flag('trace', '') }
       delete env.ELECTRON_RUN_AS_NODE
       delete env.ELECTRON_RENDERER_URL
       for (const key of Object.keys(env)) if (key.startsWith('GIT_CONFIG_')) delete env[key]
