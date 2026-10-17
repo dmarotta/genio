@@ -158,6 +158,8 @@ export async function ensureProjectBase(ctx: AppCtx, project: string): Promise<s
   }
   if (project === 'genio') inheritMainHistory(ctx.main.home, ctx.home(ally.name).home)
   ctx.home(ally.name).wksp.prepareProjectOpen()
+  // The window's first question is its chat history: read the log while the window loads.
+  void ctx.home(ally.name).wksp.preloadHistory?.().catch(() => undefined)
   return ally.name
 }
 

@@ -212,7 +212,17 @@ export function writeJsonAtomic(p: string, data: unknown): void {
 }
 
 export function readJsonl<T>(p: string): T[] {
-  const txt = readText(p)
+  return parseJsonl<T>(readText(p))
+}
+
+/** readJsonl without blocking: the read (and the antivirus scan on open) runs off the main thread. */
+export async function readJsonlAsync<T>(p: string): Promise<T[]> {
+  let txt = ''
+  try { txt = decodeBytes(await fs.promises.readFile(p)) } catch { /* absent: empty */ }
+  return parseJsonl<T>(txt)
+}
+
+function parseJsonl<T>(txt: string): T[] {
   const out: T[] = []
   for (const line of txt.split(/\r?\n/)) {
     if (!line.trim()) continue

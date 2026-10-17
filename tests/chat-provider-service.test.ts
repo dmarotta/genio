@@ -209,3 +209,27 @@ it('refuses sends, retries and wake delivery while a project window is closed', 
   expect(service.history()).toEqual([])
   expect(peers).toHaveLength(0)
 })
+
+it('preloads the chat log off the main thread with the same history the first read gives, once', async () => {
+  const log = [
+    { id: 'p1', wksp: 'main', role: 'player', text: 'hello', ts: '2026-01-01T00:00:00Z' },
+    { id: 'g1', wksp: 'main', role: 'genio', text: 'hi', ts: '2026-01-01T00:00:01Z' },
+    { id: 'g1', wksp: 'main', role: 'genio', text: 'hi, edited', ts: '2026-01-01T00:00:01Z' },
+    { id: 'q1', wksp: 'main', role: 'player', text: 'later', ts: '2026-01-01T00:00:02Z', queue: 'queued' }
+  ].map(m => JSON.stringify(m)).join('\n') + '\n{corrupt\n'
+  const read = async (preload: boolean) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-preload-'))
+    const home = new Home(root); home.ensure()
+    fs.writeFileSync(home.chatFile, log)
+    const ctx = { settings: { get: () => ({}) } } as unknown as AppCtx
+    const service = createWkspService(() => ctx, home, undefined, false, () => false)
+    cleanup.push(async () => { await service.stop(); fs.rmSync(root, { recursive: true, force: true }) })
+    if (preload) { await service.preloadHistory!(); await service.preloadHistory!() }
+    return { history: service.history(), file: fs.readFileSync(home.chatFile, 'utf8') }
+  }
+  const sync = await read(false), preloaded = await read(true)
+  expect(preloaded).toEqual(sync)
+  expect(preloaded.history.map(m => [m.id, m.text, m.queue])).toEqual([['p1', 'hello', undefined], ['g1', 'hi, edited', undefined], ['q1', 'later', 'unsent']])
+  // The stranded message was appended once, not once per preload.
+  expect(preloaded.file.split('\n').filter(l => l.includes('"q1"'))).toHaveLength(2)
+})

@@ -12,7 +12,7 @@ import type { ChatProvider, ChatTurn } from './chat-driver'
 import { inboundMessage } from './claude-chat-driver'
 import { loadChatImages, saveChatImages } from './chat-images'
 import { bus } from './bus'
-import { appendJsonl, nowIso, readJsonl, rid } from './util'
+import { appendJsonl, nowIso, readJsonl, readJsonlAsync, rid } from './util'
 
 export interface ChatThreadOptions {
   /** the base name every message carries */
@@ -56,15 +56,17 @@ export function createChatThread(o: ChatThreadOptions) {
   let steering: object | undefined
   let pendingSend: Promise<void> = Promise.resolve()
 
-  const load = (): ChatMessage[] => {
-    if (!history) {
-      // first read in this run: anything still queued was lost with the previous session
-      const { list, stranded } = strandQueued(compactChat(readJsonl<ChatMessage>(o.file)).slice(-1000))
-      if (!o.readOnly) for (const m of stranded) appendJsonl(o.file, m)
-      history = list
-    }
-    return history
+  /** First read in this run: anything still queued was lost with the previous session. */
+  const adopt = (log: ChatMessage[]): ChatMessage[] => {
+    const { list, stranded } = strandQueued(compactChat(log).slice(-1000))
+    if (!o.readOnly) for (const m of stranded) appendJsonl(o.file, m)
+    return (history = list)
   }
+  const load = (): ChatMessage[] => history ?? adopt(readJsonl<ChatMessage>(o.file))
+  /** The same first read without blocking the main process (a long log takes a few hundred ms to open and read). */
+  let preloading: Promise<void> | undefined
+  const preload = (): Promise<void> =>
+    preloading ??= history ? Promise.resolve() : readJsonlAsync<ChatMessage>(o.file).then(log => { if (!history) adopt(log) })
   const record = (m: ChatMessage, persist: boolean): void => {
     if (o.readOnly) return
     const h = load()
@@ -238,7 +240,7 @@ export function createChatThread(o: ChatThreadOptions) {
   }
 
   return {
-    load, record, say, waiting, markSent, delivered, withdraw, strandWaiting, requeued, markSteering, enqueue,
+    load, preload, record, say, waiting, markSent, delivered, withdraw, strandWaiting, requeued, markSteering, enqueue,
     showQueued, serial, sendNow, unqueue, preparing, steerIds,
     /** the steering token while a visible turn is being ended for the player's message */
     get steering(): object | undefined { return steering },

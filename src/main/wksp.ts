@@ -671,6 +671,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
       const h = loadHistory()
       return h.slice(-limit)
     },
+    preloadHistory: thread.preload,
     send: (text, origin = 'player', images = [], context) => submit(text, origin, images, context, false),
     steer: (text, images = [], context) => submit(text, 'player', images, context, true),
     sendNow: thread.sendNow,

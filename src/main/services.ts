@@ -466,6 +466,8 @@ export interface SupervisorService {
 export interface WkspService {
   info(): WkspInfo
   history(limit?: number): ChatMessage[]
+  /** Reads the chat log without blocking ahead of the first history() call (a project window's chat); idempotent. */
+  preloadHistory?(): Promise<void>
   /** player message from the GUI (or mail / recap / save synthesized prompts); 'genio' = routed by main Genio to an ally */
   send(text: string, origin?: 'player' | 'system' | 'genio', images?: ChatImageInput[], context?: InventoryContext): Promise<void>
   /**

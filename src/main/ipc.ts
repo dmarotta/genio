@@ -301,7 +301,12 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     // ---- comms
     approveGeneration: (wksp, run) => agentGeneration(ctx()).approve(run, wksp, 'Approved this exact quote in chat', 'genio', 'card'),
     // A conversation id addresses one of the base's design chats; without one, the project chat.
-    chatHistory: async (wksp, limit, conversation) => conversation ? design(wksp).history(conversation, limit) : ctx().home(wksp).wksp.history(limit),
+    chatHistory: async (wksp, limit, conversation) => {
+      if (conversation) return design(wksp).history(conversation, limit)
+      const chat = ctx().home(wksp).wksp
+      await chat.preloadHistory?.()
+      return chat.history(limit)
+    },
     sendChat: (wksp, text, images, context, conversation) => {
       refuseShellText(text)
       return conversation ? design(wksp).send(conversation, text, images, context) : sendPlayerChat(ctx(), wksp, text, images, context)
