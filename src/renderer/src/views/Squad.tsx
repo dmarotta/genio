@@ -21,6 +21,7 @@ import { UnitKindIcon, unitKindChip } from '../components/UnitKind'
 import { ago, clock, cx, shortPath } from '../lib/format'
 import { assetBytes } from '../lib/inventory'
 import { playSfx } from '../lib/sfx'
+import { pollWhileVisible } from '../lib/visible-poll'
 import { squadAttention, squadBadge, squadState, squadTone, unitClock } from '@shared/squad-display'
 import { UNIT_ACTION_HINT, canRespawn, despawnConfirm } from '@shared/unit-actions'
 import {
@@ -297,10 +298,11 @@ function useTaskFile(id: string, which: TaskFile, deps: unknown[], pollMs?: numb
         .catch((e) => { if (alive) { setErr(errText(e)); setText('') } })
     }
     load()
-    const iv = pollMs ? window.setInterval(load, pollMs) : undefined
+    // A minimized window skips the poll (the diffstat runs git three times) and catches up when it is shown.
+    const stop = pollMs ? pollWhileVisible(load, pollMs) : undefined
     return () => {
       alive = false
-      if (iv) window.clearInterval(iv)
+      stop?.()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, which, pollMs, enabled, ...deps])

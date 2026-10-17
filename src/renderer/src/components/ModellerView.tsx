@@ -3,6 +3,7 @@ import { DEFAULT_VIEWER_SETTINGS, VIEWER_APP_URL, readViewerMessage, type ToView
 import { modellerCaption, type ModellerActivity, type ModellerLive } from '@shared/modeller'
 import { api } from '../store'
 import { cx } from '../lib/format'
+import { pollWhileVisible } from '../lib/visible-poll'
 import { useNow } from './ui'
 import '../styles/modeller-view.css'
 
@@ -30,8 +31,9 @@ export function useModellerLive(id: string, poll: boolean, everyMs = 1000): Mode
       void api().modellerLive(id).then(l => { if (alive) setLive(prev => prev?.stamp === l?.stamp ? prev : l) }, () => {})
     }
     if (ms === everyMs) load()
-    const iv = poll ? window.setInterval(load, ms) : undefined
-    return () => { alive = false; if (iv) window.clearInterval(iv) }
+    // Main's push carries every change; this fallback read waits while the window is minimized.
+    const stop = poll ? pollWhileVisible(load, ms) : undefined
+    return () => { alive = false; stop?.() }
   }, [id, poll, everyMs, ms])
   useEffect(() => {
     if (!poll) return
