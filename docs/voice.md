@@ -53,7 +53,8 @@ no voice setting beyond the existing **Read replies aloud**.
 ## Read replies aloud
 
 - **Settings → General → Read replies aloud** (off by default). Genio speaks the last text of each successful chat
-  turn, in the windows that show that chat (never twice, never in the Hub). Speech starts at the end of the turn.
+  turn, in the windows that show that chat (never twice, never in the Hub). Speech starts at the end of the turn. An
+  event turn with nothing to report ends silent and is never spoken.
 - What is spoken: code blocks become "code block omitted", tables are skipped, URLs become "link", file paths become
   "path", and a long reply is cut at a sentence end near 600 characters.
 - **Pressing the mic, or Esc in the chat box, stops it at once.** A newer reply replaces an older one.
