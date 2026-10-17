@@ -30,6 +30,7 @@ import { answerChoice, applyRecommendations, findDecision, findTask } from './wk
 import { resolveLoadout } from './loadout'
 import { sendPlayerChat } from './wksp'
 import { clearSecret, secretStatus, setSecret } from './secrets'
+import { mcpServerViews, removeMcpServer, saveMcpServer } from './mcp-servers'
 import { usageReport } from './usage'
 import { sessionCleanupPreview, sessionCleanupProgress, sessionCleanupRun, sessionCleanupUndo } from './session-migration'
 import type { AppCtx, HomeCtx } from './services'
@@ -289,6 +290,10 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
       invalidateModelCatalogue()
       return { ok: true, message: 'Key cleared.' }
     },
+    // Only these Settings calls change the MCP server list: no chat tool or unit can.
+    mcpServers: () => mcpServerViews(ctx().main.home.data),
+    mcpServerSave: (server) => saveMcpServer(server, ctx().main.home.data, ctx().projects.list().map((p) => p.name)),
+    mcpServerRemove: (id) => removeMcpServer(String(id), ctx().main.home.data),
     // Housekeeping runs only from these Settings clicks, never automatically.
     sessionCleanupPreview: () => sessionCleanupPreview(ctx()),
     sessionCleanupRun: (keys) => sessionCleanupRun(ctx(), Array.isArray(keys) ? keys.map(String) : []),

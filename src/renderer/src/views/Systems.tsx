@@ -29,6 +29,7 @@ import { ago, clock, cx, dateShort, usd } from '../lib/format'
 import { playSfx } from '../lib/sfx'
 import { useScreenContext } from '../lib/screen-context'
 import { settingAnchor, searchSettings, type SettingsHit } from '@shared/settings-index'
+import { joinArgs, splitArgs, type McpServerInput, type McpServerView } from '@shared/mcp'
 import { listKey, onSectionRequest, openSettings, readLastPage, rememberPage, requestSystemsSection, takePendingSection, type SettingsRequest } from '../lib/settings-nav'
 
 export { openSettings, requestSystemsSection }
@@ -1023,7 +1024,136 @@ function Harnesses({ s }: { s: Settings }) {
           <Plus size={13} /> Add custom
         </button>
       </div>
+      <McpServers />
     </>
+  )
+}
+
+interface McpDraft { id?: string; name: string; remote: boolean; command: string; args: string; url: string; project: string; secrets: { name: string; value: string; set: boolean }[] }
+
+const mcpDraft = (s?: McpServerView): McpDraft => ({
+  id: s?.id, name: s?.name ?? '', remote: Boolean(s?.url), command: s?.command ?? '', args: joinArgs(s?.args ?? []), url: s?.url ?? '',
+  project: s?.project ?? '', secrets: (s?.secrets ?? []).map((n) => ({ name: n, value: '', set: Boolean(s?.secretSet[n]) }))
+})
+
+/** Agent tools › MCP servers: the only place a server is added. Secret values go to the OS-encrypted store and never come back. */
+function McpServers() {
+  const projects = useStore((st) => st.snap.projects)
+  const [list, setList] = useState<McpServerView[]>([])
+  const [draft, setDraft] = useState<McpDraft | null>(null)
+  const [remove, setRemove] = useState<McpServerView | null>(null)
+  useEffect(() => { void api().mcpServers().then(setList).catch(() => setList([])) }, [])
+  const edit = (patch: Partial<McpDraft>): void => setDraft((d) => (d ? { ...d, ...patch } : d))
+  const secret = (i: number, patch: Partial<McpDraft['secrets'][number]>): void =>
+    edit({ secrets: draft!.secrets.map((x, j) => (j === i ? { ...x, ...patch } : x)) })
+  const save = async (): Promise<void> => {
+    if (!draft) return
+    const d = draft
+    const input: McpServerInput = {
+      id: d.id, name: d.name.trim(), project: d.project || undefined,
+      ...(d.remote ? { url: d.url.trim() } : { command: d.command.trim(), args: splitArgs(d.args) }),
+      secrets: d.secrets.filter((x) => x.name.trim()).map((x) => ({ name: x.name.trim(), value: x.value || undefined }))
+    }
+    try {
+      setList(await api().mcpServerSave(input))
+      setDraft(null)
+    } catch (e) {
+      toast('error', 'MCP server', errText(e))
+    }
+  }
+  const form = (d: McpDraft): ReactNode => (
+    <div key={d.id ?? 'new'} className="harness panel mcp-server">
+      <div className="harness-fields">
+        <Field label="Name">
+          <input className="input mono" value={d.name} placeholder="linear" onChange={(e) => edit({ name: e.target.value.toLowerCase() })} />
+        </Field>
+        <Field label="Runs">
+          <select className="select" value={d.remote ? 'url' : 'command'} onChange={(e) => edit({ remote: e.target.value === 'url', secrets: [] })}>
+            <option value="command">On this PC (command)</option>
+            <option value="url">Remote (URL)</option>
+          </select>
+        </Field>
+        {d.remote ? (
+          <Field label="URL" wide>
+            <input className="input mono" value={d.url} placeholder="https://mcp.example.com/mcp" onChange={(e) => edit({ url: e.target.value })} />
+          </Field>
+        ) : (
+          <>
+            <Field label="Command">
+              <input className="input mono" value={d.command} placeholder="npx" onChange={(e) => edit({ command: e.target.value })} />
+            </Field>
+            <Field label="Arguments">
+              <input className="input mono" value={d.args} onChange={(e) => edit({ args: e.target.value })} />
+            </Field>
+          </>
+        )}
+        <Field label="Projects">
+          <select className="select" value={d.project} onChange={(e) => edit({ project: e.target.value })}>
+            <option value="">All projects</option>
+            {projects.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+          </select>
+        </Field>
+      </div>
+      <div className="label" style={{ margin: '12px 0 6px' }}>{d.remote ? 'Secret headers' : 'Secret environment variables'}</div>
+      {d.secrets.map((x, i) => (
+        <div key={i} className="row mcp-secret">
+          <input className="input mono" aria-label="Secret name" value={x.name} placeholder={d.remote ? 'Authorization' : 'API_TOKEN'} onChange={(e) => secret(i, { name: e.target.value, set: false })} />
+          <input className="input mono" aria-label="Secret value" type="password" autoComplete="off" spellCheck={false} value={x.value}
+            placeholder={x.set ? '•••••••• stored' : 'Value'} onChange={(e) => secret(i, { value: e.target.value })} />
+          <button className="btn sm ghost icon" title="Remove secret" aria-label="Remove secret" onClick={() => edit({ secrets: d.secrets.filter((_, j) => j !== i) })}>
+            <X size={12} />
+          </button>
+        </div>
+      ))}
+      <div className="row" style={{ marginTop: 10 }}>
+        <button className="btn sm ghost" onClick={() => edit({ secrets: [...d.secrets, { name: '', value: '', set: false }] })}>
+          <KeyRound size={12} /> Add secret
+        </button>
+        <span style={{ flex: 1 }} />
+        <button className="btn sm ghost" onClick={() => setDraft(null)}>Cancel</button>
+        <button className="btn sm solid" disabled={!d.name.trim() || !(d.remote ? d.url.trim() : d.command.trim())} onClick={() => void save()}>Save</button>
+      </div>
+    </div>
+  )
+  return (
+    <Part id="settings-mcp" title="MCP servers">
+      <div className="harness-list">
+        {list.map((s) => (draft?.id === s.id ? form(draft) : (
+          <div key={s.id} className="harness panel mcp-server">
+            <div className="harness-head">
+              <b className="mono">{s.name}</b>
+              <span className="mono mute mcp-target">{s.url ?? [s.command, joinArgs(s.args ?? [])].filter(Boolean).join(' ')}</span>
+              <span style={{ flex: 1 }} />
+              <span className="mute mcp-scope">{s.project ?? 'All projects'}</span>
+              <button className="btn sm ghost" disabled={!!draft} onClick={() => setDraft(mcpDraft(s))}>Edit</button>
+              <button className="btn sm ghost icon alert" title={`Remove ${s.name}`} aria-label={`Remove ${s.name}`} onClick={() => setRemove(s)}>
+                <Trash size={12} />
+              </button>
+            </div>
+          </div>
+        )))}
+        {draft && !draft.id && form(draft)}
+      </div>
+      {!draft && (
+        <div className="row" style={{ marginTop: 12 }}>
+          <button className="btn" onClick={() => setDraft(mcpDraft())}>
+            <Plus size={13} /> Add server
+          </button>
+        </div>
+      )}
+      {remove && (
+        <Confirm
+          title={`Remove ${remove.name}?`}
+          tone="alert"
+          confirmLabel="Remove"
+          body="Its stored secrets are deleted. Units lose its tools at once."
+          onConfirm={async () => {
+            try { setList(await api().mcpServerRemove(remove.id)) } catch (e) { toast('error', 'MCP server', errText(e)) }
+          }}
+          onClose={() => setRemove(null)}
+        />
+      )}
+    </Part>
   )
 }
 

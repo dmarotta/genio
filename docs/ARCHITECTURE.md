@@ -64,6 +64,16 @@ GameMaker, Defold, MonoGame, web), engine-aware command presets, shared Unity
 slots for units, XP, levels, achievements, sound effects and a HUD visual
 language.
 
+## The player's MCP servers
+
+The player adds MCP servers in Settings → Advanced → Agent tools; nothing else can
+(`mcp-servers.ts`, secret values in `secrets.ts`). Genio's main process is the
+gateway (`mcp-gateway.ts`): Claude and Codex units get one stdio relay per server
+in scope (`resources/genio-mcp-relay.mjs`, `unit-mcp.ts`), and main starts the
+real server with a scrubbed environment in the unit's worktree, or calls a remote
+one with its secret headers, and logs every call. Details:
+[mcp-servers.md](mcp-servers.md).
+
 ## Unity slots and editor tools
 
 The player plays on the **Play screen** (`Play.tsx`, [play.md](play.md)) in their

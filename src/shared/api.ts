@@ -599,6 +599,12 @@ export interface GenioApi {
   apiKeys(): Promise<ApiKeyStatus[]>
   apiKeySet(id: string, key: string): Promise<OpResult>
   apiKeyClear(id: string): Promise<OpResult>
+  /** Settings → Advanced → Agent tools: the player's MCP servers, with which secrets are set (never their values) */
+  mcpServers(): Promise<import('./mcp').McpServerView[]>
+  /** add or edit one server; a secret with a value replaces the stored one, an empty value keeps it */
+  mcpServerSave(server: import('./mcp').McpServerInput): Promise<import('./mcp').McpServerView[]>
+  /** remove a server and its stored secrets */
+  mcpServerRemove(id: string): Promise<import('./mcp').McpServerView[]>
   /** Housekeeping dry run: Genio's past Codex threads and Claude folders in the player's own homes */
   sessionCleanupPreview(): Promise<SessionCleanupPreview>
   /** archive / move the previewed items with these keys; never deletes, recorded for Undo */
@@ -803,6 +809,9 @@ export const API_METHODS = [
   'apiKeys',
   'apiKeySet',
   'apiKeyClear',
+  'mcpServers',
+  'mcpServerSave',
+  'mcpServerRemove',
   'sessionCleanupPreview',
   'sessionCleanupRun',
   'sessionCleanupProgress',

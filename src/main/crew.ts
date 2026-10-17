@@ -39,7 +39,10 @@ import { isLink, removeLinkSafely } from '../../resources/unit-skills/genio/lib/
 import { sourceRemoved, yieldSource } from './source-leases'
 import { helpDocsDir } from './help'
 import { installUnitPlugin, modellerDataDir, openRouterEnv, unitLaunchExtras, unitPluginDir, unitPluginSource } from './unitskills'
-import { CLAUDE_UNIT_MCP_CONFIG, unitMcpLaunch } from './unit-mcp'
+import { claudeUnitMcpConfig, MCP_RELAY_HARNESSES, unitMcpLaunch, type McpRelays } from './unit-mcp'
+import { mcpGateway } from './mcp-gateway'
+import { readMcpServers } from './mcp-servers'
+import { mcpServersFor } from '@shared/mcp'
 import { findUnityCli, unityUnitConfig, unityUnitEnv } from './unity-unit'
 import { artBibleBriefLines, unitArtBible, unitArtBibleEnv } from './art-bible-gen'
 import { designNotesBriefLines } from './design-notes'
@@ -198,8 +201,11 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
   const depsLog = (record: Record<string, unknown>): void => safe(() => appendJsonl(path.join(mainHome.state, 'worktree-deps.jsonl'), { at: nowIso(), home: home.name, ...record }))
   /** Live units already told about a node_modules link this session. */
   const toldLinks = new Set<string>()
+  /** The player's MCP servers a unit on this runtime gets in this project, by name, for its brief. */
+  const mcpBriefNames = (harness: string, project: string): string[] =>
+    MCP_RELAY_HARNESSES.includes(harness) ? mcpServersFor(readMcpServers(mainHome.data), project).map((s) => s.name) : []
   /** The brief's dependency lines for a worktree with a package.json. */
-  const nodeDeps = (id: string, wt: string): BriefInput['nodeDeps'] =>
+  const nodeDeps =(id: string, wt: string): BriefInput['nodeDeps'] =>
     exists(path.join(wt, 'package.json')) ? { stateFile: depsStateFile(home.taskDir(id)), setup: depsGuard } : undefined
   /** Background private node_modules for the unit's worktree (once; nothing to do when it already has one). */
   const startDeps = (t: Task, main: string): void => safe(() => {
@@ -455,10 +461,15 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     // Codex refuses to resume an archived thread; one it will not restore starts fresh instead.
     if (sessionId && !(await unarchiveCodexThread(sessionId, { dataDir: mainHome.data, codexHome, task: t.id, cwd: t.worktree }))) sessionId = undefined
     if (isCodex) update(t.id, { codexHome, ...(opts.resume ? { codexSessionId: sessionId } : {}) })
-    // Only the MCP servers Genio passes (none yet): the repository's and the player's own stay off.
+    // Only the MCP servers Genio passes: relays to the gateway for the player's servers in this project
+    // (Claude and Codex units), never the repository's or the player's own CLI servers.
     const mcpConfig = isClaude ? home.taskStateFile(t.id, '.mcp-config.json') : undefined
-    if (mcpConfig) writeJson(mcpConfig, CLAUDE_UNIT_MCP_CONFIG)
-    const mcp = unitMcpLaunch(adapter.id, { worktree: t.worktree, claudeConfig: mcpConfig, codexHome, adapterEnv: adapter.env })
+    const mcpServers = MCP_RELAY_HARNESSES.includes(adapter.id) ? mcpServersFor(readMcpServers(mainHome.data), t.project) : []
+    const relays: McpRelays | undefined = mcpServers.length
+      ? { command: process.execPath, script: path.join(ctx.appRoot, 'resources', 'genio-mcp-relay.mjs'), servers: mcpServers.map((m) => m.name) }
+      : undefined
+    if (mcpConfig) writeJson(mcpConfig, claudeUnitMcpConfig(relays))
+    const mcp = unitMcpLaunch(adapter.id, { worktree: t.worktree, claudeConfig: mcpConfig, codexHome, adapterEnv: adapter.env, relays })
     const args = [
       ...skills.args,
       ...buildArgs(adapter, { model, effort: t.effort, prompt: opts.prompt, cwd: t.worktree, settings: settingsPath, resume: opts.resume, sessionId, launchArgs: mcp.args }, s)
@@ -491,9 +502,20 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       GENIO_BRIEF: fwd(t.briefPath)
     }
     await opts.check()
+    // This launch's gateway secret: bound to this unit and these servers, revoked when its process ends.
+    const grant = mcpServers.length ? await mcpGateway().grant({
+      id: t.id, project: t.project, cwd: t.worktree, dataDir: mainHome.data, logFile: path.join(home.taskDir(t.id), 'mcp-calls.jsonl'),
+      onFailure: (text) => safe(() => appendLine(home.statusFile(t.id), formatStatusLine('note', text, { key: 'mcp' }))),
+      onSuccess: () => safe(() => getCtx().stats.unlock('mcp-call'))
+    }, mcpServers) : undefined
+    if (grant) Object.assign(env, grant.env)
     const term = ctx.terminals.create({ kind: 'worker', title: t.id, cwd: t.worktree, file: adapter.command, args, env, taskId: t.id, harness: adapter.id,
       unsetEnv: isClaude ? UNIT_UNSET_ENV : undefined })
-    if (!term.alive) throw new Error(`Could not start ${adapter.name} (${adapter.command}). Is it installed? Check SYSTEMS.`)
+    if (!term.alive) {
+      grant?.revoke()
+      throw new Error(`Could not start ${adapter.name} (${adapter.command}). Is it installed? Check SYSTEMS.`)
+    }
+    if (grant) ctx.terminals.onExit(term.id, () => grant.revoke())
     watchConsent(t, term.id, adapter.trustPatterns, adapter.trustResponse, isClaude)
     if (isClaude) watchAutocompactOffer(t, term.id)
     if (isCodex) watchCodexTrust(t, term.id, trustFolders)
@@ -807,6 +829,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
               modeller, generator, engine: effectiveEngine(project).engine, engineRoot: effectiveEngine(project).root, claims }),
             artBible: artBibleBrief(project.path, wt, id),
             designNotes: designNotesBriefLines(wt),
+            mcpServers: mcpBriefNames(loadout.harness, project.name),
             submodules,
             nodeDeps: nodeDeps(id, wt)
           })
@@ -1242,6 +1265,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           ...unitBriefSections({ pluginDir, taskDataDir: home.taskDir(id), helpDocs: helpDocsDir(ctx.appRoot), approvedUsd: grantedUsd(mainHome.data, id) }),
           artBible: artBibleBrief(project.path, t.worktree, id),
           designNotes: designNotesBriefLines(t.worktree),
+          mcpServers: mcpBriefNames(t.harness, project.name),
           nodeDeps: nodeDeps(id, t.worktree),
           carriedReport: report || '(the recon report was empty)'
         })

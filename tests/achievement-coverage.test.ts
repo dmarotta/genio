@@ -52,7 +52,7 @@ const SETTINGS_PAGE_ACHIEVEMENTS: Record<string, string> = {
   inbox: 'none: mail and scheduled checks',
   system: 'explorer-install',
   dispatch: 'none: advanced tuning',
-  harnesses: 'none: advanced tuning',
+  harnesses: 'mcp-call',
   gauntlet: 'none: advanced tuning',
   overwatch: 'none: advanced tuning',
   maintenance: 'none: housekeeping'
@@ -71,7 +71,8 @@ const OTHER_FEATURES: Record<string, [file: string, needle: string]> = {
   assets: ['resources/unit-skills/genio/skills/imagegen-codex/scripts/codex-image.mjs', 'genio-codex-image'],
   blender: ['resources/unit-skills/genio/skills/blender/scripts/blender.mjs', 'genio-blender-run'],
   'unit-uthana': ['resources/unit-skills/genio/skills/uthana/scripts/uthana.mjs', 'genio-uthana-run'],
-  'spend-grant': ['src/main/spend-grants.ts', 'export function recordGrant']
+  'spend-grant': ['src/main/spend-grants.ts', 'export function recordGrant'],
+  mcp: ['src/main/mcp-gateway.ts', 'export function createMcpGateway']
 }
 
 // Retired achievements and why. Their ids stay in ACHIEVEMENTS for saved stats; they never unlock again and never cover a

@@ -52,6 +52,14 @@ export interface BriefInput {
   submodules?: SubmoduleReport
   /** A worktree with a package.json: Genio's private node_modules setup record and the setup script */
   nodeDeps?: { stateFile: string; setup: string }
+  /** The player's MCP servers this unit gets (names only), under Tools */
+  mcpServers?: string[]
+}
+
+/** The Tools line on the player's MCP servers (docs/mcp-servers.md): names only, never a secret. */
+export function mcpBriefLines(names?: string[]): string[] {
+  if (!names?.length) return []
+  return [`- MCP servers the player added in Settings: ${names.map((n) => `\`${n}\``).join(', ')}. Their tools reach you as \`mcp__<server>__<tool>\` through Genio, which logs every call. Use them for this mission only, never to spend money (Genio cannot price an MCP call). If a server refuses Genio's credentials, do not retry it: append \`needs-decision [key=mcp-auth]: <server> needs the player to check its secret in Settings\` and stop.`]
 }
 
 /** Setup lines on the worktree's own node_modules (docs/unit-worktrees.md). */
@@ -346,11 +354,12 @@ export function renderBrief(i: BriefInput): string {
   if (i.engineLine?.trim()) out.push(i.engineLine.trim())
   out.push((i.engineHints ?? engineHints(i.engine)).trim())
   out.push('')
-  if (i.tools?.trim() || i.artBible?.length) {
+  if (i.tools?.trim() || i.artBible?.length || i.mcpServers?.length) {
     out.push('# Tools')
     out.push('')
     if (i.tools?.trim()) out.push(i.tools.trim())
     out.push(...(i.artBible ?? []))
+    out.push(...mcpBriefLines(i.mcpServers))
     out.push('')
   }
   if (i.modeller?.trim()) {

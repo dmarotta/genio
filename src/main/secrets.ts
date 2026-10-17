@@ -4,7 +4,8 @@
  * Electron safeStorage (OS-backed: DPAPI / Keychain / libsecret) and kept in
  * the main base's data/secrets.json, never in a world or in settings.json.
  * Keys are never logged or returned to the renderer; only "set" and the last
- * four characters are.
+ * four characters are. The secrets of the player's MCP servers live here too,
+ * keyed per server, and only ever reach that server (mcp-gateway.ts).
  */
 import path from 'node:path'
 import { safeStorage } from 'electron'
@@ -26,13 +27,28 @@ interface SecretRecord {
   setAt: string
 }
 
-type SecretFile = Partial<Record<SecretId, SecretRecord>>
+/** Service keys by id, and MCP server secrets under `mcp:<server id>:<name>`. */
+type SecretFile = Record<string, SecretRecord | undefined>
 
 const defaultDir = (): string => path.join(defaultHomeRoot(), 'data')
 const fileIn = (dataDir: string): string => path.join(dataDir, 'secrets.json')
 
 function assertId(id: string): asserts id is SecretId {
   if (!SECRET_SERVICES.some((s) => s.id === id)) throw new Error(`Unknown API key service: ${id}`)
+}
+
+const mcpKey = (server: string, name: string): string => {
+  if (!/^[\w-]+$/.test(server) || !/^[\w-]+$/.test(name)) throw new Error('Unknown MCP server secret.')
+  return `mcp:${server}:${name}`
+}
+
+function decrypt(rec: SecretRecord | undefined): string | undefined {
+  if (!rec?.enc || !safeStorage.isEncryptionAvailable()) return undefined
+  try {
+    return safeStorage.decryptString(Buffer.from(rec.enc, 'base64'))
+  } catch {
+    return undefined
+  }
 }
 
 function assertEncryption(): void {
@@ -67,13 +83,39 @@ export function clearSecret(id: string, dataDir = defaultDir()): void {
 
 /** Main-process only: the decrypted key, or undefined. Never send it to the renderer. */
 export function getSecret(id: SecretId, dataDir = defaultDir()): string | undefined {
-  const rec = readJson<SecretFile>(fileIn(dataDir), {})[id]
-  if (!rec?.enc || !safeStorage.isEncryptionAvailable()) return undefined
-  try {
-    return safeStorage.decryptString(Buffer.from(rec.enc, 'base64'))
-  } catch {
-    return undefined
-  }
+  return decrypt(readJson<SecretFile>(fileIn(dataDir), {})[id])
+}
+
+/** Store one secret of the player's MCP server (an environment variable or header value). */
+export function setMcpSecret(server: string, name: string, value: string, dataDir = defaultDir()): void {
+  const key = mcpKey(server, name)
+  const v = value.trim()
+  if (!v) throw new Error('The secret is empty.')
+  assertEncryption()
+  const all = readJson<SecretFile>(fileIn(dataDir), {})
+  all[key] = { enc: safeStorage.encryptString(v).toString('base64'), setAt: nowIso() }
+  writeJson(fileIn(dataDir), all)
+}
+
+/** Main-process only: one MCP server secret, or undefined. Only the gateway passes it on, to that server. */
+export function getMcpSecret(server: string, name: string, dataDir = defaultDir()): string | undefined {
+  return decrypt(readJson<SecretFile>(fileIn(dataDir), {})[mcpKey(server, name)])
+}
+
+/** Which of the server's secrets have a stored value. */
+export function mcpSecretsSet(server: string, names: string[], dataDir = defaultDir()): Record<string, boolean> {
+  const all = readJson<SecretFile>(fileIn(dataDir), {})
+  return Object.fromEntries(names.map((n) => [n, Boolean(all[mcpKey(server, n)]?.enc)]))
+}
+
+/** Delete the server's stored secrets, all of them or all but `keep`. */
+export function clearMcpSecrets(server: string, keep: string[] = [], dataDir = defaultDir()): void {
+  const prefix = mcpKey(server, 'x').slice(0, -1)
+  const all = readJson<SecretFile>(fileIn(dataDir), {})
+  const drop = Object.keys(all).filter((k) => k.startsWith(prefix) && !keep.includes(k.slice(prefix.length)))
+  if (!drop.length) return
+  for (const k of drop) delete all[k]
+  writeJson(fileIn(dataDir), all)
 }
 
 export function secretStatus(dataDir = defaultDir()): ApiKeyStatus[] {

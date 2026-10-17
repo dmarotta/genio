@@ -370,11 +370,16 @@ Source: [unit-worktrees.md](../unit-worktrees.md)
 
 ## MCP servers
 
-Extra tools an agent can call through the Model Context Protocol. Units run only the servers Genio gives them, and
-for now that is none. Servers a project declares in its own files (such as `.mcp.json` or `.codex/config.toml`) and
-the servers in your own Claude, Codex, Gemini or OpenCode settings stay off for units. A unit still works in a project
-that has those files, and no server sees a unit's keys. The Claude chat and the Bot use only Genio's own tools.
-Where: nothing to set up.
+Extra tools an agent can call through the Model Context Protocol. Only the servers you add in Settings reach units:
+a command Genio starts on this PC or a remote URL, with masked secrets (environment variables or headers, kept
+encrypted like your API keys), for all projects or one. Claude and Codex units get them through Genio, which starts
+or calls the real server, adds the secrets, never passes on a unit's keys, and logs every call in the unit's data
+folder; a failed call shows on the unit's timeline. Gemini and OpenCode units, the chat and the Bot get none. Servers a
+project declares in its own files (such as `.mcp.json`) and your own CLI servers stay off for units. Paid servers are
+not supported: Genio cannot price an MCP call, so spending stays with FAL and Uthana under your approvals. Unity MCP
+servers are not supported either; units use Unity only through Genio. Sign-in (OAuth) per server comes later: for now
+a remote server needs a token header.
+Where: Settings → Advanced → Agent tools (Harnesses) → MCP servers.
 Source: [mcp-servers.md](../mcp-servers.md)
 
 ## Slots

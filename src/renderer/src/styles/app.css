@@ -1013,6 +1013,10 @@ body:has(.answers-float .answer-card) .toasts { right: calc(min(380px, 100vw - 2
 .harness.off { opacity: 0.55; }
 .harness-head { display: flex; align-items: center; gap: 12px; }
 .harness-fields { display: grid; grid-template-columns: 1fr 2fr; gap: 10px 12px; margin-top: 10px; }
+.mcp-server .harness-fields { margin-top: 0; }
+.mcp-target { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mcp-scope { white-space: nowrap; }
+.mcp-secret { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) auto; gap: 8px; margin-top: 6px; }
 .rule { padding: 14px 16px; margin-bottom: 12px; }
 .rule-head { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 12px; align-items: end; }
 .rule-head > .toggle { align-self: center; }

@@ -10,6 +10,7 @@ const f = vi.hoisted(() => {
     homePath: async () => 'C:/genio-base',
     accounts: async () => [],
     apiKeys: async () => [],
+    mcpServers: async () => [],
     accountUsage: async () => ({ tools: [] }),
     toolchain: async () => [],
     explorerStatus: async () => ({ available: true, installed: false, present: false }),

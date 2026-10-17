@@ -1,6 +1,8 @@
 /**
  * MCP servers in units (docs/mcp-servers.md). A unit runs only the MCP servers
- * Genio passes it, and today that is none. Servers a repository declares
+ * Genio passes it: for Claude and Codex units, one relay to Genio's gateway
+ * (mcp-gateway.ts) per server the player added in Settings for this project;
+ * for every other runtime, none. Servers a repository declares
  * (.mcp.json, .codex/config.toml, .gemini/settings.json, opencode.json,
  * .opencode/) and the player's own CLI servers stay off, so nothing from a
  * repository runs on its own, nothing waits at Claude's "New MCP server found"
@@ -34,6 +36,46 @@ export interface UnitMcpLaunch {
 
 /** The empty server list Claude units get with --strict-mcp-config. */
 export const CLAUDE_UNIT_MCP_CONFIG = { mcpServers: {} }
+
+/**
+ * The relays a unit gets: `command` runs `script` as Node (Genio's own
+ * executable with ELECTRON_RUN_AS_NODE), once per server name. The gateway
+ * address and per-launch secret reach each relay through the unit's
+ * environment (GENIO_MCP_GATEWAY, GENIO_MCP_SECRET), never argv or a file.
+ */
+export interface McpRelays {
+  command: string
+  script: string
+  servers: string[]
+}
+
+export const MCP_RELAY_ENV = ['GENIO_MCP_GATEWAY', 'GENIO_MCP_SECRET']
+
+/** The per-unit file Claude loads with --strict-mcp-config: one stdio relay per server. */
+export function claudeUnitMcpConfig(relays?: McpRelays): { mcpServers: Record<string, unknown> } {
+  if (!relays?.servers.length) return CLAUDE_UNIT_MCP_CONFIG
+  return {
+    mcpServers: Object.fromEntries(relays.servers.map((name) => [name,
+      { type: 'stdio', command: relays.command, args: [relays.script, name], env: { ELECTRON_RUN_AS_NODE: '1' } }]))
+  }
+}
+
+/**
+ * Codex `-c` entries, one table per relay. Codex merges a `-c` table into a
+ * same-named server from a config file (codex-cli 0.162.1: a repo's `url`
+ * plus the relay's `command` stops every launch), so a name a config file
+ * declares (`declared`, kept off) gets the relay under `genio-<name>` instead.
+ */
+export function codexRelayArgs(relays: McpRelays | undefined, declared: Set<string> = new Set()): string[] {
+  const q = (s: string): string => JSON.stringify(s)
+  const taken = new Set(declared)
+  return (relays?.servers ?? []).flatMap((name) => {
+    let key = name
+    while (taken.has(key)) key = `genio-${key}`
+    taken.add(key)
+    return ['-c', `mcp_servers.${key}={command=${q(relays!.command)},args=[${q(relays!.script)},${q(name)}],env={ELECTRON_RUN_AS_NODE="1"},env_vars=[${MCP_RELAY_ENV.map(q).join(',')}],required=false}`]
+  })
+}
 
 /** A name no Gemini server has: the allow-list then matches nothing (an empty list allows all). */
 export const GEMINI_NO_MCP = 'genio-none'
@@ -236,22 +278,26 @@ export function opencodeMcpOffContent(content: string | undefined, files: string
   return JSON.stringify(names.size ? { ...base, mcp } : base)
 }
 
+/** Runtimes that get the player's servers through relays; every other runtime gets none. */
+export const MCP_RELAY_HARNESSES = ['claude', 'codex']
+
 /**
- * What a unit launch adds so it runs no MCP server Genio did not pass.
- * `claudeConfig` is the per-unit file holding CLAUDE_UNIT_MCP_CONFIG.
+ * What a unit launch adds so it runs only the MCP servers Genio passes.
+ * `claudeConfig` is the per-unit file holding claudeUnitMcpConfig(relays);
+ * Codex gets the relays as `-c` entries after the flags that turn the rest off.
  */
-export function unitMcpLaunch(harnessId: string, o: { worktree: string; claudeConfig?: string; codexHome?: string; adapterEnv?: Record<string, string>; env?: NodeJS.ProcessEnv; home?: string }): UnitMcpLaunch {
+export function unitMcpLaunch(harnessId: string, o: { worktree: string; claudeConfig?: string; codexHome?: string; adapterEnv?: Record<string, string>; env?: NodeJS.ProcessEnv; home?: string; relays?: McpRelays }): UnitMcpLaunch {
   switch (harnessId) {
     case 'claude':
       return { args: o.claudeConfig ? ['--strict-mcp-config', `--mcp-config=${o.claudeConfig}`] : ['--strict-mcp-config'], env: {} }
-    case 'codex':
-      return {
-        args: codexMcpOffArgs([
-          ...(o.codexHome ? [{ label: 'The Codex home\'s config.toml', toml: readText(path.join(o.codexHome, 'config.toml')) }] : []),
-          { label: 'This project\'s .codex/config.toml', toml: readText(path.join(o.worktree, '.codex', 'config.toml')) }
-        ]),
-        env: {}
-      }
+    case 'codex': {
+      const configs = [
+        ...(o.codexHome ? [{ label: 'The Codex home\'s config.toml', toml: readText(path.join(o.codexHome, 'config.toml')) }] : []),
+        { label: 'This project\'s .codex/config.toml', toml: readText(path.join(o.worktree, '.codex', 'config.toml')) }
+      ]
+      const declared = new Set(configs.flatMap((c) => [...codexMcpServers(c.toml).keys()]))
+      return { args: [...codexMcpOffArgs(configs), ...codexRelayArgs(o.relays, declared)], env: {} }
+    }
     case 'gemini':
       return { args: ['--allowed-mcp-server-names', GEMINI_NO_MCP], env: {} }
     case 'opencode': {

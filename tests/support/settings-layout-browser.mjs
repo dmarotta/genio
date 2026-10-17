@@ -15,7 +15,7 @@ const fixture = String.raw`<!doctype html><html><body><div id="root"></div>
   // Every bridge call resolves, with nothing unless a page needs a shape to render.
   const answers = {
     projectMetadata: {}, projectPushStatus: { ahead: 0, behind: 0 }, falWorld: { config: {} }, uthanaWorld: { config: {} },
-    playPool: { cap: 1, slots: [], queue: [] }, playPoolDisk: {}, accounts: [], apiKeys: [], toolchain: [], homePath: 'C:/fixture',
+    playPool: { cap: 1, slots: [], queue: [] }, playPoolDisk: {}, accounts: [], apiKeys: [], mcpServers: [], toolchain: [], homePath: 'C:/fixture',
     readMemory: '', dispatchScores: { rows: [], recent: [], log: [] }, modelCatalogue: { routes: [] }
   }
   const call = (name) => (...args) => {

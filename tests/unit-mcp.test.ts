@@ -3,7 +3,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { buildArgs, BUILTIN_HARNESSES } from '../src/main/harness'
-import { CLAUDE_UNIT_MCP_CONFIG, codexMcpOffArgs, codexMcpServers, GEMINI_NO_MCP, opencodeConfigFiles, opencodeMcpOffContent, parseJsonc, unitMcpLaunch } from '../src/main/unit-mcp'
+import {
+  CLAUDE_UNIT_MCP_CONFIG, claudeUnitMcpConfig, codexMcpOffArgs, codexMcpServers, codexRelayArgs, GEMINI_NO_MCP, MCP_RELAY_HARNESSES, opencodeConfigFiles,
+  opencodeMcpOffContent, parseJsonc, unitMcpLaunch
+} from '../src/main/unit-mcp'
 
 /** A repository that declares MCP servers for every runtime (.mcp.json, .codex/config.toml, .gemini, opencode.json, .opencode/). */
 const REPO = path.join(__dirname, 'fixtures', 'mcp-repo')
@@ -148,5 +151,47 @@ describe('OpenCode units', () => {
 describe('other runtimes', () => {
   it('get nothing added', () => {
     for (const id of ['cursor', 'grok', 'aider', 'custom']) expect(unitMcpLaunch(id, { worktree: REPO })).toEqual({ args: [], env: {} })
+  })
+})
+
+describe("the player's servers through relays", () => {
+  const relays = { command: 'C:/Genio/Genio.exe', script: 'C:/Genio/resources/genio-mcp-relay.mjs', servers: ['linear', 'repo-web'] }
+
+  it('reach Claude units as stdio relays in the strict per-unit file, with no secret and no gateway address in it', () => {
+    expect(claudeUnitMcpConfig()).toEqual(CLAUDE_UNIT_MCP_CONFIG)
+    expect(claudeUnitMcpConfig(relays)).toEqual({ mcpServers: {
+      linear: { type: 'stdio', command: 'C:/Genio/Genio.exe', args: ['C:/Genio/resources/genio-mcp-relay.mjs', 'linear'], env: { ELECTRON_RUN_AS_NODE: '1' } },
+      'repo-web': { type: 'stdio', command: 'C:/Genio/Genio.exe', args: ['C:/Genio/resources/genio-mcp-relay.mjs', 'repo-web'], env: { ELECTRON_RUN_AS_NODE: '1' } }
+    } })
+    expect(JSON.stringify(claudeUnitMcpConfig(relays))).not.toMatch(/GENIO_MCP_(SECRET|GATEWAY)/)
+    expect(unitMcpLaunch('claude', { worktree: REPO, claudeConfig: 'C:/state/u1/.mcp-config.json', relays }).args).toEqual(['--strict-mcp-config', '--mcp-config=C:/state/u1/.mcp-config.json'])
+  })
+
+  it('reach Codex units as -c relay tables after the flags that keep the rest off; a name a config declares gets its own key', () => {
+    const args = unitMcpLaunch('codex', { worktree: REPO, codexHome: tmp(), relays }).args
+    const relayArgs = (key: string, name: string) => ['-c', `mcp_servers.${key}={command="C:/Genio/Genio.exe",args=["C:/Genio/resources/genio-mcp-relay.mjs","${name}"],env={ELECTRON_RUN_AS_NODE="1"},env_vars=["GENIO_MCP_GATEWAY","GENIO_MCP_SECRET"],required=false}`]
+    expect(args.slice(-4)).toEqual([...relayArgs('linear', 'linear'), ...relayArgs('genio-repo-web', 'repo-web')])
+    // The repository's own repo-web stays off.
+    expect(args).toContain('mcp_servers.repo-web.enabled=false')
+    expect(args.slice(0, -4)).toEqual(unitMcpLaunch('codex', { worktree: REPO, codexHome: tmp() }).args)
+    expect(codexRelayArgs(undefined)).toEqual([])
+    expect(codexRelayArgs({ ...relays, servers: ['a'] }, new Set(['a', 'genio-a']))[1]).toMatch(/^mcp_servers\.genio-genio-a=/)
+  })
+
+  it('never reach Gemini, OpenCode or other runtimes', () => {
+    expect(MCP_RELAY_HARNESSES).toEqual(['claude', 'codex'])
+    expect(unitMcpLaunch('gemini', { worktree: REPO, relays })).toEqual(unitMcpLaunch('gemini', { worktree: REPO }))
+    for (const id of ['cursor', 'grok', 'aider', 'custom']) expect(unitMcpLaunch(id, { worktree: REPO, relays })).toEqual({ args: [], env: {} })
+    const adapterEnv = harness('opencode').env!
+    expect(unitMcpLaunch('opencode', { worktree: REPO, adapterEnv, relays, env: {}, home: tmp() })).toEqual(unitMcpLaunch('opencode', { worktree: REPO, adapterEnv, env: {}, home: tmp() }))
+  })
+
+  it('never reach the chat, the Bot or the Codex chat in this build: only unit launches read the list', () => {
+    const src = (f: string) => fs.readFileSync(path.join(__dirname, '..', 'src', 'main', f), 'utf8')
+    for (const f of fs.readdirSync(path.join(__dirname, '..', 'src', 'main'))) {
+      if (!/\.ts$/.test(f) || ['crew.ts', 'ipc.ts', 'mcp-gateway.ts', 'mcp-servers.ts'].includes(f)) continue
+      expect(src(f), f).not.toMatch(/from '\.\/mcp-(gateway|servers)'/)
+    }
+    expect(src('crew.ts')).toMatch(/MCP_RELAY_HARNESSES\.includes\(adapter\.id\) \? mcpServersFor\(readMcpServers/)
   })
 })
