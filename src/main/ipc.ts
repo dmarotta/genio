@@ -32,6 +32,7 @@ import { resolveLoadout } from './loadout'
 import { sendPlayerChat } from './wksp'
 import { clearSecret, secretStatus, setSecret } from './secrets'
 import { mcpServerViews, removeMcpServer, saveMcpServer } from './mcp-servers'
+import { checkMcpSignIn, mcpSignIn, mcpSignOut } from './mcp-signin'
 import { usageReport } from './usage'
 import { sessionCleanupPreview, sessionCleanupProgress, sessionCleanupRun, sessionCleanupUndo } from './session-migration'
 import type { AppCtx, HomeCtx } from './services'
@@ -307,8 +308,30 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     },
     // Only these Settings calls change the MCP server list: no chat tool or unit can.
     mcpServers: () => mcpServerViews(ctx().main.home.data),
-    mcpServerSave: (server) => saveMcpServer(server, ctx().main.home.data, ctx().projects.list().map((p) => p.name)),
+    mcpServerSave: async (server) => {
+      const data = ctx().main.home.data
+      const saved = saveMcpServer(server, data, ctx().projects.list().map((p) => p.name)).find((s) => s.name === server.name.trim())
+      // A remote server is checked once on save: one that asks for sign-in gets the Sign in action.
+      if (saved?.url) await checkMcpSignIn(saved.id, data)
+      return mcpServerViews(data)
+    },
     mcpServerRemove: (id) => removeMcpServer(String(id), ctx().main.home.data),
+    mcpServerSignIn: async (id) => {
+      const data = ctx().main.home.data
+      const name = mcpServerViews(data).find((s) => s.id === String(id))?.name ?? 'the server'
+      let r: 'signed-in' | 'cancelled'
+      try {
+        r = await mcpSignIn(String(id), data, { open: (url) => shell.openExternal(url) })
+      } catch (e) {
+        throw new Error(`Sign-in to ${name} failed: ${(e as Error)?.message ?? e}`)
+      }
+      if (r === 'signed-in') unlockQuietly('mcp-signin')
+      return mcpServerViews(data)
+    },
+    mcpServerSignOut: (id) => {
+      mcpSignOut(String(id), ctx().main.home.data)
+      return mcpServerViews(ctx().main.home.data)
+    },
     // Housekeeping runs only from these Settings clicks, never automatically.
     sessionCleanupPreview: () => sessionCleanupPreview(ctx()),
     sessionCleanupRun: (keys) => sessionCleanupRun(ctx(), Array.isArray(keys) ? keys.map(String) : []),

@@ -621,6 +621,10 @@ export interface GenioApi {
   mcpServerSave(server: import('./mcp').McpServerInput): Promise<import('./mcp').McpServerView[]>
   /** remove a server and its stored secrets */
   mcpServerRemove(id: string): Promise<import('./mcp').McpServerView[]>
+  /** Genio's sign-in for a server that asks for one, in the system browser; resolves when it ends */
+  mcpServerSignIn(id: string): Promise<import('./mcp').McpServerView[]>
+  /** forget that sign-in */
+  mcpServerSignOut(id: string): Promise<import('./mcp').McpServerView[]>
   /** Housekeeping dry run: Genio's past Codex threads and Claude folders in the player's own homes */
   sessionCleanupPreview(): Promise<SessionCleanupPreview>
   /** archive / move the previewed items with these keys; never deletes, recorded for Undo */
@@ -829,6 +833,8 @@ export const API_METHODS = [
   'mcpServers',
   'mcpServerSave',
   'mcpServerRemove',
+  'mcpServerSignIn',
+  'mcpServerSignOut',
   'sessionCleanupPreview',
   'sessionCleanupRun',
   'sessionCleanupProgress',

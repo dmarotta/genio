@@ -7,7 +7,9 @@
  * - starts a local server itself, in the unit's worktree, with only system
  *   variables and that server's own secrets (never the unit's environment: no
  *   FAL, Uthana or OpenRouter key), or calls a remote one over streamable HTTP
- *   with its secret headers;
+ *   with its secret headers, and with the access token of Genio's sign-in for a
+ *   server that asks for one (mcp-signin.ts: main is the only refresher, and a
+ *   sign-in that no longer works answers 'sign-in needed' with no retry);
  * - logs every tools/call (server, tool, time, ok) and each server's tool
  *   count in the unit's data folder, never arguments or results, and reports a
  *   failed call once as a plain timeline line;
@@ -21,6 +23,7 @@ import { randomBytes } from 'node:crypto'
 import type { McpServer } from '@shared/mcp'
 import { mcpServersFor } from '@shared/mcp'
 import { readMcpServers } from './mcp-servers'
+import { mcpAccessToken, mcpSignInRefused, mcpTokenRefused } from './mcp-signin'
 import { getMcpSecret } from './secrets'
 import { appendJsonl, nowIso } from './util'
 
@@ -117,12 +120,16 @@ export function createMcpGateway(o: { secret?: (s: McpServer, name: string, data
     let up: Upstream | undefined
     let ready: Promise<void> | undefined
     let secrets: string[] = []
+    /** Access tokens this connection sent: hidden like secrets. */
+    const tokens = new Set<string>()
+    /** The last request found no working sign-in. */
+    let signInNeeded = false
     let closed = false
     /** Requests the server has not answered yet, by JSON-RPC id. */
     const pending = new Map<string, { m: Rpc; tool?: string; at: number }>()
     let answered = false
     const failedOnce = new Set<string>()
-    const hide = (text: string): string => secrets.reduce((t, v) => (v.length >= 4 ? t.split(v).join('***') : t), text)
+    const hide = (text: string): string => [...secrets, ...tokens].reduce((t, v) => (v.length >= 4 ? t.split(v).join('***') : t), text)
     const write = (m: unknown): void => { if (!closed && !sock.destroyed) sock.write(JSON.stringify(m) + '\n') }
     const log = (rec: Record<string, unknown>): void => {
       if (!grant || !srv) return
@@ -153,11 +160,14 @@ export function createMcpGateway(o: { secret?: (s: McpServer, name: string, data
     }
     /** Why, in a few words for the timeline; never a secret. */
     const reason = (e: unknown): string => {
+      if (signInNeeded && refused(e) === 401) return 'sign-in needed'
       const status = refused(e)
       return status ? `the server refused its credentials, HTTP ${status}` : hide(String((e as Error)?.message ?? e)).replace(/\s+/g, ' ').slice(0, 160)
     }
     /** What the unit's model reads. */
-    const unavailable = (e: unknown): string => refused(e)
+    const unavailable = (e: unknown): string => signInNeeded && refused(e) === 401
+      ? `${srv?.name} needs the player to sign in to it again in Settings. Do not retry this server: append needs-decision [key=mcp-auth] naming ${srv?.name}, then stop.`
+      : refused(e)
       ? `${srv?.name} refused Genio's credentials (HTTP ${refused(e)}). Do not retry this server; ask the player to check its secret in Settings (needs-decision key=mcp-auth).`
       : `${srv?.name ?? 'The MCP server'} is unavailable: ${hide(String((e as Error)?.message ?? e)).slice(0, 300)}`
     const fail = (m: Rpc, e: unknown): void => {
@@ -191,6 +201,34 @@ export function createMcpGateway(o: { secret?: (s: McpServer, name: string, data
       }
       write(m)
     }
+    /**
+     * Requests to a server with Genio's sign-in carry its current access token. A 401 asks main for
+     * one refresh (shared with every other caller) and retries once; no token means no request at all.
+     */
+    const signedIn = (s: McpServer, dataDir: string) => async (url: string | URL, init?: RequestInit): Promise<Response> => {
+      let token = await mcpAccessToken(s.id, dataDir)
+      for (let attempt = 0; ; attempt++) {
+        if (!token) {
+          signInNeeded = true
+          return new Response('{"error":"sign_in_required"}', { status: 401, headers: { 'content-type': 'application/json' } })
+        }
+        tokens.add(token)
+        const headers = new Headers(init?.headers)
+        headers.set('authorization', `Bearer ${token}`)
+        const res = await fetch(url, { ...init, headers })
+        if (res.status !== 401) {
+          signInNeeded = false
+          return res
+        }
+        if (attempt) {
+          mcpSignInRefused(s.id, token, dataDir)
+          signInNeeded = true
+          return res
+        }
+        void res.body?.cancel().catch(() => undefined)
+        token = await mcpTokenRefused(s.id, token, dataDir)
+      }
+    }
     const open = async (): Promise<void> => {
       const s = srv!
       const vals: Record<string, string> = {}
@@ -201,7 +239,7 @@ export function createMcpGateway(o: { secret?: (s: McpServer, name: string, data
       secrets = Object.values(vals)
       if (s.url) {
         const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js')
-        up = new StreamableHTTPClientTransport(new URL(s.url), { requestInit: { headers: vals } }) as unknown as Upstream
+        up = new StreamableHTTPClientTransport(new URL(s.url), { requestInit: { headers: vals }, ...(s.signIn ? { fetch: signedIn(s, grant!.caller.dataDir) } : {}) }) as unknown as Upstream
       } else {
         const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js')
         up = new StdioClientTransport({ command: s.command!, args: s.args ?? [], env: mcpServerEnv(vals, o.baseEnv), cwd: grant!.caller.cwd, stderr: 'ignore' }) as unknown as Upstream

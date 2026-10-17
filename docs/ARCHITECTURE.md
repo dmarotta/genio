@@ -71,7 +71,10 @@ The player adds MCP servers in Settings → Advanced → Agent tools; nothing el
 gateway (`mcp-gateway.ts`): Claude and Codex units get one stdio relay per server
 in scope (`resources/genio-mcp-relay.mjs`, `unit-mcp.ts`), and main starts the
 real server with a scrubbed environment in the unit's worktree, or calls a remote
-one with its secret headers, and logs every call. Details:
+one with its secret headers, and logs every call. A remote server that asks for
+OAuth gets Genio's own sign-in (`mcp-signin.ts`: system browser, loopback
+callback, the MCP SDK's discovery, registration and PKCE); main keeps the tokens
+in the secret store, is their only refresher and adds them to calls. Details:
 [mcp-servers.md](mcp-servers.md).
 
 ## Unity slots and editor tools

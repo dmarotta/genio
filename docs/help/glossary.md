@@ -398,8 +398,11 @@ or calls the real server, adds the secrets, never passes on a unit's keys, and l
 folder; a failed call shows on the unit's timeline. Gemini and OpenCode units, the chat and the Bot get none. Servers a
 project declares in its own files (such as `.mcp.json`) and your own CLI servers stay off for units. Paid servers are
 not supported: Genio cannot price an MCP call, so spending stays with FAL and Uthana under your approvals. Unity MCP
-servers are not supported either; units use Unity only through Genio. Sign-in (OAuth) per server comes later: for now
-a remote server needs a token header.
+servers are not supported either; units use Unity only through Genio. A remote server that asks for a sign-in (OAuth)
+shows **Sign in**, which opens your browser once; Genio keeps the sign-in encrypted, refreshes it itself and adds it to
+every call, and the button turns into **Sign out**. When a sign-in expires for good, the entry shows Sign in again
+and a unit that needs the server stops and asks you. A server that does not let apps register themselves needs a
+token header instead.
 Where: Settings → Advanced → Agent tools (Harnesses) → MCP servers.
 Source: [mcp-servers.md](../mcp-servers.md)
 

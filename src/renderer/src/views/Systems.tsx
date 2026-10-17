@@ -1061,6 +1061,13 @@ function McpServers() {
       toast('error', 'MCP server', errText(e))
     }
   }
+  // The browser does the sign-in; the list turns Sign in into Sign out when it ends.
+  const signIn = async (id: string): Promise<void> => {
+    try { setList(await api().mcpServerSignIn(id)) } catch (e) { toast('error', 'MCP server', errText(e)) }
+  }
+  const signOut = async (id: string): Promise<void> => {
+    try { setList(await api().mcpServerSignOut(id)) } catch (e) { toast('error', 'MCP server', errText(e)) }
+  }
   const form = (d: McpDraft): ReactNode => (
     <div key={d.id ?? 'new'} className="harness panel mcp-server">
       <div className="harness-fields">
@@ -1125,6 +1132,9 @@ function McpServers() {
               <span className="mono mute mcp-target">{s.url ?? [s.command, joinArgs(s.args ?? [])].filter(Boolean).join(' ')}</span>
               <span style={{ flex: 1 }} />
               <span className="mute mcp-scope">{s.project ?? 'All projects'}</span>
+              {s.signIn && (s.signedIn
+                ? <button className="btn sm ghost" onClick={() => void signOut(s.id)}>Sign out</button>
+                : <button className="btn sm" onClick={() => void signIn(s.id)}>Sign in</button>)}
               <button className="btn sm ghost" disabled={!!draft} onClick={() => setDraft(mcpDraft(s))}>Edit</button>
               <button className="btn sm ghost icon alert" title={`Remove ${s.name}`} aria-label={`Remove ${s.name}`} onClick={() => setRemove(s)}>
                 <Trash size={12} />

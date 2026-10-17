@@ -102,6 +102,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'unit-motion', feature: 'unit-uthana', name: 'Motion Crew', description: 'A unit generates an Uthana motion.' },
   { id: 'blender-first', feature: 'blender', name: 'Polygon Power', description: 'Complete a Blender skill run.' },
   { id: 'mcp-call', feature: 'mcp', name: 'Plugged In', description: 'A unit uses a tool from an MCP server you added in Settings.' },
+  { id: 'mcp-signin', feature: 'mcp-signin', name: 'Valet Key', description: 'Sign Genio in to an MCP server from Settings.' },
   { id: 'inventory-index', feature: 'inventory-index', name: 'Loot Catalog', description: "Index a project's assets for the first time." },
   { id: 'assets-10', feature: 'assets', name: 'Asset Combo', description: 'Generate 10 assets.' },
   { id: 'assets-50', feature: 'assets', name: 'Asset Factory', description: 'Generate 50 assets.' },

@@ -41,9 +41,42 @@ project, a brief, a log, the status file or a unit's environment.
   with those helpers and their approvals.
 - **Unity MCP servers.** They drive whatever editor runs their package, usually your own. Units reach Unity only
   through `genio-unity`, and the Unity guards are unchanged; they do not see MCP calls.
-- **Sign-in (OAuth).** In this build a remote server needs a token in a secret header. Genio's own sign-in per server
-  comes in a later build.
+- **Sign-in for servers without dynamic registration.** Genio signs in only where the server lets an app register
+  itself (dynamic client registration). A server that accepts only pre-registered apps stays on a token in a secret
+  header. Client ID metadata documents, the other way to register, need Genio's client description at a public
+  `https://` address, which Genio does not have.
 - A write-capable token (GitHub, for example) lets a unit's tools write with it. Prefer a read-only token.
+
+## Sign in (OAuth)
+
+Many hosted servers want a sign-in rather than a token. Genio does that sign-in itself, once per server, and no CLI
+ever sees it (`src/main/mcp-signin.ts`, built on the MCP TypeScript SDK 1.32.1 that Genio already installs).
+
+- **The check.** When you save a remote server, Genio sends it one unauthenticated request. If it answers 401 and its
+  OAuth metadata (RFC 9728 protected resource, RFC 8414 authorization server) offers dynamic registration, the entry
+  gets **Sign in**. Nothing else changes in the list. A server that could not be reached keeps what it had; save it
+  again to check again. A new URL is checked again and signs the old one out.
+- **Sign in** opens your system browser on the server's own consent page, never a window of Genio's. Genio waits on a
+  loopback callback, `http://127.0.0.1:<random free port>/callback`, listening on loopback only, and accepts only the
+  callback that carries this sign-in's `state`; another one gets an error page and the sign-in goes on waiting (up to
+  five minutes). The SDK does the discovery, registers Genio (`client_name: Genio`, that redirect URI, no client
+  secret), and runs the authorization code flow with PKCE S256, the resource indicator (RFC 8707) and the scope the
+  server asks for in its 401 or its metadata. Each sign-in registers again, because the port is part of the registered
+  redirect URI. When it ends, the button turns into **Sign out**.
+- **Where the sign-in is kept.** The registration and tokens are one encrypted entry in `data/secrets.json`
+  (`mcp-oauth:<server id>`, OS keychain encryption like the other secrets). They are never in the list file, a log,
+  a brief, a status line, a unit's environment or what a unit reads.
+- **Use and refresh.** The gateway adds `Authorization: Bearer <access token>` to every request to that server (it
+  replaces an `Authorization` header you set). Main is the only refresher: a token close to its expiry is refreshed
+  before use, and a 401 leads to one refresh shared by every unit that saw the same token (five simultaneous 401s make
+  one refresh request), then one retry. A refresh that cannot reach the server keeps the sign-in; only that call fails.
+- **Expired or revoked.** When the server refuses the refresh, or refuses a token it has just issued, Genio forgets
+  the sign-in and the entry shows **Sign in** again. From then on every call to that server answers at once, without
+  contacting it: "`<server>` needs the player to sign in to it again in Settings. Do not retry this server: append
+  needs-decision [key=mcp-auth] naming `<server>`, then stop." The unit's timeline gets one line, `MCP server
+  <server>: <tool> failed (sign-in needed).` After you sign in again, a running unit's next call works.
+- **Sign out** deletes the sign-in at once; running units get the same "sign in again" answer. Removing the server
+  deletes it too. Genio does not ask the server to revoke its tokens.
 
 ## The gateway
 
@@ -56,7 +89,8 @@ Genio's main process is the only MCP client of your servers (`src/main/mcp-gatew
    - **command**: starts the server itself, with the unit's worktree as its folder and an environment of system
      variables (`PATH`, `SYSTEMROOT`, `TEMP`, `USERPROFILE` and similar) plus that server's own secrets. It never gets
      the unit's environment: no FAL, Uthana or OpenRouter key, no Genio variable;
-   - **URL**: calls it with the secret headers from the store.
+   - **URL**: calls it with the secret headers from the store, and with the access token of Genio's sign-in when the
+     server asks for one.
 3. Every tool call is logged in the unit's data folder (`mcp-calls.jsonl`: time, server, tool, ok, duration), plus each
    server's tool count when a unit lists its tools. Arguments and results are never logged. A failed call adds one
    plain line to the unit's timeline (once per tool until it works again).
@@ -64,7 +98,8 @@ Genio's main process is the only MCP client of your servers (`src/main/mcp-gatew
    Settings stops its tools at once, even for running units; edits apply from the unit's next launch.
 
 A server that refuses its credentials (HTTP 401 or 403) tells the unit not to retry and to ask you with
-`needs-decision [key=mcp-auth]`. Because no CLI sees an HTTP server, Claude's and Codex's own OAuth never runs and
+`needs-decision [key=mcp-auth]`; a server with Genio's sign-in does the same when the sign-in no longer works (see
+Sign in above). Because no CLI sees an HTTP server, Claude's and Codex's own OAuth never runs and
 nothing is written to your `~/.claude` or the Windows credential store.
 
 **Tool-schema cost.** Codex sends every tool's schema with every request; Claude probably defers them behind its tool
@@ -120,6 +155,17 @@ header secret, the call log, failures on the timeline, refused secrets and scope
 2.1.302 and codex-cli 0.162.1, launched with a unit's exact MCP flags through Genio's PTY spawn, against fake model
 endpoints in throwaway homes: both listed and called the test server through the relay, the server saw no unit key,
 and neither home got a credentials file.
+
+The sign-in (2026-10-17): `tests/mcp-signin.test.ts` runs against a local mock MCP server with its own OAuth 2.1
+authorization server (`tests/fixtures/mcp-oauth-server.ts`, trimmed from the MCP Recon's: RFC 9728 and 8414 metadata,
+dynamic registration, PKCE S256 and resource checks, rotating refresh tokens, expiry and revocation). It covers the
+check on save (no registration endpoint means no Sign in), discovery, registration, PKCE, the scope and resource, a
+wrong or missing `state` refused, the callback unreachable from the machine's network address, a fresh registration
+per sign-in, decline, sign-out and timeout, one refresh for five simultaneous 401s (directly and through five units'
+relays), refresh before expiry, a network failure that keeps the sign-in, a revoked sign-in giving one failed refresh
+and then answers with no server traffic, and that no issued token appears in the call log, the timeline, what the unit
+reads, the list file, the views, the console or the store in clear. The browser is simulated: no real browser, no
+real vendor server and no real account was tested, and Electron's `safeStorage` is mocked in the tests.
 
 To repeat the live check, use a throwaway home for each CLI and set its variable in the same command: `CLAUDE_CONFIG_DIR`
 and `CLAUDE_SECURESTORAGE_CONFIG_DIR`, `CODEX_HOME` (a short path: Codex's socket path has a length limit),

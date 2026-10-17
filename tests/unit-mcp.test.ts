@@ -189,7 +189,7 @@ describe("the player's servers through relays", () => {
   it('never reach the chat, the Bot or the Codex chat in this build: only unit launches read the list', () => {
     const src = (f: string) => fs.readFileSync(path.join(__dirname, '..', 'src', 'main', f), 'utf8')
     for (const f of fs.readdirSync(path.join(__dirname, '..', 'src', 'main'))) {
-      if (!/\.ts$/.test(f) || ['crew.ts', 'ipc.ts', 'mcp-gateway.ts', 'mcp-servers.ts'].includes(f)) continue
+      if (!/\.ts$/.test(f) || ['crew.ts', 'ipc.ts', 'mcp-gateway.ts', 'mcp-servers.ts', 'mcp-signin.ts'].includes(f)) continue
       expect(src(f), f).not.toMatch(/from '\.\/mcp-(gateway|servers)'/)
     }
     expect(src('crew.ts')).toMatch(/MCP_RELAY_HARNESSES\.includes\(adapter\.id\) \? mcpServersFor\(readMcpServers/)

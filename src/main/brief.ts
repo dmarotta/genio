@@ -59,7 +59,7 @@ export interface BriefInput {
 /** The Tools line on the player's MCP servers (docs/mcp-servers.md): names only, never a secret. */
 export function mcpBriefLines(names?: string[]): string[] {
   if (!names?.length) return []
-  return [`- MCP servers the player added in Settings: ${names.map((n) => `\`${n}\``).join(', ')}. Their tools reach you as \`mcp__<server>__<tool>\` through Genio, which logs every call. Use them for this mission only, never to spend money (Genio cannot price an MCP call). If a server refuses Genio's credentials, do not retry it: append \`needs-decision [key=mcp-auth]: <server> needs the player to check its secret in Settings\` and stop.`]
+  return [`- MCP servers the player added in Settings: ${names.map((n) => `\`${n}\``).join(', ')}. Their tools reach you as \`mcp__<server>__<tool>\` through Genio, which logs every call. Use them for this mission only, never to spend money (Genio cannot price an MCP call). If a server needs a sign-in or refuses Genio's credentials, do not retry it: append \`needs-decision [key=mcp-auth]: <server> needs the player to sign in again or check its secret in Settings\` and stop.`]
 }
 
 /** Setup lines on the worktree's own node_modules (docs/unit-worktrees.md). */

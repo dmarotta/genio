@@ -5,7 +5,8 @@
  * the main base's data/secrets.json, never in a world or in settings.json.
  * Keys are never logged or returned to the renderer; only "set" and the last
  * four characters are. The secrets of the player's MCP servers live here too,
- * keyed per server, and only ever reach that server (mcp-gateway.ts).
+ * keyed per server, and only ever reach that server (mcp-gateway.ts), as does
+ * each server's Genio sign-in (mcp-signin.ts: its client registration and tokens).
  */
 import path from 'node:path'
 import { safeStorage } from 'electron'
@@ -115,6 +116,36 @@ export function clearMcpSecrets(server: string, keep: string[] = [], dataDir = d
   const drop = Object.keys(all).filter((k) => k.startsWith(prefix) && !keep.includes(k.slice(prefix.length)))
   if (!drop.length) return
   for (const k of drop) delete all[k]
+  writeJson(fileIn(dataDir), all)
+}
+
+const oauthKey = (server: string): string => {
+  if (!/^[\w-]+$/.test(server)) throw new Error('Unknown MCP server.')
+  return `mcp-oauth:${server}`
+}
+
+/** Main-process only: a server's Genio sign-in (client registration and tokens, mcp-signin.ts), or undefined. */
+export function getMcpOAuth<T>(server: string, dataDir = defaultDir()): T | undefined {
+  const text = decrypt(readJson<SecretFile>(fileIn(dataDir), {})[oauthKey(server)])
+  if (!text) return undefined
+  try { return JSON.parse(text) as T } catch { return undefined }
+}
+
+export function setMcpOAuth(server: string, value: unknown, dataDir = defaultDir()): void {
+  const key = oauthKey(server)
+  assertEncryption()
+  const all = readJson<SecretFile>(fileIn(dataDir), {})
+  all[key] = { enc: safeStorage.encryptString(JSON.stringify(value)).toString('base64'), setAt: nowIso() }
+  writeJson(fileIn(dataDir), all)
+}
+
+export const hasMcpOAuth = (server: string, dataDir = defaultDir()): boolean => Boolean(readJson<SecretFile>(fileIn(dataDir), {})[oauthKey(server)]?.enc)
+
+export function clearMcpOAuth(server: string, dataDir = defaultDir()): void {
+  const key = oauthKey(server)
+  const all = readJson<SecretFile>(fileIn(dataDir), {})
+  if (!(key in all)) return
+  delete all[key]
   writeJson(fileIn(dataDir), all)
 }
 

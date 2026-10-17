@@ -17,11 +17,15 @@ export interface McpServer {
   secrets: string[]
   /** A project name, or absent for every project. */
   project?: string
+  /** A remote server that answered Genio's check with OAuth sign-in and dynamic registration: it gets a Sign in action. */
+  signIn?: boolean
 }
 
 /** What the renderer sees: the entry plus which secrets have a stored value, never the values. */
 export interface McpServerView extends McpServer {
   secretSet: Record<string, boolean>
+  /** Genio holds a sign-in for it (never the tokens themselves). */
+  signedIn: boolean
 }
 
 /** A save from Settings: a secret's value replaces the stored one; an empty or absent value keeps it. */
