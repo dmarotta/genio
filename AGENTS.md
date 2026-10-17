@@ -42,3 +42,21 @@ Layout:
 - `src/shared`: types and logic shared by main and renderer
 - `resources/unit-skills`: skills and helper scripts installed for units
 - `docs`: design and feature docs; `tests`: Vitest suites
+
+## UI guidelines
+
+Main rule: add nothing to the UI that is not strictly necessary. For every label,
+status, subtitle, count, button, toggle, tooltip, chip, column, toast,
+notification, explanatory sentence or section, ask: must the user have it to do
+the use case well? If not, leave it out. Even status labels: one is fine, only
+when knowing the status changes what the user does next.
+
+- One status line and one progress bar at most, in one place (the Play screen).
+- Never show the same fact twice, or internal detail (keys, ids, log names, paths).
+- No micro-copy that restates the screen; no button when plain words to the chat do it.
+- No toast or notification unless the user must act or would miss something that matters.
+- Delete clutter; do not hide it behind a toggle. Be consistent across unit kinds.
+- Plain names (project, not world). Nothing automatic or forced on the user.
+- A new element needs a one-sentence justification in the PR or final note.
+
+Full rules, examples and a review checklist: [docs/ui-guidelines.md](docs/ui-guidelines.md).
