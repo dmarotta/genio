@@ -12,6 +12,27 @@ export function renderMarkdown(src: string): string {
   return DOMPurify.sanitize(html, SANITIZE)
 }
 
+/**
+ * Rendered HTML by source, least recently used first, at most RENDERED_CHARS of source and HTML together: every
+ * screen switch remounts a chat (the screen's or the floating one) and a message's HTML depends on its text only.
+ */
+const rendered = new Map<string, string>()
+const RENDERED_CHARS = 4_000_000
+let renderedChars = 0
+export function cachedMarkdown(src: string): string {
+  const hit = rendered.get(src)
+  if (hit !== undefined) { rendered.delete(src); rendered.set(src, hit); return hit }
+  const html = renderMarkdown(src)
+  rendered.set(src, html)
+  renderedChars += src.length + html.length
+  for (const [key, value] of rendered) {
+    if (renderedChars <= RENDERED_CHARS || rendered.size === 1) break
+    rendered.delete(key)
+    renderedChars -= key.length + value.length
+  }
+  return html
+}
+
 /** Links open in the system browser. */
 function openLink(e: MouseEvent<HTMLDivElement>): void {
   const a = (e.target as HTMLElement).closest('a')
@@ -35,7 +56,7 @@ export function Markdown({ text, className }: { text: string; className?: string
 }
 
 function StaticMarkdown({ text, className }: { text: string; className?: string }) {
-  const html = useMemo(() => renderMarkdown(text), [text])
+  const html = useMemo(() => cachedMarkdown(text ?? ''), [text])
   return <div className={`md selectable ${className ?? ''}`} onClick={openLink} dangerouslySetInnerHTML={{ __html: html }} />
 }
 

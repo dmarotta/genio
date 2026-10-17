@@ -6,7 +6,9 @@
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it } from 'vitest'
-import { Markdown, renderMarkdown, updateStreamingBlocks, type StreamedBlocks } from '../src/renderer/src/components/Markdown'
+import DOMPurify from 'dompurify'
+import { vi } from 'vitest'
+import { Markdown, cachedMarkdown, renderMarkdown, updateStreamingBlocks, type StreamedBlocks } from '../src/renderer/src/components/Markdown'
 
 const SAMPLES = [
   '## Report\n\nGenio deployed **two** units.\n\n- first: `done`\n- second: pending\n\n```ts\nconst x = 1\nconst y = 2\n```\n\nThat is all.',
@@ -64,3 +66,23 @@ it('renders the final reply in full once it stops streaming', async () => {
   expect(el.querySelector('.md')!.innerHTML).toBe(renderMarkdown('One.\n\nTwo.'))
   await act(async () => root.unmount())
 })
+
+it('renders a message once per text, however often a chat remounts it, with the same HTML', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+  const text = `A **unique** reply ${Math.random()}\n\n- one\n- two`
+  const sanitize = vi.spyOn(DOMPurify, 'sanitize')
+  for (let mount = 0; mount < 3; mount++) {
+    const el = document.createElement('div')
+    const root = createRoot(el)
+    await act(async () => root.render(React.createElement(Markdown, { text })))
+    expect(el.querySelector('.md')!.innerHTML).toBe(renderMarkdown(text))
+    await act(async () => root.unmount())
+  }
+  // three mounts and three reference renders above: the mounts parsed and sanitized once between them
+  expect(sanitize).toHaveBeenCalledTimes(4)
+  sanitize.mockRestore()
+  // A long transcript beyond the cache's bound still renders each text correctly.
+  const big = Array.from({ length: 3 }, (_, i) => 'x'.repeat(1_500_000) + i)
+  for (const b of big) expect(cachedMarkdown(b)).toBe(renderMarkdown(b))
+  expect(cachedMarkdown(text)).toBe(renderMarkdown(text))
+}, 30_000)
