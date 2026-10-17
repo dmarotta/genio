@@ -39,6 +39,7 @@ import { isLink, removeLinkSafely } from '../../resources/unit-skills/genio/lib/
 import { sourceRemoved, yieldSource } from './source-leases'
 import { helpDocsDir } from './help'
 import { installUnitPlugin, modellerDataDir, openRouterEnv, unitLaunchExtras, unitPluginDir, unitPluginSource } from './unitskills'
+import { CLAUDE_UNIT_MCP_CONFIG, unitMcpLaunch } from './unit-mcp'
 import { findUnityCli, unityUnitConfig, unityUnitEnv } from './unity-unit'
 import { artBibleBriefLines, unitArtBible, unitArtBibleEnv } from './art-bible-gen'
 import { designNotesBriefLines } from './design-notes'
@@ -443,9 +444,13 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
     // Codex refuses to resume an archived thread; one it will not restore starts fresh instead.
     if (sessionId && !(await unarchiveCodexThread(sessionId, { dataDir: mainHome.data, codexHome, task: t.id, cwd: t.worktree }))) sessionId = undefined
     if (isCodex) update(t.id, { codexHome, ...(opts.resume ? { codexSessionId: sessionId } : {}) })
+    // Only the MCP servers Genio passes (none yet): the repository's and the player's own stay off.
+    const mcpConfig = isClaude ? home.taskStateFile(t.id, '.mcp-config.json') : undefined
+    if (mcpConfig) writeJson(mcpConfig, CLAUDE_UNIT_MCP_CONFIG)
+    const mcp = unitMcpLaunch(adapter.id, { worktree: t.worktree, claudeConfig: mcpConfig, codexHome, adapterEnv: adapter.env })
     const args = [
       ...skills.args,
-      ...buildArgs(adapter, { model, effort: t.effort, prompt: opts.prompt, cwd: t.worktree, settings: settingsPath, resume: opts.resume, sessionId }, s)
+      ...buildArgs(adapter, { model, effort: t.effort, prompt: opts.prompt, cwd: t.worktree, settings: settingsPath, resume: opts.resume, sessionId, launchArgs: mcp.args }, s)
     ]
     const hookEnv = project ? await writeHooks(t, project.path) : {}
     let openRouterKey: string | undefined
@@ -460,6 +465,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       ...(claude?.env ?? {}),
       ...(codex?.env ?? {}),
       ...(adapter.env ?? {}),
+      ...mcp.env,
       ...hookEnv,
       ...skills.env,
       ...shimEnv,

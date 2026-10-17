@@ -24,6 +24,7 @@ export const GENIO_CODEX_MODEL = 'gpt-6.1-sol'
 
 export const genioCodexHomeDir = (mainRoot: string): string => path.join(mainRoot, 'codex-home')
 
+// Units turn off by name every MCP server declared here or in a repository (unit-mcp.ts).
 const SEED_HEADER = "# Genio's own Codex home. Sandbox and approvals come from Genio's launch flags;\n# no MCP servers or plugins. Sign-in: SYSTEMS > Accounts.\n"
 
 const sameHome = (a: string, b: string): boolean => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase()

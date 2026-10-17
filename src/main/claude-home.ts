@@ -12,8 +12,9 @@
  * once per Genio start. If it ever fails, Genio falls back to the player's
  * normal home and says so; a Claude update can never silently break units.
  *
- * Inside this home units do not see the player's own MCP servers or plugins.
- * Genio's unit skills still arrive explicitly through --plugin-dir.
+ * Inside this home units do not see the player's own plugins, and units run
+ * with --strict-mcp-config (unit-mcp.ts), so no MCP server reaches them but
+ * the ones Genio passes. Genio's unit skills arrive explicitly through --plugin-dir.
  */
 import fs from 'node:fs'
 import os from 'node:os'

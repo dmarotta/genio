@@ -1,0 +1,152 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import { buildArgs, BUILTIN_HARNESSES } from '../src/main/harness'
+import { CLAUDE_UNIT_MCP_CONFIG, codexMcpOffArgs, codexMcpServers, GEMINI_NO_MCP, opencodeConfigFiles, opencodeMcpOffContent, parseJsonc, unitMcpLaunch } from '../src/main/unit-mcp'
+
+/** A repository that declares MCP servers for every runtime (.mcp.json, .codex/config.toml, .gemini, opencode.json, .opencode/). */
+const REPO = path.join(__dirname, 'fixtures', 'mcp-repo')
+const harness = (id: string) => BUILTIN_HARNESSES.find(h => h.id === id)!
+const bypass = { claudePermissionMode: 'bypass' as const }
+
+const temps: string[] = []
+const tmp = (): string => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-unit-mcp-'))
+  temps.push(d)
+  return d
+}
+afterEach(() => { for (const d of temps.splice(0)) fs.rmSync(d, { recursive: true, force: true }) })
+
+describe('the fixture repository', () => {
+  it('declares servers for every runtime', () => {
+    for (const f of ['.mcp.json', '.codex/config.toml', '.gemini/settings.json', 'opencode.json', '.opencode/opencode.jsonc']) {
+      expect(fs.existsSync(path.join(REPO, f)), f).toBe(true)
+    }
+  })
+})
+
+describe('Claude units', () => {
+  it('load only the empty server file Genio passes, in the = form', () => {
+    const mcp = unitMcpLaunch('claude', { worktree: REPO, claudeConfig: 'C:/state/u1/.mcp-config.json' })
+    expect(mcp).toEqual({ args: ['--strict-mcp-config', '--mcp-config=C:/state/u1/.mcp-config.json'], env: {} })
+    expect(CLAUDE_UNIT_MCP_CONFIG).toEqual({ mcpServers: {} })
+    const argv = buildArgs(harness('claude'), { model: 'm1', prompt: 'go', settings: 's.json', launchArgs: mcp.args }, bypass)
+    expect(argv).toEqual(['--strict-mcp-config', '--mcp-config=C:/state/u1/.mcp-config.json', '--dangerously-skip-permissions', '--settings', 's.json', '--model', 'm1', 'go'])
+    // --mcp-config is variadic: a separate value element would swallow the prompt.
+    expect(argv).not.toContain('--mcp-config')
+    expect(buildArgs(harness('claude'), { resume: true, launchArgs: mcp.args }, bypass))
+      .toEqual(['--strict-mcp-config', '--mcp-config=C:/state/u1/.mcp-config.json', '--dangerously-skip-permissions', '--continue'])
+  })
+})
+
+describe('Codex units', () => {
+  it('turn off every server the repository and the home declare, by name and with a same-kind inert entry', () => {
+    const home = tmp()
+    fs.writeFileSync(path.join(home, 'config.toml'), 'model = "m"\n\n[mcp_servers.home_srv]\ncommand = "node"\n\n[projects.\'C:\\\\x\']\ntrust_level = "trusted"\n')
+    const mcp = unitMcpLaunch('codex', { worktree: REPO, codexHome: home })
+    expect(mcp.env).toEqual({})
+    expect(mcp.args).toEqual([
+      '--disable', 'skill_mcp_dependency_install',
+      '-c', 'mcp_servers.home_srv.enabled=false', '-c', 'mcp_servers.home_srv.required=false', '-c', 'mcp_servers.home_srv.command="genio-mcp-off"',
+      '-c', 'mcp_servers.repo_codex.enabled=false', '-c', 'mcp_servers.repo_codex.required=false', '-c', 'mcp_servers.repo_codex.command="genio-mcp-off"',
+      '-c', 'mcp_servers.repo-web.enabled=false', '-c', 'mcp_servers.repo-web.required=false', '-c', 'mcp_servers.repo-web.url="http://127.0.0.1:9/genio-mcp-off"',
+      '-c', 'mcp_servers.inline_srv.enabled=false', '-c', 'mcp_servers.inline_srv.required=false', '-c', 'mcp_servers.inline_srv.command="genio-mcp-off"',
+      '-c', 'mcp_servers.inline_web.enabled=false', '-c', 'mcp_servers.inline_web.required=false', '-c', 'mcp_servers.inline_web.url="http://127.0.0.1:9/genio-mcp-off"'
+    ])
+  })
+
+  it('still disable MCP dependency installs when nothing declares a server', () => {
+    expect(unitMcpLaunch('codex', { worktree: tmp(), codexHome: tmp() }).args).toEqual(['--disable', 'skill_mcp_dependency_install'])
+  })
+
+  it('put the flags after a resume subcommand and before the template', () => {
+    const launchArgs = codexMcpOffArgs([{ label: 'x', toml: '[mcp_servers.a]\ncommand = "n"\n' }])
+    expect(buildArgs(harness('codex'), { resume: true, sessionId: 'sid', prompt: 'go', model: 'm', launchArgs }, bypass)).toEqual([
+      'resume', 'sid', ...launchArgs, '--dangerously-bypass-approvals-and-sandbox', '--model', 'm', 'go'
+    ])
+    expect(buildArgs(harness('codex'), { prompt: 'go', launchArgs }, bypass)).toEqual([...launchArgs, '--dangerously-bypass-approvals-and-sandbox', 'go'])
+  })
+
+  it('stop the launch for a name -c cannot address', () => {
+    expect(() => codexMcpOffArgs([{ label: "This project's .codex/config.toml", toml: '[mcp_servers."dot.name"]\ncommand = "n"\n' }]))
+      .toThrow(/This project's \.codex\/config\.toml declares the MCP server "dot\.name"/)
+    expect(codexMcpOffArgs([{ label: 'x', toml: '[mcp_servers."a:b@c/d"]\ncommand = "n"\n' }])).toContain('mcp_servers.a:b@c/d.enabled=false')
+  })
+
+  it('read server names the way TOML declares them', () => {
+    const toml = [
+      '# [mcp_servers.commented]',
+      'mcp_servers.dotted.command = "n"',
+      'description = """',
+      '[mcp_servers.in_multiline_string]',
+      '"""',
+      '[mcp_servers.\'literal-name\']',
+      'command = "n"',
+      '[mcp_servers.literal-name.env]',
+      'K = "[mcp_servers.in_value]"',
+      '[mcp_servers.web2]',
+      'command = "n"',
+      '[mcp_servers.web2.http_headers]',
+      'X = "y"',
+      '[[mcp_servers.arr.tools]]',
+      '[profiles.p]',
+      'mcp_servers = "not a table"',
+      '[other]',
+      'mcp = { mcp_servers = 1 }'
+    ].join('\n')
+    expect([...codexMcpServers(toml)]).toEqual([['dotted', 'stdio'], ['literal-name', 'stdio'], ['web2', 'http'], ['arr', 'stdio']])
+    expect(codexMcpServers('')).toEqual(new Map())
+  })
+})
+
+describe('Gemini units', () => {
+  it('allow only a server name nobody has', () => {
+    const mcp = unitMcpLaunch('gemini', { worktree: REPO })
+    expect(mcp).toEqual({ args: ['--allowed-mcp-server-names', GEMINI_NO_MCP], env: {} })
+    expect(buildArgs(harness('gemini'), { prompt: 'go', model: 'g', launchArgs: mcp.args }, bypass))
+      .toEqual(['--allowed-mcp-server-names', 'genio-none', '-y', '-m', 'g', 'go'])
+  })
+})
+
+describe('OpenCode units', () => {
+  it('turn off the repository, project-folder and player servers while keeping the runtime config', () => {
+    const home = tmp()
+    const xdg = path.join(home, 'xdg')
+    fs.mkdirSync(path.join(xdg, 'opencode'), { recursive: true })
+    fs.writeFileSync(path.join(xdg, 'opencode', 'opencode.jsonc'), '{ // the player\'s own\n "mcp": { "player-srv": { "type": "remote", "url": "https://x" } } }')
+    const env = { XDG_CONFIG_HOME: xdg }
+    const adapterEnv = harness('opencode').env!
+    const mcp = unitMcpLaunch('opencode', { worktree: REPO, adapterEnv, env, home })
+    expect(mcp.args).toEqual([])
+    expect(JSON.parse(mcp.env.OPENCODE_CONFIG_CONTENT)).toEqual({
+      permission: { '*': 'allow' },
+      mcp: { 'player-srv': { enabled: false }, 'repo-oc': { enabled: false }, 'repo-oc-dir': { enabled: false } }
+    })
+  })
+
+  it('read every config file OpenCode reads', () => {
+    const files = opencodeConfigFiles('W', { XDG_CONFIG_HOME: 'X', OPENCODE_CONFIG: 'C.json' }, 'H').map(f => f.replace(/\\/g, '/'))
+    expect(files).toEqual(['X/opencode/config.json', 'X/opencode/opencode.json', 'X/opencode/opencode.jsonc', 'C.json',
+      'W/opencode.json', 'W/opencode.jsonc', 'W/.opencode/opencode.json', 'W/.opencode/opencode.jsonc', 'H/.opencode/opencode.json', 'H/.opencode/opencode.jsonc'])
+    expect(opencodeConfigFiles('W', { OPENCODE_CONFIG_DIR: 'D' }, 'H')[0].replace(/\\/g, '/')).toBe('D/config.json')
+    expect(opencodeConfigFiles('W', {}, 'H')[0].replace(/\\/g, '/')).toBe('H/.config/opencode/config.json')
+  })
+
+  it('keep a server the runtime content defines, turned off, and refuse content that is not JSON', () => {
+    expect(JSON.parse(opencodeMcpOffContent('{"mcp":{"own":{"type":"local","command":["x"]}}}', []))).toEqual({ mcp: { own: { type: 'local', command: ['x'], enabled: false } } })
+    expect(opencodeMcpOffContent('{"permission":{"*":"allow"}}', [path.join(tmp(), 'missing.json')])).toBe('{"permission":{"*":"allow"}}')
+    expect(() => opencodeMcpOffContent('not json', [])).toThrow(/OPENCODE_CONFIG_CONTENT/)
+  })
+
+  it('parse JSON with comments and trailing commas, keeping slashes inside strings', () => {
+    expect(parseJsonc('{ "u": "https://x//y", /* c */ "a": [1, 2,], // end\n }')).toEqual({ u: 'https://x//y', a: [1, 2] })
+    expect(parseJsonc('{ broken')).toBeUndefined()
+  })
+})
+
+describe('other runtimes', () => {
+  it('get nothing added', () => {
+    for (const id of ['cursor', 'grok', 'aider', 'custom']) expect(unitMcpLaunch(id, { worktree: REPO })).toEqual({ args: [], env: {} })
+  })
+})

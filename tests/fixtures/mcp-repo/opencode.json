@@ -1,0 +1,6 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "repo-oc": { "type": "local", "command": ["genio-fixture-must-never-start", "stdio"] }
+  }
+}

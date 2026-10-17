@@ -22,7 +22,7 @@ const REQUIRED_TERMS = [
   'Delivery modes', 'Offline', 'Standard', 'Hardcore', 'Plans', 'Plan steps', 'Units', 'Unit kinds and colors', 'Squad states',
   'Despawn and discard', 'Quests', 'Quest log', 'Choices', 'Your Move', 'Usage modes', 'Quota protection', 'Effort levels', 'Spend approval',
   'Unit capabilities', 'Skills', 'Play', 'Play copy', 'Game sound', 'Inventory', 'Art Bible', 'Design', 'Design notes', 'Modeller', 'Generator',
-  'Settings pages', 'Gauntlet', 'Worktrees', 'Slots', 'Hidden desktop', 'Dev Drive'
+  'Settings pages', 'Gauntlet', 'Worktrees', 'MCP servers', 'Slots', 'Hidden desktop', 'Dev Drive'
 ]
 
 const glossary = (): string => fs.readFileSync(glossaryFile, 'utf8')

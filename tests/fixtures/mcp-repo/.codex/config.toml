@@ -1,0 +1,20 @@
+# A repository's own Codex config: units must load none of these servers.
+model = "fixture-model"
+
+[mcp_servers.repo_codex]
+command = "genio-fixture-must-never-start"
+args = [
+  "--flag=x",
+  "[mcp_servers.not_a_server]",
+]
+
+[mcp_servers.repo_codex.env]
+FIXTURE = "1"
+
+[mcp_servers."repo-web"]
+url = "http://127.0.0.1:9/fixture"
+bearer_token_env_var = "FIXTURE_TOKEN"
+
+[mcp_servers]
+inline_srv = { command = "genio-fixture-must-never-start" }
+inline_web = { url = "http://127.0.0.1:9/fixture" }

@@ -169,6 +169,8 @@ export interface LaunchVars {
   settings?: string
   resume?: boolean
   sessionId?: string
+  /** Genio's own flags for this launch (unit-mcp.ts): after a resume subcommand, before the template. */
+  launchArgs?: string[]
 }
 
 function permissionArgs(mode: Settings['claudePermissionMode']): string[] {
@@ -233,7 +235,7 @@ export function buildArgs(a: HarnessAdapter, vars: LaunchVars, settings: Pick<Se
     else extras.push(...r)
   }
   const at = promptAt < 0 ? main.length : promptAt
-  return [...resumeFront, ...main.slice(0, at), ...extras, ...main.slice(at)]
+  return [...resumeFront, ...(vars.launchArgs ?? []), ...main.slice(0, at), ...extras, ...main.slice(at)]
 }
 
 /** Merge persisted adapters with the builtins: new builtins appear, user edits persist. */

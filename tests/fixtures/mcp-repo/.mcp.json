@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "repo-claude": { "command": "genio-fixture-must-never-start", "args": ["stdio"], "env": { "FIXTURE": "1" } }
+  }
+}

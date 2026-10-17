@@ -1,0 +1,7 @@
+// A project's .opencode folder config, with comments and a trailing comma.
+{
+  "mcp": {
+    /* local server */
+    "repo-oc-dir": { "type": "local", "command": ["genio-fixture-must-never-start"] },
+  },
+}

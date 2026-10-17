@@ -357,6 +357,15 @@ is only read. Despawning a unit removes its copy; work that is not merged goes o
 Where: a unit page's More → Open folder; Despawn in the same menu.
 Source: [unit-worktrees.md](../unit-worktrees.md)
 
+## MCP servers
+
+Extra tools an agent can call through the Model Context Protocol. Units run only the servers Genio gives them, and
+for now that is none. Servers a project declares in its own files (such as `.mcp.json` or `.codex/config.toml`) and
+the servers in your own Claude, Codex, Gemini or OpenCode settings stay off for units. A unit still works in a project
+that has those files, and no server sees a unit's keys. The Claude chat and the Bot use only Genio's own tools.
+Where: nothing to set up.
+Source: [mcp-servers.md](../mcp-servers.md)
+
 ## Slots
 
 Extra copies of a Unity project, each with its own editor, that units lease to play and test in Unity at the same

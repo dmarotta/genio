@@ -40,6 +40,10 @@ project or a new Dev Drive path would hold the unit before its first turn.
   only when that folder is the unit's worktree or its project's root. It leaves
   any other folder, or a pointer moved off option 1, unanswered, and raises one
   stale signal that says why. The dialog never counts as unit work.
+- Trust lets Codex read the worktree's `.codex/config.toml`. Its MCP servers stay
+  off: each unit launch turns them off by name ([mcp-servers.md](mcp-servers.md)).
+  Marking the folder "untrusted" instead is not an option: Codex then shows a
+  different "Folder access … Open restricted" dialog before the first turn.
 - The other runtimes: Claude Code's "Quick safety check … Yes, I trust this
   folder" is pre-accepted in Genio's Claude home (`setClaudeTrust`) and answered
   on screen. Gemini runs with `GEMINI_CLI_TRUST_WORKSPACE=true`, which its folder
