@@ -9,8 +9,23 @@ export const MAX_FRAME = 4 * 1024 * 1024
 export const AUDIO_HEADER = 24
 export const AUDIO_MAX_FRAMES = 4096
 export interface PlayAudio { seq: number; rate: number; channels: number; frames: number; time: number }
+/**
+ * Where a Play's frames and sound come from, as the playerInstanceStream sink (one frame per renderer credit,
+ * latest wins; audio outside the credits) consumes them. PlayStream is Unity's loopback WebSocket; another
+ * transport (a shared GPU texture, say) plugs in by offering the same callbacks and input.
+ */
+export interface PlayFrameSource {
+  /** A complete frame, newest first: a source keeps at most one, never a queue. */
+  onFrame?: (frame: Buffer) => void
+  /** A 'GA' v1 audio packet, header included, in arrival order. */
+  onAudio?: (packet: Buffer) => void
+  onDisconnect?: () => void
+  readonly connected: boolean
+  input(input: PlayInput): void
+  close(): void
+}
 /** One authenticated Unity client; bounded latest-frame storage, never a frame queue. Audio packets pass straight through. */
-export class PlayStream {
+export class PlayStream implements PlayFrameSource {
   private server = http.createServer((_req, res) => { res.writeHead(404); res.end() })
   private ws = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME, perMessageDeflate: false })
   private client?: WebSocket
