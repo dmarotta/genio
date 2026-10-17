@@ -58,6 +58,7 @@ export function createUpdateService(getCtx: () => AppCtx): UpdateService {
     const ctx = getCtx()
     for (const h of ctx.homes.values()) {
       await h.wksp.stop().catch(() => undefined)
+      await h.design?.stop().catch(() => undefined)
     }
     bus.toast('success', 'Patch applied', `${info.behind} update(s). Restarting Genio…`)
     setTimeout(() => {

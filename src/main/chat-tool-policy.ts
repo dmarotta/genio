@@ -9,6 +9,8 @@ import { truncate } from './util'
 const SUBAGENT_RE = /agent|subagent|^task$|^task(create|update|output|stop|get|list)?$|workflow|cron|schedul|worktree|delegate|spawn|dispatch|handoff|remote|sendmessage|monitor/i
 export const DISALLOWED = ['Skill', 'Agent', 'Task', 'Workflow', 'CronCreate', 'CronDelete', 'EnterWorktree', 'ExitWorktree', 'RemoteTrigger', 'SendMessage', 'Monitor', 'Write', 'Edit', 'NotebookEdit', 'MultiEdit']
 const ALLOWED = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebSearch', 'WebFetch', 'TodoWrite', 'ToolSearch'])
+/** A design chat's native tools: reading the project and the web for references. No shell, no edits. */
+export const DESIGN_NATIVE = ['Read', 'Glob', 'Grep', 'LS', 'WebSearch', 'WebFetch', 'ToolSearch']
 
 const READ_ONLY_SEGMENTS: RegExp[] = [
   /^git\s+(-C\s+\S+\s+)?(status|log|diff|show|branch|rev-parse|ls-files|blame|shortlog|describe|remote(\s+-v)?|tag\s+(-l|--list)|worktree\s+list|config\s+--get)\b/i,
@@ -61,6 +63,9 @@ export type ToolDecision ={ behavior: 'allow' } | { behavior: 'deny'; message: s
 
 /** Pure tool policy for a Genio/Bot session; 'ask' goes to the player's permission prompt. */
 export function decideTool(role: ToolRole, toolName: string, input: unknown, shellMode: Settings['chatShellMode']): ToolDecision {
+  // Whatever the chat's approval mode: its Genio tools are already the design list, everything else is closed.
+  if (role === 'design') return toolName.startsWith('mcp__genio__') || DESIGN_NATIVE.includes(toolName) ? { behavior: 'allow' }
+    : { behavior: 'deny', message: 'A design chat reads and talks: it runs no commands, edits nothing and starts no work. To build it, the player asks Genio.' }
   if (toolName.startsWith('mcp__genio__')) return { behavior: 'allow' }
   if (ALLOWED.has(toolName)) return { behavior: 'allow' }
   if (toolName === 'Skill') return { behavior: 'deny', message: 'Use skill_read for a named bundled skill, procedure_read for Genio procedures, or settings_read/settings_update. Broad configuration skills are not loaded into chat.' }

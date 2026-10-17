@@ -78,6 +78,7 @@ export function createAlliesService(getCtx: () => AppCtx): AlliesService {
         if (live.length) return { ok: false, message: `Base ${name} still has ${live.length} unit(s) in play (${live.map((t) => t.id).join(', ')}); despawn or finish them first` }
         hc.supervisor.stop()
         await hc.wksp.stop().catch(() => undefined)
+        await hc.design?.stop().catch(() => undefined)
         ctx.homes.delete(name)
       }
       ally.retiredAt = nowIso()

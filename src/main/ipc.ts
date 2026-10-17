@@ -31,6 +31,7 @@ import { clearSecret, secretStatus, setSecret } from './secrets'
 import { usageReport } from './usage'
 import { sessionCleanupPreview, sessionCleanupProgress, sessionCleanupRun, sessionCleanupUndo } from './session-migration'
 import type { AppCtx, HomeCtx } from './services'
+import type { DesignChatService } from './design-chats'
 import { ownsDecision } from '@shared/decisions'
 import { projectSnapshot, terminalProject, type WindowBinding } from './project-windows'
 import { closePane, openPane, paneCwds, runShell } from './terminal-pane'
@@ -102,6 +103,11 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
   const planHome = (id: string): HomeCtx => {
     for (const hc of ctx().homes.values()) if (hc.plans?.get(id)) return hc
     throw new Error(`no plan ${id}`)
+  }
+  const design = (wksp: string): DesignChatService => {
+    const chats = ctx().home(wksp).design
+    if (!chats) throw new Error('Design chats belong to a project window.')
+    return chats
   }
   /**
    * The quest page Dispatch button: a quest that waits on unlanded dependencies
@@ -291,14 +297,25 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
 
     // ---- comms
     approveGeneration: (wksp, run) => agentGeneration(ctx()).approve(run, wksp, 'Approved this exact quote in chat', 'genio', 'card'),
-    chatHistory: (wksp, limit) => ctx().home(wksp).wksp.history(limit),
-    sendChat: (wksp, text, images, context) => { refuseShellText(text); return sendPlayerChat(ctx(), wksp, text, images, context) },
-    unqueueChat: async (wksp, id) => ctx().home(wksp).wksp.unqueue(id),
-    steerChat: (wksp, text, images, context) => { refuseShellText(text); return ctx().home(wksp).wksp.steer(text, images, context) },
-    sendQueuedNow: async (wksp, id) => ctx().home(wksp).wksp.sendNow(id),
+    // A conversation id addresses one of the base's design chats; without one, the project chat.
+    chatHistory: async (wksp, limit, conversation) => conversation ? design(wksp).history(conversation, limit) : ctx().home(wksp).wksp.history(limit),
+    sendChat: (wksp, text, images, context, conversation) => {
+      refuseShellText(text)
+      return conversation ? design(wksp).send(conversation, text, images, context) : sendPlayerChat(ctx(), wksp, text, images, context)
+    },
+    unqueueChat: async (wksp, id, conversation) => conversation ? design(wksp).unqueue(conversation, id) : ctx().home(wksp).wksp.unqueue(id),
+    steerChat: (wksp, text, images, context, conversation) => {
+      refuseShellText(text)
+      return conversation ? design(wksp).steer(conversation, text, images, context) : ctx().home(wksp).wksp.steer(text, images, context)
+    },
+    sendQueuedNow: async (wksp, id, conversation) => conversation ? design(wksp).sendNow(conversation, id) : ctx().home(wksp).wksp.sendNow(id),
     reactToMessage: (wksp, id, kind) => ctx().home(wksp).reactions.react(id, kind),
-    interruptWksp: (wksp) => ctx().home(wksp).wksp.interrupt(),
-    restartWksp: (wksp, fresh, role) => ctx().home(wksp).wksp.restart(fresh, role),
+    interruptWksp: (wksp, conversation) => conversation ? design(wksp).interrupt(conversation) : ctx().home(wksp).wksp.interrupt(),
+    restartWksp: (wksp, fresh, role, conversation) => conversation ? design(wksp).restart(conversation, fresh) : ctx().home(wksp).wksp.restart(fresh, role),
+    designChats: async (wksp) => design(wksp).list(),
+    designChatCreate: async (wksp, controls) => design(wksp).create(controls),
+    designChatDelete: (wksp, conversation) => design(wksp).remove(conversation),
+    designChatConfigure: async (wksp, conversation, controls) => design(wksp).configure(conversation, controls),
     resolvePermission: (id, allow) => ctx().permissions.resolve(id, allow),
     recap: () => ctx().main.wksp.send('/recap', 'player'),
     save: () => ctx().main.wksp.send('/save', 'player'),
@@ -455,7 +472,8 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
         if (windows && method === 'windowList') return { ...(await h.windowList()), windows: windows.list(_e.sender.id) }
         if (windows && method === 'windowClose') return windows.close(_e.sender.id)
         const binding = windows?.binding(_e.sender.id)
-        if (windows && !binding && ['sendChat', 'steerChat', 'sendQueuedNow', 'recap', 'save', 'restartWksp', 'interruptWksp', 'unqueueChat', 'reactToMessage', 'approveGeneration'].includes(method)) throw new Error('Open a project window to use its chat.')
+        if (windows && !binding && ['sendChat', 'steerChat', 'sendQueuedNow', 'recap', 'save', 'restartWksp', 'interruptWksp', 'unqueueChat', 'reactToMessage', 'approveGeneration',
+          'designChats', 'designChatCreate', 'designChatDelete', 'designChatConfigure'].includes(method)) throw new Error('Open a project window to use its chat.')
         if (method.startsWith('playPool') || method === 'playCloseSlotEditor' || method.startsWith('playerCopy')) assertProjectWindow(binding, args[0])
         if (method.startsWith('playerInstance') || method === 'playerSources' || method === 'playerSourceAvailable') assertProjectWindow(binding, args[0])
         if (windows && method.startsWith('artBible') && (!binding || args[0] !== binding.project)) throw new Error('The Art Bible belongs to its project window.')
@@ -566,7 +584,8 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
           if (method === 'backlogAdd') return ctx().home(binding.wksp).backlog.add({ ...(args[0] as Parameters<GenioApi['backlogAdd']>[0]), project: binding.project })
           if (method === 'wakes') return ctx().home(binding.wksp).wakes.recent(args[0] as number)
           // Chat history, sends and controls cannot switch this window to another base.
-          if (['chatHistory', 'sendChat', 'steerChat', 'sendQueuedNow', 'interruptWksp', 'restartWksp', 'unqueueChat', 'reactToMessage', 'approveGeneration', 'allyUpdate'].includes(method) && args[0] !== binding.wksp) {
+          if (['chatHistory', 'sendChat', 'steerChat', 'sendQueuedNow', 'interruptWksp', 'restartWksp', 'unqueueChat', 'reactToMessage', 'approveGeneration', 'allyUpdate',
+            'designChats', 'designChatCreate', 'designChatDelete', 'designChatConfigure'].includes(method) && args[0] !== binding.wksp) {
             throw new Error('This window is bound to its project chat.')
           }
         }

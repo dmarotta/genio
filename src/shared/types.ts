@@ -607,6 +607,25 @@ export interface WkspInfo {
   lastError?: string
 }
 
+/** One design chat of a project (src/main/design-chats.ts): a thinking partner that starts no work and spends nothing. */
+export interface DesignChatInfo {
+  id: string
+  /** from the player's first message; empty until then */
+  title: string
+  createdAt: string
+  /** this chat's own model and effort; empty follows the project chat's */
+  model: string
+  effort: string
+  activity: WkspActivity
+  queued: number
+  /** a turn is running and a player message can steer it */
+  steerable?: boolean
+  limit?: WkspInfo['limit']
+  lastError?: string
+  costUsd: number
+  turns: number
+}
+
 /** An Ally (companion ally): an allied Genio with its own base and charter. */
 export interface Ally {
   name: string
@@ -1066,6 +1085,10 @@ export type GenioEvent =
   | { type: 'wksp'; wksp: WkspInfo }
   | { type: 'chat'; message: ChatMessage }
   | { type: 'chat-delta'; wksp: string; id: string; text: string }
+  /** A project's design chats (list and state); their messages never mix with the project chat's. */
+  | { type: 'design-chats'; wksp: string; chats: DesignChatInfo[] }
+  | { type: 'design-chat'; wksp: string; conversation: string; message: ChatMessage }
+  | { type: 'design-chat-delta'; wksp: string; conversation: string; id: string; text: string }
   | { type: 'status'; event: StatusEvent }
   | { type: 'wake'; wake: Wake }
   | { type: 'away'; away: AwayState }

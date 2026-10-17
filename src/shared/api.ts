@@ -8,7 +8,7 @@ import type {
   AwayMode, AwayState, BacklogItem, StatusReport, ChatMessage, DeliveryMode, Engine, FleetSnapshot,
   GenioEvent, LedgerRecord, Priority, Project, ProjectCommands, Ally, Settings, Task, TaskKind,
   TerminalInfo, ToolStatus, UpdateInfo, Wake, Forge, Decision, InboxNote, ProjectMode, Loadout, LoadoutInput, TaskCategory, Verdict, PlaystyleId,
-  ReactionKind
+  ReactionKind, DesignChatInfo
 } from './types'
 import type { DispatchScoresView } from './dispatch'
 import type { PaneCwd } from './terminal-pane'
@@ -587,20 +587,29 @@ export interface GenioApi {
   uthanaWorldConfig(world: string | null, config: UthanaWorldConfig): Promise<UthanaWorldState>
 
   // ---- bridge (chat with Genio / second units)
+  // The chat calls take an optional design chat id (`conversation`): absent, they address the project chat.
   approveGeneration(wksp: string, run: string): Promise<import('./generation').GenerationCard>
-  chatHistory(wksp: string, limit?: number): Promise<ChatMessage[]>
+  chatHistory(wksp: string, limit?: number, conversation?: string): Promise<ChatMessage[]>
   /** images go to the session as image blocks; text may be empty when images are attached */
-  sendChat(wksp: string, text: string, images?: ChatImageInput[], context?: InventoryContext): Promise<void>
+  sendChat(wksp: string, text: string, images?: ChatImageInput[], context?: InventoryContext, conversation?: string): Promise<void>
   /** take back a queued (or unsent) message for edit/cancel; null when the session already picked it up */
-  unqueueChat(wksp: string, id: string): Promise<UnqueuedChat | null>
+  unqueueChat(wksp: string, id: string, conversation?: string): Promise<UnqueuedChat | null>
   /** send a message that steers: the turn in progress ends at a safe point and this one is read first */
-  steerChat(wksp: string, text: string, images?: ChatImageInput[], context?: InventoryContext): Promise<void>
+  steerChat(wksp: string, text: string, images?: ChatImageInput[], context?: InventoryContext, conversation?: string): Promise<void>
   /** a queued message steers now; the result says what it waits for, or why it cannot */
-  sendQueuedNow(wksp: string, id: string): Promise<SendNowResult>
+  sendQueuedNow(wksp: string, id: string, conversation?: string): Promise<SendNowResult>
   /** like/dislike a Genio message (null removes it); a dislike pauses what that message started after a short grace period */
   reactToMessage(wksp: string, id: string, kind: ReactionKind | null): Promise<ChatMessage>
-  interruptWksp(wksp: string): Promise<void>
-  restartWksp(wksp: string, fresh: boolean, role?: 'genio' | 'bot'): Promise<void>
+  interruptWksp(wksp: string, conversation?: string): Promise<void>
+  restartWksp(wksp: string, fresh: boolean, role?: 'genio' | 'bot', conversation?: string): Promise<void>
+  /** the project's design chats (thinking partners that start no work) */
+  designChats(wksp: string): Promise<DesignChatInfo[]>
+  /** a new design chat; model and effort default to the project chat's */
+  designChatCreate(wksp: string, controls?: { model?: string; effort?: string }): Promise<DesignChatInfo>
+  /** stops a design chat and deletes its transcript */
+  designChatDelete(wksp: string, conversation: string): Promise<void>
+  /** a design chat's own model and effort ('' follows the project chat) */
+  designChatConfigure(wksp: string, conversation: string, controls: { model?: string; effort?: string }): Promise<DesignChatInfo>
   resolvePermission(id: string, allow: boolean): Promise<void>
   recap(): Promise<void>
   save(): Promise<void>
@@ -781,6 +790,10 @@ export const API_METHODS = [
   'reactToMessage',
   'interruptWksp',
   'restartWksp',
+  'designChats',
+  'designChatCreate',
+  'designChatDelete',
+  'designChatConfigure',
   'resolvePermission',
   'recap',
   'save',

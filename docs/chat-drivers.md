@@ -18,6 +18,8 @@ Provider/session/model tags accompany messages in the same visible log. A provid
 
 Dynamic call IDs are deduplicated within each turn. Requests from old turns are rejected, including during thread resume. Interruption revokes the bridge before waiting for the runtime, persists partial output, and never requeues the cancelled turn. A lost turn/start reply has an unknown outcome and is not replayed. A login/limit/connection failure pauses work, preserves pending messages, exposes an Accounts action, and requires deliberate restart. Known unavailable routes reject new sends before clearing the draft. There is no automatic provider or API-credit fallback. Cancelled or failed service actions already in progress cannot be undone by disconnecting.
 
+Design chats ([design chats](design-chats.md)) run their own `ProviderChatSession` each, with their own model, effort, transcript and handoff; Claude gets the design prompt as a custom system prompt and Codex as its base instructions.
+
 The AFK Bot inherits the main chat's provider/model. Both its Claude MCP connection and Codex dynamic tools use the bridge's read-only Bot registry. The stored `botModel` field and legacy `sessionConfig('bot')` helper remain compatible with old data/callers but do not select the active Bot runtime.
 
 `usage.ts` records Codex chat token totals separately from cash, computes deltas with its existing session parser, deduplicates native logs for those chat IDs, and records account plan windows. Successful Codex turns contribute zero cash cost. The first provider switch and first successful Codex chat turn have feature-tagged achievements.

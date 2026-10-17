@@ -4,16 +4,21 @@ import type { Socket } from 'node:net'
 import path from 'node:path'
 import type { AppCtx } from './services'
 import { createChatToolSession, type ChatToolBinding } from './chat-tool-session'
+import type { CodexBridge } from './codex-chat-driver'
 
 const MAX_BODY = 1024 * 1024
-interface LiveBridge { bot: boolean; close(): Promise<void> }
+interface LiveBridge { bot: boolean; conversation?: string; close(): Promise<void> }
 const sessions = new WeakMap<AppCtx, Map<string, Set<LiveBridge>>>()
 export interface BridgeAudit { event: 'started' | 'closed' | 'rejected' | 'call'; tool?: string }
 
-/** Called on chat stop/restart, including ally retirement and app shutdown. */
-export async function closeChatToolBridges(ctx: AppCtx, chat: string, role?: 'genio' | 'bot'): Promise<void> {
+/**
+ * Called on chat stop/restart, including ally retirement and app shutdown. 'genio' is the project chat only,
+ * { conversation } one design chat; no role closes every bridge of the base.
+ */
+export async function closeChatToolBridges(ctx: AppCtx, chat: string, role?: 'genio' | 'bot' | { conversation: string }): Promise<void> {
   await Promise.all([...sessions.get(ctx)?.get(chat) ?? []]
-    .filter(b => role === undefined || b.bot === (role === 'bot')).map(b => b.close()))
+    .filter(b => role === undefined || (typeof role === 'object' ? b.conversation === role.conversation : !b.conversation && b.bot === (role === 'bot')))
+    .map(b => b.close()))
 }
 
 /** Creates one authenticated capability per runtime session. The endpoint and
@@ -95,7 +100,7 @@ export async function openChatToolBridge(getCtx: () => AppCtx, binding: ChatTool
   if (!chats) sessions.set(ctx, chats = new Map())
   let closers = chats.get(binding.home.name)
   if (!closers) chats.set(binding.home.name, closers = new Set())
-  const live = { bot: binding.role === 'bot', close }
+  const live = { bot: binding.role === 'bot', conversation: binding.hooks?.conversation, close }
   const onAbort = () => { void close() }
   function close(): Promise<void> {
     if (closing) return closing
@@ -129,4 +134,22 @@ export async function openChatToolBridge(getCtx: () => AppCtx, binding: ChatTool
     entry: path.join(ctx.appRoot, 'resources', 'genio-chat-mcp.mjs'),
     close
   }
+}
+
+/** The Codex chat driver's side of a bridge: list and call over the authenticated endpoint. A failed request is never retried. */
+export async function openCodexBridge(getCtx: () => AppCtx, binding: ChatToolBinding): Promise<CodexBridge> {
+  const { signal } = binding
+  const bridge = await openChatToolBridge(getCtx, binding)
+  let id = 0
+  const request = async (method: string, params?: unknown) => {
+    const response = await fetch(bridge.env.GENIO_BRIDGE_URL, { method: 'POST', signal,
+      headers: { Authorization: `Bearer ${bridge.env.GENIO_BRIDGE_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: ++id, method, params }) })
+    if (!response.ok) throw new Error('Genio bridge unavailable; request was not retried')
+    const reply = await response.json()
+    if (reply.error) throw new Error('Genio bridge request failed')
+    return reply.result
+  }
+  return { list: async () => (await request('tools/list')).tools,
+    call: (tool, args) => request('tools/call', { name: tool, arguments: args }), close: bridge.close }
 }

@@ -43,7 +43,7 @@ export interface EventRouterOptions {
 
 export function createEventRouter(opts: EventRouterOptions): EventRouter {
   const terminalOwners = new Map<string, string | undefined>()
-  const deltas = new Map<string, { wksp: string; id: string; text: string }>()
+  const deltas = new Map<string, Extract<GenioEvent, { type: 'chat-delta' | 'design-chat-delta' }>>()
   let deltaTimer: NodeJS.Timeout | undefined
   let batch: { id: string; data: string; at: string }[] = []
   let terminalTimer: NodeJS.Timeout | undefined
@@ -73,9 +73,8 @@ export function createEventRouter(opts: EventRouterOptions): EventRouter {
     const pending = [...deltas.values()]
     deltas.clear()
     const windows = live().filter((w) => w.binding)
-    for (const d of pending) {
-      const ev: GenioEvent = { type: 'chat-delta', wksp: d.wksp, id: d.id, text: d.text }
-      for (const win of windows) if (win.binding!.wksp === d.wksp) win.send(EVENT_CHANNEL, ev)
+    for (const ev of pending) {
+      for (const win of windows) if (win.binding!.wksp === ev.wksp) win.send(EVENT_CHANNEL, ev)
     }
   }
 
@@ -104,11 +103,11 @@ export function createEventRouter(opts: EventRouterOptions): EventRouter {
 
   return {
     publish(ev) {
-      if (ev.type === 'chat-delta') {
-        const key = `${ev.wksp}\u0000${ev.id}`
+      if (ev.type === 'chat-delta' || ev.type === 'design-chat-delta') {
+        const key = `${ev.wksp}\u0000${ev.type === 'design-chat-delta' ? ev.conversation : ''}\u0000${ev.id}`
         const cur = deltas.get(key)
         if (cur) cur.text += ev.text
-        else deltas.set(key, { wksp: ev.wksp, id: ev.id, text: ev.text })
+        else deltas.set(key, { ...ev })
         if (!deltaTimer) {
           deltaTimer = setTimeout(flushDeltas, DELTA_FLUSH_MS)
           deltaTimer.unref?.()

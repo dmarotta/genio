@@ -24,6 +24,10 @@ const BOT_READS = new Set(['play_status', 'play_console', 'play_stats', 'play_fr
   'terminal_tail', 'quest_list', 'plan_status', 'choice_list', 'world_list', 'world_posture', 'status_report', 'memory_read',
   'memory_report', 'mail_list', 'dispatch_profiles', 'loadout_preview', 'toolchain_check', 'ally_list', 'escalate',
   'procedure_read', 'skill_read', 'genio_help', 'settings_read', 'event_read', 'events_ack'])
+/** A design chat thinks with the player and starts no work: reads, references and free Codex images on the
+ * player's ChatGPT plan. Never deploy, merge, quests, plans, choices, events, settings, memory writes or paid tools. */
+export const DESIGN_TOOLS = new Set(['art_bible', 'assets_find', 'asset_info', 'memory_read', 'world_list', 'quest_list',
+  'plan_status', 'genio_help', 'generate_image', 'generation_status'])
 // These services aggregate across worlds or create new authority. Until they
 // offer scoped APIs, limited-world connections cannot call them at all.
 const GLOBAL_ONLY = new Set(['status_report', 'dispatch_profiles', 'world_add', 'world_create',
@@ -59,7 +63,7 @@ export function createChatToolSession(getCtx: () => AppCtx, binding: ChatToolBin
     if (!quest || (worlds && !within(quest.project))) throw new Error('Quest is outside this connection scope')
   }
   const tools = createToolRegistry(getCtx, home, role, binding.hooks).filter(t =>
-    (role !== 'bot' || BOT_READS.has(t.name)) && (!worlds || !GLOBAL_ONLY.has(t.name)))
+    (role !== 'bot' || BOT_READS.has(t.name)) && (role !== 'design' || DESIGN_TOOLS.has(t.name)) && (!worlds || !GLOBAL_ONLY.has(t.name)))
   const byName = new Map(tools.map(t => [t.name, t]))
   const registered = new Set(byName.keys())
   const pages = new ToolPages()
@@ -77,6 +81,10 @@ export function createChatToolSession(getCtx: () => AppCtx, binding: ChatToolBin
         const validated = z.strictObject(tool.shape).parse(input)
         const args = (tool.shape.world ? normalizeProjectArgs(validated, { world: tool.shape.world }) : validated) as Record<string, unknown>
         if (role === 'bot' && name === 'status_report' && args.file) return fail('Bot reports are read-only')
+        if (role === 'design' && name === 'art_bible' && args.action !== 'read') return fail('A design chat only reads the Art Bible; the player asks Genio to change it')
+        if (role === 'design' && name === 'generate_image' && (args.world !== undefined || args.place !== undefined)) {
+          return fail('Design chat images stay in this chat; the player asks Genio to put one in the project')
+        }
         if (args.world !== undefined) checkWorld(args.world)
         if (worlds && name === 'generate_image' && Array.isArray(args.refs) && args.refs.some(ref => typeof ref === 'string' && path.isAbsolute(ref))) {
           throw new Error('Scoped image references must be attachments in this chat')

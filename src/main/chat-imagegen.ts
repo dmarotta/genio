@@ -150,6 +150,8 @@ export interface ChatImageGen {
   /** upsert a message in this chat; persist=false for the transient placeholder */
   post(m: ChatMessage, persist: boolean): void
   run: CodexImageRun
+  /** a design chat's run: no generating count in the project chat */
+  quiet?: boolean
 }
 
 /** The generate_image wiring for one base: the installed helper (refreshed from the app) and Genio's data scratch. */
@@ -182,11 +184,11 @@ export async function generateChatImages(gen: ChatImageGen, a: GenerateImageArgs
   const id = `g-${rid(6)}`
   const base: ChatMessage = { id, wksp: gen.wksp, role: 'genio', text: '', ts: nowIso() }
   gen.post({ ...base, text: `Generating ${count === 1 ? 'image' : plural(count, 'image')}… (about a minute on your ChatGPT plan)`, generating: count }, false)
-  bus.publish({ type: 'generation', wksp: gen.wksp, id, active: true })
+  if (!gen.quiet) bus.publish({ type: 'generation', wksp: gen.wksp, id, active: true })
   const failed = (msg: string): CallToolResult => {
     const why = friendlyError(msg)
     gen.post({ ...base, role: 'error', text: `Image generation failed: ${why}` }, true)
-    bus.publish({ type: 'generation', wksp: gen.wksp, id, active: false })
+    if (!gen.quiet) bus.publish({ type: 'generation', wksp: gen.wksp, id, active: false })
     return fail(`generate_image failed: ${why}`)
   }
 
@@ -225,7 +227,7 @@ export async function generateChatImages(gen: ChatImageGen, a: GenerateImageArgs
     warn ? `⚠ Your ChatGPT plan meter is at ${used}%: images share that allowance with your Codex units.` : result.warning ? `⚠ ${result.warning}` : ''
   ]
   gen.post({ ...base, text: lines.filter(Boolean).join('\n\n'), images: made.map((m) => m.ref) }, true)
-  bus.publish({ type: 'generation', wksp: gen.wksp, id, active: false })
+  if (!gen.quiet) bus.publish({ type: 'generation', wksp: gen.wksp, id, active: false })
   bus.publish({ type: 'feature-used', feature: 'chat-image', id: base.id, count: made.length })
 
   const summary = {

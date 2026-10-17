@@ -7,8 +7,9 @@ import { createToolRegistry, type ToolHooks, type ToolRole } from './wksp-tools'
 
 type ToolFn = typeof import('@anthropic-ai/claude-agent-sdk').tool
 export function buildTools(tool: ToolFn, getCtx: () => AppCtx, home: Home, role: ToolRole, hooks: ToolHooks = {}, worlds?: readonly string[]): SdkMcpToolDefinition<any>[] {
-  const scoped = worlds ? createChatToolSession(getCtx, {
-    home, role: 'ally', worlds,
+  // A design chat always goes through its scoped list, whichever base it runs in.
+  const scoped = worlds || role === 'design' ? createChatToolSession(getCtx, {
+    home, role: role === 'design' ? 'design' : 'ally', worlds: worlds ?? '*',
     signal: new AbortController().signal, hooks
   }) : undefined
   const names = scoped && new Set(scoped.list().map(t => t.name))

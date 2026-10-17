@@ -51,7 +51,8 @@ import { choiceGroup, choiceRevision, recommendationAnswer, type RecommendationR
 import type { PlanStepInput, PlanUpdateOp } from './plans'
 import { clipSummary, SUMMARY_CHARS } from '@shared/unit-brief'
 
-export type ToolRole = 'genio' | 'ally' | 'bot'
+/** design: a design chat, which reads and talks but starts no work (DESIGN_TOOLS in chat-tool-session.ts) */
+export type ToolRole = 'genio' | 'ally' | 'bot' | 'design'
 
 export interface AppTool {
   name: string
@@ -65,6 +66,8 @@ export interface ToolHooks {
   escalate?: (text: string, severity: 'info' | 'decision' | 'failure' | 'ready') => void
   /** Visible chat only: what this turn started, recorded on its messages so a reaction covers exactly that */
   action?: (kind: keyof MessageActions, id: string) => void
+  /** Design chats only: the conversation an image card posts into, instead of the project chat */
+  conversation?: string
 }
 
 /** A unit or quest held by the player's dislike waits for their answer to the choice it opened. */
@@ -1125,7 +1128,7 @@ export function createToolRegistry(
     t('generation_status', 'Inspect a background generation and its saved paths or error. Never resubmit uncertain jobs.', { run: z.string() }, a => ok(json(agentGeneration(getCtx()).status(a.run, home.name))))
     t('generate_image', GENERATE_IMAGE_DESC, generateImageShape, async (a) => {
       if (a.world) asked('Placing a generated image', a.player_words)
-      return ok(json(await agentGeneration(getCtx()).image(home.name, a, role)))
+      return ok(json(await agentGeneration(getCtx()).image(home.name, a, role, hooks.conversation)))
     })
     t('art_bible', ART_BIBLE_DESC, {
       world: z.string(), action: z.enum(['read', 'write']).default('read'), text: z.string().max(64 * 1024).optional(), player_words: z.string().trim().min(1).optional()

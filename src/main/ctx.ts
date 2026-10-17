@@ -15,6 +15,7 @@
  *   supervisor.ts   createSupervisor(getCtx, home)
  *   wksp.ts         createWkspService(getCtx, home, ally?)
  *   reactions.ts    createReactionService(getCtx, home)
+ *   design-chats.ts createDesignChatService(getCtx, home, ally?, isOpen?)
  *   plans.ts        createPlanService(getCtx, home)
  *   away.ts         createAwayService(getCtx)
  *   notifier.ts     createNotifierService(getCtx)
@@ -51,6 +52,7 @@ import { createWakeService } from './wakes'
 import { createSupervisor } from './supervisor'
 import { createWkspService } from './wksp'
 import { createReactionService } from './reactions'
+import { createDesignChatService } from './design-chats'
 import { createAwayService } from './away'
 import { createNotifierService } from './notifier'
 import { createInboxService } from './inbox'
@@ -115,7 +117,9 @@ export function makeHomeCtx(home: Home, ally?: Ally): HomeCtx {
     supervisor: createSupervisor(getCtx, home),
     wksp: createWkspService(getCtx, home, ally, home.isMain, () => !!ally?.projects.some(p => openProjects.get(getCtx())?.has(p))),
     reactions: createReactionService(getCtx, home),
-    plans: createPlanService(getCtx, home)
+    plans: createPlanService(getCtx, home),
+    // The main base is the archived chat; design chats belong to project bases.
+    ...(home.isMain ? {} : { design: createDesignChatService(getCtx, home, ally, () => !!ally?.projects.some(p => openProjects.get(getCtx())?.has(p))) })
   }
   // Guard service calls as well as buttons: chat tools and queued quests also spawn units.
   const spawn = hc.crew.spawn
@@ -173,6 +177,7 @@ export async function stopProjectBase(ctx: AppCtx, project: string, wksp: string
   const home = ctx.home(wksp)
   home.supervisor.stop()
   await home.wksp.stop()
+  await home.design?.stop()
   await projectStarts.get(ctx)?.get(project)?.catch(() => undefined)
   projectStarts.get(ctx)?.delete(project)
   // A spawn may be preparing its worktree and not have a terminal yet.
@@ -331,5 +336,6 @@ export async function stopApp(ctx: AppCtx): Promise<void> {
     // a dislike still in its grace period is paused on the next project open
     h.reactions?.stop()
     await h.wksp.stop().catch(() => undefined)
+    await h.design?.stop().catch(() => undefined)
   }
 }

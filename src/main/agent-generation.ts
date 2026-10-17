@@ -8,6 +8,7 @@ import { estimateRun } from '@shared/fal'
 import { schemaDefaults, validateValues, type JsonSchema } from '@shared/fal-schema'
 import { estimateUthana, textParamErrors, textParamsFor, UTHANA_BUILTINS, type UthanaGenerateRequest, type UthanaUploadRequest, type UthanaFormat } from '@shared/uthana'
 import type { ChatImage } from '@shared/chat-images'
+import type { ChatMessage } from '@shared/types'
 import type { AppCtx } from './services'
 import { bus } from './bus'
 import { locateAsset } from './asset-tools'
@@ -29,6 +30,8 @@ export const assetPlaceShape = { ...requestShape, run: z.string(), output: z.num
 type Placement = { world: string; player_words: string; place?: string; name?: string }
 interface Job extends GenerationCard {
   wksp: string; ts: string; playerWords: string; target?: string; providerRun?: string; kind?: 'character'
+  /** a design chat's image: its card posts into that conversation, never the project chat */
+  conversation?: string
   request?: FalRunRequest | UthanaGenerateRequest | UthanaUploadRequest
   format?: UthanaFormat; images?: ChatImage[]; prompt?: string; refs?: string[]
   sourceHashes?: Record<string, string>
@@ -69,7 +72,9 @@ export class AgentGeneration {
   private post(j: Job): void {
     this.save()
     const text = `${j.model}: ${j.status}${j.paths.length ? '\n' + j.paths.join('\n') : ''}${j.error ? '\n' + j.error : ''}`
-    this.ctx.home(j.wksp).wksp.post({ id: j.id, wksp: j.wksp, role: 'genio', ts: j.ts, text, generation: this.card(j), images: j.images }, true)
+    const m: ChatMessage = { id: j.id, wksp: j.wksp, role: 'genio', ts: j.ts, text, generation: this.card(j), images: j.images }
+    if (j.conversation) { this.ctx.home(j.wksp).design?.post(j.conversation, m); return }
+    this.ctx.home(j.wksp).wksp.post(m, true)
     bus.publish({ type: 'generation', wksp: j.wksp, id: j.id, active: j.status === 'running' || j.status === 'placing' })
   }
   private card(j: Job): GenerationCard {
@@ -293,8 +298,9 @@ export class AgentGeneration {
     await this.ctx.inventory.refresh(a.world)
     return result
   }
-  async image(wksp: string, a: GenerateImageArgs, role = 'genio'): Promise<GenerationCard> {
+  async image(wksp: string, a: GenerateImageArgs, role = 'genio', conversation?: string): Promise<GenerationCard> {
     if (role === 'bot') throw new Error('Bot cannot generate images')
+    if (role === 'design' && (a.world || a.place || !conversation)) throw new Error('Design chat images stay in their chat')
     if (a.place && !a.world) throw new Error('A placement requires a project')
     let target: string | undefined
     let root: string | undefined
@@ -308,12 +314,14 @@ export class AgentGeneration {
       if (path.extname(target).toLowerCase() !== '.png') throw new Error('Codex outputs PNG; choose a .png placement')
     }
     const gen = chatImageGen(this.ctx, this.ctx.home(wksp).home)
+    if (conversation) gen.quiet = true
     const own = resolveRefs(gen.chatDir, a.refs)
     // Project images follow its Art Bible: style text after the prompt, the type's references attached.
     const bible = root && a.art_bible !== false ? bibleForCodex(root, { prompt: a.prompt, type: a.asset_type, refs: own, room: MAX_REFS - own.length }) : undefined
     const sent: GenerateImageArgs = bible ? { ...a, prompt: bible.value.prompt, refs: bible.value.refs } : a
     const refs = bible?.value.refs ?? own
     const j = this.create(wksp, { world: a.world ?? '', player_words: a.player_words ?? '' }, 'codex', 'image_gen', 0, target)
+    if (conversation) j.conversation = conversation
     j.prompt = sent.prompt; j.refs = refs; j.artBible = bible?.card; j.artBibleStamp = bible?.stamp; this.post(j)
     gen.post = (m) => {
       if (m.images) {

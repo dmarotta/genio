@@ -525,6 +525,8 @@ export interface HomeCtx {
   wksp: WkspService
   reactions: ReactionService
   plans: PlanService
+  /** the project's design chats (design-chats.ts); project bases only */
+  design?: import('./design-chats').DesignChatService
 }
 
 export interface AppCtx {

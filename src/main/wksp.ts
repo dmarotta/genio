@@ -39,7 +39,7 @@ import { createChatThread, type ShownMessage } from './chat-thread'
 import { noteStandingWords } from './standing-approvals'
 import type { Home } from './home'
 import { buildTools, type ToolHooks, type ToolRole } from './wksp-tools'
-import { openChatToolBridge, closeChatToolBridges } from './chat-tool-bridge'
+import { openChatToolBridge, openCodexBridge, closeChatToolBridges } from './chat-tool-bridge'
 import { formatNotification } from './notify-format'
 import {
   HELP_TEXT, afkPrompt, customContract, eventsPrompt, recapPrompt, returnPrompt, savePrompt, sessionStartPrompt,
@@ -257,22 +257,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
       config: () => ({ model: config().model!, effort: config().effort }),
       instructions: () => customContract({ gamertag: gamertag(), base: name, isAlly: !home.isMain }, role === 'bot',
         `${chatUsageLine(globalMode(settings()))}\nUse only genio_ tools. Native shell, edits, agents and plugins are unavailable. Never replay completed mutations from a handoff.`),
-      async bridge(signal) {
-        const bridge = await openChatToolBridge(getCtx, { home, role: role === 'bot' ? 'bot' : home.isMain ? 'genio' : 'ally',
-          worlds: home.isMain ? '*' : liveAlly()?.projects ?? [], signal, hooks: toolHooks(role) })
-        let id = 0
-        const request = async (method: string, params?: unknown) => {
-          const response = await fetch(bridge.env.GENIO_BRIDGE_URL, { method: 'POST', signal,
-            headers: { Authorization: `Bearer ${bridge.env.GENIO_BRIDGE_TOKEN}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ jsonrpc: '2.0', id: ++id, method, params }) })
-          if (!response.ok) throw new Error('Genio bridge unavailable; request was not retried')
-          const reply = await response.json()
-          if (reply.error) throw new Error('Genio bridge request failed')
-          return reply.result
-        }
-        return { list: async () => (await request('tools/list')).tools,
-          call: (tool, args) => request('tools/call', { name: tool, arguments: args }), close: bridge.close }
-      },
+      bridge: signal => openCodexBridge(getCtx, { home, role: role === 'bot' ? 'bot' : home.isMain ? 'genio' : 'ally',
+        worlds: home.isMain ? '*' : liveAlly()?.projects ?? [], signal, hooks: toolHooks(role) }),
       approvalMode: () => chatControls(settings(), liveAlly()).shellMode,
       approve: text => getCtx().permissions.ask({ wksp: name, tool: 'Codex', input: text }),
       usage: (thread, usage) => recordCodexChatUsage(getCtx().main.home.data, home.root, thread, usage),
