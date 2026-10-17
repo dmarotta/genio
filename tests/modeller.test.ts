@@ -57,6 +57,32 @@ describe('Modeller kernel with a fake Blender', { timeout: 60000 }, () => {
     expect(again).toMatchObject({ existing: true, blender: '4.2.1', checks: { budget: 8000, size: [4, 4, 10] } })
     await expect(kernel.init({ dataDir: path.join(src, 'data'), model: 'tower', blender: { path: process.execPath, version: '4.2.1' }, cwd: src })).rejects.toThrow(/outside the project/)
     await expect(kernel.init({ dataDir, model: '../escape', cwd: src })).rejects.toThrow(/Model name/)
+    // a declared symmetry axis for the text review; none clears it
+    expect(await kernel.init({ dataDir, model: 'tower', symmetry: 'x', cwd: src })).toMatchObject({ checks: { budget: 8000, symmetry: 'x' } })
+    expect(await kernel.init({ dataDir, model: 'tower', symmetry: 'none', cwd: src })).toMatchObject({ checks: { symmetry: null } })
+    await expect(kernel.init({ dataDir, model: 'tower', symmetry: 'z' as 'x', cwd: src })).rejects.toThrow(/symmetry is x/)
+  })
+
+  it('returns the text review and hands it the parts of the step before', async () => {
+    await fakeModel()
+    const receipt = (s: StepDone) => JSON.parse(fs.readFileSync(s.receipt, 'utf8'))
+    const first = done(await step(script('s01_top.py', 'Top', '# part: Top', '# review: Changes: 1 added (Top)')))
+    expect(first.review).toEqual(['Changes: 1 added (Top)'])
+    // no parent: every part is new
+    expect(receipt(first).previous).toEqual([])
+    const lamp = done(await step(script('s02_lamp.py', 'Lamp', '# part: Lamp', '# review: Changes: 1 added (Lamp)', '# review: Floating: Lamp (0.32 m from Top)')))
+    expect(lamp.review).toEqual(['Changes: 1 added (Lamp)', 'Floating: Lamp (0.32 m from Top)'])
+    expect(receipt(lamp)).toMatchObject({ review: lamp.review, previous: [{ name: 'Top', triangles: 12 }] })
+    // a batch: its first step compares with the head, later ones with the step before (inside Blender)
+    const b = await kernel.batch({ dataDir, model: 'tower', runner: fake, gapMs: 0, scripts: [
+      script('s03_a.py', 'A', '# part: A', '# review: Changes: 1 added (A)'), script('s04_b.py', 'B', '# part: B', '# review: Changes: 1 added (B)')
+    ] })
+    expect(b.steps.map((s) => s.review)).toEqual([['Changes: 1 added (A)'], ['Changes: 1 added (B)']])
+    const stored = (id: string) => JSON.parse(fs.readFileSync(path.join(dataDir, 'tower', 'steps', id, 'receipt.json'), 'utf8'))
+    expect(stored(b.steps[0].id).previous.map((x: { name: string }) => x.name)).toEqual(['Top', 'Lamp'])
+    // an amend compares with the replaced step's parent
+    done(await step(script('s05_c.py', 'C', '# part: C'), { amend: true }))
+    expect(stored(manifest().branches.main.head!).previous.map((x: { name: string }) => x.name)).toEqual(['Top', 'Lamp', 'A'])
   })
 
   it('runs a multi-step sequence: snapshots, GLBs, sheets, receipts and a manifest outside the worktree', async () => {
@@ -567,9 +593,17 @@ describe.skipIf(!blender)(`Modeller with Blender ${blender?.version.join('.') ??
     expect(glbTriangles(last.glb!)).toBe(2802)
     expect(pngSize(last.sheet!)).toEqual([1024, 1024])
     expect(last.bounds!.dimensions[2]).toBeGreaterThan(10)
-    // the review caught the roof posts poking through the roof, and the fix step cleared it
-    expect(steps[4].warnings.join('\n')).toMatch(/Roof post 1 \/ Roof/)
-    expect(last.warnings.join('\n')).not.toMatch(/Roof post/)
+    // the text review caught the roof posts poking through the roof, and the fix step cleared it
+    expect(steps[4].review.join('\n')).toMatch(/Deep overlap: Roof \/ Roof post 1 \(/)
+    expect(last.review.join('\n')).not.toMatch(/Roof post \d \(|Roof \/ Roof post/)
+    expect(last.review[0]).toBe('Changes: 7 changed (Ladder rail 1, Ladder rail 2, Ladder rungs, Roof post 1, Roof post 2, Roof post 3 and 1 more)')
+    // a few short lines on every step
+    for (const s of steps) {
+      expect(s.review.length).toBeLessThanOrEqual(5)
+      for (const l of s.review) expect(l.length).toBeLessThan(240)
+    }
+    // the pass-through pairs are the review's, never a warning as well
+    expect(steps.flatMap((s) => s.warnings).join('\n')).not.toMatch(/passing through/)
     const receipt = JSON.parse(fs.readFileSync(last.receipt, 'utf8'))
     expect(receipt).toMatchObject({ schema: 'genio.modeller-step.v1', id: 's007', caption: expect.stringMatching(/^Fixing review notes/), vertices: expect.any(Number), checks: { ground: { ok: true }, budget: { triangles: 2802 } } })
     expect(receipt.checks.pierces.length).toBeGreaterThan(0)
@@ -679,6 +713,9 @@ describe.skipIf(!blender)(`Modeller with Blender ${blender?.version.join('.') ??
   }, 300000)
 
   it('builds the watchtower as one batch in one Blender, the same as step by step', async () => {
+    await cmd('init', 'reference', '--target', 'unity')
+    const steps: StepDone[] = []
+    for (const file of fs.readdirSync(tower).sort()) steps.push(await cmd('step', 'reference', path.join(tower, file)))
     await cmd('init', 'batched', '--target', 'unity')
     const started = Date.now()
     const r = await cmd('batch', 'batched', tower)
@@ -688,7 +725,7 @@ describe.skipIf(!blender)(`Modeller with Blender ${blender?.version.join('.') ??
       ['s001', 'legs', false], ['s002', 'bracing', false], ['s003', 'deck', false], ['s004', 'railing', false], ['s005', 'roof', false], ['s006', 'ladder', false], ['s007', 'fix', true]
     ])
     expect(r.steps[6].triangles).toBe(2802)
-    expect(r.steps[4].warnings.join('\n')).toMatch(/Roof post 1 \/ Roof/)
+    expect(r.steps.map((s: { review: string[] }) => s.review)).toEqual(steps.map((s) => s.review))
     expect(pngSize(r.sheet)).toEqual([1024, 1024])
     for (const s of r.steps) expect(fs.existsSync(s.glb)).toBe(true)
     // one Blender start for seven steps, plus the 0.6 s landing gaps
@@ -795,6 +832,40 @@ describe.skipIf(!blender)(`Modeller with Blender ${blender?.version.join('.') ??
     const broken = await cmd('step', 'shed', write('s04_broken.py', '"""Broken"""', "crate('Crate 5', 3)"))
     expect(broken).toMatchObject({ ok: false, kind: 'error' })
     expect(broken.trace.slice(0, 2)).toEqual(["script.py:2: crate('Crate 5', 3)", 'lib.py:3: return p.box(name, 1)'])
+  }, 300000)
+
+  it('reviews each step in a few lines of text: changes, floating parts, deep overlaps, z-fighting and symmetry', async () => {
+    await cmd('init', 'table', '--target', 'web', '--symmetry', 'x')
+    const defects = path.join(fixtures, 'defects')
+    const steps: StepDone[] = []
+    for (const file of fs.readdirSync(defects).sort()) steps.push(await cmd('step', 'table', path.join(defects, file)))
+    const [clean, flawed, fixed, moved] = steps
+    // a clean model: what changed, and nothing else
+    expect(clean.review).toEqual(['Changes: 5 added (Leg back L, Leg back R, Leg front L, Leg front R, Top)'])
+    // one known defect of each kind, each named once, in a line of its own
+    expect(flawed.review).toEqual([
+      'Changes: 4 added (Block, Decal, Handle L, Lamp)',
+      'Floating: Lamp (0.32 m from Top)',
+      'Deep overlap: Block / Top (40 % of Block inside)',
+      'Z-fighting: Decal / Top (0.09 m² at 0, -0.2, 1)',
+      'Symmetry: Handle L has no Handle R; no mirror twin in x: Lamp'
+    ])
+    expect(flawed.review.join('\n').length).toBeLessThan(300)
+    // information only: the step landed, and nothing of the review is repeated as a warning
+    expect(flawed.ok).toBe(true)
+    expect(flawed.warnings.join('\n')).not.toMatch(/Lamp|Block|Handle/)
+    expect(fixed.review).toEqual(['Changes: 4 removed (Block, Decal, Handle L, Lamp)'])
+    expect(moved.review).toEqual(['Changes: 1 moved (Leg front L)', 'Symmetry: Leg front R is 0.05 m off the mirror of Leg front L'])
+    // the receipt keeps the review and each part's box for the next step's comparison
+    const receipt = JSON.parse(fs.readFileSync(flawed.receipt, 'utf8'))
+    expect(receipt.review).toEqual(flawed.review)
+    expect(receipt.parts.find((x: { name: string }) => x.name === 'Block').box).toEqual([[-0.1, 0.15, 0.92], [0.1, 0.35, 1.12]])
+
+    // the sheet labels the flagged parts (orange) beside the model; view.png, the live view's, stays clean
+    const orange = (c: number[]) => c[0] > 230 && c[1] > 115 && c[1] < 165 && c[2] > 70 && c[2] < 115
+    const sheet = pngPixels(flawed.sheet!)
+    expect(sheet.flat().filter(orange).length).toBeGreaterThan(400)
+    expect(pngPixels(flawed.sheet!.replace(/sheet\.png$/, 'view.png')).flat().filter(orange)).toEqual([])
   }, 300000)
 
   it('joins, drops, mirrors, rings and lofts parts', async () => {

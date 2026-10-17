@@ -165,7 +165,10 @@ describe('brief tools section', () => {
     expect(b).toContain('C:/genio/skills/genio/skills/blender/SKILL.md`, section "Modeller steps"')
     expect(b).toContain('`C:/genio/data/t-a1/modeller/`')
     expect(b).toMatch(/no MCP and no live Blender session/)
-    expect(b).toMatch(/open the review sheet PNG/)
+    // The text review comes first; the sheet only when the unit needs to see the model.
+    expect(b).toMatch(/After every step, read its text `review`.*Open the review sheet PNG it prints .* only when you need to see/)
+    expect(MODELLER_API_CARD).toMatch(/After each step read its `review` first.*Open the `sheet` only for shape, proportions and style/)
+    expect(b).toMatch(/`--symmetry x` for a model mirrored left to right/)
     expect(b).toMatch(/Fix what is wrong before adding anything new/)
     expect(b).toMatch(/never a gate/)
     expect(b).toMatch(/docstring caption/)
@@ -185,7 +188,7 @@ describe('brief tools section', () => {
     // The API card replaces reading the Python sources.
     expect(b).toContain(MODELLER_API_CARD)
     expect(b).toMatch(/never read `genio_step\.py`, `genio_parts\.py` or `modeller\.mjs`/)
-    expect(MODELLER_API_CARD.length).toBeLessThan(2600)
+    expect(MODELLER_API_CARD.length).toBeLessThan(2800)
     expect(renderBrief({ ...base, tools: unitToolsBrief(plugin) })).not.toContain('# Modeller')
   })
 

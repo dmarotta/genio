@@ -13,7 +13,7 @@ export interface StepEntry {
 }
 export interface Manifest {
   schema: 'genio.modeller.v1'; model: string; created: string; updated: string; blender: PinnedBlender
-  target: 'unity' | 'godot' | 'web' | null; checks: { budget: number | null; size: number[] | null }
+  target: 'unity' | 'godot' | 'web' | null; checks: { budget: number | null; size: number[] | null; symmetry?: 'x' | 'y' | null }
   branch: string; branches: Record<string, { head: string | null; from: string | null }>; next: number
   steps: StepEntry[]; failures: { id: string; name: string; kind: string; parent: string | null; branch: string; t: string; error: string; dir: string }[]
   history: Record<string, unknown>[]
@@ -29,6 +29,11 @@ export interface Runner { prefix?: string[] }
 export interface StepDone {
   ok: true; model: string; id: string; n: number; name: string; caption: string; branch: string; parent: string | null
   triangles: number; vertices: number; objects: number; bounds: { min: number[]; max: number[]; dimensions: number[] } | null
+  /**
+   * The text review, a few short lines: what changed since the parent step, then only the defect
+   * lines that have something to say (Floating, Deep overlap, Z-fighting, Symmetry).
+   */
+  review: string[]
   /** Warnings new since the parent step; `known_warnings` counts the unchanged rest, all in the receipt. */
   warnings: string[]; known_warnings: number
   sheet: string | null; glb: string | null; blend: string | null; receipt: string; ms: number; pruned: string[]
@@ -49,7 +54,7 @@ export interface StepFailed {
 export interface BatchScript { script: string; name?: string }
 export interface BatchDone {
   ok: boolean; model: string; branch: string; head: string | null
-  steps: { id: string; n: number; name: string; caption: string; triangles: number; objects: number; warnings: string[]; known_warnings: number; glb: string | null; sheet: string | null; ms: number }[]
+  steps: { id: string; n: number; name: string; caption: string; triangles: number; objects: number; review: string[]; warnings: string[]; known_warnings: number; glb: string | null; sheet: string | null; ms: number }[]
   sheet: string | null; receipt: string | null; warnings: string[]; known_warnings: number
   failure: StepFailed | null; not_run: { name: string; script: string }[]; message: string
 }
@@ -61,7 +66,7 @@ export function line(m: Manifest, branch?: string): StepEntry[]
 export function chooseBlender(choice?: string | { path: string; version: string }, env?: Record<string, string | undefined>): PinnedBlender
 export function prune(m: Manifest, dir: string, keep?: number): string[]
 export function planThreads(plan: { replay: (string | { script: string; lib?: string | null })[]; steps: { script: string | null; lib?: string | null }[] }, threads?: number): number | undefined
-export function init(o: Common & { blender?: string | { path: string; version: string }; target?: string; budget?: number | string; size?: string | number[]; repin?: boolean; cwd?: string; env?: Record<string, string | undefined> }): Promise<Summary & { existing: boolean }>
+export function init(o: Common & { blender?: string | { path: string; version: string }; target?: string; budget?: number | string; size?: string | number[]; symmetry?: 'x' | 'y' | 'none'; repin?: boolean; cwd?: string; env?: Record<string, string | undefined> }): Promise<Summary & { existing: boolean }>
 export function step(o: Common & { script: string; name?: string; amend?: boolean; timeout?: number; threads?: number; runner?: Runner }): Promise<StepDone | StepFailed>
 export function batchScripts(args: string | string[]): BatchScript[]
 export function batch(o: Common & { scripts: string | (string | BatchScript)[]; everySheet?: boolean; timeout?: number; threads?: number; runner?: Runner; gapMs?: number }): Promise<BatchDone>

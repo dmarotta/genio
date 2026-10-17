@@ -53,19 +53,19 @@ Before an Uthana character upload or Unity import, copy the source into scratch,
 A Modeller builds one model in small steps that the player watches live. Each step is a Python file you write; the kernel runs it in headless Blender on the previous step's snapshot. There is no MCP and no live session.
 
 ```
-node "{{SKILL_DIR}}/scripts/modeller.mjs" init watchtower --target unity [--budget 5000] [--size 4x4x10]
+node "{{SKILL_DIR}}/scripts/modeller.mjs" init watchtower --target unity [--budget 5000] [--size 4x4x10] [--symmetry x]
 node "{{SKILL_DIR}}/scripts/modeller.mjs" step watchtower .genio/modeller/watchtower/s01_legs.py
 node "{{SKILL_DIR}}/scripts/modeller.mjs" step watchtower .genio/modeller/watchtower/s02_bracing.py
 node "{{SKILL_DIR}}/scripts/modeller.mjs" status watchtower
 ```
 
-Every step prints JSON: `ok`, `id` (s001, s002...), `caption`, `triangles`, `vertices`, `bounds`, `warnings` (new since the previous step), `known_warnings` and the paths of `sheet` (review PNG), `glb`, `blend` and `receipt`. Exit code 2 means the step failed; 1 means a usage or kernel error.
+Every step prints JSON: `ok`, `id` (s001, s002...), `caption`, `triangles`, `vertices`, `bounds`, `review` (the text review, below), `warnings` (new since the previous step), `known_warnings` and the paths of `sheet` (review PNG), `glb`, `blend` and `receipt`. Exit code 2 means the step failed; 1 means a usage or kernel error.
 
 **The loop:**
 1. One step per script: one idea (body, wheels, wings, cockpit; legs, bracing, deck, roof) with 3 to 15 named parts. Write the script and run its `step` command in the same response (the file write, then the command), never in a separate turn.
 2. The first step is one small script that blocks out the main mass with simple parts, so the player sees the model within about a minute. Do not plan or write later steps before it has run; detail comes one step at a time.
-3. After each step, open the `sheet` PNG with your file-read tool. It is 1024 px: 3/4 view top left; front top right (looking at the model's front from -Y: +X right, +Z up); side bottom left (from +X, the model's left side: +Y right, so its front is on the left); top bottom right (a plan view from above: +X right, +Y up, so its front is at the bottom). Each view has its axes in the lower-left corner: X red, Y green, Z blue (an axis pointing at you is left out). Workbench colours come from your materials.
-4. Read `warnings`: the step lists only those new since the previous step on the branch, and `known_warnings` counts the earlier ones still standing (the receipt has them all). Compare the sheet with what you meant: proportions, parts floating or poking through, missing pieces, wrong facing.
+3. After each step, read its `review` first (below): it names what changed and the defects the sheet hides or shows only faintly. Open the `sheet` PNG with your file-read tool when you need to see shape, proportions, style or where a defect is. It is 1024 px: 3/4 view top left; front top right (looking at the model's front from -Y: +X right, +Z up); side bottom left (from +X, the model's left side: +Y right, so its front is on the left); top bottom right (a plan view from above: +X right, +Y up, so its front is at the bottom). Each view has its axes in the lower-left corner: X red, Y green, Z blue (an axis pointing at you is left out). Up to 10 parts carry a label beside the model with a line to the part: orange for parts the review flags, white for the step's other changes. Workbench colours come from your materials.
+4. Read `warnings`: the step lists only those new since the previous step on the branch, and `known_warnings` counts the earlier ones still standing (the receipt has them all). Compare the review (and the sheet, when you open it) with what you meant: proportions, missing pieces, wrong facing, and every review line you did not intend.
 5. Fix before you continue. A fix is its own step ("Fixing the ladder rails"), or re-run the last step with `--amend` (it replaces the head, keeping the step count honest).
 6. Steering from the player becomes the next step.
 7. When you judge the model done, export the head step, place it, commit and report done like any Build (the brief's Modeller delivery says what to commit). In a Unity project the model's `.meta` belongs to the change: never hand-write one; `genio-unity import` generates it, and you commit it with the FBX (if Unity cannot run for you, commit without it and say it appears on the first import). There is no separate review: the player merges as usual. Ask the player something only when it is a real question.
@@ -74,6 +74,7 @@ Every step prints JSON: `ok`, `id` (s001, s002...), `caption`, `triangles`, `ver
 
 **API card** (enough to start: never read `genio_step.py`, `genio_parts.py` or `modeller.mjs`):
 - A step script runs in headless Blender on the previous step's scene with `bpy` and `p` preloaded. Line 1 is a one-line docstring caption in plain words; the player reads it live.
+- After each step read its `review` first: what changed, then floating parts, deep overlaps, z-fighting and symmetry by part name. Open the `sheet` only for shape, proportions and style.
 - Write each helper of yours once, in `lib.py` beside the step scripts: it runs before every step, so its functions are globals there.
 - Metres, Z up, the model stands on z = 0 with its footprint centred on the origin and its front facing -Y (its left side is +X).
 - A part made again under the same name replaces the old one, so a script can run twice. Part helpers return the object and take `mat=` and `col=`; `rot` is Euler radians.
@@ -121,7 +122,22 @@ p.bake_maps(size=1024)
 - It returns, prints and lists in the step JSON's `bakes` the parts, size, samples, device, threads and seconds per map. Once parts carry baked textures, the review sheet shows them.
 - Measured on an 88-part benchmark model (2048 px, 8 spp, 16 threads, Blender 4.2): 13 to 15 s of baking, about 20 s for the whole step, against 375 s for its hand-written per-part bake. At 1024 px the bake takes about 2 s.
 
-**Checks** run on the geometry as it ships after every step: `g.validate()`'s report plus the Modeller's own. They land in the receipt's `checks` and `warnings` and are information for you and the player, never a gate: triangle budget (when `init --budget` set one), ground contact (lowest point at z = 0), footprint centring, scale sanity (and `--size` when given, 25 % tolerance), open or non-manifold parts, inward-facing faces, modifiers held back by shape keys, negative or uneven scale under bevel/solidify, objects outside `Export`, `.001` names, and parts passing through each other. The pass-through check warns only when a part goes deep into another and sticks out again (a post through a roof, a ladder rail inside a leg); every contact, joints included, is listed in `checks.pierces`.
+**Text review.** Every step's `review` is a few short lines, made from the shipped geometry in the same Blender run (no rendering, about 0.1-0.3 s, deterministic). The first line is always there; each other line appears only when it has something to say:
+```
+Changes: 2 added (Bridge deck, Garden bed), 1 moved (Well), 1 removed (Spare)
+Floating: Lamp (0.32 m from Top)
+Deep overlap: Roof / Roof post 1 (0.46 m inside, 0.43 m out); Block / Top (40 % of Block inside)
+Z-fighting: Decal / Top (0.09 m² at 0, -0.2, 1)
+Symmetry: Handle L has no Handle R; Leg front R is 0.05 m off the mirror of Leg front L; no mirror twin in x: Lamp
+```
+- `Changes` compares each part's name, triangles and box with the previous step on the branch: `changed` means a new shape or size, `moved` the same box elsewhere.
+- `Floating`: parts (or groups of parts touching only each other) with no chain of contacts down to a part at the model's lowest point, with the gap to the nearest other part. A part inside another touches it.
+- `Deep overlap`: a part deep into another and out again (3 % of the model's size in, 1 % out: a post through a roof), or a closed part with a third or more of its volume sunk into another, the overlap at least 3 % of the model thick every way (`hidden inside` when all of it is). Joints, crossing timbers, posts in a socket and thin slabs laid into each other stay quiet; every contact is still in the receipt's `checks.pierces`.
+- `Z-fighting`: faces of two parts facing the same way in one plane (within 0.02 % of the model's size) that overlap by more than (1 % of the size)², with the shared area and its centre. Faces meeting back to back (a box resting on another) are not z-fighting.
+- `Symmetry`: a part named with a side (`Arm L`, `Left wing`) whose twin is missing, or is not its mirror across x = 0 (across their parent's x = 0 when they share one) within 1 % of the size. With `init --symmetry x` (or `y`, front to back; `none` clears it), also parts on one side with no mirror twin and parts across the centre whose box is off centre.
+- At most three items per line, then `and N more`; the receipt keeps the lines and each part's `box`. It is information, never a gate: an intended overlap or a hanging lamp can stay.
+
+**Checks** run on the geometry as it ships after every step: `g.validate()`'s report plus the Modeller's own. They land in the receipt's `checks` and `warnings` and are information for you and the player, never a gate: triangle budget (when `init --budget` set one), ground contact (lowest point at z = 0), footprint centring, scale sanity (and `--size` when given, 25 % tolerance), open or non-manifold parts, inward-facing faces, modifiers held back by shape keys, negative or uneven scale under bevel/solidify, objects outside `Export` and `.001` names. Parts passing through each other are the review's `Deep overlap` line, not a warning.
 
 **Kernel operations.** `revert <model> <step>` moves the branch back (later steps stay on disk, off the branch). `branch <model> <name> [--from <step>]` starts a new line of steps and switches to it; `switch <model> <branch>` changes lines. `keep <model> <step>` protects a snapshot from pruning. `materialize <model> [step]` prints a step's `.blend`, rebuilding it if needed; use it to export a deliverable: `node "{{SKILL_DIR}}/scripts/blender.mjs" --script "{{SKILL_DIR}}/scripts/genio_bpy.py" -- export <that .blend> <asset.fbx> --target unity --fmt fbx`.
 

@@ -89,10 +89,12 @@ export function readModellerLive(dataDir: string, base: () => string, worktree?:
     id: s.id, n: i + 1, caption: String(s.caption || s.name || s.id), triangles: Number(s.triangles) || 0,
     parts: Number(s.objects) || 0, ms: Number(s.ms) || 0, at: Date.parse(s.t ?? '') || 0, glb: url(s.files?.glb), view: url(s.files?.view)
   }))
-  // The head step's advisory checks, as genio_step.py wrote them into its receipt.
+  // The head step's advisory checks, as genio_step.py wrote them into its receipt: its warnings, then
+  // the text review's defect lines (floating parts, deep overlaps, z-fighting, symmetry), not its changes.
   const headReceipt = line.at(-1)?.files?.receipt
-  const receipt = typeof headReceipt === 'string' && /^steps\/s\d+\/receipt\.json$/.test(headReceipt) ? readJson(path.join(folder, ...headReceipt.split('/'))) as { warnings?: unknown } | undefined : undefined
-  const checks = Array.isArray(receipt?.warnings) ? receipt.warnings.filter((w): w is string => typeof w === 'string').slice(0, 20) : []
+  const receipt = typeof headReceipt === 'string' && /^steps\/s\d+\/receipt\.json$/.test(headReceipt) ? readJson(path.join(folder, ...headReceipt.split('/'))) as { warnings?: unknown; review?: unknown } | undefined : undefined
+  const strings = (v: unknown): string[] => Array.isArray(v) ? v.filter((w): w is string => typeof w === 'string') : []
+  const checks = [...strings(receipt?.warnings), ...strings(receipt?.review).filter((r) => !r.startsWith('Changes:'))].slice(0, 20)
 
   let running: ModellerLive['running'] = null
   const lock = Number((() => { try { return fs.readFileSync(path.join(folder, '.lock'), 'utf8') } catch { return '' } })())

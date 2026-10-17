@@ -105,8 +105,10 @@ the unit runs the kernel's revert, branch and switch itself. Its Squad card
 shows the latest step's render; Changes shows binaries before and after. The live view has one toggle, Wireframe.
 
 The live view shows each step the moment Blender has exported its GLB: the
-kernel publishes it then, and the snapshot, checks and review sheet follow
-(a failed sheet leaves the step published, with a warning). Main watches the
+kernel publishes it then, and the snapshot, checks, text review and review sheet follow
+(a failed sheet leaves the step published, with a warning). The text review is the unit's: a
+few lines naming what changed and any floating parts, deep overlaps, z-fighting or symmetry
+problems; its defect lines join the head step's advisory checks in the Gauntlet's Modeller report. Main watches the
 unit's step data and step scripts while the page is open and pushes each change
 (`modeller-live` event); the page's poll (1 s, 250 ms while a step runs) stays
 as the fallback. The caption over the view is plain text, never a button or a

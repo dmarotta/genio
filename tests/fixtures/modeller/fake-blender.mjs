@@ -4,6 +4,7 @@
 // A "snapshot" is the zstd magic plus JSON {parts, scripts}. Step scripts drive it with comments:
 //   # part: <name>     add a part        # remove: <name>   drop a part
 //   # warn: <text>     the step's checks report this warning
+//   # review: <text>   the step's text review has this line
 //   # fake: error      raise              # fake: crash      exit 3 mid-step
 //   # fake: hang       never finish
 //   # fake: wait-publish   after landed.json, wait (up to 10 s) until the kernel published the
@@ -16,7 +17,8 @@
 // records the lib's caption as `<script caption> + lib <lib caption>`.
 // As genio_step.py, a step with parts writes landed.json right after its GLB, then the rest.
 // A `p.bake_maps(` call lists one bake in the receipt, as genio_parts does; receipts carry the
-// --threads Blender was started with.
+// --threads Blender was started with, and the first step's receipt the parent parts the kernel
+// passed for its review (`previous`).
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -102,13 +104,14 @@ async function main() {
     if (item.script) {
       const warnings = caption ? [] : ['Start the step script with a docstring: its first line is the caption the player sees.']
       for (const m of code.matchAll(/^# warn: (.+)$/gm)) warnings.push(m[1].trim())
+      const review = [...code.matchAll(/^# review: (.+)$/gm)].map((m) => m[1].trim())
       if (code.includes('# fake: wait-publish')) receipt.sheet_after_publish = await published(item)
       if (outputs.has('sheet') && code.includes('# fake: sheet-error')) warnings.push('The review sheet failed (RuntimeError: fake sheet failure); the step is published without it.')
       else if (outputs.has('sheet')) { fs.writeFileSync(out('sheet.png'), PNG); fs.writeFileSync(out('view.png'), PNG) }
       Object.assign(receipt, {
         caption, triangles: state.parts.length * 12, vertices: state.parts.length * 8, objects: state.parts.length,
         parts: state.parts.map((name) => ({ name, triangles: 12 })), bounds: { min: [0, 0, 0], max: [1, 1, 1], dimensions: [1, 1, 1] },
-        warnings
+        warnings, review, ...(i === 0 ? { previous: item.previous } : {})
       })
     }
     receipt.ok = true

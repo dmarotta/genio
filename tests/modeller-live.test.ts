@@ -51,6 +51,9 @@ describe('Modeller live state', () => {
     expect(readModellerLive(data, base)!.checks).toEqual([])
     write('tower/steps/s002/receipt.json', JSON.stringify({ warnings: ['Over budget: 2802 triangles, budget 2000.', 7, 'Nothing touches the ground.'] }))
     expect(readModellerLive(data, base)!.checks).toEqual(['Over budget: 2802 triangles, budget 2000.', 'Nothing touches the ground.'])
+    // the text review's defect lines are checks too; what changed since the last step is not
+    write('tower/steps/s002/receipt.json', JSON.stringify({ warnings: ['Nothing touches the ground.'], review: ['Changes: 1 added (Lamp)', 'Floating: Lamp (0.32 m from Top)', 3] }))
+    expect(readModellerLive(data, base)!.checks).toEqual(['Nothing touches the ground.', 'Floating: Lamp (0.32 m from Top)'])
     // Only the kernel's own receipt path is read.
     const odd = manifest()
     odd.steps[1].files.receipt = '../../secret.json'

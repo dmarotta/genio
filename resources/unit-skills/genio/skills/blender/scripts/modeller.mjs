@@ -10,7 +10,7 @@
  *   steps/<id>/model.glb     modifier-applied GLB, what the live view loads
  *   steps/<id>/sheet.png     2x2 Workbench review sheet (3/4, front, side, top); a batch's last step only
  *   steps/<id>/view.png      the 3/4 view alone, 512 px (with the sheet)
- *   steps/<id>/receipt.json  caption, counts, bounds, advisory checks, timings
+ *   steps/<id>/receipt.json  caption, counts, bounds, text review, advisory checks, timings
  *   failed/<id>-<kind>-<t>/  scripts that raised, crashed or hung, with receipts
  *
  * Each step runs on its parent's snapshot and writes into a staging folder. Its
@@ -126,16 +126,17 @@ function summary(dir, m) {
   }
 }
 
-export async function init({ dataDir = modellerDataDir(), model, blender, target, budget, size, repin = false, cwd = process.cwd(), env = process.env } = {}) {
+export async function init({ dataDir = modellerDataDir(), model, blender, target, budget, size, symmetry, repin = false, cwd = process.cwd(), env = process.env } = {}) {
   assertOutside(dataDir, [cwd], 'Modeller data must live outside the project/worktree (set GENIO_MODELLER_DATA)')
   if (target != null && !['unity', 'godot', 'web'].includes(target)) throw new Error('target is unity, godot or web')
+  if (symmetry != null && !['x', 'y', 'none'].includes(symmetry)) throw new Error('symmetry is x (left and right mirror), y (front and back) or none')
   const dir = modelDir(dataDir, model)
   fs.mkdirSync(path.join(dir, 'steps'), { recursive: true })
   return withLock(dir, async () => {
     let m = readJson(path.join(dir, 'manifest.json'))
     const existing = Boolean(m)
     if (!m) {
-      m = { schema: SCHEMA, model, created: now(), blender: chooseBlender(blender, env), target: target ?? null, checks: { budget: null, size: null }, branch: 'main', branches: { main: { head: null, from: null } }, next: 1, steps: [], failures: [], history: [] }
+      m = { schema: SCHEMA, model, created: now(), blender: chooseBlender(blender, env), target: target ?? null, checks: { budget: null, size: null, symmetry: null }, branch: 'main', branches: { main: { head: null, from: null } }, next: 1, steps: [], failures: [], history: [] }
     } else if (repin || blender) {
       const before = m.blender.version
       m.blender = chooseBlender(blender, env)
@@ -144,6 +145,7 @@ export async function init({ dataDir = modellerDataDir(), model, blender, target
     if (target != null) m.target = target
     if (budget != null) m.checks.budget = Number(budget) || null
     if (size != null) m.checks.size = parseSize(size)
+    if (symmetry != null) m.checks.symmetry = symmetry === 'none' ? null : symmetry
     writeManifest(dir, m)
     return { ok: true, existing, ...summary(dir, m) }
   })
@@ -270,6 +272,9 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
   const parent0 = amend ? byId(m, head).parent : head
   const base = baseFor(m, dir, parent0)
   const plan = { replay: base.replay, steps: [], checks: m.checks, sheet_size: 512 }
+  // The text review's "Changes" line compares the first step with its parent's parts (none: no parent;
+  // null: unknown, so no line), each later one with the step before it.
+  const previous = parent0 ? readJson(path.join(dir, 'steps', parent0, 'receipt.json'))?.parts ?? null : []
   const staged = items.map((it, k) => {
     const n = m.next + k, id = stepId(n), staging = path.join(dir, 'steps', `.pending-${id}`)
     fs.rmSync(staging, { recursive: true, force: true })
@@ -278,7 +283,7 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
     // The lib.py as it is now: a later edit never changes what this step ran with.
     if (it.lib) fs.copyFileSync(it.lib, path.join(staging, 'lib.py'))
     const sheet = everySheet || k === items.length - 1
-    plan.steps.push({ out: staging, script: path.join(staging, 'script.py'), lib: it.lib && path.join(staging, 'lib.py'), outputs: ['blend', 'glb', ...(sheet ? ['sheet'] : [])], step: { id, n, name: it.name, model: m.model } })
+    plan.steps.push({ out: staging, script: path.join(staging, 'script.py'), lib: it.lib && path.join(staging, 'lib.py'), outputs: ['blend', 'glb', ...(sheet ? ['sheet'] : [])], step: { id, n, name: it.name, model: m.model }, ...(k === 0 ? { previous } : {}) })
     return { ...it, id, n, staging }
   })
 
@@ -367,7 +372,7 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
     published[k] = {
       ok: true, model: m.model, id: s.id, n: s.n, name: s.name, caption: entry.caption, branch: m.branch, parent: entry.parent,
       triangles: entry.triangles, vertices: entry.vertices, objects: entry.objects, bounds: receipt.bounds ?? null,
-      warnings: fresh, known_warnings: known, sheet: abs.sheet, glb: abs.glb, blend: abs.blend, receipt: abs.receipt, lib: abs.lib, ms, pruned,
+      review: receipt.review ?? [], warnings: fresh, known_warnings: known, sheet: abs.sheet, glb: abs.glb, blend: abs.blend, receipt: abs.receipt, lib: abs.lib, ms, pruned,
       ...(receipt.bakes ? { bakes: receipt.bakes } : {})
     }
     completed++
@@ -456,14 +461,14 @@ export async function batch({ dataDir = modellerDataDir(), model, scripts, every
     const m = readManifest(dir)
     const { published, failure, notRun } = await runSteps(dir, m, items, { everySheet, timeout, threads, runner, gapMs })
     const last = published.at(-1)
-    const brief = (s) => ({ id: s.id, n: s.n, name: s.name, caption: s.caption, triangles: s.triangles, objects: s.objects, warnings: s.warnings, known_warnings: s.known_warnings, glb: s.glb, sheet: s.sheet, ms: s.ms })
+    const brief = (s) => ({ id: s.id, n: s.n, name: s.name, caption: s.caption, triangles: s.triangles, objects: s.objects, review: s.review, warnings: s.warnings, known_warnings: s.known_warnings, glb: s.glb, sheet: s.sheet, ms: s.ms })
     const did = `${published.length} of ${items.length} steps landed`
     return {
       ok: !failure, model: m.model, branch: m.branch, head: m.branches[m.branch].head, steps: published.map(brief),
       sheet: last?.sheet ?? null, receipt: last?.receipt ?? null, warnings: last?.warnings ?? [], known_warnings: last?.known_warnings ?? 0, failure, not_run: notRun,
       message: failure
         ? `${did}; ${failure.id} (${failure.name}) failed. ${failure.message}${notRun.length ? ` Not run: ${notRun.map((x) => x.name).join(', ')}.` : ''}`
-        : `${did}. Review ${last.sheet ? `the sheet of ${last.id}` : last.id} before the next batch.`
+        : `${did}. Read the review of each step before the next batch${last.sheet ? `; the sheet of ${last.id} is there when you need it` : ''}.`
     }
   })
 }
@@ -551,7 +556,7 @@ export async function status({ dataDir = modellerDataDir(), model } = {}) {
 }
 
 const USAGE = `Usage: modeller.mjs <command> <model> [args] [--data <dir>]
-  init <model> [--target unity|godot|web] [--budget <triangles>] [--size <x>x<y>x<z>] [--blender 4.2|5.2|<path>] [--repin]
+  init <model> [--target unity|godot|web] [--budget <triangles>] [--size <x>x<y>x<z>] [--symmetry x|y|none] [--blender 4.2|5.2|<path>] [--repin]
   step <model> <script.py> [--name <name>] [--amend] [--timeout <seconds>]
   batch <model> <folder|batch.json|script.py...> [--every-sheet] [--timeout <seconds per step>]
   revert <model> <step>
@@ -569,7 +574,7 @@ function parseArgs(argv) {
     if (!a.startsWith('--')) { pos.push(a); continue }
     const key = a.slice(2)
     if (bools.has(key)) { opt[key] = true; continue }
-    if (!['data', 'target', 'budget', 'size', 'blender', 'name', 'timeout', 'from', 'threads'].includes(key) || argv[i + 1] == null) throw new Error(`Unknown or incomplete option ${a}\n${USAGE}`)
+    if (!['data', 'target', 'budget', 'size', 'symmetry', 'blender', 'name', 'timeout', 'from', 'threads'].includes(key) || argv[i + 1] == null) throw new Error(`Unknown or incomplete option ${a}\n${USAGE}`)
     opt[key] = argv[++i]
   }
   return { pos, opt }
@@ -584,7 +589,7 @@ async function main() {
   const common = { dataDir, model }
   let result
   switch (command) {
-    case 'init': result = await init({ ...common, target: opt.target, budget: opt.budget, size: opt.size, blender: opt.blender, repin: opt.repin }); break
+    case 'init': result = await init({ ...common, target: opt.target, budget: opt.budget, size: opt.size, symmetry: opt.symmetry, blender: opt.blender, repin: opt.repin }); break
     case 'step':
       if (!arg) throw new Error(USAGE)
       result = await step({ ...common, script: arg, name: opt.name, amend: opt.amend, timeout: opt.timeout ? Number(opt.timeout) : STEP_TIMEOUT, threads })

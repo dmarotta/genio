@@ -4,17 +4,19 @@ The only argument after `--` is a plan JSON written by modeller.mjs:
   replay    step scripts to re-run first (rebuilding a pruned snapshot), each
               {script, lib} (or a bare script path)
   steps     one or more steps, run back to back in this session, each with
-              out      staging folder for this step's files
-              script   the step script, or null to only rebuild a snapshot
-              lib      the model's lib.py as this step runs with it, or null
-              outputs  any of blend, glb, sheet
-              step     id, n, name, model (for the receipt)
-  checks    budget (triangles) and size ([x, y, z] metres), both optional
+              out       staging folder for this step's files
+              script    the step script, or null to only rebuild a snapshot
+              lib       the model's lib.py as this step runs with it, or null
+              outputs   any of blend, glb, sheet
+              step      id, n, name, model (for the receipt)
+              previous  first step only: its parent's receipt parts for the text review's
+                        changes ([] with no parent; null or absent: unknown, no Changes line)
+  checks    budget (triangles), size ([x, y, z] metres) and symmetry ('x', 'y'), all optional
 
 Per step: step script, modifier-applied GLB, then <out>/landed.json (the
-kernel publishes the step to the live view from it at once), then checks,
-compressed .blend and the 2x2 Workbench review sheet (its camera never reaches
-a snapshot). A sheet that fails is a warning: the step stays published. Each
+kernel publishes the step to the live view from it at once), then checks and
+the text review (genio_review.py), compressed .blend and the 2x2 Workbench
+review sheet with part labels (its camera never reaches a snapshot). A sheet that fails is a warning: the step stays published. Each
 step's receipt goes to <out>/receipt.json (atomically, last) and stdout as one
 `@@GENIO_STEP` line. The first failure stops the run.
 Exit codes: 0 done, 3 a step script raised, 4 a replayed script raised.
@@ -37,9 +39,10 @@ from mathutils.bvhtree import BVHTree
 
 import genio_bpy
 import genio_parts as p
+import genio_review
 
 RAY_BUDGET = 200000
-PIERCE_PAIRS_SHOWN = 8
+LABELS_SHOWN = 10
 
 
 class StepError(Exception):
@@ -127,10 +130,11 @@ def _crossing(a, b, tol, budget):
     return best
 
 
-def _parts(meshes, shrink):
+def _parts(meshes, shrink, open_names=()):
     """Per part: a BVH of its surface, and its edges pulled `shrink` metres inwards along the
     vertex normals. Rays run along the pulled-in edges, so parts that merely rest on each other
-    (coplanar faces) do not count as crossing."""
+    (coplanar faces) do not count as crossing. The text review also uses the world vertices,
+    triangles and whether the part is closed."""
     out = []
     for ob, mesh in meshes.items():
         if not len(mesh.polygons):
@@ -141,7 +145,11 @@ def _parts(meshes, shrink):
         normals = normals.reshape(-1, 3) @ numpy.array(ob.matrix_world.to_3x3().inverted().transposed()).T
         normals /= numpy.maximum(numpy.linalg.norm(normals, axis=1), 1e-12)[:, None]
         polys = [tuple(pl.vertices) for pl in mesh.polygons]
-        out.append({'name': ob.name, 'pts': (pts - normals * shrink).tolist(), 'edges': [tuple(e.vertices) for e in mesh.edges],
+        mesh.calc_loop_triangles()
+        tris = numpy.empty(len(mesh.loop_triangles) * 3, dtype=numpy.int32)
+        mesh.loop_triangles.foreach_get('vertices', tris)
+        out.append({'name': ob.name, 'ob': ob, 'world': pts, 'tris': tris.reshape(-1, 3), 'closed': ob.name not in open_names,
+                    'pts': (pts - normals * shrink).tolist(), 'edges': [tuple(e.vertices) for e in mesh.edges],
                     'tree': BVHTree.FromPolygons(pts.tolist(), polys, epsilon=0.0),
                     'box': (pts.min(axis=0).tolist(), pts.max(axis=0).tolist())})
     return out
@@ -174,10 +182,10 @@ def _names(items):
     return ', '.join(items[:6]) + (f' and {len(items) - 6} more' if len(items) > 6 else '')
 
 
-def inspect_model(checks):
+def inspect_model(checks, previous=None):
     """Advisory checks on the shipped (evaluated) meshes, built on genio_bpy.validate(), plus the
-    Modeller's own: budget, ground, centring, size and parts passing through each other. Nothing
-    here blocks a step."""
+    Modeller's own: budget, ground, centring, size and parts passing through each other, then the
+    text review against the `previous` step's part table. Nothing here blocks a step."""
     objects = p.export_objects()
     warn, out = [], {}
     try:
@@ -229,14 +237,17 @@ def inspect_model(checks):
     if kept:
         warn.append(f'Shape keys keep these parts from shipping their modifiers: {_names(kept)}.')
     with p.evaluated(objects) as shipped:
-        found, truncated = pierces(_parts(shipped, 2 * tol), tol)
+        parts = _parts(shipped, 2 * tol, {x['name'] for x in open_parts})
+    found, truncated = pierces(parts, tol)
     out['pierces'] = found
     out['pierce_check_truncated'] = truncated
-    notable = notable_pierces(found, size)
-    if notable:
-        pairs = '; '.join(f"{f['a']} / {f['b']} ({f['depth']:.2f} m inside, {f['protrudes']:.2f} m out)" for f in notable[:PIERCE_PAIRS_SHOWN])
-        more = f' and {len(notable) - PIERCE_PAIRS_SHOWN} more' if len(notable) > PIERCE_PAIRS_SHOWN else ''
-        warn.append(f'Parts passing through each other: {pairs}{more}. Intended crossings are fine; look for parts poking out on the sheet. All contacts: checks.pierces.')
+    # The text review: deep pass-throughs are its "Deep overlap" line, never a warning as well.
+    out['review'], out['labels'], out['part_table'] = genio_review.review(
+        parts, previous=previous, size=size, tol=tol, ground_z=lo.z, pierced=notable_pierces(found, size),
+        axis=checks.get('symmetry'), other_side=p._other_side)
+    # A label points at the part's surface nearest its box centre.
+    labelled = {n for n, _ in out['labels'][:LABELS_SHOWN]}
+    out['anchors'] = {x['name']: list(x['tree'].find_nearest((Vector(x['box'][0]) + Vector(x['box'][1])) / 2)[0]) for x in parts if x['name'] in labelled}
     if truncated:
         warn.append('The pass-through check stopped early on this many parts; its list is incomplete.')
     flipped = [m['name'] for m in meshes if m['negative_determinant']]
@@ -269,11 +280,25 @@ VIEWS = [  # (file, direction from the model's centre, image up, perspective); s
     ('side', (1.0, 0.0, 0.0), (0.0, 0.0, 1.0), False),  # from +X: +Y right, the front on the left
     ('top', (0.0, 0.0, 1.0), (0.0, 1.0, 0.0), False),  # plan view: +X right, +Y up, the front at the bottom
 ]
-AXES = [  # (world axis, colour, 5x7 glyph) for the marker in each sheet cell
-    ((1, 0, 0), (0.93, 0.27, 0.27), ('10001', '10001', '01010', '00100', '01010', '10001', '10001')),
-    ((0, 1, 0), (0.30, 0.82, 0.22), ('10001', '10001', '01010', '00100', '00100', '00100', '00100')),
-    ((0, 0, 1), (0.33, 0.55, 1.00), ('11111', '00001', '00010', '00100', '01000', '10000', '11111')),
+# A 5x7 font for the sheet's letters and part labels: seven rows per glyph, top first, one hex
+# byte each with the leftmost pixel as bit 4. Lowercase is drawn as uppercase.
+FONT = {ch: bytes.fromhex(rows) for ch, rows in {
+    'A': '0e11111f111111', 'B': '1e11111e11111e', 'C': '0e11101010110e', 'D': '1e11111111111e', 'E': '1f10101e10101f',
+    'F': '1f10101e101010', 'G': '0e111017111f0f', 'H': '1111111f111111', 'I': '0e04040404040e', 'J': '0702020202120c',
+    'K': '11121418141211', 'L': '1010101010101f', 'M': '111b1515111111', 'N': '11111915131111', 'O': '0e11111111110e',
+    'P': '1e11111e101010', 'Q': '0e11111115120d', 'R': '1e11111e141211', 'S': '0f10100e01011e', 'T': '1f040404040404',
+    'U': '1111111111110e', 'V': '11111111110a04', 'W': '1111111515150a', 'X': '11110a040a1111', 'Y': '11110a04040404',
+    'Z': '1f01020408101f', '0': '0e11131519110e', '1': '040c040404040e', '2': '0e11010204081f', '3': '1f02040201110e',
+    '4': '02060a121f0202', '5': '1f101e0101110e', '6': '0608101e11110e', '7': '1f010204080808', '8': '0e11110e11110e',
+    '9': '0e11110f01020c', ' ': '00000000000000', '.': '00000000000c0c', '-': '0000001f000000', '_': '0000000000001f',
+    '(': '02040808080402', ')': '08040202020408', '/': '00010204081000', '?': '0e110102040004',
+}.items()}
+AXES = [  # (world axis, colour, letter) for the marker in each sheet cell
+    ((1, 0, 0), (0.93, 0.27, 0.27), 'X'),
+    ((0, 1, 0), (0.30, 0.82, 0.22), 'Y'),
+    ((0, 0, 1), (0.33, 0.55, 1.00), 'Z'),
 ]
+LABEL_TEXT, LABEL_FLAGGED, LABEL_LINE, LABEL_BOX = (0.95, 0.95, 0.95), (1.0, 0.55, 0.35), (1.0, 0.85, 0.25), (0.06, 0.06, 0.07)
 
 
 def camera_basis(direction, up):
@@ -296,20 +321,84 @@ def draw_axes(img, right, up):
     axis that lies in the image (an axis pointing at the camera is left out) and its letter.
     `img` rows run bottom-up, as Blender stores pixels."""
     ox = oy = 48
-    for axis, colour, glyph in AXES:
+    for axis, colour, letter in AXES:
         dx, dy = Vector(axis).dot(right), Vector(axis).dot(up)
         if math.hypot(dx, dy) < 0.3:
             continue
         for k in range(61):
             _fill(img, ox + dx * k / 2 - 1, oy + dy * k / 2 - 1, 3, 3, colour)
-        gx, gy = ox + dx * 44 - 5, oy + dy * 44 + 7  # the letter's top-left; 2 px per glyph pixel
-        for row, bits in enumerate(glyph):
-            for col, bit in enumerate(bits):
-                if bit == '1':
-                    _fill(img, gx + 2 * col, gy - 2 * row - 2, 2, 2, colour)
+        draw_text(img, ox + dx * 44 - 5, oy + dy * 44 - 7, letter, colour)
 
 
-def render_sheet(out_dir, size, stats):
+def draw_text(img, x, y, text, colour, scale=2):
+    """`text` in the 5x7 font from its lower-left corner (x, y), `scale` px per font pixel."""
+    for i, ch in enumerate(text.upper()):
+        for row, bits in enumerate(FONT.get(ch, FONT['?'])):
+            for col in range(5):
+                if bits >> (4 - col) & 1:
+                    _fill(img, x + (6 * i + col) * scale, y + (6 - row) * scale, scale, scale, colour)
+
+
+def short_name(name, most=12):
+    """A part's name for its label: long leading words cut to four letters (`Roof shingle 12` is
+    `ROOF SHIN 12`), so numbered and L/R parts stay apart; then cut to `most` characters."""
+    words = name.split()
+    while len(' '.join(words)) > most and any(len(w) > 4 for w in words[:-1]):
+        k = max(range(len(words) - 1), key=lambda i: len(words[i]))
+        words[k] = words[k][:4]
+    text = ' '.join(words).upper()
+    return text if len(text) <= most else text[:most - 1] + '.'
+
+
+def draw_labels(img, labels, project):
+    """Part labels on one sheet cell: each part's short name in a dark box on the background next to
+    the model, never over it, with a leader line to a dot on the part. Parts flagged by the text
+    review are orange, the step's other changes white; a part with no free spot nearby is left out.
+    `labels` is [(name, world point on the part, flagged)], `project` maps a point to (x, y) pixels."""
+    size = img.shape[0]
+    bg = img[size - 1, size - 1, :3]
+    busy = (numpy.abs(img[..., :3] - bg).max(axis=2) > 0.03).astype(numpy.int32)
+    busy[:130, :130] = 1  # the axis marker
+    table = numpy.zeros((size + 1, size + 1), dtype=numpy.int32)
+    table[1:, 1:] = busy.cumsum(0).cumsum(1)
+    placed, boxes = [], []
+
+    def free(x, y, w, h):
+        if x < 2 or y < 2 or x + w > size - 2 or y + h > size - 2:
+            return False
+        if any(x < bx + bw + 4 and bx < x + w + 4 and y < by + bh + 4 and by < y + h + 4 for bx, by, bw, bh in boxes):
+            return False
+        return table[y + h, x + w] - table[y, x + w] - table[y + h, x] + table[y, x] == 0
+
+    def spots(ax, ay, w, h):
+        for r in range(28, size, 14):
+            for k in range(16):
+                yield int(ax + r * math.cos(k * math.pi / 8) - w / 2), int(ay + r * math.sin(k * math.pi / 8) - h / 2)
+
+    for name, point, flagged in labels:
+        ax, ay = project(point)
+        if not (0 <= ax < size and 0 <= ay < size):
+            continue
+        text = short_name(name)
+        w, h = 12 * len(text) + 4, 20
+        spot = next((xy for xy in spots(ax, ay, w, h) if free(*xy, w, h)), None)
+        if spot is None:
+            continue
+        boxes.append((*spot, w, h))
+        placed.append((ax, ay, spot, w, h, text, LABEL_FLAGGED if flagged else LABEL_TEXT))
+    for ax, ay, (x, y), w, h, _, _ in placed:  # leaders first, under every box
+        tx, ty = min(max(ax, x), x + w), min(max(ay, y), y + h)
+        n = int(math.hypot(tx - ax, ty - ay)) + 1
+        for k in range(n + 1):
+            _fill(img, ax + (tx - ax) * k / n - 1, ay + (ty - ay) * k / n - 1, 2, 2, LABEL_LINE)
+        _fill(img, ax - 3, ay - 3, 7, 7, LABEL_BOX)
+        _fill(img, ax - 2, ay - 2, 5, 5, LABEL_LINE)
+    for _, _, (x, y), w, h, text, colour in placed:
+        _fill(img, x, y, w, h, LABEL_BOX)
+        draw_text(img, x + 3, y + 3, text, colour)
+
+
+def render_sheet(out_dir, size, stats, labels=()):
     scene = bpy.context.scene
     lo, hi = Vector(stats['min']), Vector(stats['max'])
     centre, dims = (lo + hi) / 2, hi - lo
@@ -343,15 +432,25 @@ def render_sheet(out_dir, size, stats):
     files, bases = [], []
     for name, direction, up, persp in VIEWS:
         right, up, d = camera_basis(direction, up)
-        bases.append((right, up))
         if persp:
             cam.data.type, cam.data.lens = 'PERSP', 50
             distance = radius / math.sin(cam.data.angle / 2) * 1.05
+            # Metres across the image at a point's depth (a square image: one angle both ways).
+            width = (lambda tan, d: lambda rel: -rel.dot(d) * 2 * tan)(math.tan(cam.data.angle / 2), d)
         else:
             cam.data.type = 'ORTHO'
             cam.data.ortho_scale = max(max(spans[name]) * 1.15, 0.01)
             distance = radius * 4
-        cam.location = centre + d * distance
+            width = (lambda ortho: lambda rel: ortho)(cam.data.ortho_scale)
+        eye = centre + d * distance
+
+        def project(point, eye=eye, right=right, up=up, width=width):
+            rel = Vector(point) - eye
+            across = max(width(rel), 1e-9)
+            return (rel.dot(right) / across + 0.5) * size, (rel.dot(up) / across + 0.5) * size
+
+        bases.append((right, up, project))
+        cam.location = eye
         cam.rotation_euler = Matrix((right, up, d)).transposed().to_euler()
         scene.render.filepath = os.path.join(out_dir, f'{name}.png')
         bpy.ops.render.render(write_still=True)
@@ -359,12 +458,14 @@ def render_sheet(out_dir, size, stats):
     full = size * 2
     sheet = numpy.zeros((full, full, 4), dtype=numpy.float32)
     corners = [(size, 0), (size, size), (0, 0), (0, size)]  # (row, col) of each cell's lower-left; rows run bottom-up
-    for path, (row, col), (right, up) in zip(files, corners, bases):
+    for path, (row, col), (right, up, project) in zip(files, corners, bases):
         img = bpy.data.images.load(path)
         px = numpy.empty(size * size * 4, dtype=numpy.float32)
         img.pixels.foreach_get(px)
         cell = px.reshape(size, size, 4)
-        draw_axes(cell, right, up)  # on the sheet only: view.png stays clean for the live view
+        # On the sheet only: view.png stays clean for the live view.
+        draw_labels(cell, labels, project)
+        draw_axes(cell, right, up)
         sheet[row:row + size, col:col + size] = cell
         bpy.data.images.remove(img)
     sheet[size - 1:size + 1, :, :3] = 0.12
@@ -418,8 +519,9 @@ def has_meshes():
     return any(o.type == 'MESH' and len(o.data.vertices) for o in p.export_objects())
 
 
-def run_step(item, plan, replay, first, last):
-    """One step of the plan on the scene as the previous one left it. Returns the exit code."""
+def run_step(item, plan, replay, first, last, previous):
+    """One step of the plan on the scene as the previous one left it, reviewed against the `previous`
+    step's part table. Returns the exit code and this step's part table."""
     out, outputs, script = item['out'], set(item.get('outputs', [])), item.get('script')
     os.makedirs(out, exist_ok=True)
     t, mark = {}, time.perf_counter()
@@ -432,10 +534,12 @@ def run_step(item, plan, replay, first, last):
         t[key] = round((now - mark) * 1000, 1)
         mark = now
 
+    table = None
+
     def finish(code):
         receipt['timings_ms'] = t
         write_receipt(out, receipt)
-        return code
+        return code, table
 
     try:
         if first:
@@ -472,11 +576,15 @@ def run_step(item, plan, replay, first, last):
     if script:
         if not receipt.get('caption'):
             warn.append('Start the step script with a docstring: its first line is the caption the player sees.')
-        checks, found = inspect_model(plan.get('checks') or {})
+        checks, found = inspect_model(plan.get('checks') or {}, previous)
         warn += found
         stats = checks.pop('stats')
+        labels, anchors, table = checks.pop('labels', []), checks.pop('anchors', {}), checks.pop('part_table', {})
+        for part in stats['parts']:
+            if part['name'] in table:
+                part['box'] = table[part['name']]['box']
         receipt.update(triangles=stats['triangles'], vertices=stats['vertices'], objects=stats['objects'],
-                       parts=stats['parts'], checks=checks)
+                       parts=stats['parts'], review=checks.pop('review', []), checks=checks)
         if stats['objects']:
             receipt['bounds'] = {'min': [round(v, 4) for v in stats['min']], 'max': [round(v, 4) for v in stats['max']],
                                  'dimensions': [round(v, 4) for v in stats['dimensions']]}
@@ -487,7 +595,7 @@ def run_step(item, plan, replay, first, last):
         lap('save')
     if 'sheet' in outputs and receipt.get('objects', 0) > 0:
         try:
-            render_sheet(out, plan.get('sheet_size', 512), stats)
+            render_sheet(out, plan.get('sheet_size', 512), stats, [(n, anchors[n], bad) for n, bad in labels if n in anchors])
         except Exception as e:  # noqa: BLE001 - the step is published already; the sheet is the agent's eyes only
             warn.append(f'The review sheet failed ({type(e).__name__}: {e}); the step is published without it.')
         lap('sheet')
@@ -503,8 +611,11 @@ def run_step(item, plan, replay, first, last):
 def main():
     plan = json.load(open(sys.argv[sys.argv.index('--') + 1], encoding='utf8'))
     steps = plan['steps']
+    # The first step compares with its parent's receipt (None: no parent); each later one with the step before it.
+    previous = None if not steps or steps[0].get('previous') is None else {x['name']: x for x in steps[0]['previous']}
     for i, item in enumerate(steps):
-        code = run_step(item, plan, plan.get('replay', []), i == 0, i == len(steps) - 1)
+        code, table = run_step(item, plan, plan.get('replay', []), i == 0, i == len(steps) - 1, previous)
+        previous = table if table is not None else previous
         if code:
             sys.exit(code)
 
