@@ -235,7 +235,9 @@ function PlayScreen({ world }: { world: string }) {
   }, [])
 
   const working = !!busy || (!!state && WORKING.has(state))
-  const line = playLine({ status, busy, error, missing, streamEnded: !!streamEnded })
+  // The game view shows the game: the status line leaves the area, unless a problem needs saying.
+  const live = playing && !streamEnded
+  const line =playLine({ status, busy, error, missing, streamEnded: !!streamEnded })
   const lastError = [...logs].reverse().find(l => /error|exception|assert/i.test(l.level ?? ''))
   const grouped = useMemo(() => SOURCE_GROUPS.map(g => ({ ...g, options: (sources ?? []).filter(o => o.group === g.group) })).filter(g => g.options.length), [sources])
   const act = (action: PlayLineAction): void => {
@@ -330,10 +332,9 @@ function PlayScreen({ world }: { world: string }) {
       </button>
     </div>
 
-    <StatusLine line={line} detail={error || status?.message} onAction={act} actionOff={actionOff} />
-
     <div className="play-screen">
-      {playing && !streamEnded && <PlayLive world={world} width={resolution.width} height={resolution.height} input={status?.capabilities?.input !== false} muted={muted} onClosed={setStreamEnded} onError={setError} onSound={setHeard} />}
+      {live && <PlayLive world={world} width={resolution.width} height={resolution.height} input={status?.capabilities?.input !== false} muted={muted} onClosed={setStreamEnded} onError={setError} onSound={setHeard} />}
+      {(!live || line.kind === 'problem') && <StatusLine line={line} detail={error || status?.message} over={live} onAction={act} actionOff={actionOff} />}
     </div>
 
     {drawer && <section className="play-console" aria-label="Unity console">
@@ -350,17 +351,22 @@ function PlayScreen({ world }: { world: string }) {
   </div>
 }
 
-/** The one status line: a dot, the plain state or problem, the progress bar while working, and at most one action. */
-function StatusLine({ line, detail, onAction, actionOff }: { line: PlayLine; detail?: string; onAction: (a: PlayLineAction) => void; actionOff: (a: PlayLineAction) => boolean }) {
+/**
+ * The one status line, centered in the game area: a dot, the plain state or problem and at most one action, with the
+ * progress bar under it while working. `over` is a problem shown while the game plays.
+ */
+function StatusLine({ line, detail, over, onAction, actionOff }: { line: PlayLine; detail?: string; over?: boolean; onAction: (a: PlayLineAction) => void; actionOff: (a: PlayLineAction) => boolean }) {
   const problem = line.kind === 'problem'
-  return <p className={cx('play-status', problem && 'alert-text')} role="status" title={problem ? detail : undefined}>
-    <span className={cx('play-dot', line.kind)} aria-hidden />
-    <span className="play-status-text">{line.text}</span>
+  return <div className={cx('play-status', problem && 'alert-text', over && 'over')} role="status" title={problem ? detail : undefined}>
+    <p className="play-status-line">
+      <span className={cx('play-dot', line.kind)} aria-hidden />
+      <span className="play-status-text">{line.text}</span>
+      {line.action && <button className="play-link" disabled={actionOff(line.action)} onClick={() => onAction(line.action!)}>{ACTION_LABEL[line.action]}</button>}
+    </p>
     {line.bar !== undefined && <span className="play-progress-track" role="progressbar" aria-label={line.text} aria-valuemin={0} aria-valuemax={100} aria-valuenow={line.bar === 'indeterminate' ? undefined : line.bar}>
       <span style={{ width: `${line.bar === 'indeterminate' ? 100 : line.bar}%` }} className={cx(line.bar === 'indeterminate' && 'indeterminate')} />
     </span>}
-    {line.action && <button className="play-link" disabled={actionOff(line.action)} onClick={() => onAction(line.action!)}>{ACTION_LABEL[line.action]}</button>}
-  </p>
+  </div>
 }
 
 /** The ⋯ menu: the rare actions (Restart Unity, Open visibly, console, settings). */

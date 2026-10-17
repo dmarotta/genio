@@ -50,6 +50,9 @@ const click = async (label: string) => { await act(async () => button(label).cli
 const select = (label: string) => host.querySelector(`select[aria-label="${label}"]`) as HTMLSelectElement
 const choose = async (label: string, value: string) => { await act(async () => { const s = select(label); s.value = value; s.dispatchEvent(new Event('change', { bubbles: true })) }) }
 const statusLine = () => host.querySelector('[role=status]')?.textContent ?? ''
+/** The status line sits alone in the game area (play.css centers it there); it is gone while the game shows. */
+const centered = () => host.querySelector('.play-screen > .play-status[role=status]:only-child')
+const noStatus = () => { expect(host.querySelector('[role=status], [role=progressbar]')).toBeNull() }
 const bar = () => host.querySelector('[role=progressbar]')
 const problem = () => !!host.querySelector('.play-status.alert-text')
 const facts = () => getScreenContext('play')?.facts ?? []
@@ -81,8 +84,10 @@ describe('Play screen', () => {
     expect([...host.querySelectorAll('[role=toolbar] button')].map(b => b.getAttribute('aria-label'))).toEqual(['Start Unity', 'Enter Play', 'Pause', 'Step', 'Mute game sound'])
     expect(button('Pause').disabled).toBe(true)
     expect(button('Step').disabled).toBe(true)
-    // No hint in the game area, no first-copy estimate, no console unless asked.
-    expect(host.querySelector('.play-screen')?.textContent).toBe('')
+    // Only the status line in the game area, none on the toolbar: no hint, no first-copy estimate, no console unless asked.
+    expect(centered()?.textContent).toBe('Stopped')
+    expect(host.querySelector('.play-screen')?.textContent).toBe('Stopped')
+    expect(host.querySelector('[role=toolbar]')?.textContent).not.toContain('Stopped')
     expect(host.querySelector('.play-console, [role=alertdialog], [role=note]')).toBeNull()
     expect(api.playerCopySizes).not.toHaveBeenCalled()
 
@@ -158,7 +163,8 @@ describe('Play screen', () => {
     expect(bar()?.getAttribute('aria-label')).toBe('Starting Unity · loading scripts')
     expect(host.querySelectorAll('[role=progressbar]')).toHaveLength(1)
     expect(text()).not.toMatch(/Begin MonoManager|left|%|\d+ ?s\b/)
-    expect(host.querySelector('.play-screen')?.textContent).toBe('')
+    expect(host.querySelector('.play-screen')?.textContent).toBe('Starting Unity · loading scripts')
+    expect(centered()?.querySelector('[role=progressbar]')).not.toBeNull()
   })
 
   it('names low memory in one alert line and keeps Start anyway on the toolbar, dropping it when Windows cannot commit', async () => {
@@ -237,7 +243,8 @@ describe('Play screen', () => {
     status = { state: 'playing', project: 'C:/games/game', pid: 4, source: { path: 'C:/games/game' }, scene: 'Assets/Scenes/Arena.unity', capabilities: { input: true }, copy: copy(synced) as never }
     await mount()
     expect(api.playerInstanceStream).toHaveBeenCalledWith('game', true, 1280, 720)
-    expect(statusLine()).toBe('Playing')
+    noStatus()
+    expect(facts()).toContainEqual({ label: 'Status', value: 'Playing' })
     expect(button('Exit Play').getAttribute('aria-pressed')).toBe('true')
     expect(facts()).toEqual(expect.arrayContaining([{ label: 'Scene', value: 'Assets/Scenes/Arena.unity' }, { label: 'Resolution', value: '1280 × 720' }]))
     await click('Pause')
@@ -264,7 +271,8 @@ describe('Play screen', () => {
   it('says Paused, marks Pause pressed and follows Unity\'s Play shortcuts outside the game', async () => {
     status = { state: 'paused', project: 'C:/games/game', pid: 4, source: { path: 'C:/games/game' }, capabilities: { input: true }, copy: copy() as never }
     await mount()
-    expect(statusLine()).toBe('Paused')
+    noStatus()
+    expect(facts()).toContainEqual({ label: 'Status', value: 'Paused' })
     expect(button('Resume').getAttribute('aria-pressed')).toBe('true')
     const key = async (init: KeyboardEventInit) => { await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyP', ctrlKey: true, ...init }))) }
     await key({ shiftKey: true })
@@ -304,12 +312,13 @@ describe('Play screen', () => {
     await act(async () => window.dispatchEvent(new MessageEvent('message', { source: window, data: { type: 'genio:play-port', world: 'game' }, ports: [channel as unknown as MessagePort] })))
     await act(async () => channel.onmessage!({ data: { type: 'closed' } }))
     expect(statusLine()).toBe('The live view stopped.Reconnect')
-    expect(host.querySelector('.play-screen')?.textContent).toBe('')
+    expect(centered()?.className).toContain('alert-text')
+    expect(host.querySelector('canvas')).toBeNull()
     expect(facts()).toContainEqual({ label: 'Live view', value: 'The live stream ended.' })
     expect(api.playerInstanceStream).toHaveBeenCalledTimes(1)
     await click('Reconnect')
     expect(api.playerInstanceStream).toHaveBeenCalledTimes(2)
-    expect(statusLine()).toBe('Playing')
+    noStatus()
   })
 
   it('shows exactly one status line, at most one progress bar and nothing else in every main state', async () => {
@@ -327,10 +336,50 @@ describe('Play screen', () => {
       expect(host.querySelectorAll('[role=status]')).toHaveLength(1)
       expect(host.querySelectorAll('[role=progressbar]').length).toBeLessThanOrEqual(1)
       expect(host.querySelectorAll('[role=note], [role=alert], [role=alertdialog]')).toHaveLength(0)
-      expect(host.querySelector('.play-screen')?.textContent).toBe('')
+      expect(centered()).not.toBeNull()
+      expect(host.querySelector('.play-screen')?.textContent).toBe(statusLine())
       await act(async () => root.unmount()); root = createRoot(host)
     }
     expect(nav.toast).not.toHaveBeenCalled()
+  })
+
+  it('centers the line and bar in the game area while the game is off, and drops them the moment it shows', async () => {
+    const cases: [PlayerInstanceStatus, string, boolean][] = [
+      [{ state: 'idle', project: 'p' }, 'Stopped', false],
+      [{ state: 'copying', project: 'p', copy: copying(1, 4) }, 'Preparing', true],
+      [{ state: 'starting', project: 'p', pid: 3, start: { phase: 'packages' } }, 'Starting Unity · unpacking packages', true],
+      [{ state: 'ready', project: 'p', pid: 3, source: { path: 'C:/games/game' } }, 'Ready', false],
+      [{ state: 'error', project: 'p', message: 'boom' }, 'Play failed.Try again', false]
+    ]
+    for (const [s, line, withBar] of cases) {
+      status = s
+      await mount()
+      expect(centered()?.textContent, s.state).toBe(line)
+      expect(!!centered()?.querySelector('[role=progressbar]'), s.state).toBe(withBar)
+      expect(!!centered()?.matches('.alert-text'), s.state).toBe(s.state === 'error')
+      expect(host.querySelector('.play-toolbar [role=status], .play-head [role=status]')).toBeNull()
+      await act(async () => root.unmount()); root = createRoot(host)
+    }
+    for (const state of ['playing', 'paused'] as const) {
+      status = { state, project: 'C:/games/game', pid: 4, source: { path: 'C:/games/game' }, capabilities: { input: true }, copy: copy() as never }
+      await mount()
+      noStatus()
+      expect(host.querySelector('.play-screen canvas')).not.toBeNull()
+      await act(async () => root.unmount()); root = createRoot(host)
+    }
+  })
+
+  it('styles the line large and the bar thick, wide, green and still under reduced motion', async () => {
+    const { readFileSync } = await import('node:fs' as string) as { readFileSync(file: string, encoding: 'utf8'): string }
+    const css = readFileSync('src/renderer/src/styles/play.css', 'utf8').replace(/\s+/g, ' ')
+    expect(css).toMatch(/\.play-screen \{[^}]*justify-content: center; align-items: center;/)
+    expect(css).toMatch(/\.play-status-line \{[^}]*font-size: 19px; font-weight: 500;/)
+    expect(css).toMatch(/\.play-status-text \{[^}]*text-overflow: ellipsis; white-space: nowrap;/)
+    expect(css).toMatch(/\.play-progress-track \{[^}]*width: 320px; max-width: 100%; height: 8px; border-radius: 4px;/)
+    expect(css).toMatch(/\.play-progress-track span \{[^}]*background: var\(--volt\)/)
+    const reduced = css.match(/@media \(prefers-reduced-motion: reduce\) \{(.*?\}) \}/)?.[1] ?? ''
+    expect(reduced).toMatch(/\.play-progress-track span\.indeterminate \{[^}]*animation: none;/)
+    expect(reduced).toMatch(/\.play-dot\.work \{ animation: none; \}/)
   })
 })
 
@@ -432,7 +481,7 @@ describe('Play screen: game sound', () => {
     await mount(); await connect()
     await settle(3000)
     expect(facts()).toContainEqual({ label: 'Audio', value: 'no sound from the game' })
-    expect(statusLine()).toBe('Playing')
+    noStatus()
     await audio()
     expect(facts()).toContainEqual({ label: 'Audio', value: 'on' })
   })
@@ -589,7 +638,7 @@ describe('Play screen: a source that vanishes', () => {
   it('keeps playing with no extra note when the source went after the copy; the controls still work', async () => {
     status = { state: 'playing', project: 'C:/games/game', pid: 7, source: { path: 'C:/units/lairs' }, sourceGone: gone('running') }
     await mount()
-    expect(statusLine()).toBe('Playing')
+    noStatus()
     expect(button('Pause').disabled).toBe(false)
     await click('Pause')
     expect(api.playerInstancePause).toHaveBeenCalledWith('game')
@@ -600,7 +649,8 @@ describe('Play screen: a source that vanishes', () => {
   it('says only Playing when the next Play fell back to main', async () => {
     status = { state: 'playing', project: 'C:/games/game', pid: 7, source: { path: 'C:/games/game' }, sourceGone: gone('fallback') }
     await mount()
-    expect(statusLine()).toBe('Playing')
+    noStatus()
+    expect(facts()).toContainEqual({ label: 'Status', value: 'Playing' })
   })
 
   it('preselects the unit from Play this unit, once, without starting Unity', async () => {
@@ -640,6 +690,8 @@ describe('Play screen: a source that vanishes', () => {
     await mount()
     await choose('Play source', 'unit:t1'); await settle()
     expect(statusLine()).toBe('That source is gone. Pick another one.')
+    // A problem while the game shows: the same centered line, on a dark backing over the picture.
+    expect(host.querySelector('.play-screen > .play-status.over.alert-text')).not.toBeNull()
     expect(api.playerInstanceEnterPlay).not.toHaveBeenCalled()
     api.playerSourceAvailable.mockImplementation(async () => true)
   })
