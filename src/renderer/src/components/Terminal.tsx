@@ -65,9 +65,10 @@ export function TerminalView({ id, fontSize = 12, interactive = true, autoFocus 
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
-    term.open(el)
     let disposed = false
     let attached = false
+    let opened = false
+    let extras: (() => void) | undefined
     const pending: string[] = []
 
     const unsub = onTerminal(id, (data) => {
@@ -88,7 +89,7 @@ export function TerminalView({ id, fontSize = 12, interactive = true, autoFocus 
     }
 
     const doFit = (): void => {
-      if (disposed) return
+      if (disposed || !opened) return
       if (!owned) return mirror()
       try {
         if (term.element) term.element.style.transform = ''
@@ -107,23 +108,36 @@ export function TerminalView({ id, fontSize = 12, interactive = true, autoFocus 
       term.focus()
     }
 
+    // The scrollback (up to 1.5 MB) is parsed before the terminal joins the page. Opened first, xterm rebuilt its
+    // screen every frame while it parsed, measuring each new glyph with a forced style pass over the rows drawn so
+    // far: seconds of style work on Squad's cards. Opened after, it draws once.
+    const open = (): void => {
+      if (opened || disposed) return
+      opened = true
+      term.open(el)
+      extras = pane ? paneExtras(term) : undefined
+      requestAnimationFrame(doFit)
+      if (autoFocus && owned) term.focus()
+    }
+
     void api()
       .terminalAttach(id)
       .then((scroll) => {
         if (disposed) return
+        // A watched agent's output is laid out at its PTY's size (mirror() keeps that size once open).
+        const pty = size.current
+        if (!owned && pty && pty.cols > 1 && pty.rows > 1) term.resize(pty.cols, pty.rows)
         if (scroll) term.write(scroll)
         for (const p of pending) term.write(p)
         pending.length = 0
         attached = true
-        requestAnimationFrame(doFit)
-        if (autoFocus && owned) term.focus()
+        term.write('', open)
       })
       .catch((e) => {
         attached = true
+        open()
         term.write(`\r\n\x1b[38;2;255;46;110m[no signal] ${String(e?.message ?? e)}\x1b[0m\r\n`)
       })
-
-    const extras = pane ? paneExtras(term) : undefined
 
     const sub = term.onData((d) => {
       if (interactive && owned) void api().terminalWrite(id, d).catch(() => undefined)
