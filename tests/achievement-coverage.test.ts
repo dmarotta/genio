@@ -65,7 +65,7 @@ const RETIRED_SETTINGS_PAGES: Record<string, string> = {
 
 // Feature tags that are neither a Rail view, a tool, a unit kind nor a flag: each names the source that proves it is still live.
 const OTHER_FEATURES: Record<string, [file: string, needle: string]> = {
-  tips: ['src/main/tips.ts', 'createTipsService'],
+  tips: ['src/renderer/src/components/TipCard.tsx', 'sendAskGenio'],
   setup: ['src/main/project-setup.ts', 'applySetupAction'],
   explorer: ['src/main/ipc.ts', 'explorerSet'],
   'project-window': ['src/main/index.ts', 'export function openProject'],

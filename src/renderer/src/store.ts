@@ -49,6 +49,8 @@ export interface State {
   statusByTask: Record<string, StatusEvent[]>
   terminals: Record<string, TerminalInfo>
   toasts: Toast[]
+  /** One transient, project-scoped tip; history and once-only caps belong to main. */
+  tip?: { id: string; line: string; question: string; shownAt: number }
   permissions: PermissionRequest[]
   achievements: Achievement[]
   /** Tools (Claude, Codex) that need a sign-in now: the rail warns while this is not empty. */
@@ -164,6 +166,7 @@ export function setState(patch: Partial<State> | ((s: State) => Partial<State>))
 }
 
 function publish(): void {
+  if (state.tip && (state.settings?.featureTips === false || state.snap.away.mode !== 'online')) state = { ...state, tip: undefined }
   // Every way into a screen (shortcut, palette, notification, an engine change) lands here:
   // a screen this window does not offer falls back to the default one, quietly.
   if (!viewAvailable(state.view, !!PROJECT_WINDOW, playAvailable(state))) state = { ...state, view: DEFAULT_VIEW }
@@ -477,6 +480,11 @@ export function handleEvent(ev: GenioEvent): void {
     case 'achievement':
       setState({ achievements: [...s.achievements, ev.achievement] })
       playSfx('levelup', s.settings)
+      break
+    case 'tip':
+      if (PROJECT_WINDOW && ev.project === PROJECT_WINDOW && !s.tip && s.settings?.featureTips !== false) {
+        setState({ tip: { ...ev.tip, shownAt: Date.now() } })
+      }
       break
     case 'toast':
       toast(ev.level, ev.title, ev.body)

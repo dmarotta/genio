@@ -69,6 +69,7 @@ const ROWS: Partial<Record<SettingsPageId, RowSpec[]>> = {
     ['Scanlines and grid', ['Visual FX', 'Effects']],
     ['Clean chat', ['Clean HUD', 'Calm', 'Tool chatter']],
     ['Desktop notifications', ['Toasts', 'Notify']],
+    ['Feature tips', ['tips', 'hints']],
     ['Sounds', ['Sound effects', 'SFX']],
     ['Volume'],
     ["While you're away", ['AFK', 'DND', 'Away', 'Alerts'], 'settings-away'],

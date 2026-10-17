@@ -115,6 +115,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'quest-first', feature: 'quests', name: 'Side Quest', description: 'Add a quest.' },
   { id: 'world-first', feature: 'worlds', name: 'New Game', description: 'Register a project.' },
   { id: 'project-setup', feature: 'setup', name: 'Character Creation', description: 'Finish setting up a new project with Genio.' },
+  // The card and its switch share this feature: only successful use after a tip earns it (main/tips.ts).
   { id: 'tip-taken', feature: 'tips', name: 'Take the Hint', description: 'Use a feature within a day of its tip.' },
   { id: 'lore-first', feature: 'memory', name: 'Save Point', description: 'Save your first memory update.' },
   { feature: 'ship', id: 'first-blood', name: 'First Blood', description: 'Merge your first build.' },

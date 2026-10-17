@@ -332,6 +332,9 @@ function SectionBody({ sec, s }: { sec: SettingsPageId; s: Settings }) {
           <Row label="Desktop notifications">
             <Toggle checked={s.desktopNotifications} onChange={(v) => set({ desktopNotifications: v })} />
           </Row>
+          <Row label="Feature tips">
+            <Toggle ariaLabel="Feature tips" checked={s.featureTips} onChange={(v) => set({ featureTips: v })} />
+          </Row>
           <Row label="Sounds">
             <Toggle checked={s.sound} onChange={(v) => set({ sound: v })} />
           </Row>

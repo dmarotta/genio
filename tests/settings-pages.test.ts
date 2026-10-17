@@ -269,6 +269,22 @@ function deepLinks(): { file: string; page: string; anchor?: string }[] {
 }
 
 describe('search index', () => {
+  it('finds the single Feature tips row by tips and hints and saves both switch directions', async () => {
+    for (const word of ['tips', 'hints']) expect(searchSettings(word)[0]).toMatchObject({ page: 'general', label: 'Feature tips', anchor: 'setting-feature-tips', scope: 'All projects' })
+    await mount(); await open('general')
+    const row = host.querySelector('#setting-feature-tips')!
+    expect(row.querySelector('.sys-row-hint')).toBeNull()
+    expect(row.textContent).toBe('Feature tips')
+    const toggle = row.querySelector<HTMLInputElement>('input[type="checkbox"]')!
+    expect(toggle.checked).toBe(true)
+    await act(async () => toggle.click())
+    expect(saveSettings).toHaveBeenLastCalledWith({ featureTips: false })
+    f.settings = { ...defaultSettings(), featureTips: false }
+    await act(async () => root.render(React.createElement(Systems)))
+    await act(async () => toggle.click())
+    expect(saveSettings).toHaveBeenLastCalledWith({ featureTips: true })
+  })
+
   it('finds every old page name and game term on its new page', () => {
     const old: Record<string, string> = {
       Gauntlet: 'project-delivery', Harnesses: 'harnesses', Dispatch: 'dispatch', Loadout: 'system', Patch: 'system', Explorer: 'system', Triggers: 'inbox',

@@ -4,13 +4,13 @@ import { ASSISTANT_NAME } from '@shared/assistant'
 import { pendingDecision } from '@shared/decisions'
 import type { Decision } from '@shared/types'
 import { choiceGroup, reviewRecommendation, type RecommendationReview, type RecommendationResult } from '@shared/choice'
-import { PROJECT_WKSP, PROJECT_WINDOW, answerNext, api, focusTask, getState, op, openChat, openDecisions, setState, useStore } from '../store'
+import { PROJECT_WKSP, PROJECT_WINDOW, answerNext, api, focusTask, getState, op, openDecisions, setState, useStore } from '../store'
 import { Markdown } from './Markdown'
 import { Chip, useNow } from './ui'
 import { cx, dateShort } from '../lib/format'
 import { playSfx } from '../lib/sfx'
-import { answerKey, askGenioMessage, choiceRows } from '../lib/choice'
-import { getScreenContext, openGenioPanel, screenContextFor } from '../lib/screen-context'
+import { answerKey, choiceRows } from '../lib/choice'
+import { sendAskGenio } from '../lib/ask-genio'
 import { CARD_ENTER_MS, CARD_EXIT_MS, CARD_LIMIT, cardCueAllowed, cardCues, cardQueue, reconcileSlots, type CardSlot } from '../lib/answer-queue'
 
 /** Ctrl+J: Answer next. */
@@ -330,14 +330,10 @@ export function AnswerCard({ d, phase = 'idle', top, compact = false, onActivate
   const later = (): Promise<void> => run(() => op('Later', () => api().holdDecision(d.id, 'later')))
   // Ask Genio: the player's own chat message, through the normal send path with the screen context; the choice stays open, set aside.
   const askGenio = (): Promise<void> => run(async () => {
-    const { view } = getState()
-    const context = screenContextFor(view, PROJECT_WINDOW ?? d.project ?? '', getScreenContext(view))
     const wksp = ownerChat(d)
-    const sent = await op('Ask Genio', async () => { await api().sendChat(wksp, askGenioMessage(d, task?.title), undefined, context); return true })
+    const sent = await sendAskGenio(d, wksp, d.project, task?.title)
     if (!sent) return
     await op('Ask Genio', () => api().holdDecision(d.id, 'genio'))
-    if (PROJECT_WKSP) { if (view !== 'comms') openGenioPanel() }
-    else openChat(wksp)
   })
 
   const urgent = d.urgency === 'urgent'

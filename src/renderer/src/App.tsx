@@ -15,6 +15,7 @@ import { Answers } from './components/Answers'
 import { ProjectNotice } from './components/ProjectNotice'
 import { GenioPanel } from './components/GenioPanel'
 import { TerminalPane, preloadPaneTerminal } from './components/TerminalPane'
+import { TipCard } from './components/TipCard'
 
 /**
  * Every screen but the chat is its own chunk, loaded on first use: the window shell and chat paint without
@@ -139,6 +140,7 @@ export function App() {
               )}
             </main>
             <GenioPanel />
+            <TipCard />
           </div>
           <TerminalPane />
         </div>

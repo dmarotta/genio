@@ -41,8 +41,11 @@ the answer no.
    day and one per session. Only Online in the focused project, outside Play, replies,
    dialogs and other choice cards; Ask Genio alone may explain its single waiting choice.
    Never teach an already-used feature. The card must not block work, fades after
-   20 seconds, and offers Ask Genio, No more tips and dismissal. One Settings row restores
-   tips; no feed, history, tour or per-tip controls. See [Feature tips](feature-tips.md).
+   20 seconds, and offers Ask Genio, No more tips and X; Escape dismisses it too.
+   It sits at the stage's bottom left, above the terminal, and yields to choices
+   and toasts if space runs out. In Settings, All projects → General → Feature tips
+   is the single row to restore tips or turn them off. No feed, history, tour or
+   per-tip controls. See [Feature tips](feature-tips.md).
 7. **An empty state is one plain line.** What is missing, and if there is a next step, what it
    is. No illustration, no tutorial.
 8. **Do not hide clutter behind a toggle or a popover; delete it.** A hidden thing is still a

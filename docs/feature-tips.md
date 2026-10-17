@@ -4,8 +4,24 @@ Feature tips teach a feature once, when real activity makes it useful. They are 
 from the start (`settings.featureTips`), global across projects, and selected by
 fixed rules. Selecting a tip makes no model call and starts no work.
 
-This build supplies the engine and its events. The corner card, Ask Genio,
-No more tips, dismissal and the Settings row arrive in Build 3; no tip UI is added here.
+One small card appears at the bottom left of the project's stage, beside the rail.
+It shows the tip line, **Ask Genio**, **No more tips** and a close X. Ask Genio sends
+the tip's question as your own message, with the current screen context, through
+the same chat path as a choice card; it opens the chat panel on other screens.
+The card never takes focus, fades after twenty seconds and can be dismissed with
+Escape or X. Dismissal and timeout do not turn tips off or make that tip return.
+
+**No more tips** dismisses the card and turns tips off immediately for every
+project. In Settings, **All projects → General → Feature tips** is the single place
+to turn them back on, or off without waiting for a card. Settings search finds
+the row under “tips” and “hints”. Turning tips back on preserves once-only history.
+There is no Tips page, history, reset or per-tip switch.
+
+The card stays inside the stage above the terminal pane. At narrow sizes it moves
+above any colliding toast or choice card; if there is no clear space, it stays
+hidden while crowded, with its original twenty-second expiry still applying. It
+does not cover the other controls or queue a replacement. Render checks at 1440×900 and
+480×360 cover the card, choice cards, toasts and terminal pane together.
 
 | Feature | Relevant moment and conditions | Already used when |
 |---|---|---|

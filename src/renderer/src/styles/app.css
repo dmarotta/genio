@@ -7,6 +7,23 @@
 .stage-shell { flex: 1; min-width: 0; min-height: 0; position: relative; display: flex; overflow: hidden; }
 .stage { flex: 1; min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; animation: rise 0.28s var(--ease) both; }
 
+/* One quiet, non-modal hint in the stage, above the terminal and clear of the floating cards. */
+.tip-card {
+  position: absolute; left: 16px; z-index: 100; width: 420px; max-width: calc(100% - 32px);
+  padding: 12px 14px 12px 16px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 8px;
+  background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 10px;
+  box-shadow: 0 0 18px rgba(0, 229, 255, 0.16); transition: opacity 0.2s linear;
+}
+.tip-card.out { opacity: 0; pointer-events: none; }
+.tip-line { font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+.tip-close { align-self: start; color: var(--text-mute); }
+.tip-actions { grid-column: 1 / -1; display: flex; gap: 8px; }
+@media (max-width: 780px) {
+  .tip-card { left: 8px; max-width: calc(100% - 16px); padding: 8px 10px; gap: 6px; }
+  .tip-line { font-size: 13px; }
+}
+@media (prefers-reduced-motion: reduce) { .tip-card { transition: none; } }
+
 .neon-text { color: var(--neon); }
 .volt-text { color: var(--volt); }
 .amber-text { color: var(--amber); }

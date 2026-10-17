@@ -7,8 +7,10 @@ and the doc with the details. Settings paths are written the way Genio names the
 
 Once-only hints chosen from what you are doing, on from the start. At most one a
 day and one per session, only Online in the focused project, outside Play and
-replies, and never for a feature you already used. The rule engine is in place;
-the corner card and Feature tips switch are the next build.
+replies, and never for a feature you already used. A card at the bottom left of
+the stage offers Ask Genio, No more tips and X; it fades after twenty seconds,
+and Escape dismisses it. No more tips turns them off for every project. Turn them
+back on in Settings under All projects → General → Feature tips (search “tips” or “hints”).
 Source: [Feature tips](../feature-tips.md)
 
 ## Presence

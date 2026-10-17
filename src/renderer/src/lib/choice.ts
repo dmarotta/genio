@@ -56,8 +56,9 @@ export function choiceRows(d: { question: string; options: string[]; recommendat
   return quick && !d.options.includes(quick) ? [...rows, { text: quick, rec: true }] : rows.map((r) => ({ ...r, rec: r.rec || r.text === quick }))
 }
 
-/** What Ask Genio sends as the player's own chat message: the question, its details, the numbered options and who asked, no ids. */
-export function askGenioMessage(d: { question: string; context?: string; options: string[]; recommendation?: string }, asker?: string): string {
+/** A tip's plain question, or a choice's question, details, numbered options and asker; no ids. */
+export function askGenioMessage(d: { question: string; context?: string; options: string[]; recommendation?: string } | string, asker?: string): string {
+  if (typeof d === 'string') return d
   const rows = choiceRows(d)
   return [
     'Help me decide this open choice.',

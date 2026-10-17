@@ -35,10 +35,10 @@ export function DislikeMarker() {
   )
 }
 
-export function Toggle({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label?: ReactNode; disabled?: boolean }) {
+export function Toggle({ checked, onChange, label, ariaLabel, disabled }: { checked: boolean; onChange: (v: boolean) => void; label?: ReactNode; ariaLabel?: string; disabled?: boolean }) {
   return (
     <label className="toggle" style={disabled ? { opacity: 0.4, pointerEvents: 'none' } : undefined}>
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <input type="checkbox" aria-label={ariaLabel} checked={checked} onChange={(e) => onChange(e.target.checked)} />
       <span className="track" />
       {label && <span className="toggle-label">{label}</span>}
     </label>
