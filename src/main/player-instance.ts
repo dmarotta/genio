@@ -760,6 +760,8 @@ export class PlayerInstanceService {
     if (this.polling || this.exiting) return
     this.polling = true
     try {
+      // Nothing launched: nothing to check, and a process listing starts two PowerShells (every 5 s from boot).
+      if (![...this.instances.values()].some(i => i.launch && !this.operations.has(i.project))) return
       const procs = await this.system.list()
       for (const i of this.instances.values()) {
         if (!i.launch || this.operations.has(i.project)) continue

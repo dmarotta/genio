@@ -226,6 +226,16 @@ it('closes before restart-sensitive writes and keeps the copy and Library for th
   await svc.play('A', { path: root })
   expect(events).toContain('quit-version:m_EditorVersion: 6000.3.1f1')
 })
+it('lists no processes while no player editor is launched (the five-second poll starts two PowerShells)', async () => {
+  const list = vi.spyOn(system, 'list')
+  await svc.poll(); await svc.poll()
+  expect(list).not.toHaveBeenCalled()
+  await svc.play('A', { path: projects.get('A')!.path })
+  list.mockClear()
+  await svc.poll()
+  expect(list).toHaveBeenCalledTimes(1)
+  list.mockRestore()
+})
 it('quits at the idle deadline and keeps the copy', async () => {
   await svc.play('A', { path: projects.get('A')!.path }); await svc.stop('A')
   clock += 9 * 60000; await svc.poll()
