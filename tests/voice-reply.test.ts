@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ReplyVoice, SPEAK_LIMIT, sentences, speakable, type ReplyVoiceDeps } from '../src/renderer/src/lib/voice'
+import { ReplyVoice, SPEAK_LIMIT, chunks, sentences, speakable, trimSilence, type ReplyVoiceDeps } from '../src/renderer/src/lib/voice'
 
 // The natural voice's player with a fake AudioContext and fake main calls: no audio device, no helper.
 class FakeSource {
@@ -42,15 +42,69 @@ const tick = (ms = 0): Promise<void> => new Promise((r) => setTimeout(r, ms))
 /** 0.01 s of audio at 24 kHz. */
 const audio = (): { rate: number; pcm: Float32Array } => ({ rate: 24000, pcm: new Float32Array(240).fill(0.1) })
 
+/** Three sentences long enough to be a chunk each (the first chunk takes sentences until it has 30 characters). */
+const S1 = 'The first sentence is long enough.'
+const S2 = 'The second sentence is long enough.'
+const S3 = 'The third sentence is long enough.'
+
 describe('sentences', () => {
   it('splits a speakable reply into sentences and long runs at a comma', () => {
     expect(sentences('Done. Want me to deploy it? Yes!\nNext line')).toEqual(['Done.', 'Want me to deploy it?', 'Yes!', 'Next line'])
-    const long = `${'word '.repeat(50)}then, ${'more '.repeat(30)}end.`
+    const long = `${'word '.repeat(30)}then, ${'more '.repeat(20)}end.`
     const parts = sentences(long)
     expect(parts.length).toBe(2)
     expect(parts[0].endsWith('then,')).toBe(true)
-    expect(parts.every((p) => p.length <= 300)).toBe(true)
+    expect(parts.every((p) => p.length <= 200)).toBe(true)
     expect(sentences('code block omitted. ...')).toEqual(['code block omitted.'])
+  })
+
+  it('never splits at an abbreviation, an initial or a decimal', () => {
+    expect(sentences('Use e.g. the 1.5 build. Ask Dr. Lee, i.e. the lead, vs. J. Smith. Done.'))
+      .toEqual(['Use e.g. the 1.5 build.', 'Ask Dr. Lee, i.e. the lead, vs. J. Smith.', 'Done.'])
+  })
+})
+
+describe('chunks', () => {
+  it('joins a very short first sentence to the next, so no gap follows it, and keeps the first chunk short', () => {
+    expect(chunks('Done. I fixed the crash in the player controller. The jump now checks the ground first.'))
+      .toEqual(['Done. I fixed the crash in the player controller.', 'The jump now checks the ground first.'])
+    const first = chunks(`Ok. Yes. ${'This sentence makes the first chunk too long to join. '.repeat(3)}`)[0]
+    expect(first).toBe('Ok. Yes. This sentence makes the first chunk too long to join.')
+    expect(first.length).toBeLessThanOrEqual(80)
+  })
+
+  it('grows later chunks as the speech queued ahead grows, up to about 200 characters', () => {
+    const text = 'This is one sentence of about forty chars. '.repeat(20)
+    const parts = chunks(text)
+    expect(parts.join(' ')).toBe(text.trim())
+    // 42 characters each: one per chunk while the lead is short, then two, three and four (171, under 200).
+    expect(parts.map((p) => p.length)).toEqual([42, 42, 42, 42, 85, 85, 128, 171, 171, 42])
+  })
+
+  it('gives a line without an end mark its pause when it is joined', () => {
+    expect(chunks('Changes\nFixed the jump\nAdded tests')).toEqual(['Changes. Fixed the jump. Added tests'])
+  })
+})
+
+describe('trimSilence', () => {
+  // At 1000 samples per second: one sample is 1 ms.
+  const tone = (ms: number): number[] => new Array(ms).fill(0.3)
+  const quiet = (ms: number): number[] => new Array(ms).fill(0.001)
+
+  it('keeps 30 ms before speech and 120 ms after it, and cuts a long silence inside to 150 ms', () => {
+    const pcm = new Float32Array([...quiet(120), ...tone(100), ...quiet(270), ...tone(100), ...quiet(155)])
+    const out = trimSilence(pcm, 1000)
+    expect(out.length).toBe(30 + 100 + 150 + 100 + 120)
+    expect(out[29]).toBeCloseTo(0.001)
+    expect(out[30]).toBeCloseTo(0.3)
+    expect(out[130 + 149]).toBeCloseTo(0.001)
+    expect(out[130 + 150]).toBeCloseTo(0.3)
+  })
+
+  it('leaves short silences (a comma) and speech untouched, and drops a chunk with no speech', () => {
+    const pcm = new Float32Array([...tone(50), ...quiet(80), ...tone(50)])
+    expect([...trimSilence(pcm, 1000)]).toEqual([...pcm])
+    expect(trimSilence(new Float32Array(quiet(500)), 1000).length).toBe(0)
   })
 })
 
@@ -89,19 +143,19 @@ describe('ReplyVoice', () => {
     }
   })
 
-  it('speaks sentence by sentence with the same cleaning and cut, queuing each buffer right after the last', async () => {
+  it('speaks chunk by chunk with the same cleaning and cut, one request ahead, queuing each buffer right after the last', async () => {
     const h = harness('ready')
     const reply = `I changed \`src/main/voice-output.ts\`. ${'Long sentence here. '.repeat(60)}`
     const speaking = h.voice.speak(reply)
     await tick()
-    const expected = sentences(speakable(reply))
+    const expected = chunks(speakable(reply))
     expect(speakable(reply).length).toBeLessThanOrEqual(SPEAK_LIMIT)
-    expect(h.calls.map((c) => c.text)).toEqual([expected[0]])
-    expect(expected[0]).toBe('I changed path.')
+    expect(expected[0]).toBe('I changed path. Long sentence here.')
+    // The second chunk is asked for at once, so the helper makes it while the first one travels and plays.
+    expect(h.calls.map((c) => c.text)).toEqual([expected[0], expected[1]])
     h.calls[0].resolve(audio())
     await tick()
-    // The next sentence is asked for as soon as the first is playing.
-    expect(h.calls.length).toBe(2)
+    expect(h.calls.length).toBe(3)
     h.calls[1].resolve(audio())
     await tick()
     expect(h.sources.map((s) => s.started)).toEqual([0.02, 0.03])
@@ -113,7 +167,7 @@ describe('ReplyVoice', () => {
 
   it('stop() stops every queued buffer at once and plays nothing that arrives after it', async () => {
     const h = harness('ready')
-    const speaking = h.voice.speak('One. Two. Three.')
+    const speaking = h.voice.speak(`${S1} ${S2} ${S3}`)
     await tick()
     h.calls[0].resolve(audio())
     await tick()
@@ -133,7 +187,7 @@ describe('ReplyVoice', () => {
 
   it('falls back to the Windows voice for the rest of the reply when a sentence fails', async () => {
     const h = harness('ready')
-    const speaking = h.voice.speak('One. Two. Three.')
+    const speaking = h.voice.speak(`${S1} ${S2} ${S3}`)
     await tick()
     h.calls[0].resolve(audio())
     await tick()
@@ -142,12 +196,24 @@ describe('ReplyVoice', () => {
     expect(h.system).toEqual([])
     // After the queued 0.02 s.
     await tick(60)
-    expect(h.system).toEqual(['Two. Three.'])
+    expect(h.system).toEqual([`${S2} ${S3}`])
+  })
+
+  it('queues each chunk without Kokoro\'s extra silence around it', async () => {
+    const h = harness('ready')
+    const speaking = h.voice.speak('Hello there, this is one chunk.')
+    await tick()
+    // 0.12 s of silence, 0.5 s of speech, 0.15 s of silence: 0.03 + 0.5 + 0.12 s are queued.
+    const pcm = new Float32Array(Math.round(0.77 * 24000))
+    pcm.fill(0.2, Math.round(0.12 * 24000), Math.round(0.62 * 24000))
+    h.calls[0].resolve({ rate: 24000, pcm })
+    await speaking
+    expect(h.sources[0].buffer!.duration).toBeCloseTo(0.65, 3)
   })
 
   it('a newer reply replaces the one being spoken', async () => {
     const h = harness('ready')
-    const first = h.voice.speak('Old reply. Still old.')
+    const first = h.voice.speak(`${S1} ${S2}`)
     await tick()
     h.calls[0].resolve(audio())
     await tick()

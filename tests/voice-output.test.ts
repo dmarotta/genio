@@ -253,4 +253,12 @@ describe('routing', () => {
     expect(routeProjectEvent(ev, { project: 'beta', wksp: 'genio-beta' } as never, snap)).toBeUndefined()
     expect(routeProjectEvent(ev, undefined, snap)).toBeUndefined()
   })
+
+  it('a message sent to a chat stops speech in the windows that show it', () => {
+    const snap = { tasks: [], projects: [] } as unknown as FleetSnapshot
+    const ev = { type: 'speak-stop' as const, wksp: 'genio-alpha' }
+    expect(routeProjectEvent(ev, { project: 'alpha', wksp: 'genio-alpha' } as never, snap)).toEqual(ev)
+    expect(routeProjectEvent(ev, { project: 'beta', wksp: 'genio-beta' } as never, snap)).toBeUndefined()
+    expect(routeProjectEvent(ev, undefined, snap)).toBeUndefined()
+  })
 })

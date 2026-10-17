@@ -38,12 +38,22 @@ function cut(text: string, limit: number): string {
 }
 
 /** A piece longer than this is split at its last comma or semicolon before it. */
-const PIECE_MAX = 300
+const PIECE_MAX = 200
+/** A dot that does not end a sentence: e.g., i.e., etc., vs., titles and initials (decimals have no space after). */
+const NOT_AN_END = /(?:^|[\s(])(?:e\.g|i\.e|etc|vs|approx|cf|mr|mrs|ms|dr|st|jr|sr|inc|ltd|fig|[A-Za-z])\.$/i
 
-/** The sentences of a speakable text, in order, for the natural voice: one request each, so the first plays early. */
+/** The sentences of a speakable text, in order (long runs split at a comma). */
 export function sentences(text: string): string[] {
   const out: string[] = []
-  for (let s of text.split(/(?<=[.!?])\s+|\n+/)) {
+  const lines = text.split(/\n+/).flatMap((line) => {
+    const parts: string[] = []
+    for (const s of line.split(/(?<=[.!?])\s+/)) {
+      if (parts.length && NOT_AN_END.test(parts[parts.length - 1])) parts[parts.length - 1] += ` ${s}`
+      else parts.push(s)
+    }
+    return parts
+  })
+  for (let s of lines) {
     s = s.trim()
     while (s.length > PIECE_MAX) {
       const at = Math.max(s.lastIndexOf(', ', PIECE_MAX), s.lastIndexOf('; ', PIECE_MAX))
@@ -54,6 +64,76 @@ export function sentences(text: string): string[] {
     if (/[\p{L}\p{N}]/u.test(s)) out.push(s)
   }
   return out
+}
+
+/** The first chunk takes sentences until it has this many characters (a lone "Done." would leave a gap after it)... */
+const FIRST_MIN = 30
+/** ...and never grows past this, so speech still starts early. */
+const FIRST_MAX = 80
+const CHUNK_MAX = 200
+/** Seconds Kokoro takes to make one second of speech with the helper's 4 threads (measured; docs/voice.md). */
+const MAKE_TIME = 0.75
+
+/**
+ * A speakable text as the natural voice's requests: sentences joined into chunks, a short first one and then up to
+ * about 200 characters. Fewer joins mean fewer pauses. Each chunk must be made before the speech queued ahead of it
+ * runs out: that speech is the first chunk plus what every later one gained (it plays for 1 s and took 0.75 s to make),
+ * so chunks grow as the lead does.
+ */
+export function chunks(text: string): string[] {
+  const out: string[] = []
+  let current = ''
+  /** The speech queued ahead when the next chunk starts being made, in characters. */
+  let lead = 0
+  for (const s of sentences(text)) {
+    const first = out.length === 0
+    const max = first ? FIRST_MAX : Math.min(CHUNK_MAX, lead / MAKE_TIME)
+    if (current && ((first && current.length >= FIRST_MIN) || current.length + 1 + s.length > max)) {
+      lead += first ? current.length : (1 - MAKE_TIME) * current.length
+      out.push(current)
+      current = s
+    } else {
+      // A line without an end mark (a list item) still gets its pause.
+      current = current ? `${/[.!?,;:]$/.test(current) ? current : `${current}.`} ${s}` : s
+    }
+  }
+  if (current) out.push(current)
+  return out
+}
+
+/** Silence kept before speech and after it: 0.15 s at every sentence end, inside a chunk or where two chunks meet. */
+const LEAD_KEEP = 0.03
+const TRAIL_KEEP = 0.12
+const SILENT = 0.01
+
+/**
+ * The chunk without the extra silence Kokoro makes around each sentence (about 0.12 s before and 0.15 s after, so
+ * about 0.27 s at every full stop): edges trimmed, and any longer silence inside cut to the same 0.15 s.
+ */
+export function trimSilence(pcm: Float32Array, rate: number): Float32Array {
+  const lead = Math.round(LEAD_KEEP * rate)
+  const trail = Math.round(TRAIL_KEEP * rate)
+  const out = new Float32Array(pcm.length)
+  let n = 0
+  let i = 0
+  while (i < pcm.length) {
+    if (Math.abs(pcm[i]) >= SILENT) { out[n++] = pcm[i++]; continue }
+    let end = i
+    while (end < pcm.length && Math.abs(pcm[end]) < SILENT) end++
+    const keepAfter = i === 0 ? 0 : trail
+    const keepBefore = end === pcm.length ? 0 : lead
+    if (end - i <= keepAfter + keepBefore) {
+      out.set(pcm.subarray(i, end), n)
+      n += end - i
+    } else {
+      out.set(pcm.subarray(i, i + keepAfter), n)
+      n += keepAfter
+      out.set(pcm.subarray(end - keepBefore, end), n)
+      n += keepBefore
+    }
+    i = end
+  }
+  return out.subarray(0, n)
 }
 
 let pending = 0
@@ -117,8 +197,9 @@ export interface ReplyVoiceDeps {
 }
 
 /**
- * Speaks replies with the natural voice (Kokoro, through main's helper) when it is installed: one sentence per request,
- * each played through an AudioContext queue as soon as it arrives while the next is synthesized. stop() stops every
+ * Speaks replies with the natural voice (Kokoro, through main's helper) when it is installed: one chunk of sentences per
+ * request, one request ahead, each played (without Kokoro's extra silence) through an AudioContext queue as soon as it
+ * arrives while the next is synthesized. stop() stops every
  * queued buffer at once and fails what main still has pending. The Windows voice takes over whenever it is the
  * chosen reply voice, or the natural voice is missing, declined or fails (for the rest of the reply).
  */
@@ -150,14 +231,25 @@ export class ReplyVoice {
       this.deps.system(clean)
       return
     }
-    const parts = sentences(clean)
+    const parts = chunks(clean)
+    const ask = (i: number): Promise<{ rate: number; pcm: Float32Array }> | undefined => {
+      if (i >= parts.length) return undefined
+      const request = this.deps.synth(parts[i])
+      request.catch(() => undefined)
+      return request
+    }
+    // One request ahead: the helper starts the next chunk as soon as it finishes one, never waiting on the window.
+    let next = ask(0)
     for (let i = 0; i < parts.length; i++) {
+      const current = next!
+      next = ask(i + 1)
       let audio: { rate: number; pcm: Float32Array }
       try {
-        audio = await this.deps.synth(parts[i])
+        audio = await current
       } catch {
         if (ticket !== this.ticket) return
-        // The rest in the Windows voice, once what is queued has played.
+        // The rest in the Windows voice, once what is queued has played; the chunk asked for ahead is not needed.
+        try { this.deps.cancel() } catch { /* no main */ }
         const rest = parts.slice(i).join(' ')
         const wait = this.ctx ? Math.max(0, this.end - this.ctx.currentTime) : 0
         setTimeout(() => { if (ticket === this.ticket) this.deps.system(rest) }, wait * 1000)
@@ -169,11 +261,12 @@ export class ReplyVoice {
   }
 
   private play(audio: { rate: number; pcm: Float32Array }): void {
-    if (!audio.pcm.length) return
+    const pcm = trimSilence(audio.pcm, audio.rate)
+    if (!pcm.length) return
     const ctx = (this.ctx ??= this.deps.context())
     void ctx.resume?.().catch(() => undefined)
-    const buffer = ctx.createBuffer(1, audio.pcm.length, audio.rate)
-    buffer.getChannelData(0).set(audio.pcm)
+    const buffer = ctx.createBuffer(1, pcm.length, audio.rate)
+    buffer.getChannelData(0).set(pcm)
     const source = ctx.createBufferSource()
     source.buffer = buffer
     source.connect(ctx.destination)
@@ -230,7 +323,7 @@ export function speak(text: string, replyVoice?: string): void {
   }
 }
 
-/** Stop Genio talking: the mic button and Esc in the chat box. */
+/** Stop Genio talking: the mic button, Esc in the chat box, and any message the player sends to the chat. */
 export function stopSpeaking(): void {
   try {
     voice().stop()

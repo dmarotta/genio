@@ -4,11 +4,12 @@
  *   with espeak-ng, GPL-3.0, built in) and Kokoro en v0.19 (Apache-2.0), from pinned URLs with pinned SHA-256, into
  *   Genio's data folder. Genio never ships either. They only ever load in their own helper process
  *   (resources/kokoro-helper.cjs), which Genio talks to over pipes: text in, PCM out.
- * - The helper starts on the first sentence, with 2 threads at above-normal priority, and keeps the model loaded; it
+ * - The helper starts on the first request, with 4 threads at above-normal priority, and keeps the model loaded; it
  *   exits after 10 idle minutes and when Genio quits.
- * - One sentence per request, in order, each with the Kokoro speaker id of the saved reply voice (read per request, so a
- *   new choice applies from the next sentence without restarting the helper). Cancel rejects every pending request at
- *   once; a sentence the helper is already working on is dropped when it arrives.
+ * - One chunk of sentences per request, in order (the window keeps one request ahead, so the helper never waits), each
+ *   with the Kokoro speaker id of the saved reply voice (read per request, so a new choice applies from the next chunk
+ *   without restarting the helper). Cancel rejects every pending request at once; a chunk the helper is already working
+ *   on is dropped when it arrives.
  */
 import { spawn, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
@@ -25,8 +26,9 @@ import { speakerId } from '@shared/reply-voice'
 const IDLE_MS = 10 * 60_000
 const START_TIMEOUT_MS = 60_000
 const SENTENCE_TIMEOUT_MS = 60_000
-export const VOICE_THREADS = 2
-/** The longest text one request takes (the renderer sends one sentence of a reply cut near 600 characters). */
+/** 4, not 2: with 2, Kokoro makes speech at about the speed it plays, so the queue ran dry at full stops (docs/voice.md). */
+export const VOICE_THREADS = 4
+/** The longest text one request takes (the renderer sends chunks of up to about 200 characters). */
 export const SYNTH_MAX_CHARS = 1000
 
 /** Pinned: the addon from the npm registry, the model from the sherpa-onnx tts-models release. */

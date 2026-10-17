@@ -49,6 +49,11 @@ function refuseShellText(text: string): void {
   if (isShellCommandMessage(text)) throw new Error('Messages starting with ! are shell commands: they run in the terminal and are never sent to Genio as chat.')
 }
 
+/** The player sent something to this chat (a message, a steer or a ! command): every window showing it stops speaking. */
+function stopSpeaking(wksp: string): void {
+  bus.publish({ type: 'speak-stop', wksp })
+}
+
 /** Windows' microphone switch for desktop apps; elsewhere the browser's own prompt decides. */
 function micAccess(): VoiceStatus['mic'] {
   try { return process.platform === 'win32' ? systemPreferences.getMediaAccessStatus('microphone') : 'unknown' } catch { return 'unknown' }
@@ -375,11 +380,13 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     },
     sendChat: (wksp, text, images, context, conversation) => {
       refuseShellText(text)
+      stopSpeaking(wksp)
       return conversation ? design(wksp).send(conversation, text, images, context) : sendPlayerChat(ctx(), wksp, text, images, context)
     },
     unqueueChat: async (wksp, id, conversation) => conversation ? design(wksp).unqueue(conversation, id) : ctx().home(wksp).wksp.unqueue(id),
     steerChat: (wksp, text, images, context, conversation) => {
       refuseShellText(text)
+      stopSpeaking(wksp)
       return conversation ? design(wksp).steer(conversation, text, images, context) : ctx().home(wksp).wksp.steer(text, images, context)
     },
     sendQueuedNow: async (wksp, id, conversation) => conversation ? design(wksp).sendNow(conversation, id) : ctx().home(wksp).wksp.sendNow(id),
@@ -430,7 +437,10 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     paneCwds: async (world) => paneCwds(ctx(), world),
     paneOpen: async (world, cwd, restart, size) => openPane(ctx(), world, cwd, restart, size),
     paneClose: async (world) => closePane(ctx(), world),
-    paneRun: async (world, wksp, command, cwd, size) => runShell(ctx(), world, wksp, command, cwd, size),
+    paneRun: async (world, wksp, command, cwd, size) => {
+      stopSpeaking(wksp)
+      return runShell(ctx(), world, wksp, command, cwd, size)
+    },
 
     // ---- quest log
     backlogAdd: (item) => ctx().main.backlog.add(item),

@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import { registerIpc, type IpcWindows } from '../src/main/ipc'
 import type { AppCtx } from '../src/main/services'
+import { bus } from '../src/main/bus'
 
 const handlers = vi.hoisted(() => new Map<string, (...args: any[]) => Promise<unknown>>())
 vi.mock('electron', () => ({
@@ -64,6 +65,25 @@ it('never sends a ! message to the model as chat text', async () => {
   expect(steer).not.toHaveBeenCalled()
   await handlers.get('genio:sendChat')!({ sender: { id: 1 } }, 'ally-one', 'what does it mean!')
   expect(send).toHaveBeenCalledOnce()
+})
+
+it('stops speech when a message, a steer or a ! command is actually sent, not when it is refused', async () => {
+  const stops: string[] = []
+  const off = bus.onEvent(ev => { if (ev.type === 'speak-stop') stops.push(ev.wksp) })
+  try {
+    const hc = { wksp: { send: vi.fn(async () => {}), steer: vi.fn(async () => {}) } }
+    const runShell = vi.fn()
+    registerIpc((() => ({ home: () => hc, terminals: { list: () => [], create: runShell }, projects: { get: () => undefined }, homes: new Map() })) as unknown as () => AppCtx, windows(true))
+    await expect(handlers.get('genio:sendChat')!({ sender: { id: 1 } }, 'ally-one', '!git status')).rejects.toThrow(/shell commands/)
+    await expect(handlers.get('genio:sendChat')!({ sender: { id: 1 } }, 'other-wksp', 'hello')).rejects.toThrow()
+    expect(stops).toEqual([])
+    await handlers.get('genio:sendChat')!({ sender: { id: 1 } }, 'ally-one', 'stop and listen')
+    await handlers.get('genio:steerChat')!({ sender: { id: 1 } }, 'ally-one', 'do this first')
+    await handlers.get('genio:paneRun')!({ sender: { id: 1 } }, 'one', 'ally-one', 'git status').catch(() => undefined)
+    expect(stops).toEqual(['ally-one', 'ally-one', 'ally-one'])
+  } finally {
+    off()
+  }
 })
 
 it('the terminal pane answers only its own project window, and a ! result goes only to that window\'s chat', async () => {

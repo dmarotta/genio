@@ -6,12 +6,12 @@
  *   node kokoro-helper.cjs <sherpa-onnx.node> <model dir> <threads>
  *
  * It loads the player's downloaded sherpa-onnx addon (Apache-2.0, with espeak-ng, GPL-3.0, built in) and the Kokoro
- * model once, then reads one JSON line per sentence on stdin, `{"id":1,"text":"...","sid":0}` (sid: the speaker, 0 to
+ * model once, then reads one JSON line per chunk of text (one or more sentences) on stdin, `{"id":1,"text":"...","sid":0}` (sid: the speaker, 0 to
  * 10; anything else is 0), and answers each with a frame on stdout: a u32 LE header length, the JSON header, a u32 LE
  * payload length, the payload. Headers:
  *   {"type":"ready","rate":24000}            once, after loading (no payload)
- *   {"type":"audio","id":1,"rate":24000}     the sentence as mono Float32 LE PCM
- *   {"type":"error","id":1,"message":"..."}  that sentence failed
+ *   {"type":"audio","id":1,"rate":24000}     the chunk as mono Float32 LE PCM
+ *   {"type":"error","id":1,"message":"..."}  that chunk failed
  *   {"type":"fatal","message":"..."}         loading failed; the helper exits
  * It exits when stdin closes, so it never outlives Genio.
  */
@@ -41,7 +41,7 @@ try {
         tokens: path.join(modelDir, 'tokens.txt'),
         dataDir: path.join(modelDir, 'espeak-ng-data')
       },
-      numThreads: Number(threads) || 2,
+      numThreads: Number(threads) || 4,
       provider: 'cpu',
       debug: 0
     },

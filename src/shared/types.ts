@@ -1113,6 +1113,8 @@ export type GenioEvent =
   | { type: 'sfx'; sound: SfxName }
   /** A reply to read aloud, in the windows that show this wksp's chat. */
   | { type: 'speak'; wksp: string; text: string }
+  /** The player sent a message to this wksp's chat: the windows that show it stop speaking. */
+  | { type: 'speak-stop'; wksp: string }
   /** The speech model download (voice input): progress, the end, or why it failed. */
   | { type: 'voice-install'; state: 'missing' | 'downloading' | 'ready'; received: number; total: number; error?: string }
   /** The natural voice download (voice output): progress, the end, or why it failed. */

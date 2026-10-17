@@ -9,7 +9,7 @@ import { askingDecision } from '@shared/decisions'
 import { occupiedUnits } from '@shared/unit-capacity'
 import { squadActive } from '@shared/squad-display'
 import { playSfx } from './lib/sfx'
-import { speak } from './lib/voice'
+import { speak, stopSpeaking } from './lib/voice'
 import { viewAvailable, type ViewId } from './lib/railmenu'
 import { supportsUnitySlots } from '@shared/play'
 import { effectiveEngine } from '@shared/engine'
@@ -515,6 +515,9 @@ export function handleEvent(ev: GenioEvent): void {
       break
     case 'speak':
       if (s.settings?.voice) speak(ev.text, s.settings.replyVoice)
+      break
+    case 'speak-stop':
+      stopSpeaking()
       break
     case 'navigate': {
       // a desktop notification was clicked

@@ -63,7 +63,9 @@ settings are **Read replies aloud** and, once the natural voice is downloaded, t
   (`replyVoice`) and applies from the next spoken sentence; Genio's chat can change it too (`settings_update`).
 - What is spoken: code blocks become "code block omitted", tables are skipped, URLs become "link", file paths become
   "path", and a long reply is cut at a sentence end near 600 characters.
-- **Pressing the mic, or Esc in the chat box, stops it at once.** A newer reply replaces an older one.
+- **Pressing the mic, Esc in the chat box, or sending a message stops it at once.** Any message actually sent to that
+  chat counts: typed or spoken, sent, queued or steered, and `!` shell commands; an empty or refused one does not. The
+  next reply is read aloud as usual. A newer reply replaces an older one.
 - Tool calls, permission asks and system lines are never spoken. **The Bot never speaks**, and sending any message
   still ends AFK as typed text does.
 
@@ -86,18 +88,39 @@ settings are **Read replies aloud** and, once the natural voice is downloaded, t
   - Stored in `<Genio home>/data/voice/kokoro/`; only the addon's binaries and the model folder are kept.
 - **Removing it:** quit Genio (or leave the voice idle for 10 minutes) and delete `<Genio home>/data/voice/kokoro/`;
   the next spoken reply offers it again.
-- **How it speaks.** The cleaned reply is split into sentences. Genio's helper (below) makes one sentence at a time and
-  the chat window plays each through its own audio (an `AudioContext` queue) as soon as it arrives, while the next one
-  is made. Because the audio now plays through Chromium, the microphone's echo canceller can hear it.
+- **How it speaks.** The cleaned reply is split into sentences (never at e.g., i.e., etc., vs., titles such as Dr.,
+  initials or decimals) and the sentences are joined into chunks. The chat window plays each chunk through its own audio
+  (an `AudioContext` queue) as soon as it arrives. Because the audio plays through Chromium, the microphone's echo
+  canceller can hear it.
+  - **Chunks.** The first takes sentences until it has 30 characters, up to 80, so speech starts early and a lone
+    "Done." does not leave a gap after it. Each later chunk must be made before the speech queued ahead of it runs out,
+    so chunks grow with that lead (Kokoro needs about 0.75 s per second of speech): typically 40–90 characters at
+    first, then up to 200.
+  - **One request ahead.** The window asks for the next chunk as soon as it asks for one, so the helper starts on it
+    the moment it finishes the last; it never waits for the window.
+  - **Pauses.** Kokoro puts about 0.12 s of silence before each sentence and 0.15 s after it, so about 0.27 s at every
+    full stop. The window trims that to 0.15 s at every sentence end, inside a chunk and between chunks; shorter
+    silences (commas) stay as made.
 - **The helper** is `resources/kokoro-helper.cjs`, run as its own process (Genio's Electron run as Node) on the first
-  sentence: 2 threads, CPU only, above-normal priority. It loads the model once and holds about 0.5 GB of RAM; it exits
+  chunk: 4 threads, CPU only, above-normal priority. It loads the model once and holds about 0.5 GB of RAM; it exits
   after 10 idle minutes, when Genio quits, and when its pipe to Genio closes.
-  - Each sentence request carries the speaker id of the saved voice, read by Genio's main process per request, so a new
-    choice needs no restart of the helper.
-  - Measured on the Ryzen 7 5800X: start and model load 2.0 s, then about 1.2 s for a short first sentence; with the
-    CPU saturated by other work, 4.8 s and 3.0 s. Later sentences are made while earlier ones play.
-- **Stopping** (the mic, Esc, a newer reply): every queued buffer stops at once and every sentence still pending in
-  Genio's main process fails; a sentence the helper is already making is dropped when it arrives.
+  - Each request carries the speaker id of the saved voice, read by Genio's main process per request, so a new choice
+    needs no restart of the helper.
+- **Measured** on the Ryzen 7 5800X (8 cores, 16 threads), with a 7-sentence and a 12-sentence reply, idle CPU:
+  - Before (one sentence per request, 2 threads): Kokoro took about 1.0 s per second of speech, so the queue ran dry
+    at full stops: total gaps 0.7–3.4 s per reply, up to 1.9 s at a single full stop (after a short "Done.", 0.65 s of
+    audio, the next sentence took 2.5 s to make), on top of the 0.27 s of silence Kokoro adds.
+  - Threads: about 1.0 s per second of speech with 2, 0.7 with 4, 0.6 with 6, 0.55 with 8. With every core busy, 6
+    threads did worse than 4 (more threads than free cores), so the helper uses 4, like the speech model.
+  - After (chunks, one request ahead, 4 threads): no gap at all in 3 of 4 runs and one of 0.15 s in the other; every
+    sentence end is 0.15 s. The first words are heard 1.9–2.8 s after the reply arrives (helper already running;
+    before, 1.3–2.4 s, but then the long gap followed).
+  - With every core saturated by other work, gaps come back whatever the settings: Kokoro then makes speech slower
+    than it plays.
+- **Stopping** (the mic, Esc, sending a message, a newer reply): every queued buffer stops at once and every chunk
+  still pending in Genio's main process fails, including the one asked for ahead; a chunk the helper is already making
+  is dropped when it arrives. A message sent from any window of that chat stops it in every window that shows the chat
+  (main sends them a `speak-stop` event).
 - **The Windows voice stays the fallback**: whenever it is the chosen voice, or the natural voice is missing, declined, still downloading, or
   fails (for the rest of that reply).
 
@@ -130,7 +153,7 @@ builds). Genio is MIT. Shipping it this way is fine:
 ## Code
 
 - `src/main/voice-input.ts`: download, verification, the lazy server, splitting, the prompt and the silence filter.
-- `src/main/voice-output.ts`: the natural voice's download, the helper's lifetime, sentence requests and cancel;
+- `src/main/voice-output.ts`: the natural voice's download, the helper's lifetime, chunk requests and cancel;
   `resources/kokoro-helper.cjs`: the helper process.
 - `src/main/window-permissions.ts` and `guardPermissions()` in `src/main/index.ts`: the permission handlers.
 - `src/main/ipc.ts`: `voiceStatus`, `voiceInstall`, `voiceTranscribe` and the `voice-install` progress event (the
@@ -138,7 +161,8 @@ builds). Genio is MIT. Shipping it this way is fine:
   `voiceSynth`, `voiceSynthCancel` and the `voice-output-install` progress event.
 - `src/renderer/src/lib/mic.ts` and `mic-worklet.ts`: recording; `src/renderer/src/components/MicButton.tsx`: the
   button, F8 and both consent panels; `src/renderer/src/lib/voice.ts`: speech of replies (the natural voice's queue and
-  the Windows voice).
+  the Windows voice, sentences, chunks and silence trimming); `sendChat`, `steerChat` and `paneRun` in
+  `src/main/ipc.ts` publish `speak-stop`, which `src/renderer/src/store.ts` turns into `stopSpeaking()`.
 
 ## Later
 
