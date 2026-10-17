@@ -180,4 +180,53 @@ describe('Modeller live view (app side of the sandboxed frame)', () => {
     // text only: no new buttons
     expect([...host.querySelectorAll('button')].map(b => b.textContent)).toEqual(['Wireframe', 'Clay', 'Turntable'])
   })
+
+  it('shows a sign of life beside the caption only while the unit works', async () => {
+    const working = { status: 'Planning the tower', since: Date.now() - 5000 }
+    const landed = { ...step(1, 'Raising four timber legs'), at: Date.now() - 3000 }
+    const status = (): HTMLElement | null => host.querySelector('[role="status"]')
+    const live = (): Element | null => status()?.querySelector('.modeller-view-live') ?? null
+    const renderWith = async (l: ModellerLive | null, activity: typeof working | null) => { await act(async () => root.render(React.createElement(ModellerView, { live: l, activity }))) }
+    // before the first step, between steps, and while a step runs
+    for (const [l, a] of [[null, working], [state({ steps: [landed] }), working], [state({ running: { id: 's002', n: 2, caption: 'Deck', startedAt: Date.now() } }), null]] as const) {
+      await renderWith(l, a)
+      expect(live()).not.toBeNull()
+      expect(live()!.getAttribute('aria-hidden')).toBe('true')
+      expect(status()!.className).toContain('working')
+      // the dot comes first, then the text and the clock, on one line
+      expect(status()!.firstElementChild).toBe(live())
+    }
+    await renderWith(null, working)
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    expect(status()!.textContent).toBe('Planning the tower7 s')
+    // ready (no activity), failed, and no live data: no indicator
+    await renderWith(state({ steps: [landed] }), null)
+    expect(live()).toBeNull()
+    expect(status()!.className).not.toContain('working')
+    await renderWith(state({ steps: [landed], failure: { id: 's002', n: 2, caption: 'Deck', kind: 'error', error: 'boom' } }), working)
+    expect(live()).toBeNull()
+    await renderWith(null, null)
+    expect(status()).toBeNull()
+  })
+
+  it('places the caption as one line at the bottom centre, with a still dot under reduced motion', async () => {
+    const { readFileSync } = await import('node:fs' as string) as { readFileSync(file: string, encoding: 'utf8'): string }
+    const css = readFileSync('src/renderer/src/styles/modeller-view.css', 'utf8')
+    const rule = (selector: string, src = css): string => src.match(new RegExp(`(?:^|\\n)\\s*${selector.replace(/[.:]/g, '\\$&')}\\s*\\{([^}]*)\\}`))?.[1] ?? ''
+    const caption = rule('.modeller-view-caption')
+    expect(caption).toMatch(/bottom:\s*12px/)
+    expect(caption).not.toMatch(/\btop:/)
+    expect(caption).toMatch(/left:\s*50%/)
+    expect(caption).toMatch(/translateX\(-50%\)/)
+    expect(caption).toMatch(/max-width:\s*calc\(100% - 24px\)/)
+    expect(caption).toMatch(/white-space:\s*nowrap/)
+    expect(caption).toMatch(/font-size:\s*14\.5px/)
+    expect(caption).toMatch(/font-weight:\s*500/)
+    expect(rule('.modeller-view-text')).toMatch(/text-overflow:\s*ellipsis/)
+    expect(rule('.modeller-view-live')).toMatch(/animation:\s*modeller-live-dot/)
+    expect(rule('.modeller-view-live')).toMatch(/var\(--orange\)/)
+    const reduced = css.match(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/)?.[1] ?? ''
+    expect(rule('.modeller-view-live', reduced)).toMatch(/animation:\s*none/)
+    expect(rule('.modeller-view-live::after', reduced)).toMatch(/display:\s*none/)
+  })
 })

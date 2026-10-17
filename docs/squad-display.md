@@ -66,7 +66,11 @@ kernel publishes it then, and the snapshot, checks and review sheet follow
 unit's step data and step scripts while the page is open and pushes each change
 (`modeller-live` event); the page's poll (1 s, 250 ms while a step runs) stays
 as the fallback. The caption over the view is plain text, never a button or a
-toast. While the unit works and no step runs, it says what the unit is doing:
+toast: one line in a soft pill centred near the bottom edge of the view (14.5 px,
+shortened with an ellipsis in a narrow window, never wrapped). While a step runs
+or the unit works between steps, an orange dot beside it breathes with a soft
+ring (a still dot with reduced motion); it is gone once the unit is ready,
+stopped or its step failed. While the unit works and no step runs, it says what the unit is doing:
 before the first step, its latest status line and the time since it started;
 between steps, the last step's caption with "working on the next step · N s";
 as soon as the next step's script exists under `.genio/modeller/<model>/`, its

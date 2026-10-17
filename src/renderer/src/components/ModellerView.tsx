@@ -96,6 +96,8 @@ export function ModellerView({ live, activity }: { live: ModellerLive | null; ac
   const run = live?.running, failed = live?.failure
   // Before the first step the scene is empty: the caption is what the unit is doing, while it works.
   const caption = modellerCaption(live, activity, now)
+  // A sign of life beside the caption while a step runs or the unit works between steps; not once it is ready, failed or stopped.
+  const working = !!caption && (caption.tone === 'run' || (!!activity && caption.tone !== 'warn'))
   const d = model?.diff
   const parts = d && d.added + d.changed + d.removed > 0
     ? `+${d.added} added · ${d.changed} changed · −${d.removed} removed${d.names.length ? `: ${d.names.slice(0, 4).join(', ')}${d.names.length > 4 ? '…' : ''}` : ''}`
@@ -103,8 +105,8 @@ export function ModellerView({ live, activity }: { live: ModellerLive | null; ac
   return <div className="modeller-view">
     <div className="modeller-view-stage">
       <iframe ref={frame} src={VIEWER_APP_URL} sandbox="allow-scripts" title={live ? `Live view of ${live.model}` : 'Live 3D view'} referrerPolicy="no-referrer" />
-      {caption && <div className={cx('modeller-view-caption', caption.tone === 'warn' && 'warn')} role="status">
-        {caption.tone === 'run' && <i className="dot pulse" />}
+      {caption && <div className={cx('modeller-view-caption', caption.tone === 'warn' && 'warn', working && 'working')} role="status">
+        {working && <i className="modeller-view-live" aria-hidden="true" />}
         <span className="modeller-view-text" title={caption.text}>{caption.text}</span>
         {caption.side && <span className="modeller-view-side" title={caption.side}>{caption.side}</span>}
         {caption.clock && <span className="modeller-view-clock">{caption.side ? `· ${caption.clock}` : caption.clock}</span>}
