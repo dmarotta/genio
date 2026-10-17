@@ -568,7 +568,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
             return { ok: false, message: 'That standing approval belongs to another project.' }
           }
           if (method === 'snapshot') return projectSnapshot(ctx().snapshot(), binding)
-          if (method === 'terminals') return ctx().terminals.list().filter(t => terminalProject(t, ctx().snapshot()) === binding.project)
+          if (method === 'terminals') { const snap = ctx().snapshot(); return ctx().terminals.list().filter(t => terminalProject(t, snap) === binding.project) }
           // A login started in a project window runs in that project's folder, so its terminal is routed back to it.
           if (method === 'accountSession') return openAccountSession(ctx(), String(args[0]), args[1] as 'login' | 'logout', ctx().projects.get(binding.project)?.path)
           if (method === 'recap' || method === 'save') return ctx().home(binding.wksp).wksp.send('/' + method, 'player')

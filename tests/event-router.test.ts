@@ -100,6 +100,37 @@ describe('terminal output', () => {
     expect(hub.sent).toHaveLength(0)
   })
 
+  it('resolves each terminal’s owner once, not on every flush, and keeps routing it to its window', () => {
+    for (let round = 0; round < 50; round++) {
+      for (const id of ['term-one', 'term-two']) router.terminalData(id, `${id} ${round}\n`)
+      vi.advanceTimersByTime(TERMINAL_FLUSH_MS)
+    }
+    expect(snapshots).toBe(1)
+    expect(one.sent).toHaveLength(50)
+    expect(one.sent.every((s) => (s.payload as { id: string }[]).every((c) => c.id === 'term-one'))).toBe(true)
+    expect(two.sent.every((s) => (s.payload as { id: string }[]).every((c) => c.id === 'term-two'))).toBe(true)
+    // A pane terminal names its project: no snapshot at all.
+    terminals['pane-x'] = { id: 'pane-x', title: 'pane', cwd: '/elsewhere', alive: true, cols: 80, rows: 24, kind: 'pane', project: 'two' }
+    router.terminalData('pane-x', 'ls\n')
+    vi.advanceTimersByTime(TERMINAL_FLUSH_MS)
+    expect(snapshots).toBe(1)
+    expect(two.sent.at(-1)).toEqual({ channel: TERM_CHANNEL, payload: [{ id: 'pane-x', data: 'ls\n', at: expect.any(String) }] })
+    delete terminals['pane-x']
+  })
+
+  it('looks an unknown owner up again on the terminal’s next event', () => {
+    terminals['term-new'] = { id: 'term-new', taskId: 'task-new', title: 'new', cwd: '/nowhere', alive: true, cols: 80, rows: 24, kind: 'worker' }
+    router.terminalData('term-new', 'early\n')
+    vi.advanceTimersByTime(TERMINAL_FLUSH_MS)
+    expect(one.sent).toHaveLength(0)
+    tasks.push({ id: 'task-new', project: 'one', terminalId: 'term-new' })
+    router.publish({ type: 'terminal', terminal: terminals['term-new'] })
+    router.terminalData('term-new', 'later\n')
+    vi.advanceTimersByTime(TERMINAL_FLUSH_MS)
+    expect(one.sent.at(-1)).toEqual({ channel: TERM_CHANNEL, payload: [{ id: 'term-new', data: 'later\n', at: expect.any(String) }] })
+    tasks.pop(); delete terminals['term-new']
+  })
+
   it('remembers a removed terminal’s owner for the chunks still in the batch and skips dead windows', () => {
     router.publish({ type: 'terminal', terminal: terminals['term-one'] })
     expect(snapshots).toBe(1)

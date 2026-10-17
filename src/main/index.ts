@@ -357,7 +357,8 @@ function createWindow(binding?: WindowBinding, registered = false): BrowserWindo
         if (binding) {
           await stopProjectBase(ctx!, binding.project, binding.wksp)
           // Live terminals of this project stop; the terminal pane's ended shell and runs go too, so a reopened window starts clean.
-          for (const t of ctx!.terminals.list()) if (terminalProject(t, ctx!.snapshot()) === binding.project && (t.alive || t.kind === 'pane')) ctx!.terminals.kill(t.id)
+          const snap = ctx!.snapshot()
+          for (const t of ctx!.terminals.list()) if (terminalProject(t, snap) === binding.project && (t.alive || t.kind === 'pane')) ctx!.terminals.kill(t.id)
         }
         allowClose = true
         win.close()

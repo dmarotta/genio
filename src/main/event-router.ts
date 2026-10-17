@@ -42,7 +42,10 @@ export interface EventRouterOptions {
 }
 
 export function createEventRouter(opts: EventRouterOptions): EventRouter {
+  /** A terminal's project never changes: resolved once from the snapshot, then reused by every flush. */
   const terminalOwners = new Map<string, string | undefined>()
+  /** Removed terminals keep their owner until the flush after their removal has sent their last chunks. */
+  const removed = new Set<string>()
   const deltas = new Map<string, Extract<GenioEvent, { type: 'chat-delta' | 'design-chat-delta' }>>()
   let deltaTimer: NodeJS.Timeout | undefined
   let batch: { id: string; data: string; at: string }[] = []
@@ -56,9 +59,19 @@ export function createEventRouter(opts: EventRouterOptions): EventRouter {
 
   const live = (): RoutedWindow[] => [...opts.windows()].filter((w) => w.alive())
 
+  /** The owning project; an unknown one (its task not stored yet) is looked up again on its next terminal event. */
+  const ownerOf = (t: TerminalInfo, snapshot: () => FleetSnapshot, retry = false): string | undefined => {
+    if (t.project) return t.project
+    if (terminalOwners.has(t.id) && !(retry && terminalOwners.get(t.id) === undefined)) return terminalOwners.get(t.id)
+    const owner = terminalProject(t, snapshot())
+    terminalOwners.set(t.id, owner)
+    return owner
+  }
+
   const route = (ev: GenioEvent): void => {
     const snapshot = lazySnapshot()
-    if (ev.type === 'terminal') terminalOwners.set(ev.terminal.id, terminalProject(ev.terminal, snapshot()))
+    if (ev.type === 'terminal') terminalOwners.set(ev.terminal.id, ownerOf(ev.terminal, snapshot, true))
+    if (ev.type === 'terminal-removed') removed.add(ev.id)
     const owner = ev.type === 'terminal' ? terminalOwners.get(ev.terminal.id) : ev.type === 'terminal-removed' ? terminalOwners.get(ev.id) : undefined
     for (const win of live()) {
       const routed = routeProjectEvent(ev, win.binding, snapshot, owner)
@@ -87,18 +100,21 @@ export function createEventRouter(opts: EventRouterOptions): EventRouter {
     for (const b of batch) merged.set(b.id, { data: (merged.get(b.id)?.data ?? '') + b.data, at: b.at })
     batch = []
     const windows = live().filter((w) => w.binding)
-    if (!windows.length) return
     const snapshot = lazySnapshot()
     const owners = new Map<string, string | undefined>()
-    for (const id of merged.keys()) {
-      const t = opts.terminal(id)
-      // Ownership resolved once per flush; a removed terminal keeps the owner recorded for its last chunks.
-      owners.set(id, t ? terminalProject(t, snapshot()) : terminalOwners.get(id))
+    if (windows.length) {
+      for (const id of merged.keys()) {
+        const t = opts.terminal(id)
+        // A removed terminal keeps the owner recorded for its last chunks.
+        owners.set(id, t ? ownerOf(t, snapshot) : terminalOwners.get(id))
+      }
+      for (const win of windows) {
+        const chunks = [...merged.entries()].filter(([id]) => owners.get(id) === win.binding!.project).map(([id, output]) => ({ id, ...output }))
+        if (chunks.length) win.send(TERM_CHANNEL, chunks)
+      }
     }
-    for (const win of windows) {
-      const chunks = [...merged.entries()].filter(([id]) => owners.get(id) === win.binding!.project).map(([id, output]) => ({ id, ...output }))
-      if (chunks.length) win.send(TERM_CHANNEL, chunks)
-    }
+    for (const id of removed) terminalOwners.delete(id)
+    removed.clear()
   }
 
   return {
