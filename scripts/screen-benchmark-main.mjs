@@ -221,16 +221,19 @@ app.whenReady().then(async () => {
     await sleep(1500)
   }
   // The unit page with a long terminal, and the Modeller page when a live unit has a model.
+  // Opens one unit's page from the Squad grid by its card title.
+  const openUnit = task => js(`(() => { const at = performance.timeOrigin + performance.now(); const head = [...document.querySelectorAll('.unit-head')].find(h => h.textContent.includes(${JSON.stringify(task.title.slice(0, 40))})); head?.click(); __bench.frame().then(t => __bench.frames.push([at, t])); return at })()`)
   if (screens.includes('squad')) {
-    await js(`__bench.press('2')`); await sleep(1500)
-    await phase('unit-page', async () => js(`(() => { const at = performance.timeOrigin + performance.now(); document.querySelector('.unit-head')?.click(); __bench.frame().then(t => __bench.frames.push([at, t])); return at })()`),
-      `() => document.querySelector('.detail-term .xterm-rows, .detail-term canvas, .detail-term .xterm-screen')`)
-    await js(`__bench.press('1')`); await sleep(1500)
+    const plain = units.find(({ task }) => !task.modeller && !task.generator)
+    if (plain) {
+      await js(`__bench.press('2')`); await sleep(1500)
+      await phase('unit-page', async () => openUnit(plain.task), `() => document.querySelector('.detail-term .xterm-rows span')`)
+      await js(`__bench.press('1')`); await sleep(1500)
+    }
     const modeller = units.find(({ task }) => task.modeller)
     if (modeller) {
       await js(`__bench.press('2')`); await sleep(1500)
-      await phase('modeller-page', async () => js(`(() => { const at = performance.timeOrigin + performance.now(); const head = [...document.querySelectorAll('.unit-head')].find(h => h.textContent.includes(${JSON.stringify(modeller.task.title.slice(0, 40))})); head?.click(); __bench.frame().then(t => __bench.frames.push([at, t])); return at })()`),
-        `() => document.querySelector('.detail-canvas iframe, .modeller-view iframe')`, 5000)
+      await phase('modeller-page', async () => openUnit(modeller.task), `() => document.querySelector('.detail-canvas iframe, .modeller-view iframe')`, 5000)
       await js(`__bench.press('1')`); await sleep(1500)
     }
   }
