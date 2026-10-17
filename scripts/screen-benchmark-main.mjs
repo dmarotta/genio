@@ -19,7 +19,7 @@ import { API_PREFIX, EVENT_CHANNEL } from '@shared/api'
 
 const env = process.env
 const BASE = env.GENIO_SCREEN_BASE, PROJECT = env.GENIO_SCREEN_PROJECT || 'genio', OUT = env.GENIO_SCREEN_OUT, APP_ROOT = env.GENIO_SCREEN_APP_ROOT
-const UNITS = Number(env.GENIO_SCREEN_UNITS || 6), PROFILE = env.GENIO_SCREEN_PROFILE === '1'
+const UNITS = Number(env.GENIO_SCREEN_UNITS || 6), PROFILE = env.GENIO_SCREEN_PROFILE === '1', SHOTS = env.GENIO_SCREEN_SHOTS === '1'
 const RENDERER = env.GENIO_SCREEN_RENDERER || path.join(APP_ROOT, 'out', 'renderer'), PRELOAD = env.GENIO_SCREEN_PRELOAD || path.join(APP_ROOT, 'out', 'preload', 'index.js')
 const FILL = 1_400_000
 const now = () => performance.timeOrigin + performance.now()
@@ -166,6 +166,7 @@ app.whenReady().then(async () => {
     const rest = t0 + windowMs - now()
     if (rest > 0) await sleep(rest)
     const m1 = await metrics()
+    if (SHOTS) fs.writeFileSync(path.join(OUT, `${name}.png`), (await win.webContents.capturePage()).toPNG())
     if (TRACE.has(name)) {
       const done = traceDone()
       await send('Tracing.end')
