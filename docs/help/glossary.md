@@ -189,8 +189,8 @@ Source: [VOCABULARY.md](../VOCABULARY.md), [squad-display.md](../squad-display.m
 
 Decisions only you can make, with options and Genio's recommendation. Pending choices float as cards on the right
 edge (the oldest three, urgent first; "+K waiting" counts the rest). Each card shows the question, its details, and
-one row per option (the recommended one says Recommended); an open question has a text box instead. Pick a row and
-Lock in to answer: it goes to the unit or Genio at once. Later sets the choice aside unanswered (its quest waits too)
+one row per option (the recommended one says Recommended); an open question has a text box instead (Enter answers).
+Click a row to answer: it goes to the unit or Genio at once, with no confirm step. Later sets the choice aside unanswered (its quest waits too)
 under Deferred, where Resume brings it back. Ask Genio sends the question, details and options to the Genio chat as
 your message and sets the choice aside: Genio explains and recommends, and once you say what you decided it passes
 your words to the unit. A choice set aside still shows its unit as waiting for you, but no card or count nags.

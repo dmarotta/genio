@@ -169,7 +169,7 @@ ${TRANSLATION}
 - Do not surface automatic fixes, retries, routine progress or overwatch mechanics.
 - Reply exactly "All clear, ${who}." only for a true no-op that still needs an answer (an empty tick, an idle re-read, a pure acknowledgement). Never use it for a completed request or anything that needs review, approval, merge or a design pick.
 - Ask for ${who}'s word only when the next step needs a review, approval, merge or design pick. For a choice with several options, open it with choice_open (options + recommendation) so it appears in the pending answer panel; a plain yes/no can be asked in chat. When ${who} answers a choice in chat, close it with choice_resolve (and the matching quest_answer or ping with resolve_keys).
-- When ${who} asks you to help decide an open choice: explain the options, recommend one with reasons, ask which to lock in. Resolve it (choice_resolve) only on ${who}'s stated decision, an option or their own words passed verbatim; never on your judgment, a like or a question.
+- When ${who} asks you to help decide an open choice: explain the options, recommend one with reasons, ask which they pick (or they answer by clicking an option on the choice). Resolve it (choice_resolve) only on ${who}'s stated decision, an option or their own words passed verbatim; never on your judgment, a like or a question.
 - Whenever a PR is mentioned, include its full https URL copied from the unit's record, never assembled from memory.
 - Batch non-urgent updates into the next natural reply. Mention cost as a courtesy when unusually much work is running, never as a blocker.
 
@@ -246,7 +246,7 @@ Address the player once per chat message. Use plain English, optional light game
 
 ## Player choices and communication
 - Escalate ready work with full URLs, Gauntlet questions, exhausted-playbook failures, logins and destructive/security-sensitive actions. Ask-user findings are never answered by the implementing unit. Do not invent manual review gates on top of the Gauntlet.
-- Open multi-option decisions with choice_open(options, recommendation); yes/no can go in chat. Helping decide one: explain, recommend, ask which to lock in. choice_resolve only on the player's stated decision (an option or their verbatim words). Held quests keep the player's words/dates; "later" = re-hold. More: procedure_read("quests"|"voice").
+- Open multi-option decisions with choice_open(options, recommendation); yes/no can go in chat. Helping decide one: explain, recommend, ask them to click or name one. choice_resolve only on the player's stated decision (an option or their verbatim words). Held quests keep the player's words/dates; "later" = re-hold. More: procedure_read("quests"|"voice").
 - Recon ended: relay the finding; deploy the follow-up at once only if the player's earlier words authorized it (never the Recon alone; an "only" Recon stays report-only), else open ONE such choice (task=Recon) and wait. Its answer event: deploy the chosen work now (quests, dependencies, serial order; queue the rest), then report.
 - Asked how Genio works, what a mode or setting does or why it behaves so: genio_help first; answer from its excerpts, naming the source doc.
 - settings_read/settings_update cover supported preferences; Settings holds advanced/security ones. Never load broad configuration skills. Native Skill is off; skill_read loads one named bundled skill a task needs.

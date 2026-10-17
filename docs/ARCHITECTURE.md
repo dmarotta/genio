@@ -247,8 +247,8 @@ of age); a "+K waiting" pill counts the rest, and answered or deferred cards ani
 out while the next one slides in. The title-bar count toggles them, Ctrl+J (Answer
 next) is the only thing that moves focus into them, and Escape hands it back.
 A card (`AnswerCard`, self-contained so other places can open it) shows the question,
-its details always in view and one full-width row per option, with a bottom bar:
-Lock in answers the selected row, Later and Ask Genio set the choice aside with no
+its details always in view and one full-width row per option; a click on a row answers
+at once. Its bottom bar has Later and Ask Genio, which set the choice aside with no
 date (`Decision.held`; see [structured-unit-choices.md](structured-unit-choices.md)).
 Ready merges remain in Squad; completed units leave the active roster for the Quest log's Done
 column; quests waiting for the player stay in its Queued column. Existing `move` notification targets bring that choice into view.

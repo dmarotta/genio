@@ -2,7 +2,7 @@
 
 export type AnswerKeyAction = 'submit' | 'newline' | 'blur' | 'none'
 
-/** What a key press does in the answer box: Enter locks in, Shift+Enter breaks the line, Esc leaves the box. */
+/** What a key press does in the answer box: Enter answers, Shift+Enter breaks the line, Esc leaves the box. */
 export function answerKey(e: { key: string; shiftKey?: boolean; isComposing?: boolean }): AnswerKeyAction {
   if (e.isComposing) return 'none'
   if (e.key === 'Escape') return 'blur'

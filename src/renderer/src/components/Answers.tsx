@@ -283,15 +283,14 @@ function ownerChat(d: Decision): string {
 }
 
 /**
- * One choice: the question, its details always in view, one full-width row per option, and a bottom bar:
- * Later sets it aside, Ask Genio takes it to the chat, Lock in answers. Compact cards show only the question.
+ * One choice: the question, its details always in view, one full-width row per option (a click answers),
+ * and a bottom bar: Later sets it aside, Ask Genio takes it to the chat. Compact cards show only the question.
  * Self-contained, so it can be opened from anywhere that has the choice.
  */
 export function AnswerCard({ d, phase = 'idle', top, compact = false, onActivate }: { d: Decision; phase?: CardSlot['phase']; top?: number; compact?: boolean; onActivate?: () => void }) {
   const asker = askerTask(d)
   const task = useStore((s) => (asker ? s.snap.tasks.find((t) => t.id === asker) : undefined))
   const [answer, setAnswer] = useState('')
-  const [picked, setPicked] = useState<string>()
   const [busy, setBusy] = useState(false)
   const submitting = useRef(false)
   const box = useRef<HTMLTextAreaElement>(null)
@@ -300,7 +299,6 @@ export function AnswerCard({ d, phase = 'idle', top, compact = false, onActivate
   const rows = choiceRows(d)
   // Free words only where there are no options to pick (an open question).
   const freeText = d.options.length === 0
-  const chosen = rows.some(r => r.text === picked) ? picked! : freeText ? answer.trim() : ''
 
   // Expanding from the keyboard keeps focus inside the card.
   useLayoutEffect(() => {
@@ -324,7 +322,14 @@ export function AnswerCard({ d, phase = 'idle', top, compact = false, onActivate
     setBusy(true)
     try { await fn() } finally { submitting.current = false; setBusy(false) }
   }
-  const lockIn = (): Promise<void> => run(async () => { if (chosen) await op('Your move', () => api().answerDecision(d.id, chosen)) })
+  // A click on an option (or Enter in the answer box) answers at once; once answered, the card stays disabled until it leaves.
+  const submit = async (text: string): Promise<void> => {
+    if (!text || submitting.current) return
+    submitting.current = true
+    setBusy(true)
+    const r = await op('Your move', () => api().answerDecision(d.id, text))
+    if (!r?.ok) { submitting.current = false; setBusy(false) }
+  }
   const later = (): Promise<void> => run(() => op('Later', () => api().holdDecision(d.id, 'later')))
   // Ask Genio: the player's own chat message, through the normal send path with the screen context; the choice stays open, set aside.
   const askGenio = (): Promise<void> => run(async () => {
@@ -367,11 +372,9 @@ export function AnswerCard({ d, phase = 'idle', top, compact = false, onActivate
         <div className="choice-q" title={d.question}>{d.question}</div>
         {d.context && <Markdown text={d.context} className="md-compact choice-context" />}
         {rows.length > 0 && (
-          <div className="choice-options" role="radiogroup" aria-label="Options">
+          <div className="choice-options" role="group" aria-label="Options">
             {rows.map(r => (
-              <button key={r.text} role="radio" aria-checked={picked === r.text} className={cx('option', r.rec && 'rec', picked === r.text && 'on')} disabled={busy}
-                onClick={() => setPicked(r.text)}>
-                <span className="option-mark" aria-hidden />
+              <button key={r.text} className={cx('option', r.rec && 'rec')} disabled={busy} onClick={() => void submit(r.text)}>
                 <span className="option-text">{r.text}</span>
                 {r.rec && <span className="option-rec">Recommended</span>}
               </button>
@@ -387,19 +390,18 @@ export function AnswerCard({ d, phase = 'idle', top, compact = false, onActivate
             rows={1}
             value={answer}
             placeholder="Your answer…"
-            onChange={(e) => { setAnswer(e.target.value); setPicked(undefined) }}
+            onChange={(e) => setAnswer(e.target.value)}
             onKeyDown={(e) => {
               if (answerKey({ key: e.key, shiftKey: e.shiftKey, isComposing: e.nativeEvent.isComposing }) !== 'submit') return
               // Escape bubbles to the lane, which hands focus back to where it came from.
               e.preventDefault()
-              void lockIn()
+              void submit(answer.trim())
             }}
           />
         )}
         <div className="choice-foot">
           <button className="btn sm ghost" disabled={busy} onClick={() => void later()}>Later</button>
           <button className="btn sm ghost" disabled={busy} onClick={() => void askGenio()}>Ask {ASSISTANT_NAME}</button>
-          <button className="btn sm solid amber" disabled={busy || !chosen} onClick={() => void lockIn()}>Lock in</button>
         </div>
       </>}
     </div>

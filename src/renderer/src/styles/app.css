@@ -744,7 +744,7 @@ body:has(.answers-float .answer-card) .toasts { right: calc(min(380px, 100vw - 2
 .choice-task { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 11.5px; margin-left: auto; }
 .choice-q { font-size: 14.5px; font-weight: 600; line-height: 1.45; color: var(--text); max-width: 72ch; }
 .choice-context { padding: 6px 10px; font-size: 12.5px; background: rgba(0, 0, 0, 0.25); border-left: 2px solid var(--line-strong); max-height: 140px; overflow: auto; }
-/* One full-width row per option: a radio mark, the text wrapping, "Recommended" on its row. */
+/* One full-width row per option, a click answers: the text wrapping, "Recommended" on its row. */
 .choice-options { display: flex; flex-direction: column; gap: 6px; }
 .option {
   display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 7px 12px; cursor: pointer; text-align: left;
@@ -755,9 +755,8 @@ body:has(.answers-float .answer-card) .toasts { right: calc(min(380px, 100vw - 2
 .option:hover:not(:disabled) { border-color: var(--line-strong); background: rgba(255, 255, 255, 0.04); }
 .option:disabled { opacity: 0.5; cursor: not-allowed; }
 .option.rec { border-color: rgba(198, 255, 61, 0.45); }
-.option.on, .option.on:hover:not(:disabled) { border-color: var(--amber); background: var(--amber-soft); }
-.option-mark { flex: none; width: 12px; height: 12px; margin-top: 2px; border: 1px solid var(--line-strong); border-radius: 50%; }
-.option.on .option-mark { border-color: var(--amber); background: var(--amber); box-shadow: inset 0 0 0 2px var(--surface-3); }
+/* The clip-path cuts off an outline, so keyboard focus shows on the row itself. */
+.option:focus-visible { outline: none; border-color: var(--amber); background: var(--amber-soft); }
 .option-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .option-rec { flex: none; margin-top: 1px; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--volt); }
 .choice-text { min-height: 0; max-height: 180px; padding: 6px 10px; font-size: 13px; resize: none; overflow-y: auto; }

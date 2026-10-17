@@ -79,7 +79,7 @@ describe('bounded custom contract and lazy procedures', () => {
   })
 
   it('helps decide a choice brought from the panel and resolves it only on the player\'s stated decision', () => {
-    const rule = 'Helping decide one: explain, recommend, ask which to lock in. choice_resolve only on the player\'s stated decision (an option or their verbatim words).'
+    const rule = 'Helping decide one: explain, recommend, ask them to click or name one. choice_resolve only on the player\'s stated decision (an option or their verbatim words).'
     for (const isAlly of [false, true]) for (const bot of [false, true]) {
       const prompt = customContract({ gamertag: 'x'.repeat(80), base: 'b'.repeat(128), isAlly }, bot, chatUsageLine('max'))
       expect(prompt.split('\n').find(l => l.startsWith('- Open multi-option decisions'))).toContain(rule)
