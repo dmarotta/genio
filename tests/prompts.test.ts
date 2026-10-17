@@ -78,6 +78,16 @@ describe('bounded custom contract and lazy procedures', () => {
     }
   })
 
+  it('helps decide a choice brought from the panel and resolves it only on the player\'s stated decision', () => {
+    const rule = 'Helping decide one: explain, recommend, ask which to lock in. choice_resolve only on the player\'s stated decision (an option or their verbatim words).'
+    for (const isAlly of [false, true]) for (const bot of [false, true]) {
+      const prompt = customContract({ gamertag: 'x'.repeat(80), base: 'b'.repeat(128), isAlly }, bot, chatUsageLine('max'))
+      expect(prompt.split('\n').find(l => l.startsWith('- Open multi-option decisions'))).toContain(rule)
+      expect(prompt.length).toBeLessThanOrEqual(CUSTOM_CONTRACT_BUDGET)
+    }
+    expect(procedureText('voice', { gamertag: 'Dani', base: 'world', isAlly: false })).toContain('Resolve it (choice_resolve) only on Dani\'s stated decision, an option or their own words passed verbatim')
+  })
+
   it('leaves budget for provider instructions even with long identity fields', () => {
     expect(customContract({ gamertag: 'x'.repeat(1000), base: 'b'.repeat(1000), isAlly: true }, true, 'u'.repeat(300)).length)
       .toBeLessThanOrEqual(CUSTOM_CONTRACT_BUDGET)

@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { answerKey, isRecommended, quickRecommendation, recommendedFromQuestion } from '../src/renderer/src/lib/choice'
+import { answerKey, askGenioMessage, choiceRows, isRecommended, quickRecommendation, recommendedFromQuestion } from '../src/renderer/src/lib/choice'
 
 describe('answerKey', () => {
   it('Enter submits, Shift+Enter breaks the line, Esc blurs', () => {
@@ -47,5 +48,37 @@ describe('quickRecommendation', () => {
     expect(isRecommended('A', 'A and B')).toBe(false)
     expect(quickRecommendation({ question: 'Which?', options: ['A', 'B'], recommendation: 'A and B' })).toBe('A and B')
     expect(quickRecommendation({ question: 'Which?', options: ['A', 'A — cheaper'], recommendation: 'A — cheaper' })).toBe('A — cheaper')
+  })
+})
+
+describe('choiceRows', () => {
+  it('gives each option a row and marks exactly the recommended one', () => {
+    expect(choiceRows({ question: 'A or B?', options: ['A', 'B'], recommendation: 'A — cheaper' })).toEqual([{ text: 'A', rec: true }, { text: 'B', rec: false }])
+    expect(choiceRows({ question: 'Which?', options: ['A', 'A — cheaper'], recommendation: 'A — cheaper' })).toEqual([{ text: 'A', rec: false }, { text: 'A — cheaper', rec: true }])
+    expect(choiceRows({ question: 'Merge now?', options: ['Merge now', 'Not yet'] })).toEqual([{ text: 'Merge now', rec: false }, { text: 'Not yet', rec: false }])
+  })
+  it('adds a recommendation that is not an option as its own last row', () => {
+    expect(choiceRows({ question: 'Which?', options: ['A', 'B'], recommendation: 'A and B' })).toEqual([{ text: 'A', rec: false }, { text: 'B', rec: false }, { text: 'A and B', rec: true }])
+    expect(choiceRows({ question: 'X (recommended) or Y?', options: [] })).toEqual([{ text: 'X', rec: true }])
+    expect(choiceRows({ question: 'How?', options: [] })).toEqual([])
+  })
+})
+
+describe('askGenioMessage', () => {
+  it('carries the question, details, numbered options with the recommendation and the asking unit', () => {
+    expect(askGenioMessage({ question: 'Close the scene?', context: ' Only the copy. ', options: ['Close it', 'Keep it'], recommendation: 'Close it' }, 'Fix the jump')).toBe(
+      'Help me decide this open choice.\nAsked by: Fix the jump\nQuestion: Close the scene?\nDetails: Only the copy.\nOptions:\n1. Close it (recommended)\n2. Keep it')
+  })
+  it('leaves out what a choice does not have', () => {
+    expect(askGenioMessage({ question: 'What name?', options: [] })).toBe('Help me decide this open choice.\nQuestion: What name?')
+  })
+})
+
+describe('choice panel stylesheet', () => {
+  it('lays each option out as a full-width row above a bottom bar', () => {
+    const css = readFileSync('src/renderer/src/styles/app.css', 'utf8')
+    expect(css).toMatch(/\n\.choice-options \{[^}]*flex-direction: column/)
+    expect(css).toMatch(/\n\.option \{[^}]*width: 100%/)
+    expect(css).toMatch(/\n\.choice-foot \{[^}]*border-top/)
   })
 })

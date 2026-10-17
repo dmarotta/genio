@@ -835,7 +835,7 @@ export function createToolRegistry(
     }
   )
 
-  t('choice_resolve', "Close a choice with the player's answer (pings the unit with resolve key and records it on a held quest). For a merge choice the answer must be the player's own chat reply, quoted verbatim (Genio checks it). A unit's spend question approves spending only with the player's own reply quoted verbatim (or their click in the choice panel); any other answer closes it with no spend approved. Never approve spend yourself.", { id: z.string(), answer: z.string().min(1) }, async ({ id, answer }) => {
+  t('choice_resolve', "Close a choice with the player's answer (pings the unit with resolve key and records it on a held quest). Only for the player's own stated decision: an option, or their own words passed verbatim (the unit receives exactly that text); never your judgment, a like or a question. For a merge choice the answer must be the player's own chat reply, quoted verbatim (Genio checks it). A unit's spend question approves spending only with the player's own reply quoted verbatim (or their click in the choice panel); any other answer closes it with no spend approved. Never approve spend yourself.", { id: z.string(), answer: z.string().min(1) }, async ({ id, answer }) => {
     if (role === 'bot') return fail('only the player can answer a choice; it stays open until they return')
     const found = findDecision(getCtx(), id)
     if (!home.isMain && found?.hc.home.name !== home.name) return fail('Choice is outside this conversation.')

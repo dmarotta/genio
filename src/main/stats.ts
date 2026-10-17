@@ -119,6 +119,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { feature: 'squad', id: 'speedrunner', name: 'Speedrunner', description: 'A build is ready less than 15 minutes after deploy.' },
   { feature: 'move', id: 'night-owl', name: 'Night Owl', description: 'Merge a build between midnight and 5 AM.' },
   { feature: 'move', id: 'inbox-zero', name: 'Inbox Zero', description: 'Answer every open choice.' },
+  { feature: 'move', id: 'ask-genio-choice', name: 'Second Opinion', description: 'Take a pending choice to Genio with Ask Genio.' },
   { feature: 'move', id: 'combo-x5', name: 'Combo x5', description: 'Merge 5 builds in a single day.' },
   { feature: 'status', id: 'on-a-roll', name: 'On a Roll', description: 'Play 7 days in a row.' },
   { feature: 'squad', id: 'janitor', name: 'Janitor', description: 'Despawn 25 units cleanly.' },

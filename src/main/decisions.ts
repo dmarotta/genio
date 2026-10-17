@@ -5,7 +5,8 @@
  * A unit's `needs-decision [key=k]` / `blocked [key=k]` opens one choice per
  * (task, key); answering it pings the unit with the player's words and closes
  * the key with a `resolved [key=k]` status line (crew.send resolveKeys).
- * "Later" defers with `until`; a deferred choice is hidden until then.
+ * A choice deferred with `until` is hidden until then. Later and Ask Genio set it
+ * aside with no date (`held`): still open, off the popup, until answered or resumed.
  * A player answer given anywhere but the owning chat also wakes that chat with
  * an urgent `answer` event (followUp pending → delivered), so Genio follows
  * through at once, including on a finished Recon's choice.
@@ -176,6 +177,7 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
       d.resolvedAt = nowIso()
       d.answer = answer
       delete d.until
+      delete d.held
       // Typed into the owning chat, the answer is already there; anywhere else it must be carried to it.
       const origin = options?.origin
       if (origin) d.answeredVia = origin.via
@@ -217,7 +219,7 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
           try {
             const h = safeHome(ctx, home.name)
             const q = h?.backlog.get(d.backlogId)
-            if (h && q && q.state === 'held') h.backlog.answer(d.backlogId, answer, true)
+            if (h && q && (q.state === 'held' || q.hold)) h.backlog.answer(d.backlogId, answer, true)
           } catch {
             /* quest may be gone */
           }
@@ -287,11 +289,30 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
       const d = load().find((x) => x.id === id)
       if (!d || d.resolvedAt) return
       if (until && !Number.isFinite(Date.parse(until))) throw new Error('Invalid deferral date.')
-      if ((d.until ?? '') === (until ?? '')) return
+      if ((d.until ?? '') === (until ?? '') && !d.held) return
       d.revision = (d.revision ?? 0) + 1
+      delete d.held
       if (until) d.until = until
       else delete d.until // resurface now
       save()
+    },
+
+    hold(id, by) {
+      const d = load().find((x) => x.id === id)
+      if (!d || d.resolvedAt || d.held === by) return
+      d.revision = (d.revision ?? 0) + 1
+      d.held = by
+      delete d.until
+      save()
+      if (by !== 'later' || !d.backlogId) return
+      // Later on a quest's choice holds the quest too (no date); the answer releases it.
+      try {
+        const backlog = getCtx().home(home.name).backlog
+        const q = backlog.get(d.backlogId)
+        if (q && q.state !== 'done' && q.state !== 'dropped') backlog.hold(q.id, truncate(d.question, 200))
+      } catch {
+        /* quest may be gone */
+      }
     }
   }
 

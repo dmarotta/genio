@@ -155,6 +155,44 @@ it('invalidates a review even when a changed question returns to its original wo
   expect(createDecisionService(() => ctx, hc.home).get(d.id)?.revision).toBe(3)
 })
 
+it('Later sets a choice aside with no date and holds its quest; the answer releases both', async () => {
+  const quest = { id: 'quest', state: 'queued' as string, hold: undefined as unknown }
+  hc.backlog.get = vi.fn().mockReturnValue(quest)
+  hc.backlog.hold = vi.fn((_id: string, reason: string) => { quest.hold = { reason }; return quest }) as never
+  hc.backlog.answer = vi.fn()
+  const d = hc.decisions.open({ question: 'Close the test scene?', taskId: 'unit', backlogId: 'quest', source: 'unit', options: ['Close it', 'Keep it'] })
+  hc.decisions.hold(d.id, 'later')
+  expect(hc.backlog.hold).toHaveBeenCalledExactlyOnceWith('quest', 'Close the test scene?')
+  const kept = createDecisionService(() => ctx, hc.home).get(d.id)!
+  expect(kept).toMatchObject({ held: 'later' })
+  expect(kept.until).toBeUndefined()
+  expect(hc.decisions.list().map(x => x.id)).toEqual([d.id]) // still open, for Genio and the unit page
+  expect((await answerChoice(ctx, d.id, 'Keep it')).ok).toBe(true)
+  expect(d.held).toBeUndefined()
+  expect(hc.backlog.answer).toHaveBeenCalledWith('quest', 'Keep it', true)
+})
+
+it('Ask Genio keeps the choice open; the stated decision in chat resolves it and pings the unit with the words verbatim', async () => {
+  const d = hc.decisions.open({ question: 'Close the test scene?', taskId: 'unit', key: 'scene', source: 'unit', options: ['Close it', 'Keep it'] })
+  hc.backlog.hold = vi.fn()
+  hc.decisions.hold(d.id, 'genio')
+  expect(hc.backlog.hold).not.toHaveBeenCalled()
+  expect(hc.decisions.list()).toMatchObject([{ id: d.id, held: 'genio' }])
+  expect(send).not.toHaveBeenCalled()
+  const words = 'Neither: keep it open but run the checks on a fresh copy'
+  expect((await answerChoice(ctx, d.id, words, { via: 'chat', chat: 'one' })).ok).toBe(true)
+  expect(send).toHaveBeenCalledExactlyOnceWith('unit', `Answer to your open question (scene): ${words}`, [])
+  expect(d).toMatchObject({ answer: words, answeredVia: 'chat' })
+  expect(d.held).toBeUndefined()
+})
+
+it('Resume brings a set-aside choice back to the popup', () => {
+  const d = hc.decisions.open({ question: 'Pick a route?' })
+  hc.decisions.hold(d.id, 'genio')
+  hc.decisions.defer(d.id, '')
+  expect(createDecisionService(() => ctx, hc.home).get(d.id)?.held).toBeUndefined()
+})
+
 it('routes a Genio clarification to its owning conversation without releasing its held quest', async () => {
   hc.wksp.send = vi.fn().mockResolvedValue(undefined)
   hc.backlog.get = vi.fn().mockReturnValue({ state: 'held' })

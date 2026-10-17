@@ -24,7 +24,7 @@ import { createExplorerIntegration, explorerCommand } from './explorer'
 import { API_PREFIX, type GenioApi, type OpResult, type WindowList } from '@shared/api'
 import type { BacklogItem, Task } from '@shared/types'
 import { listAccounts, openAccountSession } from './accounts'
-import { answerChoice, clarifyChoice, applyRecommendations, findDecision, findTask } from './wksp-tools'
+import { answerChoice, applyRecommendations, findDecision, findTask } from './wksp-tools'
 import { resolveLoadout } from './loadout'
 import { sendPlayerChat } from './wksp'
 import { clearSecret, secretStatus, setSecret } from './secrets'
@@ -394,12 +394,17 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
 
     // ---- choices
     answerDecision: (id, answer) => answerChoice(ctx(), id, answer),
-    clarifyDecision: (id, question) => clarifyChoice(ctx(), id, question),
     applyRecommendations: (review) => applyRecommendations(ctx(), review),
     deferDecision: (id, until) => {
       const f = findDecision(ctx(), id)
       if (!f) throw new Error(`no choice ${id}`)
       f.hc.decisions.defer(id, until)
+    },
+    holdDecision: (id, by) => {
+      const f = findDecision(ctx(), id)
+      if (!f) throw new Error(`no choice ${id}`)
+      f.hc.decisions.hold(id, by === 'genio' ? 'genio' : 'later')
+      if (by === 'genio') unlockQuietly('ask-genio-choice')
     },
     addDecision: (d) => ctx().home(d.wksp ?? 'main').decisions.open(d),
 
@@ -543,7 +548,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
         }
         if (method === 'playerCopies' && binding) return playerCopyService(ctx()).list(binding.project)
         if (binding) {
-          if (['answerDecision', 'clarifyDecision', 'deferDecision', 'applyRecommendations'].includes(method)) {
+          if (['answerDecision', 'deferDecision', 'holdDecision', 'applyRecommendations'].includes(method)) {
             const ids = method === 'applyRecommendations' ? (args[0] as { id: string }[]).map(r => r.id) : [String(args[0])]
             for (const id of ids) {
               const found = findDecision(ctx(), id)

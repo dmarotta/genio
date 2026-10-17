@@ -466,8 +466,10 @@ export interface Decision {
   createdAt: string
   resolvedAt?: string
   answer?: string
-  /** Deferred until this ISO date (player said "later"). */
+  /** Deferred until this ISO date. */
   until?: string
+  /** Set aside unanswered, with no date: Later, or Ask Genio (talked over in chat). Still open, off the popup. */
+  held?: 'later' | 'genio'
   /** what Genio does when the player accepts (the first option) */
   action?: DecisionAction
   /** A player answer given outside the owning chat must reach it: pending until its event is queued there. */

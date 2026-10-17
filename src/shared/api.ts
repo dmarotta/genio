@@ -662,9 +662,11 @@ export interface GenioApi {
 
   // ---- decisions
   answerDecision(id: string, answer: string): Promise<OpResult>
-  clarifyDecision(id: string, question: string): Promise<OpResult>
   applyRecommendations(review: RecommendationReview[]): Promise<RecommendationResult[]>
+  /** until '' resumes a deferred or set-aside choice */
   deferDecision(id: string, until: string): Promise<void>
+  /** set a choice aside unanswered: Later (also holds its quest) or Ask Genio */
+  holdDecision(id: string, by: 'later' | 'genio'): Promise<void>
   addDecision(d: Partial<Decision> & { question: string }): Promise<Decision>
 
   // ---- projects
@@ -826,9 +828,9 @@ export const API_METHODS = [
   'backlogReorder',
   'planControl',
   'answerDecision',
-  'clarifyDecision',
   'applyRecommendations',
   'deferDecision',
+  'holdDecision',
   'addDecision',
   'projectAdd',
   'projectOpen',

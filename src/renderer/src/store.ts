@@ -5,7 +5,7 @@ import type {
 } from '@shared/types'
 import type { SpawnRequest } from '@shared/api'
 import { applyChatEvent, cleanChatMessage, patchAllyControls, type AllyControlsPatch } from '@shared/chat'
-import { pendingDecision } from '@shared/decisions'
+import { askingDecision } from '@shared/decisions'
 import { occupiedUnits } from '@shared/unit-capacity'
 import { squadSections } from '@shared/squad-display'
 import { playSfx } from './lib/sfx'
@@ -421,7 +421,7 @@ export function handleEvent(ev: GenioEvent): void {
       const t = ev.target
       if (t.view === 'move') {
         const d = s.snap.decisions.find(d => d.id === t.decisionId)
-        setState({ answersOpen: true, answerTarget: t.decisionId, answerHistory: d?.resolvedAt ? 'answered' : d?.until && Date.parse(d.until) > Date.now() ? 'deferred' : undefined })
+        setState({ answersOpen: true, answerTarget: t.decisionId, answerHistory: d?.resolvedAt ? 'answered' : d?.held || (d?.until && Date.parse(d.until) > Date.now()) ? 'deferred' : undefined })
       }
       else if (t.view === 'squad') {
         if (t.taskId) focusTask(t.taskId)
@@ -497,19 +497,21 @@ export function squadRoster(s: State): SquadRoster {
   return rosterCache.v
 }
 
+/** Choices asking now (the popup and its count); one set aside with Later or Ask Genio waits quietly under Deferred. */
 export function openDecisions(s: State): FleetSnapshot['decisions'] {
   const now = Date.now()
-  return s.snap.decisions.filter(d => pendingDecision(d, now))
+  return s.snap.decisions.filter(d => askingDecision(d, now))
 }
 
 
 export function toggleAnswers(): void {
   const pending = openDecisions(state).length > 0
   const visible = state.answersOpen && (pending || !!state.answerHistory)
+  const setAside = state.snap.decisions.some(d => d.held && !d.resolvedAt)
   setState({
     answersOpen: !visible,
     answerTarget: undefined,
-    answerHistory: pending ? undefined : state.snap.decisions.some(d => d.resolvedAt) ? 'answered' : 'deferred'
+    answerHistory: pending ? undefined : !setAside && state.snap.decisions.some(d => d.resolvedAt) ? 'answered' : 'deferred'
   })
 }
 

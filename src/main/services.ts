@@ -433,7 +433,10 @@ export interface DecisionService {
   resolveKey(taskId: string, key: string, answer: string): void
   /** Queue every player answer in this project the owning chat has not received yet; returns how many. */
   deliverAnswers(project: string): number
+  /** '' resumes a deferred or set-aside choice now. */
   defer(id: string, until: string): void
+  /** Set aside unanswered with no date (Later, which also holds its linked quest, or Ask Genio); it stays open. */
+  hold(id: string, by: 'later' | 'genio'): void
 }
 
 export interface WakeService {

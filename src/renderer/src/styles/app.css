@@ -728,11 +728,11 @@ body:has(.answers-float .answer-card) .toasts { right: calc(min(380px, 100vw - 2
   .answer-card.compact .choice-meta { display: none; }
   .answer-card .choice-expand { -webkit-line-clamp: 1; font-size: 12.5px; }
   .answer-card:not(.compact) .choice-q { -webkit-line-clamp: 2; font-size: 13px; line-height: 1.35; }
-  .answer-card .option { padding: 3px 8px; font-size: 12px; }
-  .answer-card .choice-answer { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px; }
-  .answer-card .choice-answer .textarea { flex: 1 1 120px; min-width: 0; max-height: 52px; padding: 4px 8px; font-size: 12px; }
-  .answer-card .choice-actions { gap: 2px; margin-left: auto; }
-  .answer-card .choice-actions .btn-label, .answer-card .choice-hint { display: none; }
+  .answer-card .choice-options { gap: 4px; }
+  .answer-card .option { padding: 4px 8px; font-size: 12px; }
+  .answer-card .choice-context { max-height: 72px; }
+  .answer-card .choice-text { max-height: 52px; padding: 4px 8px; font-size: 12px; }
+  .answer-card .choice-foot { padding-top: 5px; gap: 4px; }
   .answers-pill { height: 22px; }
 }
 
@@ -744,28 +744,25 @@ body:has(.answers-float .answer-card) .toasts { right: calc(min(380px, 100vw - 2
 .choice-task { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 11.5px; margin-left: auto; }
 .choice-q { font-size: 14.5px; font-weight: 600; line-height: 1.45; color: var(--text); max-width: 72ch; }
 .choice-context { padding: 6px 10px; font-size: 12.5px; background: rgba(0, 0, 0, 0.25); border-left: 2px solid var(--line-strong); max-height: 140px; overflow: auto; }
-.choice-options { display: flex; flex-wrap: wrap; gap: 6px; }
+/* One full-width row per option: a radio mark, the text wrapping, "Recommended" on its row. */
+.choice-options { display: flex; flex-direction: column; gap: 6px; }
 .option {
-  display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 5px 10px; cursor: pointer; text-align: left;
-  background: rgba(0, 0, 0, 0.3); border: 1px solid var(--line); color: var(--text); font-size: 12.5px; line-height: 1.35;
+  display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 7px 12px; cursor: pointer; text-align: left;
+  background: rgba(0, 0, 0, 0.3); border: 1px solid var(--line); color: var(--text); font: inherit; font-size: 12.5px; line-height: 1.4;
   clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
   transition: border-color 0.15s, background 0.15s;
 }
-.option:hover:not(:disabled) { border-color: var(--amber); background: var(--amber-soft); }
+.option:hover:not(:disabled) { border-color: var(--line-strong); background: rgba(255, 255, 255, 0.04); }
 .option:disabled { opacity: 0.5; cursor: not-allowed; }
-.option.rec { border-color: rgba(198, 255, 61, 0.55); background: var(--volt-soft); }
-.option.rec:hover:not(:disabled) { border-color: var(--volt); }
-.option-key { font-size: 11px; color: var(--amber); flex: none; }
-.option.rec .option-key { color: var(--volt); }
-.option-text { min-width: 0; }
-.choice-answer { display: flex; flex-direction: column; gap: 6px; }
-.choice-answer .textarea { min-height: 0; max-height: 180px; padding: 6px 10px; font-size: 13px; resize: none; overflow-y: auto; }
+.option.rec { border-color: rgba(198, 255, 61, 0.45); }
+.option.on, .option.on:hover:not(:disabled) { border-color: var(--amber); background: var(--amber-soft); }
+.option-mark { flex: none; width: 12px; height: 12px; margin-top: 2px; border: 1px solid var(--line-strong); border-radius: 50%; }
+.option.on .option-mark { border-color: var(--amber); background: var(--amber); box-shadow: inset 0 0 0 2px var(--surface-3); }
+.option-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.option-rec { flex: none; margin-top: 1px; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--volt); }
+.choice-text { min-height: 0; max-height: 180px; padding: 6px 10px; font-size: 13px; resize: none; overflow-y: auto; }
+.choice-foot { display: flex; justify-content: flex-end; align-items: center; gap: 6px; flex-wrap: wrap; padding-top: 8px; border-top: 1px solid var(--line); }
 .choice-actions { display: flex; justify-content: flex-end; gap: 6px; align-items: center; flex-wrap: wrap; }
-.choice-rec { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--volt); }
-.choice-hint { margin-right: auto; font-size: 10.5px; opacity: 0; transition: opacity 0.15s; }
-.choice-answer:focus-within .choice-hint { opacity: 0.7; }
-.choice-hint kbd { font-size: 9.5px; line-height: 14px; padding: 0 4px; min-width: 0; }
-.choice-actions .input.compact { height: 26px; padding: 2px 8px; font-size: 12px; }
 
 /* ---------- status ---------- */
 .err-panel { padding: 12px 14px; color: var(--alert); font-size: 12px; }

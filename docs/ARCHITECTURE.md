@@ -244,6 +244,10 @@ underneath never reflows. Only the oldest three show (urgent ones first, regardl
 of age); a "+K waiting" pill counts the rest, and answered or deferred cards animate
 out while the next one slides in. The title-bar count toggles them, Ctrl+J (Answer
 next) is the only thing that moves focus into them, and Escape hands it back.
+A card (`AnswerCard`, self-contained so other places can open it) shows the question,
+its details always in view and one full-width row per option, with a bottom bar:
+Lock in answers the selected row, Later and Ask Genio set the choice aside with no
+date (`Decision.held`; see [structured-unit-choices.md](structured-unit-choices.md)).
 Ready merges remain in Squad; completed units leave the active roster for the Quest log's Done
 column; quests waiting for the player stay in its Queued column. Existing `move` notification targets bring that choice into view.
 
@@ -251,7 +255,7 @@ column; quests waiting for the player stay in its Queued column. Existing `move`
 Choices retain their project and conversation ownership while a project is closed.
 Project windows show and answer only their own choices; the Hub provides waiting
 counts across projects and access to the fleet's answer history. Pending answers
-include Answered and Deferred filters, with Resume for deferred choices. Desktop
+include Answered and Deferred filters, with Resume for deferred and set-aside choices. Desktop
 notification clicks open or focus the owning project and reveal the exact choice,
 including its history if it has since been answered or deferred. Answer resolution
 claims the current record synchronously before side effects, so simultaneous

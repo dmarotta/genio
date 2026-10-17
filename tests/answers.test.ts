@@ -2,9 +2,10 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import type { Decision, Settings } from '../src/shared/types'
+import type { Decision, Settings, Task } from '../src/shared/types'
+import { pendingDecision } from '../src/shared/decisions'
 import { Answers } from '../src/renderer/src/components/Answers'
-import { getState, handleEvent, setState } from '../src/renderer/src/store'
+import { getState, handleEvent, openDecisions, setState, toggleAnswers } from '../src/renderer/src/store'
 import { navItems } from '../src/renderer/src/lib/railmenu'
 import { playSfx } from '../src/renderer/src/lib/sfx'
 
@@ -13,7 +14,8 @@ vi.mock('../src/renderer/src/lib/sfx', () => ({ playSfx: vi.fn() }))
 const initial = getState()
 const answerDecision = vi.fn()
 const deferDecision = vi.fn().mockResolvedValue(undefined)
-const clarifyDecision = vi.fn()
+const holdDecision = vi.fn().mockResolvedValue(undefined)
+const sendChat = vi.fn().mockResolvedValue(undefined)
 const applyRecommendations = vi.fn()
 let host: HTMLDivElement
 let root: Root
@@ -26,7 +28,7 @@ const six = () => ['a', 'b', 'c', 'd', 'e', 'f'].map((id, i) => choice(id, { cre
 const animate = vi.fn()
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
-  Object.assign(window, { genio: { api: { answerDecision, deferDecision, clarifyDecision, applyRecommendations } } })
+  Object.assign(window, { genio: { api: { answerDecision, deferDecision, holdDecision, sendChat, applyRecommendations } } })
   vi.spyOn(document, 'hasFocus').mockReturnValue(true)
   // jsdom has no layout: give each in-flow card a 100px row so slide-up (FLIP) can be observed.
   Object.defineProperty(HTMLElement.prototype, 'animate', { value: animate, configurable: true })
@@ -50,10 +52,21 @@ async function click(label: string) {
   const button = [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === label || b.getAttribute('aria-label') === label)!
   await act(async () => button.click())
 }
-const questions = () => [...host.querySelectorAll('.answer-card:not(.out) .choice-q')].map(e => e.textContent)
+const rows = () => [...host.querySelectorAll<HTMLButtonElement>('.answer-card:not(.out) [role="radio"]')]
+const row = (text: string) => rows().find(r => r.querySelector('.option-text')?.textContent === text)!
+const pick = (text: string) => act(async () => row(text).click())
+const lockIn = () => [...host.querySelectorAll<HTMLButtonElement>('.choice-foot button')].find(b => b.textContent === 'Lock in')!
+const questions = () =>[...host.querySelectorAll('.answer-card:not(.out) .choice-q')].map(e => e.textContent)
 const card = (id: string) => host.querySelector<HTMLElement>(`#answer-${id}`)
 const decide = (decisions: Decision[]) => act(async () => handleEvent({ type: 'decisions', decisions }))
-const wait = (ms: number) => act(async () => { await new Promise(resolve => setTimeout(resolve, ms)) })
+async function type(text: string) {
+  const box = host.querySelector('textarea')!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, text)
+    box.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+const wait = (ms: number) =>act(async () => { await new Promise(resolve => setTimeout(resolve, ms)) })
 
 it('removes the page from navigation and shows choices without taking focus or changing screens', async () => {
   const input = document.createElement('input'); document.body.append(input); input.focus()
@@ -75,17 +88,20 @@ it('submits once while pending, preserves the choice on failure and dequeues it 
   let finish!: (result: { ok: boolean; message: string }) => void
   answerDecision.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
   await mount()
-  await click('1A')
-  await click('2B')
+  await pick('A')
+  await click('Lock in')
+  await click('Lock in')
   expect(answerDecision).toHaveBeenCalledExactlyOnceWith('one', 'A')
+  expect(row('B').disabled).toBe(true)
   await act(async () => finish({ ok: false, message: 'Try again' }))
   expect(host.textContent).toContain('Question one')
-  expect(host.querySelector<HTMLTextAreaElement>('textarea')?.disabled).toBe(false)
+  expect(row('B').disabled).toBe(false)
   answerDecision.mockImplementationOnce(async (id, answer) => {
     handleEvent({ type: 'decisions', decisions: [choice(id, { answer, resolvedAt: new Date().toISOString() })] })
     return { ok: true }
   })
-  await click('2B')
+  await pick('B')
+  await click('Lock in')
   expect(answerDecision).toHaveBeenLastCalledWith('one', 'B')
   expect(card('one')?.classList.contains('out')).toBe(true)
   expect(card('one')?.getAttribute('aria-hidden')).toBe('true')
@@ -101,10 +117,10 @@ it('floats only the oldest three, urgent approvals first, and counts the rest in
   expect(host.querySelector('.answers-pill')?.textContent).toContain('+4 waiting')
   expect(host.querySelector('.answers-pill')?.tagName).toBe('SPAN')
   // the first card is open to answer; the others are compact until activated
-  expect(card('urgent')?.querySelector('textarea')).not.toBeNull()
+  expect(card('urgent')?.querySelector('.choice-foot')).not.toBeNull()
   expect(card('a')?.classList.contains('compact')).toBe(true)
   await act(async () => card('a')!.querySelector<HTMLButtonElement>('.choice-expand')!.click())
-  expect(card('a')?.querySelector('textarea')).not.toBeNull()
+  expect(card('a')?.querySelector('.choice-foot')).not.toBeNull()
   expect(card('urgent')?.classList.contains('compact')).toBe(true)
 })
 
@@ -172,7 +188,7 @@ it('takes focus only on Answer next and hands it back on Escape', async () => {
   expect(host.textContent).toBe('')
   await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', ctrlKey: true, bubbles: true })) })
   expect(document.activeElement).toBe(card('a')?.querySelector('.option'))
-  const box = card('a')!.querySelector('textarea')!
+  const box = card('a')!.querySelectorAll<HTMLElement>('.option')[1]
   await act(async () => box.focus())
   await act(async () => { box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
   expect(document.activeElement).toBe(composer)
@@ -195,16 +211,99 @@ it('Answer next with nothing pending does not take focus when a choice arrives l
   composer.remove()
 })
 
-it('sends a recommendation and a valid deferral through the existing APIs', async () => {
+it('shows the details, one full-width row per option with Recommended on its row, and locks in only a selection', async () => {
+  answerDecision.mockResolvedValue({ ok: true })
+  const long = 'Only the isolated test copy is affected. '.repeat(40)
+  setState({ snap: { ...getState().snap, decisions: [choice('one', { options: ['Close the test scene and run checks', 'Keep it open', 'Skip the checks'], recommendation: 'Close the test scene and run checks', context: long })] } })
+  await mount()
+  expect(host.querySelector('details, summary')).toBeNull()
+  expect(host.querySelector('.choice-context')?.textContent).toContain(long.trim())
+  expect(host.querySelector('.choice-options')?.getAttribute('role')).toBe('radiogroup')
+  expect(rows().map(r => r.querySelector('.option-text')?.textContent)).toEqual(['Close the test scene and run checks', 'Keep it open', 'Skip the checks'])
+  expect(rows().map(r => r.querySelector('.option-rec')?.textContent ?? '')).toEqual(['Recommended', '', ''])
+  expect(rows().every(r => r.getAttribute('aria-checked') === 'false')).toBe(true)
+  // the bottom bar: exactly these three actions, Lock in only once a row is picked
+  expect([...host.querySelectorAll('.choice-foot button')].map(b => b.textContent)).toEqual(['Later', 'Ask Genio', 'Lock in'])
+  expect(lockIn().disabled).toBe(true)
+  await pick('Keep it open')
+  expect(row('Keep it open').getAttribute('aria-checked')).toBe('true')
+  expect(row('Keep it open').classList.contains('on')).toBe(true)
+  await pick('Skip the checks')
+  expect(row('Keep it open').getAttribute('aria-checked')).toBe('false')
+  expect(lockIn().disabled).toBe(false)
+  expect(answerDecision).not.toHaveBeenCalled()
+  await click('Lock in')
+  expect(answerDecision).toHaveBeenCalledExactlyOnceWith('one', 'Skip the checks')
+})
+
+it('renders a plain yes/no with no recommendation and no details', async () => {
+  setState({ snap: { ...getState().snap, decisions: [choice('merge', { question: 'Merge now?', options: ['Merge now', 'Not yet'] })] } })
+  await mount()
+  expect(rows()).toHaveLength(2)
+  expect(host.querySelector('.option-rec, .choice-context, textarea')).toBeNull()
+  expect(lockIn().disabled).toBe(true)
+})
+
+it('answers an open question in words, with a recommendation that is not an option as its own row', async () => {
   answerDecision.mockResolvedValue({ ok: true })
   setState({ snap: { ...getState().snap, decisions: [choice('one', { options: [], recommendation: 'Keep going' })] } })
   await mount()
-  await click('Go with recommendation')
-  expect(answerDecision).toHaveBeenCalledWith('one', 'Keep going')
+  expect(rows().map(r => r.textContent)).toEqual(['Keep goingRecommended'])
+  expect(lockIn().disabled).toBe(true)
+  await type('Use the second copy')
+  expect(lockIn().disabled).toBe(false)
+  await act(async () => { host.querySelector('textarea')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })
+  expect(answerDecision).toHaveBeenCalledExactlyOnceWith('one', 'Use the second copy')
+  await pick('Keep going')
+  await click('Lock in')
+  expect(answerDecision).toHaveBeenLastCalledWith('one', 'Keep going')
+})
+
+it('Later sets the choice aside unanswered: off the popup and the count, back under Deferred', async () => {
+  setState({ snap: { ...getState().snap, decisions: [choice('one', { backlogId: 'quest' })] } })
+  await mount()
   await click('Later')
-  const date = host.querySelector<HTMLInputElement>('input[type="date"]')!.value
-  await click('Confirm')
-  expect(deferDecision).toHaveBeenCalledWith('one', new Date(date).toISOString())
+  expect(holdDecision).toHaveBeenCalledExactlyOnceWith('one', 'later')
+  expect(answerDecision).not.toHaveBeenCalled()
+  expect(deferDecision).not.toHaveBeenCalled()
+  await decide([choice('one', { backlogId: 'quest', held: 'later' })])
+  await wait(250)
+  expect(card('one')).toBeNull()
+  expect(openDecisions(getState())).toHaveLength(0)
+  await act(async () => toggleAnswers())
+  expect(getState().answerHistory).toBe('deferred')
+  expect(host.textContent).toContain('Question one')
+  await click('Resume')
+  expect(deferDecision).toHaveBeenCalledWith('one', '')
+})
+
+it('Ask Genio sends one chat message as the player and sets the choice aside, still open', async () => {
+  setState({ snap: { ...getState().snap, tasks: [{ id: 'unit-7', title: 'Fix the jump' } as Task],
+    decisions: [choice('ch-1', { taskId: 'unit-7', key: 'level-key', question: 'Close the test level?', options: ['Close it', 'Keep it'], recommendation: 'Close it', context: 'Only the test copy.' })] } })
+  await mount()
+  await click('Ask Genio')
+  expect(sendChat).toHaveBeenCalledTimes(1)
+  const [wksp, text, images, context] = sendChat.mock.calls[0]
+  expect(wksp).toBe('main')
+  expect(text).toBe(['Help me decide this open choice.', 'Asked by: Fix the jump', 'Question: Close the test level?', 'Details: Only the test copy.', 'Options:', '1. Close it (recommended)', '2. Keep it'].join('\n'))
+  for (const id of ['ch-1', 'unit-7', 'level-key']) expect(text).not.toContain(id)
+  expect(images).toBeUndefined()
+  expect(context.screen.id).toBe('worlds')
+  expect(holdDecision).toHaveBeenCalledExactlyOnceWith('ch-1', 'genio')
+  expect(answerDecision).not.toHaveBeenCalled()
+  await decide([choice('ch-1', { taskId: 'unit-7', held: 'genio' })])
+  await wait(250)
+  expect(card('ch-1')).toBeNull()
+  expect(openDecisions(getState())).toHaveLength(0)
+  expect(pendingDecision(getState().snap.decisions[0])).toBe(true)
+})
+
+it('Ask Genio leaves the choice in the popup when the message is not sent', async () => {
+  sendChat.mockRejectedValueOnce(new Error('Chat unavailable'))
+  await mount()
+  await click('Ask Genio')
+  expect(holdDecision).not.toHaveBeenCalled()
+  expect(card('one')).not.toBeNull()
 })
 
 it('resurfaces deferred choices when their date arrives', async () => {
@@ -255,34 +354,10 @@ it('notification targets bring a waiting choice into view and open it', async ()
   await mount()
   await act(async () => handleEvent({ type: 'navigate', target: { view: 'move', decisionId: 'e', wksp: 'main' } }))
   expect(questions()).toEqual(['Question a', 'Question b', 'Question e'])
-  expect(card('e')?.querySelector('textarea')).not.toBeNull()
+  expect(card('e')?.querySelector('.choice-foot')).not.toBeNull()
   await act(async () => card('a')!.querySelector<HTMLButtonElement>('.choice-expand')!.click())
-  expect(card('a')?.querySelector('textarea')).not.toBeNull()
+  expect(card('a')?.querySelector('.choice-foot')).not.toBeNull()
   expect(card('e')?.classList.contains('compact')).toBe(true)
-})
-
-async function type(text: string) {
-  const box = host.querySelector('textarea')!
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, text)
-    box.dispatchEvent(new Event('input', { bubbles: true }))
-  })
-}
-
-it('keeps diagnostics under Details and sends clarification through its own action', async () => {
-  setState({ snap: { ...getState().snap, decisions: [choice('one', { context: 'PID 123; C:/test; exact command' })] } })
-  clarifyDecision.mockResolvedValue({ ok: true, message: 'Question sent. The choice remains pending.' })
-  await mount()
-  expect(host.querySelector('details')?.open).toBe(false)
-  expect(host.querySelector('summary')?.textContent).toBe('Details')
-  await click('Ask for clarification')
-  expect(host.querySelector('textarea')?.getAttribute('aria-label')).toBe('Your clarification question')
-  await type('Which test scene?')
-  await click('Send question')
-  expect(clarifyDecision).toHaveBeenCalledExactlyOnceWith('one', 'Which test scene?')
-  expect(answerDecision).not.toHaveBeenCalled()
-  expect(host.textContent).toContain('Question one')
-  expect(host.textContent).toContain('choice remains pending')
 })
 
 it('reviews exact captured answers, excludes new arrivals and retains partial-failure results', async () => {

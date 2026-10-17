@@ -1,14 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Clock, History, MessageCircleQuestionMark, Sparkles, Undo2, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, History, X } from 'lucide-react'
+import { ASSISTANT_NAME } from '@shared/assistant'
 import { pendingDecision } from '@shared/decisions'
 import type { Decision } from '@shared/types'
 import { choiceGroup, reviewRecommendation, type RecommendationReview, type RecommendationResult } from '@shared/choice'
-import { answerNext, api, focusTask, getState, op, openDecisions, setState, useStore } from '../store'
+import { PROJECT_WKSP, PROJECT_WINDOW, answerNext, api, focusTask, getState, op, openChat, openDecisions, setState, useStore } from '../store'
 import { Markdown } from './Markdown'
 import { Chip, useNow } from './ui'
 import { cx, ago, dateShort } from '../lib/format'
 import { playSfx } from '../lib/sfx'
-import { answerKey, isRecommended, quickRecommendation } from '../lib/choice'
+import { answerKey, askGenioMessage, choiceRows } from '../lib/choice'
+import { getScreenContext, openGenioPanel, screenContextFor } from '../lib/screen-context'
 import { CARD_ENTER_MS, CARD_EXIT_MS, CARD_LIMIT, cardCueAllowed, cardCues, cardQueue, reconcileSlots, type CardSlot } from '../lib/answer-queue'
 
 /** Ctrl+J: Answer next. */
@@ -190,7 +192,7 @@ function CardStack({ shown, current, onActivate }: { shown: Decision[]; current?
 function HistoryPanel({ history, pending, target }: { history: 'answered' | 'deferred'; pending: number; target?: string }) {
   const all = useStore(s => s.snap.decisions)
   const rows = all
-    .filter(d => (history === 'answered' ? !!d.resolvedAt : !d.resolvedAt && !pendingDecision(d)))
+    .filter(d => (history === 'answered' ? !!d.resolvedAt : !d.resolvedAt && (!pendingDecision(d) || !!d.held)))
     .sort((a, b) => (history === 'answered' ? (b.resolvedAt ?? '').localeCompare(a.resolvedAt ?? '') : a.createdAt.localeCompare(b.createdAt)))
   const [page, setPage] = useState(() => Math.max(0, Math.floor(rows.findIndex(d => d.id === target) / CARD_LIMIT)))
   const pages = Math.max(1, Math.ceil(rows.length / CARD_LIMIT))
@@ -210,7 +212,7 @@ function HistoryPanel({ history, pending, target }: { history: 'answered' | 'def
         <div className="choice answers-row" id={`answer-${d.id}`} key={d.id}>
           <div className="choice-q">{d.question}</div>
           {d.project && <span className="chip">{d.project}</span>}
-          <p>{d.resolvedAt ? `Answered ${dateShort(d.resolvedAt)}: ${d.answer ?? ''}` : `Deferred until ${dateShort(d.until!)}`}</p>
+          {(d.resolvedAt || d.until) && <p>{d.resolvedAt ? `Answered ${dateShort(d.resolvedAt)}: ${d.answer ?? ''}` : `Deferred until ${dateShort(d.until!)}`}</p>}
           {!d.resolvedAt && <button className="btn sm" onClick={() => void op('Resume choice', () => api().deferDecision(d.id, '')).then(() => setState({ answerHistory: undefined }))}>Resume</button>}
         </div>
       )) : <p className="mute">No {history} choices.</p>}
@@ -253,7 +255,7 @@ function RecommendationBatches({ decisions, onReview }: { decisions: Decision[];
       <p>Only these choices will be applied. Changed choices stay pending.</p>
       {review.map(({ question, context, row }) => <div key={row.id} className="choice-context">
         <div>{question}</div><strong>Answer: {row.answer}</strong>
-        {context && <details><summary>Details</summary><Markdown text={context} className="md-compact" /></details>}
+        {context && <Markdown text={context} className="md-compact" />}
         {results?.find(r => r.id === row.id) && <p role="status">{results.find(r => r.id === row.id)!.ok ? 'Applied' : 'Not applied'}: {results.find(r => r.id === row.id)!.message}</p>}
       </div>)}
       {!results && <button className="btn sm volt" disabled={busy} onClick={() => void apply()}>Apply recommendations ({review.length})</button>}
@@ -269,22 +271,36 @@ function RecommendationBatches({ decisions, onReview }: { decisions: Decision[];
 
 const SOURCE_LABEL: Record<Decision['source'], string> = { unit: 'From a unit', genio: 'From Genio', validation: 'From the Gauntlet', ally: 'From an ally', system: 'System' }
 
-/** One floating card. Compact cards show only the question; activating one expands it. */
+/** The unit a choice came from, by title only: its own unit, or the Build a merge or spend question is about. */
+function askerTask(d: Decision): string | undefined {
+  return d.taskId ?? (d.action?.kind === 'merge-approval' || d.action?.kind === 'spend-grant' ? d.action.task : undefined)
+}
+
+/** The chat that owns a choice: this window's project chat, else the live Ally of its project, else its base. */
+function ownerChat(d: Decision): string {
+  if (PROJECT_WKSP) return PROJECT_WKSP
+  return getState().snap.allies.find(a => !a.retiredAt && !!d.project && a.projects.includes(d.project))?.name ?? d.wksp
+}
+
+/**
+ * One choice: the question, its details always in view, one full-width row per option, and a bottom bar:
+ * Later sets it aside, Ask Genio takes it to the chat, Lock in answers. Compact cards show only the question.
+ * Self-contained, so it can be opened from anywhere that has the choice.
+ */
 export function AnswerCard({ d, phase = 'idle', top, compact = false, onActivate }: { d: Decision; phase?: CardSlot['phase']; top?: number; compact?: boolean; onActivate?: () => void }) {
-  const task = useStore((s) => (d.taskId ? s.snap.tasks.find((t) => t.id === d.taskId) : undefined))
+  const asker = askerTask(d)
+  const task = useStore((s) => (asker ? s.snap.tasks.find((t) => t.id === asker) : undefined))
   const [answer, setAnswer] = useState('')
-  const [clarifying, setClarifying] = useState(false)
-  const [question, setQuestion] = useState('')
-  const [receipt, setReceipt] = useState('')
-  const draft = clarifying ? question : answer
-  const [later, setLater] = useState(false)
-  const [until, setUntil] = useState(() => new Date(Date.now() + 86400000).toISOString().slice(0, 10))
+  const [picked, setPicked] = useState<string>()
   const [busy, setBusy] = useState(false)
   const submitting = useRef(false)
   const box = useRef<HTMLTextAreaElement>(null)
   const card = useRef<HTMLDivElement>(null)
   const expanding = useRef(false)
-  const quickRec = quickRecommendation(d)
+  const rows = choiceRows(d)
+  // Free words only where there are no options to pick (an open question).
+  const freeText = d.options.length === 0
+  const chosen = rows.some(r => r.text === picked) ? picked! : freeText ? answer.trim() : ''
 
   // Expanding from the keyboard keeps focus inside the card.
   useLayoutEffect(() => {
@@ -299,18 +315,28 @@ export function AnswerCard({ d, phase = 'idle', top, compact = false, onActivate
     if (!el) return
     el.style.height = 'auto'
     el.style.height = `${el.scrollHeight + 2}px`
-  }, [draft, compact])
+  }, [answer, compact])
 
-  // The dequeue cue plays when the card leaves the queue (see Answers), not here.
-  const submit = async (text: string, clarification = false): Promise<void> => {
-    if (!text.trim() || submitting.current) return
+  // One action at a time; the dequeue cue plays when the card leaves the queue (see Answers), not here.
+  const run = async (fn: () => Promise<unknown>): Promise<void> => {
+    if (submitting.current) return
     submitting.current = true
     setBusy(true)
-    try {
-      const r = await op(clarification ? 'Ask for clarification' : 'Your move', () => clarification ? api().clarifyDecision(d.id, text.trim()) : api().answerDecision(d.id, text.trim()))
-      if (r?.ok && clarification) { setReceipt(r.message); setQuestion(''); setClarifying(false) }
-    } finally { submitting.current = false; setBusy(false) }
+    try { await fn() } finally { submitting.current = false; setBusy(false) }
   }
+  const lockIn = (): Promise<void> => run(async () => { if (chosen) await op('Your move', () => api().answerDecision(d.id, chosen)) })
+  const later = (): Promise<void> => run(() => op('Later', () => api().holdDecision(d.id, 'later')))
+  // Ask Genio: the player's own chat message, through the normal send path with the screen context; the choice stays open, set aside.
+  const askGenio = (): Promise<void> => run(async () => {
+    const { view } = getState()
+    const context = screenContextFor(view, PROJECT_WINDOW ?? d.project ?? '', getScreenContext(view))
+    const wksp = ownerChat(d)
+    const sent = await op('Ask Genio', async () => { await api().sendChat(wksp, askGenioMessage(d, task?.title), undefined, context); return true })
+    if (!sent) return
+    await op('Ask Genio', () => api().holdDecision(d.id, 'genio'))
+    if (PROJECT_WKSP) { if (view !== 'comms') openGenioPanel() }
+    else openChat(wksp)
+  })
 
   const urgent = d.urgency === 'urgent'
   return (
@@ -339,89 +365,41 @@ export function AnswerCard({ d, phase = 'idle', top, compact = false, onActivate
         <button className="choice-q choice-expand" aria-expanded={false} title={d.question} onFocus={() => { expanding.current = true }}>{d.question}</button>
       ) : <>
         <div className="choice-q" title={d.question}>{d.question}</div>
-        {quickRec && d.recommendation && (
-          <div className="choice-rec">
-            <Sparkles size={11} /> Recommended: {d.recommendation}
+        {d.context && <Markdown text={d.context} className="md-compact choice-context" />}
+        {rows.length > 0 && (
+          <div className="choice-options" role="radiogroup" aria-label="Options">
+            {rows.map(r => (
+              <button key={r.text} role="radio" aria-checked={picked === r.text} className={cx('option', r.rec && 'rec', picked === r.text && 'on')} disabled={busy}
+                onClick={() => setPicked(r.text)}>
+                <span className="option-mark" aria-hidden />
+                <span className="option-text">{r.text}</span>
+                {r.rec && <span className="option-rec">Recommended</span>}
+              </button>
+            ))}
           </div>
         )}
-        {d.context && (
-          <details className="choice-context">
-            <summary>Details</summary>
-            <Markdown text={d.context} className="md-compact" />
-          </details>
-        )}
-        {receipt && <p role="status">{receipt}</p>}
-        {d.clarifications?.map((c, i) => <details key={i} className="choice-context"><summary>Clarification requested</summary>{c.question}</details>)}
-        {!clarifying && d.options.length > 0 && (
-          <div className="choice-options">
-            {d.options.map((o, i) => {
-              const rec = isRecommended(o, d.recommendation) && d.options.filter(option => isRecommended(option, d.recommendation)).length === 1
-              return (
-                <button key={i} className={cx('option', rec && 'rec')} disabled={busy} title={rec ? `Recommended: ${d.recommendation}` : undefined} onClick={() => void submit(o)}>
-                  <span className="option-key num">{i + 1}</span>
-                  <span className="option-text">{o}</span>
-                  {rec && <Sparkles size={11} className="volt-text" />}
-                </button>
-              )
-            })}
-          </div>
-        )}
-        <div className="choice-answer">
+        {freeText && (
           <textarea
             ref={box}
-            aria-label={clarifying ? 'Your clarification question' : 'Your answer'}
+            aria-label="Your answer"
             disabled={busy}
-            className="textarea"
+            className="textarea choice-text"
             rows={1}
-            value={draft}
-            placeholder={clarifying ? 'What would you like explained?' : d.options.length || quickRec ? 'Or answer in your own words…' : 'Your answer…'}
-            onChange={(e) => clarifying ? setQuestion(e.target.value) : setAnswer(e.target.value)}
+            value={answer}
+            placeholder="Your answer…"
+            onChange={(e) => { setAnswer(e.target.value); setPicked(undefined) }}
             onKeyDown={(e) => {
-              const act = answerKey({ key: e.key, shiftKey: e.shiftKey, isComposing: e.nativeEvent.isComposing })
-              if (act === 'submit') {
-                e.preventDefault()
-                void submit(draft, clarifying)
-              }
+              if (answerKey({ key: e.key, shiftKey: e.shiftKey, isComposing: e.nativeEvent.isComposing }) !== 'submit') return
               // Escape bubbles to the lane, which hands focus back to where it came from.
+              e.preventDefault()
+              void lockIn()
             }}
           />
-          <div className="choice-actions">
-            <span className="choice-hint mute">
-              <kbd>Enter</kbd> {clarifying ? 'send question' : 'lock in'} · <kbd>Esc</kbd> back
-            </span>
-            {!clarifying && quickRec && (
-              <button className="btn sm volt" disabled={busy} title={quickRec} aria-label="Go with recommendation" onClick={() => void submit(quickRec)}>
-                <Sparkles size={12} /> <span className="btn-label">Go with recommendation</span>
-              </button>
-            )}
-            {later ? (
-              <>
-                <input className="input compact" type="date" aria-label="Defer until" disabled={busy} value={until} onChange={(e) => setUntil(e.target.value)} />
-                <button
-                  className="btn sm"
-                  disabled={busy || !until || !Number.isFinite(Date.parse(until))}
-                  onClick={() =>
-                    void op('Deferred', () => api().deferDecision(d.id, new Date(until).toISOString()), () => `Back on ${dateShort(new Date(until).toISOString())}`).then(() => setLater(false))
-                  }
-                >
-                  Confirm
-                </button>
-                <button className="btn sm ghost" onClick={() => setLater(false)}>
-                  Cancel
-                </button>
-              </>
-            ) : (
-              <button className="btn sm ghost" disabled={busy} title="Later" aria-label="Later" onClick={() => setLater(true)}>
-                <Clock size={13} /> <span className="btn-label">Later</span>
-              </button>
-            )}
-            <button className="btn sm ghost" disabled={busy} title={clarifying ? 'Back to answer' : 'Ask for clarification'} aria-label={clarifying ? 'Back to answer' : 'Ask for clarification'} onClick={() => { setClarifying(!clarifying); box.current?.focus() }}>
-              {clarifying ? <Undo2 size={13} /> : <MessageCircleQuestionMark size={13} />} <span className="btn-label">{clarifying ? 'Back to answer' : 'Ask for clarification'}</span>
-            </button>
-            <button className="btn sm solid amber" disabled={busy || !draft.trim()} onClick={() => void submit(draft, clarifying)}>
-              {clarifying ? 'Send question' : 'Lock in'}
-            </button>
-          </div>
+        )}
+        <div className="choice-foot">
+          <button className="btn sm ghost" disabled={busy} onClick={() => void later()}>Later</button>
+          <button className="btn sm ghost" disabled={busy} onClick={() => void askGenio()}>Ask {ASSISTANT_NAME}</button>
+          <button className="btn sm solid amber" disabled={busy || !chosen} onClick={() => void lockIn()}>Lock in</button>
         </div>
       </>}
     </div>

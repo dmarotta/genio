@@ -8,3 +8,8 @@ export function ownsDecision(d: Decision, binding: { project: string; wksp: stri
 export function pendingDecision(d: Decision, now = Date.now()): boolean {
   return !d.resolvedAt && (!d.until || Date.parse(d.until) <= now)
 }
+
+/** Pending and asking now: a choice set aside with Later or Ask Genio waits quietly, off the popup. */
+export function askingDecision(d: Decision, now = Date.now()): boolean {
+  return pendingDecision(d, now) && !d.held
+}

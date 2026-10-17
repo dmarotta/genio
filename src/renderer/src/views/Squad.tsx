@@ -728,12 +728,7 @@ function UnitQuestion({ t, d, fallback }: { t: Task; d?: Decision; fallback: str
     <div className="unit-question">
       <div className="label amber-text">Open question</div>
       <div className="uq-q">{d.question}</div>
-      {d.context && (
-        <details className="choice-context">
-          <summary>Details</summary>
-          <Markdown text={d.context} className="md-compact" />
-        </details>
-      )}
+      {d.context && <Markdown text={d.context} className="md-compact choice-context" />}
       <div className="uq-answers">
         {d.options.map((o) => (
           <button key={o} className={cx('btn sm', rec(o) ? 'solid amber' : 'ghost')} disabled={busy} title={rec(o) ? 'Recommended' : undefined} onClick={() => void answer(o)}>

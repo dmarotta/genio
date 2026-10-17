@@ -38,11 +38,32 @@ export function recommendedFromQuestion(question: string): string | undefined {
 }
 
 /**
- * The text "Go with recommendation" submits: the decision's own recommendation when it is not one of
- * its options (those get their own buttons), else a "(recommended)" option named in the question.
+ * The recommendation that needs its own row: the decision's own recommendation when it is not one of
+ * its options (those are marked in place), else a "(recommended)" option named in the question.
  */
 export function quickRecommendation(d: { question: string; options: string[]; recommendation?: string }): string | undefined {
   if (d.recommendation) return d.options.filter((o) => isRecommended(o, d.recommendation)).length === 1 ? undefined : d.recommendation
   if (d.options.length) return undefined
   return recommendedFromQuestion(d.question)
+}
+
+export type ChoiceRow = { text: string; rec: boolean }
+
+/** One row per answer the panel offers: the options, the recommended one marked, and a recommendation that is not an option last. */
+export function choiceRows(d: { question: string; options: string[]; recommendation?: string }): ChoiceRow[] {
+  const quick = quickRecommendation(d)
+  const rows = d.options.map((text) => ({ text, rec: !quick && isRecommended(text, d.recommendation) }))
+  return quick && !d.options.includes(quick) ? [...rows, { text: quick, rec: true }] : rows.map((r) => ({ ...r, rec: r.rec || r.text === quick }))
+}
+
+/** What Ask Genio sends as the player's own chat message: the question, its details, the numbered options and who asked, no ids. */
+export function askGenioMessage(d: { question: string; context?: string; options: string[]; recommendation?: string }, asker?: string): string {
+  const rows = choiceRows(d)
+  return [
+    'Help me decide this open choice.',
+    ...(asker ? [`Asked by: ${asker}`] : []),
+    `Question: ${d.question}`,
+    ...(d.context?.trim() ? [`Details: ${d.context.trim()}`] : []),
+    ...(rows.length ? ['Options:', ...rows.map((r, i) => `${i + 1}. ${r.text}${r.rec ? ' (recommended)' : ''}`)] : [])
+  ].join('\n')
 }
