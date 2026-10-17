@@ -280,6 +280,34 @@ describe('plan tools', () => {
     expect(await call('plan_update', { plan_id: created.plan_id, op: 'pause', reason: 'player away' })).toMatch(/plan paused/)
     expect(JSON.parse(await call('plan_status', {}))).toHaveLength(1)
   })
+
+  it('carries each step\'s summary to its quest and its unit; a step without one has none (the Brief tab derives it)', async () => {
+    const tools = createToolRegistry(() => ctx, home, 'genio')
+    const call = async (name: string, args: unknown): Promise<string> => {
+      const r = await tools.find((t) => t.name === name)!.invoke(args)
+      if (r.isError) throw new Error((r.content[0] as { text: string }).text)
+      return (r.content[0] as { text: string }).text
+    }
+    const created = JSON.parse(await call('plan_create', { world: 'world', title: 'Sounds', intent: 'door sounds in two builds',
+      steps: [{ ...step('core'), summary: 'Adds the door sound player.' }, step('ui', ['core'])] }))
+    const plan = hc.plans.get(created.plan_id)!
+    expect(plan.steps.map((s) => s.summary)).toEqual(['Adds the door sound player.', undefined])
+    expect(plan.steps.map((s) => hc.backlog.get(s.questId)!.summary)).toEqual(['Adds the door sound player.', undefined])
+    expect(spawned.map((r) => r.summary)).toEqual(['Adds the door sound player.'])
+    expect(await call('plan_update', { plan_id: plan.id, op: 'edit_step', step: 'ui', patch: { summary: 'Shows a play button on each door.' } })).toMatch(/updated/)
+    expect(hc.backlog.get(plan.steps[1].questId)!.summary).toBe('Shows a play button on each door.')
+    expect(hc.plans.spawnRequest(plan.steps[1].questId)!.summary).toBe('Shows a play button on each door.')
+    // deploy by quest_id keeps the step's summary unless it passes its own, clipped to a short read
+    await land('core', plan.id)
+    expect(spawned.at(-1)!.summary).toBe('Shows a play button on each door.')
+    expect(await call('quest_add', { title: 'Window sounds', world: 'world', notes: 'later', summary: 'Adds window sounds.' })).toMatch(/filed/)
+    const quest = hc.backlog.list().find((q) => q.title === 'Window sounds')!
+    expect(quest.summary).toBe('Adds window sounds.')
+    const long = 'The unit adds one more window sound to the set. '.repeat(30)
+    expect(await call('deploy', { kind: 'ship', world: 'world', title: 'Window sounds', intent: 'window sounds', quest_id: quest.id, summary: long })).toMatch(/^deployed/)
+    expect(spawned.at(-1)!.summary!.length).toBeLessThanOrEqual(800)
+    expect(spawned.at(-1)!.summary).toMatch(/set\.$/)
+  })
 })
 
 describe('estimate and rebase hints', () => {

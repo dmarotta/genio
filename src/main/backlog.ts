@@ -289,6 +289,7 @@ export function createBacklogService(getCtx: () => AppCtx, home: Home): BacklogS
         project: input.project,
         kind: input.kind ?? 'ship',
         notes: input.notes ?? '',
+        summary: input.summary?.trim() || undefined,
         state: !input.state || legacyHeld ? 'queued' : input.state,
         priority: input.priority ?? 'normal',
         rank: input.rank,
@@ -309,6 +310,7 @@ export function createBacklogService(getCtx: () => AppCtx, home: Home): BacklogS
         generator: input.generator,
         claims: input.claims
       })
+      if (!it.summary) delete it.summary
       if (!it.planId) delete it.planId
       if (!it.planStep) delete it.planStep
       if (!it.modeller || it.kind !== 'ship') delete it.modeller

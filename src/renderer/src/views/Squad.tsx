@@ -35,6 +35,7 @@ import { listFact, useScreenContext } from '../lib/screen-context'
 import { requestPlaySource } from '../lib/play-nav'
 import { planStepOfTask } from '@shared/work-plan'
 import { PlanChip } from '../components/PlanChip'
+import { BriefTab } from '../components/BriefTab'
 
 export function Squad() {
   const focus = useStore((s) => s.focus)
@@ -537,7 +538,7 @@ function UnitDetail({ id }: { id: string }) {
             {current === 'terminal' && term && <UnitTerminal id={term.id} alive={term.alive} lagging={lagging} fit />}
             {current === 'changes' && <ChangesTab t={t} changes={changes} loading={changesFile.text === null} err={changesFile.err} rows={statusRows} />}
             {current === 'timeline' && <TimelineTab t={t} rows={statusRows} loading={status.text === null} />}
-            {current === 'brief' && <FileMarkdown t={t} which="brief" empty="No brief." />}
+            {current === 'brief' && <BriefTab t={t} />}
             {current === 'report' && <FileMarkdown t={t} which="report" empty="No report yet. The Recon writes it before declaring done." />}
             {current === 'checks' && <ChecksTab t={t} />}
           </div>
@@ -874,12 +875,12 @@ function UpgradeModal({ t, onClose }: { t: Task; onClose: () => void }) {
   )
 }
 
-function FileMarkdown({ t, which, empty }: { t: Task; which: 'brief' | 'report'; empty: string }) {
+function FileMarkdown({ t, which, empty }: { t: Task; which: 'report'; empty: string }) {
   const { text, err } = useTaskFile(t.id, which, [t.state])
   if (text === null) return <div className="bar indeterminate"><i /></div>
   if (err) return <div className="alert-text mono" style={{ fontSize: 12 }}>{err}</div>
   const body = text.trim()
-  return body && body !== '(no report yet)' && body !== '(no brief)' ? <Markdown text={text} className="md-compact" /> : <div className="mute">{empty}</div>
+  return body && body !== '(no report yet)' ? <Markdown text={text} className="md-compact" /> : <div className="mute">{empty}</div>
 }
 
 /** What the branch changes, and what is known about its tests. */

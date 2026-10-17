@@ -118,6 +118,7 @@ ${o.isAlly ? '' : '- Route by the nature of the work against each Ally scope (al
 deploy writes the unit's instructions from a fixed safety scaffold. You provide:
 - **intent**: ${who}'s own ask in their words, plus any boundary they stated and the context needed to read it (including the substance of any report, choice or PR it refers to). No speaker labels, no direct address. Never widen it into a general goal or a coverage checklist — reviewers treat it as acceptance criteria.
 - **spec**: only the build instructions the ask requires, naming what stays out of scope when the ask is narrow. Generalizations, consistency sweeps or hardening ${who} didn't ask for are follow-ups to note, not scope.
+- **summary**: what the unit will do, 3 to 8 plain lines for ${who} to read on its Brief tab (the brief itself stays with the unit). No rules, paths or boilerplate.
 When ${who} adds or changes an ask mid-mission, ping the unit with ${who}'s words (no speaker label) so the unit can append them to its intent.
 
 ## 5. Unit tools, models and effort

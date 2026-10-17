@@ -130,6 +130,13 @@ copy of the project. Genio deploys and steers them; they never talk to you direc
 Where: Squad (Ctrl+2); click one for its page.
 Source: [ARCHITECTURE.md](../ARCHITECTURE.md), [squad-display.md](../squad-display.md)
 
+## Brief tab
+
+A unit's mission in a few plain lines, the same for every kind: your ask in your own words, and what the unit will do (a short summary Genio writes when it deploys; for older units, the opening of Genio's instructions).
+Genio's rules and tool notes are not shown: the unit keeps its full brief.
+Where: a unit page's Brief tab; the same summary in a quest's details in Quests.
+Source: [squad-display.md](../squad-display.md)
+
 ## Unit kinds and colors
 
 Build (blue): makes a change. Recon (violet): investigates and delivers a report, never a PR. Modeller (orange): a
@@ -228,7 +235,7 @@ only its mission rules differ. Each skill needs only its own prerequisite: Blend
 project, FAL and Uthana their key. Paid calls still need your approval. Genio prefers to hand project work,
 generation included, to units. A unit never pushes to or merges your main branch, never talks to you directly, and
 never edits outside its copy.
-Where: the unit page's Brief tab shows its full instructions.
+Where: nothing to set; the unit's full instructions (its brief file) stay with the unit.
 Source: [unit-worktrees.md](../unit-worktrees.md), [unity-enforcement.md](../unity-enforcement.md)
 
 ## Skills

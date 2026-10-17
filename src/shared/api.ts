@@ -24,6 +24,8 @@ export interface SpawnRequest {
   intent: string
   /** Genio's build instructions: becomes "## Genio spec". */
   spec?: string
+  /** What the unit will do in plain words, for the player's Brief tab (absent = the quest's, else derived from the brief). */
+  summary?: string
   mode?: DeliveryMode
   yolo?: boolean
   baseBranch?: string

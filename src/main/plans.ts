@@ -31,6 +31,8 @@ export interface PlanStepInput {
   title: string
   kind?: TaskKind
   spec: string
+  /** what the step's unit will do in plain words, for the player */
+  summary?: string
   category?: TaskCategory
   harness?: string
   model?: string
@@ -365,7 +367,7 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
     const { plan: p, step: s } = found
     const q = safe(() => hc().backlog.get(questId))
     return {
-      kind: s.kind, project: p.world, title: s.title, intent: p.intent, spec: s.spec,
+      kind: s.kind, project: p.world, title: s.title, intent: p.intent, spec: s.spec, summary: s.summary,
       category: s.category, harness: s.harness, model: s.model, effort: s.effort as SpawnRequest['effort'],
       backlogId: questId, mode: q?.mode, yolo: q?.yolo, wksp: home.name, planContext: handoffNote(p, s)
     }
@@ -440,6 +442,7 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
   function stepFrom(input: PlanStepInput, questId: string, index: number): PlanStep {
     return {
       key: input.key, index, questId, title: oneLine(input.title), kind: input.kind ?? 'ship', spec: input.spec.trim(),
+      ...(input.summary?.trim() ? { summary: input.summary.trim() } : {}),
       category: input.category, harness: input.harness, model: input.model, effort: input.effort,
       after: [...new Set(input.after ?? [])], files: input.files ?? [], acceptance: oneLine(input.acceptance), taskIds: []
     }
@@ -471,7 +474,7 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
 
   function fileQuest(p: WorkPlan, s: Omit<PlanStep, 'questId'>, deps: string[]): string {
     return hc().backlog.add({
-      title: s.title, project: p.world, kind: s.kind, notes: questNotes(p, { ...s, questId: '' }), dependsOn: deps,
+      title: s.title, project: p.world, kind: s.kind, notes: questNotes(p, { ...s, questId: '' }), summary: s.summary, dependsOn: deps,
       tags: [`plan:${slugify(p.title, 24)}`], planId: p.id, planStep: s.key
     }).id
   }
@@ -640,6 +643,7 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
               ...(patch.title !== undefined ? { title: oneLine(patch.title) } : {}),
               ...(patch.kind !== undefined ? { kind: patch.kind } : {}),
               ...(patch.spec !== undefined ? { spec: patch.spec.trim() } : {}),
+              ...(patch.summary !== undefined ? { summary: patch.summary.trim() || undefined } : {}),
               ...(patch.category !== undefined ? { category: patch.category } : {}),
               ...(patch.harness !== undefined ? { harness: patch.harness || undefined } : {}),
               ...(patch.model !== undefined ? { model: patch.model || undefined } : {}),
@@ -654,7 +658,7 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
             Object.assign(s, next)
             if (patch.kind !== undefined) safe(() => hc().backlog.update(s.questId, { kind: s.kind }))
             rewire(p)
-            safe(() => hc().backlog.update(s.questId, { notes: questNotes(p, s) }))
+            safe(() => hc().backlog.update(s.questId, { notes: questNotes(p, s), ...(patch.summary !== undefined ? { summary: s.summary } : {}) }))
             message = `step "${s.key}" updated`
             break
           }

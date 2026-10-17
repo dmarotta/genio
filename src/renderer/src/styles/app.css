@@ -1299,6 +1299,8 @@ button.prio-label:hover { background: color-mix(in srgb, var(--p) 24%, transpare
 .qk-drag.dragging { opacity: 0.4; }
 .qk-drag.drop-before { box-shadow: 0 -3px 0 0 var(--neon); }
 .qk-why { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.qk-summary { margin-bottom: 14px; }
+.qk-summary p { margin: 6px 0 0; font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* ---------- plans: step chips, the plan popover, quest log plan groups ---------- */
 .chip.plan-chip { --c: var(--neon); cursor: pointer; gap: 4px; font-family: inherit; }

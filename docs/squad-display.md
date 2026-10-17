@@ -58,7 +58,19 @@ never shows a line's `[key=…]`. Notes under Genio's own bookkeeping keys
 `genio-codex-image`, `genio-uthana-run`, `deps`, `claim`) stay in the status
 log for stats, landing and the unit but are hidden from the Timeline, the page's
 status line and the quest log's progress line, except a failed node_modules
-setup, shown as a plain sentence. It is the same for every unit kind. Under 900 px one strip switches between the terminal and the
+setup, shown as a plain sentence. It is the same for every unit kind.
+
+Brief is a short summary for the player, the same on every kind (`BriefTab`,
+`src/shared/unit-brief.ts`): "Your ask" (the player's words recorded in the
+brief, as written) and "What the unit will do" (the `summary` Genio passed to
+deploy, quest_add or the plan step, stored on the quest and the unit; without
+one, the first paragraph of the brief's Genio spec cut at a sentence end near
+600 characters, else the ask). The title is not repeated: the page header shows
+it. Genio's rules, skills and contract text never show there; the full brief
+file stays on disk, unchanged, for the unit. The quest details dialog shows the
+same summary.
+
+Under 900 px one strip switches between the terminal and the side
 tabs. The ping box spans the page under them, with an "interrupt and send"
 option while the agent runs. A "needs input" badge marks the terminal when the
 agent has printed nothing for the lagging window (Settings: Call a unit lagging

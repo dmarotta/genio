@@ -1,0 +1,6 @@
+/* Unit page › Brief tab: the player's ask, and what the unit will do. */
+.brief-sum { display: flex; flex-direction: column; gap: 16px; max-width: 68ch; padding: 0 4px; }
+.brief-label { margin-bottom: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-mute); }
+.brief-sum p { margin: 0; font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.brief-ask { color: var(--text); padding-left: 10px; border-left: 2px solid var(--line); }
+.brief-what { color: var(--text-dim); }

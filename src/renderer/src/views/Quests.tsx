@@ -585,6 +585,12 @@ function QuestDetails({ item, chips, onClose }: { item: BacklogItem; chips: Queu
           )}
         </div>
       )}
+      {item.summary && (
+        <div className="qk-summary">
+          <div className="label">What the unit will do</div>
+          <p className="dim">{item.summary}</p>
+        </div>
+      )}
       <div className="form-grid">
         <Field label="Title" wide>
           <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} />

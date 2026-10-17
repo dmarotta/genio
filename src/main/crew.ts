@@ -696,6 +696,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           project: project.name,
           kind: req.kind,
           notes: req.intent,
+          summary: req.summary?.trim() || undefined,
           mode: req.kind === 'ship' ? posture.mode : undefined,
           yolo: req.kind === 'ship' ? posture.yolo : undefined,
           modeller: req.kind === 'ship' && req.modeller ? true : undefined,
@@ -794,6 +795,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
 
         const harness = loadout.harness
         const now = nowIso()
+        const summary = req.summary?.trim() || quest?.summary?.trim()
         const task: Task = {
           id,
           kind: req.kind,
@@ -808,6 +810,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           branch,
           worktree: wt,
           briefPath,
+          ...(summary ? { summary } : {}),
           reportPath,
           harness,
           model: loadout.model,
@@ -1217,12 +1220,13 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           carriedReport: report || '(the recon report was empty)'
         })
       )
-      update(id, { kind: 'ship', mode: posture.mode, yolo: posture.yolo, promotedFrom: id, state: 'working', stateReason: 'upgraded to Build' })
+      update(id, { kind: 'ship', mode: posture.mode, yolo: posture.yolo, promotedFrom: id, state: 'working', stateReason: 'upgraded to Build',
+        summary: 'Builds what the Recon report recommends, within the ask above.' })
       if (t.backlogId) safe(() => hc().backlog.update(t.backlogId!, { kind: 'ship', mode: posture.mode, yolo: posture.yolo }))
       const r = await svc.control(id, 'relaunch', 'Upgraded from Recon to Build: the brief now has a Build definition of done. Implement it.')
       if (!r.ok) {
         writeText(t.briefPath, oldBrief)
-        update(id, { kind: t.kind, mode: t.mode, yolo: t.yolo, promotedFrom: t.promotedFrom,
+        update(id, { kind: t.kind, mode: t.mode, yolo: t.yolo, promotedFrom: t.promotedFrom, summary: t.summary,
           state: terminalAlive(t) || get(id)!.state === 'working' ? t.state : get(id)!.state, stateReason: r.message })
         if (t.backlogId) safe(() => hc().backlog.update(t.backlogId!, { kind: t.kind, mode: t.mode, yolo: t.yolo }))
         throw new Error(r.message)

@@ -175,6 +175,8 @@ export interface Task {
   /** Legacy unit artifacts stay at this base so existing briefs and sessions remain valid. */
   storageRoot?: string
   briefPath: string
+  /** What the unit will do in plain words, written by Genio at deploy: the Brief tab shows it (absent = derived from the brief). */
+  summary?: string
   reportPath?: string
   harness: string
   model?: string
@@ -331,6 +333,8 @@ export interface BacklogItem {
   project?: string
   kind: BacklogKind
   notes: string
+  /** What its unit will do in plain words, for the player (passed on to the unit's Brief tab). */
+  summary?: string
   state: BacklogState
   priority: Priority
   /** manual order within the same priority (lower runs first); unranked quests follow by age */
@@ -380,6 +384,8 @@ export interface PlanStep {
   kind: TaskKind
   /** stored once: this is the brief's Genio spec at release */
   spec: string
+  /** what the step's unit will do in plain words, for the player (absent = derived from the spec) */
+  summary?: string
   category?: TaskCategory
   harness?: string
   model?: string

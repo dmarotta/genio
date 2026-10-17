@@ -48,6 +48,7 @@ import { settingsPath } from '@shared/settings-pages'
 import { declareEngineRoot, projectEngineSummary } from './engine-facts'
 import { choiceGroup, choiceRevision, recommendationAnswer, type RecommendationReview, type RecommendationResult } from '@shared/choice'
 import type { PlanStepInput, PlanUpdateOp } from './plans'
+import { clipSummary, SUMMARY_CHARS } from '@shared/unit-brief'
 
 export type ToolRole = 'genio' | 'ally' | 'bot'
 
@@ -76,6 +77,9 @@ function dislikeHold(ctx: AppCtx, message: string | undefined): string | undefin
 const ok = (text: string): CallToolResult => ({ content: [{ type: 'text', text }] })
 const fail = (text: string): CallToolResult => ({ content: [{ type: 'text', text }], isError: true })
 const json = (v: unknown): string => JSON.stringify(v, null, 1)
+/** deploy, quest_add and plan steps: the plain summary the player reads on the unit's Brief tab. */
+const summaryArg = z.string().optional().describe('For the player to read on the unit\'s Brief tab: what the unit will do, 3 to 8 plain lines (about 600 characters at most), no rules or boilerplate.')
+const summaryOf = (s: string | undefined): string | undefined => (s?.trim() ? clipSummary(s, SUMMARY_CHARS + 200) : undefined)
 const approvalLine = (a: MergeApproval): string => `${mergeApprovalLabel(a, 200)}${a.standingId ? ` (standing approval ${a.standingId})` : ''}${a.choiceId ? ` (choice ${a.choiceId})` : ''}${a.messageId ? ` (message ${a.messageId})` : ''}`
 
 /** On-demand evidence stays inside its task/skill folder, including symlinks. */
@@ -398,13 +402,14 @@ export function createToolRegistry(
 
   t(
     'deploy',
-    'Deploy a unit on a Build (kind=ship: produces a change) or Recon (kind=scout: produces a report) mission in an isolated copy of a project. intent = the player\'s own words (no speaker labels); spec = only the build instructions the ask requires. category = what kind of work it is (drives the category table). mode/auto_loot default to the project posture (resolve with world_posture first). Files a quest automatically unless quest_id is given. Omit harness/model/effort to let the loadout picker choose (rules, the Usage mode, category table, quota protection, learning); preview it with loadout_preview. A quest_id that waits on unlanded dependencies (depends_on) is refused: it starts once they land (plan steps start by themselves). force=true starts it anyway and REQUIRES player_words quoting, verbatim, the player\'s own message that says to start it before what it waits on. A plan step deployed by quest_id gets its stored step spec and loadout unless you pass them.',
+    'Deploy a unit on a Build (kind=ship: produces a change) or Recon (kind=scout: produces a report) mission in an isolated copy of a project. intent = the player\'s own words (no speaker labels); spec = only the build instructions the ask requires; summary = what the unit will do in plain words, for the player. category = what kind of work it is (drives the category table). mode/auto_loot default to the project posture (resolve with world_posture first). Files a quest automatically unless quest_id is given. Omit harness/model/effort to let the loadout picker choose (rules, the Usage mode, category table, quota protection, learning); preview it with loadout_preview. A quest_id that waits on unlanded dependencies (depends_on) is refused: it starts once they land (plan steps start by themselves). force=true starts it anyway and REQUIRES player_words quoting, verbatim, the player\'s own message that says to start it before what it waits on. A plan step deployed by quest_id gets its stored step spec and loadout unless you pass them.',
     {
       kind: z.enum(['ship', 'scout']),
       world: z.string(),
       title: z.string().min(3),
       intent: z.string().min(3),
       spec: z.string().optional(),
+      summary: summaryArg,
       category: z.enum(CATEGORY_IDS).optional(),
       mode: z.enum(['no-mistakes', 'direct-PR', 'local-only']).optional(),
       auto_loot: z.boolean().optional(),
@@ -446,7 +451,7 @@ export function createToolRegistry(
         // a plan step keeps its stored spec, loadout and handoff note; explicit arguments win
         const step = a.quest_id ? owner.plans?.spawnRequest(a.quest_id) : undefined
         const task = await owner.crew.spawn({
-          kind: a.kind, project: a.world, title: a.title, intent: a.intent, spec: a.spec ?? step?.spec, mode: a.mode, yolo: a.auto_loot,
+          kind: a.kind, project: a.world, title: a.title, intent: a.intent, spec: a.spec ?? step?.spec, summary: summaryOf(a.summary) ?? step?.summary, mode: a.mode, yolo: a.auto_loot,
           baseBranch: a.base_branch, harness: a.harness ?? step?.harness, model: a.model ?? step?.model, effort: a.effort ?? step?.effort,
           category: a.category ?? step?.category, backlogId: a.quest_id, wksp: owner.home.name, planContext: step?.planContext, force: a.force,
           modeller: a.modeller, generator: a.generator, claims: a.claims, approvedBudget
@@ -596,6 +601,7 @@ export function createToolRegistry(
       world: z.string().optional(),
       kind: z.enum(['ship', 'scout', 'choice', 'program']).default('ship'),
       notes: z.string().default(''),
+      summary: summaryArg,
       priority: z.enum(['low', 'normal', 'high', 'critical']).default('normal'),
       depends_on: z.array(z.string()).default([]).describe('Quest ids that must land (merged Build, delivered Recon) before this quest may start. Genio never starts it before then, on any path (deploy, Dispatch, restart), unless the player says so.'),
       not_before: z.string().optional(),
@@ -612,7 +618,7 @@ export function createToolRegistry(
       if (a.modeller && a.kind !== 'ship') return fail('modeller applies to kind=ship only')
       if (a.generator && a.kind !== 'ship') return fail('generator applies to kind=ship only')
       if (a.modeller && a.generator) return fail('a Build quest is a Modeller or a Generator, not both')
-      const it = hc().backlog.add({ title: a.title, project: a.world, kind: a.kind, notes: a.notes, priority: a.priority, dependsOn: a.depends_on, notBefore: a.not_before, tags: a.tags, modeller: a.modeller, generator: a.generator, claims: a.claims })
+      const it = hc().backlog.add({ title: a.title, project: a.world, kind: a.kind, notes: a.notes, summary: summaryOf(a.summary), priority: a.priority, dependsOn: a.depends_on, notBefore: a.not_before, tags: a.tags, modeller: a.modeller, generator: a.generator, claims: a.claims })
       did('quests', it.id)
       return ok(`quest ${it.id} filed (${it.state})${it.duplicateOf ? `; flagged as a duplicate of ${it.duplicateOf} and not dispatched until cleared (quest_update duplicate_of="")` : ''}`)
     }
@@ -696,6 +702,7 @@ export function createToolRegistry(
     title: z.string().min(3),
     kind: z.enum(['ship', 'scout']).default('ship').describe('ship = a Build that lands a change; scout = a Recon that delivers a report.'),
     spec: z.string().min(20).describe('The complete Genio spec this step\'s unit receives as its brief, written in full now: it is stored once and used at release, with no second spec at dispatch.'),
+    summary: summaryArg,
     category: z.enum(CATEGORY_IDS).optional(),
     harness: z.string().optional(),
     model: z.string().optional(),
@@ -706,13 +713,13 @@ export function createToolRegistry(
   }
   const planStep = z.object({ key: z.string().min(1).max(40).describe('Short unique step id (e.g. "core", "ui"); other steps name it in after.'), ...stepShape })
   const stepInput = (s: z.infer<typeof planStep>): PlanStepInput => ({
-    key: s.key, title: s.title, kind: s.kind, spec: s.spec, category: s.category, harness: s.harness, model: s.model, effort: s.effort,
+    key: s.key, title: s.title, kind: s.kind, spec: s.spec, summary: summaryOf(s.summary), category: s.category, harness: s.harness, model: s.model, effort: s.effort,
     after: s.after, files: s.files, acceptance: s.acceptance
   })
 
   t(
     'plan_create',
-    'File a plan: work that needs 2 or more units (a Recon proposed builds, it spans several subsystems, or one unit would run past about 60 min). Not for one-sentence diffs or tightly coupled changes to the same files: that is one deploy. Each step becomes a quest whose dependencies mirror its after; Genio starts each step by itself, from its stored spec and loadout plus a handoff note on what landed, once every step it comes after has MERGED, and pings working steps to rebase when a landing touches their files. Merges still need the usual approval: the plan waits at an unapproved merge. A discarded or failed step pauses the plan and asks the player (resume, edit or cancel). Serial by default; mark steps parallel only when they share no API and few files, at most 2 at once. Refuses a duplicate of an active plan. Returns the plan id, step quest ids, a time and cost estimate from this squad\'s history, and a one-line announcement (steps, order, time, cost): post it once, and carry on without asking when the player already asked for the work.',
+    'File a plan: work that needs 2 or more units (a Recon proposed builds, it spans several subsystems, or one unit would run past about 60 min). Not for one-sentence diffs or tightly coupled changes to the same files: that is one deploy. Each step becomes a quest whose dependencies mirror its after; Genio starts each step by itself, from its stored spec and loadout plus a handoff note on what landed, once every step it comes after has MERGED, and pings working steps to rebase when a landing touches their files. Merges still need the usual approval: the plan waits at an unapproved merge. A discarded or failed step pauses the plan and asks the player (resume, edit or cancel). Serial by default; mark steps parallel only when they share no API and few files, at most 2 at once. Give each step a summary (plain words, for the player). Refuses a duplicate of an active plan. Returns the plan id, step quest ids, a time and cost estimate from this squad\'s history, and a one-line announcement (steps, order, time, cost): post it once, and carry on without asking when the player already asked for the work.',
     {
       world: z.string(),
       title: z.string().min(3),

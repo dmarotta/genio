@@ -26,7 +26,9 @@ descriptions repeat what matters at the point of use.
 - Order lives only in `after`. A step waits for the merge of its own
   prerequisites, never for unrelated steps. There is no early start.
 - Each step has a complete spec, a one-line acceptance check and the files it
-  shares with other steps.
+  shares with other steps, and optionally a `summary`: a few plain lines for the
+  player. It goes to the step's quest and its unit's Brief tab (without one, the
+  tab derives it from the spec).
 - Post the announcement once (steps, order, time, cost). If the player already
   asked for the work, start it and carry on without asking; otherwise file it
   with `start=false` and ask.

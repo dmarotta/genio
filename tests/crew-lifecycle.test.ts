@@ -417,6 +417,18 @@ describe('Modeller landing', () => {
     expect(brief).toContain('--target web --fmt glb')
   })
 
+  it('stores the deploy summary on the unit and its quest, carries a quest\'s summary to its unit, and leaves the brief alone', async () => {
+    modellerWorld()
+    const t = await ctx.main.crew.spawn({ project: 'world', kind: 'ship', title: 'Fix jump', intent: 'fix the jump', summary: '  Fixes the double jump.  ' })
+    expect(t.summary).toBe('Fixes the double jump.')
+    expect(ctx.main.backlog.add).toHaveBeenLastCalledWith(expect.objectContaining({ notes: 'fix the jump', summary: 'Fixes the double jump.' }))
+    expect(fs.readFileSync(t.briefPath, 'utf8')).not.toContain('Fixes the double jump.')
+    ctx.main.backlog.get = () => ({ id: 'quest', summary: 'Builds a small wooden tower.' }) as any
+    expect((await ctx.main.crew.spawn({ project: 'world', kind: 'ship', title: 'Tower', intent: 'a tower', backlogId: 'quest' })).summary).toBe('Builds a small wooden tower.')
+    ctx.main.backlog.get = () => ({ id: 'quest' }) as any
+    expect((await ctx.main.crew.spawn({ project: 'world', kind: 'scout', title: 'Why slow', intent: 'why is it slow', backlogId: 'quest' })).summary).toBeUndefined()
+  })
+
   it('loadout_preview carries the Modeller default through the tool schema', async () => {
     ctx.settings.get = () => defaultSettings()
     ctx.settings.availableHarnesses = () => BUILTIN_HARNESSES.filter(h => ['claude', 'codex'].includes(h.id))
