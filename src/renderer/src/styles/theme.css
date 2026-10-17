@@ -228,7 +228,9 @@ code, pre, kbd { font-family: var(--font-mono); font-size: 12.5px; }
   40% { clip-path: inset(50% 0 20% 0); transform: translate(2px, 0); }
   60% { clip-path: inset(30% 0 40% 0); transform: translate(-1px, 0); }
 }
-.rise { animation: rise 0.35s var(--ease) both; }
+/* Backwards fill only: a finished entry animation must not stay applied. Filled forwards it kept every message of a
+   long chat animated for good, and each forced style pass (a terminal measuring its glyphs) restyled them all. */
+.rise { animation: rise 0.35s var(--ease) backwards; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
