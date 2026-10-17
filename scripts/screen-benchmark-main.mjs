@@ -78,11 +78,16 @@ const ws = new WebSocket('ws://127.0.0.1:' + port + '/play', { headers: { Author
 let n = 0, sent = 0, busy = 0, bytes = 0, audio = 0, sending = false
 const stamp = (jpg, id) => { const text = Buffer.from('GBENCH:' + id + ':' + Date.now()); const seg = Buffer.alloc(4 + text.length); seg[0] = 0xff; seg[1] = 0xfe; seg.writeUInt16BE(text.length + 2, 2); text.copy(seg, 4); return Buffer.concat([jpg.subarray(0, 2), seg, jpg.subarray(2)]) }
 ws.on('open', () => {
-  setInterval(() => {
-    if (sending) { busy++; return }
-    const frame = stamp(frames[n++ % frames.length], n); sending = true
-    ws.send(frame, () => { sending = false; sent++; bytes += frame.length })
-  }, 1000 / Number(fps))
+  // Unity's cadence is frame-timed: schedule against the clock (Windows timers tick every ~15.6 ms, so a plain 33 ms
+  // interval sends ~21 fps).
+  const start = performance.now(), period = 1000 / Number(fps)
+  const tick = () => {
+    if (sending) busy++
+    else { const frame = stamp(frames[n++ % frames.length], n); sending = true; ws.send(frame, () => { sending = false; sent++; bytes += frame.length }) }
+    const k = Math.floor((performance.now() - start) / period) + 1
+    setTimeout(tick, Math.max(0, start + k * period - performance.now()))
+  }
+  tick()
   let seq = 0
   setInterval(() => { const blocks = 1024, ch = 2, p = Buffer.alloc(24 + blocks * ch * 2); p[0] = 0x47; p[1] = 0x41; p[2] = 1; p[3] = ch; p.writeUInt32LE(seq++, 4); p.writeUInt32LE(48000, 8); p.writeUInt16LE(blocks, 12); p.writeDoubleLE(Date.now(), 16); ws.send(p); audio++ }, 1000 * 1024 / 48000)
   setInterval(() => fs.writeFileSync(statsFile, JSON.stringify({ sent, busy, bytes, audio })), 250)
