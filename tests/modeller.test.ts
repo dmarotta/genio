@@ -15,6 +15,8 @@ const scripts = path.resolve('resources/unit-skills/genio/skills/blender/scripts
 const cli = path.join(scripts, 'modeller.mjs')
 const fixtures = path.resolve('tests/fixtures/modeller')
 const fake = { prefix: [path.join(fixtures, 'fake-blender.mjs')] }
+// a unit started with references runs these tests too: its own must not reach the reviews
+delete process.env.GENIO_REFERENCES
 const ZSTD = Buffer.from([0x28, 0xb5, 0x2f, 0xfd])
 const root = fs.mkdtempSync(path.join(process.env.GENIO_BLENDER_TEST_SCRATCH ?? os.tmpdir(), 'genio-modeller-test-'))
 afterAll(() => fs.rmSync(root, { recursive: true, force: true }))
@@ -61,6 +63,29 @@ describe('Modeller kernel with a fake Blender', { timeout: 60000 }, () => {
     expect(await kernel.init({ dataDir, model: 'tower', symmetry: 'x', cwd: src })).toMatchObject({ checks: { budget: 8000, symmetry: 'x' } })
     expect(await kernel.init({ dataDir, model: 'tower', symmetry: 'none', cwd: src })).toMatchObject({ checks: { symmetry: null } })
     await expect(kernel.init({ dataDir, model: 'tower', symmetry: 'z' as 'x', cwd: src })).rejects.toThrow(/symmetry is x/)
+  })
+
+  it('names the player\'s references in every step\'s review and hands back their image files', async () => {
+    await fakeModel()
+    const refs = fs.mkdtempSync(path.join(root, 'refs-'))
+    fs.writeFileSync(path.join(refs, 'front.png'), 'png')
+    fs.writeFileSync(path.join(refs, 'references.json'), JSON.stringify([
+      { file: 'front.png', type: 'image', note: 'front view', bytes: 3, source: 'chat image front.png', addedAt: '' },
+      { file: 'notes.md', type: 'text', bytes: 1, source: 'inline text', addedAt: '' }
+    ]))
+    const line = 'References: front.png (front view); notes.md. Compare the sheet with them and say what still differs.'
+    const first = done(await step(script('s01_top.py', 'Top', '# part: Top', '# review: Changes: 1 added (Top)'), { references: refs }))
+    expect(first.review).toEqual(['Changes: 1 added (Top)', line])
+    expect(first.references).toEqual([path.join(refs, 'front.png')])
+    // the receipt keeps Blender's own review
+    expect(JSON.parse(fs.readFileSync(first.receipt, 'utf8')).review).toEqual(['Changes: 1 added (Top)'])
+    const b = await kernel.batch({ dataDir, model: 'tower', runner: fake, gapMs: 0, references: refs, scripts: [script('s02_lamp.py', 'Lamp', '# part: Lamp', '# review: Changes: 1 added (Lamp)')] })
+    expect(b.steps[0].review).toEqual(['Changes: 1 added (Lamp)', line])
+    expect(b.references).toEqual([path.join(refs, 'front.png')])
+    // without references nothing is added
+    const plain = done(await step(script('s03_roof.py', 'Roof', '# part: Roof', '# review: Changes: 1 added (Roof)'), { references: path.join(root, 'none') }))
+    expect(plain.review).toEqual(['Changes: 1 added (Roof)'])
+    expect(plain.references).toBeUndefined()
   })
 
   it('returns the text review and hands it the parts of the step before', async () => {

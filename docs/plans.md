@@ -29,6 +29,10 @@ descriptions repeat what matters at the point of use.
   shares with other steps, and optionally a `summary`: a few plain lines for the
   player. It goes to the step's quest and its unit's Brief tab (without one, the
   tab derives it from the spec).
+- A step can carry `attachments` (the player's images, files, folders or text;
+  [unit-worktrees.md](unit-worktrees.md#attachments-references)). They are
+  copied when the step's quest is filed, so they are still there when the step
+  starts; `edit_step` adds to them.
 - Post the announcement once (steps, order, time, cost). If the player already
   asked for the work, start it and carry on without asking; otherwise file it
   with `start=false` and ask.

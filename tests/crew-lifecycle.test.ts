@@ -10,6 +10,7 @@ vi.mock('../src/main/usage', async original => ({ ...await original<typeof impor
 vi.mock('../src/main/unithooks', () => ({ installUnitHooks: async () => ({}) }))
 import { Home } from '../src/main/home'
 import { createCrewService } from '../src/main/crew'
+import { bus } from '../src/main/bus'
 import { createDispatchService } from '../src/main/dispatch'
 import { createToolRegistry } from '../src/main/wksp-tools'
 import { registerIpc } from '../src/main/ipc'
@@ -431,6 +432,33 @@ describe('Modeller landing', () => {
     expect(brief).toContain('Modeller delivery')
     expect(brief).toContain('`assets/models/tower.glb`')
     expect(brief).toContain('--target web --fmt glb')
+  })
+
+  it('starts a Modeller with the player\'s attachments: copied into its data folder, listed in its brief, GENIO_REFERENCES set', async () => {
+    modellerWorld()
+    const sketch = path.join(root, 'Desktop', 'sketch.png')
+    fs.mkdirSync(path.dirname(sketch), { recursive: true })
+    fs.writeFileSync(sketch, 'png')
+    const events: unknown[] = []
+    const off = bus.onEvent((e) => { if (e.type === 'feature-used') events.push(e) })
+    const t = await ctx.main.crew.spawn({ project: 'world', kind: 'ship', title: 'Tower', intent: 'a tower like my sketch', modeller: true,
+      attachments: [{ kind: 'file', path: sketch, name: 'sketch.png', bytes: 3, source: sketch, note: 'the silhouette to match' }, { kind: 'text', name: 'size.md', text: '10 m tall', bytes: 9, source: 'inline text' }] })
+    off()
+    const refs = path.join(home.taskDir(t.id), 'references')
+    expect(fs.readFileSync(path.join(refs, 'sketch.png'), 'utf8')).toBe('png')
+    // the quest keeps its own copy, so a later unit on the same quest gets them too
+    expect(fs.existsSync(path.join(home.data, 'quest-references', 'quest', 'sketch.png'))).toBe(true)
+    const brief = fs.readFileSync(t.briefPath, 'utf8')
+    expect(brief).toContain('## References')
+    expect(brief).toContain('- `sketch.png` (image): the silhouette to match')
+    expect(brief).toContain('- `size.md` (text)')
+    expect(brief).toContain("Modeller: every step's review names the references")
+    expect(ctx.terminals.create).toHaveBeenCalledWith(expect.objectContaining({ env: expect.objectContaining({ GENIO_REFERENCES: refs.replace(/\\/g, '/') }) }))
+    expect(events).toContainEqual({ type: 'feature-used', feature: 'unit-references', id: t.id })
+    // a unit without attachments gets neither the section nor the variable
+    const plain = await ctx.main.crew.spawn({ project: 'world', kind: 'ship', title: 'Fix jump', intent: 'fix the jump', backlogId: 'other' })
+    expect(fs.readFileSync(plain.briefPath, 'utf8')).not.toContain('## References')
+    expect(vi.mocked(ctx.terminals.create).mock.calls.at(-1)![0].env).not.toHaveProperty('GENIO_REFERENCES')
   })
 
   it('stores the deploy summary on the unit and its quest, carries a quest\'s summary to its unit, and leaves the brief alone', async () => {

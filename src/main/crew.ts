@@ -38,13 +38,14 @@ import { depsEnv, depsPreToolHook, depsStateFile, installNpmShims, npmGuardScrip
 import { isLink, removeLinkSafely } from '../../resources/unit-skills/genio/lib/node-deps.mjs'
 import { sourceRemoved, yieldSource } from './source-leases'
 import { helpDocsDir } from './help'
-import { installUnitPlugin, modellerDataDir, openRouterEnv, unitLaunchExtras, unitPluginDir, unitPluginSource } from './unitskills'
+import { blenderSkillDir, installUnitPlugin, modellerDataDir, openRouterEnv, unitLaunchExtras, unitPluginDir, unitPluginSource } from './unitskills'
 import { claudeUnitMcpConfig, unitMcpLaunch, type McpRelays } from './unit-mcp'
 import { mcpGateway } from './mcp-gateway'
 import { unitMcpServers } from './mcp-servers'
 import { findUnityCli, unityUnitConfig, unityUnitEnv } from './unity-unit'
 import { artBibleBriefLines, unitArtBible, unitArtBibleEnv } from './art-bible-gen'
 import { designNotesBriefLines } from './design-notes'
+import { copyReferences, questReferencesDir, readReferences, referencesBriefLines, stageReferences, unitReferencesDir } from './unit-references'
 import {
   appendJsonl, appendLine, ensureDir, exists, fwd, nowIso, readJson, readText, rid, slugify, stripAnsi, truncate, writeJson, writeText
 } from './util'
@@ -206,6 +207,11 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
   /** The brief's dependency lines for a worktree with a package.json. */
   const nodeDeps =(id: string, wt: string): BriefInput['nodeDeps'] =>
     exists(path.join(wt, 'package.json')) ? { stateFile: depsStateFile(home.taskDir(id)), setup: depsGuard } : undefined
+  /** The brief's References section for the unit's copied attachments; none without any. */
+  const referencesBrief = (id: string, o: { modeller?: boolean; generator?: boolean }): string[] => {
+    const dir = unitReferencesDir(home.taskDir(id))
+    return referencesBriefLines(dir, readReferences(dir), { taskDir: home.taskDir(id), blender: blenderSkillDir(pluginDir), ...o })
+  }
   /** Background private node_modules for the unit's worktree (once; nothing to do when it already has one). */
   const startDeps = (t: Task, main: string): void => safe(() => {
     void startWorktreeDeps({ worktree: t.worktree, main, stateFile: depsStateFile(home.taskDir(t.id)), statusFile: home.statusFile(t.id), data: mainHome.data, log: depsLog })?.then(report => {
@@ -502,7 +508,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
       GENIO_TASK_ID: t.id,
       GENIO_STATUS_FILE: fwd(home.statusFile(t.id)),
       GENIO_TASK_INBOX: fwd(inboxDir(t.id)),
-      GENIO_BRIEF: fwd(t.briefPath)
+      GENIO_BRIEF: fwd(t.briefPath),
+      ...(exists(path.join(unitReferencesDir(home.taskDir(t.id)), 'references.json')) ? { GENIO_REFERENCES: fwd(unitReferencesDir(home.taskDir(t.id))) } : {})
     }
     await opts.check()
     // This launch's gateway secret: bound to this unit and these servers, revoked when its process ends.
@@ -749,6 +756,9 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         backlogId = b.id
       }
 
+      // the player's attachments stay with the quest, so a queued or deferred quest keeps them
+      if (req.attachments?.length) stageReferences(questReferencesDir(home.data, backlogId!), req.attachments)
+
       // a follow-up on the same quest keeps the loadout of the unit that worked it before
       const quest = backlog.get(backlogId!)
       // The Modeller and Generator flags and their target paths come with the request, else from the quest.
@@ -799,6 +809,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
 
         ensureDir(home.taskDir(id))
         ensureDir(path.join(inboxDir(id), 'handled'))
+        const references = copyReferences(questReferencesDir(home.data, backlogId!), unitReferencesDir(home.taskDir(id)))
         if (!exists(home.statusFile(id))) writeText(home.statusFile(id), '')
         if (submodules.problems.length) {
           appendLine(home.statusFile(id), formatStatusLine('note', `git submodules missing from the worktree: ${truncate(submodules.problems.join('; '), 400)}`, { key: 'submodules' }))
@@ -833,6 +844,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
             artBible: artBibleBrief(project.path, wt, id),
             designNotes: designNotesBriefLines(wt),
             mcpServers: mcpBriefNames(loadout.harness, project.name),
+            references: referencesBrief(id, { modeller, generator }),
             submodules,
             nodeDeps: nodeDeps(id, wt)
           })
@@ -902,6 +914,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         safe(() => backlog.markInFlight(backlogId!, id))
         ledger('task.dispatched', task, { kind: task.kind, project: task.project, harness, model: task.model ?? 'default', effort: task.effort ?? 'default', category: loadout.category, loadout: loadout.source, rule: loadout.ruleId, explored: loadout.explored, mode: task.mode, yolo: task.yolo })
         safe(() => ctx.stats.award('spawn', id))
+        if (references.length) bus.publish({ type: 'feature-used', feature: 'unit-references', id })
         safe(() => ctx.notifier.sfx('spawn'))
         return get(id)!
       } finally {
@@ -1270,6 +1283,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           designNotes: designNotesBriefLines(t.worktree),
           mcpServers: mcpBriefNames(t.harness, project.name),
           nodeDeps: nodeDeps(id, t.worktree),
+          references: referencesBrief(id, {}),
           carriedReport: report || '(the recon report was empty)'
         })
       )

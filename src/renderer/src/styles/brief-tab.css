@@ -4,3 +4,9 @@
 .brief-sum p { margin: 0; font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 .brief-ask { color: var(--text); padding-left: 10px; border-left: 2px solid var(--line); }
 .brief-what { color: var(--text-dim); }
+.brief-refs { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.brief-refs li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.brief-ref { display: inline-flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: var(--text); font: inherit; cursor: pointer; text-align: left; overflow-wrap: anywhere; }
+.brief-ref:hover .brief-ref-name { text-decoration: underline; }
+.brief-ref img { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); }
+.brief-ref-note { color: var(--text-dim); }

@@ -96,7 +96,10 @@ one, the first paragraph of the brief's Genio spec cut at a sentence end near
 600 characters, else the ask). The title is not repeated: the page header shows
 it. Genio's rules, skills and contract text never show there; the full brief
 file stays on disk, unchanged, for the unit. The quest details dialog shows the
-same summary.
+same summary. A unit started with attachments adds "References": each file's
+name and note, a small thumbnail for images, a click opens the file
+(`taskReferences`, [unit-worktrees.md](unit-worktrees.md#attachments-references));
+a unit without any shows nothing more.
 
 Under 900 px one strip switches between the terminal and the side
 tabs. The ping box ("Ping this unit") spans the page under them; to stop the

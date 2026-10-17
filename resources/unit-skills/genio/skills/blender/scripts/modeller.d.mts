@@ -41,6 +41,8 @@ export interface StepDone {
   lib: string | null
   /** What p.bake_maps did in this step, when it baked. */
   bakes?: Bake[]
+  /** With the player's references (GENIO_REFERENCES): their image files; the review's last line names every reference. */
+  references?: string[]
 }
 export interface Bake {
   parts: number; materials: number; size: number; samples: number; device: string; threads: number; bakes: number
@@ -57,6 +59,8 @@ export interface BatchDone {
   steps: { id: string; n: number; name: string; caption: string; triangles: number; objects: number; review: string[]; warnings: string[]; known_warnings: number; glb: string | null; sheet: string | null; ms: number }[]
   sheet: string | null; receipt: string | null; warnings: string[]; known_warnings: number
   failure: StepFailed | null; not_run: { name: string; script: string }[]; message: string
+  /** With the player's references: their image files (each step's review names them). */
+  references?: string[]
 }
 interface Common { dataDir?: string; model: string }
 
@@ -67,9 +71,11 @@ export function chooseBlender(choice?: string | { path: string; version: string 
 export function prune(m: Manifest, dir: string, keep?: number): string[]
 export function planThreads(plan: { replay: (string | { script: string; lib?: string | null })[]; steps: { script: string | null; lib?: string | null }[] }, threads?: number): number | undefined
 export function init(o: Common & { blender?: string | { path: string; version: string }; target?: string; budget?: number | string; size?: string | number[]; symmetry?: 'x' | 'y' | 'none'; repin?: boolean; cwd?: string; env?: Record<string, string | undefined> }): Promise<Summary & { existing: boolean }>
-export function step(o: Common & { script: string; name?: string; amend?: boolean; timeout?: number; threads?: number; runner?: Runner }): Promise<StepDone | StepFailed>
+/** The player's references folder (default GENIO_REFERENCES): a review line naming them and their image files, or null without any. */
+export function referenceReview(refDir?: string): { line: string; images: string[] } | null
+export function step(o: Common & { script: string; name?: string; amend?: boolean; timeout?: number; threads?: number; runner?: Runner; references?: string }): Promise<StepDone | StepFailed>
 export function batchScripts(args: string | string[]): BatchScript[]
-export function batch(o: Common & { scripts: string | (string | BatchScript)[]; everySheet?: boolean; timeout?: number; threads?: number; runner?: Runner; gapMs?: number }): Promise<BatchDone>
+export function batch(o: Common & { scripts: string | (string | BatchScript)[]; everySheet?: boolean; timeout?: number; threads?: number; runner?: Runner; gapMs?: number; references?: string }): Promise<BatchDone>
 export function materialize(o: Common & { step?: string; timeout?: number; threads?: number; runner?: Runner }): Promise<{ ok: true; id: string; blend: string; replayed: number }>
 export function revert(o: Common & { to: string | number }): Promise<Summary & { reverted: string | null }>
 export function branch(o: Common & { name: string; from?: string }): Promise<Summary>

@@ -11,6 +11,7 @@ import { modelViewer } from './model-viewer'
 import { readModellerLive } from './modeller-live'
 import { createLiveWatch } from './modeller-watch'
 import { unitFilePreview } from './unit-file-preview'
+import { referenceViews, unitReferencesDir } from './unit-references'
 import { baseRef } from './git'
 import { modellerDataDir } from './unitskills'
 import { standingApprovals } from './standing-approvals'
@@ -426,6 +427,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     },
     promoteScout: (id, intent) => taskHome(id).hc.crew.promote(id, intent),
     readTaskFile: (id, which) => taskHome(id).hc.crew.readFile(id, which),
+    taskReferences: async (id) => referenceViews(unitReferencesDir(taskHome(id).hc.home.taskDir(id))),
 
     // ---- terminals
     terminals: () => ctx().terminals.list(),

@@ -61,6 +61,8 @@ import { declareEngineRoot, projectEngineSummary } from './engine-facts'
 import { choiceGroup, choiceRevision, recommendationAnswer, type RecommendationReview, type RecommendationResult } from '@shared/choice'
 import type { PlanStepInput, PlanUpdateOp } from './plans'
 import { clipSummary, SUMMARY_CHARS } from '@shared/unit-brief'
+import { chatImageDir } from './chat-images'
+import { attachmentsReport, questReferencesDir, referencesBytes, resolveAttachments, stageReferences, unitReferencesDir, type AttachmentInput, type Resolved } from './unit-references'
 
 /** design: a design chat, which reads and talks but starts no work (DESIGN_TOOLS in chat-tool-session.ts) */
 export type ToolRole = 'genio' | 'ally' | 'bot' | 'design'
@@ -94,6 +96,13 @@ const fail = (text: string): CallToolResult => ({ content: [{ type: 'text', text
 const json = (v: unknown): string => JSON.stringify(v, null, 1)
 /** deploy, quest_add and plan steps: the plain summary the player reads on the unit's Brief tab. */
 const summaryArg = z.string().optional().describe('For the player to read on the unit\'s Brief tab: what the unit will do, 3 to 8 plain lines (about 600 characters at most), no rules or boilerplate.')
+/** deploy, quest_add, plan steps and upgrade_recon: what the player handed Genio for the unit (unit-references.ts). */
+const attachmentsArg = z.array(z.object({
+  source: z.string().optional().describe('A chat image id (from [attached image ids: ...]), an absolute path to a file or folder on this PC, or a path relative to the project.'),
+  name: z.string().optional().describe('Inline text only: the file name to save it as (notes.md, page.txt, data.json).'),
+  text: z.string().optional().describe('Inline text or data you hold instead of a file: pasted text, JSON, a table, notes, a URL with its page text.'),
+  note: z.string().optional().describe('One line: what it is and what the unit should use it for.')
+})).optional().describe('Files and data for the unit, of any type (images, PDFs, documents, spreadsheets, audio, video, 3D, archives, code, folders, inline text). Copied into the unit\'s data folder, never committed, and listed in its brief. Attach only what the player pasted or named in this chat; never guess a path. Credential and config locations, secrets and oversize files are refused, and the result says which and why.')
 const summaryOf = (s: string | undefined): string | undefined => (s?.trim() ? clipSummary(s, SUMMARY_CHARS + 200) : undefined)
 const approvalLine = (a: MergeApproval): string => `${mergeApprovalLabel(a, 200)}${a.standingId ? ` (standing approval ${a.standingId})` : ''}${a.choiceId ? ` (choice ${a.choiceId})` : ''}${a.messageId ? ` (message ${a.messageId})` : ''}`
 
@@ -247,6 +256,13 @@ export function createToolRegistry(
       if (role === 'design') return hooks.conversation ? hc().design?.history(hooks.conversation, HISTORY_DEPTH) ?? [] : []
       return hc().wksp.history?.(HISTORY_DEPTH) ?? []
     } catch { return [] }
+  }
+  /** Check the player's attachments against this chat's images and the project's checkout. The Bot attaches nothing. */
+  const attach = (items: AttachmentInput[] | undefined, world?: string, existingBytes?: number): Resolved => {
+    if (!items?.length) return { items: [], rejected: [] }
+    if (role === 'bot') return { items: [], rejected: ["attachments come only from the player's chat; the Bot attaches nothing"] }
+    const ctx = getCtx()
+    return resolveAttachments(items, { chatDir: chatImageDir(home.data), projectPath: world ? ctx.projects.get(world)?.path : undefined, genioRoot: ctx.main.home.root, existingBytes })
   }
   /** Why player_words do not authorize this (verbatim quote of a real player message that says it), or undefined when they do. */
   const unheard = (action: string, words: string | undefined, purpose: WordsPurpose, opts?: { after?: string; what?: string }): string | undefined => {
@@ -441,7 +457,8 @@ export function createToolRegistry(
       modeller: z.boolean().optional().describe('kind=ship only: a Modeller, which builds a 3D model in live Blender steps (any model kind; needs local Blender). Absent = the quest\'s flag.'),
       generator: z.boolean().optional().describe('kind=ship only: a Generator, which runs one or more asset generation jobs (images, textures, sounds, music, 3D, motions) with the asset helpers and delivers them like any Build; its terminal is the main view. List the jobs in intent/spec. It has no default budget: it spends only under budget_usd or what the player approves when it asks. Never together with modeller. Absent = the quest\'s flag.'),
       claims: z.array(z.string()).optional().describe('Modeller or Generator only: the project paths it will write (export, .blend, generated assets), from asset_locate. Refused while another Modeller or Generator holds one.'),
-      budget_usd: z.number().positive().optional().describe('Spend the player approved up front for this unit (USD), recorded as its first spend grant. REQUIRES player_words quoting, verbatim, the player\'s own message that approves spending and names this amount (Genio checks it). Without it the unit starts with no grant and asks the player before any paid call. Never above the project\'s monthly cap. Codex images need no budget.')
+      budget_usd: z.number().positive().optional().describe('Spend the player approved up front for this unit (USD), recorded as its first spend grant. REQUIRES player_words quoting, verbatim, the player\'s own message that approves spending and names this amount (Genio checks it). Without it the unit starts with no grant and asks the player before any paid call. Never above the project\'s monthly cap. Codex images need no budget.'),
+      attachments: attachmentsArg
     },
     async (a) => {
       if (/^\s*(captain|player|boss)\b[:,]/i.test(a.intent)) return fail('intent must be the player\'s words without a speaker label or direct address')
@@ -464,6 +481,8 @@ export function createToolRegistry(
         if (!r.ok) return fail(refusal('the approved budget', r.reason, `Quote the player's own message that approves USD ${fmtUsd(a.budget_usd)} as player_words, ask them, or deploy without budget_usd (the unit then asks before any paid call).`))
         approvedBudget = { usd: a.budget_usd, via: 'chat', words: a.player_words! }
       }
+      const att = attach(a.attachments, a.world)
+      const attached = attachmentsReport(att.items.length, att.rejected)
       try {
         const owner = a.quest_id ? questHome(a.quest_id) : hc()
         // a plan step keeps its stored spec, loadout and handoff note; explicit arguments win
@@ -472,16 +491,16 @@ export function createToolRegistry(
           kind: a.kind, project: a.world, title: a.title, intent: a.intent, spec: a.spec ?? step?.spec, summary: summaryOf(a.summary) ?? step?.summary, mode: a.mode, yolo: a.auto_loot,
           baseBranch: a.base_branch, harness: a.harness ?? step?.harness, model: a.model ?? step?.model, effort: a.effort ?? step?.effort,
           category: a.category ?? step?.category, backlogId: a.quest_id, wksp: owner.home.name, planContext: step?.planContext, force: a.force,
-          modeller: a.modeller, generator: a.generator, claims: a.claims, approvedBudget
+          modeller: a.modeller, generator: a.generator, claims: a.claims, approvedBudget, attachments: att.items
         })
         did('units', task.id)
         did('quests', task.backlogId)
-        return ok(`deployed ${task.id}: ${task.kind === 'scout' ? 'Recon' : task.modeller ? 'Modeller' : task.generator ? 'Generator' : 'Build'} "${task.title}" in ${task.project} (unit tool ${task.harness}${task.model ? ` / ${task.model}` : ''}${task.effort ? ` / ${task.effort}` : ''}, mode ${modeLabel(task.mode)}, branch ${task.branch}${approvedBudget ? `, approved spend USD ${fmtUsd(approvedBudget.usd)}` : ''})${task.loadout?.length ? `\nloadout reasons:\n- ${task.loadout.join('\n- ')}` : ''}`)
+        return ok(`deployed ${task.id}: ${task.kind === 'scout' ? 'Recon' : task.modeller ? 'Modeller' : task.generator ? 'Generator' : 'Build'} "${task.title}" in ${task.project} (unit tool ${task.harness}${task.model ? ` / ${task.model}` : ''}${task.effort ? ` / ${task.effort}` : ''}, mode ${modeLabel(task.mode)}, branch ${task.branch}${approvedBudget ? `, approved spend USD ${fmtUsd(approvedBudget.usd)}` : ''})${task.loadout?.length ? `\nloadout reasons:\n- ${task.loadout.join('\n- ')}` : ''}${attached}`)
       } catch (e) {
         const msg = (e as Error).message ?? String(e)
-        if (/claimed by (Modeller|Generator)/.test(msg)) return ok(msg)
-        if (/deferred|capacity/i.test(msg)) return ok(`deferred: ${msg}. The quest stays queued; it will be dispatchable when capacity frees up.`)
-        return fail(`deploy refused: ${msg}`)
+        if (/claimed by (Modeller|Generator)/.test(msg)) return ok(msg + attached)
+        if (/deferred|capacity/i.test(msg)) return ok(`deferred: ${msg}. The quest stays queued; it will be dispatchable when capacity frees up.${attached}`)
+        return fail(`deploy refused: ${msg}${attached}`)
       }
     }
   )
@@ -593,11 +612,16 @@ export function createToolRegistry(
       'Tell the player it is ready for their approval (or open a "Merge now?" choice with choice_open merge_task), then merge on their word; they can also use the Merge button on the unit page.') }
   }
 
-  t('upgrade_recon', 'Upgrade a finished Recon into a Build in place (the report becomes context). intent = the player\'s words for what to build.', { task: z.string(), intent: z.string().optional() }, async ({ task, intent }) => {
+  t('upgrade_recon', 'Upgrade a finished Recon into a Build in place (the report becomes context). intent = the player\'s words for what to build.', { task: z.string(), intent: z.string().optional(), attachments: attachmentsArg }, async ({ task, intent, attachments }) => {
     const f = requireTask(task)
+    const dir = unitReferencesDir(f.hc.home.taskDir(task))
+    const att = attach(attachments, f.task.project, referencesBytes(dir))
+    // before the brief is rewritten, so its References section lists them
+    stageReferences(dir, att.items)
     const nt = await f.hc.crew.promote(task, intent)
     did('units', nt.id)
-    return ok(`upgraded to Build ${nt.id} (${modeLabel(nt.mode)}, branch ${nt.branch})`)
+    if (att.items.length) bus.publish({ type: 'feature-used', feature: 'unit-references', id: nt.id })
+    return ok(`upgraded to Build ${nt.id} (${modeLabel(nt.mode)}, branch ${nt.branch})${attachmentsReport(att.items.length, att.rejected)}`)
   })
 
   t('run_gauntlet', 'Run (or re-run) the Gauntlet on a Hardcore Build: review → fix rounds → project checks → push → PR → CI.', { task: z.string() }, async ({ task }) => {
@@ -629,7 +653,8 @@ export function createToolRegistry(
       tags: z.array(z.string()).default([]),
       modeller: z.boolean().optional().describe('kind=ship only: the quest runs as a Modeller (a 3D model built in live Blender steps).'),
       generator: z.boolean().optional().describe('kind=ship only: the quest runs as a Generator (asset generation jobs listed in the notes). Never together with modeller.'),
-      claims: z.array(z.string()).optional().describe('Modeller or Generator only: its target paths from asset_locate.')
+      claims: z.array(z.string()).optional().describe('Modeller or Generator only: its target paths from asset_locate.'),
+      attachments: attachmentsArg
     },
     async (a) => {
       if (a.kind === 'program') {
@@ -641,7 +666,9 @@ export function createToolRegistry(
       if (a.modeller && a.generator) return fail('a Build quest is a Modeller or a Generator, not both')
       const it = hc().backlog.add({ title: a.title, project: a.world, kind: a.kind, notes: a.notes, summary: summaryOf(a.summary), priority: a.priority, dependsOn: a.depends_on, notBefore: a.not_before, tags: a.tags, modeller: a.modeller, generator: a.generator, claims: a.claims })
       did('quests', it.id)
-      return ok(`quest ${it.id} filed (${it.state})${it.duplicateOf ? `; flagged as a duplicate of ${it.duplicateOf} and not dispatched until cleared (quest_update duplicate_of="")` : ''}`)
+      const att = attach(a.attachments, a.world)
+      stageReferences(questReferencesDir(hc().home.data, it.id), att.items)
+      return ok(`quest ${it.id} filed (${it.state})${it.duplicateOf ? `; flagged as a duplicate of ${it.duplicateOf} and not dispatched until cleared (quest_update duplicate_of="")` : ''}${attachmentsReport(att.items.length, att.rejected)}`)
     }
   )
 
@@ -708,7 +735,9 @@ export function createToolRegistry(
   })
 
   t('quest_remove', 'Remove a quest from the log (only for mistakes/duplicates; prefer state=dropped).', { id: z.string() }, async ({ id }) => {
-    questHome(id).backlog.remove(id)
+    const owner = questHome(id)
+    owner.backlog.remove(id)
+    fs.rmSync(questReferencesDir(owner.home.data, id), { recursive: true, force: true })
     return ok(`quest ${id} removed`)
   })
 
@@ -730,7 +759,8 @@ export function createToolRegistry(
     effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
     after: z.array(z.string()).default([]).describe('Keys of the steps that must MERGE (a Recon: deliver) before this step starts. Serial by default: name the previous step. Leave empty only for steps that may start at once.'),
     files: z.array(z.string()).default([]).describe('Files, folders or globs this step is expected to touch that other steps also touch. When another step lands touching one of them while this step is at work, Genio pings this step\'s unit to rebase (shared types, api, ipc, app.css, tsconfigs and lockfiles never trigger it).'),
-    acceptance: z.string().min(5).describe('One line: how we know this step is done.')
+    acceptance: z.string().min(5).describe('One line: how we know this step is done.'),
+    attachments: attachmentsArg
   }
   const planStep = z.object({ key: z.string().min(1).max(40).describe('Short unique step id (e.g. "core", "ui"); other steps name it in after.'), ...stepShape })
   const stepInput = (s: z.infer<typeof planStep>): PlanStepInput => ({
@@ -752,9 +782,17 @@ export function createToolRegistry(
       steps: z.array(planStep).min(1).max(20)
     },
     async (a) => {
+      const rejected: string[] = []
+      let attached = 0
+      const steps = a.steps.map((s) => {
+        const att = attach(s.attachments, a.world)
+        rejected.push(...att.rejected.map((r) => `step ${s.key}: ${r}`))
+        attached += att.items.length
+        return { ...stepInput(s), attachments: att.items }
+      })
       const r = await hc().plans.create({
         world: a.world, title: a.title, intent: a.intent, goal: a.goal, autoAdvance: a.auto_advance, maxParallel: a.max_parallel,
-        start: role === 'bot' ? false : a.start, steps: a.steps.map(stepInput)
+        start: role === 'bot' ? false : a.start, steps
       })
       for (const s of r.plan.steps) did('quests', s.questId)
       for (const line of r.released) {
@@ -764,7 +802,8 @@ export function createToolRegistry(
       return ok(json({
         plan_id: r.plan.id, state: r.plan.state,
         steps: r.plan.steps.map(s => ({ key: s.key, index: s.index, title: s.title, quest_id: s.questId, after: s.after })),
-        released: r.released, estimate: r.plan.estimate, announcement: r.announcement
+        released: r.released, estimate: r.plan.estimate, announcement: r.announcement,
+        ...(attached || rejected.length ? { attachments: attachmentsReport(attached, rejected).trim() } : {})
       }))
     }
   )
@@ -789,17 +828,21 @@ export function createToolRegistry(
         if (v === undefined) throw new Error(`${a.op} needs ${what}`)
         return v
       }
+      const owner = planHome(a.plan_id)
+      const world = owner.plans.get(a.plan_id)?.world
+      const editQuest = a.op === 'edit_step' ? owner.plans.get(a.plan_id)?.steps.find((s) => s.key === a.step)?.questId : undefined
+      const att = attach(a.op === 'edit_step' ? a.patch?.attachments : a.op === 'add_step' ? a.new_step?.attachments : undefined, world,
+        editQuest ? referencesBytes(questReferencesDir(owner.home.data, editQuest)) : 0)
       const op: PlanUpdateOp =
-        a.op === 'edit_step' ? { op: 'edit_step', step: need(a.step, 'step'), patch: need(a.patch, 'patch') }
-          : a.op === 'add_step' ? { op: 'add_step', step: stepInput(need(a.new_step, 'new_step')) }
+        a.op === 'edit_step' ? { op: 'edit_step', step: need(a.step, 'step'), patch: { ...need(a.patch, 'patch'), attachments: att.items } }
+          : a.op === 'add_step' ? { op: 'add_step', step: { ...stepInput(need(a.new_step, 'new_step')), attachments: att.items } }
             : a.op === 'remove_step' ? { op: 'remove_step', step: need(a.step, 'step') }
               : a.op === 'reorder' ? { op: 'reorder', order: need(a.order, 'order') }
                 : a.op === 'pause' ? { op: 'pause', reason: a.reason }
                   : a.op === 'settings' ? { op: 'settings', autoAdvance: a.auto_advance, maxParallel: a.max_parallel }
                     : { op: a.op }
-      const owner = planHome(a.plan_id)
       const r = await owner.plans.update(a.plan_id, op)
-      return ok(`${r.message}\n${json(owner.plans.view(a.plan_id))}`)
+      return ok(`${r.message}${attachmentsReport(att.items.length, att.rejected)}\n${json(owner.plans.view(a.plan_id))}`)
     }
   )
 

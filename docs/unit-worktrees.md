@@ -145,6 +145,48 @@ not commit, a Modeller and a Generator keep their claims and landing rules.
   launch environment per runtime. It fails when one kind or runtime lacks a skill (`capabilityGaps`).
   `tests/crew-lifecycle.test.ts` deploys each kind for real and compares their environments.
 
+## Attachments (references)
+
+Any unit can start with whatever the player hands Genio in the chat, as a normal chat could take it: images they
+paste, files and whole folders on this PC of any type (images, PDFs, documents, spreadsheets, slides, audio, video,
+3D models, archives, binaries, code, data), files of the project, and text or data Genio holds (pasted text, JSON, a
+table, notes, a URL with its page text). The player's request in the chat is the authorization: Genio attaches only
+what they pasted or named and never guesses a path.
+
+- **Tools.** `deploy`, `quest_add`, every `plan_create` step, `plan_update` `add_step` and `edit_step` (which adds
+  to the step's references) and `upgrade_recon` take `attachments`: a list of items, each `source` (a chat image id
+  from `[attached image ids: ...]`, an absolute path to a file or folder, or a project-relative path) or `name` +
+  `text` (inline text saved as a file), with an optional one-line `note` (what it is, what to use it for).
+- **Checks** (`resolveAttachments`, `src/main/unit-references.ts`). Only safety limits: credential and config
+  locations are refused by path (`~/.codex`, `~/.claude`, `~/.ssh`, `~/.aws`, `~/.gnupg`, the Windows credential
+  stores and similar, anything inside a `.git` folder, and Genio's own folder except chat images, project copies,
+  generated media, reports and references), and so are secrets by name (`.env` and `.env.*` but not
+  `.env.example`, SSH keys, `*.pem`, `*.key`, `credentials.json`, `auth.json`...). A link is judged by where it
+  leads. Caps: 25 MB per file, 100 MB per unit, 1 MB per inline text, 50 items per list; a folder adds its files
+  (without `.git` and `node_modules`) up to 200. The tool result says plainly what was attached and which items
+  were refused and why, for Genio to tell the player; the Bot attaches nothing.
+- **Copies.** Genio copies the files when the quest is filed, into `data/quest-references/<quest>/`, so a queued
+  quest or a plan step keeps them even after a pasted image's temp file is gone. When a unit starts on that quest,
+  `crew.spawn` copies them into the unit's own `data/<unit>/references/` (original names, `-2` for a different
+  file with a taken name, one entry per repeated source) with `references.json` (file, source, note, size, type).
+  The unit gets `GENIO_REFERENCES` pointing there. Nothing is committed; the unit copies one into the project only
+  when its mission says so. Removing a quest removes its copies.
+- **Brief.** A `## References` section after the mission lists each file with its type and note, then how to open
+  each type present: images with the file-read tool (other image formats converted to PNG first), PDFs with the
+  file-read tool, text and data as text, documents, spreadsheets and slides through a short Python script,
+  audio and video through `ffprobe`/`ffmpeg` pictures and frames, 3D models through the blender skill's
+  `preview` and `validate`, archives extracted into the unit's `references-extracted/` folder (never the
+  worktree), and unknown types by their first bytes. No file contents go into the brief. A Modeller is told to
+  compare each step's sheet with the references; a Generator to pass reference images to codex-image as `--ref`.
+- **Modeller.** With `GENIO_REFERENCES` set, every step's and batch step's `review` ends with a `References:` line
+  naming them, and the step JSON lists the reference images (`referenceReview` in `modeller.mjs`). The receipt
+  keeps Blender's own review.
+- **Brief tab.** When a unit has references, its Brief tab lists them under References: name and note, a small
+  thumbnail for images, and a click opens the file. Nothing shows when there are none.
+- **Tests.** `tests/unit-references.test.ts` (checks, refusals, copies, the brief section, the tools and plan steps
+  keeping their copies until release), `tests/crew-lifecycle.test.ts` (a real spawn), `tests/modeller.test.ts`
+  (the review line) and `tests/unit-brief-ui.test.ts` (the Brief tab list).
+
 ## Tests
 
 `tests/node-deps.test.ts` and `tests/worktree-deps.test.ts` use real junctions in temp folders

@@ -3,8 +3,8 @@ import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Task } from '../src/shared/types'
-const f = vi.hoisted(() => ({ read: vi.fn() }))
-vi.mock('../src/renderer/src/store', () => ({ api: () => ({ readTaskFile: f.read }), errText: (e: unknown) => String((e as Error)?.message ?? e) }))
+const f = vi.hoisted(() => ({ read: vi.fn(), refs: vi.fn(async () => []), open: vi.fn(async () => undefined) }))
+vi.mock('../src/renderer/src/store', () => ({ api: () => ({ readTaskFile: f.read, taskReferences: f.refs, openPath: f.open }), errText: (e: unknown) => String((e as Error)?.message ?? e) }))
 import { BriefSummaryView, BriefTab } from '../src/renderer/src/components/BriefTab'
 import { briefSummary, SUMMARY_CHARS } from '../src/shared/unit-brief'
 import { BRIEF_BOILERPLATE } from './unit-brief-boilerplate'
@@ -52,6 +52,26 @@ describe('Brief tab', () => {
     expect(f.read).toHaveBeenCalledWith('u2', 'brief')
     expect(host.querySelector('.brief-ask')!.textContent).toBe('make a new model unit I want to check the UI of the unit, then do not merge it')
     expect(host.querySelector('.brief-what')!.textContent).toBe(unit.summary)
+  })
+
+  it('lists the player\'s attachments under References (name, note, a thumbnail for images) and opens one on click; nothing without any', async () => {
+    f.read.mockResolvedValue(modeller)
+    f.refs.mockResolvedValueOnce([
+      { file: 'sketch.png', note: 'the silhouette to match', type: 'image', path: 'C:/data/u5/references/sketch.png', thumb: 'data:image/png;base64,cG5n' },
+      { file: 'size.md', type: 'text', path: 'C:/data/u5/references/size.md' }
+    ])
+    await render(React.createElement(BriefTab, { t: { id: 'u5', kind: 'ship', modeller: true, title: 'Tower' } as Task }))
+    expect(f.refs).toHaveBeenCalledWith('u5')
+    expect([...host.querySelectorAll('.brief-label')].map((e) => e.textContent)).toEqual(['Your ask', 'What the unit will do', 'References'])
+    const rows = [...host.querySelectorAll('.brief-refs li')]
+    expect(rows.map((r) => r.textContent)).toEqual(['sketch.pngthe silhouette to match', 'size.md'])
+    expect(rows[0].querySelector('img')!.getAttribute('src')).toBe('data:image/png;base64,cG5n')
+    expect(rows[1].querySelector('img')).toBeNull()
+    expect(host.textContent).not.toContain('C:/data')
+    await act(async () => (rows[1].querySelector('button') as HTMLButtonElement).click())
+    expect(f.open).toHaveBeenCalledWith('C:/data/u5/references/size.md')
+    await render(React.createElement(BriefTab, { t: { id: 'u6', kind: 'ship', title: 'Plain' } as Task }))
+    expect(host.querySelector('.brief-refs')).toBeNull()
   })
 
   it('says so when the brief is missing or unreadable', async () => {

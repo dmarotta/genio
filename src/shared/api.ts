@@ -52,6 +52,8 @@ export interface SpawnRequest {
    * after verifying the player's own words that approve this amount.
    */
   approvedBudget?: { usd: number; via: 'dialog' | 'chat'; words?: string }
+  /** The player's attachments, already checked: copied into the quest's references, then into the unit's (src/main/unit-references.ts) */
+  attachments?: import('./unit-references').ResolvedAttachment[]
 }
 
 export interface ProjectAddRequest {
@@ -703,6 +705,8 @@ export interface GenioApi {
   revokeStandingApproval(id: string): Promise<OpResult>
   promoteScout(id: string, intent?: string): Promise<Task>
   readTaskFile(id: string, which: TaskFile): Promise<string>
+  /** The player's attachments the unit got (its references/ folder), for the Brief tab; empty without any. */
+  taskReferences(id: string): Promise<import('./unit-references').ReferenceView[]>
 
   // ---- terminals
   terminals(): Promise<TerminalInfo[]>
@@ -888,6 +892,7 @@ export const API_METHODS = [
   'revokeStandingApproval',
   'promoteScout',
   'readTaskFile',
+  'taskReferences',
   'terminals',
   'terminalAttach',
   'terminalWrite',

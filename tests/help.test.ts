@@ -19,7 +19,7 @@ const PRESENCE = 'Presence: in **DND** routine events go to a separate *Bot* ses
 /** The terms the player-facing glossary must explain, one entry each. */
 const REQUIRED_TERMS = [
   'Presence', 'Online', 'DND', 'AFK', 'The Bot', 'Welcome back', 'Auto-loot', 'Standing approval', 'Merge approval',
-  'Delivery modes', 'Offline', 'Standard', 'Hardcore', 'Plans', 'Plan steps', 'Units', 'Unit kinds and colors', 'Squad states',
+  'Delivery modes', 'Offline', 'Standard', 'Hardcore', 'Plans', 'Plan steps', 'Units', 'Attachments', 'Unit kinds and colors', 'Squad states',
   'Despawn and discard', 'Quests', 'Quest log', 'Choices', 'Your Move', 'Usage modes', 'Quota protection', 'Effort levels', 'Spend approval',
   'Unit capabilities', 'Skills', 'Play', 'Play copy', 'Play GPU stream', 'Game sound', 'Inventory', 'Art Bible', 'Lore', 'Lore notes', 'Modeller', 'Generator',
   'Hub', 'Settings pages', 'Gauntlet', 'Worktrees', 'MCP servers', 'Slots', 'Hidden desktop', 'Dev Drive'

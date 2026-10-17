@@ -78,6 +78,7 @@ const OTHER_FEATURES: Record<string, [file: string, needle: string]> = {
   blender: ['resources/unit-skills/genio/skills/blender/scripts/blender.mjs', 'genio-blender-run'],
   'unit-uthana': ['resources/unit-skills/genio/skills/uthana/scripts/uthana.mjs', 'genio-uthana-run'],
   'spend-grant': ['src/main/spend-grants.ts', 'export function recordGrant'],
+  'unit-references': ['src/main/crew.ts', "feature: 'unit-references'"],
   mcp: ['src/main/mcp-gateway.ts', 'export function createMcpGateway'],
   'mcp-chat': ['src/main/chat-mcp.ts', 'export async function chatMcpServers'],
   'mcp-chat-only': ['src/shared/mcp.ts', 'chatOnly?: boolean'],

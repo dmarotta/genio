@@ -54,6 +54,8 @@ export interface BriefInput {
   nodeDeps?: { stateFile: string; setup: string }
   /** The player's MCP servers this unit gets (names only), under Tools */
   mcpServers?: string[]
+  /** The References section: the player's attachments and how to open them (referencesBriefLines); absent without any */
+  references?: string[]
 }
 
 /** The Tools line on the player's MCP servers (docs/mcp-servers.md): names only, never a secret. */
@@ -302,6 +304,12 @@ export function renderBrief(i: BriefInput): string {
     out.push('## Recon report carried into this build')
     out.push('')
     out.push(i.carriedReport.trim())
+  }
+  if (i.references?.length) {
+    out.push('')
+    out.push('## References')
+    out.push('')
+    out.push(...i.references)
   }
   out.push('')
   out.push('# Setup')

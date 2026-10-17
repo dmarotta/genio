@@ -440,12 +440,28 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
   }
 }
 
+/**
+ * The player's references (GENIO_REFERENCES, the unit's references/ folder with references.json): a review
+ * line naming them, so every step's sheet is compared with them, and the image files to open beside it.
+ */
+export function referenceReview(refDir = process.env.GENIO_REFERENCES) {
+  const list = refDir ? readJson(path.join(refDir, 'references.json')) : null
+  if (!Array.isArray(list) || !list.length) return null
+  const named = list.slice(0, 6).map((r) => `${r.file}${r.note ? ` (${String(r.note).slice(0, 80)})` : ''}`).join('; ')
+  return {
+    line: `References: ${named}${list.length > 6 ? `, and ${list.length - 6} more` : ''}. Compare the sheet with them and say what still differs.`,
+    images: list.filter((r) => r.type === 'image').map((r) => path.join(refDir, ...String(r.file).split('/')))
+  }
+}
+
 /** Run one step script on the current branch's head (or, with amend, replace the head). */
-export async function step({ dataDir = modellerDataDir(), model, script, name, amend = false, timeout = STEP_TIMEOUT, threads, runner } = {}) {
+export async function step({ dataDir = modellerDataDir(), model, script, name, amend = false, timeout = STEP_TIMEOUT, threads, runner, references } = {}) {
   const dir = modelDir(dataDir, model)
   return withLock(dir, async () => {
     const r = await runSteps(dir, readManifest(dir), [{ script, name }], { amend, timeout, threads, runner })
-    return r.failure ?? r.published[0]
+    if (r.failure) return r.failure
+    const ref = referenceReview(references)
+    return ref ? { ...r.published[0], review: [...r.published[0].review, ref.line], references: ref.images } : r.published[0]
   })
 }
 
@@ -454,17 +470,18 @@ export async function step({ dataDir = modellerDataDir(), model, script, name, a
  * finishes it. The result lists the steps, the last review sheet, and on a failure the failed step
  * and the scripts that did not run.
  */
-export async function batch({ dataDir = modellerDataDir(), model, scripts, everySheet = false, timeout = STEP_TIMEOUT, threads, runner, gapMs = PUBLISH_GAP_MS } = {}) {
+export async function batch({ dataDir = modellerDataDir(), model, scripts, everySheet = false, timeout = STEP_TIMEOUT, threads, runner, gapMs = PUBLISH_GAP_MS, references } = {}) {
   const dir = modelDir(dataDir, model)
   const items = batchScripts(scripts)
   return withLock(dir, async () => {
     const m = readManifest(dir)
     const { published, failure, notRun } = await runSteps(dir, m, items, { everySheet, timeout, threads, runner, gapMs })
     const last = published.at(-1)
-    const brief = (s) => ({ id: s.id, n: s.n, name: s.name, caption: s.caption, triangles: s.triangles, objects: s.objects, review: s.review, warnings: s.warnings, known_warnings: s.known_warnings, glb: s.glb, sheet: s.sheet, ms: s.ms })
+    const ref = referenceReview(references)
+    const brief = (s) => ({ id: s.id, n: s.n, name: s.name, caption: s.caption, triangles: s.triangles, objects: s.objects, review: ref ? [...s.review, ref.line] : s.review, warnings: s.warnings, known_warnings: s.known_warnings, glb: s.glb, sheet: s.sheet, ms: s.ms })
     const did = `${published.length} of ${items.length} steps landed`
     return {
-      ok: !failure, model: m.model, branch: m.branch, head: m.branches[m.branch].head, steps: published.map(brief),
+      ok: !failure, model: m.model, branch: m.branch, head: m.branches[m.branch].head, steps: published.map(brief), ...(ref ? { references: ref.images } : {}),
       sheet: last?.sheet ?? null, receipt: last?.receipt ?? null, warnings: last?.warnings ?? [], known_warnings: last?.known_warnings ?? 0, failure, not_run: notRun,
       message: failure
         ? `${did}; ${failure.id} (${failure.name}) failed. ${failure.message}${notRun.length ? ` Not run: ${notRun.map((x) => x.name).join(', ')}.` : ''}`

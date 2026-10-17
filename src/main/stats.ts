@@ -96,6 +96,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'account-login', feature: 'systems', name: 'Signed In', description: `Log in from ${settingsPath('accounts')}.` },
   { id: 'usage-mode', feature: 'systems', name: 'Gear Shift', description: `Switch the Usage mode between Save, Balanced and Max in ${settingsPath('usage')}.` },
   { id: 'cheap-unit', feature: 'deploy', name: 'Budget Build', description: 'Deploy an OpenCode unit.' },
+  { id: 'unit-references', feature: 'unit-references', name: 'Reference Material', description: 'Start a unit with something to work from: a pasted image, a file or a note you gave Genio.' },
   { id: 'agent-asset-first', feature: 'agent_generation', name: 'Made to Order', description: 'Generate your first asset through Genio.' },
   { id: 'asset-placed-first', feature: 'asset_place', name: 'Loot Delivered', description: 'Place an agent-generated asset in a project.' },
   { id: 'spend-approve', feature: 'approve_run', name: 'Worth Every Cent', description: 'Approve a paid generation quote.' },
@@ -509,7 +510,7 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
         'model-picker': 'model-picker', 'model-switch': 'model-switch', screenshot: 'screenshot', world_push: 'push-first',
         rate_task: 'rating-first', 'account-login': 'account-login', 'yolo-chat': 'yolo-chat', 'usage-mode': 'usage-mode',
         quest_add: 'quest-first', world_add: 'world-first', memory_write: 'lore-first', 'inventory-index': 'inventory-index',
-        plan_create: 'plan-first', 'plan-done': 'plan-done', 'shell-command': 'shell-command'
+        plan_create: 'plan-first', 'plan-done': 'plan-done', 'shell-command': 'shell-command', 'unit-references': 'unit-references'
       }
       if (ids[ev.feature]) svc.unlock(ids[ev.feature])
       // titles earned by history from before this build show up on the next visit

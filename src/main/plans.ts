@@ -25,6 +25,8 @@ import { bus } from './bus'
 import type { Home } from './home'
 import type { AppCtx, HomeCtx, PlanService } from './services'
 import { nowIso, readJson, rid, slugify, truncate, writeJson } from './util'
+import type { ResolvedAttachment } from '@shared/unit-references'
+import { questReferencesDir, stageReferences } from './unit-references'
 
 export interface PlanStepInput {
   key: string
@@ -40,6 +42,8 @@ export interface PlanStepInput {
   after?: string[]
   files?: string[]
   acceptance: string
+  /** the player's attachments, already checked: copied into the step quest's references when it is filed (edit_step adds to them) */
+  attachments?: ResolvedAttachment[]
 }
 
 export interface PlanCreateInput {
@@ -472,11 +476,14 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
     return `Step ${s.index} of plan "${p.title}" (${p.id}). Acceptance: ${s.acceptance}\nThe step spec lives in the plan (plan_status); deploy starts it from that spec.`
   }
 
-  function fileQuest(p: WorkPlan, s: Omit<PlanStep, 'questId'>, deps: string[]): string {
-    return hc().backlog.add({
+  function fileQuest(p: WorkPlan, s: Omit<PlanStep, 'questId'>, deps: string[], attachments?: ResolvedAttachment[]): string {
+    const id = hc().backlog.add({
       title: s.title, project: p.world, kind: s.kind, notes: questNotes(p, { ...s, questId: '' }), summary: s.summary, dependsOn: deps,
       tags: [`plan:${slugify(p.title, 24)}`], planId: p.id, planStep: s.key
     }).id
+    // filed with the quest, before any step can start: the step's unit gets them whenever it is released
+    if (attachments?.length) stageReferences(questReferencesDir(home.data, id), attachments)
+    return id
   }
 
   /** A step that has a unit at work or has landed keeps its spec: ping the unit instead. */
@@ -584,7 +591,7 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
         for (const [i, key] of order.entries()) {
           const inStep = steps.find((s) => s.key === key)!
           const draft = stepFrom(inStep, '', i + 1)
-          const questId = fileQuest(p, draft, draft.after.map((a) => questOf.get(a)!))
+          const questId = fileQuest(p, draft, draft.after.map((a) => questOf.get(a)!), inStep.attachments)
           questOf.set(key, questId)
           p.steps.push({ ...draft, questId })
         }
@@ -656,6 +663,7 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
             const problems = stepGraphProblems(p.steps.map((x) => (x.key === s.key ? next : x)))
             if (problems.length) throw new Error(problems.join('; '))
             Object.assign(s, next)
+            if (patch.attachments?.length) stageReferences(questReferencesDir(home.data, s.questId), patch.attachments)
             if (patch.kind !== undefined) safe(() => hc().backlog.update(s.questId, { kind: s.kind }))
             rewire(p)
             safe(() => hc().backlog.update(s.questId, { notes: questNotes(p, s), ...(patch.summary !== undefined ? { summary: s.summary } : {}) }))
@@ -670,7 +678,7 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
             const problems = stepGraphProblems([...p.steps, { key: input.key, after: input.after }])
             if (problems.length) throw new Error(problems.join('; '))
             const draft = stepFrom(input, '', p.steps.length + 1)
-            const questId = fileQuest(p, draft, draft.after.map((a) => p.steps.find((x) => x.key === a)!.questId))
+            const questId = fileQuest(p, draft, draft.after.map((a) => p.steps.find((x) => x.key === a)!.questId), input.attachments)
             p.steps.push({ ...draft, questId })
             rewire(p)
             message = `step "${input.key}" added as step ${p.steps.find((x) => x.key === input.key)!.index}/${p.steps.length}`

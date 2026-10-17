@@ -12,6 +12,9 @@ the main area of its page and its Squad card.
   Recon), `quest_update generator` on a queued quest. List the jobs in the
   intent or spec.
 - Deploy dialog: the Generator option (magenta). Quest log: the Generator kind.
+- `attachments`: reference images and files for its jobs, as for any unit
+  ([unit-worktrees.md](unit-worktrees.md#attachments-references)); its brief tells it to pass reference images
+  to codex-image as `--ref`.
 - `claims`: the project paths it will write, from `asset_locate`. A spawn whose
   path another Generator or Modeller holds is deferred; the quest stays queued
   until that unit lands or is despawned (`claimConflict` in

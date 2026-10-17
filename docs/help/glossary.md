@@ -144,10 +144,22 @@ Source: [ARCHITECTURE.md](../ARCHITECTURE.md), [squad-display.md](../squad-displ
 
 ## Brief tab
 
-A unit's mission in a few plain lines, the same for every kind: your ask in your own words, and what the unit will do (a short summary Genio writes when it deploys; for older units, the opening of Genio's instructions).
+A unit's mission in a few plain lines, the same for every kind: your ask in your own words, and what the unit will do (a short summary Genio writes when it deploys; for older units, the opening of Genio's instructions). When you gave the unit attachments, they are listed under References.
 Genio's rules and tool notes are not shown: the unit keeps its full brief.
 Where: a unit page's Brief tab; the same summary in a quest's details in Quests.
 Source: [squad-display.md](../squad-display.md)
+
+## Attachments
+
+Attachments (also called references) are what you hand a unit for its work, the way you would in any chat: images you paste, files or whole folders on your
+PC of any type (images, PDFs, documents, spreadsheets, audio, video, 3D models, archives, code, data), project files,
+and text or links you give Genio. Ask Genio to start the unit with them and say what each one is for. Genio attaches
+only what you pasted or named, copies them into the unit's own data folder (never into your project, never
+committed) and tells you if it refused one and why: credential and config folders, secret files such as `.env` or
+keys, files over 25 MB, more than 100 MB for one unit, or past the first 200 files of a folder. The unit gets a list
+of them in its brief, with how to open each type; a Modeller compares every step with them.
+Where: ask in the chat; the unit page's Brief tab lists them under References (click one to open it).
+Source: [unit-worktrees.md](../unit-worktrees.md)
 
 ## Unit kinds and colors
 
