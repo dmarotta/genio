@@ -73,7 +73,8 @@ export function ModelPicker({ value, onChange, onAccounts: _onAccounts, ...props
     return () => window.removeEventListener('keydown', key)
   }, [open, document])
   const choose = (id: string): void => { if (id !== value) onChange(id); close() }
-  const anchor = trigger.current?.getBoundingClientRect()
+  // Measured only while open: the composer re-renders on every streamed delta, and a read here forces a layout.
+  const anchor = open ? trigger.current?.getBoundingClientRect() : undefined
   const below = !!anchor && window.innerHeight - anchor.bottom > anchor.top
   const position: CSSProperties = anchor ? { left: Math.max(12, Math.min(anchor.left, window.innerWidth - 332)),
     ...(below ? { top: anchor.bottom + 6 } : { bottom: window.innerHeight - anchor.top + 6 }),

@@ -111,3 +111,12 @@ it('refreshes after account invalidation and in the background', async () => {
     expect(unsubscribe).toHaveBeenCalledOnce()
   } finally { vi.useRealTimers(); Reflect.deleteProperty(window, 'genio') }
 })
+
+it('measures its anchor only while the list is open, never on the re-renders of a closed picker', async () => {
+  const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+  await render(); await render('claude-sonnet-5-5'); await render()
+  expect(rect).not.toHaveBeenCalled()
+  await open()
+  expect(rect).toHaveBeenCalled()
+  rect.mockRestore()
+})
