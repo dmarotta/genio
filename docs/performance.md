@@ -115,7 +115,7 @@ Main process (synthetic Base, Hub plus one project window open):
 | 30-tool turn: IPC bytes (growing partial message) | 8.76 MB | 4.40 MB |
 | 30-tool turn: fleet snapshots built | 92 | 0 |
 | Terminal output, 12 units, 40 flushes: IPC messages | 80 | 40 |
-| Terminal output, 12 units, 40 flushes: snapshots built | 40 | 40 (one per flush, only while a project window is open) |
+| Terminal output, 12 units, 40 flushes: snapshots built | 40 | 40 (one per flush, only while a project window is open; 1 since the second pass) |
 | `status` / `backlog` event: snapshots built | 1 | 1 |
 | `ctx.snapshot()` | 0.06 ms | 0.06 ms |
 | `crew.update()` (rewrites tasks.json, 102 units) | 1.1 ms | 1.1 ms |
@@ -169,7 +169,8 @@ Unchanged by this pass.
   main process to what the renderer displays.
 - A `backlog` or `decisions` event sends the project window a full snapshot
   (about 330 KB with 100 units and 100 quests). It happens a few times per
-  quest, not per token.
+  quest, not per token. (Since the second pass a `backlog` event carries the
+  project's quests instead; `decisions` still sends the snapshot.)
 - The renderer keeps every chat message received during a session; the main
   process caps its history at 1,000. A day-long session with thousands of
   turns grows the DOM, though off-screen messages are now skipped by the
@@ -179,3 +180,244 @@ Unchanged by this pass.
   incremental.
 - `tasks.json` is rewritten synchronously on every unit update (about 1 ms per
   100 units). It is durable by design and cheap at this size.
+
+## Second pass: screens, startup, the main process and Play streaming (2026-10-17)
+
+### How it was measured
+
+`scripts/screen-benchmark.mjs` runs Genio's real main-process services and IPC
+handlers over a sandboxed copy of a Base and drives the built renderer in
+Electron (one project window) through the DevTools protocol:
+
+- **The data**: a copy of the player's Base (`--base`, default `~/.genio`)
+  without worktrees, Play pools, player copies or the Claude and Codex homes.
+  Base paths are remapped into the copy; project folders stay where they are
+  and are only read. `--freeze <dir>` keeps one snapshot, so every revision is
+  measured on the same units, quests and chat (a live Base changes while units
+  run). This pass used a snapshot with 234 units (27 unfinished), 229 quests,
+  88 choices, a 4.6 MB chat log and the `genio` and `lands-of-old` (Unity,
+  28,000 files) projects.
+- **Live units**: six units get real PTYs. Each fills a 1.4 MB scrollback with
+  Claude Code-like coloured output, then prints two lines every 300 ms.
+  Nothing starts supervision, agents or Unity.
+- **The tour**: boot (window load to the chat's messages), 5 s idle on the
+  chat, each screen from the chat (Ctrl+digit), a plain unit's page, a
+  Modeller's page, a streamed reply (150 deltas over 6 s) with the floating chat
+  over Squad and on the chat screen, and five quest updates 1 s apart on Quests.
+- **Play** (`--play-stream`, in a Unity project): a stand-in for com.genio.play's
+  `StreamSession` feeds the real `PlayStream` socket, `playerInstanceStream`
+  handler, MessagePort and live view. It sends game-like JPEGs (quality 75)
+  at Unity's 30 fps, one frame in flight, plus audio packets. Each frame
+  carries a stamp, so the page can time it from send to paint.
+- **Per phase**: first painted frame; content shown (the screen's own content,
+  not its loading shell); renderer main-thread task, script, layout and style
+  time; renderer thread and process CPU time; forced and total layout and style
+  recalculation counts; long tasks; IPC calls and bytes; routed events and
+  bytes; fleet snapshots built; and the main process's CPU time and event-loop
+  lag. `--profile` writes main and renderer CPU profiles per phase, `--trace`
+  writes a Chromium timeline (with style invalidations and stacks), `--shots`
+  saves a screenshot per phase, and `--css` adds a diagnostic stylesheet.
+- **A loaded machine**: the player's own Genio, other units and their tools
+  shared the machine (16 logical CPUs, at times fully used). `--snapshot <name>`
+  keeps a revision's build, and `--apps a,b,...` measures the builds in turn
+  (a b a b ...), so load drifts over every revision alike. The tables give
+  medians of three interleaved runs, and CPU time and counts are read before
+  wall time. Expect ±20% between runs on anything but counts.
+
+Main-process pieces without a window use the Vitest perf harness
+(`npm run perf`) over a copy of the same Base (`GENIO_PERF_BASE`).
+
+### What was slow
+
+From the baseline runs, in order of cost:
+
+1. **Squad and the unit page.** Each live unit's terminal is an xterm. Its DOM
+   renderer measures every new glyph's width with a forced style and layout
+   pass. It drew every frame while parsing the 1.5 MB scrollback it attaches
+   to. Every forced style pass also restyled the floating chat's 300 messages:
+   their `rise` entry animation used fill-mode `both`, so each message stayed
+   animated for good. Squad took 2-3.5 s to show its content, with about
+   6.7 s of renderer CPU in the phase.
+2. **A streamed reply.** It kept the renderer 70-85% busy. Each delta
+   re-parsed the whole reply and replaced all of its DOM (2.2 s of style
+   recalculation in 6 s). The log also re-pinned to the bottom in a layout
+   effect: one forced layout per delta, 1.7 s of the 6 s in a profile.
+3. **Every screen switch.** The floating chat (300 messages) mounts on every
+   screen but Chat. Its timestamps each built a new `Intl.DateTimeFormat`,
+   every message's Markdown was parsed and sanitized again (about 100 ms), and
+   the composer's model picker read its anchor's rectangle on every render.
+4. **Boot.** One 1.9 MB chunk held every screen and xterm. The main process
+   blocked about 600 ms, in two parts: a synchronous read of the 4.6 MB chat
+   log (about 170 ms, mostly the file open) and a usage refresh that starts
+   the account CLIs (about 230 ms of process spawns).
+5. **Steady main-process work**:
+   - a fleet snapshot built on every 16 ms terminal flush while units print;
+   - `tasks.json` (547 KB) rewritten once per unfinished unit at startup;
+   - a 1.3 s synchronous Blender probe on every toolchain check;
+   - two PowerShells listing every process every 5 s, with or without Play;
+   - every quest change sending the project window its whole 750 KB snapshot;
+   - every quest save reading the 155 KB done archive.
+6. **Always-mounted components.** The answer cards, rail, title bar and an
+   unloaded chat selected a new array or object on every store change, so
+   each re-rendered once per streamed delta or terminal event.
+
+### Changes
+
+Each change was measured on its own against the build before it, except where
+noted. "Interleaved" means the screen benchmark (median of 3, a b a b) on the
+frozen Base.
+
+| Change | Measure | Before → after |
+|---|---|---|
+| The chat's `rise` entry animation fills backwards, so finished animations stop costing style work (`theme.css`); dead `.msg.noop` opacity and transform go | Interleaved, renderer CPU | Streamed reply on Chat 3,116 → 2,555 ms; over Squad 2,620 → 2,206 ms; Modeller page 2,324 → 1,977 ms |
+| A terminal parses its scrollback before it joins the page, then draws once (`Terminal.tsx`) | Interleaved, on top of the row above | Squad content shown 3,478 → 1,412 ms, renderer CPU 6,675 → 4,490 ms; unit page CPU 6,104 → 4,990 ms |
+| A streaming reply rebuilds only its changed trailing Markdown blocks (`Markdown.tsx`) | Interleaved, 6 s stream, renderer task time | On Chat 5,146 → 2,123 ms (style recalculation 2,208 → 124 ms); over Squad 4,206 → 2,292 ms |
+| The chat follows the latest message from its ResizeObserver only, with no layout effect per delta (`Comms.tsx`) | CPU profile of a 6 s stream; interleaved | Forced layouts from re-pinning 1,668 ms → 0; the interleaved run was within noise (4,485 → 4,342 ms) |
+| Cached date formatters (`lib/format.ts`); the model picker measures its anchor only while open | Interleaved, renderer task of a switch from Chat | Quests 431 → 356 ms, Settings 373 → 292, Inventory 410 → 321, Art Bible 354 → 281 |
+| Rendered Markdown cached by source text across remounts, bounded at 4 M characters | CPU profile of a screen switch | About 100 ms of parsing and sanitizing 300 messages → cache hits |
+| Every screen but the chat is its own chunk, loaded on first use or when the window is idle; xterm loads with the first terminal (`App.tsx`, `TerminalPane.tsx`) | Build output; interleaved boot | Main chunk 1,930 → 1,107 KB; boot script time 318 → 316 ms (no measurable change); renderer heap at boot 19.2 → 17.2 MB |
+| Stable selections for always-mounted components (`openDecisions` cache, memoised quest counts, shared empty lists) | `tests/store-selectors.test.ts` | A new list per store change → the same list until the choices change or a deferral ends |
+| The event router caches each terminal's project (`event-router.ts`); the `terminals` handler and window close build one snapshot | Perf harness, 12 terminals, 40 flushes | Snapshots built 40 → 1 |
+| The Play poll lists processes only while a player editor is launched (`player-instance.ts`) | PowerShell launches with no Play running | 24 a minute → 0 |
+| The Blender probe runs on a worker thread (`toolchain.ts`) | Longest main-process event-loop gap during a toolchain check | 1,317 → 17 ms (wall time unchanged) |
+| A project chat's log is read asynchronously while its window loads (`chat-thread.ts`) | Main-process stall at boot | About 170 ms of synchronous read removed; boot max loop lag, with the three rows above, 521 → 372 ms |
+| Startup reconciliation writes `tasks.json` once per home (`crew.ts`) | `tests/perf/reconcile.perf.ts`, real Base copy, 27 unfinished units | Writes 27 → 2; about 216 → 45 ms |
+| Unit-page fallback polls wait while the window is hidden (`lib/visible-poll.ts`) | Reads while minimized | Diff stats (three git commands) every 8 s, pings every 8 s, Modeller state every 1 s → none; one read when shown |
+| The command palette builds its list only while open | Rebuilds while closed | One per unit change → none |
+| A quest save reads the done archive only for quests not yet seen archived (`backlog.ts`) | Per quest save | 10-15 ms of about 30 ms (a 155 KB read) → skipped once every id is known |
+| A project window gets its quests from the `backlog` event, not a whole snapshot (`project-windows.ts`, `store.ts`) | Interleaved, five quest updates on Quests | Renderer CPU 578 → 268 ms; style recalculations 79 → 7; event bytes 3,781 → 1,070 KB; snapshots built 5 → 0 |
+
+Tried and dropped: `contain: strict` on xterm's rows and measuring element
+(no gain).
+
+### Overall
+
+The branch's starting point (main plus the benchmark) against the finished
+pass, interleaved, median of 3, `genio` project. The starting build predates
+the benchmark's CPU-time columns. A rerun with them was stopped when the
+machine ran low on memory, so this table compares wall times, lag and counts.
+The CPU-time effect of each change is in the table above.
+
+| Phase | Content shown | First frame | Other |
+|---|---|---|---|
+| Boot | 986 → 1,000 ms | | Main-process longest loop gap 528 → 316 ms; snapshots built 88 → 5 |
+| 5 s idle on Chat, six units printing | | | Snapshots built 65 → 0 |
+| Squad | 4,070 → 238 ms | 352 → 101 ms | |
+| Quests | 170 → 160 ms | 140 → 110 ms | |
+| Character Sheet | 160 → 142 ms | 133 → 89 ms | |
+| Settings | 141 → 105 ms | 123 → 74 ms | |
+| Inventory | 153 → 90 ms | 128 → 67 ms | |
+| Art Bible | 138 → 100 ms | 110 → 74 ms | |
+| Play (stopped) | 29 → 33 ms | | |
+| Unit page | 582 → 515 ms | 51 → 22 ms | |
+| Modeller page | | 30 → 26 ms | |
+| Streamed reply, over Squad and on Chat | | | Snapshots built 75 and 72 → 0 |
+
+On `lands-of-old` (Unity, 28,000 files), Inventory and Play were within noise:
+one run of each build stalled about 1.4 s. The boot's longest main-process
+loop gap went from 407 to 324 ms.
+
+### Play streaming
+
+The player saw Play streaming as slow. The Genio half was measured end to end
+with the stand-in. The Unity half was read but not run: this unit cannot start
+Unity.
+
+| Genio side, stand-in at 30 fps | 1280 × 720 | 1920 × 1080 | 720p with a streamed reply in the floating chat |
+|---|---|---|---|
+| Frames sent / painted per second | 30.5 / 30.1 | 30.1 / 30.1 | 31.2 / 30.0 |
+| Dropped by the newest-frame rule | 0 | 0 | 0 |
+| Frame size | 113 KB | 259 KB | 113 KB |
+| Socket send to paint, p50 / p95 | 13.8 / 21.5 ms | 19.4 / 26.6 ms | 15.2 / 22.4 ms |
+| Decode (`createImageBitmap`), p50 / p95 | 3.4 / 4.4 ms | 7.1 / 8.7 ms | 3.5 / 6.4 ms |
+| Renderer main thread busy | 6.3% | 6.8% | 23% |
+| Main process CPU | 0.9% | 1.9% | 1.1% |
+
+Genio already does what the cheap-wins list asks for on its side: binary
+frames, the newest frame wins at the socket and at the renderer's credit, the
+bytes are transferred, and frames are decoded with `createImageBitmap` and drawn
+on a canvas. It paints every frame at 1080p with headroom. So this pass changed
+nothing on that path. It only named the contract the sink consumes,
+`PlayFrameSource` in `play-stream.ts` (complete frames, newest wins; audio in
+order; input; close), so another transport could plug in beside the WebSocket
+later. WebCodecs/H.264 and shared memory are not needed for Genio's half. The
+D3D shared texture was not built.
+
+`StreamSession.cs` already uses `AsyncGPUReadback`, caps the stream at 30 fps,
+keeps one frame in flight, and encodes JPEG (quality 75) on a worker task. What
+it still costs, by reading the code:
+
+1. **One frame in flight across the whole chain.** The next capture waits for
+   readback (one to three game frames), the CPU row flip, the encode and the
+   send. The stream rate is therefore 1 / (readback + encode + send), not
+   30 fps: with a 10-20 ms 720p encode, that is likely 15-25 fps.
+2. **Per-frame allocations.** `GetData<byte>().ToArray()` allocates 3.7 MB
+   (720p) or 8.3 MB (1080p) of managed memory per frame, and `FlipRows` adds a
+   row buffer. That is GC pressure inside the game.
+
+Recommended for a Unity unit, which can run and profile it:
+
+- Allow a second readback while the previous frame encodes. Stamp frames with
+  a sequence number and drop one that finishes after a newer one.
+- Keep one pooled buffer, or encode straight from the `NativeArray`.
+- Flip in the `Blit` with a negative scale, not on the CPU.
+- Measure with Unity's profiler plus this benchmark's send-to-paint stamps.
+
+### Left alone, and why
+
+- **The unit page still spends about 5 s of renderer CPU in the tour.** xterm's
+  glyph measuring still forces style passes, and the floating chat's messages
+  are part of the page. Hiding the floating chat brings it to 348 ms. Options:
+  - xterm's WebGL renderer, which does no DOM measuring. Each terminal needs
+    its own WebGL context and Chromium caps them at about 16, so Squad would
+    keep the DOM renderer.
+  - One width cache shared by all terminals. This relies on xterm's private
+    internals and is fragile on upgrade.
+  - A lighter floating chat, such as fewer messages mounted. This changes what
+    the player sees, so it is a product decision.
+
+  Recommended: the WebGL renderer on the unit page only, falling back to the
+  DOM renderer, as its own change with a visual check.
+- **The model catalogue re-probes every 60 s** while any route is not
+  installed or not signed in. Each refresh starts the account CLIs
+  synchronously, about 230 ms of the main process (one of the boot stall's
+  causes). Recommended: run those probes off the main process with the same
+  answers. A longer expiry for "not installed" would change how soon a new
+  sign-in shows, so that is a design decision.
+- **The project window's snapshot holds every unit ever run** (719 KB).
+  Pruning it changes what Squad and the history show.
+- **A `decisions` event still sends a whole snapshot.** Its order differs from
+  the snapshot's, and it happens a few times per quest.
+- **An engine rescan saves the registry and sends `projects`**, because
+  Settings shows when each project was last scanned. The Hub's project
+  metadata (a few git calls per project) refreshes on that event for the same
+  freshness.
+- **Small items.** Inventory asks for `inventoryInfo` twice (main caches it).
+  Quests subscribes to every status change. The terminal scrollback is
+  trimmed by shifting.
+- **Minifying the renderer.** Parsing is no longer the cost, and readable
+  stacks matter more.
+
+### Regression guards
+
+- `tests/markdown-stream.test.ts`: a streamed reply's DOM equals a full render
+  at every prefix, unchanged blocks keep their nodes, and the Markdown cache
+  hits and evicts.
+- `tests/chat-scroll.test.ts` and the `chat-scroll` and `chat-jump-layout` e2e
+  checks: the log still follows new messages, deltas and late layout.
+- `tests/format-dates.test.ts`, `tests/model-picker.test.ts`,
+  `tests/store-selectors.test.ts` and `tests/store-backlog-event.test.ts`.
+- `tests/renderer-chunks.test.ts`: the eager import graph holds no screen and
+  no xterm.
+- `tests/event-router.test.ts`: a terminal's owner is resolved once, and an
+  unknown one is retried.
+- `tests/player-instance.test.ts`: no process listing without a launched
+  editor.
+- `tests/toolchain-blender.test.ts`: the worker answers what the in-process
+  probe answers.
+- `tests/chat-provider-service.test.ts`: the asynchronous first read gives the
+  same history as the synchronous one, stranded queued messages included.
+- `tests/crew-lifecycle.test.ts` and `tests/perf/reconcile.perf.ts`: one write
+  per reconciliation.
+- `tests/visible-poll.test.ts`, `tests/backlog.test.ts` (archive reads) and
+  `tests/project-windows.test.ts` (quests scoped to the window's project).
