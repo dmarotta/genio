@@ -33,8 +33,9 @@ import { hasInventoryChips, inventoryContextBlock, validateInventoryContext, typ
 import type { ChatImageInput } from '@shared/chat-images'
 import { prepareInventoryContext } from './inventory-context'
 import { bus } from './bus'
-import { chatImageDir, loadChatImages, saveChatImages } from './chat-images'
+import { chatImageDir, saveChatImages } from './chat-images'
 import { attachedIdsNote } from './chat-imagegen'
+import { createChatThread, type ShownMessage } from './chat-thread'
 import { noteStandingWords } from './standing-approvals'
 import type { Home } from './home'
 import { buildTools, type ToolHooks, type ToolRole } from './wksp-tools'
@@ -44,10 +45,10 @@ import {
   HELP_TEXT, afkPrompt, customContract, eventsPrompt, recapPrompt, returnPrompt, savePrompt, sessionStartPrompt,
   statusPrompt, projectOpenPrompt
 } from './prompts'
-import { applyChatEvent, chatControls, compactChat, strandQueued } from '@shared/chat'
+import { chatControls } from '@shared/chat'
 import type { AppCtx, WkspService } from './services'
 import { claudeLimitsFile, recordClaudeRateLimit, type ClaudeRateLimitInfo } from './usage'
-import { appendJsonl, nowIso, readJson, readJsonl, rid, truncate, writeJson } from './util'
+import { appendJsonl, nowIso, readJson, rid, writeJson } from './util'
 
 import { AgentSession, loadSdk, sessionConfig, inboundMessage, type TurnItem } from './claude-chat-driver'
 export { AgentSession, sessionConfig, applyLiveConfig, inboundMessage, sendPlayerChat, userMessage, decideTool, isReadOnlyCommand } from './claude-chat-driver'
@@ -83,7 +84,6 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     sessionId: persisted.sessionId
   }
   let contextSessionStart = nowIso()
-  let history: ChatMessage[] | undefined
   let eventsBackoffUntil = 0
   let batchTimer: ReturnType<typeof setTimeout> | undefined
   let bootDone = false
@@ -113,31 +113,27 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     bus.publish({ type: 'wksp', wksp: { ...info } })
   }
 
-  const loadHistory = (): ChatMessage[] => {
-    if (!history) {
-      // first read in this run: anything still queued was lost with the previous session
-      const { list, stranded } = strandQueued(compactChat(readJsonl<ChatMessage>(home.chatFile)).slice(-1000))
-      if (!readOnly) for (const m of stranded) appendJsonl(home.chatFile, m)
-      history = list
-    }
-    return history
-  }
-  const record = (m: ChatMessage, persist: boolean): void => {
-    if (readOnly) return
-    const h = loadHistory()
-    const i = h.findIndex((x) => x.id === m.id)
-    if (i >= 0) h[i] = m
-    else h.push(m)
-    if (h.length > 1200) h.splice(0, h.length - 1000)
-    if (persist) appendJsonl(home.chatFile, m)
-    bus.publish({ type: 'chat', message: m })
-  }
-
-  const say = (text: string, role: ChatMessage['role'] = 'genio'): ChatMessage => {
-    const m: ChatMessage = { id: `s-${rid(6)}`, wksp: name, role, text, ts: nowIso() }
-    record(m, true)
-    return m
-  }
+  const archived = 'The main chat is archived. Open the Genio project to continue.'
+  const thread = createChatThread({
+    wksp: name, file: home.chatFile, imageDir: chatImageDir(home.data), readOnly, reader: ASSISTANT_NAME,
+    session: () => genio,
+    publish: m => bus.publish({ type: 'chat', message: m }),
+    changed: () => publishInfo(),
+    canSteer: () => canSteer(),
+    steerNote: () => steerNote(),
+    route: () => ({ provider: selectedProvider(), model: chatRoute(chatControls(settings(), liveAlly()).model).model }),
+    // "keep merging everything" / "stop merging": a standing merge approval starts or ends once the session reads it
+    sent: m => {
+      try {
+        const receipt = noteStandingWords(getCtx(), home, m)
+        if (receipt) say(receipt, 'system')
+      } catch { /* never blocks the message */ }
+    },
+    refused: () => (readOnly ? archived : undefined)
+  })
+  const loadHistory = thread.load
+  const record = thread.record
+  const say = thread.say
 
   /**
    * What the visible Genio turn in progress started, from its tool calls (deploy, control, quests, merge,
@@ -150,64 +146,13 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
   }
   const hasActions = (): boolean => Object.values(turnActions).some(v => v?.length)
 
-  /**
-   * Set while the visible turn in progress is being ended for the player's steering message (cleared when
-   * that turn ends). Meanwhile the chat's tool policy starts no new tool call.
-   */
-  let steering: object | undefined
   /** the context line the turn after an interrupted one starts with */
   let interruptedNote: string | undefined
-  /** Player messages that steer once their turn is ready: the visible turn in progress ends and they are read first. */
-  const steerIds = new Set<string>()
 
   /** The player's '!' runs since their last message: read, labelled as their own shell output, with the next one. */
   let shellRuns: ShellRun[] = []
 
-  /** Player messages already shown as queued whose turn is still being prepared (images, project opening). */
-  const preparing = new Set<string>()
-  const waiting = (id: string): boolean => loadHistory().find((x) => x.id === id)?.queue === 'queued'
-
-  /** A waiting message leaves the queue: it becomes a normal sent message at the end of the log. */
-  const markSent = (id: string): void => {
-    const h = loadHistory()
-    const i = h.findIndex((x) => x.id === id)
-    if (i < 0 || h[i].queue !== 'queued') return
-    preparing.delete(id)
-    const { queue: _was, steering: _steered, ...sent } = h[i]
-    h.splice(i, 1)
-    const m = { ...sent, ts: nowIso() }
-    record(m, true)
-    // "keep merging everything" / "stop merging": a standing merge approval starts or ends once the session reads it
-    try {
-      const receipt = noteStandingWords(getCtx(), home, m)
-      if (receipt) say(receipt, 'system')
-    } catch { /* never blocks the message */ }
-  }
-  /** The session picked a queued message up. */
-  const delivered = (item: TurnItem): void => {
-    if (item.msgId) markSent(item.msgId)
-  }
-  /** A waiting message taken out of the chat (cancelled, edited, or its send failed). */
-  const withdraw = (m: ChatMessage): void => {
-    preparing.delete(m.id)
-    steerIds.delete(m.id)
-    history = loadHistory().filter((x) => x.id !== m.id)
-    const gone: ChatMessage = { ...m, queue: 'cancelled' }
-    appendJsonl(home.chatFile, gone)
-    bus.publish({ type: 'chat', message: gone })
-  }
-  /** The session queue was dropped: whatever still waited is shown as not sent, never left looking queued. */
-  const strandWaiting = (): void => {
-    preparing.clear()
-    steerIds.clear()
-    if (readOnly || !history) return
-    const { list, stranded } = strandQueued(history)
-    history = list
-    for (const m of stranded) {
-      appendJsonl(home.chatFile, m)
-      bus.publish({ type: 'chat', message: m })
-    }
-  }
+  const { preparing, steerIds, waiting, markSent, delivered, strandWaiting } = thread
 
   // ---------------------------------------------------------- options
 
@@ -257,7 +202,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
   function makePolicy(role: ToolRole): CanUseTool {
     return async (toolName, input): Promise<PermissionResult> => {
       // a turn the player is steering away from starts nothing new; what already runs finishes
-      if (role !== 'bot' && steering) return { behavior: 'deny', message: `${gamertag()} interrupted this turn with a new message. Do not start anything else; stop here.` }
+      if (role !== 'bot' && thread.steering) return { behavior: 'deny', message: `${gamertag()} interrupted this turn with a new message. Do not start anything else; stop here.` }
       const d = await enforceTool({ role, chat: name, shellMode: () => chatControls(settings(), liveAlly()).shellMode,
         permissions: getCtx().permissions, player: gamertag() }, { runtime: 'claude', name: toolName, input })
       return d.behavior === 'allow' ? { behavior: 'allow', updatedInput: input } : d
@@ -362,14 +307,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
         if (interruptedNote) { item.prompt = `${interruptedNote}\n\n${item.prompt}`; interruptedNote = undefined }
         delivered(item)
       },
-      onRequeue(item) {
-        const m = loadHistory().find(m => m.id === item.msgId)
-        if (m) {
-          const queued: ChatMessage = { ...m, queue: 'queued' }
-          history = applyChatEvent(loadHistory(), queued)
-          record(queued, true)
-        }
-      },
+      onRequeue: thread.requeued,
       onLimit(limit) {
         info.limit = limit
         info.lastError = undefined
@@ -394,8 +332,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
         publishInfo()
       },
       onTurnEnd(item, ok, lastText, cost) {
-        const interrupted = !!steering && !ok
-        steering = undefined
+        const interrupted = !!thread.steering && !ok
+        thread.steering = undefined
         if (interrupted) {
           const started = startedText(turnActions)
           say(`Interrupted by your message.${started ? ` It had started: ${started}.` : ''}`, 'system')
@@ -637,24 +575,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
   function canSteer(): boolean {
     return !readOnly && genio.busy && !info.limit && !botAway()
   }
-  /** A waiting message the player steered with shows it ("Steering") until the session reads it. */
-  function markSteering(id: string): void {
-    const m = loadHistory().find((x) => x.id === id)
-    if (m?.queue === 'queued' && !m.steering) record({ ...m, steering: true }, false)
-  }
-  /** A ready turn goes first; when it steers, the visible turn in progress ends at a safe point. */
-  function enqueueTurn(item: TurnItem): void {
-    if (!item.msgId || !steerIds.delete(item.msgId)) { genio.enqueue(item); return }
-    // marked before it is queued: an idle session reads it at once, and reading it clears the mark
-    markSteering(item.msgId)
-    const yieldTurn = canSteer()
-    const token = {}
-    if (yieldTurn) steering = token
-    void genio.steer(item, yieldTurn).finally(() => {
-      if (steering === token) steering = undefined
-      publishInfo()
-    })
-  }
+  const enqueueTurn = thread.enqueue
   /** Why a steering message just queued is not read at once; undefined when the turn stops now (or none runs). */
   function steerNote(): string | undefined {
     const tool = genio.yieldWait()
@@ -665,29 +586,14 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
   }
 
   const checkSend = (): void => {
-    if (readOnly) throw new Error('The main chat is archived. Open the Genio project to continue.')
+    if (readOnly) throw new Error(archived)
     if (!isOpen()) throw new Error('Open the project window before using its chat.')
     const unavailable = chatRouteUnavailable(selectedProvider())
     if (unavailable) throw new Error(`${unavailable} Open ${settingsPath('accounts')} and refresh before sending. Your draft has been kept.`)
   }
 
-  /** A player's message, on screen as queued the moment it is submitted: before slow thumbnails, an opening project or earlier sends. */
-  interface Shown { m: ChatMessage; send: ChatImageInput[] }
-  const showQueued = (text: string, images: ChatImageInput[], context?: InventoryContext): Shown => {
-    // stored first so a bad image fails the send before anything is shown (the composer keeps the draft)
-    const stored = saveChatImages(chatImageDir(home.data), images)
-    const m = inboundMessage(name, text, 'player')
-    m.queue = 'queued'
-    m.provider = selectedProvider()
-    m.providerModel = chatRoute(chatControls(settings(), liveAlly()).model).model
-    if (stored.refs.length) m.images = stored.refs
-    if (context) m.context = context
-    preparing.add(m.id)
-    record(m, true)
-    bus.publish({ type: 'sfx', sound: 'send' })
-    publishInfo()
-    return { m, send: stored.send }
-  }
+  type Shown = ShownMessage
+  const showQueued = thread.showQueued
 
   const performSend = async (text: string, origin: 'player' | 'system' | 'genio', images: ChatImageInput[], context: InventoryContext | undefined, shown?: Shown): Promise<void> => {
     if (!isOpen()) {
@@ -746,8 +652,6 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     if (m.context?.screen) safe(() => ctx.stats.unlock('genio-panel-context'))
     publishInfo()
   }
-  let pendingSend: Promise<void> = Promise.resolve()
-
   const submit = (text: string, origin: 'player' | 'system' | 'genio', images: ChatImageInput[], context: InventoryContext | undefined, steer: boolean): Promise<void> => {
     let shown: Shown | undefined
     let snapshot: InventoryContext | undefined
@@ -763,7 +667,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     } catch (e) {
       return Promise.reject(e)
     }
-    const sending = pendingSend.then(async () => {
+    return thread.serial(shown, async () => {
       if (projectOpening) {
         await projectReady
         if (stopped || !isOpen()) {
@@ -773,18 +677,6 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
       }
       return performSend(text, origin, images, snapshot, shown)
     })
-    // A shown message whose turn could not be prepared leaves the chat; the composer gets the draft back.
-    // Once its turn is queued (or it was taken back) the message is accounted for and the send succeeded.
-    const settled = shown ? sending.catch((e) => {
-      if (!shown || !preparing.has(shown.m.id)) return
-      const current = loadHistory().find((x) => x.id === shown!.m.id)
-      if (current) withdraw(current)
-      else preparing.delete(shown.m.id)
-      publishInfo()
-      throw e
-    }) : sending
-    pendingSend = settled.catch(() => undefined)
-    return settled
   }
 
   const svc: WkspService = {
@@ -795,55 +687,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     },
     send: (text, origin = 'player', images = [], context) => submit(text, origin, images, context, false),
     steer: (text, images = [], context) => submit(text, 'player', images, context, true),
-    sendNow(id) {
-      if (readOnly) return { ok: false, reason: 'The main chat is archived. Open the Genio project to continue.' }
-      const m = loadHistory().find((x) => x.id === id)
-      if (!m || m.queue !== 'queued') {
-        // the chat on screen is behind: show the message as it really is
-        if (m) bus.publish({ type: 'chat', message: m })
-        return { ok: false, reason: !m ? 'That message is no longer in this chat.'
-          : m.queue === 'unsent' ? 'The session stopped before reading that message. Edit it to send it again.'
-          : `${ASSISTANT_NAME} picked that message up already.` }
-      }
-      steerIds.add(id)
-      // still being prepared: it steers as soon as its turn is ready
-      if (preparing.has(id)) {
-        markSteering(id)
-        return { ok: true, note: 'It is still being prepared (images or the project opening) and steers as soon as it is ready.' }
-      }
-      const item = genio.cancel(id)
-      if (!item) {
-        steerIds.delete(id)
-        // Its record says queued but no turn waits for it: never leave it looking queued.
-        if (genio.runningMsgId === id) {
-          markSent(id)
-          return { ok: false, reason: `${ASSISTANT_NAME} is already reading that message.` }
-        }
-        record(strandQueued([m]).list[0], true)
-        publishInfo()
-        return { ok: false, reason: 'That message was no longer waiting in the session, so it is marked Not sent. Edit it to send it again.' }
-      }
-      enqueueTurn(item)
-      publishInfo()
-      return { ok: true, note: steerNote() }
-    },
-    unqueue(id) {
-      if (readOnly) return null
-      const h = loadHistory()
-      const m = h.find((x) => x.id === id)
-      if (!m || (m.queue !== 'queued' && m.queue !== 'unsent')) return null
-      const item = m.queue === 'queued' ? genio.cancel(id) : undefined
-      // Filter stored refs before reading: a missing thumbnail must not drop a pasted image.
-      const automatic = m.context?.thumbnail?.status === 'attached'
-      const refs = automatic ? m.images?.filter(i => i.file !== m.context?.thumbnail?.image?.file) : m.images
-      const images = item ? (automatic ? item.images?.slice(0, -1) : item.images)
-        : refs?.length ? loadChatImages(chatImageDir(home.data), refs) : undefined
-      // a message still being prepared is never enqueued once withdrawn
-      withdraw(m)
-      publishInfo()
-      // The automatic preview belongs to its chip, not the pasted-image draft.
-      return { text: m.text, ...(images?.length ? { images } : {}), ...(m.context ? { context: m.context } : {}) }
-    },
+    sendNow: thread.sendNow,
+    unqueue: thread.unqueue,
     deliverWakes() {
       if (readOnly || !isOpen() || stopped || projectOpening) return
       try {
