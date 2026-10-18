@@ -562,7 +562,7 @@ export function usageAttribution(ctx: AppCtx): { sessions: Map<string, string | 
   const homes = [...ctx.homes.values()].map(h => ({ home: h.home, world: owners.get(h.home.name) }))
     .sort((a, b) => b.home.root.length - a.home.root.length)
   for (const { home, world } of homes) {
-    const state = readJson<{ sessionId?: string; botSessionId?: string }>(home.wkspFile, {})
+    const state = readJson<{ sessionId?: string; botSessionId?: string }>(home.workspaceFileToRead, {})
     if (state.sessionId) sessions.set(state.sessionId, world)
     if (state.botSessionId) sessions.set(state.botSessionId, world)
     const costs = readJson<{ sessions: Record<string, unknown> }>(path.join(home.data, 'usage', 'session-costs.json'), { sessions: {} })

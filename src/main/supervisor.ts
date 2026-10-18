@@ -4,7 +4,7 @@
  * A deterministic poll loop that reads unit status files, terminal liveness,
  * steering-inbox acknowledgements, PR state and player-defined triggers, and
  * turns only *actionable* changes into durable events (wakes.ts). Genio's
- * agent is woken through wksp.deliverWakes() — idle overwatch costs no tokens.
+ * agent is woken through workspace.deliverWakes() — idle overwatch costs no tokens.
  *
  * Event kinds:
  *   signal    new player-relevant status lines (coalesced), or a turn that
@@ -166,9 +166,9 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
     // Retry pending durable wakes even without new activity (busy/closed chat,
     // quota hold, transient delivery failure, or restored queue after restart).
     try {
-      hc().wksp.deliverWakes()
+      hc().workspace.deliverWakes()
     } catch {
-      /* wksp not ready; queue is durable */
+      /* workspace not ready; queue is durable */
     }
   }
 
@@ -515,7 +515,7 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
     if (h.wakes.pending().some(w => w.taskId === t.id)) return
     const handledAt = h.wakes.recent(0).filter(w => w.taskId === t.id).map(w => Date.parse(w.ackedAt ?? '') || 0)
     if (now - Math.max(finished, ...handledAt) < RECON_SETTLE_MS) return
-    const chat = h.wksp.info()
+    const chat = h.workspace.info()
     if (chat.queued || chat.activity === 'thinking' || chat.activity === 'tool') return
     if (reconFollowedUp(t, finished)) {
       reconSettled.add(t.id)

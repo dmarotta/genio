@@ -21,7 +21,7 @@ let ctx: AppCtx
 beforeAll(() => { base = seedBase(perfRoot()) })
 afterAll(async () => {
   report()
-  try { ctx?.inventory.stop(); for (const h of ctx?.homes.values() ?? []) { h.supervisor.stop(); await h.wksp.stop() } } catch { /* best effort */ }
+  try { ctx?.inventory.stop(); for (const h of ctx?.homes.values() ?? []) { h.supervisor.stop(); await h.workspace.stop() } } catch { /* best effort */ }
   fs.rmSync(base.root, { recursive: true, force: true, maxRetries: 3 })
 })
 

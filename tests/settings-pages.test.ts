@@ -271,7 +271,7 @@ describe('Settings navigation', () => {
 
   it('has no Pinned section or Unpin anywhere, even with chosen models, rows and rules', async () => {
     f.settings = {
-      ...defaultSettings(), wkspModel: 'claude-opus-5-5', wkspEffort: 'high', defaultHarness: 'claude', defaultWorkerModel: 'claude-opus-5-5', defaultWorkerEffort: 'high',
+      ...defaultSettings(), workspaceModel: 'claude-opus-5-5', workspaceEffort: 'high', defaultHarness: 'claude', defaultWorkerModel: 'claude-opus-5-5', defaultWorkerEffort: 'high',
       categoryPools: [{ category: 'ui', candidates: [{ harness: 'claude', model: 'claude-opus-5-5' }] }],
       dispatchRules: [{ id: 'r', match: 'shader', candidates: [{ harness: 'codex', spendPriority: 0 }] }]
     }

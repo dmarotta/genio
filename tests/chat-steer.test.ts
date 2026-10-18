@@ -75,14 +75,14 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   tool: () => ({}),
   createSdkMcpServer: () => ({})
 }))
-vi.mock('../src/main/wksp-tools', () => ({ buildTools: (_t: unknown, _g: unknown, _h: unknown, _role: unknown, hooks: { action?: () => void }) => { fake.hooks.push(hooks); return [] } }))
+vi.mock('../src/main/workspace-tools', () => ({ buildTools: (_t: unknown, _g: unknown, _h: unknown, _role: unknown, hooks: { action?: () => void }) => { fake.hooks.push(hooks); return [] } }))
 vi.mock('../src/main/chat-tool-policy', async (actual) => ({ ...(await actual<object>()), DISALLOWED: [], enforceTool: async () => ({ behavior: 'allow' }) }))
 vi.mock('../src/main/chat-tool-bridge', () => ({
   openChatToolBridge: async () => ({ entry: 'bridge.js', env: {}, close: async () => {} }), closeChatToolBridges: async () => {}
 }))
 
 const { Home } = await import('../src/main/home')
-const { createWkspService, startedText } = await import('../src/main/wksp')
+const { createWorkspaceService, startedText } = await import('../src/main/workspace')
 const { bus } = await import('../src/main/bus')
 const { createWakeService } = await import('../src/main/wakes')
 const { ProviderChatSession } = await import('../src/main/provider-chat-session')
@@ -102,7 +102,7 @@ afterEach(() => {
 })
 
 const ctx = {
-  settings: { get: () => ({ gamertag: 'Alex', chatShellMode: 'ask', wkspModel: '', wkspEffort: '', botModel: '' }) },
+  settings: { get: () => ({ gamertag: 'Alex', chatShellMode: 'ask', workspaceModel: '', workspaceEffort: '', botModel: '' }) },
   allies: { list: () => [] },
   projects: { list: () => [] },
   memory: { read: () => '' },
@@ -117,10 +117,10 @@ const ctx = {
 function chat(name = 'art') {
   const home = new Home(path.join(dir, 'workspaces', name), name, new Home(dir))
   ctx.main.home.data = path.join(dir, 'data')
-  const svc = createWkspService(() => ctx as never, home)
+  const svc = createWorkspaceService(() => ctx as never, home)
   let shown: ChatMessage[] = []
   const off = bus.onEvent((ev: GenioEvent) => {
-    if (ev.type === 'chat' && ev.message.wksp === name) shown = applyChatEvent(shown, ev.message)
+    if (ev.type === 'chat' && ev.message.workspace === name) shown = applyChatEvent(shown, ev.message)
   })
   cleanup.push(off, () => void svc.stop())
   return { home, svc, view: () => splitQueued(shown) }
@@ -266,14 +266,14 @@ describe('steering the visible turn', () => {
     const c = chat()
     await c.svc.send('first')
     await received(1)
-    const lost: ChatMessage = { id: 'p-lost', wksp: 'art', role: 'player', text: 'lost message', ts: new Date().toISOString(), queue: 'queued' }
+    const lost: ChatMessage = { id: 'p-lost', workspace: 'art', role: 'player', text: 'lost message', ts: new Date().toISOString(), queue: 'queued' }
     c.svc.post(lost, true)
     expect(c.view().queued.map(m => m.id)).toEqual(['p-lost'])
     expect(c.svc.sendNow('p-lost')).toEqual({ ok: false, reason: 'That message was no longer waiting in the session, so it is marked Not sent. Edit it to send it again.' })
     expect(c.view().queued).toEqual([])
     expect(c.svc.history().find(m => m.id === 'p-lost')?.queue).toBe('unsent')
     // still on record that way after a restart
-    const reloaded = createWkspService(() => ctx as never, c.home)
+    const reloaded = createWorkspaceService(() => ctx as never, c.home)
     cleanup.push(() => void reloaded.stop())
     expect(reloaded.history().find(m => m.id === 'p-lost')?.queue).toBe('unsent')
     expect(q().interrupts).toBe(0)

@@ -70,7 +70,7 @@ export function createInboxService(getCtx: () => AppCtx): InboxService {
           routine: false
         })
         ctx.notifier.sfx('blip')
-        ctx.main.wksp.deliverWakes()
+        ctx.main.workspace.deliverWakes()
       } catch {
         /* not wired (tests) */
       }

@@ -39,7 +39,7 @@ const item = (text: string) => [...document.querySelectorAll('[role="menuitem"]'
 const press = async (key: string, target: Element = document.activeElement!, init: KeyboardEventInit = {}) =>
   act(async () => { target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })) })
 
-it.each(['/', '/?project=one&wksp=ally-one'])('shows exactly three entries in window %s and opens or focuses recent projects', async url => {
+it.each(['/', '/?project=one&workspace=ally-one'])('shows exactly three entries in window %s and opens or focuses recent projects', async url => {
   window.history.replaceState(null, '', url)
   await act(async () => fileButton().click())
   expect(api.windowList).toHaveBeenCalledOnce()

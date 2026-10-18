@@ -20,10 +20,10 @@ beforeEach(() => {
   tasks = []; decisions = []; clock = new Date(2026, 9, 17, 12).getTime()
   vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(clock)
   fs.writeFileSync(path.join(home.state, 'setup.json'), JSON.stringify({ startedAt: new Date(clock).toISOString() }))
-  focus = { project: 'game', wksp: 'game-chat', active: true, dialogOpen: false }
+  focus = { project: 'game', workspace: 'game-chat', active: true, dialogOpen: false }
   playing = false; activity = 'idle'; presence = 'online'; events = []
   const hc = { home, crew: { list: () => tasks, get: (id: string) => tasks.find(t => t.id === id) },
-    wksp: { info: () => ({ activity }) }, decisions: { list: () => decisions } }
+    workspace: { info: () => ({ activity }) }, decisions: { list: () => decisions } }
   ctx = { main: hc, homes: new Map([['game-chat', hc]]), home: () => hc,
     projects: { get: (name: string) => name === 'game' ? { name, path: path.join(dir, 'project'), engine: 'unity' } : undefined },
     settings: { get: () => ({ featureTips: true }) }, away: { state: () => ({ mode: presence }) },
@@ -148,7 +148,7 @@ describe('tip event replay', () => {
 
   it('settles a real generation after its reply, without generating a new moment on idle', () => {
     start(); activity = 'tool'; generated('1'); expect(events).toHaveLength(0)
-    activity = 'idle'; emit({ type: 'wksp', wksp: { name: 'game-chat', activity: 'idle' } })
+    activity = 'idle'; emit({ type: 'workspace', workspace: { name: 'game-chat', activity: 'idle' } })
     expect(events.map(e => e.tip.id)).toEqual(['art-bible'])
   })
 

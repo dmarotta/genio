@@ -33,7 +33,7 @@ beforeEach(() => {
   fs.mkdirSync(worktree, { recursive: true })
   fs.mkdirSync(home.taskDir('unit'), { recursive: true })
   fs.writeFileSync(home.briefFile('unit'), '# Mission')
-  task = { id: 'unit', kind: 'ship', project: 'world', wksp: 'main', state: 'exited', harness: 'claude',
+  task = { id: 'unit', kind: 'ship', project: 'world', workspace: 'main', state: 'exited', harness: 'claude',
     worktree, branch: 'genio/unit', briefPath: home.briefFile('unit'), relaunches: 0, automaticRelaunches: 0 } as Task
   fs.writeFileSync(home.tasksFile, JSON.stringify([task]))
   launches = []

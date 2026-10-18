@@ -13,13 +13,13 @@ import { createInventoryService } from '../src/main/inventory'
 import { AgentGeneration, agentGeneration, falGenerateShape, uthanaMotionShape } from '../src/main/agent-generation'
 import { placementTarget, placeOutput } from '../src/main/asset-placement'
 import { checkGenerationBudget, generationSpent, recordGenerationSpend } from '../src/main/generation-spend'
-import { buildTools, createToolRegistry } from '../src/main/wksp-tools'
+import { buildTools, createToolRegistry } from '../src/main/workspace-tools'
 import { bus } from '../src/main/bus'
 import { readSpend, sha256File, type Provenance } from '../src/main/fal-world'
 
 vi.mock('../src/main/chat-imagegen', async importOriginal => {
   const original = await importOriginal<typeof import('../src/main/chat-imagegen')>()
-  return { ...original, chatImageGen: (ctx: AppCtx, home: Home) => ({ chatDir: path.join(home.data, 'chat-images'), post: ctx.home(home.name).wksp.post }), generateChatImages: async (gen: any, a: unknown) => {
+  return { ...original, chatImageGen: (ctx: AppCtx, home: Home) => ({ chatDir: path.join(home.data, 'chat-images'), post: ctx.home(home.name).workspace.post }), generateChatImages: async (gen: any, a: unknown) => {
     (globalThis as { sentImageArgs?: unknown }).sentImageArgs = a
     fs.mkdirSync(gen.chatDir, { recursive: true })
     fs.writeFileSync(path.join(gen.chatDir, 'abc123-deadbeef.png'), 'image')
@@ -44,7 +44,7 @@ beforeEach(() => {
   execFileSync('git', ['init', '-q'], { cwd: project.path, windowsHide: true })
   write('Game/Assets/Audio/SFX/door-01.wav', 'old')
   const home = { name: 'main', data: path.join(dir, 'data'), root: path.join(dir, 'home') } as Home
-  const hc = { home, wksp: { post: vi.fn() }, wakes: { enqueue: vi.fn() } }
+  const hc = { home, workspace: { post: vi.fn() }, wakes: { enqueue: vi.fn() } }
   runs = []; price = 0.1
   ctx = { appRoot: process.cwd(), main: hc, home: () => hc, projects: { get: (w: string) => w === 'test' ? project : undefined }, stats: { unlock: vi.fn() }, fal: {
     runs: () => runs,
@@ -73,7 +73,7 @@ it('shows the quote card for every paid request, even USD 0.01, and binds approv
   const card = await service.fal('main', args())
   expect(card.status).toBe('awaiting_approval')
   expect(card.approval).toBeUndefined()
-  expect((ctx.main.wksp.post as Mock).mock.lastCall?.[0]).toMatchObject({ id: card.id, generation: { status: 'awaiting_approval', estimatedUsd: 0.01 } })
+  expect((ctx.main.workspace.post as Mock).mock.lastCall?.[0]).toMatchObject({ id: card.id, generation: { status: 'awaiting_approval', estimatedUsd: 0.01 } })
   price = 0.25
   expect((await service.fal('main', args())).status).toBe('awaiting_approval')
   expect(ctx.fal.run).not.toHaveBeenCalled()
@@ -92,7 +92,7 @@ it('shows the quote card for every paid request, even USD 0.01, and binds approv
 it('approve_run takes only the player\'s own reply, sent after the quote appeared', async () => {
   price = 0.01
   const history = [{ id: 'm1', role: 'player', text: 'make a door sound in test, go ahead', ts: new Date(Date.now() - 60_000).toISOString() }]
-  Object.assign(ctx.main.wksp, { history: () => history })
+  Object.assign(ctx.main.workspace, { history: () => history })
   const approveRun = createToolRegistry(() => ctx, ctx.main.home, 'genio').find(t => t.name === 'approve_run')!
   const card = await service.fal('main', args())
   // the request itself never approves its own quote
@@ -311,8 +311,8 @@ it('refuses an upload whose bytes changed after the quote', async () => {
   off()
   expect(ctx.uthana.upload).not.toHaveBeenCalled()
   // The failed card is shown in chat and settles the panel's generating count; Genio is not woken for it.
-  expect((ctx.main.wksp.post as Mock).mock.lastCall?.[0]).toMatchObject({ id: q.id, generation: { status: 'failed' } })
-  expect(events.at(-1)).toEqual({ type: 'generation', wksp: 'main', id: q.id, active: false })
+  expect((ctx.main.workspace.post as Mock).mock.lastCall?.[0]).toMatchObject({ id: q.id, generation: { status: 'failed' } })
+  expect(events.at(-1)).toEqual({ type: 'generation', workspace: 'main', id: q.id, active: false })
   expect(ctx.main.wakes!.enqueue).not.toHaveBeenCalled()
 })
 

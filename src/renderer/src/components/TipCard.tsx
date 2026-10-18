@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
-import { PROJECT_WKSP, PROJECT_WINDOW, getState, saveSettings, setState, useStore, type State } from '../store'
+import { PROJECT_WORKSPACE, PROJECT_WINDOW, getState, saveSettings, setState, useStore, type State } from '../store'
 import { sendAskGenio } from '../lib/ask-genio'
 
 const LIFETIME = 20_000
@@ -78,11 +78,11 @@ function ActiveTipCard({ tip }: { tip: NonNullable<State['tip']> }) {
   const ask = async (): Promise<void> => {
     if (sending.current) return
     const s = getState()
-    const wksp = PROJECT_WKSP ?? s.snap.allies.find(a => !a.retiredAt && a.projects.includes(PROJECT_WINDOW!))?.name
-    if (!wksp) return
+    const workspace = PROJECT_WORKSPACE ?? s.snap.allies.find(a => !a.retiredAt && a.projects.includes(PROJECT_WINDOW!))?.name
+    if (!workspace) return
     sending.current = true
     setBusy(true)
-    if (await sendAskGenio(tip.question, wksp, PROJECT_WINDOW)) dismiss()
+    if (await sendAskGenio(tip.question, workspace, PROJECT_WINDOW)) dismiss()
     else { sending.current = false; setBusy(false) }
   }
 

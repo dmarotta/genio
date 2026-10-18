@@ -116,7 +116,7 @@ describe('a unit at work', () => {
     fs.mkdirSync(worktree, { recursive: true })
     fs.mkdirSync(home.taskDir('unit'), { recursive: true })
     fs.writeFileSync(home.briefFile('unit'), '# Mission')
-    task = { id: 'unit', kind: 'ship', title: 'Unit', project: 'world', wksp: 'main', state: 'exited', harness: 'claude', model: 'claude-opus-5-5',
+    task = { id: 'unit', kind: 'ship', title: 'Unit', project: 'world', workspace: 'main', state: 'exited', harness: 'claude', model: 'claude-opus-5-5',
       worktree, branch: 'genio/unit', briefPath: home.briefFile('unit'), relaunches: 0, automaticRelaunches: 0, inbox: { seq: 0, acked: 0, rings: 0 } } as Task
     fs.writeFileSync(home.tasksFile, JSON.stringify([task]))
     data = []

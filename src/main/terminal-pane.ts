@@ -112,12 +112,12 @@ export function oneShotShell(configured: string | undefined, command: string): {
 /**
  * Run a '!' command from the chat composer in the pane's folder, as a one-shot process the pane
  * shows as a tab (the interactive shell keeps whatever it is doing). When it ends, its result block
- * joins `wksp`'s chat and its bounded output is read with the player's next message.
+ * joins `workspace`'s chat and its bounded output is read with the player's next message.
  */
-export function runShell(ctx: PaneCtx, project: string, wksp: string, command: string, cwdId?: string, size?: { cols: number; rows: number }): TerminalInfo {
+export function runShell(ctx: PaneCtx, project: string, workspace: string, command: string, cwdId?: string, size?: { cols: number; rows: number }): TerminalInfo {
   const cmd = command.trim()
   if (!cmd) throw new Error('Type a command after !')
-  const chat = ctx.home(wksp).wksp
+  const chat = ctx.home(workspace).workspace
   const choice = resolveCwd(ctx, project, cwdId)
   const finished = paneTerminals(ctx, project).filter((t) => t.run !== undefined && !t.alive)
   for (const old of finished.slice(0, Math.max(0, finished.length - (RUN_TABS_MAX - 1)))) ctx.terminals.kill(old.id)

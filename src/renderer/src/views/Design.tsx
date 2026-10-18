@@ -3,7 +3,7 @@ import { ChevronDown, Plus } from 'lucide-react'
 import type { DesignChatInfo } from '@shared/types'
 import { DESIGN_NOTE_MAX_BYTES, noteBody, type DesignNote } from '@shared/design-notes'
 import { chatKey } from '@shared/chat'
-import { PROJECT_WKSP, PROJECT_WINDOW, api, errText, loadDesignChats, setState, toast, useStore, type DesignOpen as Open } from '../store'
+import { PROJECT_WORKSPACE, PROJECT_WINDOW, api, errText, loadDesignChats, setState, toast, useStore, type DesignOpen as Open } from '../store'
 import { clearDraft } from '../drafts'
 import { ChatPanel } from './Comms'
 import { Markdown } from '../components/Markdown'
@@ -29,8 +29,8 @@ const noteDrafts = new Map<string, { text: string; since: string }>()
  * markdown, with Edit. Turning a note into work stays with Genio in the floating panel.
  */
 export function Design() {
-  if (!PROJECT_WKSP || !PROJECT_WINDOW) return null
-  return <DesignScreen wksp={PROJECT_WKSP} world={PROJECT_WINDOW} />
+  if (!PROJECT_WORKSPACE || !PROJECT_WINDOW) return null
+  return <DesignScreen workspace={PROJECT_WORKSPACE} world={PROJECT_WINDOW} />
 }
 
 function useNarrow(): boolean {
@@ -65,7 +65,7 @@ function useNotes(world: string): [DesignNote[] | undefined, (n: DesignNote[]) =
   return [notes, setNotes]
 }
 
-function DesignScreen({ wksp, world }: { wksp: string; world: string }) {
+function DesignScreen({ workspace, world }: { workspace: string; world: string }) {
   const loaded = useStore(s => s.designChats)
   const [notes, setNotes] = useNotes(world)
   const picked = useStore(s => s.designOpen)
@@ -100,7 +100,7 @@ function DesignScreen({ wksp, world }: { wksp: string; world: string }) {
     const blank = chats.find(c => !c.title)
     if (blank) return show({ kind: 'chat', id: blank.id })
     try {
-      const c = await api().designChatCreate(wksp)
+      const c = await api().designChatCreate(workspace)
       setState(s => ({ designChats: s.designChats?.some(x => x.id === c.id) ? s.designChats : [...(s.designChats ?? []), c] }))
       show({ kind: 'chat', id: c.id })
     } catch (e) {
@@ -111,8 +111,8 @@ function DesignScreen({ wksp, world }: { wksp: string; world: string }) {
   const remove = async (id: string): Promise<void> => {
     setMenu(undefined)
     try {
-      await api().designChatDelete(wksp, id)
-      const key = chatKey(wksp, id)
+      await api().designChatDelete(workspace, id)
+      const key = chatKey(workspace, id)
       clearDraft(key)
       setState(s => {
         const rest = { ...s.chats }
@@ -174,7 +174,7 @@ function DesignScreen({ wksp, world }: { wksp: string; world: string }) {
           </header>
         )}
         {chat
-          ? <ChatPanel key={chat.id} wksp={wksp} conversation={chat.id} />
+          ? <ChatPanel key={chat.id} workspace={workspace} conversation={chat.id} />
           : note
             ? <div className="design-note">
               {draft

@@ -136,7 +136,7 @@ describe('workspaces migration', () => {
     const home = new Home(fresh, 'main')
     home.ensure()
     expect(migrateWorkspaces(fresh, opts()).status).toBe('none')
-    expect(home.wkspHome('art')).toBe(path.join(path.resolve(fresh), 'workspaces', 'art'))
+    expect(home.workspaceHome('art')).toBe(path.join(path.resolve(fresh), 'workspaces', 'art'))
   })
 
   it('reads the old path form for a record that could not be rewritten', () => {

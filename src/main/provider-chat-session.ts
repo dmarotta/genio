@@ -1,5 +1,5 @@
 import type { ChatDriver, ChatDriverEvents, ChatProvider, ChatTurn } from './chat-driver'
-import type { WkspInfo } from '@shared/types'
+import type { WorkspaceInfo } from '@shared/types'
 
 export interface ProviderSessions {
   active?: ChatProvider
@@ -21,7 +21,7 @@ export class ProviderChatSession {
   constructor(private readonly options: {
     selection(): ChatProvider
     config?(): { model?: string; effort?: string }
-    hold?(provider: ChatProvider, item: ChatTurn): WkspInfo['limit']
+    hold?(provider: ChatProvider, item: ChatTurn): WorkspaceInfo['limit']
     create(provider: ChatProvider, events: ChatDriverEvents, config: () => { model?: string; effort?: string }): ChatDriver
     events: ChatDriverEvents
     persisted?: ProviderSessions
@@ -98,7 +98,7 @@ export class ProviderChatSession {
     this.dispatching = true
     this.driver.send(next)
   }
-  private defer(limit: WkspInfo['limit']): void {
+  private defer(limit: WorkspaceInfo['limit']): void {
     this.options.events.onLimit?.(limit)
     if (!this.retryTimer) {
       this.retryTimer = setTimeout(() => { this.retryTimer = undefined; this.pump() }, 30_000)

@@ -25,7 +25,7 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); fs.rmSync(main.root, { recursive: true, force: true }) })
 
 function task(id: string, project = 'one', home = main): Task {
-  return { id, title: id, kind: 'ship', wksp: home.name, project, mode: 'local-only',
+  return { id, title: id, kind: 'ship', workspace: home.name, project, mode: 'local-only',
     worktree: home.worktreeFor(project, id), briefPath: home.briefFile(id), branch: `genio/${id}`,
     baseBranch: 'main', branchPrefix: 'genio/', state: 'working', harness: 'codex',
     statusOffset: 0, relaunches: 2, sessionHint: 'legacy-session', codexSessionId: 'verified-session',
@@ -36,11 +36,11 @@ function quest(id: string, project?: string): BacklogItem {
     dependsOn: [], tags: [], notes: 'original intent', createdAt: ts, updatedAt: ts }
 }
 function decision(id: string, extra: Partial<Decision> = {}): Decision {
-  return { id, key: 'default', wksp: 'main', question: 'Choose a path', source: 'unit',
+  return { id, key: 'default', workspace: 'main', question: 'Choose a path', source: 'unit',
     options: ['A', 'B'], urgency: 'normal', createdAt: ts, ...extra }
 }
 function wake(seq: number, taskId: string): Wake {
-  return { seq, ts, taskId, wksp: 'main', kind: 'signal', reason: 'needs attention', lines: ['unchanged'], routine: false }
+  return { seq, ts, taskId, workspace: 'main', kind: 'signal', reason: 'needs attention', lines: ['unchanged'], routine: false }
 }
 function owner(project = 'one'): Home {
   const ally = readJson<Ally[]>(main.alliesFile, []).find(a => !a.retiredAt && a.projects.length === 1 && a.projects[0] === project)!
@@ -58,15 +58,15 @@ describe('per-project data migration', () => {
     writeJson(main.backlogFile, [linked, quest('other-quest', 'two'), quest('unassigned')])
     writeJson(main.decisionsFile, [decision('task-choice', { taskId: 'old', until: '2027-01-01' }),
       decision('quest-choice', { backlogId: 'linked', answer: 'A', resolvedAt: ts }), decision('global')])
-    const preserved = [main.chatFile, main.wkspFile, main.playerFile, main.playerSharedFile, main.loreFile,
+    const preserved = [main.chatFile, main.workspaceFile, main.playerFile, main.playerSharedFile, main.loreFile,
       main.settingsFile, main.statsFile, path.join(main.data, 'secrets.json'), path.join(main.data, 'done-archive.md')]
     for (const file of preserved) writeText(file, `original ${path.basename(file)}`)
     migrateProjectData(main)
     const target = owner()
-    expect(readJson(target.tasksFile, [])).toEqual([{ ...t, wksp: target.name, storageRoot: main.root }])
+    expect(readJson(target.tasksFile, [])).toEqual([{ ...t, workspace: target.name, storageRoot: main.root }])
     expect(readJson(target.backlogFile, [])).toEqual([{ ...linked, project: 'one' }])
     expect(readJson<Decision[]>(target.decisionsFile, [])).toMatchObject([
-      { id: 'task-choice', taskId: 'old', wksp: target.name, project: 'one', until: '2027-01-01' },
+      { id: 'task-choice', taskId: 'old', workspace: target.name, project: 'one', until: '2027-01-01' },
       { id: 'quest-choice', backlogId: 'linked', answer: 'A', resolvedAt: ts }
     ])
     expect(readJson<Task[]>(main.tasksFile, []).map(t => t.id)).toEqual(['unknown'])
@@ -82,10 +82,10 @@ describe('per-project data migration', () => {
   })
 
   it('reuses existing project bases, separates multi-world records and avoids retired or orphaned base names', () => {
-    const existing = new Home(main.wkspHome('one'), 'one', main); existing.ensure()
-    const multi = new Home(main.wkspHome('multi'), 'multi', main); multi.ensure()
-    const retired = new Home(main.wkspHome('two'), 'two', main); retired.ensure()
-    const orphan = new Home(main.wkspHome('two-2'), 'two-2', main); orphan.ensure()
+    const existing = new Home(main.workspaceHome('one'), 'one', main); existing.ensure()
+    const multi = new Home(main.workspaceHome('multi'), 'multi', main); multi.ensure()
+    const retired = new Home(main.workspaceHome('two'), 'two', main); retired.ensure()
+    const orphan = new Home(main.workspaceHome('two-2'), 'two-2', main); orphan.ensure()
     writeJson(main.alliesFile, [
       { name: 'one', projects: ['one'], scope: 'one scope', charter: 'existing', home: existing.root },
       { name: 'multi', projects: ['one', 'two'], scope: 'multi', home: multi.root },
@@ -96,7 +96,7 @@ describe('per-project data migration', () => {
     writeJson(multi.tasksFile, [task('multi-unit', 'two', multi)])
     writeJson(retired.tasksFile, [task('archived', 'two', retired)])
     writeText(existing.chatFile, 'keep existing chat')
-    writeText(existing.wkspFile, 'keep existing provider session')
+    writeText(existing.workspaceFile, 'keep existing provider session')
     migrateProjectData(main)
     expect(owner().root).toBe(existing.root)
     expect(owner('two').name).toBe('two-3')
@@ -105,16 +105,16 @@ describe('per-project data migration', () => {
     expect(readJson(multi.tasksFile, [])).toEqual([])
     expect(readJson<Task[]>(retired.tasksFile, []).map(t => t.id)).toEqual(['archived'])
     expect(fs.readFileSync(existing.chatFile, 'utf8')).toBe('keep existing chat')
-    expect(fs.readFileSync(existing.wkspFile, 'utf8')).toBe('keep existing provider session')
+    expect(fs.readFileSync(existing.workspaceFile, 'utf8')).toBe('keep existing provider session')
   })
 
   it('transfers wake acknowledgements without swallowing pending events or reusing source sequences', () => {
     writeJson(main.tasksFile, [task('old')])
     writeText(main.wakesFile, [wake(1, 'old'), wake(2, 'old'), wake(3, 'old')].map(w => JSON.stringify(w)).join('\n'))
     writeJson(main.wakesAckFile, { through: 1, at: ts, events: { 3: ts } })
-    const existing = new Home(main.wkspHome('one'), 'one', main); existing.ensure()
+    const existing = new Home(main.workspaceHome('one'), 'one', main); existing.ensure()
     writeJson(main.alliesFile, [{ name: 'one', projects: ['one'], home: existing.root }])
-    writeText(existing.wakesFile, JSON.stringify({ ...wake(8, 'existing'), wksp: existing.name }))
+    writeText(existing.wakesFile, JSON.stringify({ ...wake(8, 'existing'), workspace: existing.name }))
     writeJson(existing.wakesAckFile, { through: 7 })
     migrateProjectData(main)
     const targetWakes = createWakeService(() => ({} as AppCtx), owner())
@@ -131,7 +131,7 @@ describe('per-project data migration', () => {
     writeJson(main.backlogFile, [quest('quest', 'one')])
     const rename = fs.renameSync.bind(fs)
     const spy = vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
-      if (String(to) === path.join(main.wkspHome('one'), 'state', 'tasks.json')) throw new Error('interrupted write')
+      if (String(to) === path.join(main.workspaceHome('one'), 'state', 'tasks.json')) throw new Error('interrupted write')
       rename(from, to)
     })
     expect(() => migrateProjectData(main)).toThrow('interrupted write')
@@ -153,7 +153,7 @@ describe('per-project data migration', () => {
     writeJson(main.tasksFile, [task('old')])
     if (reason === 'malformed') writeText(main.backlogFile, '{broken JSON')
     else {
-      const existing = new Home(main.wkspHome('one'), 'one', main); existing.ensure()
+      const existing = new Home(main.workspaceHome('one'), 'one', main); existing.ensure()
       writeJson(main.alliesFile, [{ name: 'one', projects: ['one'], home: existing.root }])
       writeJson(existing.tasksFile, [task('old', 'one', existing)])
     }
@@ -200,7 +200,7 @@ describe('per-project data migration', () => {
     writeText(main.statusFile(t.id), 'working: legacy session continues\n')
     migrateProjectData(main)
     const target = owner(); target.ensure()
-    const hc = { home: target, wksp: { deliverWakes: vi.fn() } } as unknown as HomeCtx
+    const hc = { home: target, workspace: { deliverWakes: vi.fn() } } as unknown as HomeCtx
     const ctx = { main: { home: main }, home: () => hc, homes: new Map([[target.name, hc]]),
       settings: { get: () => ({ signalGraceSeconds: 30, usageMode: 'balanced' }) },
       terminals: { get: () => ({ alive: true }), lastOutputAt: () => Date.now() }
@@ -217,9 +217,9 @@ describe('per-project data migration', () => {
     expect(target.taskStateFile('new', '.inbox')).toBe(path.join(target.state, 'new.inbox'))
     hc.crew.appendStatus('old', 'done: ready in branch genio/old')
     createSupervisor(() => ctx, target).poke()
-    expect(hc.crew.get('old')).toMatchObject({ wksp: target.name, state: 'ready', worktree: t.worktree,
+    expect(hc.crew.get('old')).toMatchObject({ workspace: target.name, state: 'ready', worktree: t.worktree,
       briefPath: t.briefPath, sessionHint: t.sessionHint, codexSessionId: t.codexSessionId, relaunches: 2 })
-    expect(hc.wakes.pending()).toMatchObject([{ wksp: target.name, taskId: 'old', lines: ['done: ready in branch genio/old'] }])
+    expect(hc.wakes.pending()).toMatchObject([{ workspace: target.name, taskId: 'old', lines: ['done: ready in branch genio/old'] }])
     expect(fs.existsSync(path.join(target.state, 'old.status'))).toBe(false)
   })
 })

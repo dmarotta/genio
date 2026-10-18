@@ -2,7 +2,7 @@
  * The player's MCP servers in the Claude chat (docs/mcp-servers.md). The chat gets the same relays to
  * Genio's gateway as a Claude unit, as `mcpServers` entries beside Genio's own `genio` server: the
  * servers for all projects plus the ones scoped to the chat's project, Chat only ones included. The Bot and the Codex chat get
- * none (wksp.ts adds these only to the Claude chat's options). The entries carry no `alwaysLoad`, so
+ * none (workspace.ts adds these only to the Claude chat's options). The entries carry no `alwaysLoad`, so
  * with tool search on their tools are deferred while Genio's own stay loaded. Each new chat query
  * gets a fresh per-launch secret; the previous query's is revoked.
  */

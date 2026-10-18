@@ -13,14 +13,14 @@ import type { ChatMessage } from '../src/shared/types'
 vi.mock('../src/renderer/src/components/ModelSelect', () => ({ ModelSelect: () => null, EffortSelect: () => null, requestSystemsSection: () => undefined }))
 vi.mock('../src/renderer/src/store', async (importOriginal) => ({
   ...await importOriginal<typeof import('../src/renderer/src/store')>(),
-  PROJECT_WINDOW: 'scroll-fixture', PROJECT_WKSP: 'genio'
+  PROJECT_WINDOW: 'scroll-fixture', PROJECT_WORKSPACE: 'genio'
 }))
 
 import { ChatPanel, Comms } from '../src/renderer/src/views/Comms'
 import { GenioPanel } from '../src/renderer/src/components/GenioPanel'
 import { getState, handleEvent, setState } from '../src/renderer/src/store'
 
-const WKSP = 'genio'
+const WORKSPACE = 'genio'
 const VIEWPORT = 600, MSG = 72, LAID = 180
 const initial = getState()
 let root: Root, host: HTMLDivElement
@@ -28,8 +28,8 @@ let mounted = false
 let height = MSG
 const tops = new WeakMap<Element, number>()
 const observers = new Set<() => void>()
-const genio = (i: number): ChatMessage => ({ id: `m-${i}`, wksp: WKSP, role: 'genio', text: `Reply ${i}`, ts: '2026-10-14T06:00:00Z' })
-const player = (i: number): ChatMessage => ({ id: `p-${i}`, wksp: WKSP, role: 'player', text: `Question ${i}`, ts: '2026-10-14T06:00:00Z' })
+const genio = (i: number): ChatMessage => ({ id: `m-${i}`, workspace: WORKSPACE, role: 'genio', text: `Reply ${i}`, ts: '2026-10-14T06:00:00Z' })
+const player = (i: number): ChatMessage => ({ id: `p-${i}`, workspace: WORKSPACE, role: 'player', text: `Question ${i}`, ts: '2026-10-14T06:00:00Z' })
 const transcript = (n: number): ChatMessage[] => Array.from({ length: n }, (_, i) => (i % 3 === 0 ? player(i) : genio(i)))
 
 const log = (): HTMLDivElement => host.querySelector('.chat-log') as HTMLDivElement
@@ -52,7 +52,7 @@ async function mount(surface?: 'screen' | 'panel'): Promise<void> {
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
   mounted = true
   if (surface === 'panel') setState({ view: 'squad' })
-  await act(async () => { root.render(surface === 'panel' ? React.createElement(GenioPanel) : surface === 'screen' ? React.createElement(Comms) : React.createElement(ChatPanel, { wksp: WKSP })) })
+  await act(async () => { root.render(surface === 'panel' ? React.createElement(GenioPanel) : surface === 'screen' ? React.createElement(Comms) : React.createElement(ChatPanel, { workspace: WORKSPACE })) })
 }
 async function unmount(): Promise<void> {
   await act(async () => root.unmount()); host.remove(); mounted = false
@@ -96,8 +96,8 @@ beforeEach(() => {
     const top = !el || el === this ? 0 : rows(el).indexOf(this) * height - el.scrollTop
     return { top, bottom: top + height, left: 0, right: 0, width: 0, height, x: 0, y: top, toJSON: () => ({}) } as DOMRect
   })
-  setState({ ...initial, chats: { [WKSP]: transcript(300) }, chatLoaded: { [WKSP]: true }, settings: { gamertag: 'Alex', calm: false } as never,
-    snap: { ...initial.snap, wksps: [{ name: WKSP, displayName: 'Genio', activity: 'idle', costUsd: 0, turns: 0, queued: 0 }] } })
+  setState({ ...initial, chats: { [WORKSPACE]: transcript(300) }, chatLoaded: { [WORKSPACE]: true }, settings: { gamertag: 'Alex', calm: false } as never,
+    snap: { ...initial.snap, workspaces: [{ name: WORKSPACE, displayName: 'Genio', activity: 'idle', costUsd: 0, turns: 0, queued: 0 }] } })
 })
 afterEach(async () => {
   if (mounted) {
@@ -116,7 +116,7 @@ it.each(['screen', 'panel'] as const)('jumps to the latest in the %s host despit
   await mount(surface)
   await wheelTo(20 * MSG + 30)
   const before = log().scrollTop
-  await act(async () => { handleEvent({ type: 'chat-delta', wksp: WKSP, id: 'm-stream', text: 'streaming ' }) })
+  await act(async () => { handleEvent({ type: 'chat-delta', workspace: WORKSPACE, id: 'm-stream', text: 'streaming ' }) })
   expect(log().scrollTop).toBe(before)
   expect(jump()).not.toBeNull()
   const button = jump()!
@@ -128,7 +128,7 @@ it.each(['screen', 'panel'] as const)('jumps to the latest in the %s host despit
   await settle()
   expect(log().scrollTop).toBe(maxTop(log()))
   expect(jump()).toBeNull()
-  await act(async () => { handleEvent({ type: 'chat-delta', wksp: WKSP, id: 'm-stream', text: 'more tokens ' }) })
+  await act(async () => { handleEvent({ type: 'chat-delta', workspace: WORKSPACE, id: 'm-stream', text: 'more tokens ' }) })
   expect(log().scrollTop).toBe(maxTop(log()))
   await unmount()
 })
@@ -163,7 +163,7 @@ it.each(['screen', 'panel'] as const)('lets the %s jump animate, then catches th
   const midway = maxTop(log()) / 2
   await act(async () => { log().scrollTop = midway; log().dispatchEvent(new Event('scroll')) })
   expect(log().scrollTop).toBe(midway)
-  await act(async () => { handleEvent({ type: 'chat-delta', wksp: WKSP, id: 'm-stream', text: 'arrives during jump ' }) })
+  await act(async () => { handleEvent({ type: 'chat-delta', workspace: WORKSPACE, id: 'm-stream', text: 'arrives during jump ' }) })
   await settle()
   expect(log().scrollTop).toBe(midway)
   // Chromium reports completion against the original (estimated) target, now short of the bottom.
@@ -190,7 +190,7 @@ it.each(['screen', 'panel'] as const)('respects a new manual scroll-up during th
   await settle()
   await act(async () => {
     log().dispatchEvent(new Event('scrollend'))
-    handleEvent({ type: 'chat-delta', wksp: WKSP, id: 'm-stream', text: 'still streaming ' })
+    handleEvent({ type: 'chat-delta', workspace: WORKSPACE, id: 'm-stream', text: 'still streaming ' })
   })
   expect(log().scrollTop).toBe(before)
   expect(jump()).not.toBeNull()
@@ -207,9 +207,9 @@ it('lands on the latest message of a long transcript once late layout settles', 
 })
 
 it('lands on the latest message when the history arrives after the chat opened', async () => {
-  setState({ chats: { [WKSP]: [] } })
+  setState({ chats: { [WORKSPACE]: [] } })
   await mount()
-  await act(async () => { setState({ chats: { [WKSP]: transcript(320) } }) })
+  await act(async () => { setState({ chats: { [WORKSPACE]: transcript(320) } }) })
   expect(atBottom()).toBe(true)
   await settle()
   expect(log().scrollTop).toBe(maxTop(log()))
@@ -219,11 +219,11 @@ it('lands on the latest message when the history arrives after the chat opened',
 it('lands on the latest message again when returning to the chat, while a reply streams', async () => {
   await mount(); await settle()
   await unmount()
-  await act(async () => { handleEvent({ type: 'chat-delta', wksp: WKSP, id: 'm-stream', text: 'streaming ' }) })
+  await act(async () => { handleEvent({ type: 'chat-delta', workspace: WORKSPACE, id: 'm-stream', text: 'streaming ' }) })
   await mount()
   await settle()
   expect(log().scrollTop).toBe(maxTop(log()))
-  for (let i = 0; i < 5; i++) await act(async () => { handleEvent({ type: 'chat-delta', wksp: WKSP, id: 'm-stream', text: `tok${i} ` }) })
+  for (let i = 0; i < 5; i++) await act(async () => { handleEvent({ type: 'chat-delta', workspace: WORKSPACE, id: 'm-stream', text: `tok${i} ` }) })
   await act(async () => { handleEvent({ type: 'chat', message: genio(999) }) })
   expect(log().scrollTop).toBe(maxTop(log()))
   await unmount()

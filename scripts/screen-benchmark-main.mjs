@@ -105,7 +105,7 @@ app.whenReady().then(async () => {
   ctx.snapshot = () => { snapshots++; return realSnapshot() }
   const ally = ctx.allies.list().find(a => !a.retiredAt && a.projects.length === 1 && a.projects[0] === PROJECT)
   if (!ally) throw new Error(`No project chat for ${PROJECT} in the Base copy`)
-  const binding = { project: PROJECT, wksp: ally.name }
+  const binding = { project: PROJECT, workspace: ally.name }
 
   // Live units: the project's live ones first, then its latest finished ones, each on a printing PTY.
   const filler = path.join(OUT, 'filler.js')
@@ -304,7 +304,7 @@ app.whenReady().then(async () => {
   // ---------------------------------------------------------------- the tour
   console.log('[screens] window ready, loading the renderer')
   const loadAt = now()
-  const query = { project: PROJECT, wksp: binding.wksp }
+  const query = { project: PROJECT, workspace: binding.workspace }
   await phase('boot', async () => { void win.loadFile(path.join(RENDERER, 'index.html'), { query }); return loadAt },
     `() => document.querySelector('.chat-log [data-msg], .chat-log .msg')`, 6000)
   const fcp = await js(`(performance.getEntriesByName('first-contentful-paint')[0]?.startTime ?? -1)`)
@@ -352,7 +352,7 @@ app.whenReady().then(async () => {
     // Genio streams a chat reply into the floating panel while the game plays.
     await playPhase('play-720p-chat', '1280x720', 10, () => void (async () => {
       const id = `bench-${Math.random().toString(16).slice(2)}`
-      for (let i = 0; i < 240; i++) { bus.publish({ type: 'chat-delta', wksp: binding.wksp, id, text: `word ${i} of a streamed reply with **markdown** and \`code\`. ` }); await sleep(40) }
+      for (let i = 0; i < 240; i++) { bus.publish({ type: 'chat-delta', workspace: binding.workspace, id, text: `word ${i} of a streamed reply with **markdown** and \`code\`. ` }); await sleep(40) }
     })())
     stopStandIn()
   }
@@ -388,7 +388,7 @@ app.whenReady().then(async () => {
     await js(`__bench.press(${JSON.stringify(key)})`); await sleep(2000)
     await phase(name, async () => {
       const at = now(), id = `bench-${Math.random().toString(16).slice(2)}`
-      void (async () => { for (let i = 0; i < 150; i++) { bus.publish({ type: 'chat-delta', wksp: binding.wksp, id, text: `word ${i} of a streamed reply with **markdown** and \`code\`. ` }); await sleep(40) } })()
+      void (async () => { for (let i = 0; i < 150; i++) { bus.publish({ type: 'chat-delta', workspace: binding.workspace, id, text: `word ${i} of a streamed reply with **markdown** and \`code\`. ` }); await sleep(40) } })()
       return at
     }, undefined, 6000)
   }
@@ -396,12 +396,12 @@ app.whenReady().then(async () => {
   await stream('stream-on-comms', '1')
   // A quest changes once a second (as units land, quests move): each save publishes a backlog event, which a project
   // window receives as a whole project snapshot.
-  const quest = ctx.home(binding.wksp).backlog.list().find(q => q.project === PROJECT)
+  const quest = ctx.home(binding.workspace).backlog.list().find(q => q.project === PROJECT)
   if (quest && screens.includes('quests')) {
     await js(`__bench.press('3')`); await sleep(1500)
     await phase('quest-updates', async () => {
       const at = now()
-      void (async () => { for (let i = 0; i < 5; i++) { ctx.home(binding.wksp).backlog.update(quest.id, { notes: `${quest.notes ?? ''}${' '.repeat(i + 1)}` }); await sleep(1000) } })()
+      void (async () => { for (let i = 0; i < 5; i++) { ctx.home(binding.workspace).backlog.update(quest.id, { notes: `${quest.notes ?? ''}${' '.repeat(i + 1)}` }); await sleep(1000) } })()
       return at
     }, undefined, 5500)
     await js(`__bench.press('1')`); await sleep(1500)

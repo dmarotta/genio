@@ -1,11 +1,11 @@
 import { SessionCostLedger, SessionQuotaPolicy, isQuotaError } from './session-usage'
 import type { ChatDriver, ChatTurn, ChatDriverEvents } from './chat-driver'
 import type { Query, SDKMessage, SDKUserMessage, Options, EffortLevel } from '@anthropic-ai/claude-agent-sdk'
-import type { Ally, ChatMessage, WkspInfo, Settings, ToolTrace } from '@shared/types'
+import type { Ally, ChatMessage, WorkspaceInfo, Settings, ToolTrace } from '@shared/types'
 import { userContent, type ChatImageInput } from '@shared/chat-images'
 import type { InventoryContext } from '@shared/inventory-context'
 import type { AppCtx } from './services'
-import type { ToolRole } from './wksp-tools'
+import type { ToolRole } from './workspace-tools'
 import type { ClaudeRateLimitInfo } from './usage'
 import { claudeLimitState } from './claude-limit'
 import { registerModelQuery, supportedClaudeEfforts } from './model-discovery'
@@ -26,9 +26,9 @@ export interface SessionConfig {
 }
 
 /** Model/effort for a session: allies keep their own overrides, the Bot keeps botModel at low effort. */
-export function sessionConfig(role: ToolRole, s: Pick<Settings, 'botModel' | 'wkspModel' | 'wkspEffort'>, ally?: Pick<Ally, 'model' | 'effort'>): SessionConfig {
-  const model = (role === 'bot' ? s.botModel : ally?.model || s.wkspModel)?.trim() || undefined
-  const effort = (role === 'bot' ? 'low' : ally?.effort || s.wkspEffort) || undefined
+export function sessionConfig(role: ToolRole, s: Pick<Settings, 'botModel' | 'workspaceModel' | 'workspaceEffort'>, ally?: Pick<Ally, 'model' | 'effort'>): SessionConfig {
+  const model = (role === 'bot' ? s.botModel : ally?.model || s.workspaceModel)?.trim() || undefined
+  const effort = (role === 'bot' ? 'low' : ally?.effort || s.workspaceEffort) || undefined
   const allowed = role === 'bot' ? EFFORT_LEVELS : supportedClaudeEfforts(model) ?? EFFORT_LEVELS
   return { model, effort: effort && allowed.includes(effort) ? (effort as EffortLevel) : undefined }
 }
@@ -51,15 +51,15 @@ export async function applyLiveConfig(q: LiveControls, from: SessionConfig, to: 
 }
 
 /** The chat record of an incoming message: the player's own, a synthesized prompt, or a request routed from main Genio. */
-export function inboundMessage(wksp: string, text: string, origin: 'player' | 'system' | 'genio'): ChatMessage {
-  const m: ChatMessage = { id: `p-${rid(6)}`, wksp, role: origin === 'player' ? 'player' : 'system', text, ts: nowIso() }
+export function inboundMessage(workspace: string, text: string, origin: 'player' | 'system' | 'genio'): ChatMessage {
+  const m: ChatMessage = { id: `p-${rid(6)}`, workspace, role: origin === 'player' ? 'player' : 'system', text, ts: nowIso() }
   if (origin === 'genio') m.from = 'genio'
   return m
 }
 
 /** A message the player typed in a chat tab: it goes to that chat's base only (main or one ally). */
-export function sendPlayerChat(ctx: Pick<AppCtx, 'home'>, wksp: string, text: string, images?: ChatImageInput[], context?: InventoryContext): Promise<void> {
-  return ctx.home(wksp).wksp.send(text, 'player', images, context)
+export function sendPlayerChat(ctx: Pick<AppCtx, 'home'>, workspace: string, text: string, images?: ChatImageInput[], context?: InventoryContext): Promise<void> {
+  return ctx.home(workspace).workspace.send(text, 'player', images, context)
 }
 
 
@@ -131,7 +131,7 @@ export class AgentSession implements ChatDriver {
   private openTools = new Map<string, { name: string; input: unknown }>()
   private yielding?: { turn: TurnItem; asked: boolean; done: Promise<void>; resolve(): void; timer?: ReturnType<typeof setTimeout> }
   sessionId?: string
-  private limit?: WkspInfo['limit']
+  private limit?: WorkspaceInfo['limit']
   private limitPaused = false
   private latestLimit?: ClaudeRateLimitInfo
   private limitTimer?: ReturnType<typeof setTimeout>
@@ -156,7 +156,7 @@ export class AgentSession implements ChatDriver {
     readonly label: string,
     private readonly build: (resume?: string) => Promise<Options>,
     private readonly hooks: SessionHooks,
-    private readonly wkspName: string,
+    private readonly workspaceName: string,
     private readonly config: () => SessionConfig,
     private readonly quotaPolicy: () => SessionQuotaPolicy,
     private readonly costs: SessionCostLedger
@@ -194,7 +194,7 @@ export class AgentSession implements ChatDriver {
   private async pump(): Promise<void> {
     if (this.busy) return
     const waiting = this.pending[0]
-    if (waiting && !this.quotaPolicy().canStartTurn(waiting.kind, Date.now(), true, `${this.wkspName}:${this.label}`)) {
+    if (waiting && !this.quotaPolicy().canStartTurn(waiting.kind, Date.now(), true, `${this.workspaceName}:${this.label}`)) {
       if (this.hooks.onDeferred) {
         this.pending.shift()
         this.hooks.onDeferred(waiting, this.quotaPolicy().limitState())
@@ -240,7 +240,7 @@ export class AgentSession implements ChatDriver {
     }
   }
 
-  private setLimit(limit?: WkspInfo['limit']): void {
+  private setLimit(limit?: WorkspaceInfo['limit']): void {
     if (limit) limit = { ...limit, restartRequired: !!limit.restartRequired }
     if (this.limitTimer) clearTimeout(this.limitTimer)
     this.limitTimer = undefined
@@ -434,7 +434,7 @@ export class AgentSession implements ChatDriver {
     const id = `m-${apiId}`
     let m = this.msgs.get(id)
     if (!m) {
-      m = { id, wksp: this.wkspName, role: 'genio', text: '', ts: nowIso(), tools: [], partial: true }
+      m = { id, workspace: this.workspaceName, role: 'genio', text: '', ts: nowIso(), tools: [], partial: true }
       this.msgs.set(id, m)
       this.turnMsgIds.push(id)
     }

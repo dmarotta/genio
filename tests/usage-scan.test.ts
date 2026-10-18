@@ -30,7 +30,7 @@ beforeEach(() => {
   const cwd = path.join(base, 'worktrees', 'world', 'unit')
   fs.writeFileSync(claudeFile, [assistant(1, cwd), assistant(2, cwd)].join('\n') + '\n')
   fs.writeFileSync(codexFile, [codexMeta(cwd), codexTokens(1, 1000, 50)].join('\n') + '\n')
-  const home = { root: base, data: path.join(base, 'data'), wkspFile: path.join(base, 'state', 'wksp.json'), name: 'main' }
+  const home = { root: base, data: path.join(base, 'data'), workspaceFile: path.join(base, 'state', 'workspace.json'), workspaceFileToRead: path.join(base, 'state', 'workspace.json'), name: 'main' }
   ctx = { main: { home }, homes: new Map([['main', { home }]]), allies: { list: () => [] }, settings: { get: () => ({}) } } as unknown as AppCtx
   scanDiagnostics.bytesRead = 0; scanDiagnostics.filesRead = 0
 })

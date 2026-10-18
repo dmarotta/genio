@@ -5,7 +5,7 @@ import { primaryAction } from '../src/shared/unit-page'
 import { modellerCanvas } from '../src/shared/modeller'
 
 const task = (patch: Partial<Task> = {}): Task => ({
-  id: 'u1', kind: 'ship', title: 'Watchtower', project: 'game', wksp: 'main', branchPrefix: 'genio/', baseBranch: 'main', branch: 'genio/u1', worktree: 'C:/w/u1',
+  id: 'u1', kind: 'ship', title: 'Watchtower', project: 'game', workspace: 'main', branchPrefix: 'genio/', baseBranch: 'main', branch: 'genio/u1', worktree: 'C:/w/u1',
   briefPath: 'brief.md', harness: 'claude', mode: 'local-only', state: 'working', createdAt: '2026-10-16T10:00:00.000Z', updatedAt: '2026-10-16T10:00:00.000Z',
   inbox: { seq: 0, acked: 0, rings: 0 }, statusOffset: 0, relaunches: 0, ...patch
 })

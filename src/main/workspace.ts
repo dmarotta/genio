@@ -16,7 +16,7 @@ import { settingsPath } from '@shared/settings-pages'
 /**
  * Genio agent sessions (the primary harness session, in-process).
  *
- * Each base has one WkspService. It owns:
+ * Each base has one WorkspaceService. It owns:
  *   - the Genio session: a Claude Agent SDK query() in streaming-input mode,
  *     started lazily so an idle base spends zero tokens;
  *   - the project Bot session: Genio's away supervisor that handles
@@ -28,7 +28,7 @@ import path from 'node:path'
 import type {
   Options, CanUseTool, PermissionResult
 } from '@anthropic-ai/claude-agent-sdk'
-import type { Ally, ChatMessage, WkspInfo, MessageActions, ShellRun } from '@shared/types'
+import type { Ally, ChatMessage, WorkspaceInfo, MessageActions, ShellRun } from '@shared/types'
 import { SHELL_CONTEXT_RUNS, shellContextBlock, shellSummary } from '@shared/terminal-pane'
 import { hasInventoryChips, inventoryContextBlock, validateInventoryContext, type InventoryContext } from '@shared/inventory-context'
 import type { ChatImageInput } from '@shared/chat-images'
@@ -39,7 +39,7 @@ import { attachedIdsNote } from './chat-imagegen'
 import { createChatThread, type ShownMessage } from './chat-thread'
 import { noteStandingWords } from './standing-approvals'
 import type { Home } from './home'
-import { buildTools, type ToolHooks, type ToolRole } from './wksp-tools'
+import { buildTools, type ToolHooks, type ToolRole } from './workspace-tools'
 import { openChatToolBridge, openCodexBridge, closeChatToolBridges } from './chat-tool-bridge'
 import { formatNotification } from './notify-format'
 import {
@@ -47,7 +47,7 @@ import {
   statusPrompt, projectOpenPrompt
 } from './prompts'
 import { chatControls } from '@shared/chat'
-import type { AppCtx, WkspService } from './services'
+import type { AppCtx, WorkspaceService } from './services'
 import { claudeLimitsFile, recordClaudeRateLimit, type ClaudeRateLimitInfo } from './usage'
 import { appendJsonl, nowIso, readJson, rid, writeJson } from './util'
 
@@ -62,7 +62,7 @@ import { isQuietReply, withoutQuietReplies } from '@shared/quiet-reply'
 
 // ------------------------------------------------------------------ service
 
-interface WkspState {
+interface WorkspaceState {
   providers?: ProviderSessions
   botProviders?: ProviderSessions
   sessionId?: string
@@ -71,10 +71,10 @@ interface WkspState {
   turns?: number
 }
 
-export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally, readOnly = false, isOpen: () => boolean = () => true): WkspService {
+export function createWorkspaceService(getCtx: () => AppCtx, home: Home, ally?: Ally, readOnly = false, isOpen: () => boolean = () => true): WorkspaceService {
   const name = home.name
-  const persisted = readJson<WkspState>(home.wkspFile, {})
-  const info: WkspInfo = {
+  const persisted = readJson<WorkspaceState>(home.workspaceFileToRead, {})
+  const info: WorkspaceInfo = {
     name,
     displayName: ASSISTANT_NAME,
     scope: ally?.scope,
@@ -110,18 +110,18 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
 
   const saveState = (): void => {
     if (readOnly) return
-    writeJson(home.wkspFile, { providers: genio.state(), botProviders: bot?.state(), sessionId: genio.sessionId, botSessionId: bot?.sessionId, costUsd: info.costUsd, turns: info.turns } satisfies WkspState)
+    writeJson(home.workspaceFile, { providers: genio.state(), botProviders: bot?.state(), sessionId: genio.sessionId, botSessionId: bot?.sessionId, costUsd: info.costUsd, turns: info.turns } satisfies WorkspaceState)
   }
   const publishInfo = (): void => {
     info.queued = genio.queued + (bot?.queued ?? 0) + preparing.size
     info.steerable = canSteer()
     info.sessionId = genio.sessionId
-    bus.publish({ type: 'wksp', wksp: { ...info } })
+    bus.publish({ type: 'workspace', workspace: { ...info } })
   }
 
   const archived = 'The main chat is archived. Open the Genio project to continue.'
   const thread = createChatThread({
-    wksp: name, file: home.chatFile, imageDir: chatImageDir(home.data), readOnly, reader: ASSISTANT_NAME,
+    workspace: name, file: home.chatFile, imageDir: chatImageDir(home.data), readOnly, reader: ASSISTANT_NAME,
     session: () => genio,
     publish: m => bus.publish({ type: 'chat', message: m }),
     changed: () => publishInfo(),
@@ -233,7 +233,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     const controls = chatControls(modelSettings(), liveAlly())
     return { model: chatRoute(controls.model).model, effort: controls.effort }
   }
-  const claudeConfig = () => sessionConfig('genio', { ...settings(), wkspModel: driverConfig().model ?? '', wkspEffort: driverConfig().effort })
+  const claudeConfig = () => sessionConfig('genio', { ...settings(), workspaceModel: driverConfig().model ?? '', workspaceEffort: driverConfig().effort })
   function handoffContext(excludeMessageId?: string): string {
     const ctx = getCtx(), hc = ctx.home(name)
     return chatHandoff({ messages: loadHistory().filter(m => m.id !== excludeMessageId), projects: ctx.projects.list().filter(p => home.isMain || liveAlly()?.projects.includes(p.name)), tasks: hc.crew.list(),
@@ -261,11 +261,11 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
       }
       events.onStart?.(item)
     } }
-    const claudeTurnConfig = () => sessionConfig('genio', { ...settings(), wkspModel: config().model ?? '', wkspEffort: config().effort ?? '' })
+    const claudeTurnConfig = () => sessionConfig('genio', { ...settings(), workspaceModel: config().model ?? '', workspaceEffort: config().effort ?? '' })
     if (provider === 'claude') return new AgentSession(role, resume => buildOptions(role, resume, claudeTurnConfig()),
       { ...preparedEvents, onRateLimit: rateLimit }, name, claudeTurnConfig, quotaPolicy, costs)
     return new CodexChatDriver({
-      wksp: name, cwd: chatCwd(),
+      workspace: name, cwd: chatCwd(),
       // Genio's own Codex home keeps the chat thread out of the player's Codex app.
       home: async () => {
         const launch = await codexLaunch()
@@ -278,7 +278,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
       bridge: signal => openCodexBridge(getCtx, { home, role: role === 'bot' ? 'bot' : home.isMain ? 'genio' : 'ally',
         worlds: home.isMain ? '*' : liveAlly()?.projects ?? [], signal, hooks: toolHooks(role) }),
       approvalMode: () => chatControls(settings(), liveAlly()).shellMode,
-      approve: text => getCtx().permissions.ask({ wksp: name, tool: 'Codex', input: text }),
+      approve: text => getCtx().permissions.ask({ workspace: name, tool: 'Codex', input: text }),
       usage: (thread, usage) => recordCodexChatUsage(getCtx().main.home.data, home.root, thread, usage),
       rateLimits: limits => recordCodexChatLimits(getCtx().main.home.data, limits),
       unavailable: reason => markChatRouteUnavailable('codex', reason)
@@ -288,7 +288,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
   // ---------------------------------------------------------- sessions
 
   const quotaPolicy = (): SessionQuotaPolicy => new SessionQuotaPolicy(getCtx().main.home.data, settings().quotaProtection !== false)
-  const quotaHold = (provider: ChatProvider, item: TurnItem): WkspInfo['limit'] =>
+  const quotaHold = (provider: ChatProvider, item: TurnItem): WorkspaceInfo['limit'] =>
     provider === 'claude' && !quotaPolicy().canStartTurn(item.kind, Date.now(), false) ? quotaPolicy().limitState() : undefined
   const costs = new SessionCostLedger(path.join(home.data, 'usage', 'session-costs.json'))
 
@@ -331,7 +331,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
       },
       onDelta(id, text) {
         const shown = quiet.delta(id, text)
-        if (shown) bus.publish({ type: 'chat-delta', wksp: name, id, text: shown })
+        if (shown) bus.publish({ type: 'chat-delta', workspace: name, id, text: shown })
       },
       onActivity(a, detail) {
         info.activity = a
@@ -366,7 +366,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
         }
         if (ok && !nothingToSay) {
           bus.publish({ type: 'sfx', sound: 'blip' })
-          if (settings().voice) bus.publish({ type: 'speak', wksp: name, text: lastText })
+          if (settings().voice) bus.publish({ type: 'speak', workspace: name, text: lastText })
         }
         publishInfo()
         setTimeout(() => svc.deliverWakes(), 250)
@@ -436,7 +436,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
             if (!quotaPolicy().notice(name + ':bot', text)) return
           }
           appendJsonl(botFile, { ts: nowIso(), error: text })
-          if (getCtx().away.state().mode === 'afk') safe(() => getCtx().away.capture({ wksp: name, text: `The Bot hit a problem: ${text}`, severity: 'failure', target: { view: 'comms', wksp: name } }))
+          if (getCtx().away.state().mode === 'afk') safe(() => getCtx().away.capture({ workspace: name, text: `The Bot hit a problem: ${text}`, severity: 'failure', target: { view: 'comms', workspace: name } }))
         },
         onLimit(limit) {
           info.botLimit = limit
@@ -453,11 +453,11 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     const ctx = getCtx()
     const mode = ctx.away.state().mode
     if (mode === 'afk') {
-      ctx.away.capture({ wksp: name, text, severity, target: { view: 'comms', wksp: name } })
+      ctx.away.capture({ workspace: name, text, severity, target: { view: 'comms', workspace: name } })
     } else {
       say(`Bot: ${text}`, 'system')
       const { title, body } = formatNotification({ kind: severity, text, where: name })
-      ctx.notifier.notify(title, body, severity, { target: { view: 'comms', wksp: name } })
+      ctx.notifier.notify(title, body, severity, { target: { view: 'comms', workspace: name } })
       ctx.notifier.sfx(severity === 'failure' ? 'alert' : severity === 'decision' ? 'decision' : 'ready')
     }
   }
@@ -693,7 +693,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     })
   }
 
-  const svc: WkspService = {
+  const svc: WorkspaceService = {
     info: () => ({ ...info, queued: genio.queued + (bot?.queued ?? 0) + preparing.size, steerable: canSteer() }),
     history(limit = 200) {
       const h = loadHistory()
@@ -804,7 +804,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     say,
     post: record,
     shellRan(run) {
-      const m: ChatMessage = { id: `sh-${rid(6)}`, wksp: name, role: 'system', text: shellSummary(run), ts: nowIso(), shell: run }
+      const m: ChatMessage = { id: `sh-${rid(6)}`, workspace: name, role: 'system', text: shellSummary(run), ts: nowIso(), shell: run }
       record(m, true)
       if (!readOnly) shellRuns = [...shellRuns, run].slice(-SHELL_CONTEXT_RUNS)
       return m

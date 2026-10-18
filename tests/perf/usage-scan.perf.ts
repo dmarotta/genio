@@ -48,7 +48,7 @@ beforeAll(() => {
     fs.writeFileSync(file, lines.join('\n') + '\n')
     files.push(file)
   }
-  const home = { root: base, data: path.join(base, 'data'), wkspFile: path.join(base, 'state', 'wksp.json'), name: 'main' }
+  const home = { root: base, data: path.join(base, 'data'), workspaceFile: path.join(base, 'state', 'workspace.json'), name: 'main' }
   ctx = { main: { home }, homes: new Map([['main', { home }]]), allies: { list: () => [] }, settings: { get: () => ({}) } } as unknown as AppCtx
 })
 afterAll(() => { report(); process.env.CLAUDE_CONFIG_DIR = savedHomes.claude; process.env.CODEX_HOME = savedHomes.codex; fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 }) })

@@ -17,10 +17,10 @@ beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-overwatch-'))
   home = new Home(root); home.ensure()
   const task = { id: 'unit', title: 'Fix notifications', kind: 'ship', mode: 'local-only', project: 'world',
-    wksp: 'main', state: 'working', terminalId: 'terminal', worktree: root, branch: 'genio/unit',
+    workspace: 'main', state: 'working', terminalId: 'terminal', worktree: root, branch: 'genio/unit',
     updatedAt: new Date().toISOString() } as Task
   fs.writeFileSync(home.tasksFile, JSON.stringify([task]))
-  const hc = { home, crew: undefined as any, wakes: undefined as any, wksp: { deliverWakes: vi.fn() } }
+  const hc = { home, crew: undefined as any, wakes: undefined as any, workspace: { deliverWakes: vi.fn() } }
   ctx = { main: hc, home: () => hc, homes: new Map([['main', hc]]),
     settings: { get: () => ({ signalGraceSeconds: 30, usageMode: 'balanced' }) },
     terminals: { get: () => ({ alive: true }), lastOutputAt: () => Date.now() },
@@ -66,7 +66,7 @@ describe('durable unit status supervision', () => {
     ctx.main.wakes = createWakeService(() => ctx, home)
     createSupervisor(() => ctx, home).poke()
     expect(ctx.main.wakes.pending()).toHaveLength(1)
-    expect(ctx.main.wksp.deliverWakes).toHaveBeenCalledTimes(2)
+    expect(ctx.main.workspace.deliverWakes).toHaveBeenCalledTimes(2)
   })
 
   it('retains the status cursor when writing the wake fails and retries on the next poll', () => {
@@ -83,11 +83,11 @@ describe('durable unit status supervision', () => {
 
   it('retries delivery without new events after a busy or unavailable chat', () => {
     ctx.main.crew.appendStatus('unit', 'done: ready in branch genio/unit')
-    vi.mocked(ctx.main.wksp.deliverWakes).mockImplementationOnce(() => { throw new Error('chat unavailable') })
+    vi.mocked(ctx.main.workspace.deliverWakes).mockImplementationOnce(() => { throw new Error('chat unavailable') })
     const supervisor = createSupervisor(() => ctx, home)
     supervisor.poke()
     supervisor.poke()
-    expect(ctx.main.wksp.deliverWakes).toHaveBeenCalledTimes(2)
+    expect(ctx.main.workspace.deliverWakes).toHaveBeenCalledTimes(2)
     expect(ctx.main.wakes.pending()).toHaveLength(1)
   })
 

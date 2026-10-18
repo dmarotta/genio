@@ -3,7 +3,7 @@ import { isChatPopoutUrl, visiblePopoutBounds } from '../src/shared/chat-popout'
 
 describe('chat pop-out URL', () => {
   it('accepts only the owner page with the chat hash', () => {
-    const owner = 'file:///C:/Genio/out/renderer/index.html?project=one&wksp=ally-one'
+    const owner = 'file:///C:/Genio/out/renderer/index.html?project=one&workspace=ally-one'
     expect(isChatPopoutUrl(owner + '#genio-chat-panel', owner)).toBe(true)
     expect(isChatPopoutUrl(owner.replace('project=one', 'project=two') + '#genio-chat-panel', owner)).toBe(false)
     expect(isChatPopoutUrl('https://example.com/#genio-chat-panel', owner)).toBe(false)

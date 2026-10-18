@@ -10,7 +10,7 @@ vi.mock('../src/main/backlog', () => ({ createBacklogService: () => ({}) }))
 vi.mock('../src/main/decisions', () => ({ createDecisionService: () => ({}) }))
 vi.mock('../src/main/wakes', () => ({ createWakeService: () => ({}) }))
 vi.mock('../src/main/supervisor', () => ({ createSupervisor: () => ({}) }))
-vi.mock('../src/main/wksp', () => ({ createWkspService: () => ({}) }))
+vi.mock('../src/main/workspace', () => ({ createWorkspaceService: () => ({}) }))
 vi.mock('../src/main/reactions', () => ({ createReactionService: () => ({}) }))
 vi.mock('../src/main/plans', () => ({ createPlanService: () => ({}) }))
 import { makeHomeCtx } from '../src/main/ctx'

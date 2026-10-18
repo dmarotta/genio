@@ -6,7 +6,7 @@ import type { ChatMessage } from '../src/shared/types'
 import type { AppCtx } from '../src/main/services'
 import { Home } from '../src/main/home'
 import { createProjectsService } from '../src/main/projects'
-import { createToolRegistry } from '../src/main/wksp-tools'
+import { createToolRegistry } from '../src/main/workspace-tools'
 import { git } from '../src/main/git'
 import { SETUP_STEPS, applySetupAction, atOpening, openSetup, readSetup, setupFile, type SetupFacts, type SetupState } from '../src/main/project-setup'
 
@@ -87,7 +87,7 @@ describe('opening a folder and project_init', () => {
     ask.mockReset()
     ask.mockResolvedValue(false)
     unlock.mockReset()
-    const hc = { home, backlog: { list: () => [] }, crew: { list: () => [] }, wksp: { history: () => said } }
+    const hc = { home, backlog: { list: () => [] }, crew: { list: () => [] }, workspace: { history: () => said } }
     const c = {
       main: hc, homes: new Map([['main', hc]]), home: () => hc, allies: { list: () => [] }, ledger: { record() {} },
       toolchain: { has: () => true }, away: { state: () => ({ mode: 'online', held: [] }) }, stats: { unlock },
@@ -97,7 +97,7 @@ describe('opening a folder and project_init', () => {
     ctx = c
   })
   afterEach(() => fs.rmSync(root, { recursive: true, force: true }))
-  const player = (text: string): void => { said.push({ id: `p${said.length}`, wksp: 'main', role: 'player', text, ts: new Date().toISOString() } as ChatMessage) }
+  const player = (text: string): void => { said.push({ id: `p${said.length}`, workspace: 'main', role: 'player', text, ts: new Date().toISOString() } as ChatMessage) }
   const tool = (name: string, role: 'genio' | 'bot' = 'genio') => createToolRegistry(() => ctx, home, role).find(t => t.name === name)!
 
   it('writes nothing into a new folder on its first open and asks the git step', async () => {

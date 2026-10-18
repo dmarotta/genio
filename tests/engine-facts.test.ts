@@ -6,7 +6,7 @@ import type { Decision, Engine, EngineDetection, Project } from '../src/shared/t
 import type { AppCtx } from '../src/main/services'
 import { Home } from '../src/main/home'
 import { renderBrief, type BriefInput } from '../src/main/brief'
-import { createToolRegistry } from '../src/main/wksp-tools'
+import { createToolRegistry } from '../src/main/workspace-tools'
 import { answerEngineChoice, declareEngineRoot, projectEngineSummary, surfaceEngineAmbiguity } from '../src/main/engine-facts'
 import { engineAmbiguityChoice, engineBriefLine, engineEnv, engineFacts, engineProposalChoice, engineSummaryLine, KEEP_DETECTING } from '../src/shared/engine-summary'
 
@@ -92,7 +92,7 @@ describe('engine root declaration', () => {
       list: () => decisions,
       open: vi.fn((d: Partial<Decision>) => { const x = { id: `ch-${decisions.length}`, createdAt: 'now', ...d } as Decision; decisions.push(x); return x })
     }
-    const hc = { home: { name: 'main' }, decisions: decisionsSvc, wksp: { say: vi.fn() } }
+    const hc = { home: { name: 'main' }, decisions: decisionsSvc, workspace: { say: vi.fn() } }
     ctx = {
       main: hc, homes: new Map([['main', hc]]), home: (name: string) => { if (name !== 'main') throw new Error('unknown'); return hc },
       allies: { list: () => [] }, ledger: { record: vi.fn() },
@@ -138,7 +138,7 @@ describe('engine root declaration', () => {
     let mode: 'ask' | 'auto-shell' | 'all' = 'ask'
     const ask = vi.fn(async () => false)
     Object.assign(ctx, { settings: { get: () => ({ chatShellMode: mode }) }, permissions: { ask } })
-    Object.assign(ctx.main.wksp, { history: () => [{ id: 'p1', wksp: 'main', role: 'player', text: 'use client', ts: new Date().toISOString() }] })
+    Object.assign(ctx.main.workspace, { history: () => [{ id: 'p1', workspace: 'main', role: 'player', text: 'use client', ts: new Date().toISOString() }] })
     const tool = (role: 'genio' | 'bot') => createToolRegistry(() => ctx, home, role).find(t => t.name === 'world_engine_root')!
     // Deny leaves the repo untouched; the player's typed words do not stand in for the click.
     expect(await tool('genio').invoke({ world: 'game', root: 'client', player_words: 'use client' })).toMatchObject({ isError: true })

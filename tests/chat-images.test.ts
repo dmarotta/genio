@@ -8,7 +8,7 @@ import {
 } from '@shared/chat-images'
 import type { ChatMessage } from '@shared/types'
 import { chatImageDir, chatImagePath, saveChatImages } from '../src/main/chat-images'
-import { userMessage } from '../src/main/wksp'
+import { userMessage } from '../src/main/workspace'
 import { appendJsonl, readJsonl } from '../src/main/util'
 
 const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex').toString('base64')
@@ -91,7 +91,7 @@ describe('history', () => {
     for (const r of refs) expect(fs.readFileSync(chatImagePath(dir, r.file)!).toString('base64')).toBe(PNG)
 
     const chat = path.join(data, 'chat.jsonl')
-    const m: ChatMessage = { id: 'p-1', wksp: 'main', role: 'player', text: '', ts: '2026-10-13T10:00:00Z', images: refs }
+    const m: ChatMessage = { id: 'p-1', workspace: 'main', role: 'player', text: '', ts: '2026-10-13T10:00:00Z', images: refs }
     appendJsonl(chat, m)
     const [back] = readJsonl<ChatMessage>(chat)
     expect(back).toEqual(m)

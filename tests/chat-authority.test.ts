@@ -10,7 +10,7 @@ vi.mock('../src/main/art-bible-gen', async original => ({ ...await original<type
 import { Home } from '../src/main/home'
 import type { AppCtx } from '../src/main/services'
 import type { ChatMessage, Settings, Task } from '../src/shared/types'
-import { createToolRegistry } from '../src/main/wksp-tools'
+import { createToolRegistry } from '../src/main/workspace-tools'
 import { actionAsks } from '../src/main/chat-tool-policy'
 
 /**
@@ -50,7 +50,7 @@ beforeEach(() => {
     home, crew: { ...crew, get: (id: string) => (id === task.id ? task : undefined), list: () => [task] },
     backlog: { list: () => [quest], get: (id: string) => (id === quest.id ? quest : undefined) },
     decisions: { list: () => [], get: () => undefined },
-    wksp: { history: () => chat, say: vi.fn() }
+    workspace: { history: () => chat, say: vi.fn() }
   }
   ctx = { appRoot: process.cwd(), main: hc, homes: new Map([['main', hc]]), home: () => hc,
     settings: { get: () => ({ chatShellMode: mode, gamertag: 'Alex' }), save: saved }, permissions: { ask },
@@ -62,7 +62,7 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }))
 
 const tool = (name: string, role: 'genio' | 'ally' | 'bot' = 'genio') => createToolRegistry(() => ctx, home, role).find(t => t.name === name)!
-const said = (text: string) => chat.push({ id: `p${chat.length}`, wksp: 'main', role: 'player', text, ts: new Date().toISOString() })
+const said = (text: string) => chat.push({ id: `p${chat.length}`, workspace: 'main', role: 'player', text, ts: new Date().toISOString() })
 
 interface Case {
   tool: string
@@ -107,7 +107,7 @@ describe('every formerly guarded chat action follows the approval mode', () => {
           expect(denied.isError, JSON.stringify(denied)).toBe(true)
           expect(denied.content[0]).toMatchObject({ text: expect.stringContaining('Alex denied it') })
           expect(ask).toHaveBeenCalledTimes(1)
-          expect(ask).toHaveBeenCalledWith(expect.objectContaining({ wksp: home.name, tool: c.tool,
+          expect(ask).toHaveBeenCalledWith(expect.objectContaining({ workspace: home.name, tool: c.tool,
             input: typeof c.line === 'string' ? c.line : expect.stringMatching(c.line) }))
           expect(c.ran(), 'a Deny leaves everything untouched').toBe(false)
           expect(ctx.ledger.record).toHaveBeenCalledWith(expect.objectContaining({ event: 'approval.action', data: expect.objectContaining({ tool: c.tool, denied: true }) }))

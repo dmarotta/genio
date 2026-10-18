@@ -6,9 +6,9 @@ import type { PlanStatus, UsagePolicyView } from '../src/shared/usage-mode'
 
 const f = vi.hoisted(() => ({ enabled: true, view: null as UsagePolicyView | null, project: '', limit: undefined as unknown }))
 vi.mock('../src/renderer/src/store', () => ({
-  get PROJECT_WINDOW() { return f.project }, PROJECT_WKSP: 'ally',
+  get PROJECT_WINDOW() { return f.project }, PROJECT_WORKSPACE: 'ally',
   useStore: (select: (s: unknown) => unknown) => select({
-    snap: { wksps: [{ name: 'ally', activity: 'ready', limit: f.limit }], allies: [] },
+    snap: { workspaces: [{ name: 'ally', activity: 'ready', limit: f.limit }], allies: [] },
     terminals: {}, chats: { ally: [] }, settings: { quotaProtection: f.enabled }
   }),
   api: () => ({}), loadChat: vi.fn(), toast: vi.fn(), errText: String, saveSettings: vi.fn(), go: vi.fn()
@@ -24,8 +24,8 @@ let host: HTMLDivElement, root: Root, serial = 0
 const plan = (level: PlanStatus['level'], provider: PlanStatus['plan'] = 'claude'): PlanStatus => ({ plan: provider, level, known: true })
 const view = (...plans: PlanStatus[]): UsagePolicyView => ({ quotaProtection: true, plans, heldLaunches: [] }) as unknown as UsagePolicyView
 const render = (both = false) => act(() => root.render(React.createElement(React.Fragment, null,
-  React.createElement(ChatPanel, { wksp: 'ally', surface: 'screen' }),
-  both && React.createElement(ChatPanel, { wksp: 'ally', surface: 'panel' }))))
+  React.createElement(ChatPanel, { workspace: 'ally', surface: 'screen' }),
+  both && React.createElement(ChatPanel, { workspace: 'ally', surface: 'panel' }))))
 const notices = () => host.querySelectorAll('[data-quota-protection]')
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true, ResizeObserver: class { observe() {} disconnect() {} } })

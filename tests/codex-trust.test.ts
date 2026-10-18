@@ -157,7 +157,7 @@ describe('a Codex unit at launch', () => {
     fs.writeFileSync(path.join(worktree, '.git'), `gitdir: ${path.join(repo, '.git', 'worktrees', 'unit')}\n`)
     fs.mkdirSync(home.taskDir('unit'), { recursive: true })
     fs.writeFileSync(home.briefFile('unit'), '# Mission')
-    task = { id: 'unit', kind: 'scout', title: 'Unit', project: 'world', wksp: 'main', state: 'exited', harness: 'codex', model: CODEX_UNIT_MODEL,
+    task = { id: 'unit', kind: 'scout', title: 'Unit', project: 'world', workspace: 'main', state: 'exited', harness: 'codex', model: CODEX_UNIT_MODEL,
       worktree, branch: 'genio/unit', briefPath: home.briefFile('unit'), relaunches: 0, automaticRelaunches: 0, inbox: { seq: 0, acked: 0, rings: 0 } } as Task
     fs.writeFileSync(home.tasksFile, JSON.stringify([task]))
     data = []; written = []; launches = []

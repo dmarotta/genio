@@ -144,7 +144,7 @@ describe('the design_notes tool', () => {
   let ctx: AppCtx, main: Home, home: Home, hc: any
   const stats = { unlock: vi.fn(), addCost: vi.fn() }
   const said: ChatMessage[] = []
-  const say = (role: ChatMessage['role'], text: string): void => { said.push({ id: `m-${said.length}`, wksp: 'game', role, text, ts: new Date(Date.now() + said.length).toISOString() }) }
+  const say = (role: ChatMessage['role'], text: string): void => { said.push({ id: `m-${said.length}`, workspace: 'game', role, text, ts: new Date(Date.now() + said.length).toISOString() }) }
 
   beforeEach(() => {
     said.length = 0
@@ -153,7 +153,7 @@ describe('the design_notes tool', () => {
     home = new Home(path.join(tmp, 'genio', 'workspaces', 'game'), 'game', main); home.ensure()
     const empty = { list: () => [], get: () => undefined }
     hc = { home, crew: empty, decisions: { list: () => [], get: () => undefined }, backlog: empty, plans: empty,
-      wksp: { history: () => [] }, design: { history: (id: string) => (id === 'd-00000001' ? said : []) } }
+      workspace: { history: () => [] }, design: { history: (id: string) => (id === 'd-00000001' ? said : []) } }
     const mainHc = { ...hc, home: main, design: undefined }
     ctx = { appRoot: process.cwd(), main: mainHc, homes: new Map([['main', mainHc], ['game', hc]]), home: (n: string) => (n === 'main' ? mainHc : hc),
       settings: { get: () => ({ chatShellMode: 'all', gamertag: 'Alex' }) }, permissions: { ask: vi.fn(async () => true) },
@@ -186,7 +186,7 @@ describe('the design_notes tool', () => {
     expect(fs.readFileSync(notePath('combat.md'), 'utf8')).toBe(NOTE)
     expect(stats.unlock).toHaveBeenCalledWith('design-note-saved')
     // the project chat's words never count for a design chat
-    hc.wksp.history = () => [{ id: 'p', wksp: 'game', role: 'player', text: 'save the lore note', ts: new Date().toISOString() }]
+    hc.workspace.history = () => [{ id: 'p', workspace: 'game', role: 'player', text: 'save the lore note', ts: new Date().toISOString() }]
     expect(text(await design.call('design_notes', { world: 'game', action: 'write', name: 'lore', text: NOTE, player_words: 'save the lore note' }))).toMatch(/refused/)
   })
 

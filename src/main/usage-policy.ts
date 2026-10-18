@@ -34,7 +34,7 @@ export function migrateUsageSettings(saved: Partial<Settings>): Partial<Settings
   const unitsAtOnce = normalizeUnitsAtOnce(saved.unitsAtOnce, legacyCaps[mode])
   if (hadMode && saved.unitsAtOnce === unitsAtOnce) return saved
   const next: Partial<Settings> = { ...saved, usageMode: mode, unitsAtOnce }
-  if (!hadMode && !saved.wkspModel?.trim() && saved.wkspEffort === 'high') next.wkspEffort = ''
+  if (!hadMode && !saved.workspaceModel?.trim() && saved.workspaceEffort === 'high') next.workspaceEffort = ''
   return next
 }
 
@@ -67,8 +67,8 @@ export function migrateModelDefaults(saved: Partial<Settings>): Partial<Settings
 export function chatSettings(s: Settings, signIns: SignIns = {}): Settings {
   return {
     ...s,
-    wkspModel: s.wkspModel?.trim() || defaultChatModel(signIns),
-    wkspEffort: s.wkspEffort?.trim() || DEFAULT_EFFORT,
+    workspaceModel: s.workspaceModel?.trim() || defaultChatModel(signIns),
+    workspaceEffort: s.workspaceEffort?.trim() || DEFAULT_EFFORT,
     botModel: s.botModel?.trim() || CLAUDE_UNIT_MODEL
   }
 }

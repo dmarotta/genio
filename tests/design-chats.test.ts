@@ -33,16 +33,16 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: sdk.query, tool: (name
 import type { ChatMessage, GenioEvent } from '@shared/types'
 import { bus } from '../src/main/bus'
 import { Home } from '../src/main/home'
-import { createWkspService } from '../src/main/wksp'
+import { createWorkspaceService } from '../src/main/workspace'
 import { createDesignChatService, designTitle } from '../src/main/design-chats'
 import { createWakeService } from '../src/main/wakes'
-import { buildTools } from '../src/main/wksp-tools'
+import { buildTools } from '../src/main/workspace-tools'
 import { createChatToolSession, DESIGN_TOOLS } from '../src/main/chat-tool-session'
 import { openChatToolBridge } from '../src/main/chat-tool-bridge'
 import { DESIGN_NATIVE, decideTool, enforceTool } from '../src/main/chat-tool-policy'
 import { designContract, DESIGN_CONTRACT_BUDGET } from '../src/main/prompts'
 import { agentGeneration } from '../src/main/agent-generation'
-import type { AppCtx, WkspService } from '../src/main/services'
+import type { AppCtx, WorkspaceService } from '../src/main/services'
 
 /** Everything a design chat must never reach: work, authority, events, settings, memory writes and paid calls. */
 const FORBIDDEN = ['deploy', 'merge', 'despawn', 'control', 'ping', 'upgrade_recon', 'run_gauntlet', 'quest_add', 'quest_update', 'quest_hold',
@@ -66,10 +66,10 @@ beforeEach(() => {
   hc = { home, crew: { list: () => [], get: () => undefined, merge: vi.fn(), spawn: vi.fn() }, decisions: { list: () => [], get: () => undefined },
     backlog: { list: () => [], get: () => undefined }, plans: { list: () => [], get: () => undefined },
     wakes: { pending: () => [], drain: () => ({ text: '', count: 0, ackThrough: -1 }), ack: () => undefined },
-    wksp: { post: vi.fn(), history: () => [] } }
+    workspace: { post: vi.fn(), history: () => [] } }
   const mainHc = { ...hc, home: main }
   ctx = { appRoot: process.cwd(), main: mainHc, homes: new Map([['main', mainHc], ['game', hc]]), home: (n: string) => n === 'main' ? mainHc : hc,
-    settings: { get: () => ({ wkspModel: 'codex:OpenAI:gpt-test', wkspEffort: 'high', chatShellMode: 'all', gamertag: 'Alex' }) },
+    settings: { get: () => ({ workspaceModel: 'codex:OpenAI:gpt-test', workspaceEffort: 'high', chatShellMode: 'all', gamertag: 'Alex' }) },
     permissions: { ask: vi.fn(async () => true) }, away: { state: () => ({ mode: 'online' }), capture: vi.fn() },
     allies: { list: () => [{ name: 'game', projects: ['game'] }] },
     projects: { list: () => [{ name: 'game', path: root, mode: 'local-only' }], get: (name: string) => name === 'game' ? { name, path: root, engine: 'web' } : undefined },
@@ -196,7 +196,7 @@ describe('design chats', () => {
   it('never receives a wake: events go to the project chat, which keeps working', async () => {
     hc.wakes = createWakeService(() => ctx, home)
     hc.wakes.enqueue({ kind: 'signal', reason: 'unit ready for review', routine: false })
-    const project: WkspService = createWkspService(() => ctx, home, { name: 'game', projects: ['game'] } as any)
+    const project: WorkspaceService = createWorkspaceService(() => ctx, home, { name: 'game', projects: ['game'] } as any)
     stops.push(() => project.stop())
     const design = designService()
     expect('deliverWakes' in design).toBe(false)
@@ -242,11 +242,11 @@ describe('design chats', () => {
 
   it('hands off within its own chat only on a provider switch', async () => {
     const chat = (id: string, texts: [ChatMessage['role'], string][]) => fs.writeFileSync(path.join(home.data, 'design', `${id}.jsonl`),
-      texts.map(([role, text], i) => JSON.stringify({ id: `${id}-${i}`, wksp: 'game', role, text, ts: `2026-10-17T10:0${i}:00.000Z` })).join('\n') + '\n')
+      texts.map(([role, text], i) => JSON.stringify({ id: `${id}-${i}`, workspace: 'game', role, text, ts: `2026-10-17T10:0${i}:00.000Z` })).join('\n') + '\n')
     fs.mkdirSync(path.join(home.data, 'design'), { recursive: true })
     chat('d-0000000a', [['player', 'Old design idea: wall jumps'], ['genio', 'Wall jumps fit the pillars']])
     chat('d-0000000b', [['player', 'Other chat about the shop economy']])
-    fs.writeFileSync(home.chatFile, JSON.stringify({ id: 'p-1', wksp: 'game', role: 'player', text: 'Secret project plan for the squad', ts: '2026-10-17T09:00:00.000Z' }) + '\n')
+    fs.writeFileSync(home.chatFile, JSON.stringify({ id: 'p-1', workspace: 'game', role: 'player', text: 'Secret project plan for the squad', ts: '2026-10-17T09:00:00.000Z' }) + '\n')
     const base = { createdAt: '2026-10-17T10:00:00.000Z', effort: '', costUsd: 0, turns: 1 }
     fs.writeFileSync(path.join(home.state, 'design-chats.json'), JSON.stringify({ chats: [
       { ...base, id: 'd-0000000a', title: 'Wall jumps', model: 'codex:OpenAI:gpt-test', providers: { active: 'claude', ids: { claude: 'claude-session' } } },
@@ -267,9 +267,9 @@ describe('design chats', () => {
   it('keeps tool cards, deletes and refusals inside the design chat', async () => {
     const design = designService()
     const a = design.create()
-    design.post(a.id, { id: 'gen-1', wksp: 'game', role: 'genio', text: 'image_gen: completed', ts: new Date().toISOString() })
+    design.post(a.id, { id: 'gen-1', workspace: 'game', role: 'genio', text: 'image_gen: completed', ts: new Date().toISOString() })
     expect(design.history(a.id).map(m => m.id)).toContain('gen-1')
-    expect(hc.wksp.post).not.toHaveBeenCalled()
+    expect(hc.workspace.post).not.toHaveBeenCalled()
     await design.remove(a.id)
     expect(design.list()).toEqual([])
     expect(fs.existsSync(path.join(home.data, 'design', `${a.id}.jsonl`))).toBe(false)

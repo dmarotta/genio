@@ -10,7 +10,7 @@ import type { InventoryContext } from '@shared/inventory-context'
  */
 import type {
   AwayMode, AwayEntry, AwayState, BacklogItem, StatusReport, ChatMessage, ShellRun, Decision, FleetSnapshot,
-  FleetStats, HarnessAdapter, InboxNote, LedgerRecord, WkspInfo, PermissionRequest, Project, Ally,
+  FleetStats, HarnessAdapter, InboxNote, LedgerRecord, WorkspaceInfo, PermissionRequest, Project, Ally,
   Settings, StatusEvent, Task, TerminalInfo, ToolStatus, UpdateInfo, Wake, WakeKind, Achievement,
   DeliveryMode, SfxName, NotifyTarget, Verdict, TaskCounters, ReactionKind
 } from '@shared/types'
@@ -204,7 +204,7 @@ export interface AlliesService {
   retire(name: string): Promise<OpResult>
   /** save an ally's own chat controls; the ally's session picks them up between turns */
   update(name: string, patch: AllyControlsPatch): Ally
-  /** route a request from the main wksp to an ally (marked, correlated) */
+  /** route a request from the main workspace to an ally (marked, correlated) */
   route(name: string, request: string): Promise<OpResult>
   /** an ally reports to its parent channel (main home wakes) */
   reportToParent(from: string, verb: string, note: string, corr?: string): void
@@ -283,7 +283,7 @@ export interface DispatchService {
   /** what the picker knows beyond settings for a deploy in this world */
   signals(project: string): Omit<PickEnv, 'available'>
   /** Serialized selection + caps + provider slot. A respawn reuses a slot only while its target is live. */
-  reserve(input: import('@shared/types').LoadoutInput, opts?: { respawn?: { id: string; wksp: string } }): Promise<{
+  reserve(input: import('@shared/types').LoadoutInput, opts?: { respawn?: { id: string; workspace: string } }): Promise<{
     loadout: import('@shared/types').Loadout
     check(): Promise<void>
     /** the task is now in the crew list: stop counting it as launching */
@@ -346,7 +346,7 @@ export interface CrewService {
   readFile(id: string, which: TaskFile): Promise<string>
   /** one-line current state */
   crewState(id: string): Promise<string>
-  /** structured fleet view text for the wksp */
+  /** structured fleet view text for the workspace */
   fleetView(): Promise<string>
   /** register a PR url for a task (refuses drafts); arms the merge poll */
   registerPr(id: string, url: string): Promise<OpResult>
@@ -467,8 +467,8 @@ export interface SupervisorService {
   turnEnded(taskId: string): void
 }
 
-export interface WkspService {
-  info(): WkspInfo
+export interface WorkspaceService {
+  info(): WorkspaceInfo
   history(limit?: number): ChatMessage[]
   /** Reads the chat log without blocking ahead of the first history() call (a project window's chat); idempotent. */
   preloadHistory?(): Promise<void>
@@ -531,7 +531,7 @@ export interface HomeCtx {
   decisions: DecisionService
   wakes: WakeService
   supervisor: SupervisorService
-  wksp: WkspService
+  workspace: WorkspaceService
   reactions: ReactionService
   plans: PlanService
   /** the project's design chats (design-chats.ts); project bases only */

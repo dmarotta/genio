@@ -217,7 +217,7 @@ describe('scorecard', () => {
 
   const task = (p: Partial<Task> = {}): Task =>
     ({
-      id: 'u1', kind: 'ship', title: 'Tests for saves', project: 'w', wksp: 'main', mode: 'no-mistakes', branchPrefix: 'genio/', baseBranch: 'main', branch: 'b', worktree: '', briefPath: '',
+      id: 'u1', kind: 'ship', title: 'Tests for saves', project: 'w', workspace: 'main', mode: 'no-mistakes', branchPrefix: 'genio/', baseBranch: 'main', branch: 'b', worktree: '', briefPath: '',
       harness: 'codex', model: 'gpt-x', effort: 'medium', category: 'tests', loadoutSource: 'table', state: 'merged', createdAt: new Date(Date.now() - 30 * 60_000).toISOString(),
       updatedAt: '', inbox: { seq: 0, acked: 0, rings: 0 }, statusOffset: 0, relaunches: 1, usageAtStart: 40,
       counters: { pings: 3, lagging: 1, stopped: 0, fixRounds: 2 }, ...p

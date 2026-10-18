@@ -62,18 +62,18 @@ export const word = (i: number): string => ['hud', 'quest', 'squad', 'inventory'
 const LOREM = 'Genio deploys a squad of autonomous coding agents, gives each one an isolated git worktree, watches them to completion, and brings you finished pull requests. '
 
 /** A realistic chat log: player turns, Genio turns with tool traces (up to 2000+4000 chars each), system notes and errors. */
-export function syntheticMessages(wksp: string, n = 1760, withTools = true): ChatMessage[] {
+export function syntheticMessages(workspace: string, n = 1760, withTools = true): ChatMessage[] {
   const out: ChatMessage[] = []
   for (let i = 0; i < n; i++) {
     const ts = ISO(n - i)
     const r = i % 10
-    if (r === 0 || r === 5) out.push({ id: `p-${i.toString(16).padStart(6, '0')}`, wksp, role: 'player', text: `Please ${word(i)} the ${word(i + 2)} and report back. ${LOREM.slice(0, 60 + (i % 90))}`, ts, provider: 'claude' })
-    else if (r === 9 && i % 30 === 9) out.push({ id: `s-${i.toString(16).padStart(6, '0')}`, wksp, role: 'system', text: `Answered: ${word(i)} question\n\n${word(i + 1)}`, ts })
-    else if (r === 8 && i % 20 === 8) out.push({ id: `e-${i.toString(16).padStart(6, '0')}`, wksp, role: 'error', text: 'Genio session stopped: session ended', ts })
+    if (r === 0 || r === 5) out.push({ id: `p-${i.toString(16).padStart(6, '0')}`, workspace, role: 'player', text: `Please ${word(i)} the ${word(i + 2)} and report back. ${LOREM.slice(0, 60 + (i % 90))}`, ts, provider: 'claude' })
+    else if (r === 9 && i % 30 === 9) out.push({ id: `s-${i.toString(16).padStart(6, '0')}`, workspace, role: 'system', text: `Answered: ${word(i)} question\n\n${word(i + 1)}`, ts })
+    else if (r === 8 && i % 20 === 8) out.push({ id: `e-${i.toString(16).padStart(6, '0')}`, workspace, role: 'error', text: 'Genio session stopped: session ended', ts })
     else {
       const tools = withTools ? seq(i % 4 === 0 ? 3 : i % 3 === 0 ? 0 : 1).map((k) => ({ id: `toolu_${i}_${k}`, name: k ? 'mcp__genio__fleet_view' : 'mcp__genio__unit_status', input: JSON.stringify({ unit: `${word(i)}-${i}`, page_size: 2000, cursor: null }), result: LOREM.repeat(12).slice(0, k === 0 ? 1200 : 4000), isError: false })) : []
       const text = i % 7 === 0 ? `## ${word(i)} report\n\n${LOREM.repeat(4)}\n\n- **${word(i + 1)}**: done\n- \`${word(i + 2)}\`: pending\n\n\`\`\`ts\nconst x = ${i}\n\`\`\`\n` : i % 3 === 0 ? '' : `${LOREM.slice(0, 80 + (i % 200))}`
-      out.push({ id: `m-msg_${i.toString(16).padStart(6, '0')}`, wksp, role: 'genio', text, ts, tools, provider: 'claude', providerModel: 'claude-opus-5-5', costUsd: 0.012 })
+      out.push({ id: `m-msg_${i.toString(16).padStart(6, '0')}`, workspace, role: 'genio', text, ts, tools, provider: 'claude', providerModel: 'claude-opus-5-5', costUsd: 0.012 })
     }
   }
   return out

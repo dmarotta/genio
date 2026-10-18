@@ -196,7 +196,7 @@ describe('repairMojibake: UTF-8 that was read as Windows-1252', () => {
 })
 
 describe('chat display repair', () => {
-  const msg = (over: Partial<ChatMessage>): ChatMessage => ({ id: 'm', wksp: 'genio', role: 'genio', text: '', ts: '2026-10-16T00:00:00.000Z', ...over })
+  const msg = (over: Partial<ChatMessage>): ChatMessage => ({ id: 'm', workspace: 'genio', role: 'genio', text: '', ts: '2026-10-16T00:00:00.000Z', ...over })
 
   it('repairs the screenshot: a sentence ending in a garbled zero-width non-joiner', () => {
     const garbled = `I'll verify that diagnosis before acting on it.${mojibake('‌')}`

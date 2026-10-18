@@ -94,15 +94,15 @@ describe('settings migration', () => {
   })
 
   it('keeps explicit picks as written and unsets only the old shipped chat default', () => {
-    const old = { wkspModel: 'claude-sonnet-5-5', wkspEffort: 'high', costDial: 'balanced', defaultWorkerModel: 'opus', explorationRate: 0.2 } as Partial<Settings>
-    expect(migrateUsageSettings(old)).toMatchObject({ usageMode: 'balanced', wkspModel: 'claude-sonnet-5-5', wkspEffort: 'high', defaultWorkerModel: 'opus' })
-    expect(migrateUsageSettings({ wkspModel: '', wkspEffort: 'high' })).toMatchObject({ usageMode: 'balanced', wkspEffort: '' })
-    expect(migrateUsageSettings({ wkspModel: '', wkspEffort: 'low' }).wkspEffort).toBe('low')
+    const old = { workspaceModel: 'claude-sonnet-5-5', workspaceEffort: 'high', costDial: 'balanced', defaultWorkerModel: 'opus', explorationRate: 0.2 } as Partial<Settings>
+    expect(migrateUsageSettings(old)).toMatchObject({ usageMode: 'balanced', workspaceModel: 'claude-sonnet-5-5', workspaceEffort: 'high', defaultWorkerModel: 'opus' })
+    expect(migrateUsageSettings({ workspaceModel: '', workspaceEffort: 'high' })).toMatchObject({ usageMode: 'balanced', workspaceEffort: '' })
+    expect(migrateUsageSettings({ workspaceModel: '', workspaceEffort: 'low' }).workspaceEffort).toBe('low')
     expect(migrateUsageSettings({ costDial: 'quality' }).usageMode).toBe('max')
     expect(migrateUsageSettings({ costDial: 'cost' }).usageMode).toBe('save')
     expect(defaultSettings().quotaProtection).toBe(true)
     expect(migrateUsageSettings({ usageMode: 'save' }).quotaProtection).toBe(true)
-    const done = { usageMode: 'save', unitsAtOnce: 4, wkspEffort: 'high', quotaProtection: false, plainModelDefaults: true } as Partial<Settings>
+    const done = { usageMode: 'save', unitsAtOnce: 4, workspaceEffort: 'high', quotaProtection: false, plainModelDefaults: true } as Partial<Settings>
     expect(migrateUsageSettings(done)).toBe(done)
   })
 
@@ -126,8 +126,8 @@ describe('settings migration', () => {
     expect(migrateModelDefaults({ defaultHarness: 'claude', defaultWorkerModel: 'claude-opus-5-5' }).defaultHarness).toBe('claude')
     expect(migrateModelDefaults({ defaultHarness: 'claude', defaultWorkerEffort: 'high' }).defaultHarness).toBe('claude')
     // explicit chat and unit picks are untouched
-    expect(migrateModelDefaults({ wkspModel: 'claude-opus-5-5', wkspEffort: 'xhigh', botModel: 'claude-haiku-5-5', defaultWorkerModel: 'm', defaultHarness: 'claude' }))
-      .toMatchObject({ wkspModel: 'claude-opus-5-5', wkspEffort: 'xhigh', botModel: 'claude-haiku-5-5', defaultWorkerModel: 'm', defaultHarness: 'claude' })
+    expect(migrateModelDefaults({ workspaceModel: 'claude-opus-5-5', workspaceEffort: 'xhigh', botModel: 'claude-haiku-5-5', defaultWorkerModel: 'm', defaultHarness: 'claude' }))
+      .toMatchObject({ workspaceModel: 'claude-opus-5-5', workspaceEffort: 'xhigh', botModel: 'claude-haiku-5-5', defaultWorkerModel: 'm', defaultHarness: 'claude' })
   })
 
   it('migrates a saved settings file once, and a new install starts on the default', () => {
@@ -146,7 +146,7 @@ describe('settings migration', () => {
       createSettingsService(home).save({ defaultHarness: 'claude' })
       expect(createSettingsService(home).get().defaultHarness).toBe('claude')
     } finally { fs.rmSync(dir, { recursive: true, force: true }) }
-    expect(defaultSettings()).toMatchObject({ defaultHarness: '', categoryPools: [], wkspModel: '', wkspEffort: '', plainModelDefaults: true })
+    expect(defaultSettings()).toMatchObject({ defaultHarness: '', categoryPools: [], workspaceModel: '', workspaceEffort: '', plainModelDefaults: true })
   })
 })
 
@@ -156,7 +156,7 @@ describe('the chat model: the player’s, else the default', () => {
       [{}, SONNET], [{ claude: true, codex: true }, SONNET], [{ claude: true, codex: false }, SONNET],
       [{ claude: false, codex: true }, `codex:OpenAI:${CODEX_UNIT_MODEL}`], [{ claude: false, codex: false }, SONNET], [{ claude: undefined, codex: true }, SONNET]
     ]
-    for (const [signIns, model] of cases) expect(chatSettings(settings(), signIns)).toMatchObject({ wkspModel: model, wkspEffort: 'medium', botModel: SONNET })
+    for (const [signIns, model] of cases) expect(chatSettings(settings(), signIns)).toMatchObject({ workspaceModel: model, workspaceEffort: 'medium', botModel: SONNET })
   })
 
   it('never changes a chat model or effort the player set, at any mode or protection level', () => {
@@ -164,9 +164,9 @@ describe('the chat model: the player’s, else the default', () => {
     try {
       recordClaudeRateLimit(claudeLimitsFile(dir), { status: 'allowed_warning', rateLimitType: 'five_hour', utilization: 0.97 })
       for (const usageMode of USAGE_MODES) for (const signIns of [{}, { claude: false, codex: true }]) {
-        expect(chatSettings(settings({ usageMode, wkspModel: 'claude-opus-5-5', wkspEffort: 'high', botModel: 'claude-haiku-5-5' }), signIns))
-          .toMatchObject({ wkspModel: 'claude-opus-5-5', wkspEffort: 'high', botModel: 'claude-haiku-5-5' })
-        expect(chatSettings(settings({ usageMode }), {})).toMatchObject({ wkspModel: SONNET, wkspEffort: 'medium' })
+        expect(chatSettings(settings({ usageMode, workspaceModel: 'claude-opus-5-5', workspaceEffort: 'high', botModel: 'claude-haiku-5-5' }), signIns))
+          .toMatchObject({ workspaceModel: 'claude-opus-5-5', workspaceEffort: 'high', botModel: 'claude-haiku-5-5' })
+        expect(chatSettings(settings({ usageMode }), {})).toMatchObject({ workspaceModel: SONNET, workspaceEffort: 'medium' })
       }
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
@@ -238,7 +238,7 @@ describe('stale, unknown and rejected quota combinations', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-chat-quota-'))
     try {
       recordClaudeRateLimit(claudeLimitsFile(dir), { status: 'rejected', rateLimitType: 'five_hour' })
-      expect(chatSettings(settings({ usageMode: 'max' }), { claude: true })).toMatchObject({ wkspModel: SONNET, wkspEffort: 'medium' })
+      expect(chatSettings(settings({ usageMode: 'max' }), { claude: true })).toMatchObject({ workspaceModel: SONNET, workspaceEffort: 'medium' })
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }
@@ -321,8 +321,8 @@ describe('concurrent unit cap across worlds', () => {
   function service(mode: UsageMode, tasks: Task[] = [], worlds: Record<string, { capacity?: number; usageMode?: UsageMode }> = {}, backlog: BacklogItem[] = [], overrides: Partial<Settings> = {}) {
     const s = settings({ ...migrateUsageSettings({ usageMode: mode }), ...overrides })
     const homes = new Map([
-      ['main', { home: { data: dir }, plans: { list: vi.fn(() => [] as WorkPlan[]) }, supervisor: { poke: vi.fn() }, wakes: { pending: () => [] }, crew: { retryQuotaDeferred: vi.fn(async () => {}), hasQuotaDeferred: () => false, list: () => tasks.filter((t) => !t.wksp), get: (id: string) => tasks.find(t => t.id === id && !t.wksp) }, backlog: { list: () => backlog } }],
-      ['ally', { home: { data: path.join(dir, 'ally') }, plans: { list: vi.fn(() => [] as WorkPlan[]) }, supervisor: { poke: vi.fn() }, wakes: { pending: () => [] }, crew: { retryQuotaDeferred: vi.fn(async () => {}), hasQuotaDeferred: () => false, list: () => tasks.filter((t) => t.wksp === 'ally'), get: (id: string) => tasks.find(t => t.id === id && t.wksp === 'ally') }, backlog: { list: () => [] } }]
+      ['main', { home: { data: dir }, plans: { list: vi.fn(() => [] as WorkPlan[]) }, supervisor: { poke: vi.fn() }, wakes: { pending: () => [] }, crew: { retryQuotaDeferred: vi.fn(async () => {}), hasQuotaDeferred: () => false, list: () => tasks.filter((t) => !t.workspace), get: (id: string) => tasks.find(t => t.id === id && !t.workspace) }, backlog: { list: () => backlog } }],
+      ['ally', { home: { data: path.join(dir, 'ally') }, plans: { list: vi.fn(() => [] as WorkPlan[]) }, supervisor: { poke: vi.fn() }, wakes: { pending: () => [] }, crew: { retryQuotaDeferred: vi.fn(async () => {}), hasQuotaDeferred: () => false, list: () => tasks.filter((t) => t.workspace === 'ally'), get: (id: string) => tasks.find(t => t.id === id && t.workspace === 'ally') }, backlog: { list: () => [] } }]
     ])
     const ctx = {
       settings: { get: () => s, availableHarnesses: () => s.harnesses.filter((h) => ['claude', 'codex'].includes(h.id)) },
@@ -353,7 +353,7 @@ describe('concurrent unit cap across worlds', () => {
 
   it('counts units in every world and base against the configured global cap', async () => {
     for (const [mode, cap] of [['save', 4], ['balanced', 8], ['max', 16]] as const) {
-      const tasks = Array.from({ length: cap - 1 }, (_, i) => ({ ...task(`world-${i}`), ...(i % 2 ? { wksp: 'ally' } : {}) }))
+      const tasks = Array.from({ length: cap - 1 }, (_, i) => ({ ...task(`world-${i}`), ...(i % 2 ? { workspace: 'ally' } : {}) }))
       const svc = service(mode, tasks)
       const last = await svc.reserve(ship('last'))
       expect(svc.capacity()).toEqual({ cap, used: cap })
@@ -381,7 +381,7 @@ describe('concurrent unit cap across worlds', () => {
   })
 
   it('serializes competing project launches against the last global place across providers', async () => {
-    const svc = service('save', [task('a'), { ...task('b'), wksp: 'ally' }, task('c')])
+    const svc = service('save', [task('a'), { ...task('b'), workspace: 'ally' }, task('c')])
     const attempts = await Promise.allSettled([
       svc.reserve({ ...ship('d'), harness: 'codex' }),
       svc.reserve({ ...ship('e'), harness: 'claude' })
@@ -473,7 +473,7 @@ describe('concurrent unit cap across worlds', () => {
 
   it('runs one unit at a time on a warm plan across project bases, and never moves the launch to the other plan', async () => {
     scan.report.tools.find(t => t.tool === 'claude')!.limits[0].windows[0] = fresh(75)
-    const svc = service('balanced', [{ ...task('a'), harness: 'claude', wksp: 'ally' }])
+    const svc = service('balanced', [{ ...task('a'), harness: 'claude', workspace: 'ally' }])
     await expect(svc.reserve({ ...ship('b'), harness: 'claude' })).rejects.toThrow(/deferred: .*held by quota protection/)
     await expect(svc.reserve(ship('b'))).rejects.toThrow(/keeps its tool and model/)
     const other = await svc.reserve({ ...ship('b'), harness: 'codex' })
@@ -490,7 +490,7 @@ describe('concurrent unit cap across worlds', () => {
   })
 
   it.each(['ready', 'merged', 'done', 'failed', 'cleaned'] as const)('finished %s records in every home release global and world capacity despite live terminals', async state => {
-    const records = Array.from({ length: 8 }, (_, i) => ({ ...task('a', state), wksp: i % 2 ? 'ally' : '', pr: i % 3 ? { url: 'https://example.com/pull/1' } : undefined }))
+    const records = Array.from({ length: 8 }, (_, i) => ({ ...task('a', state), workspace: i % 2 ? 'ally' : '', pr: i % 3 ? { url: 'https://example.com/pull/1' } : undefined }))
     const svc = service('balanced', records, { a: { capacity: 2 } })
     expect(svc.capacity()).toEqual({ cap: 8, used: 0 })
     const slot = await svc.reserve({ ...ship('a'), harness: 'codex' })
@@ -504,7 +504,7 @@ describe('concurrent unit cap across worlds', () => {
     const target = { ...task('a', state), terminalId: state === 'exited' ? undefined : 'live' }
     const svc = service('balanced', [target], { a: { capacity: 2 } })
     const restartInput = { ...ship('a'), harness: 'codex' }
-    const restartOptions = { respawn: { id: target.id, wksp: 'main' } }
+    const restartOptions = { respawn: { id: target.id, workspace: 'main' } }
     for (let i = 0; i < 10; i++) {
       const restart = await svc.reserve(restartInput, restartOptions)
       expect(svc.capacity().used).toBe(1)
@@ -557,7 +557,7 @@ describe('concurrent unit cap across worlds', () => {
     allowed.release()
     await expect(service('max', [task('slow'), task('slow')], { slow: { usageMode: 'save', capacity: 2 } }).reserve(ship('slow'))).rejects.toThrow(/slow allows 2 concurrent units/)
     const active = task('a')
-    const respawn = await service('save', [active, task('b'), task('c'), task('d')]).reserve({ ...ship('a'), harness: 'codex' }, { respawn: { id: active.id, wksp: 'main' } })
+    const respawn = await service('save', [active, task('b'), task('c'), task('d')]).reserve({ ...ship('a'), harness: 'codex' }, { respawn: { id: active.id, workspace: 'main' } })
     respawn.release()
   })
 
@@ -575,14 +575,14 @@ describe('concurrent unit cap across worlds', () => {
   it('reserves a new place for an absent-terminal restart instead of bypassing caps', async () => {
     const stopped = { ...task('b', 'exited'), terminalId: undefined }
     const full = service('save', [task('a'), task('c'), task('d'), task('e'), stopped])
-    const refusal = full.reserve({ ...ship('b'), harness: 'codex' }, { respawn: { id: stopped.id, wksp: 'main' } })
+    const refusal = full.reserve({ ...ship('b'), harness: 'codex' }, { respawn: { id: stopped.id, workspace: 'main' } })
     await expect(refusal).rejects.toThrow(/allows 4/)
     // A respawn has no quest to queue: it says the unit stays as it is.
     await expect(refusal).rejects.toThrow(/not respawned and stays as it is/)
     await expect(refusal).rejects.not.toThrow(/quest stays queued/)
     await expect(full.reserve({ ...ship('f'), harness: 'codex' })).rejects.toThrow(/The quest stays queued/)
     const svc = service('balanced', [task('a'), stopped])
-    const restart = await svc.reserve({ ...ship('b'), harness: 'codex' }, { respawn: { id: stopped.id, wksp: 'main' } })
+    const restart = await svc.reserve({ ...ship('b'), harness: 'codex' }, { respawn: { id: stopped.id, workspace: 'main' } })
     expect(svc.capacity().used).toBe(2)
     restart.release()
     expect(svc.capacity().used).toBe(1)
@@ -592,7 +592,7 @@ describe('concurrent unit cap across worlds', () => {
     scan.report = { tools: [{ tool: 'codex', limits: [{ source: 'test', updatedAt: new Date().toISOString(), windows: [fresh(75)] }] }] } as UsageReport
     const active = task('a')
     const svc = service('save', [active])
-    const replacement = await svc.reserve({ ...ship('a'), harness: 'codex' }, { respawn: { id: active.id, wksp: 'main' } })
+    const replacement = await svc.reserve({ ...ship('a'), harness: 'codex' }, { respawn: { id: active.id, workspace: 'main' } })
     await replacement.check()
     replacement.release()
   })

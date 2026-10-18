@@ -41,7 +41,7 @@ const seq = (n: number): number[] => Array.from({ length: n }, (_, i) => i)
 export function syntheticTask(i: number, root: string, state: Task['state'] = 'cleaned', project = 'genio'): Task {
   const id = `${word(i)}-${word(i + 3)}-step-${i}-${(i * 7919).toString(16).slice(0, 4)}`
   return {
-    id, kind: i % 5 === 0 ? 'scout' : 'ship', title: `${word(i)} ${word(i + 1)} step ${i}: make the ${word(i + 2)} ${word(i + 4)} work`, project, wksp: project,
+    id, kind: i % 5 === 0 ? 'scout' : 'ship', title: `${word(i)} ${word(i + 1)} step ${i}: make the ${word(i + 2)} ${word(i + 4)} work`, project, workspace: project,
     backlogId: `${word(i)}-${i}-q`, mode: 'local-only', yolo: false, branchPrefix: 'genio/', baseBranch: 'main', branch: `genio/${id}`,
     worktree: path.join(root, 'workspaces', project, 'worktrees', project, id), briefPath: path.join(root, 'workspaces', project, 'data', id, 'brief.md'),
     harness: i % 3 ? 'claude' : 'codex', model: i % 3 ? 'claude-opus-5-5' : 'gpt-5-codex', effort: 'high',
@@ -69,7 +69,7 @@ export function syntheticBacklog(tasks: Task[], project = 'genio'): BacklogItem[
 
 export function syntheticDecisions(tasks: Task[], n = 34): Decision[] {
   return seq(n).map((i) => ({
-    id: `ch-${(i * 104729).toString(16).padStart(8, '0')}`, key: 'default', wksp: 'genio', taskId: tasks[i % tasks.length].id, project: 'genio',
+    id: `ch-${(i * 104729).toString(16).padStart(8, '0')}`, key: 'default', workspace: 'genio', taskId: tasks[i % tasks.length].id, project: 'genio',
     question: `Unit ${tasks[i % tasks.length].title} asks: may it close the test scene and run the checks?`, context: 'PID, project path and exact command go here. '.repeat(8),
     options: ['Close the test scene and run checks', 'Keep it open'], recommendation: 'Close the test scene and run checks', source: 'unit', urgency: 'normal',
     createdAt: tasks[i % tasks.length].createdAt, revision: 1, resolvedAt: tasks[i % tasks.length].updatedAt, answer: 'Close the test scene and run checks'
@@ -93,18 +93,18 @@ export function syntheticScorecard(tasks: Task[]): unknown[] {
     source: 'player', outcome: 'landed', landed: true, pings: 1, relaunches: 1, lagging: 0, stopped: 1, wallMinutes: 42, verdict: undefined, endedAt: t.updatedAt }))
 }
 
-export function syntheticWakes(wksp: string, n = 229): Wake[] {
-  return seq(n).map((i) => ({ seq: i + 1, ts: ISO(n - i), wksp, kind: i % 4 === 0 ? 'stale' : 'signal', reason: `BUILD "${word(i)} ${word(i + 1)} step ${i}" (genio) reported done`, lines: [`done [at=${1760000000 + i}]: ready in branch genio/${word(i)}-${i}`], routine: i % 4 === 0 } as Wake))
+export function syntheticWakes(workspace: string, n = 229): Wake[] {
+  return seq(n).map((i) => ({ seq: i + 1, ts: ISO(n - i), workspace, kind: i % 4 === 0 ? 'stale' : 'signal', reason: `BUILD "${word(i)} ${word(i + 1)} step ${i}" (genio) reported done`, lines: [`done [at=${1760000000 + i}]: ready in branch genio/${word(i)}-${i}`], routine: i % 4 === 0 } as Wake))
 }
 
-export interface SeededBase { root: string; mainHome: string; projectHome: string; wksp: string; project: string }
+export interface SeededBase { root: string; mainHome: string; projectHome: string; workspace: string; project: string }
 
 /** Write a realistic Base under `root` (or copy GENIO_PERF_BASE into it). */
 export function seedBase(root: string): SeededBase {
   const real = process.env.GENIO_PERF_BASE
   const project = 'genio'
-  const wksp = 'genio'
-  const projectHome = path.join(root, 'workspaces', wksp)
+  const workspace = 'genio'
+  const projectHome = path.join(root, 'workspaces', workspace)
   if (real) {
     fs.cpSync(real, root, { recursive: true, filter: (src: string) => !/[\\/](worktrees|projects|node_modules|inventory|chat-images|validation-node_modules|play-pools|claude-home|codex-home|skills)([\\/]|$)/.test(src) && !/[\\/]data[\\/][^\\/]+-[0-9a-f]{4}[\\/]/.test(src) })
     const alliesFile = path.join(root, 'data', 'allies.json')
@@ -121,31 +121,31 @@ export function seedBase(root: string): SeededBase {
       assertIsolatedHomes({ ...process.env, ...harness.env })
     }
     fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2))
-    return { root, mainHome: root, projectHome, wksp, project }
+    return { root, mainHome: root, projectHome, workspace, project }
   }
-  const dirs = ['config', 'data', 'data/dispatch', 'state', path.join('workspaces', wksp, 'data'), path.join('workspaces', wksp, 'state'), path.join('workspaces', wksp, 'config')]
+  const dirs = ['config', 'data', 'data/dispatch', 'state', path.join('workspaces', workspace, 'data'), path.join('workspaces', workspace, 'state'), path.join('workspaces', workspace, 'config')]
   for (const d of dirs) fs.mkdirSync(path.join(root, d), { recursive: true })
   const tasks = syntheticTasks(root)
   const write = (p: string, v: unknown): void => { fs.writeFileSync(path.join(root, p), JSON.stringify(v, null, 2)) }
   write('config/settings.json', { gamertag: 'Alex', firstRunDone: true, usageMode: 'balanced', ledger: true, pollSeconds: 15 })
   write('data/projects.json', [{ name: project, path: path.join(root, 'projects', project), gitRepo: true, defaultBranch: 'main', mode: 'local-only', modeSource: 'auto', yolo: false, branchPrefix: 'genio/', forge: 'none', engine: 'other', engineRoot: '', engineSource: 'auto', commands: {}, managed: false, addedAt: ISO(20_000) }])
-  write('data/allies.json', [{ name: wksp, scope: `All work in ${project}`, charter: '', projects: [project], home: projectHome, createdAt: ISO(20_000) }])
+  write('data/allies.json', [{ name: workspace, scope: `All work in ${project}`, charter: '', projects: [project], home: projectHome, createdAt: ISO(20_000) }])
   write('data/stats.json', syntheticStats())
   write('data/dispatch/scorecard.json', syntheticScorecard(tasks))
   write('data/decisions.json', [])
   write('data/backlog.json', [])
   write('state/tasks.json', [])
-  write(`workspaces/${wksp}/state/tasks.json`, tasks)
-  write(`workspaces/${wksp}/data/backlog.json`, syntheticBacklog(tasks))
-  write(`workspaces/${wksp}/data/decisions.json`, syntheticDecisions(tasks))
-  fs.writeFileSync(path.join(projectHome, 'data', 'chat.jsonl'), syntheticMessages(wksp).map((m) => JSON.stringify(m)).join('\n') + '\n')
-  const wakes = syntheticWakes(wksp)
+  write(`workspaces/${workspace}/state/tasks.json`, tasks)
+  write(`workspaces/${workspace}/data/backlog.json`, syntheticBacklog(tasks))
+  write(`workspaces/${workspace}/data/decisions.json`, syntheticDecisions(tasks))
+  fs.writeFileSync(path.join(projectHome, 'data', 'chat.jsonl'), syntheticMessages(workspace).map((m) => JSON.stringify(m)).join('\n') + '\n')
+  const wakes = syntheticWakes(workspace)
   fs.writeFileSync(path.join(projectHome, 'state', 'wakes.jsonl'), wakes.map((w) => JSON.stringify(w)).join('\n') + '\n')
-  write(`workspaces/${wksp}/state/wakes.ack`, { through: wakes.length, at: ISO(1), events: {} })
+  write(`workspaces/${workspace}/state/wakes.ack`, { through: wakes.length, at: ISO(1), events: {} })
   for (const t of tasks) {
     fs.mkdirSync(path.dirname(t.briefPath), { recursive: true })
     fs.writeFileSync(t.briefPath, '# Mission\n')
     fs.writeFileSync(path.join(projectHome, 'state', `${t.id}.status`), `working [at=1760000000]: started\nworking [at=1760000100]: tests\n${t.state === 'cleaned' ? 'done [at=1760000500]: ready in branch ' + t.branch + '\n' : ''}`)
   }
-  return { root, mainHome: root, projectHome, wksp, project }
+  return { root, mainHome: root, projectHome, workspace, project }
 }

@@ -8,7 +8,7 @@ import { createBacklogService } from '../src/main/backlog'
 import { createDecisionService } from '../src/main/decisions'
 import { createWakeService } from '../src/main/wakes'
 import { createPlanService, type PlanStepInput } from '../src/main/plans'
-import { createToolRegistry } from '../src/main/wksp-tools'
+import { createToolRegistry } from '../src/main/workspace-tools'
 import { renderBrief } from '../src/main/brief'
 import { planView } from '../src/shared/work-plan'
 import type { AppCtx, CrewService, HomeCtx } from '../src/main/services'
@@ -45,7 +45,7 @@ function fakeCrew(): Partial<CrewService> {
       if (used >= cap) throw new Error(`deferred: world is at capacity (${used}/${cap} units). The quest stays queued.`)
       const waits = req.backlogId ? hc.backlog.unresolved(req.backlogId) : []
       if (waits.length && !req.force) throw new Error(`Quest ${req.backlogId} waits on ${waits.join(', ')}`)
-      const t = { id: `unit-${++n}`, kind: req.kind, title: req.title, project: req.project, wksp: 'main', state: 'spawning', backlogId: req.backlogId,
+      const t = { id: `unit-${++n}`, kind: req.kind, title: req.title, project: req.project, workspace: 'main', state: 'spawning', backlogId: req.backlogId,
         branch: `genio/unit-${n}`, baseBranch: 'main', createdAt: new Date().toISOString(), updatedAt: '', inbox: { seq: 0, acked: 0, rings: 0 }, statusOffset: 0, relaunches: 0 } as unknown as Task
       tasks.push(t)
       spawned.push(req)
@@ -62,7 +62,7 @@ function fakeCrew(): Partial<CrewService> {
 }
 
 function build(): void {
-  hc = { home, wksp: { deliverWakes: vi.fn(), say: vi.fn(), history: () => [] } } as unknown as HomeCtx
+  hc = { home, workspace: { deliverWakes: vi.fn(), say: vi.fn(), history: () => [] } } as unknown as HomeCtx
   hc.crew = fakeCrew() as CrewService
   hc.backlog = createBacklogService(() => ctx, home)
   hc.decisions = createDecisionService(() => ctx, home)

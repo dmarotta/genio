@@ -36,7 +36,7 @@ export interface SpawnRequest {
   /** dispatch category (Genio passes it; absent = keyword heuristic) */
   category?: TaskCategory
   backlogId?: string
-  wksp?: string
+  workspace?: string
   /** a plan step's handoff note: becomes "## Plan context" in the brief */
   planContext?: string
   /** start the quest although its dependencies have not landed (only on the player's word) */
@@ -677,28 +677,28 @@ export interface GenioApi {
 
   // ---- bridge (chat with Genio / allies)
   // The chat calls take an optional design chat id (`conversation`): absent, they address the project chat.
-  approveGeneration(wksp: string, run: string): Promise<import('./generation').GenerationCard>
-  chatHistory(wksp: string, limit?: number, conversation?: string): Promise<ChatMessage[]>
+  approveGeneration(workspace: string, run: string): Promise<import('./generation').GenerationCard>
+  chatHistory(workspace: string, limit?: number, conversation?: string): Promise<ChatMessage[]>
   /** images go to the session as image blocks; text may be empty when images are attached */
-  sendChat(wksp: string, text: string, images?: ChatImageInput[], context?: InventoryContext, conversation?: string): Promise<void>
+  sendChat(workspace: string, text: string, images?: ChatImageInput[], context?: InventoryContext, conversation?: string): Promise<void>
   /** take back a queued (or unsent) message for edit/cancel; null when the session already picked it up */
-  unqueueChat(wksp: string, id: string, conversation?: string): Promise<UnqueuedChat | null>
+  unqueueChat(workspace: string, id: string, conversation?: string): Promise<UnqueuedChat | null>
   /** send a message that steers: the turn in progress ends at a safe point and this one is read first */
-  steerChat(wksp: string, text: string, images?: ChatImageInput[], context?: InventoryContext, conversation?: string): Promise<void>
+  steerChat(workspace: string, text: string, images?: ChatImageInput[], context?: InventoryContext, conversation?: string): Promise<void>
   /** a queued message steers now; the result says what it waits for, or why it cannot */
-  sendQueuedNow(wksp: string, id: string, conversation?: string): Promise<SendNowResult>
+  sendQueuedNow(workspace: string, id: string, conversation?: string): Promise<SendNowResult>
   /** like/dislike a Genio message (null removes it); a dislike pauses what that message started after a short grace period */
-  reactToMessage(wksp: string, id: string, kind: ReactionKind | null): Promise<ChatMessage>
-  interruptWksp(wksp: string, conversation?: string): Promise<void>
-  restartWksp(wksp: string, fresh: boolean, role?: 'genio' | 'bot', conversation?: string): Promise<void>
+  reactToMessage(workspace: string, id: string, kind: ReactionKind | null): Promise<ChatMessage>
+  interruptWorkspace(workspace: string, conversation?: string): Promise<void>
+  restartWorkspace(workspace: string, fresh: boolean, role?: 'genio' | 'bot', conversation?: string): Promise<void>
   /** the project's design chats (thinking partners that start no work) */
-  designChats(wksp: string): Promise<DesignChatInfo[]>
+  designChats(workspace: string): Promise<DesignChatInfo[]>
   /** a new design chat; model and effort default to the project chat's */
-  designChatCreate(wksp: string, controls?: { model?: string; effort?: string }): Promise<DesignChatInfo>
+  designChatCreate(workspace: string, controls?: { model?: string; effort?: string }): Promise<DesignChatInfo>
   /** stops a design chat and deletes its transcript */
-  designChatDelete(wksp: string, conversation: string): Promise<void>
+  designChatDelete(workspace: string, conversation: string): Promise<void>
   /** a design chat's own model and effort ('' follows the project chat) */
-  designChatConfigure(wksp: string, conversation: string, controls: { model?: string; effort?: string }): Promise<DesignChatInfo>
+  designChatConfigure(workspace: string, conversation: string, controls: { model?: string; effort?: string }): Promise<DesignChatInfo>
   resolvePermission(id: string, allow: boolean): Promise<void>
   recap(): Promise<void>
   save(): Promise<void>
@@ -735,8 +735,8 @@ export interface GenioApi {
   paneOpen(world: string, cwd?: string, restart?: boolean, size?: { cols: number; rows: number }): Promise<TerminalInfo>
   /** Close the pane: its shell and its '!' runs stop. */
   paneClose(world: string): Promise<void>
-  /** Run a '!' command from `wksp`'s composer in the pane's folder; its result block joins that chat when it ends. */
-  paneRun(world: string, wksp: string, command: string, cwd?: string, size?: { cols: number; rows: number }): Promise<TerminalInfo>
+  /** Run a '!' command from `workspace`'s composer in the pane's folder; its result block joins that chat when it ends. */
+  paneRun(world: string, workspace: string, command: string, cwd?: string, size?: { cols: number; rows: number }): Promise<TerminalInfo>
 
   // ---- quest log (backlog)
   backlogAdd(item: Partial<BacklogItem> & { title: string }): Promise<BacklogItem>
@@ -861,8 +861,8 @@ export const API_METHODS = [
   'steerChat',
   'sendQueuedNow',
   'reactToMessage',
-  'interruptWksp',
-  'restartWksp',
+  'interruptWorkspace',
+  'restartWorkspace',
   'designChats',
   'designChatCreate',
   'designChatDelete',

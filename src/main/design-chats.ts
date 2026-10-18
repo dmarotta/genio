@@ -13,7 +13,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { CanUseTool, Options, PermissionResult } from '@anthropic-ai/claude-agent-sdk'
-import type { Ally, ChatMessage, DesignChatInfo, WkspActivity, WkspInfo } from '@shared/types'
+import type { Ally, ChatMessage, DesignChatInfo, WorkspaceActivity, WorkspaceInfo } from '@shared/types'
 import type { ChatImageInput } from '@shared/chat-images'
 import { validateInventoryContext, inventoryContextBlock, type InventoryContext } from '@shared/inventory-context'
 import { chatControls, type SendNowResult, type UnqueuedChat } from '@shared/chat'
@@ -34,7 +34,7 @@ import { chatRouteUnavailable, markChatRouteUnavailable } from './model-catalogu
 import { claudeLimitsFile, recordClaudeRateLimit, recordCodexChatLimits, recordCodexChatUsage, type ClaudeRateLimitInfo } from './usage'
 import { claudeLaunch } from './claude-home'
 import { codexLaunch } from './codex-home'
-import { buildTools } from './wksp-tools'
+import { buildTools } from './workspace-tools'
 import { closeChatToolBridges, openCodexBridge } from './chat-tool-bridge'
 import { DESIGN_NATIVE, DISALLOWED, enforceTool } from './chat-tool-policy'
 import { chatImageDir, saveChatImages } from './chat-images'
@@ -79,8 +79,8 @@ interface Runtime {
   rec: DesignRecord
   thread: ChatThread
   session: ProviderChatSession
-  activity: WkspActivity
-  limit?: WkspInfo['limit']
+  activity: WorkspaceActivity
+  limit?: WorkspaceInfo['limit']
   lastError?: string
 }
 
@@ -129,7 +129,7 @@ export function createDesignChatService(getCtx: () => AppCtx, home: Home, ally?:
       ...(rt?.limit ? { limit: rt.limit } : {}), ...(rt?.lastError ? { lastError: rt.lastError } : {}),
       costUsd: rec.costUsd, turns: rec.turns }
   }
-  const publish = (): void => bus.publish({ type: 'design-chats', wksp: name, chats: svc.list() })
+  const publish = (): void => bus.publish({ type: 'design-chats', workspace: name, chats: svc.list() })
   const find = (id: string): DesignRecord => {
     const rec = typeof id === 'string' && ID_RE.test(id) ? records.find(r => r.id === id) : undefined
     if (!rec) throw new Error('That Lore chat no longer exists.')
@@ -143,7 +143,7 @@ export function createDesignChatService(getCtx: () => AppCtx, home: Home, ally?:
     const controls = chatControls(chatSettings(settings(), currentSignIns()), liveAlly())
     return { model: chatRoute(rec.model || controls.model).model, effort: rec.effort || controls.effort }
   }
-  const quotaHold = (provider: ChatProvider, item: TurnItem): WkspInfo['limit'] =>
+  const quotaHold = (provider: ChatProvider, item: TurnItem): WorkspaceInfo['limit'] =>
     provider === 'claude' && !quotaPolicy().canStartTurn(item.kind, Date.now(), false) ? quotaPolicy().limitState() : undefined
   const handoff = (rt: Runtime, excludeMessageId?: string): string => chatHandoff({
     messages: rt.thread.load().filter(m => m.id !== excludeMessageId),
@@ -191,11 +191,11 @@ export function createDesignChatService(getCtx: () => AppCtx, home: Home, ally?:
   }
 
   function createDriver(rt: Runtime, provider: ChatProvider, events: ChatDriverEvents, config: () => { model?: string; effort?: string }) {
-    const claudeConfig = () => sessionConfig('design', { ...settings(), wkspModel: config().model ?? '', wkspEffort: config().effort ?? '' })
+    const claudeConfig = () => sessionConfig('design', { ...settings(), workspaceModel: config().model ?? '', workspaceEffort: config().effort ?? '' })
     if (provider === 'claude') return new AgentSession(`design-${rt.rec.id}`, resume => claudeOptions(rt, resume, claudeConfig()),
       { ...events, onRateLimit: rateLimit }, name, claudeConfig, quotaPolicy, costs)
     return new CodexChatDriver({
-      wksp: name, cwd: chatCwd(),
+      workspace: name, cwd: chatCwd(),
       // Genio's own Codex home keeps the chat thread out of the player's Codex app.
       home: async () => {
         const launch = await codexLaunch()
@@ -224,9 +224,9 @@ export function createDesignChatService(getCtx: () => AppCtx, home: Home, ally?:
     const rec = find(id)
     const rt = { rec, activity: 'offline' } as Runtime
     rt.thread = createChatThread({
-      wksp: name, file: path.join(dir, `${rec.id}.jsonl`), imageDir, reader: 'The Lore chat',
+      workspace: name, file: path.join(dir, `${rec.id}.jsonl`), imageDir, reader: 'The Lore chat',
       session: () => rt.session,
-      publish: m => bus.publish({ type: 'design-chat', wksp: name, conversation: rec.id, message: m }),
+      publish: m => bus.publish({ type: 'design-chat', workspace: name, conversation: rec.id, message: m }),
       changed: publish,
       canSteer: () => rt.session.busy && !rt.limit,
       steerNote: () => {
@@ -260,7 +260,7 @@ export function createDesignChatService(getCtx: () => AppCtx, home: Home, ally?:
           publish()
         },
         onMessage: (m, final) => rt.thread.record(m, final),
-        onDelta: (mid, text) => bus.publish({ type: 'design-chat-delta', wksp: name, conversation: rec.id, id: mid, text }),
+        onDelta: (mid, text) => bus.publish({ type: 'design-chat-delta', workspace: name, conversation: rec.id, id: mid, text }),
         onActivity(a) {
           rt.activity = a
           publish()
@@ -406,7 +406,7 @@ export function createDesignChatService(getCtx: () => AppCtx, home: Home, ally?:
     },
     post(id, m) {
       if (!records.some(r => r.id === id)) return
-      runtime(id).thread.record({ ...m, wksp: name }, true)
+      runtime(id).thread.record({ ...m, workspace: name }, true)
     },
     async stop() {
       for (const rt of open.values()) await stopRuntime(rt)

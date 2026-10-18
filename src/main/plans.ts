@@ -177,7 +177,7 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
 
   function wake(reason: string, lines: string[], routine: boolean, taskId?: string): void {
     safe(() => hc().wakes.enqueue({ kind: 'plan', reason, taskId, lines, routine }))
-    safe(() => hc().wksp.deliverWakes())
+    safe(() => hc().workspace.deliverWakes())
   }
 
   function ledger(event: string, p: WorkPlan, data?: Record<string, unknown>): void {
@@ -188,7 +188,7 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
 
   /** The main chat's measured spend per unit it ran, once there is enough history to mean anything. */
   function chatUsdPerUnit(): number | undefined {
-    const usd = safe(() => hc().wksp.info().costUsd) ?? 0
+    const usd = safe(() => hc().workspace.info().costUsd) ?? 0
     const units = safe(() => hc().crew.list().length) ?? 0
     return usd > 0 && units >= 5 ? Math.min(5, Math.max(0.1, usd / units)) : undefined
   }
@@ -381,7 +381,7 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
     return {
       kind: s.kind, project: p.world, title: s.title, intent: p.intent, spec: s.spec, summary: s.summary,
       category: s.category, harness: s.harness, model: s.model, effort: s.effort as SpawnRequest['effort'],
-      backlogId: questId, mode: q?.mode, yolo: q?.yolo, wksp: home.name, planContext: handoffNote(p, s)
+      backlogId: questId, mode: q?.mode, yolo: q?.yolo, workspace: home.name, planContext: handoffNote(p, s)
     }
   }
 

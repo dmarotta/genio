@@ -11,20 +11,20 @@ vi.mock('../src/main/unithooks', () => ({ installUnitHooks: async () => ({}) }))
 import { Home } from '../src/main/home'
 import { createCrewService } from '../src/main/crew'
 import { createBacklogService } from '../src/main/backlog'
-import { createToolRegistry } from '../src/main/wksp-tools'
+import { createToolRegistry } from '../src/main/workspace-tools'
 import { registerIpc } from '../src/main/ipc'
 import type { AppCtx, HomeCtx } from '../src/main/services'
 import type { ChatMessage } from '../src/shared/types'
 
 let root: string, home: Home, ctx: AppCtx, hc: HomeCtx, said: ChatMessage[], send: ReturnType<typeof vi.fn>
-const playerSays = (text: string): void => { said.push({ id: `p-${said.length}`, wksp: 'main', role: 'player', text, ts: new Date().toISOString() } as ChatMessage) }
+const playerSays = (text: string): void => { said.push({ id: `p-${said.length}`, workspace: 'main', role: 'player', text, ts: new Date().toISOString() } as ChatMessage) }
 
 beforeEach(() => {
   said = []
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-deps-'))
   home = new Home(root); home.ensure()
   send = vi.fn(async () => undefined)
-  hc = { home, wksp: { history: () => said, send } } as unknown as HomeCtx
+  hc = { home, workspace: { history: () => said, send } } as unknown as HomeCtx
   const world = { name: 'world', path: root, defaultBranch: 'main' }
   ctx = {
     appRoot: path.join(root, 'missing-bundle'), main: hc, home: () => hc, homes: new Map([['main', hc]]),

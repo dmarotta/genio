@@ -105,7 +105,7 @@ describe('no agent can write to the player\'s terminal', () => {
   })
 
   it('Genio\'s and allies\' tools never reach the pane or its PTY', () => {
-    for (const s of sources.filter((x) => /^(wksp-tools|wksp-sdk-tools|chat-tool-.*|asset-tools|agent-generation)\.ts$/.test(x.f))) {
+    for (const s of sources.filter((x) => /^(workspace-tools|workspace-sdk-tools|chat-tool-.*|asset-tools|agent-generation)\.ts$/.test(x.f))) {
       expect(s.text, s.f).not.toMatch(/terminals\.(write|submit|create)\(|paneRun|runShell|openPane|terminalWrite/)
     }
   })

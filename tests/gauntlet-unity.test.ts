@@ -47,7 +47,7 @@ beforeEach(() => {
   fs.mkdirSync(config.editors.dir, { recursive: true }); fs.writeFileSync(path.join(config.editors.dir, 'cap.json'), '{"cap":1}')
   fs.mkdirSync(home.taskDir('unit'), { recursive: true })
   fs.writeFileSync(home.briefFile('unit'), "## Player's intent\nImplement change\n\n## Genio spec\nNone")
-  task = { id: 'unit', title: 'Change', kind: 'ship', project: project.name, wksp: 'ally', state: 'validating', worktree,
+  task = { id: 'unit', title: 'Change', kind: 'ship', project: project.name, workspace: 'ally', state: 'validating', worktree,
     branch: 'genio/unit', baseBranch: 'main', briefPath: home.briefFile('unit') } as Task
   const crew = { get: () => task, update: (_id: string, patch: Partial<Task>) => { Object.assign(task, patch); return task },
     send: vi.fn(async () => ({ ok: true, message: 'sent' })), bump: vi.fn(), registerPr: vi.fn(async () => {

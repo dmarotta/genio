@@ -84,9 +84,9 @@ describe('CLI entry', () => {
 })
 
 describe('window routing', () => {
-  const binding = { project: 'one', wksp: 'ally-one' }
+  const binding = { project: 'one', workspace: 'ally-one' }
   const tasks = [{ id: 'task-one', project: 'one', terminalId: 'term-one' }, { id: 'task-two', project: 'two' }] as Task[]
-  const snapshot = { tasks, projects: [{ name: 'one', path: path.resolve('game') }, { name: 'two', path: path.resolve('game-two') }], backlog: [], decisions: [], wksps: [{ name: 'main' }, { name: 'ally-one' }], allies: [{ name: 'ally-one' }, { name: 'ally-two' }] } as unknown as FleetSnapshot
+  const snapshot = { tasks, projects: [{ name: 'one', path: path.resolve('game') }, { name: 'two', path: path.resolve('game-two') }], backlog: [], decisions: [], workspaces: [{ name: 'main' }, { name: 'ally-one' }], allies: [{ name: 'ally-one' }, { name: 'ally-two' }] } as unknown as FleetSnapshot
   it('broadcasts global events and sends project events only to their project and Hub', () => {
     const global = { type: 'settings', settings: {} } as GenioEvent
     expect(routeProjectEvent(global, binding, snapshot)).toBe(global)
@@ -94,19 +94,19 @@ describe('window routing', () => {
     expect(routeProjectEvent(event, binding, snapshot)).toBeUndefined()
     expect(routeProjectEvent(event, undefined, snapshot)).toBe(event)
     expect(routeProjectEvent({ type: 'task', task: tasks[0] }, binding, snapshot)).toBeTruthy()
-    expect(routeProjectEvent({ type: 'chat-delta', wksp: 'main', id: 'm', text: 'private' }, binding, snapshot)).toBeUndefined()
-    expect(routeProjectEvent({ type: 'permission', request: { wksp: 'ally-two' } } as GenioEvent, binding, snapshot)).toBeUndefined()
+    expect(routeProjectEvent({ type: 'chat-delta', workspace: 'main', id: 'm', text: 'private' }, binding, snapshot)).toBeUndefined()
+    expect(routeProjectEvent({ type: 'permission', request: { workspace: 'ally-two' } } as GenioEvent, binding, snapshot)).toBeUndefined()
   })
   it('keeps chat traffic off the Hub and builds the snapshot only for events that route by it', () => {
-    const chat = { type: 'chat', message: { wksp: 'ally-one' } } as GenioEvent
+    const chat = { type: 'chat', message: { workspace: 'ally-one' } } as GenioEvent
     expect(routeProjectEvent(chat, undefined, snapshot)).toBeUndefined()
-    expect(routeProjectEvent({ type: 'chat-delta', wksp: 'ally-one', id: 'm', text: 'x' }, undefined, snapshot)).toBeUndefined()
-    expect(routeProjectEvent({ type: 'generation', wksp: 'ally-one', id: 'g', active: true }, undefined, snapshot)).toBeUndefined()
+    expect(routeProjectEvent({ type: 'chat-delta', workspace: 'ally-one', id: 'm', text: 'x' }, undefined, snapshot)).toBeUndefined()
+    expect(routeProjectEvent({ type: 'generation', workspace: 'ally-one', id: 'g', active: true }, undefined, snapshot)).toBeUndefined()
     expect(routeProjectEvent(chat, binding, snapshot)).toBe(chat)
     let built = 0
     const lazy = (): FleetSnapshot => { built++; return snapshot }
     expect(routeProjectEvent(chat, binding, lazy)).toBe(chat)
-    expect(routeProjectEvent({ type: 'wksp', wksp: { name: 'ally-one' } } as GenioEvent, binding, lazy)).toBeTruthy()
+    expect(routeProjectEvent({ type: 'workspace', workspace: { name: 'ally-one' } } as GenioEvent, binding, lazy)).toBeTruthy()
     expect(built).toBe(0)
     expect(routeProjectEvent({ type: 'status', event: { taskId: 'task-one' } } as GenioEvent, binding, lazy)).toBeTruthy()
     expect(built).toBe(1)
@@ -130,7 +130,7 @@ describe('window routing', () => {
   })
   it('scopes snapshots and resolves terminal ownership by task or a path boundary', () => {
     expect(projectSnapshot(snapshot, binding).tasks).toEqual([tasks[0]])
-    expect(projectSnapshot(snapshot, binding).wksps.map(m => m.name)).toEqual(['ally-one'])
+    expect(projectSnapshot(snapshot, binding).workspaces.map(m => m.name)).toEqual(['ally-one'])
     expect(terminalProject({ id: 'term-one', cwd: root } as TerminalInfo, snapshot)).toBe('one')
     expect(terminalProject({ id: 'shell', cwd: path.resolve('game-two/child') } as TerminalInfo, snapshot)).toBe('two')
     expect(terminalProject({ id: 'shell', cwd: path.resolve('game-other') } as TerminalInfo, snapshot)).toBeUndefined()

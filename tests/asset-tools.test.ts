@@ -7,7 +7,7 @@ import { conventionsOf, suggestLocation } from '../resources/unit-skills/genio/l
 import { createInventoryService } from '../src/main/inventory'
 import { assetKind, vendorPath } from '../src/main/inventory-query'
 import { assetInfo, findAssets, locateAsset } from '../src/main/asset-tools'
-import { buildTools } from '../src/main/wksp-tools'
+import { buildTools } from '../src/main/workspace-tools'
 import { ACHIEVEMENTS } from '../src/main/stats'
 import type { AppCtx } from '../src/main/services'
 import type { Home } from '../src/main/home'

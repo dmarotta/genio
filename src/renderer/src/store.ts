@@ -18,7 +18,7 @@ export type { ViewId }
 
 const windowParams = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search)
 export const PROJECT_WINDOW = windowParams.get('project') || undefined
-export const PROJECT_WKSP = PROJECT_WINDOW ? windowParams.get('wksp') || undefined : undefined
+export const PROJECT_WORKSPACE = PROJECT_WINDOW ? windowParams.get('workspace') || undefined : undefined
 const DEFAULT_VIEW: ViewId = PROJECT_WINDOW ? 'comms' : 'worlds'
 
 export interface Toast {
@@ -37,7 +37,7 @@ export interface State {
   connected: boolean
   snap: FleetSnapshot
   settings: Settings | null
-  /** Keyed by chat: the project chat by its wksp, a design chat by chatKey(wksp, id). */
+  /** Keyed by chat: the project chat by its workspace, a design chat by chatKey(workspace, id). */
   chats: Record<string, ChatMessage[]>
   chatLoaded: Record<string, boolean>
   /** This project window's design chats; undefined until the Design screen first loads them. */
@@ -83,7 +83,7 @@ const emptySnap: FleetSnapshot = {
   backlog: [],
   decisions: [],
   projects: [],
-  wksps: [],
+  workspaces: [],
   allies: [],
   away: { mode: 'online', held: [], returnSummaryPending: false },
   inbox: [],
@@ -283,9 +283,9 @@ export function focusTask(id: string): void {
 }
 
 /** Project chat is always owned by its window. Hub links open that project. */
-export function openChat(wksp: string): void {
-  if (PROJECT_WKSP) { go('comms'); void loadChat(PROJECT_WKSP); return }
-  const world = wksp === 'main' ? 'genio' : state.snap.allies.find(a => a.name === wksp)?.projects[0]
+export function openChat(workspace: string): void {
+  if (PROJECT_WORKSPACE) { go('comms'); void loadChat(PROJECT_WORKSPACE); return }
+  const world = workspace === 'main' ? 'genio' : state.snap.allies.find(a => a.name === workspace)?.projects[0]
   const project = state.snap.projects.find(p => p.name === world)
   if (project) void op('Open project', () => api().projectOpen(project.path))
 }
@@ -295,19 +295,19 @@ export function openChat(wksp: string): void {
  * settings; an ally saves its own overrides ('' = follow the main chat). Either way they
  * persist across restarts and apply to that chat's session from its next turn.
  */
-export async function saveChatControls(wksp: string, patch: AllyControlsPatch): Promise<void> {
-  if (wksp === 'main') {
+export async function saveChatControls(workspace: string, patch: AllyControlsPatch): Promise<void> {
+  if (workspace === 'main') {
     const p: Partial<Settings> = {}
     if (patch.shellMode) p.chatShellMode = patch.shellMode
-    if (patch.model !== undefined) p.wkspModel = patch.model
-    if (patch.effort !== undefined) p.wkspEffort = patch.effort
+    if (patch.model !== undefined) p.workspaceModel = patch.model
+    if (patch.effort !== undefined) p.workspaceEffort = patch.effort
     return saveSettings(p)
   }
   const swap = (a: Ally): void => setState((s) => ({ snap: { ...s.snap, allies: s.snap.allies.map((x) => (x.name === a.name && !x.retiredAt ? a : x)) } }))
-  const cur = state.snap.allies.find((a) => a.name === wksp && !a.retiredAt)
+  const cur = state.snap.allies.find((a) => a.name === workspace && !a.retiredAt)
   if (cur) swap(patchAllyControls(cur, patch))
   try {
-    swap(await api().allyUpdate(wksp, patch))
+    swap(await api().allyUpdate(workspace, patch))
   } catch (e) {
     if (cur) swap(cur)
     toast('error', 'Ally settings not saved', errText(e))
@@ -315,7 +315,7 @@ export async function saveChatControls(wksp: string, patch: AllyControlsPatch): 
 }
 
 export function openDeploy(prefill: Partial<SpawnRequest> = {}): void {
-  if (PROJECT_WINDOW) prefill = { ...prefill, project: PROJECT_WINDOW, wksp: PROJECT_WKSP }
+  if (PROJECT_WINDOW) prefill = { ...prefill, project: PROJECT_WINDOW, workspace: PROJECT_WORKSPACE }
   if (state.snap.projects.find(p => p.name === prefill.project)?.gitRepo === false) {
     toast('info', 'Deploy needs a git repo', 'You can ask Genio to create it in chat.')
     return
@@ -334,17 +334,17 @@ export async function saveSettings(patch: Partial<Settings>): Promise<void> {
   }
 }
 
-export async function loadChat(wksp: string, force = false, conversation?: string): Promise<void> {
-  if (PROJECT_WKSP && wksp !== PROJECT_WKSP) return
-  const key = chatKey(wksp, conversation)
+export async function loadChat(workspace: string, force = false, conversation?: string): Promise<void> {
+  if (PROJECT_WORKSPACE && workspace !== PROJECT_WORKSPACE) return
+  const key = chatKey(workspace, conversation)
   if (state.chatLoaded[key] && !force) return
   try {
-    const hist = (await (conversation ? api().chatHistory(wksp, 300, conversation) : api().chatHistory(wksp, 300))).map(cleanChatMessage)
+    const hist = (await (conversation ? api().chatHistory(workspace, 300, conversation) : api().chatHistory(workspace, 300))).map(cleanChatMessage)
     const running = hist.filter(m => m.generation?.status === 'running' || m.generation?.status === 'placing').map(m => m.id)
     setState((s) => ({
       chats: { ...s.chats, [key]: mergeChat(hist, s.chats[key] ?? []) },
       chatLoaded: { ...s.chatLoaded, [key]: true },
-      ...(conversation ? {} : { generating: { ...s.generating, [wksp]: [...new Set([...(s.generating[wksp] ?? []), ...running])] } })
+      ...(conversation ? {} : { generating: { ...s.generating, [workspace]: [...new Set([...(s.generating[workspace] ?? []), ...running])] } })
     }))
   } catch {
     /* main not ready yet */
@@ -353,9 +353,9 @@ export async function loadChat(wksp: string, force = false, conversation?: strin
 
 /** The project's design chats, for the Design screen; events keep them current afterwards. */
 export async function loadDesignChats(): Promise<void> {
-  if (!PROJECT_WKSP) return
+  if (!PROJECT_WORKSPACE) return
   try {
-    const chats = await api().designChats(PROJECT_WKSP)
+    const chats = await api().designChats(PROJECT_WORKSPACE)
     setState({ designChats: chats })
   } catch (e) {
     setState({ designChats: [] })
@@ -395,9 +395,9 @@ function upsertBy<T>(list: T[], item: T, key: (t: T) => string): T[] {
 }
 
 /** A streamed piece of a reply: appended to its message, or the start of a new partial one. */
-function withDelta(list: ChatMessage[], wksp: string, id: string, text: string): ChatMessage[] {
+function withDelta(list: ChatMessage[], workspace: string, id: string, text: string): ChatMessage[] {
   const i = list.findIndex((x) => x.id === id)
-  if (i < 0) return [...list, cleanChatMessage({ id, wksp, role: 'genio', text, ts: new Date().toISOString(), partial: true })]
+  if (i < 0) return [...list, cleanChatMessage({ id, workspace, role: 'genio', text, ts: new Date().toISOString(), partial: true })]
   const next = list.slice()
   next[i] = cleanChatMessage({ ...next[i], text: next[i].text + text, partial: true })
   return next
@@ -433,36 +433,36 @@ export function handleEvent(ev: GenioEvent): void {
     case 'standing-approvals':
       setState({ snap: { ...s.snap, standing: ev.approvals } })
       break
-    case 'wksp':
-      setState({ snap: { ...s.snap, wksps: upsertBy(s.snap.wksps, ev.wksp, (m) => m.name) } })
+    case 'workspace':
+      setState({ snap: { ...s.snap, workspaces: upsertBy(s.snap.workspaces, ev.workspace, (m) => m.name) } })
       break
     case 'chat': {
       const m = cleanChatMessage(ev.message)
-      setState({ chats: { ...s.chats, [m.wksp]: applyChatEvent(s.chats[m.wksp] ?? [], m) } })
+      setState({ chats: { ...s.chats, [m.workspace]: applyChatEvent(s.chats[m.workspace] ?? [], m) } })
       break
     }
     case 'chat-delta':
-      setState({ chats: { ...s.chats, [ev.wksp]: withDelta(s.chats[ev.wksp] ?? [], ev.wksp, ev.id, ev.text) } })
+      setState({ chats: { ...s.chats, [ev.workspace]: withDelta(s.chats[ev.workspace] ?? [], ev.workspace, ev.id, ev.text) } })
       break
     // A design chat's messages stay under its own key; only this window's project has them.
     case 'design-chats':
-      if (ev.wksp === PROJECT_WKSP) setState({ designChats: ev.chats })
+      if (ev.workspace === PROJECT_WORKSPACE) setState({ designChats: ev.chats })
       break
     case 'design-chat': {
-      if (ev.wksp !== PROJECT_WKSP) break
-      const key = chatKey(ev.wksp, ev.conversation)
+      if (ev.workspace !== PROJECT_WORKSPACE) break
+      const key = chatKey(ev.workspace, ev.conversation)
       setState({ chats: { ...s.chats, [key]: applyChatEvent(s.chats[key] ?? [], cleanChatMessage(ev.message)) } })
       break
     }
     case 'design-chat-delta': {
-      if (ev.wksp !== PROJECT_WKSP) break
-      const key = chatKey(ev.wksp, ev.conversation)
-      setState({ chats: { ...s.chats, [key]: withDelta(s.chats[key] ?? [], ev.wksp, ev.id, ev.text) } })
+      if (ev.workspace !== PROJECT_WORKSPACE) break
+      const key = chatKey(ev.workspace, ev.conversation)
+      setState({ chats: { ...s.chats, [key]: withDelta(s.chats[key] ?? [], ev.workspace, ev.id, ev.text) } })
       break
     }
     case 'generation': {
-      const ids = (s.generating[ev.wksp] ?? []).filter((id) => id !== ev.id)
-      setState({ generating: { ...s.generating, [ev.wksp]: ev.active ? [...ids, ev.id] : ids } })
+      const ids = (s.generating[ev.workspace] ?? []).filter((id) => id !== ev.id)
+      setState({ generating: { ...s.generating, [ev.workspace]: ev.active ? [...ids, ev.id] : ids } })
       break
     }
     case 'status': {
@@ -542,8 +542,8 @@ export function handleEvent(ev: GenioEvent): void {
       } else if (t.view === 'accounts') {
         void import('./lib/settings-nav').then((m) => m.openSettings('accounts'))
       } else {
-        const known = t.wksp === 'main' || s.snap.allies.some((a) => a.name === t.wksp && !a.retiredAt)
-        if (t.wksp && known) openChat(t.wksp)
+        const known = t.workspace === 'main' || s.snap.allies.some((a) => a.name === t.workspace && !a.retiredAt)
+        if (t.workspace && known) openChat(t.workspace)
         else go('comms')
       }
       break
@@ -578,7 +578,7 @@ export async function boot(): Promise<void> {
     if (settings.fx === false) document.body.classList.add('fx-off')
     void api().signInNeeded().then((signIn) => setState({ signIn })).catch(() => undefined)
     void api().signInGate().then((signInGate) => setState({ signInGate })).catch(() => undefined)
-    if (PROJECT_WKSP) await loadChat(PROJECT_WKSP)
+    if (PROJECT_WORKSPACE) await loadChat(PROJECT_WORKSPACE)
   } catch (e) {
     toast('error', 'Could not reach Genio core', errText(e))
   } finally {

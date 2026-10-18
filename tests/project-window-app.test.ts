@@ -10,7 +10,7 @@ let root: Root, host: HTMLDivElement
 const project = (name: string): Project => ({ name, path: `C:/${name}`, addedAt: '2026-10-13', engine: 'godot',
   defaultBranch: 'main', mode: 'local-only', yolo: false, branchPrefix: 'genio/', forge: 'none', commands: {}, managed: false })
 beforeAll(async () => {
-  window.history.replaceState({}, '', '?project=alpha&wksp=ally-alpha')
+  window.history.replaceState({}, '', '?project=alpha&workspace=ally-alpha')
   vi.resetModules()
   store = await import('../src/renderer/src/store')
   ;({ App } = await import('../src/renderer/src/App'))
@@ -36,7 +36,7 @@ it('adds its own project to the recents the Hub sorts by, since the Hub closes a
 
 it('floats pending cards over the screen without changing the layout underneath', async () => {
   const state = store.getState()
-  const decisions = [1, 2, 3, 4, 5, 6].map(i => ({ id: `c${i}`, key: 'k', project: 'alpha', wksp: 'ally-alpha', question: `Route ${i}?`, options: ['A'], source: 'genio' as const, urgency: 'normal' as const, createdAt: `2026-10-13T10:0${i}:00Z` }))
+  const decisions = [1, 2, 3, 4, 5, 6].map(i => ({ id: `c${i}`, key: 'k', project: 'alpha', workspace: 'ally-alpha', question: `Route ${i}?`, options: ['A'], source: 'genio' as const, urgency: 'normal' as const, createdAt: `2026-10-13T10:0${i}:00Z` }))
   store.setState({ snap: { ...state.snap, decisions } })
   await act(async () => root.render(React.createElement(App)))
   const body = host.querySelector('.app-body')!

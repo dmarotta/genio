@@ -89,7 +89,7 @@ export function createWakeService(_getCtx: () => AppCtx, home: Home): WakeServic
       const wake: Wake = {
         seq: maxSeq + 1,
         ts: nowIso(),
-        wksp: home.name,
+        workspace: home.name,
         kind: input.kind,
         reason: oneLine(input.reason),
         lines: [...new Set((input.lines ?? []).map((l) => oneLine(l)))],

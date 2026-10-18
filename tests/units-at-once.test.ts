@@ -21,7 +21,7 @@ describe('independent unit concurrency', () => {
     [{}, 8], [{ usageMode: 'save' }, 4], [{ usageMode: 'balanced' }, 8], [{ usageMode: 'max' }, 16],
     [{ costDial: 'cost' }, 4], [{ costDial: 'quality' }, 16], [{ usageMode: 'invalid', costDial: 'quality' }, 16]
   ])('migrates %j once without losing saved data', (mode, cap) => {
-    const saved = { ...mode, inboxToken: 'test-token', wkspModel: 'pinned', wkspEffort: 'high', customSetting: { preserved: true } }
+    const saved = { ...mode, inboxToken: 'test-token', workspaceModel: 'pinned', workspaceEffort: 'high', customSetting: { preserved: true } }
     fs.writeFileSync(home.settingsFile, JSON.stringify(saved))
     const publish = vi.spyOn(bus, 'publish')
     const service = createSettingsService(home)
@@ -39,7 +39,7 @@ describe('independent unit concurrency', () => {
   it('defaults new installs to eight, preserves an explicit limit and migrates idempotently', () => {
     expect(defaultSettings().unitsAtOnce).toBe(8)
     expect(createSettingsService(home).get().unitsAtOnce).toBe(8)
-    const saved = { usageMode: 'max', unitsAtOnce: 3, wkspEffort: 'high', quotaProtection: true, plainModelDefaults: true } as Partial<Settings>
+    const saved = { usageMode: 'max', unitsAtOnce: 3, workspaceEffort: 'high', quotaProtection: true, plainModelDefaults: true } as Partial<Settings>
     expect(migrateUsageSettings(saved)).toBe(saved)
     expect(migrateUsageSettings({ costDial: 'quality', unitsAtOnce: 5 })).toMatchObject({ usageMode: 'max', unitsAtOnce: 5 })
   })

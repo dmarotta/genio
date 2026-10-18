@@ -3,18 +3,18 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { Home } from '../src/main/home'
-import { createWkspService } from '../src/main/wksp'
+import { createWorkspaceService } from '../src/main/workspace'
 import { createWakeService } from '../src/main/wakes'
 import { claudeLimitsFile, recordClaudeRateLimit } from '../src/main/usage'
 import { defaultSettings } from '../src/main/settings'
-import type { AppCtx, WkspService } from '../src/main/services'
+import type { AppCtx, WorkspaceService } from '../src/main/services'
 import { SessionQuotaPolicy } from '../src/main/session-usage'
 
 const sdk = vi.hoisted(() => ({ query: vi.fn(), streams: [] as { input: any[]; emit(message: any): void }[] }))
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: sdk.query, tool: (name: string) => ({ name }), createSdkMcpServer: () => ({}) }))
 vi.mock('../src/main/claude-usage-probe', () => ({ refreshClaudePlanUsage: async () => {}, claudeProbeError: () => undefined }))
 let dir: string
-let services: WkspService[] = []
+let services: WorkspaceService[] = []
 beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime('2026-10-13T19:00:00Z')
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-claude-wakes-'))
@@ -44,7 +44,7 @@ function setup() {
   const wakes = createWakeService(() => ctx, home)
   const hc = { home, wakes, crew: { list: () => [] }, decisions: { list: () => [] }, backlog: { list: () => [] } }
   ctx.home = () => hc as any; ctx.homes = new Map([['genio', hc as any]])
-  const service = createWkspService(() => ctx, home)
+  const service = createWorkspaceService(() => ctx, home)
   services.push(service)
   return { service, wakes, main }
 }

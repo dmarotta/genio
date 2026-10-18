@@ -11,7 +11,7 @@ import { readJson, writeJsonAtomic } from './util'
 
 export interface TipWindow {
   project: string
-  wksp: string
+  workspace: string
   active: boolean
   dialogOpen: boolean
 }
@@ -68,11 +68,11 @@ export function createTipsService(getCtx: () => AppCtx, options: TipsOptions): {
       usage.standingUsed = true
       writeJsonAtomic(usageFile, usage)
     }
-    const home = ctx.home(win.wksp)
+    const home = ctx.home(win.workspace)
     const decisions = [...ctx.homes.values()].flatMap(h => h.decisions.list(true))
     const visible = decisions.filter(d => ownsDecision(d, win) && askingDecision(d, now()))
     const replying = [...ctx.homes.values()].some(h =>
-      ['starting', 'thinking', 'tool'].includes(h.wksp.info().activity) ||
+      ['starting', 'thinking', 'tool'].includes(h.workspace.info().activity) ||
       h.design?.list().some(c => ['starting', 'thinking', 'tool'].includes(c.activity)))
     const signals: TipSignals = {
       enabled: ctx.settings.get().featureTips, presence: ctx.away.state().mode,
@@ -161,7 +161,7 @@ export function createTipsService(getCtx: () => AppCtx, options: TipsOptions): {
         writeJsonAtomic(usageFile, usage)
         consider('project-open', e.project, { firstOpening: true })
       }
-    } else if (e.type === 'wksp' && e.wksp.activity === 'idle') {
+    } else if (e.type === 'workspace' && e.workspace.activity === 'idle') {
       const win = options.focused()
       for (const [project, waiting] of pending) {
         pending.delete(project)

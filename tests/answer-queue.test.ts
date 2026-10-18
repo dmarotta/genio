@@ -4,7 +4,7 @@ import type { Decision, Settings } from '../src/shared/types'
 import { CARD_LIMIT, cardCueAllowed, cardCues, cardOrder, cardQueue, reconcileSlots } from '../src/renderer/src/lib/answer-queue'
 
 const choice = (id: string, createdAt: string, patch: Partial<Decision> = {}): Decision => ({
-  id, key: id, wksp: 'main', question: `Question ${id}`, options: [], source: 'unit', urgency: 'normal', createdAt, ...patch
+  id, key: id, workspace: 'main', question: `Question ${id}`, options: [], source: 'unit', urgency: 'normal', createdAt, ...patch
 })
 const six = ['f', 'b', 'e', 'a', 'd', 'c'].map(id => choice(id, `2026-10-13T10:0${'abcdef'.indexOf(id)}:00Z`))
 const ids = (list: { id: string }[]) => list.map(d => d.id)

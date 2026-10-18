@@ -9,7 +9,7 @@ import { getState, openDecisions, setState } from '../src/renderer/src/store'
 
 const initial = getState()
 afterEach(() => { vi.useRealTimers(); setState(initial) })
-const choice = (id: string, extra: Partial<Decision> = {}): Decision => ({ id, key: 'k', wksp: 'genio', question: id, options: ['a', 'b'], source: 'unit', urgency: 'normal', createdAt: '2026-10-17T08:00:00Z', revision: 1, ...extra } as Decision)
+const choice = (id: string, extra: Partial<Decision> = {}): Decision => ({ id, key: 'k', workspace: 'genio', question: id, options: ['a', 'b'], source: 'unit', urgency: 'normal', createdAt: '2026-10-17T08:00:00Z', revision: 1, ...extra } as Decision)
 
 it('keeps the pending choices list stable across unrelated store changes', () => {
   setState({ snap: { ...initial.snap, decisions: [choice('a'), choice('b', { resolvedAt: '2026-10-17T08:01:00Z' })] } })

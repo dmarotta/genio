@@ -29,7 +29,7 @@ export const assetPlaceShape = { ...requestShape, run: z.string(), output: z.num
 
 type Placement = { world: string; player_words: string; place?: string; name?: string }
 interface Job extends GenerationCard {
-  wksp: string; ts: string; playerWords: string; target?: string; providerRun?: string; kind?: 'character'
+  workspace: string; ts: string; playerWords: string; target?: string; providerRun?: string; kind?: 'character'
   /** a design chat's image: its card posts into that conversation, never the project chat */
   conversation?: string
   request?: FalRunRequest | UthanaGenerateRequest | UthanaUploadRequest
@@ -72,24 +72,24 @@ export class AgentGeneration {
   private post(j: Job): void {
     this.save()
     const text = `${j.model}: ${j.status}${j.paths.length ? '\n' + j.paths.join('\n') : ''}${j.error ? '\n' + j.error : ''}`
-    const m: ChatMessage = { id: j.id, wksp: j.wksp, role: 'genio', ts: j.ts, text, generation: this.card(j), images: j.images }
-    if (j.conversation) { this.ctx.home(j.wksp).design?.post(j.conversation, m); return }
-    this.ctx.home(j.wksp).wksp.post(m, true)
-    bus.publish({ type: 'generation', wksp: j.wksp, id: j.id, active: j.status === 'running' || j.status === 'placing' })
+    const m: ChatMessage = { id: j.id, workspace: j.workspace, role: 'genio', ts: j.ts, text, generation: this.card(j), images: j.images }
+    if (j.conversation) { this.ctx.home(j.workspace).design?.post(j.conversation, m); return }
+    this.ctx.home(j.workspace).workspace.post(m, true)
+    bus.publish({ type: 'generation', workspace: j.workspace, id: j.id, active: j.status === 'running' || j.status === 'placing' })
   }
   private card(j: Job): GenerationCard {
     const { id, provider, world, model, status, estimatedUsd, spentUsd, capUsd, paths, warnings, error, progress, outputs, artBible, approval } = j
     return { id, provider, world, model, status, estimatedUsd, spentUsd, capUsd, paths, warnings, error, progress, outputs, ...(approval ? { approval } : {}), ...(artBible ? { artBible } : {}) }
   }
-  status(id: string, wksp: string): GenerationCard {
-    return this.card(this.owned(id, wksp))
+  status(id: string, workspace: string): GenerationCard {
+    return this.card(this.owned(id, workspace))
   }
   /** When the quote was shown: an approval in words must come after it. */
-  quotedAt(id: string, wksp: string): string {
-    return this.owned(id, wksp).ts
+  quotedAt(id: string, workspace: string): string {
+    return this.owned(id, workspace).ts
   }
-  private owned(id: string, wksp: string): Job {
-    const j = this.jobs.find(j => j.id === id && j.wksp === wksp)
+  private owned(id: string, workspace: string): Job {
+    const j = this.jobs.find(j => j.id === id && j.workspace === workspace)
     if (!j) throw new Error('No such generation in this chat')
     return j
   }
@@ -119,15 +119,15 @@ export class AgentGeneration {
     }
     if (!overwrite && fs.existsSync(absolute)) throw new Error('Target already exists; use asset_locate for a new name or asset_place with overwrite_words')
   }
-  private create(wksp: string, a: Placement, provider: Job['provider'], model: string, usd: number, target?: string): Job {
+  private create(workspace: string, a: Placement, provider: Job['provider'], model: string, usd: number, target?: string): Job {
     if (!Number.isFinite(usd) || usd < 0) throw new Error('A known nonnegative estimate is required')
     if (usd > 2) throw new Error('Delegate calls over $2 to a unit with an explicit budget')
     const budget = provider === 'codex' ? { confirm: false, spent: 0, cap: undefined } : checkGenerationBudget(this.ctx, a.world, usd)
-    const j: Job = { id: `gen-${rid(8)}`, provider, model, world: a.world || undefined, status: budget.confirm ? 'awaiting_approval' : 'running', estimatedUsd: usd, spentUsd: budget.spent, capUsd: budget.cap, paths: [], warnings: [], wksp, ts: nowIso(), playerWords: a.player_words, target }
+    const j: Job = { id: `gen-${rid(8)}`, provider, model, world: a.world || undefined, status: budget.confirm ? 'awaiting_approval' : 'running', estimatedUsd: usd, spentUsd: budget.spent, capUsd: budget.cap, paths: [], warnings: [], workspace, ts: nowIso(), playerWords: a.player_words, target }
     this.jobs.push(j)
     return j
   }
-  async fal(wksp: string, a: z.infer<z.ZodObject<typeof falGenerateShape>>, role = 'genio'): Promise<GenerationCard> {
+  async fal(workspace: string, a: z.infer<z.ZodObject<typeof falGenerateShape>>, role = 'genio'): Promise<GenerationCard> {
     this.requirePlayer(role, a.player_words)
     const catalogue = this.ctx.fal.catalogue(a.world), info = await this.ctx.fal.model(a.endpoint)
     if (!info.schema) throw new Error('Cannot validate this endpoint: input schema unavailable')
@@ -146,14 +146,14 @@ export class AgentGeneration {
     const kind = entry?.output === 'other' || !entry ? 'image' : entry.output
     const target = await this.destination(a, kind, 'new asset')
     const sourceHashes = this.fileHashes(input)
-    const j = this.create(wksp, a, 'fal', a.endpoint, usd, target)
+    const j = this.create(workspace, a, 'fal', a.endpoint, usd, target)
     j.request = { world: a.world, endpoint: a.endpoint, input, maxCostUsd: usd, ...(bible?.stamp ? { artBible: bible.stamp } : {}) }
     j.artBible = bible?.card
     j.sourceHashes = sourceHashes; this.post(j)
     if (j.status === 'running') this.start(j)
     return this.card(j)
   }
-  async motion(wksp: string, a: z.infer<z.ZodObject<typeof uthanaMotionShape>>, role = 'genio'): Promise<GenerationCard> {
+  async motion(workspace: string, a: z.infer<z.ZodObject<typeof uthanaMotionShape>>, role = 'genio'): Promise<GenerationCard> {
     this.requirePlayer(role, a.player_words)
     const p = this.project(a.world), format = a.format ?? (p.engine === 'unity' ? 'fbx' : 'glb')
     // Text models follow the Art Bible's Animation line; a video carries its own motion.
@@ -174,7 +174,7 @@ export class AgentGeneration {
     if (usd === undefined) throw new Error('Unknown Uthana model')
     const target = await this.destination(a, 'animation', `${a.name ?? 'new motion'}.${format}`)
     if (path.extname(target) !== '.' + format) throw new Error('Placement extension must match the export format')
-    const j = this.create(wksp, a, 'uthana', a.model, usd, target)
+    const j = this.create(workspace, a, 'uthana', a.model, usd, target)
     j.format = format
     j.request = { world: a.world, model: a.model, characterId: a.character ?? UTHANA_BUILTINS.find(c => c.name === 'Manny')!.id, ...(video ? { video } : { text }), ...(bible?.stamp ? { artBible: bible.stamp } : {}) }
     j.artBible = bible?.card
@@ -183,7 +183,7 @@ export class AgentGeneration {
     this.post(j); if (j.status === 'running') this.start(j)
     return this.card(j)
   }
-  async character(wksp: string, a: z.infer<z.ZodObject<typeof uthanaCharacterShape>>, role = 'genio') {
+  async character(workspace: string, a: z.infer<z.ZodObject<typeof uthanaCharacterShape>>, role = 'genio') {
     this.requirePlayer(role, a.player_words)
     const p = this.project(a.world), absolute = path.resolve(p.path, a.path)
     if (!absolute.startsWith(path.resolve(p.path) + path.sep)) throw new Error('Character must be in this project')
@@ -193,16 +193,16 @@ export class AgentGeneration {
     const hash = sha256File(absolute)
     const existing = this.ctx.uthana.world(a.world).characters.find(c => c.source === source && c.sha256 === hash)
     if (existing) return { character: existing, reused: true }
-    const j = this.create(wksp, a, 'uthana', 'auto-rig', estimateUthana('auto-rig', { autoRig: a.auto_rig }).usd!)
+    const j = this.create(workspace, a, 'uthana', 'auto-rig', estimateUthana('auto-rig', { autoRig: a.auto_rig }).usd!)
     j.kind = 'character'; j.request = { world: a.world, path: absolute, name: a.name ?? path.basename(absolute), autoRig: a.auto_rig }
     j.sourceHashes = { [absolute]: hash }
     this.post(j); if (j.status === 'running') this.start(j)
     return this.card(j)
   }
   /** The player's approval of one quote: their click on the card, or their own words verified by approve_run. */
-  async approve(id: string, wksp: string, playerWords: string, role = 'genio', via: 'card' | 'words' = 'words'): Promise<GenerationCard> {
+  async approve(id: string, workspace: string, playerWords: string, role = 'genio', via: 'card' | 'words' = 'words'): Promise<GenerationCard> {
     this.requirePlayer(role, playerWords)
-    const j = this.owned(id, wksp)
+    const j = this.owned(id, workspace)
     if (j.status !== 'awaiting_approval') return this.card(j)
     checkGenerationBudget(this.ctx, j.world, j.estimatedUsd)
     if (j.target) await this.guardTarget(j.world!, j.target)
@@ -261,20 +261,20 @@ export class AgentGeneration {
           }
           if (!target) throw new Error('No safe destination for the output format')
           if (count > 1) target = target.slice(0, -path.extname(target).length) + `-${String(i + 1).padStart(2, '0')}` + path.extname(target)
-          const result = await this.place(j.wksp, { run: j.id, output: i, world: j.world!, path: target, player_words: j.playerWords })
+          const result = await this.place(j.workspace, { run: j.id, output: i, world: j.world!, path: target, player_words: j.playerWords })
           j.paths.push(target); j.warnings.push(...(result.warnings ?? [])); this.post(j)
         }
       }
       j.status = 'completed'; this.post(j)
     } finally { this.finishing.delete(j.id) }
   }
-  async place(wksp: string, a: z.infer<z.ZodObject<typeof assetPlaceShape>>, role = 'genio') {
+  async place(workspace: string, a: z.infer<z.ZodObject<typeof assetPlaceShape>>, role = 'genio') {
     this.requirePlayer(role, a.player_words)
-    const j = this.owned(a.run, wksp)
+    const j = this.owned(a.run, workspace)
     if (j.world !== a.world) throw new Error('Output belongs to another project')
     const overwrite = !!a.overwrite_words?.trim()
     await this.guardTarget(a.world, a.path, overwrite)
-    const by = wksp === 'main' ? 'genio' : `ally:${wksp}`
+    const by = workspace === 'main' ? 'genio' : `ally:${workspace}`
     const common = { project: a.world, folder: path.posix.dirname(a.path), fileName: path.posix.basename(a.path), overwrite, by, ...(j.approval ? { approval: j.approval.replace('by you', 'by the player') } : {}) }
     let result
     if (j.provider === 'fal') {
@@ -288,7 +288,7 @@ export class AgentGeneration {
       const file = this.ctx.uthana.runs().find(r => r.id === run.id)?.files.find(f => f.motionId === (run.motionIds?.[a.output] ?? run.motionId) && f.format === j.format)
       if (file && !j.outputs?.some(o => o.name === file.fileName)) j.outputs = [...(j.outputs ?? []), { name: file.fileName, kind: 'animation', url: file.mediaUrl }]
     } else {
-      const home = this.ctx.home(wksp).home, image = j.images?.[a.output]
+      const home = this.ctx.home(workspace).home, image = j.images?.[a.output]
       const source = image && chatImagePath(path.join(home.data, 'chat-images'), image.file)
       if (!source) throw new Error('No generated image at this output index')
       const p = this.project(a.world), prov = provenanceInput({ prompt: j.prompt, references: (j.refs ?? []).map(r => '@file:' + r) }, p.path)
@@ -301,7 +301,7 @@ export class AgentGeneration {
     await this.ctx.inventory.refresh(a.world)
     return result
   }
-  async image(wksp: string, a: GenerateImageArgs, role = 'genio', conversation?: string): Promise<GenerationCard> {
+  async image(workspace: string, a: GenerateImageArgs, role = 'genio', conversation?: string): Promise<GenerationCard> {
     if (role === 'bot') throw new Error('Bot cannot generate images')
     if (role === 'design' && (a.world || a.place || !conversation)) throw new Error('Lore chat images stay in their chat')
     if (a.place && !a.world) throw new Error('A placement requires a project')
@@ -316,14 +316,14 @@ export class AgentGeneration {
       target = await this.destination({ world: a.world, place: a.place, player_words: a.player_words! }, 'image', 'new image.png')
       if (path.extname(target).toLowerCase() !== '.png') throw new Error('Codex outputs PNG; choose a .png placement')
     }
-    const gen = chatImageGen(this.ctx, this.ctx.home(wksp).home)
+    const gen = chatImageGen(this.ctx, this.ctx.home(workspace).home)
     if (conversation) gen.quiet = true
     const own = resolveRefs(gen.chatDir, a.refs)
     // Project images follow its Art Bible: style text after the prompt, the type's references attached.
     const bible = root && a.art_bible !== false ? bibleForCodex(root, { prompt: a.prompt, type: a.asset_type, refs: own, room: MAX_REFS - own.length }) : undefined
     const sent: GenerateImageArgs = bible ? { ...a, prompt: bible.value.prompt, refs: bible.value.refs } : a
     const refs = bible?.value.refs ?? own
-    const j = this.create(wksp, { world: a.world ?? '', player_words: a.player_words ?? '' }, 'codex', 'image_gen', 0, target)
+    const j = this.create(workspace, { world: a.world ?? '', player_words: a.player_words ?? '' }, 'codex', 'image_gen', 0, target)
     if (conversation) j.conversation = conversation
     j.prompt = sent.prompt; j.refs = refs; j.artBible = bible?.card; j.artBibleStamp = bible?.stamp; this.post(j)
     gen.post = (m) => {
@@ -342,7 +342,7 @@ export class AgentGeneration {
         j.status = 'placing'; this.post(j)
         for (let i = 0; i < j.images.length; i++) {
           const dest = j.images.length === 1 ? target : target.replace(/\.png$/i, `-${String(i + 1).padStart(2, '0')}.png`)
-          const result = await this.place(wksp, { run: j.id, output: i, world: a.world!, path: dest, player_words: a.player_words! })
+          const result = await this.place(workspace, { run: j.id, output: i, world: a.world!, path: dest, player_words: a.player_words! })
           j.paths.push(dest); j.warnings.push(...(result.warnings ?? [])); this.post(j)
         }
       }

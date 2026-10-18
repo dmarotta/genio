@@ -6,19 +6,19 @@ import { createPortal } from 'react-dom'
 import { CHAT_POPOUT_HASH } from '@shared/chat-popout'
 import { ChatDocument } from './ChatDocument'
 import { ChatPanel } from '../views/Comms'
-import { PROJECT_WKSP, PROJECT_WINDOW, useStore } from '../store'
+import { PROJECT_WORKSPACE, PROJECT_WINDOW, useStore } from '../store'
 import { clampFloatingPanel, PANEL_MIN, readFloatingPanel, writeFloatingPanel, type FloatingPanelState } from '../lib/floating-panel'
 import { PANEL_OPEN_EVENT, panelVisibleOn, screenContextFor, usePublishedScreen } from '../lib/screen-context'
 import '../styles/genio-panel.css'
 
 /** The project's full Genio chat, floating over every screen but Chat. Mounted once in the window shell. */
 export function GenioPanel() {
-  return PROJECT_WKSP && PROJECT_WINDOW ? <ProjectGenioPanel wksp={PROJECT_WKSP} project={PROJECT_WINDOW} /> : null
+  return PROJECT_WORKSPACE && PROJECT_WINDOW ? <ProjectGenioPanel workspace={PROJECT_WORKSPACE} project={PROJECT_WINDOW} /> : null
 }
 
 type Edge = 'move' | 'se' | 'nw'
 
-function ProjectGenioPanel({ wksp, project }: { wksp: string; project: string }) {
+function ProjectGenioPanel({ workspace, project }: { workspace: string; project: string }) {
   const view = useStore(s => s.view)
   const visible = panelVisibleOn(view)
   const published = usePublishedScreen(view)
@@ -85,7 +85,7 @@ function ProjectGenioPanel({ wksp, project }: { wksp: string; project: string })
     child.addEventListener('load', ready, { once: true })
   }
 
-  const last = useStore(s => s.chats[wksp]?.at(-1)?.id)
+  const last = useStore(s => s.chats[workspace]?.at(-1)?.id)
   const seen = useRef(last)
   if (popout || (visible && !state.collapsed)) seen.current = last
 
@@ -148,7 +148,7 @@ function ProjectGenioPanel({ wksp, project }: { wksp: string; project: string })
         <button className="genio-panel-resize se" aria-label="Resize Genio chat" {...handlers('se')} />
       </div>
     </div>
-    {mounted && createPortal(<ChatDocument.Provider value={popout?.document}><ChatPanel wksp={wksp} context={context} surface="panel" active={!!popout || expanded} /></ChatDocument.Provider>, chatHost)}
+    {mounted && createPortal(<ChatDocument.Provider value={popout?.document}><ChatPanel workspace={workspace} context={context} surface="panel" active={!!popout || expanded} /></ChatDocument.Provider>, chatHost)}
     {popout && createPortal(<header className="genio-panel-bar popout-bar"><span>{ASSISTANT_NAME}</span><button className="btn sm ghost" onClick={dock}>Return chat</button></header>, popout.document.getElementById('root')!)}
   </>
 }

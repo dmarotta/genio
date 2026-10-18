@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { applyLiveConfig, sessionConfig, type LiveControls } from '../src/main/wksp'
+import { applyLiveConfig, sessionConfig, type LiveControls } from '../src/main/workspace'
 
-const s = (wkspModel: string, wkspEffort: string, botModel = 'claude-haiku-5-5') => ({ wkspModel, wkspEffort, botModel })
+const s = (workspaceModel: string, workspaceEffort: string, botModel = 'claude-haiku-5-5') => ({ workspaceModel, workspaceEffort, botModel })
 
 function fakeQuery(fail = false): LiveControls & { setModel: ReturnType<typeof vi.fn>; applyFlagSettings: ReturnType<typeof vi.fn> } {
   const impl = () => (fail ? Promise.reject(new Error('unsupported')) : Promise.resolve())
@@ -9,7 +9,7 @@ function fakeQuery(fail = false): LiveControls & { setModel: ReturnType<typeof v
 }
 
 describe('sessionConfig: chat model/effort settings', () => {
-  it('Genio follows wkspModel/wkspEffort; blank means default', () => {
+  it('Genio follows workspaceModel/workspaceEffort; blank means default', () => {
     expect(sessionConfig('genio', s('claude-opus-5-5', 'xhigh'))).toEqual({ model: 'claude-opus-5-5', effort: 'xhigh' })
     expect(sessionConfig('genio', s('', ''))).toEqual({ model: undefined, effort: undefined })
     expect(sessionConfig('genio', s('  ', 'bogus'))).toEqual({ model: undefined, effort: undefined })

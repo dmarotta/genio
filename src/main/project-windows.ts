@@ -3,7 +3,7 @@ import { ownsDecision } from '@shared/decisions'
 import type { FleetSnapshot, GenioEvent, TerminalInfo } from '@shared/types'
 import { normalisedProjectPath } from './projects'
 
-export interface WindowBinding { project: string; wksp: string }
+export interface WindowBinding { project: string; workspace: string }
 
 /** Electron adds the application entry before user arguments in development. */
 export function projectFromArgv(argv: string[], cwd: string, development: boolean): string | undefined {
@@ -30,8 +30,8 @@ export function projectSnapshot(s: FleetSnapshot, binding?: WindowBinding): Flee
     backlog: s.backlog.filter(t => t.project === binding.project),
     plans: s.plans?.filter(p => p.world === binding.project),
     decisions: s.decisions.filter(t => ownsDecision(t, binding)),
-    wksps: s.wksps.filter(m => m.name === binding.wksp),
-    allies: s.allies.filter(a => a.name === binding.wksp),
+    workspaces: s.workspaces.filter(m => m.name === binding.workspace),
+    allies: s.allies.filter(a => a.name === binding.workspace),
     standing: s.standing?.filter(a => a.project === binding.project)
   }
 }
@@ -61,7 +61,7 @@ export function routeProjectEvent(ev: GenioEvent, binding: WindowBinding | undef
   if (!binding) return CHAT_ONLY.has(ev.type) ? undefined : ev
   const snap = (): FleetSnapshot => (typeof s === 'function' ? s() : s)
   const project = (name?: string): GenioEvent | undefined => name === binding.project ? ev : undefined
-  const wksp = (name?: string): GenioEvent | undefined => name === binding.wksp ? ev : undefined
+  const workspace = (name?: string): GenioEvent | undefined => name === binding.workspace ? ev : undefined
   switch (ev.type) {
     case 'pending-units': return { ...ev, projects: ev.projects.filter(project => project === binding.project) }
     case 'snapshot': return { ...ev, data: projectSnapshot(ev.data, binding) }
@@ -69,14 +69,14 @@ export function routeProjectEvent(ev: GenioEvent, binding: WindowBinding | undef
     case 'task-removed': return ev // deletion contains no content; may already be absent from snapshot
     case 'status': return project(snap().tasks.find(t => t.id === ev.event.taskId)?.project)
     case 'modeller-live': return project(snap().tasks.find(t => t.id === ev.taskId)?.project)
-    case 'chat': return wksp(ev.message.wksp)
-    case 'chat-delta': case 'generation': case 'speak': case 'speak-stop': return wksp(ev.wksp)
-    case 'design-chats': case 'design-chat': case 'design-chat-delta': return wksp(ev.wksp)
-    case 'wksp': return wksp(ev.wksp.name)
-    case 'permission': return wksp(ev.request.wksp)
-    case 'wake': return wksp(ev.wake.wksp)
+    case 'chat': return workspace(ev.message.workspace)
+    case 'chat-delta': case 'generation': case 'speak': case 'speak-stop': return workspace(ev.workspace)
+    case 'design-chats': case 'design-chat': case 'design-chat-delta': return workspace(ev.workspace)
+    case 'workspace': return workspace(ev.workspace.name)
+    case 'permission': return workspace(ev.request.workspace)
+    case 'wake': return workspace(ev.wake.workspace)
     case 'projects': return { ...ev, projects: ev.projects.filter(p => p.name === binding.project) }
-    case 'allies': return { ...ev, allies: ev.allies.filter(a => a.name === binding.wksp) }
+    case 'allies': return { ...ev, allies: ev.allies.filter(a => a.name === binding.workspace) }
     case 'standing-approvals': return { ...ev, approvals: ev.approvals.filter(a => a.project === binding.project) }
     case 'plans': return { ...ev, plans: ev.plans.filter(p => p.world === binding.project) }
     // The quests of every home, as the snapshot lists them: the window gets its project's, not a whole snapshot.
@@ -87,9 +87,9 @@ export function routeProjectEvent(ev: GenioEvent, binding: WindowBinding | undef
     case 'inventory': return project(ev.state.world)
     case 'fal-run': case 'uthana-run': return project(ev.run.world ?? undefined)
     case 'navigate':
-      if (ev.target.view === 'comms') return wksp(ev.target.wksp)
+      if (ev.target.view === 'comms') return workspace(ev.target.workspace)
       if (ev.target.view === 'squad') { const taskId = ev.target.taskId; return project(snap().tasks.find(t => t.id === taskId)?.project) }
-      if (ev.target.view === 'move') return ev.target.project ? project(ev.target.project) : wksp(ev.target.wksp)
+      if (ev.target.view === 'move') return ev.target.project ? project(ev.target.project) : workspace(ev.target.workspace)
       // Settings › Accounts & keys lives in every project window and holds nothing project-specific.
       if (ev.target.view === 'accounts') return ev
       return undefined

@@ -1,6 +1,6 @@
 # Chat providers
 
-`ChatDriver` defines start/send/interrupt/resume, capability information and normalized text, tool, usage and lifecycle events. `claude-chat-driver.ts` contains the previous SDK queue, parser, model controls and limit handling. `wksp.ts` retains the public compatibility exports. `ProviderChatSession` owns the queue above the drivers and freezes each turn's selected model/effort, including while a runtime starts asynchronously.
+`ChatDriver` defines start/send/interrupt/resume, capability information and normalized text, tool, usage and lifecycle events. `claude-chat-driver.ts` contains the previous SDK queue, parser, model controls and limit handling. `workspace.ts` retains the public compatibility exports. `ProviderChatSession` owns the queue above the drivers and freezes each turn's selected model/effort, including while a runtime starts asynchronously.
 
 The picker stores Claude IDs as before and Codex selections as `codex:OpenAI:<model>`. Catalogue discovery checks ChatGPT authentication and native-capability confinement before offering Codex rows. Hidden models are excluded. Gemini and OpenCode remain unavailable as drivers. Every Codex connection repeats those checks and verifies its returned model, provider, sandbox, approval policy and effort before sending a prompt. Unsupported effort returns to the selected model's advertised default; Ultra is excluded from chat.
 

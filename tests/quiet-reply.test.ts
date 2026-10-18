@@ -5,7 +5,7 @@ import { QuietTurn, isEventTurn } from '../src/main/quiet-turn'
 
 const who = ['Alex']
 const msg = (id: string, role: ChatMessage['role'], text: string, extra: Partial<ChatMessage> = {}): ChatMessage =>
-  ({ id, wksp: 'main', role, text, ts: `2026-10-17T10:00:${id.padStart(2, '0')}.000Z`, ...extra })
+  ({ id, workspace: 'main', role, text, ts: `2026-10-17T10:00:${id.padStart(2, '0')}.000Z`, ...extra })
 
 describe('isQuietReply', () => {
   it.each([

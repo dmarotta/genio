@@ -1,7 +1,7 @@
 /**
  * Opt-in round trip of the Claude chat with a player MCP server (docs/mcp-servers.md):
  *   npm run test:e2e -- mcp-chat
- * The chat's own shape (wksp.ts buildOptions): an Agent SDK query with settingSources [], Genio's in-process
+ * The chat's own shape (workspace.ts buildOptions): an Agent SDK query with settingSources [], Genio's in-process
  * `genio` server always loaded, the player's server as a relay entry from chatMcpServers, and canUseTool through
  * Genio's chat policy. Tool search is forced on, as Anthropic's API has it, and the model is a fake endpoint in a
  * throwaway Claude home: no account, no login, no model usage, and the player's ~/.claude is never read or written.

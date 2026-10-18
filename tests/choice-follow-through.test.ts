@@ -12,7 +12,7 @@ import { createWakeService } from '../src/main/wakes'
 import { createSupervisor } from '../src/main/supervisor'
 import { ensureProjectBase, startProjectBase } from '../src/main/ctx'
 import { BUILTIN_HARNESSES } from '../src/main/harness'
-import { answerChoice } from '../src/main/wksp-tools'
+import { answerChoice } from '../src/main/workspace-tools'
 import type { AppCtx, HomeCtx } from '../src/main/services'
 import type { Task } from '../src/shared/types'
 
@@ -25,9 +25,9 @@ beforeEach(() => {
   const mainHome = new Home(root); mainHome.ensure()
   home = new Home(path.join(root, 'workspaces', 'world'), 'world', mainHome); home.ensure()
   say = vi.fn()
-  hc = { home, wksp: { prepareProjectOpen: vi.fn(), wakeProject: vi.fn(), deliverWakes: vi.fn(), stop: vi.fn(), say,
+  hc = { home, workspace: { prepareProjectOpen: vi.fn(), wakeProject: vi.fn(), deliverWakes: vi.fn(), stop: vi.fn(), say,
     info: () => ({ queued: 0, activity: 'idle' }) } } as unknown as HomeCtx
-  const main = { home: mainHome, wksp: { deliverWakes: vi.fn(), say: vi.fn() } } as unknown as HomeCtx
+  const main = { home: mainHome, workspace: { deliverWakes: vi.fn(), say: vi.fn() } } as unknown as HomeCtx
   const adapter = { ...BUILTIN_HARNESSES.find(h => h.id === 'codex')!, id: 'test', enabled: true, command: 'fake-unit' }
   const ally = { name: 'world', projects: ['world'], scope: 'world', home: home.root }
   ctx = { appRoot: path.join(root, 'no-bundle'), main, home: (name: string) => name === 'main' ? main : hc,
@@ -56,7 +56,7 @@ function unit(id: string, state: Task['state'], kind: Task['kind'] = 'scout'): T
   const worktree = path.join(root, 'worktrees', id)
   fs.mkdirSync(worktree, { recursive: true }); fs.mkdirSync(home.taskDir(id), { recursive: true })
   fs.writeFileSync(home.briefFile(id), '# Mission')
-  const task = { id, kind, title: `Investigate ${id}`, project: 'world', wksp: 'world', state, mode: 'local-only', harness: 'test',
+  const task = { id, kind, title: `Investigate ${id}`, project: 'world', workspace: 'world', state, mode: 'local-only', harness: 'test',
     worktree, briefPath: home.briefFile(id), reportPath: path.join(home.taskDir(id), 'report.md'), branch: `genio/${id}`, relaunches: 0,
     createdAt: '2026-01-01', updatedAt: '2026-01-01', inbox: { seq: 0, acked: 0 }, statusOffset: 0 } as Task
   fs.writeFileSync(home.tasksFile, JSON.stringify([...hc.crew.list(), task]))
@@ -83,7 +83,7 @@ describe('a player answer wakes the owning chat', () => {
     expect(w.lines.join('\n')).toContain('Recommendation: Build the fix')
     expect(w.lines.join('\n')).toContain('report: ')
     expect(w.lines.join('\n')).toContain('Follow through now')
-    expect(hc.wksp.deliverWakes).toHaveBeenCalled()
+    expect(hc.workspace.deliverWakes).toHaveBeenCalled()
     expect(say).toHaveBeenCalledExactlyOnceWith('Answered: Build the fix the report proposes?\n\nBuild the fix', 'system')
     // answered again, redelivered, or reloaded: still one event and one receipt
     expect((await answerChoice(ctx, d.id, 'Leave it')).message).toBe('already answered')
@@ -139,7 +139,7 @@ describe('a player answer wakes the owning chat', () => {
     await startProjectBase(ctx, 'world', 'world')
     expect(answers()).toHaveLength(1)
     expect(hc.wakes.pending().map(w => w.kind)).toContain('answer')
-    expect(hc.wksp.wakeProject).toHaveBeenCalledOnce()
+    expect(hc.workspace.wakeProject).toHaveBeenCalledOnce()
     expect(createDecisionService(() => ctx, home).get(d.id)?.followUp).toBe('delivered')
     // a crash after queueing but before the flag was saved never doubles the event
     hc.decisions.get(d.id)!.followUp = 'pending'

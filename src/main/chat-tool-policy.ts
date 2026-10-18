@@ -1,5 +1,5 @@
 import type { Settings } from '@shared/types'
-import type { ToolRole } from './wksp-tools'
+import type { ToolRole } from './workspace-tools'
 import type { PermissionBroker } from './services'
 import { truncate } from './util'
 
@@ -157,7 +157,7 @@ export async function enforceTool(policy: ToolEnforcement, tool: RuntimeTool): P
   }
   const decision = decideTool(policy.role, name, tool.input, policy.shellMode())
   if (decision.behavior !== 'ask') return decision
-  const allowed = await policy.permissions.ask({ wksp: policy.chat, tool: name, input: decision.input, reason: decision.reason })
+  const allowed = await policy.permissions.ask({ workspace: policy.chat, tool: name, input: decision.input, reason: decision.reason })
   if (policy.signal?.aborted) return deny('Chat closed.')
   return allowed ? { behavior: 'allow' } : deny(name === 'Bash' || name === 'PowerShell'
     ? `${policy.player ?? 'The player'} declined this command.`
@@ -187,7 +187,7 @@ export async function clearAction(policy: ToolEnforcement, action: { tool: strin
   if (policy.signal?.aborted) return { ok: false, message: 'Chat closed.' }
   if (policy.role === 'bot' || policy.role === 'design') return { ok: false, message: `${action.line} This waits for ${policy.player ?? 'the player'}.` }
   if (!actionAsks(policy.shellMode(), action.gate ?? 'guarded')) return { ok: true, via: 'mode' }
-  const allowed = await policy.permissions.ask({ wksp: policy.chat, tool: action.tool, input: action.line })
+  const allowed = await policy.permissions.ask({ workspace: policy.chat, tool: action.tool, input: action.line })
   if (policy.signal?.aborted) return { ok: false, message: 'Chat closed.' }
   return allowed ? { ok: true, via: 'prompt' }
     : { ok: false, message: `${policy.player ?? 'The player'} denied it: ${action.line} Nothing was changed; do not retry it unless they ask again.` }

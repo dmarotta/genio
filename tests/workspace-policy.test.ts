@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { decideTool } from '../src/main/wksp'
+import { decideTool } from '../src/main/workspace'
 import { interruptibleTool } from '../src/main/chat-tool-policy'
 
 const ps = (command: string): { command: string } => ({ command })

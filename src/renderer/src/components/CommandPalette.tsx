@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Search } from 'lucide-react'
-import { PROJECT_WKSP, answerNext, api, focusTask, getState, go, op, openDeploy, playAvailable, setState, useStore, type ViewId } from '../store'
+import { PROJECT_WORKSPACE, answerNext, api, focusTask, getState, go, op, openDeploy, playAvailable, setState, useStore, type ViewId } from '../store'
 import { navFor, useNav } from './Rail'
 import { isSettingsShortcut, openSettings } from '../lib/settings-nav'
 import { SETTINGS_INDEX } from '@shared/settings-index'
@@ -65,7 +65,7 @@ export function CommandPalette() {
         }
       })
     ]
-    return PROJECT_WKSP ? list : list.filter(c => !['recap', 'save'].includes(c.id))
+    return PROJECT_WORKSPACE ? list : list.filter(c => !['recap', 'save'].includes(c.id))
   }, [open, tasks, nav])
 
   const filtered = useMemo(() => {

@@ -4,13 +4,13 @@ import path from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { claudeHomeDir, claudeProjectName, configureClaudeHome, isolatedEnv, type ClaudeRunner } from '../src/main/claude-home'
 import { Home } from '../src/main/home'
-import { createWkspService } from '../src/main/wksp'
+import { createWorkspaceService } from '../src/main/workspace'
 import { createWakeService } from '../src/main/wakes'
 import { defaultSettings } from '../src/main/settings'
 import { probeClaudePlanUsage } from '../src/main/claude-usage-probe'
 import { claudeModels } from '../src/main/model-discovery'
 import { reviewOptions } from '../src/main/gauntlet'
-import type { AppCtx, WkspService } from '../src/main/services'
+import type { AppCtx, WorkspaceService } from '../src/main/services'
 
 // Every Claude launch site outside units: the chat, the usage probe, model discovery and the Gauntlet review.
 const sdk = vi.hoisted(() => ({ query: vi.fn() }))
@@ -18,7 +18,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: sdk.query, tool: (name
 
 let root: string, genio: string, player: string
 const inheritedSecureStorage = process.env.CLAUDE_SECURESTORAGE_CONFIG_DIR
-let services: WkspService[] = []
+let services: WorkspaceService[] = []
 const preflight = (loggedIn = true): ClaudeRunner => async args =>
   ({ code: 0, stdout: args[0] === '--version' ? '2.1.299' : JSON.stringify({ loggedIn, configDirectory: genio }) })
 beforeEach(() => {
@@ -73,7 +73,7 @@ it("one-shots fall back to the player's normal home when the preflight fails", a
 
 function chat(sessionId?: string) {
   const main = new Home(root); main.ensure()
-  if (sessionId) fs.writeFileSync(main.wkspFile, JSON.stringify({ sessionId }))
+  if (sessionId) fs.writeFileSync(main.workspaceFile, JSON.stringify({ sessionId }))
   const ctx = { appRoot: process.cwd(), settings: { get: () => defaultSettings() },
     main: { home: main }, away: { state: () => ({ mode: 'online' }) },
     allies: { list: () => [] }, projects: { list: () => [], get: () => undefined }, stats: { unlock: vi.fn(), addCost: vi.fn() },
@@ -82,7 +82,7 @@ function chat(sessionId?: string) {
   const wakes = createWakeService(() => ctx, main)
   const hc = { home: main, wakes, crew: { list: () => [] }, decisions: { list: () => [] }, backlog: { list: () => [] } }
   ctx.home = () => hc as any; ctx.homes = new Map([['main', hc as any]])
-  const service = createWkspService(() => ctx, main)
+  const service = createWorkspaceService(() => ctx, main)
   services.push(service)
   wakes.enqueue({ kind: 'signal', reason: 'unit is ready', routine: false })
   service.deliverWakes()

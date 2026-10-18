@@ -14,7 +14,7 @@ it('renders Units and Queue totals using the cap definition, including live wait
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   const original = getState()
   const tasks = ['ready', 'merged', 'done', 'failed', 'cleaned', 'working', 'paused', 'blocked', 'needs-decision', 'stale', 'validating', 'spawning', 'detached'].map((state, i) => ({
-    id: String(i), state, project: 'world', wksp: i % 2 ? 'genio' : 'main', terminalId: state === 'spawning' ? undefined : String(i),
+    id: String(i), state, project: 'world', workspace: i % 2 ? 'genio' : 'main', terminalId: state === 'spawning' ? undefined : String(i),
     pr: { url: 'https://example.com/pull/1' }
   } as Task))
   const terminals = Object.fromEntries(tasks.filter(t => t.terminalId).map(t => [t.terminalId!, { id: t.terminalId, alive: t.state !== 'detached' } as TerminalInfo]))

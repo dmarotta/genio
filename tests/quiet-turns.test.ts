@@ -68,10 +68,10 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   tool: () => ({}),
   createSdkMcpServer: () => ({})
 }))
-vi.mock('../src/main/wksp-tools', () => ({ buildTools: (_tool: unknown, _ctx: unknown, _home: unknown, _role: unknown, hooks: typeof fake.hooks) => { Object.assign(fake.hooks, hooks); return [] } }))
+vi.mock('../src/main/workspace-tools', () => ({ buildTools: (_tool: unknown, _ctx: unknown, _home: unknown, _role: unknown, hooks: typeof fake.hooks) => { Object.assign(fake.hooks, hooks); return [] } }))
 
 const { Home } = await import('../src/main/home')
-const { createWkspService } = await import('../src/main/wksp')
+const { createWorkspaceService } = await import('../src/main/workspace')
 const { bus } = await import('../src/main/bus')
 const { createWakeService } = await import('../src/main/wakes')
 
@@ -89,7 +89,7 @@ afterEach(() => {
 })
 
 const ctx = {
-  settings: { get: () => ({ gamertag: 'Alex', voice: true, chatShellMode: 'ask', wkspModel: '', wkspEffort: '', botModel: '' }) },
+  settings: { get: () => ({ gamertag: 'Alex', voice: true, chatShellMode: 'ask', workspaceModel: '', workspaceEffort: '', botModel: '' }) },
   allies: { list: () => [] },
   projects: { list: () => [] },
   memory: { read: () => '' },
@@ -110,10 +110,10 @@ function chat(name: string, beforeStart?: (home: InstanceType<typeof Home>) => v
   ctx.main.home.data = path.join(dir, 'data')
   const wakes = createWakeService(() => ctx as never, home)
   const homeRead = vi.spyOn(ctx, 'home').mockReturnValue({ wakes, crew: { list: () => [] }, decisions: { list: () => [] }, home } as never)
-  const svc = createWkspService(() => ctx as never, home)
+  const svc = createWorkspaceService(() => ctx as never, home)
   const seen: GenioEvent[] = []
   const off = bus.onEvent((ev: GenioEvent) => {
-    if (ev.type === 'sfx' || ev.type === 'speak' || ('wksp' in ev && ev.wksp === name) || (ev.type === 'chat' && ev.message.wksp === name)) seen.push(ev)
+    if (ev.type === 'sfx' || ev.type === 'speak' || ('workspace' in ev && ev.workspace === name) || (ev.type === 'chat' && ev.message.workspace === name)) seen.push(ev)
   })
   cleanup.push(off, () => homeRead.mockRestore(), () => void svc.stop())
   const rows = (): ChatMessage[] => svc.history(300)
@@ -250,7 +250,7 @@ describe('an event turn with nothing for the player', () => {
 describe('a log written before event turns went quiet', () => {
   it('hides the sentence rows of event turns on load, and keeps answers, real messages and the player\'s own words', () => {
     const at = (n: number): string => `2026-10-17T09:00:${String(n).padStart(2, '0')}.000Z`
-    const row = (id: string, role: string, text: string, n: number) => JSON.stringify({ id, wksp: 'legacy', role, text, ts: at(n) })
+    const row = (id: string, role: string, text: string, n: number) => JSON.stringify({ id, workspace: 'legacy', role, text, ts: at(n) })
     const c = chat('legacy', home => fs.writeFileSync(home.chatFile, [
       row('p1', 'player', 'anything new?', 1), row('g1', 'genio', NOOP, 2),
       row('g2', 'genio', NOOP, 3), row('s1', 'system', NOOP, 4), row('g3', 'genio', 'all clear, alex!', 5),

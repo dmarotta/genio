@@ -191,15 +191,15 @@ describe('the chat policy for player MCP tools', () => {
   })
 })
 
-describe('wksp.ts wiring', () => {
-  const wksp = fs.readFileSync(path.join(ROOT, 'src', 'main', 'wksp.ts'), 'utf8')
+describe('workspace.ts wiring', () => {
+  const workspace = fs.readFileSync(path.join(ROOT, 'src', 'main', 'workspace.ts'), 'utf8')
   it('adds the player servers beside genio for the Claude chat only; the Bot keeps only its bridge', () => {
-    expect(wksp).toMatch(/mcpServers: \{ genio: server, \.\.\.\(role === 'bot' \? \{\} : await chatMcpServers\(\{/)
-    expect(wksp).toMatch(/if \(role === 'bot'\) \{[\s\S]*?opts\.mcpServers = \{ genio: \{ command: process\.execPath, args: \[bridge\.entry\]/)
-    expect(wksp).toMatch(/createSdkMcpServer\(\{ name: 'genio', version: '1\.0\.0', tools: toolDefs, alwaysLoad: true \}\)/)
-    expect(wksp).toMatch(/mcpGateway\(\)\.revoke\(chatMcpCaller\(name\)\)/)
+    expect(workspace).toMatch(/mcpServers: \{ genio: server, \.\.\.\(role === 'bot' \? \{\} : await chatMcpServers\(\{/)
+    expect(workspace).toMatch(/if \(role === 'bot'\) \{[\s\S]*?opts\.mcpServers = \{ genio: \{ command: process\.execPath, args: \[bridge\.entry\]/)
+    expect(workspace).toMatch(/createSdkMcpServer\(\{ name: 'genio', version: '1\.0\.0', tools: toolDefs, alwaysLoad: true \}\)/)
+    expect(workspace).toMatch(/mcpGateway\(\)\.revoke\(chatMcpCaller\(name\)\)/)
   })
   it('counts a Chat only tool in the chat for its own achievement', () => {
-    expect(wksp).toMatch(/onSuccess: \(_server, _tool, chatOnly\) => safe\(\(\) => \{\s*getCtx\(\)\.stats\.unlock\('mcp-chat-call'\)\s*if \(chatOnly\) getCtx\(\)\.stats\.unlock\('mcp-chat-only'\)/)
+    expect(workspace).toMatch(/onSuccess: \(_server, _tool, chatOnly\) => safe\(\(\) => \{\s*getCtx\(\)\.stats\.unlock\('mcp-chat-call'\)\s*if \(chatOnly\) getCtx\(\)\.stats\.unlock\('mcp-chat-only'\)/)
   })
 })

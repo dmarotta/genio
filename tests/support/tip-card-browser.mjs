@@ -36,7 +36,7 @@ window.fixture = {
     document.documentElement.style.setProperty('--term-pane-h', pane ? '110px' : '0px')
     setState(s => ({ tip: undefined, paneOpen: pane, view: general ? 'systems' : 'squad',
       toasts: toast ? [{ id: 1, level: 'info', title: 'Connection restored' }] : [],
-      snap: { ...s.snap, decisions: choice ? [{ id: 'choice', key: 'choice', wksp: 'genio', project: 'fixture',
+      snap: { ...s.snap, decisions: choice ? [{ id: 'choice', key: 'choice', workspace: 'genio', project: 'fixture',
         question: 'Which direction should the market stalls take?', options: ['Timber', 'Stone'], source: 'genio', urgency: 'normal', createdAt: new Date().toISOString() }] : [] } }))
     if (general) openSettings('general')
     else handleEvent({ type: 'tip', project: 'fixture', tip })
@@ -71,7 +71,7 @@ const server = await createServer({ configFile: false, root: process.cwd(), logL
 let child
 try {
   await server.listen()
-  const env = { ...process.env, TIP_CARD_URL: server.resolvedUrls.local[0] + 'tip-card.html?project=fixture&wksp=genio', TIP_CARD_RESULTS: resultFile }
+  const env = { ...process.env, TIP_CARD_URL: server.resolvedUrls.local[0] + 'tip-card.html?project=fixture&workspace=genio', TIP_CARD_RESULTS: resultFile }
   delete env.ELECTRON_RUN_AS_NODE
   for (const key of Object.keys(env)) if (key.startsWith('GIT_CONFIG_')) delete env[key]
   assertChildHomes(env)

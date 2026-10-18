@@ -53,7 +53,7 @@ let openProject: (folder: string) => Promise<void>
 /** The real per-home services over the seeded Base, composed into a snapshot exactly like ctx.ts does. */
 function buildCtx(seed: SeededBase): AppCtx {
   const mainHome = new Home(seed.mainHome, 'main'); mainHome.ensure()
-  const projectHome = new Home(seed.projectHome, seed.wksp, mainHome); projectHome.ensure()
+  const projectHome = new Home(seed.projectHome, seed.workspace, mainHome); projectHome.ensure()
   const projects = JSON.parse(fs.readFileSync(path.join(seed.mainHome, 'data', 'projects.json'), 'utf8'))
   const allies = JSON.parse(fs.readFileSync(path.join(seed.mainHome, 'data', 'allies.json'), 'utf8'))
   const terminals = new Map<string, { id: string; alive: boolean; lastOutputAt?: number; cwd: string; taskId?: string; title: string; kind: string; cols: number; rows: number }>()
@@ -79,13 +79,13 @@ function buildCtx(seed: SeededBase): AppCtx {
     hc.backlog = createBacklogService(() => ctx, home)
     hc.decisions = createDecisionService(() => ctx, home)
     hc.wakes = createWakeService(() => ctx, home)
-    hc.wksp = { info: () => ({ name: home.name, displayName: 'Genio', activity: 'idle', costUsd: 1.2, turns: 40, queued: 0 }), deliverWakes: () => undefined } as unknown as HomeCtx['wksp']
+    hc.workspace = { info: () => ({ name: home.name, displayName: 'Genio', activity: 'idle', costUsd: 1.2, turns: 40, queued: 0 }), deliverWakes: () => undefined } as unknown as HomeCtx['workspace']
     hc.supervisor = { start() {}, stop() {}, poke() {}, replayStatus() {}, touch() {}, turnEnded() {} }
     return hc
   }
   ctx.main = homeCtx(mainHome)
   ctx.homes.set('main', ctx.main)
-  ctx.homes.set(seed.wksp, homeCtx(projectHome))
+  ctx.homes.set(seed.workspace, homeCtx(projectHome))
   ctx.home = (name: string) => ctx.homes.get(name || 'main')!
   ctx.stats = createStatsService(() => ctx)
   ctx.snapshot = (): FleetSnapshot => {
@@ -93,12 +93,12 @@ function buildCtx(seed: SeededBase): AppCtx {
     const all = [...ctx.homes.values()]
     return {
       tasks: all.flatMap((h) => h.crew.list()), pendingUnits: ctx.dispatch.pendingUnits(), backlog: all.flatMap((h) => h.backlog.list()),
-      decisions: all.flatMap((h) => h.decisions.list(true)), projects: ctx.projects.list(), wksps: all.map((h) => h.wksp.info()), allies: ctx.allies.list(),
+      decisions: all.flatMap((h) => h.decisions.list(true)), projects: ctx.projects.list(), workspaces: all.map((h) => h.workspace.info()), allies: ctx.allies.list(),
       away: ctx.away.state(), inbox: ctx.inbox.list(), stats: ctx.stats.get()
     }
   }
   // one live unit terminal per working task, plus idle ones for the terminal-flush scenario
-  for (const t of ctx.home(seed.wksp).crew.list()) if (t.terminalId) terminals.set(t.terminalId, { id: t.terminalId, alive: true, cwd: t.worktree, taskId: t.id, title: t.id, kind: 'worker', cols: 120, rows: 32, lastOutputAt: Date.now() })
+  for (const t of ctx.home(seed.workspace).crew.list()) if (t.terminalId) terminals.set(t.terminalId, { id: t.terminalId, alive: true, cwd: t.worktree, taskId: t.id, title: t.id, kind: 'worker', cols: 120, rows: 32, lastOutputAt: Date.now() })
   for (let i = 0; i < 12; i++) terminals.set(`worker-extra-${i}`, { id: `worker-extra-${i}`, alive: true, cwd: path.join(seed.projectHome, 'worktrees', seed.project, `u${i}`), title: `u${i}`, kind: 'worker', cols: 120, rows: 32, lastOutputAt: Date.now() })
   return ctx
 }
@@ -128,7 +128,7 @@ describe('main-process event path', () => {
     note('snapshot: JSON bytes', jsonBytes(snap), 'bytes')
     timeIt('ctx.snapshot()', () => { f.ctx.snapshot() }, { iterations: 200, warmup: 10 })
     timeIt('stats.get()', () => { f.ctx.stats.get() }, { iterations: 200, warmup: 10 })
-    timeIt('crew.list() (project home)', () => { f.ctx.home(base.wksp).crew.list() }, { iterations: 200, warmup: 10 })
+    timeIt('crew.list() (project home)', () => { f.ctx.home(base.workspace).crew.list() }, { iterations: 200, warmup: 10 })
   })
 
   it('a streaming reply: 2000 chat-delta events in bursts of 50 every 10 ms (as the SDK stdout delivers them)', async () => {
@@ -136,7 +136,7 @@ describe('main-process event path', () => {
     const t0 = performance.now()
     await withLoopLag('chat-delta stream', async () => {
       for (let i = 0; i < 2000; i++) {
-        bus.publish({ type: 'chat-delta', wksp: base.wksp, id: 'm-msg_stream', text: `token ${i} ` })
+        bus.publish({ type: 'chat-delta', workspace: base.workspace, id: 'm-msg_stream', text: `token ${i} ` })
         if (i % 50 === 49) await new Promise((r) => setTimeout(r, 10))
       }
       await new Promise((r) => setTimeout(r, 120))
@@ -149,12 +149,12 @@ describe('main-process event path', () => {
 
   it('a tool-heavy turn: 30 tool calls, each re-sending the growing partial message', () => {
     resetSent()
-    const msgs = syntheticMessages(base.wksp, 1, true)
+    const msgs = syntheticMessages(base.workspace, 1, true)
     const m: ChatMessage = { ...msgs[0], id: 'm-msg_tools', tools: [], partial: true }
     const t0 = performance.now()
     for (let k = 0; k < 30; k++) {
       m.tools = [...(m.tools ?? []), { id: `toolu_${k}`, name: 'mcp__genio__fleet_view', input: JSON.stringify({ page_size: 2000 }).padEnd(600, ' '), result: 'x'.repeat(4000) }]
-      bus.publish({ type: 'wksp', wksp: { name: base.wksp, displayName: 'Genio', activity: 'tool', activityDetail: 'fleet view', costUsd: 1, turns: 1, queued: 0 } })
+      bus.publish({ type: 'workspace', workspace: { name: base.workspace, displayName: 'Genio', activity: 'tool', activityDetail: 'fleet view', costUsd: 1, turns: 1, queued: 0 } })
       bus.publish({ type: 'chat', message: { ...m } })
       bus.publish({ type: 'chat', message: { ...m } }) // tool result arrives: the message is re-sent once more
     }
@@ -165,7 +165,7 @@ describe('main-process event path', () => {
 
   it('status, task and backlog events (what overwatch publishes per poll)', () => {
     resetSent()
-    const hc = f.ctx.home(base.wksp)
+    const hc = f.ctx.home(base.workspace)
     const task = hc.crew.list().find((t: { state: string }) => t.state === 'working')!
     timeIt('crew.update() (persist tasks.json + task event)', () => { hc.crew.update(task.id, { stateReason: `tick ${Math.random()}` }) }, { iterations: 30, warmup: 2 })
     note('task event: IPC bytes per update', sentBytes() / Math.max(1, f.sent.length), 'bytes')
@@ -194,11 +194,11 @@ describe('main-process event path', () => {
     note('terminal flush ×40: IPC bytes', sentBytes(), 'bytes')
   })
 
-  it('event routing with no bound snapshot: 5000 wksp activity events', () => {
+  it('event routing with no bound snapshot: 5000 workspace activity events', () => {
     resetSent()
     const t0 = performance.now()
-    for (let i = 0; i < 5000; i++) bus.publish({ type: 'wksp', wksp: { name: base.wksp, displayName: 'Genio', activity: i % 2 ? 'tool' : 'thinking', costUsd: 1, turns: 1, queued: 0 } } as GenioEvent)
-    note('wksp ×5000: wall time', performance.now() - t0, 'ms')
-    note('wksp ×5000: snapshot() calls', snapshots, 'count')
+    for (let i = 0; i < 5000; i++) bus.publish({ type: 'workspace', workspace: { name: base.workspace, displayName: 'Genio', activity: i % 2 ? 'tool' : 'thinking', costUsd: 1, turns: 1, queued: 0 } } as GenioEvent)
+    note('workspace ×5000: wall time', performance.now() - t0, 'ms')
+    note('workspace ×5000: snapshot() calls', snapshots, 'count')
   })
 })

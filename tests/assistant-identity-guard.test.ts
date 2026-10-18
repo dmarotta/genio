@@ -21,12 +21,12 @@ function identityLeaks(source: string, functionName?: string): string[] {
   const fromProject = (node: any, seen = new Set<string>()): boolean => {
     if (!node || typeof node !== 'object') return false
     if (node.type === 'Identifier') {
-      if (/^(wksp|base|project|name|wkspName|baseName|projectName)$/.test(node.name)) return true
+      if (/^(workspace|base|project|name|workspaceName|baseName|projectName)$/.test(node.name)) return true
       const value = aliases.get(node.name)
       if (!value || seen.has(node.name)) return false
       return fromProject(value, new Set([...seen, node.name]))
     }
-    if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) return /^(name|wksp|displayName)$/.test(node.property.name)
+    if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) return /^(name|workspace|displayName)$/.test(node.property.name)
     // Calls produce timestamps, context labels and counts, not assistant names.
     if (['CallExpression', 'JSXElement', 'JSXFragment'].includes(node.type)) return false
     if (node.type === 'LogicalExpression') return fromProject(node.right, seen)
@@ -63,7 +63,7 @@ it('rejects project/base names in chat identity text, placeholders, tooltips and
     ['src/renderer/src/views/Comms.tsx'],
     ['src/renderer/src/components/GenioPanel.tsx'],
     ['src/renderer/src/components/Overlays.tsx', 'PermissionPrompt'],
-    ['src/main/wksp.ts']
+    ['src/main/workspace.ts']
   ]) expect(identityLeaks(fs.readFileSync(file, 'utf8'), scope), file).toEqual([])
 })
 
@@ -72,13 +72,13 @@ it('catches the original regressions and aliases without rejecting routing or pr
     const who = ally ? ally.name : 'Genio';
     const info = { name: home.name, displayName: ally ? ally.name : 'Genio' };
     const view = <div title={who + ' model'}>
-      <span>{wksp === 'main' ? 'Genio' : wksp} is on it</span>
-      <span>{m.wksp} · {clock(m.ts)}</span>
+      <span>{workspace === 'main' ? 'Genio' : workspace} is on it</span>
+      <span>{m.workspace} · {clock(m.ts)}</span>
       <textarea placeholder={'Message ' + base} />
     </div>;
   `)).toHaveLength(5)
   expect(identityLeaks(`
     child.document.title = 'Genio chat · ' + project;
-    const view = <ChatPanel wksp={project} key={wksp}><span>{ASSISTANT_NAME} · {clock(m.ts)}</span></ChatPanel>;
+    const view = <ChatPanel workspace={project} key={workspace}><span>{ASSISTANT_NAME} · {clock(m.ts)}</span></ChatPanel>;
   `)).toEqual([])
 })

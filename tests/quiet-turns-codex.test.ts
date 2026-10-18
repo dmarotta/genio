@@ -28,7 +28,7 @@ vi.mock('../src/main/codex-chat-driver', async original => {
 import type { ChatMessage, GenioEvent } from '@shared/types'
 import { bus } from '../src/main/bus'
 import { Home } from '../src/main/home'
-import { createWkspService } from '../src/main/wksp'
+import { createWorkspaceService } from '../src/main/workspace'
 import type { AppCtx } from '../src/main/services'
 import { createWakeService } from '../src/main/wakes'
 
@@ -43,12 +43,12 @@ function setup(mode = 'online', wakes?: unknown) {
   const state = { mode }
   const stats = { unlock: vi.fn(), addCost: vi.fn() }
   const ctx = { appRoot: process.cwd(), main: hc, home: () => hc, homes: new Map([['main', hc]]),
-    settings: { get: () => ({ gamertag: 'Alex', voice: true, wkspModel: 'codex:OpenAI:gpt-test', wkspEffort: 'high', chatShellMode: 'ask' }) },
+    settings: { get: () => ({ gamertag: 'Alex', voice: true, workspaceModel: 'codex:OpenAI:gpt-test', workspaceEffort: 'high', chatShellMode: 'ask' }) },
     away: { state: () => state, capture: vi.fn() }, allies: { list: () => [] }, projects: { list: () => [] },
     stats, inventory: { thumbnail: vi.fn() }, memory: { read: () => '' }, permissions: { ask: vi.fn(async () => true) }
   } as unknown as AppCtx
   hc.wakes ??= createWakeService(() => ctx, home)
-  const service = createWkspService(() => ctx, home)
+  const service = createWorkspaceService(() => ctx, home)
   const seen: GenioEvent[] = []
   const off = bus.onEvent((ev: GenioEvent) => { if (ev.type === 'sfx' || ev.type === 'speak' || ev.type === 'chat' || ev.type === 'chat-delta') seen.push(ev) })
   cleanup.push(async () => { off(); await service.stop(); fs.rmSync(root, { recursive: true, force: true }) })

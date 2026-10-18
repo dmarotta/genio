@@ -22,7 +22,7 @@ vi.mock('electron', async () => {
   f.app = Object.assign(new EventEmitter(), { requestSingleInstanceLock: () => true, whenReady: async () => {}, isPackaged: true, getAppPath: () => '.', quit: vi.fn(), exit: vi.fn() })
   class Window extends EventEmitter {
     openHandler: any
-    webContents = Object.assign(new EventEmitter(), { id: f.windows.length + 1, send: vi.fn(), isDestroyed: () => false, isLoadingMainFrame: () => false, getURL: () => 'file:///genio/index.html?project=one&wksp=ally-one', setWindowOpenHandler: (fn: any) => { this.openHandler = fn } })
+    webContents = Object.assign(new EventEmitter(), { id: f.windows.length + 1, send: vi.fn(), isDestroyed: () => false, isLoadingMainFrame: () => false, getURL: () => 'file:///genio/index.html?project=one&workspace=ally-one', setWindowOpenHandler: (fn: any) => { this.openHandler = fn } })
     destroyed = false
     minimized = false
     visible = false
@@ -68,7 +68,7 @@ vi.mock('electron', async () => {
 
 let openProject: (folder: string) => Promise<void>
 beforeAll(async () => {
-  const snapshot = { tasks: [], projects: [], wksps: [], allies: [], backlog: [], decisions: [] }
+  const snapshot = { tasks: [], projects: [], workspaces: [], allies: [], backlog: [], decisions: [] }
   f.ctx = {
     snapshot: () => snapshot, settings: { get: () => ({}) }, permissions: { pending: () => [] },
     projects: { get: (name: string) => ({ name, path: name }), openFolder: async (name: string) => ({ project: { name, path: name }, registered: true }) },
@@ -106,7 +106,7 @@ describe('project window lifecycle', () => {
     expect(f.windows[0].destroyed).toBe(true)
     expect(f.windows[1].destroyed).toBe(false)
     expect(f.app.exit).not.toHaveBeenCalled()
-    expect(f.windows[1].query).toEqual({ project: 'one', wksp: 'ally-one' })
+    expect(f.windows[1].query).toEqual({ project: 'one', workspace: 'ally-one' })
     expect(f.windows[1].setMenu).toHaveBeenCalledExactlyOnceWith(null)
     expect(f.windows[1].title).toBe('Genio - one')
     const preventDefault = vi.fn()
@@ -124,7 +124,7 @@ describe('project window lifecycle', () => {
     try {
       expect(f.tipsOptions.focused()).toBeUndefined()
       project.webContents.emit('before-input-event', {}, { type: 'keyDown', isAutoRepeat: false })
-      expect(f.tipsOptions.focused()).toMatchObject({ project: 'one', wksp: 'ally-one', active: true })
+      expect(f.tipsOptions.focused()).toMatchObject({ project: 'one', workspace: 'ally-one', active: true })
     } finally { focused.mockRestore() }
   })
   it('lets the Hub and project windows resize down to the same small minimum', () => {
@@ -147,10 +147,10 @@ describe('project window lifecycle', () => {
     await openProject('two')
     expect(f.ctx.stats.unlock).toHaveBeenCalledWith('project-windows-two')
     for (const w of f.windows) w.webContents.send.mockClear()
-    bus.publish({ type: 'chat-delta', wksp: 'ally-one', id: 'chat', text: 'one ' })
-    bus.publish({ type: 'chat-delta', wksp: 'ally-one', id: 'chat', text: 'only' })
+    bus.publish({ type: 'chat-delta', workspace: 'ally-one', id: 'chat', text: 'one ' })
+    bus.publish({ type: 'chat-delta', workspace: 'ally-one', id: 'chat', text: 'only' })
     expect(f.windows[1].webContents.send).not.toHaveBeenCalled()
-    await vi.waitFor(() => expect(f.windows[1].webContents.send).toHaveBeenCalledWith('genio:event', { type: 'chat-delta', wksp: 'ally-one', id: 'chat', text: 'one only' }))
+    await vi.waitFor(() => expect(f.windows[1].webContents.send).toHaveBeenCalledWith('genio:event', { type: 'chat-delta', workspace: 'ally-one', id: 'chat', text: 'one only' }))
     expect(f.windows[1].webContents.send).toHaveBeenCalledTimes(1)
     expect(f.windows[0].webContents.send).not.toHaveBeenCalled()
     expect(f.windows[2].webContents.send).not.toHaveBeenCalled()
@@ -239,8 +239,8 @@ describe('project window lifecycle', () => {
 describe('notification click routing', () => {
   it('reopens a closed owning project and reveals exactly its decision without navigating other windows', async () => {
     const snapshot = f.ctx.snapshot()
-    snapshot.decisions = [{ id: 'choice-one', project: 'one', wksp: 'ally-one' }]
-    const target = { view: 'move', project: 'one', wksp: 'ally-one', decisionId: 'choice-one' } as const
+    snapshot.decisions = [{ id: 'choice-one', project: 'one', workspace: 'ally-one' }]
+    const target = { view: 'move', project: 'one', workspace: 'ally-one', decisionId: 'choice-one' } as const
     for (const w of f.windows) { w.webContents.send.mockClear(); w.focus.mockClear() }
     bus.publish({ type: 'navigate', target })
     await vi.waitFor(() => expect(f.windows.find(w => !w.destroyed && w.query.project === 'one')?.webContents.send).toHaveBeenCalledWith('genio:event', { type: 'navigate', target }))

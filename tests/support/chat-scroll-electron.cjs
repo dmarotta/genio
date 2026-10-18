@@ -30,7 +30,7 @@ app.whenReady().then(async () => {
         // Stay above the bottom even if content-visibility replaces tall layout with estimates.
         el.scrollTop = 0
         el.dispatchEvent(new Event('scroll'))
-        ${streaming ? `window.fixture.handleEvent({ type: 'chat-delta', wksp: 'genio', id: '${id}', text: 'Streaming before jump ' })` : ''}
+        ${streaming ? `window.fixture.handleEvent({ type: 'chat-delta', workspace: 'genio', id: '${id}', text: 'Streaming before jump ' })` : ''}
       })()`)
       await until('!!document.querySelector(".chat-jump")', 'scrolled-up jump control')
       assert(await js(`(() => { const el = document.querySelector('.chat-log'); return el.scrollHeight - el.clientHeight - el.scrollTop > 80 })()`), 'Streaming must not yank a scrolled-up reader down')
@@ -43,7 +43,7 @@ app.whenReady().then(async () => {
       win.webContents.sendInputEvent({ type: 'mouseUp', ...point, button: 'left', clickCount: 1 })
       await js(`(() => {
         ${streaming ? `let tokens = 0; const timer = setInterval(() => {
-          window.fixture.handleEvent({ type: 'chat-delta', wksp: 'genio', id: '${id}', text: 'More streamed text.\\n\\n' })
+          window.fixture.handleEvent({ type: 'chat-delta', workspace: 'genio', id: '${id}', text: 'More streamed text.\\n\\n' })
           if (++tokens === 20) clearInterval(timer)
         }, 25)` : ''}
         // Deliberately grow content after the click, while the smooth scroll is in flight.

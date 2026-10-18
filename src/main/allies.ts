@@ -47,7 +47,7 @@ export function createAlliesService(getCtx: () => AppCtx): AlliesService {
       if (load().some((a) => a.name === name && !a.retiredAt)) throw new Error(`A project chat already exists in base ${name}`)
       if (!req.scope.trim()) throw new Error('an ally needs a routing scope')
       const mainHome = ctx.main.home
-      const root = mainHome.wkspHome(name)
+      const root = mainHome.workspaceHome(name)
       const home = new Home(root, name, mainHome)
       home.ensure()
       writeText(path.join(home.data, 'charter.md'), allyCharterFile(name, req.scope, req.charter, req.projects))
@@ -64,7 +64,7 @@ export function createAlliesService(getCtx: () => AppCtx): AlliesService {
       ctx.homes.set(name, hc)
       await hc.crew.reconcileOnStart().catch(() => undefined)
       hc.supervisor.start()
-      bus.publish({ type: 'wksp', wksp: hc.wksp.info() })
+      bus.publish({ type: 'workspace', workspace: hc.workspace.info() })
       bus.toast('success', 'Genio chat ready', `Genio is ready for ${ally.scope}.`)
       return ally
     },
@@ -78,7 +78,7 @@ export function createAlliesService(getCtx: () => AppCtx): AlliesService {
         const live = hc.crew.list().filter((t) => !['cleaned', 'done'].includes(t.state))
         if (live.length) return { ok: false, message: `Base ${name} still has ${live.length} unit(s) in play (${live.map((t) => t.id).join(', ')}); despawn or finish them first` }
         hc.supervisor.stop()
-        await hc.wksp.stop().catch(() => undefined)
+        await hc.workspace.stop().catch(() => undefined)
         await hc.design?.stop().catch(() => undefined)
         ctx.homes.delete(name)
       }
@@ -107,7 +107,7 @@ export function createAlliesService(getCtx: () => AppCtx): AlliesService {
       const hc = ctx.homes.get(name)
       if (!hc) return { ok: false, message: `Genio chat in base ${name} is not active` }
       const corr = rid(8)
-      await hc.wksp.send(`[FROM GENIO MAIN corr=${corr}] ${request}\n\nWhen finished (or blocked), answer with report_to_main and corr=${corr}.`, 'genio')
+      await hc.workspace.send(`[FROM GENIO MAIN corr=${corr}] ${request}\n\nWhen finished (or blocked), answer with report_to_main and corr=${corr}.`, 'genio')
       ctx.ledger.record({ event: 'task.status', data: { routedTo: name, corr } })
       return { ok: true, message: `Routed to Genio in base ${name} (corr=${corr}); its answer returns as an ally event` }
     },
@@ -117,7 +117,7 @@ export function createAlliesService(getCtx: () => AppCtx): AlliesService {
       const routine = verb === 'note'
       ctx.main.wakes.enqueue({ kind: 'check', reason: `Genio in base ${from} ${verb}${corr ? ` [corr=${corr}]` : ''}: ${note}`, lines: [note], routine })
       if (verb === 'needs-decision' || verb === 'blocked') ctx.notifier.sfx('decision')
-      ctx.main.wksp.deliverWakes()
+      ctx.main.workspace.deliverWakes()
     }
   }
   return svc

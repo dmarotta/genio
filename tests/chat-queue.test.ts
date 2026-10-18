@@ -66,10 +66,10 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   tool: () => ({}),
   createSdkMcpServer: () => ({})
 }))
-vi.mock('../src/main/wksp-tools', () => ({ buildTools: () => [] }))
+vi.mock('../src/main/workspace-tools', () => ({ buildTools: () => [] }))
 
 const { Home } = await import('../src/main/home')
-const { createWkspService, AgentSession } = await import('../src/main/wksp')
+const { createWorkspaceService, AgentSession } = await import('../src/main/workspace')
 const { bus } = await import('../src/main/bus')
 const { SessionQuotaPolicy, SessionCostLedger } = await import('../src/main/session-usage')
 const { createWakeService } = await import('../src/main/wakes')
@@ -91,7 +91,7 @@ afterEach(() => {
 })
 
 const ctx = {
-  settings: { get: () => ({ gamertag: 'Alex', chatShellMode: 'ask', wkspModel: '', wkspEffort: '', botModel: '' }) },
+  settings: { get: () => ({ gamertag: 'Alex', chatShellMode: 'ask', workspaceModel: '', workspaceEffort: '', botModel: '' }) },
   allies: { list: () => [] },
   projects: { list: () => [] },
   memory: { read: () => '' },
@@ -107,10 +107,10 @@ function chat(name: string) {
   const root = path.join(dir, 'workspaces', name)
   const home = new Home(root, name, new Home(dir))
   ctx.main.home.data = path.join(dir, 'data')
-  const svc = createWkspService(() => ctx as never, home)
+  const svc = createWorkspaceService(() => ctx as never, home)
   let shown: ChatMessage[] = []
   const off = bus.onEvent((ev: GenioEvent) => {
-    if (ev.type === 'chat' && ev.message.wksp === name) shown = applyChatEvent(shown, ev.message)
+    if (ev.type === 'chat' && ev.message.workspace === name) shown = applyChatEvent(shown, ev.message)
   })
   cleanup.push(off, () => void svc.stop())
   return { home, svc, view: () => splitQueued(shown), shown: () => shown }
@@ -121,7 +121,7 @@ const waitReceived = (q: () => { received: string[] } | undefined, n: number): P
   vi.waitFor(() => expect(q()?.received.length).toBe(n))
 
 describe('queue state helpers', () => {
-  const m = (id: string, extra: Partial<ChatMessage> = {}): ChatMessage => ({ id, wksp: 'main', role: 'player', text: id, ts: `2026-10-13T10:00:0${id.length}Z`, ...extra })
+  const m = (id: string, extra: Partial<ChatMessage> = {}): ChatMessage => ({ id, workspace: 'main', role: 'player', text: id, ts: `2026-10-13T10:00:0${id.length}Z`, ...extra })
 
   it('a picked-up message moves to the end once, with no duplicate', () => {
     let list = [m('a'), m('q', { queue: 'queued' }), m('g', { role: 'genio' })]
@@ -203,7 +203,7 @@ describe('queued chat messages', () => {
     // once read, a message can no longer be taken back
     expect(c.svc.unqueue(byText(c.svc.history(), 'keep me')!.id)).toBeNull()
     // the cancelled ones stay gone after a reload
-    const again = createWkspService(() => ctx as never, c.home)
+    const again = createWorkspaceService(() => ctx as never, c.home)
     expect(again.history().map((m) => m.text)).toEqual(['busy now', 'keep me'])
   })
 
@@ -240,13 +240,13 @@ describe('queued chat messages', () => {
     await c.svc.send('lost in the restart', 'player', [{ mediaType: 'image/png', data: PNG }])
     await c.svc.stop()
 
-    const after = createWkspService(() => ctx as never, c.home)
+    const after = createWorkspaceService(() => ctx as never, c.home)
     cleanup.push(() => void after.stop())
     const lost = byText(after.history(), 'lost in the restart')!
     expect(lost.queue).toBe('unsent')
-    expect(createWkspService(() => ctx as never, c.home).history().find((m) => m.id === lost.id)?.queue).toBe('unsent')
+    expect(createWorkspaceService(() => ctx as never, c.home).history().find((m) => m.id === lost.id)?.queue).toBe('unsent')
     expect(after.unqueue(lost.id)).toEqual({ text: 'lost in the restart', images: [{ mediaType: 'image/png', data: PNG }] })
-    expect(createWkspService(() => ctx as never, c.home).history().map((m) => m.text)).toEqual(['one'])
+    expect(createWorkspaceService(() => ctx as never, c.home).history().map((m) => m.text)).toEqual(['one'])
   })
 })
 
@@ -328,7 +328,7 @@ describe('every submitted message is visible as queued right away', () => {
     c.svc.prepareProjectOpen()
     const sending = c.svc.send('are you there?')
     expect(c.view().queued.map(m => m.text)).toEqual(['are you there?'])
-    const hc = { home: c.home, wksp: c.svc, supervisor: { replayStatus: () => undefined },
+    const hc = { home: c.home, workspace: c.svc, supervisor: { replayStatus: () => undefined },
       crew: { reconcileOnStart: async () => { throw new Error('disk on fire') } } }
     await expect(reconcileProjectOpen({ home: () => hc, homes: new Map([['x', hc]]) } as never, 'forest', 'reconcile-fails', () => true)).rejects.toThrow('disk on fire')
     await sending
@@ -352,7 +352,7 @@ describe('every submitted message is visible as queued right away', () => {
     expect(fake.queries).toHaveLength(0)
     expect(byText(c.svc.history(), 'do not lose me')?.queue).toBe('unsent')
     expect(c.shown().map(m => [m.text, m.queue])).toEqual([['do not lose me', 'unsent']])
-    expect(createWkspService(() => ctx as never, c.home).history().map(m => m.queue)).toEqual(['unsent'])
+    expect(createWorkspaceService(() => ctx as never, c.home).history().map(m => m.queue)).toEqual(['unsent'])
   })
 
   it('stopping a busy session shows the messages it dropped as not sent, never stuck as queued', async () => {
@@ -419,7 +419,7 @@ describe('every submitted message is visible as queued right away', () => {
     expect(c.shown()).toEqual([])
     expect(c.svc.history()).toEqual([])
     expect(c.svc.info().queued).toBe(0)
-    expect(createWkspService(() => ctx as never, c.home).history()).toEqual([])
+    expect(createWorkspaceService(() => ctx as never, c.home).history()).toEqual([])
     expect(fake.queries).toHaveLength(0)
   })
 
@@ -767,7 +767,7 @@ it('keeps the service display identity Genio while retaining a non-genio project
   const home = new Home(path.join(dir, 'workspaces', name), name, new Home(dir))
   const ally = { name, projects: [name], scope: `All work in ${name}`, charter: '', home: home.root, createdAt: '2026-10-14' }
   ctx.main.home.data = path.join(dir, 'data')
-  const svc = createWkspService(() => ctx as never, home, ally)
+  const svc = createWorkspaceService(() => ctx as never, home, ally)
   try { expect(svc.info()).toMatchObject({ name, displayName: 'Genio' }) }
   finally { await svc.stop() }
 })

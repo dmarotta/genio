@@ -57,7 +57,7 @@ describe('units', () => {
     fs.mkdirSync(worktree, { recursive: true })
     fs.mkdirSync(home.taskDir('unit'), { recursive: true })
     fs.writeFileSync(home.briefFile('unit'), '# Mission')
-    task = { id: 'unit', kind: 'ship', project: 'world', wksp: 'main', state: 'exited', harness: 'codex', model: CODEX_UNIT_MODEL,
+    task = { id: 'unit', kind: 'ship', project: 'world', workspace: 'main', state: 'exited', harness: 'codex', model: CODEX_UNIT_MODEL,
       worktree, branch: 'genio/unit', briefPath: home.briefFile('unit'), relaunches: 0, automaticRelaunches: 0 } as Task
     fs.writeFileSync(home.tasksFile, JSON.stringify([task]))
     launches = []
@@ -176,7 +176,7 @@ describe('one-shots', () => {
   it("chat image generation runs in Genio's home", async () => {
     fakeSignIn(genio)
     const appRoot = fileURLToPath(new URL('..', import.meta.url))
-    const gen: ChatImageGen = { chatDir: path.join(root, 'data', 'chat-images'), wksp: 'main', post: () => {},
+    const gen: ChatImageGen = { chatDir: path.join(root, 'data', 'chat-images'), workspace: 'main', post: () => {},
       run: { script: path.join(codexImageSkillDir(unitPluginSource(appRoot)), 'scripts', 'codex-image.mjs'), scratch: path.join(root, 'data', 'codex-image') } }
     const result = await generateChatImages(gen, { prompt: 'a red gem', count: 1, transparent: false, refs: [] })
     expect(result.isError).toBeFalsy()
@@ -191,8 +191,8 @@ describe('the Codex chat', () => {
     server.model = { ...server.model, model: 'gpt-test' }
     const envs: Record<string, string>[] = []
     const hooks = { onMessage: vi.fn(), onDelta: vi.fn(), onActivity: vi.fn(), onTurnEnd: vi.fn(), onSessionId: vi.fn(), onError: vi.fn(), onLimit: vi.fn(), onRequeue: vi.fn() } as ChatDriverEvents
-    // The same home wiring as wksp.ts.
-    const driver = new CodexChatDriver({ wksp: 'main', cwd: root, config: () => ({ model: 'gpt-test' }), instructions: () => 'contract', approve: async () => false,
+    // The same home wiring as workspace.ts.
+    const driver = new CodexChatDriver({ workspace: 'main', cwd: root, config: () => ({ model: 'gpt-test' }), instructions: () => 'contract', approve: async () => false,
       home: async () => { const l = await codexLaunch(); return { env: l.env, codexHome: l.codexHome } },
       handoff: () => 'HANDOFF: recent chat',
       wire: (events, env) => { envs.push(env); server.events = events; return server },
@@ -244,7 +244,7 @@ it('the usage report shows nothing for Codex while Genio is not signed in, even 
   fs.mkdirSync(path.join(data, 'usage'), { recursive: true })
   const stale = [{ ts: new Date().toISOString(), limitId: 'codex', plan: 'pro', windows: [{ minutes: 10080, usedPercent: 41 }] }]
   fs.writeFileSync(path.join(data, 'usage', 'codex-limits.json'), JSON.stringify(stale))
-  const home = { root: path.join(root, 'base'), data, wkspFile: path.join(root, 'base', 'state', 'wksp.json'), name: 'main' }
+  const home = { root: path.join(root, 'base'), data, workspaceFile: path.join(root, 'base', 'state', 'workspace.json'), name: 'main' }
   const ctx = { main: { home }, homes: new Map([['main', { home }]]), allies: { list: () => [] }, settings: { get: () => ({}) } } as unknown as AppCtx
   const unsigned = (await usageReport(ctx, { forceCodex: true })).tools.find(t => t.tool === 'codex')
   expect(unsigned?.limits).toEqual([])
@@ -275,7 +275,7 @@ it("usage counts Genio's units in Genio's home, archived ones included, and olde
   fs.mkdirSync(path.join(genio, 'archived_sessions'))
   fs.renameSync(archived, path.join(genio, 'archived_sessions', path.basename(archived)))
   fs.appendFileSync(fakeThread(player, 'older-unit', cwd), tokens(3) + '\n')
-  const home = { root: base, data, wkspFile: path.join(base, 'state', 'wksp.json'), name: 'main' }
+  const home = { root: base, data, workspaceFile: path.join(base, 'state', 'workspace.json'), name: 'main' }
   const ctx = { main: { home }, homes: new Map([['main', { home }]]), allies: { list: () => [] }, settings: { get: () => ({}) } } as unknown as AppCtx
   const codex = (await usageReport(ctx)).tools.find(t => t.tool === 'codex')
   expect(codex?.measured?.week).toMatchObject({ input: 123, output: 3 })

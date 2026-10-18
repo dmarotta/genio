@@ -7,7 +7,7 @@ so plans work with every unit tool, and each step can have its own loadout.
 
 Code: `src/main/plans.ts` (store and sequencing), `src/shared/work-plan.ts`
 (step states and the plan view), `src/shared/plan-estimate.ts` (time and cost),
-`src/main/plan-hints.ts` (rebase hints), and the tools in `src/main/wksp-tools.ts`.
+`src/main/plan-hints.ts` (rebase hints), and the tools in `src/main/workspace-tools.ts`.
 The store is `<home>/data/plans.json`. Internally it is called `WorkPlan`,
 because `PlanId` already means a provider quota plan.
 

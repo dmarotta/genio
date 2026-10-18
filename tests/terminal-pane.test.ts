@@ -127,7 +127,7 @@ function fakeCtx(): AppCtx {
     onExit: (id: string, fn: (code: number) => void) => { exits.set(id, fn); return () => exits.delete(id) },
     onData: (id: string, fn: (d: string) => void) => { datas.set(id, fn); return () => datas.delete(id) }
   }
-  const hc = { crew: { list: () => tasks }, wksp: { shellRan } }
+  const hc = { crew: { list: () => tasks }, workspace: { shellRan } }
   return {
     projects: { get: (name: string) => (name === 'world' ? { name, path: root } : undefined) },
     homes: new Map([['world', hc]]),
@@ -222,8 +222,8 @@ describe('pane PTY lifecycle', () => {
     const pane = { id: 'p', kind: 'pane', project: 'world', cwd: path.join(root, '.wt', 'u1') } as TerminalInfo
     expect(terminalProject(pane, snap)).toBe('world')
     const ev = { type: 'terminal' as const, terminal: pane }
-    expect(routeProjectEvent(ev, { project: 'world', wksp: 'world' }, snap)).toBe(ev)
-    expect(routeProjectEvent(ev, { project: 'other', wksp: 'other' }, snap)).toBeUndefined()
+    expect(routeProjectEvent(ev, { project: 'world', workspace: 'world' }, snap)).toBe(ev)
+    expect(routeProjectEvent(ev, { project: 'other', workspace: 'other' }, snap)).toBeUndefined()
   })
 
   it('never counts as a unit: the quit warning, the unit cap and the Squad count ignore it', () => {

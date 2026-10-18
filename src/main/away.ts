@@ -115,7 +115,7 @@ export function createAwayService(getCtx: () => AppCtx): AwayService {
   }
 
   function notifyEntry(e: AwayEntry): void {
-    const { title, body } = formatNotification({ kind: e.severity, text: e.text, where: e.where ?? e.wksp })
+    const { title, body } = formatNotification({ kind: e.severity, text: e.text, where: e.where ?? e.workspace })
     getCtx().notifier.notify(title, body, e.severity, { target: entryTarget(e) })
   }
 
@@ -227,14 +227,14 @@ export function createAwayService(getCtx: () => AppCtx): AwayService {
       }
       if (brief) {
         try {
-          ctx.main.wksp.say(brief, 'system')
+          ctx.main.workspace.say(brief, 'system')
         } catch {
-          /* wksp not ready */
+          /* workspace not ready */
         }
       }
       // Events that were routed to the Bot may now belong on Comms.
       try {
-        for (const h of ctx.homes.values()) h.wksp.deliverWakes()
+        for (const h of ctx.homes.values()) h.workspace.deliverWakes()
       } catch {
         /* not wired */
       }
@@ -278,8 +278,8 @@ export function createAwayService(getCtx: () => AppCtx): AwayService {
       const where = s.since ? ` (since ${new Date(s.since).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})` : ''
       const lines = [`Welcome back, ${gamertag()}. ${pending.length} update(s) while you were away${where}:`]
       for (const e of order.filter(e => e.severity !== 'decision')) {
-        const wksp = e.wksp && e.wksp !== 'main' ? ` [${e.wksp}]` : ''
-        lines.push(`- [${SEVERITY_TAG[e.severity]}]${wksp} ${e.text}`)
+        const workspace = e.workspace && e.workspace !== 'main' ? ` [${e.workspace}]` : ''
+        lines.push(`- [${SEVERITY_TAG[e.severity]}]${workspace} ${e.text}`)
       }
       if (moves) lines.push(`${moves} choices waiting. Open Pending answers when ready.`)
       return lines.join('\n')
@@ -292,5 +292,5 @@ export function createAwayService(getCtx: () => AppCtx): AwayService {
 function entryTarget(e: AwayEntry | undefined): NotifyTarget {
   if (e?.target) return e.target
   if (e?.severity === 'decision') return { view: 'move' }
-  return { view: 'comms', wksp: e?.wksp }
+  return { view: 'comms', workspace: e?.workspace }
 }

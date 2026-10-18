@@ -47,7 +47,7 @@ describe.skipIf(process.env.GENIO_E2E_REAL !== '1')('deploy → overwatch → me
     ctx = createApp(process.cwd(), path.join(root, 'base'))
     ctx.settings.save({ firstRunDone: true, pollSeconds: 3, signalGraceSeconds: 2, defaultWorkerModel: MODEL, defaultWorkerEffort: 'low' })
     // keep Genio itself idle: this test drives the squad directly
-    ctx.main.wksp.deliverWakes = () => undefined
+    ctx.main.workspace.deliverWakes = () => undefined
     await startApp(ctx)
 
     const p = await ctx.projects.add({ source: world, inPlace: true, mode: 'local-only' })

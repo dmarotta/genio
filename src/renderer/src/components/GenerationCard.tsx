@@ -3,12 +3,12 @@ import type { GenerationCard as Card } from '@shared/generation'
 import { api, errText } from '../store'
 
 /** The only generation control in chat: approve an exact, already priced request. */
-export function GenerationCard({ card, wksp }: { card: Card; wksp: string }) {
+export function GenerationCard({ card, workspace }: { card: Card; workspace: string }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const approve = async () => {
     setBusy(true); setError('')
-    try { await api().approveGeneration(wksp, card.id) } catch (e) { setError(errText(e)) } finally { setBusy(false) }
+    try { await api().approveGeneration(workspace, card.id) } catch (e) { setError(errText(e)) } finally { setBusy(false) }
   }
   return <div className="generation-card" aria-live="polite">
     <strong>{card.status === 'awaiting_approval' ? 'Approve generation' : card.status === 'completed' ? 'Asset ready' : card.status === 'failed' ? 'Generation failed' : card.status === 'placing' ? 'Saving asset…' : 'Generating…'}</strong>

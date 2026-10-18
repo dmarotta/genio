@@ -30,16 +30,16 @@ export interface Attachments {
 }
 
 /** Images attached to one chat's draft; they live with the draft so they survive view switches. */
-export function useAttachments(wksp: string, disabled = false): Attachments {
-  const [images, setImages] = useState<DraftImage[]>(() => getDraftImages(wksp))
+export function useAttachments(workspace: string, disabled = false): Attachments {
+  const [images, setImages] = useState<DraftImage[]>(() => getDraftImages(workspace))
   const [pending, setPending] = useState(0)
   const [dragging, setDragging] = useState(false)
-  const current = useRef(wksp)
+  const current = useRef(workspace)
 
   useLayoutEffect(() => {
-    current.current = wksp
-    setImages(getDraftImages(wksp))
-  }, [wksp])
+    current.current = workspace
+    setImages(getDraftImages(workspace))
+  }, [workspace])
 
   const commit = (target: string, next: DraftImage[]): void => {
     setDraftImages(target, next)
@@ -47,7 +47,7 @@ export function useAttachments(wksp: string, disabled = false): Attachments {
   }
 
   const add = async (files: Blob[], pasted = false): Promise<void> => {
-    const target = wksp
+    const target = workspace
     const imgs = files.filter((f) => f.type.startsWith('image/'))
     if (!imgs.length) return
     const room = MAX_IMAGES_PER_MESSAGE - getDraftImages(target).length
@@ -72,8 +72,8 @@ export function useAttachments(wksp: string, disabled = false): Attachments {
     pending,
     dragging,
     add,
-    remove: (id) => commit(wksp, getDraftImages(wksp).filter((i) => i.id !== id)),
-    set: (next) => commit(wksp, next),
+    remove: (id) => commit(workspace, getDraftImages(workspace).filter((i) => i.id !== id)),
+    set: (next) => commit(workspace, next),
     onPaste(e) {
       if (disabled) return
       const files = Array.from(e.clipboardData.items)
@@ -136,9 +136,9 @@ export function AttachmentStrip({ att }: { att: Attachments }) {
 }
 
 /** Thumbnails in a sent message; click one to view it full size. */
-export function MessageImages({ wksp, images }: { wksp: string; images: ChatImage[] }) {
+export function MessageImages({ workspace, images }: { workspace: string; images: ChatImage[] }) {
   const [open, setOpen] = useState<number>()
-  const urls = images.map((img) => chatImageUrl(wksp, img.file))
+  const urls = images.map((img) => chatImageUrl(workspace, img.file))
   return (
     <>
       <div className="msg-images">

@@ -173,8 +173,8 @@ it('shows no choices, counts or history from any project, even with choices pend
   const state = getState()
   const now = new Date().toISOString()
   setState({ answersOpen: true, answerHistory: 'answered', snap: { ...state.snap, decisions: [
-    { id: 'choice', key: 'k', project: 'beta', wksp: 'beta', question: 'Which route?', options: ['A'], source: 'genio', urgency: 'normal', createdAt: now },
-    { id: 'answered', key: 'k', project: 'beta', wksp: 'beta', question: 'Old choice?', answer: 'Yes', resolvedAt: now, options: [], source: 'genio', urgency: 'normal', createdAt: now }
+    { id: 'choice', key: 'k', project: 'beta', workspace: 'beta', question: 'Which route?', options: ['A'], source: 'genio', urgency: 'normal', createdAt: now },
+    { id: 'answered', key: 'k', project: 'beta', workspace: 'beta', question: 'Old choice?', answer: 'Yes', resolvedAt: now, options: [], source: 'genio', urgency: 'normal', createdAt: now }
   ] } })
   await render()
   expect([...host.querySelectorAll('button')].map(b => b.textContent)).toEqual(['File', ' Settings', ' Open folder…', ' Clone', 'alphaC:/alpha', '', 'betaC:/beta', ''])

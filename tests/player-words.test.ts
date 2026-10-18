@@ -20,7 +20,7 @@ import { mergeApprovalLabel } from '../src/shared/merge-approval'
 const READY = '2026-10-16T10:00:00.000Z'
 const at = (min: number): string => new Date(Date.parse(READY) + min * 60_000).toISOString()
 let seq = 0
-const msg = (role: ChatMessage['role'], text: string, ts: string, extra: Partial<ChatMessage> = {}): ChatMessage => ({ id: `m${++seq}`, wksp: 'main', role, text, ts, ...extra })
+const msg = (role: ChatMessage['role'], text: string, ts: string, extra: Partial<ChatMessage> = {}): ChatMessage => ({ id: `m${++seq}`, workspace: 'main', role, text, ts, ...extra })
 const player = (text: string, min = 5): ChatMessage => msg('player', text, at(min))
 const genio = (text: string, min = 4): ChatMessage => msg('genio', text, at(min))
 
@@ -74,7 +74,7 @@ describe('merge approvals the player gives themselves', () => {
   })
 
   it('counts only the player\'s approving click on the merge choice, after the ready signal; a chat answer never counts', () => {
-    const choice = (patch: Partial<Decision>): Decision => ({ id: 'ch-1', key: 'merge:u-settings', wksp: 'main', question: 'Merge now?', options: MERGE_CHOICE_OPTIONS, source: 'genio',
+    const choice = (patch: Partial<Decision>): Decision => ({ id: 'ch-1', key: 'merge:u-settings', workspace: 'main', question: 'Merge now?', options: MERGE_CHOICE_OPTIONS, source: 'genio',
       urgency: 'normal', createdAt: at(1), resolvedAt: at(3), answer: 'Merge now', answeredVia: 'ui', action: { kind: 'merge-approval', task: 'u-settings' }, ...patch })
     expect(mergeChoiceApproval([choice({})], settings)?.id).toBe('ch-1')
     expect(mergeChoiceApproval([choice({ answer: 'Not yet' })], settings)).toBeUndefined()
@@ -97,22 +97,22 @@ describe('standing merge approvals', () => {
     const events: GenioEvent[] = []
     const off = bus.onEvent(ev => { if (ev.type === 'standing-approvals') events.push(ev) })
     try {
-      const m = msg('player', 'keep merging everything', at(0), { wksp: 'game' })
+      const m = msg('player', 'keep merging everything', at(0), { workspace: 'game' })
       const receipt = noteStandingWords(ctx, allyHome, m)
       expect(receipt).toContain('Standing merge approval recorded for game until')
       const store = standingApprovals(ctx)
       const a = store.active('game')!
-      expect(a).toMatchObject({ project: 'game', wksp: 'game', messageId: m.id, text: 'keep merging everything' })
+      expect(a).toMatchObject({ project: 'game', workspace: 'game', messageId: m.id, text: 'keep merging everything' })
       expect(Date.parse(a.expiresAt) - Date.parse(a.createdAt)).toBe(STANDING_HOURS * 3_600_000)
       expect(store.active('game', Date.parse(a.expiresAt) + 1)).toBeUndefined()
       expect(ctx.ledger.record).toHaveBeenCalledWith(expect.objectContaining({ event: 'approval.standing', project: 'game', data: expect.objectContaining({ id: a.id, messageId: m.id }) }))
       expect(events.at(-1)).toMatchObject({ approvals: [expect.objectContaining({ id: a.id })] })
 
-      expect(noteStandingWords(ctx, allyHome, msg('player', 'stop merging', at(10), { wksp: 'game' }))).toContain('revoked')
+      expect(noteStandingWords(ctx, allyHome, msg('player', 'stop merging', at(10), { workspace: 'game' }))).toContain('revoked')
       expect(store.active('game')).toBeUndefined()
       expect(ctx.ledger.record).toHaveBeenCalledWith(expect.objectContaining({ event: 'approval.revoked', data: expect.objectContaining({ id: a.id, by: 'words' }) }))
 
-      noteStandingWords(ctx, allyHome, msg('player', 'merge everything that finishes', at(20), { wksp: 'game' }))
+      noteStandingWords(ctx, allyHome, msg('player', 'merge everything that finishes', at(20), { workspace: 'game' }))
       const b = store.active('game')!
       expect(store.revoke(b.id)).toMatchObject({ id: b.id })
       expect(store.list()).toHaveLength(0)
@@ -147,7 +147,7 @@ describe('the unit page buttons are the player\'s own action', () => {
         control: vi.fn(async () => ({ ok: true, message: 'relaunched' })) },
       backlog: { list: () => [], get: () => undefined },
       decisions: { list: () => decisions, get: (id: string) => decisions.find(d => d.id === id), resolve: vi.fn(), open: vi.fn((d: Partial<Decision>) => ({ ...d, id: 'ch-new' })) },
-      wksp: { history: () => chat, post: vi.fn(), say: vi.fn() }
+      workspace: { history: () => chat, post: vi.fn(), say: vi.fn() }
     }
     ctx = { appRoot: process.cwd(), main: hc, homes: new Map([['main', hc]]), home: () => hc,
       settings: { get: () => ({}) }, allies: { list: () => [] }, away: { state: () => ({ mode: 'online' }) },

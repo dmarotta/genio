@@ -28,12 +28,12 @@ const apiCall = (name: string): ReturnType<typeof vi.fn> => {
 const NOW = '2026-10-13T12:00:00Z'
 const project = { name: 'world', path: 'C:/games/world', engine: 'other', commands: {}, defaultBranch: 'main', mode: 'local-only',
   forge: 'none', yolo: false, branchPrefix: 'genio/', managed: false, addedAt: '', gitRepo: true } as unknown as Project
-const unit = (patch: Partial<Task> = {}): Task => ({ id: 'u1', title: 'Fix the jump', kind: 'ship', state: 'working', project: 'world', wksp: 'main',
+const unit = (patch: Partial<Task> = {}): Task => ({ id: 'u1', title: 'Fix the jump', kind: 'ship', state: 'working', project: 'world', workspace: 'main',
   mode: 'local-only', harness: 'claude', model: 'opus', effort: 'high', branch: 'genio/u1', baseBranch: 'main', worktree: 'C:/wt/u1', relaunches: 0,
   inbox: { seq: 0, acked: 0, rings: 0 }, createdAt: '2026-10-13T11:00:00Z', updatedAt: '2026-10-13T11:30:00Z', ...patch } as Task)
 const pty = (patch: Partial<TerminalInfo> = {}): TerminalInfo => ({ id: 'pty-1', taskId: 'u1', title: 'u1', cwd: 'C:/wt/u1', alive: true, cols: 120, rows: 32, kind: 'worker',
   lastOutputAt: NOW, ...patch })
-const decision = (patch: Partial<Decision> = {}): Decision => ({ id: 'd1', key: 'playtest', wksp: 'main', taskId: 'u1', project: 'world', question: 'Keep the Playtest button?',
+const decision = (patch: Partial<Decision> = {}): Decision => ({ id: 'd1', key: 'playtest', workspace: 'main', taskId: 'u1', project: 'world', question: 'Keep the Playtest button?',
   options: ['Remove it', 'Keep it'], recommendation: 'Remove it', source: 'unit', urgency: 'normal', createdAt: NOW, ...patch })
 
 async function open(t: Task, terminals: TerminalInfo[] = [], decisions: Decision[] = []): Promise<void> {

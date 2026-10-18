@@ -29,7 +29,7 @@ export class StandingApprovals {
   }
 
   /** One per project: a newer approval replaces the old one. */
-  record(a: Pick<StandingApproval, 'project' | 'wksp' | 'messageId' | 'text'>, now = Date.now()): StandingApproval {
+  record(a: Pick<StandingApproval, 'project' | 'workspace' | 'messageId' | 'text'>, now = Date.now()): StandingApproval {
     const row: StandingApproval = { ...a, id: `sa-${rid(6)}`, createdAt: new Date(now).toISOString(), expiresAt: new Date(now + STANDING_HOURS * 3_600_000).toISOString() }
     this.rows = [...this.rows.filter(x => x.project !== a.project && Date.parse(x.expiresAt) > now), row]
     this.changed('approval.standing', row)
@@ -46,7 +46,7 @@ export class StandingApprovals {
 
   private changed(event: 'approval.standing' | 'approval.revoked', row: StandingApproval, by?: string): void {
     try {
-      this.ctx.ledger.record({ home: row.wksp, event, project: row.project, data: { id: row.id, messageId: row.messageId, text: row.text, expiresAt: row.expiresAt, ...(by ? { by } : {}) } })
+      this.ctx.ledger.record({ home: row.workspace, event, project: row.project, data: { id: row.id, messageId: row.messageId, text: row.text, expiresAt: row.expiresAt, ...(by ? { by } : {}) } })
     } catch { /* the ledger is optional */ }
     bus.publish({ type: 'standing-approvals', approvals: this.list() })
   }
@@ -79,13 +79,13 @@ export function noteStandingWords(ctx: AppCtx, home: Home, m: ChatMessage): stri
   const store = standingApprovals(ctx)
   if (isStandingRevoke(m.text)) {
     const projects = chatProjects(ctx, home, m.text)
-    const gone = store.list().filter(a => a.wksp === home.name && (projects.includes(a.project) || !projects.length))
+    const gone = store.list().filter(a => a.workspace === home.name && (projects.includes(a.project) || !projects.length))
     for (const a of gone) store.revoke(a.id, 'words')
     return gone.length ? `Standing merge approval revoked for ${gone.map(a => a.project).join(', ')}. Merges wait for your word again.` : undefined
   }
   if (!isStandingApproval(m.text)) return undefined
   const projects = chatProjects(ctx, home, m.text)
   if (!projects.length) return undefined
-  const rows = projects.map(project => store.record({ project, wksp: home.name, messageId: m.id, text: m.text.trim() }))
+  const rows = projects.map(project => store.record({ project, workspace: home.name, messageId: m.id, text: m.text.trim() }))
   return `Standing merge approval recorded for ${projects.join(', ')} until ${until(rows[0].expiresAt)} (or until Genio restarts): Genio may merge Builds there as they become ready and pass their checks. It never covers destructive actions. Revoke it from the title bar, or say "stop merging".`
 }

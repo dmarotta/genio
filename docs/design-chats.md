@@ -58,7 +58,7 @@ and deletes its transcript.
 
 `src/main/design-chats.ts` owns the list and creates one `ProviderChatSession` per open chat, over the same
 Claude and Codex drivers as the project chat. The transcript, the queue of waiting messages, steering, Send now,
-taking a message back and image handling come from `chat-thread.ts`, which the project chat (`wksp.ts`) uses too.
+taking a message back and image handling come from `chat-thread.ts`, which the project chat (`workspace.ts`) uses too.
 
 What a Lore chat does not have, by construction:
 
@@ -112,7 +112,7 @@ pillars, system note and decision entry templates, live in the Lore chat's promp
 code: the tool stores text and never parses fields.
 
 `design_notes(world, action, name?, text?, since?, player_words?)` (`src/main/design-notes.ts`, registered in
-`wksp-tools.ts`):
+`workspace-tools.ts`):
 
 - **list** gives each note's name, title (front matter `title:` or the first heading), size, version and last change,
   and the folder's total against its limit.
@@ -151,7 +151,7 @@ gives; Noted (`design-note-saved`), for the first note a Lore chat saves.
 ## IPC
 
 The chat calls take an optional conversation id as their last argument (`chatHistory`, `sendChat`, `steerChat`,
-`unqueueChat`, `sendQueuedNow`, `interruptWksp`, `restartWksp`). Without one they address the project chat as
+`unqueueChat`, `sendQueuedNow`, `interruptWorkspace`, `restartWorkspace`). Without one they address the project chat as
 before. `designChats`, `designChatCreate`, `designChatDelete` and `designChatConfigure` manage the list. Every
 call keeps the window binding: a project window reaches only its own base's chats.
 
@@ -160,7 +160,7 @@ call keeps the window binding: a project window reaches only its own base's chat
 `design-notes.ts`): the same name, size and link checks as a chat's write, no `player_words` (the player typed it),
 and refused when the note changed since `since`. Both belong to the project window, like the Art Bible calls.
 
-The renderer keeps a Lore chat's messages, draft and scroll position under `chatKey(wksp, id)`
+The renderer keeps a Lore chat's messages, draft and scroll position under `chatKey(workspace, id)`
 (`src/shared/chat.ts`), apart from the project chat's.
 
 Lore chat messages travel as their own events (`design-chats`, `design-chat`, `design-chat-delta`), routed only

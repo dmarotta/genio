@@ -28,7 +28,7 @@ app.whenReady().then(async () => {
         await js(`window.fixture.setState({
           tip: ${['tip', 'all'].includes(overlay) ? `{ id: 'plans', line: 'Ask Genio for a plan.', question: 'How do I use a plan?', shownAt: Date.now() }` : 'undefined'},
           toasts: ${['toast', 'all'].includes(overlay) ? `[{ id: 't', level: 'info', title: 'Connection restored' }]` : '[]'},
-          snap: { ...window.fixture.getState().snap, decisions: ${['choice', 'all'].includes(overlay) ? `[{ id: 'choice', key: 'choice', wksp: 'genio', project: 'fixture', question: 'Which scene?', options: ['Castle', 'Forest'], source: 'unit', urgency: 'normal', createdAt: new Date().toISOString() }]` : '[]'} }
+          snap: { ...window.fixture.getState().snap, decisions: ${['choice', 'all'].includes(overlay) ? `[{ id: 'choice', key: 'choice', workspace: 'genio', project: 'fixture', question: 'Which scene?', options: ['Castle', 'Forest'], source: 'unit', urgency: 'normal', createdAt: new Date().toISOString() }]` : '[]'} }
         })`)
         await win.webContents.capturePage(); await wait(400)
         const g = await js(`(() => {

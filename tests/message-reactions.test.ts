@@ -9,9 +9,9 @@ import { createCrewService } from '../src/main/crew'
 import { createBacklogService } from '../src/main/backlog'
 import { createDecisionService } from '../src/main/decisions'
 import { createWakeService } from '../src/main/wakes'
-import { createWkspService } from '../src/main/wksp'
+import { createWorkspaceService } from '../src/main/workspace'
 import { createReactionService, DISLIKE_GRACE_MS, REACTION_OPTIONS, pauseSummary } from '../src/main/reactions'
-import { answerChoice, createToolRegistry } from '../src/main/wksp-tools'
+import { answerChoice, createToolRegistry } from '../src/main/workspace-tools'
 import { scoreOutcome } from '../src/main/scorecard'
 import type { AppCtx, HomeCtx } from '../src/main/services'
 import type { ChatMessage, MessageActions, Task } from '../src/shared/types'
@@ -22,8 +22,8 @@ let control: ReturnType<typeof vi.fn>
 const record = vi.fn()
 
 function wire(): void {
-  hc.wksp = createWkspService(() => ctx, home, undefined, false, () => false)
-  vi.spyOn(hc.wksp, 'deliverWakes')
+  hc.workspace = createWorkspaceService(() => ctx, home, undefined, false, () => false)
+  vi.spyOn(hc.workspace, 'deliverWakes')
   hc.reactions = createReactionService(() => ctx, home)
 }
 
@@ -34,7 +34,7 @@ beforeEach(() => {
   const mainHome = new Home(root); mainHome.ensure()
   home = new Home(path.join(root, 'workspaces', 'world'), 'world', mainHome); home.ensure()
   hc = { home } as unknown as HomeCtx
-  const main = { home: mainHome, wksp: { deliverWakes: vi.fn(), say: vi.fn() } } as unknown as HomeCtx
+  const main = { home: mainHome, workspace: { deliverWakes: vi.fn(), say: vi.fn() } } as unknown as HomeCtx
   record.mockReset()
   ctx = { appRoot: path.join(root, 'no-bundle'), main, home: (name: string) => name === 'main' ? main : hc,
     homes: new Map([['main', main], ['world', hc]]),
@@ -66,7 +66,7 @@ afterEach(() => {
 })
 
 function unit(id: string, state: Task['state'], extra: Partial<Task> = {}): Task {
-  const task = { id, kind: 'ship', title: `Build ${id}`, project: 'world', wksp: 'world', state, mode: 'local-only', harness: 'claude',
+  const task = { id, kind: 'ship', title: `Build ${id}`, project: 'world', workspace: 'world', state, mode: 'local-only', harness: 'claude',
     worktree: path.join(root, 'worktrees', id), briefPath: home.briefFile(id), branch: `genio/${id}`, relaunches: 0, terminalId: `term-${id}`,
     createdAt: '2026-01-01', updatedAt: '2026-01-01', inbox: { seq: 0, acked: 0 }, statusOffset: 0, ...extra } as Task
   fs.writeFileSync(home.tasksFile, JSON.stringify([...hc.crew.list(), task]))
@@ -77,12 +77,12 @@ function unit(id: string, state: Task['state'], extra: Partial<Task> = {}): Task
 }
 
 function say(id: string, text: string, actions?: MessageActions): ChatMessage {
-  const m: ChatMessage = { id, wksp: 'world', role: 'genio', text, ts: '2026-05-01T09:59:00Z', ...(actions ? { actions } : {}) }
-  hc.wksp.post(m, true)
+  const m: ChatMessage = { id, workspace: 'world', role: 'genio', text, ts: '2026-05-01T09:59:00Z', ...(actions ? { actions } : {}) }
+  hc.workspace.post(m, true)
   return m
 }
 
-const msg = (id: string) => hc.wksp.history().find(m => m.id === id)!
+const msg = (id: string) => hc.workspace.history().find(m => m.id === id)!
 const reactions = () => hc.wakes.recent(0).filter(w => w.kind === 'reaction')
 const choices = () => hc.decisions.list(true).filter(d => d.action?.kind === 'reaction')
 const calls = (action: string) => control.mock.calls.filter(c => c[1] === action).map(c => c[0])
@@ -96,7 +96,7 @@ describe('dislike grace period', () => {
 
     const set = await hc.reactions.react('m-1', 'dislike')
     expect(set.reaction).toMatchObject({ kind: 'dislike', pause: 'grace' })
-    expect(hc.wksp.deliverWakes).not.toHaveBeenCalled() // delivery waits out the grace period too
+    expect(hc.workspace.deliverWakes).not.toHaveBeenCalled() // delivery waits out the grace period too
     await grace(400)
     const undone = await hc.reactions.react('m-1', null)
     expect(undone.reaction).toBeUndefined()
@@ -116,7 +116,7 @@ describe('dislike grace period', () => {
     expect(removal.lines.join('\n')).toContain('removed 0.4 s after it was set, inside the 1 s grace period: nothing was paused')
     expect(removal.lines.join('\n')).toContain('did not mean it')
     expect([dislike, removal].every(w => !w.routine)).toBe(true)
-    expect(hc.wksp.deliverWakes).toHaveBeenCalled()
+    expect(hc.workspace.deliverWakes).toHaveBeenCalled()
   })
 
   it('after the grace period pauses exactly what the message started; an undo resumes exactly that', async () => {
@@ -132,7 +132,7 @@ describe('dislike grace period', () => {
     await grace()
 
     expect(calls('interrupt')).toEqual(['u1'])
-    expect(hc.crew.get('u1')).toMatchObject({ state: 'paused', stateReason: 'paused by your dislike', dislikePause: { message: 'm-1', wksp: 'world', prevState: 'working', interrupted: true } })
+    expect(hc.crew.get('u1')).toMatchObject({ state: 'paused', stateReason: 'paused by your dislike', dislikePause: { message: 'm-1', workspace: 'world', prevState: 'working', interrupted: true } })
     expect(hc.crew.get('u2')).toMatchObject({ state: 'working' })
     expect(hc.crew.get('u2')?.dislikePause).toBeUndefined()
     expect(hc.crew.get('u3')).toMatchObject({ state: 'ready', dislikePause: { message: 'm-1', interrupted: false } })
@@ -141,7 +141,7 @@ describe('dislike grace period', () => {
     const [d] = choices()
     expect(choices()).toHaveLength(1)
     expect(d).toMatchObject({ key: 'reaction:m-1', urgency: 'urgent', project: 'world', recommendation: REACTION_OPTIONS.explain,
-      options: [REACTION_OPTIONS.stop, REACTION_OPTIONS.keep, REACTION_OPTIONS.explain], action: { kind: 'reaction', wksp: 'world', message: 'm-1' } })
+      options: [REACTION_OPTIONS.stop, REACTION_OPTIONS.keep, REACTION_OPTIONS.explain], action: { kind: 'reaction', workspace: 'world', message: 'm-1' } })
     expect(d.question).toContain('Started the menu rework')
     expect(msg('m-1')).toMatchObject({ reaction: { kind: 'dislike', pause: 'paused', choice: d.id }, reactionNote: 'Paused 1 unit, 1 quest and 1 merge' })
     const paused = reactions().find(w => w.reason.includes(' paused: '))!
@@ -244,8 +244,8 @@ describe('scope and safety', () => {
     const [w] = reactions()
     expect(w.reason).toContain('Player liked your message m-1')
     expect(w.lines.join('\n')).toContain('It never approves a merge, force, spending or a destructive step')
-    expect(hc.wksp.deliverWakes).toHaveBeenCalled()
-    expect(hc.reactions.log()[0]).toMatchObject({ kind: 'like', message: 'm-1', wksp: 'world', project: 'world', actions: { units: ['u1'], merges: ['u2'] } })
+    expect(hc.workspace.deliverWakes).toHaveBeenCalled()
+    expect(hc.reactions.log()[0]).toMatchObject({ kind: 'like', message: 'm-1', workspace: 'world', project: 'world', actions: { units: ['u1'], merges: ['u2'] } })
     // switching to a dislike withdraws the like
     await hc.reactions.react('m-1', 'dislike')
     expect(hc.crew.get('u1')?.likes).toBe(0)
@@ -268,7 +268,7 @@ describe('scope and safety', () => {
     expect(reactions()[1].reason).toContain('removed their like')
     expect(hc.wakes.drain().text).toContain('reaction: Reaction rx-')
     await expect(hc.reactions.react('missing', 'like')).rejects.toThrow('Only a finished Genio message')
-    hc.wksp.post({ id: 'p-1', wksp: 'world', role: 'player', text: 'hi', ts: '2026-05-01T09:00:00Z' }, true)
+    hc.workspace.post({ id: 'p-1', workspace: 'world', role: 'player', text: 'hi', ts: '2026-05-01T09:00:00Z' }, true)
     await expect(hc.reactions.react('p-1', 'like')).rejects.toThrow()
   })
 })

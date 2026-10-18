@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Ally, ChatMessage, ShellRun, TerminalInfo } from '../src/shared/types'
 
-vi.hoisted(() => window.history.replaceState(null, '', '/?project=forest&wksp=forest'))
+vi.hoisted(() => window.history.replaceState(null, '', '/?project=forest&workspace=forest'))
 vi.mock('../src/renderer/src/components/ModelSelect', () => ({ ModelSelect: () => null, EffortSelect: () => null }))
 // xterm needs a real canvas; here the view only records which terminal it shows.
 vi.mock('../src/renderer/src/components/Terminal', () => ({
@@ -17,9 +17,9 @@ import { getState, setState } from '../src/renderer/src/store'
 import { setDraft } from '../src/renderer/src/drafts'
 import { PANE_DEFAULT, PANE_KEEP_ABOVE, PANE_MIN, clampPaneHeight, readPanePrefs, shellUnavailable } from '../src/renderer/src/lib/terminal-pane'
 
-const WKSP = 'forest'
+const WORKSPACE = 'forest'
 const initial = getState()
-const shellTerm = (patch: Partial<TerminalInfo> = {}): TerminalInfo => ({ id: 'pane-1', title: 'Terminal', cwd: 'C:/games/forest', alive: true, cols: 120, rows: 32, kind: 'pane', project: WKSP, ...patch })
+const shellTerm = (patch: Partial<TerminalInfo> = {}): TerminalInfo => ({ id: 'pane-1', title: 'Terminal', cwd: 'C:/games/forest', alive: true, cols: 120, rows: 32, kind: 'pane', project: WORKSPACE, ...patch })
 const api = {
   sendChat: vi.fn(async () => {}), steerChat: vi.fn(async () => {}), sendQueuedNow: vi.fn(async () => ({ ok: true })), unqueueChat: vi.fn(async () => null),
   paneRun: vi.fn(async (_w: string, _m: string, command: string) => shellTerm({ id: 'run-1', run: command, title: `! ${command}` })),
@@ -32,10 +32,10 @@ const api = {
 let root: Root, host: HTMLDivElement, previous: typeof window.genio
 
 function chatState(messages: ChatMessage[] = []): void {
-  const ally: Ally = { name: WKSP, projects: [WKSP], scope: '', charter: '', home: '/fixture', createdAt: '2026-10-16' }
-  setState({ ...initial, view: 'comms', chatLoaded: { [WKSP]: true }, settings: { gamertag: 'Alex' } as never,
-    snap: { ...initial.snap, allies: [ally], wksps: [{ name: WKSP, displayName: 'Genio', activity: 'idle', costUsd: 0, turns: 0, queued: 0 }] },
-    chats: { [WKSP]: messages } })
+  const ally: Ally = { name: WORKSPACE, projects: [WORKSPACE], scope: '', charter: '', home: '/fixture', createdAt: '2026-10-16' }
+  setState({ ...initial, view: 'comms', chatLoaded: { [WORKSPACE]: true }, settings: { gamertag: 'Alex' } as never,
+    snap: { ...initial.snap, allies: [ally], workspaces: [{ name: WORKSPACE, displayName: 'Genio', activity: 'idle', costUsd: 0, turns: 0, queued: 0 }] },
+    chats: { [WORKSPACE]: messages } })
 }
 const textarea = () => host.querySelector('textarea')!
 const box = () => host.querySelector('.composer-box')!
@@ -62,14 +62,14 @@ beforeEach(() => {
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
 })
 afterEach(async () => {
-  await act(() => root.unmount()); host.remove(); setState(initial); setDraft(WKSP, '')
+  await act(() => root.unmount()); host.remove(); setState(initial); setDraft(WORKSPACE, '')
   window.genio = previous; vi.restoreAllMocks()
 })
 
 describe("'!' shell mode in the composer", () => {
   it('typing ! first switches to shell mode: glyph, amber border, placeholder; the draft keeps the !', async () => {
     chatState()
-    await act(() => root.render(React.createElement(ChatPanel, { wksp: WKSP })))
+    await act(() => root.render(React.createElement(ChatPanel, { workspace: WORKSPACE })))
     expect(textarea().placeholder).toContain('Message Genio')
     await type('!')
     expect(box().classList.contains('shell')).toBe(true)
@@ -80,19 +80,19 @@ describe("'!' shell mode in the composer", () => {
     await type('git status')
     // switching screens keeps the shell draft
     await act(() => root.render(React.createElement('div')))
-    await act(() => root.render(React.createElement(ChatPanel, { wksp: WKSP })))
+    await act(() => root.render(React.createElement(ChatPanel, { workspace: WORKSPACE })))
     expect(box().classList.contains('shell')).toBe(true)
     expect(textarea().value).toBe('git status')
   })
 
   it('Enter runs the command in the pane (opening it on the run), never as chat, and remembers it for the up arrow', async () => {
     chatState()
-    await act(() => root.render(React.createElement(ChatPanel, { wksp: WKSP })))
+    await act(() => root.render(React.createElement(ChatPanel, { workspace: WORKSPACE })))
     await type('!')
     await type('npm test')
     await key('Enter')
     await flush()
-    expect(api.paneRun).toHaveBeenCalledExactlyOnceWith(WKSP, WKSP, 'npm test', 'main')
+    expect(api.paneRun).toHaveBeenCalledExactlyOnceWith(WORKSPACE, WORKSPACE, 'npm test', 'main')
     expect(api.sendChat).not.toHaveBeenCalled()
     expect(getState()).toMatchObject({ paneOpen: true, paneTab: 'run-1' })
     expect(getState().terminals['run-1']).toMatchObject({ run: 'npm test' })
@@ -107,7 +107,7 @@ describe("'!' shell mode in the composer", () => {
 
   it('Esc and Backspace on the empty prompt leave shell mode; Esc first clears a typed command', async () => {
     chatState()
-    await act(() => root.render(React.createElement(ChatPanel, { wksp: WKSP })))
+    await act(() => root.render(React.createElement(ChatPanel, { workspace: WORKSPACE })))
     await type('!')
     await key('Backspace')
     expect(box().classList.contains('shell')).toBe(false)
@@ -124,7 +124,7 @@ describe("'!' shell mode in the composer", () => {
     chatState()
     setState({ terminals: { 'pane-1': shellTerm({ alive: false, exitCode: -1, startError: 'nosh did not start: not found' }) } })
     expect(shellUnavailable(getState())).toBe('The terminal shell could not start: nosh did not start: not found')
-    await act(() => root.render(React.createElement(ChatPanel, { wksp: WKSP })))
+    await act(() => root.render(React.createElement(ChatPanel, { workspace: WORKSPACE })))
     await type('!ls')
     expect(box().classList.contains('shell')).toBe(false)
     expect(host.querySelector('.composer-shell-off')?.textContent).toContain('nosh did not start')
@@ -144,18 +144,18 @@ describe("'!' shell mode in the composer", () => {
     await type('git log -1')
     await key('Enter')
     await flush()
-    expect(api.paneRun).toHaveBeenCalledWith(WKSP, WKSP, 'git log -1', 'main')
+    expect(api.paneRun).toHaveBeenCalledWith(WORKSPACE, WORKSPACE, 'git log -1', 'main')
     expect(getState().paneOpen).toBe(true)
   })
 })
 
 describe('the result block', () => {
   const run = (patch: Partial<ShellRun> = {}): ShellRun => ({ command: 'npm test', cwd: 'C:/games/forest', exitCode: 1, durationMs: 2300, output: 'Error: boom', truncated: false, ...patch })
-  const block = (r: ShellRun): ChatMessage => ({ id: 'sh-1', wksp: WKSP, role: 'system', text: '! npm test', ts: '2026-10-16T12:00:00Z', shell: r })
+  const block = (r: ShellRun): ChatMessage => ({ id: 'sh-1', workspace: WORKSPACE, role: 'system', text: '! npm test', ts: '2026-10-16T12:00:00Z', shell: r })
 
   it('shows command, exit code and output, marked run by you', async () => {
     chatState([block(run())])
-    await act(() => root.render(React.createElement(ChatPanel, { wksp: WKSP })))
+    await act(() => root.render(React.createElement(ChatPanel, { workspace: WORKSPACE })))
     const el = host.querySelector('.msg-shell')!
     expect(el.classList.contains('bad')).toBe(true)
     expect(el.querySelector('.msg-shell-who')?.textContent).toBe('run by you')
@@ -170,7 +170,7 @@ describe('the result block', () => {
   it('long output shows its first lines, then Show more', async () => {
     const output = Array.from({ length: 40 }, (_, i) => `line ${i}`).join('\n')
     chatState([block(run({ exitCode: 0, output, truncated: true }))])
-    await act(() => root.render(React.createElement(ChatPanel, { wksp: WKSP })))
+    await act(() => root.render(React.createElement(ChatPanel, { workspace: WORKSPACE })))
     const out = () => host.querySelector('.msg-shell-out')!.textContent!
     expect(out().split('\n')).toHaveLength(12)
     expect(host.textContent).toContain('Long output: its start and end are kept.')
@@ -182,7 +182,7 @@ describe('the result block', () => {
 
   it('a command that could not run says why', async () => {
     chatState([block(run({ exitCode: undefined, error: 'pwsh did not start', output: '' }))])
-    await act(() => root.render(React.createElement(ChatPanel, { wksp: WKSP })))
+    await act(() => root.render(React.createElement(ChatPanel, { workspace: WORKSPACE })))
     expect(host.querySelector('.msg-shell-exit')?.textContent).toBe('did not run')
     expect(host.querySelector('.msg-shell-body')?.textContent).toContain('pwsh did not start')
   })
@@ -213,7 +213,7 @@ describe('the terminal pane', () => {
     expect(getState().paneOpen).toBe(true)
     expect(pane().style.height).toBe(`${PANE_DEFAULT}px`)
     expect(pane().classList.contains('open')).toBe(true)
-    expect(api.paneOpen).toHaveBeenCalledExactlyOnceWith(WKSP, 'main', false)
+    expect(api.paneOpen).toHaveBeenCalledExactlyOnceWith(WORKSPACE, 'main', false)
     expect(host.querySelector('.term-pane-view.on .term-mock')?.getAttribute('data-pane')).toBe('true')
     expect(document.documentElement.style.getPropertyValue('--term-pane-h')).toBe(`${PANE_DEFAULT}px`)
     await press({ key: '`', code: 'Backquote', ctrlKey: true })
@@ -237,7 +237,7 @@ describe('the terminal pane', () => {
     expect(pane().style.height).toBe(`${PANE_DEFAULT + 100}px`)
     await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true })) })
     expect(pane().style.height).toBe(`${PANE_DEFAULT + 120}px`)
-    expect(readPanePrefs(WKSP)).toEqual({ height: PANE_DEFAULT + 120, open: true })
+    expect(readPanePrefs(WORKSPACE)).toEqual({ height: PANE_DEFAULT + 120, open: true })
     // a new window session comes back open at that height
     await act(() => root.unmount())
     setState({ ...initial, terminals: getState().terminals })
@@ -257,7 +257,7 @@ describe('the terminal pane', () => {
     expect(host.textContent).not.toMatch(/session closed/i)
     await act(async () => [...ended.querySelectorAll('button')].find((b) => b.textContent?.includes('Restart'))!.click())
     await flush()
-    expect(api.paneOpen).toHaveBeenCalledWith(WKSP, 'main', true)
+    expect(api.paneOpen).toHaveBeenCalledWith(WORKSPACE, 'main', true)
   })
 
   it('a folder that cannot be used shows the reason and blocks shell mode until Restart works', async () => {
@@ -282,7 +282,7 @@ describe('the terminal pane', () => {
       select.dispatchEvent(new Event('change', { bubbles: true }))
     })
     await flush()
-    expect(api.paneOpen).toHaveBeenLastCalledWith(WKSP, 'u1', false)
+    expect(api.paneOpen).toHaveBeenLastCalledWith(WORKSPACE, 'u1', false)
     expect(getState().paneCwd).toBe('u1')
   })
 
@@ -296,7 +296,7 @@ describe('the terminal pane', () => {
     expect(host.querySelector('.term-pane-view.on .term-mock')?.getAttribute('data-id')).toBe('run-1')
     expect(host.querySelector('.term-pane-view.on .term-pane-run')?.textContent).toContain('exit 1 · 2s · run by you')
     await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Close terminal"]')!.click())
-    expect(api.paneClose).toHaveBeenCalledWith(WKSP)
+    expect(api.paneClose).toHaveBeenCalledWith(WORKSPACE)
     expect(getState()).toMatchObject({ paneOpen: false, paneTab: undefined })
   })
 })

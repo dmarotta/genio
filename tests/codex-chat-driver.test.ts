@@ -12,7 +12,7 @@ function fixture() {
     onError: vi.fn(), onLimit: vi.fn(), onRequeue: vi.fn() }
   const call = vi.fn(async (_name: string, _args: unknown): Promise<any> => ({ content: [{ type: 'text', text: 'done' }] }))
   const unavailable = vi.fn(), usage = vi.fn(), rateLimits = vi.fn(), approve = vi.fn(async () => false)
-  const driver = new CodexChatDriver({ wksp: 'main', cwd: process.cwd(), config: () => ({ model: 'gpt-test', effort: 'ultra' }),
+  const driver = new CodexChatDriver({ workspace: 'main', cwd: process.cwd(), config: () => ({ model: 'gpt-test', effort: 'ultra' }),
     instructions: () => 'Genio contract', approve, usage, rateLimits, unavailable,
     wire: events => { server.events = events; return server },
     bridge: async () => ({ list: async () => [{ name: 'deploy', description: 'Deploy a unit', inputSchema: { type: 'object' } }], call, close: async () => {} })

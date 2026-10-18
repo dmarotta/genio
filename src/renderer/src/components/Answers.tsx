@@ -4,7 +4,7 @@ import { ASSISTANT_NAME } from '@shared/assistant'
 import { pendingDecision } from '@shared/decisions'
 import type { Decision } from '@shared/types'
 import { choiceGroup, reviewRecommendation, type RecommendationReview, type RecommendationResult } from '@shared/choice'
-import { PROJECT_WKSP, PROJECT_WINDOW, answerNext, api, focusTask, getState, op, openDecisions, setState, useStore } from '../store'
+import { PROJECT_WORKSPACE, PROJECT_WINDOW, answerNext, api, focusTask, getState, op, openDecisions, setState, useStore } from '../store'
 import { Markdown } from './Markdown'
 import { Chip, useNow } from './ui'
 import { cx, dateShort } from '../lib/format'
@@ -275,8 +275,8 @@ function askerTask(d: Decision): string | undefined {
 
 /** The chat that owns a choice: this window's project chat, else the live Ally of its project, else its base. */
 function ownerChat(d: Decision): string {
-  if (PROJECT_WKSP) return PROJECT_WKSP
-  return getState().snap.allies.find(a => !a.retiredAt && !!d.project && a.projects.includes(d.project))?.name ?? d.wksp
+  if (PROJECT_WORKSPACE) return PROJECT_WORKSPACE
+  return getState().snap.allies.find(a => !a.retiredAt && !!d.project && a.projects.includes(d.project))?.name ?? d.workspace
 }
 
 /**
@@ -330,8 +330,8 @@ export function AnswerCard({ d, phase = 'idle', top, compact = false, onActivate
   const later = (): Promise<void> => run(() => op('Later', () => api().holdDecision(d.id, 'later')))
   // Ask Genio: the player's own chat message, through the normal send path with the screen context; the choice stays open, set aside.
   const askGenio = (): Promise<void> => run(async () => {
-    const wksp = ownerChat(d)
-    const sent = await sendAskGenio(d, wksp, d.project, task?.title)
+    const workspace = ownerChat(d)
+    const sent = await sendAskGenio(d, workspace, d.project, task?.title)
     if (!sent) return
     await op('Ask Genio', () => api().holdDecision(d.id, 'genio'))
   })

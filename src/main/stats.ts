@@ -475,7 +475,7 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
     } else if (ev.type === 'chat') {
       const m = ev.message
       if (m.queue === 'cancelled') svc.unlock('queue-edit')
-      if (m.role === 'player' && m.wksp !== 'main' && !m.from) svc.unlock('ally-chat')
+      if (m.role === 'player' && m.workspace !== 'main' && !m.from) svc.unlock('ally-chat')
     } else if (ev.type === 'fal-run' && ev.run.status === 'completed') {
       asset('fal-first', ev.run.id, ev.run.outputs.length)
     } else if (ev.type === 'uthana-run' && ev.run.status === 'completed' && ev.run.kind !== 'character') {

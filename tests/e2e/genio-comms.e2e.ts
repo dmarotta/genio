@@ -29,24 +29,24 @@ describe.skipIf(process.env.GENIO_E2E_REAL !== '1')('Genio comms', () => {
     execFileSync('git', ['-c', 'user.email=e2e@genio.local', '-c', 'user.name=E2E', 'commit', '-m', 'init'], { cwd: world })
 
     ctx = createApp(process.cwd(), path.join(root, 'base'))
-    ctx.settings.save({ firstRunDone: true, gamertag: 'Nova', wkspModel: process.env.GENIO_E2E_WKSP_MODEL ?? 'haiku', wkspEffort: 'low' })
+    ctx.settings.save({ firstRunDone: true, gamertag: 'Nova', workspaceModel: process.env.GENIO_E2E_WORKSPACE_MODEL ?? 'haiku', workspaceEffort: 'low' })
     await startApp(ctx)
     await ctx.projects.add({ source: world, inPlace: true })
 
-    await ctx.main.wksp.send(`Which worlds are registered, and what engine does each use? One short line. Test run: ${path.basename(process.env.GENIO_TEST_RUN_ROOT!)}`)
+    await ctx.main.workspace.send(`Which worlds are registered, and what engine does each use? One short line. Test run: ${path.basename(process.env.GENIO_TEST_RUN_ROOT!)}`)
     const deadline = Date.now() + 4 * 60_000
     let reply = ''
     let tools: string[] = []
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 2000))
-      const info = ctx.main.wksp.info()
-      const msgs = ctx.main.wksp.history(50).filter((m) => m.role === 'genio' && !m.partial)
+      const info = ctx.main.workspace.info()
+      const msgs = ctx.main.workspace.history(50).filter((m) => m.role === 'genio' && !m.partial)
       tools = msgs.flatMap((m) => (m.tools ?? []).map((t) => t.name))
       reply = msgs.map((m) => m.text).join('\n')
       if (reply && info.activity === 'idle') break
       if (info.activity === 'error') break
     }
-    const errors = ctx.main.wksp.history(50).filter((m) => m.role === 'error').map((m) => m.text)
+    const errors = ctx.main.workspace.history(50).filter((m) => m.role === 'error').map((m) => m.text)
     console.log('tools:', tools.join(', '))
     console.log('reply:', reply)
     if (errors.length) console.log('errors:', errors.join('\n'))

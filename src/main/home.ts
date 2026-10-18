@@ -27,7 +27,7 @@ import { assertMounted, volumeHome, volumePlacement, type CloneOptions } from '.
  *     <task>.status    append-only worker status lines
  *     wakes.jsonl      durable event queue; wakes.ack holds the ack cursor
  *     away.json        presence: online / dnd / afk
- *     wksp.json        agent session ids for resume
+ *     workspace.json        agent session ids for resume
  *     session.lock     single-writer lock
  *   projects/          clones (read-only to Genio itself)
  *   worktrees/         one isolated worktree per task (see placeWorktree)
@@ -55,7 +55,7 @@ export class Home {
   get state(): string { return path.join(this.root, 'state') }
   get projects(): string { return path.join(this.root, 'projects') }
   get worktrees(): string { return path.join(this.root, 'worktrees') }
-  get wksps(): string { return path.join(this.root, 'workspaces') }
+  get workspaces(): string { return path.join(this.root, 'workspaces') }
 
   get settingsFile(): string { return path.join(this.config, 'settings.json') }
   get projectsFile(): string { return path.join(this.data, 'projects.json') }
@@ -74,7 +74,12 @@ export class Home {
   get wakesFile(): string { return path.join(this.state, 'wakes.jsonl') }
   get wakesAckFile(): string { return path.join(this.state, 'wakes.ack') }
   get awayFile(): string { return path.join(this.state, 'away.json') }
-  get wkspFile(): string { return path.join(this.state, 'wksp.json') }
+  get workspaceFile(): string { return path.join(this.state, 'workspace.json') }
+  /** Where the state is read from: the old wksp.json until the first save writes workspace.json (see legacy-keys.ts). */
+  get workspaceFileToRead(): string {
+    const old = path.join(this.state, 'wksp.json')
+    return !exists(this.workspaceFile) && exists(old) ? old : this.workspaceFile
+  }
   get lockFile(): string { return path.join(this.state, 'session.lock') }
 
   setTaskStorage(id: string, root: string): void { this.taskStorage.set(id, path.resolve(root)) }
@@ -89,7 +94,7 @@ export class Home {
   validationLog(id: string): string { return path.join(this.taskDir(id), 'validation.log') }
   statusFile(id: string): string { return this.taskStateFile(id, '.status') }
   worktreeFor(project: string, id: string): string { return path.join(this.worktrees, project, id) }
-  wkspHome(name: string): string { return path.join(this.wksps, name) }
+  workspaceHome(name: string): string { return path.join(this.workspaces, name) }
 
   /** Create the layout and seed the human-editable memory files. */
   ensure(): void {

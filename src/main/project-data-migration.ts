@@ -99,10 +99,10 @@ export function migrateProjectData(main: Home): void {
         const req = worldAllyRequest(project.name)
         const base = allyNameForWorld(project.name)
         // Retired bases and unregistered directories are archives, never reusable names.
-        for (let n = 2; allies.some(a => a.name === req.name) || fs.existsSync(main.wkspHome(req.name)); n++) {
+        for (let n = 2; allies.some(a => a.name === req.name) || fs.existsSync(main.workspaceHome(req.name)); n++) {
           req.name = `${base.slice(0, 26)}-${n}`
         }
-        ally = { ...req, home: main.wkspHome(req.name), createdAt: nowIso() }
+        ally = { ...req, home: main.workspaceHome(req.name), createdAt: nowIso() }
         allies.push(ally)
         const home = new Home(ally.home, ally.name, main)
         sources.push(records(home))
@@ -124,7 +124,7 @@ export function migrateProjectData(main: Home): void {
       source.tasks = source.tasks.filter(task => {
         const target = owners.get(task.project)
         if (!target || target === source) return true
-        append(target.tasks, { ...task, wksp: target.home.name, storageRoot: task.storageRoot ?? source.home.root }, target.home.tasksFile)
+        append(target.tasks, { ...task, workspace: target.home.name, storageRoot: task.storageRoot ?? source.home.root }, target.home.tasksFile)
         return false
       })
       source.backlog = source.backlog.flatMap(quest => {
@@ -140,8 +140,8 @@ export function migrateProjectData(main: Home): void {
           ?? (decision.backlogId ? questProjects.get(source)!.get(decision.backlogId) : undefined) ?? scope(source)
         const target = project && owners.get(project)
         if (!target) return [decision]
-        if (target === source) return [{ ...decision, project, wksp: target.home.name }]
-        append(target.decisions, { ...decision, project, wksp: target.home.name }, target.home.decisionsFile)
+        if (target === source) return [{ ...decision, project, workspace: target.home.name }]
+        append(target.decisions, { ...decision, project, workspace: target.home.name }, target.home.decisionsFile)
         return []
       })
       for (const wake of [...source.wakes]) {
@@ -150,7 +150,7 @@ export function migrateProjectData(main: Home): void {
         if (!target || target === source) continue
         const seq = nextSeq.get(target)! + 1
         nextSeq.set(target, seq)
-        target.wakes.push({ ...wake, seq, wksp: target.home.name })
+        target.wakes.push({ ...wake, seq, workspace: target.home.name })
         // Carry both contiguous and per-event acknowledgements into the new sequence.
         if (wake.seq <= source.cursor.through || source.cursor.events?.[wake.seq]) {
           target.cursor.events = { ...target.cursor.events, [seq]: source.cursor.events?.[wake.seq] ?? source.cursor.at ?? nowIso() }

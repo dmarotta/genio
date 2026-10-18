@@ -20,7 +20,7 @@ const applyRecommendations = vi.fn()
 let host: HTMLDivElement
 let root: Root
 const choice = (id: string, patch: Partial<Decision> = {}): Decision => ({
-  id, key: id, wksp: 'main', question: `Question ${id}`, options: ['A', 'B'],
+  id, key: id, workspace: 'main', question: `Question ${id}`, options: ['A', 'B'],
   source: 'unit', urgency: 'normal', createdAt: '2026-10-13T10:00:00Z', ...patch
 })
 /** Six choices, a oldest to f newest. */
@@ -287,8 +287,8 @@ it('Ask Genio sends one chat message as the player and sets the choice aside, st
   await mount()
   await click('Ask Genio')
   expect(sendChat).toHaveBeenCalledTimes(1)
-  const [wksp, text, images, context] = sendChat.mock.calls[0]
-  expect(wksp).toBe('main')
+  const [workspace, text, images, context] = sendChat.mock.calls[0]
+  expect(workspace).toBe('main')
   expect(text).toBe(['Help me decide this open choice.', 'Asked by: Fix the jump', 'Question: Close the test level?', 'Details: Only the test copy.', 'Options:', '1. Close it (recommended)', '2. Keep it'].join('\n'))
   for (const id of ['ch-1', 'unit-7', 'level-key']) expect(text).not.toContain(id)
   expect(images).toBeUndefined()
@@ -347,7 +347,7 @@ it('pages long history instead of scrolling it', async () => {
 it('notification targets reveal a specific answered choice without changing the current screen', async () => {
   setState({ answersOpen: false, snap: { ...getState().snap, decisions: [choice('done', { resolvedAt: new Date().toISOString(), answer: 'B' })] } })
   await mount()
-  await act(async () => handleEvent({ type: 'navigate', target: { view: 'move', decisionId: 'done', wksp: 'main' } }))
+  await act(async () => handleEvent({ type: 'navigate', target: { view: 'move', decisionId: 'done', workspace: 'main' } }))
   expect(host.querySelector('#answer-done')?.textContent).toContain('Question done')
   expect(getState().view).toBe('worlds')
   expect(answerDecision).not.toHaveBeenCalled()
@@ -356,7 +356,7 @@ it('notification targets reveal a specific answered choice without changing the 
 it('notification targets bring a waiting choice into view and open it', async () => {
   setState({ answersOpen: false, snap: { ...getState().snap, decisions: six() } })
   await mount()
-  await act(async () => handleEvent({ type: 'navigate', target: { view: 'move', decisionId: 'e', wksp: 'main' } }))
+  await act(async () => handleEvent({ type: 'navigate', target: { view: 'move', decisionId: 'e', workspace: 'main' } }))
   expect(questions()).toEqual(['Question a', 'Question b', 'Question e'])
   expect(card('e')?.querySelector('.choice-foot')).not.toBeNull()
   await act(async () => card('a')!.querySelector<HTMLButtonElement>('.choice-expand')!.click())

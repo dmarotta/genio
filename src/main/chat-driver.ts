@@ -1,5 +1,5 @@
 import type { ChatImageInput } from '@shared/chat-images'
-import type { ChatMessage, WkspActivity, WkspInfo } from '@shared/types'
+import type { ChatMessage, WorkspaceActivity, WorkspaceInfo } from '@shared/types'
 import type { ChatDriverCapabilities } from '@shared/chat-driver-capabilities'
 
 export type ChatProvider = 'claude' | 'codex'
@@ -15,15 +15,15 @@ export interface ChatTurn {
 }
 export interface ChatDriverEvents {
   /** Return an unsubmitted turn to the owning queue without acknowledging it. */
-  onDeferred?(item: ChatTurn, limit: WkspInfo['limit']): void
+  onDeferred?(item: ChatTurn, limit: WorkspaceInfo['limit']): void
   onStart?(item: ChatTurn): void
   onMessage(message: ChatMessage, final: boolean): void
   onDelta(id: string, text: string): void
-  onActivity(activity: WkspActivity, detail?: string): void
+  onActivity(activity: WorkspaceActivity, detail?: string): void
   onTurnEnd(item: ChatTurn | undefined, ok: boolean, text: string, cashCost: number): void
   onSessionId(id: string): void
   onError(message: string): void
-  onLimit?(limit: WkspInfo['limit']): void
+  onLimit?(limit: WorkspaceInfo['limit']): void
   onRequeue?(item: ChatTurn): void
   onUsage?(usage: { provider: ChatProvider; input: number; cached: number; output: number; cashCost: number }): void
 }

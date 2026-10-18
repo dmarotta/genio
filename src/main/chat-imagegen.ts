@@ -146,7 +146,7 @@ export function runCodexImage(run: CodexImageRun, outs: readonly string[], promp
 export interface ChatImageGen {
   /** this chat's image folder (data/chat-images of its base) */
   chatDir: string
-  wksp: string
+  workspace: string
   project?: string
   /** upsert a message in this chat; persist=false for the transient placeholder */
   post(m: ChatMessage, persist: boolean): void
@@ -162,9 +162,9 @@ export function chatImageGen(ctx: AppCtx, home: Home): ChatImageGen {
   const scratch = codexImageScratch(main.data)
   return {
     chatDir: chatImageDir(home.data),
-    wksp: home.name,
+    workspace: home.name,
     project: ctx.allies.list().find(a => a.name === home.name && !a.retiredAt && a.projects.length === 1)?.projects[0],
-    post: (m, persist) => ctx.home(home.name).wksp.post(m, persist),
+    post: (m, persist) => ctx.home(home.name).workspace.post(m, persist),
     run: { script: path.join(codexImageSkillDir(plugin), 'scripts', 'codex-image.mjs'), scratch }
   }
 }
@@ -184,13 +184,13 @@ export async function generateChatImages(gen: ChatImageGen, a: GenerateImageArgs
   }
 
   const id = `g-${rid(6)}`
-  const base: ChatMessage = { id, wksp: gen.wksp, role: 'genio', text: '', ts: nowIso() }
+  const base: ChatMessage = { id, workspace: gen.workspace, role: 'genio', text: '', ts: nowIso() }
   gen.post({ ...base, text: `Generating ${count === 1 ? 'image' : plural(count, 'image')}… (about a minute on your ChatGPT plan)`, generating: count }, false)
-  if (!gen.quiet) bus.publish({ type: 'generation', wksp: gen.wksp, id, active: true })
+  if (!gen.quiet) bus.publish({ type: 'generation', workspace: gen.workspace, id, active: true })
   const failed = (msg: string): CallToolResult => {
     const why = friendlyError(msg)
     gen.post({ ...base, role: 'error', text: `Image generation failed: ${why}` }, true)
-    if (!gen.quiet) bus.publish({ type: 'generation', wksp: gen.wksp, id, active: false })
+    if (!gen.quiet) bus.publish({ type: 'generation', workspace: gen.workspace, id, active: false })
     return fail(`generate_image failed: ${why}`)
   }
 
@@ -229,7 +229,7 @@ export async function generateChatImages(gen: ChatImageGen, a: GenerateImageArgs
     warn ? `⚠ Your ChatGPT plan meter is at ${used}%: images share that allowance with your Codex units.` : result.warning ? `⚠ ${result.warning}` : ''
   ]
   gen.post({ ...base, text: lines.filter(Boolean).join('\n\n'), images: made.map((m) => m.ref) }, true)
-  if (!gen.quiet) bus.publish({ type: 'generation', wksp: gen.wksp, id, active: false })
+  if (!gen.quiet) bus.publish({ type: 'generation', workspace: gen.workspace, id, active: false })
   bus.publish({ type: 'feature-used', feature: 'chat-image', id: base.id, count: made.length,
     project: gen.project })
 

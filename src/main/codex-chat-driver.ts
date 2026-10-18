@@ -91,7 +91,7 @@ export interface CodexBridge {
   close(): Promise<void>
 }
 export interface CodexDriverOptions {
-  wksp: string
+  workspace: string
   cwd: string
   config(): { model: string; effort?: string }
   instructions(): string
@@ -292,7 +292,7 @@ export class CodexChatDriver implements ChatDriver {
   private message(id: string): ChatMessage {
     let m = this.messages.get(id)
     if (!m) {
-      m = { id: `codex-${id}`, wksp: this.options.wksp, role: 'genio', text: '', ts: nowIso(), partial: true, tools: [] }
+      m = { id: `codex-${id}`, workspace: this.options.workspace, role: 'genio', text: '', ts: nowIso(), partial: true, tools: [] }
       this.messages.set(id, m)
     }
     return m

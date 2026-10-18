@@ -8,9 +8,9 @@ import { ChatPanel } from '../src/renderer/src/views/Comms'
 const f = vi.hoisted(() => ({ messages: [] as ChatMessage[], calm: true, activity: 'ready' }))
 vi.mock('../src/renderer/src/store', () => ({
   PROJECT_WINDOW: undefined,
-  PROJECT_WKSP: 'ally',
+  PROJECT_WORKSPACE: 'ally',
   useStore: (select: (s: unknown) => unknown) =>
-    select({ snap: { wksps: [{ name: 'ally', activity: f.activity }], allies: [] }, chats: { ally: f.messages }, settings: { calm: f.calm } }),
+    select({ snap: { workspaces: [{ name: 'ally', activity: f.activity }], allies: [] }, chats: { ally: f.messages }, settings: { calm: f.calm } }),
   api: () => ({}), loadChat: vi.fn(), toast: vi.fn(), errText: String, saveSettings: vi.fn()
 }))
 vi.mock('../src/renderer/src/components/ModelSelect', () => ({ ModelSelect: () => null, EffortSelect: () => null }))
@@ -25,9 +25,9 @@ afterEach(async () => { await act(() => root.unmount()); host.remove() })
 
 const tool = { id: 't1', name: 'Bash', input: '{"command":"ls"}', result: 'ok' }
 const genio = (id: string, text: string, extra: Partial<ChatMessage> = {}): ChatMessage =>
-  ({ id, wksp: 'ally', role: 'genio', text, ts: '2026-10-13T22:05:00Z', ...extra })
+  ({ id, workspace: 'ally', role: 'genio', text, ts: '2026-10-13T22:05:00Z', ...extra })
 const headers = () => [...host.querySelectorAll('.msg.genio:not(.working) .msg-meta')].map(e => e.textContent)
-const render = () => act(() => root.render(React.createElement(ChatPanel, { wksp: 'ally' })))
+const render = () => act(() => root.render(React.createElement(ChatPanel, { workspace: 'ally' })))
 
 it('drops tool-only turns entirely in Clean HUD, header and timestamp included', async () => {
   f.messages = [
@@ -35,7 +35,7 @@ it('drops tool-only turns entirely in Clean HUD, header and timestamp included',
     genio('b', '', { tools: [tool] }),
     genio('c', '  ', { tools: [tool, { ...tool, id: 't2' }] }),
     genio('d', '', { partial: true }),
-    { id: 'w', wksp: 'ally', role: 'wake', text: 'unit pinged', ts: '2026-10-13T22:05:00Z' },
+    { id: 'w', workspace: 'ally', role: 'wake', text: 'unit pinged', ts: '2026-10-13T22:05:00Z' },
     genio('e', 'Done.', { tools: [tool] })
   ]
   await render()
@@ -67,7 +67,7 @@ it('keeps the activity indicator while hidden tool turns stream', async () => {
 
 it('never shows tool traces or bare tool-only turns, and shows wakes only when Clean chat is off', async () => {
   f.calm = false
-  f.messages = [genio('a', 'Starting.'), genio('b', '', { tools: [tool] }), { id: 'w', wksp: 'ally', role: 'wake', text: 'unit pinged', ts: '2026-10-13T22:05:00Z' }]
+  f.messages = [genio('a', 'Starting.'), genio('b', '', { tools: [tool] }), { id: 'w', workspace: 'ally', role: 'wake', text: 'unit pinged', ts: '2026-10-13T22:05:00Z' }]
   await render()
   expect(headers()).toHaveLength(1)
   expect(host.querySelector('.tool-traces')).toBeNull()

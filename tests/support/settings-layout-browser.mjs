@@ -75,7 +75,7 @@ const server = await createServer({
 let child
 try {
   await server.listen()
-  const env = { ...process.env, SETTINGS_URL: server.resolvedUrls.local[0] + 'settings-layout.html?project=fixture&wksp=genio', SETTINGS_RESULTS: resultFile }
+  const env = { ...process.env, SETTINGS_URL: server.resolvedUrls.local[0] + 'settings-layout.html?project=fixture&workspace=genio', SETTINGS_RESULTS: resultFile }
   delete env.ELECTRON_RUN_AS_NODE
   for (const key of Object.keys(env)) if (key.startsWith('GIT_CONFIG_')) delete env[key]
   assertChildHomes(env)

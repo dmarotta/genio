@@ -5,12 +5,12 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { InventoryContext } from '../src/shared/inventory-context'
 import type { ChatMessage } from '../src/shared/types'
 import { clearDraft, getDraftContext } from '../src/renderer/src/drafts'
-const f = vi.hoisted(() => ({ send: vi.fn(), state: { view: 'inventory', snap: { wksps: [] }, chats: { 'project-chat': [] as ChatMessage[] }, generating: {} as Record<string, string[]> } }))
-vi.mock('../src/renderer/src/store', () => ({ PROJECT_WKSP: 'project-chat', PROJECT_WINDOW: 'alpha', useStore: (fn: (s: unknown) => unknown) => fn(f.state) }))
+const f = vi.hoisted(() => ({ send: vi.fn(), state: { view: 'inventory', snap: { workspaces: [] }, chats: { 'project-chat': [] as ChatMessage[] }, generating: {} as Record<string, string[]> } }))
+vi.mock('../src/renderer/src/store', () => ({ PROJECT_WORKSPACE: 'project-chat', PROJECT_WINDOW: 'alpha', useStore: (fn: (s: unknown) => unknown) => fn(f.state) }))
 vi.mock('../src/renderer/src/views/Comms', async () => {
   const { useInventoryContext } = await import('../src/renderer/src/components/InventoryContextChips')
-  return { ChatPanel: ({ wksp, context }: { wksp: string; context: InventoryContext }) => {
-    const c = useInventoryContext(wksp, context)
+  return { ChatPanel: ({ workspace, context }: { workspace: string; context: InventoryContext }) => {
+    const c = useInventoryContext(workspace, context)
     return React.createElement('div', null, c.chips, React.createElement('button', { onClick: () => f.send(c.context) }, 'Test send'), React.createElement('button', { onClick: () => c.restore({ world: 'saved', folder: 'Old' }) }, 'Test restore'))
   } }
 })
@@ -26,7 +26,7 @@ const panel = () => host.querySelector('.genio-panel') as HTMLElement
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true, ResizeObserver: class { observe() {} disconnect() {} } })
   localStorage.clear(); clearDraft('project-chat'); f.send.mockClear()
-  f.state = { view: 'inventory', snap: { wksps: [] }, chats: { 'project-chat': [] }, generating: {} }
+  f.state = { view: 'inventory', snap: { workspaces: [] }, chats: { 'project-chat': [] }, generating: {} }
   publishScreenContext('inventory', inventory())
   host = document.createElement('div'); document.body.append(host)
   size = { width: 1200, height: 600 }
@@ -77,7 +77,7 @@ it('restores chat when the native window closes and reports a denied popup', asy
 
 it('notices new messages while collapsed, with no counts', async () => {
   await render(); await click('Collapse Genio chat')
-  f.state.chats = { 'project-chat': [{ id: 'new', wksp: 'project-chat', role: 'genio', text: 'done', ts: 'now' }] }
+  f.state.chats = { 'project-chat': [{ id: 'new', workspace: 'project-chat', role: 'genio', text: 'done', ts: 'now' }] }
   f.state.generating = { 'project-chat': ['gen-1', 'g-2'] }
   await render()
   expect(button('Expand Genio chat').textContent).toContain('New')

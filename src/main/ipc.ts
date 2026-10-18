@@ -30,9 +30,9 @@ import { API_PREFIX, type GenioApi, type OpResult, type VoiceStatus, type Window
 import type { BacklogItem, Task } from '@shared/types'
 import { listAccounts, openAccountSession } from './accounts'
 import { currentSignInGate, currentSignInNeeds, noteSignInAccounts, signInGateNow } from './sign-in-watch'
-import { answerChoice, applyRecommendations, findDecision, findTask } from './wksp-tools'
+import { answerChoice, applyRecommendations, findDecision, findTask } from './workspace-tools'
 import { resolveLoadout } from './loadout'
-import { sendPlayerChat } from './wksp'
+import { sendPlayerChat } from './workspace'
 import { clearSecret, secretStatus, setSecret } from './secrets'
 import { mcpServerViews, removeMcpServer, saveMcpServer } from './mcp-servers'
 import { checkMcpSignIn, mcpSignIn, mcpSignOut } from './mcp-signin'
@@ -50,8 +50,8 @@ function refuseShellText(text: string): void {
 }
 
 /** The player sent something to this chat (a message, a steer or a ! command): every window showing it stops speaking. */
-function stopSpeaking(wksp: string): void {
-  bus.publish({ type: 'speak-stop', wksp })
+function stopSpeaking(workspace: string): void {
+  bus.publish({ type: 'speak-stop', workspace })
 }
 
 /** Windows' microphone switch for desktop apps; elsewhere the browser's own prompt decides. */
@@ -121,8 +121,8 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     for (const hc of ctx().homes.values()) if (hc.plans?.get(id)) return hc
     throw new Error(`no plan ${id}`)
   }
-  const design = (wksp: string): DesignChatService => {
-    const chats = ctx().home(wksp).design
+  const design = (workspace: string): DesignChatService => {
+    const chats = ctx().home(workspace).design
     if (!chats) throw new Error('Lore chats belong to a project window.')
     return chats
   }
@@ -268,10 +268,10 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
       return state
     },
     saveSettings: (patch) => {
-      const previousModel = ctx().settings.get().wkspModel
+      const previousModel = ctx().settings.get().workspaceModel
       const previousMode = ctx().settings.get().usageMode
       const s = ctx().settings.save(patch)
-      if ('wkspModel' in patch && previousModel !== s.wkspModel) bus.publish({ type: 'feature-used', feature: 'model-switch' })
+      if ('workspaceModel' in patch && previousModel !== s.workspaceModel) bus.publish({ type: 'feature-used', feature: 'model-switch' })
       if ('usageMode' in patch && previousMode !== s.usageMode) bus.publish({ type: 'feature-used', feature: 'usage-mode' })
       if ('claudePath' in patch) invalidateModelCatalogue()
       if ('inboxServer' in patch || 'inboxPort' in patch || 'inboxToken' in patch) ctx().inbox.configure()
@@ -364,40 +364,40 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     uthanaWorldConfig: (world, config) => ctx().uthana.saveWorldConfig(world, config),
 
     // ---- comms
-    approveGeneration: (wksp, run) => agentGeneration(ctx()).approve(run, wksp, 'Approved this exact quote in chat', 'genio', 'card'),
+    approveGeneration: (workspace, run) => agentGeneration(ctx()).approve(run, workspace, 'Approved this exact quote in chat', 'genio', 'card'),
     // A conversation id addresses one of the base's design chats; without one, the project chat.
-    chatHistory: async (wksp, limit, conversation) => {
-      if (conversation) return design(wksp).history(conversation, limit)
-      const chat = ctx().home(wksp).wksp
+    chatHistory: async (workspace, limit, conversation) => {
+      if (conversation) return design(workspace).history(conversation, limit)
+      const chat = ctx().home(workspace).workspace
       await chat.preloadHistory?.()
       return chat.history(limit)
     },
-    sendChat: (wksp, text, images, context, conversation) => {
+    sendChat: (workspace, text, images, context, conversation) => {
       refuseShellText(text)
-      stopSpeaking(wksp)
-      return conversation ? design(wksp).send(conversation, text, images, context) : sendPlayerChat(ctx(), wksp, text, images, context)
+      stopSpeaking(workspace)
+      return conversation ? design(workspace).send(conversation, text, images, context) : sendPlayerChat(ctx(), workspace, text, images, context)
     },
-    unqueueChat: async (wksp, id, conversation) => conversation ? design(wksp).unqueue(conversation, id) : ctx().home(wksp).wksp.unqueue(id),
-    steerChat: (wksp, text, images, context, conversation) => {
+    unqueueChat: async (workspace, id, conversation) => conversation ? design(workspace).unqueue(conversation, id) : ctx().home(workspace).workspace.unqueue(id),
+    steerChat: (workspace, text, images, context, conversation) => {
       refuseShellText(text)
-      stopSpeaking(wksp)
-      return conversation ? design(wksp).steer(conversation, text, images, context) : ctx().home(wksp).wksp.steer(text, images, context)
+      stopSpeaking(workspace)
+      return conversation ? design(workspace).steer(conversation, text, images, context) : ctx().home(workspace).workspace.steer(text, images, context)
     },
-    sendQueuedNow: async (wksp, id, conversation) => conversation ? design(wksp).sendNow(conversation, id) : ctx().home(wksp).wksp.sendNow(id),
-    reactToMessage: (wksp, id, kind) => ctx().home(wksp).reactions.react(id, kind),
-    interruptWksp: (wksp, conversation) => conversation ? design(wksp).interrupt(conversation) : ctx().home(wksp).wksp.interrupt(),
-    restartWksp: (wksp, fresh, role, conversation) => conversation ? design(wksp).restart(conversation, fresh) : ctx().home(wksp).wksp.restart(fresh, role),
-    designChats: async (wksp) => design(wksp).list(),
-    designChatCreate: async (wksp, controls) => design(wksp).create(controls),
-    designChatDelete: (wksp, conversation) => design(wksp).remove(conversation),
-    designChatConfigure: async (wksp, conversation, controls) => design(wksp).configure(conversation, controls),
+    sendQueuedNow: async (workspace, id, conversation) => conversation ? design(workspace).sendNow(conversation, id) : ctx().home(workspace).workspace.sendNow(id),
+    reactToMessage: (workspace, id, kind) => ctx().home(workspace).reactions.react(id, kind),
+    interruptWorkspace: (workspace, conversation) => conversation ? design(workspace).interrupt(conversation) : ctx().home(workspace).workspace.interrupt(),
+    restartWorkspace: (workspace, fresh, role, conversation) => conversation ? design(workspace).restart(conversation, fresh) : ctx().home(workspace).workspace.restart(fresh, role),
+    designChats: async (workspace) => design(workspace).list(),
+    designChatCreate: async (workspace, controls) => design(workspace).create(controls),
+    designChatDelete: (workspace, conversation) => design(workspace).remove(conversation),
+    designChatConfigure: async (workspace, conversation, controls) => design(workspace).configure(conversation, controls),
     resolvePermission: (id, allow) => ctx().permissions.resolve(id, allow),
-    recap: () => ctx().main.wksp.send('/recap', 'player'),
-    save: () => ctx().main.wksp.send('/save', 'player'),
+    recap: () => ctx().main.workspace.send('/recap', 'player'),
+    save: () => ctx().main.workspace.send('/save', 'player'),
 
     // ---- squad
     // A budget typed into the Deploy dialog is the player's own approval; nothing else from the renderer is.
-    spawnTask: (req) => ctx().home(req.wksp ?? 'main').crew.spawn({ ...req, approvedBudget: req.approvedBudget ? { usd: Number(req.approvedBudget.usd), via: 'dialog' } : undefined }),
+    spawnTask: (req) => ctx().home(req.workspace ?? 'main').crew.spawn({ ...req, approvedBudget: req.approvedBudget ? { usd: Number(req.approvedBudget.usd), via: 'dialog' } : undefined }),
     previewLoadout: async (req) => resolveLoadout(req, ctx().settings, ctx().dispatch.signals(req.project)),
     rateTask: async (id, verdict, note) => ctx().dispatch.rate(id, verdict, note),
     dispatchScores: async () => ctx().dispatch.scores(),
@@ -432,9 +432,9 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     paneCwds: async (world) => paneCwds(ctx(), world),
     paneOpen: async (world, cwd, restart, size) => openPane(ctx(), world, cwd, restart, size),
     paneClose: async (world) => closePane(ctx(), world),
-    paneRun: async (world, wksp, command, cwd, size) => {
-      stopSpeaking(wksp)
-      return runShell(ctx(), world, wksp, command, cwd, size)
+    paneRun: async (world, workspace, command, cwd, size) => {
+      stopSpeaking(workspace)
+      return runShell(ctx(), world, workspace, command, cwd, size)
     },
 
     // ---- quest log
@@ -449,7 +449,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
       const waits = dependencyGate(hc, id, force)
       if (waits) return waits
       // Writing the brief needs judgment: hand the quest to Genio.
-      await hc.wksp.send(dispatchMessage(hc, item, force), 'system')
+      await hc.workspace.send(dispatchMessage(hc, item, force), 'system')
       return { ok: true, message: 'Genio is deploying this quest' }
     },
     backlogRemove: (id) => backlogHome(id).backlog.remove(id),
@@ -489,7 +489,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
       f.hc.decisions.hold(id, by === 'genio' ? 'genio' : 'later')
       if (by === 'genio') unlockQuietly('ask-genio-choice')
     },
-    addDecision: (d) => ctx().home(d.wksp ?? 'main').decisions.open(d),
+    addDecision: (d) => ctx().home(d.workspace ?? 'main').decisions.open(d),
 
     // ---- worlds
     projectAdd: (req) => ctx().projects.add(req),
@@ -561,14 +561,14 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
         if (windows && method === 'windowList') return { ...(await h.windowList()), windows: windows.list(_e.sender.id) }
         if (windows && method === 'windowClose') return windows.close(_e.sender.id)
         const binding = windows?.binding(_e.sender.id)
-        if (windows && !binding && ['sendChat', 'steerChat', 'sendQueuedNow', 'recap', 'save', 'restartWksp', 'interruptWksp', 'unqueueChat', 'reactToMessage', 'approveGeneration',
+        if (windows && !binding && ['sendChat', 'steerChat', 'sendQueuedNow', 'recap', 'save', 'restartWorkspace', 'interruptWorkspace', 'unqueueChat', 'reactToMessage', 'approveGeneration',
           'designChats', 'designChatCreate', 'designChatDelete', 'designChatConfigure'].includes(method)) throw new Error('Open a project window to use its chat.')
         if (method.startsWith('playPool') || method === 'playCloseSlotEditor' || method.startsWith('playerCopy')) assertProjectWindow(binding, args[0])
         if (method.startsWith('playerInstance') || method === 'playerSources' || method === 'playerSourceAvailable') assertProjectWindow(binding, args[0])
         if (windows && method.startsWith('artBible') && (!binding || args[0] !== binding.project)) throw new Error('The Art Bible belongs to its project window.')
         if (windows && method.startsWith('designNote') && (!binding || args[0] !== binding.project)) throw new Error('Lore notes belong to their project window.')
         // The pane lives in its project window only; a '!' result goes to that window's own chat.
-        if (windows && method.startsWith('pane') && (!binding || args[0] !== binding.project || (method === 'paneRun' && args[1] !== binding.wksp))) {
+        if (windows && method.startsWith('pane') && (!binding || args[0] !== binding.project || (method === 'paneRun' && args[1] !== binding.workspace))) {
           throw new Error('The terminal belongs to its project window.')
         }
         // These end the stream; Pause, Step, Resize and the scene list keep the port (a resize swaps Unity's session behind it).
@@ -653,11 +653,11 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
               if ((!found && method !== 'applyRecommendations') || (found && !ownsDecision(found.d, binding))) throw new Error('Choice is outside this project.')
             }
           }
-          if (method === 'readMemory') return ctx().memory.read(args[0] as Parameters<GenioApi['readMemory']>[0], ctx().home(binding.wksp).home)
-          if (method === 'writeMemory') return ctx().memory.write(args[0] as Parameters<GenioApi['writeMemory']>[0], String(args[1]), ctx().home(binding.wksp).home)
-          if (method === 'memoryReport') return ctx().memory.report(ctx().home(binding.wksp).home)
-          if (method === 'memoryArchive') return ctx().memory.archive((args[0] as unknown[]).map(String), String(args[1]), ctx().home(binding.wksp).home)
-          if (method === 'addDecision') args[0] = { ...(args[0] as object), project: binding.project, wksp: binding.wksp }
+          if (method === 'readMemory') return ctx().memory.read(args[0] as Parameters<GenioApi['readMemory']>[0], ctx().home(binding.workspace).home)
+          if (method === 'writeMemory') return ctx().memory.write(args[0] as Parameters<GenioApi['writeMemory']>[0], String(args[1]), ctx().home(binding.workspace).home)
+          if (method === 'memoryReport') return ctx().memory.report(ctx().home(binding.workspace).home)
+          if (method === 'memoryArchive') return ctx().memory.archive((args[0] as unknown[]).map(String), String(args[1]), ctx().home(binding.workspace).home)
+          if (method === 'addDecision') args[0] = { ...(args[0] as object), project: binding.project, workspace: binding.workspace }
           if (method === 'revokeStandingApproval' && standingApprovals(ctx()).list().find(a => a.id === args[0])?.project !== binding.project) {
             return { ok: false, message: 'That standing approval belongs to another project.' }
           }
@@ -665,14 +665,14 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
           if (method === 'terminals') { const snap = ctx().snapshot(); return ctx().terminals.list().filter(t => terminalProject(t, snap) === binding.project) }
           // A login started in a project window runs in that project's folder, so its terminal is routed back to it.
           if (method === 'accountSession') return openAccountSession(ctx(), String(args[0]), args[1] as 'login' | 'logout', ctx().projects.get(binding.project)?.path)
-          if (method === 'recap' || method === 'save') return ctx().home(binding.wksp).wksp.send('/' + method, 'player')
+          if (method === 'recap' || method === 'save') return ctx().home(binding.workspace).workspace.send('/' + method, 'player')
           if (method === 'backlogDispatch') {
             const quest = backlogHome(String(args[0])).backlog.get(String(args[0]))!
             if (quest.project !== binding.project) throw new Error('Quest is outside this project.')
             if (quest.hold) return { ok: false, message: 'Release this quest first.' }
             const waits = dependencyGate(backlogHome(quest.id), quest.id, Boolean(args[1]))
             if (waits) return waits
-            await ctx().home(binding.wksp).wksp.send(dispatchMessage(backlogHome(quest.id), quest, Boolean(args[1])), 'system')
+            await ctx().home(binding.workspace).workspace.send(dispatchMessage(backlogHome(quest.id), quest, Boolean(args[1])), 'system')
             return { ok: true, message: 'Sent to project chat.' }
           }
           if ((method === 'planControl' || method === 'planPriority') && planHome(String(args[0])).plans.get(String(args[0]))?.world !== binding.project) {
@@ -683,12 +683,12 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
               if (backlogHome(p.id).backlog.get(p.id)?.project !== binding.project) throw new Error('Quest is outside this project.')
             }
           }
-          if (method === 'spawnTask') args[0] = { ...(args[0] as object), project: binding.project, wksp: binding.wksp }
-          if (method === 'backlogAdd') return ctx().home(binding.wksp).backlog.add({ ...(args[0] as Parameters<GenioApi['backlogAdd']>[0]), project: binding.project })
-          if (method === 'wakes') return ctx().home(binding.wksp).wakes.recent(args[0] as number)
+          if (method === 'spawnTask') args[0] = { ...(args[0] as object), project: binding.project, workspace: binding.workspace }
+          if (method === 'backlogAdd') return ctx().home(binding.workspace).backlog.add({ ...(args[0] as Parameters<GenioApi['backlogAdd']>[0]), project: binding.project })
+          if (method === 'wakes') return ctx().home(binding.workspace).wakes.recent(args[0] as number)
           // Chat history, sends and controls cannot switch this window to another base.
-          if (['chatHistory', 'sendChat', 'steerChat', 'sendQueuedNow', 'interruptWksp', 'restartWksp', 'unqueueChat', 'reactToMessage', 'approveGeneration', 'allyUpdate',
-            'designChats', 'designChatCreate', 'designChatDelete', 'designChatConfigure'].includes(method) && args[0] !== binding.wksp) {
+          if (['chatHistory', 'sendChat', 'steerChat', 'sendQueuedNow', 'interruptWorkspace', 'restartWorkspace', 'unqueueChat', 'reactToMessage', 'approveGeneration', 'allyUpdate',
+            'designChats', 'designChatCreate', 'designChatDelete', 'designChatConfigure'].includes(method) && args[0] !== binding.workspace) {
             throw new Error('This window is bound to its project chat.')
           }
         }

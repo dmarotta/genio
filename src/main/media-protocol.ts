@@ -17,7 +17,7 @@ export interface MediaOptions {
 
 /**
  * genio-media://fal/<run>/<file>: FAL outputs from Genio's data dir (streamable, seekable); genio-media://uthana/<run>/<file>: Animation
- * previews and exports; genio-media://chat/<wksp>/<file>: chat images; genio-media://art-bible/<world>/<path>: Art Bible reference
+ * previews and exports; genio-media://chat/<workspace>/<file>: chat images; genio-media://art-bible/<world>/<path>: Art Bible reference
  * images (art-bible.ts). genio-viewer://app and genio-media://model/<token>/<file>:
  * Inventory's sandboxed 3D viewer and the one model it was granted (model-viewer.ts)
  */
@@ -74,10 +74,10 @@ export function registerMedia(getCtx: () => AppCtx, opts: MediaOptions): void {
   })
 }
 
-/** genio-media://chat/<wksp>/<file>: an image attached in that chat */
-function chatMediaPath(getCtx: () => AppCtx, wksp: string, file: string): string | undefined {
+/** genio-media://chat/<workspace>/<file>: an image attached in that chat */
+function chatMediaPath(getCtx: () => AppCtx, workspace: string, file: string): string | undefined {
   try {
-    return chatImagePath(chatImageDir(getCtx().home(wksp).home.data), file)
+    return chatImagePath(chatImageDir(getCtx().home(workspace).home.data), file)
   } catch {
     return undefined
   }

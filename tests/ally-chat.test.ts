@@ -5,13 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Ally, Settings } from '@shared/types'
 import { chatControls, patchAllyControls, routedRequest } from '@shared/chat'
 import { createAlliesService } from '../src/main/allies'
-import { decideTool, inboundMessage, sendPlayerChat, sessionConfig } from '../src/main/wksp'
+import { decideTool, inboundMessage, sendPlayerChat, sessionConfig } from '../src/main/workspace'
 
 const ally = (name: string, extra: Partial<Ally> = {}): Ally => ({
   name, scope: `scope of ${name}`, charter: '', projects: [], home: `/workspaces/${name}`, createdAt: '2026-10-01T00:00:00.000Z', ...extra
 })
 
-const settings = (extra: Partial<Settings> = {}) => ({ chatShellMode: 'ask' as const, wkspModel: 'claude-opus-5-5', wkspEffort: 'high', botModel: '', ...extra })
+const settings = (extra: Partial<Settings> = {}) => ({ chatShellMode: 'ask' as const, workspaceModel: 'claude-opus-5-5', workspaceEffort: 'high', botModel: '', ...extra })
 
 let dir: string
 beforeEach(() => {
@@ -29,7 +29,7 @@ function fixture(allies: Ally[]) {
   const homes = new Map<string, unknown>()
   for (const n of ['main', ...allies.map((a) => a.name)]) {
     sends[n] = []
-    homes.set(n, { wksp: { send: vi.fn(async (text: string, origin?: string, images?: unknown[]) => void sends[n].push(images ? { text, origin, images } : { text, origin })) } })
+    homes.set(n, { workspace: { send: vi.fn(async (text: string, origin?: string, images?: unknown[]) => void sends[n].push(images ? { text, origin, images } : { text, origin })) } })
   }
   const ctx = {
     main: { home: { alliesFile: file } },
@@ -53,7 +53,7 @@ describe('per-chat controls', () => {
     expect(chatControls(settings(), art)).toEqual({ shellMode: 'auto-shell', model: 'claude-sonnet-5-5', effort: 'high' })
     expect(chatControls(settings(), audio)).toEqual(chatControls(settings()))
     // the main chat changing leaves an ally's own choice alone
-    expect(chatControls(settings({ wkspModel: 'claude-haiku-5-5', chatShellMode: 'all' }), art)).toMatchObject({ model: 'claude-sonnet-5-5', shellMode: 'auto-shell' })
+    expect(chatControls(settings({ workspaceModel: 'claude-haiku-5-5', chatShellMode: 'all' }), art)).toMatchObject({ model: 'claude-sonnet-5-5', shellMode: 'auto-shell' })
   })
 
   it("'' clears an override and junk approval modes are ignored", () => {
@@ -111,7 +111,7 @@ describe('two-way ally chats', () => {
     const { text, origin } = sends.art[0]
     expect(origin).toBe('genio')
     const m = inboundMessage('art', text, origin as 'genio')
-    expect(m).toMatchObject({ wksp: 'art', from: 'genio' })
+    expect(m).toMatchObject({ workspace: 'art', from: 'genio' })
     const shown = routedRequest(m)
     expect(shown?.text).toBe('Repaint the title screen')
     expect(r.message).toContain(shown!.corr)

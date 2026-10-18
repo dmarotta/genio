@@ -14,11 +14,11 @@ import { GenioPanel } from '/src/renderer/src/components/GenioPanel.tsx'
 import { getState, setState, handleEvent, useStore } from '/src/renderer/src/store.ts'
 import '/src/renderer/src/styles/theme.css'
 import '/src/renderer/src/styles/app.css'
-const messages = Array.from({ length: 320 }, (_, i) => ({ id: 'm-' + i, wksp: 'genio',
+const messages = Array.from({ length: 320 }, (_, i) => ({ id: 'm-' + i, workspace: 'genio',
   role: i % 3 ? 'genio' : 'player', text: ('Reply ' + i + ' **bold** with real layout.\n\n').repeat(5 + i % 7), ts: '2026-10-14T06:00:00Z' }))
 setState({ booted: true, connected: true, chats: { genio: messages }, chatLoaded: { genio: true },
   settings: { gamertag: 'Test', calm: false, fx: false },
-  snap: { ...getState().snap, wksps: [{ name: 'genio', displayName: 'Genio', activity: 'idle', costUsd: 0, turns: 0, queued: 0 }] } })
+  snap: { ...getState().snap, workspaces: [{ name: 'genio', displayName: 'Genio', activity: 'idle', costUsd: 0, turns: 0, queued: 0 }] } })
 window.fixture = { getState, setState, handleEvent }
 function Fixture() {
   const view = useStore(s => s.view)
@@ -51,7 +51,7 @@ const server = await createServer({
 let child
 try {
   await server.listen()
-  const env = { ...process.env, CHAT_SCROLL_URL: server.resolvedUrls.local[0] + 'chat-scroll.html?project=fixture&wksp=genio', CHAT_SCROLL_RESULTS: resultFile }
+  const env = { ...process.env, CHAT_SCROLL_URL: server.resolvedUrls.local[0] + 'chat-scroll.html?project=fixture&workspace=genio', CHAT_SCROLL_RESULTS: resultFile }
   delete env.ELECTRON_RUN_AS_NODE
   for (const key of Object.keys(env)) if (key.startsWith('GIT_CONFIG_')) delete env[key]
   assertChildHomes(env)

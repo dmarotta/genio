@@ -226,7 +226,7 @@ that were not locked (they followed the Usage mode and were never used as writte
 dropped, locked rows stay as the player's rows without the lock, rules lose their lock, the
 shipped default unit tool `claude` becomes unset unless a default unit model or effort was set
 for it, and the automatic reorder switch is gone. As before, the old shipped chat default
-(`wkspEffort: 'high'` with no model) becomes unset and the old cost dial becomes the mode
+(`workspaceEffort: 'high'` with no model) becomes unset and the old cost dial becomes the mode
 (Quality → Max, Cost → Save).
 
 **Protection**, per plan, from the worst fresh reported window (all expired evidence is unknown):

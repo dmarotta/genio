@@ -261,17 +261,17 @@ describe('the reply voice', () => {
 describe('routing', () => {
   it('a reply is spoken only in the windows that show its chat, never in the Hub', () => {
     const snap = { tasks: [], projects: [] } as unknown as FleetSnapshot
-    const ev = { type: 'speak' as const, wksp: 'genio-alpha', text: 'Done.' }
-    expect(routeProjectEvent(ev, { project: 'alpha', wksp: 'genio-alpha' } as never, snap)).toEqual(ev)
-    expect(routeProjectEvent(ev, { project: 'beta', wksp: 'genio-beta' } as never, snap)).toBeUndefined()
+    const ev = { type: 'speak' as const, workspace: 'genio-alpha', text: 'Done.' }
+    expect(routeProjectEvent(ev, { project: 'alpha', workspace: 'genio-alpha' } as never, snap)).toEqual(ev)
+    expect(routeProjectEvent(ev, { project: 'beta', workspace: 'genio-beta' } as never, snap)).toBeUndefined()
     expect(routeProjectEvent(ev, undefined, snap)).toBeUndefined()
   })
 
   it('a message sent to a chat stops speech in the windows that show it', () => {
     const snap = { tasks: [], projects: [] } as unknown as FleetSnapshot
-    const ev = { type: 'speak-stop' as const, wksp: 'genio-alpha' }
-    expect(routeProjectEvent(ev, { project: 'alpha', wksp: 'genio-alpha' } as never, snap)).toEqual(ev)
-    expect(routeProjectEvent(ev, { project: 'beta', wksp: 'genio-beta' } as never, snap)).toBeUndefined()
+    const ev = { type: 'speak-stop' as const, workspace: 'genio-alpha' }
+    expect(routeProjectEvent(ev, { project: 'alpha', workspace: 'genio-alpha' } as never, snap)).toEqual(ev)
+    expect(routeProjectEvent(ev, { project: 'beta', workspace: 'genio-beta' } as never, snap)).toBeUndefined()
     expect(routeProjectEvent(ev, undefined, snap)).toBeUndefined()
   })
 })

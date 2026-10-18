@@ -8,7 +8,7 @@ import { createBacklogService } from '../src/main/backlog'
 import { createDecisionService } from '../src/main/decisions'
 import { createWakeService } from '../src/main/wakes'
 import { createPlanService } from '../src/main/plans'
-import { createToolRegistry, type ToolRole } from '../src/main/wksp-tools'
+import { createToolRegistry, type ToolRole } from '../src/main/workspace-tools'
 import { renderBrief } from '../src/main/brief'
 import {
   copyReferences, questReferencesDir, readReferences, referencesBriefLines, referenceViews, resolveAttachments, secretPathReason, stageReferences, unitReferencesDir,
@@ -224,7 +224,7 @@ describe('the tools', () => {
     write(path.join(home.data, 'chat-images', 'mg1-ab12.png'), 'png bytes')
     spawned = []
     tasks = []
-    hc = { home, wksp: { deliverWakes: vi.fn(), say: vi.fn(), history: () => [] } } as unknown as HomeCtx
+    hc = { home, workspace: { deliverWakes: vi.fn(), say: vi.fn(), history: () => [] } } as unknown as HomeCtx
     hc.crew = {
       list: () => tasks, get: (id: string) => tasks.find((t) => t.id === id), update: () => undefined, capacityUsed: () => 0,
       statusEvents: () => [],

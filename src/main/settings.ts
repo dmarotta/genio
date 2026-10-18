@@ -14,8 +14,8 @@ import { DEFAULT_REPLY_VOICE } from '@shared/reply-voice'
 export function defaultSettings(): Settings {
   return {
     gamertag: 'Player',
-    wkspModel: '',
-    wkspEffort: '',
+    workspaceModel: '',
+    workspaceEffort: '',
     botModel: '',
     defaultHarness: '',
     defaultWorkerModel: '',

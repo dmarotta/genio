@@ -69,7 +69,7 @@ if (!app.requestSingleInstanceLock()) {
 setWindowsAppId()
 
 // genio-media://fal/<run>/<file>: FAL outputs from Genio's data dir (streamable, seekable); genio-media://uthana/<run>/<file>: Animation
-// previews and exports; genio-media://chat/<wksp>/<file>: chat images; genio-media://art-bible/<world>/<path>: Art Bible reference
+// previews and exports; genio-media://chat/<workspace>/<file>: chat images; genio-media://art-bible/<world>/<path>: Art Bible reference
 // images (art-bible.ts). genio-viewer://app and genio-media://model/<token>/<file>:
 // Inventory's sandboxed 3D viewer and the one model it was granted (model-viewer.ts)
 protocol.registerSchemesAsPrivileged([
@@ -234,14 +234,14 @@ export function openProject(folder: string): Promise<void> {
     const { project } = await ctx!.projects.openFolder(folder)
     const existing = [...windows].find(([, b]) => b?.project === project.name)?.[0]
     if (existing) { focusWindow(existing); closeHub(); return }
-    const wksp = await ensureProjectBase(ctx!, project.name)
-    const win = createWindow({ project: project.name, wksp })
+    const workspace = await ensureProjectBase(ctx!, project.name)
+    const win = createWindow({ project: project.name, workspace })
     await windowLoads.get(win)
     if (!win.isDestroyed()) closeHub()
     ctx!.stats.unlock('project-window-open')
     if ([...windows.values()].filter(Boolean).length >= 2) ctx!.stats.unlock('project-windows-two')
     await startup
-    await startProjectBase(ctx!, project.name, wksp)
+    await startProjectBase(ctx!, project.name, workspace)
   })
   openQueue = operation.catch(() => undefined)
   return operation
@@ -404,7 +404,7 @@ function createWindow(binding?: WindowBinding): BrowserWindow {
     if (!ctx) return
     win.webContents.send(EVENT_CHANNEL, { type: 'snapshot', data: projectSnapshot(ctx.snapshot(), binding) })
     win.webContents.send(EVENT_CHANNEL, { type: 'settings', settings: ctx.settings.get() })
-    for (const p of ctx.permissions.pending()) if (!binding || p.wksp === binding.wksp) win.webContents.send(EVENT_CHANNEL, { type: 'permission', request: p })
+    for (const p of ctx.permissions.pending()) if (!binding || p.workspace === binding.workspace) win.webContents.send(EVENT_CHANNEL, { type: 'permission', request: p })
     if (!startup) {
       startup = startApp(ctx)
       void startup.catch((e) => bus.toast('error', 'Startup problem', String((e as Error)?.message ?? e)))
@@ -426,7 +426,7 @@ function createWindow(binding?: WindowBinding): BrowserWindow {
     void (async () => {
       try {
         if (binding) {
-          await stopProjectBase(ctx!, binding.project, binding.wksp)
+          await stopProjectBase(ctx!, binding.project, binding.workspace)
           // Live terminals of this project stop; the terminal pane's ended shell and runs go too, so a reopened window starts clean.
           const snap = ctx!.snapshot()
           for (const t of ctx!.terminals.list()) if (terminalProject(t, snap) === binding.project && (t.alive || t.kind === 'pane')) ctx!.terminals.kill(t.id)
@@ -447,7 +447,7 @@ function createWindow(binding?: WindowBinding): BrowserWindow {
     if (binding && ctx) void Promise.resolve().then(() => playerInstanceService(ctx!).quit(binding.project)).catch(() => {})
   })
 
-  const query: Record<string, string> = binding ? { project: binding.project, wksp: binding.wksp } : {}
+  const query: Record<string, string> = binding ? { project: binding.project, workspace: binding.workspace } : {}
   let loading: Promise<void>
   if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
     const url = new URL(process.env.ELECTRON_RENDERER_URL)
@@ -472,10 +472,10 @@ async function navigateNotification(target: Extract<GenioEvent, { type: 'navigat
   if (!ctx) return
   const snapshot = ctx.snapshot()
   const decision = target.view === 'move' && target.decisionId ? snapshot.decisions.find(d => d.id === target.decisionId) : undefined
-  const wksp = target.view === 'comms' || target.view === 'move' ? target.wksp : undefined
+  const workspace = target.view === 'comms' || target.view === 'move' ? target.workspace : undefined
   const project = target.view === 'move' ? decision?.project ?? target.project :
     target.view === 'squad' ? snapshot.tasks.find(t => t.id === target.taskId)?.project : undefined
-  const owner = project ?? snapshot.allies.find(a => !a.retiredAt && a.name === (decision?.wksp ?? wksp))?.projects[0]
+  const owner = project ?? snapshot.allies.find(a => !a.retiredAt && a.name === (decision?.workspace ?? workspace))?.projects[0]
   if (owner) {
     const p = ctx.projects.get(owner)
     if (!p) throw new Error(`Project ${owner} is unavailable.`)
@@ -630,7 +630,7 @@ async function captureTour(dir: string, win: BrowserWindow, binding?: WindowBind
     const ctx = getCtx()
     const until = Date.now() + 120_000
     await wait(1500)
-    while (Date.now() < until && ['starting', 'thinking', 'tool'].includes(ctx.main.wksp.info().activity)) await wait(1000)
+    while (Date.now() < until && ['starting', 'thinking', 'tool'].includes(ctx.main.workspace.info().activity)) await wait(1000)
     await wait(1200)
   }
   const script = process.env.GENIO_CAPTURE_SCRIPT

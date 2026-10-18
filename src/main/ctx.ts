@@ -13,7 +13,7 @@
  *   decisions.ts    createDecisionService(getCtx, home)
  *   wakes.ts        createWakeService(getCtx, home)
  *   supervisor.ts   createSupervisor(getCtx, home)
- *   wksp.ts         createWkspService(getCtx, home, ally?)
+ *   workspace.ts         createWorkspaceService(getCtx, home, ally?)
  *   reactions.ts    createReactionService(getCtx, home)
  *   design-chats.ts createDesignChatService(getCtx, home, ally?, isOpen?)
  *   plans.ts        createPlanService(getCtx, home)
@@ -50,7 +50,7 @@ import { createPlanService } from './plans'
 import { createDecisionService } from './decisions'
 import { createWakeService } from './wakes'
 import { createSupervisor } from './supervisor'
-import { createWkspService } from './wksp'
+import { createWorkspaceService } from './workspace'
 import { createReactionService } from './reactions'
 import { createDesignChatService } from './design-chats'
 import { createAwayService } from './away'
@@ -116,7 +116,7 @@ export function makeHomeCtx(home: Home, ally?: Ally): HomeCtx {
     decisions: createDecisionService(getCtx, home),
     wakes: createWakeService(getCtx, home),
     supervisor: createSupervisor(getCtx, home),
-    wksp: createWkspService(getCtx, home, ally, home.isMain, () => !!ally?.projects.some(p => openProjects.get(getCtx())?.has(p))),
+    workspace: createWorkspaceService(getCtx, home, ally, home.isMain, () => !!ally?.projects.some(p => openProjects.get(getCtx())?.has(p))),
     reactions: createReactionService(getCtx, home),
     plans: createPlanService(getCtx, home),
     // The main base is the archived chat; design chats belong to project bases.
@@ -138,7 +138,7 @@ export function makeHomeCtx(home: Home, ally?: Ally): HomeCtx {
   }
   // New project homes can start supervision inside allies.create, before
   // ensureProjectBase returns. Hold their first turn at construction as well.
-  if (ally?.projects.some(p => openProjects.get(getCtx())?.has(p))) hc.wksp.prepareProjectOpen()
+  if (ally?.projects.some(p => openProjects.get(getCtx())?.has(p))) hc.workspace.prepareProjectOpen()
   return hc
 }
 
@@ -158,28 +158,28 @@ export async function ensureProjectBase(ctx: AppCtx, project: string): Promise<s
     ally = await ctx.allies.create(req)
   }
   if (project === 'genio') inheritMainHistory(ctx.main.home, ctx.home(ally.name).home)
-  ctx.home(ally.name).wksp.prepareProjectOpen()
+  ctx.home(ally.name).workspace.prepareProjectOpen()
   // The window's first question is its chat history: read the log while the window loads.
-  void ctx.home(ally.name).wksp.preloadHistory?.().catch(() => undefined)
+  void ctx.home(ally.name).workspace.preloadHistory?.().catch(() => undefined)
   return ally.name
 }
 
 /** Repeated focus/load requests reuse this open's reconciliation and first turn. */
-export function startProjectBase(ctx: AppCtx, project: string, wksp: string): Promise<void> {
+export function startProjectBase(ctx: AppCtx, project: string, workspace: string): Promise<void> {
   let starts = projectStarts.get(ctx)
   if (!starts) { starts = new Map(); projectStarts.set(ctx, starts) }
   const existing = starts.get(project)
   if (existing) return existing
-  const operation = reconcileProjectOpen(ctx, project, wksp, () => !!openProjects.get(ctx)?.has(project))
+  const operation = reconcileProjectOpen(ctx, project, workspace, () => !!openProjects.get(ctx)?.has(project))
   starts.set(project, operation)
   return operation
 }
 
-export async function stopProjectBase(ctx: AppCtx, project: string, wksp: string): Promise<void> {
+export async function stopProjectBase(ctx: AppCtx, project: string, workspace: string): Promise<void> {
   openProjects.get(ctx)?.delete(project)
-  const home = ctx.home(wksp)
+  const home = ctx.home(workspace)
   home.supervisor.stop()
-  await home.wksp.stop()
+  await home.workspace.stop()
   await home.design?.stop()
   await projectStarts.get(ctx)?.get(project)?.catch(() => undefined)
   projectStarts.get(ctx)?.delete(project)
@@ -239,7 +239,7 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
     dir: claudeHomeDir(mainHome.root),
     executable: () => ctx.settings.get().claudePath?.trim() || 'claude',
     warn: (message) => {
-      try { ctx.main.wksp.say(message, 'system') } catch { /* chat optional */ }
+      try { ctx.main.workspace.say(message, 'system') } catch { /* chat optional */ }
       ctx.notifier.notify('Claude sessions may show in your Claude apps', message, 'info', { force: true })
     }
   })
@@ -258,7 +258,7 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
 
   // Records for projects absent from the migration registry stay in main. If
   // reopened later, route their supervision to the project, never the archived log.
-  ctx.main.wksp.deliverWakes = () => {
+  ctx.main.workspace.deliverWakes = () => {
     for (const wake of ctx.main.wakes.pending()) {
       const project = wake.taskId && ctx.main.crew.get(wake.taskId)?.project
       if (!project || !openProjects.get(ctx)?.has(project)) continue
@@ -267,7 +267,7 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
       const target = ctx.home(owner.name)
       target.wakes.enqueue(wake)
       ctx.main.wakes.ackEvents([wake.seq])
-      target.wksp.deliverWakes()
+      target.workspace.deliverWakes()
     }
   }
 
@@ -280,7 +280,7 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
       plans: all.flatMap((h) => h.plans?.list() ?? []),
       decisions: all.flatMap((h) => h.decisions.list(true)),
       projects: ctx.projects.list(),
-      wksps: all.map((h) => h.wksp.info()),
+      workspaces: all.map((h) => h.workspace.info()),
       allies: ctx.allies.list(),
       away: ctx.away.state(),
       inbox: ctx.inbox.list(),
@@ -337,7 +337,7 @@ export async function stopApp(ctx: AppCtx): Promise<void> {
     h.supervisor.stop()
     // a dislike still in its grace period is paused on the next project open
     h.reactions?.stop()
-    await h.wksp.stop().catch(() => undefined)
+    await h.workspace.stop().catch(() => undefined)
     await h.design?.stop().catch(() => undefined)
   }
 }

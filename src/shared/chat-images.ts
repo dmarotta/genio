@@ -95,6 +95,6 @@ export function validChatImageFile(name: string): boolean {
 }
 
 /** genio-media:// URL the renderer loads a stored chat image from. */
-export function chatImageUrl(wksp: string, file: string): string {
-  return `genio-media://chat/${encodeURIComponent(wksp)}/${encodeURIComponent(file)}`
+export function chatImageUrl(workspace: string, file: string): string {
+  return `genio-media://chat/${encodeURIComponent(workspace)}/${encodeURIComponent(file)}`
 }

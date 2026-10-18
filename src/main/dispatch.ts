@@ -176,7 +176,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
     return (id === 'claude' && !unreadable.has(id) && !claudeReadError && new SessionQuotaPolicy(dataDir()).unitBlocked()) ||
       // Fresh 70%+: at most one unit on that plan
       (isPlan(id) && planStatus(id, quota[id]).level !== 'ok' && ([...reservations].some(r => r !== own && r.harness === id) || [...ctx.homes.values()].some((h) =>
-        h.crew.list().some((t) => !(replacing && t.id === replacing.id && t.wksp === replacing.wksp) && t.harness === id && holdsCapacity(t, alive(t))))))
+        h.crew.list().some((t) => !(replacing && t.id === replacing.id && t.workspace === replacing.workspace) && t.harness === id && holdsCapacity(t, alive(t))))))
   }
 
   const watcher = usageRefreshLoop(async () => {
@@ -220,7 +220,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
       const result = launchQueue.then(async () => {
         const plans = plansNow()
         svc.noteUsage(await usageReport(getCtx(), { forceClaude: plans.claude.level !== 'ok', forceCodex: plans.codex.level !== 'ok' }))
-        const replacing = opts.respawn ? getCtx().homes.get(opts.respawn.wksp)?.crew.get(opts.respawn.id) : undefined
+        const replacing = opts.respawn ? getCtx().homes.get(opts.respawn.workspace)?.crew.get(opts.respawn.id) : undefined
         if (opts.respawn && (!replacing || replacing.project !== input.project)) throw new Error('Unknown respawn target')
         const occupies = !!replacing && holdsCapacity(replacing, alive(replacing))
         // Only a genuinely live/spawning replacement already owns a slot.
@@ -324,7 +324,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
         mode,
         quotaProtection: protection(),
         heldLaunches,
-        chat: (({ wkspModel, wkspEffort }) => ({ model: wkspModel, effort: wkspEffort }))(chatSettings(s, currentSignIns())),
+        chat: (({ workspaceModel, workspaceEffort }) => ({ model: workspaceModel, effort: workspaceEffort }))(chatSettings(s, currentSignIns())),
         units: { defaultHarness: s.defaultHarness, model: s.defaultWorkerModel || undefined, effort: s.defaultWorkerEffort || undefined },
         unitCap: svc.capacity().cap,
         liveUnits: svc.capacity().used,

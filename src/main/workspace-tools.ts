@@ -172,7 +172,7 @@ export function clarifyChoice(ctx: AppCtx, id: string, question: string): Promis
       const r = await task.hc.crew.send(d.taskId!, text, [])
       if (!r.ok) return r
     } else {
-      await hc.wksp.send(text, 'player')
+      await hc.workspace.send(text, 'player')
     }
     hc.decisions.clarify(id, question.trim())
     return { ok: true, message: 'Question sent. The choice remains pending.' }
@@ -219,7 +219,7 @@ async function sendChoiceAnswer(ctx: AppCtx, id: string, answer: string, origin:
       // A spend question: the player's approving answer records the grant before the unit hears it.
       const grant = d.action?.kind === 'spend-grant' ? answerSpendChoice(ctx, d, answer, origin, t.task) : undefined
       if (grant?.recorded) {
-        try { hc.wksp.say(`Spend approved for ${t.task.id} ("${t.task.title}"): USD ${fmtUsd(grant.recorded.granted)}; its total approved spend is USD ${fmtUsd(grant.recorded.total)}.`, 'system') } catch { /* the grant record is what counts */ }
+        try { hc.workspace.say(`Spend approved for ${t.task.id} ("${t.task.title}"): USD ${fmtUsd(grant.recorded.granted)}; its total approved spend is USD ${fmtUsd(grant.recorded.total)}.`, 'system') } catch { /* the grant record is what counts */ }
       }
       const r = await t.hc.crew.send(d.taskId, `Answer to your open question (${d.key}): ${answer}${grant?.note ?? ''}`, [])
       if (!r.ok) return { ok: false, message: `Ping failed: ${r.message}. The choice remains pending.` }
@@ -238,7 +238,7 @@ function taskLine(t: Task): Record<string, unknown> {
   return {
     id: t.id, kind: t.kind === 'ship' ? 'build' : 'recon', title: t.title, world: t.project, state: t.state,
     reason: t.stateReason, mode: t.mode, autoLoot: t.yolo, branch: t.branch, pr: t.pr?.url, checks: t.pr?.checks,
-    unitTool: t.harness, model: t.model, effort: t.effort, category: t.category, verdict: t.verdict, base: t.wksp
+    unitTool: t.harness, model: t.model, effort: t.effort, category: t.category, verdict: t.verdict, base: t.workspace
   }
 }
 
@@ -262,7 +262,7 @@ export function createToolRegistry(
   const chatLog = (): ChatMessage[] => {
     try {
       if (role === 'design') return hooks.conversation ? hc().design?.history(hooks.conversation, HISTORY_DEPTH) ?? [] : []
-      return hc().wksp.history?.(HISTORY_DEPTH) ?? []
+      return hc().workspace.history?.(HISTORY_DEPTH) ?? []
     } catch { return [] }
   }
   /** Check the player's attachments against this chat's images and the project's checkout. The Bot attaches nothing. */
@@ -518,7 +518,7 @@ export function createToolRegistry(
         const task = await owner.crew.spawn({
           kind: a.kind, project: a.world, title: a.title, intent: a.intent, spec: a.spec ?? step?.spec, summary: summaryOf(a.summary) ?? step?.summary, mode: a.mode, yolo: a.auto_loot,
           baseBranch: a.base_branch, harness: a.harness ?? step?.harness, model: a.model ?? step?.model, effort: a.effort ?? step?.effort,
-          category: a.category ?? step?.category, backlogId: a.quest_id, wksp: owner.home.name, planContext: step?.planContext, force: a.force,
+          category: a.category ?? step?.category, backlogId: a.quest_id, workspace: owner.home.name, planContext: step?.planContext, force: a.force,
           modeller: a.modeller, generator: a.generator, claims: a.claims, approvedBudget, attachments: att.items
         })
         did('units', task.id)
@@ -924,7 +924,7 @@ export function createToolRegistry(
         ? h.decisions.openForTask(a.task, a.key ?? 'default', a.question, role === 'bot' ? 'genio' : 'genio', {
             options: a.options, recommendation: a.recommendation, batch: a.batch, context: a.context, urgency: a.urgency, backlogId: a.quest_id
           })
-        : h.decisions.open({ question: a.question, options: a.options, recommendation: a.recommendation, batch: a.batch, context: a.context, urgency: a.urgency, backlogId: a.quest_id, project, key: a.key, source: 'genio', wksp: home.name })
+        : h.decisions.open({ question: a.question, options: a.options, recommendation: a.recommendation, batch: a.batch, context: a.context, urgency: a.urgency, backlogId: a.quest_id, project, key: a.key, source: 'genio', workspace: home.name })
       did('choices', d.id)
       return ok(`choice ${d.id} opened`)
     }
@@ -1335,4 +1335,4 @@ export function createToolRegistry(
 }
 
 // Compatibility entry point; SDK-specific adaptation lives in its own module.
-export { buildTools } from './wksp-sdk-tools'
+export { buildTools } from './workspace-sdk-tools'

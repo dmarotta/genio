@@ -137,7 +137,7 @@ export function DeployModal() {
         model: pickModel || undefined,
         effort: pickEffort || undefined,
         backlogId: draft.backlogId,
-        wksp: draft.wksp,
+        workspace: draft.workspace,
         ...(asModeller ? { modeller: true } : {}),
         ...(asGenerator ? { generator: true } : {}),
         ...(budgetUsd ? { approvedBudget: { usd: budgetUsd, via: 'dialog' as const } } : {})
@@ -159,7 +159,7 @@ export function DeployModal() {
     const text = `${kindWord} in ${project}${title.trim() ? ` — ${title.trim()}` : ''}:\n\n${intent.trim()}${mode ? `\n\n(mode: ${MODE_LABEL[mode]})` : ''}`
     setBusy(true)
     try {
-      await api().sendChat(draft.wksp ?? 'main', text)
+      await api().sendChat(draft.workspace ?? 'main', text)
       playSfx('send', settings)
       close()
       setState({ view: 'comms' })

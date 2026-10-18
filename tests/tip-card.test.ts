@@ -3,7 +3,7 @@ import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-vi.hoisted(() => window.history.replaceState({}, '', '/?project=fixture&wksp=genio'))
+vi.hoisted(() => window.history.replaceState({}, '', '/?project=fixture&workspace=genio'))
 import { TipCard } from '../src/renderer/src/components/TipCard'
 import { getState, handleEvent, saveSettings, setState } from '../src/renderer/src/store'
 import { PANEL_OPEN_EVENT, publishScreenContext } from '../src/renderer/src/lib/screen-context'

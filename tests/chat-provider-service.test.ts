@@ -28,7 +28,7 @@ import type { ChatMessage } from '@shared/types'
 import { applyChatEvent, splitQueued } from '@shared/chat'
 import { bus } from '../src/main/bus'
 import { Home } from '../src/main/home'
-import { createWkspService } from '../src/main/wksp'
+import { createWorkspaceService } from '../src/main/workspace'
 import type { AppCtx } from '../src/main/services'
 import { createWakeService } from '../src/main/wakes'
 import { claudeLimitsFile, recordClaudeRateLimit } from '../src/main/usage'
@@ -44,14 +44,14 @@ it('Codex delivers ready/blocked events across restart despite persisted stale 9
   fs.writeFileSync(claudeLimitsFile(home.data), JSON.stringify(snapshot))
   const hc = { home, crew: { list: () => [] }, decisions: { list: () => [] }, backlog: { list: () => [] }, wakes: undefined as any }
   const ctx = { appRoot: process.cwd(), main: hc, home: () => hc, homes: new Map([['main', hc]]),
-    settings: { get: () => ({ wkspModel: 'codex:OpenAI:gpt-test', wkspEffort: 'high', chatShellMode: 'ask' }) },
+    settings: { get: () => ({ workspaceModel: 'codex:OpenAI:gpt-test', workspaceEffort: 'high', chatShellMode: 'ask' }) },
     away: { state: () => ({ mode: 'online' }) }, allies: { list: () => [] }, projects: { list: () => [] },
     stats: { unlock: vi.fn(), addCost: vi.fn() }, inventory: { thumbnail: vi.fn() }, memory: { read: () => '' }, permissions: { ask: vi.fn(async () => true) }
   } as unknown as AppCtx
   hc.wakes = createWakeService(() => ctx, home)
   hc.wakes.enqueue({ kind: 'signal', reason: 'unit ready', routine: false })
   hc.wakes.enqueue({ kind: 'signal', reason: 'unit blocked', routine: false })
-  const first = createWkspService(() => ctx, home)
+  const first = createWorkspaceService(() => ctx, home)
   cleanup.push(async () => { await first.stop(); fs.rmSync(root, { recursive: true, force: true }) })
   first.deliverWakes(); first.deliverWakes()
   await vi.waitFor(() => expect(peers[0]?.requests.filter(r => r.method === 'turn/start')).toHaveLength(1))
@@ -60,7 +60,7 @@ it('Codex delivers ready/blocked events across restart despite persisted stale 9
   // Crash before success: no acknowledgement and both events survive a new service.
   await first.stop()
   hc.wakes = createWakeService(() => ctx, home)
-  const second = createWkspService(() => ctx, home)
+  const second = createWorkspaceService(() => ctx, home)
   cleanup.unshift(async () => { await second.stop() })
   second.deliverWakes()
   await vi.waitFor(() => expect(peers[1]?.requests.filter(r => r.method === 'turn/start')).toHaveLength(1))
@@ -78,11 +78,11 @@ it('main and AFK Bot inherit the selected provider/model, retain one transcript 
     pending: () => wake ? [{ routine: true }] : [], drain: () => ({ text: 'check fleet', count: 1, ackThrough: 1 }), ack: () => { wake = false }
   } }
   const ctx = { appRoot: process.cwd(), main: hc, home: () => hc, homes: new Map([['main', hc]]),
-    settings: { get: () => ({ wkspModel: 'codex:OpenAI:gpt-test', wkspEffort: 'high', botModel: 'ignored-old-bot-model', chatShellMode: 'ask' }) },
+    settings: { get: () => ({ workspaceModel: 'codex:OpenAI:gpt-test', workspaceEffort: 'high', botModel: 'ignored-old-bot-model', chatShellMode: 'ask' }) },
     away: { state: () => ({ mode }), capture: vi.fn() }, allies: { list: () => [] }, projects: { list: () => [] }, stats,
     inventory: { thumbnail: vi.fn() }, memory: { read: () => '' }, permissions: { ask: vi.fn(async () => true) }
   } as unknown as AppCtx
-  const service = createWkspService(() => ctx, home)
+  const service = createWorkspaceService(() => ctx, home)
   cleanup.push(async () => { await service.stop(); fs.rmSync(root, { recursive: true, force: true }) })
   await service.send('hello')
   await vi.waitFor(() => expect(peers[0]?.requests.some(r => r.method === 'turn/start')).toBe(true))
@@ -111,13 +111,13 @@ it('Codex shows messages sent mid-turn as queued at once and sends each exactly 
   const hc = { home, crew: { list: () => [] }, decisions: { list: () => [] }, backlog: { list: () => [] },
     wakes: { pending: () => [], drain: () => ({ text: '', count: 0, ackThrough: -1 }), ack: () => undefined } }
   const ctx = { appRoot: process.cwd(), main: hc, home: () => hc, homes: new Map([['main', hc]]),
-    settings: { get: () => ({ wkspModel: 'codex:OpenAI:gpt-test', wkspEffort: 'high', chatShellMode: 'ask' }) },
+    settings: { get: () => ({ workspaceModel: 'codex:OpenAI:gpt-test', workspaceEffort: 'high', chatShellMode: 'ask' }) },
     away: { state: () => ({ mode: 'online' }) }, allies: { list: () => [] }, projects: { list: () => [] },
     stats: { unlock: vi.fn(), addCost: vi.fn() }, inventory: { thumbnail: vi.fn() }, memory: { read: () => '' }, permissions: { ask: vi.fn(async () => true) }
   } as unknown as AppCtx
   let shown: ChatMessage[] = []
   const off = bus.onEvent(ev => { if (ev.type === 'chat') shown = applyChatEvent(shown, ev.message) })
-  const service = createWkspService(() => ctx, home)
+  const service = createWorkspaceService(() => ctx, home)
   cleanup.push(async () => { off(); await service.stop(); fs.rmSync(root, { recursive: true, force: true }) })
   const turns = () => peers[0]?.requests.filter(r => r.method === 'turn/start') ?? []
   const complete = () => peers[0].events.notification('turn/completed', { threadId: 'session-1', turn: { id: 'turn', status: 'completed' } })
@@ -150,11 +150,11 @@ it('stamps what a Codex turn started on its final messages, from the tool calls 
     backlog: { list: () => [], add: (q: object) => ({ id: `q-${++quests}`, state: 'queued', ...q }) },
     wakes: { pending: () => [], drain: () => ({ text: '', count: 0, ackThrough: -1 }), ack: () => undefined } }
   const ctx = { appRoot: process.cwd(), main: hc, home: () => hc, homes: new Map([['main', hc]]),
-    settings: { get: () => ({ wkspModel: 'codex:OpenAI:gpt-test', wkspEffort: 'high', chatShellMode: 'all' }) },
+    settings: { get: () => ({ workspaceModel: 'codex:OpenAI:gpt-test', workspaceEffort: 'high', chatShellMode: 'all' }) },
     away: { state: () => ({ mode: 'online' }) }, allies: { list: () => [] }, projects: { list: () => [] },
     stats: { unlock: vi.fn(), addCost: vi.fn() }, inventory: { thumbnail: vi.fn() }, memory: { read: () => '' }, permissions: { ask: vi.fn(async () => true) }
   } as unknown as AppCtx
-  const service = createWkspService(() => ctx, home)
+  const service = createWorkspaceService(() => ctx, home)
   cleanup.push(async () => { await service.stop(); fs.rmSync(root, { recursive: true, force: true }) })
   const turns = () => peers[0]?.requests.filter(r => r.method === 'turn/start') ?? []
   const say = (id: string, text: string) => peers[0].events.notification('item/completed', { threadId: 'session-1', item: { id, type: 'agentMessage', text } })
@@ -182,18 +182,18 @@ it('stamps what a Codex turn started on its final messages, from the tool calls 
 it('leaves the archived main log and session state untouched and cannot start a provider', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-archive-'))
   const home = new Home(root); home.ensure()
-  const archive = JSON.stringify({ id: 'queued', wksp: 'main', role: 'player', text: 'old', ts: '2026-01-01', queue: 'queued' }) + '\n'
+  const archive = JSON.stringify({ id: 'queued', workspace: 'main', role: 'player', text: 'old', ts: '2026-01-01', queue: 'queued' }) + '\n'
   fs.writeFileSync(home.chatFile, archive)
-  fs.writeFileSync(home.wkspFile, '{}')
+  fs.writeFileSync(home.workspaceFile, '{}')
   const ctx = { settings: { get: () => ({}) } } as unknown as AppCtx
-  const service = createWkspService(() => ctx, home, undefined, true)
+  const service = createWorkspaceService(() => ctx, home, undefined, true)
   cleanup.push(async () => { await service.stop(); fs.rmSync(root, { recursive: true, force: true }) })
   expect(service.history()[0].queue).toBe('unsent')
   await expect(service.send('new')).rejects.toThrow('archived')
   await expect(service.restart(false)).rejects.toThrow('archived')
   service.say('ignored'); service.deliverWakes(); await service.stop()
   expect(fs.readFileSync(home.chatFile, 'utf8')).toBe(archive)
-  expect(fs.readFileSync(home.wkspFile, 'utf8')).toBe('{}')
+  expect(fs.readFileSync(home.workspaceFile, 'utf8')).toBe('{}')
   expect(peers).toHaveLength(0)
 })
 
@@ -201,7 +201,7 @@ it('refuses sends, retries and wake delivery while a project window is closed', 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-closed-chat-'))
   const home = new Home(root); home.ensure()
   const ctx = { settings: { get: () => ({}) } } as unknown as AppCtx
-  const service = createWkspService(() => ctx, home, undefined, false, () => false)
+  const service = createWorkspaceService(() => ctx, home, undefined, false, () => false)
   cleanup.push(async () => { await service.stop(); fs.rmSync(root, { recursive: true, force: true }) })
   await expect(service.send('do work')).rejects.toThrow('Open the project window')
   await expect(service.restart(false)).rejects.toThrow('Open the project window')
@@ -212,17 +212,17 @@ it('refuses sends, retries and wake delivery while a project window is closed', 
 
 it('preloads the chat log off the main thread with the same history the first read gives, once', async () => {
   const log = [
-    { id: 'p1', wksp: 'main', role: 'player', text: 'hello', ts: '2026-01-01T00:00:00Z' },
-    { id: 'g1', wksp: 'main', role: 'genio', text: 'hi', ts: '2026-01-01T00:00:01Z' },
-    { id: 'g1', wksp: 'main', role: 'genio', text: 'hi, edited', ts: '2026-01-01T00:00:01Z' },
-    { id: 'q1', wksp: 'main', role: 'player', text: 'later', ts: '2026-01-01T00:00:02Z', queue: 'queued' }
+    { id: 'p1', workspace: 'main', role: 'player', text: 'hello', ts: '2026-01-01T00:00:00Z' },
+    { id: 'g1', workspace: 'main', role: 'genio', text: 'hi', ts: '2026-01-01T00:00:01Z' },
+    { id: 'g1', workspace: 'main', role: 'genio', text: 'hi, edited', ts: '2026-01-01T00:00:01Z' },
+    { id: 'q1', workspace: 'main', role: 'player', text: 'later', ts: '2026-01-01T00:00:02Z', queue: 'queued' }
   ].map(m => JSON.stringify(m)).join('\n') + '\n{corrupt\n'
   const read = async (preload: boolean) => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-preload-'))
     const home = new Home(root); home.ensure()
     fs.writeFileSync(home.chatFile, log)
     const ctx = { settings: { get: () => ({}) } } as unknown as AppCtx
-    const service = createWkspService(() => ctx, home, undefined, false, () => false)
+    const service = createWorkspaceService(() => ctx, home, undefined, false, () => false)
     cleanup.push(async () => { await service.stop(); fs.rmSync(root, { recursive: true, force: true }) })
     if (preload) { await service.preloadHistory!(); await service.preloadHistory!() }
     return { history: service.history(), file: fs.readFileSync(home.chatFile, 'utf8') }

@@ -29,7 +29,7 @@ squad of autonomous coding agents. Vocabulary is gaming, not nautical: see [VOCA
 
 | Feature | Genio module | UI |
 |---|---|---|
-| Genio's chat | `wksp.ts` Agent SDK session (main base) | COMMS |
+| Genio's chat | `workspace.ts` Agent SDK session (main base) | COMMS |
 | A unit | `crew.ts` task + `terminals.ts` PTY | SQUAD |
 | Build / Recon missions | `kind: 'ship' \| 'scout'` | BUILD / RECON mission |
 | Unit worktrees | `git worktree add` under `worktrees/<project>/<id>`, or `<drive>/.genio/<key>/worktrees/<project>/<id>` for a project on a Dev Drive (`placeWorktree`) | none |
@@ -54,7 +54,7 @@ squad of autonomous coding agents. Vocabulary is gaming, not nautical: see [VOCA
 | Replay log | `ledger.ts` | Replay log |
 | Process-event sources | `settings.eventSources` | SYSTEMS › Triggers |
 | Clean chat | `settings.calm` | Clean chat |
-| Tool approval | `canUseTool` policy in `wksp.ts` and `clearAction` in `chat-tool-policy.ts`: the approval mode alone decides ([chat-authority.md](chat-authority.md)) | permission prompt |
+| Tool approval | `canUseTool` policy in `workspace.ts` and `clearAction` in `chat-tool-policy.ts`: the approval mode alone decides ([chat-authority.md](chat-authority.md)) | permission prompt |
 | Voice | text-to-speech of Genio replies (`voice.ts`: the opt-in Kokoro voice through `voice-output.ts` and its helper process, else the Windows voice) and push-to-talk voice input with a local Whisper model (`voice-input.ts`, [voice.md](voice.md)) | Read replies aloud toggle, mic button / F8 |
 
 Game-dev additions: engine detection (Godot, Unity, Unreal, Bevy, LÖVE,
@@ -229,7 +229,7 @@ See `src/main/home.ts`.
 ## Project chat shell
 
 The Hub opens one window per project. Comms and Inventory share the window's
-project wksp, with per-chat controls, queued-message editing, image attachments,
+project workspace, with per-chat controls, queued-message editing, image attachments,
 and in-memory drafts. There are no chat tabs, splits or saved dock layouts.
 A project's Lore chats are a different kind of chat, not more orchestrators: they
 ask and challenge but start no work, and save Lore notes in the project's `.genio/design/`

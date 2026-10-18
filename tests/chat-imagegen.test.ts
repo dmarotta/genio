@@ -24,7 +24,7 @@ let gen: ChatImageGen
 
 const make = (env: Record<string, string | undefined> = {}): ChatImageGen => ({
   chatDir: path.join(tmp, 'data', 'chat-images'),
-  wksp: 'main',
+  workspace: 'main',
   post: (m, persist) => void posts.push({ m, persist }),
   run: { script: SCRIPT, scratch: path.join(tmp, 'data', 'codex-image'), env: { GENIO_CODEX_BIN: FAKE, CODEX_HOME: codexHome, FAKE_CODEX_MODE: undefined, FAKE_CODEX_USED: undefined, ...env } }
 })
@@ -85,7 +85,7 @@ describe('generate_image in the chat', () => {
     expect(posts).toHaveLength(2)
     const [ph, done] = posts
     expect(ph.persist).toBe(false)
-    expect(ph.m).toMatchObject({ wksp: 'main', role: 'genio', generating: 2 })
+    expect(ph.m).toMatchObject({ workspace: 'main', role: 'genio', generating: 2 })
     expect(ph.m.text).toMatch(/Generating 2 images/)
     expect(done.persist).toBe(true)
     expect(done.m.id).toBe(ph.m.id)

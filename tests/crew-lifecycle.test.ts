@@ -12,7 +12,7 @@ import { Home } from '../src/main/home'
 import { createCrewService } from '../src/main/crew'
 import { bus } from '../src/main/bus'
 import { createDispatchService } from '../src/main/dispatch'
-import { createToolRegistry } from '../src/main/wksp-tools'
+import { createToolRegistry } from '../src/main/workspace-tools'
 import { registerIpc } from '../src/main/ipc'
 import { BUILTIN_HARNESSES } from '../src/main/harness'
 import type { AppCtx } from '../src/main/services'
@@ -28,8 +28,8 @@ let root: string, home: Home, ctx: AppCtx, task: Task
 let terminal: { id: string; alive: boolean } | undefined
 let release: ReturnType<typeof vi.fn<() => void>>
 /** The player's own chat messages, which verified player_words must quote. */
-let said: { id: string; wksp: string; role: 'player'; text: string; ts: string }[] = []
-const playerSays = (text: string): void => { said.push({ id: `p-${said.length}`, wksp: 'main', role: 'player', text, ts: new Date().toISOString() }) }
+let said: { id: string; workspace: string; role: 'player'; text: string; ts: string }[] = []
+const playerSays = (text: string): void => { said.push({ id: `p-${said.length}`, workspace: 'main', role: 'player', text, ts: new Date().toISOString() }) }
 beforeEach(() => {
   said = []
   vi.useFakeTimers()
@@ -40,13 +40,13 @@ beforeEach(() => {
   fs.mkdirSync(home.taskDir('unit'), { recursive: true })
   fs.writeFileSync(path.join(worktree, 'uncommitted.txt'), 'preserve my work')
   fs.writeFileSync(home.briefFile('unit'), '# Existing mission')
-  task = { id: 'unit', kind: 'ship', project: 'world', wksp: 'main', state: 'exited', harness: 'test',
+  task = { id: 'unit', kind: 'ship', project: 'world', workspace: 'main', state: 'exited', harness: 'test',
     worktree, branch: 'genio/unit', briefPath: home.briefFile('unit'), relaunches: 1, automaticRelaunches: 1 } as Task
   fs.writeFileSync(home.tasksFile, JSON.stringify([task]))
   terminal = undefined
   release = vi.fn()
   const adapter = { ...BUILTIN_HARNESSES.find(h => h.id === 'codex')!, id: 'test', enabled: true, command: 'fake-unit' }
-  const hc = { home, crew: undefined as any, wksp: { history: () => said } }
+  const hc = { home, crew: undefined as any, workspace: { history: () => said } }
   ctx = { appRoot: path.join(root, 'missing-bundle'), main: hc, home: () => hc, homes: new Map([['main', hc]]),
     settings: { get: () => ({}), harness: () => adapter }, projects: { get: () => undefined },
     permissions: createPermissionBroker(() => ctx),
@@ -93,7 +93,7 @@ describe('non-destructive lifecycle recovery', () => {
     expect(ctx.main.crew.hasQuotaDeferred()).toBe(true)
     expect(ctx.terminals.create).not.toHaveBeenCalled()
     open = true
-    ctx.main.crew.update(task.id, { dislikePause: { message: 'stop', wksp: 'main', at: new Date().toISOString(), prevState: 'exited', interrupted: false } })
+    ctx.main.crew.update(task.id, { dislikePause: { message: 'stop', workspace: 'main', at: new Date().toISOString(), prevState: 'exited', interrupted: false } })
     await ctx.main.crew.retryQuotaDeferred()
     expect(ctx.main.crew.hasQuotaDeferred()).toBe(false)
     expect(ctx.terminals.create).not.toHaveBeenCalled()

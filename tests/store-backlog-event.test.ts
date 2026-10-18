@@ -3,7 +3,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import type { BacklogItem } from '../src/shared/types'
 
-vi.hoisted(() => window.history.replaceState(null, '', '/?project=one&wksp=ally-one'))
+vi.hoisted(() => window.history.replaceState(null, '', '/?project=one&workspace=ally-one'))
 const snapshot = vi.fn(async () => { throw new Error('a project window must not fetch a snapshot for its quests') })
 Object.assign(window, { genio: { api: { snapshot } } })
 import { getState, handleEvent, setState } from '../src/renderer/src/store'

@@ -144,8 +144,8 @@ function capOf(ctx: AppCtx, project: string): number | undefined {
 }
 
 /** Where a unit's grant lives and what bounds it. */
-export function grantTarget(ctx: AppCtx, task: Pick<Task, 'id' | 'project' | 'wksp'>): Omit<GrantRequest, 'usd' | 'how' | 'decision'> {
-  return { dataDir: ctx.main.home.data, taskDir: ctx.home(task.wksp).home.taskDir(task.id), unit: task.id, project: task.project, capUsd: capOf(ctx, task.project) }
+export function grantTarget(ctx: AppCtx, task: Pick<Task, 'id' | 'project' | 'workspace'>): Omit<GrantRequest, 'usd' | 'how' | 'decision'> {
+  return { dataDir: ctx.main.home.data, taskDir: ctx.home(task.workspace).home.taskDir(task.id), unit: task.id, project: task.project, capUsd: capOf(ctx, task.project) }
 }
 
 /** Refuse a deploy budget the project's monthly cap cannot hold, before anything is created. */
@@ -199,7 +199,7 @@ export function approvesSpend(answer: string, usd: number, options: string[] = s
  * question; anything else records nothing. `note` is what the unit's ping adds.
  */
 export function answerSpendChoice(
-  ctx: AppCtx, d: Decision, answer: string, origin: { via: 'ui' } | { via: 'chat'; message?: string }, task: Pick<Task, 'id' | 'project' | 'wksp'>
+  ctx: AppCtx, d: Decision, answer: string, origin: { via: 'ui' } | { via: 'chat'; message?: string }, task: Pick<Task, 'id' | 'project' | 'workspace'>
 ): { note: string; recorded?: { granted: number; total: number; clamped: boolean } } {
   if (d.action?.kind !== 'spend-grant') return { note: '' }
   const usd = d.action.usd
@@ -224,16 +224,16 @@ export function answerSpendChoice(
 }
 
 /** Record a deploy-time approved budget for a new unit. */
-export function grantAtDeploy(ctx: AppCtx, task: Pick<Task, 'id' | 'project' | 'wksp'>, usd: number, how: string): { granted: number; total: number; clamped: boolean } {
+export function grantAtDeploy(ctx: AppCtx, task: Pick<Task, 'id' | 'project' | 'workspace'>, usd: number, how: string): { granted: number; total: number; clamped: boolean } {
   const r = recordGrant({ ...grantTarget(ctx, task), usd, how })
   safeLedger(ctx, task, { usd: r.granted, total: r.total, via: 'deploy' })
   return r
 }
 
 /** A recorded grant: the event ledger line and the player's achievement. */
-function safeLedger(ctx: AppCtx, task: Pick<Task, 'id' | 'project' | 'wksp'>, data: Record<string, unknown>): void {
+function safeLedger(ctx: AppCtx, task: Pick<Task, 'id' | 'project' | 'workspace'>, data: Record<string, unknown>): void {
   try {
-    ctx.ledger.record({ home: task.wksp, event: 'spend.granted', task: task.id, project: task.project, data })
+    ctx.ledger.record({ home: task.workspace, event: 'spend.granted', task: task.id, project: task.project, data })
   } catch {
     /* the grant record is the source of truth */
   }

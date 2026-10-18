@@ -54,7 +54,7 @@ describe('Modeller live view push', () => {
   it('reaches only the windows of the unit\'s project', () => {
     const snap = { tasks: [{ id: 'u1', project: 'genio' }] } as unknown as FleetSnapshot
     const ev = { type: 'modeller-live' as const, taskId: 'u1', live: null }
-    expect(routeProjectEvent(ev, { project: 'genio', wksp: 'main' }, snap)).toBe(ev)
-    expect(routeProjectEvent(ev, { project: 'other', wksp: 'main' }, snap)).toBeUndefined()
+    expect(routeProjectEvent(ev, { project: 'genio', workspace: 'main' }, snap)).toBe(ev)
+    expect(routeProjectEvent(ev, { project: 'other', workspace: 'main' }, snap)).toBeUndefined()
   })
 })

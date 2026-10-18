@@ -51,7 +51,7 @@ async function readyUnit(id: string, kind: Task['kind'] = 'ship'): Promise<Task>
   if (kind === 'ship') await commit(worktree, `${id}.txt`, 'work\n', `Add ${id}`)
   const quest = hc.backlog.add({ title: id, project: 'world', kind })
   hc.backlog.markInFlight(quest.id, id)
-  const task = { id, kind, title: id, project: 'world', wksp: 'main', mode: 'local-only', harness: 'test', state: kind === 'ship' ? 'ready' : 'working',
+  const task = { id, kind, title: id, project: 'world', workspace: 'main', mode: 'local-only', harness: 'test', state: kind === 'ship' ? 'ready' : 'working',
     worktree, branch: `genio/${id}`, baseBranch: 'main', backlogId: quest.id, briefPath: home.briefFile(id), relaunches: 0,
     createdAt: '2026-10-13T09:00:00Z', updatedAt: '2026-10-13T09:00:00Z', inbox: { seq: 0, acked: 0, rings: 0 }, statusOffset: 0 } as Task
   fs.writeFileSync(home.tasksFile, JSON.stringify([...hc.crew.list(), task]))

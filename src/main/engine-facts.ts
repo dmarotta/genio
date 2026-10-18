@@ -10,7 +10,7 @@ import type { Decision, Project } from '@shared/types'
 import { effectiveEngine, ENGINE_LABEL } from '@shared/engine'
 import { engineAmbiguityChoice, engineFacts, engineProposalChoice, engineSummaryLine, PROPOSAL_KEY } from '@shared/engine-summary'
 import type { AppCtx } from './services'
-import type { ToolRole } from './wksp-tools'
+import type { ToolRole } from './workspace-tools'
 import { candidateAt, cleanRoot, DECLARATION_FILE } from './engine-detect'
 
 export const projectEngineSummary = (p: Project): string => engineSummaryLine(engineFacts(p))
@@ -84,7 +84,7 @@ export function surfaceEngineAmbiguity(ctx: AppCtx, projects: Project[] = ctx.pr
     if ([...ctx.homes.values()].some(x => x.decisions.list(true).some(d => d.project === p.name && d.key === choice.key))) continue
     h.decisions.open({
       question: choice.question, options: choice.options, recommendation: choice.recommendation, context: choice.context,
-      project: p.name, key: choice.key, source: 'genio', wksp: h.home.name,
+      project: p.name, key: choice.key, source: 'genio', workspace: h.home.name,
       action: { kind: 'engine-root', project: p.name, roots: choice.roots }
     })
   }

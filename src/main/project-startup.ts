@@ -34,18 +34,18 @@ function alreadyHandled(ctx: AppCtx, quest: BacklogItem): { quest: string; by: s
 }
 
 /** One call per window open, after app startup; deliberately independent of the Hub UI. */
-export async function reconcileProjectOpen(ctx: AppCtx, project: string, wksp: string, isOpen: () => boolean): Promise<void> {
+export async function reconcileProjectOpen(ctx: AppCtx, project: string, workspace: string, isOpen: () => boolean): Promise<void> {
   try {
-    await reconcile(ctx, project, wksp, isOpen)
+    await reconcile(ctx, project, workspace, isOpen)
   } catch (error) {
     // The chat holds sends until the opening turn: a failed reconcile must still open it, or they wait forever.
-    if (isOpen()) ctx.home(wksp).wksp.wakeProject(`Project: ${project}. Startup reconciliation failed: ${truncate(String((error as Error)?.message ?? error), 300)}. Check fleet_view before acting on units or quests.`)
+    if (isOpen()) ctx.home(workspace).workspace.wakeProject(`Project: ${project}. Startup reconciliation failed: ${truncate(String((error as Error)?.message ?? error), 300)}. Check fleet_view before acting on units or quests.`)
     throw error
   }
 }
 
-async function reconcile(ctx: AppCtx, project: string, wksp: string, isOpen: () => boolean): Promise<void> {
-  const target = ctx.home(wksp)
+async function reconcile(ctx: AppCtx, project: string, workspace: string, isOpen: () => boolean): Promise<void> {
+  const target = ctx.home(workspace)
   const file = path.join(target.home.state, 'project-open.json')
   const previous = readJson<{ openedAt?: string }>(file, {}).openedAt
   const openedAt = nowIso()
@@ -108,7 +108,7 @@ async function reconcile(ctx: AppCtx, project: string, wksp: string, isOpen: () 
       if (quest.hold) home.backlog.release(quest.id) // only an expired dated hold is dispatchable
       try {
         const req = home.plans?.spawnRequest(quest.id) ?? { kind: quest.kind as 'ship' | 'scout', project, title: quest.title,
-          intent: quest.notes.trim() || quest.title, backlogId: quest.id, mode: quest.mode, yolo: quest.yolo, wksp: home.home.name }
+          intent: quest.notes.trim() || quest.title, backlogId: quest.id, mode: quest.mode, yolo: quest.yolo, workspace: home.home.name }
         const task = await home.crew.spawn(req)
         results.push(`Quest ${quest.id}: started as ${task.id}${quest.planId ? ` (plan ${quest.planId} step ${quest.planStep})` : ''}.`)
       } catch (error) {
@@ -120,10 +120,10 @@ async function reconcile(ctx: AppCtx, project: string, wksp: string, isOpen: () 
   // Choices answered while this chat was closed or down reach it once, in the opening turn's events.
   for (const home of homes) home.decisions.deliverAnswers(project)
   // Legacy tasks keep their home; move their durable wakes to this project chat.
-  ctx.main.wksp.deliverWakes()
+  ctx.main.workspace.deliverWakes()
   const tasks = homes.flatMap(h => h.crew.list()).filter(t => t.project === project)
   const quests = homes.flatMap(h => h.backlog.list()).filter(q => q.project === project)
-  const decisions = homes.flatMap(h => h.decisions.list(false)).filter(d => d.project === project || (!d.project && d.wksp === wksp))
+  const decisions = homes.flatMap(h => h.decisions.list(false)).filter(d => d.project === project || (!d.project && d.workspace === workspace))
   const landed = tasks.filter(t => t.landedAt && (!previous || t.landedAt > previous))
   const running = tasks.filter(t => t.terminalId && ctx.terminals.get(t.terminalId)?.alive && !['ready', 'merged', 'done', 'cleaned'].includes(t.state))
   const waiting = tasks.filter(t => ['blocked', 'needs-decision', 'paused', 'failed', 'detached'].includes(t.state))
@@ -143,7 +143,7 @@ async function reconcile(ctx: AppCtx, project: string, wksp: string, isOpen: () 
     `Queued quests: ${quests.filter(q => q.state === 'queued').length}. Ready outcomes: ${tasks.filter(t => t.state === 'ready').length}.`,
     'Status events are historical; the snapshot above is current. Existing successful actions must not be repeated.'
   ].join('\n\n')
-  target.wksp.wakeProject(recap)
+  target.workspace.wakeProject(recap)
   writeJsonAtomic(file, { openedAt })
   target.supervisor.start()
 }

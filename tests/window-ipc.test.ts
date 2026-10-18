@@ -13,7 +13,7 @@ beforeEach(() => handlers.clear())
 
 const call = (id: number) => handlers.get('genio:windowOpenHub')!({ sender: { id } })
 const windows = (bound: boolean): IpcWindows => ({
-  binding: vi.fn(() => bound ? { project: 'one', wksp: 'ally-one' } : undefined),
+  binding: vi.fn(() => bound ? { project: 'one', workspace: 'ally-one' } : undefined),
   openHub: vi.fn(async () => {}), openProject: vi.fn(async () => {}), list: () => [], close: vi.fn()
 })
 const ctx = () => { throw new Error('Opening the Hub must not need project services') }
@@ -55,7 +55,7 @@ it('routes Exit to only the calling window', async () => {
 it('never sends a ! message to the model as chat text', async () => {
   const send = vi.fn(async () => {})
   const steer = vi.fn(async () => {})
-  const hc = { wksp: { send, steer } }
+  const hc = { workspace: { send, steer } }
   registerIpc((() => ({ home: () => hc })) as unknown as () => AppCtx, windows(true))
   for (const method of ['sendChat', 'steerChat']) {
     await expect(handlers.get(`genio:${method}`)!({ sender: { id: 1 } }, 'ally-one', '!git status')).rejects.toThrow(/shell commands/)
@@ -69,13 +69,13 @@ it('never sends a ! message to the model as chat text', async () => {
 
 it('stops speech when a message, a steer or a ! command is actually sent, not when it is refused', async () => {
   const stops: string[] = []
-  const off = bus.onEvent(ev => { if (ev.type === 'speak-stop') stops.push(ev.wksp) })
+  const off = bus.onEvent(ev => { if (ev.type === 'speak-stop') stops.push(ev.workspace) })
   try {
-    const hc = { wksp: { send: vi.fn(async () => {}), steer: vi.fn(async () => {}) } }
+    const hc = { workspace: { send: vi.fn(async () => {}), steer: vi.fn(async () => {}) } }
     const runShell = vi.fn()
     registerIpc((() => ({ home: () => hc, terminals: { list: () => [], create: runShell }, projects: { get: () => undefined }, homes: new Map() })) as unknown as () => AppCtx, windows(true))
     await expect(handlers.get('genio:sendChat')!({ sender: { id: 1 } }, 'ally-one', '!git status')).rejects.toThrow(/shell commands/)
-    await expect(handlers.get('genio:sendChat')!({ sender: { id: 1 } }, 'other-wksp', 'hello')).rejects.toThrow()
+    await expect(handlers.get('genio:sendChat')!({ sender: { id: 1 } }, 'other-workspace', 'hello')).rejects.toThrow()
     expect(stops).toEqual([])
     await handlers.get('genio:sendChat')!({ sender: { id: 1 } }, 'ally-one', 'stop and listen')
     await handlers.get('genio:steerChat')!({ sender: { id: 1 } }, 'ally-one', 'do this first')
@@ -91,7 +91,7 @@ it('the terminal pane answers only its own project window, and a ! result goes o
   const ctx = () => ({ terminals, projects: { get: () => undefined }, homes: new Map() }) as unknown as AppCtx
   registerIpc(ctx, windows(true))
   await expect(handlers.get('genio:paneOpen')!({ sender: { id: 1 } }, 'two')).rejects.toThrow('The terminal belongs to its project window.')
-  await expect(handlers.get('genio:paneRun')!({ sender: { id: 1 } }, 'one', 'other-wksp', 'ls')).rejects.toThrow('The terminal belongs to its project window.')
+  await expect(handlers.get('genio:paneRun')!({ sender: { id: 1 } }, 'one', 'other-workspace', 'ls')).rejects.toThrow('The terminal belongs to its project window.')
   await expect(handlers.get('genio:paneClose')!({ sender: { id: 1 } }, 'one')).resolves.toBeUndefined()
   registerIpc(ctx, windows(false))
   await expect(handlers.get('genio:paneCwds')!({ sender: { id: 1 } }, 'one')).rejects.toThrow('The terminal belongs to its project window.')

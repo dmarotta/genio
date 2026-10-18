@@ -30,7 +30,7 @@ export const DISLIKE_HOLD = 'Paused by your dislike: Genio asked what is wrong'
 export interface ReactionEvent {
   id: string
   message: string
-  wksp: string
+  workspace: string
   project?: string
   kind: ReactionKind | 'none'
   previous?: ReactionKind
@@ -81,10 +81,10 @@ export function createReactionService(getCtx: () => AppCtx, home: Home): Reactio
   }
 
   const hc = (): HomeCtx => getCtx().home(home.name)
-  const messageOf = (id: string): ChatMessage | undefined => hc().wksp.history(5000).find(m => m.id === id)
-  const save = (m: ChatMessage): ChatMessage => { hc().wksp.post(m, true); return m }
+  const messageOf = (id: string): ChatMessage | undefined => hc().workspace.history(5000).find(m => m.id === id)
+  const save = (m: ChatMessage): ChatMessage => { hc().workspace.post(m, true); return m }
   const project = (): string | undefined => safe(() => getCtx().allies.list().find(a => a.name === home.name && !a.retiredAt)?.projects[0])
-  const deliver = (): void => { try { hc().wksp.deliverWakes() } catch { /* the durable queue waits for the chat */ } }
+  const deliver = (): void => { try { hc().workspace.deliverWakes() } catch { /* the durable queue waits for the chat */ } }
 
   function enqueue(tag: string, reason: string, lines: string[]): void {
     const wakes = hc().wakes
@@ -131,7 +131,7 @@ export function createReactionService(getCtx: () => AppCtx, home: Home): Reactio
       const running = RUNNING.includes(t.state)
       // interrupt only: the unit, its copy and its session stay, so an undo relaunches it
       if (running && t.terminalId) await f.hc.crew.control(tid, 'interrupt').catch(() => undefined)
-      f.hc.crew.update(tid, { dislikePause: { message: id, wksp: home.name, at, prevState: t.state, interrupted: running },
+      f.hc.crew.update(tid, { dislikePause: { message: id, workspace: home.name, at, prevState: t.state, interrupted: running },
         ...(running ? { state: 'paused' as const, stateReason: 'paused by your dislike' } : {}) })
       ;(running ? units : merges).push(label(t))
     }
@@ -161,7 +161,7 @@ export function createReactionService(getCtx: () => AppCtx, home: Home): Reactio
       urgency: 'urgent',
       source: 'genio',
       project: project(),
-      action: { kind: 'reaction', wksp: home.name, message: id }
+      action: { kind: 'reaction', workspace: home.name, message: id }
     })
     save({ ...m, reaction: { ...m.reaction, pause: any ? 'paused' : 'asked', choice: d.id },
       reactionNote: any ? `Paused ${summary}` : 'Nothing was running from it; Genio asked what is wrong' })
@@ -188,7 +188,7 @@ export function createReactionService(getCtx: () => AppCtx, home: Home): Reactio
     for (const h of ctx.homes.values()) {
       for (const t of h.crew.list()) {
         const p = t.dislikePause
-        if (p?.message !== m.id || p.wksp !== home.name) continue
+        if (p?.message !== m.id || p.workspace !== home.name) continue
         if (p.interrupted && t.state === 'paused') {
           const r = await h.crew.control(t.id, 'relaunch', note, true)
           if (r.ok) { relaunched.push(label(t)); continue }
@@ -234,7 +234,7 @@ export function createReactionService(getCtx: () => AppCtx, home: Home): Reactio
     const now = Date.now()
     const at = new Date(now).toISOString()
     const excerpt = excerptOf(m)
-    const ev: ReactionEvent = { id: `rx-${rid(6)}`, message: id, wksp: home.name, project: project(), kind: kind ?? 'none',
+    const ev: ReactionEvent = { id: `rx-${rid(6)}`, message: id, workspace: home.name, project: project(), kind: kind ?? 'none',
       ...(prev ? { previous: prev } : {}), at, ...(m.actions ? { actions: m.actions } : {}), excerpt }
     appendJsonl(file, ev)
     const lines = [actionsLine(m.actions)]
@@ -303,7 +303,7 @@ export function createReactionService(getCtx: () => AppCtx, home: Home): Reactio
     recover() {
       return serial(async () => {
         let count = 0
-        for (const m of hc().wksp.history(5000)) {
+        for (const m of hc().workspace.history(5000)) {
           if (m.reaction?.kind !== 'dislike' || m.reaction.pause !== 'grace' || timers.has(m.id)) continue
           count++
           const left = DISLIKE_GRACE_MS - (Date.now() - (Date.parse(m.reaction.at) || 0))

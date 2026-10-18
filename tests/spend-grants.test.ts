@@ -7,13 +7,13 @@ import type { ChatMessage, Decision, Project, Task } from '../src/shared/types'
 import {
   answerSpendChoice, approvesSpend, checkDeployBudget, grantAtDeploy, grantEnv, grantsFor, recordGrant, spendChoice, unitGrantFile, writeUnitGrant
 } from '../src/main/spend-grants'
-import { answerChoice, createToolRegistry } from '../src/main/wksp-tools'
+import { answerChoice, createToolRegistry } from '../src/main/workspace-tools'
 import { moneyAmounts, verifySpendWords } from '../src/main/player-words'
 import { parseStatusLine } from '../src/main/status'
 import { readGrant } from '../resources/unit-skills/genio/lib/spend-grant.mjs'
 
 let dir: string, data: string, project: Project, ctx: AppCtx, decisions: Decision[], sent: string[], said: string[], history: ChatMessage[]
-const task = { id: 't-s1', kind: 'ship', title: 'Door sounds', project: 'test', wksp: 'main', state: 'needs-decision' } as Task
+const task = { id: 't-s1', kind: 'ship', title: 'Door sounds', project: 'test', workspace: 'main', state: 'needs-decision' } as Task
 const taskDir = (): string => path.join(data, task.id)
 const unitEnv = (): Record<string, string> => ({ ...grantEnv(data, taskDir()), GENIO_TASK_ID: task.id })
 const write = (relative: string, value: unknown): void => {
@@ -26,7 +26,7 @@ const msg = (id: string, text: string, ago: number, role: ChatMessage['role'] = 
 function ask(id: string, line: string, granted = 0): Decision {
   const e = parseStatusLine(line, task.id)
   const { spend, ...choice } = JSON.parse(e.fields.choice!) as Partial<Decision> & { spend?: number }
-  const d = { id, key: e.key!, wksp: 'main', taskId: task.id, project: 'test', question: e.text, source: 'unit', urgency: 'normal', createdAt: new Date(Date.now() - 30_000).toISOString(), options: [], ...choice, ...(spend ? spendChoice(task, spend, granted, choice.context) : {}) } as Decision
+  const d = { id, key: e.key!, workspace: 'main', taskId: task.id, project: 'test', question: e.text, source: 'unit', urgency: 'normal', createdAt: new Date(Date.now() - 30_000).toISOString(), options: [], ...choice, ...(spend ? spendChoice(task, spend, granted, choice.context) : {}) } as Decision
   decisions.push(d)
   return d
 }
@@ -50,7 +50,7 @@ beforeEach(() => {
       spawn: vi.fn(async (req: Record<string, unknown>) => ({ ...task, id: 't-new', ...req, branch: 'genio/t-new', harness: 'claude', kind: 'ship', mode: 'local-only' }))
     },
     backlog: { get: () => undefined },
-    wksp: { say: (text: string) => said.push(text), history: () => history }
+    workspace: { say: (text: string) => said.push(text), history: () => history }
   }
   ctx = { main: hc, homes: new Map([['main', hc]]), home: () => hc, projects: { get: (n: string) => (n === 'test' ? project : undefined) }, ledger: { record: vi.fn() } } as unknown as AppCtx
 })

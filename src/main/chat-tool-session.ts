@@ -6,7 +6,7 @@ import { chatControls } from '@shared/chat'
 import type { AppCtx } from './services'
 import type { Home } from './home'
 import { agentGeneration } from './agent-generation'
-import { createToolRegistry, findTask, findDecision, type ToolHooks, type ToolRole } from './wksp-tools'
+import { createToolRegistry, findTask, findDecision, type ToolHooks, type ToolRole } from './workspace-tools'
 import { enforceTool } from './chat-tool-policy'
 import { ToolPages } from './tool-pages'
 import { projectEngineSummary } from './engine-facts'
@@ -52,7 +52,7 @@ export function createChatToolSession(getCtx: () => AppCtx, binding: ChatToolBin
     if (!ally || [...worlds!].some(w => !ally.projects.includes(w))) throw new Error('Project scope exceeds ally authority')
   }
   const within = (world: unknown) => typeof world === 'string' && (!worlds || worlds.has(world))
-  const withinChoice = (d: { project?: string; wksp?: string }) => within(d.project) || (!d.project && d.wksp === home.name)
+  const withinChoice = (d: { project?: string; workspace?: string }) => within(d.project) || (!d.project && d.workspace === home.name)
   const checkWorld = (world: unknown) => { if (!within(world)) throw new Error('Project is outside this connection scope') }
   const checkTask = (id: unknown) => {
     const found = typeof id === 'string' ? findTask(getCtx(), id, home) : undefined

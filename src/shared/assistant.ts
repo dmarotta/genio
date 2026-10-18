@@ -1,2 +1,2 @@
-/** Assistant identity is independent of project names and internal wksp/base keys. */
+/** Assistant identity is independent of project names and internal workspace/base keys. */
 export const ASSISTANT_NAME = 'Genio'

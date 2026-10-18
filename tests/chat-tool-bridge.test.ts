@@ -7,8 +7,8 @@ import { Home } from '../src/main/home'
 import { assertIsolatedHomes } from './support/isolated-homes.mjs'
 import type { AppCtx } from '../src/main/services'
 import type { ChatMessage, Task } from '../src/shared/types'
-import { buildTools } from '../src/main/wksp-tools'
-import { createToolRegistry } from '../src/main/wksp-tools'
+import { buildTools } from '../src/main/workspace-tools'
+import { createToolRegistry } from '../src/main/workspace-tools'
 import { createChatToolSession } from '../src/main/chat-tool-session'
 import { closeChatToolBridges, openChatToolBridge, type BridgeAudit } from '../src/main/chat-tool-bridge'
 import { enforceTool } from '../src/main/chat-tool-policy'
@@ -24,7 +24,7 @@ let ctx: AppCtx, home: Home, root: string, abort: AbortController
 let task: Task
 /** The player's own chat messages: verified player_words must quote one of these. */
 let playerSaid: ChatMessage[] = []
-const say = (text: string): void => { playerSaid.push({ id: `p-${playerSaid.length}`, wksp: 'main', role: 'player', text, ts: new Date().toISOString() }) }
+const say = (text: string): void => { playerSaid.push({ id: `p-${playerSaid.length}`, workspace: 'main', role: 'player', text, ts: new Date().toISOString() }) }
 const open: Awaited<ReturnType<typeof openChatToolBridge>>[] = []
 const children: ChildProcessWithoutNullStreams[] = []
 const audit: BridgeAudit[] = []
@@ -38,7 +38,7 @@ beforeEach(() => {
     crewState: vi.fn(async () => 'ready'), readFile: vi.fn(async () => 'report'),
     spawn: vi.fn(), fleetView: vi.fn(async () => 'fleet') },
     backlog: { list: () => [], get: () => undefined }, decisions: { list: () => [], get: () => undefined },
-    wksp: { post: vi.fn(), history: () => playerSaid } }
+    workspace: { post: vi.fn(), history: () => playerSaid } }
   playerSaid = []
   ctx = { appRoot: process.cwd(), main: hc, homes: new Map([['main', hc]]), home: () => hc,
     settings: { get: () => ({ chatShellMode: 'ask' }) }, permissions: { ask: vi.fn(async () => true) },
@@ -72,7 +72,7 @@ const call = async (b: Awaited<ReturnType<typeof bridge>>, name: string, args = 
 it('enforces Bot guards through a Codex app-server session and the real HTTP bridge', async () => {
   const b = await bridge('bot')
   const server = new FakeAppServer()
-  const driver = new CodexChatDriver({ wksp: 'main', cwd: home.root, config: () => ({ model: 'gpt-test' }),
+  const driver = new CodexChatDriver({ workspace: 'main', cwd: home.root, config: () => ({ model: 'gpt-test' }),
     instructions: () => 'Bot read-only contract', approve: async () => false,
     wire: events => { server.events = events; return server },
     bridge: async () => ({ list: async () => (await rpc(b, 'tools/list')).body.result.tools,
@@ -332,7 +332,7 @@ describe('authority and unchanged deterministic handlers', () => {
     expect(JSON.stringify(fleet)).toContain('unit')
     expect(JSON.stringify(fleet)).not.toContain('other-unit')
     expect(session.list().map(t => t.name)).not.toContain('report_to_main')
-    allyCtx.decisions.list = () => [{ id: 'local-choice', wksp: 'ally' }, { id: 'foreign-choice', wksp: 'other' }] as any
+    allyCtx.decisions.list = () => [{ id: 'local-choice', workspace: 'ally' }, { id: 'foreign-choice', workspace: 'other' }] as any
     const choices = await session.call('choice_list', {})
     expect(JSON.stringify(choices)).toContain('local-choice')
     expect(JSON.stringify(choices)).not.toContain('foreign-choice')
@@ -387,8 +387,8 @@ describe('authority and unchanged deterministic handlers', () => {
   it('preserves placement consent, forbidden directories and cross-chat ownership at the bridge', async () => {
     fs.mkdirSync(home.data, { recursive: true })
     fs.writeFileSync(path.join(home.data, 'generation-jobs.json'), JSON.stringify([
-      { id: 'run', wksp: 'main', world: 'safe', provider: 'codex', status: 'completed', images: [] },
-      { id: 'other', wksp: 'ally', world: 'safe', provider: 'codex', status: 'completed', images: [] }
+      { id: 'run', workspace: 'main', world: 'safe', provider: 'codex', status: 'completed', images: [] },
+      { id: 'other', workspace: 'ally', world: 'safe', provider: 'codex', status: 'completed', images: [] }
     ]))
     const b = await bridge()
     const args = { run: 'run', world: 'safe', path: 'Assets/a.png' }
@@ -417,7 +417,7 @@ describe('common permission enforcement and runtime capabilities', () => {
     const policy = { role: 'genio' as const, chat: 'main', shellMode: () => mode, permissions: ctx.permissions, signal: abort.signal }
     const shell = { runtime: 'claude' as const, name: 'Bash', input: { command: 'npm install' } }
     expect(await enforceTool(policy, shell)).toEqual({ behavior: 'allow' })
-    expect(ctx.permissions.ask).toHaveBeenCalledWith({ wksp: 'main', tool: 'Bash', input: 'npm install', reason: 'Not on the read-only list' })
+    expect(ctx.permissions.ask).toHaveBeenCalledWith({ workspace: 'main', tool: 'Bash', input: 'npm install', reason: 'Not on the read-only list' })
     ctx.permissions.ask = vi.fn(async () => false)
     expect(await enforceTool(policy, shell)).toMatchObject({ behavior: 'deny' })
     for (const value of ['auto-shell', 'all'] as const) { mode = value; expect(await enforceTool(policy, shell)).toEqual({ behavior: 'allow' }) }

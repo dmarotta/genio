@@ -38,7 +38,7 @@ function fakeCrew(): Partial<CrewService> {
       return t
     },
     spawn: vi.fn(async (req: SpawnRequest) => {
-      const t = { id: `unit-${++n}`, kind: req.kind, title: req.title, project: req.project, wksp: 'main', state: 'spawning', backlogId: req.backlogId,
+      const t = { id: `unit-${++n}`, kind: req.kind, title: req.title, project: req.project, workspace: 'main', state: 'spawning', backlogId: req.backlogId,
         branch: `genio/unit-${n}`, baseBranch: 'main', createdAt: new Date().toISOString(), updatedAt: '', inbox: { seq: 0, acked: 0, rings: 0 }, statusOffset: 0, relaunches: 0 } as unknown as Task
       tasks.push(t)
       crew.update!(t.id, { state: 'working' })
@@ -56,7 +56,7 @@ beforeEach(() => {
   home = new Home(root)
   home.ensure()
   tasks = []
-  hc = { home, wksp: { deliverWakes: vi.fn(), say: vi.fn(), history: () => [] } } as unknown as HomeCtx
+  hc = { home, workspace: { deliverWakes: vi.fn(), say: vi.fn(), history: () => [] } } as unknown as HomeCtx
   hc.crew = fakeCrew() as CrewService
   hc.backlog = createBacklogService(() => ctx, home)
   hc.decisions = createDecisionService(() => ctx, home)
@@ -216,10 +216,10 @@ describe('project windows', () => {
   it('see only their own project\'s plans', () => {
     const mine = { id: 'p1', world: 'world' } as WorkPlan
     const theirs = { id: 'p2', world: 'elsewhere' } as WorkPlan
-    const binding = { project: 'world', wksp: 'ally' }
+    const binding = { project: 'world', workspace: 'ally' }
     const routed = routeProjectEvent({ type: 'plans', plans: [mine, theirs] }, binding, {} as FleetSnapshot) as Extract<GenioEvent, { type: 'plans' }>
     expect(routed.plans.map((p) => p.id)).toEqual(['p1'])
-    const snap = { tasks: [], backlog: [], plans: [mine, theirs], decisions: [], projects: [], wksps: [], allies: [] } as unknown as FleetSnapshot
+    const snap = { tasks: [], backlog: [], plans: [mine, theirs], decisions: [], projects: [], workspaces: [], allies: [] } as unknown as FleetSnapshot
     expect(projectSnapshot(snap, binding).plans?.map((p) => p.id)).toEqual(['p1'])
     expect(routeProjectEvent({ type: 'plans', plans: [mine, theirs] }, undefined, snap)).toMatchObject({ plans: [mine, theirs] })
   })

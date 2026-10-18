@@ -4,7 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { Home } from '../src/main/home'
 import { createDecisionService } from '../src/main/decisions'
-import { answerChoice, clarifyChoice, applyRecommendations } from '../src/main/wksp-tools'
+import { answerChoice, clarifyChoice, applyRecommendations } from '../src/main/workspace-tools'
 import { reviewRecommendation, choiceGroup } from '../src/shared/choice'
 import { createAwayService } from '../src/main/away'
 import { projectSnapshot, routeProjectEvent } from '../src/main/project-windows'
@@ -20,7 +20,7 @@ beforeEach(() => {
   send.mockResolvedValue({ ok: true }); vi.clearAllMocks()
   ctx = {
     homes: new Map(), home: (name: string) => ctx.homes.get(name)!,
-    main: { home: main, wksp: { say } },
+    main: { home: main, workspace: { say } },
     allies: { list: () => [{ name: 'one', projects: ['game'] }] },
     away: { state: () => ({ mode: 'online' }) },
     notifier: { sfx() {}, notify }, ledger: { record() {} }, stats: { award }, dispatch: { answered },
@@ -28,7 +28,7 @@ beforeEach(() => {
   } as unknown as AppCtx
   hc = { home, decisions: createDecisionService(() => ctx, home),
     crew: { get: () => ({ state: 'blocked', project: 'game' }), send, appendStatus: vi.fn() },
-    backlog: { get: () => undefined }, wksp: { say, deliverWakes() {} }
+    backlog: { get: () => undefined }, workspace: { say, deliverWakes() {} }
   } as unknown as HomeCtx
   ctx.homes.set('one', hc)
 })
@@ -62,12 +62,12 @@ it('rejects blank and stale deferred answers, and preserves choices and history 
 
 it('carries exact notification targets and restricts project event and history scope', () => {
   const d = hc.decisions.open({ question: 'Pick a route?' })
-  const target = { view: 'move' as const, project: 'game', wksp: 'one', decisionId: d.id }
+  const target = { view: 'move' as const, project: 'game', workspace: 'one', decisionId: d.id }
   expect(notify).toHaveBeenCalledWith(expect.any(String), expect.any(String), 'decision', { target })
-  const s = { decisions: [d, { ...d, id: 'other', project: 'other' }], tasks: [], projects: [], backlog: [], wksps: [], allies: [] } as unknown as FleetSnapshot
-  const binding = { project: 'game', wksp: 'one' }
+  const s = { decisions: [d, { ...d, id: 'other', project: 'other' }], tasks: [], projects: [], backlog: [], workspaces: [], allies: [] } as unknown as FleetSnapshot
+  const binding = { project: 'game', workspace: 'one' }
   expect(projectSnapshot(s, binding).decisions).toEqual([d])
-  expect(routeProjectEvent({ type: 'navigate', target }, { project: 'other', wksp: 'two' }, s)).toBeUndefined()
+  expect(routeProjectEvent({ type: 'navigate', target }, { project: 'other', workspace: 'two' }, s)).toBeUndefined()
   expect(routeProjectEvent({ type: 'navigate', target }, binding, s)).toEqual({ type: 'navigate', target })
   expect(projectSnapshot(s).decisions).toHaveLength(2)
 })
@@ -77,12 +77,12 @@ it('quietly counts current choices on return rather than replaying stale choice 
   const away = createAwayService(() => ctx); ctx.away = away
   const d = hc.decisions.open({ question: 'Private question?' })
   away.set('dnd')
-  away.capture({ text: 'Private question?', severity: 'decision', wksp: 'one' })
+  away.capture({ text: 'Private question?', severity: 'decision', workspace: 'one' })
   const summary = away.takeReturnBrief()
   expect(summary).toContain('1 choices waiting')
   expect(summary).not.toContain('Private question?')
   hc.decisions.resolve(d.id, 'A')
-  away.capture({ text: 'Private question?', severity: 'decision', wksp: 'one' })
+  away.capture({ text: 'Private question?', severity: 'decision', workspace: 'one' })
   expect(away.takeReturnBrief()).not.toContain('choices waiting')
   away.set('online')
 })
@@ -194,12 +194,12 @@ it('Resume brings a set-aside choice back to the popup', () => {
 })
 
 it('routes a Genio clarification to its owning conversation without releasing its held quest', async () => {
-  hc.wksp.send = vi.fn().mockResolvedValue(undefined)
+  hc.workspace.send = vi.fn().mockResolvedValue(undefined)
   hc.backlog.get = vi.fn().mockReturnValue({ state: 'held' })
   hc.backlog.answer = vi.fn()
   const d = hc.decisions.open({ question: 'Which route?', backlogId: 'quest', source: 'genio' })
   expect((await clarifyChoice(ctx, d.id, 'What changes?')).ok).toBe(true)
-  expect(hc.wksp.send).toHaveBeenCalledWith(expect.stringContaining(`choice ${d.id}`), 'player')
+  expect(hc.workspace.send).toHaveBeenCalledWith(expect.stringContaining(`choice ${d.id}`), 'player')
   expect(hc.backlog.answer).not.toHaveBeenCalled()
   expect(d.resolvedAt).toBeUndefined()
   expect(say).not.toHaveBeenCalled()

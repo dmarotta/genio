@@ -13,22 +13,22 @@ it('imports the legacy conversation and images once without altering its archive
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-project-chat-')); roots.push(root)
   const source = new Home(root); source.ensure()
   const target = new Home(path.join(root, 'workspaces', 'genio'), 'genio', source); target.ensure()
-  const old = [{ id: 'old', wksp: 'main', role: 'player', text: 'draft sent', queue: 'queued', ts: '2026-01-01' },
-    { id: 'shared', wksp: 'main', role: 'genio', text: 'old reply', ts: '2026-01-02' }]
+  const old = [{ id: 'old', workspace: 'main', role: 'player', text: 'draft sent', queue: 'queued', ts: '2026-01-01' },
+    { id: 'shared', workspace: 'main', role: 'genio', text: 'old reply', ts: '2026-01-02' }]
   fs.writeFileSync(source.chatFile, old.map(m => JSON.stringify(m)).join('\n'))
-  fs.writeFileSync(target.chatFile, JSON.stringify({ ...old[1], wksp: 'genio', text: 'new reply' }) + '\n')
+  fs.writeFileSync(target.chatFile, JSON.stringify({ ...old[1], workspace: 'genio', text: 'new reply' }) + '\n')
   fs.mkdirSync(path.join(source.data, 'chat-images')); fs.writeFileSync(path.join(source.data, 'chat-images', 'image.png'), 'image bytes')
   const archive = fs.readFileSync(source.chatFile)
   inheritMainHistory(source, target)
   expect(readJsonl<ChatMessage>(target.chatFile)).toMatchObject([
-    { id: 'old', wksp: 'genio', queue: 'unsent' }, { id: 'shared', text: 'new reply' }
+    { id: 'old', workspace: 'genio', queue: 'unsent' }, { id: 'shared', text: 'new reply' }
   ])
   expect(fs.readFileSync(path.join(target.data, 'chat-images', 'image.png'), 'utf8')).toBe('image bytes')
   const imported = fs.readFileSync(target.chatFile)
   inheritMainHistory(source, target)
   expect(fs.readFileSync(target.chatFile)).toEqual(imported)
   expect(fs.readFileSync(source.chatFile)).toEqual(archive)
-  expect(fs.existsSync(target.wkspFile)).toBe(false)
+  expect(fs.existsSync(target.workspaceFile)).toBe(false)
 })
 it('keeps project chat names valid, including the reserved main name', () => {
   expect(allyNameForWorld('Main')).toBe('main-world')

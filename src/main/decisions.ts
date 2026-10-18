@@ -75,10 +75,10 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
       const ctx = getCtx()
       ctx.notifier.sfx('decision')
       const mode = ctx.away.state().mode
-      const target = { view: 'move' as const, project: d.project, wksp: d.wksp, decisionId: d.id }
+      const target = { view: 'move' as const, project: d.project, workspace: d.workspace, decisionId: d.id }
       const where = d.taskId ? ` (${d.taskId})` : ''
       if (mode === 'dnd' || mode === 'afk') {
-        ctx.away.capture({ wksp: home.name, text: `Your move${where}: ${d.question}`, severity: 'decision', where: d.project, target })
+        ctx.away.capture({ workspace: home.name, text: `Your move${where}: ${d.question}`, severity: 'decision', where: d.project, target })
       } else {
         const { title, body } = formatNotification({ kind: 'decision', text: d.question, where: d.project ?? home.name })
         ctx.notifier.notify(title, body, 'decision', { target })
@@ -106,7 +106,7 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
       const d: Decision = {
         id: input.id && !load().some((x) => x.id === input.id) ? input.id : `ch-${rid(8)}`,
         key: (input.key ?? 'default').trim() || 'default',
-        wksp: home.name,
+        workspace: home.name,
         taskId: input.taskId,
         backlogId: input.backlogId,
         project: input.project ?? projectOf(input.taskId) ?? questProject(input.backlogId) ?? ownerProject(),
@@ -189,11 +189,11 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
         if (d.action?.kind === 'engine-root') {
           const c = ctx
           void answerEngineChoice(c, d, answer)
-            .then((message) => { if (message) safeHome(c, ownerName(c, d))?.wksp.say(message, 'system') })
-            .catch((e: Error) => safeHome(c, ownerName(c, d))?.wksp.say(`Could not pin the engine root: ${e.message}`, 'system'))
+            .then((message) => { if (message) safeHome(c, ownerName(c, d))?.workspace.say(message, 'system') })
+            .catch((e: Error) => safeHome(c, ownerName(c, d))?.workspace.say(`Could not pin the engine root: ${e.message}`, 'system'))
         } else if (d.action?.kind === 'reaction') {
           // "keep going" resumes what the dislike paused; any other answer leaves it paused for Genio
-          const owner = safeHome(ctx, d.action.wksp)
+          const owner = safeHome(ctx, d.action.workspace)
           void owner?.reactions?.answered(d, answer).catch(() => undefined)
         } else if (d.action?.kind === 'plan-paused') {
           // "resume" and "cancel" act at once; "edit the step first" stays paused for the chat to follow through
@@ -336,7 +336,7 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
   }
 
   function receipt(ctx: AppCtx, d: Decision, answer: string): void {
-    safeHome(ctx, ownerName(ctx, d))?.wksp.say(`Answered: ${d.question}\n\n${answer}`, 'system')
+    safeHome(ctx, ownerName(ctx, d))?.workspace.say(`Answered: ${d.question}\n\n${answer}`, 'system')
   }
 
   /**
@@ -380,7 +380,7 @@ export function createDecisionService(getCtx: () => AppCtx, home: Home): Decisio
     d.followUp = 'delivered'
     save()
     try {
-      owner.wksp.deliverWakes()
+      owner.workspace.deliverWakes()
     } catch {
       /* the durable queue is delivered when the chat is ready */
     }

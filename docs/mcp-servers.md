@@ -116,7 +116,7 @@ unit's `mcp-calls.jsonl`. The project scope is the control.
 ## The Claude chat
 
 When the chat runs on a Claude model, it gets the same relays as a Claude unit (`src/main/chat-mcp.ts`, called from
-`buildOptions` in `src/main/wksp.ts`): one `mcpServers` entry per server for all projects or for the chat's project,
+`buildOptions` in `src/main/workspace.ts`): one `mcpServers` entry per server for all projects or for the chat's project,
 beside Genio's own `genio` server. The gateway's caller is `chat:<base>`; local servers start in the chat's folder (its
 project's folder) with the same scrubbed environment; calls are logged in the chat's data folder
 (`mcp-calls.jsonl`). Each new chat session gets a fresh per-launch secret, and the previous one stops working. Tools

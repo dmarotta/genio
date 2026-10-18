@@ -53,7 +53,7 @@ This opening reconciliation resumes queued authorized work independently of the
 routine `autoDispatchQueued` heartbeat preference. Failed/deferred launches are
 reported in the recap and do not cause duplicate dispatch on repeated opens.
 
-The project wksp holds event delivery and early player sends until reconciliation
+The project workspace holds event delivery and early player sends until reconciliation
 finishes. Its first turn receives the real startup results, landed work since
 the previous visit, running/waiting units, ready outcomes, quests waiting for the player and open
 decisions, plus a bounded durable event batch. Genio generates the greeting;

@@ -31,7 +31,7 @@ export function Rail() {
   const nav = useNav()
   const live = useStore(runningUnits)
   const mail = useStore((s) => s.snap.inbox.filter((n) => !n.ackedAt).length)
-  const thinking = useStore((s) => s.snap.wksps.some((m) => m.activity === 'thinking' || m.activity === 'tool'))
+  const thinking = useStore((s) => s.snap.workspaces.some((m) => m.activity === 'thinking' || m.activity === 'tool'))
   const signIn = useStore((s) => s.signIn)
   const badge: Partial<Record<ViewId, { n: number; tone: string }>> = {
     squad: { n: live, tone: 'neon' },

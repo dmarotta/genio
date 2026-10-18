@@ -10,7 +10,7 @@ import '../styles/genio-panel.css'
  * A message's context chips. In the composer (`remove` given) the screen context is not shown: it always
  * goes with the message, so only Inventory's removable picks appear, and nothing at all without them.
  */
-export function InventoryContextChips({ context, remove, wksp }: { context?: InventoryContextReceipt; wksp?: string; remove?: (chip: RemovableChip) => void }) {
+export function InventoryContextChips({ context, remove, workspace }: { context?: InventoryContextReceipt; workspace?: string; remove?: (chip: RemovableChip) => void }) {
   if (!context || (remove && !hasInventoryChips(context))) return null
   const chips: { id: ContextChip; label: string; title: string; icon: typeof Folder }[] = []
   const screen = remove ? undefined : context.screen
@@ -22,14 +22,14 @@ export function InventoryContextChips({ context, remove, wksp }: { context?: Inv
   return <div className="inventory-context" aria-label={remove ? 'Context to send' : 'Sent screen context'}>
     <span className="inventory-context-world" title={inventoryContextBlock(context)}>{context.world}</span>
     {chips.map(({ id, label, title, icon: Icon }) => <span className="inventory-context-chip" key={id} title={title}><Icon size={12} /><span>{label}</span>{remove && id !== 'screen' && <button aria-label={`Remove ${id} context`} onClick={() => remove(id)}><X size={12} /></button>}</span>)}
-    {wksp && context.thumbnail?.image && <img className="inventory-context-thumb" src={chatImageUrl(wksp, context.thumbnail.image.file)} alt="Shared preview" />}
+    {workspace && context.thumbnail?.image && <img className="inventory-context-thumb" src={chatImageUrl(workspace, context.thumbnail.image.file)} alt="Shared preview" />}
     {context.thumbnail && <small className="dim">{context.thumbnail.status === 'attached' ? 'Preview attached' : context.thumbnail.status === 'reused' ? 'Preview already shared' : context.thumbnail.status === 'attachment-limit' ? 'Preview omitted: attachment limit' : 'Preview image unavailable'}</small>}
   </div>
 }
 
 /** An edited queued snapshot takes precedence until sent/removed; normal chips follow the current screen. */
-export function useInventoryContext(wksp: string, live?: InventoryContext) {
-  const [restored, setRestored] = useState(() => getDraftContext(wksp))
+export function useInventoryContext(workspace: string, live?: InventoryContext) {
+  const [restored, setRestored] = useState(() => getDraftContext(workspace))
   const [dismissed, setDismissed] = useState<Partial<Record<RemovableChip, string>>>({})
   const source = restored ?? live
   const context = source && visibleContext(source, dismissed)
@@ -38,9 +38,9 @@ export function useInventoryContext(wksp: string, live?: InventoryContext) {
     chips: <InventoryContextChips context={context} remove={chip => {
       if (!source) return
       setDismissed(d => ({ ...d, [chip]: chipKey(source, chip) }))
-      if (restored) { const next = { ...restored }; delete next[chip]; setRestored(next); setDraftContext(wksp, next) }
+      if (restored) { const next = { ...restored }; delete next[chip]; setRestored(next); setDraftContext(workspace, next) }
     }} />,
-    restore: (c?: InventoryContext) => { const clean = c && validateInventoryContext(c); setRestored(clean); setDraftContext(wksp, clean); setDismissed({}) },
-    sent: () => { setRestored(undefined); setDraftContext(wksp, undefined) }
+    restore: (c?: InventoryContext) => { const clean = c && validateInventoryContext(c); setRestored(clean); setDraftContext(workspace, clean); setDismissed({}) },
+    sent: () => { setRestored(undefined); setDraftContext(workspace, undefined) }
   }
 }

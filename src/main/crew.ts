@@ -424,7 +424,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home, canRetry: (p
       await opts.check()
       // Always the player-facing broker, never chat shell mode, a tool argument,
       // a persisted pin or a previous launch's consent. No reusable grant exists.
-      const allowed = await ctx.permissions.ask({ wksp: home.name, tool: 'unit launch',
+      const allowed = await ctx.permissions.ask({ workspace: home.name, tool: 'unit launch',
         input: `${opts.resume ? 'Respawn' : 'Deploy'} ${t.kind === 'ship' ? 'Build' : 'Recon'} ${t.id}: ${t.title}\nWorld: ${t.project}\nRuntime: ${t.harness}\nModel: ${model}\nEffort: ${t.effort ?? 'default'}`,
         reason: UNIT_MODEL_APPROVAL_REASON })
       if (!allowed) throw new Error(`Launch refused: explicit approval for ${model} was denied or expired.`)
@@ -895,7 +895,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home, canRetry: (p
           kind: req.kind,
           title: req.title.trim(),
           project: project.name,
-          wksp: home.name,
+          workspace: home.name,
           backlogId,
           mode: req.kind === 'ship' ? posture.mode : undefined,
           yolo: req.kind === 'ship' ? posture.yolo : undefined,
@@ -1088,7 +1088,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home, canRetry: (p
         let reservation: Awaited<ReturnType<typeof ctx.dispatch.reserve>>
         try {
           reservation = await ctx.dispatch.reserve({ kind: t.kind, project: t.project, title: t.title, intent: '',
-            harness: t.harness, model: t.model, effort: t.effort }, { respawn: { id, wksp: home.name } })
+            harness: t.harness, model: t.model, effort: t.effort }, { respawn: { id, workspace: home.name } })
         } catch (e) {
           if (e instanceof QuotaDeferredError) quotaDeferred.put(`unit:${id}`, { kind: 'relaunch', id, note, manual })
           return { ok: false, message: (e as Error).message }

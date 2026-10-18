@@ -45,13 +45,13 @@ app.whenReady().then(async () => {
         await js(`(() => {
           const s = window.fixture.getState()
           const chat = JSON.parse(${JSON.stringify(base)})
-          ${v.queued ? `for (let i = 0; i < 3; i++) chat.push({ id: 'q-' + i, wksp: 'genio', role: 'player', text: 'Queued follow-up ' + i, ts: '2026-10-14T06:00:00Z', queue: 'queued' })` : ''}
+          ${v.queued ? `for (let i = 0; i < 3; i++) chat.push({ id: 'q-' + i, workspace: 'genio', role: 'player', text: 'Queued follow-up ' + i, ts: '2026-10-14T06:00:00Z', queue: 'queued' })` : ''}
           window.fixture.setState({ view: '${surface === 'screen' ? 'comms' : 'squad'}', chats: { genio: chat },
             settings: { ...s.settings, calm: ${v.calm} },
-            snap: { ...s.snap, wksps: s.snap.wksps.map(m => ({ ...m, activity: '${v.streaming ? 'thinking' : 'idle'}' })) } })
+            snap: { ...s.snap, workspaces: s.snap.workspaces.map(m => ({ ...m, activity: '${v.streaming ? 'thinking' : 'idle'}' })) } })
         })()`)
         await until(`!!document.querySelector('${surface === 'screen' ? '.comms-main' : '.genio-panel-slot'} .chat-log')`, 'host mounted')
-        const delta = text => `window.fixture.handleEvent({ type: 'chat-delta', wksp: 'genio', id: 'stream-${label}', text: ${JSON.stringify(text)} })`
+        const delta = text => `window.fixture.handleEvent({ type: 'chat-delta', workspace: 'genio', id: 'stream-${label}', text: ${JSON.stringify(text)} })`
         if (v.streaming) await js(delta('Streaming under the jump control. '.repeat(30)))
         await shot()
         const before = await js(`document.querySelector('.chat-log').clientHeight`)

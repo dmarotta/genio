@@ -74,7 +74,7 @@ it("dispatch and the model catalogue count only Genio's login for Codex, never t
 it('the fallback notice opens Settings › Accounts in project windows, and a login there stays in that window', async () => {
   const event = { type: 'navigate' as const, target: { view: 'accounts' as const } }
   const snap = { tasks: [], projects: [{ name: 'world', path: path.join(root, 'world') }] } as unknown as FleetSnapshot
-  expect(routeProjectEvent(event, { project: 'world', wksp: 'world' }, snap)).toEqual(event)
+  expect(routeProjectEvent(event, { project: 'world', workspace: 'world' }, snap)).toEqual(event)
   expect(routeProjectEvent(event, undefined, snap)).toEqual(event)
   const launches: CreateTerminalOpts[] = []
   const ctx = { main: { home: { root, data: path.join(root, 'data') } }, settings: { get: () => ({}) },

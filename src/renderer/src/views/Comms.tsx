@@ -2,12 +2,12 @@ import { ASSISTANT_NAME } from '@shared/assistant'
 import { GenerationCard } from '../components/GenerationCard'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
 import { ArrowDown, ChevronDown, ChevronRight, ChevronsUp, CircleStop, CornerUpRight, Pencil, Play, Send, ShieldCheck, TriangleAlert, X } from 'lucide-react'
-import type { Ally, ChatMessage, WkspInfo, Settings, ShellRun } from '@shared/types'
+import type { Ally, ChatMessage, WorkspaceInfo, Settings, ShellRun } from '@shared/types'
 import { isShellCommandMessage, isShellText } from '@shared/terminal-pane'
 import { chatControls, chatKey, routedRequest, splitQueued, type ChatControls, type UnqueuedChat } from '@shared/chat'
 import { MAX_IMAGES_PER_MESSAGE } from '@shared/chat-images'
 import {
-  PROJECT_WKSP, PROJECT_WINDOW, api, errText, getState, loadChat, op, saveChatControls, setState, toast, useStore
+  PROJECT_WORKSPACE, PROJECT_WINDOW, api, errText, getState, loadChat, op, saveChatControls, setState, toast, useStore
 } from '../store'
 import { readShellHistory, rememberShellCommand, shellUnavailable, showPane } from '../lib/terminal-pane'
 import { Markdown } from '../components/Markdown'
@@ -30,12 +30,12 @@ import { QuotaProtectionNotice } from '../components/QuotaProtectionNotice'
 
 
 export function Comms() {
-  if (!PROJECT_WKSP) return null
+  if (!PROJECT_WORKSPACE) return null
 
   return (
     <div className="comms">
       <section className="comms-main">
-        <ChatPanel wksp={PROJECT_WKSP} />
+        <ChatPanel workspace={PROJECT_WORKSPACE} />
       </section>
 
       <aside className="comms-side">
@@ -48,8 +48,8 @@ export function Comms() {
 /** One empty list until the chat loads: a new [] per store change would re-render the whole chat each time. */
 const NO_MESSAGES: ChatMessage[] = []
 
-/** What a chat pane reads of its session: the project chat's WkspInfo, or a design chat's own state. */
-type ChatSessionInfo = Pick<WkspInfo, 'activity' | 'activityDetail' | 'steerable' | 'limit' | 'botLimit' | 'lastError'>
+/** What a chat pane reads of its session: the project chat's WorkspaceInfo, or a design chat's own state. */
+type ChatSessionInfo = Pick<WorkspaceInfo, 'activity' | 'activityDetail' | 'steerable' | 'limit' | 'botLimit' | 'lastError'>
 
 /** Who answers in this chat, in the copy: Genio, or a design chat (which never speaks as Genio). */
 const speaker = (conversation?: string): string => (conversation ? 'The Lore chat' : ASSISTANT_NAME)
@@ -60,11 +60,11 @@ const onDesign = (conversation?: string): [] | [string] => (conversation ? [conv
  * The project chat: its log and composer. With `conversation`, one of the project's design chats
  * (the Design screen): the same log and composer with only its model and effort.
  */
-export function ChatPanel({ wksp, conversation, context, surface = 'screen', active: _active = true }: { wksp: string; conversation?: string; context?: InventoryContext; surface?: 'screen' | 'panel'; active?: boolean }) {
-  const key = chatKey(wksp, conversation)
-  const wkspInfo = useStore((s) => s.snap.wksps.find((m) => m.name === wksp))
+export function ChatPanel({ workspace, conversation, context, surface = 'screen', active: _active = true }: { workspace: string; conversation?: string; context?: InventoryContext; surface?: 'screen' | 'panel'; active?: boolean }) {
+  const key = chatKey(workspace, conversation)
+  const workspaceInfo = useStore((s) => s.snap.workspaces.find((m) => m.name === workspace))
   const designInfo = useStore((s) => (conversation ? s.designChats?.find((c) => c.id === conversation) : undefined))
-  const info: ChatSessionInfo | undefined = conversation ? designInfo : wkspInfo
+  const info: ChatSessionInfo | undefined = conversation ? designInfo : workspaceInfo
   const messages = useStore((s) => s.chats[key] ?? NO_MESSAGES)
   const calm = useStore((s) => !!s.settings?.calm)
   const busy = info?.activity === 'thinking' || info?.activity === 'tool' || info?.activity === 'starting'
@@ -72,8 +72,8 @@ export function ChatPanel({ wksp, conversation, context, surface = 'screen', act
   const steerable = !!info?.steerable
 
   useEffect(() => {
-    void loadChat(wksp, false, conversation)
-  }, [wksp, conversation])
+    void loadChat(workspace, false, conversation)
+  }, [workspace, conversation])
 
   const visible = useMemo(() => messages.filter((m) => !hidden(m, calm)), [messages, calm])
 
@@ -82,27 +82,27 @@ export function ChatPanel({ wksp, conversation, context, surface = 'screen', act
   const fill = useRef<((c: UnqueuedChat) => void) | undefined>(undefined)
   const takeBack = useCallback(async (m: ChatMessage, edit: boolean): Promise<void> => {
     try {
-      const got = await api().unqueueChat(wksp, m.id, ...onDesign(conversation))
+      const got = await api().unqueueChat(workspace, m.id, ...onDesign(conversation))
       if (!got) toast('info', 'Already sent', `${speaker(conversation)} picked that message up before it could be changed.`)
       else if (edit) fill.current?.(got)
     } catch (e) {
       toast('error', edit ? 'Message not editable' : 'Message not cancelled', errText(e))
     }
-  }, [wksp, conversation])
+  }, [workspace, conversation])
   // A queued message jumps the queue and steers: the turn in progress stops at a safe point and reads it first.
   // The message turns to "Steering" at once; a toast says only why it cannot be sent now.
   const sendNow = useCallback(async (m: ChatMessage): Promise<void> => {
     try {
-      const r = await api().sendQueuedNow(wksp, m.id, ...onDesign(conversation))
+      const r = await api().sendQueuedNow(workspace, m.id, ...onDesign(conversation))
       if (!r.ok) toast('info', 'Not sent now', r.reason)
     } catch (e) {
       toast('error', 'Message not sent now', errText(e))
     }
-  }, [wksp, conversation])
+  }, [workspace, conversation])
 
   return (
     <div className="chat-panel">
-      {!conversation && <QuotaProtectionNotice project={PROJECT_WINDOW ?? wksp} />}
+      {!conversation && <QuotaProtectionNotice project={PROJECT_WINDOW ?? workspace} />}
       {(['genio', 'bot'] as const).map(role => {
         const limit = role === 'bot' ? info?.botLimit : info?.limit
         if (!limit) return null
@@ -111,13 +111,13 @@ export function ChatPanel({ wksp, conversation, context, surface = 'screen', act
             ? 'Claude still reports an expired limit. Restart the session to try again.'
             : `Claude limit reached${limit.resetsAt ? `, back at ${new Date(limit.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ', waiting for reset'}`)}</span>
           {limit.provider === 'codex' && <button className="btn sm" onClick={() => openSettings('accounts')}>Accounts &amp; keys</button>}
-          <button className="btn sm" onClick={() => void op('Restart', () => api().restartWksp(wksp, false, role, ...onDesign(conversation)))}>{limit.restartRequired ? 'Restart session' : 'Retry now'}</button>
+          <button className="btn sm" onClick={() => void op('Restart', () => api().restartWorkspace(workspace, false, role, ...onDesign(conversation)))}>{limit.restartRequired ? 'Restart session' : 'Retry now'}</button>
         </div>
       })}
 
-      <ChatLog key={key} wksp={wksp} conversation={conversation} surface={surface} messages={visible} busy={busy} activityDetail={info?.activityDetail} lastError={info?.lastError} onTakeBack={takeBack} onSendNow={sendNow} />
+      <ChatLog key={key} workspace={workspace} conversation={conversation} surface={surface} messages={visible} busy={busy} activityDetail={info?.activityDetail} lastError={info?.lastError} onTakeBack={takeBack} onSendNow={sendNow} />
 
-      <Composer wksp={wksp} conversation={conversation} steerable={steerable} fill={fill} context={context} />
+      <Composer workspace={workspace} conversation={conversation} steerable={steerable} fill={fill} context={context} />
     </div>
   )
 }
@@ -153,10 +153,10 @@ function topMessage(el: HTMLElement): { id: string; offset: number } | undefined
   return undefined
 }
 
-function ChatLog({ wksp, conversation, surface, messages: all, busy, activityDetail, lastError, onTakeBack, onSendNow }: { wksp: string; conversation?: string; surface: string; messages: ChatMessage[]; busy: boolean; activityDetail?: string; lastError?: string; onTakeBack: TakeBack; onSendNow?: SendNow }) {
+function ChatLog({ workspace, conversation, surface, messages: all, busy, activityDetail, lastError, onTakeBack, onSendNow }: { workspace: string; conversation?: string; surface: string; messages: ChatMessage[]; busy: boolean; activityDetail?: string; lastError?: string; onTakeBack: TakeBack; onSendNow?: SendNow }) {
   const ref = useRef<HTMLDivElement>(null)
   const body = useRef<HTMLDivElement>(null)
-  const memoryKey = `${chatKey(wksp, conversation)}:${surface}`
+  const memoryKey = `${chatKey(workspace, conversation)}:${surface}`
   const design = !!conversation
   // Follow the latest message unless the player scrolled up by hand. Off-screen messages are laid
   // out late (content-visibility), so the bottom keeps moving after a scroll: only wheel, touch,
@@ -268,14 +268,14 @@ function ChatLog({ wksp, conversation, surface, messages: all, busy, activityDet
                   <i />
                 </span>
                 {!design && (
-                  <button className="btn sm alert" onClick={() => void op('Interrupt', () => api().interruptWksp(wksp))}>
+                  <button className="btn sm alert" onClick={() => void op('Interrupt', () => api().interruptWorkspace(workspace))}>
                     <CircleStop size={13} /> Interrupt
                   </button>
                 )}
               </div>
             </div>
           )}
-          {lastError && !busy && <div className="msg-error mono">{lastError} <button className="btn sm" onClick={() => void op('Restart', () => (conversation ? api().restartWksp(wksp, false, undefined, conversation) : api().restartWksp(wksp, false)))}>Restart session</button></div>}
+          {lastError && !busy && <div className="msg-error mono">{lastError} <button className="btn sm" onClick={() => void op('Restart', () => (conversation ? api().restartWorkspace(workspace, false, undefined, conversation) : api().restartWorkspace(workspace, false)))}>Restart session</button></div>}
           {queued.map((m) => (
             <Message key={m.id} m={m} design={design} onTakeBack={onTakeBack} onSendNow={onSendNow} />
           ))}
@@ -301,9 +301,9 @@ const Message = memo(function Message({ m, design = false, onTakeBack, onSendNow
     const waiting = m.queue === 'queued' || m.queue === 'unsent'
     return (
       <div data-msg={m.id} className={cx('msg player rise', waiting && m.queue)}>
-        {m.images?.length ? <MessageImages wksp={m.wksp} images={m.images.filter(i => i.file !== m.context?.thumbnail?.image?.file)} /> : null}
+        {m.images?.length ? <MessageImages workspace={m.workspace} images={m.images.filter(i => i.file !== m.context?.thumbnail?.image?.file)} /> : null}
         {m.text && <div className="msg-bubble selectable">{m.text}</div>}
-        <InventoryContextChips context={m.context} wksp={m.wksp} />
+        <InventoryContextChips context={m.context} workspace={m.workspace} />
         <div className="msg-meta">
           {m.queue === 'queued' && (m.steering ? <span className="msg-queue steering">Steering ·{' '}</span> : <span className="msg-queue">Queued ·{' '}</span>)}
           {m.queue === 'unsent' && <span className="msg-queue">Not sent ·{' '}</span>}
@@ -338,7 +338,7 @@ const Message = memo(function Message({ m, design = false, onTakeBack, onSendNow
       </div>
     )
   }
-  const routed = m.wksp !== MAIN_PANEL && !design ? routedRequest(m) : null
+  const routed = m.workspace !== MAIN_PANEL && !design ? routedRequest(m) : null
   if (routed) {
     return (
       <div data-msg={m.id} className="msg player from-genio rise">
@@ -369,9 +369,9 @@ const Message = memo(function Message({ m, design = false, onTakeBack, onSendNow
       </div>}
       <div className="msg-content">
         {m.text && !m.generation && <Markdown text={m.text} className={m.partial ? 'streaming' : ''} />}
-        {m.generation && <GenerationCard card={m.generation} wksp={m.wksp} />}
+        {m.generation && <GenerationCard card={m.generation} workspace={m.workspace} />}
         {m.generating ? <GeneratingImages count={m.generating} /> : null}
-        {m.images?.length ? <MessageImages wksp={m.wksp} images={m.images} /> : null}
+        {m.images?.length ? <MessageImages workspace={m.workspace} images={m.images} /> : null}
         <div className="msg-meta">{clock(m.ts)}<CopyMessageButton text={m.text} /></div>
       </div>
     </div>
@@ -422,10 +422,10 @@ function ShellResult({ id, run, ts }: { id: string; run: ShellRun; ts: string })
   )
 }
 
-function Composer({ wksp, conversation, steerable = false, fill, context }: { wksp: string; conversation?: string; steerable?: boolean; context?: InventoryContext; fill: RefObject<((c: UnqueuedChat) => void) | undefined> }) {
+function Composer({ workspace, conversation, steerable = false, fill, context }: { workspace: string; conversation?: string; steerable?: boolean; context?: InventoryContext; fill: RefObject<((c: UnqueuedChat) => void) | undefined> }) {
   // A design chat's composer: text and images, its model and effort; no shell.
   const design = !!conversation
-  const key = chatKey(wksp, conversation)
+  const key = chatKey(workspace, conversation)
   // '!' as the first character: shell mode. The '!' becomes the prompt glyph; the draft keeps it.
   const [shell, setShell] = useState(() => !design && isShellText(getDraft(key)))
   const [text, setText] = useState(() => withoutBang(getDraft(key)))
@@ -527,7 +527,7 @@ function Composer({ wksp, conversation, steerable = false, fill, context }: { wk
     rememberShellCommand(PROJECT_WINDOW, command)
     shellMode(false)
     try {
-      const t = await api().paneRun(PROJECT_WINDOW, wksp, command, getState().paneCwd)
+      const t = await api().paneRun(PROJECT_WINDOW, workspace, command, getState().paneCwd)
       setState((s) => ({ terminals: { ...s.terminals, [t.id]: t } }))
       showPane(t.id)
     } catch (e) {
@@ -558,8 +558,8 @@ function Composer({ wksp, conversation, steerable = false, fill, context }: { wk
     att.set([])
     try {
       const sendable = images.length ? toSendable(images) : undefined
-      if (steer) await api().steerChat(wksp, t, sendable, inventory.context, ...onDesign(conversation))
-      else await api().sendChat(wksp, t, sendable, inventory.context, ...onDesign(conversation))
+      if (steer) await api().steerChat(workspace, t, sendable, inventory.context, ...onDesign(conversation))
+      else await api().sendChat(workspace, t, sendable, inventory.context, ...onDesign(conversation))
       inventory.sent()
     } catch (e) {
       toast('error', 'Message not sent', errText(e))
@@ -633,7 +633,7 @@ function Composer({ wksp, conversation, steerable = false, fill, context }: { wk
             if (shell && shellKey(e)) return
             if (e.key === 'Tab' && e.shiftKey && !design) {
               e.preventDefault()
-              cycleShellMode(wksp)
+              cycleShellMode(workspace)
               return
             }
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -664,12 +664,12 @@ function Composer({ wksp, conversation, steerable = false, fill, context }: { wk
       {voice.error && <div className="composer-shell-off alert-text" role="status">{voice.error}</div>}
       {design ? (
         <div className="composer-hints mute">
-          <span><DesignModelControls wksp={wksp} conversation={conversation} /></span>
+          <span><DesignModelControls workspace={workspace} conversation={conversation} /></span>
         </div>
       ) : <div className="composer-hints mute">
         <span>
-          <ShellModeButton wksp={wksp} />
-          <ChatModelControls wksp={wksp} />
+          <ShellModeButton workspace={workspace} />
+          <ChatModelControls workspace={workspace} />
           {shell && (
             <span className="composer-keys composer-shell-keys">
               Shell mode · <kbd>Enter</kbd> run · <kbd>↑</kbd> history · <kbd>Esc</kbd> chat
@@ -688,22 +688,22 @@ const SHELL_MODES: { id: Settings['chatShellMode']; label: string; hint: string 
 ]
 
 /** This chat's saved controls: Genio settings for the main chat, the ally's own values (falling back to Genio's) for an ally. */
-function useChatControls(wksp: string): ChatControls & { ally?: Ally } {
-  const ally = useStore((s) => (wksp === MAIN_PANEL ? undefined : s.snap.allies.find((a) => a.name === wksp && !a.retiredAt)))
+function useChatControls(workspace: string): ChatControls & { ally?: Ally } {
+  const ally = useStore((s) => (workspace === MAIN_PANEL ? undefined : s.snap.allies.find((a) => a.name === workspace && !a.retiredAt)))
   const settings = useStore((s) => s.settings)
   return useMemo(() => ({ ...chatControls(settings, ally), ally }), [settings, ally])
 }
 
-function cycleShellMode(wksp: string): void {
+function cycleShellMode(workspace: string): void {
   const s = getState()
-  const cur = chatControls(s.settings, wksp === MAIN_PANEL ? undefined : s.snap.allies.find((a) => a.name === wksp && !a.retiredAt)).shellMode
+  const cur = chatControls(s.settings, workspace === MAIN_PANEL ? undefined : s.snap.allies.find((a) => a.name === workspace && !a.retiredAt)).shellMode
   const i = SHELL_MODES.findIndex((m) => m.id === cur)
-  void saveChatControls(wksp, { shellMode: SHELL_MODES[(i + 1) % SHELL_MODES.length].id })
+  void saveChatControls(workspace, { shellMode: SHELL_MODES[(i + 1) % SHELL_MODES.length].id })
 }
 
 /** Chat approval-mode switcher (click or Shift+Tab in the input), à la Claude Code. One per chat. */
-function ShellModeButton({ wksp }: { wksp: string }) {
-  const { shellMode: mode } = useChatControls(wksp)
+function ShellModeButton({ workspace }: { workspace: string }) {
+  const { shellMode: mode } = useChatControls(workspace)
   const m = SHELL_MODES.find((x) => x.id === mode) ?? SHELL_MODES[0]
   const auto = mode !== 'ask'
   return (
@@ -711,7 +711,7 @@ function ShellModeButton({ wksp }: { wksp: string }) {
       className={cx('btn sm', mode === 'all' ? 'alert' : auto ? 'amber' : 'ghost')}
       style={{ marginRight: 12, verticalAlign: 'middle' }}
       title={m.hint}
-      onClick={() => cycleShellMode(wksp)}
+      onClick={() => cycleShellMode(workspace)}
     >
       {auto ? <TriangleAlert size={12} /> : <ShieldCheck size={12} />} {m.label}
     </button>
@@ -721,34 +721,34 @@ function ShellModeButton({ wksp }: { wksp: string }) {
 const COMPACT_SELECT: CSSProperties = { width: 'auto', height: 26, padding: '0 6px', fontSize: 10.5, marginRight: 8, verticalAlign: 'middle' }
 
 /**
- * Model/effort for this chat. Genio: the same wkspModel/wkspEffort settings; empty uses the default (Claude Sonnet 5.5, or Codex Sol 6.1 when only Codex is signed in).
+ * Model/effort for this chat. Genio: the same workspaceModel/workspaceEffort settings; empty uses the default (Claude Sonnet 5.5, or Codex Sol 6.1 when only Codex is signed in).
  * An ally: its own saved values, following Genio's until changed here.
  */
-function ChatModelControls({ wksp }: { wksp: string }) {
-  const { model, effort } = useChatControls(wksp)
+function ChatModelControls({ workspace }: { workspace: string }) {
+  const { model, effort } = useChatControls(workspace)
   return (
     <>
       <ModelSelect
         value={model}
         title="Model"
         style={COMPACT_SELECT}
-        onChange={(v) => void saveChatControls(wksp, { model: v, effort: '' })}
+        onChange={(v) => void saveChatControls(workspace, { model: v, effort: '' })}
       />
       <EffortSelect
         model={model}
         value={effort}
         title="Effort"
         style={{ ...COMPACT_SELECT, marginRight: 12 }}
-        onChange={(v) => void saveChatControls(wksp, { effort: v })}
+        onChange={(v) => void saveChatControls(workspace, { effort: v })}
       />
     </>
   )
 }
 
 /** A design chat's own model and effort, following the project chat's until changed here. */
-function DesignModelControls({ wksp, conversation }: { wksp: string; conversation: string }) {
+function DesignModelControls({ workspace, conversation }: { workspace: string; conversation: string }) {
   const chat = useStore((s) => s.designChats?.find((c) => c.id === conversation))
-  const project = useChatControls(wksp)
+  const project = useChatControls(workspace)
   const model = chat?.model || project.model
   const save = async (patch: { model?: string; effort?: string }): Promise<void> => {
     const swap = (next: (c: NonNullable<typeof chat>) => NonNullable<typeof chat>): void =>
@@ -756,7 +756,7 @@ function DesignModelControls({ wksp, conversation }: { wksp: string; conversatio
     const before = chat
     swap((c) => ({ ...c, ...patch }))
     try {
-      const saved = await api().designChatConfigure(wksp, conversation, patch)
+      const saved = await api().designChatConfigure(workspace, conversation, patch)
       swap(() => saved)
     } catch (e) {
       if (before) swap(() => before)

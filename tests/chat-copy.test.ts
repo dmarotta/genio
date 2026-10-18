@@ -10,8 +10,8 @@ import { chatKey } from '../src/shared/chat'
 const f = vi.hoisted(() => ({ write: vi.fn(), toast: vi.fn(), unqueue: vi.fn(), messages: [] as ChatMessage[], key: 'ally' }))
 vi.mock('../src/renderer/src/store', () => ({
   PROJECT_WINDOW: undefined,
-  PROJECT_WKSP: 'ally',
-  useStore: (select: (s: unknown) => unknown) => select({ snap: { wksps: [], allies: [] }, chats: { [f.key]: f.messages }, settings: undefined }),
+  PROJECT_WORKSPACE: 'ally',
+  useStore: (select: (s: unknown) => unknown) => select({ snap: { workspaces: [], allies: [] }, chats: { [f.key]: f.messages }, settings: undefined }),
   api: () => ({ unqueueChat: f.unqueue }), loadChat: vi.fn(), toast: f.toast, errText: String
 }))
 vi.mock('../src/renderer/src/components/ModelSelect', () => ({ ModelSelect: () => null, EffortSelect: () => null }))
@@ -63,14 +63,14 @@ it('reports an unavailable clipboard without an unhandled rejection', async () =
 })
 
 const surfaces = [
-  { name: 'project chat', props: { wksp: 'ally' } },
-  { name: 'floating panel', props: { wksp: 'ally', surface: 'panel' as const } },
-  { name: 'design chat', props: { wksp: 'ally', conversation: 'lore-1' } }
+  { name: 'project chat', props: { workspace: 'ally' } },
+  { name: 'floating panel', props: { workspace: 'ally', surface: 'panel' as const } },
+  { name: 'design chat', props: { workspace: 'ally', conversation: 'lore-1' } }
 ]
 
 it.each(surfaces)('copies each displayed message in the $name without interfering with the queue', async ({ props }) => {
-  const message = (id: string, role: ChatMessage['role'], text: string): ChatMessage => ({ id, wksp: 'ally', role, text, ts: '2026-10-13T12:00:00Z' })
-  f.key = chatKey(props.wksp, props.conversation)
+  const message = (id: string, role: ChatMessage['role'], text: string): ChatMessage => ({ id, workspace: 'ally', role, text, ts: '2026-10-13T12:00:00Z' })
+  f.key = chatKey(props.workspace, props.conversation)
   f.messages = [
     message('player', 'player', 'Player\nmessage'),
     message('genio', 'genio', '**Assistant**\nreply'),
@@ -92,15 +92,15 @@ it.each(surfaces)('copies each displayed message in the $name without interferin
 })
 
 it('copies only the request of a message routed from Genio', async () => {
-  f.messages = [{ id: 'routed', wksp: 'ally', role: 'system', text: '[FROM GENIO MAIN corr=abc-1]\nBuild this\n\nWhen finished (or blocked), answer with report_to_main details', ts: '2026-10-13T12:00:00Z' }]
-  await act(() => root.render(React.createElement(ChatPanel, { wksp: 'ally' })))
+  f.messages = [{ id: 'routed', workspace: 'ally', role: 'system', text: '[FROM GENIO MAIN corr=abc-1]\nBuild this\n\nWhen finished (or blocked), answer with report_to_main details', ts: '2026-10-13T12:00:00Z' }]
+  await act(() => root.render(React.createElement(ChatPanel, { workspace: 'ally' })))
   await act(async () => copy().click())
   expect(f.write).toHaveBeenCalledWith('Build this')
 })
 
 it('copies a shell result as its command and output', async () => {
-  f.messages = [{ id: 'sh', wksp: 'ally', role: 'system', text: '', ts: '2026-10-13T12:00:00Z', shell: { command: 'git status', cwd: '/w', output: 'clean', exitCode: 0, durationMs: 5, truncated: false } }]
-  await act(() => root.render(React.createElement(ChatPanel, { wksp: 'ally' })))
+  f.messages = [{ id: 'sh', workspace: 'ally', role: 'system', text: '', ts: '2026-10-13T12:00:00Z', shell: { command: 'git status', cwd: '/w', output: 'clean', exitCode: 0, durationMs: 5, truncated: false } }]
+  await act(() => root.render(React.createElement(ChatPanel, { workspace: 'ally' })))
   await act(async () => copy().click())
   expect(f.write).toHaveBeenCalledWith('$ git status\nclean')
 })

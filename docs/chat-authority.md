@@ -1,6 +1,6 @@
 # Chat authority and approval modes
 
-Genio's chat (the project chat, the floating Genio panel and allies: the wksp runtime in `src/main/wksp.ts`) has full
+Genio's chat (the project chat, the floating Genio panel and allies: the workspace runtime in `src/main/workspace.ts`) has full
 authority over units and the project's git. It can deploy, relaunch, interrupt, exit, ping and despawn any unit,
 discard unlanded work, merge any Build or PR (red, still running or draft too), commit, branch, rebase, edit files and
 run state-changing commands in a project or a unit's copy. Coding is still preferably delegated to units: that is a
@@ -74,4 +74,4 @@ clears nothing; the merge then asks.
 
 `tests/chat-authority.test.ts` runs each formerly guarded action in each mode (runs or asks as above, a Deny leaves
 everything untouched, the player's own words do not answer the prompt), the merge and despawn records, red PRs, the
-Bot's limits, spend in YOLO and the closed credential paths. `tests/wksp-policy.test.ts` covers the native tools.
+Bot's limits, spend in YOLO and the closed credential paths. `tests/workspace-policy.test.ts` covers the native tools.

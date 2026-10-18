@@ -15,7 +15,7 @@ import { ensureProjectBase, startProjectBase, stopProjectBase } from '../src/mai
 import { BUILTIN_HARNESSES } from '../src/main/harness'
 import type { AppCtx, HomeCtx } from '../src/main/services'
 import type { Task } from '../src/shared/types'
-import { answerChoice, clarifyChoice } from '../src/main/wksp-tools'
+import { answerChoice, clarifyChoice } from '../src/main/workspace-tools'
 
 let root: string, ctx: AppCtx, home: Home, hc: HomeCtx, cap: number
 let terminals: Map<string, { id: string; alive: boolean }>, extra: Task[]
@@ -25,8 +25,8 @@ beforeEach(() => {
   const mainHome = new Home(root); mainHome.ensure()
   home = new Home(path.join(root, 'workspaces', 'world'), 'world', mainHome); home.ensure()
   cap = 2; terminals = new Map(); extra = []
-  hc = { home, wksp: { prepareProjectOpen: vi.fn(), wakeProject: vi.fn(), deliverWakes: vi.fn(), stop: vi.fn() } } as unknown as HomeCtx
-  const main = { home: mainHome, wksp: { deliverWakes: vi.fn() } } as unknown as HomeCtx
+  hc = { home, workspace: { prepareProjectOpen: vi.fn(), wakeProject: vi.fn(), deliverWakes: vi.fn(), stop: vi.fn() } } as unknown as HomeCtx
+  const main = { home: mainHome, workspace: { deliverWakes: vi.fn() } } as unknown as HomeCtx
   const adapter = { ...BUILTIN_HARNESSES.find(h => h.id === 'codex')!, id: 'test', enabled: true, command: 'fake-unit' }
   const ally = { name: 'world', projects: ['world'], scope: 'world', home: home.root }
   const world = { name: 'world', path: root, capacity: 2, gitRepo: true }
@@ -59,7 +59,7 @@ function unit(id: string, state: Task['state'] = 'detached', base = hc): Task {
   const worktree = path.join(root, 'worktrees', id)
   fs.mkdirSync(worktree, { recursive: true }); fs.mkdirSync(base.home.taskDir(id), { recursive: true })
   fs.writeFileSync(base.home.briefFile(id), '# Mission')
-  const task = { id, title: id, project: 'world', wksp: base.home.name, state, mode: 'local-only', harness: 'test',
+  const task = { id, title: id, project: 'world', workspace: base.home.name, state, mode: 'local-only', harness: 'test',
     worktree, briefPath: base.home.briefFile(id), branch: `genio/${id}`, relaunches: 8, automaticRelaunches: 1,
     createdAt: '2026-01-01', updatedAt: '2026-01-01', inbox: { seq: 0, acked: 0 }, statusOffset: 0 } as Task
   fs.writeFileSync(base.home.tasksFile, JSON.stringify([...base.crew.list(), task]))
@@ -95,7 +95,7 @@ describe('project window startup reconciliation', () => {
     expect(fs.readFileSync(path.join(task.worktree, 'dirty.txt'), 'utf8')).toBe('keep')
     await Promise.all([startProjectBase(ctx, 'world', 'world'), startProjectBase(ctx, 'world', 'world')])
     expect(ctx.terminals.create).toHaveBeenCalledOnce()
-    expect(hc.wksp.wakeProject).toHaveBeenCalledOnce()
+    expect(hc.workspace.wakeProject).toHaveBeenCalledOnce()
     expect(ctx.dispatch.reserve).toHaveBeenCalledOnce()
   })
 
@@ -107,7 +107,7 @@ describe('project window startup reconciliation', () => {
     expect(ctx.terminals.create).toHaveBeenCalledOnce()
     expect(ctx.main.crew.get('legacy')?.state).toBe('working')
     expect(hc.crew.get('first')?.state).toBe('detached')
-    expect(hc.wksp.wakeProject).toHaveBeenCalledWith(expect.stringContaining('waiting for capacity'))
+    expect(hc.workspace.wakeProject).toHaveBeenCalledWith(expect.stringContaining('waiting for capacity'))
   })
 
   it('replays offline outcomes before relaunching and preserves declared blockers and waits', async () => {
@@ -120,8 +120,8 @@ describe('project window startup reconciliation', () => {
     expect(hc.crew.get('choice')?.state).toBe('needs-decision')
     expect(hc.crew.get('wait')?.state).toBe('paused')
     expect(hc.wakes.pending()).toHaveLength(2)
-    expect(hc.wksp.deliverWakes).not.toHaveBeenCalled()
-    expect(hc.wksp.wakeProject).toHaveBeenCalledWith(expect.stringContaining('choose the API'))
+    expect(hc.workspace.deliverWakes).not.toHaveBeenCalled()
+    expect(hc.workspace.wakeProject).toHaveBeenCalledWith(expect.stringContaining('choose the API'))
     hc.supervisor.replayStatus('world')
     expect(hc.wakes.pending()).toHaveLength(2)
   })
@@ -182,7 +182,7 @@ describe('project window startup reconciliation', () => {
     await open()
     expect(hc.crew.get('fails')).toMatchObject({ state: 'failed', automaticRelaunches: 0 })
     expect(hc.crew.get('continues')?.state).toBe('working')
-    expect(hc.wksp.wakeProject).toHaveBeenCalledWith(expect.stringContaining('launch unavailable'))
+    expect(hc.workspace.wakeProject).toHaveBeenCalledWith(expect.stringContaining('launch unavailable'))
   })
 
   it('does not let a failed queued launch hide other eligible work behind the batch cap', async () => {
@@ -205,7 +205,7 @@ describe('project window startup reconciliation', () => {
     await open()
     await stopProjectBase(ctx, 'world', 'world')
     await open()
-    expect(hc.wksp.wakeProject).toHaveBeenCalledTimes(2)
+    expect(hc.workspace.wakeProject).toHaveBeenCalledTimes(2)
   })
 
   it('never resumes units whose quest is already done or dropped, but still resumes open quests', async () => {
@@ -276,7 +276,7 @@ describe('project window startup reconciliation', () => {
     expect(hc.crew.get('cli1-unit')?.state).toBe('working')
     expect(spawn.mock.calls.map(([r]) => r.title)).toEqual(['fc4'])
     expect(spawn.mock.calls[0][0]).toMatchObject({ spec: spec('fc4'), intent: 'make Unity copies fast', planContext: expect.stringContaining('step 1/2 "fc4"') })
-    expect(hc.wksp.wakeProject).toHaveBeenCalledWith(expect.stringContaining(`(plan ${fc.id} step fc4)`))
+    expect(hc.workspace.wakeProject).toHaveBeenCalledWith(expect.stringContaining(`(plan ${fc.id} step fc4)`))
     // CLI 1 merges: both CLI steps after it start by themselves, with the handoff note
     hc.crew.update('cli1-unit', { state: 'merged', landedAt: new Date().toISOString(), landedCommit: 'f404066aaaaaaaaa' })
     await hc.plans.idle()
@@ -297,7 +297,7 @@ describe('project window startup reconciliation', () => {
     expect(spawn).not.toHaveBeenCalled()
     expect(hc.backlog.get('twin')).toMatchObject({ state: 'queued', duplicateOf: 'orig' })
     expect(hc.backlog.get('by-unit')?.duplicateOf).toBe('recon-delivered')
-    expect(hc.wksp.wakeProject).toHaveBeenCalledWith(expect.stringContaining('Quest twin: not started, already handled by quest orig (done)'))
+    expect(hc.workspace.wakeProject).toHaveBeenCalledWith(expect.stringContaining('Quest twin: not started, already handled by quest orig (done)'))
   })
 
   it('always wakes an empty project and scopes landed history to the previous visit', async () => {
@@ -305,8 +305,8 @@ describe('project window startup reconciliation', () => {
     hc.crew.update(task.id, { landedAt: '2026-01-01T10:00:00Z' })
     fs.writeFileSync(path.join(home.state, 'project-open.json'), JSON.stringify({ openedAt: '2026-01-02T10:00:00Z' }))
     await open()
-    expect(hc.wksp.prepareProjectOpen).toHaveBeenCalledOnce()
-    expect(hc.wksp.wakeProject).toHaveBeenCalledWith(expect.stringContaining('Landed since last visit (0)'))
+    expect(hc.workspace.prepareProjectOpen).toHaveBeenCalledOnce()
+    expect(hc.workspace.wakeProject).toHaveBeenCalledWith(expect.stringContaining('Landed since last visit (0)'))
     expect(ctx.terminals.create).not.toHaveBeenCalled()
   })
 })

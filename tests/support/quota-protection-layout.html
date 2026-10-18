@@ -16,7 +16,7 @@ window.genio = { on: () => () => {}, api: { usagePolicy: async () => ({ quotaPro
 localStorage.setItem('genio.panel.fixture', JSON.stringify({ x: 60, y: 10, width: 1100, height: 600, collapsed: false }))
 setState({ booted: true, connected: true, chats: { genio: [] }, chatLoaded: { genio: true },
   settings: { gamertag: 'Test', calm: false, fx: false, quotaProtection: true },
-  snap: { ...getState().snap, wksps: [{ name: 'genio', displayName: 'Genio', activity: 'idle' }] } })
+  snap: { ...getState().snap, workspaces: [{ name: 'genio', displayName: 'Genio', activity: 'idle' }] } })
 window.fixture = { getState, setState }
 function Fixture() {
   const view = useStore(s => s.view)

@@ -31,7 +31,7 @@ beforeEach(() => {
   f.handlers.clear(); f.ports = []; f.frames = []; f.audio = []; vi.clearAllMocks()
   f.input.mockImplementation((_world, input) => validateInput(input))
   sender = Object.assign(new EventEmitter(), { id: 1, isDestroyed: () => false, postMessage: vi.fn(), mainFrame: { main: true } })
-  registerIpc(() => ({} as AppCtx), { binding: id => id === 1 ? { project: 'A', wksp: 'ally' } : { project: 'B', wksp: 'ally' }, list: () => [], close() {}, openHub: async () => {}, openProject: async () => {} })
+  registerIpc(() => ({} as AppCtx), { binding: id => id === 1 ? { project: 'A', workspace: 'ally' } : { project: 'B', workspace: 'ally' }, list: () => [], close() {}, openHub: async () => {}, openProject: async () => {} })
 })
 const call = (method: string, ...args: unknown[]) => f.handlers.get(`genio:${method}`)!({ sender }, ...args)
 it('transfers only a MessagePort, keeps one latest frame, and sends one frame per credit', async () => {

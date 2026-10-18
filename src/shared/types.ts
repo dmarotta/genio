@@ -165,7 +165,7 @@ export interface Task {
   title: string
   project: string
   /** Base that owns the task: 'main' or an ally name. */
-  wksp: string
+  workspace: string
   backlogId?: string
   mode?: DeliveryMode
   yolo?: boolean
@@ -280,7 +280,7 @@ export interface StandingApproval {
   id: string
   project: string
   /** the chat the player said it in */
-  wksp: string
+  workspace: string
   messageId: string
   text: string
   createdAt: string
@@ -291,7 +291,7 @@ export interface StandingApproval {
 export interface DislikePause {
   /** the disliked chat message and the chat that owns it */
   message: string
-  wksp: string
+  workspace: string
   at: string
   /** the state before the pause; an interrupted unit is relaunched, a ready one keeps its state */
   prevState: TaskState
@@ -455,7 +455,7 @@ export type DecisionSource = 'unit' | 'genio' | 'validation' | 'ally' | 'system'
 export interface Decision {
   id: string
   key: string
-  wksp: string
+  workspace: string
   taskId?: string
   backlogId?: string
   project?: string
@@ -492,7 +492,7 @@ export type DecisionAction =
   /** an ambiguous engine detection: the picked option's root is pinned in the repo's .genio/project.json */
   | { kind: 'engine-root'; project: string; roots: Record<string, string> }
   /** what is wrong with a disliked Genio message: "keep going" resumes what the dislike paused */
-  | { kind: 'reaction'; wksp: string; message: string }
+  | { kind: 'reaction'; workspace: string; message: string }
   /** "Merge now?" for one ready Build: an approving answer is the player's specific approval of that merge */
   | { kind: 'merge-approval'; task: string }
   /** a plan paused at a discarded or failed step: resume, edit or cancel it */
@@ -505,7 +505,7 @@ export type WakeKind = 'signal' | 'stale' | 'check' | 'heartbeat' | 'answer' | '
 export interface Wake {
   seq: number
   ts: string
-  wksp: string
+  workspace: string
   kind: WakeKind
   taskId?: string
   reason: string
@@ -531,7 +531,7 @@ export interface ChatMessage {
   providerSession?: string
   generation?: import('./generation').GenerationCard
   id: string
-  wksp: string
+  workspace: string
   role: ChatRole
   text: string
   ts: string
@@ -594,16 +594,16 @@ export interface MessageReaction {
  */
 export type ChatQueueState = 'queued' | 'unsent' | 'cancelled'
 
-export type WkspActivity = 'offline' | 'starting' | 'idle' | 'thinking' | 'tool' | 'error'
+export type WorkspaceActivity = 'offline' | 'starting' | 'idle' | 'thinking' | 'tool' | 'error'
 
-export interface WkspInfo {
+export interface WorkspaceInfo {
   name: string // 'main' or ally name
   displayName: string
   scope?: string
   charter?: string
   model?: string
   effort?: string
-  activity: WkspActivity
+  activity: WorkspaceActivity
   activityDetail?: string
   sessionId?: string
   costUsd: number
@@ -625,11 +625,11 @@ export interface DesignChatInfo {
   /** this chat's own model and effort; empty follows the project chat's */
   model: string
   effort: string
-  activity: WkspActivity
+  activity: WorkspaceActivity
   queued: number
   /** a turn is running and a player message can steer it */
   steerable?: boolean
-  limit?: WkspInfo['limit']
+  limit?: WorkspaceInfo['limit']
   lastError?: string
   costUsd: number
   turns: number
@@ -663,7 +663,7 @@ export interface AwayState {
 
 export interface AwayEntry {
   ts: string
-  wksp: string
+  workspace: string
   text: string
   severity: 'info' | 'decision' | 'failure' | 'ready'
   delivered: boolean
@@ -825,9 +825,9 @@ export interface Settings {
   /** how Genio addresses the player */
   gamertag: string
   /** '' = the default: Claude Sonnet 5.5, or Codex Sol 6.1 when only Codex is signed in */
-  wkspModel: string
+  workspaceModel: string
   /** '' = medium */
-  wkspEffort: string
+  workspaceEffort: string
   /** model for the Bot that handles events while the player is DND/AFK */
   botModel: string
   /** '' = Claude, or Codex when only Codex is signed in */
@@ -952,7 +952,7 @@ export interface FleetSnapshot {
   plans?: WorkPlan[]
   decisions: Decision[]
   projects: Project[]
-  wksps: WkspInfo[]
+  workspaces: WorkspaceInfo[]
   allies: Ally[]
   away: AwayState
   inbox: InboxNote[]
@@ -1044,7 +1044,7 @@ export interface ShellRun {
 
 export interface PermissionRequest {
   id: string
-  wksp: string
+  workspace: string
   tool: string
   input: string
   reason?: string
@@ -1079,13 +1079,13 @@ export type GenioEvent =
   | { type: 'decisions'; decisions: Decision[] }
   | { type: 'standing-approvals'; approvals: StandingApproval[] }
   | { type: 'projects'; projects: Project[] }
-  | { type: 'wksp'; wksp: WkspInfo }
+  | { type: 'workspace'; workspace: WorkspaceInfo }
   | { type: 'chat'; message: ChatMessage }
-  | { type: 'chat-delta'; wksp: string; id: string; text: string }
+  | { type: 'chat-delta'; workspace: string; id: string; text: string }
   /** A project's design chats (list and state); their messages never mix with the project chat's. */
-  | { type: 'design-chats'; wksp: string; chats: DesignChatInfo[] }
-  | { type: 'design-chat'; wksp: string; conversation: string; message: ChatMessage }
-  | { type: 'design-chat-delta'; wksp: string; conversation: string; id: string; text: string }
+  | { type: 'design-chats'; workspace: string; chats: DesignChatInfo[] }
+  | { type: 'design-chat'; workspace: string; conversation: string; message: ChatMessage }
+  | { type: 'design-chat-delta'; workspace: string; conversation: string; id: string; text: string }
   | { type: 'status'; event: StatusEvent }
   | { type: 'wake'; wake: Wake }
   | { type: 'away'; away: AwayState }
@@ -1103,10 +1103,10 @@ export type GenioEvent =
   | { type: 'settings'; settings: Settings }
   | { type: 'allies'; allies: Ally[] }
   | { type: 'sfx'; sound: SfxName }
-  /** A reply to read aloud, in the windows that show this wksp's chat. */
-  | { type: 'speak'; wksp: string; text: string }
-  /** The player sent a message to this wksp's chat: the windows that show it stop speaking. */
-  | { type: 'speak-stop'; wksp: string }
+  /** A reply to read aloud, in the windows that show this workspace's chat. */
+  | { type: 'speak'; workspace: string; text: string }
+  /** The player sent a message to this workspace's chat: the windows that show it stop speaking. */
+  | { type: 'speak-stop'; workspace: string }
   /** The speech model download (voice input): progress, the end, or why it failed. */
   | { type: 'voice-install'; state: 'missing' | 'downloading' | 'ready'; received: number; total: number; error?: string }
   /** The natural voice download (voice output): progress, the end, or why it failed. */
@@ -1118,9 +1118,9 @@ export type GenioEvent =
   /** A unit's Modeller state changed (a step landed, Blender started one, a step script appeared): pushed while its page reads it. */
   | { type: 'modeller-live'; taskId: string; live: import('./modeller').ModellerLive | null }
   /** A chat generation (card or generate_image placeholder) started or settled; drives the panel's generating count. */
-  | { type: 'generation'; wksp: string; id: string; active: boolean }
+  | { type: 'generation'; workspace: string; id: string; active: boolean }
 
 /** Notification destination; legacy `move` targets reveal pending answer cards. */
-export type NotifyTarget = { view: 'move'; project?: string; wksp?: string; decisionId?: string } | { view: 'squad'; taskId?: string } | { view: 'comms'; wksp?: string } | { view: 'accounts' }
+export type NotifyTarget = { view: 'move'; project?: string; workspace?: string; decisionId?: string } | { view: 'squad'; taskId?: string } | { view: 'comms'; workspace?: string } | { view: 'accounts' }
 
 export type SfxName = 'blip' | 'spawn' | 'ready' | 'merge' | 'alert' | 'decision' | 'levelup' | 'send' | 'error' | 'card-in' | 'card-out'

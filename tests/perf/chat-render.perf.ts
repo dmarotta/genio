@@ -7,7 +7,7 @@
 import React, { act, Profiler } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ChatMessage, WkspInfo } from '../../src/shared/types'
+import type { ChatMessage, WorkspaceInfo } from '../../src/shared/types'
 import { note, report, syntheticMessages, timeIt } from './measure'
 
 const counters = vi.hoisted(() => ({ markdown: 0, message: 0 }))
@@ -21,7 +21,7 @@ import { ChatPanel } from '../../src/renderer/src/views/Comms'
 import { renderMarkdown } from '../../src/renderer/src/components/Markdown'
 import { getState, handleEvent, setState } from '../../src/renderer/src/store'
 
-const WKSP = 'genio'
+const WORKSPACE = 'genio'
 const initial = getState()
 let root: Root, host: HTMLDivElement
 let commits = 0, renderMs = 0
@@ -35,15 +35,15 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); setState(initial) })
 afterAll(() => report())
 
-function seed(messages: ChatMessage[], activity: WkspInfo['activity'] = 'thinking'): void {
-  setState({ ...initial, chats: { [WKSP]: messages }, chatLoaded: { [WKSP]: true }, settings: { gamertag: 'Alex', calm: false } as never,
-    snap: { ...initial.snap, wksps: [{ name: WKSP, displayName: 'Genio', activity, costUsd: 0, turns: 0, queued: 0 }] } })
+function seed(messages: ChatMessage[], activity: WorkspaceInfo['activity'] = 'thinking'): void {
+  setState({ ...initial, chats: { [WORKSPACE]: messages }, chatLoaded: { [WORKSPACE]: true }, settings: { gamertag: 'Alex', calm: false } as never,
+    snap: { ...initial.snap, workspaces: [{ name: WORKSPACE, displayName: 'Genio', activity, costUsd: 0, turns: 0, queued: 0 }] } })
 }
-const render = (): Promise<void> => act(async () => { root.render(React.createElement(Profiler, { id: 'chat', onRender }, React.createElement(ChatPanel, { wksp: WKSP }))) })
+const render = (): Promise<void> => act(async () => { root.render(React.createElement(Profiler, { id: 'chat', onRender }, React.createElement(ChatPanel, { workspace: WORKSPACE }))) })
 
 describe('chat log rendering', () => {
   it('initial render of a 300-message transcript', async () => {
-    seed(syntheticMessages(WKSP, 300))
+    seed(syntheticMessages(WORKSPACE, 300))
     const t0 = performance.now()
     await render()
     note('initial render: 300 messages', performance.now() - t0, 'ms')
@@ -52,12 +52,12 @@ describe('chat log rendering', () => {
   })
 
   it('streaming 400 deltas into a 300-message transcript', async () => {
-    seed(syntheticMessages(WKSP, 300))
+    seed(syntheticMessages(WORKSPACE, 300))
     await render()
     counters.markdown = 0; commits = 0; renderMs = 0
     const t0 = performance.now()
     for (let i = 0; i < 400; i++) {
-      await act(async () => { handleEvent({ type: 'chat-delta', wksp: WKSP, id: 'm-stream', text: `word${i} ${i % 17 === 0 ? '\n\n' : ''}` }) })
+      await act(async () => { handleEvent({ type: 'chat-delta', workspace: WORKSPACE, id: 'm-stream', text: `word${i} ${i % 17 === 0 ? '\n\n' : ''}` }) })
     }
     note('stream 400 deltas: wall time', performance.now() - t0, 'ms', 'one act() per delta, as separate IPC events')
     note('stream 400 deltas: React commits', commits, 'count')
@@ -67,7 +67,7 @@ describe('chat log rendering', () => {
   })
 
   it('markdown pipeline cost on a long reply', () => {
-    const long = syntheticMessages(WKSP, 60).filter((m) => m.role === 'genio' && m.text.includes('##')).map((m) => m.text).join('\n')
+    const long = syntheticMessages(WORKSPACE, 60).filter((m) => m.role === 'genio' && m.text.includes('##')).map((m) => m.text).join('\n')
     note('long reply: characters', long.length, 'chars')
     timeIt('renderMarkdown(12 KB reply)', () => { renderMarkdown(long) }, { iterations: 30 })
     // what a token-by-token stream costs when every delta re-parses the whole text

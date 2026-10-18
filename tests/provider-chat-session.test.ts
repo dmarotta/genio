@@ -60,7 +60,7 @@ describe('one transcript across provider sessions', () => {
   })
   it('tags the same visible message with provider and provider session', () => {
     const f = fixture(); f.session.enqueue({ kind: 'player', prompt: 'first' })
-    f.drivers[0].driver.events.onMessage({ id: 'message', wksp: 'main', role: 'genio', text: 'hello', ts: '' }, true)
+    f.drivers[0].driver.events.onMessage({ id: 'message', workspace: 'main', role: 'genio', text: 'hello', ts: '' }, true)
     expect(f.events.onMessage).toHaveBeenCalledWith(expect.objectContaining({ id: 'message', provider: 'claude', providerSession: 'claude-history' }), true)
   })
 })
@@ -68,7 +68,7 @@ describe('bounded app-owned handoff', () => {
   it('carries decisions, actual permissions, task state and image refs; excludes native blocks', () => {
     const text = chatHandoff({ projects: [], permissions: 'ask', tasks: [{ id: 'done', project: 'world', title: 'Deployed', state: 'done' },
       { id: 'waiting', project: 'world', title: 'Pending task', state: 'working' }],
-      decisions: [{ id: 'choice', project: 'world', question: 'Which?', answer: 'A' }], messages: [{ id: 'p', wksp: 'main', role: 'player', ts: '',
+      decisions: [{ id: 'choice', project: 'world', question: 'Which?', answer: 'A' }], messages: [{ id: 'p', workspace: 'main', role: 'player', ts: '',
         text: 'Current task', images: [{ file: 'image.png', mediaType: 'image/png' }], tools: [{ id: 't', name: 'deploy', input: 'PRIVATE TOOL BLOCK' }] }] })
     expect(text).toContain('Current task'); expect(text).toContain('Pending task'); expect(text).toContain('image.png')
     expect(text).toContain('"shellMode":"ask"'); expect(text).toContain('"answer":"A"'); expect(text).toContain('completedWork')
@@ -78,13 +78,13 @@ describe('bounded app-owned handoff', () => {
     const text = chatHandoff({ projects: [{ name: 'private', allowCheapModels: false }], permissions: 'all',
       tasks: [{ id: 'secret', project: 'private', title: 'SECRET TASK', state: 'working' }],
       decisions: [{ id: 'secret', project: 'private', question: 'SECRET DECISION' }],
-      messages: [{ id: 'p', wksp: 'main', role: 'player', ts: '', text: 'SECRET CHAT', images: [{ file: 'secret.png', mediaType: 'image/png' }] }] })
+      messages: [{ id: 'p', workspace: 'main', role: 'player', ts: '', text: 'SECRET CHAT', images: [{ file: 'secret.png', mediaType: 'image/png' }] }] })
     expect(text).not.toMatch(/SECRET|secret\.png/)
     expect(text).toContain('opt-outs')
   })
   it('remains valid JSON within a hard size bound', () => {
     const text = chatHandoff({ projects: [], permissions: 'ask', tasks: [], decisions: [], messages: Array.from({ length: 30 }, (_, i) => ({
-      id: String(i), wksp: 'main', role: 'player', ts: '', text: 'x'.repeat(10_000), images: [{ file: 'a'.repeat(10_000), mediaType: 'image/png' }]
+      id: String(i), workspace: 'main', role: 'player', ts: '', text: 'x'.repeat(10_000), images: [{ file: 'a'.repeat(10_000), mediaType: 'image/png' }]
     })) })
     expect(text.length).toBeLessThanOrEqual(18_000)
     expect(() => JSON.parse(text.slice(text.indexOf('\n') + 1))).not.toThrow()

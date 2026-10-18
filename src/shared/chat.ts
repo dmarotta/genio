@@ -36,17 +36,17 @@ const SHELL_MODES: readonly string[] = ['ask', 'auto-shell', 'all']
 
 /**
  * Effective controls of a chat. The main chat reads the Genio settings
- * (chatShellMode, wkspModel, wkspEffort); an ally uses its own saved values and
+ * (chatShellMode, workspaceModel, workspaceEffort); an ally uses its own saved values and
  * falls back to the main chat's for anything it has not set.
  */
-/** Where the renderer keeps a chat's messages, draft and scroll position: the wksp, or the wksp and a design chat's id. */
-export const chatKey = (wksp: string, conversation?: string): string => (conversation ? `${wksp}#${conversation}` : wksp)
+/** Where the renderer keeps a chat's messages, draft and scroll position: the workspace, or the workspace and a design chat's id. */
+export const chatKey = (workspace: string, conversation?: string): string => (conversation ? `${workspace}#${conversation}` : workspace)
 
-export function chatControls(s: Pick<Settings, 'chatShellMode' | 'wkspModel' | 'wkspEffort'> | null | undefined, ally?: Pick<Ally, 'model' | 'effort' | 'shellMode'>): ChatControls {
+export function chatControls(s: Pick<Settings, 'chatShellMode' | 'workspaceModel' | 'workspaceEffort'> | null | undefined, ally?: Pick<Ally, 'model' | 'effort' | 'shellMode'>): ChatControls {
   return {
     shellMode: ally?.shellMode || s?.chatShellMode || 'ask',
-    model: ally?.model || s?.wkspModel || '',
-    effort: ally?.effort || s?.wkspEffort || ''
+    model: ally?.model || s?.workspaceModel || '',
+    effort: ally?.effort || s?.workspaceEffort || ''
   }
 }
 

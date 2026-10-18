@@ -75,7 +75,7 @@ const OTHER_FEATURES: Record<string, [file: string, needle: string]> = {
   'project-window': ['src/main/index.ts', 'export function openProject'],
   'project-cli': ['src/main/index.ts', 'projectFromArgv'],
   'file-menu': ['src/renderer/src/App.tsx', '<FileMenu'],
-  'inventory-chat': ['src/main/wksp.ts', 'hasInventoryChips'],
+  'inventory-chat': ['src/main/workspace.ts', 'hasInventoryChips'],
   'genio-panel': ['src/renderer/src/components/GenioPanel.tsx', 'screenContextFor'],
   'inventory-index': ['src/main/inventory.ts', "feature: 'inventory-index'"],
   terminal: ['src/main/terminal-pane.ts', 'export function runShell'],
@@ -186,7 +186,7 @@ describe('achievement feature coverage', () => {
   })
   it('covers all explicitly player-facing Genio tools', () => {
     const tags = new Set(LIVE.map((a) => a.feature))
-    const source = readFileSync('src/main/wksp-tools.ts', 'utf8')
+    const source = readFileSync('src/main/workspace-tools.ts', 'utf8')
     const registered = [...source.matchAll(/\bt\(\s*'([^']+)'/g)].map((m) => m[1])
     for (const tool of registered) {
       expect(tool in PLAYER_FACING_TOOLS || SUPPORTING_TOOLS.includes(tool),

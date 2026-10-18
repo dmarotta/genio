@@ -13,7 +13,7 @@ const quest = (id: string, patch: Partial<BacklogItem> = {}): BacklogItem => ({
   createdAt: T0, updatedAt: T0, project: 'world', ...patch
 })
 const unit = (id: string, patch: Partial<Task> = {}): Task => ({
-  id, kind: 'ship', title: id, project: 'world', wksp: 'main', branchPrefix: 'genio/', baseBranch: 'main', branch: `genio/${id}`,
+  id, kind: 'ship', title: id, project: 'world', workspace: 'main', branchPrefix: 'genio/', baseBranch: 'main', branch: `genio/${id}`,
   worktree: `/wt/${id}`, briefPath: `/b/${id}`, harness: 'claude', state: 'working', createdAt: T0, updatedAt: T0,
   inbox: { seq: 0, acked: 0, rings: 0 }, statusOffset: 0, relaunches: 0, ...patch
 } as Task)

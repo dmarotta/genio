@@ -59,7 +59,7 @@ describe('preview thumbnail payload', () => {
     expect(first.context?.thumbnail?.status).toBe('attached')
     const ref = { file: 'saved.webp', mediaType: 'image/webp' as const }
     first.context!.thumbnail!.image = ref
-    const history: ChatMessage[] = [{ id: '1', wksp: 'main', role: 'player', text: 'this', ts: 'now', context: first.context }]
+    const history: ChatMessage[] = [{ id: '1', workspace: 'main', role: 'player', text: 'this', ts: 'now', context: first.context }]
     const next = context(); next.preview!.path = 'identical.png'
     const again = await prepareInventoryContext(next, [], thumbnail, () => history)
     expect(again.images).toHaveLength(0)

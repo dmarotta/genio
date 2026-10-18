@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DesignChatInfo } from '../src/shared/types'
 import type { DesignNote } from '../src/shared/design-notes'
 
-vi.hoisted(() => window.history.replaceState(null, '', '/?project=forest&wksp=forest'))
+vi.hoisted(() => window.history.replaceState(null, '', '/?project=forest&workspace=forest'))
 vi.mock('../src/renderer/src/components/ModelSelect', () => ({
   ModelSelect: (p: { value: string }) => React.createElement('select', { 'aria-label': 'Model', value: p.value, onChange: () => {} }),
   EffortSelect: (p: { value: string }) => React.createElement('select', { 'aria-label': 'Effort', value: p.value, onChange: () => {} })
@@ -16,7 +16,7 @@ import { getState, handleEvent, setState } from '../src/renderer/src/store'
 import { getScreenContext } from '../src/renderer/src/lib/screen-context'
 import { RAIL, navItems } from '../src/renderer/src/lib/railmenu'
 
-const WKSP = 'forest'
+const WORKSPACE = 'forest'
 const initial = getState()
 const chat = (id: string, title: string, over: Partial<DesignChatInfo> = {}): DesignChatInfo =>
   ({ id, title, createdAt: '2026-10-17T09:00:00Z', model: '', effort: '', activity: 'offline', queued: 0, costUsd: 0, turns: 1, ...over })
@@ -71,8 +71,8 @@ afterEach(async () => {
 describe('Lore screen', () => {
   it('with nothing yet, shows one plain line and New chat', async () => {
     await render()
-    expect(api.designChats).toHaveBeenCalledWith(WKSP)
-    expect(api.designNotes).toHaveBeenCalledWith(WKSP)
+    expect(api.designChats).toHaveBeenCalledWith(WORKSPACE)
+    expect(api.designNotes).toHaveBeenCalledWith(WORKSPACE)
     expect(host.querySelector('.design-empty')?.textContent).toBe(DESIGN_EMPTY)
     expect(DESIGN_EMPTY).toBe('No Lore chats yet. Start one with New chat.')
     expect(host.querySelector('.design-list h1')?.textContent).toBe('Lore')
@@ -91,7 +91,7 @@ describe('Lore screen', () => {
     expect(host.querySelector('.design-item.on')?.textContent).toBe('Gold sinks and the market')
     expect(title()).toBe('Gold sinks and the market')
     expect(host.querySelector('.design-head')).toBeNull()
-    expect(api.chatHistory).toHaveBeenCalledWith(WKSP, 300, 'd-0000000b')
+    expect(api.chatHistory).toHaveBeenCalledWith(WORKSPACE, 300, 'd-0000000b')
     // the chat view with its model and effort only: no status bar, approval mode, Clean HUD, shell or quick links
     expect(host.querySelector('textarea')?.placeholder).toBe('Message the Lore chat')
     expect([...host.querySelectorAll('.composer select')].map(s => s.getAttribute('aria-label'))).toEqual(['Model', 'Effort'])
@@ -109,16 +109,16 @@ describe('Lore screen', () => {
     const area = host.querySelector('textarea')!
     await typeInto(area, 'Be a harsh critic')
     await act(async () => { area.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
-    expect(api.sendChat).toHaveBeenCalledWith(WKSP, 'Be a harsh critic', undefined, undefined, 'd-0000000a')
-    await act(async () => handleEvent({ type: 'design-chat', wksp: WKSP, conversation: 'd-0000000a', message: { id: 'r1', wksp: WKSP, role: 'genio', text: 'Three loops.', ts: '2026-10-17T09:01:00Z' } }))
-    expect(getState().chats[WKSP]).toBeUndefined()
+    expect(api.sendChat).toHaveBeenCalledWith(WORKSPACE, 'Be a harsh critic', undefined, undefined, 'd-0000000a')
+    await act(async () => handleEvent({ type: 'design-chat', workspace: WORKSPACE, conversation: 'd-0000000a', message: { id: 'r1', workspace: WORKSPACE, role: 'genio', text: 'Three loops.', ts: '2026-10-17T09:01:00Z' } }))
+    expect(getState().chats[WORKSPACE]).toBeUndefined()
     const reply = host.querySelector('.msg.genio')!
     expect(reply.textContent).toContain('Three loops.')
     expect(reply.querySelector('.msg-meta')?.textContent).not.toMatch(/Genio/)
     expect(reply.querySelector('.msg-avatar')).toBeNull()
     expect(reply.querySelector('.msg-react')).toBeNull()
     // another project's Lore chat never shows here
-    await act(async () => handleEvent({ type: 'design-chats', wksp: 'other', chats: [] }))
+    await act(async () => handleEvent({ type: 'design-chats', workspace: 'other', chats: [] }))
     expect(items('Chats')).toEqual(['Combat loop'])
   })
 
@@ -127,7 +127,7 @@ describe('Lore screen', () => {
     await render()
     await act(async () => button('New chat')!.click())
     await flush()
-    expect(api.designChatCreate).toHaveBeenCalledWith(WKSP)
+    expect(api.designChatCreate).toHaveBeenCalledWith(WORKSPACE)
     expect(items('Chats')).toEqual(['New chat', 'Combat loop'])
     expect(title()).toBe('New chat')
     expect(fact()).toEqual([{ label: 'Lore chat', value: 'New chat' }])
@@ -147,7 +147,7 @@ describe('Lore screen', () => {
     expect([...menu.querySelectorAll('[role="menuitem"]')].map(b => b.textContent)).toEqual(['Delete chat'])
     await act(async () => button('Delete chat', menu)!.click())
     await flush()
-    expect(api.designChatDelete).toHaveBeenCalledWith(WKSP, 'd-0000000b')
+    expect(api.designChatDelete).toHaveBeenCalledWith(WORKSPACE, 'd-0000000b')
     expect(items('Chats')).toEqual(['Combat loop'])
     expect(title()).toBe('Combat loop')
     expect(document.querySelector('[role="menu"]')).toBeNull()
@@ -176,7 +176,7 @@ describe('Lore screen', () => {
     expect(button('Save file')!.disabled).toBe(false)
     await act(async () => area.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true })))
     await flush()
-    expect(api.designNoteWrite).toHaveBeenCalledWith(WKSP, 'combat', edited, combat.version)
+    expect(api.designNoteWrite).toHaveBeenCalledWith(WORKSPACE, 'combat', edited, combat.version)
     expect(host.querySelector('.design-note textarea')).toBeNull()
     expect(host.querySelector('.design-note')?.textContent).toContain('Wood.')
   })

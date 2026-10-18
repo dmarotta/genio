@@ -102,12 +102,12 @@ describe('overwatch records resumed work on a ready unit', () => {
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-resumed-'))
     home = new Home(root); home.ensure()
-    const task = { id: 'unit', title: 'Fix', kind: 'ship', mode: 'local-only', project: 'world', wksp: 'main', harness: 'claude',
+    const task = { id: 'unit', title: 'Fix', kind: 'ship', mode: 'local-only', project: 'world', workspace: 'main', harness: 'claude',
       state: 'working', terminalId: 'pty', worktree: root, branch: 'genio/unit', relaunches: 0,
       inbox: { seq: 0, acked: 0, rings: 0 }, createdAt: new Date(Date.now() - 3_600_000).toISOString(), updatedAt: new Date().toISOString() } as Task
     fs.writeFileSync(home.tasksFile, JSON.stringify([task]))
     terminal = live({ processSpawnedAt: Date.now() - 3_600_000 })
-    const hc = { home, crew: undefined as any, wakes: undefined as any, wksp: { deliverWakes: vi.fn() }, decisions: { list: () => [] } }
+    const hc = { home, crew: undefined as any, wakes: undefined as any, workspace: { deliverWakes: vi.fn() }, decisions: { list: () => [] } }
     ctx = { main: hc, home: () => hc, homes: new Map([['main', hc]]),
       settings: { get: () => ({ signalGraceSeconds: 30, usageMode: 'balanced' }), harness: () => undefined },
       terminals: { get: () => terminal, lastOutputAt: () => Date.now(), submit: vi.fn(async () => {}) },

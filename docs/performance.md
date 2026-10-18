@@ -75,7 +75,7 @@ renderer's main thread, while the player is typing.
 Three main-process habits added load that grows with the number of agents:
 
 - every bus event built a full fleet snapshot before routing, including the
-  thousands of `chat-delta` and `wksp` activity events per reply;
+  thousands of `chat-delta` and `workspace` activity events per reply;
 - the Hub window received every chat delta, chat message and terminal chunk of
   every project although it has no screen for them;
 - the usage scan (Settings › Accounts & keys, dispatch signals, every 5 minutes and at
@@ -110,7 +110,7 @@ Main process (synthetic Base, Hub plus one project window open):
 | 2,000 streamed deltas: fleet snapshots built | 2,000 | 0 |
 | 2,000 streamed deltas: IPC messages sent | 4,000 | 14 (one per 40 ms flush, project window only) |
 | 2,000 streamed deltas: IPC bytes | 306 KB | 22 KB |
-| 5,000 activity (`wksp`) events: wall time | 259 ms | 6 ms |
+| 5,000 activity (`workspace`) events: wall time | 259 ms | 6 ms |
 | 5,000 activity events: fleet snapshots built | 5,000 | 0 |
 | 30-tool turn: IPC bytes (growing partial message) | 8.76 MB | 4.40 MB |
 | 30-tool turn: fleet snapshots built | 92 | 0 |

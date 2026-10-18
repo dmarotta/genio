@@ -1,6 +1,6 @@
 # Shared chat tool bridge
 
-`src/main/wksp-tools.ts` now owns Genio's names, Zod schemas, handlers and existing role guards. `wksp-sdk-tools.ts` contains the extracted Claude SDK adapter; `wksp-tools.ts` re-exports it for existing callers. Keeping the registrations at their original source location also preserves the existing achievement coverage check unchanged. Both adapters validate arguments and invoke the same service handlers in the existing `AppCtx`. No second application, fleet manager or worker harness is started.
+`src/main/workspace-tools.ts` now owns Genio's names, Zod schemas, handlers and existing role guards. `workspace-sdk-tools.ts` contains the extracted Claude SDK adapter; `workspace-tools.ts` re-exports it for existing callers. Keeping the registrations at their original source location also preserves the existing achievement coverage check unchanged. Both adapters validate arguments and invoke the same service handlers in the existing `AppCtx`. No second application, fleet manager or worker harness is started.
 
 `chat-tool-policy.ts` owns the existing Claude policy and the common asynchronous `enforceTool` interface. It reads the current approval mode at call time and uses `AppCtx.permissions.ask`, so the existing permission UI and Ask / Auto-approve shell / YOLO behavior are preserved. Registered Genio tools clear their own destructive and outward-facing steps through `clearAction`, which asks the same broker according to the same mode, whichever runtime called them ([chat authority](chat-authority.md)); spend and placement keep their own approvals, which YOLO does not bypass.
 
@@ -10,7 +10,7 @@ The next chat driver calls `openChatToolBridge(() => ctx, { home, role, worlds, 
 
 The returned `entry` is `resources/genio-chat-mcp.mjs`. Launch it with Node (or Electron with `ELECTRON_RUN_AS_NODE=1`) and the returned `env`, which contains a loopback endpoint and a random per-session token. Keep these values in the child environment, never command arguments, model context, logs, settings or saved MCP configuration. The helper has no package dependencies. Include `resources/` in the application distribution, as with existing bundled helpers.
 
-The helper implements newline-delimited stdio MCP initialize, ping, tool discovery and calls. It forwards requests to the app; it does not execute tools. It never retries a request whose outcome is uncertain. EOF and normal shutdown revoke the endpoint. A heartbeat exits the helper after app-side closure. The app also revokes every bridge belonging to a chat during `WkspService.stop` and `restart`; ally retirement and app shutdown already use that lifecycle. Closing prevents new calls but cannot undo a service action that has already started.
+The helper implements newline-delimited stdio MCP initialize, ping, tool discovery and calls. It forwards requests to the app; it does not execute tools. It never retries a request whose outcome is uncertain. EOF and normal shutdown revoke the endpoint. A heartbeat exits the helper after app-side closure. The app also revokes every bridge belonging to a chat during `WorkspaceService.stop` and `restart`; ally retirement and app shutdown already use that lifecycle. Closing prevents new calls but cannot undo a service action that has already started.
 
 ## Authority and transport boundaries
 

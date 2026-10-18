@@ -23,7 +23,7 @@ export function inheritMainHistory(source: Home, target: Home): void {
   const marker = path.join(target.state, 'main-history-imported.json')
   if (fs.existsSync(marker)) return
   const old = compactChat(readJsonl<ChatMessage>(source.chatFile)).map(message => ({
-    ...message, wksp: target.name, ...(message.queue === 'queued' ? { queue: 'unsent' as const } : {})
+    ...message, workspace: target.name, ...(message.queue === 'queued' ? { queue: 'unsent' as const } : {})
   }))
   const messages = new Map(old.map(message => [message.id, message]))
   for (const message of compactChat(readJsonl<ChatMessage>(target.chatFile))) messages.set(message.id, message)

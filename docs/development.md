@@ -95,6 +95,10 @@ interrupted run resumes at the repair step. To go back to a build that uses `wks
 checkpointed files and re-points the git worktrees. A restored base is not migrated again until
 `backups/workspaces-migration/` is removed.
 
+Records written before the "wksp" concept became "workspace" keep loading: `src/main/legacy-keys.ts` renames the old
+`wksp…` keys on read (JSON and JSONL through `readJson`/`readJsonl`), and `Home.workspaceFileToRead` falls back to the
+old `state/wksp.json`. Only the new keys are written.
+
 Registered projects own their units, quests and choices in their project base. Startup migrates legacy ownership once
 with a durable backup checkpoint; existing unit artifact and worktree paths stay valid.
 

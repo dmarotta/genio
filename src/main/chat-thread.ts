@@ -1,5 +1,5 @@
 /**
- * One visible chat's transcript and send queue, shared by the project chat (wksp.ts) and design chats
+ * One visible chat's transcript and send queue, shared by the project chat (workspace.ts) and design chats
  * (design-chats.ts): the log on disk, messages shown queued before their turn is ready, steering, and the
  * images a queued message carries. The owner keeps its own session and what a turn means.
  */
@@ -16,7 +16,7 @@ import { appendJsonl, nowIso, readJsonl, readJsonlAsync, rid } from './util'
 
 export interface ChatThreadOptions {
   /** the base name every message carries */
-  wksp: string
+  workspace: string
   file: string
   imageDir: string
   readOnly?: boolean
@@ -80,7 +80,7 @@ export function createChatThread(o: ChatThreadOptions) {
     o.publish(m)
   }
   const say = (text: string, role: ChatMessage['role'] = 'genio'): ChatMessage => {
-    const m: ChatMessage = { id: `s-${rid(6)}`, wksp: o.wksp, role, text, ts: nowIso() }
+    const m: ChatMessage = { id: `s-${rid(6)}`, workspace: o.workspace, role, text, ts: nowIso() }
     record(m, true)
     return m
   }
@@ -156,7 +156,7 @@ export function createChatThread(o: ChatThreadOptions) {
   const showQueued = (text: string, images: ChatImageInput[], context?: InventoryContext): ShownMessage => {
     // stored first so a bad image fails the send before anything is shown (the composer keeps the draft)
     const stored = saveChatImages(o.imageDir, images)
-    const m = inboundMessage(o.wksp, text, 'player')
+    const m = inboundMessage(o.workspace, text, 'player')
     const route = o.route()
     m.queue = 'queued'
     m.provider = route.provider
