@@ -4,7 +4,7 @@ import type { SettingsService } from './services'
 import type { Home } from './home'
 import { bus } from './bus'
 import { mergeHarnesses } from './harness'
-import { mergeCategoryPools } from '@shared/dispatch'
+import { normalizeCategoryPools } from '@shared/dispatch'
 import { readJson, which, writeJson } from './util'
 import { migrateUsageSettings } from './usage-policy'
 import { DEFAULT_USAGE_MODE } from '@shared/usage-mode'
@@ -17,7 +17,7 @@ export function defaultSettings(): Settings {
     wkspModel: '',
     wkspEffort: '',
     botModel: '',
-    defaultHarness: 'claude',
+    defaultHarness: '',
     defaultWorkerModel: '',
     defaultWorkerEffort: '',
     claudePermissionMode: 'bypass',
@@ -61,14 +61,14 @@ export function defaultSettings(): Settings {
     genioCoAuthorIdentity: 'Genio <noreply@genio.invalid>',
     harnesses: mergeHarnesses(undefined),
     dispatchRules: [],
-    categoryPools: mergeCategoryPools(undefined),
+    categoryPools: [],
     costDial: 'balanced',
     explorationRate: 0,
     usageMode: DEFAULT_USAGE_MODE,
     unitsAtOnce: DEFAULT_UNITS_AT_ONCE,
     quotaProtection: true,
     cheapSpendAllowed: false,
-    autoReorder: true,
+    plainModelDefaults: true,
     eventSources: [],
     firstRunDone: false,
     featureTips: true
@@ -79,7 +79,7 @@ export function createSettingsService(home: Home): SettingsService {
   const defaults = defaultSettings()
   const stored = readJson<Partial<Settings>>(home.settingsFile, {})
   const saved = migrateUsageSettings(stored)
-  let current: Settings = { ...defaults, ...saved, harnesses: mergeHarnesses(saved.harnesses), categoryPools: mergeCategoryPools(saved.categoryPools) }
+  let current: Settings = { ...defaults, ...saved, harnesses: mergeHarnesses(saved.harnesses), categoryPools: normalizeCategoryPools(saved.categoryPools) }
   if (!saved.inboxToken || saved !== stored) writeJson(home.settingsFile, current)
 
   const svc: SettingsService = {
@@ -87,7 +87,7 @@ export function createSettingsService(home: Home): SettingsService {
     save(patch) {
       const next: Settings = { ...current, ...patch, unitsAtOnce: normalizeUnitsAtOnce(patch.unitsAtOnce, current.unitsAtOnce) }
       if (patch.harnesses) next.harnesses = mergeHarnesses(patch.harnesses)
-      if (patch.categoryPools) next.categoryPools = mergeCategoryPools(patch.categoryPools)
+      if (patch.categoryPools) next.categoryPools = normalizeCategoryPools(patch.categoryPools)
       const enteredYolo = current.chatShellMode !== 'all' && next.chatShellMode === 'all'
       const changedUnitsAtOnce = next.unitsAtOnce !== current.unitsAtOnce
       const changedProtection = current.quotaProtection !== next.quotaProtection

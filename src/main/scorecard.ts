@@ -1,5 +1,5 @@
 /**
- * Dispatch scorecard and the learning loop around it.
+ * Dispatch scorecard: history of how units did, plus proposals for the player.
  *
  * When a unit ends (landed, despawned or failed) one outcome record per task
  * is upserted into data/dispatch/scorecard.json. Each record scores 0-1 (did
@@ -7,16 +7,13 @@
  * are recency-weighted per (category, tool, model), and per (rule, tool, model)
  * for picks a rule made.
  *
- * Guardrails (thresholds in LEARNING, src/shared/dispatch.ts):
- *   - automatic: swap two neighbouring candidates of a category row or a rule
- *     (same spend priority) when both have at least `minSamples` outcomes and
- *     the lower one scores at least `reorderMargin` higher;
- *   - needs the player's OK: adding or removing a candidate is proposed as a
- *     choice under Your Move, with the evidence; accepting it applies it;
- *   - locked rows and rules are never touched.
+ * The scorecard never picks or reorders a model. Thresholds in LEARNING
+ * (src/shared/dispatch.ts): adding or removing a candidate of the player's own
+ * category rows and rules is proposed as a choice under Your Move, with the
+ * evidence; only accepting it applies it.
  */
 import path from 'node:path'
-import type { CategoryPool, Decision, DispatchProposal, DispatchRule, PoolCandidate, Settings, Task, Verdict } from '@shared/types'
+import type { Decision, DispatchProposal, PoolCandidate, Settings, Task, Verdict } from '@shared/types'
 import { LEARNING, candidateKey, categoryLabel, isCategory, type LearningEvent, type OutcomeRecord, type ScoreRow } from '@shared/dispatch'
 import type { DecisionService } from './services'
 import { appendLine, nowIso, readJson, readJsonl, writeJson } from './util'
@@ -188,64 +185,11 @@ const proven = (r: ScoreRow | undefined, min = LEARNING.minSamples): r is ScoreR
 const who = (c: { harness: string; model?: string }): string => (c.model ? `${c.harness} / ${c.model}` : c.harness)
 const ev = (c: { harness: string; model?: string }, r: ScoreRow): string => `${who(c)} landed ${r.landed}/${r.samples} (score ${r.score.toFixed(2)})`
 
-// ---------------------------------------------------------------- automatic reordering
-
-/** Neighbour swaps the evidence clearly supports; `scopeOf(i)` names the scorecard scope. */
-function reorder<T extends { harness: string; model?: string }>(list: T[], scope: string, rows: ScoreRow[], sameTier: (a: T, b: T) => boolean): { list: T[]; swaps: string[] } {
-  const out = list.slice()
-  const swaps: string[] = []
-  for (let pass = 0; pass < out.length; pass++) {
-    let changed = false
-    for (let i = 0; i + 1 < out.length; i++) {
-      const a = out[i]
-      const b = out[i + 1]
-      if (!sameTier(a, b)) continue
-      const ra = rowFor(rows, scope, a)
-      const rb = rowFor(rows, scope, b)
-      if (!proven(ra) || !proven(rb)) continue
-      if (rb.score - ra.score < LEARNING.reorderMargin) continue
-      out[i] = b
-      out[i + 1] = a
-      swaps.push(`${ev(b, rb)} now ahead of ${ev(a, ra)}`)
-      changed = true
-    }
-    if (!changed) break
-  }
-  return { list: out, swaps }
-}
-
-export interface ReorderResult {
-  categoryPools: CategoryPool[]
-  dispatchRules: DispatchRule[]
-  changes: string[]
-}
-
-/** Reorders candidates within unlocked category rows and rules; undefined when nothing moves. */
-export function planReorder(s: Pick<Settings, 'categoryPools' | 'dispatchRules'>, rows: ScoreRow[]): ReorderResult | undefined {
-  const changes: string[] = []
-  const categoryPools = s.categoryPools.map((p) => {
-    if (p.locked) return p
-    const r = reorder(p.candidates, p.category, rows, () => true)
-    if (!r.swaps.length) return p
-    changes.push(...r.swaps.map((x) => `${categoryLabel(p.category)}: ${x}`))
-    return { ...p, candidates: r.list }
-  })
-  const dispatchRules = s.dispatchRules.map((rule) => {
-    if (rule.locked) return rule
-    const r = reorder(rule.candidates, `rule:${rule.id}`, rows, (a, b) => (a.spendPriority ?? 0) === (b.spendPriority ?? 0))
-    if (!r.swaps.length) return rule
-    changes.push(...r.swaps.map((x) => `rule "${rule.match || 'catch-all'}": ${x}`))
-    return { ...rule, candidates: r.list }
-  })
-  return changes.length ? { categoryPools, dispatchRules, changes } : undefined
-}
-
 // ---------------------------------------------------------------- proposals (need the player's OK)
 
 export function planProposals(s: Pick<Settings, 'categoryPools' | 'dispatchRules'>, rows: ScoreRow[]): DispatchProposal[] {
   const out: DispatchProposal[] = []
   for (const p of s.categoryPools) {
-    if (p.locked) continue
     const label = categoryLabel(p.category)
     for (const c of p.candidates) {
       const r = rowFor(rows, p.category, c)
@@ -265,7 +209,7 @@ export function planProposals(s: Pick<Settings, 'categoryPools' | 'dispatchRules
     }
   }
   for (const rule of s.dispatchRules) {
-    if (rule.locked || rule.candidates.length < 2) continue
+    if (rule.candidates.length < 2) continue
     for (const c of rule.candidates) {
       const r = rowFor(rows, `rule:${rule.id}`, c)
       if (proven(r, LEARNING.removeMinSamples) && r.score < LEARNING.removeBelow) {
@@ -303,7 +247,7 @@ export function openProposals(decisions: DecisionService, proposals: DispatchPro
       decisions.open({
         key,
         question: proposalQuestion(p, s),
-        context: `Dispatch learning: ${p.evidence}.\n\nAccepting changes the dispatch table in ${settingsPath('dispatch')}; locked rows and rules are never touched.`,
+        context: `Dispatch learning: ${p.evidence}.\n\nAccepting changes your dispatch table in ${settingsPath('dispatch')}.`,
         options: PROPOSAL_OPTIONS,
         recommendation: PROPOSAL_OPTIONS[0],
         source: 'system',
@@ -317,16 +261,16 @@ export function openProposals(decisions: DecisionService, proposals: DispatchPro
 export const acceptsProposal = (d: Pick<Decision, 'options'>, answer: string): boolean =>
   answer.trim() === (d.options[0] ?? PROPOSAL_OPTIONS[0]) || /^(apply|yes|ok|okay|accept|do it|sure|approved?)\b/i.test(answer.trim())
 
-/** The settings patch a proposal makes; undefined when its target is gone or locked. */
+/** The settings patch a proposal makes; undefined when its target is gone. */
 export function applyProposal(s: Pick<Settings, 'categoryPools' | 'dispatchRules'>, p: DispatchProposal): Partial<Settings> | undefined {
   const same = (c: { harness: string; model?: string }): boolean => candidateKey(c) === candidateKey(p.candidate)
   if (p.op === 'rule-drop-candidate') {
     const rule = s.dispatchRules.find((r) => r.id === p.ruleId)
-    if (!rule || rule.locked || !rule.candidates.some(same) || rule.candidates.length < 2) return undefined
+    if (!rule || !rule.candidates.some(same) || rule.candidates.length < 2) return undefined
     return { dispatchRules: s.dispatchRules.map((r) => (r.id === rule.id ? { ...r, candidates: r.candidates.filter((c) => !same(c)) } : r)) }
   }
   const pool = s.categoryPools.find((x) => x.category === p.category)
-  if (!pool || pool.locked) return undefined
+  if (!pool) return undefined
   if (p.op === 'pool-add') {
     if (pool.candidates.some(same)) return undefined
     return { categoryPools: s.categoryPools.map((x) => (x === pool ? { ...x, candidates: [p.candidate, ...x.candidates] } : x)) }

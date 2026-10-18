@@ -33,17 +33,17 @@ describe('the sign-in warning on the rail', () => {
   })
 
   it('names the tool that needs a sign-in, opens Accounts on click, and clears itself', async () => {
-    await act(async () => handleEvent({ type: 'sign-in-needed', tools: ['Codex'] }))
+    await act(async () => handleEvent({ type: 'sign-in-needed', tools: ['Codex'], gate: false }))
     expect(host.querySelector('.rail-badge.amber')?.textContent).toBe('1')
     expect(host.textContent).toContain('Codex is not signed in')
     expect(host.textContent).not.toContain('Claude is not signed in')
     const label = [...host.querySelectorAll('button')].find(b => b.getAttribute('aria-label')?.includes('not signed in'))!
     await act(async () => label.click())
     expect(nav.open).toHaveBeenCalledWith('accounts')
-    await act(async () => handleEvent({ type: 'sign-in-needed', tools: ['Claude', 'Codex'] }))
+    await act(async () => handleEvent({ type: 'sign-in-needed', tools: ['Claude', 'Codex'], gate: true }))
     expect(host.textContent).toContain('Claude is not signed in')
     expect(host.textContent).toContain('Codex is not signed in')
-    await act(async () => handleEvent({ type: 'sign-in-needed', tools: [] }))
+    await act(async () => handleEvent({ type: 'sign-in-needed', tools: [], gate: false }))
     expect(host.querySelector('.rail-badge.amber')).toBeNull()
     expect(host.textContent).not.toContain('not signed in')
   })

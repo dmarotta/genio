@@ -11,6 +11,7 @@ import type {
   ReactionKind, DesignChatInfo
 } from './types'
 import type { DispatchScoresView } from './dispatch'
+import type { SignIns } from './unit-model-policy'
 import type { PaneCwd } from './terminal-pane'
 import type { ChatImageInput } from './chat-images'
 import type { InventoryInfo, InventoryQuery, InventoryResult, InventoryState } from './inventory'
@@ -163,6 +164,28 @@ export function signInNeeds(list: AccountStatus[]): ('Claude' | 'Codex')[] {
   const codex = runtime.find(a => a.tool === 'codex')
   if (codex?.installed && codex.state === 'logged-out') out.push('Codex')
   return out
+}
+
+/**
+ * Claude's and Codex's sign-in through the login each runtime uses: true signed
+ * in, false not signed in or not installed, undefined when the state could not
+ * be read. Picks the default model (Claude, else Codex).
+ */
+export function signInsOf(list: AccountStatus[]): SignIns {
+  const runtime = runtimeAccounts(list)
+  const of = (tool: string): boolean | undefined => {
+    const a = runtime.find(x => x.tool === tool)
+    if (!a?.installed) return false
+    return a.state === 'logged-in' ? true : a.state === 'logged-out' ? false : undefined
+  }
+  return { claude: of('claude'), codex: of('codex') }
+}
+
+/** The launcher's gate: neither Claude nor Codex is signed in. A state that could not be read never blocks. */
+export function launchNeedsSignIn(list: AccountStatus[]): boolean {
+  if (!list.length) return false
+  const s = signInsOf(list)
+  return s.claude === false && s.codex === false
 }
 
 /**
@@ -627,6 +650,8 @@ export interface GenioApi {
   accounts(): Promise<AccountStatus[]>
   /** the tools (Claude, Codex) that need a sign-in now; Genio's one sign-in warning */
   signInNeeded(): Promise<string[]>
+  /** The launcher's gate: true while neither Claude nor Codex is signed in */
+  signInGate(): Promise<boolean>
   /** runs the tool's own login/logout in a visible terminal */
   accountSession(tool: string, action: 'login' | 'logout'): Promise<TerminalInfo>
   /** plan limits reported by the CLIs plus usage Genio measured from local session logs */
@@ -814,6 +839,7 @@ export const API_METHODS = [
   'modelCatalogue',
   'accounts',
   'signInNeeded',
+  'signInGate',
   'accountSession',
   'accountUsage',
   'usagePolicy',

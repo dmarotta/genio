@@ -1,15 +1,15 @@
 /**
- * Smart dispatch service: the live signals the loadout picker needs (who is
- * logged in, plan quota, the cheap-model gate, the Usage mode and unit caps, scorecard
- * scores), the scorecard itself, the player's verdicts and the learning loop
- * (scorecard.ts). Previews use a background cache; launches scan local evidence,
+ * Dispatch service: the live signals the loadout picker needs (who is logged
+ * in, plan quota, the cheap-model gate, unit caps), the scorecard itself, the
+ * player's verdicts and the scorecard's proposals (scorecard.ts), which never
+ * change a model without the player. Previews use a background cache; launches scan local evidence,
  * claim a provider reservation and recheck immediately before terminal creation.
  */
 import { runtimeAccounts, type AccountStatus, type OpResult, type UsageReport } from '@shared/api'
 import type { BacklogItem, Decision, Task, Verdict } from '@shared/types'
 import { cheapModelsAllowed, type DispatchScoresView } from '@shared/dispatch'
 import {
-  MODE_PRESETS, SONNET, isPlan, meterRows, planStatus, planStatuses, quotaWait, reconWords, resolveChat,
+  isPlan, meterRows, planStatus, planStatuses, quotaWait, reconWords,
   type PlanStatus, type QuotaWait, type UsagePolicyView
 } from '@shared/usage-mode'
 import { unitCaps } from '@shared/unit-capacity'
@@ -18,19 +18,20 @@ import { listAccounts } from './accounts'
 import { resolveLoadout, cheapGate, type PickEnv, type QuotaWindow } from './loadout'
 import { getSecret } from './secrets'
 import {
-  acceptsProposal, appendLearning, applyProposal, buildOutcome, createScorecard, openProposals, outcomeOf, planProposals, planReorder,
+  acceptsProposal, appendLearning, applyProposal, buildOutcome, createScorecard, openProposals, outcomeOf, planProposals,
   readLearning, scoreTable, scorecardFile, type Scorecard
 } from './scorecard'
 import type { AppCtx, DispatchService, HomeCtx } from './services'
 import { claudeLimits, readClaudeLimits, quotaFromUsage, usageReport } from './usage'
-import { expireWindow, explorationSafe } from './quota-policy'
+import { expireWindow } from './quota-policy'
 import { SessionQuotaPolicy } from './session-usage'
-import { PolicyNotices, claudeStatus, globalMode, holdsCapacity, liveUnits, worldUsage } from './usage-policy'
+import { PolicyNotices, chatSettings, globalMode, holdsCapacity, liveUnits, worldUsage } from './usage-policy'
 import { readJson } from './util'
 import { claudeProbeError } from './claude-usage-probe'
 import { codexSignedOut } from './codex-home'
 import { settingsPath } from '@shared/settings-pages'
 import { usageRefreshLoop } from './usage-refresh'
+import { currentSignIns } from './sign-in-watch'
 import { QuotaDeferredQueue } from './quota-deferred'
 
 const USAGE_TTL = 5 * 60_000
@@ -168,20 +169,21 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
     return values.length ? Math.max(...values) : undefined
   }
 
+  /** Protection holds a plan (never switches it): a chat rejection, or fresh 70%+ with a unit already running or reserved on it. */
   const unavailable = (id: string, own?: { harness: string }, replacing?: Task): boolean => {
     if (!protection()) return false
     const ctx = getCtx()
-    return [...reservations].some(r => r !== own && r.harness === id) || (id === 'claude' && !unreadable.has(id) && !claudeReadError && new SessionQuotaPolicy(dataDir()).unitBlocked()) ||
+    return (id === 'claude' && !unreadable.has(id) && !claudeReadError && new SessionQuotaPolicy(dataDir()).unitBlocked()) ||
       // Fresh 70%+: at most one unit on that plan
-      (isPlan(id) && planStatus(id, quota[id]).level !== 'ok' && [...ctx.homes.values()].some((h) =>
-        h.crew.list().some((t) => !(replacing && t.id === replacing.id && t.wksp === replacing.wksp) && t.harness === id && holdsCapacity(t, alive(t)))))
+      (isPlan(id) && planStatus(id, quota[id]).level !== 'ok' && ([...reservations].some(r => r !== own && r.harness === id) || [...ctx.homes.values()].some((h) =>
+        h.crew.list().some((t) => !(replacing && t.id === replacing.id && t.wksp === replacing.wksp) && t.harness === id && holdsCapacity(t, alive(t))))))
   }
 
   const watcher = usageRefreshLoop(async () => {
     const report = await usageReport(getCtx())
     if (!watching) return true
     svc.noteUsage(report)
-    // Retried operations still pass through normal caps, pins, dependencies and permissions.
+    // Retried operations still pass through normal caps, dependencies and permissions, with the loadout they asked for.
     for (const h of homes()) void h.crew.retryQuotaDeferred().catch(() => undefined)
     return !report.tools.some(t => t.error)
   }, () => queued().length > 0 || homes().some(h => h.crew.hasQuotaDeferred() || h.wakes.pending().length > 0) ||
@@ -203,26 +205,12 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
       watcher.start()
     },
     stop() { watching = false; watcher.stop(); offSettings?.(); offSettings = undefined },
-    signals(project, opts = {}) {
+    signals(project) {
       refresh()
       const ctx = getCtx()
       readClaude()
-      const s = ctx.settings.get()
       const world = ctx.projects.get(project)
-      const usage = worldUsage(s, world ? { ...world, name: world.name ?? project } : undefined)
-      const env: Omit<PickEnv, 'available'> = {
-        loggedOut,
-        quota,
-        unavailable,
-        cheap: cheapFor(cheapModelsAllowed(world)),
-        mode: usage.mode,
-        modeFromWorld: usage.source !== 'global',
-        dial: world?.costDial ?? MODE_PRESETS[usage.mode].dial,
-        dialFromWorld: Boolean(world?.costDial),
-        stats: scoreTable(scorecard().list()),
-        rand: opts.preview ? undefined : Math.random,
-        preview: opts.preview
-      }
+      const env: Omit<PickEnv, 'available'> = { loggedOut, quota, unavailable, cheap: cheapFor(cheapModelsAllowed(world)) }
       return env
     },
 
@@ -239,7 +227,6 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
         if (!occupies) capGate(input.project, !!opts.respawn)
         const signals = { ...svc.signals(input.project), unavailable: (id: string) => unavailable(id, undefined, replacing) }
         const loadout = resolveLoadout(input, getCtx().settings, signals)
-        const primary = loadout.explored ? resolveLoadout(input, getCtx().settings, { ...signals, preview: true }).harness : undefined
         const reservation = { harness: loadout.harness }
         reservations.add(reservation)
         let released = false
@@ -262,10 +249,6 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
             svc.noteUsage(await usageReport(getCtx(), { forceClaude: plans.claude.level !== 'ok', forceCodex: plans.codex.level !== 'ok' }))
             const env = { ...svc.signals(input.project), unavailable: (id: string) => unavailable(id, reservation, replacing) }
             resolveLoadout({ ...input, harness: loadout.harness }, getCtx().settings, env)
-            if (loadout.explored && protection()) {
-              if (!explorationSafe(env.quota?.[primary!]) || !explorationSafe(env.quota?.[loadout.harness]))
-                throw new Error('deferred: exploration no longer has fresh headroom on both plans.')
-            }
           },
           release() { if (!released) { released = true; reservations.delete(reservation); listed() } }
         }
@@ -341,8 +324,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
         mode,
         quotaProtection: protection(),
         heldLaunches,
-        chat: resolveChat(mode, { model: s.wkspModel, effort: s.wkspEffort }, protection() ? plans.claude : undefined),
-        bot: { model: s.botModel?.trim() || SONNET, pinned: Boolean(s.botModel?.trim()) },
+        chat: (({ wkspModel, wkspEffort }) => ({ model: wkspModel, effort: wkspEffort }))(chatSettings(s, currentSignIns())),
         units: { defaultHarness: s.defaultHarness, model: s.defaultWorkerModel || undefined, effort: s.defaultWorkerEffort || undefined },
         unitCap: svc.capacity().cap,
         liveUnits: svc.capacity().used,
@@ -417,17 +399,9 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
     outcomes: () => scorecard().list(),
 
     learn() {
+      // The scorecard never changes a model by itself: it only proposes a change to the player's own rows and rules.
       const ctx = getCtx()
-      const s = ctx.settings.get()
       const rows = scoreTable(scorecard().list())
-      if (s.autoReorder) {
-        const plan = planReorder(s, rows)
-        if (plan) {
-          ctx.settings.save({ categoryPools: plan.categoryPools, dispatchRules: plan.dispatchRules })
-          for (const c of plan.changes) appendLearning(dataDir(), 'reorder', c)
-          bus.toast('info', 'Dispatch learned', plan.changes[0])
-        }
-      }
       const opened = openProposals(ctx.main.decisions, planProposals(ctx.settings.get(), rows), ctx.settings.get())
       for (const d of opened) appendLearning(dataDir(), 'proposal', d.question)
     },

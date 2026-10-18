@@ -4,7 +4,8 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { pickLoadout } from '../src/main/loadout'
 import { defaultSettings } from '../src/main/settings'
-import { blockedWindow, expireWindow, explorationSafe } from '../src/main/quota-policy'
+import { blockedWindow, expireWindow } from '../src/main/quota-policy'
+import { QuotaDeferredError } from '../src/main/quota-deferred'
 import { belongsToGenio, claudeLimitsFile, codexLimits, recordClaudeRateLimit } from '../src/main/usage'
 import { SessionCostLedger, SessionQuotaPolicy } from '../src/main/session-usage'
 import { relaunchPolicy } from '../src/main/relaunch-policy'
@@ -17,19 +18,6 @@ beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-usage-poli
 afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }) })
 
 describe('quota evidence', () => {
-  it('requires fresh, known, unrejected evidence from every applicable window to explore', () => {
-    expect(explorationSafe([cold], now)).toBe(true)
-    for (const bad of [
-      { ...cold, usedPercent: undefined }, { ...cold, usedPercent: 70 }, { ...cold, usedPercent: 97 },
-      { ...cold, status: 'rejected' }, { ...cold, observedAt: undefined },
-      { ...cold, observedAt: new Date(now - 600_001).toISOString() },
-      { ...cold, resetsAt: new Date(now).toISOString() }, { ...cold, stale: true }
-    ]) expect(explorationSafe([cold, bad], now)).toBe(false)
-    expect(explorationSafe(undefined, now)).toBe(false)
-    expect(explorationSafe([], now)).toBe(false)
-    expect(explorationSafe([{ ...cold, observedAt: new Date(now - 600_000).toISOString() }], now)).toBe(true)
-  })
-
   it('expires both cold and hot percentages and rejections to unknown', () => {
     const old = { ...cold, observedAt: new Date(now - 3600_000).toISOString() }
     expect(expireWindow(old, now)).toMatchObject({ stale: true, usedPercent: undefined, lastKnownUsedPercent: 11 })
@@ -51,31 +39,29 @@ describe('quota evidence', () => {
   })
 })
 
-describe('97% explored Recon regression', () => {
+describe('97% Claude Recon regression: nothing explores or moves into or out of a hot plan', () => {
   const input: LoadoutInput = { kind: 'scout', project: 'genio', title: 'Folder-first workspace', intent: 'Investigate folder-first sessions', category: 'recon-design' }
   const settings = { ...defaultSettings(), usageMode: 'max' as const,
     categoryPools: [{ category: 'recon-design' as const, candidates: [{ harness: 'codex' }, { harness: 'claude' }] }] }
-  const env = () => ({ available: (h: { id: string }) => ['claude', 'codex'].includes(h.id), rand: () => 0,
+  const env = () => ({ available: (h: { id: string }) => ['claude', 'codex'].includes(h.id),
     quota: { claude: [{ ...cold, resetsAt: undefined, observedAt: new Date().toISOString(), usedPercent: 97 }], codex: [{ ...cold, resetsAt: undefined, observedAt: new Date().toISOString() }] } })
 
-  it('never explores into the 97% Claude plan, even with a guaranteed exploration roll', () => {
-    expect(pickLoadout(input, settings, env())).toMatchObject({ harness: 'codex', explored: undefined })
+  it('runs the row the player wrote, as written', () => {
+    expect(pickLoadout(input, settings, env())).toMatchObject({ harness: 'codex', source: 'table' })
   })
 
-  it('excludes hot sticky, rule and pinned candidates', () => {
-    expect(pickLoadout({ ...input, sticky: { from: 'previous', harness: 'claude' } }, settings, env()).harness).toBe('codex')
-    expect(pickLoadout(input, { ...settings, dispatchRules: [{ id: 'r', match: '', candidates: [{ harness: 'claude', spendPriority: 100 }] }] }, env()).harness).toBe('codex')
-    expect(() => pickLoadout({ ...input, harness: 'claude' }, settings, env())).toThrow(/pinned/)
+  it('holds hot sticky, rule and explicit Claude picks instead of moving them to Codex', () => {
+    expect(() => pickLoadout({ ...input, sticky: { from: 'previous', harness: 'claude' } }, settings, env())).toThrow(QuotaDeferredError)
+    expect(() => pickLoadout(input, { ...settings, dispatchRules: [{ id: 'r', match: '', candidates: [{ harness: 'claude', spendPriority: 100 }, { harness: 'codex', spendPriority: 0 }] }] }, env())).toThrow(QuotaDeferredError)
+    expect(() => pickLoadout({ ...input, harness: 'claude' }, settings, env())).toThrow(/keeps its tool and model/)
   })
 
-  it('does not explore with an unknown primary, unknown alternate, critical work or pinned effort', () => {
+  it('never explores, whatever the evidence or priority', () => {
     const fresh = { ...cold, observedAt: new Date().toISOString(), resetsAt: undefined }
     const known = { ...env(), quota: { codex: [fresh], claude: [fresh] } }
-    expect(pickLoadout(input, settings, known).explored).toBe(true)
-    for (const quota of [{ codex: [fresh] }, { claude: [fresh] }, {}] as Record<string, typeof fresh[]>[])
-      expect(pickLoadout(input, settings, { ...known, quota }).explored).toBeUndefined()
-    expect(pickLoadout({ ...input, priority: 'critical' }, settings, known).explored).toBeUndefined()
-    expect(pickLoadout({ ...input, effort: 'high' }, settings, known).explored).toBeUndefined()
+    for (const extra of [{}, { priority: 'critical' as const }, { effort: 'high' }])
+      expect(pickLoadout({ ...input, ...extra }, settings, known).reasons.join('\n')).not.toMatch(/exploration/)
+    expect(pickLoadout(input, settings, known).harness).toBe('codex')
   })
 })
 

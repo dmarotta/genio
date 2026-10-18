@@ -29,7 +29,7 @@ import { createExplorerIntegration, explorerCommand } from './explorer'
 import { API_PREFIX, type GenioApi, type OpResult, type VoiceStatus, type WindowList } from '@shared/api'
 import type { BacklogItem, Task } from '@shared/types'
 import { listAccounts, openAccountSession } from './accounts'
-import { currentSignInNeeds, noteSignInAccounts } from './sign-in-watch'
+import { currentSignInGate, currentSignInNeeds, noteSignInAccounts, signInGateNow } from './sign-in-watch'
 import { answerChoice, applyRecommendations, findDecision, findTask } from './wksp-tools'
 import { resolveLoadout } from './loadout'
 import { sendPlayerChat } from './wksp'
@@ -313,6 +313,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
       return list
     },
     signInNeeded: async () => currentSignInNeeds(),
+    signInGate: async () => currentSignInGate(),
     accountSession: (tool, action) => openAccountSession(ctx(), tool, action),
     accountUsage: async () => {
       const r = await usageReport(ctx())
@@ -398,7 +399,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
     // ---- squad
     // A budget typed into the Deploy dialog is the player's own approval; nothing else from the renderer is.
     spawnTask: (req) => ctx().home(req.wksp ?? 'main').crew.spawn({ ...req, approvedBudget: req.approvedBudget ? { usd: Number(req.approvedBudget.usd), via: 'dialog' } : undefined }),
-    previewLoadout: async (req) => resolveLoadout(req, ctx().settings, ctx().dispatch.signals(req.project, { preview: true })),
+    previewLoadout: async (req) => resolveLoadout(req, ctx().settings, ctx().dispatch.signals(req.project)),
     rateTask: async (id, verdict, note) => ctx().dispatch.rate(id, verdict, note),
     dispatchScores: async () => ctx().dispatch.scores(),
     sendToTask: async (id, text, resolveKey) => {
@@ -489,8 +490,10 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
 
     // ---- worlds
     projectAdd: (req) => ctx().projects.add(req),
-    projectOpen: (folder) => {
+    projectOpen: async (folder) => {
       if (!windows) throw new Error('Project windows are unavailable.')
+      // The launcher's gate: a project opens only once Claude or Codex is signed in.
+      if (await signInGateNow()) throw new Error('Sign in with Claude or Codex first.')
       return windows.openProject(folder)
     },
     projectUpdate: (name, patch) => ctx().projects.update(name, patch),

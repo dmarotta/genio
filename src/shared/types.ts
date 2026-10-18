@@ -193,9 +193,10 @@ export interface Task {
   generator?: boolean
   /** A Modeller's or Generator's project paths (exports, .blend, build scripts, generated assets): no other Modeller or Generator may take them until this one lands. */
   claims?: string[]
-  /** who decided the unit tool, and whether exploration picked it */
+  /** who decided the unit tool */
   loadoutSource?: Loadout['source']
   ruleId?: string
+  /** history: an older version picked this tool by exploration */
   explored?: boolean
   /** rework signals for the scorecard */
   counters?: TaskCounters
@@ -733,11 +734,9 @@ export interface DispatchRule {
   project?: string
   /** ordered candidates; first available wins unless spendPriority says otherwise */
   candidates: { harness: string; model?: string; effort?: string; spendPriority: number }[]
-  /** never reordered or rewritten by the learning loop */
-  locked?: boolean
 }
 
-/** Fixed dispatch categories (src/shared/dispatch.ts has labels and the default table). */
+/** Fixed dispatch categories (src/shared/dispatch.ts has the labels). */
 export type TaskCategory =
   | 'recon-design' | 'feature' | 'bugfix' | 'refactor' | 'graphics' | 'ui' | 'review'
   | 'tests' | 'chore' | 'build-ci' | 'docs' | 'art' | 'large-context'
@@ -755,12 +754,10 @@ export interface PoolCandidate {
   cheap?: boolean
 }
 
-/** One row of the category table: ordered candidates for a category. */
+/** The player's row for a category: ordered candidates. A category without a row uses the default model. */
 export interface CategoryPool {
   category: TaskCategory
   candidates: PoolCandidate[]
-  /** never reordered or rewritten by the learning loop */
-  locked?: boolean
 }
 
 export interface TaskCounters {
@@ -776,10 +773,9 @@ export type DispatchProposal =
   | { op: 'pool-remove'; category: TaskCategory; candidate: PoolCandidate; evidence: string }
   | { op: 'rule-drop-candidate'; ruleId: string; candidate: PoolCandidate; evidence: string }
 
-/** What the loadout picker needs to know about a mission. Empty harness/model/effort = auto. */
+/** What the loadout picker needs to know about a mission. Empty harness/model/effort = the player's settings, else the default. */
 export interface LoadoutInput {
   kind: TaskKind
-  /** A Modeller Build defaults to Claude Opus unless its loadout is pinned. */
   modeller?: boolean
   project: string
   title: string
@@ -790,7 +786,6 @@ export interface LoadoutInput {
   effort?: string
   /** passed by Genio at deploy; absent = keyword heuristic */
   category?: TaskCategory
-  /** the quest's priority: critical work is never explored */
   priority?: Priority
   /** a follow-up on the same quest keeps this loadout */
   sticky?: { from: string; harness: string; model?: string; effort?: string; category?: TaskCategory }
@@ -800,12 +795,10 @@ export interface Loadout {
   harness: string
   model?: string
   effort?: string
-  /** who decided the unit tool */
-  source: 'player' | 'rule' | 'table' | 'mode' | 'default' | 'sticky'
+  /** who decided the unit tool: the deploy pick, a rule, the player's category row, the default, a follow-up */
+  source: 'player' | 'rule' | 'table' | 'default' | 'sticky'
   ruleId?: string
   category: TaskCategory
-  /** a less-proven candidate picked on purpose */
-  explored?: boolean
   /** one short line per decision */
   reasons: string[]
 }
@@ -829,10 +822,13 @@ export interface Settings {
   featureTips: boolean
   /** how Genio addresses the player */
   gamertag: string
+  /** '' = the default: Claude Sonnet 5.5, or Codex Sol 6.1 when only Codex is signed in */
   wkspModel: string
+  /** '' = medium */
   wkspEffort: string
   /** model for the Bot that handles events while the player is DND/AFK */
   botModel: string
+  /** '' = Claude, or Codex when only Codex is signed in */
   defaultHarness: string
   defaultWorkerModel: string
   defaultWorkerEffort: string
@@ -893,22 +889,22 @@ export interface Settings {
   genioCoAuthorIdentity: string
   harnesses: HarnessAdapter[]
   dispatchRules: DispatchRule[]
-  /** category table: ordered candidates per category, after explicit rules */
+  /** the player's category rows, after explicit rules; a category without one uses the default */
   categoryPools: CategoryPool[]
-  /** Legacy: read once as the initial usageMode; the mode now sets the dial. */
+  /** Legacy: read once as the initial usageMode. */
   costDial: CostDial
-  /** Legacy: exploration is set by usageMode (Save 0, Balanced 0, Max 5%). */
+  /** Legacy: no longer read. */
   explorationRate: number
-  /** Save / Balanced / Max: model, effort, exploration, cheap models, wake batching and answer targets */
+  /** Save / Balanced / Max: routine wake batching and answer targets (never a model or effort) */
   usageMode: UsageMode
   /** Maximum concurrent units across all projects and bases, independently of Usage mode (1-32). */
   unitsAtOnce: number
-  /** Default on: reduce automatic work as reported plan usage rises. Provider limits still apply when off. */
+  /** Default on: fewer units at once as reported plan usage rises (never another model). Provider limits still apply when off. */
   quotaProtection: boolean
   /** explicit allowance for paid OpenRouter spend on cheap candidates; a mode never grants it */
   cheapSpendAllowed: boolean
-  /** reorder candidates automatically when the scorecard evidence is clear */
-  autoReorder: boolean
+  /** settings already moved to plain model defaults (category rows were locked rows, the shipped default tool is unset) */
+  plainModelDefaults?: boolean
   eventSources: EventSource[]
   firstRunDone: boolean
 }
@@ -1120,7 +1116,7 @@ export type GenioEvent =
   | { type: 'terminal-removed'; id: string }
   | { type: 'model-catalogue-invalidated' }
   /** The tools that need a sign-in right now ('Claude', 'Codex'); empty when none. Sent when the list changes. */
-  | { type: 'sign-in-needed'; tools: string[] }
+  | { type: 'sign-in-needed'; tools: string[]; gate: boolean }
   | { type: 'settings'; settings: Settings }
   | { type: 'allies'; allies: Ally[] }
   | { type: 'sfx'; sound: SfxName }

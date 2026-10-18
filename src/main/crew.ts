@@ -910,7 +910,6 @@ export function createCrewService(getCtx: () => AppCtx, home: Home, canRetry: (p
           ...(generator ? { generator: true, ...(claims.length ? { claims } : {}) } : {}),
           loadoutSource: loadout.source,
           ruleId: loadout.ruleId,
-          explored: loadout.explored,
           counters: { pings: 0, lagging: 0, stopped: 0, fixRounds: 0 },
           usageAtStart: ctx.dispatch.usagePercent(harness),
           state: 'spawning',
@@ -951,7 +950,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home, canRetry: (p
         }
         safe(() => backlog.markInFlight(backlogId!, id))
         quotaDeferred.remove(`quest:${backlogId}`)
-        ledger('task.dispatched', task, { kind: task.kind, project: task.project, harness, model: task.model ?? 'default', effort: task.effort ?? 'default', category: loadout.category, loadout: loadout.source, rule: loadout.ruleId, explored: loadout.explored, mode: task.mode, yolo: task.yolo })
+        ledger('task.dispatched', task, { kind: task.kind, project: task.project, harness, model: task.model ?? 'default', effort: task.effort ?? 'default', category: loadout.category, loadout: loadout.source, rule: loadout.ruleId, mode: task.mode, yolo: task.yolo })
         safe(() => ctx.stats.award('spawn', id))
         if (references.length) bus.publish({ type: 'feature-used', feature: 'unit-references', id })
         safe(() => ctx.notifier.sfx('spawn'))

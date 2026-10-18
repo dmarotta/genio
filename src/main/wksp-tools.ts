@@ -412,7 +412,7 @@ export function createToolRegistry(
     return { usageMode: s.usageMode, unitsAtOnce: s.unitsAtOnce, quotaProtection: s.quotaProtection !== false, sound: s.sound, soundVolume: s.soundVolume, voice: s.voice, replyVoice: s.replyVoice,
       calm: s.calm, fx: s.fx, desktopNotifications: s.desktopNotifications }
   }
-  t('settings_read', `Read supported chat/app preferences without secrets or large configuration skills. Where the player sees them: usageMode and unitsAtOnce (Units at once, 1-32, independent of mode), and quotaProtection (default on; off disables automatic quota saving, while provider limits still apply) in ${settingsPath('usage')}; calm is Clean chat, fx is Scanlines and grid, voice is Read replies aloud and replyVoice the voice under it (a natural voice id such as af or bf_emma, windows for the Windows default, or windows:<name> for one Windows voice), all in ${settingsPath('general')}; sound, soundVolume and desktopNotifications in ${settingsPath('notifications')}. Advanced models, accounts and security settings are elsewhere in Settings, e.g. ${settingsPath('accounts')} or ${settingsPath('dispatch')}.`, {}, () => ok(json(preferences())))
+  t('settings_read', `Read supported chat/app preferences without secrets or large configuration skills. Where the player sees them: usageMode and unitsAtOnce (Units at once, 1-32, independent of mode), and quotaProtection (default on: fewer units as plans fill up, never another model; off removes that, while provider limits still apply) in ${settingsPath('usage')}; calm is Clean chat, fx is Scanlines and grid, voice is Read replies aloud and replyVoice the voice under it (a natural voice id such as af or bf_emma, windows for the Windows default, or windows:<name> for one Windows voice), all in ${settingsPath('general')}; sound, soundVolume and desktopNotifications in ${settingsPath('notifications')}. Advanced models, accounts and security settings are elsewhere in Settings, e.g. ${settingsPath('accounts')} or ${settingsPath('dispatch')}.`, {}, () => ok(json(preferences())))
   t('settings_update', 'Change only these named preferences when the player wants it; the approval mode decides whether the player is asked first. Does not change permissions, accounts or spending allowances.', {
     patch: z.strictObject(preferenceShape)
   }, async ({ patch }) => {
@@ -462,7 +462,7 @@ export function createToolRegistry(
 
   t(
     'deploy',
-    'Deploy a unit on a Build (kind=ship: produces a change) or Recon (kind=scout: produces a report) mission in an isolated copy of a project. intent = the player\'s own words (no speaker labels); spec = only the build instructions the ask requires; summary = what the unit will do in plain words, for the player. category = what kind of work it is (drives the category table). mode/auto_loot default to the project posture (resolve with world_posture first). Files a quest automatically unless quest_id is given. Omit harness/model/effort to let the loadout picker choose (rules, the Usage mode, category table, quota protection, learning); preview it with loadout_preview. A quest_id that waits on unlanded dependencies (depends_on) is refused: it starts once they land (plan steps start by themselves). force=true starts it anyway; the approval mode decides whether the player is asked first. A plan step deployed by quest_id gets its stored step spec and loadout unless you pass them.',
+    'Deploy a unit on a Build (kind=ship: produces a change) or Recon (kind=scout: produces a report) mission in an isolated copy of a project. intent = the player\'s own words (no speaker labels); spec = only the build instructions the ask requires; summary = what the unit will do in plain words, for the player. category = what kind of work it is (selects the player\'s category row, if any). mode/auto_loot default to the project posture (resolve with world_posture first). Files a quest automatically unless quest_id is given. Omit harness/model/effort to use what the player set (rules, category rows, default unit tool), else the default model; preview it with loadout_preview. A quest_id that waits on unlanded dependencies (depends_on) is refused: it starts once they land (plan steps start by themselves). force=true starts it anyway; the approval mode decides whether the player is asked first. A plan step deployed by quest_id gets its stored step spec and loadout unless you pass them.',
     {
       kind: z.enum(['ship', 'scout']),
       world: z.string(),
@@ -1162,16 +1162,16 @@ export function createToolRegistry(
   })
 
   // ------------------------------------------------------------ dispatch & tools
-  t('dispatch_profiles', 'The Usage mode and what it resolves to (protection levels, quests waiting for a reset), the independent Units at once cap, dispatch rules, the category table (locked rows are pinned; unlocked rows follow the mode), learned scores and the unit tools available on this machine (with models), plus pinned defaults. Consult at every deploy.', {}, async () => {
+  t('dispatch_profiles', 'The model each unit gets: the dispatch rules, category rows and default unit tool/model/effort the player set (used as written), else the default (Claude Sonnet 5.5, or Codex Sol 6.1 when only Codex is signed in; effort medium, high for a Recon). Also the Usage mode (answer length and batching only), protection levels and quests waiting for a reset, the independent Units at once cap, scorecard history (it never picks a model) and the unit tools available on this machine (with models). Consult at every deploy.', {}, async () => {
     const s = getCtx().settings
     const cfg = s.get()
     return ok(
       json({
         rules: cfg.dispatchRules,
-        categoryTable: cfg.categoryPools.map((p) => ({ category: p.category, candidates: p.candidates, locked: p.locked || undefined })),
+        categoryRows: cfg.categoryPools.map((p) => ({ category: p.category, candidates: p.candidates })),
         usage: (({ meter: _m, notices: _n, ...v }) => v)(getCtx().dispatch.view()),
         scores: getCtx().dispatch.scores().rows.map((r) => ({ scope: r.scope, tool: r.harness, model: r.model, score: r.score, samples: r.samples })),
-        default: { harness: cfg.defaultHarness, model: cfg.defaultWorkerModel || undefined, effort: cfg.defaultWorkerEffort || undefined },
+        default: { harness: cfg.defaultHarness || 'Claude, or Codex when only Codex is signed in', model: cfg.defaultWorkerModel || undefined, effort: cfg.defaultWorkerEffort || undefined },
         available: s.availableHarnesses().map((h) => ({ id: h.id, name: h.name, models: h.models, role: h.role, verified: h.verified }))
       })
     )
@@ -1182,19 +1182,18 @@ export function createToolRegistry(
     'What a deploy would get (unit tool, model, effort, category) if harness/model/effort are omitted or set as given, and why.',
     {
       kind: z.enum(['ship', 'scout']), world: z.string(), title: z.string(), intent: z.string(), spec: z.string().optional(),
-      modeller: z.boolean().optional().describe('kind=ship only: preview a Modeller loadout (defaults to Claude Opus).'),
+      modeller: z.boolean().optional().describe('kind=ship only: preview a Modeller loadout.'),
       category: z.enum(CATEGORY_IDS).optional(), harness: z.string().optional(), model: z.string().optional(), effort: z.string().optional()
     },
-    async (a) =>
-      ok(
-        json(
-          resolveLoadout(
-            { kind: a.kind, modeller: a.modeller, project: a.world, title: a.title, intent: a.intent, spec: a.spec, category: a.category, harness: a.harness, model: a.model, effort: a.effort },
-            getCtx().settings,
-            getCtx().dispatch.signals(a.world, { preview: true })
-          )
-        )
+    async (a) => {
+      const loadout = resolveLoadout(
+        { kind: a.kind, modeller: a.modeller, project: a.world, title: a.title, intent: a.intent, spec: a.spec, category: a.category, harness: a.harness, model: a.model, effort: a.effort },
+        getCtx().settings,
+        getCtx().dispatch.signals(a.world)
       )
+      try { getCtx().stats.unlock('loadout-preview') } catch { /* achievements never fail a preview */ }
+      return ok(json(loadout))
+    }
   )
 
   t(

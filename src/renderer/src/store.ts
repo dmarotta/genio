@@ -55,6 +55,8 @@ export interface State {
   achievements: Achievement[]
   /** Tools (Claude, Codex) that need a sign-in now: the rail warns while this is not empty. */
   signIn: string[]
+  /** The launcher's gate: neither Claude nor Codex is signed in, so no project opens. */
+  signInGate: boolean
   /** The floating answer cards are showing (the title bar badge toggles them). */
   answersOpen: boolean
   answerHistory?: 'answered' | 'deferred'
@@ -132,6 +134,7 @@ let state: State = {
   permissions: [],
   achievements: [],
   signIn: [],
+  signInGate: false,
   view: DEFAULT_VIEW,
   focus: null,
   deploy: null,
@@ -490,7 +493,7 @@ export function handleEvent(ev: GenioEvent): void {
       toast(ev.level, ev.title, ev.body)
       break
     case 'sign-in-needed':
-      setState({ signIn: ev.tools })
+      setState({ signIn: ev.tools, signInGate: ev.gate })
       break
     case 'permission':
       setState({ permissions: upsertBy(s.permissions, ev.request, (p) => p.id) })
@@ -575,6 +578,7 @@ export async function boot(): Promise<void> {
     })
     if (settings.fx === false) document.body.classList.add('fx-off')
     void api().signInNeeded().then((signIn) => setState({ signIn })).catch(() => undefined)
+    void api().signInGate().then((signInGate) => setState({ signInGate })).catch(() => undefined)
     if (PROJECT_WKSP) await loadChat(PROJECT_WKSP)
   } catch (e) {
     toast('error', 'Could not reach Genio core', errText(e))

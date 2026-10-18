@@ -1,15 +1,16 @@
 # Usage protection and measurement (stage 1)
 
-Automatic unit selection excludes any provider with a reported window at 85% or
-above or a rejection, observed within ten minutes and before reset. This
-applies to category pools, rules, sticky follow-ups, defaults, exploration and
-respawns. Pinned choices are held instead of silently changing their provider.
-Unknown headroom (including expired hot evidence) permits ordinary dispatch with a quota-unverified warning, but never exploration.
+Quota protection never picks, changes or holds a model because of who chose it:
+it only limits how many units run. A provider with a reported window at 85% or
+above, or a rejection, observed within ten minutes and before reset, starts no
+new unit: the launch waits (quota-deferred) with its tool and model and is never
+moved to the other plan. This applies the same way to explicit picks, rules,
+category rows, sticky follow-ups, the default and respawns.
+Unknown headroom (including expired hot evidence) permits ordinary dispatch with a quota-unverified warning.
 
-Exploration requires both its original primary and alternate to have known,
-unrejected applicable windows, observed within ten minutes and below 70%. Critical
-work and explicit model/effort/harness picks do not explore. At 70?84%, a provider
-can have at most one running or launching unit. The main-process dispatcher
+At 70?84%, a provider can have at most one running, launching or reserved unit;
+further launches on it wait. Below 70% launches on the same provider run side by
+side. The main-process dispatcher
 serializes selection and claims a provider launch reservation across all homes;
 launch refreshes the account report again just before terminal creation, and releases the
 reservation on success or failure. Previews may use cached signals; actual launches
@@ -35,8 +36,8 @@ the launch preflight ran, leaving no independent refresh or prompt retry.
 Account refresh now re-evaluates supervision immediately when protection changes,
 without waiting for the backed-off heartbeat. Plans drain through their normal
 gates; other queued quests follow the existing automatic-dispatch setting.
-Already-requested quota-deferred deployments and pinned relaunches are persisted
-and retried automatically, preserving the request, pins and relaunch allowance.
+Already-requested quota-deferred deployments and relaunches are persisted
+and retried automatically, preserving the request, its loadout and relaunch allowance.
 They still respect project closure, player holds, dependencies, capacity and
 per-launch model approval. Recalling a unit cancels its pending relaunch.
 
@@ -44,7 +45,7 @@ Each reported window retains observedAt and changedAt independently. Repeated
 Claude events carrying a number refresh its observation time even when the percentage is unchanged. Status-only events do not renew that number; a changed reset discards the old percentage.
 Codex snapshots merge per window, so a partial event cannot erase a hot weekly
 window. Current percentages expire after ten minutes or their reset time and are
-shown as unknown. Last-known percentages remain diagnostic history and cannot hold units, queue entries, exploration eligibility or chat settings.
+shown as unknown. Last-known percentages remain diagnostic history and cannot hold units or queue entries.
 Model buckets are conservatively included in provider eligibility.
 
 Claude usage is attributed by persisted main/ally/Bot session IDs before cwd,
@@ -69,7 +70,7 @@ button explicitly resumes the task and resets the automatic attempt allowance;
 model tools cannot mark their own relaunch as manual. Quota eligibility still
 applies to manual respawn.
 
-Replay coverage: the 97%-Claude explored Recon; stale/unknown/rejected combinations;
+Replay coverage: the 97%-Claude Recon (nothing explores, nothing moves to the other plan); stale/unknown/rejected combinations;
 atomic launch reservations and last-moment rejection; cwd drift; the resumed
 $14.7858063 checkpoint; duplicate result IDs; independent snapshot expiry; shared
 chat backoff; and the relaunch cap. All tests use local fixtures or fake SDK streams.
@@ -96,7 +97,9 @@ shows, the button opens Accounts & keys. It appears at start and in every
 window, again whenever a signed-in tool loses its sign-in, and clears by itself
 once signed in. It is re-read every 10 minutes, whenever a login or logout
 ends and whenever Accounts is read. An unverified quota is not a sign-in issue
-and never warns.
+and never warns. The same read picks the default model (Claude, else Codex when
+only Codex is signed in) and closes the Hub's sign-in gate while neither is signed
+in (see [project-startup.md](project-startup.md)).
 
 Claude plan usage is refreshed through the SDK's structured `/usage` control request
 (`usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`, SDK 0.3.296), using
@@ -134,31 +137,38 @@ fresh 70/85/95% readings and rejections remains in place.
 # Usage mode and shared plan meter (stage 3)
 
 Settings → Usage & limits has **Usage mode [Save | Balanced | Max]** and the separate **Units at once**
-number choice (1–32). The mode's one-line summary shows the chat model and effort, without repeating the unit limit.
-Model and effort pins are no longer set there: the
-page lists any pin that exists (chat or unit model and effort, locked routing rows and rules, a project's own
-mode) with Unpin or Open. `src/shared/usage-mode.ts` holds the table; the summary line, the loadout
-picker, the chat sessions, the supervisor and the dispatcher all read it.
+number choice (1–32). The mode never picks a model or an effort: it sets only how long routine
+updates batch and how long answers and Recon summaries run, and its one-line summary says exactly
+that ("Replies under about 250 words; routine updates batched up to 5 min."). Models are not set on
+this page. `src/shared/usage-mode.ts` holds the table; the summary line, the chat sessions, the
+supervisor and the dispatcher read it.
 
 | | Save | Balanced (default) | Max |
 |---|---|---|---|
-| Chat, including allies without their own pick | Sonnet / low | Sonnet / medium | Opus / high |
-| Units: chore, docs, tests, build/CI | Codex / low | Codex / medium | Codex / high |
-| Units: feature, bugfix, UI | Sonnet / medium | Codex / medium | Opus / high |
-| Units: recon/design, refactor, graphics | Codex / medium | Codex / high | Opus / xhigh |
-| Units: review, large-context | Codex / medium | Codex / high | Codex / xhigh |
-| Units: art (agent work) | Codex / low | Codex / medium | Codex / high |
-| Exploration | 0 | 0 | 5%, only with fresh evidence below 70% on both plans |
-| Cheap third-party models (low-stakes only) | first | after the plans | off |
 | Routine wake batching; heartbeat base/max | 10 min; 30/120 | 5 min; 15/120 | 1 min; 10/120 |
 | Chat answer / Recon summary target | 150 / 400 words | 250 / 800 | 400 / 1,500 |
 
+**Models: whatever the player set, else one default.** The chat, the Bot, allies, Lore chats and
+units use the model and effort the player set, as written, always: a chat or ally model and effort,
+a dispatch rule, a category row in Settings → Advanced → Model routing (Dispatch), the default unit tool, model
+and effort, an explicit deploy pick and a follow-up's original loadout. Nothing switches or holds a
+model because the player chose it. Where nothing is set the default is **Claude Sonnet 5.5**
+(`claude-sonnet-5-5`); when Claude is not signed in (or not installed) and Codex is, it is **Codex
+Sol 6.1** (`gpt-6.1-sol`); with both signed in Claude wins. The default effort is medium for the
+chat and for Builds, high for Recons (Codex's own default is medium too). The default is the same for
+every unit category, Usage mode and Modeller Build. The categories, the scorecard and its learned
+scores stay as history: they never pick or reorder a model. The scorecard may still propose adding
+or removing a candidate in the player's own rows and rules as a Your Move choice; only accepting it
+changes anything. `src/shared/unit-model-policy.ts` holds the default; `pickLoadout` (units) and
+`chatSettings` (chats) apply it, reading the same Claude/Codex sign-in the rail warning reads.
+
 Codex units explicitly use `gpt-6.1-sol` so a CLI default cannot silently select
-Astra. Unspecified Claude unit models resolve to Sonnet. Each unit cell falls back at the same effort:
-Codex ↔ Sonnet, Opus → Codex. Cells are final efforts; no dial shift is applied.
+Astra. Unspecified Claude unit models resolve to Sonnet 5.5. Within the player's own ordered rule or
+row, a tool that is not installed or not signed in is skipped in the order written; a plan quota
+protection holds makes the launch wait instead.
 
 Fable and Astra always require a fresh player approval at the central unit launch
-boundary. Deploy buttons, chat tools, queued dispatch, pins, rules, sticky
+boundary. Deploy buttons, chat tools, queued dispatch, saved picks, rules, sticky
 follow-ups, automatic recovery, respawns and Recon upgrades all use the same
 Allow once / Deny permission prompt. Approval is never saved on a task or inferred
 from shell mode, YOLO, model selection or prior consent. Denial or the broker's
@@ -166,10 +176,9 @@ ten-minute timeout prevents the launch. A respawn waits for approval before
 recalling its current process. Quota is checked again after approval and directly
 before process creation, and reservations are released on failure.
 
-Ordinary automatic routing uses Sol, Sonnet or Opus. Astra is normally reserved
-for heavy visual work and remains an explicitly chosen, explicitly approved
-exception. The broad art/graphics categories include audio and performance work,
-so those labels alone do not automatically select Astra.
+The default is Sonnet or Sol; Opus and the rest run only when the player picks
+them. Astra is normally reserved for heavy visual work and remains an explicitly
+chosen, explicitly approved exception.
 A project can carry its own mode (This project → General, or its legacy cost dial).
 Neither global nor project Usage mode changes concurrency. **Units at once** sets the
 shared cap across all projects and bases; the existing project **Max units at once**
@@ -177,12 +186,13 @@ can only lower it for that project (0 means no project limit). Equal or higher p
 limits add no extra display.
 The cap is checked inside the serialized launch reservation, counting units that
 hold a place in every base plus launches reserved but not yet listed; a respawn
-keeps the place it already holds. Cheap models also need an explicit paid-spend
-allowance (Advanced); a mode never grants one.
+keeps the place it already holds. Cheap third-party models run only from a rule or
+category row the player wrote, and also need an explicit paid-spend allowance; a
+mode never grants one.
 
 New installs start with 8 unit places. Existing settings migrate once to their previous
 global mode's limit: Save 4, Balanced 8, Max 16 (including the equivalent legacy cost dial).
-Explicit unit limits, model pins, credentials and other saved settings are preserved;
+Explicit unit limits, model picks, credentials and other saved settings are preserved;
 later mode changes leave Units at once alone. Reducing the limit leaves running work
 alone and holds new launches until capacity is free. `settings_read` exposes `unitsAtOnce`
 and `settings_update` accepts an integer from 1 to 32 on the player's request.
@@ -209,29 +219,31 @@ they do not represent a project's percentage of a plan.
 drift, nested project worktrees, deduplication and legacy shared chat.
 `tests/usage-mode.test.ts` covers cross-project launch races and warm-plan fallback.
 
-**Pinned.** A non-empty chat/Bot/unit model or effort, an ally's own pick, a
-locked category row, a dispatch rule or an explicit deploy pick is Pinned: neither
-the mode nor protection changes it, and Settings → Usage & limits lists it with Unpin.
-Migration keeps every explicit pick as written; only the old shipped chat default
-(`wkspEffort: 'high'` with no model) becomes Auto, and the old cost dial becomes
-the mode (Quality → Max, Cost → Save).
+**Migration** (once, `plainModelDefaults`): every explicit pick stays as written (the
+chat, Bot and ally models and efforts, the default unit model and effort, rules, explicit
+deploy picks). The old shipped defaults become unset and so use the default: category rows
+that were not locked (they followed the Usage mode and were never used as written) are
+dropped, locked rows stay as the player's rows without the lock, rules lose their lock, the
+shipped default unit tool `claude` becomes unset unless a default unit model or effort was set
+for it, and the automatic reorder switch is gone. As before, the old shipped chat default
+(`wkspEffort: 'high'` with no model) becomes unset and the old cost dial becomes the mode
+(Quality → Max, Cost → Save).
 
 **Protection**, per plan, from the worst fresh reported window (all expired evidence is unknown):
 
-- below 70%: the mode as set;
-- 70–84%: exploration off, at most one unit on that plan, Auto unit effort one
-  step lower, the other plan preferred, Auto chat effort one step lower and
-  answers held to Save's target;
-- 85–94%: excluded from every automatic unit candidate; Auto chat drops to
-  Sonnet / low at the next turn;
-- 95%+ or rejected: optional system work is held; low-priority queued
+- below 70%: no limit;
+- 70–84%: at most one unit on that plan and answers held to Save's target;
+- 85–94%: new units on that plan wait;
+- 95%+ or rejected: new units on that plan and optional system work wait; low-priority queued
   quests and, when no plan has headroom, all queued quests stay queued until
   reset ("Queued until reset" in Quests). Running work is never stopped.
 
+No level changes a model or an effort, and no launch moves to the other plan.
+
 **Quota protection** is on by default, including for existing settings. Turn it off
 with the single switch beside the plan meter in Settings → Usage & limits. Off means
-units, pinned picks, exploration, queued quests, chat effort and optional system
-work follow the Usage mode without percentage-based saving or quota holds. The
+units, queued quests and optional system work run without percentage-based limits
+or quota holds. The
 independent Units at once setting and project caps still apply. Real
 provider rejections still show the existing chat limit line and keep their retry
 backoff; turning protection off cannot remove a provider's own limit.
@@ -241,15 +253,15 @@ floating Genio panel show one amber bordered, subtly tinted warning box at the
 top centre of the chat, below the title bar and above its content. It uses the
 existing warning glyph and readable text, with one line that wraps in narrow
 windows; choice cards, feature tips and toasts stay clear of it. It
-names each affected plan and what is being limited, including the titles of held
-pinned launches in this project, read from the same persistent retry queue. Turning
+names each affected plan and what is being limited, including the titles of launches
+waiting in this project, read from the same persistent retry queue. Turning
 protection off retries those launches immediately through their normal checks. Its **Settings** action opens Usage & limits at
 the Quota protection switch. The dismiss icon hides the current levels in both
 chat surfaces, including remounts and restarts; only a worse level
 returns. The box clears when evidence expires, protection recovers or the switch
 is off. It is never repeated per message and produces no toast or popup.
 
-The switch's one-line description explains automatic saving and provider limits.
+The switch's one-line description says it runs fewer units as plans fill up, never another model, and that provider limits always apply.
 The chat's `settings_read` and `settings_update` expose `quotaProtection` as a
 boolean; the chat can change it on the player's request through its existing
 approval policy. A successful change earns **Your Pace** once.

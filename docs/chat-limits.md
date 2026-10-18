@@ -2,7 +2,7 @@
 
 Quota protection can be turned off in Settings → Usage & limits beside the plan
 meter, or by asking the project chat to change it. This releases percentage-based
-optional-work holds and restores the Usage mode's chat choices. Actual provider
+optional-work holds (protection never changes the chat model or effort). Actual provider
 rejections retain the limit line, queued turns and retry backoff described below.
 The separate protection warning is one amber box at the top centre of either chat, with Settings opening
 the switch and dismissal lasting until a worse level. See [Usage protection](usage-protection.md).

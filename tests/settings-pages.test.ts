@@ -268,6 +268,24 @@ describe('Settings navigation', () => {
     expect(f.calls.some(call => call.startsWith('sessionCleanup'))).toBe(false)
   })
 
+  it('has no Pinned section or Unpin anywhere, even with chosen models, rows and rules', async () => {
+    f.settings = {
+      ...defaultSettings(), wkspModel: 'claude-opus-5-5', wkspEffort: 'high', defaultHarness: 'claude', defaultWorkerModel: 'claude-opus-5-5', defaultWorkerEffort: 'high',
+      categoryPools: [{ category: 'ui', candidates: [{ harness: 'claude', model: 'claude-opus-5-5' }] }],
+      dispatchRules: [{ id: 'r', match: 'shader', candidates: [{ harness: 'codex', spendPriority: 0 }] }]
+    }
+    await mount()
+    await open('usage')
+    for (const gone of ['Pinned', 'Unpin', 'Auto:', 'Sonnet', 'Opus']) expect(host.textContent, gone).not.toContain(gone)
+    expect(host.textContent).toMatch(/Replies under about 250 words/)
+    await open('dispatch')
+    for (const gone of ['Learn the order automatically', 'Pinned', 'Reset to defaults']) expect(host.textContent, gone).not.toContain(gone)
+    expect(host.querySelector('[title*="Pin"]')).toBeNull()
+    // every category without a row of the player says it uses the default; the player's UI row is listed as written
+    expect(host.querySelectorAll('.cat-row')).toHaveLength(13)
+    expect(host.textContent!.match(/Default model/g)).toHaveLength(12)
+  })
+
   it('moves the Play editor settings off the project page and checks for updates only on a click', async () => {
     await mount()
     await open('project-unity')

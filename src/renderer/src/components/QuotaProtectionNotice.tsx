@@ -25,9 +25,9 @@ const dismissedRank = (key: string): number => {
 
 export function protectionText(p: PlanStatus): string {
   const name = planLabel(p.plan)
-  if (p.level === 'warm') return `${name} is at 70%+ used, so Genio runs one ${name} unit at a time with lower automatic effort.`
-  if (p.level === 'hot') return `${name} is at 85%+ used: no new automatic units.`
-  return `${name} ${p.rejected ? 'reported a limit' : 'is at 95%+ used'}: automatic units and low-priority quests wait.`
+  if (p.level === 'warm') return `${name} is at 70%+ used, so Genio runs one ${name} unit at a time.`
+  if (p.level === 'hot') return `${name} is at 85%+ used: new ${name} units wait.`
+  return `${name} ${p.rejected ? 'reported a limit' : 'is at 95%+ used'}: new ${name} units and low-priority quests wait.`
 }
 
 export function QuotaProtectionNotice({ project }: { project: string }) {
@@ -38,7 +38,7 @@ export function QuotaProtectionNotice({ project }: { project: string }) {
     ? (view?.plans ?? []).filter(p => p.level !== 'ok' && LEVEL_RANK[p.level] > dismissedRank(keyFor(project, p.plan)))
     : []
   const held = (view?.heldLaunches ?? []).filter(h => h.project === project && acting.some(p => p.plan === h.plan))
-  const text = [...acting.map(protectionText), ...held.map(h => `Pinned “${h.title}” waits for ${planLabel(h.plan)}.`)].join(' ')
+  const text = [...acting.map(protectionText), ...held.map(h => `“${h.title}” waits for ${planLabel(h.plan)}.`)].join(' ')
   const notice = useRef<HTMLDivElement>(null)
   const doc = useChatDocument()
   // Fixed choice cards and toasts yield to the warning, including when the floating chat moves.

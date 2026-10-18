@@ -48,8 +48,12 @@ it('does not leak pending slots when a UI observer fails, and an old release can
   } finally { stop() }
 })
 
-it('claims a launch atomically and holds the provider slot until launch finishes', async () => {
+it('lets launches run side by side below 70%; on a warm plan claims one launch atomically and holds the slot until it finishes', async () => {
   const svc = service()
+  const side = await Promise.allSettled([svc.reserve(input), svc.reserve(input)])
+  expect(side.map(r => r.status)).toEqual(['fulfilled', 'fulfilled'])
+  for (const r of side) (r as PromiseFulfilledResult<Awaited<ReturnType<typeof svc.reserve>>>).value.release()
+  scan.report.tools[0].limits[0].windows[0].usedPercent = 75
   const attempts = await Promise.allSettled([svc.reserve(input), svc.reserve(input), svc.reserve(input)])
   expect(attempts.map(r => r.status)).toEqual(['fulfilled', 'rejected', 'rejected'])
   const first = (attempts[0] as PromiseFulfilledResult<Awaited<ReturnType<typeof svc.reserve>>>).value
@@ -68,9 +72,11 @@ it('rechecks provider evidence immediately before terminal creation and releases
   await expect(reservation.check()).rejects.toThrow(/deferred/)
   reservation.release()
   await expect(svc.reserve(input)).rejects.toThrow(/deferred/)
-  const fallback = await svc.reserve({ ...input, harness: undefined })
-  expect(fallback.loadout.harness).toBe('codex')
-  fallback.release()
+  // the default waits too: it is never moved to Codex
+  await expect(svc.reserve({ ...input, harness: undefined })).rejects.toThrow(/keeps its tool and model/)
+  const codex = await svc.reserve({ ...input, harness: 'codex' })
+  expect(codex.loadout.harness).toBe('codex')
+  codex.release()
 })
 
 it('fails open with the existing quiet warning when a source fails, including fresh hot evidence', async () => {

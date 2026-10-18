@@ -1013,7 +1013,6 @@ ul.loadout-why li { margin: 1px 0; }
 .loadout-reasons ul { margin: 6px 0 0; padding-left: 18px; color: var(--text-dim); line-height: 1.45; }
 .cat-table { display: flex; flex-direction: column; gap: 8px; }
 .cat-row { padding: 10px 12px; }
-.cat-row.locked { border-color: var(--amber); }
 .cat-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .cat-head .mute { font-size: 12px; }
 .cand-row.cat-cand { grid-template-columns: 1fr 1.4fr 0.8fr auto auto auto auto; align-items: center; }
@@ -1101,8 +1100,7 @@ ul.loadout-why li { margin: 1px 0; }
 /* ---------- usage mode & shared plan meter ---------- */
 .usage-mode-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .usage-summary { margin: 8px 0 14px; font-size: 13px; }
-.usage-pins, .usage-levels { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
-.usage-pin { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.usage-levels { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
 .usage-level { display: grid; grid-template-columns: 70px 80px minmax(0, 1fr); gap: 10px; align-items: baseline; }
 .usage-level.lvl-warm .mono, .meter-row.lvl-warm .meter-row-head b { color: var(--amber); }
 .usage-level.lvl-hot .mono, .usage-level.lvl-out .mono, .meter-row.lvl-hot .meter-row-head b, .meter-row.lvl-out .meter-row-head b { color: var(--alert); }

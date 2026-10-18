@@ -99,7 +99,8 @@ const RETIRED: Record<string, string> = {
   'play-snapshot': 'the old Play screen: snapshots',
   'modeller-rewind': 'the Modeller Steps tab lost Revert to N and Branch from N: the player steers in words, the unit runs the kernel itself',
   'reaction-like': 'the chat lost its like button: telling Genio it is on the right path does the same',
-  'reaction-dislike': 'the chat lost its dislike button: telling Genio to stop and what is wrong does the same'
+  'reaction-dislike': 'the chat lost its dislike button: telling Genio to stop and what is wrong does the same',
+  'smart-pick': 'Genio no longer picks a unit tool by itself to explore or to save quota: whatever the player set runs, else the one default model'
 }
 // Un-retired by the new Play screen (Step and the resolution dropdown by the minimal one): same ids, so earned dates carry over.
 const UNRETIRED = ['play-stream', 'play-input', 'play-fullscreen', 'play-step', 'play-resolution']

@@ -20,3 +20,7 @@
 @media (max-width: 600px) {
   .hub-view { padding: 32px 20px; }
 }
+.hub-sign-in { margin: 28px 0 0; padding: 18px; border: 1px solid var(--amber); background: var(--panel); }
+.hub-sign-in p { margin: 0 0 14px; }
+.hub-sign-in-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.hub-sign-in .account-session { margin-top: 16px; }

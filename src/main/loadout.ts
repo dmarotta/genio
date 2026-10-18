@@ -1,36 +1,26 @@
 /**
  * Loadout picker: decides which unit tool (harness), model and effort a unit
- * deploys with when the player didn't choose. Deterministic and explainable
- * (exploration rolls only through an injected `rand`), so the Deploy dialog
- * can preview it and every deploy path (dialog, Genio, quest auto-dispatch)
- * lands on the same answer.
+ * deploys with. Deterministic and explainable, so the Deploy dialog can
+ * preview it and every deploy path (dialog, Genio, quest auto-dispatch) lands
+ * on the same answer.
  *
- * Precedence for the unit tool: the explicit per-task pick (player or Genio),
- * then a follow-up's sticky loadout, then the best-fit dispatch rule, then the
- * category table (category from Genio or the keyword heuristic), then the
- * configured default. An unlocked table row follows the Usage mode (its preset
- * effort, with Claude Opus preferred for Modeller Builds unless pinned or held),
- * with the same-effort fallback and cheap models per the mode; a locked row is
- * Pinned and used as written under the mode's dial. Candidates whose tool is not
- * installed, enabled or logged in are skipped, cheap third-party models need
- * the world not opted out and a paid-spend allowance, and a tool above ~85% of a
- * plan window is excluded. At 70-84% the mode prefers the other plan and lowers
- * Auto effort one step. Exploration only ever happens inside the table.
+ * Whatever the player set is used as written: the explicit per-task pick
+ * (player or Genio), a follow-up's sticky loadout, the best-fit dispatch rule,
+ * the player's row for the category, the player's default unit tool, model and
+ * effort. Where nothing is set, the default: Claude Sonnet 5.5, or Codex Sol
+ * 6.1 when Claude is not signed in and Codex is; effort medium (high for a
+ * Recon). Within a player's own list, candidates whose tool is not installed,
+ * enabled or logged in are skipped and cheap third-party models need the world
+ * not opted out and a paid-spend allowance. Quota protection never changes the
+ * pick: a plan it holds makes the launch wait.
  */
-import type {
-  CategoryPool, CostDial, DispatchRule, HarnessAdapter, Loadout, LoadoutInput, PoolCandidate, Settings, TaskCategory, TaskKind
-} from '@shared/types'
-import {
-  COST_MODEL, DIAL_LABEL, QUALITY_MODEL, categoryLabel, defaultCategoryPools, isCategory, shiftEffort, type ScoreRow
-} from '@shared/dispatch'
-import {
-  MODE_PRESETS, OPUS, USAGE_MODE_LABEL, groupOf, isPlan, modeCandidates, planStatus, planStatuses, protectionCause, stepDown, type PlanLevel, type UsageMode
-} from '@shared/usage-mode'
+import type { CategoryPool, DispatchRule, HarnessAdapter, Loadout, LoadoutInput, PoolCandidate, Settings, TaskCategory, TaskKind } from '@shared/types'
+import { categoryLabel, isCategory } from '@shared/dispatch'
+import { isPlan, planStatuses, protectionCause } from '@shared/usage-mode'
 import type { SettingsService } from './services'
-import { blockedWindow, explorationSafe, type QuotaWindow } from './quota-policy'
-import { globalMode } from './usage-policy'
+import { blockedWindow, type QuotaWindow } from './quota-policy'
 import { QuotaDeferredError } from './quota-deferred'
-import { approvalModel, unitModel } from '@shared/unit-model-policy'
+import { approvalModel, defaultProvider, defaultUnitEffort, unitModel } from '@shared/unit-model-policy'
 import { settingsPath } from '@shared/settings-pages'
 export type { QuotaWindow } from './quota-policy'
 
@@ -68,30 +58,6 @@ export function ruleScore(rule: DispatchRule, input: LoadoutInput): number | nul
     if (!hits) return null
   }
   return (rule.project ? 100 : 0) + (rule.kind && rule.kind !== 'any' ? 10 : 0) + hits
-}
-
-const DEEP =
-  /\b(design|architect\w*|rework|overhaul|refactor\w*|investigat\w*|figure out|root cause|not sure|unclear|why|somehow|netcode|multiplayer|procedural|optimi[sz]\w*|performance|perf|profil\w*|migrat\w*|rewrite)\b/i
-const SMALL = /\b(fix|rename|typo|bump|tweak|adjust|change|swap|update|add|remove|move|hide|show|colou?r|text|label|string|constant|value)\b/i
-
-/** Built-in effort guess from the mission type and how open-ended the ask reads. */
-export function classifyEffort(kind: TaskKind, text: string): { effort: string; why: string } {
-  const words = (text.match(/\S+/g) ?? []).length
-  const deep = DEEP.exec(text)
-  if (kind === 'scout')
-    return deep
-      ? {
-          effort: 'xhigh',
-          why: `open-ended Recon ("${deep[0].toLowerCase()}")`
-        }
-      : { effort: 'high', why: 'Recon mission' }
-  if (deep)
-    return {
-      effort: 'high',
-      why: `open-ended Build ("${deep[0].toLowerCase()}")`
-    }
-  if (words <= 40 && SMALL.test(text)) return { effort: 'low', why: 'small, explicit Build' }
-  return { effort: 'medium', why: 'Build of ordinary scope' }
 }
 
 /** Keyword table for the fallback classifier, most specific first (ties go to the earlier row). */
@@ -137,21 +103,10 @@ export interface PickEnv {
   loggedOut?: (id: string) => boolean
   /** current plan windows per tool id */
   quota?: Record<string, QuotaWindow[]>
+  /** quota protection holds this tool now (one unit at a time at 70%+, a chat rejection) */
   unavailable?: (id: string) => boolean
   /** cheap third-party models: OpenRouter key + OpenCode installed + the world not opted out */
   cheap?: { allowed: boolean; why: string }
-  /** the world's Usage mode, else Settings.usageMode */
-  mode?: UsageMode
-  modeFromWorld?: boolean
-  /** dial for locked (pinned) table rows: the world's legacy dial, else the mode's */
-  dial?: CostDial
-  dialFromWorld?: boolean
-  /** scorecard rows (learning) */
-  stats?: ScoreRow[]
-  /** exploration roll in [0,1); omitted = never explore */
-  rand?: () => number
-  /** the Deploy preview: say that exploration may happen instead of rolling */
-  preview?: boolean
 }
 
 type Option = { c: PoolCandidate & { spendPriority?: number }; i: number }
@@ -161,22 +116,10 @@ export function hotWindows(quota: PickEnv['quota'], harness: string): QuotaWindo
   return (quota?.[harness] ?? []).filter((w) => blockedWindow(w)).sort((a, b) => (b.usedPercent ?? b.lastKnownUsedPercent ?? 100) - (a.usedPercent ?? a.lastKnownUsedPercent ?? 100))
 }
 
-/** The category table's order after the cost dial. */
-export function dialOrder(list: Option[], dial: CostDial): Option[] {
-  if (dial === 'quality') return [...list.filter((o) => !o.c.cheap), ...list.filter((o) => o.c.cheap)]
-  if (dial === 'cost') return [...list.filter((o) => o.c.cheap), ...list.filter((o) => !o.c.cheap)]
-  return list
+/** The player's row for a category; none means the default model. */
+export function poolFor(s: Pick<Settings, 'categoryPools'>, category: TaskCategory): CategoryPool | undefined {
+  return (Array.isArray(s.categoryPools) ? s.categoryPools : []).find((p) => p.category === category && p.candidates.length > 0)
 }
-
-const DEEP_CATEGORIES: TaskCategory[] = ['recon-design', 'feature', 'bugfix', 'refactor', 'graphics', 'large-context']
-
-export function poolFor(s: Settings, category: TaskCategory): CategoryPool | undefined {
-  const pools = Array.isArray(s.categoryPools) ? s.categoryPools : defaultCategoryPools()
-  return pools.find((p) => p.category === category)
-}
-
-const statFor = (stats: ScoreRow[] | undefined, scope: string, c: { harness: string; model?: string }): ScoreRow | undefined =>
-  stats?.find((r) => r.scope === scope && r.harness === c.harness && (r.model ?? '') === (c.model ?? ''))
 
 export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: PickEnv | ((h: HarnessAdapter) => boolean)): Loadout {
   const supplied: PickEnv = typeof envOrAvailable === 'function' ? { available: envOrAvailable } : envOrAvailable
@@ -189,16 +132,16 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
     const h = byId(id)
     return Boolean(h && env.available(h))
   }
+  const signedIn = (id: string): boolean => installed(id) && !env.loggedOut?.(id)
   const quotaBlocked = (id: string): boolean => !!hotWindows(env.quota, id).length || !!env.unavailable?.(id)
-  const usable = (id: string): boolean => installed(id) && !env.loggedOut?.(id) && !quotaBlocked(id)
   const nameOf = (id: string): string => byId(id)?.name ?? s.harnesses.find((h) => h.id === id)?.name ?? id
-  const mode: UsageMode = env.mode ?? globalMode(s)
-  const preset = MODE_PRESETS[mode]
-  const modeName = `${USAGE_MODE_LABEL[mode]} mode${env.modeFromWorld ? ' (this project)' : ''}`
-  const dial: CostDial = env.dial ?? preset.dial
   const plans = planStatuses(env.quota)
-  const levelOf = (id: string): PlanLevel => (isPlan(id) ? plans[id].level : 'ok')
-  const text = `${input.title}\n${input.intent}\n${input.spec ?? ''}`
+  /** Protection limits how many units run; it never swaps the tool or model: the launch waits. */
+  const hold = (id: string, name = nameOf(id)): never => {
+    const w = hotWindows(env.quota, id)[0]
+    const why = w ? `${w.label} window at ${Math.round(w.usedPercent ?? w.lastKnownUsedPercent ?? 100)}%` : isPlan(id) && plans[id].level !== 'ok' ? protectionCause(plans[id]) : 'one unit at a time or a launch already reserved'
+    throw new QuotaDeferredError(`deferred: ${name} is held by quota protection (${why}). The launch waits and keeps its tool and model.`)
+  }
   const explicitHarness = input.harness?.trim() || ''
   const explicitModel = input.model?.trim() || ''
   const explicitEffort = input.effort?.trim() || ''
@@ -220,7 +163,8 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
   // ---- sticky follow-up: same quest, same loadout (an explicit pick still wins)
   const st = input.sticky
   if (st && !explicitHarness && !explicitModel && !explicitEffort) {
-    if (usable(st.harness)) {
+    if (signedIn(st.harness)) {
+      if (quotaBlocked(st.harness)) hold(st.harness)
       reasons.push(`${nameOf(st.harness)}: keeps the loadout of ${st.from} (follow-up on the same quest)`)
       if (st.model) reasons.push(`model ${st.model}: kept`)
       if (st.effort) reasons.push(`effort ${st.effort}: kept`)
@@ -231,12 +175,11 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
     reasons.push(`${nameOf(st.harness)} from ${st.from} is not available now: picking again`)
   }
 
-  if (!explicitHarness) reasons.push(`usage: ${modeName}`)
   for (const id of ['claude', 'codex'] as const) {
-    if (protection && installed(id) && !plans[id].known) reasons.push(`warning: ${nameOf(id)} quota unverified (missing or expired report); ordinary dispatch allowed, exploration off`)
+    if (protection && installed(id) && !plans[id].known) reasons.push(`warning: ${nameOf(id)} quota unverified (missing or expired report); ordinary dispatch allowed`)
   }
 
-  /** Walk an ordered list: the first usable candidate wins; say why earlier ones were passed over. */
+  /** Walk the player's ordered list: the first installed, signed-in candidate wins; say why earlier ones were passed over. */
   const walk = (ordered: Option[], label: string): Option | undefined => {
     for (const o of ordered) {
       const id = o.c.harness
@@ -249,15 +192,11 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
         reasons.push(`${name} skipped: not logged in${id === 'codex' ? " (Genio's own Codex sign-in; picking another tool)" : ''}`)
         continue
       }
-      if (quotaBlocked(id)) {
-        const w = hotWindows(env.quota, id)[0]
-        reasons.push(w ? `${name} excluded: ${w.label} window at ${Math.round(w.usedPercent ?? w.lastKnownUsedPercent ?? 100)}%` : `${name} excluded: quota protection or launch already reserved`)
-        continue
-      }
       if (o.c.cheap && !env.cheap?.allowed) {
         reasons.push(`${name} skipped: ${env.cheap?.why ?? 'cheap third-party models are off'}`)
         continue
       }
+      if (quotaBlocked(id)) hold(id, name)
       return o
     }
     reasons.push(`${label}: none of its tools are installed, enabled and logged in`)
@@ -268,26 +207,22 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
   let source: Loadout['source'] = 'player'
   let ruleId: string | undefined
   let cand: Option['c'] | undefined
-  let fromTable = false
-  let fromMode = false
-  let explored = false
 
   if (harness) {
     if (harness === 'codex' && env.loggedOut?.(harness)) throw new Error(`${nameOf(harness)} is not signed in: sign in Genio's Codex in ${settingsPath('accounts')}, or pick another tool.`)
-    if (quotaBlocked(harness)) throw new QuotaDeferredError(`deferred: ${nameOf(harness)} is held by quota protection. Wait for fresh evidence before resuming this pinned task.`)
+    if (quotaBlocked(harness)) hold(harness)
     reasons.push(`${nameOf(harness)}: your pick`)
   } else {
-    // ---- explicit dispatch rules
+    // ---- the player's dispatch rules
     const ranked = s.dispatchRules
       .map((rule, i) => ({ rule, i, score: ruleScore(rule, input) }))
       .filter((r): r is { rule: DispatchRule; i: number; score: number } => r.score !== null)
       .sort((a, b) => b.score - a.score || a.i - b.i)
     for (const { rule } of ranked) {
       const label = rule.match?.trim() ? `rule "${rule.match.trim()}"` : 'catch-all rule'
-      const byPriority = rule.candidates
+      const ordered = rule.candidates
         .map((c: RuleCandidate, i) => ({ c, i }))
         .sort((a, b) => (b.c.spendPriority ?? 0) - (a.c.spendPriority ?? 0) || a.i - b.i)
-      const ordered = byPriority
       const pick = walk(ordered, label)
       if (!pick) continue
       cand = pick.c
@@ -295,152 +230,66 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
       source = 'rule'
       ruleId = rule.id
       reasons.push(`${nameOf(harness)}: ${label}${rule.candidates.length > 1 ? ` (best of ${rule.candidates.length})` : ''}`)
-      const row = statFor(env.stats, `rule:${rule.id}`, cand)
-      if (row) reasons.push(`learning: ${row.samples} outcome${row.samples === 1 ? '' : 's'} under this rule, score ${row.score.toFixed(2)}`)
       break
     }
 
-    // ---- category table: an unlocked row follows the Usage mode, a locked row is Pinned as written
+    // ---- the player's row for this category
     const pool = harness ? undefined : poolFor(s, category)
-    // Modellers replace only an automatic choice; rules, sticky loadouts and pins still win.
-    if (!harness && input.kind === 'ship' && input.modeller && !explicitModel && !s.defaultWorkerModel?.trim() && !pool?.locked) {
-      const unavailable = !installed('claude') ? 'not installed or enabled'
-        : env.loggedOut?.('claude') ? 'not logged in'
-          : quotaBlocked('claude') ? 'held by quota protection'
-            : levelOf('claude') === 'warm' && levelOf('codex') !== 'warm' && usable('codex')
-              ? `${protectionCause(plans.claude)}; preferring ${nameOf('codex')}` : undefined
-      if (unavailable) {
-        reasons.push(`Modeller: Claude Opus unavailable (${unavailable}); falling back to the normal picker`)
-      } else {
-        harness = 'claude'
-        cand = { harness, model: OPUS, effort: preset.units[groupOf(category)][1] }
-        source = 'mode'
-        fromMode = true
-        reasons.push('Modeller: defaults to Claude Opus')
-      }
-    }
-    const byMode = Boolean(pool && !pool.locked)
-    const auto = byMode ? modeCandidates(mode, category, plans) : undefined
-    const rowCandidates = auto ? auto.candidates : (pool?.candidates ?? [])
-    if (!harness && rowCandidates.length) {
-      const label = byMode ? `${modeName} for ${categoryLabel(category)}` : `${categoryLabel(category)} table (pinned)`
-      reasons.push(...(auto?.notes ?? []))
-      const options = rowCandidates.map((c, i) => ({ c, i }))
-      const ordered = byMode ? options : dialOrder(options, dial)
-      const before = reasons.length
-      const pick = walk(ordered, label)
+    if (pool) {
+      const label = `your ${categoryLabel(category)} row`
+      const pick = walk(pool.candidates.map((c, i) => ({ c, i })), label)
       if (pick) {
-        let chosen = pick
-        const eligible = ordered.filter((o) => usable(o.c.harness) && (!protection || explorationSafe(env.quota?.[o.c.harness])) && (!o.c.cheap || env.cheap?.allowed))
-        const rate = Math.max(0, Math.min(1, preset.exploration))
-        const canExplore = rate > 0 && eligible.includes(pick) && eligible.length >= 2 && !explicitModel && !explicitEffort && input.priority !== 'critical'
-        if (canExplore && env.preview) {
-          reasons.push(`exploration: ${Math.round(rate * 100)}% of deploys try a less-proven candidate`)
-        } else if (canExplore && env.rand && env.rand() < rate) {
-          const samples = (o: Option): number => statFor(env.stats, category, o.c)?.samples ?? 0
-          const alt = eligible.filter((o) => o !== pick).sort((a, b) => samples(a) - samples(b) || ordered.indexOf(a) - ordered.indexOf(b))[0]
-          if (alt) {
-            chosen = alt
-            explored = true
-            // the skip notes explained a pick that exploration replaced
-            reasons.splice(before)
-            reasons.push(
-              `exploration (${Math.round(rate * 100)}%): trying ${nameOf(alt.c.harness)}${alt.c.model ? ` / ${alt.c.model}` : ''}, less proven for ${categoryLabel(category)} (${samples(alt)} vs ${samples(pick)} outcomes)`
-            )
-          }
-        }
-        cand = chosen.c
+        cand = pick.c
         harness = cand.harness
-        source = byMode ? 'mode' : 'table'
-        fromTable = !byMode
-        fromMode = byMode
-        if (!explored) {
-          const pos = rowCandidates.indexOf(chosen.c)
-          reasons.push(`${nameOf(harness)}${cand.model ? ` / ${cand.model}` : ''}: ${label}${pos > 0 ? ` (#${pos + 1} of ${rowCandidates.length})` : ''}`)
-        }
-        const row = statFor(env.stats, category, cand)
-        if (row) reasons.push(`learning: score ${row.score.toFixed(2)} for ${categoryLabel(category)} over ${row.samples} outcome${row.samples === 1 ? '' : 's'}`)
+        source = 'table'
+        reasons.push(`${nameOf(harness)}${cand.model ? ` / ${cand.model}` : ''}: ${label}${pick.i > 0 ? ` (#${pick.i + 1} of ${pool.candidates.length})` : ''}`)
       }
     }
 
+    // ---- the player's default unit tool, else the default: Claude, or Codex when only Codex is signed in
     if (!harness) {
-      harness = s.defaultHarness || 'claude'
-      if (!usable(harness)) {
-        const Deferred = installed(harness) && quotaBlocked(harness) ? QuotaDeferredError : Error
-        throw new Deferred('deferred: no eligible unit plan is available; the quest stays queued.')
-      }
+      const own = s.defaultHarness?.trim()
+      harness = own || defaultProvider({ claude: signedIn('claude'), codex: signedIn('codex') })
+      if (!signedIn(harness)) throw new Error(`deferred: ${nameOf(harness)} is not ${installed(harness) ? 'signed in' : 'installed or enabled'}, so no unit can start; the quest stays queued.`)
+      if (quotaBlocked(harness)) hold(harness)
       source = 'default'
-      reasons.push(`${nameOf(harness)}: default unit tool${ranked.length || !s.dispatchRules.length ? '' : ' (no rule matched)'}`)
+      reasons.push(own ? `${nameOf(harness)}: your default unit tool` : `${nameOf(harness)}: default (Claude while signed in, else Codex)`)
     }
   }
 
   const adapter = s.harnesses.find((h) => h.id === harness)
-  const isDefaultTool = harness === (s.defaultHarness || 'claude')
+  const ownDefaultTool = Boolean(s.defaultHarness?.trim()) && harness === s.defaultHarness.trim()
 
-  // ---- model
+  // ---- model: the pick, the rule or row, the player's default unit model, else the tool's default
   let model = explicitModel || undefined
   if (model) reasons.push(`model ${model}: your pick`)
-  else if (fromMode && !cand?.cheap && isDefaultTool && s.defaultWorkerModel) {
-    model = s.defaultWorkerModel
-    reasons.push(`model ${model}: Pinned default (the mode would pick ${cand?.model ?? 'the tool default'})`)
-  } else if (cand?.model) {
+  else if (cand?.model) {
     model = cand.model
-    reasons.push(`model ${model}: ${cand.cheap ? 'cheap OpenRouter model' : fromMode ? modeName : fromTable ? 'from the table' : 'from the rule'}`)
-  } else if (fromMode) {
-    reasons.push(`model: ${nameOf(harness)} default (${modeName})`)
-  } else if (isDefaultTool && s.defaultWorkerModel) {
-    model = s.defaultWorkerModel
-    reasons.push(`model ${model}: default`)
-  } else if (!explicitHarness && dial === 'quality' && QUALITY_MODEL[harness] && DEEP_CATEGORIES.includes(category)) {
-    model = QUALITY_MODEL[harness]
-    reasons.push(`model ${model}: Quality dial`)
-  } else if (!explicitHarness && dial === 'cost' && COST_MODEL[harness]) {
-    model = COST_MODEL[harness]
-    reasons.push(`model ${model}: Cost dial`)
+    reasons.push(`model ${model}: ${cand.cheap ? 'cheap OpenRouter model' : source === 'table' ? 'your category row' : 'from the rule'}`)
+  } else if (ownDefaultTool && s.defaultWorkerModel?.trim()) {
+    model = s.defaultWorkerModel.trim()
+    reasons.push(`model ${model}: your default unit model`)
   }
+  const chosen = model
+  model = unitModel(harness, model)
+  if (model && !chosen) reasons.push(`model ${model}: default`)
 
-  // ---- effort (the dial shifts everything except an explicit or rule effort)
-  const shift = dial === 'quality' ? 1 : dial === 'cost' ? -1 : 0
-  const dialled = (e: string, why: string): { effort: string; why: string } => {
-    if (!shift || !adapter?.effortArgs?.length) return { effort: e, why }
-    const next = shiftEffort(e, shift)
-    return next === e ? { effort: e, why } : { effort: next, why: `${why}, ${shift > 0 ? 'raised' : 'lowered'} from ${e} by the ${DIAL_LABEL[dial]} dial` }
-  }
+  // ---- effort: the same order, else medium (high for a Recon)
   let effort = explicitEffort || undefined
   if (effort) reasons.push(`effort ${effort}: your pick`)
-  else if (fromMode && s.defaultWorkerEffort && !cand?.cheap) {
-    effort = s.defaultWorkerEffort
-    reasons.push(`effort ${effort}: Pinned default`)
-  } else if (fromMode && cand?.effort) {
-    // the mode's cell is the final effort; only 70-84% protection lowers it one step
+  else if (cand?.effort) {
     effort = cand.effort
-    let why = modeName
-    if (levelOf(harness) === 'warm' && isPlan(harness)) {
-      const lower = stepDown(effort)
-      if (lower !== effort) {
-        why = `lowered from ${effort}: ${protectionCause(planStatus(harness, env.quota?.[harness]))}`
-        effort = lower
-      }
-    }
-    reasons.push(`effort ${effort}: ${why}`)
-  } else if (cand?.effort && !fromTable) {
-    effort = cand.effort
-    reasons.push(`effort ${effort}: from the rule`)
-  } else {
-    let base: { effort: string; why: string } | undefined
-    if (cand?.effort) base = { effort: cand.effort, why: 'from the table' }
-    else if (s.defaultWorkerEffort) base = { effort: s.defaultWorkerEffort, why: 'default' }
-    else if (adapter?.effortArgs?.length) base = classifyEffort(input.kind, text)
-    if (base) {
-      const d = dialled(base.effort, base.why)
-      effort = d.effort
-      reasons.push(`effort ${effort}: ${d.why}`)
-    }
+    reasons.push(`effort ${effort}: ${source === 'table' ? 'your category row' : 'from the rule'}`)
+  } else if (s.defaultWorkerEffort?.trim() && !cand?.cheap) {
+    effort = s.defaultWorkerEffort.trim()
+    reasons.push(`effort ${effort}: your default unit effort`)
+  } else if (adapter?.effortArgs?.length) {
+    effort = defaultUnitEffort(input.kind)
+    reasons.push(`effort ${effort}: default`)
   }
 
-  model = unitModel(harness, model)
   if (approvalModel(model)) reasons.push('Explicit approval required for this launch. Astra is normally reserved for heavy visual work.')
-  return { harness, model, effort, source, ruleId, category, explored: explored || undefined, reasons }
+  return { harness, model, effort, source, ruleId, category, reasons }
 }
 
 /**
@@ -460,3 +309,4 @@ export function resolveLoadout(input: LoadoutInput, settings: SettingsService, s
   const ready = new Set(settings.availableHarnesses().map((h) => h.id))
   return pickLoadout(input, settings.get(), { ...signals, available: (h) => ready.has(h.id) })
 }
+

@@ -250,9 +250,9 @@ Source: [VOCABULARY.md](../VOCABULARY.md)
 
 ## Usage modes
 
-One control for how much of your Claude and Codex plans Genio may use: Save, Balanced (default) or Max. It sets chat
-and unit models and effort, event batching and answer length. Only Max sometimes tries a less-proven model.
-A project can pick its own mode. Concurrency is controlled separately by Units at once.
+Save, Balanced (default) or Max: how long routine updates wait to batch and how long answers and Recon summaries run.
+It never picks a model or an effort (see Default model). A project can pick its own mode. Concurrency is controlled
+separately by Units at once.
 Where: Settings → Usage & limits → Usage mode; per project in Settings → This project → General.
 Source: [usage-protection.md](../usage-protection.md)
 
@@ -268,18 +268,18 @@ Source: [usage-protection.md](../usage-protection.md), [plans.md](../plans.md), 
 
 ## Quota protection
 
-Automatic protection of your plans, from the latest reported usage: at 70% a plan runs at most one unit with lower
-effort; at 85% it gets no new automatic units; at 95% or a rejection, low-priority queued quests (or all, if no plan
-has headroom) wait until the reset. Running work is never stopped, and pinned picks are held rather than switched.
+Fewer units as your plans fill up, from the latest reported usage: at 70% a plan runs at most one unit at a time;
+at 85% new units on it wait; at 95% or a rejection, low-priority queued quests (or all, if no plan has headroom) wait
+until the reset. Running work is never stopped, and it never changes a model or moves a unit to the other plan.
 Usage refreshes in the background at startup and every two minutes while work or a hold waits; opening Settings
 is unnecessary. Errors back off to at most 30 minutes. Readings older than ten minutes or past their own reset
 cannot hold work; an unavailable source allows ordinary dispatch with quota unverified. When headroom returns,
-deferred deployments and pinned relaunches retry themselves through the usual permissions and limits. Queued
+deferred deployments and relaunches retry themselves, with the same model, through the usual permissions and limits. Queued
 plans resume automatically; other queued quests still follow the automatic-dispatch setting.
 On by default. Turn it off with **Quota protection** beside the plan meter in Settings → Usage & limits;
-work then follows the Usage mode alone, while actual provider limits and retry backoff still apply.
+units then run without these limits, while actual provider limits and retry backoff still apply.
 The project chat and floating Genio panel show one amber warning box at the top centre of the chat, below its
-title bar and above the content, naming affected plans and held pinned launches. Text wraps in narrow windows;
+title bar and above the content, naming affected plans and launches waiting in this project. Text wraps in narrow windows;
 choice cards, tips and toasts stay clear. **Settings** jumps straight to the switch. Dismiss it for the current level; it returns only
 if protection worsens, and clears when protection stops acting or is off.
 Where: the project chat and floating Genio panel; Settings → Usage & limits → Quota protection.
@@ -291,16 +291,26 @@ When Claude or Codex is not signed in, the Systems button on the rail shows an a
 ("Codex is not signed in"), click it to open Accounts & keys and sign in. It clears by itself once you are signed in.
 Only Claude and Codex warn (never FAL, Uthana, GitHub, Unity or other sign-ins). Genio runs Codex only in its own
 Codex home, signed in once with your usual ChatGPT account (Accounts & keys → "Sign in Genio's Codex (same account)");
-it never uses your own Codex login, and an API-key login does not count. Until then Genio picks Claude for units, and
-Codex shows nothing in the usage popup.
-Where: the rail's Systems button; Settings → Accounts & keys.
-Source: [codex-sessions.md](../codex-sessions.md), [usage-protection.md](../usage-protection.md)
+it never uses your own Codex login, and an API-key login does not count. Until then Codex shows nothing in the usage popup.
+The Hub opens no project while neither Claude nor Codex is signed in: it lists your projects and offers **Sign in with
+Claude** and **Sign in with Codex**, and opens them as soon as one sign-in works.
+Where: the rail's Systems button; the Hub; Settings → Accounts & keys.
+Source: [codex-sessions.md](../codex-sessions.md), [usage-protection.md](../usage-protection.md), [project-startup.md](../project-startup.md)
+
+## Default model
+
+Whatever model and effort you set is what runs, always: in the chat (and each ally's own pick), dispatch rules, category
+rows, the default unit tool and an explicit deploy. Where you set nothing, Genio uses Claude Sonnet 5.5 at medium effort
+(high for a Recon); when Claude is not signed in and Codex is, Codex Sol 6.1 instead. With both signed in, Claude wins.
+The same default applies to every kind of unit; Usage mode, quota protection and the scorecard never change it.
+Where: the chat's model and effort controls; Settings → Advanced → Model routing (Dispatch); Settings → Units (Default agent tool).
+Source: [usage-protection.md](../usage-protection.md)
 
 ## Effort levels
 
-How hard a model thinks: low, medium, high, xhigh, max. The Usage mode picks it unless you pick one in the chat;
-quota protection may lower an automatic effort one step. Fable and Astra models need your approval for every unit launch.
-Where: the chat's model and effort controls; Settings → Usage & limits lists anything pinned, with Unpin.
+How hard a model thinks: low, medium, high, xhigh, max. Yours is used as you set it; otherwise medium (high for a
+Recon). Nothing lowers or raises it on its own. Fable and Astra models need your approval for every unit launch.
+Where: the chat's model and effort controls; Settings → Advanced → Model routing (Dispatch).
 Source: [usage-protection.md](../usage-protection.md)
 
 ## Spend approval
@@ -472,7 +482,9 @@ The window for opening a project, shown when Genio starts with no project. It li
 opened first) with Open folder, Add project, Sync all and Settings, and nothing else: no choices, units or chat.
 There is no New project: make or pick any folder in Open folder (it can make a new one) and Genio sets it up (see
 Project setup). Click a project to open it; the Hub closes once the project window is up. Choices from closed
-projects come as desktop notifications and wait in that project's window.
+projects come as desktop notifications and wait in that project's window. Genio needs Claude or Codex: while neither is
+signed in, the Hub still lists your projects but opens none and shows **Sign in with Claude** and **Sign in with Codex**
+(the same sign-ins as Accounts & keys); as soon as one works, projects open, no restart needed.
 Where: on start, or File › Hub (Ctrl+N) in a project window.
 Project rows stay the same size with aligned remove buttons; long names and paths truncate on one line.
 Source: [project-startup.md](../project-startup.md)

@@ -11,7 +11,7 @@ so without help each one stays in the player's sidebar forever.
   (`codex-home.ts`), so nothing lists in the player's Codex or ChatGPT apps, even
   while it runs. Non-Codex units get it too, for their Codex image runs.
 - The player signs that home in once from Settings > Accounts & keys > "Sign in Genio's
-  Codex (same account)": `codex login` with that `CODEX_HOME`, with their usual
+  Codex (same account)" (or the Hub's "Sign in with Codex", the same flow): `codex login` with that `CODEX_HOME`, with their usual
   ChatGPT account (same plan, no second subscription). It is an independent
   login; the player's `auth.json` is never copied or linked. "Sign out" runs
   `codex logout` there only.
@@ -68,11 +68,11 @@ project or a new Dev Drive path would hold the unit before its first turn.
   existing "Sign in Genio's Codex (same account)" action; an API-key login shows
   as an error with both actions). The player's own "Codex CLI" row stays as a
   read-only status: Genio never signs the player's own login in or out.
-- The dispatcher counts Codex as logged out meanwhile: the loadout picker skips
-  it ("Codex ... skipped: not logged in (Genio's own Codex sign-in; picking
-  another tool)"), so a Codex job is picked on Claude, a queued Codex quest
-  waits for or is relaunched on another tool by the picker, and an explicit
-  Codex pick is refused with the way to sign in. A running Codex unit that
+- The dispatcher counts Codex as logged out meanwhile: the default model stays
+  Claude, a rule or category row the player wrote skips it in the order written
+  ("Codex ... skipped: not logged in (Genio's own Codex sign-in; picking
+  another tool)"), and an explicit Codex pick is refused with the way to sign
+  in. Once Codex is signed in and Claude is not, the default is Codex Sol 6.1. A running Codex unit that
   loses its sign-in fails like any provider auth error.
 - A unit records the home it ran in (`Task.codexHome`); respawns, discovery and
   archiving use it. A chat thread the current home does not hold is left where it

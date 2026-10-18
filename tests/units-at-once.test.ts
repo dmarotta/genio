@@ -39,7 +39,7 @@ describe('independent unit concurrency', () => {
   it('defaults new installs to eight, preserves an explicit limit and migrates idempotently', () => {
     expect(defaultSettings().unitsAtOnce).toBe(8)
     expect(createSettingsService(home).get().unitsAtOnce).toBe(8)
-    const saved = { usageMode: 'max', unitsAtOnce: 3, wkspEffort: 'high', quotaProtection: true } as Partial<Settings>
+    const saved = { usageMode: 'max', unitsAtOnce: 3, wkspEffort: 'high', quotaProtection: true, plainModelDefaults: true } as Partial<Settings>
     expect(migrateUsageSettings(saved)).toBe(saved)
     expect(migrateUsageSettings({ costDial: 'quality', unitsAtOnce: 5 })).toMatchObject({ usageMode: 'max', unitsAtOnce: 5 })
   })

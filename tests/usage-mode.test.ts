@@ -5,9 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UsageReport, UsageWindow } from '../src/shared/api'
 import type { BacklogItem, LoadoutInput, Settings, Task, TaskCategory, WorkPlan } from '../src/shared/types'
 import { CATEGORY_IDS, CHEAP_MODELS } from '../src/shared/dispatch'
-import { CODEX_UNIT_MODEL } from '../src/shared/unit-model-policy'
+import { CLAUDE_UNIT_MODEL, CODEX_UNIT_MODEL } from '../src/shared/unit-model-policy'
 import {
-  MODE_PRESETS, OPUS, SONNET, USAGE_MODES, meterRows, modeSummary, planStatus, presetRows, quotaWait, resolveChat, type PlanStatus, type UsageMode
+  MODE_PRESETS, USAGE_MODES, meterRows, modeSummary, planStatus, quotaWait, type PlanStatus, type UsageMode
 } from '../src/shared/usage-mode'
 import { unitCaps } from '../src/shared/unit-capacity'
 import { createSettingsService, defaultSettings } from '../src/main/settings'
@@ -16,7 +16,7 @@ import { Home } from '../src/main/home'
 import { bus } from '../src/main/bus'
 import { QuotaDeferredQueue } from '../src/main/quota-deferred'
 import { pickLoadout, type PickEnv } from '../src/main/loadout'
-import { PolicyNotices, chatSettings, heartbeatFor, migrateUsageSettings, routineDelay, worldUsage } from '../src/main/usage-policy'
+import { PolicyNotices, chatSettings, heartbeatFor, migrateModelDefaults, migrateUsageSettings, routineDelay, worldUsage } from '../src/main/usage-policy'
 import { ACHIEVEMENTS } from '../src/main/stats'
 import type { AppCtx } from '../src/main/services'
 
@@ -34,73 +34,46 @@ const env = (ids: string[], extra: Partial<PickEnv> = {}): PickEnv => ({ availab
 const ALL = ['claude', 'codex', 'opencode']
 const settings = (patch: Partial<Settings> = {}): Settings => ({ ...defaultSettings(), ...patch })
 const input = (category: TaskCategory, extra: Partial<LoadoutInput> = {}): LoadoutInput => ({ kind: 'ship', project: 'w', title: 'Work', intent: 'Do the work', category, ...extra })
+const SONNET = CLAUDE_UNIT_MODEL
 
-// The report's table, written out literally (S Sonnet, O Opus, C Codex default).
-const TABLE: Record<UsageMode, Record<string, string>> = {
-  save: { light: 'C/low', build: 'S/medium', deep: 'C/medium', review: 'C/medium', art: 'C/low' },
-  balanced: { light: 'C/medium', build: 'C/medium', deep: 'C/high', review: 'C/high', art: 'C/medium' },
-  max: { light: 'C/high', build: 'O/high', deep: 'O/xhigh', review: 'C/xhigh', art: 'C/high' }
-}
-const GROUP: Record<TaskCategory, string> = {
-  chore: 'light', docs: 'light', tests: 'light', 'build-ci': 'light', feature: 'build', bugfix: 'build', ui: 'build',
-  'recon-design': 'deep', refactor: 'deep', graphics: 'deep', review: 'review', 'large-context': 'review', art: 'art'
-}
-const SLOT = { S: { harness: 'claude', model: SONNET }, O: { harness: 'claude', model: OPUS }, C: { harness: 'codex', model: CODEX_UNIT_MODEL } }
-const FALLBACK = { S: 'C', C: 'S', O: 'C' } as const
-
-describe('every preset x category', () => {
-  for (const mode of USAGE_MODES) {
-    for (const category of CATEGORY_IDS) {
-      const [slot, effort] = TABLE[mode][GROUP[category]].split('/') as ['S' | 'O' | 'C', string]
-      it(`${mode} / ${category} -> ${slot} ${effort}, falling back to ${FALLBACK[slot]} at the same effort`, () => {
-        const l = pickLoadout(input(category), settings({ usageMode: mode }), env(ALL))
-        expect(l).toMatchObject({ ...SLOT[slot], effort, source: 'mode', category })
-        expect(l.explored).toBeUndefined()
-        const without = ALL.filter((id) => id !== SLOT[slot].harness)
-        const f = pickLoadout(input(category), settings({ usageMode: mode }), env(without))
-        expect(f).toMatchObject({ ...SLOT[FALLBACK[slot]], effort, source: 'mode' })
-      })
-    }
-  }
-
-  it('sets exploration, cheap use, batching and targets exactly per the table', () => {
-    expect(USAGE_MODES.map((m) => MODE_PRESETS[m].exploration)).toEqual([0, 0, 0.05])
-    expect(USAGE_MODES.map((m) => MODE_PRESETS[m].cheap)).toEqual(['first', 'fallback', 'off'])
+describe('Usage mode: batching and answer length, never a model', () => {
+  it('sets batching and targets exactly per the table, and nothing else', () => {
+    expect(USAGE_MODES.map((m) => Object.keys(MODE_PRESETS[m]).sort())).toEqual(USAGE_MODES.map(() => ['answerWords', 'heartbeat', 'reconWords', 'wakeBatchMinutes']))
     expect(USAGE_MODES.map((m) => MODE_PRESETS[m].wakeBatchMinutes)).toEqual([10, 5, 1])
     expect(USAGE_MODES.map((m) => heartbeatFor({ usageMode: m }))).toEqual([30, 15, 10].map((b) => ({ baseMs: b * 60_000, maxMs: 120 * 60_000 })))
     expect(USAGE_MODES.map((m) => [MODE_PRESETS[m].answerWords, MODE_PRESETS[m].reconWords])).toEqual([[150, 400], [250, 800], [400, 1500]])
-    expect(USAGE_MODES.map((m) => resolveChat(m, {}))).toMatchObject([
-      { model: SONNET, effort: 'low' }, { model: SONNET, effort: 'medium' }, { model: OPUS, effort: 'high' }
-    ])
   })
 
-  it.each(USAGE_MODES)('keeps concurrency out of the %s mode summary and preview', mode => {
-    expect(modeSummary(mode)).not.toMatch(/up to|units/)
-    expect(presetRows(mode).some(row => /concurrent/i.test(row.label))).toBe(false)
+  it.each(USAGE_MODES)('the %s summary names answers and batching, not models or units', mode => {
+    expect(modeSummary(mode)).toMatch(/words.*batched/)
+    expect(modeSummary(mode)).not.toMatch(/Sonnet|Opus|Codex|units/)
   })
 
-  it('cheap models: Save first, Balanced after the plans, Max never, never for high-stakes work, never without the allowance', () => {
-    const open = { cheap: { allowed: true, why: 'ok' } }
-    expect(pickLoadout(input('docs'), settings({ usageMode: 'save' }), env(ALL, open))).toMatchObject({ harness: 'opencode', model: CHEAP_MODELS[0].model })
-    expect(pickLoadout(input('docs'), settings({ usageMode: 'balanced' }), env(ALL, open)).harness).toBe('codex')
-    expect(pickLoadout(input('docs'), settings({ usageMode: 'balanced' }), env(['opencode'], open)).harness).toBe('opencode')
-    expect(() => pickLoadout(input('docs'), settings({ usageMode: 'max' }), env(['opencode'], open))).toThrow(/deferred/)
-    expect(pickLoadout(input('feature'), settings({ usageMode: 'save' }), env(ALL, open)).harness).toBe('claude')
-    const closed = pickLoadout(input('docs'), settings({ usageMode: 'save' }), env(ALL, { cheap: { allowed: false, why: 'no paid-spend allowance' } }))
+  it('every mode and category gets the same default unit model', () => {
+    for (const mode of USAGE_MODES) for (const category of CATEGORY_IDS) {
+      expect(pickLoadout(input(category), settings({ usageMode: mode }), env(ALL))).toMatchObject({ harness: 'claude', model: SONNET, effort: 'medium', source: 'default' })
+      expect(pickLoadout(input(category), settings({ usageMode: mode }), env(['codex', 'opencode']))).toMatchObject({ harness: 'codex', model: CODEX_UNIT_MODEL, effort: 'medium' })
+    }
+  })
+
+  it("cheap models only from the player's own lists, and never without the allowance", () => {
+    const row = { categoryPools: [{ category: 'docs' as const, candidates: [{ harness: 'opencode', model: CHEAP_MODELS[0].model, cheap: true }, { harness: 'codex' }] }] }
+    expect(pickLoadout(input('docs'), settings(row), env(ALL, { cheap: { allowed: true, why: 'ok' } }))).toMatchObject({ harness: 'opencode', model: CHEAP_MODELS[0].model })
+    const closed = pickLoadout(input('docs'), settings(row), env(ALL, { cheap: { allowed: false, why: 'no paid-spend allowance' } }))
     expect(closed.harness).toBe('codex')
     expect(closed.reasons.join('\n')).toMatch(/no paid-spend allowance/)
+    for (const mode of USAGE_MODES) expect(pickLoadout(input('docs'), settings({ usageMode: mode }), env(ALL, { cheap: { allowed: true, why: 'ok' } })).harness).toBe('claude')
   })
 
-  it('a world mode applies to its picks', () => {
-    expect(pickLoadout(input('feature'), settings({ usageMode: 'save' }), env(ALL, { mode: 'max', modeFromWorld: true }))).toMatchObject({ harness: 'claude', model: OPUS, effort: 'high' })
+  it('a world mode is read for batching and answers', () => {
     expect(worldUsage({ usageMode: 'balanced' }, { name: 'w', usageMode: 'save' })).toMatchObject({ mode: 'save', source: 'world' })
     expect(worldUsage({ usageMode: 'balanced' }, { name: 'w', costDial: 'quality' })).toMatchObject({ mode: 'max', source: 'legacy-dial' })
     expect(worldUsage({ usageMode: 'save' }, { name: 'w' })).toMatchObject({ mode: 'save', source: 'global' })
   })
 })
 
-describe('pinned overrides', () => {
-  it('persists default-on migration without a prompt and retains an explicit opt-out across restart', () => {
+describe('settings migration', () => {
+  it('persists default-on protection without a prompt and retains an explicit opt-out across restart', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-protection-settings-'))
     const events: string[] = []
     const off = bus.onEvent(ev => { if (ev.type === 'feature-used') events.push(ev.feature) })
@@ -120,7 +93,7 @@ describe('pinned overrides', () => {
     } finally { off(); fs.rmSync(dir, { recursive: true, force: true }) }
   })
 
-  it('migrates explicit picks as Pinned and only the old shipped chat default to Auto', () => {
+  it('keeps explicit picks as written and unsets only the old shipped chat default', () => {
     const old = { wkspModel: 'claude-sonnet-5-5', wkspEffort: 'high', costDial: 'balanced', defaultWorkerModel: 'opus', explorationRate: 0.2 } as Partial<Settings>
     expect(migrateUsageSettings(old)).toMatchObject({ usageMode: 'balanced', wkspModel: 'claude-sonnet-5-5', wkspEffort: 'high', defaultWorkerModel: 'opus' })
     expect(migrateUsageSettings({ wkspModel: '', wkspEffort: 'high' })).toMatchObject({ usageMode: 'balanced', wkspEffort: '' })
@@ -129,32 +102,92 @@ describe('pinned overrides', () => {
     expect(migrateUsageSettings({ costDial: 'cost' }).usageMode).toBe('save')
     expect(defaultSettings().quotaProtection).toBe(true)
     expect(migrateUsageSettings({ usageMode: 'save' }).quotaProtection).toBe(true)
-    const done = { usageMode: 'save', unitsAtOnce: 4, wkspEffort: 'high', quotaProtection: false } as Partial<Settings>
+    const done = { usageMode: 'save', unitsAtOnce: 4, wkspEffort: 'high', quotaProtection: false, plainModelDefaults: true } as Partial<Settings>
     expect(migrateUsageSettings(done)).toBe(done)
   })
 
-  it('never changes a pinned chat model or effort, at any protection level', () => {
-    for (const level of [20, 75, 90, 97]) {
-      const claude = planStatus('claude', [fresh(level)])
-      expect(resolveChat('balanced', { model: OPUS, effort: 'high' }, claude)).toMatchObject({ model: OPUS, effort: 'high', pinnedModel: true, pinnedEffort: true })
-    }
+  it('keeps locked category rows and rules as the player wrote them; the old shipped defaults become unset', () => {
+    const legacy = {
+      usageMode: 'balanced', unitsAtOnce: 8, defaultHarness: 'claude', autoReorder: true,
+      categoryPools: [
+        { category: 'feature', candidates: [{ harness: 'claude' }, { harness: 'codex' }] },
+        { category: 'art', locked: true, candidates: [{ harness: 'codex', model: 'custom', effort: 'low' }] }
+      ],
+      dispatchRules: [{ id: 'r', match: 'shader', locked: true, candidates: [{ harness: 'codex', spendPriority: 0 }] }]
+    } as unknown as Partial<Settings>
+    const next = migrateModelDefaults(legacy)
+    expect(next).toMatchObject({ plainModelDefaults: true, defaultHarness: '', categoryPools: [{ category: 'art', candidates: [{ harness: 'codex', model: 'custom', effort: 'low' }] }] })
+    expect(next.categoryPools![0]).not.toHaveProperty('locked')
+    expect(next.dispatchRules).toEqual([{ id: 'r', match: 'shader', candidates: [{ harness: 'codex', spendPriority: 0 }] }])
+    expect(next).not.toHaveProperty('autoReorder')
+    expect(migrateModelDefaults(next)).toBe(next)
+    // an explicitly chosen tool, or a tool with its own default model or effort, stays
+    expect(migrateModelDefaults({ defaultHarness: 'codex' }).defaultHarness).toBe('codex')
+    expect(migrateModelDefaults({ defaultHarness: 'claude', defaultWorkerModel: 'claude-opus-5-5' }).defaultHarness).toBe('claude')
+    expect(migrateModelDefaults({ defaultHarness: 'claude', defaultWorkerEffort: 'high' }).defaultHarness).toBe('claude')
+    // explicit chat and unit picks are untouched
+    expect(migrateModelDefaults({ wkspModel: 'claude-opus-5-5', wkspEffort: 'xhigh', botModel: 'claude-haiku-5-5', defaultWorkerModel: 'm', defaultHarness: 'claude' }))
+      .toMatchObject({ wkspModel: 'claude-opus-5-5', wkspEffort: 'xhigh', botModel: 'claude-haiku-5-5', defaultWorkerModel: 'm', defaultHarness: 'claude' })
   })
 
-  it('keeps pinned unit model/effort over the mode, and explicit deploy picks over everything', () => {
+  it('migrates a saved settings file once, and a new install starts on the default', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-model-migration-'))
+    try {
+      const home = new Home(dir)
+      fs.mkdirSync(home.config, { recursive: true })
+      fs.writeFileSync(home.settingsFile, JSON.stringify({ usageMode: 'max', unitsAtOnce: 16, inboxToken: 't', defaultHarness: 'claude', autoReorder: true,
+        categoryPools: [{ category: 'feature', candidates: [{ harness: 'claude' }] }, { category: 'ui', locked: true, candidates: [{ harness: 'claude', model: 'claude-opus-5-5' }] }] }))
+      const s = createSettingsService(home).get()
+      expect(s).toMatchObject({ defaultHarness: '', plainModelDefaults: true, categoryPools: [{ category: 'ui', candidates: [{ harness: 'claude', model: 'claude-opus-5-5' }] }] })
+      const saved = JSON.parse(fs.readFileSync(home.settingsFile, 'utf8'))
+      expect(saved).toMatchObject({ plainModelDefaults: true, defaultHarness: '' })
+      expect(saved).not.toHaveProperty('autoReorder')
+      // a later explicit choice of Claude survives the next start
+      createSettingsService(home).save({ defaultHarness: 'claude' })
+      expect(createSettingsService(home).get().defaultHarness).toBe('claude')
+    } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+    expect(defaultSettings()).toMatchObject({ defaultHarness: '', categoryPools: [], wkspModel: '', wkspEffort: '', plainModelDefaults: true })
+  })
+})
+
+describe('the chat model: the player’s, else the default', () => {
+  it('defaults to Claude Sonnet 5.5 / medium, or Codex Sol 6.1 when only Codex is signed in', () => {
+    const cases: [Parameters<typeof chatSettings>[1], string][] = [
+      [{}, SONNET], [{ claude: true, codex: true }, SONNET], [{ claude: true, codex: false }, SONNET],
+      [{ claude: false, codex: true }, `codex:OpenAI:${CODEX_UNIT_MODEL}`], [{ claude: false, codex: false }, SONNET], [{ claude: undefined, codex: true }, SONNET]
+    ]
+    for (const [signIns, model] of cases) expect(chatSettings(settings(), signIns)).toMatchObject({ wkspModel: model, wkspEffort: 'medium', botModel: SONNET })
+  })
+
+  it('never changes a chat model or effort the player set, at any mode or protection level', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-chat-mode-'))
+    try {
+      recordClaudeRateLimit(claudeLimitsFile(dir), { status: 'allowed_warning', rateLimitType: 'five_hour', utilization: 0.97 })
+      for (const usageMode of USAGE_MODES) for (const signIns of [{}, { claude: false, codex: true }]) {
+        expect(chatSettings(settings({ usageMode, wkspModel: 'claude-opus-5-5', wkspEffort: 'high', botModel: 'claude-haiku-5-5' }), signIns))
+          .toMatchObject({ wkspModel: 'claude-opus-5-5', wkspEffort: 'high', botModel: 'claude-haiku-5-5' })
+        expect(chatSettings(settings({ usageMode }), {})).toMatchObject({ wkspModel: SONNET, wkspEffort: 'medium' })
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('explicit unit picks', () => {
+  it('keeps the unit model/effort the player set, and explicit deploy picks over everything', () => {
     const s = settings({ usageMode: 'balanced', defaultHarness: 'claude', defaultWorkerModel: 'claude-fable-5-1', defaultWorkerEffort: 'max' })
     const l = pickLoadout(input('feature'), s, env(['claude']))
     expect(l).toMatchObject({ harness: 'claude', model: 'claude-fable-5-1', effort: 'max' })
-    expect(l.reasons.join('\n')).toMatch(/Pinned default/)
-    // the pinned model belongs to the default tool only
-    expect(pickLoadout(input('feature'), s, env(ALL))).toMatchObject({ harness: 'codex', model: CODEX_UNIT_MODEL, effort: 'max' })
-    // a warm plan never lowers a pinned effort
-    expect(pickLoadout(input('feature'), s, env(['codex'], { quota: { codex: [fresh(75)] } })).effort).toBe('max')
+    expect(l.reasons.join('\n')).toMatch(/your default unit model/)
+    // a warm plan never lowers an effort
+    expect(pickLoadout(input('feature'), s, env(['claude'], { quota: { claude: [fresh(75)] } })).effort).toBe('max')
     expect(pickLoadout(input('feature', { harness: 'claude', model: 'm', effort: 'low' }), settings({ usageMode: 'max' }), env(ALL))).toMatchObject({ harness: 'claude', model: 'm', effort: 'low', source: 'player' })
   })
 
-  it('a locked category row is Pinned: used as written in every mode', () => {
-    const pools = defaultSettings().categoryPools.map((p) => (p.category === 'feature' ? { ...p, locked: true, candidates: [{ harness: 'claude', model: 'x', effort: 'low' }] } : p))
-    for (const mode of USAGE_MODES) expect(pickLoadout(input('feature'), settings({ usageMode: mode, categoryPools: pools }), env(ALL))).toMatchObject({ harness: 'claude', model: 'x', source: 'table' })
+  it('a category row is used as written in every mode', () => {
+    const pools = [{ category: 'feature' as const, candidates: [{ harness: 'claude', model: 'x', effort: 'low' }] }]
+    for (const mode of USAGE_MODES) expect(pickLoadout(input('feature'), settings({ usageMode: mode, categoryPools: pools }), env(ALL))).toMatchObject({ harness: 'claude', model: 'x', effort: 'low', source: 'table' })
   })
 })
 
@@ -176,56 +209,36 @@ describe('stale, unknown and rejected quota combinations', () => {
     expect(planStatus('claude', [fresh(20), stale(88)]).level).toBe('ok')
   })
 
-  const cases: [string, Record<string, UsageWindow[]>, string, string][] = [
-    ['codex warm (75%): Sonnet preferred at the mode effort', { claude: [fresh(20)], codex: [fresh(75)] }, 'claude', 'medium'],
-    ['codex hot (88%): excluded', { claude: [fresh(20)], codex: [fresh(88)] }, 'claude', 'medium'],
-    ['codex out (96%): excluded', { claude: [fresh(20)], codex: [fresh(96)] }, 'claude', 'medium'],
-    ['codex rejected: excluded', { claude: [fresh(20)], codex: [{ label: 'weekly', status: 'rejected', observedAt: new Date().toISOString() }] }, 'claude', 'medium'],
-    ['codex stale hot: unknown, ordinary dispatch', { claude: [fresh(20)], codex: [stale(97)] }, 'codex', 'medium'],
-    ['codex stale cold: unknown, ordinary dispatch', { claude: [fresh(20)], codex: [stale(30)] }, 'codex', 'medium'],
-    ['codex never reported: ordinary dispatch', { claude: [fresh(20)] }, 'codex', 'medium'],
-    ['both warm: no preference, effort one step lower', { claude: [fresh(75)], codex: [fresh(72)] }, 'codex', 'low']
+  const runs: [string, Record<string, UsageWindow[]>][] = [
+    ['claude warm (75%)', { claude: [fresh(75)], codex: [fresh(20)] }],
+    ['claude stale hot: unknown', { claude: [stale(97)], codex: [fresh(20)] }],
+    ['claude never reported', { codex: [fresh(20)] }],
+    ['codex hot (88%)', { claude: [fresh(20)], codex: [fresh(88)] }],
+    ['codex rejected', { claude: [fresh(20)], codex: [{ label: 'weekly', status: 'rejected', observedAt: new Date().toISOString() }] }]
   ]
-  for (const [name, quota, harness, effort] of cases) {
-    it(`Balanced feature: ${name}`, () => {
-      expect(pickLoadout(input('feature'), settings(), env(ALL, { quota }))).toMatchObject({ harness, effort })
+  for (const [name, quota] of runs) {
+    it(`default feature unit: ${name} runs the default at its effort`, () => {
+      expect(pickLoadout(input('feature'), settings(), env(ALL, { quota }))).toMatchObject({ harness: 'claude', model: SONNET, effort: 'medium' })
     })
   }
 
-  it('lowers Auto effort one step on a warm plan and says why; queues when every plan is hot or out', () => {
-    const l = pickLoadout(input('feature'), settings(), env(['codex'], { quota: { codex: [fresh(76)] } }))
-    expect(l).toMatchObject({ harness: 'codex', effort: 'low' })
-    expect(l.reasons.join('\n')).toMatch(/lowered from medium: Codex 5-hour at 76%/)
-    for (const quota of [{ claude: [fresh(90)], codex: [fresh(96)] }, { claude: [{ label: 'weekly', status: 'rejected', observedAt: new Date().toISOString() }], codex: [fresh(99)] }])
-      expect(() => pickLoadout(input('feature'), settings(), env(['claude', 'codex'], { quota }))).toThrow(/deferred/)
-  })
+  const waits: [string, Record<string, UsageWindow[]>][] = [
+    ['claude hot (88%)', { claude: [fresh(88)], codex: [fresh(20)] }],
+    ['claude out (96%)', { claude: [fresh(96)], codex: [fresh(20)] }],
+    ['claude rejected', { claude: [{ label: 'weekly', status: 'rejected', observedAt: new Date().toISOString() }], codex: [fresh(20)] }]
+  ]
+  for (const [name, quota] of waits) {
+    it(`default feature unit: ${name} waits and is never moved to Codex`, () => {
+      expect(() => pickLoadout(input('feature'), settings(), env(ALL, { quota }))).toThrow(/deferred: Claude Code is held by quota protection.*keeps its tool and model/)
+      expect(pickLoadout(input('feature'), settings({ quotaProtection: false }), env(ALL, { quota })).harness).toBe('claude')
+    })
+  }
 
-  it('Max explores only with fresh evidence below 70% on both plans', () => {
-    const roll = { rand: () => 0 }
-    expect(pickLoadout(input('feature'), settings({ usageMode: 'max' }), env(ALL, roll)).explored).toBe(true)
-    for (const quota of [{ claude: [fresh(20)], codex: [fresh(70)] }, { claude: [fresh(20)], codex: [stale(10)] }, { claude: [fresh(20)] }] as Record<string, UsageWindow[]>[])
-      expect(pickLoadout(input('feature'), settings({ usageMode: 'max' }), env(ALL, { ...roll, quota })).explored).toBeUndefined()
-    for (const mode of ['save', 'balanced'] as const) expect(pickLoadout(input('feature'), settings({ usageMode: mode }), env(ALL, roll)).explored).toBeUndefined()
-  })
-
-  it('chat: Auto lowers one step at 70-84% and drops to Sonnet / low at 85%+', () => {
-    expect(resolveChat('max', {}, planStatus('claude', [fresh(50)]))).toMatchObject({ model: OPUS, effort: 'high' })
-    expect(resolveChat('max', {}, planStatus('claude', [fresh(75)]))).toMatchObject({ model: OPUS, effort: 'medium' })
-    expect(resolveChat('max', {}, planStatus('claude', [fresh(86)]))).toMatchObject({ model: SONNET, effort: 'low' })
-    expect(resolveChat('balanced', {}, planStatus('claude', [{ label: '5-hour', status: 'rejected', observedAt: new Date().toISOString() }]))).toMatchObject({ model: SONNET, effort: 'low' })
-    expect(resolveChat('balanced', {}, planStatus('claude', [stale(40)]))).toMatchObject({ model: SONNET, effort: 'medium' })
-    // a pinned model keeps its model, only its Auto effort follows protection
-    expect(resolveChat('max', { model: OPUS }, planStatus('claude', [fresh(90)]))).toMatchObject({ model: OPUS, effort: 'low' })
-  })
-
-  it('the chat sessions read the resolved values from the shared Claude evidence', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-chat-mode-'))
+  it('the chat sessions never read quota for their model', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-chat-quota-'))
     try {
-      expect(chatSettings(settings({ usageMode: 'max' }), dir)).toMatchObject({ wkspModel: OPUS, wkspEffort: 'high', botModel: SONNET })
-      recordClaudeRateLimit(claudeLimitsFile(dir), { status: 'allowed_warning', rateLimitType: 'five_hour', utilization: 0.9 })
-      expect(chatSettings(settings({ usageMode: 'max' }), dir)).toMatchObject({ wkspModel: SONNET, wkspEffort: 'low' })
-      expect(chatSettings(settings({ usageMode: 'max', quotaProtection: false }), dir)).toMatchObject({ wkspModel: OPUS, wkspEffort: 'high' })
-      expect(chatSettings(settings({ usageMode: 'max', wkspModel: OPUS, wkspEffort: 'high', botModel: 'claude-haiku-5-5' }), dir)).toMatchObject({ wkspModel: OPUS, wkspEffort: 'high', botModel: 'claude-haiku-5-5' })
+      recordClaudeRateLimit(claudeLimitsFile(dir), { status: 'rejected', rateLimitType: 'five_hour' })
+      expect(chatSettings(settings({ usageMode: 'max' }), { claude: true })).toMatchObject({ wkspModel: SONNET, wkspEffort: 'medium' })
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }
@@ -274,13 +287,13 @@ describe('notices on policy transitions only', () => {
     expect(n.observe([at(40)])).toEqual([])
     const warm = n.observe([at(75)])
     expect(warm).toHaveLength(1)
-    expect(warm[0]).toMatchObject({ from: 'ok', to: 'warm', text: expect.stringMatching(/^Claude at 75%: exploration off/) })
+    expect(warm[0]).toMatchObject({ from: 'ok', to: 'warm', text: 'Claude at 75%: one Claude unit at a time.' })
     expect(warm[0].details).toMatch(/cause: Claude 5-hour window 75% · evidence under a minute old/)
     expect(n.observe([at(78)])).toEqual([])
     expect(new PolicyNotices(dir).observe([at(80)])).toEqual([])
-    expect(new PolicyNotices(dir).observe([at(97)], 2)[0].text).toMatch(/Claude reached its limit: no new automatic Claude work until .*; chat is saved; 2 low-priority quests wait/)
+    expect(new PolicyNotices(dir).observe([at(97)], 2)[0].text).toMatch(/Claude reached its limit: new Claude units wait until .*; optional chat work waits; 2 low-priority quests wait/)
     expect(new PolicyNotices(dir).observe([at(97)])).toEqual([])
-    expect(new PolicyNotices(dir).observe([at(20)])[0]).toMatchObject({ to: 'ok', text: 'Claude is back under 70%: the Usage mode applies again.' })
+    expect(new PolicyNotices(dir).observe([at(20)])[0]).toMatchObject({ to: 'ok', text: 'Claude is back under 70%: no limit on Claude units.' })
     expect(new PolicyNotices(dir).list().map((x) => x.to)).toEqual(['ok', 'out', 'warm'])
   })
 })
@@ -382,26 +395,26 @@ describe('concurrent unit cap across worlds', () => {
     next.release()
   })
 
-  it('disables holds for pinned launches, concurrent launches and queued quests without hiding the meter', async () => {
+  it('disables holds for launches with a chosen model, concurrent launches and queued quests without hiding the meter', async () => {
     for (const tool of scan.report.tools) tool.limits[0].windows = [fresh(97)]
     recordClaudeRateLimit(claudeLimitsFile(dir), { status: 'rejected', rateLimitType: 'five_hour' })
     const quest = { id: 'q', kind: 'ship', state: 'queued', priority: 'low' } as BacklogItem
     const svc = service('max', [task('running')], {}, [quest], { quotaProtection: false })
-    const first = await svc.reserve({ ...ship('a'), harness: 'codex', model: 'pinned-model', effort: 'high' })
+    const first = await svc.reserve({ ...ship('a'), harness: 'codex', model: 'chosen-model', effort: 'high' })
     const second = await svc.reserve({ ...ship('b'), harness: 'codex' })
     const claude = await svc.reserve({ ...ship('c'), harness: 'claude' })
     await first.check()
     await second.check()
     await claude.check()
-    expect(first.loadout).toMatchObject({ model: 'pinned-model', effort: 'high' })
+    expect(first.loadout).toMatchObject({ model: 'chosen-model', effort: 'high' })
     expect(svc.quotaWait(quest)).toBeUndefined()
-    expect(svc.view()).toMatchObject({ quotaProtection: false, waiting: [], heldLaunches: [], chat: { model: OPUS, effort: 'high' } })
+    expect(svc.view()).toMatchObject({ quotaProtection: false, waiting: [], heldLaunches: [], chat: { model: SONNET, effort: 'medium' } })
     expect(svc.view().meter[0].headline?.state).toBe('limit')
     expect(svc.reportWords('a', 'claude')).toBe(MODE_PRESETS.max.reconWords)
     first.release(); second.release(); claude.release()
   })
 
-  it('reads held pin names from the durable retry queue and removes them on recovery, cancellation or switch-off', async () => {
+  it('reads held launch names from the durable retry queue and removes them on recovery, cancellation or switch-off', async () => {
     scan.report.tools.find(t => t.tool === 'codex')!.limits[0].windows = [fresh(90)]
     const svc = service('balanced')
     await expect(svc.reserve({ ...ship('a'), title: 'Build the castle', harness: 'codex' })).rejects.toThrow(/held/)
@@ -412,12 +425,12 @@ describe('concurrent unit cap across worlds', () => {
     expect(restarted.view().heldLaunches).toEqual([{ project: 'a', title: 'Build the castle', plan: 'codex' }])
     restarted.settings.quotaProtection = false
     expect(restarted.view().heldLaunches).toEqual([])
-    const pinned = { ...task('a'), title: 'Fix the door' }
-    queue.put(`unit:${pinned.id}`, { kind: 'relaunch', id: pinned.id, manual: true })
-    const resumed = service('balanced', [pinned])
+    const door = { ...task('a'), title: 'Fix the door' }
+    queue.put(`unit:${door.id}`, { kind: 'relaunch', id: door.id, manual: true })
+    const resumed = service('balanced', [door])
     resumed.noteUsage(scan.report)
     expect(resumed.view().heldLaunches.map(launch => launch.title)).toEqual(['Build the castle', 'Fix the door'])
-    queue.remove(`unit:${pinned.id}`)
+    queue.remove(`unit:${door.id}`)
     queue.remove('quest:castle')
     expect(svc.view().heldLaunches).toEqual([])
     queue.put('quest:castle', { kind: 'spawn', request: { ...ship('a'), title: 'Build the castle', harness: 'codex', backlogId: 'castle' } })
@@ -427,7 +440,7 @@ describe('concurrent unit cap across worlds', () => {
     expect(svc.view().heldLaunches).toEqual([])
   })
 
-  it('also names pinned plan steps, whose retries belong to the plan rather than the standalone queue', () => {
+  it('also names held plan steps, whose retries belong to the plan rather than the standalone queue', () => {
     scan.report.tools.find(t => t.tool === 'codex')!.limits[0].windows = [fresh(90)]
     const quest = { id: 'step-quest', kind: 'ship', state: 'queued' } as BacklogItem
     const svc = service('balanced', [], {}, [quest])
@@ -458,14 +471,22 @@ describe('concurrent unit cap across worlds', () => {
     } finally { svc.stop() }
   })
 
-  it('protects a warm plan across project bases and selects the other plan', async () => {
-    scan.report.tools.find(t => t.tool === 'codex')!.limits[0].windows[0] = fresh(75)
-    const svc = service('balanced', [{ ...task('a'), wksp: 'ally' }])
-    await expect(svc.reserve({ ...ship('b'), harness: 'codex' })).rejects.toThrow(/deferred/)
-    const fallback = await svc.reserve(ship('b'))
-    expect(fallback.loadout.harness).toBe('claude')
-    await fallback.check()
-    fallback.release()
+  it('runs one unit at a time on a warm plan across project bases, and never moves the launch to the other plan', async () => {
+    scan.report.tools.find(t => t.tool === 'claude')!.limits[0].windows[0] = fresh(75)
+    const svc = service('balanced', [{ ...task('a'), harness: 'claude', wksp: 'ally' }])
+    await expect(svc.reserve({ ...ship('b'), harness: 'claude' })).rejects.toThrow(/deferred: .*held by quota protection/)
+    await expect(svc.reserve(ship('b'))).rejects.toThrow(/keeps its tool and model/)
+    const other = await svc.reserve({ ...ship('b'), harness: 'codex' })
+    await other.check()
+    other.release()
+  })
+
+  it('lets launches on a plan below 70% run side by side', async () => {
+    const svc = service('balanced')
+    const a = await svc.reserve(ship('a'))
+    const b = await svc.reserve(ship('b'))
+    expect([a.loadout.harness, b.loadout.harness]).toEqual(['claude', 'claude'])
+    a.release(); b.release()
   })
 
   it.each(['ready', 'merged', 'done', 'failed', 'cleaned'] as const)('finished %s records in every home release global and world capacity despite live terminals', async state => {

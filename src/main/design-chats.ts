@@ -23,6 +23,7 @@ import type { AppCtx } from './services'
 import type { Home } from './home'
 import { bus } from './bus'
 import { chatSettings, claudeStatus, globalMode } from './usage-policy'
+import { currentSignIns } from './sign-in-watch'
 import { SessionCostLedger, SessionQuotaPolicy } from './session-usage'
 import { ProviderChatSession, type ProviderSessions } from './provider-chat-session'
 import { chatRoute, type ChatDriverEvents, type ChatProvider } from './chat-driver'
@@ -136,11 +137,10 @@ export function createDesignChatService(getCtx: () => AppCtx, home: Home, ally?:
   }
 
   /** This chat's model value, or the project chat's when it has none. */
-  const chosen = (rec: DesignRecord): string => rec.model || chatControls(settings(), liveAlly()).model
+  const chosen = (rec: DesignRecord): string => rec.model || chatControls(chatSettings(settings(), currentSignIns()), liveAlly()).model
   const selection = (rec: DesignRecord): ChatProvider => chatRoute(chosen(rec)).provider
   const driverConfig = (rec: DesignRecord) => {
-    const s = !rec.model && selection(rec) === 'claude' ? chatSettings(settings(), getCtx().main.home.data) : settings()
-    const controls = chatControls(s, liveAlly())
+    const controls = chatControls(chatSettings(settings(), currentSignIns()), liveAlly())
     return { model: chatRoute(rec.model || controls.model).model, effort: rec.effort || controls.effort }
   }
   const quotaHold = (provider: ChatProvider, item: TurnItem): WkspInfo['limit'] =>

@@ -154,12 +154,12 @@ describe('live achievement outcomes', () => {
     const today = svc.get().landings.filter((d) => d.state !== 'future').at(-1)
     expect(today).toMatchObject({ builds: 1, recons: 0, state: 'recorded' })
   })
-  it.each([{ explored: true }, { loadout: ['Claude down-ranked: weekly window at 95%'] }])('awards smart dispatch only on actual deployment: %j', (pick) => {
+  it.each([{ explored: true }, { loadout: ['Claude down-ranked: weekly window at 95%'] }])('never awards the retired smart dispatch, even for an old explored record: %j', (pick) => {
     const svc = createStatsService(() => ctx)
     task = { id: 't', harness: 'opencode', state: 'working', ...pick } as Task
     expect(svc.get().achievements.every((a) => !a.unlockedAt)).toBe(true)
     svc.award('spawn', 't')
-    expect(svc.get().achievements.filter((a) => a.unlockedAt).map((a) => a.id)).toEqual(['smart-pick', 'cheap-unit'])
+    expect(svc.get().achievements.filter((a) => a.unlockedAt).map((a) => a.id)).toEqual(['cheap-unit'])
   })
 })
 

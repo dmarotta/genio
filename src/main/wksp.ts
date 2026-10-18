@@ -1,5 +1,6 @@
 import { ASSISTANT_NAME } from '@shared/assistant'
 import { chatSettings, claudeStatus, globalMode, routineDelay, wakeBatchMs } from './usage-policy'
+import { currentSignIns } from './sign-in-watch'
 import { chatUsageLine } from '@shared/usage-mode'
 import { SessionCostLedger, SessionQuotaPolicy } from './session-usage'
 import { ProviderChatSession, type ProviderSessions } from './provider-chat-session'
@@ -97,6 +98,8 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
   let finishProjectOpen: (() => void) | undefined
 
   const settings = (): ReturnType<AppCtx['settings']['get']> => getCtx().settings.get()
+  /** The chat's model and effort: the player's, else the default (Claude, or Codex when only Codex is signed in). */
+  const modelSettings = (): ReturnType<AppCtx['settings']['get']> => chatSettings(settings(), currentSignIns())
   /** the ally record as saved now (its chat controls can change while the base runs) */
   const liveAlly = (): Ally | undefined => (ally ? (safeGet(() => getCtx().allies.list().find((a) => a.name === ally.name && !a.retiredAt)) ?? ally) : undefined)
   const gamertag = (): string => settings().gamertag || 'Player'
@@ -124,7 +127,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     changed: () => publishInfo(),
     canSteer: () => canSteer(),
     steerNote: () => steerNote(),
-    route: () => ({ provider: selectedProvider(), model: chatRoute(chatControls(settings(), liveAlly()).model).model }),
+    route: () => ({ provider: selectedProvider(), model: chatRoute(chatControls(modelSettings(), liveAlly()).model).model }),
     // "keep merging everything" / "stop merging": a standing merge approval starts or ends once the session reads it
     sent: m => {
       try {
@@ -225,10 +228,9 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     }
   }
 
-  const selectedProvider = (): ChatProvider => chatRoute(chatControls(settings(), liveAlly()).model).provider
+  const selectedProvider = (): ChatProvider => chatRoute(chatControls(modelSettings(), liveAlly()).model).provider
   const driverConfig = () => {
-    const s = selectedProvider() === 'claude' ? chatSettings(settings(), getCtx().main.home.data) : settings()
-    const controls = chatControls(s, liveAlly())
+    const controls = chatControls(modelSettings(), liveAlly())
     return { model: chatRoute(controls.model).model, effort: controls.effort }
   }
   const claudeConfig = () => sessionConfig('genio', { ...settings(), wkspModel: driverConfig().model ?? '', wkspEffort: driverConfig().effort })
@@ -644,7 +646,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
       if (shown && !waiting(shown.m.id)) return
     }
     m.provider = selectedProvider()
-    m.providerModel = chatRoute(chatControls(settings(), liveAlly()).model).model
+    m.providerModel = chatRoute(chatControls(modelSettings(), liveAlly()).model).model
     if (stored.refs.length) m.images = stored.refs
     if (prepared.context) m.context = prepared.context
     const player = origin === 'player'

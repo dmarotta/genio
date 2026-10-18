@@ -35,7 +35,7 @@ beforeEach(() => {
 })
 afterEach(async () => { await act(() => root.unmount()); host.remove(); vi.restoreAllMocks() })
 
-it('shows one boxed warning above the content in both chat surfaces only while protection acts, including both plans and held pins', async () => {
+it('shows one boxed warning above the content in both chat surfaces only while protection acts, including both plans and waiting launches', async () => {
   await render(true)
   expect(notices()).toHaveLength(0)
   f.view = view(plan('ok')); await render(true)
@@ -50,8 +50,8 @@ it('shows one boxed warning above the content in both chat surfaces only while p
     expect(notice.closest('.chat-viewport')).toBeNull()
     expect(notice.querySelector('svg[aria-hidden="true"]')).not.toBeNull()
     expect(notice.querySelector('.btn.amber')?.textContent).toBe('Settings')
-    expect(notice.textContent).toContain('Claude is at 70%+ used, so Genio runs one Claude unit at a time with lower automatic effort.')
-    expect(notice.textContent).toContain('Codex is at 85%+ used: no new automatic units.')
+    expect(notice.textContent).toContain('Claude is at 70%+ used, so Genio runs one Claude unit at a time.')
+    expect(notice.textContent).toContain('Codex is at 85%+ used: new Codex units wait.')
     expect(notice.textContent).toContain('Build the castle')
     expect(notice.textContent).not.toContain('Other work')
     expect(notice.querySelectorAll('button')).toHaveLength(2) // Settings and the requested dismiss control

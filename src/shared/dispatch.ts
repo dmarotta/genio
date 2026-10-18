@@ -1,13 +1,12 @@
 /**
- * Smart dispatch data shared by main and renderer: the fixed category list,
- * the default category table, the cheap OpenRouter models and the scorecard
- * shapes. The table ships as editable data (Settings → Advanced → Model routing (Dispatch)); this file is
- * only the starting point and the "reset" target.
+ * Dispatch data shared by main and renderer: the fixed category list, the
+ * player's category rows (Settings → Advanced → Model routing (Dispatch)),
+ * the cheap OpenRouter models and the scorecard shapes. The scorecard is
+ * history and proposals only: it never picks a model.
  */
-import type { CategoryPool, CostDial, PoolCandidate, TaskCategory, Verdict } from './types'
+import type { CategoryPool, PoolCandidate, TaskCategory, Verdict } from './types'
 
 export const QUOTA_EVIDENCE_TTL = 10 * 60_000
-export const QUOTA_EXPLORE_PERCENT = 70
 
 export const CATEGORIES: { id: TaskCategory; label: string; hint: string }[] = [
   { id: 'recon-design', label: 'Recon / design', hint: 'investigate, plan, architect' },
@@ -44,58 +43,31 @@ export const CHEAP_MODELS: { model: string; label: string }[] = [
   { model: 'openrouter/z-ai/glm-5.3-flash', label: 'GLM 5.3 Flash' }
 ]
 
-const CLAUDE_FIRST: TaskCategory[] = ['recon-design', 'feature', 'bugfix', 'refactor', 'graphics', 'ui']
-
-/** The shipped category table. Gemini leads large-context reads; the picker skips it when it isn't installed. */
-export function defaultCategoryPools(): CategoryPool[] {
-  return CATEGORIES.map(({ id }) => {
-    let candidates: PoolCandidate[]
-    if (id === 'large-context') candidates = [{ harness: 'gemini' }, { harness: 'claude' }, { harness: 'codex' }]
-    else if (CLAUDE_FIRST.includes(id)) candidates = [{ harness: 'claude' }, { harness: 'codex' }]
-    else candidates = [{ harness: 'codex' }, { harness: 'claude' }]
-    if (LOW_STAKES.includes(id)) candidates.push(...CHEAP_MODELS.map((m) => ({ harness: 'opencode', model: m.model, cheap: true })))
-    return { category: id, candidates }
-  })
+/**
+ * The player's category rows, one per category at most, each with at least
+ * one candidate. A category without a row uses the default model. Rows saved
+ * before the default existed migrate in settings.ts (only the locked ones were
+ * the player's own choice).
+ */
+export function normalizeCategoryPools(saved: unknown): CategoryPool[] {
+  if (!Array.isArray(saved)) return []
+  const out: CategoryPool[] = []
+  for (const p of saved as Partial<CategoryPool>[]) {
+    if (!p || !isCategory(p.category) || !Array.isArray(p.candidates) || !p.candidates.length || out.some((x) => x.category === p.category)) continue
+    out.push({ category: p.category, candidates: p.candidates.filter((c): c is PoolCandidate => Boolean(c?.harness)) })
+  }
+  return out.filter((p) => p.candidates.length)
 }
 
-/** Keep saved rows (player edits), add rows for categories the save doesn't have yet. */
-export function mergeCategoryPools(saved: CategoryPool[] | undefined): CategoryPool[] {
-  const defaults = defaultCategoryPools()
-  if (!Array.isArray(saved)) return defaults
-  return defaults.map((d) => saved.find((s) => s && s.category === d.category && Array.isArray(s.candidates)) ?? d)
-}
-
-export const DIAL_LABEL: Record<CostDial, string> = { quality: 'Quality', balanced: 'Balanced', cost: 'Cost' }
-export const DIAL_HINT: Record<CostDial, string> = {
-  quality: 'Stronger models and one step more effort; cheap models go last',
-  balanced: 'The table as written',
-  cost: 'Cheap candidates first (where the project allows them) and one step less effort'
-}
-
-export const EFFORT_LADDER = ['low', 'medium', 'high', 'xhigh', 'max']
-
-export function shiftEffort(effort: string, by: number): string {
-  const i = EFFORT_LADDER.indexOf(effort)
-  if (i < 0) return effort
-  // the dial never reaches max on its own: that stays an explicit choice
-  return EFFORT_LADDER[Math.max(0, Math.min(EFFORT_LADDER.length - 2, i + by))]
-}
-
-/** Model the dial picks when a candidate names none (and no default model is set). */
-export const QUALITY_MODEL: Record<string, string> = { claude: 'claude-opus-5-5' }
-export const COST_MODEL: Record<string, string> = { claude: 'claude-sonnet-5-5' }
-
-/** Plan usage at or above this share of a 5-hour or weekly window down-ranks the tool. */
+/** Plan usage at or above this share of a 5-hour or weekly window holds new units on that plan. */
 export const QUOTA_HOT_PERCENT = 85
 
-/** Learning thresholds (documented in Settings → Advanced → Model routing (Dispatch)). */
+/** Scorecard thresholds (documented in Settings → Advanced → Model routing (Dispatch)). */
 export const LEARNING = {
   /** recency half-life of an outcome, in days */
   halfLifeDays: 30,
-  /** both candidates need this many outcomes before the order changes automatically */
+  /** a candidate needs this many outcomes before it counts as proven */
   minSamples: 5,
-  /** the lower candidate must beat the higher one by this much (scores are 0-1) */
-  reorderMargin: 0.15,
   /** a candidate this bad over this many outcomes is proposed for removal */
   removeBelow: 0.35,
   removeMinSamples: 8,
@@ -118,6 +90,7 @@ export interface OutcomeRecord {
   effort?: string
   source?: string
   ruleId?: string
+  /** history: an older version picked this tool by exploration */
   explored?: boolean
   outcome: 'landed' | 'despawned' | 'failed'
   landed: boolean

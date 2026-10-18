@@ -22,7 +22,6 @@ import { pickLoadout } from '../src/main/loadout'
 import { defaultSettings } from '../src/main/settings'
 import * as git from '../src/main/git'
 import { CODEX_UNIT_MODEL, CLAUDE_UNIT_MODEL } from '../src/shared/unit-model-policy'
-import { OPUS } from '../src/shared/usage-mode'
 import { QuotaDeferredError } from '../src/main/quota-deferred'
 
 let root: string, home: Home, ctx: AppCtx, task: Task
@@ -468,7 +467,7 @@ describe('per-launch premium approval', () => {
     settings.defaultHarness = 'codex'
     if (source === 'default') settings.defaultWorkerModel = model
     if (source === 'rule') settings.dispatchRules = [{ id: 'r', match: '', candidates: [{ harness: 'codex', model, spendPriority: 0 }] }]
-    if (source === 'table') settings.categoryPools = [{ category: 'feature', locked: true, candidates: [{ harness: 'codex', model }] }]
+    if (source === 'table') settings.categoryPools = [{ category: 'feature', candidates: [{ harness: 'codex', model }] }]
     if (source === 'sticky') {
       ctx.main.crew.update(task.id, { harness: 'codex', model })
       ctx.main.backlog.get = () => ({ id: 'quest', taskId: task.id }) as any
@@ -529,7 +528,7 @@ describe('Modeller landing', () => {
     ctx.dispatch.reserve = vi.fn(async input => ({ loadout: pickLoadout(input, defaultSettings(), h => ['claude', 'codex'].includes(h.id)),
       listed: vi.fn(), release, check: async () => {} }))
     const t = await ctx.main.crew.spawn({ project: 'world', kind: 'ship', title: 'Wooden watchtower', intent: 'a low-poly wooden watchtower', backlogId: 'quest' })
-    expect(t).toMatchObject({ modeller: true, claims: ['assets/models/tower.glb'], state: 'working', harness: 'claude', model: OPUS })
+    expect(t).toMatchObject({ modeller: true, claims: ['assets/models/tower.glb'], state: 'working', harness: 'claude', model: CLAUDE_UNIT_MODEL })
     const brief = fs.readFileSync(t.briefPath, 'utf8')
     expect(brief).toContain('# Modeller')
     expect(brief).toContain('Modeller delivery')
@@ -576,13 +575,13 @@ describe('Modeller landing', () => {
     expect((await ctx.main.crew.spawn({ project: 'world', kind: 'scout', title: 'Why slow', intent: 'why is it slow', backlogId: 'quest' })).summary).toBeUndefined()
   })
 
-  it('loadout_preview carries the Modeller default through the tool schema', async () => {
+  it('loadout_preview gives a Modeller the default model like any Build', async () => {
     ctx.settings.get = () => defaultSettings()
     ctx.settings.availableHarnesses = () => BUILTIN_HARNESSES.filter(h => ['claude', 'codex'].includes(h.id))
     ctx.dispatch.signals = () => ({})
     const tool = createToolRegistry(() => ctx, home, 'genio').find(t => t.name === 'loadout_preview')!
     const result = await tool.invoke({ kind: 'ship', world: 'world', title: 'Tower', intent: 'Build a tower', category: 'art', modeller: true })
-    expect(JSON.parse((result.content[0] as { text: string }).text)).toMatchObject({ harness: 'claude', model: OPUS, effort: 'medium' })
+    expect(JSON.parse((result.content[0] as { text: string }).text)).toMatchObject({ harness: 'claude', model: CLAUDE_UNIT_MODEL, effort: 'medium' })
   })
 
   it('a deploy with the flag files a Modeller quest; a path another Modeller holds defers it', async () => {

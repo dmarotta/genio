@@ -33,7 +33,7 @@ const PAGE_WORDS: Partial<Record<SettingsPageId, string[]>> = {
   'project-delivery': ['Hardcore', 'Standard', 'Offline', 'Pull request'],
   'project-assets': ['Budget', 'FAL', 'Codex images', 'Inventory'],
   'project-unity': ['Slots', 'Copies'],
-  usage: ['Usage mode', 'Plan', 'Limits', 'Save', 'Balanced', 'Max', 'Plan remaining', 'Protection', 'Pinned'],
+  usage: ['Usage mode', 'Plan', 'Limits', 'Save', 'Balanced', 'Max', 'Plan remaining', 'Protection'],
   accounts: ['Log in', 'Sign in', 'Claude', 'Codex', 'Keys'],
   memory: ['Profile', 'Squad memory', '/save', 'Curate'],
   units: ['Permissions', 'Quests'],
@@ -103,7 +103,6 @@ const ROWS: Partial<Record<SettingsPageId, RowSpec[]>> = {
     ['Open with Genio', ['Explorer menu']],
     ['Updates', ['Patch', 'Check for updates', 'Update and restart', 'Check for patch', 'Apply patch'], 'settings-updates']
   ],
-  dispatch: [['Learn the order automatically', ['Auto reorder', 'Learning']]],
   harnesses: [
     ['Terminal shell', ['Shell', 'Terminal', 'PowerShell']],
     ['MCP servers', ['MCP', 'Model Context Protocol', 'Tool servers', 'Plugins'], 'settings-mcp']

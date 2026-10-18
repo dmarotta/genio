@@ -1,4 +1,4 @@
-﻿import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GENIO_CODEX, signInLines, signInNeeds, type AccountStatus, type LoginState } from '@shared/api'
 import type { GenioEvent } from '@shared/types'
 
@@ -59,11 +59,11 @@ describe('the warning follows the state', () => {
     await vi.waitFor(() => expect(currentSignInNeeds()).toEqual(['Codex']))
     await refreshSignInNeeds()
     noteSignInAccounts(rows.list)
-    expect(events).toEqual([{ type: 'sign-in-needed', tools: ['Codex'] }])
+    expect(events).toEqual([{ type: 'sign-in-needed', tools: ['Codex'], gate: false }])
     rows.list = accounts('logged-in', 'logged-in')
     await refreshSignInNeeds()
     expect(currentSignInNeeds()).toEqual([])
-    expect(events.at(-1)).toEqual({ type: 'sign-in-needed', tools: [] })
+    expect(events.at(-1)).toEqual({ type: 'sign-in-needed', tools: [], gate: false })
     expect(events).toHaveLength(2)
   })
 

@@ -1,15 +1,18 @@
 /**
  * Usage mode in the main process: settings migration, the per-world mode,
- * the chat's effective model/effort, unit-capacity migration and counts, routine wake
- * batching and the durable policy-transition notices. The mode table, the
- * protection levels and the meter live in @shared/usage-mode.
+ * the chat's model/effort (the player's, else the default), unit-capacity
+ * migration and counts, routine wake batching and the durable
+ * policy-transition notices. The mode table, the protection levels and the
+ * meter live in @shared/usage-mode.
  */
 import path from 'node:path'
 import type { Project, Settings, Task, Wake } from '@shared/types'
 import {
-  DEFAULT_USAGE_MODE, DIAL_MODE, MODE_PRESETS, SONNET, isUsageMode, pctText, planLabel, planStatus, resolveChat,
+  DEFAULT_USAGE_MODE, DIAL_MODE, MODE_PRESETS, isUsageMode, pctText, planLabel, planStatus,
   type PlanId, type PlanLevel, type PlanStatus, type PolicyNotice, type UsageMode, type WorldUsage
 } from '@shared/usage-mode'
+import { CLAUDE_UNIT_MODEL, DEFAULT_EFFORT, defaultChatModel, type SignIns } from '@shared/unit-model-policy'
+import { normalizeCategoryPools } from '@shared/dispatch'
 import { claudeLimits, readClaudeLimits } from './usage'
 import { readJson, writeJsonAtomic } from './util'
 import { holdsCapacity, normalizeUnitsAtOnce } from '@shared/unit-capacity'
@@ -18,10 +21,11 @@ export { holdsCapacity } from '@shared/unit-capacity'
 /**
  * Seed independent concurrency from the old mode limit once. For pre-mode settings,
  * the cost dial becomes the mode, and the old shipped chat
- * effort default ('high' with no model picked) becomes Auto. Every explicit
- * model/effort the player picked stays as written and shows as Pinned.
+ * effort default ('high' with no model picked) becomes unset. Every explicit
+ * model/effort the player picked stays as written.
  */
 export function migrateUsageSettings(saved: Partial<Settings>): Partial<Settings> {
+  saved = migrateModelDefaults(saved)
   if (typeof saved.quotaProtection !== 'boolean') saved = { ...saved, quotaProtection: true }
   const hadMode = isUsageMode(saved.usageMode)
   const mode = hadMode ? saved.usageMode! : saved.costDial ? DIAL_MODE[saved.costDial] ?? DEFAULT_USAGE_MODE : DEFAULT_USAGE_MODE
@@ -32,6 +36,41 @@ export function migrateUsageSettings(saved: Partial<Settings>): Partial<Settings
   const next: Partial<Settings> = { ...saved, usageMode: mode, unitsAtOnce }
   if (!hadMode && !saved.wkspModel?.trim() && saved.wkspEffort === 'high') next.wkspEffort = ''
   return next
+}
+
+type LegacyRow = { category?: unknown; candidates?: unknown; locked?: boolean }
+
+/**
+ * Once: explicit picks stay as they are, the old shipped defaults become unset
+ * and so use the default model. Only locked category rows were the player's
+ * choice (unlocked rows followed the Usage mode and were never used as
+ * written), rules lose their lock (they were always used as written), and the
+ * shipped default unit tool 'claude' becomes unset unless a default unit
+ * model or effort was set for it.
+ */
+export function migrateModelDefaults(saved: Partial<Settings>): Partial<Settings> {
+  if (saved.plainModelDefaults) return saved
+  const fresh = !Object.keys(saved).length
+  const rows = Array.isArray(saved.categoryPools) ? (saved.categoryPools as LegacyRow[]).filter((p) => p?.locked === true) : []
+  const next: Partial<Settings> & { autoReorder?: unknown } = {
+    ...saved,
+    plainModelDefaults: true,
+    categoryPools: normalizeCategoryPools(rows),
+    ...(Array.isArray(saved.dispatchRules) ? { dispatchRules: saved.dispatchRules.map(({ locked: _l, ...r }: Settings['dispatchRules'][number] & { locked?: boolean }) => r) } : {})
+  }
+  delete next.autoReorder
+  if (!fresh && saved.defaultHarness === 'claude' && !saved.defaultWorkerModel?.trim() && !saved.defaultWorkerEffort?.trim()) next.defaultHarness = ''
+  return next
+}
+
+/** The chat's settings with the default filled in where the player set nothing (main chat, allies without their own pick, Bot, Lore chats). */
+export function chatSettings(s: Settings, signIns: SignIns = {}): Settings {
+  return {
+    ...s,
+    wkspModel: s.wkspModel?.trim() || defaultChatModel(signIns),
+    wkspEffort: s.wkspEffort?.trim() || DEFAULT_EFFORT,
+    botModel: s.botModel?.trim() || CLAUDE_UNIT_MODEL
+  }
 }
 
 /** A world's own mode, else its legacy dial, else the global mode. */
@@ -48,14 +87,6 @@ export function claudeStatus(dataDir: string, now = Date.now(), protection = tru
   if (!protection) return planStatus('claude', undefined, now)
   try { return planStatus('claude', claudeLimits(readClaudeLimits(dataDir), now)?.windows, now) }
   catch { return planStatus('claude', undefined, now) } // The meter exposes the read failure; chat must remain usable.
-}
-
-/** The settings the chat sessions read, with Auto values resolved by the mode and Claude protection. */
-export function chatSettings(s: Settings, dataDir: string): Settings {
-  const claude = claudeStatus(dataDir, Date.now(), s.quotaProtection !== false)
-  const chat = resolveChat(globalMode(s), { model: s.wkspModel, effort: s.wkspEffort }, claude)
-  // The Bot runs Sonnet / low unless pinned.
-  return { ...s, wkspModel: chat.model, wkspEffort: chat.effort, botModel: s.botModel?.trim() || SONNET }
 }
 
 /** Units in play (the cap's definition), in one project or across every base. */
@@ -105,21 +136,18 @@ function ageText(ms: number): string {
 const at = (iso?: string): string =>
   iso && Date.parse(iso) > Date.now() ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'fresh evidence'
 
-export function noticeFor(p: PlanStatus, from: PlanLevel, other: PlanId, lowWaiting: number, now = Date.now()): Pick<PolicyNotice, 'text' | 'details'> {
+export function noticeFor(p: PlanStatus, from: PlanLevel, _other: PlanId, lowWaiting: number, now = Date.now()): Pick<PolicyNotice, 'text' | 'details'> {
   const name = planLabel(p.plan)
-  const alt = planLabel(other)
   let text: string
   if (p.level === 'out') {
     const waits = lowWaiting ? `; ${lowWaiting} low-priority quest${lowWaiting === 1 ? '' : 's'} wait until ${at(p.resetsAt)}` : ''
-    text = p.plan === 'claude'
-      ? `${name} reached its limit: no new automatic ${name} work until ${at(p.resetsAt)}; chat is saved${waits}.`
-      : `${name} reached its limit: automatic units use ${alt}${waits}.`
+    text = `${name} reached its limit: new ${name} units wait until ${at(p.resetsAt)}${p.plan === 'claude' ? '; optional chat work waits' : ''}${waits}.`
   } else if (p.level === 'hot') {
-    text = `${name} has ${p.percent !== undefined ? `${Math.max(0, Math.round(100 - p.percent))}%` : 'little'} left: automatic units use ${alt}${p.plan === 'claude' ? '; Auto chat drops to Sonnet / low next turn' : ''}.`
+    text = `${name} has ${p.percent !== undefined ? `${Math.max(0, Math.round(100 - p.percent))}%` : 'little'} left: new ${name} units wait.`
   } else if (p.level === 'warm') {
-    text = `${name} at ${pctText(p)}: exploration off, one ${name} unit at a time, Auto effort one step lower.`
+    text = `${name} at ${pctText(p)}: one ${name} unit at a time.`
   } else {
-    text = p.known ? `${name} is back under 70%: the Usage mode applies again.` : `${name} usage is unknown: the old quota hold expired; ordinary dispatch is allowed with quota unverified.`
+    text = p.known ? `${name} is back under 70%: no limit on ${name} units.` : `${name} usage is unknown: the old quota hold expired; ordinary dispatch is allowed with quota unverified.`
   }
   const cause = p.level === 'ok' ? `was ${from}` : `${p.window ?? 'plan'} window ${pctText(p)}${p.rejected ? ' (rejected)' : ''}`
   const age = p.observedAt ? ageText(now - Date.parse(p.observedAt)) : 'age unknown'

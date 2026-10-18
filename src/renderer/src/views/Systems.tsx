@@ -1,11 +1,11 @@
 import { ThisProjectSettings, type ProjectPageId } from './ProjectSettings'
 import { PlayerInstanceSettings } from './PlayerInstanceSettings'
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
-import { ChevronDown, ChevronUp, Copy, Download, KeyRound, Lock, LockOpen, LogIn, LogOut, Plus, RefreshCw, Search, Trash, Wrench, X } from 'lucide-react'
-import type { CategoryPool, DispatchRule, EventSource, HarnessAdapter, PoolCandidate, Project, Settings, ToolStatus, UpdateInfo } from '@shared/types'
-import { CATEGORIES, categoryLabel, defaultCategoryPools } from '@shared/dispatch'
+import { ChevronDown, ChevronUp, Copy, Download, KeyRound, LogIn, LogOut, Plus, RefreshCw, Search, Trash, Wrench, X } from 'lucide-react'
+import type { DispatchRule, EventSource, HarnessAdapter, PoolCandidate, Project, Settings, TaskCategory, ToolStatus, UpdateInfo } from '@shared/types'
+import { CATEGORIES } from '@shared/dispatch'
 import { MAX_UNITS_AT_ONCE } from '@shared/unit-capacity'
-import { USAGE_MODES, USAGE_MODE_LABEL, modeSummary, pctText, planLabel, type UsageMode, type UsagePolicyView } from '@shared/usage-mode'
+import { USAGE_MODES, USAGE_MODE_LABEL, modeSummary, pctText, planLabel, type UsageMode } from '@shared/usage-mode'
 import { SETTINGS_GROUP_LABEL, SETTINGS_PAGES, settingsPage, type SettingsPage, type SettingsPageId } from '@shared/settings-pages'
 import { effectiveEngine } from '@shared/engine'
 import { supportsUnitySlots } from '@shared/play'
@@ -15,7 +15,7 @@ import { accountActions, GENIO_CODEX, type AccountStatus, type ApiKeyStatus, typ
 import { PROJECT_WINDOW, api, errText, op, saveSettings, toast, useStore } from '../store'
 import { CommitInput, Confirm, Field, Toggle, ViewHeader } from '../components/ui'
 import { SettingsTitle } from '../components/SettingsTitle'
-import { TerminalView } from '../components/Terminal'
+import { AccountSession } from '../components/AccountSession'
 import { Memory } from '../components/Memory'
 import { Mailbox } from '../components/Mailbox'
 import { EFFORTS } from '../lib/vocab'
@@ -378,6 +378,7 @@ function SectionBody({ sec, s }: { sec: SettingsPageId; s: Settings }) {
           <SettingsTitle page="units" />
           <Row label="Default agent tool">
             <select className="select" value={s.defaultHarness} onChange={(e) => set({ defaultHarness: e.target.value })}>
+              <option value="">Claude, else Codex</option>
               {s.harnesses
                 .filter((h) => h.enabled)
                 .map((h) => (
@@ -476,17 +477,16 @@ function ExplorerIntegration() {
   </Part>
 }
 
-const LEVEL_TEXT = { ok: 'below 70%: the mode as set', warm: '70-84%: exploration off, one unit, Auto effort one step lower, other plan preferred', hot: '85-94%: no automatic units; Auto chat Sonnet / low', out: '95%+ or rejected: no new automatic work until reset' } as const
+const LEVEL_TEXT = { ok: 'below 70%: no limit', warm: '70-84%: one unit at a time on this plan, shorter replies', hot: '85-94%: new units on this plan wait', out: '95%+ or rejected: new work on this plan waits until reset' } as const
 
 /**
- * Settings › Usage & limits: one mode, protection while it is acting, the shared plan meter (its only
- * full home), paid OpenRouter spend, and whatever is pinned, each with a way to undo it.
+ * Settings › Usage & limits: one mode (answer length and batching), protection while it is acting, the
+ * shared plan meter (its only full home) and paid OpenRouter spend. Models are not set here.
  */
 function Usage({ s }: { s: Settings }) {
   const { view, error: usageError } = useUsagePolicyState()
   const mode: UsageMode = s.usageMode ?? 'balanced'
   const [hover, setHover] = useState<UsageMode | null>(null)
-  const pins = pinnedOverrides(s, view)
   const acting = s.quotaProtection !== false ? view?.plans.filter((p) => p.level !== 'ok') ?? [] : []
   return (
     <>
@@ -512,7 +512,7 @@ function Usage({ s }: { s: Settings }) {
         </div>
       </div>
       <div className="usage-summary">
-        <b>{modeSummary(hover ?? mode, view?.chat)}</b>
+        <b>{modeSummary(hover ?? mode)}</b>
       </div>
       <Row label="Units at once">
         <select className="select" aria-label="Units at once" value={s.unitsAtOnce} onChange={(e) => set({ unitsAtOnce: Number(e.target.value) })}>
@@ -539,7 +539,7 @@ function Usage({ s }: { s: Settings }) {
 
       <div className="label" style={{ margin: '18px 0 6px' }}>Plan remaining</div>
       <PlanMeter view={view} error={usageError} />
-      <Row label="Quota protection" hint="Slow automatic work as plans fill up; provider limits always apply.">
+      <Row label="Quota protection" hint="Run fewer units as plans fill up; models never change. Provider limits always apply.">
         <Toggle ariaLabel="Quota protection" checked={s.quotaProtection !== false} onChange={(v) => set({ quotaProtection: v })} />
       </Row>
 
@@ -550,54 +550,8 @@ function Usage({ s }: { s: Settings }) {
           <button className="link-btn" onClick={() => requestSystemsSection('accounts', 'settings-api-keys')}>Add the key in Accounts &amp; keys →</button>
         )}
       </Row>
-
-      {pins.length > 0 && (
-        <>
-          <div className="label" style={{ margin: '18px 0 6px' }}>Pinned</div>
-          <div className="usage-pins">
-            {pins.map((p) => (
-              <div key={p.label} className="usage-pin">
-                <span>{p.label}</span>
-                <span className="mono">{p.value}</span>
-                {p.unpin ? (
-                  <button className="btn sm ghost" onClick={p.unpin}>Unpin</button>
-                ) : (
-                  <button className="btn sm ghost" onClick={() => requestSystemsSection('dispatch')}>Open</button>
-                )}
-              </div>
-            ))}
-          </div>
-        </>
-      )}
     </>
   )
-}
-
-interface Pin {
-  label: string
-  value: string
-  unpin?: () => void
-}
-
-/** Choices that override the mode: kept so a pin set earlier (or by a project) can still be seen and undone. */
-function pinnedOverrides(s: Settings, view: UsagePolicyView | null): Pin[] {
-  const out: Pin[] = []
-  if (s.wkspModel) out.push({ label: 'Chat model', value: s.wkspModel, unpin: () => set({ wkspModel: '' }) })
-  if (s.wkspEffort) out.push({ label: 'Chat effort', value: s.wkspEffort, unpin: () => set({ wkspEffort: '' }) })
-  if (s.defaultWorkerModel) out.push({ label: `Unit model (${s.defaultHarness})`, value: s.defaultWorkerModel, unpin: () => set({ defaultWorkerModel: '' }) })
-  if (s.defaultWorkerEffort) out.push({ label: 'Unit effort', value: s.defaultWorkerEffort, unpin: () => set({ defaultWorkerEffort: '' }) })
-  const locked = s.categoryPools.filter((p) => p.locked)
-  if (locked.length) out.push({ label: 'Category rows', value: locked.map((p) => categoryLabel(p.category)).join(', ') })
-  if (s.dispatchRules.length) out.push({ label: 'Dispatch rules', value: `${s.dispatchRules.length} rule${s.dispatchRules.length === 1 ? '' : 's'}` })
-  for (const w of view?.worlds ?? []) {
-    if (w.source === 'global') continue
-    out.push({
-      label: `Project ${w.name}`,
-      value: `${USAGE_MODE_LABEL[w.mode]}${w.source === 'legacy-dial' ? ' (from its old cost dial)' : ''}`,
-      unpin: () => void op('Project usage mode', () => api().projectUpdate(w.name, { usageMode: undefined, costDial: undefined }))
-    })
-  }
-  return out
 }
 
 /**
@@ -930,13 +884,10 @@ function Dispatch({ s }: { s: Settings }) {
   const save = (rules: DispatchRule[]): void => set({ dispatchRules: rules })
   const upd = (id: string, patch: Partial<DispatchRule>): void => save(s.dispatchRules.map((r) => (r.id === id ? { ...r, ...patch } : r)))
   const harnessOpts = s.harnesses.filter((h) => h.enabled)
+  const tool = s.defaultHarness || 'claude'
   return (
     <>
       <SettingsTitle page="dispatch" />
-      <Row label="Learn the order automatically">
-        <Toggle checked={s.autoReorder} onChange={(v) => set({ autoReorder: v })} />
-      </Row>
-
       <CategoryTable s={s} />
 
       <div className="label" style={{ margin: '22px 0 8px' }}>
@@ -966,7 +917,6 @@ function Dispatch({ s }: { s: Settings }) {
                 ))}
               </select>
             </Field>
-            <LockButton locked={!!r.locked} onChange={(v) => upd(r.id, { locked: v || undefined })} />
             <button className="btn sm ghost icon alert" title="Remove rule" onClick={() => save(s.dispatchRules.filter((x) => x.id !== r.id))}>
               <Trash size={12} />
             </button>
@@ -1000,14 +950,14 @@ function Dispatch({ s }: { s: Settings }) {
               </div>
             )
           })}
-          <button className="btn sm ghost" onClick={() => upd(r.id, { candidates: [...r.candidates, { harness: s.defaultHarness, spendPriority: 0 }] })}>
+          <button className="btn sm ghost" onClick={() => upd(r.id, { candidates: [...r.candidates, { harness: tool, spendPriority: 0 }] })}>
             <Plus size={12} /> Candidate
           </button>
         </div>
       ))}
       <button
         className="btn"
-        onClick={() => save([...s.dispatchRules, { id: `rule-${Date.now().toString(36)}`, match: '', kind: 'any', candidates: [{ harness: s.defaultHarness, spendPriority: 0 }] }])}
+        onClick={() => save([...s.dispatchRules, { id: `rule-${Date.now().toString(36)}`, match: '', kind: 'any', candidates: [{ harness: tool, spendPriority: 0 }] }])}
       >
         <Plus size={13} /> Add rule
       </button>
@@ -1015,50 +965,44 @@ function Dispatch({ s }: { s: Settings }) {
   )
 }
 
-function LockButton({ locked, onChange }: { locked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button
-      className={cx('btn sm ghost icon', locked && 'amber')}
-      title={locked ? 'Pinned: the Usage mode and the learning loop never change this' : 'Pin so the Usage mode and the learning loop never change this'}
-      onClick={() => onChange(!locked)}
-    >
-      {locked ? <Lock size={12} /> : <LockOpen size={12} />}
-    </button>
-  )
-}
-
+/** The player's row per category, used as written; a category without one uses the default model. */
 function CategoryTable({ s }: { s: Settings }) {
   const harnessOpts = s.harnesses.filter((h) => h.enabled)
-  const [reset, setReset] = useState(false)
-  const savePools = (pools: CategoryPool[]): void => set({ categoryPools: pools })
-  const updPool = (cat: string, patch: Partial<CategoryPool>): void => savePools(s.categoryPools.map((p) => (p.category === cat ? { ...p, ...patch } : p)))
+  const [clear, setClear] = useState(false)
+  const tool = s.defaultHarness || 'claude'
+  const setCands = (category: TaskCategory, candidates: PoolCandidate[]): void => {
+    const rest = s.categoryPools.filter((p) => p.category !== category)
+    set({ categoryPools: candidates.length ? [...rest, { category, candidates }] : rest })
+  }
   return (
     <>
       <div className="label" style={{ margin: '22px 0 8px', display: 'flex', alignItems: 'center', gap: 10 }}>
         Category table
-        <button className="btn sm ghost" onClick={() => setReset(true)}>
-          <RefreshCw size={11} /> Reset to defaults
-        </button>
+        {s.categoryPools.length > 0 && (
+          <button className="btn sm ghost" onClick={() => setClear(true)}>
+            <RefreshCw size={11} /> Clear all
+          </button>
+        )}
       </div>
       <div className="cat-table">
-        {s.categoryPools.map((p) => {
-          const meta = CATEGORIES.find((c) => c.id === p.category)
-          const setCands = (candidates: PoolCandidate[]): void => updPool(p.category, { candidates })
+        {CATEGORIES.map((meta) => {
+          const cands = s.categoryPools.find((p) => p.category === meta.id)?.candidates ?? []
+          const save = (candidates: PoolCandidate[]): void => setCands(meta.id, candidates)
           return (
-            <div key={p.category} className={cx('cat-row panel', p.locked && 'locked')}>
+            <div key={meta.id} className="cat-row panel">
               <div className="cat-head">
-                <b>{meta?.label ?? p.category}</b>
-                <span className="mute">{meta?.hint}</span>
+                <b>{meta.label}</b>
+                <span className="mute">{meta.hint}</span>
                 <span style={{ flex: 1 }} />
-                <LockButton locked={!!p.locked} onChange={(v) => updPool(p.category, { locked: v || undefined })} />
+                {cands.length === 0 && <span className="mute">Default model</span>}
               </div>
-              {p.candidates.map((c, i) => {
-                const updC = (patch: Partial<PoolCandidate>): void => setCands(p.candidates.map((x, j) => (j === i ? { ...x, ...patch } : x)))
+              {cands.map((c, i) => {
+                const updC = (patch: Partial<PoolCandidate>): void => save(cands.map((x, j) => (j === i ? { ...x, ...patch } : x)))
                 const move = (by: number): void => {
-                  const next = p.candidates.slice()
+                  const next = cands.slice()
                   const [it] = next.splice(i, 1)
                   next.splice(i + by, 0, it)
-                  setCands(next)
+                  save(next)
                 }
                 return (
                   <div key={i} className="cand-row cat-cand">
@@ -1084,36 +1028,35 @@ function CategoryTable({ s }: { s: Settings }) {
                     <button className="btn sm ghost icon" disabled={i === 0} title="Move up" onClick={() => move(-1)}>
                       <ChevronUp size={12} />
                     </button>
-                    <button className="btn sm ghost icon" disabled={i === p.candidates.length - 1} title="Move down" onClick={() => move(1)}>
+                    <button className="btn sm ghost icon" disabled={i === cands.length - 1} title="Move down" onClick={() => move(1)}>
                       <ChevronDown size={12} />
                     </button>
-                    <button className="btn sm ghost icon" title="Remove" onClick={() => setCands(p.candidates.filter((_, j) => j !== i))}>
+                    <button className="btn sm ghost icon" title="Remove" onClick={() => save(cands.filter((_, j) => j !== i))}>
                       <Trash size={12} />
                     </button>
                   </div>
                 )
               })}
-              <button className="btn sm ghost" onClick={() => setCands([...p.candidates, { harness: s.defaultHarness }])}>
+              <button className="btn sm ghost" onClick={() => save([...cands, { harness: tool }])}>
                 <Plus size={12} /> Candidate
               </button>
             </div>
           )
         })}
       </div>
-      {reset && (
+      {clear && (
         <Confirm
-          title="Reset the category table?"
+          title="Clear the category table?"
           tone="amber"
-          confirmLabel="Reset"
-          body="Every category row goes back to the shipped defaults, including learned order and locks. Rules are kept."
-          onConfirm={() => savePools(defaultCategoryPools())}
-          onClose={() => setReset(false)}
+          confirmLabel="Clear"
+          body="Every category goes back to the default model. Rules are kept."
+          onConfirm={() => set({ categoryPools: [] })}
+          onClose={() => setClear(false)}
         />
       )}
     </>
   )
 }
-
 function Triggers({ s }: { s: Settings }) {
   const save = (list: EventSource[]): void => set({ eventSources: list })
   const upd = (id: string, patch: Partial<EventSource>): void => save(s.eventSources.map((e) => (e.id === id ? { ...e, ...patch } : e)))
@@ -1315,21 +1258,7 @@ function Accounts() {
           )
         })}
       </div>
-      {session && (
-        <div className="account-session panel">
-          <div className="account-session-head">
-            <b>{sessionTerm?.title ?? 'Session'}</b>
-            <span className="mute">{sessionTerm && !sessionTerm.alive ? `exited (${sessionTerm.exitCode ?? '?'})` : 'finish any prompts here or in your browser'}</span>
-            <span style={{ flex: 1 }} />
-            <button className="btn sm ghost icon" title="Close" onClick={close}>
-              <X size={12} />
-            </button>
-          </div>
-          <div className="account-term">
-            <TerminalView id={session} autoFocus />
-          </div>
-        </div>
-      )}
+      {session && <AccountSession id={session} onClose={close} />}
       <div className="label" id="settings-api-keys" tabIndex={-1} style={{ margin: '22px 0 8px' }}>
         API keys
       </div>

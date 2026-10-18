@@ -5,13 +5,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { defaultSettings } from '../src/main/settings'
 import { cheapGate, classifyCategory, pickLoadout, type PickEnv } from '../src/main/loadout'
 import {
-  acceptsProposal, applyProposal, buildOutcome, createScorecard, openProposals, outcomeOf, planProposals, planReorder, scoreOutcome, scoreTable
+  acceptsProposal, applyProposal, buildOutcome, createScorecard, openProposals, outcomeOf, planProposals, scoreOutcome, scoreTable
 } from '../src/main/scorecard'
 import { openRouterEnv } from '../src/main/unitskills'
 import { quotaFromUsage } from '../src/main/usage'
 import { createDecisionService } from '../src/main/decisions'
 import { Home } from '../src/main/home'
-import { CHEAP_MODELS, LEARNING, cheapModelsAllowed, defaultCategoryPools, type OutcomeRecord } from '../src/shared/dispatch'
+import { CHEAP_MODELS, cheapModelsAllowed, type OutcomeRecord } from '../src/shared/dispatch'
+import { QuotaDeferredError } from '../src/main/quota-deferred'
 import type { AppCtx } from '../src/main/services'
 import type { CategoryPool, DispatchRule, LoadoutInput, Settings, Task } from '../src/shared/types'
 import { CODEX_UNIT_MODEL, CLAUDE_UNIT_MODEL } from '../src/shared/unit-model-policy'
@@ -21,8 +22,13 @@ const base: LoadoutInput = { kind: 'ship', project: 'neon-runner', title: 'Add a
 const settings = (patch: Partial<Settings> = {}): Settings => ({ ...defaultSettings(), ...patch })
 const env = (ids: string[], extra: Partial<PickEnv> = {}): PickEnv => ({ available: (h) => ids.includes(h.id), ...extra })
 const ALL = ['claude', 'codex', 'gemini', 'opencode']
-/** Locked rows are Pinned: used as written under the mode's dial (the old category-table behaviour). */
-const lockedPools = (): CategoryPool[] => defaultCategoryPools().map((p) => ({ ...p, locked: true }))
+/** Category rows the player wrote: used as written. */
+const rows = (): CategoryPool[] => [
+  { category: 'feature', candidates: [{ harness: 'claude' }, { harness: 'codex' }] },
+  { category: 'bugfix', candidates: [{ harness: 'codex' }, { harness: 'claude' }] },
+  { category: 'tests', candidates: [{ harness: 'codex' }, { harness: 'claude' }, ...CHEAP_MODELS.map((m) => ({ harness: 'opencode', model: m.model, cheap: true }))] },
+  { category: 'large-context', candidates: [{ harness: 'gemini' }, { harness: 'claude' }, { harness: 'codex' }] }
+]
 const coolQuota = () => Object.fromEntries(['claude', 'codex'].map(id => [id, [{ label: '5-hour', usedPercent: 20, observedAt: new Date().toISOString() }]]))
 
 function rec(p: Partial<OutcomeRecord> = {}): OutcomeRecord {
@@ -54,7 +60,7 @@ describe('category classification', () => {
   })
 })
 
-describe('precedence: explicit > rules > category table > default', () => {
+describe('precedence: explicit > rules > category rows > default', () => {
   const rule: DispatchRule = { id: 'r1', match: 'grappling', candidates: [{ harness: 'gemini', spendPriority: 0 }] }
 
   it('an explicit harness/model wins over rules and the table', () => {
@@ -67,14 +73,13 @@ describe('precedence: explicit > rules > category table > default', () => {
     expect(l).toMatchObject({ harness: 'gemini', source: 'rule', ruleId: 'r1' })
   })
 
-  it('unlocked table rows follow the Usage mode when no rule matches', () => {
-    expect(pickLoadout({ ...base, category: 'feature' }, settings(), env(ALL))).toMatchObject({ harness: 'codex', effort: 'medium', source: 'mode' })
-    expect(pickLoadout({ ...base, category: 'tests' }, settings(), env(ALL))).toMatchObject({ harness: 'codex', source: 'mode' })
-    expect(pickLoadout({ ...base, category: 'large-context' }, settings(), env(ALL))).toMatchObject({ harness: 'codex', effort: 'high' })
+  it('a category without a row of the player gets the default when no rule matches', () => {
+    for (const category of ['feature', 'tests', 'large-context'] as const)
+      expect(pickLoadout({ ...base, category }, settings(), env(ALL))).toMatchObject({ harness: 'claude', model: CLAUDE_UNIT_MODEL, effort: 'medium', source: 'default' })
   })
 
-  it('a locked (pinned) table row applies as written when no rule matches', () => {
-    const s = settings({ categoryPools: lockedPools() })
+  it("the player's category row applies as written when no rule matches", () => {
+    const s = settings({ categoryPools: rows() })
     expect(pickLoadout({ ...base, category: 'feature' }, s, env(ALL))).toMatchObject({ harness: 'claude', source: 'table' })
     expect(pickLoadout({ ...base, category: 'tests' }, s, env(ALL))).toMatchObject({ harness: 'codex', source: 'table' })
     // Gemini leads large-context reads when installed, otherwise Claude
@@ -87,15 +92,15 @@ describe('precedence: explicit > rules > category table > default', () => {
   })
 
   it('skips tools that are installed but logged out', () => {
-    const l = pickLoadout({ ...base, category: 'tests' }, settings(), env(ALL, { loggedOut: (id) => id === 'codex' }))
+    const l = pickLoadout({ ...base, category: 'tests' }, settings({ categoryPools: rows() }), env(ALL, { loggedOut: (id) => id === 'codex' }))
     expect(l.harness).toBe('claude')
-    expect(l.reasons.join('\n')).toContain(`Codex CLI / ${CODEX_UNIT_MODEL} skipped: not logged in`)
+    expect(l.reasons.join('\n')).toContain('Codex CLI skipped: not logged in')
   })
 
   it("Codex without Genio's own sign-in is never picked: the job goes to Claude and the reasons say why", () => {
     const codexOut = env(ALL, { loggedOut: (id) => id === 'codex' })
-    for (const category of ['tests', 'feature', 'bugfix'] as const) {
-      const l = pickLoadout({ ...base, category }, settings(), codexOut)
+    for (const category of ['tests', 'bugfix'] as const) {
+      const l = pickLoadout({ ...base, category }, settings({ categoryPools: rows() }), codexOut)
       expect(l.harness).toBe('claude')
       expect(l.reasons.join('\n')).toMatch(/Codex CLI.* skipped: not logged in \(Genio's own Codex sign-in; picking another tool\)/)
     }
@@ -108,44 +113,22 @@ describe('precedence: explicit > rules > category table > default', () => {
   })
 })
 
-describe('mode dial on locked (pinned) rows', () => {
-  const cheapOk = { allowed: true, why: 'allowed' }
-
-  it('Quality raises effort, picks the stronger model and keeps cheap models last', () => {
-    const l = pickLoadout({ ...base, category: 'feature' }, settings({ usageMode: 'max', categoryPools: lockedPools() }), env(ALL, { cheap: cheapOk }))
-    expect(l.harness).toBe('claude')
-    expect(l.model).toBe('claude-opus-5-5')
-    expect(l.effort).toBe('medium') // small explicit Build: low + 1
-    expect(l.reasons.join('\n')).toMatch(/raised from low by the Quality dial/)
-    expect(pickLoadout({ ...base, category: 'tests' }, settings({ usageMode: 'max', categoryPools: lockedPools() }), env(ALL, { cheap: cheapOk })).harness).toBe('codex')
-  })
-
-  it('Cost puts cheap candidates first where allowed and lowers effort', () => {
-    const l = pickLoadout({ ...base, category: 'tests' }, settings({ usageMode: 'save', categoryPools: lockedPools() }), env(ALL, { cheap: cheapOk }))
-    expect(l).toMatchObject({ harness: 'opencode', model: CHEAP_MODELS[0].model })
-    const claude = pickLoadout({ ...base, category: 'feature' }, settings({ usageMode: 'save', categoryPools: lockedPools(), defaultWorkerEffort: 'high' }), env(ALL))
-    expect(claude.model).toBe('claude-sonnet-5-5')
-    expect(claude.effort).toBe('medium')
-  })
-
-  it('a world override wins over the global dial', () => {
-    const l = pickLoadout({ ...base, category: 'feature' }, settings({ usageMode: 'save', categoryPools: lockedPools(), defaultWorkerEffort: 'high' }), env(ALL, { dial: 'balanced' }))
-    expect(l.model).toBe(CLAUDE_UNIT_MODEL)
-    expect(l.effort).toBe('high')
-  })
-
-  it('never shifts an explicit effort', () => {
-    expect(pickLoadout({ ...base, category: 'feature', effort: 'low' }, settings({ usageMode: 'max', categoryPools: lockedPools() }), env(ALL)).effort).toBe('low')
+describe('no dial: a row is used as written in every mode', () => {
+  it('keeps the row model and effort whatever the Usage mode or a project cost dial', () => {
+    for (const usageMode of ['save', 'balanced', 'max'] as const) {
+      const s = settings({ usageMode, categoryPools: [{ category: 'feature', candidates: [{ harness: 'claude', model: 'claude-opus-5-5', effort: 'low' }] }] })
+      expect(pickLoadout({ ...base, category: 'feature' }, s, env(ALL))).toMatchObject({ harness: 'claude', model: 'claude-opus-5-5', effort: 'low' })
+    }
     expect(pickLoadout({ ...base, category: 'feature', effort: 'low' }, settings({ usageMode: 'max' }), env(ALL)).effort).toBe('low')
   })
 })
 
 describe('hard quota eligibility', () => {
-  it('moves a tool above ~85% of a plan window behind cooler candidates, and says so', () => {
-    // Max puts Opus first for features: at 91% Claude is excluded and the same-effort Codex fallback runs
-    const l = pickLoadout({ ...base, category: 'feature' }, settings({ usageMode: 'max' }), env(ALL, { quota: { claude: [{ label: '5-hour', usedPercent: 91, observedAt: new Date().toISOString() }] } }))
-    expect(l.harness).toBe('codex')
-    expect(l.reasons.join('\n')).toMatch(/Claude Code \/ claude-opus-5-5 excluded: 5-hour window at 91%/)
+  it('holds a tool above ~85% of a plan window instead of moving the unit to another plan, and says so', () => {
+    const hot = env(ALL, { quota: { claude: [{ label: '5-hour', usedPercent: 91, observedAt: new Date().toISOString() }] } })
+    expect(() => pickLoadout({ ...base, category: 'feature' }, settings({ usageMode: 'max' }), hot)).toThrow(QuotaDeferredError)
+    expect(() => pickLoadout({ ...base, category: 'feature' }, settings({ usageMode: 'max' }), hot)).toThrow(/Claude Code is held by quota protection \(5-hour window at 91%\)/)
+    expect(pickLoadout({ ...base, category: 'feature', harness: 'codex' }, settings(), hot).harness).toBe('codex')
   })
 
   it('queues when the only available plan is hot', () => {
@@ -169,9 +152,8 @@ describe('stickiness', () => {
   const sticky = { from: 'old-unit', harness: 'codex', model: 'gpt-x', effort: 'high', category: 'bugfix' as const }
 
   it('a follow-up on the same quest keeps the original loadout', () => {
-    const l = pickLoadout({ ...base, sticky }, settings({ explorationRate: 1 }), env(ALL, { rand: () => 0 }))
+    const l = pickLoadout({ ...base, sticky }, settings({ explorationRate: 1 }), env(ALL))
     expect(l).toMatchObject({ harness: 'codex', model: 'gpt-x', effort: 'high', category: 'bugfix', source: 'sticky' })
-    expect(l.explored).toBeUndefined()
   })
 
   it('an explicit pick still wins, and an unavailable sticky tool is picked again', () => {
@@ -182,32 +164,14 @@ describe('stickiness', () => {
   })
 })
 
-describe('exploration gating', () => {
-  // only Max explores (5%), and only with fresh evidence below 70% on both plans
-  const s = settings({ usageMode: 'max' })
-  const stats = scoreTable(many(9, { category: 'tests', harness: 'codex', model: CODEX_UNIT_MODEL }))
-
-  it('about rate-share of picks try a less-proven candidate', () => {
-    const l = pickLoadout({ ...base, category: 'tests' }, s, env(ALL, { rand: () => 0.01, stats, quota: coolQuota() }))
-    expect(l).toMatchObject({ harness: 'claude', model: 'claude-sonnet-5-5', effort: 'high', explored: true })
-    expect(l.reasons.join('\n')).toMatch(/exploration \(5%\): trying Claude Code \/ claude-sonnet-5-5, less proven for Tests \(0 vs 9 outcomes\)/)
-    expect(pickLoadout({ ...base, category: 'tests' }, s, env(ALL, { rand: () => 0.5, stats, quota: coolQuota() })).harness).toBe('codex')
-  })
-
-  it('never explores on explicit picks, critical quests, a 0 rate or a single eligible candidate', () => {
-    const roll = env(ALL, { rand: () => 0, stats, quota: coolQuota() })
-    expect(pickLoadout({ ...base, category: 'tests', model: 'gpt-x' }, s, roll).explored).toBeUndefined()
-    expect(pickLoadout({ ...base, category: 'tests', harness: 'codex' }, s, roll).explored).toBeUndefined()
-    expect(pickLoadout({ ...base, category: 'tests', priority: 'critical' }, s, roll).explored).toBeUndefined()
-    expect(pickLoadout({ ...base, category: 'tests' }, settings({ usageMode: 'balanced' }), roll).explored).toBeUndefined()
-    expect(pickLoadout({ ...base, category: 'tests' }, settings({ usageMode: 'save' }), roll).explored).toBeUndefined()
-    expect(pickLoadout({ ...base, category: 'tests' }, s, env(['codex'], { rand: () => 0 })).explored).toBeUndefined()
-  })
-
-  it('the preview only says exploration may happen', () => {
-    const l = pickLoadout({ ...base, category: 'tests' }, s, env(ALL, { rand: () => 0, preview: true, quota: coolQuota() }))
-    expect(l.harness).toBe('codex')
-    expect(l.reasons.join('\n')).toMatch(/5% of deploys try a less-proven candidate/)
+describe('the scorecard never picks', () => {
+  it('gives the same pick whatever the learned scores', () => {
+    const stats = scoreTable(many(9, { category: 'tests', harness: 'codex', model: CODEX_UNIT_MODEL }))
+    for (const usageMode of ['save', 'balanced', 'max'] as const) {
+      const l = pickLoadout({ ...base, category: 'tests' }, settings({ usageMode }), { ...env(ALL), stats, rand: () => 0, quota: coolQuota() } as PickEnv)
+      expect(l).toMatchObject({ harness: 'claude', model: CLAUDE_UNIT_MODEL, source: 'default' })
+      expect(l.reasons.join('\n')).not.toMatch(/exploration|learning/)
+    }
   })
 })
 
@@ -227,12 +191,13 @@ describe('OpenRouter gating', () => {
   })
 
   it('cheap candidates are skipped unless the gate is open', () => {
-    const s = settings({ usageMode: 'save' })
+    const s = settings({ categoryPools: [{ category: 'docs', candidates: [{ harness: 'opencode', model: CHEAP_MODELS[0].model, cheap: true }, { harness: 'codex' }] }] })
     const closed = pickLoadout({ ...base, category: 'docs' }, s, env(ALL, { cheap: cheapGate({ worldAllows: false, keySet: true, opencodeReady: true }) }))
     expect(closed.harness).toBe('codex')
     expect(closed.reasons.join('\n')).toMatch(/off for this project/)
-    // never in high-stakes categories
-    expect(defaultCategoryPools().find((p) => p.category === 'feature')!.candidates.some((c) => c.cheap)).toBe(false)
+    expect(pickLoadout({ ...base, category: 'docs' }, s, env(ALL, { cheap: { allowed: true, why: 'ok' } })).harness).toBe('opencode')
+    // never without a row of the player
+    expect(pickLoadout({ ...base, category: 'docs' }, settings(), env(ALL, { cheap: { allowed: true, why: 'ok' } })).harness).toBe('claude')
   })
 
   it('passes the key to OpenCode units only, only in opted-in worlds', () => {
@@ -294,29 +259,6 @@ describe('scorecard', () => {
   })
 })
 
-describe('learning: automatic reordering', () => {
-  const pools = (locked = false): CategoryPool[] => [{ category: 'tests', candidates: [{ harness: 'claude' }, { harness: 'codex' }], locked }]
-  const s = (p: CategoryPool[], rules: DispatchRule[] = []) => ({ categoryPools: p, dispatchRules: rules })
-
-  it(`waits for ${LEARNING.minSamples} outcomes each and a clear margin`, () => {
-    const few = scoreTable([...many(4, { harness: 'codex' }), ...many(5, { harness: 'claude', landed: false, outcome: 'failed' })])
-    expect(planReorder(s(pools()), few)).toBeUndefined()
-    const close = scoreTable([...many(5, { harness: 'codex', pings: 2 }), ...many(5, { harness: 'claude', pings: 1 })])
-    expect(planReorder(s(pools()), close)).toBeUndefined()
-    const clear = scoreTable([...many(5, { harness: 'codex' }), ...many(5, { harness: 'claude', relaunches: 3 })])
-    const plan = planReorder(s(pools()), clear)!
-    expect(plan.categoryPools[0].candidates.map((c) => c.harness)).toEqual(['codex', 'claude'])
-    expect(plan.changes[0]).toMatch(/Tests: codex landed 5\/5/)
-  })
-
-  it('never touches locked rows or rules', () => {
-    const clear = scoreTable([...many(5, { harness: 'codex', source: 'rule', ruleId: 'r' }), ...many(5, { harness: 'claude', relaunches: 3, source: 'rule', ruleId: 'r' })])
-    const rule: DispatchRule = { id: 'r', match: 'x', locked: true, candidates: [{ harness: 'claude', spendPriority: 0 }, { harness: 'codex', spendPriority: 0 }] }
-    expect(planReorder(s(pools(true), [rule]), clear)).toBeUndefined()
-    expect(planReorder(s(pools(true), [{ ...rule, locked: false }]), clear)!.dispatchRules[0].candidates[0].harness).toBe('codex')
-  })
-})
-
 describe('learning: proposals need the player', () => {
   let dir: string
   beforeEach(() => {
@@ -352,22 +294,20 @@ describe('learning: proposals need the player', () => {
     expect(planProposals({ categoryPools: pools, dispatchRules: [] }, rows)).toEqual([expect.objectContaining({ op: 'pool-add', candidate: { harness: 'gemini' } })])
   })
 
-  it('applies an accepted proposal, never on a locked row', () => {
+  it('applies an accepted proposal', () => {
     const p = planProposals({ categoryPools: pools, dispatchRules: [] }, bad)[0]
     expect(applyProposal({ categoryPools: pools, dispatchRules: [] }, p)!.categoryPools![0].candidates).toEqual([{ harness: 'codex' }])
-    expect(applyProposal({ categoryPools: [{ ...pools[0], locked: true }], dispatchRules: [] }, p)).toBeUndefined()
-    expect(planProposals({ categoryPools: [{ ...pools[0], locked: true }], dispatchRules: [] }, bad)).toEqual([])
+    expect(applyProposal({ categoryPools: [], dispatchRules: [] }, p)).toBeUndefined()
     expect(acceptsProposal({ options: ['Apply the change', 'Keep'] }, 'Apply the change')).toBe(true)
     expect(acceptsProposal({ options: ['Apply the change', 'Keep'] }, 'yes, do it')).toBe(true)
     expect(acceptsProposal({ options: ['Apply the change', 'Keep'] }, 'Keep')).toBe(false)
   })
 
-  it('proposes dropping a failing rule candidate, but leaves locked rules alone', () => {
+  it('proposes dropping a failing rule candidate', () => {
     const rows = scoreTable(many(8, { harness: 'aider', landed: false, outcome: 'failed', source: 'rule', ruleId: 'r' }))
     const rule: DispatchRule = { id: 'r', match: 'shader', candidates: [{ harness: 'aider', spendPriority: 0 }, { harness: 'claude', spendPriority: 0 }] }
     const props = planProposals({ categoryPools: [], dispatchRules: [rule] }, rows)
     expect(props).toEqual([expect.objectContaining({ op: 'rule-drop-candidate', ruleId: 'r' })])
     expect(applyProposal({ categoryPools: [], dispatchRules: [rule] }, props[0])!.dispatchRules![0].candidates.map((c) => c.harness)).toEqual(['claude'])
-    expect(planProposals({ categoryPools: [], dispatchRules: [{ ...rule, locked: true }] }, rows)).toEqual([])
   })
 })

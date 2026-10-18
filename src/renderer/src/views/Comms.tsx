@@ -721,7 +721,7 @@ function ShellModeButton({ wksp }: { wksp: string }) {
 const COMPACT_SELECT: CSSProperties = { width: 'auto', height: 26, padding: '0 6px', fontSize: 10.5, marginRight: 8, verticalAlign: 'middle' }
 
 /**
- * Model/effort for this chat. Genio: the same wkspModel/wkspEffort settings as Settings › Usage & limits › Pin models and effort.
+ * Model/effort for this chat. Genio: the same wkspModel/wkspEffort settings; empty uses the default (Claude Sonnet 5.5, or Codex Sol 6.1 when only Codex is signed in).
  * An ally: its own saved values, following Genio's until changed here.
  */
 function ChatModelControls({ wksp }: { wksp: string }) {

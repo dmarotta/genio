@@ -2,7 +2,23 @@
 
 The Hub owns project selection and nothing else: it shows the project list (with
 Open folder, Add project, Sync all and Settings) and no project's
-work, choices or presence. Opening a project, from the Hub or anywhere else,
+work, choices or presence.
+
+**Sign-in gate.** A project opens only once Claude or Codex is signed in (Claude's
+login, or Genio's own Codex home; an API-key Codex login does not count). While
+neither is, the Hub still lists the projects, but opening, Open folder and Add
+project are disabled, and one bordered box under the title says "Sign in with
+Claude or Codex to open a project." with **Sign in with Claude** and **Sign in with
+Codex**. They run the same flows as Settings → Accounts & keys (Claude's own login;
+"Sign in Genio's Codex (same account)"), in a terminal shown in the box. The sign-in
+watch (`sign-in-watch.ts`) re-reads Claude and Codex when that terminal ends and
+every ten minutes, and publishes the gate with the rail's sign-in warning, so the box
+disappears and projects open as soon as one sign-in works, with no restart. The
+main process enforces it too: `projectOpen` (the Hub and File › Open) waits for the
+first read at start, reads again while the gate is closed and refuses with "Sign in
+with Claude or Codex first." A state that cannot be read never blocks. Inside a
+project, a lost sign-in keeps the single rail warning (see
+[usage-protection.md](usage-protection.md)). Opening a project, from the Hub or anywhere else,
 closes the Hub once the project window has loaded (a failed open leaves it up to
 show the error). Genio keeps running while any window is open; closing the last
 project window quits as before, and File › Hub (Ctrl+N) in a project window brings
@@ -28,7 +44,7 @@ their owning homes, including legacy records. Dependencies, dates and player
 holds still gate deployment. Project filtering happens before selecting a capped
 batch, so another project's higher-priority rows cannot starve this opening.
 Already attempted failures are also excluded before capping that batch, so a
-failed pinned launch does not hide eligible work behind it.
+failed launch does not hide eligible work behind it.
 A WorkPlan step launches from its stored spec, loadout and handoff note, never
 from the quest notes, and a paused plan's steps stay queued. A queued quest
 whose work another quest or unit already covers (same title, done, in flight or

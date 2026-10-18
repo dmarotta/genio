@@ -1,19 +1,12 @@
 /**
- * Usage mode (Save / Balanced / Max): one control that sets chat and unit
- * model/effort, exploration, cheap-model use,
- * routine wake batching and answer/report ceilings; plus the automatic plan
- * protection levels and the shared plan meter. Pure, so the Systems preview
- * shows exactly what the dispatcher and the chat apply.
- *
- * Pins: a non-empty raw model/effort (Settings.wkspModel/wkspEffort/botModel/
- * defaultWorkerModel/defaultWorkerEffort, an ally's model/effort, a locked
- * category row, a dispatch rule, an explicit deploy pick) is Pinned and never
- * changed by the mode or by protection. Empty means Auto.
+ * Usage mode (Save / Balanced / Max): routine wake batching and answer/report
+ * ceilings, never a model or effort; plus the plan protection levels and the
+ * shared plan meter. Models are what the player set, else the one default
+ * (unit-model-policy.ts). Pure, so Settings shows exactly what the dispatcher
+ * and the chat apply.
  */
-import type { CostDial, PoolCandidate, Priority, TaskCategory } from './types'
+import type { CostDial, Priority } from './types'
 import type { UsageReport, UsageWindow } from './api'
-import { CHEAP_MODELS, EFFORT_LADDER, LOW_STAKES } from './dispatch'
-import { CODEX_UNIT_MODEL } from './unit-model-policy'
 import { expireWindow, freshWindow } from './quota-evidence'
 
 export type UsageMode = 'save' | 'balanced' | 'max'
@@ -25,41 +18,7 @@ export const isUsageMode = (v: unknown): v is UsageMode => v === 'save' || v ===
 /** The retired cost dial maps one to one onto a mode. */
 export const DIAL_MODE: Record<CostDial, UsageMode> = { cost: 'save', balanced: 'balanced', quality: 'max' }
 
-export const SONNET = 'claude-sonnet-5-5'
-export const OPUS = 'claude-opus-5-5'
-
-/** S = Claude Sonnet, O = Claude Opus, C = Codex Sol (explicit, conservative default). */
-export type Slot = 'S' | 'O' | 'C'
-export const SLOT: Record<Slot, { harness: 'claude' | 'codex'; model?: string; label: string }> = {
-  S: { harness: 'claude', model: SONNET, label: 'Sonnet' },
-  O: { harness: 'claude', model: OPUS, label: 'Opus' },
-  C: { harness: 'codex', model: CODEX_UNIT_MODEL, label: 'Codex Sol' }
-}
-/** Same-effort fallback: Codex and Sonnet back each other up; Opus falls back to Codex. */
-export const FALLBACK: Record<Slot, Slot> = { S: 'C', C: 'S', O: 'C' }
-
-export type UnitGroup = 'light' | 'build' | 'deep' | 'review' | 'art'
-export const UNIT_GROUPS: { id: UnitGroup; label: string; categories: TaskCategory[] }[] = [
-  { id: 'light', label: 'Chore, docs, tests, build/CI', categories: ['chore', 'docs', 'tests', 'build-ci'] },
-  { id: 'build', label: 'Feature, bugfix, UI', categories: ['feature', 'bugfix', 'ui'] },
-  { id: 'deep', label: 'Recon/design, refactor, graphics', categories: ['recon-design', 'refactor', 'graphics'] },
-  { id: 'review', label: 'Review, large-context', categories: ['review', 'large-context'] },
-  { id: 'art', label: 'Art (agent work, not generation fees)', categories: ['art'] }
-]
-export const groupOf = (c: TaskCategory): UnitGroup => UNIT_GROUPS.find((g) => g.categories.includes(c))?.id ?? 'build'
-
-export type Cell = readonly [Slot, string]
-
 export interface ModePreset {
-  /** main chat and allies without their own pick */
-  chat: Cell
-  units: Record<UnitGroup, Cell>
-  /** what a locked (pinned) category row and the legacy dial see */
-  dial: CostDial
-  /** share of automatic picks that try the fallback, subject to fresh evidence below 70% on both plans */
-  exploration: number
-  /** cheap third-party candidates for low-stakes categories */
-  cheap: 'first' | 'fallback' | 'off'
   /** routine (non-urgent) AI wakes wait this long to batch */
   wakeBatchMinutes: number
   heartbeat: { baseMinutes: number; maxMinutes: number }
@@ -68,32 +27,9 @@ export interface ModePreset {
 }
 
 export const MODE_PRESETS: Record<UsageMode, ModePreset> = {
-  save: {
-    chat: ['S', 'low'],
-    units: { light: ['C', 'low'], build: ['S', 'medium'], deep: ['C', 'medium'], review: ['C', 'medium'], art: ['C', 'low'] },
-    dial: 'cost', exploration: 0, cheap: 'first',
-    wakeBatchMinutes: 10, heartbeat: { baseMinutes: 30, maxMinutes: 120 }, answerWords: 150, reconWords: 400
-  },
-  balanced: {
-    chat: ['S', 'medium'],
-    units: { light: ['C', 'medium'], build: ['C', 'medium'], deep: ['C', 'high'], review: ['C', 'high'], art: ['C', 'medium'] },
-    dial: 'balanced', exploration: 0, cheap: 'fallback',
-    wakeBatchMinutes: 5, heartbeat: { baseMinutes: 15, maxMinutes: 120 }, answerWords: 250, reconWords: 800
-  },
-  max: {
-    chat: ['O', 'high'],
-    units: { light: ['C', 'high'], build: ['O', 'high'], deep: ['O', 'xhigh'], review: ['C', 'xhigh'], art: ['C', 'high'] },
-    dial: 'quality', exploration: 0.05, cheap: 'off',
-    wakeBatchMinutes: 1, heartbeat: { baseMinutes: 10, maxMinutes: 120 }, answerWords: 400, reconWords: 1500
-  }
-}
-
-export const cellLabel = ([slot, effort]: Cell): string => `${SLOT[slot].label} / ${effort}`
-
-/** One supported step lower, never below low. */
-export function stepDown(effort: string): string {
-  const i = EFFORT_LADDER.indexOf(effort)
-  return i > 0 ? EFFORT_LADDER[i - 1] : effort
+  save: { wakeBatchMinutes: 10, heartbeat: { baseMinutes: 30, maxMinutes: 120 }, answerWords: 150, reconWords: 400 },
+  balanced: { wakeBatchMinutes: 5, heartbeat: { baseMinutes: 15, maxMinutes: 120 }, answerWords: 250, reconWords: 800 },
+  max: { wakeBatchMinutes: 1, heartbeat: { baseMinutes: 10, maxMinutes: 120 }, answerWords: 400, reconWords: 1500 }
 }
 
 // ------------------------------------------------------------- protection
@@ -149,43 +85,6 @@ export function planStatuses(quota: Record<string, UsageWindow[] | undefined> | 
 
 // ------------------------------------------------------------- chat
 
-export interface ChatPins {
-  model?: string
-  effort?: string
-}
-
-export interface ChatChoice {
-  model: string
-  effort: string
-  pinnedModel: boolean
-  pinnedEffort: boolean
-  /** set when protection moved an Auto value off the mode's preset */
-  protectedBy?: string
-}
-
-/**
- * The chat's model/effort. Pinned values are kept as they are. Auto values
- * follow the mode; Claude at 70-84% lowers Auto effort one step, at 85%+ the
- * Auto chat drops to Sonnet / low (applied at the next turn boundary).
- */
-export function resolveChat(mode: UsageMode, pins: ChatPins, claude?: PlanStatus): ChatChoice {
-  const [slot, presetEffort] = MODE_PRESETS[mode].chat
-  const pinnedModel = Boolean(pins.model?.trim())
-  const pinnedEffort = Boolean(pins.effort?.trim())
-  let model = pinnedModel ? pins.model!.trim() : SLOT[slot].model!
-  let effort = pinnedEffort ? pins.effort!.trim() : presetEffort
-  let protectedBy: string | undefined
-  const level = claude?.level ?? 'ok'
-  if (level === 'hot' || level === 'out') {
-    if (!pinnedModel && model !== SONNET) { model = SONNET; protectedBy = protectionCause(claude!) }
-    if (!pinnedEffort && effort !== 'low') { effort = 'low'; protectedBy = protectionCause(claude!) }
-  } else if (level === 'warm' && !pinnedEffort) {
-    const lower = stepDown(effort)
-    if (lower !== effort) { effort = lower; protectedBy = protectionCause(claude!) }
-  }
-  return { model, effort, pinnedModel, pinnedEffort, protectedBy }
-}
-
 /** Words the chat aims for: Save's ceiling while Claude is at 70%+. */
 export function answerWords(mode: UsageMode, claude?: PlanStatus): number {
   return LEVEL_RANK[claude?.level ?? 'ok'] >= LEVEL_RANK.warm ? MODE_PRESETS.save.answerWords : MODE_PRESETS[mode].answerWords
@@ -198,34 +97,6 @@ export function reconWords(mode: UsageMode, plan?: PlanStatus): number {
 
 export function chatUsageLine(mode: UsageMode, claude?: PlanStatus): string {
   return `Usage mode: ${USAGE_MODE_LABEL[mode]}. Keep ordinary replies under about ${answerWords(mode, claude)} words; give more when the player asks for detail.`
-}
-
-// ------------------------------------------------------------- units
-
-export interface ModeCandidates {
-  candidates: PoolCandidate[]
-  notes: string[]
-}
-
-/**
- * The automatic candidates for a category under a mode: the preset cell, its
- * same-effort fallback, and cheap third-party models for low-stakes work
- * (Save first, Balanced after the plans, Max never). A plan at 70-84% moves
- * behind the other plan; plans at 85%+ are excluded later by the picker.
- */
-export function modeCandidates(mode: UsageMode, category: TaskCategory, plans?: Partial<Record<PlanId, PlanStatus>>): ModeCandidates {
-  const p = MODE_PRESETS[mode]
-  const [slot, effort] = p.units[groupOf(category)]
-  const toCand = (s: Slot): PoolCandidate => ({ harness: SLOT[s].harness, ...(SLOT[s].model ? { model: SLOT[s].model } : {}), effort })
-  const notes: string[] = []
-  let planned = [toCand(slot), toCand(FALLBACK[slot])]
-  const warm = (c: PoolCandidate): boolean => plans?.[c.harness as PlanId]?.level === 'warm'
-  if (warm(planned[0]) && !warm(planned[1])) {
-    notes.push(`${planLabel(planned[0].harness)} at ${pctText(plans![planned[0].harness as PlanId]!)}: preferring ${planLabel(planned[1].harness)}`)
-    planned = [planned[1], planned[0]]
-  }
-  const cheap = LOW_STAKES.includes(category) && p.cheap !== 'off' ? CHEAP_MODELS.map((m): PoolCandidate => ({ harness: 'opencode', model: m.model, cheap: true })) : []
-  return { candidates: p.cheap === 'first' ? [...cheap, ...planned] : [...planned, ...cheap], notes }
 }
 
 // ------------------------------------------------------------- queue
@@ -392,8 +263,9 @@ export interface UsagePolicyView {
   mode: UsageMode
   quotaProtection: boolean
   heldLaunches: { project: string; title: string; plan: PlanId }[]
-  chat: ChatChoice
-  bot: { model: string; pinned: boolean }
+  /** what the chat runs now: the player's choice, else the default */
+  chat: { model: string; effort: string }
+  /** the player's unit default ('' harness: Claude, else Codex when only Codex is signed in) */
   units: { defaultHarness: string; model?: string; effort?: string }
   unitCap: number
   liveUnits: number
@@ -406,22 +278,8 @@ export interface UsagePolicyView {
   cheap: { allowed: boolean; why: string }
 }
 
-/** "Auto: Sonnet / medium" */
-export function modeSummary(mode: UsageMode, chat?: ChatChoice): string {
+/** What a mode sets, in one line: "Replies under about 250 words; routine updates batched up to 5 min." */
+export function modeSummary(mode: UsageMode): string {
   const p = MODE_PRESETS[mode]
-  const chatText = chat ? `${chat.model.replace(/^claude-/, '').replace(/-\d.*$/, '').replace(/^./, (c) => c.toUpperCase())} / ${chat.effort}` : cellLabel(p.chat)
-  return `${chat && (chat.pinnedModel || chat.pinnedEffort) ? 'Chat' : 'Auto'}: ${chatText}`
-}
-
-/** What a mode sets, as label/value rows for the preview table. */
-export function presetRows(mode: UsageMode): { label: string; value: string }[] {
-  const p = MODE_PRESETS[mode]
-  return [
-    { label: 'Chat, including allies', value: cellLabel(p.chat) },
-    ...UNIT_GROUPS.map((g) => ({ label: `Units: ${g.label}`, value: cellLabel(p.units[g.id]) })),
-    { label: 'Exploration', value: p.exploration ? `${Math.round(p.exploration * 100)}%, only with fresh evidence below 70% on both plans` : 'off' },
-    { label: 'Cheap third-party models', value: p.cheap === 'first' ? 'first for low-stakes work' : p.cheap === 'fallback' ? 'fallback after the plans' : 'off' },
-    { label: 'Routine wake batching', value: `${p.wakeBatchMinutes} min; heartbeat ${p.heartbeat.baseMinutes}/${p.heartbeat.maxMinutes} min` },
-    { label: 'Answer / Recon summary target', value: `${p.answerWords} / ${p.reconWords.toLocaleString('en-US')} words` }
-  ]
+  return `Replies under about ${p.answerWords} words; routine updates batched up to ${p.wakeBatchMinutes} min.`
 }
