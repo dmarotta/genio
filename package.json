@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Genio - AI-assisted orchestrator for game development. Talk to one agent, ship with a crew.",
   "main": "./out/main/index.js",
-  "author": "Dani",
+  "author": "Daniele Marotta",
   "license": "MIT",
   "private": true,
   "scripts": {
