@@ -19,6 +19,9 @@ The only argument after `--` is a plan JSON written by modeller.mjs:
                         or null: the review prints every item
               full      examine every pair whatever the parent's results (an export's check)
   checks    budget (triangles), size ([x, y, z] metres) and symmetry ('x', 'y'), all optional
+  references  the player's tagged orthographic references, each {path, view, title, span?}: a step
+            that renders a sheet matches them by numbers (genio_refmatch.py) for its review's
+            Reference lines and match.png
 
 Per step: step script, modifier-applied GLB, then <out>/landed.json (the
 kernel publishes the step to the live view from it at once), then the compressed
@@ -55,6 +58,7 @@ from mathutils.bvhtree import BVHTree
 
 import genio_bpy
 import genio_parts as p
+import genio_refmatch
 import genio_review
 
 RAY_BUDGET = 200000
@@ -239,21 +243,22 @@ def _names(items):
     return ', '.join(items[:6]) + (f' and {len(items) - 6} more' if len(items) > 6 else '')
 
 
-def inspect_model(checks, previous=None, known=None, full=False, shipped=None, seen=None):
+def inspect_model(checks, previous=None, known=None, full=False, shipped=None, seen=None, references=None):
     """Advisory checks on the shipped (evaluated) meshes, built on genio_bpy.validate(), plus the
     Modeller's own: budget, ground, centring, size and parts passing through each other, then the
-    text review against the `previous` step's part table, what it printed (`seen`) and the plan the
-    model's lib.py keeps in the scene (p.plan). Nothing here
+    text review against the `previous` step's part table, what it printed (`seen`), the plan the
+    model's lib.py keeps in the scene (p.plan) and the reference matches (`references`, the lines
+    genio_refmatch.match made). Nothing here
     blocks a step. `known` is the previous step's pair results (see the module notes; None or
     `full`: every pair is examined); `shipped` an open p.evaluated() of the parts, reused.
     out['pairs'] is this step's, to store, out['known'] what the next step of the same run gets as
     its `known`, and out['clock'] the milliseconds of each check."""
     objects = p.export_objects()
     with contextlib.nullcontext(shipped) if shipped is not None else p.evaluated(objects) as shipped:
-        return _inspect(checks, previous, known, full, objects, shipped, seen)
+        return _inspect(checks, previous, known, full, objects, shipped, seen, references)
 
 
-def _inspect(checks, previous, known, full, objects, shipped, seen):
+def _inspect(checks, previous, known, full, objects, shipped, seen, references=None):
     warn, clock, mark = [], {}, [time.perf_counter()]
     out = {'clock': clock}
 
@@ -328,7 +333,8 @@ def _inspect(checks, previous, known, full, objects, shipped, seen):
     r = genio_review.review(
         parts, previous=previous, size=size, tol=tol, ground_z=lo.z, pierced=notable_pierces(found, size),
         axis=checks.get('symmetry'), other_side=p._other_side, test=test, known=carried, seen=seen,
-        intended={frozenset(x) for x in p.intended_pairs()}, dims=list(dims), expected=expected, budget=budget, plan=p.planned(), clock=clock)
+        intended={frozenset(x) for x in p.intended_pairs()}, dims=list(dims), expected=expected, budget=budget, plan=p.planned(),
+        references=references, clock=clock)
     mark[0] = time.perf_counter()
     out['review'], out['review_full'], out['labels'], out['part_table'] = r['lines'], r['full'], r['labels'], r['table']
     out['review_seen'], out['review_counts'], out['changed'] = r['seen'], r['counts'], r['changed']
@@ -772,7 +778,20 @@ def run_step(item, plan, replay, first, last, previous, known=None, seen=None, s
                 warn.append('Start the step script with a docstring: its first line is the caption the player sees.')
             number = item.get('step', {}).get('n') or 0
             full = bool(item.get('full')) or (number > 0 and number % FULL_EVERY == 0)
-            checks, found = inspect_model(plan.get('checks') or {}, previous, known, full, shipped, seen)
+            matched = None
+            if plan.get('references') and 'sheet' in outputs and has_meshes():
+                # The player's tagged views against the model's silhouette, on the shipped meshes.
+                try:
+                    with genio_bpy.modifiers_baked(meshes, shipped=shipped):
+                        matched = genio_refmatch.match(plan['references'], plan.get('checks') or {}, list(shipped), out)
+                    warn += matched['warnings']
+                    if matched['overlay']:
+                        receipt['match'] = os.path.basename(matched['overlay'])
+                    receipt['references_ms'] = matched['clock']
+                except Exception as e:  # noqa: BLE001 - information only, like the sheet
+                    warn.append(f'Matching the references failed ({type(e).__name__}: {e}).')
+                lap('references')
+            checks, found = inspect_model(plan.get('checks') or {}, previous, known, full, shipped, seen, matched and matched['lines'])
             warn += found
             stats = checks.pop('stats')
             labels, anchors, table = checks.pop('labels', []), checks.pop('anchors', {}), checks.pop('part_table', {})

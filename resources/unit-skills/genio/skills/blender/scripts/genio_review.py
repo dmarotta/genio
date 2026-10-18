@@ -13,6 +13,8 @@ Each line appears only when it has something to say, in this order:
   Triangles     past half the budget, or one part holding much of a dense model, by part
   Materials     parts without a material, and materials that look the same
   Bake          paint that ships only once baked, and parts without UVs where a bake needs them
+  Reference <view>  per tagged front, side or top reference: the overlap, parts too wide, high or
+                long against it, reference shape with no part there, parts not in it (genio_refmatch.py)
 It works on the shipped geometry from the same Blender run, renders nothing, is deterministic and
 is information only, never a gate.
 
@@ -57,8 +59,8 @@ def _list(names, shown=NAMES_SHOWN):
     return ', '.join(names[:shown]) + (f' and {len(names) - shown} more' if len(names) > shown else '')
 
 
-def _items(items):
-    return '; '.join(items[:ITEMS_SHOWN]) + (f'; and {len(items) - ITEMS_SHOWN} more' if len(items) > ITEMS_SHOWN else '')
+def _items(items, shown=ITEMS_SHOWN):
+    return '; '.join(items[:shown]) + (f'; and {len(items) - shown} more' if len(items) > shown else '')
 
 
 def _m(v):
@@ -611,7 +613,7 @@ def _timed(clock, key):
 
 
 def review(parts, *, previous, size, tol, ground_z, pierced, axis, other_side, test=None, known=None, seen=None,
-           intended=(), dims=None, expected=None, budget=None, plan=None, clock=None):
+           intended=(), dims=None, expected=None, budget=None, plan=None, references=None, clock=None):
     """The step's text review. `parts` are genio_step._parts records (name, ob, world vertices,
     triangles, BVH tree, box, closed); `pierced` the pass-through check's notable pairs; `previous`
     the previous step's part table ({} for the first step; None when unknown: no Changes line).
@@ -619,8 +621,9 @@ def review(parts, *, previous, size, tol, ground_z, pierced, axis, other_side, t
     results, as stored: {'contacts': [[a, b]], 'sunk': [...], 'z_fighting': [...]}. `seen` is what
     the previous step printed ({line: {item key: measures}}; None: print every item), `intended`
     the pairs (frozensets of names) left out of the Deep overlap and Z-fighting lines; `dims`,
-    `expected` and `budget` feed the Size and Triangles lines, `plan` (p.planned()) the Plan line.
-    `clock` gets milliseconds per check.
+    `expected` and `budget` feed the Size and Triangles lines, `plan` (p.planned()) the Plan line,
+    `references` ([(title, items)] from genio_refmatch.match) the Reference lines, whose first item
+    (the overlap) does not count against the items shown. `clock` gets milliseconds per check.
     Returns {lines: as the agent reads them, full: every item printed, labels: the parts worth a
     label on the sheet as (name, flagged by a new item), table: this step's part table, pairs: this
     step's pair results to store, z_stopped, seen: what this review printed, counts: {line: [new,
@@ -651,19 +654,20 @@ def review(parts, *, previous, size, tol, ground_z, pierced, axis, other_side, t
     lines, full, flagged, printed, counts = [line] if line else [], [line] if line else [], [], {}, {}
     for title, items in (('Plan', plan_items), ('Floating', float_items), ('Deep overlap', meant(sunk_items)), ('Z-fighting', meant(z_items)),
                          ('Symmetry', sym_items), ('Size', size_items), ('Triangles', tri_items),
-                         ('Materials', mat_items), ('Bake', bake_items)):
+                         ('Materials', mat_items), ('Bake', bake_items), *(references or [])):
         if not items:
             continue
+        shown = ITEMS_SHOWN + 1 if title.startswith('Reference') else ITEMS_SHOWN
         before = None if seen is None else seen.get(title, {})
         stand = [before is not None and _known(x, before.get(x['k'])) for x in items]
         fresh = [x for x, s in zip(items, stand) if not s]
-        full.append(f"{title}: {_items([x['t'] for x in items])}")
-        said = _items([x['t'] for x in fresh]) if fresh else ''
+        full.append(f"{title}: {_items([x['t'] for x in items], shown)}")
+        said = _items([x['t'] for x in fresh], shown) if fresh else ''
         if any(stand):
             said = f'{said}; {sum(stand)} known' if said else f'{sum(stand)} known'
         lines.append(f'{title}: {said}')
         # Known items keep the measures they were printed with; new ones count as printed only when shown.
-        printed[title] = {**{x['k']: before[x['k']] for x, s in zip(items, stand) if s}, **{x['k']: x['v'] for x in fresh[:ITEMS_SHOWN]}}
+        printed[title] = {**{x['k']: before[x['k']] for x, s in zip(items, stand) if s}, **{x['k']: x['v'] for x in fresh[:shown]}}
         counts[title] = [len(fresh), sum(stand)]
         names = [n for x in fresh for n in x['names']]
         flagged += [n for k, n in enumerate(names) if n not in flagged and n not in names[:k]]

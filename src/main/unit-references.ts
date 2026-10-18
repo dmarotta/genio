@@ -10,7 +10,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
-  MAX_ATTACHMENTS, REFERENCE_FILE_MAX_BYTES, REFERENCE_FOLDER_MAX_FILES, REFERENCE_TEXT_MAX_BYTES, REFERENCES_MAX_BYTES, VIEWABLE_IMAGE, referenceType,
+  MAX_ATTACHMENTS, REFERENCE_FILE_MAX_BYTES, REFERENCE_FOLDER_MAX_FILES, REFERENCE_TEXT_MAX_BYTES, REFERENCES_MAX_BYTES, VIEWABLE_IMAGE, orthoView, referenceType,
   type ReferenceType, type ReferenceView, type ResolvedAttachment, type UnitReference
 } from '@shared/unit-references'
 import { validChatImageFile } from '@shared/chat-images'
@@ -246,7 +246,9 @@ export function stageReferences(dir: string, items: readonly ResolvedAttachment[
     if (it.kind === 'file') fs.copyFileSync(it.path, dest)
     else fs.writeFileSync(dest, it.text, 'utf8')
     taken.add(file.toLowerCase())
-    const ref: UnitReference = { file, source: it.source, ...(it.note ? { note: it.note } : {}), bytes: it.bytes, type: referenceType(file), addedAt: at }
+    const type = referenceType(file)
+    const view = type === 'image' ? orthoView(file, it.note) : undefined
+    const ref: UnitReference = { file, source: it.source, ...(it.note ? { note: it.note } : {}), bytes: it.bytes, type, addedAt: at, ...(view ? { view } : {}) }
     list.push(ref)
     added.push(ref)
   }
@@ -309,7 +311,10 @@ export function referencesBriefLines(dir: string, refs: readonly UnitReference[]
     ...[...new Set(refs.map((r) => r.type))].map((t) => `- ${OPEN_HOW[t]({ scratch, blender: o.blender })}`)
   ]
   const images = refs.some((r) => r.type === 'image')
-  if (o.modeller) out.push(`- Modeller: every step's review names the references. Compare each step's sheet with them${images ? ' (open the reference images beside the sheet)' : ''}, say in a line what still differs, and fix it in the next steps. Ask the player (\`needs-decision\`) only for a real ambiguity, such as references that disagree.`)
+  if (o.modeller) {
+    const tagged = images ? `Images of one orthographic view tagged in \`${d}/${REFERENCES_FILE}\` (\`"view": "front"\`, \`"side"\` or \`"top"\`; Genio tagged those whose name or note says so, the blender skill says how to tag others) are matched by numbers on every step: the review's \`Reference <view>\` lines. ` : ''
+    out.push(`- Modeller: ${tagged}Every step's review names the ${images ? 'other ' : ''}references. Compare each step's sheet with them${images ? ' (open the reference images beside the sheet)' : ''}, say in a line what still differs, and fix it in the next steps. Ask the player (\`needs-decision\`) only for a real ambiguity, such as references that disagree.`)
+  }
   if (o.generator && images) out.push('- Generator: pass the reference images a job should follow to codex-image as `--ref <file>` (one per image).')
   return out
 }

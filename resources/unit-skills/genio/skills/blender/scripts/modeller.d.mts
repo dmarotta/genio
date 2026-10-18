@@ -21,7 +21,7 @@ export interface RunMeasures {
   /** The run before had the same step name: its id, and its failure kind when it failed. */
   rerun_of: { id: string; failed?: string } | null
 }
-export interface StepFiles { script: string; lib?: string | null; blend: string | null; glb: string | null; sheet: string | null; view: string | null; receipt: string }
+export interface StepFiles { script: string; lib?: string | null; blend: string | null; glb: string | null; sheet: string | null; view: string | null; receipt: string; match?: string }
 export interface StepEntry {
   id: string; n: number; parent: string | null; branch: string; name: string; caption: string; t: string; ms: number
   triangles: number; vertices: number; objects: number; warnings: number; blend_sha256: string | null; files: StepFiles
@@ -74,8 +74,10 @@ export interface StepDone {
   lib: string | null
   /** What p.bake_maps did in this step, when it baked. */
   bakes?: Bake[]
-  /** With the player's references (GENIO_REFERENCES): their image files; the review's last line names every reference. */
+  /** With the player's references (GENIO_REFERENCES): their image files. The review has a Reference line per tagged view and a last line naming the others. */
   references?: string[]
+  /** With tagged references: match.png, the model's silhouette on each (grey both, red reference only, blue model only). */
+  match?: string
 }
 export interface Bake {
   parts: number; materials: number; size: number; samples: number; device: string; threads: number; bakes: number
@@ -89,7 +91,7 @@ export interface StepFailed {
 export interface BatchScript { script: string; name?: string }
 export interface BatchDone {
   ok: boolean; model: string; branch: string; head: string | null
-  steps: { id: string; n: number; name: string; caption: string; triangles: number; objects: number; review: string[]; warnings: string[]; known_warnings: number; glb: string | null; sheet: string | null; ms: number }[]
+  steps: { id: string; n: number; name: string; caption: string; triangles: number; objects: number; review: string[]; warnings: string[]; known_warnings: number; glb: string | null; sheet: string | null; match?: string; ms: number }[]
   sheet: string | null; receipt: string | null; warnings: string[]; known_warnings: number
   failure: StepFailed | null; not_run: { name: string; script: string }[]; message: string
   /** With the player's references: their image files (each step's review names them). */
@@ -112,8 +114,14 @@ export function planThreads(plan: { replay: (string | { script: string; lib?: st
  * there already (`template.written`), and a new model takes the kind's symmetry when `symmetry` is not given.
  */
 export function init(o: Common & { blender?: string | { path: string; version: string }; target?: string; budget?: number | string; size?: string | number[]; symmetry?: 'x' | 'y' | 'none'; kind?: ModelKind; repin?: boolean; cwd?: string; env?: Record<string, string | undefined> }): Promise<Summary & { existing: boolean; template?: { kind: ModelKind; lib: string; written: boolean } }>
-/** The player's references folder (default GENIO_REFERENCES): a review line naming them and their image files, or null without any. */
-export function referenceReview(refDir?: string): { line: string; images: string[] } | null
+/** Views a tagged reference is matched in by numbers. */
+export const MATCH_VIEWS: ['front', 'side', 'top']
+export interface MatchReference { path: string; file: string; view: 'front' | 'side' | 'top'; title: string; span?: number }
+/**
+ * The player's references folder (default GENIO_REFERENCES), or null without any: the images tagged front, side or top to match
+ * by numbers, a review line naming the others (null when every one is matched) and every image file.
+ */
+export function referenceReview(refDir?: string): { line: string | null; images: string[]; match: MatchReference[] } | null
 export function step(o: Common & { script: string; name?: string; amend?: boolean; timeout?: number; threads?: number; runner?: Runner; references?: string }): Promise<StepDone | StepFailed>
 export function batchScripts(args: string | string[]): BatchScript[]
 export function batch(o: Common & { scripts: string | (string | BatchScript)[]; everySheet?: boolean; timeout?: number; threads?: number; runner?: Runner; gapMs?: number; references?: string }): Promise<BatchDone>

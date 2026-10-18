@@ -108,6 +108,39 @@ describe('Modeller kernel with a fake Blender', { timeout: 60000 }, () => {
     const plain = done(await step(script('s03_roof.py', 'Roof', '# part: Roof', '# review: Changes: 1 added (Roof)'), { references: path.join(root, 'none') }))
     expect(plain.review).toEqual(['Changes: 1 added (Roof)'])
     expect(plain.references).toBeUndefined()
+    expect(plain.match).toBeUndefined()
+  })
+
+  it('sends images tagged front, side or top to be matched by numbers where the sheet renders, and names only the others', async () => {
+    await fakeModel()
+    const refs = fs.mkdtempSync(path.join(root, 'refs-'))
+    for (const f of ['front.png', 'side.png', 'top.png', 'top2.jpg', 'concept.png']) fs.writeFileSync(path.join(refs, f), 'png')
+    const ref = (file: string, extra = {}) => ({ file, type: 'image', bytes: 3, source: file, addedAt: '', ...extra })
+    fs.writeFileSync(path.join(refs, 'references.json'), JSON.stringify([
+      // the kernel goes by the tag only (Genio tags at staging): this one is named, not matched
+      ref('front.png', { note: 'front view' }), ref('side.png', { view: 'side', span: 30 }), ref('top.png', { view: 'top' }), ref('top2.jpg', { view: 'top' }),
+      ref('concept.png', { view: '3/4' }), ref('gone.png', { view: 'front' })
+    ]))
+    const match = [
+      { path: path.join(refs, 'side.png'), file: 'side.png', view: 'side', title: 'Reference side', span: 30 },
+      { path: path.join(refs, 'top.png'), file: 'top.png', view: 'top', title: 'Reference top (top.png)' },
+      { path: path.join(refs, 'top2.jpg'), file: 'top2.jpg', view: 'top', title: 'Reference top (top2.jpg)' }
+    ]
+    expect(kernel.referenceReview(refs)?.match).toEqual(match)
+    const first = done(await step(script('s01_top.py', 'Top', '# part: Top', '# review: Changes: 1 added (Top)'), { references: refs }))
+    expect(first.review).toEqual(['Changes: 1 added (Top)', 'References: front.png (front view); concept.png; gone.png. Compare the sheet with them and say what still differs.'])
+    expect(first.match).toBe(path.join(dataDir, 'tower', 'steps', first.id, 'match.png'))
+    expect(fs.existsSync(first.match!)).toBe(true)
+    expect(JSON.parse(fs.readFileSync(first.receipt, 'utf8'))).toMatchObject({ matched: match, files: { match: first.match } })
+    expect(manifest().steps[0].files.match).toBe(`steps/${first.id}/match.png`)
+    // in a batch only the step with the sheet matches
+    const b = await kernel.batch({ dataDir, model: 'tower', runner: fake, gapMs: 0, references: refs, scripts: [script('s02_a.py', 'A', '# part: A'), script('s03_b.py', 'B', '# part: B')] })
+    expect(b.steps.map((s) => Boolean(s.match))).toEqual([false, true])
+    // every reference matched: no line naming them
+    fs.writeFileSync(path.join(refs, 'references.json'), JSON.stringify([ref('side.png', { view: 'side' })]))
+    const all = done(await step(script('s04_c.py', 'C', '# part: C', '# review: Changes: 1 added (C)'), { references: refs }))
+    expect(all.review).toEqual(['Changes: 1 added (C)'])
+    expect(all.references).toEqual([path.join(refs, 'side.png')])
   })
 
   it('returns the text review and hands it the parts of the step before', async () => {
@@ -788,11 +821,12 @@ function pngPixels(file: string): number[][][] {
 }
 
 describe.skipIf(!blender)(`Modeller with Blender ${blender?.version.join('.') ?? '(none)'}`, () => {
-  const cmd = async (...args: string[]) => {
-    const r = await run(process.execPath, [cli, ...args, '--data', dataDir], { cwd: src, timeout: 240000, env: { ...process.env, GENIO_BLENDER: '' } }).catch((e: { code: number; stdout: string; stderr: string }) => e)
+  const cmdWith = async (env: Record<string, string>, ...args: string[]) => {
+    const r = await run(process.execPath, [cli, ...args, '--data', dataDir], { cwd: src, timeout: 240000, env: { ...process.env, GENIO_BLENDER: '', ...env } }).catch((e: { code: number; stdout: string; stderr: string }) => e)
     if (!r.stdout) throw new Error(`modeller.mjs ${args.join(' ')} failed: ${r.stderr}`)
     return JSON.parse(r.stdout)
   }
+  const cmd = (...args: string[]) => cmdWith({}, ...args)
   const tower = path.join(fixtures, 'watchtower')
 
   it('builds the seven-step watchtower, reviews it, reverts, branches and recovers from a hang', async () => {
@@ -1332,6 +1366,59 @@ describe.skipIf(!blender)(`Modeller with Blender ${blender?.version.join('.') ??
     const idle = path.join(src, 's07_idle.py')
     fs.writeFileSync(idle, '"""Looking at the plan again"""\n')
     expect((await cmd('step', 'starship', idle)).review).toContain('Plan: 3 known')
+  }, 300000)
+
+  it('matches tagged references by numbers: planted errors by part to within 0.1 m, missing shapes, 2 s or less per step', async () => {
+    await cmd('init', 'ship', '--target', 'web', '--size', '13x30x7.5', '--symmetry', 'x')
+    expect((await cmd('batch', 'ship', path.join(fixtures, 'starship'), '--timeout', '180')).ok).toBe(true)
+    const head = await cmd('materialize', 'ship')
+    // references with a known answer, from the built ship (tests/fixtures/modeller/refmatch/plant.py)
+    const refs = fs.mkdtempSync(path.join(root, 'refs-'))
+    await run(process.execPath, [path.join(scripts, 'blender.mjs'), '--script', path.join(fixtures, 'refmatch', 'plant.py'), '--blend', head.blend, '--scratch', path.join(root, 'logs'), '--timeout', '120', '--', refs],
+      { cwd: src, env: { ...process.env, GENIO_BLENDER: blender!.path, GENIO_STATUS_FILE: '' } })
+    const answer = JSON.parse(fs.readFileSync(path.join(refs, 'answer.json'), 'utf8'))
+    const look = path.join(src, 's06_look.py')
+    fs.writeFileSync(look, '"""Looking at the references"""\n')
+    const planted: StepDone = await cmdWith({ GENIO_REFERENCES: path.join(refs, 'planted') }, 'step', 'ship', look)
+    const lines = planted.review.filter((l) => l.startsWith('Reference '))
+    expect(lines.map((l) => l.slice(0, l.indexOf(':')))).toEqual(['Reference front', 'Reference side', 'Reference top'])
+    const [front, side, top] = lines
+    const near = (line: string, re: RegExp, want: number) => {
+      const got = Number(re.exec(line)?.[1])
+      expect([line, Math.abs(got - want) <= 0.1]).toEqual([line, true])
+    }
+    // the Saucer 12 % wider, the Engineering hull 0.5 m lower, the Neck gone: by part name, within 0.1 m
+    near(front, /Saucer \d+ % too narrow \(([\d.]+) m\)/, answer.saucer_x)
+    near(top, /Saucer \d+ % too narrow \(([\d.]+) m\)/, answer.saucer_x)
+    near(side, /Saucer \d+ % too short \(([\d.]+) m\)/, answer.saucer_y)
+    near(top, /Saucer \d+ % too short \(([\d.]+) m\)/, answer.saucer_y)
+    near(front, /Engineering hull ([\d.]+) m too high/, answer.hull_z)
+    near(side, /Engineering hull ([\d.]+) m too high/, answer.hull_z)
+    expect(front).toMatch(/^Reference front: \d+ % overlap; Neck not in the reference/)
+    expect(side).toMatch(/Neck not in the reference/)
+    // every reference is matched: no line naming them; the overlay has a cell per view
+    expect(planted.review.join('\n')).not.toMatch(/^References:/m)
+    expect(pngSize(planted.match!)).toEqual([1536, 512])
+    const receipt = JSON.parse(fs.readFileSync(planted.receipt, 'utf8'))
+    expect(receipt.timings_ms.references).toBeLessThanOrEqual(2000)
+    expect(receipt.phases_ms.references).toBe(receipt.timings_ms.references)
+    // the next step counts them while they stand
+    expect((await cmdWith({ GENIO_REFERENCES: path.join(refs, 'planted') }, 'step', 'ship', look)).review).toContain('Reference front: 4 known')
+    // half built against images of the whole ship (side mirrored, scaled by the brief's size): the missing shapes, sized and placed
+    const half = path.join(src, 's07_half.py')
+    fs.writeFileSync(half, ['"""Taking the nacelles off"""', "p.remove('Nacelle L', 'Nacelle R', 'Pylon L', 'Pylon R')"].join('\n'))
+    const h: StepDone = await cmdWith({ GENIO_REFERENCES: path.join(refs, 'whole') }, 'step', 'ship', half)
+    const at = (view: string) => h.review.find((l) => l.startsWith(`Reference ${view}:`)) ?? ''
+    const sizes = (line: string) => [...line.matchAll(/missing ([\d.]+) x ([\d.]+) m/g)].map((m) => [Number(m[1]), Number(m[2])])
+    expect(at('side')).toMatch(/^Reference side: \d+ % overlap \(image mirrored\); missing [\d.]+ x [\d.]+ m at y /)
+    // the nacelles' 15.6 m length and pylons' height, side on; both nacelles from the front and from above
+    expect(sizes(at('side'))[0][0]).toBeGreaterThan(14.6)
+    expect(sizes(at('front')).filter(([w, d]) => Math.abs(w - 1.24) < 0.3 && Math.abs(d - 1.24) < 0.3)).toHaveLength(2)
+    expect(sizes(at('top')).filter(([, d]) => Math.abs(d - 15.6) < 1)).toHaveLength(2)
+    expect(h.review).toContain('References: notes.md (what it is). Compare the sheet with them and say what still differs.')
+    expect(JSON.parse(fs.readFileSync(h.receipt, 'utf8')).timings_ms.references).toBeLessThanOrEqual(2000)
+    // without references the step prints nothing new
+    expect((await cmd('step', 'ship', look)).review.join('\n')).not.toMatch(/^Reference/m)
   }, 300000)
 
   it('gives every model kind a template whose plan blocks out clean in one step', async () => {

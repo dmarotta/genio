@@ -13,6 +13,8 @@
 //   # fake: crash-after-glb  exit 3 right after landed.json (no snapshot, sheet or receipt)
 //   # fake: crash-after-blend  exit 3 right after the snapshot (no review, sheet or receipt)
 //   # use: <helper>    a NameError unless the step's lib.py has `# def: <helper>`
+// A step that renders a sheet with plan.references (tagged references) writes match.png, and its
+// receipt lists them as `matched`.
 // A step's lib.py (plan step `lib`, replay `{script, lib}`) runs first: its `# def:` lines define
 // helpers for that one script, `# fake: error` raises in the lib, and the snapshot's `scripts` list
 // records the lib's caption as `<script caption> + lib <lib caption>`.
@@ -123,6 +125,8 @@ async function main() {
       if (code.includes('# fake: wait-publish')) receipt.sheet_after_publish = await published(item)
       if (outputs.has('sheet') && code.includes('# fake: sheet-error')) warnings.push('The review sheet failed (RuntimeError: fake sheet failure); the step is published without it.')
       else if (outputs.has('sheet')) { fs.writeFileSync(out('sheet.png'), PNG); fs.writeFileSync(out('view.png'), PNG) }
+      // Tagged references are matched where the sheet renders: match.png, and the plan's list in the receipt.
+      if (outputs.has('sheet') && plan.references) { fs.writeFileSync(out('match.png'), PNG); Object.assign(receipt, { match: 'match.png', matched: plan.references }) }
       Object.assign(receipt.timings_ms, { checks: 3, sheet: outputs.has('sheet') ? 4 : 0 })
       Object.assign(receipt, {
         caption, triangles: state.parts.length * 12, vertices: state.parts.length * 8, objects: state.parts.length,

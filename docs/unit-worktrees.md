@@ -174,7 +174,9 @@ what they pasted or named and never guesses a path.
 - **Copies.** Genio copies the files when the quest is filed, into `data/quest-references/<quest>/`, so a queued
   quest or a plan step keeps them even after a pasted image's temp file is gone. When a unit starts on that quest,
   `crew.spawn` copies them into the unit's own `data/<unit>/references/` (original names, `-2` for a different
-  file with a taken name, one entry per repeated source) with `references.json` (file, source, note, size, type).
+  file with a taken name, one entry per repeated source) with `references.json` (file, source, note, size, type,
+  and `view` for an image whose file name or note names one orthographic view: `front`, `side` or `top`, never
+  for perspective or concept art; `orthoView` in `src/shared/unit-references.ts`).
   The unit gets `GENIO_REFERENCES` pointing there. Nothing is committed; the unit copies one into the project only
   when its mission says so. Removing a quest removes its copies.
 - **Brief.** A `## References` section after the mission lists each file with its type and note, then how to open
@@ -182,16 +184,23 @@ what they pasted or named and never guesses a path.
   file-read tool, text and data as text, documents, spreadsheets and slides through a short Python script,
   audio and video through `ffprobe`/`ffmpeg` pictures and frames, 3D models through the blender skill's
   `preview` and `validate`, archives extracted into the unit's `references-extracted/` folder (never the
-  worktree), and unknown types by their first bytes. No file contents go into the brief. A Modeller is told to
-  compare each step's sheet with the references; a Generator to pass reference images to codex-image as `--ref`.
-- **Modeller.** With `GENIO_REFERENCES` set, every step's and batch step's `review` ends with a `References:` line
-  naming them, and the step JSON lists the reference images (`referenceReview` in `modeller.mjs`). The receipt
-  keeps Blender's own review.
+  worktree), and unknown types by their first bytes. No file contents go into the brief. A Modeller is told that
+  images tagged with a view are matched by numbers and to tag others it finds, and to compare each step's sheet
+  with the rest; a Generator to pass reference images to codex-image as `--ref`.
+- **Modeller.** With `GENIO_REFERENCES` set, the step JSON lists the reference images (`referenceReview` in
+  `modeller.mjs`). An image tagged `view` front, side or top (with an optional `span`, the metres across its
+  shape) is matched by numbers on every step that renders a sheet, in the same Blender run (`genio_refmatch.py`,
+  about 0.5 s for three views): the review gets a `Reference <view>` line (overlap, parts too wide, high or long
+  against it by name, missing shapes in metres, parts not in it) and the step a `match.png` overlay. The other
+  references get a `References:` line naming them on every step and batch step; it goes when every reference
+  is matched. The unit may tag views itself in `references.json`; it never makes reference views (only what the
+  player attached is matched). Details: the blender skill's References and Text review.
 - **Brief tab.** When a unit has references, its Brief tab lists them under References: name and note, a small
   thumbnail for images, and a click opens the file. Nothing shows when there are none.
 - **Tests.** `tests/unit-references.test.ts` (checks, refusals, copies, the brief section, the tools and plan steps
-  keeping their copies until release), `tests/crew-lifecycle.test.ts` (a real spawn), `tests/modeller.test.ts`
-  (the review line) and `tests/unit-brief-ui.test.ts` (the Brief tab list).
+  keeping their copies until release, the view tags), `tests/crew-lifecycle.test.ts` (a real spawn),
+  `tests/modeller.test.ts` (the naming line, which references are matched, and the matching itself in Blender:
+  planted errors within 0.1 m) and `tests/unit-brief-ui.test.ts` (the Brief tab list).
 
 ## Tests
 

@@ -16,6 +16,9 @@ export const MAX_ATTACHMENTS = 50
 
 export type ReferenceType = 'image' | 'pdf' | 'text' | 'document' | 'spreadsheet' | 'slides' | 'audio' | 'video' | 'model' | 'archive' | 'other'
 
+/** An orthographic view a Modeller matches an image reference in by numbers (front from -Y, side from +X, top from above). */
+export type OrthoView = 'front' | 'side' | 'top'
+
 /** One entry of references.json. */
 export interface UnitReference {
   /** path inside references/, with forward slashes (a folder's files keep their sub-folders) */
@@ -26,6 +29,10 @@ export interface UnitReference {
   bytes: number
   type: ReferenceType
   addedAt: string
+  /** an image of one orthographic view (from its name or note, or tagged by the unit) */
+  view?: OrthoView
+  /** metres across the shape in the image, left to right (the unit may add it) */
+  span?: number
 }
 
 /** A checked attachment, ready to copy (the deploy tools resolve; crew and plans stage). */
@@ -63,6 +70,28 @@ const BY_EXT = new Map(TYPES.flatMap(([type, exts]) => exts.map((e) => [e, type]
 export function referenceType(file: string): ReferenceType {
   const ext = /\.([^./\\]+)$/.exec(file)?.[1]?.toLowerCase() ?? ''
   return BY_EXT.get(ext) ?? 'other'
+}
+
+const VIEW_WORDS: [OrthoView, RegExp, RegExp][] = [
+  // [view, a word of the file name, a phrase of the note]
+  ['front', /^front$/, /\bfront[- ](view|elevation)\b/],
+  ['side', /^(side|profile)$/, /\b(side|profile)[- ](view|elevation)\b|\bside profile\b/],
+  ['top', /^(top|topdown|plan)$/, /\b(top|top[- ]down|plan)[- ]view\b/]
+]
+/** Perspective images are never matched by numbers, whatever else the name says. */
+const PERSPECTIVE = /(^|[^0-9])3[/_-]4([^0-9]|$)|three[- ]quarter|perspective|isometric|concept|sketch/i
+
+/**
+ * The orthographic view an image shows, from its file name (`ship_side.png`, `front.jpg`) or its note
+ * ("side view", "top-down view"); undefined when neither names exactly one, or they call it perspective.
+ */
+export function orthoView(file: string, note?: string): OrthoView | undefined {
+  const name = (file.split('/').pop() ?? file).replace(/\.[^.]+$/, '').toLowerCase()
+  if (PERSPECTIVE.test(name) || PERSPECTIVE.test(note ?? '')) return undefined
+  const words = name.split(/[^a-z]+/)
+  const text = (note ?? '').toLowerCase()
+  const hits = new Set(VIEW_WORDS.filter(([, word, phrase]) => words.some((w) => word.test(w)) || phrase.test(text)).map(([v]) => v))
+  return hits.size === 1 ? [...hits][0] : undefined
 }
 
 /** Images the file-read tools and the Brief tab show as they are. */

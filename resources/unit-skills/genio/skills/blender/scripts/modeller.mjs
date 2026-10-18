@@ -10,6 +10,7 @@
  *   steps/<id>/model.glb     modifier-applied GLB, what the live view loads
  *   steps/<id>/sheet.png     2x2 Workbench review sheet (3/4, front, side, top); a batch's last step only
  *   steps/<id>/view.png      the 3/4 view alone, 512 px (with the sheet)
+ *   steps/<id>/match.png     with tagged references: the model's silhouette on each (with the sheet)
  *   steps/<id>/receipt.json  caption, counts, bounds, text review, advisory checks, timings, and the
  *                            step's measures: agent_ms (the agent's time since the kernel returned the
  *                            run before), script and lib bytes, amend and rerun, split phases
@@ -344,7 +345,7 @@ export function batchScripts(args) {
  * Blender writes the receipt. Only the last step renders the review sheet unless `everySheet`.
  * The first failure stops the batch: earlier steps stay, it goes under failed/.
  */
-async function runSteps(dir, m, scripts, { amend = false, everySheet = false, timeout = STEP_TIMEOUT, threads, runner, gapMs = PUBLISH_GAP_MS }) {
+async function runSteps(dir, m, scripts, { amend = false, everySheet = false, timeout = STEP_TIMEOUT, threads, runner, gapMs = PUBLISH_GAP_MS, match }) {
   checkPin(m)
   // The agent's time for this run: since the kernel returned the run before it (or init).
   const agentMs = m.returned_at ? Math.max(0, Date.now() - Date.parse(m.returned_at)) : null
@@ -357,7 +358,8 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
   if (amend && !head) throw new Error('Nothing to amend: this branch has no steps yet.')
   const parent0 = amend ? byId(m, head).parent : head
   const base = baseFor(m, dir, parent0)
-  const plan = { replay: base.replay, steps: [], checks: m.checks, sheet_size: 512 }
+  // The tagged references go to every step that renders a sheet: its review's Reference lines and match.png.
+  const plan = { replay: base.replay, steps: [], checks: m.checks, sheet_size: 512, ...(match?.length ? { references: match } : {}) }
   // The text review's "Changes" line compares the first step with its parent's parts (none: no parent;
   // null: unknown, so no line), each later one with the step before it; the checks examine only the
   // pairs with a part changed since then, and an item the parent's review printed is a count (`seen`;
@@ -455,10 +457,11 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
     const receipt = marks[k].done ?? { ...readJson(path.join(final, 'receipt.json')), warnings: [`Blender stopped (${stopped}) after this step reached the live view: ${fs.existsSync(path.join(s.staging, 'model.blend')) ? 'it has no text review or review sheet; its snapshot is kept.' : 'it has no snapshot or review sheet; the next step replays its script.'}`] }
     // A step stopped after landing keeps the timings Blender had by then.
     receipt.timings_ms ??= readJson(path.join(s.staging, 'landed.json'))?.timings_ms ?? {}
-    for (const f of ['model.blend', 'sheet.png', 'view.png']) if (fs.existsSync(path.join(s.staging, f))) renameRetry(path.join(s.staging, f), path.join(final, f))
+    for (const f of ['model.blend', 'sheet.png', 'view.png', 'match.png']) if (fs.existsSync(path.join(s.staging, f))) renameRetry(path.join(s.staging, f), path.join(final, f))
     fs.rmSync(s.staging, { recursive: true, force: true })
     const has = (f) => fs.existsSync(path.join(final, f))
     Object.assign(entry.files, { blend: has('model.blend') ? `steps/${s.id}/model.blend` : null, sheet: has('sheet.png') ? `steps/${s.id}/sheet.png` : null, view: has('view.png') ? `steps/${s.id}/view.png` : null })
+    if (has('match.png')) entry.files.match = `steps/${s.id}/match.png`
     const ms = marks[k].done ? marks[k].ms : Math.max(0, Math.round(Date.now() - prevAt))
     Object.assign(entry, {
       caption: receipt.caption || entry.caption, ms, triangles: receipt.triangles ?? 0, vertices: receipt.vertices ?? 0, objects: receipt.objects ?? 0,
@@ -474,7 +477,7 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
     Object.assign(receipt, {
       id: s.id, parent: entry.parent, branch: m.branch, t: entry.t, wall_ms: ms, files: abs, ...s.measure,
       // think is the agent's time before the step, blender the step's own; export, checks and sheet are parts of it.
-      phases_ms: { think: s.measure.agent_ms, blender: ms, export: times.export ?? 0, checks: times.checks ?? 0, sheet: times.sheet ?? 0 },
+      phases_ms: { think: s.measure.agent_ms, blender: ms, export: times.export ?? 0, checks: times.checks ?? 0, sheet: times.sheet ?? 0, ...(times.references ? { references: times.references } : {}) },
       warnings_new: fresh.length, ...(stopped ? { killed_after_landing: stopped } : {})
     })
     delete receipt.stage
@@ -484,7 +487,7 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
       ok: true, model: m.model, id: s.id, n: s.n, name: s.name, caption: entry.caption, branch: m.branch, parent: entry.parent,
       triangles: entry.triangles, vertices: entry.vertices, objects: entry.objects, bounds: receipt.bounds ?? null,
       review: receipt.review ?? [], warnings: fresh, known_warnings: known, sheet: abs.sheet, glb: abs.glb, blend: abs.blend, receipt: abs.receipt, lib: abs.lib, ms, pruned,
-      ...(receipt.bakes ? { bakes: receipt.bakes } : {})
+      ...(abs.match ? { match: abs.match } : {}), ...(receipt.bakes ? { bakes: receipt.bakes } : {})
     }
     completed++
   }
@@ -557,28 +560,46 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
   }
 }
 
+/** Views a reference can be matched in by numbers (genio_refmatch.py), and the image files Blender reads. */
+export const MATCH_VIEWS = ['front', 'side', 'top']
+const MATCH_IMAGE = /\.(png|jpe?g|bmp|tga|tiff?|webp)$/i
+
 /**
- * The player's references (GENIO_REFERENCES, the unit's references/ folder with references.json): a review
- * line naming them, so every step's sheet is compared with them, and the image files to open beside it.
+ * The player's references (GENIO_REFERENCES, the unit's references/ folder with references.json). Images
+ * tagged `view` front, side or top (with an optional `span`, the metres across the shape) are `match`:
+ * each step that renders a sheet matches them by numbers, as its review's Reference lines. The others get
+ * a review line naming them, so every step's sheet is compared with them (null when every one is matched);
+ * `images` are all the image files, to open beside the sheet.
  */
 export function referenceReview(refDir = process.env.GENIO_REFERENCES) {
   const list = refDir ? readJson(path.join(refDir, 'references.json')) : null
   if (!Array.isArray(list) || !list.length) return null
-  const named = list.slice(0, 6).map((r) => `${r.file}${r.note ? ` (${String(r.note).slice(0, 80)})` : ''}`).join('; ')
+  const at = (r) => path.join(refDir, ...String(r.file).split('/'))
+  const tagged = list.filter((r) => r.type === 'image' && MATCH_VIEWS.includes(r.view) && MATCH_IMAGE.test(String(r.file)) && fs.existsSync(at(r)))
+  const others = list.filter((r) => !tagged.includes(r))
+  const twice = (r) => tagged.filter((x) => x.view === r.view).length > 1
+  const match = tagged.map((r) => ({
+    path: at(r), file: r.file, view: r.view, title: `Reference ${r.view}${twice(r) ? ` (${r.file})` : ''}`, ...(Number(r.span) > 0 ? { span: Number(r.span) } : {})
+  }))
+  const named = others.slice(0, 6).map((r) => `${r.file}${r.note ? ` (${String(r.note).slice(0, 80)})` : ''}`).join('; ')
   return {
-    line: `References: ${named}${list.length > 6 ? `, and ${list.length - 6} more` : ''}. Compare the sheet with them and say what still differs.`,
-    images: list.filter((r) => r.type === 'image').map((r) => path.join(refDir, ...String(r.file).split('/')))
+    line: others.length ? `References: ${named}${others.length > 6 ? `, and ${others.length - 6} more` : ''}. Compare the sheet with them and say what still differs.` : null,
+    images: list.filter((r) => r.type === 'image').map(at),
+    match
   }
 }
+
+/** A step's review with the line naming the references not matched by numbers, when there are any. */
+const withNamed = (review, ref) => ref?.line ? [...review, ref.line] : review
 
 /** Run one step script on the current branch's head (or, with amend, replace the head). */
 export async function step({ dataDir = modellerDataDir(), model, script, name, amend = false, timeout = STEP_TIMEOUT, threads, runner, references } = {}) {
   const dir = modelDir(dataDir, model)
   return withLock(dir, async () => {
-    const r = await runSteps(dir, readManifest(dir), [{ script, name }], { amend, timeout, threads, runner })
-    if (r.failure) return r.failure
     const ref = referenceReview(references)
-    return ref ? { ...r.published[0], review: [...r.published[0].review, ref.line], references: ref.images } : r.published[0]
+    const r = await runSteps(dir, readManifest(dir), [{ script, name }], { amend, timeout, threads, runner, match: ref?.match })
+    if (r.failure) return r.failure
+    return ref ? { ...r.published[0], review: withNamed(r.published[0].review, ref), references: ref.images } : r.published[0]
   })
 }
 
@@ -592,10 +613,10 @@ export async function batch({ dataDir = modellerDataDir(), model, scripts, every
   const items = batchScripts(scripts)
   return withLock(dir, async () => {
     const m = readManifest(dir)
-    const { published, failure, notRun } = await runSteps(dir, m, items, { everySheet, timeout, threads, runner, gapMs })
-    const last = published.at(-1)
     const ref = referenceReview(references)
-    const brief = (s) => ({ id: s.id, n: s.n, name: s.name, caption: s.caption, triangles: s.triangles, objects: s.objects, review: ref ? [...s.review, ref.line] : s.review, warnings: s.warnings, known_warnings: s.known_warnings, glb: s.glb, sheet: s.sheet, ms: s.ms })
+    const { published, failure, notRun } = await runSteps(dir, m, items, { everySheet, timeout, threads, runner, gapMs, match: ref?.match })
+    const last = published.at(-1)
+    const brief = (s) => ({ id: s.id, n: s.n, name: s.name, caption: s.caption, triangles: s.triangles, objects: s.objects, review: withNamed(s.review, ref), warnings: s.warnings, known_warnings: s.known_warnings, glb: s.glb, sheet: s.sheet, ...(s.match ? { match: s.match } : {}), ms: s.ms })
     const did = `${published.length} of ${items.length} steps landed`
     return {
       ok: !failure, model: m.model, branch: m.branch, head: m.branches[m.branch].head, steps: published.map(brief), ...(ref ? { references: ref.images } : {}),

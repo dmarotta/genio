@@ -174,7 +174,11 @@ and text or links you give Genio. Ask Genio to start the unit with them and say 
 only what you pasted or named, copies them into the unit's own data folder (never into your project, never
 committed) and tells you if it refused one and why: credential and config folders, secret files such as `.env` or
 keys, files over 25 MB, more than 100 MB for one unit, or past the first 200 files of a folder. The unit gets a list
-of them in its brief, with how to open each type; a Modeller compares every step with them.
+of them in its brief, with how to open each type; a Modeller compares every step with them. A picture of one
+straight-on view of the whole model (front, side or top, such as a blueprint view or a screenshot) is matched
+against every step by numbers, so the Modeller reads which parts are too wide, too high or missing; say which
+view it is when you attach it (or name the file so, like `ship_side.png`). Concept art and 3/4 views are looked at,
+not measured.
 Where: ask in the chat; the unit page's Brief tab lists them under References (click one to open it).
 Source: [unit-worktrees.md](../unit-worktrees.md)
 

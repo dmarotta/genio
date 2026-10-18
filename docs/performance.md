@@ -622,3 +622,42 @@ and Plan line; the starship rebuilt with no bmesh in its scripts and the
 Plan line catching a planted error; every template's blockout reviewing
 clean; `init --kind` never writing over a lib) and `tests/unitskills.test.ts`
 (the brief and the API card).
+
+## Modeller reference matching (2026-10-18)
+
+The Recon on faster Modeller units found the costliest review was comparing
+the player's reference images with every step's sheet: about 1.4k input tokens
+per image plus 10 to 28 s of visual comparison per sheet, every step, and the
+agent still read proportions by eye.
+
+What changed (`genio_refmatch.py`, `genio_review.py`, `genio_step.py`,
+`modeller.mjs`, `src/shared/unit-references.ts`, `src/main/unit-references.ts`):
+
+| Change | Where |
+|---|---|
+| An image reference tagged `view` front, side or top in `references.json` (Genio tags one whose file name or note names one view; the unit tags others, and may add `span`, the metres across the shape) is matched by numbers on every step that renders a sheet: the model renders once per view as a part-ID buffer (Workbench, flat, one exact colour per part, 512 px), the image becomes a shape (alpha, else unlike its border), scaled by `span`, the brief's size or the model's own, turned (as given or mirrored) and slid by FFT to the best overlap, then moved by the parts' weighted median misfit | `genio_refmatch.py`, `genio_step.py`, `modeller.mjs` |
+| Each part forming the outline is fitted by moving its box edges (its silhouette stretched with them) while the mismatch falls, largest parts first; the moves become `Reference <view>` review items by part name (too wide, too high, an edge short of the reference), with missing reference shape sized and placed in metres and parts not in the reference; each item once, then a count, like the other lines | `genio_refmatch.py`, `genio_review.py` |
+| `match.png` beside the sheet: a cell per view, grey both, red reference only, blue model only | `genio_refmatch.py`, `modeller.mjs` |
+| Untagged references keep the `References:` naming line; with every reference matched it goes | `modeller.mjs` |
+
+Measured on the starship fixture (98k triangles, Blender 4.2.1, 16 logical
+CPUs), through the CLI:
+
+| Case | Review lines | References time in the step |
+|---|---|---|
+| Front, side and top silhouettes of the ship with the Saucer 12 % wider (1.62 m), the Engineering hull 0.5 m lower and the Neck gone, with spans | `Saucer 12 % too narrow (1.61 m)` front, 1.69 m top; `too short` 1.55 m side, 1.62 m top; `Engineering hull 0.5 m too high` front, 0.49 m side; `Neck not in the reference` front and side | 538 ms (render 106, fit 115, the rest image, items and overlay) |
+| The ship without nacelles and pylons against images of the whole ship, side mirrored, scaled by the brief's size | `missing 1.17 x 1.23 m` at each nacelle front; `68 % overlap (image mirrored); missing 15.24 x 4.62 m` side; both nacelles from above, 2.77 x 15.59 m | 518 to 692 ms |
+
+Every planted error is found by part name within 0.07 m. The next step with
+nothing changed reads `Reference front: 4 known`.
+
+Left alone: perspective and concept art are never matched (they need a camera
+fit), and the unit makes no reference views of its own (the player's
+decision: match only what the player attached).
+
+Guards: `tests/modeller.test.ts` (inside Blender: the planted errors within
+0.1 m and 2 s, the counts on the next step, the half-built ship's missing
+shapes with a mirrored image, no lines without references; with the fake
+Blender: which references are matched and named, `match.png` where the sheet
+renders) and `tests/unit-references.test.ts` (the view tags from names and
+notes, the brief's Modeller line).

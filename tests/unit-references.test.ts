@@ -14,7 +14,7 @@ import {
   copyReferences, questReferencesDir, readReferences, referencesBriefLines, referenceViews, resolveAttachments, secretPathReason, stageReferences, unitReferencesDir,
   type AttachmentContext
 } from '../src/main/unit-references'
-import { REFERENCE_FILE_MAX_BYTES, REFERENCE_FOLDER_MAX_FILES, REFERENCES_MAX_BYTES, referenceType } from '../src/shared/unit-references'
+import { REFERENCE_FILE_MAX_BYTES, REFERENCE_FOLDER_MAX_FILES, REFERENCES_MAX_BYTES, orthoView, referenceType } from '../src/shared/unit-references'
 import type { AppCtx, CrewService, HomeCtx } from '../src/main/services'
 import type { SpawnRequest } from '../src/shared/api'
 import type { Task } from '../src/shared/types'
@@ -163,6 +163,22 @@ describe('copies and references.json', () => {
     expect(views[1].thumb).toBeUndefined()
     expect(referenceViews(path.join(tmp, 'none'))).toEqual([])
   })
+
+  it('tags an image of one orthographic view from its name or note, never perspective art or a name with two views', () => {
+    const cases: [string, string | undefined, string | undefined][] = [
+      ['ship_side.png', undefined, 'side'], ['refs/front.jpg', undefined, 'front'], ['tank-top.png', undefined, 'top'], ['floor_plan.png', undefined, 'top'],
+      ['mg1-ab12.png', 'Side view of the ship', 'side'], ['mg1-ab12.png', 'the top-down view', 'top'], ['mg1-ab12.png', 'front elevation, 30 m long', 'front'],
+      ['front_3-4.png', undefined, undefined], ['ship_side.png', 'concept art', undefined], ['front_side.png', undefined, undefined],
+      ['mg1-ab12.png', 'the front has red stripes', undefined], ['frontier.png', undefined, undefined], ['mg1-ab12.png', 'perspective, side view', undefined]
+    ]
+    for (const [file, note, view] of cases) expect([file, note, orthoView(file, note)]).toEqual([file, note, view])
+    const dir = path.join(tmp, 'tags', 'references')
+    write(path.join(outside, 'ship_side.png'), 'png')
+    write(path.join(outside, 'side_notes.md'), 'text')
+    stageReferences(dir, resolveAttachments([{ source: path.join(outside, 'ship_side.png') }, { source: path.join(outside, 'side_notes.md') }], actx).items, 'T')
+    // only images are tagged
+    expect(readReferences(dir).map((r) => [r.file, r.view])).toEqual([['ship_side.png', 'side'], ['side_notes.md', undefined]])
+  })
 })
 
 describe('the brief\'s References section', () => {
@@ -186,7 +202,9 @@ describe('the brief\'s References section', () => {
     expect(section).toMatch(/PDFs: read them with your file-read tool/)
     expect(section).toContain(`Archives (ZIP, 7z, TAR, .unitypackage): extract into \`${path.join(tmp, 'u1', 'references-extracted').replace(/\\/g, '/')}/<name>/\`, never into the worktree`)
     expect(section).not.toMatch(/Audio|Video|3D models|Spreadsheets/)
-    expect(section).toMatch(/Modeller: every step's review names the references\. Compare each step's sheet with them \(open the reference images beside the sheet\)/)
+    expect(section).toMatch(/Modeller: Images of one orthographic view tagged in `.*references\.json` \(`"view": "front"`, `"side"` or `"top"`; .*\) are matched by numbers on every step: the review's `Reference <view>` lines\. Every step's review names the other references\. Compare each step's sheet with them \(open the reference images beside the sheet\)/)
+    // the image's note says front view: Genio tagged it
+    expect(readReferences(dir).find((r) => r.file === 'mg1-ab12.png')?.view).toBe('front')
     expect(section).not.toContain('SECRET LORE TEXT')
     expect(section).not.toContain('Generator:')
     // a Generator passes reference images to codex-image
