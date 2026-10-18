@@ -84,6 +84,10 @@ describe('Explorer integration (mock registry only)', () => {
     expect(ACHIEVEMENTS.find(a => a.id === 'explorer-install')?.feature).toBe('explorer')
     const ipc = readFileSync('src/main/ipc.ts', 'utf8')
     expect(ipc).toContain("if (enabled && state.installed) ctx().stats.unlock('explorer-install')")
-    expect(readFileSync('src/renderer/src/views/Systems.tsx', 'utf8')).toContain('api().explorerSet(enabled)')
+    const systems = readFileSync('src/renderer/src/views/Systems.tsx', 'utf8')
+    expect(systems).toContain('api().explorerSet(!remove)')
+    // One button: Install, or Remove in the danger style once installed.
+    expect(systems).toContain("{remove ? 'Remove' : 'Install'}")
+    expect(systems).toContain("cx('btn sm', remove && 'alert')")
   })
 })

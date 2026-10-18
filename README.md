@@ -169,8 +169,10 @@ folder. It does not change PATH itself.
 In a project window, **Settings → System → Windows integration → Install** adds **Open with Genio**
 to folder and folder-background context menus for your Windows account. On
 Windows 11 it appears under **Show more options**. It uses the same folder-open
-path as `genio <folder>`, including focusing an already-open project. **Remove**
-deletes both Genio context-menu keys, including a partial installation. Only
+path as `genio <folder>`, including focusing an already-open project. Once it is
+installed the same button becomes **Remove**, which deletes both Genio
+context-menu keys. A partial or older installation shows **Install**, which
+repairs it. Only
 these HKCU keys are modified: `Software\Classes\Directory\shell\Genio` and
 `Software\Classes\Directory\Background\shell\Genio`. No administrator rights
 are needed, and startup never installs or repairs them. If Genio moves, click

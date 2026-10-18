@@ -454,29 +454,27 @@ function SystemPage() {
 function ExplorerIntegration() {
   const [state, setState] = useState<ExplorerStatus | null>(null)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
   useEffect(() => {
     let active = true
-    void api().explorerStatus().then(value => { if (active) setState(value) }).catch(e => { if (active) setError(errText(e)) })
-    return () => { active = false }
+    const load = (): void => { void api().explorerStatus().then(value => { if (active) setState(value) }).catch(() => { /* retain last state */ }) }
+    void op('Windows integration', () => api().explorerStatus()).then(value => { if (active && value) setState(value) })
+    window.addEventListener('focus', load)
+    return () => { active = false; window.removeEventListener('focus', load) }
   }, [])
-  const change = async (enabled: boolean): Promise<void> => {
-    setBusy(true); setError('')
-    try { setState(await api().explorerSet(enabled)) }
-    catch (e) {
-      setError(errText(e))
-      // A failed install may have left one key; keep Remove available.
-      try { setState(await api().explorerStatus()) } catch { /* retain last state */ }
-    } finally { setBusy(false) }
+  // One button follows the real state; Install also repairs a partial or older installation.
+  const remove = state?.installed === true
+  const change = async (): Promise<void> => {
+    setBusy(true)
+    await op(remove ? 'Remove Open with Genio' : 'Install Open with Genio', () => api().explorerSet(!remove))
+    try { setState(await api().explorerStatus()) } catch { /* retain last state */ }
+    setBusy(false)
   }
   return <Part id="settings-explorer" title="Windows integration">
     <Row label="Open with Genio">
-      <button className="btn sm" disabled={busy || state?.available === false || state?.installed === true} onClick={() => void change(true)}>Install</button>
-      <button className="btn sm" disabled={busy || state?.available === false} onClick={() => void change(false)}>Remove</button>
+      <button className={cx('btn sm', remove && 'alert')} disabled={busy || !state?.available} onClick={() => void change()}>{remove ? 'Remove' : 'Install'}</button>
     </Row>
     {!busy && state?.available === false && <p className="mute">Available on Windows only.</p>}
-    {!busy && state?.available !== false && !state?.installed && state?.present && <p className="mute">A partial or older installation exists. Install to update it, or Remove to clean it up.</p>}
-    {error && <p role="alert">{error}</p>}
+    {!busy && state?.available && !state.installed && state.present && <p className="mute">A partial or older installation exists. Install to update it.</p>}
   </Part>
 }
 
