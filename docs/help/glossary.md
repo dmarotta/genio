@@ -151,8 +151,10 @@ Source: [plans.md](../plans.md)
 ## Units
 
 The workers: autonomous coding agents (Claude Code, Codex and others), each in its own terminal and its own isolated
-copy of the project. Genio deploys and steers them; they never talk to you directly. Squad and the Squad list beside
-the chat show the active units only; finished ones are in the Quest log's Done column.
+copy of the project. Genio deploys and steers them; they never talk to you directly. Squad shows active units.
+The Squad list beside the chat shows active units first, then up to 25 recently finished units, newest first,
+with their outcome and final duration; click one to reopen its page. Despawned units disappear at once.
+The Quest log's Done column keeps the full history.
 The Squad rail and unit page show running time with seconds ("1h 8m 3s"); the clock freezes when the unit is ready or finished.
 Where: Squad (Ctrl+2); click one for its page.
 Source: [ARCHITECTURE.md](../ARCHITECTURE.md), [squad-display.md](../squad-display.md)

@@ -7,8 +7,11 @@ their clock stops when the unit is ready or finished ("took 54m 10s"). The unit
 page also says when the agent is simply not running: NOT RUNNING (detached),
 RECALLED, STOPPED (a clean exit without a final status) or WAITING (paused).
 Internal lifecycle states and capacity rules are unchanged. Completed units
-leave the Squad rail and page immediately (`squadActive`); their record is the
-Quest log's Done column. Neither the rail nor the page shows a unit count.
+leave the Squad page immediately (`squadActive`); the rail keeps the most
+recent 25 below active units (`squadSections`, `DONE_HISTORY`), newest finish
+first. Despawned units leave at once and never enter that history. The Quest
+log's Done column keeps the full record. Neither the rail nor the page shows
+a unit count.
 
 ## Squad rail and page
 
@@ -17,9 +20,13 @@ you" mark when it waits on the player) and, small and muted under the state, how
 long the unit has run ("42s", "8m 3s", "1h 8m 3s"); a click opens its page. That time is
 the unit page's clock without its prefix (`unitClockShort`, same start and stop as
 `unitClock`): it ticks while the unit works and stops when it is ready. There
-is no project, plan step, model thumbnail or tooltip, and no list of finished
-units. With no unit deployed the rail says "No units deployed." and the Squad
-page the same line under its Deploy button.
+is no project, plan step, model thumbnail or tooltip. Finished rows follow the
+active rows in a separately scrolling list: a muted title, kind, outcome and
+final duration, frozen at finish time with the same formatter as active rows.
+Clicking one opens its unit page. No history count, heading or new control.
+These rows let the player reopen just-finished work beside the chat. With no
+active unit the rail says "No units deployed." above any finished rows, and
+the Squad page the same line under its Deploy button.
 
 Existing duration displays use `src/shared/duration.ts`: full hours, minutes and
 seconds by default, without padded numbers or leading zero units, keeping inner
@@ -168,8 +175,9 @@ is persisted in the existing task record, independently of later bookkeeping.
 
 Per the player's subsequent decision, the previous Killfeed panel and its
 renderer-only activity state, wake hydration and feed formatting are removed.
-Completed history belongs to the Quest log's Done column, owned by the separate
-Quest log change. Underlying task records, status history, wakes and ledger data
+The full completed history belongs to the Quest log's Done column; the Squad
+rail also keeps the newest 25 finished units for quick access. Underlying task
+records, status history, wakes and ledger data
 remain available to their existing consumers. No process, branch or worktree is
 removed by this display change.
 

@@ -159,6 +159,13 @@ describe('achievement feature coverage', () => {
     expect(ACHIEVEMENTS.find((a) => a.id === 'character-sheet-open')?.feature).toBe('status')
     expect(navItems().some((v) => v.label === 'Status')).toBe(false)
   })
+  it('keeps recent finished Squad rows under existing completion achievements', () => {
+    // Restoring rail history adds no tool, kind, flag, Settings page, feature tag or retirement.
+    expect(ACHIEVEMENTS.find(a => a.id === 'recon-first')).toMatchObject({ feature: 'scout', description: 'Complete your first recon mission.' })
+    expect(ACHIEVEMENTS.find(a => a.id === 'first-blood')).toMatchObject({ feature: 'ship', description: 'Merge your first build.' })
+    expect(STATS).toMatch(/case 'scout':[\s\S]*?svc\.unlock\('recon-first'\)/)
+    expect(STATS).toMatch(/case 'merge': \{[\s\S]*?svc\.unlock\('first-blood'\)/)
+  })
   it('covers every Rail view', () => {
     const tags = new Set(LIVE.map((a) => a.feature))
     const ids = new Set(navItems().map((v) => v.id))

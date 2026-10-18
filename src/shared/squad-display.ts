@@ -8,6 +8,8 @@ export type SquadOutcome = TaskOutcome
 
 /** Internal states the Squad shows as DONE. */
 export const DONE_STATES: TaskState[] = ['merged', 'done', 'failed', 'exited', 'cleaned']
+/** The rail keeps this many finished units; the Quest log keeps the full history. */
+export const DONE_HISTORY = 25
 
 /** Display only: lifecycle and capacity policies deliberately stay unchanged. */
 export function squadState(task: Task, terminal?: TerminalInfo): SquadState {
@@ -90,7 +92,21 @@ export function unitClockShort(task: Task, terminal?: TerminalInfo, now = Date.n
   return formatDuration(unitRunMs(task, terminal, now).ms)
 }
 
-/** Squad list: the active units in their given order; finished ones live in the Quest log's Done column. */
+/** Squad page: the active units in their given order. */
 export function squadActive<T extends Task>(tasks: T[], terminalOf: (t: T) => TerminalInfo | undefined = () => undefined): T[] {
   return tasks.filter((t) => squadState(t, terminalOf(t)) !== 'DONE')
+}
+
+/** Rail: active units first, then the newest finished units, capped. Despawned units never return. */
+export function squadSections<T extends Task>(tasks: T[], terminalOf: (t: T) => TerminalInfo | undefined = () => undefined,
+  limit = DONE_HISTORY): { active: T[]; done: T[] } {
+  const active: T[] = [], done: T[] = []
+  for (const t of tasks) {
+    if (t.state === 'cleaned') continue
+    const section = squadState(t, terminalOf(t)) === 'DONE' ? done : active
+    section.push(t)
+  }
+  const at = (t: T): number => Date.parse(finishedAt(t)) || 0
+  done.sort((a, b) => at(b) - at(a) || b.createdAt.localeCompare(a.createdAt))
+  return { active, done: done.slice(0, limit) }
 }

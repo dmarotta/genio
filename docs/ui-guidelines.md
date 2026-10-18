@@ -110,10 +110,14 @@ all reached main yet:
 - The UI trim pass on the Squad, unit pages, Quest log and Character Sheet: unit and quest
   counts, kickers under titles, project, model and category labels on cards and tickets,
   clocks and ages (the Squad rail's running time per unit later came back on the player's
-  request, now with seconds: "1h 8m 3s"), a list of finished units in the Squad rail, the unit page's plan chip, merge
+  request, now with seconds: "1h 8m 3s"), the unit page's plan chip, merge
   approval line and Archive button, one-line hints under every More item, the ping box's
   interrupt toggle, file and commit counts, the commit log, a cost tile, the landings legend and
   total, and the quest editor's labels, dependencies, start date and history (the chat sets those).
+  The Squad rail's finished list also returned on request: up to 25 muted rows
+  after active work, newest first, with outcome and frozen duration so the player
+  can reopen just-finished work. Despawned units stay out. No count, project,
+  plan step, render thumbnail, tooltip or new control returns with it.
 - The UI trim pass on Settings: the intro line under every page title, "Settings saved with … They don't affect your
   other projects.", the project summary line and folder path, the engine's "Rescan after an engine upgrade" line, the
   Danger zone (Remove project moved to a quiet bin icon in the Hub's project list), helper sentences under almost every

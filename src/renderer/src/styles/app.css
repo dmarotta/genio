@@ -453,6 +453,9 @@ button.hud-stat:hover { border-color: var(--line); color: var(--text); }
 .roster-state { font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
 /* Squad column: active units stay put at the top; the done history takes the rest and scrolls. */
 .roster-active { flex: 0 1 auto; }
+.side-block > .side-empty.above-done { margin: 0; text-align: left; }
+.roster-done { flex: 1 1 0; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.done-row .roster-title { color: var(--text-dim); }
 /* ---------- markdown ---------- */
 .md > :first-child { margin-top: 0; }
 .md > :last-child { margin-bottom: 0; }

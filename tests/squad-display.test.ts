@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Task, TaskState, TerminalInfo } from '../src/shared/types'
 import {
-  finishedAt, outcomeTone, squadActive, squadAttention, squadBadge, squadOutcome, squadState, squadTone, unitClock, unitClockShort, type SquadTone
+  DONE_HISTORY, finishedAt, outcomeTone, squadActive, squadAttention, squadBadge, squadOutcome, squadSections, squadState, squadTone, unitClock, unitClockShort, type SquadTone
 } from '../src/shared/squad-display'
 import { canRespawn, hasOpenPr } from '../src/shared/unit-actions'
 
@@ -73,10 +73,39 @@ describe('Squad display only', () => {
 
 describe('Squad list and outcomes', () => {
   const minute = (n: number): string => new Date(Date.parse('2026-10-13T00:00:00Z') + n * 60_000).toISOString()
-  it('keeps the active units in their order and leaves finished ones to the Quest log', () => {
+  it('keeps only active units on the Squad page in their order', () => {
     const done = Array.from({ length: 5 }, (_, i) => task(i % 2 ? 'cleaned' : 'merged', { id: `done-${i}` }))
     const active = [task('working', { id: 'a1' }), task('ready', { id: 'a2' }), task('needs-decision', { id: 'a3' })]
     expect(squadActive([done[4], active[0], done[0], active[1], ...done.slice(1, 4), active[2]]).map(t => t.id)).toEqual(['a1', 'a2', 'a3'])
+  })
+  it('keeps active rail units in order, then the newest 25 finished units, without changing the input', () => {
+    expect(DONE_HISTORY).toBe(25)
+    const done = Array.from({ length: DONE_HISTORY + 5 }, (_, i) => task('merged', { id: `done-${i}`, finishedAt: minute(i) }))
+    const active = [task('working', { id: 'a1' }), task('ready', { id: 'a2' }), task('needs-decision', { id: 'a3' })]
+    const tasks = [done[0], active[0], ...done.slice(1), active[1], active[2]]
+    const original = [...tasks]
+    const roster = squadSections(tasks)
+    expect(roster.active).toEqual(active)
+    expect(roster.done).toEqual(done.slice(5).reverse())
+    expect(tasks).toEqual(original)
+  })
+  it('orders every finished outcome by its persisted finish or legacy landing/update time, never despawns', () => {
+    const tasks = [
+      task('done', { kind: 'scout', finishedAt: minute(1) }),
+      task('failed', { finishedAt: minute(4), updatedAt: minute(50) }),
+      task('merged', { landedAt: minute(2) }),
+      task('exited', { updatedAt: minute(3) }),
+      task('cleaned', { outcome: 'merged', finishedAt: minute(99) })
+    ]
+    expect(squadSections(tasks).done.map(t => t.state)).toEqual(['failed', 'exited', 'merged', 'done'])
+    expect(squadSections(tasks, undefined, 2).done.map(t => t.state)).toEqual(['failed', 'exited'])
+    expect(squadSections(tasks, undefined, 0).done).toEqual([])
+  })
+  it('breaks equal finish times by newest deployment and excludes despawns before applying the cap', () => {
+    const older = task('merged', { id: 'older', createdAt: minute(1), finishedAt: minute(10) })
+    const newer = task('done', { id: 'newer', createdAt: minute(2), finishedAt: minute(10) })
+    const cleaned = Array.from({ length: DONE_HISTORY }, (_, i) => task('cleaned', { id: `despawn-${i}`, finishedAt: minute(99) }))
+    expect(squadSections([older, ...cleaned, newer], undefined, 1)).toEqual({ active: [], done: [newer] })
   })
   it('reports merged, done, failed and abnormal exits with green or red', () => {
     expect(squadOutcome(task('cleaned', { landedAt: at }))).toBe('merged')
@@ -123,6 +152,9 @@ describe('Unit badge, clock and lifecycle rules', () => {
     expect(unitClockShort(task('ready', { readyAt: '2026-10-13T10:05:00Z' }), undefined, now)).toBe('1h 5m 0s')
     const ready = task('ready', { readyAt: '2026-10-13T09:54:00Z' })
     expect(unitClockShort(ready, undefined, now)).toBe(unitClockShort(ready, undefined, now + 3_600_000))
+    const done = task('done', { finishedAt: '2026-10-13T09:40:17Z', updatedAt: '2026-10-13T11:00:00Z' })
+    expect(unitClockShort(done, undefined, now)).toBe('40m 17s')
+    expect(unitClockShort(done, undefined, now + 3_600_000)).toBe('40m 17s')
   })
   it('offers Respawn only where it resumes unfinished work', () => {
     const allowed: Record<TaskState, boolean> = {

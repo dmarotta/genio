@@ -126,6 +126,8 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { feature: 'plans', id: 'plan-first', name: 'Battle Plan', description: 'Have Genio file a plan: one job split into steps for several units.' },
   { feature: 'plans', id: 'plan-control', name: 'Hold Everything', description: "Pause or cancel a plan from its chip in the Quest log." },
   { feature: 'plans', id: 'plan-done', name: 'According to Plan', description: 'Merge every step of a plan.' },
+  // The rail's recent finished rows share the existing Squad feature: completion earns the
+  // Recon/merge achievements below; showing or reopening a record is no new achievement.
   { feature: 'squad', id: 'squad-up', name: 'Squad Up', description: 'Have 3 units deployed at once.' },
   { feature: 'squad', id: 'full-party', name: 'Full Party', description: 'Have 5 units deployed at once.' },
   { feature: 'scout', id: 'recon-first', name: 'Scouting Party', description: 'Complete your first recon mission.' },
