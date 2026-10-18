@@ -15,7 +15,8 @@
  *                            run before), script and lib bytes, amend and rerun, split phases
  *   failed/<id>-<kind>-<t>/  scripts that raised, crashed or hung, with receipts
  *
- * `report <model>` sums a model's run up from these, for recons and benchmarks.
+ * `report <model>` sums a model's run up from these, for recons and benchmarks. `init --kind <kind>` starts the
+ * model's lib.py (beside its step scripts, in the worktree) from templates/<kind>.py: a plan to adapt.
  *
  * Each step runs on its parent's snapshot and writes into a staging folder. Its
  * GLB moves to steps/<id> and the step becomes the head as soon as Blender has
@@ -55,6 +56,9 @@ const SESSION_WARN_MB = 300
 const FAILURES_KEPT = 50
 /** An agent_ms past this is a gap (a respawn, a wait for the player), left out of the report's sums. */
 export const AGENT_GAP_MS = 10 * 60 * 1000
+/** Lib templates per model kind (templates/<kind>.py): a plan to adapt and the order of steps; `symmetry` is the kind's default. */
+export const TEMPLATES = path.join(here, '..', 'templates')
+export const KINDS = { vehicle: { symmetry: 'x' }, building: {}, prop: {}, weapon: {}, character: { symmetry: 'x' } }
 const WHO = { tool: 'Modeller', cli: 'modeller.mjs', thing: 'model', key: 'model' }
 
 /** Where models live: GENIO_MODELLER_DATA, else next to the unit's Blender scratch, else temp. */
@@ -138,10 +142,23 @@ function summary(dir, m) {
   }
 }
 
-export async function init({ dataDir = modellerDataDir(), model, blender, target, budget, size, symmetry, repin = false, cwd = process.cwd(), env = process.env } = {}) {
+/**
+ * `init --kind`: the kind's template becomes the model's lib.py beside its step scripts (`.genio/modeller/<model>/`
+ * in the worktree), unless one is there already. Returns where it is and whether it was written now.
+ */
+function writeTemplate(kind, model, cwd) {
+  const lib = path.join(cwd, '.genio', 'modeller', model, 'lib.py')
+  if (fs.existsSync(lib)) return { kind, lib, written: false }
+  fs.mkdirSync(path.dirname(lib), { recursive: true })
+  fs.copyFileSync(path.join(TEMPLATES, `${kind}.py`), lib)
+  return { kind, lib, written: true }
+}
+
+export async function init({ dataDir = modellerDataDir(), model, blender, target, budget, size, symmetry, kind, repin = false, cwd = process.cwd(), env = process.env } = {}) {
   assertOutside(dataDir, [cwd], 'Modeller data must live outside the project/worktree (set GENIO_MODELLER_DATA)')
   if (target != null && !['unity', 'godot', 'web'].includes(target)) throw new Error('target is unity, godot or web')
   if (symmetry != null && !['x', 'y', 'none'].includes(symmetry)) throw new Error('symmetry is x (left and right mirror), y (front and back) or none')
+  if (kind != null && !Object.hasOwn(KINDS, kind)) throw new Error(`kind is ${Object.keys(KINDS).join(', ')}`)
   const dir = modelDir(dataDir, model)
   fs.mkdirSync(path.join(dir, 'steps'), { recursive: true })
   return withLock(dir, async () => {
@@ -158,12 +175,14 @@ export async function init({ dataDir = modellerDataDir(), model, blender, target
     if (budget != null) m.checks.budget = Number(budget) || null
     if (size != null) m.checks.size = parseSize(size)
     if (symmetry != null) m.checks.symmetry = symmetry === 'none' ? null : symmetry
+    else if (kind != null && !existing) m.checks.symmetry = KINDS[kind].symmetry ?? null
+    const template = kind != null ? writeTemplate(kind, model, cwd) : null
     // The first step's agent_ms runs from here: the agent writes its lib and first script now.
     m.returned_at = now()
     writeManifest(dir, m)
     const marker = warmMarker(m.blender)
     if (marker && !fs.existsSync(marker)) startWarm(dataDir, model, env)
-    return { ok: true, existing, ...summary(dir, m) }
+    return { ok: true, existing, ...summary(dir, m), ...(template ? { template } : {}) }
   })
 }
 
@@ -760,7 +779,7 @@ export async function report({ dataDir = modellerDataDir(), model } = {}) {
 }
 
 const USAGE = `Usage: modeller.mjs <command> <model> [args] [--data <dir>]
-  init <model> [--target unity|godot|web] [--budget <triangles>] [--size <x>x<y>x<z>] [--symmetry x|y|none] [--blender 4.2|5.2|<path>] [--repin]
+  init <model> [--target unity|godot|web] [--budget <triangles>] [--size <x>x<y>x<z>] [--symmetry x|y|none] [--kind vehicle|building|prop|weapon|character] [--blender 4.2|5.2|<path>] [--repin]
   step <model> <script.py> [--name <name>] [--amend] [--timeout <seconds>]
   batch <model> <folder|batch.json|script.py...> [--every-sheet] [--timeout <seconds per step>]
   revert <model> <step>
@@ -779,7 +798,7 @@ function parseArgs(argv) {
     if (!a.startsWith('--')) { pos.push(a); continue }
     const key = a.slice(2)
     if (bools.has(key)) { opt[key] = true; continue }
-    if (!['data', 'target', 'budget', 'size', 'symmetry', 'blender', 'name', 'timeout', 'from', 'threads'].includes(key) || argv[i + 1] == null) throw new Error(`Unknown or incomplete option ${a}\n${USAGE}`)
+    if (!['data', 'target', 'budget', 'size', 'symmetry', 'kind', 'blender', 'name', 'timeout', 'from', 'threads'].includes(key) || argv[i + 1] == null) throw new Error(`Unknown or incomplete option ${a}\n${USAGE}`)
     opt[key] = argv[++i]
   }
   return { pos, opt }
@@ -794,7 +813,7 @@ async function main() {
   const common = { dataDir, model }
   let result
   switch (command) {
-    case 'init': result = await init({ ...common, target: opt.target, budget: opt.budget, size: opt.size, symmetry: opt.symmetry, blender: opt.blender, repin: opt.repin }); break
+    case 'init': result = await init({ ...common, target: opt.target, budget: opt.budget, size: opt.size, symmetry: opt.symmetry, kind: opt.kind, blender: opt.blender, repin: opt.repin }); break
     case 'step':
       if (!arg) throw new Error(USAGE)
       result = await step({ ...common, script: arg, name: opt.name, amend: opt.amend, timeout: opt.timeout ? Number(opt.timeout) : STEP_TIMEOUT, threads })

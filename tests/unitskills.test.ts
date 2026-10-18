@@ -191,7 +191,14 @@ describe('brief tools section', () => {
     // High-poly work: freeze finished parts, Subdivision only on low-poly cages
     expect(MODELLER_API_CARD).toMatch(/`p\.freeze\(\*parts\)` applies them for good/)
     expect(MODELLER_API_CARD).toMatch(/High-poly: build density directly, or `p\.subsurf` only low-poly cages; freeze each finished part/)
-    expect(MODELLER_API_CARD.length).toBeLessThan(3000)
+    // Plan first, as data, and the hard-surface kit instead of raw bmesh; a template per model kind.
+    expect(b).toMatch(/Plan first: the layout as data in `lib\.py`.*`p\.blockout\(PLAN\)`/)
+    expect(b).toMatch(/`--kind vehicle\|building\|prop\|weapon\|character`/)
+    expect(b).toMatch(/once the kit or your helpers carry the shapes, make each step a bigger visible change/)
+    expect(MODELLER_API_CARD).toMatch(/step 1 is `p\.blockout\(PLAN\)`.*`Plan:` line/)
+    for (const helper of ['p.mesh(', 'p.revolve(', 'p.sweep(', 'p.hull(', 'p.capsule(', 'p.smooth(', 'p.panel_lines(', 'p.window_rows(', 'p.greebles(', "'emissive'"]) expect(MODELLER_API_CARD).toContain(helper)
+    // The card stays about 3 KB: the kit and the plan took it from 2.95 to 3.3.
+    expect(MODELLER_API_CARD.length).toBeLessThan(3400)
     expect(renderBrief({ ...base, tools: unitToolsBrief(plugin) })).not.toContain('# Modeller')
   })
 
@@ -211,6 +218,8 @@ describe('brief tools section', () => {
     expect(skill).toContain('**Paint and bake.**')
     expect(skill).toMatch(/`gpu=True` tries .*off by default because it competes with the player's game or editor/)
     for (const f of ['modeller.mjs', 'genio_step.py', 'genio_parts.py', 'blender.mjs', 'genio_bpy.py']) expect(fs.existsSync(path.join(blenderSkillDir(target), 'scripts', f))).toBe(true)
+    // init --kind's lib templates travel with the kernel
+    for (const kind of ['vehicle', 'building', 'prop', 'weapon', 'character']) expect(fs.existsSync(path.join(blenderSkillDir(target), 'templates', `${kind}.py`))).toBe(true)
     expect(fwd(modellerScript(target))).toBe(`${fwd(blenderSkillDir(target))}/scripts/modeller.mjs`)
   })
 })

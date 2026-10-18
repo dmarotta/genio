@@ -572,3 +572,53 @@ after landing; `report` from the API and the CLI, old receipts included; the
 real-Blender review printing an item once and then a count, `p.intended`, the
 Size, Triangles, Materials and Bake lines, `materialize` returning every item;
 the close-up column on an 82k-triangle model).
+
+## Modeller hard-surface kit, plan and templates (2026-10-18)
+
+The Recon on faster Modeller units found that a high-poly agent spends its
+time writing geometry code the API lacked: the starship's helper step took
+164 s (123 s thinking, then an 8.3 KB `lib.py` of raw bmesh), while the steps
+that only called those helpers took 9 to 10 s. Its first step showed 3 of
+about 12 parts, and its layout lived in hand-written constants.
+
+What changed (`genio_parts.py`, `genio_review.py`, `genio_step.py`,
+`modeller.mjs`, `templates/`):
+
+| Change | Where |
+|---|---|
+| A hard-surface kit: `p.mesh`, `p.from_bmesh`, `p.smooth` (sharp edges by angle), `p.weighted_normals`, `p.curve`, `p.circle`, `p.rect`, `p.revolve` (profile pieces joined crisp), `p.sweep` (rotation-minimising frames, or `level` sections), `p.hull` (stations), `p.capsule`, `p.panel_lines`, `p.window_rows`, `p.greebles`, and material presets (`brushed`, `painted`, `glass`, `emissive`, `rubber`) | `genio_parts.py` |
+| The kit's surfaces record where each face sits (a column around, a place along each piece or station span), so `p.panel_lines` cuts rows and columns that follow the shape, with column counts that halve towards a pole and line up across rows, instead of the starship's staggered grid that read as brickwork; each colour of plates that never touch insets in one bmesh call | `genio_parts.py` |
+| `p.panel_lines(..., bake_only=True)`: each face corner's distance to its plate's edges, which the bake turns into darker, rougher lines with no extra triangles | `genio_parts.py` |
+| Plan as data: `p.plan()` in `lib.py` (place, size and simple shape per part, mirrored twins, parts between two points or two planned parts), `p.blockout(PLAN)` builds them all in step 1, and the review's `Plan:` line names built parts off their plan and planned parts not built | `genio_parts.py`, `genio_review.py`, `genio_step.py` |
+| `init --kind <kind>` (vehicle, building, prop, weapon, character) writes that kind's template as the model's `lib.py`: a plan of a typical model whose blockout reviews clean, the order of steps, the helpers, triangle budgets and sizes | `modeller.mjs`, `templates/` |
+
+The starship's five steps, rebuilt on the kit (`tests/fixtures/modeller/starship`)
+against the original scripts replayed on the same kernel, one Blender per
+step through the CLI, Blender 4.2.1, 16 logical CPUs:
+
+| | Original | On the kit |
+|---|---|---|
+| `lib.py` | 8,263 bytes, 11 functions of raw bmesh | 1,770 bytes, no functions: the plan, layout constants and the saucer's profile |
+| Step scripts | 4,054 bytes | 3,113 bytes (step 1 is `p.blockout(PLAN)`, 139 bytes) |
+| Step 1 | 3 parts, 1.7k triangles; the neck floats, two parts open, the ship 3.95 m below the ground and 3 m off centre | all 9 planned parts, 6.7k triangles; nothing in the review but its Changes line, no warnings |
+| Plating step (two runs) | 3.5 to 3.9 s, of which the script 1.9 to 2.1 s (one bmesh inset per panel) | 1.8 s, of which the script 0.18 s (one inset per colour), windows included |
+| Five steps, Blender (two runs) | 9.4 to 10.1 s, 105k triangles | 7.6 s, 98k triangles |
+| Reviews | Floating on s001 to s004, Size off on every step | no Plan, Floating, Deep overlap or Symmetry line on any step |
+
+The kit's lib and scripts are 60 % smaller than the original's. At the
+Recon's 4 s per KB written that is about 30 s of writing; the larger saving,
+the thinking of the helper step (an estimated 164 s down to 30 to 40 s), needs
+an agent run to measure: the benchmark round after Build 4.
+
+Left alone: `p.freeze` and `p.subsurf` stay as they were (Build 1), and a
+part's rows of plates follow its own loops: a long single face cannot be
+split into rows, so the kit's surfaces keep their faces close to square.
+
+Guards: `tests/modeller.test.ts` (every kit helper asserted inside Blender:
+closed and outward shapes with their volumes, crisp joins, seams on a
+revolve, a box and a capsule, seams baked as a mask, windows, seeded
+greebles, presets, the plan's boxes, mirrors, joins and errors, its blockout
+and Plan line; the starship rebuilt with no bmesh in its scripts and the
+Plan line catching a planted error; every template's blockout reviewing
+clean; `init --kind` never writing over a lib) and `tests/unitskills.test.ts`
+(the brief and the API card).

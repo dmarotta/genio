@@ -67,6 +67,26 @@ describe('Modeller kernel with a fake Blender', { timeout: 60000 }, () => {
     await expect(kernel.init({ dataDir, model: 'tower', symmetry: 'z' as 'x', cwd: src })).rejects.toThrow(/symmetry is x/)
   })
 
+  it('starts a model\'s lib.py from the template of its kind, with the kind\'s symmetry, never over a lib of the agent\'s', async () => {
+    const pin = { path: process.execPath, version: '4.2.1' }
+    const lib = path.join(src, '.genio', 'modeller', 'car', 'lib.py')
+    const car = await kernel.init({ dataDir, model: 'car', blender: pin, kind: 'vehicle', cwd: src })
+    expect(car).toMatchObject({ ok: true, existing: false, checks: { symmetry: 'x' }, template: { kind: 'vehicle', lib, written: true } })
+    expect(fs.readFileSync(lib, 'utf8')).toBe(fs.readFileSync(path.join(kernel.TEMPLATES, 'vehicle.py'), 'utf8'))
+    fs.writeFileSync(lib, 'PLAN = None\n')
+    expect(await kernel.init({ dataDir, model: 'car', kind: 'vehicle', cwd: src })).toMatchObject({ existing: true, template: { lib, written: false } })
+    expect(fs.readFileSync(lib, 'utf8')).toBe('PLAN = None\n')
+    // a symmetry given wins over the kind's
+    expect(await kernel.init({ dataDir, model: 'shed', blender: pin, kind: 'building', symmetry: 'y', cwd: src })).toMatchObject({ checks: { symmetry: 'y' }, template: { kind: 'building', written: true } })
+    // without a kind, init writes nothing in the worktree, as before
+    const plain = await kernel.init({ dataDir, model: 'plain', blender: pin, cwd: src })
+    expect(plain.template).toBeUndefined()
+    expect(plain.checks.symmetry).toBeNull()
+    expect(fs.existsSync(path.join(src, '.genio', 'modeller', 'plain'))).toBe(false)
+    await expect(kernel.init({ dataDir, model: 'odd', blender: pin, kind: 'spaceship' as 'vehicle', cwd: src })).rejects.toThrow(/kind is vehicle, building, prop, weapon, character/)
+    expect(fs.readdirSync(kernel.TEMPLATES).sort()).toEqual(Object.keys(kernel.KINDS).map((k) => `${k}.py`).sort())
+  })
+
   it('names the player\'s references in every step\'s review and hands back their image files', async () => {
     await fakeModel()
     const refs = fs.mkdtempSync(path.join(root, 'refs-'))
@@ -1266,5 +1286,63 @@ describe.skipIf(!blender)(`Modeller with Blender ${blender?.version.join('.') ??
     // Wall, Kid, Crate, Base, Top, Spire, Cap, Arm L/R, Hand L/R, House, Window L/R, Post, 4 spokes, 3 crenels, Hull, Sail
     expect(r.objects).toBe(24)
     expect(r.warnings.join('\n')).not.toMatch(/inwards|Negative scale|\.00\d/)
+  }, 300000)
+
+  it('builds every hard-surface kit helper, panel seams baked as a mask, and the plan with its blockout and Plan line', async () => {
+    const kit = path.join(fixtures, 'kit')
+    // Each script asserts inside Blender; a failed assertion fails its step.
+    const step = async (model: string, file: string): Promise<StepDone> => {
+      const r = await cmd('step', model, path.join(kit, file))
+      if (!r.ok) throw new Error(`${file}: ${r.error}\n${r.trace.join('\n')}`)
+      return r
+    }
+    for (const model of ['shapes', 'details', 'planned', 'seams']) await cmd('init', model, '--target', 'web')
+    expect((await step('shapes', 's01_shapes.py')).warnings.join('\n')).not.toMatch(/inwards|non-manifold/)
+    expect((await step('details', 's02_details.py')).warnings.join('\n')).not.toMatch(/inwards|non-manifold/)
+    // the blockout is the plan: the review has nothing to say about it, until a part strays from its plan or goes
+    expect((await step('planned', 's03_plan.py')).review).toEqual(['Changes: 12 added (Ball, Dish, Engine L, Engine R, Hull, Mast and 6 more)'])
+    const off = await step('planned', 's04_plan_off.py')
+    expect(off.review).toEqual(['Changes: 1 moved (Tower), 1 removed (Ball)', 'Plan: Tower at x 0.5 (plan 0); not built: Ball'])
+    expect(JSON.parse(fs.readFileSync(off.receipt, 'utf8')).review_new).toEqual({ Plan: 2 })
+    await step('seams', 's05_bake.py')
+  }, 300000)
+
+  it('rebuilds the starship on the kit: its whole plan in step 1, no raw bmesh, and the Plan line catches planted errors', async () => {
+    await cmd('init', 'starship', '--target', 'web', '--size', '13x30x7.5', '--symmetry', 'x', '--budget', '400000')
+    const ship = path.join(fixtures, 'starship')
+    const files = fs.readdirSync(ship).sort()
+    expect(files).toEqual(['lib.py', 's01_blockout.py', 's02_saucer.py', 's03_plating.py', 's04_hull.py', 's05_neck.py'])
+    // the kit makes the geometry: no raw bmesh anywhere, and the lib is data (the plan, layout, profiles), no helpers
+    for (const f of files) expect(fs.readFileSync(path.join(ship, f), 'utf8')).not.toMatch(/bmesh|^def /m)
+    const steps: StepDone[] = []
+    for (const f of files.slice(1)) steps.push(await cmd('step', 'starship', path.join(ship, f), '--timeout', '180'))
+    expect(steps.map((s) => s.ok)).toEqual([true, true, true, true, true])
+    // step 1 is p.blockout(PLAN): every planned part at once
+    expect(steps[0]).toMatchObject({ objects: 9, review: ['Changes: 9 added (Bridge module, Engineering hull, Lower dome, Nacelle L, Nacelle R, Neck and 3 more)'] })
+    // the parts built later keep to the plan: the review never needs a Plan, Floating, Deep overlap or Symmetry line
+    for (const s of steps) expect(s.review.join('\n')).not.toMatch(/^(Plan|Floating|Deep overlap|Symmetry):/m)
+    expect(steps[4].triangles).toBeGreaterThan(90000)
+    // planted errors: a nacelle a metre inboard, its twin short, a pylon gone
+    const planted = path.join(src, 's06_planted.py')
+    fs.writeFileSync(planted, ['"""Planting errors against the plan"""', "p.part('Nacelle L').location.x -= 1.0", "p.part('Nacelle R').scale.y = 0.8", "p.remove('Pylon L')"].join('\n'))
+    const off: StepDone = await cmd('step', 'starship', planted)
+    const line = 'Plan: Nacelle L at x 2.5 (plan 3.5); Nacelle R 12.48 m long (plan 15.6 m); not built: Pylon L'
+    expect(off.review).toContain(line)
+    // the next step counts them while they stand
+    const idle = path.join(src, 's07_idle.py')
+    fs.writeFileSync(idle, '"""Looking at the plan again"""\n')
+    expect((await cmd('step', 'starship', idle)).review).toContain('Plan: 3 known')
+  }, 300000)
+
+  it('gives every model kind a template whose plan blocks out clean in one step', async () => {
+    for (const kind of Object.keys(kernel.KINDS) as (keyof typeof kernel.KINDS)[]) {
+      const started = await cmd('init', kind, '--target', 'web', '--kind', kind)
+      expect(started).toMatchObject({ template: { kind, written: true }, checks: { symmetry: kernel.KINDS[kind].symmetry ?? null } })
+      const first = path.join(path.dirname(started.template.lib), 's01_blockout.py')
+      fs.writeFileSync(first, `"""Blocking out the ${kind} from its plan"""\np.blockout(PLAN)\n`)
+      const r: StepDone = await cmd('step', kind, first)
+      expect(r.review).toEqual([expect.stringMatching(/^Changes: \d+ added \(/)])
+      expect(r.warnings).toEqual([])
+    }
   }, 300000)
 })

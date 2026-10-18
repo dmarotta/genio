@@ -6,6 +6,11 @@ export const STEP_TIMEOUT: number
 export const PUBLISH_GAP_MS: number
 /** An agent_ms past this is a gap (a respawn, a wait for the player), left out of the report's sums. */
 export const AGENT_GAP_MS: number
+/** The folder of lib templates per model kind (`<kind>.py`). */
+export const TEMPLATES: string
+export type ModelKind = 'vehicle' | 'building' | 'prop' | 'weapon' | 'character'
+/** The model kinds `init --kind` knows, each with its default symmetry axis. */
+export const KINDS: Record<ModelKind, { symmetry?: 'x' | 'y' }>
 
 export interface PinnedBlender { path: string; version: string; size: number; mtimeMs: number }
 /** A run's measures, in its receipt (and a failure's manifest entry). */
@@ -57,7 +62,7 @@ export interface StepDone {
   triangles: number; vertices: number; objects: number; bounds: { min: number[]; max: number[]; dimensions: number[] } | null
   /**
    * The text review, a few short lines: what changed since the parent step, then only the lines that
-   * have something to say (Floating, Deep overlap, Z-fighting, Symmetry, Size, Triangles, Materials,
+   * have something to say (Plan, Floating, Deep overlap, Z-fighting, Symmetry, Size, Triangles, Materials,
    * Bake). An item the parent step printed is a count (`2 known`) while it stands; the receipt's
    * `review_full` names every item.
    */
@@ -102,7 +107,11 @@ export function warmMarker(pin: { path: string; size: number; mtimeMs: number })
 export function warm(o: Common & { timeout?: number; runner?: Runner; marker?: string }): Promise<{ ok: boolean; model: string; blender: string; warmed: boolean; ms?: number; log?: string }>
 export function prune(m: Manifest, dir: string, keep?: number): string[]
 export function planThreads(plan: { replay: (string | { script: string; lib?: string | null })[]; steps: { script: string | null; lib?: string | null }[] }, threads?: number): number | undefined
-export function init(o: Common & { blender?: string | { path: string; version: string }; target?: string; budget?: number | string; size?: string | number[]; symmetry?: 'x' | 'y' | 'none'; repin?: boolean; cwd?: string; env?: Record<string, string | undefined> }): Promise<Summary & { existing: boolean }>
+/**
+ * Start (or update) a model. With `kind`, the kind's template becomes `<cwd>/.genio/modeller/<model>/lib.py` unless a lib is
+ * there already (`template.written`), and a new model takes the kind's symmetry when `symmetry` is not given.
+ */
+export function init(o: Common & { blender?: string | { path: string; version: string }; target?: string; budget?: number | string; size?: string | number[]; symmetry?: 'x' | 'y' | 'none'; kind?: ModelKind; repin?: boolean; cwd?: string; env?: Record<string, string | undefined> }): Promise<Summary & { existing: boolean; template?: { kind: ModelKind; lib: string; written: boolean } }>
 /** The player's references folder (default GENIO_REFERENCES): a review line naming them and their image files, or null without any. */
 export function referenceReview(refDir?: string): { line: string; images: string[] } | null
 export function step(o: Common & { script: string; name?: string; amend?: boolean; timeout?: number; threads?: number; runner?: Runner; references?: string }): Promise<StepDone | StepFailed>

@@ -160,7 +160,7 @@ export function openRouterEnv(harnessId: string, worldAllows: boolean, key: stri
 }
 
 /**
- * The Modeller helper API in under 3 KB, so a unit starts without reading the Python sources.
+ * The Modeller helper API in about 3 KB, so a unit starts without reading the Python sources.
  * The blender SKILL.md carries the same lines (a test keeps them in step).
  */
 export const MODELLER_API_CARD = [
@@ -168,24 +168,25 @@ export const MODELLER_API_CARD = [
   '- A step script runs in headless Blender on the previous step\'s scene with `bpy` and `p` preloaded. Line 1 is a one-line docstring caption in plain words; the player reads it live.',
   '- After each step read its `review` first: what changed, then problems by part name, each once, then as a count; `p.intended(a, b)` drops an overlap you mean. Open the `sheet` only for shape, proportions and style.',
   '- Write each helper of yours once, in `lib.py` beside the step scripts: it runs before every step, so its functions are globals there.',
+  '- Plan first, in `lib.py` (below; `init --kind` writes one to adapt): step 1 is `p.blockout(PLAN)`, every part; later steps rebuild parts by name at `PLAN[name].at`; the review\'s `Plan:` line names parts off their plan.',
   '- Metres, Z up, the model stands on z = 0 with its footprint centred on the origin and its front facing -Y (its left side is +X).',
   '- A part made again under the same name replaces the old one, so a script can run twice. Part helpers return the object and take `mat=` and `col=`; `rot` is Euler radians.',
-  '- Parts: `p.box(name, (sx, sy, sz), loc, rot, mat, bevel=0.0)` centred on loc; `p.cylinder(name, radius, depth, loc, rot, mat, radius_top=None)` along local Z; `p.sphere(name, radius, loc, mat, subdiv=2)`; `p.beam(name, a, b, thickness, mat)`; `p.prism(name, [(x, y), ...], depth, loc, rot, mat)` outline extruded along local Z; `p.lathe(name, [(radius, z), ...], segments, loc, rot, mat)`; `p.loft(name, [[(x, y, z), ...], ...], closed=True)` through sections of equal count (one point: a tip); `p.jitter(ob, amount, seed)`.',
-  '- Materials: `p.material(name, \'#rrggbb\', rough=0.8, metal=0.0, emission=0.0)`, one per name, reused.',
+  '- Parts: `p.box(name, (sx, sy, sz), loc, rot, mat, bevel=0.0)` centred on loc; `p.cylinder(name, radius, depth, loc, rot, mat)` along local Z; `p.sphere(name, radius, loc, mat)`; `p.beam(name, a, b, thickness, mat)`; `p.prism(name, [(x, y), ...], depth)`; `p.lathe(name, [(r, z), ...], segments)`; `p.loft(name, sections)`; `p.jitter(ob, amount, seed)`.',
+  '- Hard-surface kit, smooth with sharp edges by angle: `p.mesh(name, verts, faces)`; `p.revolve(name, pieces, segments)` (pieces of (r, z), crisp joins); `p.sweep(name, path, section)`; `p.hull(name, stations)` ((y, width, height, z) each); `p.capsule(name, a, b, radius)`; `p.smooth(ob)`; `p.panel_lines(ob, size)`; `p.window_rows(name, part, rows)`; `p.greebles(name, part, region)`; points: `p.curve`, `p.circle`, `p.rect`.',
+  '- Materials: `p.material(name, \'#rrggbb\', rough=0.8, metal=0.0, emission=0.0, preset=None)` (\'brushed\', \'painted\', \'glass\', \'emissive\', \'rubber\'), one per name.',
   '- Modifiers, named so adding one again replaces it: `p.bevel(ob, width)`, `p.array(ob, count, (dx, dy, dz))`, `p.mirror(ob)`, `p.solidify(ob, thickness)`, `p.subsurf(ob, levels)`, `p.boolean_cut(ob, cutter)` (the cutter never ships); `p.freeze(*parts)` applies them for good.',
   '- High-poly: build density directly, or `p.subsurf` only low-poly cages; freeze each finished part; bake once, at the end.',
-  '- Placing: `p.join(name, parts)`; `p.drop(ob, on=None)` onto the ground or the part `on`; `p.mirror_pair(ob)` (`Arm L` makes `Arm R`); `p.ring(ob, count, center, axis=\'Z\')` copies round an axis, from the first in place.',
-  '- Structure: `p.collection(\'Legs\')` (a group inside `Export`, passed as `col=`), `p.parent(child, parent)`, `p.part(name)`, `p.remove(*names)`, `p.ground()`, `p.center()`, `p.origin_to_base(ob)`, `p.apply_scale(ob)`.',
+  '- Placing: `p.join(name, parts)`; `p.drop(ob, on=None)` onto the ground or the part `on`; `p.mirror_pair(ob)` (`Arm L` makes `Arm R`); `p.ring(ob, count, center, axis=\'Z\')` copies round an axis.',
+  '- Structure: `p.collection(\'Legs\')` (a group inside `Export`, passed as `col=`), `p.parent(child, parent)`, `p.part(name)`, `p.remove(*names)`, `p.ground()`, `p.center()`.',
   '- Paint: `p.uv_atlas()` once, `p.camo(mat, \'red\'|\'woodland\'|\'desert\'|\'digital\')`, `p.weathering(mat, wear=0.8, dirt=1.0)`, then `p.bake_maps(size=1024)`.',
   '',
   '```python',
-  '"""Blocking out the main mass: the hull and four wheels"""',
-  'import math',
-  'paint = p.material(\'Paint\', \'#b03a2e\', rough=0.5)',
-  'p.box(\'Hull\', (1.8, 4.2, 0.7), loc=(0, 0, 0.75), mat=paint, bevel=0.05)',
-  'tyre = p.material(\'Tyre\', \'#222222\', rough=0.9)',
-  'for i, y in enumerate((-1.3, 1.3)):',
-  '    p.mirror_pair(p.cylinder(f\'Wheel {i + 1} L\', 0.4, 0.3, loc=(1.05, y, 0.4), rot=(0, math.pi / 2, 0), mat=tyre))',
+  '# lib.py',
+  'PLAN = p.plan({\'Hull\': dict(at=(0, 0, 0.75), size=(1.8, 4.2, 0.7)),',
+  '               \'Wheel L\': dict(at=(1.05, -1.3, 0.4), size=(0.3, 0.8, 0.8), shape=\'cylinder\', mirror=True)})',
+  '# s01_blockout.py',
+  '"""Blocking out the main mass: the hull and its wheels"""',
+  'p.blockout(PLAN)',
   '```'
 ].join('\n')
 
@@ -197,9 +198,9 @@ export function modellerBrief(pluginDir: string, taskDataDir: string): string {
   return [
     `You are a Modeller: you build a 3D model in small steps that the player watches live. Every kind of model is in scope. The API card below is enough to start; \`${skill}/SKILL.md\`, section "Modeller steps", has the rest (checks, kernel operations, Blender 4.2 and 5.2 traps in raw bpy) for when you need it.`,
     '- You write Python (bpy) step scripts; Genio runs each in its own headless Blender. There is no MCP and no live Blender session.',
-    `- Start each model once: \`node "${kernel}" init <model> --target <unity|godot|web>\` (add \`--budget <triangles>\` or \`--size <x>x<y>x<z>\` when the mission gives them, and \`--symmetry x\` for a model mirrored left to right). Run one step: \`node "${kernel}" step <model> <script.py>\`.`,
-    '- One step per script: one idea (legs, bracing, deck, roof) with 3 to 15 named parts, in your worktree under `.genio/modeller/<model>/`, numbered `s01_legs.py`, `s02_bracing.py`. Write the script and run its `step` command in the same response (the file write, then the command), never in a separate turn.',
-    '- The first step is one small script that blocks out the main mass with simple parts, so the player sees the model within about a minute. Do not plan or write later steps before it has run; detail comes one step at a time.',
+    `- Start each model once: \`node "${kernel}" init <model> --target <unity|godot|web>\` (add \`--budget <triangles>\` or \`--size <x>x<y>x<z>\` when the mission gives them, \`--symmetry x\` for a model mirrored left to right, and \`--kind vehicle|building|prop|weapon|character\` when the model is one of those: its \`lib.py\` then starts from that kind's plan, step order and sizes). Run one step: \`node "${kernel}" step <model> <script.py>\`.`,
+    '- One step per script: one idea (legs, bracing, deck, roof) with 3 to 15 named parts, in your worktree under `.genio/modeller/<model>/`, numbered `s01_legs.py`, `s02_bracing.py`; once the kit or your helpers carry the shapes, make each step a bigger visible change (about 20 to 40 s of your work). Write the script and run its `step` command in the same response (the file write, then the command), never in a separate turn.',
+    '- Plan first: the layout as data in `lib.py` (`PLAN = p.plan(...)`: each main part\'s place, size and simple shape). The first step is one small script that blocks out the main mass with simple parts, `p.blockout(PLAN)`, so the player sees the whole model within about a minute. Do not write later steps before it has run; detail comes one step at a time.',
     `- \`node "${kernel}" batch <model> <script.py>...\` only replays scripts that already exist (restoring work after a revert or on a new branch). Never build new steps with it.`,
     '- After every step, read its text `review` (a few lines: what changed, then any floating parts, deep overlaps, z-fighting, symmetry, size, triangle, material and bake problems, by part name; an item already named is a count until it changes) and its warnings (only those new since the previous step; `known_warnings` counts the ones still standing). Open the review sheet PNG it prints (3/4, front, side and top views, with the changed and flagged parts labelled; on a dense model, close-ups of the changed parts too) only when you need to see shape, proportions or style, or to place a defect. Fix what is wrong before adding anything new: a fix is its own step, or `--amend` the last one.',
     '- Textures: paint with `p.camo`/`p.weathering` (or your own nodes into the Principled BSDF) and bake once with `p.bake_maps()`, never with your own bake loop. For a low-poly web model, bake at 1024 px (2048 px only when the mission asks for it).',

@@ -242,7 +242,8 @@ def _names(items):
 def inspect_model(checks, previous=None, known=None, full=False, shipped=None, seen=None):
     """Advisory checks on the shipped (evaluated) meshes, built on genio_bpy.validate(), plus the
     Modeller's own: budget, ground, centring, size and parts passing through each other, then the
-    text review against the `previous` step's part table and what it printed (`seen`). Nothing here
+    text review against the `previous` step's part table, what it printed (`seen`) and the plan the
+    model's lib.py keeps in the scene (p.plan). Nothing here
     blocks a step. `known` is the previous step's pair results (see the module notes; None or
     `full`: every pair is examined); `shipped` an open p.evaluated() of the parts, reused.
     out['pairs'] is this step's, to store, out['known'] what the next step of the same run gets as
@@ -327,7 +328,7 @@ def _inspect(checks, previous, known, full, objects, shipped, seen):
     r = genio_review.review(
         parts, previous=previous, size=size, tol=tol, ground_z=lo.z, pierced=notable_pierces(found, size),
         axis=checks.get('symmetry'), other_side=p._other_side, test=test, known=carried, seen=seen,
-        intended={frozenset(x) for x in p.intended_pairs()}, dims=list(dims), expected=expected, budget=budget, clock=clock)
+        intended={frozenset(x) for x in p.intended_pairs()}, dims=list(dims), expected=expected, budget=budget, plan=p.planned(), clock=clock)
     mark[0] = time.perf_counter()
     out['review'], out['review_full'], out['labels'], out['part_table'] = r['lines'], r['full'], r['labels'], r['table']
     out['review_seen'], out['review_counts'], out['changed'] = r['seen'], r['counts'], r['changed']

@@ -3,6 +3,7 @@ as words instead of finding them in the sheet. genio_step.py calls review(); age
 
 Each line appears only when it has something to say, in this order:
   Changes       parts added, moved, changed and removed since the previous step, by name
+  Plan          built parts off their p.plan() entry (place or size), and planned parts not built
   Floating      parts touching nothing that leads down to the ground
   Deep overlap  a part through another and out again (the pass-through check), or sunk deep into it
   Z-fighting    same-facing faces of two parts in one plane, overlapping
@@ -47,6 +48,8 @@ SIZE_OFF = 0.05  # of the brief's size per axis: the Size line
 DENSE = 20_000  # triangles: a model this dense gets the Triangles line for one part holding much of it
 DENSE_SHARE = 0.4  # of all triangles in one part
 PART_SHARE = 0.2  # of all triangles: parts named in the Triangles line
+PLAN_OFF = 0.02  # of the plan's size: how far a part's centre may sit from its plan on an axis
+PLAN_SIZE = 0.1  # of a planned size: how far a part's size may differ on an axis (at least PLAN_OFF of the plan)
 AXES = (('wide', 0), ('long', 1), ('tall', 2))
 
 
@@ -105,6 +108,33 @@ def changes(table, previous, tol):
     kinds = [(added, 'added'), (moved, 'moved'), (changed, 'changed'), (removed, 'removed')]
     said = [f'{len(names)} {word} ({_list(sorted(names))})' for names, word in kinds if names]
     return 'Changes: ' + (', '.join(said) if said else 'none'), added + moved + changed
+
+
+def plan_check(table, plan):
+    """`Plan: ...`: built parts whose box strays from their p.plan() entry's (the centre past PLAN_OFF
+    of the plan's size on an axis, a size past PLAN_SIZE of the planned one), in plan order, then the
+    planned parts not built. `plan` is what p.planned() returns. Returns the items."""
+    scale = float(plan.get('scale') or 1.0)
+    tol = PLAN_OFF * scale
+    items, missing = [], []
+    for name, entry in plan.get('parts', {}).items():
+        part = table.get(name)
+        if part is None:
+            missing.append(name)
+            continue
+        lo, hi = (numpy.array(v, dtype=float) for v in part['box'])
+        plo, phi = (numpy.array(v, dtype=float) for v in entry['box'])
+        at, want_at, dims, want = (lo + hi) / 2, (plo + phi) / 2, hi - lo, phi - plo
+        far = [k for k in range(3) if abs(at[k] - want_at[k]) > tol]
+        where = ', '.join('xyz'[k] + ' ' + _m(at[k]) for k in far)
+        said = [f"at {where} (plan {', '.join(_m(want_at[k]) for k in far)})"] if far else []
+        said += [f'{_m(dims[k])} m {word} (plan {_m(want[k])} m)' for word, k in AXES if abs(dims[k] - want[k]) > max(tol, PLAN_SIZE * want[k])]
+        if said:
+            nums = (*at, *dims)
+            items.append(_item(f'plan:{name}', f"{name} {', '.join(said)}", (name,), nums, tuple(_drift(v, scale) for v in nums)))
+    if missing:
+        items.append(_item('unbuilt:' + '|'.join(missing), f'not built: {_list(missing, 4)}'))
+    return items
 
 
 def _boxes_near(a, b, tol):
@@ -525,7 +555,7 @@ def _look(mat):
     if bsdf is None or (extra and paint is None):
         return None
     glow = _input(bsdf, 'Emission Strength')
-    look = [_input(bsdf, k) for k in ('Base Color', 'Roughness', 'Metallic', 'Alpha', 'Transmission Weight')]
+    look = [_input(bsdf, k) for k in ('Base Color', 'Roughness', 'Metallic', 'Alpha', 'Transmission Weight', 'Coat Weight', 'Anisotropic', 'Specular IOR Level')]
     return ('bsdf', *look, glow, _input(bsdf, 'Emission Color') if glow else None, str(paint), tuple(extra))
 
 
@@ -581,7 +611,7 @@ def _timed(clock, key):
 
 
 def review(parts, *, previous, size, tol, ground_z, pierced, axis, other_side, test=None, known=None, seen=None,
-           intended=(), dims=None, expected=None, budget=None, clock=None):
+           intended=(), dims=None, expected=None, budget=None, plan=None, clock=None):
     """The step's text review. `parts` are genio_step._parts records (name, ob, world vertices,
     triangles, BVH tree, box, closed); `pierced` the pass-through check's notable pairs; `previous`
     the previous step's part table ({} for the first step; None when unknown: no Changes line).
@@ -589,7 +619,8 @@ def review(parts, *, previous, size, tol, ground_z, pierced, axis, other_side, t
     results, as stored: {'contacts': [[a, b]], 'sunk': [...], 'z_fighting': [...]}. `seen` is what
     the previous step printed ({line: {item key: measures}}; None: print every item), `intended`
     the pairs (frozensets of names) left out of the Deep overlap and Z-fighting lines; `dims`,
-    `expected` and `budget` feed the Size and Triangles lines. `clock` gets milliseconds per check.
+    `expected` and `budget` feed the Size and Triangles lines, `plan` (p.planned()) the Plan line.
+    `clock` gets milliseconds per check.
     Returns {lines: as the agent reads them, full: every item printed, labels: the parts worth a
     label on the sheet as (name, flagged by a new item), table: this step's part table, pairs: this
     step's pair results to store, z_stopped, seen: what this review printed, counts: {line: [new,
@@ -599,6 +630,8 @@ def review(parts, *, previous, size, tol, ground_z, pierced, axis, other_side, t
     line, changed = changes(table, previous, tol) if previous is not None else (None, [])
     known = known or {}
     order = {x['name']: i for i, x in enumerate(parts)}
+    with _timed(clock, 'plan'):
+        plan_items = plan_check(table, plan) if plan else []
     with _timed(clock, 'contacts'):
         adj = contacts(parts, tol, test, [(order[a], order[b]) for a, b in known.get('contacts', [])])
     with _timed(clock, 'floating'):
@@ -616,7 +649,7 @@ def review(parts, *, previous, size, tol, ground_z, pierced, axis, other_side, t
         mat_items, bake_items = materials(parts), bake(parts)
     meant = lambda items: [x for x in items if frozenset(x['names']) not in intended]  # noqa: E731
     lines, full, flagged, printed, counts = [line] if line else [], [line] if line else [], [], {}, {}
-    for title, items in (('Floating', float_items), ('Deep overlap', meant(sunk_items)), ('Z-fighting', meant(z_items)),
+    for title, items in (('Plan', plan_items), ('Floating', float_items), ('Deep overlap', meant(sunk_items)), ('Z-fighting', meant(z_items)),
                          ('Symmetry', sym_items), ('Size', size_items), ('Triangles', tri_items),
                          ('Materials', mat_items), ('Bake', bake_items)):
         if not items:

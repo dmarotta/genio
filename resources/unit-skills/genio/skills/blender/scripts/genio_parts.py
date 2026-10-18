@@ -10,6 +10,13 @@ on the origin and its front facing -Y. Deliverable parts live in the `Export`
 collection (or collections inside it); boolean cutters go to the hidden
 `Cutters` collection; review cameras and lights never enter `Export`.
 
+Hard-surface kit: mesh() from raw geometry, smooth() shading with sharp edges by
+angle, revolve(), sweep(), hull() and capsule() surfaces whose faces know where
+they sit (so panel_lines() cuts seams in rows and columns), window_rows(),
+greebles() and material presets. Plan as data: plan() lays the model out before
+any geometry, blockout() builds every planned part as a simple shape, and the
+review's Plan line compares the built parts with it.
+
 Paint: camo() and weathering() put procedural paint on a material (world-space
 nodes feeding its Principled BSDF); bake_maps() bakes every part's paint into one
 shared PBR texture set with one Cycles bake per map, on a temporary joined copy.
@@ -77,11 +84,32 @@ def _hex(color):
     return tuple(float(c) for c in color)
 
 
-def material(name, color, rough=0.8, metal=0.0, emission=0.0):
+# Realistic starting points: roughness, metallic and emission, then other Principled BSDF inputs.
+# Every material sets all of these inputs (to the Principled defaults without a preset), so calling
+# material() again under the same name with another preset leaves nothing of the old one behind.
+PRESETS = {
+    'brushed': {'rough': 0.32, 'metal': 1.0, 'Anisotropic': 0.6},
+    'painted': {'rough': 0.42, 'metal': 0.0, 'Coat Weight': 0.35, 'Coat Roughness': 0.08},
+    'glass': {'rough': 0.03, 'metal': 0.0, 'Transmission Weight': 1.0, 'IOR': 1.45},
+    'emissive': {'rough': 0.5, 'metal': 0.0, 'emission': 4.0},
+    'rubber': {'rough': 0.92, 'metal': 0.0, 'Specular IOR Level': 0.25},
+}
+_PRESET_INPUTS = {'Anisotropic': 0.0, 'Coat Weight': 0.0, 'Coat Roughness': 0.03, 'Transmission Weight': 0.0, 'IOR': 1.5, 'Specular IOR Level': 0.5}
+
+
+def material(name, color, rough=None, metal=None, emission=None, preset=None):
     """One material per name, reused on later calls. Sets the Principled BSDF for export and
-    diffuse_color for Workbench, which the review sheet renders with."""
+    diffuse_color for Workbench, which the review sheet renders with. `preset` ('brushed', 'painted',
+    'glass', 'emissive', 'rubber') gives roughness, metallic, emission and the inputs that make that
+    look; rough, metal and emission given as well win. Without one: rough 0.8, metal 0, no emission."""
     name = _clean(name)
     rgb = _hex(color)
+    if preset is not None and preset not in PRESETS:
+        raise ValueError(f'No material preset {preset!r}: use one of {", ".join(PRESETS)}')
+    look = {'rough': 0.8, 'metal': 0.0, 'emission': 0.0, **_PRESET_INPUTS, **PRESETS.get(preset, {})}
+    rough = look['rough'] if rough is None else rough
+    metal = look['metal'] if metal is None else metal
+    emission = look['emission'] if emission is None else emission
     mat = bpy.data.materials.get(name) or bpy.data.materials.new(name)
     if mat.node_tree is None:  # 4.2 starts without nodes; 5.x always has a tree
         mat.use_nodes = True
@@ -93,9 +121,11 @@ def material(name, color, rough=0.8, metal=0.0, emission=0.0):
     bsdf.inputs['Base Color'].default_value = (*rgb, 1)
     bsdf.inputs['Roughness'].default_value = rough
     bsdf.inputs['Metallic'].default_value = metal
+    for key in _PRESET_INPUTS:
+        bsdf.inputs[key].default_value = look[key]
     if emission:
         bsdf.inputs['Emission Color'].default_value = (*rgb, 1)
-        bsdf.inputs['Emission Strength'].default_value = emission
+    bsdf.inputs['Emission Strength'].default_value = emission
     mat.diffuse_color = (*rgb, 1)
     mat.roughness, mat.metallic = rough, metal
     return mat
@@ -699,6 +729,1013 @@ def stats(objects=None):
     return out
 
 
+# Hard-surface kit -------------------------------------------------------------------------------
+# Parts from raw geometry, smooth shading with sharp edges by angle, surfaces of revolution, sweeps,
+# hulls from stations and capsules. Their faces carry where they sit on the surface: a column around
+# it (`col` of `cols`) and a place along a band (a profile piece or a station span: `t` from 0 to 1
+# over its length), so panel_lines() cuts seams in rows and columns that follow the shape.
+
+SMOOTH = 35.0  # degrees: the kit's parts shade smooth, and edges sharper than this stay crisp
+_GRID = (('genio_col', 'INT'), ('genio_cols', 'INT'), ('genio_band', 'INT'), ('genio_t', 'FLOAT'),
+         ('genio_band_len', 'FLOAT'), ('genio_width', 'FLOAT'))
+# panel_lines(bake_only=True): per face corner, its distances to its panel's edges plus 1 (0: no panel)
+_SEAM, _SEAM_W = 'genio_seam', 'genio_seam_w'
+_FAR = 1e4  # metres: the distance to an edge of its panel that a face does not have
+PATTERNS = ('grid', 'radial', 'concentric', 'stations')
+HULL_SECTIONS = {'round': (2.0, 2.0), 'box': (6.0, 6.0), 'deck': (6.0, 2.0)}  # superellipse powers above and below the middle
+
+
+def _number(x):
+    return isinstance(x, (int, float, numpy.number))
+
+
+def _shade(me, angle, crisp=None):
+    """Smooth shading with edges sharper than `angle` degrees kept sharp (None: flat), and the edges
+    `crisp` names (vertex index pairs) sharp whatever their angle."""
+    if angle is None:
+        me.shade_flat()
+        return
+    me.shade_smooth()
+    me.set_sharp_from_angle(angle=math.radians(angle))
+    if crisp:
+        n = len(me.vertices)
+        ev = genio_bpy._ints(me.edges, 'vertices', len(me.edges), 2).astype(numpy.int64)
+        pairs = numpy.asarray(crisp, dtype=numpy.int64).reshape(-1, 2)
+        key = lambda a: a.min(axis=1) * n + a.max(axis=1)  # noqa: E731
+        attr = me.attributes.get('sharp_edge') or me.attributes.new('sharp_edge', 'BOOLEAN', 'EDGE')
+        flags = numpy.zeros(len(me.edges), dtype=bool)
+        attr.data.foreach_get('value', flags)
+        attr.data.foreach_set('value', flags | numpy.isin(key(ev), key(pairs)))
+
+
+def smooth(ob, angle=SMOOTH):
+    """Smooth shading with edges sharper than `angle` degrees kept crisp: round surfaces read round
+    while folds, rims and corners stay sharp, the commonest need of a realistic part. angle=None
+    shades it flat. The kit's parts start this way (their `smooth=`). Returns the part."""
+    ob = _get(ob)
+    _shade(ob.data, angle)
+    return ob
+
+
+def _part(name, verts, faces, mat=None, col=None, loc=(0, 0, 0), rot=(0, 0, 0), smooth=SMOOTH, crisp=None, grid=None):
+    """A named part from vertices and faces (lists of vertex indices), its winding made consistent
+    (outward on closed shells) and shaded by _shade(); `grid` gives each face its _GRID values."""
+    me = bpy.data.meshes.new('genio part')
+    me.from_pydata(numpy.asarray(verts, dtype=numpy.float64).tolist(), [], [[int(i) for i in f] for f in faces])
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bpy.data.meshes.remove(me)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    ob = _object(name, bm, mat, col, loc, rot)
+    if grid is not None:
+        for (key, kind), values in zip(_GRID, grid):
+            ob.data.attributes.new(key, kind, 'FACE').data.foreach_set('value', values)
+    _shade(ob.data, smooth, crisp)
+    return ob
+
+
+def mesh(name, verts, faces, loc=(0, 0, 0), rot=(0, 0, 0), mat=None, col=None, smooth=SMOOTH):
+    """A part from raw geometry: `verts` [(x, y, z), ...] and `faces` [(i, j, k, ...), ...] of three or
+    more vertex indices each, in any winding (made consistent, outward on a closed shell). Smooth with
+    sharp edges by angle; smooth=None shades it flat. It replaces a part of the same name."""
+    count = len(verts)
+    if count < 3 or not len(faces):
+        raise ValueError(f'{name}: a mesh needs three or more vertices and a face')
+    for f in faces:
+        if len(f) < 3 or len(set(f)) != len(f) or min(f) < 0 or max(f) >= count:
+            raise ValueError(f'{name}: face {tuple(f)} needs three or more different vertex indices from 0 to {count - 1}')
+    return _part(name, verts, faces, mat, col, loc, rot, smooth)
+
+
+def from_bmesh(name, bm, loc=(0, 0, 0), rot=(0, 0, 0), mat=None, col=None, smooth=SMOOTH):
+    """A part from a bmesh of your own (it is freed), for what p.mesh's lists cannot say. Its winding
+    stays as you made it; smooth with sharp edges by angle, like p.mesh."""
+    ob = _object(name, bm, mat, col, loc, rot)
+    _shade(ob.data, smooth)
+    return ob
+
+
+def weighted_normals(ob, weight=50, name='Weighted normals'):
+    """A Weighted Normal modifier (large faces keep flat shading next to bevels and small faces),
+    keeping sharp edges sharp."""
+    mod = _modifier(_get(ob), name, 'WEIGHTED_NORMAL')
+    mod.mode, mod.weight, mod.keep_sharp = 'FACE_AREA', weight, True
+    return mod
+
+
+def curve(points, n=4, closed=False):
+    """A smooth line through `points` (tuples, all of one length: (x, y, z), (r, z), or any numbers to
+    carry along together): Catmull-Rom, `n` points per span, every given point kept exactly.
+    closed=True runs on from the last point back to the first (not repeated). n=1 keeps the points."""
+    rows = [[float(c) for c in q] for q in points]
+    if len(rows) < 2 or len({len(r) for r in rows}) != 1:
+        raise ValueError('curve needs two or more points, all with the same number of values')
+    pts = numpy.array(rows)
+    if n <= 1:
+        return [tuple(q) for q in pts.tolist()]
+    ext = numpy.vstack([pts[-1:], pts, pts[:2]]) if closed else numpy.vstack([pts[:1], pts, pts[-1:]])
+    t = (numpy.arange(n) / n)[:, None]
+    out = []
+    for i in range(len(pts) if closed else len(pts) - 1):
+        p0, p1, p2, p3 = ext[i:i + 4]
+        out.append(0.5 * (2 * p1 + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t ** 2 + (3 * p1 - p0 - 3 * p2 + p3) * t ** 3))
+    if not closed:
+        out.append(pts[-1:])
+    return [tuple(q) for q in numpy.vstack(out).tolist()]
+
+
+def circle(radius, n=32, center=(0, 0), start=0.0):
+    """`n` points on a circle, counter-clockwise from `start` degrees off +X: an outline (x, y) for
+    p.sweep, or round a 3D `center` a ring (x, y, z) at its height, for a path or a window row."""
+    c = [float(v) for v in center]
+    a = math.radians(start) + 2 * math.pi * numpy.arange(n) / n
+    xy = numpy.stack([c[0] + radius * numpy.cos(a), c[1] + radius * numpy.sin(a)], 1)
+    return [tuple(q) + tuple(c[2:]) for q in xy.tolist()]
+
+
+def rect(width, height, radius=0.0, per=4, center=(0, 0)):
+    """A rectangle outline of (x, y) points, counter-clockwise, its corners rounded by `radius` in
+    `per` steps each: a section for p.sweep."""
+    radius = max(0.0, min(radius, width / 2 - 1e-6, height / 2 - 1e-6))
+    cx, cy = center
+    pts = []
+    for qx, qy, a0 in ((1, 1, 0), (-1, 1, 90), (-1, -1, 180), (1, -1, 270)):
+        if radius <= 0:
+            pts.append((cx + qx * width / 2, cy + qy * height / 2))
+            continue
+        ox, oy = cx + qx * (width / 2 - radius), cy + qy * (height / 2 - radius)
+        for k in range(per + 1):
+            a = math.radians(a0 + 90 * k / per)
+            pts.append((ox + radius * math.cos(a), oy + radius * math.sin(a)))
+    return pts
+
+
+def _loop_length(ring):
+    return float(numpy.linalg.norm(numpy.roll(ring, -1, axis=0) - ring, axis=1).sum())
+
+
+def _skin_geometry(rings, bands, along, crisp=(), wrap=False, caps=False):
+    """Vertices, faces, face grid (_GRID values) and crisp edges of a surface through closed loops of
+    points (`rings`, all of one count; a loop of one point repeated is a pole). `bands[s]` is the band
+    of the span from ring s to the next and `along[s]` ring s's distance along the surface (with
+    `wrap`, one more: back to the first ring); `crisp` lists rings whose loop edges stay sharp. wrap
+    joins the last ring to the first; caps closes open end loops with a fan."""
+    rings = [numpy.asarray(r, dtype=numpy.float64) for r in rings]
+    k = len(rings[0])
+    if k < 3 or any(len(r) != k for r in rings):
+        raise ValueError('every loop needs the same number of points, three or more')
+    reach = max(float(numpy.ptp(numpy.vstack(rings), axis=0).max()), 1e-9)
+    verts, index, pole, at = [], [], [], 0
+    for r in rings:
+        if float(numpy.ptp(r, axis=0).max()) <= 1e-7 * reach:
+            verts.append(r.mean(axis=0)[None])
+            index.append(numpy.full(k, at))
+            pole.append(True)
+            at += 1
+        else:
+            verts.append(r)
+            index.append(numpy.arange(at, at + k))
+            pole.append(False)
+            at += k
+    count = len(rings)
+    spans = count if wrap else count - 1
+    start, end = {}, {}
+    for s in range(spans):
+        b = bands[s]
+        start[b] = min(start.get(b, along[s]), along[s])
+        end[b] = max(end.get(b, along[s + 1]), along[s + 1])
+    perimeter = [0.0 if p else _loop_length(r) for r, p in zip(rings, pole)]
+    nxt = numpy.roll(numpy.arange(k), -1)
+    faces, grid = [], [[] for _ in _GRID]
+
+    def put(rows, col, cols, band, t, length, width):
+        faces.extend(rows.tolist())
+        for values, v in zip(grid, (col, cols, band, t, length, width)):
+            values.extend(v if isinstance(v, (range, list)) else [v] * k)
+
+    for s in range(spans):
+        a, b = s, (s + 1) % count
+        if pole[a] and pole[b]:
+            continue
+        A, B = index[a], index[b]
+        rows = numpy.stack([A, B[nxt], B], 1) if pole[a] else numpy.stack([A, A[nxt], B], 1) if pole[b] else numpy.stack([A, A[nxt], B[nxt], B], 1)
+        band = bands[s]
+        length = max(end[band] - start[band], 1e-9)
+        put(rows, range(k), k, band, ((along[s] + along[s + 1]) / 2 - start[band]) / length, length, (perimeter[a] + perimeter[b]) / 2 / k)
+    if caps and not wrap:
+        for r, last in ((0, False), (count - 1, True)):
+            if pole[r]:
+                continue
+            verts.append(rings[r].mean(axis=0)[None])
+            centre, loop = numpy.full(k, at), index[r]
+            at += 1
+            put(numpy.stack([centre, loop, loop[nxt]] if last else [centre, loop[nxt], loop], 1), [0] * k, 0, -1, 0.0, 0.0, 0.0)
+    sharp = [(int(index[r][i]), int(index[r][(i + 1) % k])) for r in crisp if not pole[r] for i in range(k)]
+    kinds = [numpy.int32 if kind == 'INT' else numpy.float32 for _, kind in _GRID]
+    return numpy.vstack(verts), faces, [numpy.array(v, dtype=t) for v, t in zip(grid, kinds)], sharp
+
+
+def _round_rings(profile, segments, rx=1.0, ry=1.0):
+    """Loops round local Z through a profile of (radius, z) points, x and y scaled by rx and ry."""
+    a = 2 * math.pi * numpy.arange(segments) / segments
+    c, s = numpy.cos(a) * rx, numpy.sin(a) * ry
+    return [numpy.stack([max(r, 0.0) * c, max(r, 0.0) * s, numpy.full(segments, float(z))], 1) for r, z in profile]
+
+
+def _along(points):
+    pts = numpy.asarray(points, dtype=numpy.float64)
+    return numpy.concatenate([[0.0], numpy.cumsum(numpy.linalg.norm(numpy.diff(pts, axis=0), axis=1))]).tolist()
+
+
+def revolve(name, pieces, segments=64, loc=(0, 0, 0), rot=(0, 0, 0), mat=None, col=None, n=4, smooth=SMOOTH):
+    """A surface of revolution round local Z: saucers, domes, hulls, nacelles, bottles. `pieces` is a
+    profile of (radius, z) points, or a list of profile pieces: each is smoothed through its points
+    (p.curve, `n` per span) and the joins between pieces stay crisp (a rim, a step, a lip). Points
+    at radius 0 close the ends as poles. Smooth with sharp edges by angle; its faces know their
+    piece, for p.panel_lines. p.lathe stays the plain version."""
+    if pieces and _number(pieces[0][0]):
+        pieces = [pieces]
+    if not pieces or any(len(piece) < 2 for piece in pieces):
+        raise ValueError(f'{name}: revolve needs a profile of two or more (radius, z) points, or a list of such pieces')
+    if segments < 3:
+        raise ValueError(f'{name}: revolve needs three or more segments')
+    profile, bands, crisp = [], [], []
+    for k, piece in enumerate(pieces):
+        dense = curve(piece, n)
+        if profile:
+            crisp.append(len(profile) - 1)
+            if math.dist(profile[-1], dense[0]) < 1e-9:
+                dense = dense[1:]
+            else:
+                crisp.append(len(profile))
+        profile += dense
+        bands += [k] * len(dense)
+    verts, faces, grid, sharp = _skin_geometry(_round_rings(profile, segments), bands[1:], _along(profile), crisp)
+    return _part(name, verts, faces, mat, col, loc, rot, smooth, sharp, grid)
+
+
+def _frames(q, closed, up):
+    """Rotation-minimising frames along points q (m, 3): unit tangents, rights and ups. The first up
+    is `up` square to the path (world +Y where the path runs along `up`); it then turns with the path
+    without twisting (double reflection), and a closed path spreads its leftover turn round the loop."""
+    m = len(q)
+    d = numpy.roll(q, -1, axis=0) - numpy.roll(q, 1, axis=0) if closed else numpy.gradient(q, axis=0)
+    T = d / numpy.maximum(numpy.linalg.norm(d, axis=1), 1e-12)[:, None]
+    B = numpy.zeros_like(q)
+    for hint in (up, (0.0, 1.0, 0.0), (1.0, 0.0, 0.0)):
+        h = numpy.asarray(hint, dtype=numpy.float64)
+        b = h - T[0].dot(h) * T[0]
+        if numpy.linalg.norm(b) > 1e-3 * numpy.linalg.norm(h):
+            break
+    B[0] = b / numpy.linalg.norm(b)
+    last = None
+    for i in range(m if closed else m - 1):
+        j = (i + 1) % m
+        v1 = q[j] - q[i]
+        c1 = v1.dot(v1)
+        r = B[i]
+        if c1 > 1e-20:
+            rl = B[i] - (2 / c1) * v1.dot(B[i]) * v1
+            tl = T[i] - (2 / c1) * v1.dot(T[i]) * v1
+            v2 = T[j] - tl
+            c2 = v2.dot(v2)
+            r = rl - (2 / c2) * v2.dot(rl) * v2 if c2 > 1e-20 else rl
+        r = r - r.dot(T[j]) * T[j]
+        r = r / max(numpy.linalg.norm(r), 1e-12)
+        if closed and j == 0:
+            last = r
+        else:
+            B[j] = r
+    if last is not None:
+        turn = math.atan2(numpy.cross(last, B[0]).dot(T[0]), last.dot(B[0]))
+        for i in range(1, m):
+            a, k = turn * i / m, T[i]
+            B[i] = B[i] * math.cos(a) + numpy.cross(k, B[i]) * math.sin(a) + k * k.dot(B[i]) * (1 - math.cos(a))
+    return T, numpy.cross(T, B), B
+
+
+def _outlines(section, count, name):
+    """One closed outline of (x, y) points per path point: `section` is one outline, or one per point."""
+    outlines = [section] * count if _number(section[0][0]) else list(section)
+    if len(outlines) != count:
+        raise ValueError(f'{name}: {len(outlines)} sections for {count} path points; give one section, or one per point')
+    k = len(outlines[0])
+    if k < 3 or any(len(o) != k for o in outlines):
+        raise ValueError(f'{name}: every section needs the same number of (x, y) points, three or more')
+    return numpy.array([[[float(v) for v in q[:2]] for q in o] for o in outlines])
+
+
+def sweep(name, path, section, scale=None, loc=(0, 0, 0), rot=(0, 0, 0), mat=None, col=None, n=4, closed=False, caps=True,
+          up=(0, 0, 1), level=False, smooth=SMOOTH):
+    """A tube along a path: pipes, cables, rails, necks, pylons, struts, fuselages. `path` is (x, y, z)
+    points, smoothed through (p.curve, `n` per span); `section` a closed outline of (x, y) points
+    (p.circle, p.rect), or one outline per path point (all of one count) to change shape along it;
+    `scale` one number or (sx, sy) per path point (0 makes a tip). The section's x runs to the path's
+    right and its y to the path's up (`up`, world Z; world +Y on a path along it) and turns with the
+    path without twisting; level=True keeps every section level instead, x along world X and y along
+    world Y (a neck, pylon or leg swept back; the path must climb or fall). closed=True makes a loop
+    (a ring, a torus); caps closes the two ends."""
+    path = [tuple(float(c) for c in q) for q in path]
+    m = len(path)
+    if m < 2 or any(len(q) != 3 for q in path):
+        raise ValueError(f'{name}: sweep needs a path of two or more (x, y, z) points')
+    outlines = _outlines(section, m, name)
+    k = outlines.shape[1]
+    if scale is None:
+        sizes = numpy.ones((m, 2))
+    elif len(scale) != m:
+        raise ValueError(f'{name}: {len(scale)} scales for {m} path points')
+    else:
+        sizes = numpy.array([(float(s), float(s)) if _number(s) else (float(s[0]), float(s[1])) for s in scale])
+    dense = numpy.array(curve(numpy.hstack([numpy.array(path), sizes, outlines.reshape(m, -1)]), n, closed))
+    q, size, o = dense[:, :3], dense[:, 3:5], dense[:, 5:].reshape(len(dense), k, 2)
+    if level:
+        right, upward = numpy.tile((1.0, 0.0, 0.0), (len(q), 1)), numpy.tile((0.0, 1.0, 0.0), (len(q), 1))
+    else:
+        _, right, upward = _frames(q, closed, up)
+    rings = q[:, None] + (o[..., :1] * size[:, None, :1]) * right[:, None] + (o[..., 1:] * size[:, None, 1:]) * upward[:, None]
+    spans = len(q) if closed else len(q) - 1
+    per, last = max(n, 1), (m if closed else m - 1) - 1
+    along = _along(numpy.vstack([q, q[:1]]) if closed else q)
+    verts, faces, grid, sharp = _skin_geometry(list(rings), [min(s // per, last) for s in range(spans)], along, (), closed, caps and not closed)
+    return _part(name, verts, faces, mat, col, loc, rot, smooth, sharp, grid)
+
+
+def _superellipse(kind, points):
+    """A named hull section in a 1 x 1 square, `points` round, counter-clockwise from +X."""
+    top, bottom = HULL_SECTIONS[kind]
+    a = 2 * math.pi * numpy.arange(points) / points
+    c, s = numpy.cos(a), numpy.sin(a)
+    e = numpy.where(s >= 0, top, bottom)
+    return numpy.stack([0.5 * numpy.sign(c) * numpy.abs(c) ** (2 / e), 0.5 * numpy.sign(s) * numpy.abs(s) ** (2 / e)], 1)
+
+
+def hull(name, stations, section='round', points=24, loc=(0, 0, 0), rot=(0, 0, 0), mat=None, col=None, n=4, caps=True, smooth=SMOOTH):
+    """A hull, body or fuselage from stations along Y (front -Y to back +Y): each (y, width, height, z)
+    is the cross-section at y, `width` across x and `height` up, centred at height z; a fifth item
+    gives that station its own section. Sections: 'round', 'box', 'deck' (flat on top, round below),
+    or your own closed outline of (x, y) points in a 1 x 1 square centred on (0, 0); `points` is
+    their count for the named ones. Width or height 0 makes a point (a bow, a tail cone). Smoothed
+    through the stations (p.curve, `n` per span); its faces know their station span."""
+    rows = [tuple(st) for st in stations]
+    if len(rows) < 2 or any(len(st) < 4 for st in rows):
+        raise ValueError(f'{name}: hull needs two or more stations (y, width, height, z)')
+    own = [st[4] for st in rows if len(st) > 4 and not isinstance(st[4], str)] + ([] if isinstance(section, str) else [section])
+    k = len(own[0]) if own else points
+
+    def outline(x):
+        if isinstance(x, str):
+            if x not in HULL_SECTIONS:
+                raise ValueError(f'{name}: no hull section {x!r}: use {", ".join(HULL_SECTIONS)} or your own outline')
+            return _superellipse(x, k)
+        o = numpy.array([[float(v) for v in q[:2]] for q in x])
+        if o.shape != (k, 2):
+            raise ValueError(f'{name}: every section needs {k} (x, y) points')
+        return o
+
+    data = [[float(v) for v in st[:4]] + outline(st[4] if len(st) > 4 else section).ravel().tolist() for st in rows]
+    dense = numpy.array(curve(data, n))
+    y, z = dense[:, 0], dense[:, 3]
+    w, h = numpy.maximum(dense[:, 1], 0.0), numpy.maximum(dense[:, 2], 0.0)
+    o = dense[:, 4:].reshape(len(dense), k, 2)
+    rings = numpy.stack([o[..., 0] * w[:, None], numpy.repeat(y[:, None], k, 1), z[:, None] + o[..., 1] * h[:, None]], -1)
+    per = max(n, 1)
+    bands = [min(s // per, len(rows) - 2) for s in range(len(dense) - 1)]
+    verts, faces, grid, sharp = _skin_geometry(list(rings), bands, _along(numpy.stack([y, z], 1)), caps=caps)
+    return _part(name, verts, faces, mat, col, loc, rot, smooth, sharp, grid)
+
+
+def _turn(d):
+    """The rotation taking local Z along `d`: steep directions keep the part's sides square to the
+    world axes, shallow ones keep its local Y up (as beam() does)."""
+    d = Vector(d).normalized()
+    return Vector((0, 0, 1)).rotation_difference(d) if abs(d.z) > 0.7 else d.to_track_quat('Z', 'Y')
+
+
+def _capsule_profile(length, ra, rb, ends, segments, step=None):
+    """(radius, z) points of a capsule from z = -length/2 to +length/2 and the band of each span: the
+    end at -z, the middle (loops about `step` apart when given), the end at +z."""
+    pair = (ends, ends) if isinstance(ends, str) else tuple(ends)
+    if len(pair) != 2 or any(e not in ('round', 'flat', 'point') for e in pair):
+        raise ValueError("capsule ends are 'round', 'flat' or 'point', or one of those per end")
+    ea, eb = (0.0 if kind == 'flat' else r for kind, r in zip(pair, (ra, rb)))
+    if ea + eb > 0.98 * length:
+        f = 0.98 * length / (ea + eb)
+        ea, eb = ea * f, eb * f
+    steps = max(2, segments // 4)
+
+    def end(kind, r, e, tip, sign):
+        if kind == 'round':
+            return [(r * math.sin(a), tip + sign * e * (1 - math.cos(a))) for a in numpy.linspace(0, math.pi / 2, steps + 1)]
+        return [(0.0, tip), (r, tip + sign * e)]
+
+    a = end(pair[0], ra, ea, -length / 2, 1)
+    b = end(pair[1], rb, eb, length / 2, -1)[::-1]
+    (r0, z0), (r1, z1) = a[-1], b[0]
+    cuts = max(1, round((z1 - z0) / step)) if step else 1
+    middle = [(r0 + (r1 - r0) * i / cuts, z0 + (z1 - z0) * i / cuts) for i in range(1, cuts)]
+    return a + middle + b, [0] * (len(a) - 1) + [1] * cuts + [2] * (len(b) - 1)
+
+
+def capsule(name, a, b, radius, ends='round', segments=24, mat=None, col=None, smooth=SMOOTH):
+    """A capsule from point a to point b, tips included: nacelles, tanks, limbs, pods. `radius` is one
+    number, or (at a, at b) for a taper; `ends` 'round', 'flat' or 'point', or one per end (a, b)."""
+    a, b = Vector(a), Vector(b)
+    length = (b - a).length
+    if length < 1e-9:
+        raise ValueError(f'{name}: capsule ends a and b are the same point')
+    ra, rb = (float(radius), float(radius)) if _number(radius) else (float(radius[0]), float(radius[1]))
+    # Loops along the middle about a face's width apart: square faces, so panel_lines can cut rows.
+    profile, bands = _capsule_profile(length, ra, rb, ends, segments, 2 * math.pi * max(ra, rb) / segments)
+    verts, faces, grid, sharp = _skin_geometry(_round_rings(profile, segments), bands, _along(profile))
+    return _part(name, verts, faces, mat, col, (a + b) / 2, _turn(b - a).to_euler(), smooth, sharp, grid)
+
+
+def _surface(target):
+    """A part's shipped surface in world space: vertices, triangles, unit normals, areas and a BVH."""
+    target = _get(target)
+    bpy.context.view_layer.update()
+    with evaluated([target]) as shipped:
+        me = shipped.get(target)
+        if me is None:
+            raise ValueError(f'{target.name} is not a mesh part')
+        me.calc_loop_triangles()
+        pts = world_vertices(target, me)
+        tris = genio_bpy._ints(me.loop_triangles, 'vertices', len(me.loop_triangles), 3)
+    if not len(tris):
+        raise ValueError(f'{target.name} has no faces')
+    corner = pts[tris]
+    n = numpy.cross(corner[:, 1] - corner[:, 0], corner[:, 2] - corner[:, 0])
+    area = numpy.linalg.norm(n, axis=1)
+    return pts, tris, n / numpy.maximum(area, 1e-12)[:, None], area / 2, BVHTree.FromPolygons(pts.tolist(), tris.tolist())
+
+
+def _square(z, x):
+    """Unit x and y square to the unit z, x as close to the given direction as the plane allows."""
+    x = numpy.asarray(x, dtype=numpy.float64) - z * z.dot(x)
+    if numpy.linalg.norm(x) < 1e-6:
+        x = numpy.cross(z, (1.0, 0.0, 0.0) if abs(z[0]) < 0.9 else (0.0, 1.0, 0.0))
+    x = x / numpy.linalg.norm(x)
+    return x, numpy.cross(z, x)
+
+
+def _boxes_part(name, frames, kinds, mat, col):
+    """One part of many small boxes or 8-sided cylinders: `frames` are (centre, x, y, z) with the axes
+    scaled to the full size, `kinds` 'box' or 'cylinder' each."""
+    bm = bmesh.new()
+    for (c, x, y, z), kind in zip(frames, kinds):
+        m = Matrix([(*x, 0), (*y, 0), (*z, 0), (*c, 1)]).transposed()
+        if kind == 'box':
+            bmesh.ops.create_cube(bm, size=1.0, matrix=m)
+        else:
+            bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=8, radius1=0.5, radius2=0.5, depth=1.0, matrix=m)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return _object(name, bm, mat, col, (0, 0, 0), (0, 0, 0))
+
+
+def window_rows(name, target, rows, size=(0.4, 0.25), spacing=None, mat=None, col=None, depth=0.04, reach=None, closed=False):
+    """Windows (portholes, lit panels, vents) along rows on a part's surface, as one part. Each row is
+    a line of (x, y, z) points near the surface (p.circle round a 3D centre makes a ring); a window
+    (`size`: its width along the row and its height) sits every `spacing` metres (twice its width) on
+    the surface nearest the row, facing out, half sunk, `depth` thick; a point with no surface within
+    `reach` (four window widths) gets none. closed=True runs every row back to its start. `mat`
+    defaults to the emissive 'Window light'. Returns the part."""
+    target = _get(target)
+    w, h = (float(size), float(size)) if _number(size) else (float(size[0]), float(size[1]))
+    spacing = spacing or 2 * w
+    reach = reach or 4 * max(w, h)
+    *_, tree = _surface(target)
+    frames = []
+    for row in rows:
+        pts = numpy.array([[float(c) for c in q] for q in row], dtype=numpy.float64)
+        if pts.ndim != 2 or pts.shape[1] != 3 or len(pts) < 1:
+            raise ValueError(f'{name}: each row is a list of (x, y, z) points')
+        if closed and len(pts) > 1:
+            pts = numpy.vstack([pts, pts[:1]])
+        seg = numpy.diff(pts, axis=0)
+        cum = numpy.concatenate([[0.0], numpy.cumsum(numpy.linalg.norm(seg, axis=1))])
+        total = cum[-1]
+        if total < 1e-9:
+            places = [0.0]
+        elif closed:
+            count = max(1, int(total // spacing))
+            places = (numpy.arange(count) + 0.5) * total / count
+        else:
+            count = int(total // spacing) + 1
+            places = (total - (count - 1) * spacing) / 2 + numpy.arange(count) * spacing
+        for s in places:
+            i = min(int(numpy.searchsorted(cum, s, 'right')) - 1, len(seg) - 1) if len(seg) else 0
+            if len(seg):
+                q = pts[i] + seg[i] * ((s - cum[i]) / max(cum[i + 1] - cum[i], 1e-12))
+                along = seg[i]
+            else:
+                q, along = pts[0], (1.0, 0.0, 0.0)
+            loc, normal, _, _ = tree.find_nearest(Vector(q), reach)
+            if loc is None:
+                continue
+            z = numpy.array(normal)
+            x, y = _square(z, along)
+            frames.append((numpy.array(loc) + z * depth * 0.1, x * w, y * h, z * depth))
+    if not frames:
+        raise ValueError(f'{name}: no window found the surface of {target.name} within {reach:g} m; bring the rows nearer to it')
+    mat = mat if mat is not None else material('Window light', '#ffd9a0', preset='emissive')
+    return _boxes_part(name, frames, ['box'] * len(frames), mat, col)
+
+
+GREEBLE_TRIANGLES = {'box': 12, 'cylinder': 28}
+
+
+def greebles(name, target, region=None, density=20.0, sizes=(0.05, 0.25), height=(0.2, 0.8), shapes=('box', 'cylinder'), seed=0,
+             mat=None, col=None, budget=4000):
+    """Small detail on a part's surface, as one part: boxes and 8-sided cylinders standing on it,
+    turned to its normal at random, about `density` per square metre of the region, each `sizes`
+    metres across and `height` times that tall, at most `budget` triangles. `region(point)` (a world
+    point on the surface) picks where; seeded, so the same seed gives the same greebles. `mat`
+    defaults to the part's own first material. Returns the part."""
+    target = _get(target)
+    if mat is None and target.type == 'MESH' and target.data.materials:
+        mat = target.data.materials[0]
+    unknown = [s for s in shapes if s not in GREEBLE_TRIANGLES]
+    if not shapes or unknown:
+        raise ValueError(f"{name}: greeble shapes are 'box' and 'cylinder'")
+    pts, tris, normals, area, _ = _surface(target)
+    centres = pts[tris].mean(axis=1)
+    keep = numpy.array([bool(region(Vector(c))) for c in centres]) if region else numpy.ones(len(tris), dtype=bool)
+    area = numpy.where(keep, area, 0.0)
+    if area.sum() <= 0:
+        raise ValueError(f'{name}: the region holds no surface of {target.name}')
+    rng = numpy.random.RandomState(seed)
+    wanted = int(round(density * area.sum()))
+    picks = rng.choice(len(tris), size=max(wanted, 0), p=area / area.sum()) if wanted else []
+    frames, kinds, used = [], [], 0
+    for t in picks:
+        kind = shapes[rng.randint(len(shapes))]
+        if used + GREEBLE_TRIANGLES[kind] > budget:
+            break
+        used += GREEBLE_TRIANGLES[kind]
+        r1, r2 = math.sqrt(rng.uniform()), rng.uniform()
+        a, b, c = pts[tris[t]]
+        p = a * (1 - r1) + b * r1 * (1 - r2) + c * r1 * r2
+        z = normals[t]
+        turn = rng.uniform(0, 2 * math.pi)
+        x, y = _square(z, numpy.cross(z, (0.0, 0.0, 1.0)) if abs(z[2]) < 0.9 else (1.0, 0.0, 0.0))
+        x, y = x * math.cos(turn) + y * math.sin(turn), y * math.cos(turn) - x * math.sin(turn)
+        wide = rng.uniform(*sizes)
+        deep = wide * (rng.uniform(0.5, 1.0) if kind == 'box' else 1.0)
+        tall = wide * rng.uniform(*height)
+        frames.append((p + z * tall * 0.35, x * wide, y * deep, z * tall))
+        kinds.append(kind)
+    if not frames:
+        raise ValueError(f'{name}: no greeble fits: raise density or budget')
+    return _boxes_part(name, frames, kinds, mat, col)
+
+
+def _face_cells(centre, normal, size):
+    """Panel cells for faces without the kit's surface data: a grid of `size` in the part's space on the
+    two axes square to each face's main direction. Returns (key rows, colour)."""
+    axis = numpy.abs(normal).argmax(axis=1)
+    side = numpy.take_along_axis(normal, axis[:, None], 1)[:, 0] > 0
+    u = numpy.take_along_axis(centre, ((axis + 1) % 3)[:, None], 1)[:, 0]
+    v = numpy.take_along_axis(centre, ((axis + 2) % 3)[:, None], 1)[:, 0]
+    w = numpy.take_along_axis(centre, axis[:, None], 1)[:, 0]
+    iu, iv, layer = (numpy.floor(x / size).astype(numpy.int64) for x in (u, v, w))
+    keys = numpy.stack([axis, side, layer, iu, iv], 1)
+    return keys, 6 + (axis * 2 + side) * 4 + (iu % 2) * 2 + iv % 2
+
+
+def _cut_cells(me, size, plain):
+    """Cut faces bigger than a panel that lack the kit's surface data (a box's sides) along the grid
+    planes at multiples of `size`, so they split into panels instead of one each."""
+    if not len(me.polygons):
+        return
+    starts = genio_bpy._ints(me.polygons, 'loop_start', len(me.polygons))
+    totals = genio_bpy._ints(me.polygons, 'loop_total', len(me.polygons))
+    corner = numpy.empty(len(me.vertices) * 3)
+    me.vertices.foreach_get('co', corner)
+    co = corner.reshape(-1, 3)[genio_bpy._ints(me.loops, 'vertex_index', len(me.loops))]
+    lo, hi = numpy.minimum.reduceat(co, starts), numpy.maximum.reduceat(co, starts)
+    big = plain & (totals > 0) & (numpy.sort(hi - lo, axis=1)[:, 1] > 1.25 * size)
+    if not big.any():
+        return
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bm.faces.ensure_lookup_table()
+    faces = [bm.faces[i] for i in numpy.nonzero(big)[0]]
+    for k in range(3):
+        normal = Vector([1.0 if j == k else 0.0 for j in range(3)])
+        for at in numpy.arange(math.ceil(lo[big, k].min() / size), math.floor(hi[big, k].max() / size) + 1) * size:
+            crossing = [f for f in faces if min(v.co[k] for v in f.verts) < at - 1e-6 and max(v.co[k] for v in f.verts) > at + 1e-6]
+            if not crossing:
+                continue
+            geom = list({g for f in crossing for g in (f, *f.edges, *f.verts)})
+            done = bmesh.ops.bisect_plane(bm, geom=geom, dist=1e-6, plane_co=normal * float(at), plane_no=normal)
+            fresh = {g for g in done['geom'] if isinstance(g, bmesh.types.BMFace)}
+            faces = [f for f in faces if f.is_valid and f not in fresh] + list(fresh)
+    bm.to_mesh(me)
+    bm.free()
+
+
+def _panels(me, size, pattern, region, gridded):
+    """Each face's panel (-1: none) and the colour of its panel: panels of one colour never touch,
+    so each colour insets in one go. Faces with the kit's surface data get rows along their band and
+    columns around (a power-of-two share of the segments, so the columns of finer rows line up with
+    coarser ones); the others cells of a grid in the part's space."""
+    count = len(me.polygons)
+    centre, normal = numpy.empty(count * 3), numpy.empty(count * 3)
+    me.polygons.foreach_get('center', centre)
+    me.polygons.foreach_get('normal', normal)
+    centre, normal = centre.reshape(-1, 3), normal.reshape(-1, 3)
+    keep = numpy.array([bool(region(Vector(c))) for c in centre]) if region else numpy.ones(count, dtype=bool)
+    values = {}
+    for key, kind in _GRID if gridded else ():
+        values[key] = numpy.empty(count, dtype=numpy.int32 if kind == 'INT' else numpy.float32)
+        me.attributes[key].data.foreach_get('value', values[key])
+    surface = values['genio_cols'] > 0 if gridded else numpy.zeros(count, dtype=bool)
+    keys = numpy.zeros((count, 5), dtype=numpy.int64)
+    colour = numpy.zeros(count, dtype=numpy.int64)
+    if surface.any():
+        band, t, length = values['genio_band'], values['genio_t'], values['genio_band_len']
+        col, cols, width = values['genio_col'], values['genio_cols'], values['genio_width']
+        row = numpy.zeros(count, dtype=numpy.int64)
+        offset = 0
+        for b in numpy.unique(band[surface]):
+            on = surface & (band == b)
+            rows = max(1, int(round(float(length[on][0]) / size))) if pattern in ('grid', 'concentric') else 1
+            row[on] = offset + numpy.minimum(rows - 1, numpy.floor(t[on] * rows).astype(numpy.int64))
+            offset += rows
+        column = numpy.zeros(count, dtype=numpy.int64)
+        for r in numpy.unique(row[surface]):
+            on = surface & (row == r)
+            segments = int(cols[on][0])
+            split = 1
+            if pattern in ('grid', 'radial'):
+                around = float(width[on].mean()) * segments
+                options = [segments >> j for j in range(segments.bit_length()) if segments % (1 << j) == 0]
+                split = min(options, key=lambda c: abs(math.log(max(around / c, 1e-9) / size)))
+            column[on] = col[on] // (segments // split)
+            # Columns alternate; an odd ring of them gives its last column a third colour.
+            alternate = column[on] % 2 if split > 1 else numpy.zeros(int(on.sum()), dtype=numpy.int64)
+            if split > 1 and split % 2:
+                alternate[column[on] == split - 1] = 2
+            colour[on] = (r % 2) * 3 + alternate
+        keys[surface] = numpy.stack([numpy.full(int(surface.sum()), -1), cols[surface], numpy.zeros(int(surface.sum())), row[surface], column[surface]], 1)
+    plain = ~surface
+    if plain.any():
+        keys[plain], colour[plain] = _face_cells(centre[plain], normal[plain], size)
+    panel = numpy.full(count, -1, dtype=numpy.int64)
+    if keep.any():
+        panel[keep] = numpy.unique(keys[keep], axis=0, return_inverse=True)[1].reshape(-1)
+    return panel, colour
+
+
+def _seam_mask(me, panel):
+    """Per face corner, its distance to each edge of its face that is an edge of its panel (up to four;
+    the others _FAR), plus 1, in two attributes; 0 on faces outside every panel. The bake reads them
+    as lines (panel_lines(bake_only=True)); distances are linear over a flat face, so they interpolate
+    exactly."""
+    nf, nl = len(me.polygons), len(me.loops)
+    start = genio_bpy._ints(me.polygons, 'loop_start', nf)
+    total = genio_bpy._ints(me.polygons, 'loop_total', nf)
+    vert = genio_bpy._ints(me.loops, 'vertex_index', nl)
+    edge = genio_bpy._ints(me.loops, 'edge_index', nl)
+    co = numpy.empty(len(me.vertices) * 3)
+    me.vertices.foreach_get('co', co)
+    co = co.reshape(-1, 3)
+    face = numpy.repeat(numpy.arange(nf), total)
+    # The face on the other side of each corner's edge (the corner's vertex to the next one's), -1 at a border.
+    order = numpy.argsort(edge, kind='stable')
+    uses = numpy.bincount(edge, minlength=len(me.edges))
+    first = numpy.cumsum(uses) - uses
+    other = numpy.full(nl, -1)
+    two = numpy.nonzero(uses == 2)[0]
+    a, b = order[first[two]], order[first[two] + 1]
+    other[a], other[b] = face[b], face[a]
+    mine = panel[face]
+    border = (mine >= 0) & ((other < 0) | (panel[numpy.maximum(other, 0)] != mine))
+    nxt = start[face] + (numpy.arange(nl) - start[face] + 1) % total[face]
+    out = numpy.full((nl, 4), -1.0)
+    for k in numpy.unique(total):
+        faces = numpy.nonzero((total == k) & (panel >= 0))[0]
+        if not len(faces):
+            continue
+        loops = start[faces][:, None] + numpy.arange(k)
+        p = co[vert[loops]]
+        s0, s1 = co[vert[loops]], co[vert[nxt[loops]]]
+        along = s1 - s0
+        d = numpy.linalg.norm(numpy.cross(p[:, :, None] - s0[:, None], along[:, None]), axis=-1) / numpy.maximum(numpy.linalg.norm(along, axis=-1), 1e-12)[:, None]
+        edges = border[loops]
+        d = numpy.where(edges[:, None, :], d, _FAR)
+        pick = numpy.argsort(~edges, axis=1, kind='stable')[:, :4]
+        d = numpy.take_along_axis(d, numpy.broadcast_to(pick[:, None, :], (len(faces), k, pick.shape[1])), axis=2)
+        if d.shape[2] < 4:
+            d = numpy.concatenate([d, numpy.full((len(faces), k, 4 - d.shape[2]), _FAR)], axis=2)
+        out[loops.ravel()] = d.reshape(-1, 4)
+    out += 1.0
+    for key, kind, values in ((_SEAM, 'FLOAT_VECTOR', out[:, :3]), (_SEAM_W, 'FLOAT', out[:, 3])):
+        old = me.attributes.get(key)
+        if old is not None:
+            me.attributes.remove(old)
+        me.attributes.new(key, kind, 'CORNER').data.foreach_set('vector' if kind == 'FLOAT_VECTOR' else 'value', values.astype(numpy.float32).ravel())
+
+
+def panel_lines(ob, size=0.8, pattern='grid', gap=0.012, depth=0.006, region=None, mat=None, bake_only=False, strength=0.6):
+    """Panel seams on a part: plates about `size` metres, the strips between them recessed `gap`
+    wide each side (each plate inset by `gap` and raised `depth`; a negative depth sinks it), every
+    seam edge sharp; `mat` paints the strips. On parts from p.revolve, p.sweep, p.hull and p.capsule
+    the plates follow the shape: 'grid' rows along each piece or station span and columns around,
+    'radial' columns only, 'concentric' rows only, 'stations' a seam at each piece or station
+    joint; on other parts 'grid' cuts a grid in the part's space. `region(point)` (the face centre in
+    the part's space) picks where. bake_only=True adds no triangles: the seams become a mask that
+    p.bake_maps turns into darker (`strength`), rougher lines. Once per part. Returns the plates."""
+    ob = _get(ob)
+    if pattern not in PATTERNS:
+        raise ValueError(f'{ob.name}: panel pattern is one of {", ".join(PATTERNS)}')
+    if size <= 0 or gap <= 0:
+        raise ValueError(f'{ob.name}: panel size and gap must be above 0')
+    me = ob.data
+    gridded = all(me.attributes.get(key) is not None for key, _ in _GRID)
+    if pattern != 'grid' and not gridded:
+        raise ValueError(f"{ob.name}: pattern {pattern!r} follows a part from p.revolve, p.sweep, p.hull or p.capsule; use 'grid' here")
+    if not bake_only:
+        surface = numpy.zeros(len(me.polygons), dtype=numpy.int32)
+        if gridded:
+            me.attributes['genio_cols'].data.foreach_get('value', surface)
+        _cut_cells(me, size, surface <= 0)
+    panel, colour = _panels(me, size, pattern, region, gridded)
+    plates = int(panel.max()) + 1
+    if not plates:
+        raise ValueError(f'{ob.name}: no faces in the region')
+    if bake_only:
+        if not me.materials or any(m is None for m in me.materials):
+            raise ValueError(f'{ob.name}: give the part a material first; the seams are painted on it')
+        _seam_mask(me, panel)
+        for m in dict.fromkeys(me.materials):
+            _store(m, 'seams', {'gap': gap, 'strength': strength})
+            _repaint(m)
+        return plates
+    index = None
+    if mat is not None:
+        if mat.name not in [m.name for m in me.materials if m]:
+            me.materials.append(mat)
+        index = [m.name if m else '' for m in me.materials].index(mat.name)
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bm.faces.ensure_lookup_table()
+    groups = {}
+    for i in numpy.nonzero(panel >= 0)[0]:
+        groups.setdefault(int(colour[i]), []).append(bm.faces[int(i)])
+    for c in sorted(groups):
+        for f in bmesh.ops.inset_region(bm, faces=groups[c], thickness=gap, depth=depth, use_even_offset=True)['faces']:
+            if index is not None:
+                f.material_index = index
+            for e in f.edges:
+                e.smooth = False
+    bm.to_mesh(me)
+    bm.free()
+    me.update()
+    return plates
+
+
+# Plan as data -----------------------------------------------------------------------------------
+# The model's layout written down before any geometry: every main part's place, size and simple
+# shape. Step 1 builds them all (blockout), later steps replace each by name and read its numbers
+# from the plan, and the review's Plan line compares the built parts with it.
+
+_PLAN = 'genio_plan'  # scene property: the planned parts' boxes and the plan's size, as JSON
+PLAN_SHAPES = ('box', 'cylinder', 'disc', 'sphere', 'capsule', 'cone', 'wedge', 'beam')
+_PLAN_KEYS = ('at', 'size', 'shape', 'axis', 'mirror', 'ends', 'between', 'level', 'mat')
+
+
+class PlanPart:
+    """One planned part: `at` (its centre), `size` ((x, y, z), or the thickness of a part between two
+    points), `shape`, `axis` (the long or round axis, 'x', 'y' or 'z'), `ends` (the two points of a
+    part between two points, else None; `level` when its sections stay level), `box` ((min, max) of
+    its planned shape) and `mat`."""
+
+    def __init__(self, name, at, size, shape, axis=None, ends=None, mat=None, level=False):
+        self.name, self.at, self.size, self.shape, self.axis, self.ends, self.mat, self.level = name, at, size, shape, axis, ends, mat, level
+        self.box = None
+
+    def mirrored(self, name):
+        flip = lambda v: (-v[0], v[1], v[2])  # noqa: E731
+        return PlanPart(name, flip(self.at), self.size, self.shape, self.axis, self.ends and tuple(flip(e) for e in self.ends), self.mat, self.level)
+
+    def __repr__(self):
+        where = f'ends={self.ends}' if self.ends else f'at={self.at}'
+        return f'PlanPart({self.name!r}, {where}, size={self.size}, shape={self.shape!r})'
+
+
+class Plan(dict):
+    """p.plan()'s result: part name -> PlanPart, in plan order."""
+
+    @property
+    def box(self):
+        return (tuple(min(p.box[0][k] for p in self.values()) for k in range(3)), tuple(max(p.box[1][k] for p in self.values()) for k in range(3)))
+
+
+def _xyz(value, what, name):
+    try:
+        v = tuple(float(c) for c in value)
+    except TypeError:
+        v = ()
+    if len(v) != 3:
+        raise ValueError(f'{name}: {what} is (x, y, z)')
+    return v
+
+
+def _plan_axis(size, shape):
+    """The axis a round or long shape runs along when the plan does not say: z for a disc, the longer
+    of x and y for a wedge's ridge, else the one size unlike the other two (a wheel's thickness, a
+    nacelle's length), else the longest."""
+    if shape == 'disc':
+        return 'z'
+    if shape == 'wedge':
+        return 'x' if size[0] > size[1] else 'y'
+    for k in range(3):
+        a, b = size[(k + 1) % 3], size[(k + 2) % 3]
+        if abs(a - b) <= 0.02 * max(a, b) and abs(size[k] - a) > 0.02 * max(size[k], a):
+            return 'xyz'[k]
+    return 'xyz'[max(range(3), key=lambda k: (size[k], k))]
+
+
+def _unit_shape(shape, sa, sb, sl, segments=32):
+    """A shape along local Z centred on the origin: `sa` across x, `sb` across y, `sl` long. Returns
+    vertices, faces and the face grid (None for a box)."""
+    if shape in ('box', 'beam'):
+        verts = numpy.array([(x, y, z) for z in (-0.5, 0.5) for y in (-0.5, 0.5) for x in (-0.5, 0.5)]) * (sa, sb, sl)
+        return verts, [(0, 2, 3, 1), (4, 5, 7, 6), (0, 1, 5, 4), (1, 3, 7, 5), (3, 2, 6, 7), (2, 0, 4, 6)], None
+    radius = 1.0  # the profile's radius; the loops scale it to sa / 2 across x and sb / 2 across y
+    if shape in ('cylinder', 'disc'):
+        profile, bands = [(0.0, -sl / 2), (1.0, -sl / 2), (1.0, sl / 2), (0.0, sl / 2)], [0, 1, 2]
+    elif shape == 'cone':
+        profile, bands = [(0.0, -sl / 2), (1.0, -sl / 2), (0.0, sl / 2)], [0, 1]
+    elif shape == 'sphere':
+        a = numpy.linspace(0, math.pi, segments // 2 + 1)
+        profile, bands = list(zip(numpy.sin(a).tolist(), (-numpy.cos(a) * sl / 2).tolist())), [0] * (segments // 2)
+    else:  # capsule: round ends as long as it is thick
+        radius = max(sa, sb) / 2
+        profile, bands = _capsule_profile(sl, radius, radius, 'round', segments)
+    # Loops along a long straight stretch about half a thickness apart: an edge as long as the part
+    # would pass through whatever is sunk into it, which the review reads as a part through another.
+    step = max(max(sa, sb) / 2, sl / 24)
+    dense, spans = [profile[0]], []
+    for (r0, z0), (r1, z1), band in zip(profile, profile[1:], bands):
+        cuts = max(1, math.ceil(abs(z1 - z0) / step - 1e-9))
+        dense += [(r0 + (r1 - r0) * i / cuts, z0 + (z1 - z0) * i / cuts) for i in range(1, cuts + 1)]
+        spans += [band] * cuts
+    profile, bands = dense, spans
+    rings = _round_rings(profile, segments, sa / 2 / radius, sb / 2 / radius)
+    verts, faces, grid, _ = _skin_geometry(rings, bands, _along(profile))
+    return verts, faces, grid
+
+
+def _plan_geometry(e, segments=32):
+    """A planned part's simple shape in the model's space: vertices, faces and face grid."""
+    if e.ends is not None:
+        a, b = Vector(e.ends[0]), Vector(e.ends[1])
+        length = (b - a).length
+        if length < 1e-9:
+            raise ValueError(f'{e.name}: its two ends are the same point')
+        sa, sb = (float(e.size), float(e.size)) if _number(e.size) else (float(e.size[0]), float(e.size[1]))
+        verts, faces, grid = _unit_shape(e.shape, sa, sb, length, segments)
+        if e.level:
+            # Level sections slid along the line from a to b: x across world X, y along world Y.
+            return numpy.array(a) + (verts[:, 2:] / length + 0.5) * numpy.array(b - a) + verts * (1.0, 1.0, 0.0), faces, grid
+        turn = numpy.array(_turn(b - a).to_matrix())
+        return verts @ turn.T + numpy.array((a + b) / 2), faces, grid
+    sx, sy, sz = e.size
+    if e.shape == 'wedge':
+        ridge = [(0, -sy / 2, sz / 2), (0, sy / 2, sz / 2)] if e.axis == 'y' else [(-sx / 2, 0, sz / 2), (sx / 2, 0, sz / 2)]
+        base = [(x, y, -sz / 2) for x, y in ((-sx / 2, -sy / 2), (sx / 2, -sy / 2), (sx / 2, sy / 2), (-sx / 2, sy / 2))]
+        faces = [(0, 3, 2, 1), (1, 2, 5, 4), (3, 0, 4, 5), (0, 1, 4), (2, 3, 5)] if e.axis == 'y' else [(0, 3, 2, 1), (0, 1, 5, 4), (2, 3, 4, 5), (3, 0, 4), (1, 2, 5)]
+        return numpy.array(base + ridge) + e.at, faces, None
+    k = 'xyz'.index(e.axis or 'z')
+    verts, faces, grid = _unit_shape(e.shape, e.size[(k + 1) % 3], e.size[(k + 2) % 3], e.size[k], segments)
+    world = numpy.empty_like(verts)
+    world[:, (k + 1) % 3], world[:, (k + 2) % 3], world[:, k] = verts[:, 0], verts[:, 1], verts[:, 2]
+    return world + e.at, faces, grid
+
+
+def _between(name, a, b, shapes, thickness):
+    """The two ends of a part joining planned parts a and b: where the line between their centres
+    leaves each one's planned shape, each sunk into it by half the part's thickness."""
+    ca, cb = Vector(a.at), Vector(b.at)
+    d = cb - ca
+    if d.length < 1e-9:
+        raise ValueError(f'{name}: {a.name} and {b.name} share a centre; give the part its ends instead')
+    d.normalize()
+    hit_a = shapes[a.name].ray_cast(cb, -d)[0]
+    hit_b = shapes[b.name].ray_cast(ca, d)[0]
+    pa, pb = hit_a or ca, hit_b or cb
+    sink = thickness / 2
+    return tuple(pa - d * sink), tuple(pb + d * sink)
+
+
+def plan(parts):
+    """The model's layout as data, written in lib.py before any geometry: {name: dict(at=(x, y, z),
+    size=(x, y, z), shape='box', axis=None, mirror=False, mat=None)}, in the model's final place
+    (standing on z = 0, centred, front to -Y). Shapes: box, cylinder, disc, sphere, capsule, cone,
+    wedge (a gable whose ridge runs along `axis`); a round or long shape runs along `axis` (default:
+    the size unlike the other two). A part between two points: ends=((x, y, z), (x, y, z)), or
+    between=('A', 'B') two parts planned before it, with `size` its thickness and shape 'beam'
+    (default), 'capsule', 'cylinder' or 'cone'; level=True keeps its sections level, as p.sweep's
+    `level` (a neck, a pylon, a leg swept back). mirror=True plans the twin across x = 0 too
+    (`Nacelle L` plans `Nacelle R`). Returns the Plan (name -> part: .at, .size, .box, .shape,
+    .axis, .ends) and keeps it in the scene for the review's Plan line; p.blockout(PLAN) builds it."""
+    if not isinstance(parts, dict) or not parts:
+        raise ValueError('plan takes a dict of parts: {name: dict(at=(x, y, z), size=(x, y, z)), ...}')
+    out, shapes = Plan(), {}
+    for raw, spec in parts.items():
+        name = _clean(raw)
+        if not isinstance(spec, dict):
+            raise ValueError(f'{name}: plan each part as dict(at=..., size=...)')
+        unknown = sorted(set(spec) - set(_PLAN_KEYS))
+        if unknown:
+            raise ValueError(f'{name}: unknown plan key {", ".join(unknown)}; the keys are {", ".join(_PLAN_KEYS)}')
+        joins = spec.get('ends') is not None or spec.get('between') is not None
+        shape = spec.get('shape') or ('beam' if joins else 'box')
+        if shape not in PLAN_SHAPES:
+            raise ValueError(f'{name}: no plan shape {shape!r}: use one of {", ".join(PLAN_SHAPES)}')
+        if joins:
+            if shape not in ('beam', 'capsule', 'cylinder', 'cone'):
+                raise ValueError(f"{name}: a part between two points is a 'beam', 'capsule', 'cylinder' or 'cone'")
+            size = spec.get('size')
+            thick = float(size) if _number(size) else tuple(float(v) for v in (size or ()))
+            if not (thick > 0 if _number(thick) else len(thick) == 2 and min(thick) > 0):
+                raise ValueError(f'{name}: size is its thickness, one number or (width, height)')
+            if spec.get('between') is not None:
+                pair = tuple(spec['between'])
+                missing = [x for x in pair if x not in out]
+                if len(pair) != 2 or missing:
+                    raise ValueError(f'{name}: between names two parts planned before it, not {", ".join(map(repr, missing or pair))}')
+                ends = _between(name, out[pair[0]], out[pair[1]], shapes, thick if _number(thick) else max(thick))
+            else:
+                ends = tuple(_xyz(x, 'each end', name) for x in spec['ends'])
+                if len(ends) != 2:
+                    raise ValueError(f'{name}: ends is two (x, y, z) points')
+            entry = PlanPart(name, tuple((Vector(ends[0]) + Vector(ends[1])) / 2), thick, shape, None, ends, spec.get('mat'), bool(spec.get('level')))
+        else:
+            if shape == 'beam':
+                raise ValueError(f'{name}: a beam runs between two points: give it ends or between')
+            if spec.get('at') is None or spec.get('size') is None:
+                raise ValueError(f'{name}: plan it with at=(x, y, z) and size=(x, y, z)')
+            at, size = _xyz(spec['at'], 'at', name), _xyz(spec['size'], 'size', name)
+            if min(size) <= 0:
+                raise ValueError(f'{name}: every size must be above 0')
+            axis = spec.get('axis') or _plan_axis(size, shape)
+            if axis not in ('x', 'y', 'z') or (shape == 'wedge' and axis == 'z'):
+                raise ValueError(f"{name}: axis is 'x', 'y' or 'z' (a wedge's ridge: 'x' or 'y')")
+            entry = PlanPart(name, at, size, shape, axis, None, spec.get('mat'))
+        entries = [entry]
+        if spec.get('mirror'):
+            twin = _other_side(name)
+            if not twin:
+                raise ValueError(f"{name}: mirror=True needs a side in the name (L, R, Left, Right)")
+            entries.append(entry.mirrored(twin))
+        for e in entries:
+            if e.name in out:
+                raise ValueError(f'{e.name} is planned twice')
+            verts, faces, _ = _plan_geometry(e)
+            e.box = (tuple(verts.min(axis=0).tolist()), tuple(verts.max(axis=0).tolist()))
+            shapes[e.name] = BVHTree.FromPolygons(verts.tolist(), [list(f) for f in faces])
+            out[e.name] = e
+    lo, hi = out.box
+    bpy.context.scene[_PLAN] = json.dumps({'parts': {n: {'box': [list(e.box[0]), list(e.box[1])]} for n, e in out.items()},
+                                           'scale': max(h - l for l, h in zip(lo, hi))})
+    return out
+
+
+def planned():
+    """The plan p.plan() keeps in the scene: {'parts': {name: {'box': [min, max]}}, 'scale': metres}, or None."""
+    try:
+        return json.loads(bpy.context.scene.get(_PLAN, '')) or None
+    except (TypeError, ValueError):
+        return None
+
+
+def blockout(plan, *names, mat=None, col=None):
+    """Every planned part (or the ones named) as its simple shape, named as planned: step 1 shows the
+    whole model, and later steps replace each part by name. A part takes its plan's `mat`, else
+    `mat`, else one grey 'Blockout' material. Returns the parts."""
+    if not isinstance(plan, Plan):
+        raise ValueError('blockout takes the plan p.plan() returned')
+    todo = list(names) or list(plan)
+    unknown = [n for n in todo if n not in plan]
+    if unknown:
+        raise KeyError(f'Not in the plan: {_names_of(unknown)}. Planned: {_names_of(list(plan))}')
+    grey, out = None, []
+    for n in todo:
+        e = plan[n]
+        m = e.mat if e.mat is not None else mat
+        if m is None:
+            grey = grey or material('Blockout', '#9ca3ab', rough=0.7)
+            m = grey
+        verts, faces, grid = _plan_geometry(e)
+        flat = e.shape in ('box', 'beam', 'wedge')
+        out.append(_part(n, verts - numpy.array(e.at), faces, _mat(m), col, e.at, (0, 0, 0), None if flat else SMOOTH, grid=grid))
+    return out
+
+
 # Paint ----------------------------------------------------------------------------------------
 
 # Camo palettes: the ground colour, then patch colours from the widest patches to the smallest,
@@ -741,13 +1778,15 @@ class _Graph:
     def __init__(self, mat):
         self.nt = _nodes(mat)
         old = next((n for n in self.nt.nodes if n.type == 'BSDF_PRINCIPLED'), None)
-        glow = (tuple(old.inputs['Emission Color'].default_value), old.inputs['Emission Strength'].default_value) if old else None
+        # The glow and the preset's inputs (coat, transmission...) carry over; the paint sets the rest.
+        kept = [(key, tuple(old.inputs[key].default_value) if key == 'Emission Color' else old.inputs[key].default_value)
+                for key in ('Emission Color', 'Emission Strength', *_PRESET_INPUTS) if not old.inputs[key].is_linked] if old else []
         self.nt.nodes.clear()
         out = self.nt.nodes.new('ShaderNodeOutputMaterial')
         self.bsdf = self.nt.nodes.new('ShaderNodeBsdfPrincipled')
         self.nt.links.new(self.bsdf.outputs['BSDF'], out.inputs['Surface'])
-        if glow:
-            self.bsdf.inputs['Emission Color'].default_value, self.bsdf.inputs['Emission Strength'].default_value = glow
+        for key, value in kept:
+            self.bsdf.inputs[key].default_value = value
         geo = self.nt.nodes.new('ShaderNodeNewGeometry')
         self.P, self.N = geo.outputs['Position'], geo.outputs['Normal']
 
@@ -832,6 +1871,17 @@ class _Graph:
             c = self.mix(self.math('MULTIPLY', streak, 0.35 * dirt), c, (*_hex('#2a2320'), 1.0))
         return c, hit
 
+    def seams(self, c, r, gap, strength):
+        """panel_lines(bake_only=True) seams: each face corner's distances to its panel's edges (+ 1,
+        so a part without them reads 0) mark darker, rougher lines `gap` wide each side of an edge."""
+        a = self.node('ShaderNodeAttribute', attribute_type='GEOMETRY', attribute_name=_SEAM)
+        b = self.node('ShaderNodeAttribute', attribute_type='GEOMETRY', attribute_name=_SEAM_W)
+        x = self.xyz(a.outputs['Vector'])
+        d = self.math('MINIMUM', self.math('MINIMUM', x[0], x[1]), self.math('MINIMUM', x[2], b.outputs['Fac']))
+        line = self.math('MULTIPLY', self.math('GREATER_THAN', d, 0.5), self.math('SUBTRACT', 1.0, self.step(self.math('SUBTRACT', d, 1.0), gap, 0.25 * gap)))
+        c = self.mix(self.math('MULTIPLY', line, strength), c, (*_hex('#15171a'), 1.0))
+        return c, self.lerp(line, r, 0.85)
+
     def finish(self, c, rough, metal):
         for key, x in (('Base Color', c), ('Roughness', rough), ('Metallic', metal)):
             self.put(self.bsdf.inputs[key], x)
@@ -863,14 +1913,16 @@ def _repaint(mat):
     """Rebuild a material's paint graph from its presets and its plain colour, roughness and
     metallic, so applying a preset again replaces it instead of stacking."""
     spec = json.loads(mat.get(_PAINT, '{}'))
-    camo_spec, wear_spec = spec.get('camo'), spec.get('weathering')
+    camo_spec, wear_spec, seam_spec = spec.get('camo'), spec.get('weathering'), spec.get('seams')
     rough, metal = mat.roughness, mat.metallic
     base = (*mat.diffuse_color[:3], 1.0)
     g = _Graph(mat)
     P = g.P
-    s = (camo_spec or wear_spec)['scale']  # pattern size; the weathering keeps its own
+    s = (camo_spec or wear_spec or {}).get('scale', 1.0)  # pattern size; the weathering keeps its own
     lines = 0.0
-    if camo_spec:
+    if not camo_spec and not wear_spec:
+        c, r = base, rough  # panel seams alone keep the plain colour and roughness
+    elif camo_spec:
         colours = [(*_hex(h), 1.0) for h in camo_spec['colors']]
         warp = g.node('ShaderNodeVectorMath', ((0, g.vec('SUBTRACT', g.noise(P, 0.8 / s, 2.0, 0.5, 'Color'), (0.5, 0.5, 0.5))),), operation='SCALE')
         warp.inputs['Scale'].default_value = 0.7 * s
@@ -888,12 +1940,15 @@ def _repaint(mat):
         lines = camo_spec['panel_lines']
     else:
         c = g.shade(base, g.lerp(g.noise(P, 6.0 / s, 4.0, 0.6), 0.8, 1.15))
-    r = g.lerp(g.noise(P, 4.0 / s), max(rough - 0.1, 0.0), min(rough + 0.12, 1.0))
+    if camo_spec or wear_spec:
+        r = g.lerp(g.noise(P, 4.0 / s), max(rough - 0.1, 0.0), min(rough + 0.12, 1.0))
     m = metal
     if wear_spec:
         lines = max(lines, wear_spec['panel_lines'])
     if lines:
         c = g.panel_lines(c, lines, s)
+    if seam_spec:
+        c, r = g.seams(c, r, seam_spec['gap'], seam_spec['strength'])
     if wear_spec:
         c, hit = g.weather(c, wear_spec['scale'], wear_spec['wear'], wear_spec['dirt'], wear_spec['wear_color'])
         r = g.lerp(hit, r, wear_spec['bare_rough'])
