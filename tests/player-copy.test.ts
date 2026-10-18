@@ -76,7 +76,7 @@ function makeWorld(dir: string): string {
   git(dir, 'add', '.'); git(dir, 'commit', '-qm', 'project')
   // The main checkout's warm Library (ignored), the seed source.
   write(path.join(dir, 'Game', 'Library', 'ArtifactDB'), 'warm cache')
-  write(path.join(dir, 'Game', 'Library', 'PackageCache', 'skip.txt'), 'UPM refills this')
+  write(path.join(dir, 'Game', 'Library', 'PackageCache', 'skip.txt'), 'seeded with the Library')
   return dir
 }
 
@@ -100,7 +100,10 @@ it('mirrors the main checkout as it is on disk, seeds the Library, and never wri
   const rec = await copies.ensure(world, 'Game')
   expect(rec).toMatchObject({ state: 'ready', engineRoot: 'Game', project: world })
   expect(rec.root).toBe(path.join(rec.dir, 'Game'))
-  expect(path.dirname(rec.dir)).toBe(path.join(data, 'pc'))
+  // Flat: <data>/<9 hex>, nothing between; the manifest names what the folder is for.
+  expect(path.dirname(rec.dir)).toBe(data)
+  expect(path.basename(rec.dir)).toMatch(/^[0-9a-f]{9}$/)
+  expect(JSON.parse(fs.readFileSync(path.join(rec.dir, '.genio-copy.json'), 'utf8'))).toMatchObject({ kind: 'genio-player-copy', purpose: 'player-copy', id: rec.id, project: world })
   const report = await copies.sync(world, { path: world })
   expect(snapshot(world)).toEqual(before)
   expect(copyTree(copies)).toEqual(expected(world))
@@ -109,10 +112,10 @@ it('mirrors the main checkout as it is on disk, seeds the Library, and never wri
   expect(fs.existsSync(path.join(rec.dir, 'world', 'README.md'))).toBe(false)
   expect(report).toMatchObject({ first: true, complete: true, source: { kind: 'checkout', path: world, branch: 'main' }, restart: { needed: true, unityVersion: '6000.3.1f1' } })
   expect(report.files).toMatchObject({ added: Object.keys(expected(world)).length, deleted: 0 })
-  // The Library is seeded once from the main checkout; PackageCache is withheld.
+  // The Library is seeded once from the main checkout, PackageCache included: UPM needs no network resolve.
   expect(report.library).toMatchObject({ version: '6000.3.1f1', seed: { seeded: true } })
   expect(fs.readFileSync(path.join(rec.root, 'Library', 'ArtifactDB'), 'utf8')).toBe('warm cache')
-  expect(fs.existsSync(path.join(rec.root, 'Library', 'PackageCache'))).toBe(false)
+  expect(fs.readFileSync(path.join(rec.root, 'Library', 'PackageCache', 'skip.txt'), 'utf8')).toBe('seeded with the Library')
 
   // Nothing changed: nothing is copied and no restart is advised.
   const again = await copies.sync(world, { path: world })
@@ -562,7 +565,7 @@ it('never deletes a folder that is not its marked copy', async () => {
   const copies = make()
   const rec = await copies.ensure(world, 'Game')
   await copies.sync(world, { path: world })
-  const marker = path.join(rec.dir, 'genio-player-copy.json')
+  const marker = path.join(rec.dir, '.genio-copy.json')
   const original = fs.readFileSync(marker, 'utf8')
   fs.writeFileSync(marker, JSON.stringify({ kind: 'genio-player-copy', id: 'someone-else' }))
   await copies.delete(world)
@@ -675,12 +678,12 @@ it('keeps one record per project, lists them, sizes them and estimates a first c
   expect(copies.list().map(r => r.project).sort()).toEqual([second, world].sort())
   expect(copies.status(world)!.dir).not.toBe(copies.status(second)!.dir)
   const sizes = await copies.sizes(world, 'Game')
-  expect(sizes).toMatchObject({ exists: true, state: 'ready', libraryBytes: 'warm cache'.length, stashBytes: 0 })
+  expect(sizes).toMatchObject({ exists: true, state: 'ready', libraryBytes: 'warm cache'.length + 'seeded with the Library'.length, stashBytes: 0 })
   expect(sizes.projectBytes).toBeGreaterThan(2048)
   expect(sizes.totalBytes).toBe(sizes.projectBytes! + sizes.libraryBytes! + sizes.stashBytes! + sizes.trashBytes!)
   await copies.delete(second)
   const estimate = await copies.sizes(second, 'Game')
-  expect(estimate).toMatchObject({ exists: false, estimate: { libraryBytes: 'warm cache'.length, files: Object.keys(expected(second)).length } })
+  expect(estimate).toMatchObject({ exists: false, estimate: { libraryBytes: 'warm cache'.length + 'seeded with the Library'.length, files: Object.keys(expected(second)).length } })
   expect(copies.list().map(r => r.project)).toEqual([world])
   // A copy owned by another live Genio (here: the parent process) is not taken over.
   const file = path.join(data, 'player-copies', copies.keyOf(world), 'instance.json')
@@ -723,36 +726,39 @@ it('the startup sweep finishes explicit deletions and keeps copies whose Genio s
   expect(fs.existsSync(c.root)).toBe(true)
 }, 90000)
 
-describe('short copy folders (Windows keeps Unity paths under 260 characters)', () => {
-  /** Turns a fresh copy into one made before short folders: <data>/player-copies/<key>/copy/<project>/<Unity folder>. */
+describe('flat copy folders (Windows keeps Unity paths under 260 characters)', () => {
+  /** Turns a fresh copy into one made before the flat layout: <data>/player-copies/<key>/copy/<project>/<Unity folder>. */
   function makeLegacy(copies: PlayerCopies, k: string) {
     const rec = copies.status(world)!, legacy = path.join(data, 'player-copies', k, 'copy')
     fs.mkdirSync(path.join(legacy, 'world'), { recursive: true })
-    for (const n of fs.readdirSync(rec.dir)) fs.renameSync(path.join(rec.dir, n), n === 'Game' ? path.join(legacy, 'world', 'Game') : path.join(legacy, n))
+    for (const n of fs.readdirSync(rec.dir)) fs.renameSync(path.join(rec.dir, n), n === 'Game' ? path.join(legacy, 'world', 'Game') : n === '.genio-copy.json' ? path.join(legacy, 'genio-player-copy.json') : path.join(legacy, n))
     fs.rmdirSync(rec.dir)
     const file = path.join(data, 'player-copies', k, 'instance.json')
-    fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), dir: legacy, root: path.join(legacy, 'world', 'Game') }))
+    const { layout: _, ...old } = JSON.parse(fs.readFileSync(file, 'utf8'))
+    fs.writeFileSync(file, JSON.stringify({ ...old, dir: legacy, root: path.join(legacy, 'world', 'Game') }))
     return legacy
   }
 
-  it('puts a new copy at <data>/pc/<8 hex> with the Unity folder directly inside, and takes a longer id on a collision', async () => {
-    const copies = make(), k = copies.keyOf(world)
-    // Another project's copy already holds the 8-hex folder: never reused, never deleted.
-    const other = path.join(data, 'pc', k.slice(0, 8))
-    write(path.join(other, 'genio-player-copy.json'), JSON.stringify({ kind: 'genio-player-copy', id: 'other', key: 'f'.repeat(24) }))
+  it('puts a new copy at <data>/<9 hex> with the Unity folder directly inside, a new hash per copy', async () => {
+    const copies = make()
+    // A folder of another owner under the same parent is never reused or deleted.
+    const other = path.join(data, 'abcdef123')
+    write(path.join(other, '.genio-copy.json'), JSON.stringify({ kind: 'genio-play-slot', slot: 1 }))
     const rec = await copies.ensure(world, 'Game')
-    expect(rec.dir).toBe(path.join(data, 'pc', k.slice(0, 12)))
+    expect(path.dirname(rec.dir)).toBe(data)
+    expect(rec.dir).not.toBe(other)
+    expect(rec.layout).toBe(2)
     expect(rec.root).toBe(path.join(rec.dir, 'Game'))
-    expect(fs.existsSync(path.join(other, 'genio-player-copy.json'))).toBe(true)
     await copies.sync(world, { path: world })
     expect(copyTree(copies)).toEqual(expected(world))
-    // Deleting it leaves the other folder alone.
+    // Deleting it leaves the other folder alone, and the hash is not reused by the next copy.
     await copies.delete(world)
     expect(fs.existsSync(rec.dir)).toBe(false)
-    expect(fs.existsSync(path.join(other, 'genio-player-copy.json'))).toBe(true)
+    expect(fs.existsSync(path.join(other, '.genio-copy.json'))).toBe(true)
+    expect((await copies.ensure(world, 'Game')).dir).not.toBe(rec.dir)
   }, 60000)
 
-  it('moves a legacy copy to its short folder with its Library at the next ensure, unless an editor has it open', async () => {
+  it('deletes a legacy copy at the next ensure and makes a flat one, unless an editor has it open', async () => {
     const copies = make(), k = copies.keyOf(world)
     await copies.ensure(world, 'Game'); await copies.sync(world, { path: world })
     const legacy = makeLegacy(copies, k)
@@ -760,35 +766,34 @@ describe('short copy folders (Windows keeps Unity paths under 260 characters)', 
     write(path.join(legacy, 'world', 'Game', 'Library', 'EditorInstance.json'), JSON.stringify({ process_id: process.pid }))
     expect((await copies.ensure(world, 'Game')).dir).toBe(legacy)
     fs.rmSync(path.join(legacy, 'world', 'Game', 'Library', 'EditorInstance.json'))
-    const moved = await copies.ensure(world, 'Game')
-    expect(moved.dir).toBe(path.join(data, 'pc', k.slice(0, 8)))
-    expect(moved.root).toBe(path.join(moved.dir, 'world', 'Game'))
+    const flat = await copies.ensure(world, 'Game')
+    expect(path.dirname(flat.dir)).toBe(data)
+    expect(flat.layout).toBe(2)
+    expect(flat.root).toBe(path.join(flat.dir, 'Game'))
+    await copies.settle()
     expect(fs.existsSync(legacy)).toBe(false)
-    expect(fs.readFileSync(path.join(moved.root, 'Library', 'ArtifactDB'), 'utf8')).toBe('warm cache')
     const report = await copies.sync(world, { path: world })
-    expect(report.files).toMatchObject({ unchanged: report.files.source, added: 0 })
+    expect(report.first).toBe(true)
     expect(copyTree(copies)).toEqual(expected(world))
     await copies.delete(world)
-    expect(fs.existsSync(moved.dir)).toBe(false)
+    expect(fs.existsSync(flat.dir)).toBe(false)
   }, 60000)
 
-  it('finds a copy whose move stopped before its record was written, and sweeps short folders left without a record', async () => {
-    const copies = make(), k = copies.keyOf(world)
+  it('sweeps flat and older short folders left without a record, and keeps the live copy and slot folders', async () => {
+    const copies = make()
     const rec = await copies.ensure(world, 'Game'); await copies.sync(world, { path: world })
-    const legacy = makeLegacy(copies, k)
-    // The rename happened; the record still names the legacy folder.
-    fs.renameSync(legacy, rec.dir)
-    const adopted = await copies.ensure(world, 'Game')
-    expect(adopted).toMatchObject({ id: rec.id, dir: rec.dir, root: path.join(rec.dir, 'world', 'Game') })
-    expect(copyTree(copies)).toEqual(expected(world))
-    // A marked short folder of a project with no record goes at the startup sweep; the live copy stays.
-    const stray = path.join(data, 'pc', 'abcdef12')
-    write(path.join(stray, 'genio-player-copy.json'), JSON.stringify({ kind: 'genio-player-copy', id: 'x', key: 'abcdef12'.padEnd(24, '0') }))
-    write(path.join(stray, 'Game', 'Assets', 'x.txt'), 'x')
+    const flat = path.join(data, 'abcdef123'), short = path.join(data, 'pc', 'abcdef12'), slot = path.join(data, '123456789')
+    write(path.join(flat, '.genio-copy.json'), JSON.stringify({ kind: 'genio-player-copy', id: 'x', key: 'abcdef123'.padEnd(24, '0') }))
+    write(path.join(flat, 'Game', 'Assets', 'x.txt'), 'x')
+    write(path.join(short, 'genio-player-copy.json'), JSON.stringify({ kind: 'genio-player-copy', id: 'y', key: 'abcdef12'.padEnd(24, '0') }))
+    write(path.join(short, 'Game', 'Assets', 'x.txt'), 'x')
+    write(path.join(slot, '.genio-copy.json'), JSON.stringify({ kind: 'genio-play-slot', slot: 1 }))
     const fresh = new PlayerCopies(data, { system: { created: async () => 'T0' } })
-    expect((await fresh.sweep()).filter(s => s.action === 'stray-deleted').map(s => s.key)).toEqual(['abcdef12'.padEnd(24, '0')])
+    expect((await fresh.sweep()).filter(s => s.action === 'stray-deleted').map(s => s.key).sort()).toEqual(['abcdef12'.padEnd(24, '0'), 'abcdef123'.padEnd(24, '0')].sort())
     await fresh.settle()
-    expect(fs.existsSync(stray)).toBe(false)
-    expect(fs.existsSync(adopted.root)).toBe(true)
+    expect(fs.existsSync(flat)).toBe(false)
+    expect(fs.existsSync(short)).toBe(false)
+    expect(fs.existsSync(slot)).toBe(true)
+    expect(fs.existsSync(rec.root)).toBe(true)
   }, 60000)
 })

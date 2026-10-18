@@ -13,7 +13,11 @@ export class PlayPool {
   slots(): string
   slotDir(id: number): string
   place(): Promise<string>
-  relocate(): Promise<string>
+  retireLegacy(): Promise<boolean>
+  placement(): { dir: string; flat?: boolean; folders?: Record<string, string> } | undefined
+  assign(id: number): string
+  mark(id: number): void
+  world: string
   state(): Promise<import('../../../../../../src/shared/play').PlayPoolState>
   configure(cap: number): Promise<{ cap: number; draining: number[] }>
   acquire(owner: string, pid?: number, preferred?: number, takeover?: boolean): Promise<PoolLease | null>
@@ -46,3 +50,4 @@ export function poolDirectory(data: string, world: string): string
 export function stuckMessage(id: number, result: { reason?: string; pids?: number[] }): string
 export function mentionsRoot(command: string, root: string): boolean
 export function listProcesses(): Promise<PoolProcess[]>
+export function slotPath(poolDir: string, placement: { flat?: boolean; folders?: Record<string, string> } | undefined, slots: string, id: number): string

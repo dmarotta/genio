@@ -1,10 +1,11 @@
 /**
  * The player's own Play copy: one per project (one per project window), outside the units' Play slots, cap
- * and queue. A record per project at <data>/player-copies/<key>/instance.json names the copy folder,
- * <base>/pc/<id> with the Unity folder directly inside, where <base> is the project's volume when that volume
- * block clones (like the slots, so the first copy is cheap) or else Genio's data folder. The short folder keeps
- * Unity's deepest paths under Windows' 260 characters; a copy made before it (<base>/player-copies/<key>/copy)
- * moves there at its next Play when no editor has it open, else stays and keeps working.
+ * and queue. A record per project at <data>/player-copies/<key>/instance.json names the copy folder: one flat
+ * <base>/<9 hex> with the Unity folder directly inside and a manifest (.genio-copy.json) at its top, where <base> is
+ * <project volume>/.genio when that volume block clones (like the slots, so the first copy is cheap) or else Genio's
+ * data folder. Nothing else in the path keeps Unity's deepest paths under Windows' 260 characters. A copy of an
+ * older layout (<base>/pc/<id>, <base>/player-copies/<key>/copy) is deleted at the project's next Play when no
+ * editor has it open, and a flat copy takes its place; else it stays and keeps working.
  * The copy follows any source of its project through the git-guided mirror and keeps one Library, seeded
  * once from the main checkout. Copies survive editor and Genio shutdown; cleanup removes unused copies
  * after 24 hours or when their volume is short of space. Unity is never started or stopped here: the lifecycle calls
@@ -16,7 +17,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { checkCopyPath, seedLibrary, treeStats } from './unity-seed.mjs'
-import { SHORT_ID_LENGTHS, claimShortFolder, isShortId, volumeChild, volumeHome, volumePlacement } from '../skills/play/scripts/clone.mjs'
+import { FLAT_MARKER, claimFlatFolder, flatBase, isFlatId, isShortId, volumeChild, volumePlacement } from '../skills/play/scripts/clone.mjs'
 import { applyMirror, describeSource, removeFile, resolveSource, scanSource, sourceMissing, unityVersionOf } from './git-mirror.mjs'
 import { waitForQuiet } from './quiet-start.mjs'
 const exec = promisify(execFile)
@@ -28,9 +29,11 @@ export const PLAYER_COPY_CLEANUP_INTERVAL_MS = 60 * 60 * 1000
 /** The editor quits this long after the last Play stopped; its copy stays on disk. */
 export const DEFAULT_IDLE_MS = 10 * 60 * 1000
 const SUB = 'player-copies'
-/** Copy folders: <base>/pc/<short id of the key>. */
+/** The layout before the flat one: copy folders at <base>/pc/<short id of the key>, or <base>/player-copies/<key>/copy. */
 const SHORT = 'pc'
-const MARKER = 'genio-player-copy.json'
+/** The manifest at the top of a flat copy folder; the folder of an older layout holds LEGACY_MARKER instead. */
+const MARKER = FLAT_MARKER
+const LEGACY_MARKER = 'genio-player-copy.json'
 const MANIFEST = 'mirror-manifest.json'
 const TRASH = 'trash'
 const KIND = 'genio-player-copy'
@@ -43,10 +46,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 const yieldNow = () => new Promise(r => setImmediate(r))
 const safeVersion = v => typeof v === 'string' && /^[\w.]+$/.test(v) ? v : undefined
 const safeName = n => n.replace(/[^\w .-]/g, '_').replace(/^[ .]+|[ .]+$/g, '') || 'project'
-/** A copy made before short folders: <base>/player-copies/<key>/copy. */
-const legacyDir = dir => path.basename(dir) === 'copy'
-/** The short-folder area beside a legacy copy's <base>/player-copies. */
-const shortArea = dir => path.join(path.dirname(path.dirname(path.dirname(path.resolve(dir)))), SHORT)
+/** A copy made before the flat layout: <base>/player-copies/<key>/copy or <base>/pc/<short id>. */
+const legacyRecord = rec => rec.layout !== 2
+/** The manifest of a copy folder: the flat one, else the older marker. */
+const markerOf = dir => {
+  for (const name of [MARKER, LEGACY_MARKER]) { try { return JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')) } catch { /* Try the next name. */ } }
+  return undefined
+}
 
 /** Process creation time (FILETIME, UTC) so a reused PID is never taken for the Genio that owned a copy. */
 export async function processCreated(pid) {
@@ -109,11 +115,13 @@ export class PlayerCopies {
     rec.owner = await this.me()
   }
   markerOk(rec) {
-    try { const m = JSON.parse(fs.readFileSync(path.join(rec.dir, MARKER), 'utf8')); return m.kind === KIND && m.id === rec.id } catch { return false }
+    const m = markerOf(rec.dir)
+    return !!m && m.kind === KIND && m.id === rec.id
   }
   /** The project key a marked copy folder belongs to, or undefined when it is not a player copy. */
   markedKey(dir) {
-    try { const m = JSON.parse(fs.readFileSync(path.join(dir, MARKER), 'utf8')); return m.kind !== KIND ? undefined : m.key ?? (typeof m.project === 'string' ? this.keyOf(m.project) : undefined) } catch { return undefined }
+    const m = markerOf(dir)
+    return !m || m.kind !== KIND ? undefined : m.key ?? (typeof m.project === 'string' ? this.keyOf(m.project) : undefined)
   }
 
   /** Every project's record, with live sync or deletion progress. */
@@ -154,21 +162,23 @@ export class PlayerCopies {
           }
           if (rec) fs.rmSync(this.recordFile(k), { force: true })
           rec = undefined
+        } else if (legacyRecord(rec) && this.retireLegacy(k, rec)) {
+          rec = undefined
         } else {
-          if (!fs.existsSync(rec.dir)) { if (!this.adoptMoved(k, rec)) this.makeDir(rec, k) }
+          if (!fs.existsSync(rec.dir)) this.makeDir(rec, k)
           else if (!this.markerOk(rec)) throw new Error(`${rec.dir} is not marked as this project's player copy; Genio will not reuse or delete it`)
           if (rec.state === 'syncing' && !this.syncs.has(k)) { rec.state = 'ready'; if (rec.lastSync) rec.lastSync.complete = false }
-          if (!this.syncs.has(k)) this.relocate(k, rec)
           this.write(k, rec)
           return this.view(k, rec)
         }
       }
       const volume = await volumePlacement(world, this.dir, this.clone)
       const owner = await this.me()
-      // The Unity folder sits directly in the copy folder, under its own name (the project's, at a root checkout).
-      const dir = claimShortFolder(path.join(volume ? volumeHome(this.data, volume) : this.data, SHORT), k, d => this.markedKey(d) === k)
+      // The flat layout: <volume>/.genio/<hash> (or <data>/<hash>), the Unity folder directly inside under its own
+      // name (the project's, at a root checkout). A new hash per copy; the folder's manifest says what it is for.
+      const dir = claimFlatFolder(flatBase(this.data, volume), `${k}:player`)
       const name = safeName(path.basename(engineRoot || path.resolve(world)))
-      rec = { version: 1, id: randomUUID(), project: path.resolve(world), engineRoot, dir, root: path.join(dir, name), state: 'ready', createdAt: Date.now(), owner, idleMs: DEFAULT_IDLE_MS }
+      rec = { version: 1, layout: 2, id: randomUUID(), project: path.resolve(world), engineRoot, dir, root: path.join(dir, name), state: 'ready', createdAt: Date.now(), owner, idleMs: DEFAULT_IDLE_MS }
       // The record comes first: a copy folder never holds files without a record that can delete it.
       this.write(k, rec)
       if (fs.readdirSync(dir).length) this.trashStray(dir)
@@ -178,42 +188,24 @@ export class PlayerCopies {
   }
   makeDir(rec, k) {
     fs.mkdirSync(rec.dir, { recursive: true })
-    fs.writeFileSync(path.join(rec.dir, MARKER), JSON.stringify({ kind: KIND, id: rec.id, ...(k ? { key: k } : {}), project: rec.project, createdAt: rec.createdAt }, null, 2))
+    fs.writeFileSync(path.join(rec.dir, MARKER), JSON.stringify({ kind: KIND, id: rec.id, purpose: 'player-copy', ...(k ? { key: k } : {}), project: rec.project, createdAt: rec.createdAt }, null, 2))
   }
   /**
-   * A legacy copy moves to a short folder on its own volume in one rename, Library and all, when it is safe to
-   * delete (the same checks) and no editor has it open. Any failure leaves it where it was, still working.
+   * A copy of an older layout (<base>/pc/<id>, <base>/player-copies/<key>/copy) is a disposable transient copy:
+   * the project's next Play moves it aside and deletes it in the background, then makes a flat copy. Only when
+   * it is safe to delete (the same checks) and no editor has it open; else it stays and keeps working.
    */
-  relocate(k, rec) {
-    if (!legacyDir(rec.dir) || !fs.existsSync(rec.dir) || this.refusal(k, rec) || this.editorPids(rec.root).length) return
-    const from = path.resolve(rec.dir), old = { dir: rec.dir, root: rec.root }
-    let to
-    try {
-      to = claimShortFolder(shortArea(from), k)
-      // Windows renames a folder only onto a missing name: the empty claim goes just before the rename.
-      fs.rmdirSync(to)
-      fs.renameSync(from, to)
-    } catch { return }
-    Object.assign(rec, { dir: to, root: path.join(to, path.relative(from, path.resolve(old.root))) })
-    try { this.write(k, rec) } catch { try { fs.renameSync(to, from); Object.assign(rec, old) } catch { /* adoptMoved finds it by its marker. */ } return }
-    const parent = path.dirname(from)
-    for (const n of listing(parent)) if (n.startsWith(`${TRASH}-`)) this.removeInBackground(path.join(parent, n))
-    try { fs.rmdirSync(parent) } catch { /* Holds the record (in Genio's data) or trash. */ }
-  }
-  /** A relocation stopped between its rename and its record: the copy is found in the short area by its marker. */
-  adoptMoved(k, rec) {
-    if (!legacyDir(rec.dir)) return false
-    for (const n of SHORT_ID_LENGTHS) {
-      const dir = path.join(shortArea(rec.dir), k.slice(0, n))
-      if (this.markerOk({ ...rec, dir })) { Object.assign(rec, { dir, root: path.join(dir, path.relative(path.resolve(rec.dir), path.resolve(rec.root))) }); return true }
+  retireLegacy(k, rec) {
+    if (this.syncs.has(k)) return false
+    if (fs.existsSync(rec.dir)) {
+      if (this.refusal(k, rec) || this.editorPids(rec.root).length) return false
+      this.trashStray(rec.dir)
     }
-    return false
-  }
-  /** A copy folder left without its record: only a marked one is moved aside and deleted. */
+    fs.rmSync(this.recordFile(k), { force: true })
+    return true
+  }  /** A copy folder left without its record: only a marked one is moved aside and deleted. */
   trashStray(dir) {
-    let marked = false
-    try { marked = JSON.parse(fs.readFileSync(path.join(dir, MARKER), 'utf8')).kind === KIND } catch { /* Unmarked. */ }
-    if (!marked) throw new Error(`${dir} exists and is not a Genio player copy; Genio will not use or delete it`)
+    if (markerOf(dir)?.kind !== KIND) throw new Error(`${dir} exists and is not a Genio player copy; Genio will not use or delete it`)
     const aside = path.join(path.dirname(dir), `${TRASH}-${randomUUID()}`)
     fs.renameSync(dir, aside)
     this.removeInBackground(aside)
@@ -394,9 +386,16 @@ export class PlayerCopies {
 
   /** Why this record's folder must not be deleted, or undefined when it is safe. */
   refusal(k, rec) {
-    const dir = path.resolve(rec.dir), folder = path.basename(dir), legacy = folder === 'copy'
-    if (!path.isAbsolute(rec.dir) || !(legacy ? path.basename(path.dirname(dir)) === k : isShortId(folder, k) && path.basename(path.dirname(dir)) === SHORT)) return 'its folder is not a player-copy folder'
-    if (legacy ? !inside(dir, this.dir) && volumeChild(dir, this.data, SUB) !== k : !inside(dir, path.join(this.data, SHORT)) && volumeChild(dir, this.data, SHORT) !== folder) return 'its folder is outside Genio\'s player-copy area'
+    const dir = path.resolve(rec.dir), folder = path.basename(dir), parent = path.dirname(dir)
+    if (!path.isAbsolute(rec.dir)) return 'its folder is not a player-copy folder'
+    if (!legacyRecord(rec)) {
+      // Flat: <data>/<hash> or <volume>/.genio/<hash>.
+      if (!isFlatId(folder) || !(key(parent) === key(this.data) || path.basename(parent).toLowerCase() === '.genio')) return 'its folder is not a player-copy folder'
+    } else {
+      const legacy = folder === 'copy'
+      if (!(legacy ? path.basename(parent) === k : isShortId(folder, k) && path.basename(parent) === SHORT)) return 'its folder is not a player-copy folder'
+      if (legacy ? !inside(dir, this.dir) && volumeChild(dir, this.data, SUB) !== k : !inside(dir, path.join(this.data, SHORT)) && volumeChild(dir, this.data, SHORT) !== folder) return 'its folder is outside Genio\'s player-copy area'
+    }
     if (inside(dir, rec.project) || inside(rec.project, dir)) return 'its folder overlaps the project'
     if (!fs.existsSync(dir)) return undefined
     try { if (fs.lstatSync(dir).isSymbolicLink()) return 'its folder is a link' } catch { return undefined }
@@ -462,13 +461,14 @@ export class PlayerCopies {
         }
         await deleteTree(trash, opts)
         p.phase = 'finishing'
-        await deleteTree(rec.dir, opts, rel => rel === MARKER || rel === MANIFEST)
+        await deleteTree(rec.dir, opts, rel => rel === MARKER || rel === LEGACY_MARKER || rel === MANIFEST)
         await removeFile(path.join(rec.dir, MANIFEST), { retries: this.deletion.retries })
         await removeFile(path.join(rec.dir, MARKER), { retries: this.deletion.retries })
+        await removeFile(path.join(rec.dir, LEGACY_MARKER), { retries: this.deletion.retries })
         await rmdirRetry(rec.dir, this.deletion.retries)
       }
       fs.rmSync(this.recordFile(k), { force: true })
-      for (const d of [path.join(this.dir, k), path.dirname(rec.dir)]) { try { fs.rmdirSync(d) } catch { /* Not empty or gone. */ } }
+      for (const d of legacyRecord(rec) ? [path.join(this.dir, k), path.dirname(rec.dir)] : [path.join(this.dir, k)]) { try { fs.rmdirSync(d) } catch { /* Not empty or gone. */ } }
       p.phase = 'done'
     } catch (e) {
       save({ state: 'pending-delete', deletion: { ...rec.deletion, ...p, phase: 'stopped', ...(e.code === 'ABORT_ERR' ? {} : { error: e.message }) } })
@@ -543,7 +543,7 @@ export class PlayerCopies {
       if (!rec) {
         const copy = path.join(this.dir, k, 'copy')
         try {
-          const marker = JSON.parse(fs.readFileSync(path.join(copy, MARKER), 'utf8'))
+          const marker = markerOf(copy) ?? {}
           const editor = fs.readdirSync(copy, { withFileTypes: true }).filter(e => e.isDirectory()).some(e => this.editorPids(path.join(copy, e.name)).length)
           if (marker.kind === KIND && !editor && !isInUse(marker)) { this.removeInBackground(copy); out.push({ key: k, action: 'stray-deleted' }) }
         } catch { /* Nothing marked here. */ }
@@ -564,15 +564,15 @@ export class PlayerCopies {
       this.startDeletion(k)
       out.push({ key: k, project: rec.project, action: 'deleting' })
     }
-    // Short folders in Genio's data whose record is gone (one on another volume is only found through its record).
-    const short = path.join(this.data, SHORT)
-    for (const n of listing(short)) {
-      const dir = path.join(short, n)
+    // Copy folders in Genio's data (flat <hash> folders, older <pc>/<id> ones) whose record is gone (one on another volume is only found through its record).
+    const areas = [[this.data, n => isFlatId(n) || n.startsWith(`${TRASH}-`)], [path.join(this.data, SHORT), () => true]]
+    for (const [area, wanted] of areas) for (const n of listing(area).filter(wanted)) {
+      const dir = path.join(area, n)
       if (n.startsWith(`${TRASH}-`)) { this.removeInBackground(dir); continue }
       const k = this.markedKey(dir), rec = k && this.read(k)
       if (!k || protectedKeys.includes(k) || this.locks.has(k) || rec && key(rec.dir) === key(dir)) continue
       try {
-        const marker = JSON.parse(fs.readFileSync(path.join(dir, MARKER), 'utf8'))
+        const marker = markerOf(dir) ?? {}
         const editor = fs.readdirSync(dir, { withFileTypes: true }).filter(e => e.isDirectory()).some(e => this.editorPids(path.join(dir, e.name)).length)
         // Moved aside first: a new copy of the project may claim this folder name again while the deletion waits.
         if (!editor && !isInUse(marker)) { this.trashStray(dir); out.push({ key: k, action: 'stray-deleted' }) }

@@ -3,7 +3,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 const exec = promisify(execFile)
@@ -51,6 +51,40 @@ export function claimShortFolder(parent, key, owns = () => false) {
     try { if (owns(dir) || !fs.readdirSync(dir).length) return dir } catch { /* Not a readable folder: try the next id. */ }
   }
   throw new Error(`No free folder for ${key} under ${parent}`)
+}
+
+/**
+ * The flat layout of Play copies and slots: one folder per copy or slot, directly under <volume>/.genio (the
+ * project's block-cloning volume) or Genio's data folder, named by FLAT_ID_LENGTH hex. Nothing else in the path,
+ * so Unity's deepest paths (Library/PackageCache) keep the most room under Windows' 260 characters.
+ */
+export const FLAT_ID_LENGTH = 9
+export const FLAT_MARKER = '.genio-copy.json'
+export function flatBase(data, volumeRoot) { return volumeRoot ? path.join(volumeRoot, '.genio') : data }
+/** True when name is a flat copy folder name. */
+export function isFlatId(name) { return /^[0-9a-f]{9}$/.test(name) }
+/**
+ * Claims a new <parent>/<id>: the id is a hash of seed (project key plus kind and slot) and a random part, and
+ * mkdir is atomic, so a folder that exists for another owner is never reused. Returns the folder.
+ */
+export function claimFlatFolder(parent, seed) {
+  fs.mkdirSync(parent, { recursive: true })
+  for (let attempt = 0; attempt < 64; attempt++) {
+    const id = createHash('sha256').update(`${seed}\0${randomBytes(8).toString('hex')}`).digest('hex').slice(0, FLAT_ID_LENGTH)
+    const dir = path.join(parent, id)
+    try { fs.mkdirSync(dir); return dir } catch (e) { if (e.code !== 'EEXIST') throw e }
+  }
+  throw new Error(`No free folder for ${seed} under ${parent}`)
+}
+/** The manifest of a flat copy folder: what it is for, or undefined when it has none. */
+export function readFlatMarker(dir) {
+  try { const m = JSON.parse(fs.readFileSync(path.join(dir, FLAT_MARKER), 'utf8')); return m && typeof m === 'object' ? m : undefined } catch { return undefined }
+}
+/** True when dir is a flat copy folder (a flat id under a .genio folder or Genio's data) carrying a manifest. */
+export function isFlatCopyDir(dir, data) {
+  const resolved = path.resolve(dir), parent = path.dirname(resolved)
+  const norm = p => process.platform === 'win32' ? p.toLowerCase() : p
+  return isFlatId(path.basename(resolved)) && (path.basename(parent).toLowerCase() === '.genio' || norm(parent) === norm(path.resolve(data))) && !!readFlatMarker(resolved)
 }
 
 /** True when the volume holding p is not mounted, such as a Dev Drive VHDX that was not re-attached after a reboot. */

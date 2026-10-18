@@ -30,7 +30,7 @@ export interface PlayerLastSync {
   sourceGone?: boolean
 }
 export interface PlayerCopyRecord {
-  version: 1; key: string; id: string
+  version: 1; key: string; id: string; layout?: 2
   /** The project's main checkout. */
   project: string; engineRoot: string
   /** The copy folder (Genio-owned, marked), and the Unity project root inside it that the editor opens. */

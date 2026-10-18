@@ -11,8 +11,11 @@ const report = await seedLibrary(copyUnityRoot, sourceLibraryDirectory)
 The helper seeds only when Library is absent. Windows uses
 `robocopy /E /MT:16 /XJ /R:1 /W:1 /COPY:DAT /DCOPY:DAT`; codes 0–7 succeed,
 codes 8 and above or a missing executable fail. Other platforms use `fs.cp`
-with the same exclusions. PackageCache, Pipeline, Temp, Logs,
-EditorInstance.json and `*-lock` files are withheld. UPM refills PackageCache.
+with the same exclusions. Pipeline, Temp, Logs, EditorInstance.json and `*-lock`
+files are withheld. PackageCache is seeded: Unity's Package Manager (UPM) then finds
+every package in the cache and needs no network resolve. Withheld, a copy whose
+process cannot reach the registry (or reach it within 60 seconds) waits in
+"Package Manager (busy)" until Unity cancels the resolve and quits with return code 1.
 Included source files and the completed copy must contain no symlinks,
 junctions or hardlinks. Destination ancestors cannot be links either.
 
@@ -31,7 +34,7 @@ sizes, expanded LFS pointer sizes, the independent Git object copy, and the
 included Library. Missing shared LFS objects are also budgeted and checked on
 their own filesystem. These are prechecks, not reservations; other writers and
 later Unity imports can still consume space. Slot disk estimates exclude
-PackageCache and duplicated LFS storage.
+duplicated LFS storage.
 
 Slots keep `git clone --no-hardlinks` for independent Git objects. Before LFS
 checkout they set local `lfs.storage` to the registered project's effective
@@ -80,24 +83,38 @@ plain NTFS behaves exactly as above.
   (`clone:copyfile`, `clone:fsctl`, `robocopy`, ...) and `clone.reason` when the
   clone path was not used.
 
-Cloning needs the copies on the project's volume. When a project's own drive block
-clones and Genio's base lives elsewhere, Play slots go to
-`<drive>\.genio\<key>\ps\<id>\slot-N` (decided once per pool, recorded in the
-pool folder's `placement.json`; lease state stays in Genio's data folder), the
-player's Play copy to `<drive>\.genio\<key>\pc\<id>`, and new unit worktrees go to
-`<drive>\.genio\<key>\worktrees\<world>\<id>`. Otherwise slots go to
-`<data>\ps\<id>\slot-N` and the Play copy to `<data>\pc\<id>`.
+Cloning needs the copies on the project's volume. Every Play slot and the player's
+Play copy is one flat folder, `<base>\<9 hex>`, with the Unity folder directly inside
+under the repository-relative layout the source has (a slot is a git clone, so the
+hash folder is the clone's root and the Unity folder sits at its engine root). Nothing
+else is in the path: no project key, no `pc`, `ps`, `play-pools`, `player-copies` or
+`slot-N` level. `<base>` is `<drive>\.genio` when the project's own drive block clones
+and Genio's base lives elsewhere, else Genio's data folder. New unit worktrees still go
+to `<drive>\.genio\<key>\worktrees\<world>\<id>`.
 
-The short `ps` and `pc` folders and the 8-hex `<id>` (longer only when another
-pool or project already took that name; `genio-pool.json` names the folder's pool)
-keep Unity's deepest paths, in `Library/PackageCache`, under Windows' 260
-characters, which Unity's Mono runtime cannot exceed even with long paths enabled
+The hash is 9 lowercase hex characters from `claimFlatFolder` (`clone.mjs`): a SHA-256
+of the project key, the kind (player copy, or pool and slot) and a random part, claimed
+with an atomic `mkdir`, so a folder that exists for another owner is never reused. The
+folder's manifest `.genio-copy.json` at its top says what it is for: `kind`
+(`genio-player-copy` or `genio-play-slot`), `purpose`, `project`, plus the copy's `id`
+and `key`, or the slot's `pool` and `slot`. The owner records stay the source of truth:
+the player copy's `instance.json` names its folder, and the pool's `placement.json`
+(`{ dir: <base>, flat: true, folders: { "1": "<hash>" } }`, lease state stays in Genio's
+data folder) maps each slot to its hash. A slot's manifest is written once its clone
+exists and is listed in the clone's `.git/info/exclude`, so it never dirties the slot.
+The flat paths keep Unity's deepest paths, in `Library/PackageCache`, under Windows'
+260 characters, which Unity's Mono runtime cannot exceed even with long paths enabled
 ([player-instance.md](player-instance.md#where-copies-live-windows-path-length)).
-Slots made before (`<data>\play-pools\<pool>\slot-N` or
-`<drive>\.genio\<key>\play-pools\<pool>`) move there at the next lease while no
-slot is leased, preparing, closing, stuck or open in an editor: one rename per slot
-on its own volume, clone and Library kept (`PlayPool.relocate`). A failed rename
-moves back what moved, and the slots keep working where they were. Before a slot
+
+Copies of the older layouts (`<base>\ps\<id>\slot-N`, `<data>\play-pools\<pool>\slot-N`,
+`<base>\pc\<id>`, `<data>\player-copies\<key>\copy`) are disposable transient copies. A
+pool's older slots are deleted at the next lease (`PlayPool.retireLegacy`) only while no
+slot is leased, preparing, closing, stuck or open in an editor and none was used for 24
+hours, the same keep time as the player copy's; else they stay and keep working. The
+pool is then placed again in the flat layout. The player's older copy is deleted at the
+project's next Play when no editor has it open and the deletion checks pass
+(`PlayerCopies.retireLegacy`), and a flat copy takes its place; the startup sweep and
+hourly cleanup remove older folders that lost their record. Before a slot
 editor starts, the same path-length check as the Play copy runs; a warning is added
 to the slot editor's `warning` (shown on the slot in Settings → This project → Unity
 slots, and printed by the unit's `play.mjs` session). It never blocks the launch. Genio never creates, mounts, resizes

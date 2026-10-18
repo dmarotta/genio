@@ -160,8 +160,8 @@ describe('shared Library seeding (unity-seed)', () => {
     const source = path.join(root, 'Library'), copy = path.join(root, 'copy'), data = path.join(root, 'data'), calls = { helper: [] as string[][], fsutil: [] as string[] }
     library(source)
     const report = await seedLibrary(copy, source, { data, clone: { system: devDrive({}, calls) } })
-    expect(report).toMatchObject({ seeded: true, method: 'clone:fsctl', files: 3, clone: { verified: true } })
-    expect(kept(path.join(copy, 'Library'))).toEqual(['Artifacts', 'Artifacts/ab', 'Artifacts/ab/big.bin', 'Artifacts/edge.bin', 'tiny.txt'])
+    expect(report).toMatchObject({ seeded: true, method: 'clone:fsctl', files: 4, clone: { verified: true } })
+    expect(kept(path.join(copy, 'Library'))).toEqual(['Artifacts', 'Artifacts/ab', 'Artifacts/ab/big.bin', 'Artifacts/edge.bin', 'PackageCache', 'PackageCache/com.unity.x', 'PackageCache/com.unity.x/a.cs', 'tiny.txt'])
     expect(calls.helper).toHaveLength(2)
     expect(fs.readdirSync(path.join(copy, 'Temp'))).toEqual([])
   })
@@ -169,9 +169,9 @@ describe('shared Library seeding (unity-seed)', () => {
     const source = path.join(root, 'Library'), data = path.join(root, 'data')
     library(source)
     const runs: string[][] = []
-    const run = async (_file: string, args: string[]): Promise<void> => { runs.push(args); fs.cpSync(args[0], args[1], { recursive: true, filter: p => !/PackageCache|Pipeline|EditorInstance|-lock$/.test(p) }) }
+    const run = async (_file: string, args: string[]): Promise<void> => { runs.push(args); fs.cpSync(args[0], args[1], { recursive: true, filter: p => !/Pipeline|EditorInstance|-lock$/.test(p) }) }
     const broken = await seedLibrary(path.join(root, 'a'), source, { data, platform: 'win32', run, clone: { system: devDrive({ helper: async () => { throw new Error('helper crashed') } }) } })
-    expect(broken).toMatchObject({ seeded: true, method: 'robocopy', files: 3, clone: { reason: 'block clone failed (helper crashed)' } })
+    expect(broken).toMatchObject({ seeded: true, method: 'robocopy', files: 4, clone: { reason: 'block clone failed (helper crashed)' } })
     expect(runs).toHaveLength(1)
     const plain = await seedLibrary(path.join(root, 'b'), source, { data, platform: 'win32', run, clone: { system: { platform: () => 'win32', systemDrive: () => path.parse(root).root.slice(0, 2), probe: async () => { throw new Error('probed') } } } })
     expect(plain).toMatchObject({ seeded: true, method: 'robocopy', clone: { reason: expect.stringContaining('system drive') } })

@@ -46,8 +46,9 @@ export function pathWarning(longest, { platform = process.platform } = {}) {
   const parts = longest.rel.split(/[\\/]/)
   // Library/PackageCache/<name>@<hash>/... or Packages/<name>/... names the package; else the top folder.
   const pkg = parts[0] === 'Library' ? parts[2]?.replace(/@[^@]*$/, '') : parts[0] === 'Packages' && parts.length > 2 ? parts[1] : undefined
-  const near = longest.length >= WINDOWS_MAX_PATH ? 'over' : 'near'
-  return `Paths in ${pkg ?? parts[0]} reach ${longest.length} characters, ${near} Windows' 260 limit, so Unity may fail to load them. ${pkg ? 'Remove that package or shorten the Unity folder name.' : `Shorten the folder names in ${parts[0]} or the Unity folder name.`}`
+  // The folder (prefix) and what is inside it, so the player sees what shortening the folder name can win.
+  const inside = longest.rel.length, folder = longest.length - inside - 1, margin = WINDOWS_MAX_PATH - longest.length
+  return `Paths in ${pkg ?? parts[0]} reach ${longest.length} characters (${folder} for the project's folder, ${inside} inside it), ${margin > 0 ? `close to Windows' 260 limit (${margin} to spare), so Unity may fail to load them if it adds to them` : `${-margin} over Windows' 260 limit, so Unity may fail to load them`}. ${pkg ? 'Remove that package or shorten the Unity folder name.' : `Shorten the folder names in ${parts[0]} or the Unity folder name.`}`
 }
 
 /** The pre-start check: the warning for root, or undefined (also on other platforms and on any scan error). */

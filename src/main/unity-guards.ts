@@ -73,8 +73,8 @@ export function unityEditorProject(command: string): string | undefined {
 function poolOwnsEditor(c: UnityUnitConfig, target: string | undefined, p: UnityProcess): boolean {
   if (!target) return false
   try {
-    const { dir, copies } = unityPoolPaths(c)
-    const id = Array.from({ length: 8 }, (_, n) => n + 1).find(n => canonicalPath(path.join(copies, `slot-${n}`, c.engineRoot)) === target)
+    const { dir, slot: slotFolder } = unityPoolPaths(c)
+    const id = Array.from({ length: 8 }, (_, n) => n + 1).find(n => canonicalPath(path.join(slotFolder(n), c.engineRoot)) === target)
     if (!id) return false
     let state
     try { state = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8')) }

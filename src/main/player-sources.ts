@@ -4,6 +4,7 @@ import type { AppCtx } from './services'
 import type { Task } from '@shared/types'
 import { effectiveEngine } from '@shared/engine'
 import { supportsUnitySlots, type PlayerCopySource, type PlayerSourceOption } from '@shared/play'
+import { isFlatCopyDir } from '../../resources/unit-skills/genio/skills/play/scripts/clone.mjs'
 import { git, localBranches, repoTop, sameFolder, worktreeList } from './git'
 
 /** Units whose worktree can still be played: not cleaned up. */
@@ -33,7 +34,9 @@ export async function playerSources(ctx: AppCtx, world: string): Promise<PlayerS
   const data = ctx.main.home.data
   const genioCopy = (dir: string): boolean => {
     const rel = path.relative(data, dir)
-    return (!rel.startsWith('..') && !path.isAbsolute(rel) && /^(play-pools|player-copies|pc|ps)([\\/]|$)/.test(rel)) || /[\\/]\.genio[\\/][^\\/]+[\\/](play-pools|player-copies|pc|ps)[\\/]/i.test(dir)
+    if ((!rel.startsWith('..') && !path.isAbsolute(rel) && /^(play-pools|player-copies|pc|ps)([\\/]|$)/.test(rel)) || /[\\/]\.genio[\\/][^\\/]+[\\/](play-pools|player-copies|pc|ps)[\\/]/i.test(dir)) return true
+    // The flat layout: <hash>, directly under Genio's data or a volume's .genio, carrying its manifest.
+    return isFlatCopyDir(dir, data) || isFlatCopyDir(path.dirname(dir), data)
   }
   const options: PlayerSourceOption[] = []
   const main = trees.find((t) => sameFolder(t.path, top))

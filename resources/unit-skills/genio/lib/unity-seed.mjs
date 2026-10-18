@@ -6,7 +6,9 @@ import { promisify } from 'node:util'
 import { seedTree } from '../skills/play/scripts/clone.mjs'
 import { missingSubmodules } from './git-submodules.mjs'
 const exec = promisify(execFile)
-const SKIP_DIRS = ['PackageCache', 'Pipeline', 'Temp', 'Logs']
+// PackageCache is seeded: UPM resolves from it without the network. Withheld, a copy without registry access (or with a
+// slow one) sits in Package Manager until Unity gives up after 60 seconds and quits.
+const SKIP_DIRS = ['Pipeline', 'Temp', 'Logs']
 const excluded = (name, directory) => directory ? SKIP_DIRS.some(v => v.toLowerCase() === name.toLowerCase()) : /^EditorInstance\.json$|.*-lock$/i.test(name)
 const linkError = p => new Error(`Unity copies cannot contain symlinks, junctions or hardlinks: ${p}`)
 
@@ -94,7 +96,7 @@ export async function copyLibrary(source, dest, { platform = process.platform, r
 
 /**
  * source is a Library directory; copy is the destination Unity project root.
- * Publish only a complete, validated seed. PackageCache is withheld: UPM refills it.
+ * Publish only a complete, validated seed, PackageCache included, so the first open needs no network resolve.
  * Return a report suitable for a slot's state.json or a wrapper's result.json.
  */
 export async function seedLibrary(copy, source, options = {}) {

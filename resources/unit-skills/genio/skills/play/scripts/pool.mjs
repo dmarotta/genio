@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import { checkCopyPath, checkFreeSpace, seedLibrary, treeStats } from '../../../lib/unity-seed.mjs'
-import { assertMounted, claimShortFolder, isShortId, volumeHome, volumeMissing, volumePlacement } from './clone.mjs'
+import { FLAT_MARKER, assertMounted, claimFlatFolder, flatBase, volumeMissing, volumePlacement } from './clone.mjs'
 import { longPathWarning } from '../../../lib/path-length.mjs'
 import { createDesktopApi, inspectDesktop, launchEditor } from '../../../lib/hidden-desktop.mjs'
 import { initSubmodules, noHooksPath } from '../../../lib/git-submodules.mjs'
@@ -18,8 +18,9 @@ const LEASE_MS = 30000
 // A first open of a seeded copy compiles every script and imports for minutes before Pipeline is serviceable.
 export const READY_MS = 20 * 60000
 const PORT_FILE = 'Library/Pipeline/.unity-pipeline-port'
-/** Slot folders: <base>/ps/<short id of the pool>/slot-N, named by genio-pool.json. */
-const SHORT = 'ps'
+/** Slots of an older layout are deleted once none was used for this long (the player copy's keep time). */
+const LEGACY_KEEP_MS = 24 * 60 * 60 * 1000
+/** An older layout's slots folder <base>/ps/<short id of the pool>/slot-N is named by genio-pool.json. */
 const OWNER = 'genio-pool.json'
 const poolOf = dir => { try { return JSON.parse(fs.readFileSync(path.join(dir, OWNER), 'utf8')).pool } catch { return undefined } }
 const QUIT = 'UnityEditor.EditorApplication.delayCall += () => UnityEditor.EditorApplication.Exit(0); return true;'
@@ -93,6 +94,13 @@ async function checkoutStats(cwd, revision, options) {
   }
   return { bytes, lfs }
 }
+/**
+ * A slot's folder: the flat layout names it in placement.json (<base>/<9 hex>, a placeholder until assigned); the older
+ * layout is <slots>/slot-N. Shared with the unit guards, which read the same files.
+ */
+export function slotPath(poolDir, placement, slots, id) {
+  return placement?.flat ? path.join(slots, placement.folders?.[id] ?? `unassigned-${id}`) : path.join(slots, `slot-${id}`)
+}
 export function poolDirectory(data, world) { return path.join(data, 'play-pools', createHash('sha256').update(canonical(world)).digest('hex').slice(0, 24)) }
 export class PlayPool {
   constructor(data, world, engineRoot = '', options = {}) {
@@ -115,73 +123,98 @@ export class PlayPool {
     this.closes = new Set()
     fs.mkdirSync(this.dir, { recursive: true })
   }
+  /** placement.json: where this pool's slot folders live, or undefined before the pool is placed. */
+  placement() { try { const p = JSON.parse(fs.readFileSync(path.join(this.dir, 'placement.json'), 'utf8')); return p && typeof p === 'object' ? p : undefined } catch { return undefined } }
   /**
-   * Folder holding slot-N copies, read from placement.json on every call (relocate() may move it once).
-   * Unplaced, the pool folder.
+   * The folder the slot copies live under, read from placement.json on every call. Flat layout: the base holding
+   * one <9 hex> folder per slot. Older layout: the folder holding slot-N copies. Unplaced, the pool folder.
    */
   slots() {
-    try {
-      const { dir } = JSON.parse(fs.readFileSync(path.join(this.dir, 'placement.json'), 'utf8'))
-      // A placement on a detached volume falls back to the pool folder rather than failing every call.
-      if (typeof dir === 'string' && path.isAbsolute(dir) && !volumeMissing(dir)) return dir
-    } catch { /* Not placed yet. */ }
+    const dir = this.placement()?.dir
+    // A placement on a detached volume falls back to the pool folder rather than failing every call.
+    if (typeof dir === 'string' && path.isAbsolute(dir) && !volumeMissing(dir)) return dir
     return this.dir
   }
-  slotDir(id) { return path.join(this.slots(), `slot-${id}`) }
-  /** The short slots folder under base (Genio's data, or the project volume's .genio/<key>), claimed for this pool. */
-  claim(base) {
-    const pool = path.basename(this.dir)
-    const dir = claimShortFolder(path.join(base, SHORT), pool, d => poolOf(d) === pool)
-    fs.writeFileSync(path.join(dir, OWNER), JSON.stringify({ pool, world: this.world }))
+  slotDir(id) { return slotPath(this.dir, this.placement(), this.slots(), id) }
+  /**
+   * Gives a slot of the flat layout its folder, once: a new <9 hex> under the base, claimed with mkdir so no folder
+   * of another owner is reused, and recorded in placement.json. Called inside the pool transaction (or by the
+   * only process preparing the slot). The folder's manifest (.genio-copy.json) is written once the clone exists.
+   */
+  assign(id) {
+    const p = this.placement()
+    if (!p?.flat || p.folders?.[id]) return this.slotDir(id)
+    const dir = claimFlatFolder(this.slots(), `${path.basename(this.dir)}:slot-${id}`)
+    const file = path.join(this.dir, 'placement.json'), temp = `${file}.${process.pid}.tmp`
+    fs.writeFileSync(temp, JSON.stringify({ ...p, folders: { ...p.folders, [id]: path.basename(dir) } }))
+    fs.renameSync(temp, file)
     return dir
   }
+  /** Writes the slot folder's manifest and keeps it out of the clone's status. Idempotent. */
+  mark(id) {
+    const dir = this.slotDir(id), file = path.join(dir, FLAT_MARKER)
+    if (!this.placement()?.flat || !fs.existsSync(path.join(dir, '.git'))) return
+    if (!fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify({ kind: 'genio-play-slot', purpose: 'play-slot', pool: path.basename(this.dir), slot: id, project: this.world, createdAt: Date.now() }, null, 2))
+    const exclude = path.join(dir, '.git', 'info', 'exclude')
+    fs.mkdirSync(path.dirname(exclude), { recursive: true })
+    const text = fs.existsSync(exclude) ? fs.readFileSync(exclude, 'utf8') : ''
+    if (!text.split(/\r?\n/).includes(`/${FLAT_MARKER}`)) fs.appendFileSync(exclude, `${text && !text.endsWith('\n') ? '\n' : ''}/${FLAT_MARKER}\n`)
+  }
   /**
-   * Slots go to <base>/ps/<id>: short, so Unity's deepest paths stay under Windows' 260 characters. Block cloning
-   * needs the copies on the project's volume, so when the project sits on a Dev Drive (or other block-cloning
-   * volume) apart from Genio's data, <base> is <volume>/.genio/<key>; else it is Genio's data folder.
-   * Decided once, before the first slot exists, and shared by every process through placement.json.
+   * Slots go to one flat folder each, <base>/<9 hex>: nothing else in the path, so Unity's deepest paths stay under
+   * Windows' 260 characters. Block cloning needs the copies on the project's volume, so when the project sits on a
+   * Dev Drive (or other block-cloning volume) apart from Genio's data, <base> is <volume>/.genio; else it is Genio's
+   * data folder. Decided once, before the first slot exists, and shared by every process through placement.json.
    */
   async place() {
     const file = path.join(this.dir, 'placement.json')
     if (fs.existsSync(file)) return this.slots()
-    // Probed once per process. A pool that already has slots in its own folder waits for relocate().
+    // Probed once per process. A pool that already has slots in its own folder waits for retireLegacy().
     return this.placing ??= (async () => {
       if (fs.readdirSync(this.dir).some(n => /^slot-\d+$/.test(n))) return this.dir
       const volume = await volumePlacement(this.world, this.dir, this.clone)
-      let dir
-      try { dir = this.claim(volume ? volumeHome(this.data, volume) : this.data) } catch { return this.dir }
-      try { fs.writeFileSync(file, JSON.stringify({ dir, at: Date.now() }), { flag: 'wx' }) } catch (e) { if (e.code !== 'EEXIST') return this.dir }
+      const dir = flatBase(this.data, volume)
+      try { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(file, JSON.stringify({ dir, flat: true, folders: {}, at: Date.now() }), { flag: 'wx' }) } catch (e) { if (e.code !== 'EEXIST') return this.dir }
       return this.slots()
     })()
   }
   /**
-   * Slots made before short folders (<data>/play-pools/<pool>/slot-N, or <volume>/.genio/<key>/play-pools/<pool>)
-   * move to <base>/ps/<id> on the same volume while no slot is leased, preparing, closing, stuck or open in an
-   * editor: one rename per slot keeps each clone and Library. On any failure what moved goes back and the slots
-   * stay where they were, still working. Returns the slots folder.
+   * Slots of an older layout (<data>/play-pools/<pool>/slot-N, <base>/ps/<id>/slot-N) are disposable clones: while no
+   * slot is leased, preparing, closing, stuck or open in an editor, and the newest of them was last used more than
+   * LEGACY_KEEP_MS ago, they are moved aside and deleted in the background and the pool is placed again in the
+   * flat layout. Otherwise they stay and keep working. Returns true when the legacy slots are gone.
    */
-  async relocate() {
-    const from = this.slots(), pool = path.basename(this.dir)
-    if (path.basename(path.dirname(from)) === SHORT && isShortId(path.basename(from), pool)) return from
-    if (path.basename(from) !== pool || path.basename(path.dirname(from)) !== 'play-pools') return from
+  async retireLegacy() {
+    const from = this.slots(), placement = this.placement()
+    if (placement?.flat) return false
     const names = () => { try { return fs.readdirSync(from).filter(n => /^slot-\d+$/.test(n)) } catch { return [] } }
-    return this.transaction(s => {
-      if (s.slots.some(v => v.lease || v.preparing || v.closing || v.stuck || this.editorRunning(v))) return from
+    if (!placement && !names().length) return false
+    const retired = await this.transaction(s => {
+      if (s.slots.some(v => v.lease || v.preparing || v.closing || v.stuck || this.editorRunning(v))) return false
       const slots = names()
-      if (slots.some(n => this.editorAlive(Number(n.slice(5))))) return from
-      let to
-      try { to = this.claim(path.dirname(path.dirname(from))) } catch { return from }
-      const moved = []
-      const back = () => { for (const n of moved) { try { fs.renameSync(path.join(to, n), path.join(from, n)) } catch { /* Left in the short folder: placement still names the old one. */ } } }
+      if (slots.some(n => this.editorAlive(Number(n.slice(5))))) return false
+      const used = n => { let at = 0; for (const p of [path.join(from, n), path.join(from, n, '.git', 'genio-play-ready')]) { try { at = Math.max(at, fs.statSync(p).mtimeMs) } catch { /* Absent. */ } } return at }
+      if (slots.some(n => Date.now() - used(n) < LEGACY_KEEP_MS)) return false
+      const aside = []
       try {
-        for (const n of slots) { fs.renameSync(path.join(from, n), path.join(to, n)); moved.push(n) }
-        const file = path.join(this.dir, 'placement.json'), temp = `${file}.${process.pid}.tmp`
-        fs.writeFileSync(temp, JSON.stringify({ dir: to, at: Date.now(), from }))
-        fs.renameSync(temp, file)
-      } catch { back(); return from }
-      if (from !== this.dir) { try { fs.rmdirSync(from) } catch { /* Not empty. */ } }
-      return to
+        for (const n of slots) { const to = path.join(from, `trash-${randomUUID()}`); fs.renameSync(path.join(from, n), to); aside.push(to) }
+      } catch {
+        for (const to of aside) { try { fs.renameSync(to, path.join(from, slots[aside.indexOf(to)])) } catch { /* Left aside, deleted below. */ } }
+        return false
+      }
+      fs.rmSync(path.join(this.dir, 'placement.json'), { force: true })
+      s.slots = []
+      // A short slots folder of this pool goes with them; the pool folder itself never does.
+      if (from !== this.dir && poolOf(from) === path.basename(this.dir)) aside.push(from)
+      for (const dir of aside) this.removeInBackground(dir)
+      return true
     })
+    if (retired) this.placing = undefined
+    return retired
+  }
+  removeInBackground(dir) {
+    const p = fs.promises.rm(dir, { recursive: true, force: true, maxRetries: 5 }).catch(() => {})
+    this.closes.add(p); p.finally(() => this.closes.delete(p))
   }
   async transaction(fn) {
     const lock = path.join(this.dir, 'mutex')
@@ -275,7 +308,7 @@ export class PlayPool {
     if (typeof owner !== 'string' || !owner || owner.length > 160 || !Number.isInteger(pid) || pid <= 0 || !alive(pid)) throw new Error('Invalid Play owner')
     if (preferred !== undefined) this.root(preferred)
     await this.place()
-    await this.relocate()
+    if (await this.retireLegacy()) await this.place()
     return this.transaction(s => {
       if (preferred > s.cap) throw new Error(`Slot ${preferred} is above the cap of ${s.cap}; it takes no new leases`)
       const existing = s.slots.find(v => v.lease?.owner === owner && v.lease.pid === pid)
@@ -291,6 +324,7 @@ export class PlayPool {
         if (id) { slot = { id }; s.slots.push(slot) }
       }
       if (!slot) return null
+      this.assign(slot.id)
       if (slot.lease) this.endLease(s, slot)
       slot.lease = { owner, pid, token: randomUUID(), since: Date.now(), expires: Date.now() + LEASE_MS }
       s.queue = s.queue.filter(q => q !== request)
@@ -584,7 +618,7 @@ export class PlayPool {
     const common = async cwd => canonical(path.resolve(cwd, await git(cwd, ['rev-parse', '--git-common-dir'])))
     if (await common(source) !== await common(this.world)) throw new Error('Play source must belong to the registered project')
     const revision = await git(source, ['rev-parse', '--verify', 'HEAD^{commit}'])
-    const dest = this.slotDir(id)
+    const dest = this.assign(id)
     let ready
     for (let attempt = 0; ; attempt++) {
       ready = await this.transaction(s => {
@@ -607,7 +641,7 @@ export class PlayPool {
     const started = Date.now()
     try {
       // Quiet start: a new clone or Library seed waits while the player's Play starts, at most the cap (quiet-start.mjs).
-      if (!fs.existsSync(dest) || !fs.existsSync(path.join(this.root(id), 'Library'))) {
+      if (!fs.existsSync(path.join(dest, '.git')) || !fs.existsSync(path.join(this.root(id), 'Library'))) {
         const quiet = await (this.quiet ?? (() => waitForQuiet(this.data)))()
         if (quiet.deferred) await this.check(id, token)
       }
@@ -624,12 +658,13 @@ export class PlayPool {
       await checkCopyPath(lfsStorage)
       const original = path.join(this.world, this.engineRoot, 'Library')
       const libraryBytes = !fs.existsSync(path.join(this.root(id), 'Library')) && fs.existsSync(original) ? (await treeStats(original, { library: true })).bytes : 0
-      const gitBytes = !fs.existsSync(dest) ? (await treeStats(path.join(commonDir, 'objects'), { rejectLinks: false })).bytes : 0
+      const gitBytes = !fs.existsSync(path.join(dest, '.git')) ? (await treeStats(path.join(commonDir, 'objects'), { rejectLinks: false })).bytes : 0
       const missingLfsBytes = checkout.lfs.filter(v => !fs.existsSync(path.join(lfsStorage, 'objects', v.oid.slice(0, 2), v.oid.slice(2, 4), v.oid))).reduce((sum, v) => sum + v.size, 0)
       if (missingLfsBytes) await checkFreeSpace(lfsStorage, missingLfsBytes)
       const space = await checkFreeSpace(dest, checkout.bytes + libraryBytes + gitBytes + missingLfsBytes)
       const preflightMs = Date.now() - started, gitStarted = Date.now()
-      if (!fs.existsSync(dest)) await exec('git', ['clone', '--no-hardlinks', '--no-checkout', '--', this.world, dest], gitOptions)
+      if (!fs.existsSync(path.join(dest, '.git'))) await exec('git', ['clone', '--no-hardlinks', '--no-checkout', '--', this.world, dest], gitOptions)
+      this.mark(id)
       // A new --no-checkout clone has an empty index and appears entirely deleted; only a populated slot resets.
       const reset = fs.existsSync(path.join(dest, '.git', 'genio-play-ready')) ? await this.resetSlot(dest, git) : undefined
       // Share bytes, not filesystem links. Configure before checkout so LFS smudge

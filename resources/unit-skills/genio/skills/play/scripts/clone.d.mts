@@ -31,3 +31,10 @@ export function probeClone(source: string, target: string, options?: CloneOption
 export function volumePlacement(project: string, anchor: string, options?: CloneOptions): Promise<string | undefined>
 export function volumeVerification(data: string, guid: string): VolumeVerification | undefined
 export function seedTree(source: string, dest: string, options: { skip?: (name: string, isDirectory: boolean) => boolean; fallback: () => Promise<unknown>; data?: string; system?: Partial<CloneSystem> }): Promise<SeedResult>
+export const FLAT_ID_LENGTH: number
+export const FLAT_MARKER: string
+export function flatBase(data: string, volumeRoot?: string): string
+export function isFlatId(name: string): boolean
+export function claimFlatFolder(parent: string, seed: string): string
+export function readFlatMarker(dir: string): Record<string, unknown> | undefined
+export function isFlatCopyDir(dir: string, data: string): boolean

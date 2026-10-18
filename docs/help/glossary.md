@@ -383,9 +383,10 @@ Source: [play.md](../play.md), [player-instance.md](../player-instance.md)
 ## Play copy
 
 Your Play instance's private copy of the project. It survives closing the window and Genio; an unused copy is removed
-after more than 24 hours since its last Play (sooner when the disk runs low). It lives in a short folder (`pc`) on the
-project's Dev Drive, else in Genio's data folder, so Unity's paths stay under Windows' 260-character limit; when a
-project's own paths still come near it, the Play status line says so while Unity starts. There is no setting for the
+after more than 24 hours since its last Play (sooner when the disk runs low). It lives in one flat folder named by a short hash (for example `F:\.genio\a1b2c3d4e`) on the
+project's Dev Drive, else in Genio's data folder, so Unity's paths stay under Windows' 260-character limit; its first
+start finds the packages already in its copy and needs no download. When a project's own paths still come near the limit,
+the Play status line says so, with the margin, while Unity starts. There is no setting for the
 location: it follows the project's drive, or Genio's home (`GENIO_HOME`).
 Where: managed automatically; Settings → Unity & Play for idle time and the editor limit.
 Source: [play.md](../play.md), [player-instance.md](../player-instance.md)

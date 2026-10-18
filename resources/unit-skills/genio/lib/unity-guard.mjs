@@ -2,7 +2,7 @@
 /** Shared hook/shim rules. Detection and denial, not a sandbox. No editor control lives here. */
 import fs from 'node:fs'
 import path from 'node:path'
-import { poolDirectory } from '../skills/play/scripts/pool.mjs'
+import { poolDirectory, slotPath } from '../skills/play/scripts/pool.mjs'
 import { volumeMissing } from '../skills/play/scripts/clone.mjs'
 
 export const RULE = 'Use genio-unity for every Unity action; only your own copy and your leased Play slot are allowed.'
@@ -24,12 +24,12 @@ export function canonicalPath(value, cwd = process.cwd()) {
 }
 const inside = (p, root) => p === root || p.startsWith(root + '/')
 
-/** Match PlayPool.slots() without constructing a pool or changing shared state. */
+/** Match PlayPool.slots() and slotDir() without constructing a pool or changing shared state. slot(id): that slot's folder. */
 export function unityPoolPaths(c) {
   const dir = poolDirectory(c.play.data, c.play.world)
-  const placed = read(path.join(dir, 'placement.json'))?.dir
+  const placement = read(path.join(dir, 'placement.json')), placed = placement?.dir
   const copies = typeof placed === 'string' && path.isAbsolute(placed) && !volumeMissing(placed) ? placed : dir
-  return { dir, copies }
+  return { dir, copies, slot: id => slotPath(dir, placement, copies, id) }
 }
 
 /** All player copies are forbidden to units, including a copy placed on another volume. */
@@ -47,11 +47,11 @@ export function playerUnityRoots(c) {
 /** Read-only pool snapshot: no lease renewal, stale cleanup, or editor shutdown. */
 export function leasedUnityRoots(c, { now = Date.now(), isAlive = alive } = {}) {
   try {
-    const { dir, copies } = unityPoolPaths(c)
+    const { dir, slot } = unityPoolPaths(c)
     const state = read(path.join(dir, 'state.json'))
     return (state?.slots ?? []).filter(s => Number.isInteger(s.id) && s.id >= 1 && s.id <= 8 &&
       !s.closing && !s.stuck && s.lease?.owner === `unit:${c.task}` && s.lease.expires > now && isAlive(s.lease.pid))
-      .map(s => canonicalPath(path.join(copies, `slot-${s.id}`, c.engineRoot))).filter(root => !playerUnityRoots(c).includes(root))
+      .map(s => canonicalPath(path.join(slot(s.id), c.engineRoot))).filter(root => !playerUnityRoots(c).includes(root))
   } catch { return [] }
 }
 

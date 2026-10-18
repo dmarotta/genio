@@ -16,16 +16,18 @@ beforeEach(() => {
 })
 afterEach(() => { vi.restoreAllMocks(); fs.rmSync(root, { recursive: true, force: true }) })
 
-it('seeds an atomic Library with timing and byte counts, withholding PackageCache and editor state', async () => {
+it('seeds an atomic Library with timing and byte counts, PackageCache included and editor state withheld', async () => {
   file('Artifacts/warm', '12345'); file('Bee/warm', '123')
-  for (const dir of ['PackageCache', 'Pipeline', 'Temp', 'Logs']) file(`${dir}/private`, 'never copy')
+  file('PackageCache/com.unity.collections@a43cabe808ca/package.json', '123456789')
+  for (const dir of ['Pipeline', 'Temp', 'Logs']) file(`${dir}/private`, 'never copy')
   for (const name of ['EditorInstance.json', 'ArtifactDB-lock', 'SourceAssetDB-lock', 'Other-lock']) file(name, 'never copy')
   const report = await seedLibrary(copy, source)
-  expect(report).toMatchObject({ seeded: true, method: process.platform === 'win32' ? 'robocopy' : 'fs.cp', bytes: 8, files: 2, estimatedBytes: 8 })
+  expect(report).toMatchObject({ seeded: true, method: process.platform === 'win32' ? 'robocopy' : 'fs.cp', bytes: 17, files: 3, estimatedBytes: 17 })
   expect(report.elapsedMs).toBeGreaterThanOrEqual(0)
-  expect(report.requiredBytes).toBeGreaterThan(8)
+  expect(report.requiredBytes).toBeGreaterThan(17)
   expect(report.availableBytes).toBeGreaterThanOrEqual(report.requiredBytes!)
-  expect(fs.readdirSync(path.join(copy, 'Library')).sort()).toEqual(['Artifacts', 'Bee'])
+  expect(fs.readdirSync(path.join(copy, 'Library')).sort()).toEqual(['Artifacts', 'Bee', 'PackageCache'])
+  expect(fs.readFileSync(path.join(copy, 'Library/PackageCache/com.unity.collections@a43cabe808ca/package.json'), 'utf8')).toBe('123456789')
   expect(fs.readdirSync(path.join(copy, 'Temp'))).toEqual([])
   file('Artifacts/warm', 'changed')
   expect(await seedLibrary(copy, source)).toMatchObject({ seeded: false, reason: 'exists' })
@@ -33,7 +35,7 @@ it('seeds an atomic Library with timing and byte counts, withholding PackageCach
 })
 
 it('uses the same exclusions on the non-Windows fallback', async () => {
-  file('warm', '123'); file('packagecache/omitted'); file('EditorInstance.JSON'); file('db-LOCK')
+  file('warm', '123'); file('pipeline/omitted'); file('EditorInstance.JSON'); file('db-LOCK')
   const report = await seedLibrary(copy, source, { platform: 'linux' })
   expect(report).toMatchObject({ method: 'fs.cp', bytes: 3, files: 1 })
   expect(fs.readdirSync(path.join(copy, 'Library'))).toEqual(['warm'])
@@ -101,7 +103,7 @@ it('checks the finished seed for unsafe links before publishing', async () => {
 it('runs robocopy with 16 workers and exclusions, accepting success codes 0–7 only', async () => {
   const run = vi.fn(async () => {})
   expect(await copyLibrary(source, copy, { platform: 'win32', run })).toBe('robocopy')
-  expect(run).toHaveBeenCalledWith('robocopy.exe', expect.arrayContaining(['/MT:16', '/XJ', '/XD', 'PackageCache', 'Pipeline', '/XF', 'EditorInstance.json', '*-lock', '/R:1', '/W:1']), expect.objectContaining({ windowsHide: true }))
+  expect(run).toHaveBeenCalledWith('robocopy.exe', expect.arrayContaining(['/MT:16', '/XJ', '/XD', 'Pipeline', 'Temp', 'Logs', '/XF', 'EditorInstance.json', '*-lock', '/R:1', '/W:1']), expect.objectContaining({ windowsHide: true }))
   for (let code = 0; code < 8; code++) {
     run.mockRejectedValueOnce(Object.assign(new Error('robocopy'), { code }))
     await expect(copyLibrary(source, copy, { platform: 'win32', run })).resolves.toBe('robocopy')
@@ -112,8 +114,8 @@ it('runs robocopy with 16 workers and exclusions, accepting success codes 0–7 
   }
 })
 
-it('does not count excluded PackageCache bytes in the Library footprint', async () => {
-  file('warm', '12345'); file('PackageCache/package', '0123456789')
-  expect(await treeStats(source, { library: true })).toEqual({ bytes: 5, files: 1 })
-  expect(await treeStats(source)).toEqual({ bytes: 15, files: 2 })
+it('counts PackageCache but not the excluded Pipeline bytes in the Library footprint', async () => {
+  file('warm', '12345'); file('PackageCache/package', '0123456789'); file('Pipeline/token', 'abc')
+  expect(await treeStats(source, { library: true })).toEqual({ bytes: 15, files: 2 })
+  expect(await treeStats(source)).toEqual({ bytes: 18, files: 3 })
 })
