@@ -74,30 +74,6 @@ Everything lives under `~/.genio` (override with `GENIO_HOME`):
 - `projects/`: clones
 - `worktrees/`: one per unit
 - `workspaces/<name>/`: project and ally bases, each with the same layout
-- `backups/workspaces-migration/`: the checkpoint written when an older base was migrated (below)
-
-Older bases kept these under `wksps/`. On the first start of a build that uses `workspaces/`, and only when no unit
-process is running, Genio moves the folder with one rename and then repairs everything that pointed into it:
-
-1. It copies the small config, data and state records it may rewrite (and Genio's own Claude and Codex config) to
-   `backups/workspaces-migration/files/` and writes `manifest.json` there.
-2. It renames `wksps/` to `workspaces/`. If `workspaces/` already exists, or the rename fails, it stops with one
-   warning and leaves everything as it was. Nothing is ever deleted.
-3. It rewrites stored absolute paths (unit records, task paths, claude-settings and mcp-config files, plans, the
-   ally registry, trust entries) and runs `git worktree repair` for each repository.
-4. It copies, never moves, Genio's own saved Claude conversations that are keyed by the old working directories, so
-   respawned units and ally chats keep their history. Conversations that exist only in the player's own Claude folder
-   are counted in the manifest and left alone; those chats start fresh.
-
-A record that could not be rewritten is still read through its new location. The migration is idempotent; an
-interrupted run resumes at the repair step. To go back to a build that uses `wksps/`, quit Genio and call
-`restoreWorkspaces(<base>)` from `src/main/workspaces-migration.ts`: it renames the folder back, restores the
-checkpointed files and re-points the git worktrees. A restored base is not migrated again until
-`backups/workspaces-migration/` is removed.
-
-Records written before the "wksp" concept became "workspace" keep loading: `src/main/legacy-keys.ts` renames the old
-`wksp…` keys on read (JSON and JSONL through `readJson`/`readJsonl`), and `Home.workspaceFileToRead` falls back to the
-old `state/wksp.json`. Only the new keys are written.
 
 Registered projects own their units, quests and choices in their project base. Startup migrates legacy ownership once
 with a durable backup checkpoint; existing unit artifact and worktree paths stay valid.

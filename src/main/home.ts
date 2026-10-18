@@ -75,11 +75,6 @@ export class Home {
   get wakesAckFile(): string { return path.join(this.state, 'wakes.ack') }
   get awayFile(): string { return path.join(this.state, 'away.json') }
   get workspaceFile(): string { return path.join(this.state, 'workspace.json') }
-  /** Where the state is read from: the old wksp.json until the first save writes workspace.json (see legacy-keys.ts). */
-  get workspaceFileToRead(): string {
-    const old = path.join(this.state, 'wksp.json')
-    return !exists(this.workspaceFile) && exists(old) ? old : this.workspaceFile
-  }
   get lockFile(): string { return path.join(this.state, 'session.lock') }
 
   setTaskStorage(id: string, root: string): void { this.taskStorage.set(id, path.resolve(root)) }

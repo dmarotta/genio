@@ -73,7 +73,7 @@ interface WorkspaceState {
 
 export function createWorkspaceService(getCtx: () => AppCtx, home: Home, ally?: Ally, readOnly = false, isOpen: () => boolean = () => true): WorkspaceService {
   const name = home.name
-  const persisted = readJson<WorkspaceState>(home.workspaceFileToRead, {})
+  const persisted = readJson<WorkspaceState>(home.workspaceFile, {})
   const info: WorkspaceInfo = {
     name,
     displayName: ASSISTANT_NAME,

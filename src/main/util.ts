@@ -3,7 +3,6 @@ import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { decodeBytes, TextStream } from '@shared/encoding'
-import { upgradeKeys } from './legacy-keys'
 
 export const nowIso = (): string => new Date().toISOString()
 
@@ -195,7 +194,7 @@ export function appendLine(p: string, line: string): void {
 
 export function readJson<T>(p: string, fallback: T): T {
   try {
-    return JSON.parse(decodeBytes(fs.readFileSync(p)), upgradeKeys) as T
+    return JSON.parse(decodeBytes(fs.readFileSync(p))) as T
   } catch {
     return fallback
   }
@@ -228,7 +227,7 @@ function parseJsonl<T>(txt: string): T[] {
   for (const line of txt.split(/\r?\n/)) {
     if (!line.trim()) continue
     try {
-      out.push(JSON.parse(line, upgradeKeys) as T)
+      out.push(JSON.parse(line) as T)
     } catch {
       /* skip corrupt line, keep the rest */
     }

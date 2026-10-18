@@ -242,12 +242,10 @@ export function worktreeLinks(roots) {
   return out
 }
 
-/** Genio's own worktree folders: <home>/worktrees and every ally base's <home>/workspaces/<name>/worktrees (and the older wksps/ folder until a base is migrated). */
+/** Genio's own worktree folders: <home>/worktrees and every ally base's <home>/workspaces/<name>/worktrees. */
 export function genioWorktreeRoots(homeRoot) {
   const roots = [path.join(homeRoot, 'worktrees')]
-  for (const dir of ['workspaces', 'wksps']) {
-    try { for (const e of fs.readdirSync(path.join(homeRoot, dir), { withFileTypes: true })) if (e.isDirectory()) roots.push(path.join(homeRoot, dir, e.name, 'worktrees')) } catch { /* no allies */ }
-  }
+  try { for (const e of fs.readdirSync(path.join(homeRoot, 'workspaces'), { withFileTypes: true })) if (e.isDirectory()) roots.push(path.join(homeRoot, 'workspaces', e.name, 'worktrees')) } catch { /* no allies */ }
   return roots
 }
 

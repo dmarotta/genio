@@ -13,7 +13,6 @@ import { bus } from './bus'
 import { makeHomeCtx } from './ctx'
 import { Home } from './home'
 import { allyCharterFile } from './prompts'
-import { modernPath } from './workspaces-migration'
 import type { AlliesService, AppCtx } from './services'
 import { nowIso, rid, readJson, writeJson, writeText } from './util'
 
@@ -26,7 +25,7 @@ export function createAlliesService(getCtx: () => AppCtx): AlliesService {
   let cache: Ally[] | undefined
   const load = (): Ally[] => {
     if (!cache) {
-      cache = readJson<Ally[]>(reg(), []).map((a) => ({ ...a, home: modernPath(path.resolve(reg(), '..', '..'), a.home) }))
+      cache = readJson<Ally[]>(reg(), [])
     }
     return cache
   }
