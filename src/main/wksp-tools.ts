@@ -32,6 +32,7 @@ import fs from 'node:fs'
 import { ToolPages, isPagedTool, pageShape } from './tool-pages'
 import { procedureText, PROCEDURES } from './prompts'
 import { unitPluginSource } from './unitskills'
+import { MAX_UNITS_AT_ONCE } from '@shared/unit-capacity'
 import { bus } from './bus'
 import { resolveLoadout } from './loadout'
 import { GENERATE_IMAGE_DESC, generateImageShape } from './chat-imagegen'
@@ -403,15 +404,15 @@ export function createToolRegistry(
     }
     return ok(found)
   })
-  const preferenceShape = { usageMode: z.enum(['save', 'balanced', 'max']).optional(), sound: z.boolean().optional(),
+  const preferenceShape = { unitsAtOnce: z.number().int().min(1).max(MAX_UNITS_AT_ONCE).optional(), usageMode: z.enum(['save', 'balanced', 'max']).optional(), sound: z.boolean().optional(),
     soundVolume: z.number().min(0).max(1).optional(), voice: z.boolean().optional(), replyVoice: z.enum(REPLY_VOICE_IDS).optional(), calm: z.boolean().optional(),
     fx: z.boolean().optional(), desktopNotifications: z.boolean().optional() }
   const preferences = () => {
     const s = getCtx().settings.get()
-    return { usageMode: s.usageMode, sound: s.sound, soundVolume: s.soundVolume, voice: s.voice, replyVoice: s.replyVoice,
+    return { usageMode: s.usageMode, unitsAtOnce: s.unitsAtOnce, sound: s.sound, soundVolume: s.soundVolume, voice: s.voice, replyVoice: s.replyVoice,
       calm: s.calm, fx: s.fx, desktopNotifications: s.desktopNotifications }
   }
-  t('settings_read', `Read supported chat/app preferences without secrets or large configuration skills. Where the player sees them: usageMode in ${settingsPath('usage')}; calm is Clean chat, fx is Scanlines and grid, voice is Read replies aloud and replyVoice the voice under it (shown once the natural voice is downloaded), all in ${settingsPath('general')}; sound, soundVolume and desktopNotifications in ${settingsPath('notifications')}. Advanced models, accounts and security settings are elsewhere in Settings, e.g. ${settingsPath('accounts')} or ${settingsPath('dispatch')}.`, {}, () => ok(json(preferences())))
+  t('settings_read', `Read supported chat/app preferences without secrets or large configuration skills. Where the player sees them: usageMode and unitsAtOnce (Units at once, 1-32, independent of mode) in ${settingsPath('usage')}; calm is Clean chat, fx is Scanlines and grid, voice is Read replies aloud and replyVoice the voice under it (shown once the natural voice is downloaded), all in ${settingsPath('general')}; sound, soundVolume and desktopNotifications in ${settingsPath('notifications')}. Advanced models, accounts and security settings are elsewhere in Settings, e.g. ${settingsPath('accounts')} or ${settingsPath('dispatch')}.`, {}, () => ok(json(preferences())))
   t('settings_update', 'Change only these named preferences when the player wants it; the approval mode decides whether the player is asked first. Does not change permissions, accounts or spending allowances.', {
     patch: z.strictObject(preferenceShape)
   }, async ({ patch }) => {
@@ -1161,7 +1162,7 @@ export function createToolRegistry(
   })
 
   // ------------------------------------------------------------ dispatch & tools
-  t('dispatch_profiles', 'The Usage mode and what it resolves to (protection levels, unit cap, quests waiting for a reset), dispatch rules, the category table (locked rows are pinned; unlocked rows follow the mode), learned scores and the unit tools available on this machine (with models), plus pinned defaults. Consult at every deploy.', {}, async () => {
+  t('dispatch_profiles', 'The Usage mode and what it resolves to (protection levels, quests waiting for a reset), the independent Units at once cap, dispatch rules, the category table (locked rows are pinned; unlocked rows follow the mode), learned scores and the unit tools available on this machine (with models), plus pinned defaults. Consult at every deploy.', {}, async () => {
     const s = getCtx().settings
     const cfg = s.get()
     return ok(

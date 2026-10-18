@@ -8,6 +8,7 @@ import { mergeCategoryPools } from '@shared/dispatch'
 import { readJson, which, writeJson } from './util'
 import { migrateUsageSettings } from './usage-policy'
 import { DEFAULT_USAGE_MODE } from '@shared/usage-mode'
+import { DEFAULT_UNITS_AT_ONCE, normalizeUnitsAtOnce } from '@shared/unit-capacity'
 import { DEFAULT_REPLY_VOICE } from '@shared/reply-voice'
 
 export function defaultSettings(): Settings {
@@ -64,6 +65,7 @@ export function defaultSettings(): Settings {
     costDial: 'balanced',
     explorationRate: 0,
     usageMode: DEFAULT_USAGE_MODE,
+    unitsAtOnce: DEFAULT_UNITS_AT_ONCE,
     cheapSpendAllowed: false,
     autoReorder: true,
     eventSources: [],
@@ -82,12 +84,14 @@ export function createSettingsService(home: Home): SettingsService {
   const svc: SettingsService = {
     get: () => current,
     save(patch) {
-      const next: Settings = { ...current, ...patch }
+      const next: Settings = { ...current, ...patch, unitsAtOnce: normalizeUnitsAtOnce(patch.unitsAtOnce, current.unitsAtOnce) }
       if (patch.harnesses) next.harnesses = mergeHarnesses(patch.harnesses)
       if (patch.categoryPools) next.categoryPools = mergeCategoryPools(patch.categoryPools)
       const enteredYolo = current.chatShellMode !== 'all' && next.chatShellMode === 'all'
+      const changedUnitsAtOnce = next.unitsAtOnce !== current.unitsAtOnce
+      writeJson(home.settingsFile, next)
       current = next
-      writeJson(home.settingsFile, current)
+      if (changedUnitsAtOnce) bus.publish({ type: 'feature-used', feature: 'units-at-once' })
       if (enteredYolo) bus.publish({ type: 'feature-used', feature: 'yolo-chat' })
       bus.publish({ type: 'settings', settings: current })
       return current

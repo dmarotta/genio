@@ -21,3 +21,19 @@ export function occupiedUnits(tasks: Task[], terminals: Record<string, CapacityT
     return holdsCapacity(task, !!terminal?.alive, terminal)
   }).length
 }
+
+/** Independent global concurrency setting; the old Balanced limit is the new-install default. */
+export const DEFAULT_UNITS_AT_ONCE = 8
+export const MAX_UNITS_AT_ONCE = 32
+
+export function normalizeUnitsAtOnce(value: unknown, fallback = DEFAULT_UNITS_AT_ONCE): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(1, Math.min(MAX_UNITS_AT_ONCE, Math.round(value))) : fallback
+}
+
+/** Only an explicit project capacity can lower the global setting; equal limits need no extra display. */
+export function unitCaps(unitsAtOnce: number, project?: { capacity?: number }): { global: number; world?: number } {
+  const global = normalizeUnitsAtOnce(unitsAtOnce)
+  const own = project?.capacity
+  return { global, world: own !== undefined && own > 0 && own < global ? own : undefined }
+}

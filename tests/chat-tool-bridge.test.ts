@@ -253,11 +253,12 @@ describe('authority and unchanged deterministic handlers', () => {
     expect(await call(b, 'read_task_file', { task: 'unit', which: 'report', appendix: '../private.md' })).toMatchObject({ isError: true })
     expect((await call(b, 'skill_read', { name: 'assets', reference: 'references/placement.md' })).content[0].text).toContain('Skill directory:')
     expect(await call(b, 'skill_read', { name: 'assets', reference: '../fal/SKILL.md' })).toMatchObject({ isError: true })
-    const settings = { usageMode: 'balanced', sound: true, inboxToken: 'private-token', webhookUrl: 'private-url' }
+    const settings = { usageMode: 'balanced', unitsAtOnce: 8, sound: true, inboxToken: 'private-token', webhookUrl: 'private-url' }
     ctx.settings.get = () => settings as any
     ctx.settings.save = vi.fn(patch => Object.assign(settings, patch) as any)
     const read = await call(b, 'settings_read')
     expect(read.content[0].text).not.toContain('private-')
+    expect(JSON.parse(read.content[0].text).unitsAtOnce).toBe(8)
     // quoted words are no longer an argument; the approval mode decides, and a Deny changes nothing
     say('turn sound off')
     expect(await call(b, 'settings_update', { player_words: 'turn sound off', patch: { sound: false } })).toMatchObject({ isError: true })
@@ -267,6 +268,15 @@ describe('authority and unchanged deterministic handlers', () => {
     expect(await call(b, 'settings_update', { patch: { sound: false } })).not.toHaveProperty('isError')
     expect(ctx.permissions.ask).toHaveBeenLastCalledWith(expect.objectContaining({ tool: 'settings_update', input: 'Change preferences: sound to false?' }))
     expect(settings.sound).toBe(false)
+    say('run three units at once')
+    expect(await call(b, 'settings_update', { patch: { unitsAtOnce: 3 } })).not.toHaveProperty('isError')
+    expect(settings.unitsAtOnce).toBe(3)
+    expect(settings.usageMode).toBe('balanced')
+    expect(ctx.permissions.ask).toHaveBeenLastCalledWith(expect.objectContaining({ tool: 'settings_update', input: 'Change preferences: unitsAtOnce to 3?' }))
+    for (const unitsAtOnce of [0, 33, 1.5, '4']) {
+      expect(await call(b, 'settings_update', { patch: { unitsAtOnce } })).toMatchObject({ isError: true })
+    }
+    expect(settings.unitsAtOnce).toBe(3)
     expect(await call(b, 'settings_update', { patch: { chatShellMode: 'all' } })).toMatchObject({ isError: true })
   })
 

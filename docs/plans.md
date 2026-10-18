@@ -56,8 +56,9 @@ descriptions repeat what matters at the point of use.
 ## Sequencing
 
 - When a step lands, Genio records the commit, done line and changed files, then
-  releases the steps that became ready through `crew.spawn`. The usual unit cap,
-  quota waits and the plan's `max_parallel` all apply. A step held back for
+  releases the steps that became ready through `crew.spawn`. Project capacity,
+  the independent global Units at once setting, quota waits and the plan's
+  `max_parallel` all apply. A step held back for
   capacity is retried when a unit stops working.
 - Each released brief gets a "Plan context" block with the plan, the step's
   acceptance line, and what landed before it.

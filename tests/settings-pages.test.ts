@@ -90,6 +90,25 @@ const active = () => host.querySelector('.sys-link.on')?.textContent
 const navLabels = () => [...host.querySelectorAll('.sys-link')].map((b) => b.textContent)
 const groups = () => [...host.querySelectorAll('.sys-group')].map((g) => g.textContent)
 
+it('changes Units at once separately from Usage mode with one plain control', async () => {
+  await mount()
+  await open('usage')
+  const select = host.querySelector<HTMLSelectElement>('select[aria-label="Units at once"]')!
+  expect(select.value).toBe('8')
+  expect(select.options.length).toBe(32)
+  expect(host.querySelectorAll('#setting-units-at-once')).toHaveLength(1)
+  expect(host.querySelector('.usage-summary')?.textContent).not.toContain('units')
+  vi.mocked(saveSettings).mockClear()
+  await act(async () => {
+    select.value = '3'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  expect(saveSettings).toHaveBeenLastCalledWith({ unitsAtOnce: 3 })
+  await act(async () => [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(button => button.textContent?.trim() === 'Max')!.click())
+  expect(saveSettings).toHaveBeenLastCalledWith({ usageMode: 'max' })
+  expect(select.value).toBe('8')
+})
+
 describe('page registry', () => {
   it('resolves every old section id, and every alias anchor names a page that exists', () => {
     for (const [old, page] of Object.entries(OLD_IDS)) expect(resolveSettingsPage(old).page, old).toBe(page)

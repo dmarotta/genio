@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, 
 import { ChevronDown, ChevronUp, Copy, Download, KeyRound, Lock, LockOpen, LogIn, LogOut, Plus, RefreshCw, Search, Trash, Wrench, X } from 'lucide-react'
 import type { CategoryPool, DispatchRule, EventSource, HarnessAdapter, PoolCandidate, Project, Settings, ToolStatus, UpdateInfo } from '@shared/types'
 import { CATEGORIES, categoryLabel, defaultCategoryPools } from '@shared/dispatch'
+import { MAX_UNITS_AT_ONCE } from '@shared/unit-capacity'
 import { USAGE_MODES, USAGE_MODE_LABEL, modeSummary, pctText, planLabel, type UsageMode, type UsagePolicyView } from '@shared/usage-mode'
 import { SETTINGS_GROUP_LABEL, SETTINGS_PAGES, settingsPage, type SettingsPage, type SettingsPageId } from '@shared/settings-pages'
 import { effectiveEngine } from '@shared/engine'
@@ -517,6 +518,11 @@ function Usage({ s }: { s: Settings }) {
       <div className="usage-summary">
         <b>{modeSummary(hover ?? mode, view?.chat)}</b>
       </div>
+      <Row label="Units at once">
+        <select className="select" aria-label="Units at once" value={s.unitsAtOnce} onChange={(e) => set({ unitsAtOnce: Number(e.target.value) })}>
+          {Array.from({ length: MAX_UNITS_AT_ONCE }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
+        </select>
+      </Row>
 
       {acting.length > 0 && (
         <div className="usage-levels">

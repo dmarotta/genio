@@ -248,10 +248,20 @@ Source: [VOCABULARY.md](../VOCABULARY.md)
 ## Usage modes
 
 One control for how much of your Claude and Codex plans Genio may use: Save, Balanced (default) or Max. It sets chat
-and unit models and effort, how many units run at once across all projects (Save 4, Balanced 8, Max 16), event
-batching and answer length. Only Max sometimes tries a less-proven model. A project can only lower the global mode.
+and unit models and effort, event batching and answer length. Only Max sometimes tries a less-proven model.
+A project can pick its own mode. Concurrency is controlled separately by Units at once.
 Where: Settings → Usage & limits → Usage mode; per project in Settings → This project → General.
 Source: [usage-protection.md](../usage-protection.md)
+
+## Units at once
+
+The maximum units working across all projects and bases, independently of Usage mode. Choose 1–32;
+new installs start at 8. Existing settings keep the old global mode's limit (Save 4, Balanced 8, Max 16)
+until you change it. A project's Max units at once can impose a lower limit on that project only;
+0 means use the global limit. Queued quests wait when capacity is full. Plan parallelism,
+quota protection and Unity editor slots may limit work further. Chat can read and change it on your request.
+Where: Settings → Usage & limits → Units at once.
+Source: [usage-protection.md](../usage-protection.md), [plans.md](../plans.md), [unity-copies.md](../unity-copies.md)
 
 ## Quota protection
 

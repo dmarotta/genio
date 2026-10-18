@@ -95,6 +95,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'reaction-dislike', feature: 'comms', name: 'Hold Up', description: 'Dislike a Genio message so it pauses and asks what is wrong.', retired: true },
   { id: 'yolo-chat', feature: 'comms', name: 'No Safety Wheels', description: 'Switch chat to YOLO mode.' },
   { id: 'account-login', feature: 'systems', name: 'Signed In', description: `Log in from ${settingsPath('accounts')}.` },
+  { id: 'units-at-once', feature: 'units-at-once', name: 'Set the Pace', description: `Change Units at once in ${settingsPath('usage')}.` },
   { id: 'usage-mode', feature: 'systems', name: 'Gear Shift', description: `Switch the Usage mode between Save, Balanced and Max in ${settingsPath('usage')}.` },
   { id: 'cheap-unit', feature: 'deploy', name: 'Budget Build', description: 'Deploy an OpenCode unit.' },
   { id: 'unit-references', feature: 'unit-references', name: 'Reference Material', description: 'Start a unit with something to work from: a pasted image, a file or a note you gave Genio.' },
@@ -510,7 +511,7 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
         'character-sheet': 'character-sheet-open',
         'play-fullscreen': 'play-fullscreen',
         'model-picker': 'model-picker', 'model-switch': 'model-switch', screenshot: 'screenshot', world_push: 'push-first',
-        rate_task: 'rating-first', 'account-login': 'account-login', 'yolo-chat': 'yolo-chat', 'usage-mode': 'usage-mode',
+        rate_task: 'rating-first', 'account-login': 'account-login', 'yolo-chat': 'yolo-chat', 'usage-mode': 'usage-mode', 'units-at-once': 'units-at-once',
         quest_add: 'quest-first', world_add: 'world-first', memory_write: 'lore-first', 'inventory-index': 'inventory-index',
         plan_create: 'plan-first', 'plan-done': 'plan-done', 'shell-command': 'shell-command', 'unit-references': 'unit-references'
       }

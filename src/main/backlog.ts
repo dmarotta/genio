@@ -439,7 +439,7 @@ export function createBacklogService(getCtx: () => AppCtx, home: Home): BacklogS
         if (it.notBefore && Date.parse(it.notBefore) > now) continue
         if (unresolvedDeps(it).length) continue
         if (planHolds(it)) continue
-        // the Usage mode's cap counts units in every world and base
+        // Units at once counts units in every project and base
         if (global && global.used + picked.length >= global.cap) break
         if (waitsForQuota(it)) continue
         if (it.project) {

@@ -205,7 +205,7 @@ export interface QueueContext {
   backlog: BacklogItem[]
   tasks: Task[]
   terminals?: Record<string, Pick<TerminalInfo, 'alive'>>
-  /** per-project unit limits: a project's own capacity or Usage mode cap */
+  /** per-project unit limits: a project's own capacity */
   worldCaps?: Record<string, number | undefined>
   global?: { cap: number; used: number }
   quota?: { reason: string; until?: string }

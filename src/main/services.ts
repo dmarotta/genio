@@ -291,7 +291,7 @@ export interface DispatchService {
   }>
   /** a tool's hottest 5-hour/weekly plan window (percent), when it reported one */
   usagePercent(harness: string): number | undefined
-  /** the global mode's concurrent-unit cap and the units holding or claiming a place across every base */
+  /** Units at once and the units holding or claiming a place across every base */
   capacity(): { cap: number; used: number }
     /** Reserved launches not yet listed as spawning tasks, for live UI counts. */
     pendingUnits(): string[]

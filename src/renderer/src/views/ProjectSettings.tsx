@@ -7,7 +7,7 @@ import { cheapModelsAllowed } from '@shared/dispatch'
 import { settingAnchor } from '@shared/settings-index'
 import type { SettingsPageId } from '@shared/settings-pages'
 import { SettingsTitle } from '../components/SettingsTitle'
-import { MODE_PRESETS, USAGE_MODES, USAGE_MODE_LABEL, type UsageMode } from '@shared/usage-mode'
+import { USAGE_MODES, USAGE_MODE_LABEL, type UsageMode } from '@shared/usage-mode'
 import { PROJECT_WINDOW, api, errText, op, toast, useStore } from '../store'
 import { CommitInput, Confirm, Field, Modal, Toggle } from '../components/ui'
 import { ENGINE_LABEL, MODE_LABEL, PROJECT_MODES } from '../lib/vocab'
@@ -46,7 +46,7 @@ function ProjectGeneral({ p }: { p: Project }) {
       <Field label="Description" id={settingAnchor('Description')}><CommitInput value={p.description ?? ''} placeholder="Describe this project" onCommit={(v) => update({ description: v })} /></Field>
       <div className="world-controls">
         <Field label="Usage mode" id={settingAnchor('Usage mode')}><select className="select" value={p.usageMode ?? ''} onChange={(e) => update({ usageMode: (e.target.value || undefined) as UsageMode | undefined, costDial: undefined })}><option value="">Same as Genio ({USAGE_MODE_LABEL[globalMode]})</option>{USAGE_MODES.map(mode => <option key={mode} value={mode}>{USAGE_MODE_LABEL[mode]}</option>)}</select></Field>
-        <Field label="Max units at once" id={settingAnchor('Max units at once')} hint={`0 = only the global limit (${MODE_PRESETS[globalMode].unitCap} in ${USAGE_MODE_LABEL[globalMode]}).`}>
+        <Field label="Max units at once" id={settingAnchor('Max units at once')} hint="0 = only the global Units at once limit.">
           <CommitInput type="number" value={p.capacity ?? 0} onCommit={(v) => update({ capacity: Math.max(0, parseInt(v, 10) || 0) })} />
         </Field>
         <Field label="OpenRouter models" id={settingAnchor('OpenRouter models')} hint="Code is sent to OpenRouter when used. Also needs an OpenRouter key and paid spend in Usage & limits.">

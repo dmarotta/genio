@@ -108,8 +108,9 @@ fresh 70/85/95% readings and rejections remains in place.
 
 # Usage mode and shared plan meter (stage 3)
 
-One control, Settings → Usage & limits: **Usage mode [Save | Balanced | Max]**, with a one-line summary of the
-chat model and unit cap (hovering a mode previews its line). Model and effort pins are no longer set there: the
+Settings → Usage & limits has **Usage mode [Save | Balanced | Max]** and the separate **Units at once**
+number choice (1–32). The mode's one-line summary shows the chat model and effort, without repeating the unit limit.
+Model and effort pins are no longer set there: the
 page lists any pin that exists (chat or unit model and effort, locked routing rows and rules, a project's own
 mode) with Unpin or Open. `src/shared/usage-mode.ts` holds the table; the summary line, the loadout
 picker, the chat sessions, the supervisor and the dispatcher all read it.
@@ -122,7 +123,6 @@ picker, the chat sessions, the supervisor and the dispatcher all read it.
 | Units: recon/design, refactor, graphics | Codex / medium | Codex / high | Opus / xhigh |
 | Units: review, large-context | Codex / medium | Codex / high | Codex / xhigh |
 | Units: art (agent work) | Codex / low | Codex / medium | Codex / high |
-| Concurrent units across all projects and bases | 1 | 2 | 4 |
 | Exploration | 0 | 0 | 5%, only with fresh evidence below 70% on both plans |
 | Cheap third-party models (low-stakes only) | first | after the plans | off |
 | Routine wake batching; heartbeat base/max | 10 min; 30/120 | 5 min; 15/120 | 1 min; 10/120 |
@@ -145,17 +145,33 @@ Ordinary automatic routing uses Sol, Sonnet or Opus. Astra is normally reserved
 for heavy visual work and remains an explicitly chosen, explicitly approved
 exception. The broad art/graphics categories include audio and performance work,
 so those labels alone do not automatically select Astra.
-A project can carry its own mode (Advanced, or its legacy cost dial); the global
-mode sets the shared unit cap, and a project's mode or capacity can only lower it.
+A project can carry its own mode (This project → General, or its legacy cost dial).
+Neither global nor project Usage mode changes concurrency. **Units at once** sets the
+shared cap across all projects and bases; the existing project **Max units at once**
+can only lower it for that project (0 means no project limit). Equal or higher project
+limits add no extra display.
 The cap is checked inside the serialized launch reservation, counting units that
 hold a place in every base plus launches reserved but not yet listed; a respawn
 keeps the place it already holds. Cheap models also need an explicit paid-spend
 allowance (Advanced); a mode never grants one.
 
-All project windows share that dispatcher and account meter. Save has 4 unit
-places, Balanced 8 and Max 16. Competing project launches reserve the last place
+New installs start with 8 unit places. Existing settings migrate once to their previous
+global mode's limit: Save 4, Balanced 8, Max 16 (including the equivalent legacy cost dial).
+Explicit unit limits, model pins, credentials and other saved settings are preserved;
+later mode changes leave Units at once alone. Reducing the limit leaves running work
+alone and holds new launches until capacity is free. `settings_read` exposes `unitsAtOnce`
+and `settings_update` accepts an integer from 1 to 32 on the player's request.
+
+All project windows share that dispatcher and account meter. Competing project launches reserve the last place
 atomically; a warm plan's one-unit limit also counts work in every project base.
 Finished units release their places even when their terminals remain alive.
+
+Queued quests use the dispatcher's current Units at once limit and the project's
+capacity; project-open recovery uses the same limits. A work plan's `max_parallel`
+(default 2, maximum 3) separately bounds that plan's active steps. Unity's per-project
+slot pool (1–8, default 1) and machine editor/memory limits separately bound editor work; they do not
+change the global unit setting. Quota protection may still hold launches below the
+configured unit limit.
 
 The meter's project attribution includes project chat and Bot session IDs (current
 and recorded historical sessions), plus units under each base's worktrees.

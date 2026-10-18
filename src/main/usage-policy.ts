@@ -1,6 +1,6 @@
 /**
  * Usage mode in the main process: settings migration, the per-world mode,
- * the chat's effective model/effort, the global unit count, routine wake
+ * the chat's effective model/effort, unit-capacity migration and counts, routine wake
  * batching and the durable policy-transition notices. The mode table, the
  * protection levels and the meter live in @shared/usage-mode.
  */
@@ -12,18 +12,24 @@ import {
 } from '@shared/usage-mode'
 import { claudeLimits, readClaudeLimits } from './usage'
 import { readJson, writeJsonAtomic } from './util'
-import { holdsCapacity } from '@shared/unit-capacity'
+import { holdsCapacity, normalizeUnitsAtOnce } from '@shared/unit-capacity'
 export { holdsCapacity } from '@shared/unit-capacity'
 
 /**
- * Pre-mode settings: the cost dial becomes the mode, and the old shipped chat
+ * Seed independent concurrency from the old mode limit once. For pre-mode settings,
+ * the cost dial becomes the mode, and the old shipped chat
  * effort default ('high' with no model picked) becomes Auto. Every explicit
  * model/effort the player picked stays as written and shows as Pinned.
  */
 export function migrateUsageSettings(saved: Partial<Settings>): Partial<Settings> {
-  if (isUsageMode(saved.usageMode)) return saved
-  const next: Partial<Settings> = { ...saved, usageMode: saved.costDial ? DIAL_MODE[saved.costDial] ?? DEFAULT_USAGE_MODE : DEFAULT_USAGE_MODE }
-  if (!saved.wkspModel?.trim() && saved.wkspEffort === 'high') next.wkspEffort = ''
+  const hadMode = isUsageMode(saved.usageMode)
+  const mode = hadMode ? saved.usageMode! : saved.costDial ? DIAL_MODE[saved.costDial] ?? DEFAULT_USAGE_MODE : DEFAULT_USAGE_MODE
+  // These are migration values only: changing a mode never changes concurrency again.
+  const legacyCaps = { save: 4, balanced: 8, max: 16 }
+  const unitsAtOnce = normalizeUnitsAtOnce(saved.unitsAtOnce, legacyCaps[mode])
+  if (hadMode && saved.unitsAtOnce === unitsAtOnce) return saved
+  const next: Partial<Settings> = { ...saved, usageMode: mode, unitsAtOnce }
+  if (!hadMode && !saved.wkspModel?.trim() && saved.wkspEffort === 'high') next.wkspEffort = ''
   return next
 }
 

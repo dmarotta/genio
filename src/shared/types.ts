@@ -102,7 +102,7 @@ export interface Project {
   description?: string
   /** legacy per-world dial; read as the equivalent Usage mode when usageMode is unset */
   costDial?: CostDial
-  /** this world's Usage mode override (Settings → This project → General); unset = the global mode. Cannot raise the global unit cap. */
+  /** this world's Usage mode override (Settings → This project → General); unset = the global mode. */
   usageMode?: UsageMode
   /** on unless false: units may send this world's code to cheap third-party models (OpenRouter via OpenCode); false opts the world out */
   allowCheapModels?: boolean
@@ -899,8 +899,10 @@ export interface Settings {
   costDial: CostDial
   /** Legacy: exploration is set by usageMode (Save 0, Balanced 0, Max 5%). */
   explorationRate: number
-  /** Save / Balanced / Max: model, effort, unit cap, exploration, cheap models, wake batching and answer targets */
+  /** Save / Balanced / Max: model, effort, exploration, cheap models, wake batching and answer targets */
   usageMode: UsageMode
+  /** Maximum concurrent units across all projects and bases, independently of Usage mode (1-32). */
+  unitsAtOnce: number
   /** explicit allowance for paid OpenRouter spend on cheap candidates; a mode never grants it */
   cheapSpendAllowed: boolean
   /** reorder candidates automatically when the scorecard evidence is clear */

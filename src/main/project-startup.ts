@@ -1,9 +1,8 @@
 import path from 'node:path'
 import type { BacklogItem, Task } from '@shared/types'
 import { findDuplicate, titleKey, unitDiscarded } from '@shared/quest-board'
-import { unitCaps } from '@shared/usage-mode'
+import { unitCaps } from '@shared/unit-capacity'
 import type { AppCtx } from './services'
-import { globalMode, worldUsage } from './usage-policy'
 import { openSetup } from './project-setup'
 import { nowIso, readJson, truncate, writeJsonAtomic } from './util'
 
@@ -12,8 +11,7 @@ function hasCapacity(ctx: AppCtx, project: string): boolean {
   const global = ctx.dispatch.capacity()
   if (global.used >= global.cap) return false
   const settings = ctx.settings.get(), world = ctx.projects.get(project)
-  const own = worldUsage(settings, world)
-  const caps = unitCaps(globalMode(settings), { mode: own.source === 'global' ? undefined : own.mode, capacity: world?.capacity })
+  const caps = unitCaps(settings.unitsAtOnce, world)
   const used = [...ctx.homes.values()].reduce((n, h) => n + h.crew.capacityUsed(project), 0)
   return caps.world === undefined || used < caps.world
 }

@@ -61,6 +61,10 @@ the answer no.
 12. **A new element needs a one-sentence justification** in the PR or the final note: which use
     case needs it. If you cannot write that sentence, you have your answer.
 
+Usage & limits keeps concurrency in one **Units at once** number choice beside Usage mode:
+the player needs it to change parallel work without changing model and quota preferences.
+Do not repeat its value in the mode summary or add explanatory copy, status or notifications.
+
 ## What not to do
 
 Real examples of things that were added, then removed because they were not necessary. Dates

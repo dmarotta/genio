@@ -78,6 +78,7 @@ const ROWS: Partial<Record<SettingsPageId, RowSpec[]>> = {
   ],
   usage: [
     ['Usage mode', ['Save', 'Balanced', 'Max'], 'settings-usage-mode'],
+    ['Units at once', ['Concurrent units', 'Parallel units', 'Global unit limit']],
     ['Allow paid OpenRouter spend', ['Paid spend on cheap models', 'OpenRouter spend', 'Cheap models']]
   ],
   accounts: [['API keys', ['FAL', 'OpenRouter key', 'Uthana', 'Key'], 'settings-api-keys']],

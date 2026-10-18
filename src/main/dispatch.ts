@@ -9,9 +9,10 @@ import { runtimeAccounts, type AccountStatus, type OpResult, type UsageReport } 
 import type { BacklogItem, Decision, Task, Verdict } from '@shared/types'
 import { cheapModelsAllowed, type DispatchScoresView } from '@shared/dispatch'
 import {
-  MODE_PRESETS, SONNET, USAGE_MODE_LABEL, isPlan, meterRows, planStatus, planStatuses, quotaWait, reconWords, resolveChat, unitCaps,
+  MODE_PRESETS, SONNET, isPlan, meterRows, planStatus, planStatuses, quotaWait, reconWords, resolveChat,
   type PlanStatus, type QuotaWait, type UsagePolicyView
 } from '@shared/usage-mode'
+import { unitCaps } from '@shared/unit-capacity'
 import { bus } from './bus'
 import { listAccounts } from './accounts'
 import { resolveLoadout, cheapGate, type PickEnv, type QuotaWindow } from './loadout'
@@ -108,18 +109,17 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
     }
   }
 
-  /** Global cap from the global mode, plus any lower cap of this world. Serialized with selection. */
+  /** Independent global setting plus any lower project capacity. Serialized with selection. */
   const capGate = (project: string, respawn = false): void => {
     const ctx = getCtx()
     const s = ctx.settings.get()
     const world = ctx.projects.get(project)
-    const own = world ? worldUsage(s, world) : undefined
-    const caps = unitCaps(globalMode(s), { mode: own && own.source !== 'global' ? own.mode : undefined, capacity: world?.capacity })
+    const caps = unitCaps(s.unitsAtOnce, world)
     // A respawn has no quest to queue: the unit simply stays as it is.
     const after = respawn ? 'The unit was not respawned and stays as it is; respawn it when a slot frees up.' : 'The quest stays queued.'
     const used = liveUnits(homes(), alive) + launchingCount()
     if (used >= caps.global)
-      throw new Error(`deferred: the ${USAGE_MODE_LABEL[globalMode(s)]} usage mode allows ${caps.global} concurrent unit${caps.global === 1 ? '' : 's'} across all projects (${used} running or launching). ${after}`)
+      throw new Error(`deferred: Units at once allows ${caps.global} concurrent unit${caps.global === 1 ? '' : 's'} across all projects (${used} running or launching). ${after}`)
     if (caps.world !== undefined) {
       const mine = liveUnits(homes(), alive, project) + launchingCount(project)
       if (mine >= caps.world) throw new Error(`deferred: ${project} allows ${caps.world} concurrent unit${caps.world === 1 ? '' : 's'} (${mine} running or launching). ${after}`)
@@ -243,7 +243,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
     pendingUnits: () => [...launching].map(launch => launch.project),
 
     capacity() {
-      return { cap: MODE_PRESETS[globalMode(getCtx().settings.get())].unitCap, used: liveUnits(homes(), alive) + launchingCount() }
+      return { cap: unitCaps(getCtx().settings.get().unitsAtOnce).global, used: liveUnits(homes(), alive) + launchingCount() }
     },
 
     quotaWait(item) {
@@ -284,11 +284,11 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
         chat: resolveChat(mode, { model: s.wkspModel, effort: s.wkspEffort }, plans.claude),
         bot: { model: s.botModel?.trim() || SONNET, pinned: Boolean(s.botModel?.trim()) },
         units: { defaultHarness: s.defaultHarness, model: s.defaultWorkerModel || undefined, effort: s.defaultWorkerEffort || undefined },
-        unitCap: MODE_PRESETS[mode].unitCap,
+        unitCap: svc.capacity().cap,
         liveUnits: svc.capacity().used,
         worlds: ctx.projects.list().map((p) => {
           const u = worldUsage(s, p)
-          return { ...u, cap: unitCaps(mode, { mode: u.source !== 'global' ? u.mode : undefined, capacity: p.capacity }).world }
+          return { ...u, cap: unitCaps(s.unitsAtOnce, p).world }
         }),
         plans: [plans.claude, plans.codex],
         // Codex not signed in: nothing to show for it (the Accounts row says Sign in).

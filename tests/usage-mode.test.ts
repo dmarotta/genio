@@ -7,9 +7,12 @@ import type { BacklogItem, LoadoutInput, Settings, Task, TaskCategory } from '..
 import { CATEGORY_IDS, CHEAP_MODELS } from '../src/shared/dispatch'
 import { CODEX_UNIT_MODEL } from '../src/shared/unit-model-policy'
 import {
-  MODE_PRESETS, OPUS, SONNET, USAGE_MODES, meterRows, modeSummary, planStatus, presetRows, quotaWait, resolveChat, unitCaps, type PlanStatus, type UsageMode
+  MODE_PRESETS, OPUS, SONNET, USAGE_MODES, meterRows, modeSummary, planStatus, presetRows, quotaWait, resolveChat, type PlanStatus, type UsageMode
 } from '../src/shared/usage-mode'
+import { unitCaps } from '../src/shared/unit-capacity'
 import { defaultSettings } from '../src/main/settings'
+import { createBacklogService } from '../src/main/backlog'
+import { Home } from '../src/main/home'
 import { pickLoadout, type PickEnv } from '../src/main/loadout'
 import { PolicyNotices, chatSettings, heartbeatFor, migrateUsageSettings, routineDelay, worldUsage } from '../src/main/usage-policy'
 import { ACHIEVEMENTS } from '../src/main/stats'
@@ -58,8 +61,7 @@ describe('every preset x category', () => {
     }
   }
 
-  it('sets cap, exploration, cheap use, batching and targets exactly per the table', () => {
-    expect(USAGE_MODES.map((m) => MODE_PRESETS[m].unitCap)).toEqual([4, 8, 16])
+  it('sets exploration, cheap use, batching and targets exactly per the table', () => {
     expect(USAGE_MODES.map((m) => MODE_PRESETS[m].exploration)).toEqual([0, 0, 0.05])
     expect(USAGE_MODES.map((m) => MODE_PRESETS[m].cheap)).toEqual(['first', 'fallback', 'off'])
     expect(USAGE_MODES.map((m) => MODE_PRESETS[m].wakeBatchMinutes)).toEqual([10, 5, 1])
@@ -70,9 +72,9 @@ describe('every preset x category', () => {
     ])
   })
 
-  it.each([['save', 4], ['balanced', 8], ['max', 16]] as const)('shows the %s cap in the summary and preview', (mode, cap) => {
-    expect(modeSummary(mode)).toContain(`up to ${cap} units`)
-    expect(presetRows(mode)).toContainEqual({ label: 'Concurrent units (all projects)', value: String(cap) })
+  it.each(USAGE_MODES)('keeps concurrency out of the %s mode summary and preview', mode => {
+    expect(modeSummary(mode)).not.toMatch(/up to|units/)
+    expect(presetRows(mode).some(row => /concurrent/i.test(row.label))).toBe(false)
   })
 
   it('cheap models: Save first, Balanced after the plans, Max never, never for high-stakes work, never without the allowance', () => {
@@ -103,7 +105,7 @@ describe('pinned overrides', () => {
     expect(migrateUsageSettings({ wkspModel: '', wkspEffort: 'low' }).wkspEffort).toBe('low')
     expect(migrateUsageSettings({ costDial: 'quality' }).usageMode).toBe('max')
     expect(migrateUsageSettings({ costDial: 'cost' }).usageMode).toBe('save')
-    const done = { usageMode: 'save', wkspEffort: 'high' } as Partial<Settings>
+    const done = { usageMode: 'save', unitsAtOnce: 4, wkspEffort: 'high' } as Partial<Settings>
     expect(migrateUsageSettings(done)).toBe(done)
   })
 
@@ -278,8 +280,8 @@ describe('concurrent unit cap across worlds', () => {
   afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }) })
 
   const task = (project: string, state: Task['state'] = 'working'): Task => ({ id: `${project}-${Math.random()}`, project, state, harness: 'codex', terminalId: 'live' }) as Task
-  function service(mode: UsageMode, tasks: Task[] = [], worlds: Record<string, { capacity?: number; usageMode?: UsageMode }> = {}, backlog: BacklogItem[] = []) {
-    const s = settings({ usageMode: mode })
+  function service(mode: UsageMode, tasks: Task[] = [], worlds: Record<string, { capacity?: number; usageMode?: UsageMode }> = {}, backlog: BacklogItem[] = [], overrides: Partial<Settings> = {}) {
+    const s = settings({ ...migrateUsageSettings({ usageMode: mode }), ...overrides })
     const homes = new Map([
       ['main', { crew: { list: () => tasks.filter((t) => !t.wksp), get: (id: string) => tasks.find(t => t.id === id && !t.wksp) }, backlog: { list: () => backlog } }],
       ['ally', { crew: { list: () => tasks.filter((t) => t.wksp === 'ally'), get: (id: string) => tasks.find(t => t.id === id && t.wksp === 'ally') }, backlog: { list: () => [] } }]
@@ -289,11 +291,29 @@ describe('concurrent unit cap across worlds', () => {
       projects: { get: (name: string) => (worlds[name] ? { name, ...worlds[name] } : { name }), list: () => Object.keys(worlds).map((name) => ({ name, ...worlds[name] })) },
       main: { home: { data: dir } }, homes, terminals: { get: (id: string) => id === 'live' ? { alive: true } : undefined }
     } as unknown as AppCtx
-    return createDispatchService(() => ctx)
+    return Object.assign(createDispatchService(() => ctx), { settings: s })
   }
   const ship = (project: string): LoadoutInput => ({ kind: 'ship', project, title: 'Add docs', intent: 'Add docs', category: 'docs' })
 
-  it('counts units in every world and base against the global mode cap', async () => {
+  it('queues by the independent limit, ignores mode changes and reopens capacity when the limit changes', async () => {
+    const svc = service('max', [task('a'), task('b')], {}, [], { unitsAtOnce: 2 })
+    const home = new Home(dir); home.ensure()
+    const ctx = { dispatch: svc, homes: new Map(), projects: { get: () => ({ capacity: 0 }) } } as unknown as AppCtx
+    const backlog = createBacklogService(() => ctx, home)
+    const quest = backlog.add({ project: 'next', title: 'Waiting quest', kind: 'ship' })
+    expect(backlog.dispatchable()).toHaveLength(0)
+    svc.settings.usageMode = 'save'
+    expect(svc.capacity().cap).toBe(2)
+    expect(backlog.dispatchable()).toHaveLength(0)
+    svc.settings.unitsAtOnce = 3
+    expect(backlog.dispatchable().map(q => q.id)).toEqual([quest.id])
+    const slot = await svc.reserve(ship('next'))
+    expect(backlog.dispatchable()).toHaveLength(0)
+    slot.release()
+    expect(backlog.dispatchable().map(q => q.id)).toEqual([quest.id])
+  })
+
+  it('counts units in every world and base against the configured global cap', async () => {
     for (const [mode, cap] of [['save', 4], ['balanced', 8], ['max', 16]] as const) {
       const tasks = Array.from({ length: cap - 1 }, (_, i) => ({ ...task(`world-${i}`), ...(i % 2 ? { wksp: 'ally' } : {}) }))
       const svc = service(mode, tasks)
@@ -394,17 +414,26 @@ describe('concurrent unit cap across worlds', () => {
     await expect(service('balanced', [active]).reserve({ ...ship('b'), harness: 'codex' })).rejects.toThrow(/deferred/)
   })
 
-  it('a world mode or capacity can only lower the cap; a respawn keeps its place', async () => {
-    expect(unitCaps('save', { mode: 'max' })).toEqual({ global: 4, world: undefined })
-    expect(unitCaps('max', { mode: 'save' })).toEqual({ global: 16, world: 4 })
-    expect(unitCaps('max', { capacity: 2 })).toEqual({ global: 16, world: 2 })
-    expect(unitCaps('balanced', { capacity: 20 })).toEqual({ global: 8, world: undefined })
-    expect(unitCaps('max', { mode: 'save', capacity: 2 })).toEqual({ global: 16, world: 2 })
-    expect(unitCaps('max', { mode: 'save', capacity: 10 })).toEqual({ global: 16, world: 4 })
-    await expect(service('max', Array.from({ length: 4 }, () => task('slow')), { slow: { usageMode: 'save' } }).reserve(ship('slow'))).rejects.toThrow(/slow allows 4 concurrent units/)
+  it.each(USAGE_MODES)('uses the independent limit in %s for reservations and the policy view', async mode => {
+    const svc = service(mode, [task('a'), task('b')], {}, [], { unitsAtOnce: 3 })
+    expect(svc.capacity()).toEqual({ cap: 3, used: 2 })
+    expect(svc.view().unitCap).toBe(3)
+    const slot = await svc.reserve(ship('c'))
+    await expect(svc.reserve(ship('d'))).rejects.toThrow(/allows 3 concurrent units/)
+    slot.release()
+  })
+
+  it('only explicit project capacity lowers the cap; a respawn keeps its place', async () => {
+    expect(unitCaps(4)).toEqual({ global: 4, world: undefined })
+    expect(unitCaps(16, { capacity: 2 })).toEqual({ global: 16, world: 2 })
+    expect(unitCaps(8, { capacity: 20 })).toEqual({ global: 8, world: undefined })
+    expect(unitCaps(8, { capacity: 8 })).toEqual({ global: 8, world: undefined })
+    expect(unitCaps(8, { capacity: 0 })).toEqual({ global: 8, world: undefined })
+    const slow = service('max', Array.from({ length: 4 }, () => task('slow')), { slow: { usageMode: 'save' } })
+    const allowed = await slow.reserve(ship('slow'))
+    expect(slow.view().worlds[0].cap).toBeUndefined()
+    allowed.release()
     await expect(service('max', [task('slow'), task('slow')], { slow: { usageMode: 'save', capacity: 2 } }).reserve(ship('slow'))).rejects.toThrow(/slow allows 2 concurrent units/)
-    const other = await service('max', [task('slow')], { slow: { usageMode: 'save' } }).reserve(ship('fast'))
-    other.release()
     const active = task('a')
     const respawn = await service('save', [active, task('b'), task('c'), task('d')]).reserve({ ...ship('a'), harness: 'codex' }, { respawn: { id: active.id, wksp: 'main' } })
     respawn.release()

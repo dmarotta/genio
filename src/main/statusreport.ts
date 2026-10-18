@@ -138,7 +138,7 @@ export function createStatusReportService(getCtx: () => AppCtx): StatusReportSer
             else if (q.duplicateOf) why = ` — flagged as a duplicate of ${q.duplicateOf}`
             else if (q.dependsOn.length) why = ` — waiting on ${q.dependsOn.join(', ')}`
             else if (q.notBefore && Date.parse(q.notBefore) > Date.now()) why = ` — not before ${shortDate(q.notBefore)}`
-            else if (q.project) why = ' — at capacity (project or Usage mode unit cap)'
+            else if (q.project) why = ' — at capacity (project or Units at once limit)'
             const prio = q.priority !== 'normal' ? ` [${q.priority}]` : ''
             upNext.push({ text: `Quest "${q.title}"${world}${base(h)}${prio}${why}`, backlogId: q.id, tone: ready.has(q.id) ? 'neon' : undefined })
           } else if ((q.state === 'queued' || q.state === 'blocked') && q.hold) {

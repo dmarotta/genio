@@ -1,6 +1,6 @@
 /**
  * Usage mode (Save / Balanced / Max): one control that sets chat and unit
- * model/effort, the shared concurrent-unit cap, exploration, cheap-model use,
+ * model/effort, exploration, cheap-model use,
  * routine wake batching and answer/report ceilings; plus the automatic plan
  * protection levels and the shared plan meter. Pure, so the Systems preview
  * shows exactly what the dispatcher and the chat apply.
@@ -56,8 +56,6 @@ export interface ModePreset {
   units: Record<UnitGroup, Cell>
   /** what a locked (pinned) category row and the legacy dial see */
   dial: CostDial
-  /** concurrent units across every world and base */
-  unitCap: number
   /** share of automatic picks that try the fallback, subject to fresh evidence below 70% on both plans */
   exploration: number
   /** cheap third-party candidates for low-stakes categories */
@@ -73,19 +71,19 @@ export const MODE_PRESETS: Record<UsageMode, ModePreset> = {
   save: {
     chat: ['S', 'low'],
     units: { light: ['C', 'low'], build: ['S', 'medium'], deep: ['C', 'medium'], review: ['C', 'medium'], art: ['C', 'low'] },
-    dial: 'cost', unitCap: 4, exploration: 0, cheap: 'first',
+    dial: 'cost', exploration: 0, cheap: 'first',
     wakeBatchMinutes: 10, heartbeat: { baseMinutes: 30, maxMinutes: 120 }, answerWords: 150, reconWords: 400
   },
   balanced: {
     chat: ['S', 'medium'],
     units: { light: ['C', 'medium'], build: ['C', 'medium'], deep: ['C', 'high'], review: ['C', 'high'], art: ['C', 'medium'] },
-    dial: 'balanced', unitCap: 8, exploration: 0, cheap: 'fallback',
+    dial: 'balanced', exploration: 0, cheap: 'fallback',
     wakeBatchMinutes: 5, heartbeat: { baseMinutes: 15, maxMinutes: 120 }, answerWords: 250, reconWords: 800
   },
   max: {
     chat: ['O', 'high'],
     units: { light: ['C', 'high'], build: ['O', 'high'], deep: ['O', 'xhigh'], review: ['C', 'xhigh'], art: ['C', 'high'] },
-    dial: 'quality', unitCap: 16, exploration: 0.05, cheap: 'off',
+    dial: 'quality', exploration: 0.05, cheap: 'off',
     wakeBatchMinutes: 1, heartbeat: { baseMinutes: 10, maxMinutes: 120 }, answerWords: 400, reconWords: 1500
   }
 }
@@ -228,15 +226,6 @@ export function modeCandidates(mode: UsageMode, category: TaskCategory, plans?: 
   }
   const cheap = LOW_STAKES.includes(category) && p.cheap !== 'off' ? CHEAP_MODELS.map((m): PoolCandidate => ({ harness: 'opencode', model: m.model, cheap: true })) : []
   return { candidates: p.cheap === 'first' ? [...cheap, ...planned] : [...planned, ...cheap], notes }
-}
-
-/** Global cap from the global mode; a world's own mode or capacity can only lower it. */
-export function unitCaps(globalMode: UsageMode, world?: { mode?: UsageMode; capacity?: number }): { global: number; world?: number } {
-  const global = MODE_PRESETS[globalMode].unitCap
-  const limits = [world?.mode ? MODE_PRESETS[world.mode].unitCap : undefined, world?.capacity && world.capacity > 0 ? world.capacity : undefined]
-    .filter((n): n is number => typeof n === 'number')
-  const own = limits.length ? Math.min(...limits) : undefined
-  return { global, world: own !== undefined && own < global ? own : undefined }
 }
 
 // ------------------------------------------------------------- queue
@@ -415,11 +404,11 @@ export interface UsagePolicyView {
   cheap: { allowed: boolean; why: string }
 }
 
-/** "Auto: Sonnet / medium · up to 8 units" */
+/** "Auto: Sonnet / medium" */
 export function modeSummary(mode: UsageMode, chat?: ChatChoice): string {
   const p = MODE_PRESETS[mode]
   const chatText = chat ? `${chat.model.replace(/^claude-/, '').replace(/-\d.*$/, '').replace(/^./, (c) => c.toUpperCase())} / ${chat.effort}` : cellLabel(p.chat)
-  return `${chat && (chat.pinnedModel || chat.pinnedEffort) ? 'Chat' : 'Auto'}: ${chatText} · up to ${p.unitCap} unit${p.unitCap === 1 ? '' : 's'}`
+  return `${chat && (chat.pinnedModel || chat.pinnedEffort) ? 'Chat' : 'Auto'}: ${chatText}`
 }
 
 /** What a mode sets, as label/value rows for the preview table. */
@@ -428,7 +417,6 @@ export function presetRows(mode: UsageMode): { label: string; value: string }[] 
   return [
     { label: 'Chat, including allies', value: cellLabel(p.chat) },
     ...UNIT_GROUPS.map((g) => ({ label: `Units: ${g.label}`, value: cellLabel(p.units[g.id]) })),
-    { label: 'Concurrent units (all projects)', value: String(p.unitCap) },
     { label: 'Exploration', value: p.exploration ? `${Math.round(p.exploration * 100)}%, only with fresh evidence below 70% on both plans` : 'off' },
     { label: 'Cheap third-party models', value: p.cheap === 'first' ? 'first for low-stakes work' : p.cheap === 'fallback' ? 'fallback after the plans' : 'off' },
     { label: 'Routine wake batching', value: `${p.wakeBatchMinutes} min; heartbeat ${p.heartbeat.baseMinutes}/${p.heartbeat.maxMinutes} min` },
