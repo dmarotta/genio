@@ -4,13 +4,27 @@ import path from 'node:path'
 import os from 'node:os'
 import { spawn, execFileSync } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { findBlender } from '../../../lib/blender-path.mjs'
+import { blenderCacheDir, findBlender } from '../../../lib/blender-path.mjs'
 import { openWorld, sha256File, writeProvenance, unitBy } from '../../../lib/genio-world.mjs'
 import { assertOutside } from '../../../lib/step-kernel.mjs'
 
 export { assertOutside }
 
 const helperDir = path.dirname(fileURLToPath(import.meta.url))
+
+/**
+ * Compiled Python shared by every Blender run on this machine, in blenderCacheDir()/pyc. Blender ships
+ * little or none for numpy and its add-ons and cannot write into its own install folder, so each run
+ * compiled them again: a 4.2 start with the step runner's imports took 1.5 s and takes 1.0 s with it,
+ * a 5.2 one 3.9 s and 1.5 s (medians, measured). Python checks every cached file against its source and
+ * replaces it atomically, so concurrent runs, upgrades and edited helpers stay correct. On Windows it is
+ * off when Blender's deepest module (about 128 characters below blender.exe with its compiled name)
+ * would pass the 260-character path limit: writes that fail cost more than they save.
+ */
+export function bytecodeEnv(blender, dir = path.join(blenderCacheDir(), 'pyc'), platform = process.platform) {
+  const fits = platform !== 'win32' || dir.length + blender.length + 128 < 260
+  return fits ? { PYTHONPYCACHEPREFIX: dir } : { PYTHONDONTWRITEBYTECODE: '1' }
+}
 
 /**
  * One headless Blender run: no autoexec, factory settings, capped threads, a log
@@ -23,10 +37,13 @@ export async function runBlender({ blender, prefix = [], script, blend = null, a
   const log = path.join(scratch, `blender-${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 6)}.log`)
   const fd = fs.openSync(log, 'wx')
   const argv = [...prefix, '-b', '--factory-startup', '--disable-autoexec', '--python-use-system-env', '--python-exit-code', '1', '--threads', String(threads), ...(blend ? [blend] : []), '--python', script, '--', ...args]
+  const bytecode = bytecodeEnv(blender)
+  const childEnv = { ...process.env, ...env, ...bytecode, PYTHONPATH: [helperDir, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter) }
+  if (bytecode.PYTHONPYCACHEPREFIX) delete childEnv.PYTHONDONTWRITEBYTECODE
   let tail = '', timedOut = false
   const started = performance.now()
   const code = await new Promise((resolve, reject) => {
-    const child = spawn(blender, argv, { windowsHide: true, env: { ...process.env, ...env, PYTHONPATH: [helperDir, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter), PYTHONDONTWRITEBYTECODE: '1' }, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(blender, argv, { windowsHide: true, env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] })
     const stop = () => { timedOut = true; child.kill('SIGKILL') }
     const timer = setTimeout(stop, timeout * 1000)
     signal?.addEventListener('abort', stop, { once: true })

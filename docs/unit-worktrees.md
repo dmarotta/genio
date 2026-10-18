@@ -15,9 +15,14 @@ Agent SDK went missing, and Genio would not start.
 
 ### 1. Private setup at launch
 
-`crew.ts` starts `startWorktreeDeps` (`worktree-deps.ts`) on every launch and respawn. It runs once per
-worktree, in the background, and does nothing if the worktree has no `package.json` or already has a real
-`node_modules`. The work is done by `setupNodeModules` (`resources/unit-skills/genio/lib/node-deps.mjs`):
+`crew.ts` starts `startWorktreeDeps` (`worktree-deps.ts`) on every launch and respawn of every unit but a
+Modeller. It runs once per worktree, in the background, and does nothing if the worktree has no `package.json`
+or already has a real `node_modules`. A Modeller's copy gets none at launch: `modeller.mjs`, Blender and the
+other skill helpers run from the shared skills folder and need no `node_modules`, and the 30 to 50 s, 16-thread
+copy ran through the unit's first minute while its brief told it to wait
+([performance.md](performance.md#modeller-start-2026-10-18)). Its brief says so and names `npm-guard.mjs setup`
+for when it needs the project's own node tools; that runs the same setup. The work is done by
+`setupNodeModules` (`resources/unit-skills/genio/lib/node-deps.mjs`):
 
 - A `node_modules` link already in the worktree is removed first (the link only, see Repair).
 - If the worktree's lockfile hashes the same as the main checkout's (sha256 of `package-lock.json`,
@@ -38,7 +43,8 @@ Progress goes to `data/<task>/deps.json` (`installing`, `ready`, `failed` or `sk
 covers three things. The unit's `node_modules` is private, so it may run `npm install` or `npm ci` in its
 worktree. It must never link, junction or move `node_modules`, or touch the main checkout's. And
 `node "<plugin>/lib/npm-guard.mjs" setup` repairs a missing or linked `node_modules`. That script is also in
-`GENIO_DEPS_SETUP`.
+`GENIO_DEPS_SETUP`. A Modeller's brief (`onDemand`) instead says its tools need no `node_modules` and to run
+that script first only for the project's own node tools; it never mentions `deps.json` or waiting.
 
 What Genio did is logged to `<Genio home>/state/worktree-deps.jsonl`.
 

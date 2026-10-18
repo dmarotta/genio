@@ -513,7 +513,8 @@ Source: [VOCABULARY.md](../VOCABULARY.md)
 
 ## Worktrees
 
-Each unit's isolated copy of the project: a git worktree on its own branch, with its own node_modules. Your main copy
+Each unit's isolated copy of the project: a git worktree on its own branch, with its own node_modules (a Modeller's
+only when it needs the project's own node tools). Your main copy
 is only read. Despawning a unit removes its copy; work that is not merged goes only after you confirm Discard, or when the chat's approval mode lets Genio discard it.
 Where: a unit page's More → Open folder; Despawn in the same menu.
 Source: [unit-worktrees.md](../unit-worktrees.md)

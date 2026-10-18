@@ -536,6 +536,25 @@ describe('Modeller landing', () => {
     expect(brief).toContain('--target web --fmt glb')
   })
 
+  it('sets up node_modules for a Build but not for a Modeller, whose tools need none', async () => {
+    modellerWorld()
+    vi.spyOn(git, 'addWorktree').mockImplementation(async (_repo, wt) => {
+      fs.mkdirSync(wt, { recursive: true })
+      fs.writeFileSync(path.join(wt, 'package.json'), '{}')
+      return { code: 0, stdout: '', stderr: '' }
+    })
+    const modeller = await ctx.main.crew.spawn({ project: 'world', kind: 'ship', title: 'Tower', intent: 'a tower', modeller: true })
+    const build = await ctx.main.crew.spawn({ project: 'world', kind: 'ship', title: 'Fix jump', intent: 'fix the jump', backlogId: 'other' })
+    expect(fs.existsSync(path.join(home.taskDir(build.id), 'deps.json'))).toBe(true)
+    expect(fs.readFileSync(build.briefPath, 'utf8')).toContain('wait for `ready` before running node tools')
+    expect(fs.existsSync(path.join(home.taskDir(modeller.id), 'deps.json'))).toBe(false)
+    const brief = fs.readFileSync(modeller.briefPath, 'utf8')
+    expect(brief).toContain('need no `node_modules`')
+    expect(brief).not.toContain('wait for `ready`')
+    // the setup the brief names still works: its terminal has the guard's variables
+    expect(vi.mocked(ctx.terminals.create).mock.calls.find((c) => c[0].env?.GENIO_TASK_ID === modeller.id)![0].env).toHaveProperty('GENIO_DEPS_SETUP')
+  })
+
   it('starts a Modeller with the player\'s attachments: copied into its data folder, listed in its brief, GENIO_REFERENCES set', async () => {
     modellerWorld()
     const sketch = path.join(root, 'Desktop', 'sketch.png')

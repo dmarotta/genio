@@ -185,4 +185,14 @@ describe('unit launch wiring', () => {
     expect(brief).toContain('node "C:/genio/lib/npm-guard.mjs" setup')
     expect(renderBrief({ taskId: 't', kind: 'ship', project: 'g', worktree: 'C:/w', branch: 'b', baseBranch: 'main', intent: 'x', statusFile: 's', inboxDir: 'i', taskDataDir: 'd' })).not.toContain('node_modules')
   })
+
+  it("tells a Modeller its tools need no node_modules and how to get one, never to wait for Genio's", () => {
+    const brief = renderBrief({ taskId: 't', kind: 'ship', project: 'genio', worktree: 'C:/w', branch: 'b', baseBranch: 'main', intent: 'x', statusFile: 'C:/s', inboxDir: 'C:/i', taskDataDir: 'C:/d',
+      nodeDeps: { stateFile: 'C:\\d\\deps.json', setup: 'C:\\genio\\lib\\npm-guard.mjs', onDemand: true } })
+    expect(brief).toContain('need no `node_modules`, so Genio does not set one up in this worktree: start at once')
+    expect(brief).toContain("Only if you need the project's own node tools (its tests or build scripts), first run `node \"C:/genio/lib/npm-guard.mjs\" setup`")
+    expect(brief).toContain('Never link, junction or move `node_modules`')
+    expect(brief).not.toContain('deps.json')
+    expect(brief).not.toContain('wait for `ready`')
+  })
 })

@@ -1,4 +1,5 @@
 export const STEP_SCRIPT: string
+export const WARM_SCRIPT: string
 export const SCHEMA: 'genio.modeller.v1'
 export const KEEP_SNAPSHOTS: number
 export const STEP_TIMEOUT: number
@@ -67,7 +68,11 @@ interface Common { dataDir?: string; model: string }
 export function modellerDataDir(env?: Record<string, string | undefined>): string
 export function stepName(script: string): string
 export function line(m: Manifest, branch?: string): StepEntry[]
-export function chooseBlender(choice?: string | { path: string; version: string }, env?: Record<string, string | undefined>): PinnedBlender
+export function chooseBlender(choice?: string | { path: string; version: string }, env?: Record<string, string | undefined>, fresh?: boolean): PinnedBlender
+/** The bytecode cache's marker for this exact binary, or null when the cache is off for it or it is not Blender. */
+export function warmMarker(pin: { path: string; size: number; mtimeMs: number }): string | null
+/** Fill the bytecode cache for the model's pinned Blender (init starts this in the background). */
+export function warm(o: Common & { timeout?: number; runner?: Runner; marker?: string }): Promise<{ ok: boolean; model: string; blender: string; warmed: boolean; ms?: number; log?: string }>
 export function prune(m: Manifest, dir: string, keep?: number): string[]
 export function planThreads(plan: { replay: (string | { script: string; lib?: string | null })[]; steps: { script: string | null; lib?: string | null }[] }, threads?: number): number | undefined
 export function init(o: Common & { blender?: string | { path: string; version: string }; target?: string; budget?: number | string; size?: string | number[]; symmetry?: 'x' | 'y' | 'none'; repin?: boolean; cwd?: string; env?: Record<string, string | undefined> }): Promise<Summary & { existing: boolean }>

@@ -5,7 +5,8 @@ import zlib from 'node:zlib'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
-import { listBlenders, pickModellerBlender } from '../resources/unit-skills/genio/lib/blender-path.mjs'
+import { blenderCacheDir, LIST_TTL_MS, listBlenders, pickModellerBlender } from '../resources/unit-skills/genio/lib/blender-path.mjs'
+import { bytecodeEnv, runBlender } from '../resources/unit-skills/genio/skills/blender/scripts/blender.mjs'
 import * as kernel from '../resources/unit-skills/genio/skills/blender/scripts/modeller.mjs'
 import type { Manifest, StepDone, StepFailed } from '../resources/unit-skills/genio/skills/blender/scripts/modeller.mjs'
 import { readModellerLive } from '../src/main/modeller-live'
@@ -538,6 +539,23 @@ describe('Modeller kernel with a fake Blender', { timeout: 60000 }, () => {
     expect(kernel.planThreads({ replay: [], steps: [{ script: plain, lib: paintFile }] })).toBe(os.availableParallelism())
   })
 
+  it('warms the bytecode cache once per Blender binary, never for one that is not Blender', async () => {
+    await fakeModel()
+    // tests pin Node: init starts no warm-up for it
+    expect(kernel.warmMarker(manifest().blender)).toBeNull()
+    const marker = path.join(dataDir, 'cache', 'warm-test')
+    expect(await kernel.warm({ dataDir, model: 'tower', runner: fake, marker })).toMatchObject({ ok: true, blender: '4.2.1', warmed: true })
+    expect(fs.readFileSync(marker, 'utf8')).toBe('fake')
+    expect(await kernel.warm({ dataDir, model: 'tower', runner: fake, marker })).toMatchObject({ ok: true, warmed: false })
+    // a Blender's marker names that exact binary: an upgrade in place warms again
+    const exe = path.join(path.parse(src).root, 'Blender', process.platform === 'win32' ? 'blender.exe' : 'blender')
+    const pin = { path: exe, size: 0, mtimeMs: 1 }
+    const at = kernel.warmMarker(pin)!
+    expect(path.dirname(at)).toBe(bytecodeEnv(exe).PYTHONPYCACHEPREFIX)
+    expect(kernel.warmMarker(pin)).toBe(at)
+    expect(kernel.warmMarker({ ...pin, size: 1 })).not.toBe(at)
+  })
+
   it('derives step names and the data folder', () => {
     expect(kernel.stepName('C:/w/.genio/modeller/tower/s03_deck.py')).toBe('deck')
     expect(kernel.stepName('07-roof fix.py')).toBe('roof-fix')
@@ -554,6 +572,53 @@ describe('Modeller Blender choice', () => {
     expect(pickModellerBlender([b('5.2.1'), b('4.5.0')])?.path).toBe('C:/Blender 5.2.1/blender.exe')
     expect(pickModellerBlender([b('4.1.0'), b('3.6.5')])).toBeNull()
     expect(pickModellerBlender([])).toBeNull()
+  })
+
+  it('reuses the installed list until a listed binary changes, the list ages out or a fresh search is asked for', () => {
+    const env = { GENIO_BLENDER_CACHE: fs.mkdtempSync(path.join(root, 'cache-')) }
+    const file = path.join(env.GENIO_BLENDER_CACHE, 'blenders.json')
+    const real = listBlenders({ env })
+    expect(fs.existsSync(file)).toBe(true)
+    // An entry only the cache knows: a search would drop it (it is in no tier and not a real Blender).
+    const exe = path.join(env.GENIO_BLENDER_CACHE, process.platform === 'win32' ? 'blender.exe' : 'blender')
+    fs.writeFileSync(exe, '')
+    const st = fs.statSync(exe)
+    const cached = JSON.parse(fs.readFileSync(file, 'utf8'))
+    const plant = (at = Date.now()) => fs.writeFileSync(file, JSON.stringify({ ...cached, at, list: [{ path: exe, version: [9, 9, 9], size: st.size, mtimeMs: Math.round(st.mtimeMs) }, ...cached.list] }))
+    const planted = { path: exe, version: [9, 9, 9] }
+    plant()
+    expect(listBlenders({ env })).toEqual([planted, ...real])
+    expect(listBlenders({ env, fresh: true })).toEqual(real)
+    plant(Date.now() - LIST_TTL_MS - 1)
+    expect(listBlenders({ env })).toEqual(real)
+    plant()
+    fs.writeFileSync(exe, 'changed')
+    expect(listBlenders({ env })).toEqual(real)
+  }, 60000)
+})
+
+describe('Blender bytecode cache', () => {
+  it('shares compiled Python between runs unless the folder is too deep for Windows paths', async () => {
+    const exe = 'C:\\Program Files\\Blender Foundation\\Blender 4.2\\blender.exe'
+    const short = 'C:\\Users\\player\\AppData\\Local\\Temp\\genio-blender\\pyc'
+    expect(bytecodeEnv(exe, short, 'win32')).toEqual({ PYTHONPYCACHEPREFIX: short })
+    const deep = `C:\\${'x'.repeat(80)}\\pyc`
+    expect(bytecodeEnv(exe, deep, 'win32')).toEqual({ PYTHONDONTWRITEBYTECODE: '1' })
+    expect(bytecodeEnv('/usr/bin/blender', `/${'x'.repeat(200)}`, 'linux')).toEqual({ PYTHONPYCACHEPREFIX: `/${'x'.repeat(200)}` })
+    expect(bytecodeEnv('/usr/bin/blender', undefined, 'linux')).toEqual({ PYTHONPYCACHEPREFIX: path.join(blenderCacheDir(), 'pyc') })
+    // the run gets the folder, and an inherited "write no bytecode" does not cancel it
+    const probe = path.join(root, 'env-probe.mjs')
+    fs.writeFileSync(probe, "console.log(JSON.stringify({ prefix: process.env.PYTHONPYCACHEPREFIX ?? null, off: process.env.PYTHONDONTWRITEBYTECODE ?? null }))\n")
+    const saved = process.env.PYTHONDONTWRITEBYTECODE
+    process.env.PYTHONDONTWRITEBYTECODE = '1'
+    try {
+      const r = await runBlender({ blender: process.execPath, prefix: [probe], script: 'none.py', scratch: path.join(root, 'logs'), timeout: 30 })
+      const want = bytecodeEnv(process.execPath)
+      expect(JSON.parse(r.tail.trim())).toEqual({ prefix: want.PYTHONPYCACHEPREFIX ?? null, off: want.PYTHONDONTWRITEBYTECODE ?? null })
+    } finally {
+      if (saved === undefined) delete process.env.PYTHONDONTWRITEBYTECODE
+      else process.env.PYTHONDONTWRITEBYTECODE = saved
+    }
   })
 })
 

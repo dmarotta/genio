@@ -435,3 +435,49 @@ The D3D shared texture was then built as Play's fast path, with the JPEG stream 
   per reconciliation.
 - `tests/visible-poll.test.ts`, `tests/backlog.test.ts` (archive reads) and
   `tests/project-windows.test.ts` (quests scoped to the window's project).
+
+## Modeller start (2026-10-18)
+
+A Modeller took about a minute from deploy to its first step. Taken from the
+ship rerun's logs (the fleet ledger, `deps.json`, the unit's transcript and the
+step receipt) and timed again on the same machine (Blender 4.2.1 and 5.2.1):
+
+| Piece | Time |
+|---|---|
+| Genio's deploy work (worktree, submodules, brief, skills, hooks) | 8.3 s in the rerun, 2.8 s for a later unit; the rerun overlapped the removal of a landed unit's copy |
+| Claude Code start, up to the kickoff prompt | 2.9 s (1.7 s) |
+| The model's own turns: reading, planning, writing `lib.py` and the first step | about 44 s |
+| Tools before the first step: the brief read (the session's first Bash call), the skill section, an `ls` | 9.0 s, 2.2 s, 0.5 s |
+| `node_modules` copy (16-thread robocopy, 1 GB), while the brief said to wait for it | 31.5 s in the background; it ended before `init`, so the unit did not wait this time |
+| `modeller.mjs init` | about 2 s: three `reg query /s` of the Uninstall keys (1.2 to 1.7 s) and `--version` of each Blender (0.3 s) |
+| First step, until its GLB reached the live view | 1.27 s: Blender start and imports about 0.87 s, the factory reset 71 ms, the export 180 ms |
+
+In a headless 4.2 start, numpy's import alone took 350 to 540 ms and the
+helpers' 50 ms: Blender ships no bytecode for numpy (5.2 ships none at all) and
+cannot write any into Program Files, so every run compiled them again.
+
+| Change | Measure | Before → after |
+|---|---|---|
+| Compiled Python shared by every Blender run, in `GENIO_BLENDER_CACHE/pyc` (`bytecodeEnv`, `blender.mjs`) | Headless start with the step runner's imports, median of 6, interleaved | 4.2: 1,477 → 983 ms; 5.2: 3,893 → 1,531 ms |
+| The Modeller's list of installed Blenders kept for a week in `blenders.json` (`listBlenders`), searched again when a listed binary changes or a new one appears in Program Files, Steam or PATH, and on `init --repin` | `init` of a new model | 1.8 to 2.2 s → 95 to 102 ms |
+| `init` starts `modeller.mjs warm` in the background when the pinned Blender has no warm-up marker: one short run of `genio_warm.py` (the step runner's imports, a box through the GLB preset, the checks) | First step on a cold cache, until its GLB reached the live view | Started at once (no time to warm): 2,180 ms; started 8 s after `init`, as an agent writing it would: 625 to 636 ms |
+| No `node_modules` copy for a Modeller's worktree; its brief says its tools need none and how to get one (`crew.ts`, `nodeDepsLines`) | Background work in the unit's first minute | A 30 to 50 s, 16-thread copy of 1 GB → none; nothing to wait for |
+
+The three-step stool bench (one part per step, through the CLI, as a unit runs
+it): before, `init` plus the first step's landing took 2.9 to 3.8 s (median
+3.4 s), each later step landed in 1.1 to 1.6 s and finished in 2.0 to 2.9 s.
+After, 0.73 to 0.80 s, 0.55 to 0.70 s and 1.5 to 1.6 s. With every cache cold
+and the first step started at once, racing the warm-up, it took 3.8 s, as
+before. The GLBs, reviews, warnings, counts and bounds were byte-identical
+across all six runs.
+
+Left alone: the model's own turns are most of the minute. A persistent warm
+Blender would save at most the remaining 0.5 s start per step and needs the
+player's say-so for a background process. The factory reset (55 to 80 ms) and
+the default add-ons (about 50 ms with the cache) stay: changing them could
+change what a step makes.
+
+Guards: `tests/modeller.test.ts` (the list cache, the bytecode environment, the
+warm-up marker, and the real-Blender builds with their exact counts),
+`tests/crew-lifecycle.test.ts` (a Build gets the copy, a Modeller does not) and
+`tests/worktree-deps.test.ts` (the Modeller's brief lines).

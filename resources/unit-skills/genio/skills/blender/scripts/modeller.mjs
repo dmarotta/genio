@@ -22,11 +22,13 @@
  * rebuilt on demand by replaying the scripts that made them, each after the
  * lib.py it ran with.
  */
+import { spawn } from 'node:child_process'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { runBlender, assertOutside } from './blender.mjs'
+import { bytecodeEnv, runBlender, assertOutside } from './blender.mjs'
 import { blenderVersion, listBlenders, pickModellerBlender } from '../../../lib/blender-path.mjs'
 import {
   addBranch, byId, checkName, dirBytes, line, now, readJson, rel, renameRetry, resolveStep, revertHead, sha256, sleep, stepId, switchTo, withLock as lockDir, writeManifest
@@ -36,6 +38,7 @@ export { line }
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 export const STEP_SCRIPT = path.join(here, 'genio_step.py')
+export const WARM_SCRIPT = path.join(here, 'genio_warm.py')
 export const SCHEMA = 'genio.modeller.v1'
 /** Snapshots kept per branch; older ones replay from their scripts. */
 export const KEEP_SNAPSHOTS = 5
@@ -79,8 +82,11 @@ function describeBlender(p, version) {
   return { path: p, version: version.join('.'), size: st.size, mtimeMs: Math.round(st.mtimeMs) }
 }
 
-/** The Blender a model is pinned to: an explicit path or version, GENIO_BLENDER, else 4.2 when installed. */
-export function chooseBlender(choice, env = process.env) {
+/**
+ * The Blender a model is pinned to: an explicit path or version, GENIO_BLENDER, else 4.2 when installed.
+ * The installed list is the cached one (listBlenders) unless `fresh`, as for `init --repin`.
+ */
+export function chooseBlender(choice, env = process.env, fresh = false) {
   if (choice && typeof choice === 'object') return describeBlender(choice.path, String(choice.version).split('.').map(Number))
   const wanted = choice ?? env.GENIO_BLENDER
   if (wanted && /[\\/]|\.exe$/i.test(wanted)) {
@@ -88,7 +94,7 @@ export function chooseBlender(choice, env = process.env) {
     if (!v) throw new Error(`Not a Blender executable: ${wanted}`)
     return describeBlender(wanted, v)
   }
-  const found = listBlenders()
+  const found = listBlenders({ fresh, env })
   const pick = wanted ? found.find((b) => b.version.join('.') === wanted || b.version.join('.').startsWith(`${wanted}.`)) : pickModellerBlender(found)
   if (!pick) {
     const have = found.map((b) => b.version.join('.')).join(', ') || 'none'
@@ -136,10 +142,10 @@ export async function init({ dataDir = modellerDataDir(), model, blender, target
     let m = readJson(path.join(dir, 'manifest.json'))
     const existing = Boolean(m)
     if (!m) {
-      m = { schema: SCHEMA, model, created: now(), blender: chooseBlender(blender, env), target: target ?? null, checks: { budget: null, size: null, symmetry: null }, branch: 'main', branches: { main: { head: null, from: null } }, next: 1, steps: [], failures: [], history: [] }
+      m = { schema: SCHEMA, model, created: now(), blender: chooseBlender(blender, env, repin), target: target ?? null, checks: { budget: null, size: null, symmetry: null }, branch: 'main', branches: { main: { head: null, from: null } }, next: 1, steps: [], failures: [], history: [] }
     } else if (repin || blender) {
       const before = m.blender.version
-      m.blender = chooseBlender(blender, env)
+      m.blender = chooseBlender(blender, env, repin)
       m.history.push({ op: 'repin', t: now(), from: before, to: m.blender.version })
     }
     if (target != null) m.target = target
@@ -147,8 +153,49 @@ export async function init({ dataDir = modellerDataDir(), model, blender, target
     if (size != null) m.checks.size = parseSize(size)
     if (symmetry != null) m.checks.symmetry = symmetry === 'none' ? null : symmetry
     writeManifest(dir, m)
+    const marker = warmMarker(m.blender)
+    if (marker && !fs.existsSync(marker)) startWarm(dataDir, model, env)
     return { ok: true, existing, ...summary(dir, m) }
   })
+}
+
+/**
+ * The bytecode cache's marker for one exact Blender binary (path, size, mtime), written once genio_warm.py
+ * has filled the cache with it; null when the cache is off for it (bytecodeEnv) or it is not Blender
+ * (tests pin Node).
+ */
+export function warmMarker(pin) {
+  const cache = bytecodeEnv(pin.path).PYTHONPYCACHEPREFIX
+  if (!cache || !/^blender(\.exe)?$/i.test(path.basename(pin.path))) return null
+  const id = crypto.createHash('sha256').update(`${pin.path}|${pin.size}|${pin.mtimeMs}`).digest('hex').slice(0, 16)
+  return path.join(cache, `warm-${id}`)
+}
+
+/** `modeller.mjs warm <model>` in the background: init returns at once and the warm-up overlaps the first step's writing. */
+function startWarm(dataDir, model, env) {
+  try {
+    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), 'warm', model, '--data', dataDir],
+      { detached: true, stdio: 'ignore', windowsHide: true, env: { ...env, ELECTRON_RUN_AS_NODE: '1' } })
+    child.once('error', () => {})
+    child.unref()
+  } catch { /* the first step compiles instead */ }
+}
+
+/**
+ * Fill the bytecode cache for a model's pinned Blender: one short headless run of genio_warm.py (the step
+ * runner's imports, a box exported through the GLB preset and the checks), then the marker. On a new
+ * machine or after a Blender upgrade, a first step without it reached the live view 1.5 s later than a
+ * warm one, compiling numpy, the add-ons and the helpers (measured). init starts it; nothing to do when
+ * that binary is warm already.
+ */
+export async function warm({ dataDir = modellerDataDir(), model, timeout = 120, runner, marker } = {}) {
+  const dir = modelDir(dataDir, model)
+  const m = readManifest(dir)
+  marker ??= warmMarker(m.blender)
+  if (!marker || fs.existsSync(marker)) return { ok: true, model: m.model, blender: m.blender.version, warmed: false }
+  fs.mkdirSync(path.dirname(marker), { recursive: true })
+  const run = await runBlender({ blender: m.blender.path, prefix: runner?.prefix ?? [], script: WARM_SCRIPT, args: [marker], timeout, scratch: path.join(dir, 'logs') })
+  return { ok: run.code === 0 && fs.existsSync(marker), model: m.model, blender: m.blender.version, warmed: true, ms: run.ms, log: run.log }
 }
 
 /** A step to replay: its script and the lib.py it ran with. */
@@ -621,6 +668,8 @@ async function main() {
     case 'keep': result = await keep({ ...common, step: arg, on: !opt.off }); break
     case 'materialize': result = await materialize({ ...common, step: arg, threads }); break
     case 'status': result = await status(common); break
+    // Started by init in the background; not for agents.
+    case 'warm': result = await warm(common); break
     default: throw new Error(USAGE)
   }
   console.log(JSON.stringify(result, null, 1))

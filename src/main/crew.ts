@@ -206,9 +206,9 @@ export function createCrewService(getCtx: () => AppCtx, home: Home, canRetry: (p
   /** The player's MCP servers a unit on this runtime gets in this project, by name, for its brief. */
   const mcpBriefNames = (harness: string, project: string): string[] =>
     unitMcpServers(mainHome.data, project, harness).map((s) => s.name)
-  /** The brief's dependency lines for a worktree with a package.json. */
-  const nodeDeps =(id: string, wt: string): BriefInput['nodeDeps'] =>
-    exists(path.join(wt, 'package.json')) ? { stateFile: depsStateFile(home.taskDir(id)), setup: depsGuard } : undefined
+  /** The brief's dependency lines for a worktree with a package.json; a Modeller's say it gets none unless it asks. */
+  const nodeDeps = (id: string, wt: string, modeller = false): BriefInput['nodeDeps'] =>
+    exists(path.join(wt, 'package.json')) ? { stateFile: depsStateFile(home.taskDir(id)), setup: depsGuard, ...(modeller ? { onDemand: true } : {}) } : undefined
   /** The brief's References section for the unit's copied attachments; none without any. */
   const referencesBrief = (id: string, o: { modeller?: boolean; generator?: boolean }): string[] => {
     const dir = unitReferencesDir(home.taskDir(id))
@@ -457,7 +457,8 @@ export function createCrewService(getCtx: () => AppCtx, home: Home, canRetry: (p
     } catch {
       /* launch without the npm shims */
     }
-    if (project) startDeps(t, project.path)
+    // A Modeller's tools run from the skills folder: its copy gets node_modules only if it runs setup itself.
+    if (project && !t.modeller) startDeps(t, project.path)
     const settingsPath = isClaude ? writeClaudeSettings(t, guard, deps) : undefined
     // Genio's own Codex home keeps units (and any Codex image run inside a unit) out of the player's Codex app.
     // A runtime with its own CODEX_HOME keeps it; a resume follows the unit's thread.
@@ -878,7 +879,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home, canRetry: (p
             mcpServers: mcpBriefNames(loadout.harness, project.name),
             references: referencesBrief(id, { modeller, generator }),
             submodules,
-            nodeDeps: nodeDeps(id, wt)
+            nodeDeps: nodeDeps(id, wt, modeller)
           })
         )
 

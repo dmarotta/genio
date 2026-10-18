@@ -50,8 +50,11 @@ export interface BriefInput {
   summaryWords?: number
   /** Submodules Genio checked out in the worktree (initWorktreeSubmodules) */
   submodules?: SubmoduleReport
-  /** A worktree with a package.json: Genio's private node_modules setup record and the setup script */
-  nodeDeps?: { stateFile: string; setup: string }
+  /**
+   * A worktree with a package.json: Genio's private node_modules setup record and the setup script.
+   * `onDemand` (a Modeller): Genio sets none up; the unit runs the script only if it needs the project's node tools.
+   */
+  nodeDeps?: { stateFile: string; setup: string; onDemand?: boolean }
   /** The player's MCP servers this unit gets (names only), under Tools */
   mcpServers?: string[]
   /** The References section: the player's attachments and how to open them (referencesBriefLines); absent without any */
@@ -67,9 +70,16 @@ export function mcpBriefLines(names?: string[]): string[] {
 /** Setup lines on the worktree's own node_modules (docs/unit-worktrees.md). */
 export function nodeDepsLines(d?: BriefInput['nodeDeps']): string[] {
   if (!d) return []
+  const own = '- That `node_modules` is yours alone: you may run `npm install` or `npm ci` inside this worktree. Never link, junction or move `node_modules`, never point it at another folder, and never touch the main checkout\'s `node_modules`: an install through a link deletes and rewrites the folder it points to.'
+  if (d.onDemand) {
+    return [
+      `- Dependencies: your Modeller tools (modeller.mjs, Blender and the other skill helpers) run from the shared skills folder and need no \`node_modules\`, so Genio does not set one up in this worktree: start at once. Only if you need the project's own node tools (its tests or build scripts), first run \`node "${fwd(d.setup)}" setup\` in the worktree: it gives the worktree its own private \`node_modules\` (a copy of the main checkout's when the lockfiles match, otherwise \`npm ci --prefer-offline\` here).`,
+      own
+    ]
+  }
   return [
     `- Dependencies: Genio is installing this worktree's own private \`node_modules\` in the background (a copy of the main checkout's when the lockfiles match, otherwise \`npm ci --prefer-offline\` here). \`${fwd(d.stateFile)}\` says \`installing\`, \`ready\`, \`failed\` or \`skipped\`; wait for \`ready\` before running node tools.`,
-    '- That `node_modules` is yours alone: you may run `npm install` or `npm ci` inside this worktree. Never link, junction or move `node_modules`, never point it at another folder, and never touch the main checkout\'s `node_modules`: an install through a link deletes and rewrites the folder it points to.',
+    own,
     `- If it is missing or broken, run \`node "${fwd(d.setup)}" setup\` in the worktree (it removes a link only, then copies or installs).`
   ]
 }

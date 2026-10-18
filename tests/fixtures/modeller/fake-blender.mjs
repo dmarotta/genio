@@ -19,12 +19,17 @@
 // A `p.bake_maps(` call lists one bake in the receipt, as genio_parts does; receipts carry the
 // --threads Blender was started with, and the first step's receipt the parent parts the kernel
 // passed for its review (`previous`).
+// genio_warm.py only writes its marker (the argument after `--`), as the warm-up does when done.
 import fs from 'node:fs'
 import path from 'node:path'
 
 const MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd])
 const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
 const argv = process.argv.slice(2)
+if (path.basename(argv[argv.indexOf('--python') + 1]) === 'genio_warm.py') {
+  fs.writeFileSync(argv[argv.indexOf('--') + 1], 'fake')
+  process.exit(0)
+}
 const blend = argv.slice(0, argv.indexOf('--python')).find((a) => a.endsWith('.blend'))
 const plan = JSON.parse(fs.readFileSync(argv[argv.indexOf('--') + 1], 'utf8'))
 const state = blend ? JSON.parse(fs.readFileSync(blend).subarray(4).toString('utf8')) : { parts: [], scripts: [] }
