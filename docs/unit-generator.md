@@ -11,7 +11,7 @@ the main area of its page and its Squad card.
 - Chat: `deploy` or `quest_add` with `kind: "ship", generator: true` (refused on
   Recon), `quest_update generator` on a queued quest. List the jobs in the
   intent or spec.
-- Deploy dialog: the Generator option (magenta). Quest log: the Generator kind.
+- Deploy dialog: the Generator option (magenta).
 - `attachments`: reference images and files for its jobs, as for any unit
   ([unit-worktrees.md](unit-worktrees.md#attachments-references)); its brief tells it to pass reference images
   to codex-image as `--ref`.

@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
-import { Box, Check, Clock, Copy, ExternalLink, Hand, Link2, Pause, Play, Radar, RotateCcw, Rocket, Sparkles, X } from 'lucide-react'
-import type { BacklogItem, BacklogKind, PlanStep, Priority, StatusEvent, Task, WorkPlan } from '@shared/types'
+import { Box, Clock, Copy, ExternalLink, Hand, Link2, Pause, Play, Radar, Rocket, Sparkles, X } from 'lucide-react'
+import type { BacklogItem, PlanStep, Priority, StatusEvent, Task, WorkPlan } from '@shared/types'
 import { planGroups, planStepOf, planSummary } from '@shared/work-plan'
 import { PlanChip, usePlanView } from '../components/PlanChip'
 import { PRIORITIES } from '@shared/api'
@@ -9,7 +9,7 @@ import {
 } from '@shared/quest-board'
 import type { SquadTone } from '@shared/squad-display'
 import { playerStatusText, statusWorthShowing } from '@shared/unit-page'
-import { api, errText, focusTask, op, toast, useStore } from '../store'
+import { api, focusTask, op, useStore } from '../store'
 import { DislikeMarker, Empty, Field, Modal, NeedsYou, ViewHeader, useNow } from '../components/ui'
 import { clock, cx, dateShort, trunc } from '../lib/format'
 import { useUsagePolicy } from '../components/PlanMeter'
@@ -35,9 +35,6 @@ export function Quests() {
   const statusByTask = useStore((s) => s.statusByTask)
   const policy = useUsagePolicy()
   const now = useNow(30_000)
-  const [title, setTitle] = useState('')
-  /** 'modeller' and 'generator' file a Build quest with that flag. */
-  const [kind, setKind] = useState<BacklogKind | 'modeller' | 'generator'>('ship')
   const [openId, setOpenId] = useState<string | null>(null)
   const [doneShown, setDoneShown] = useState(DONE_PAGE)
 
@@ -60,17 +57,6 @@ export function Quests() {
   // only what keeps a quest from starting: a ready quest needs no chip
   const chipsFor = (q: BacklogItem): QueueChip[] => reasons(q).filter((c) => c.kind !== 'ready')
 
-  const add = async (): Promise<void> => {
-    if (!title.trim()) return
-    try {
-      // The window's project is applied by the main process.
-      await api().backlogAdd({ title: title.trim(), priority: 'normal', ...(kind === 'modeller' ? { kind: 'ship', modeller: true } : kind === 'generator' ? { kind: 'ship', generator: true } : { kind }) })
-      setTitle('')
-    } catch (e) {
-      toast('error', 'Quest not added', errText(e))
-    }
-  }
-
   const open = (q?: BacklogItem, t?: Task): void => {
     if (q) setOpenId(q.id)
     else if (t) focusTask(t.id)
@@ -81,8 +67,7 @@ export function Quests() {
     board.queued.includes(q) ? 'Queued' : board.inFlight.some((c) => c.quest === q) ? 'In flight' : 'Done'
   useScreenContext('quests', { facts: [
     { label: 'Board', value: `${board.queued.length} queued · ${board.inFlight.length} in flight · ${board.done.length} done` },
-    openQuest && { label: 'Quest', value: `${openQuest.title} [${openQuest.id}] · ${columnOf(openQuest)} · ${openQuest.priority} · ${openQuest.kind}` },
-    !!title.trim() && { label: 'Drafting', value: title }
+    openQuest && { label: 'Quest', value: `${openQuest.title} [${openQuest.id}] · ${columnOf(openQuest)} · ${openQuest.priority} · ${openQuest.kind}` }
   ] })
 
   return (
@@ -94,28 +79,9 @@ export function Quests() {
           </>
         }
       />
-      <div className="quest-add panel ticks">
-        <input
-          className="input bare"
-          placeholder="New quest"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && void add()}
-        />
-        <select className="select compact" value={kind} onChange={(e) => setKind(e.target.value as BacklogKind | 'modeller' | 'generator')}>
-          <option value="ship">Build</option>
-          <option value="modeller">Modeller</option>
-          <option value="generator">Generator</option>
-          <option value="scout">Recon</option>
-          <option value="choice">Choice</option>
-        </select>
-        <button className="btn solid" disabled={!title.trim()} onClick={() => void add()}>
-          Add
-        </button>
-      </div>
 
       {total === 0 && board.done.length === 0 ? (
-        <Empty title="No quests yet." />
+        <Empty title="No quests yet. Ask Genio to add one." />
       ) : (
         <div className="kanban qk">
           <QueuedColumn queue={board.queued} plans={plans} chipsFor={chipsFor} onOpen={(q) => open(q)} />
@@ -168,7 +134,7 @@ export function QueuedColumn({ queue: all, plans, chipsFor, onOpen }: {
   const groups = planGroups(all, (q) => questPlan(plans, q)).filter((b) => 'plan' in b)
   const queue = all.filter((q) => !questPlan(plans, q))
   const [drag, setDrag] = useState<string | null>(null)
-  const [over, setOver] = useState<{ band: Priority; before?: string } | null>(null)
+  const [over, setOver] = useState<Priority | null>(null)
   // the ticket in hand; drag state is set a tick after dragstart because Chromium
   // cancels a drag whose dragstart reflows the page (the empty bands appearing)
   const held = useRef<string | null>(null)
@@ -182,18 +148,18 @@ export function QueuedColumn({ queue: all, plans, chipsFor, onOpen }: {
     setDrag(null)
     setOver(null)
   }
-  const drop = (band: Priority, before?: string): void => {
-    const id = drag
+  // dragging a standalone quest to another band changes its priority; it joins the end of that band
+  const drop = (band: Priority): void => {
+    const q = queue.find((x) => x.id === drag)
     end()
-    if (!id || id === before) return
-    const patches = reorderQueue(queue, id, band, before)
+    if (!q || q.priority === band) return
+    const patches = reorderQueue(queue, q.id, band)
     if (patches.length) void op('Priority', () => api().backlogReorder(patches))
   }
-  const allow = (band: Priority, before?: string) => (e: DragEvent): void => {
+  const allow = (band: Priority) => (e: DragEvent): void => {
     if (!drag) return
     e.preventDefault()
-    e.stopPropagation()
-    if (over?.band !== band || over.before !== before) setOver({ band, before })
+    if (over !== band) setOver(band)
   }
 
   return (
@@ -213,9 +179,9 @@ export function QueuedColumn({ queue: all, plans, chipsFor, onOpen }: {
           return (
             <div
               key={band}
-              className={cx('qk-band', `p-${band}`, !list.length && 'vacant', over?.band === band && !over.before && 'drop-end')}
+              className={cx('qk-band', `p-${band}`, !list.length && 'vacant', over === band && 'drop-end')}
               onDragOver={allow(band)}
-              onDrop={(e) => { e.preventDefault(); drop(band, over?.band === band ? over.before : undefined) }}
+              onDrop={(e) => { e.preventDefault(); drop(band) }}
             >
               <div className="qk-band-head">
                 <span className={cx('prio-label', `p-${band}`)}>{PRIORITY_LABEL[band]}</span>
@@ -225,10 +191,9 @@ export function QueuedColumn({ queue: all, plans, chipsFor, onOpen }: {
                 <div
                   key={q.id}
                   draggable
-                  className={cx('qk-drag', drag === q.id && 'dragging', over?.before === q.id && 'drop-before')}
+                  className={cx('qk-drag', drag === q.id && 'dragging')}
                   onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', q.id); start(q.id) }}
                   onDragEnd={end}
-                  onDragOver={allow(band, q.id)}
                 >
                   <QueueTicket q={q} chips={chipsFor(q)} onOpen={() => onOpen(q)} />
                 </div>
@@ -238,6 +203,34 @@ export function QueuedColumn({ queue: all, plans, chipsFor, onOpen }: {
         })}
       </div>
     </section>
+  )
+}
+
+/** Why a queued quest cannot start now: its hold, or the unlanded quest it waits on. */
+function dispatchBlock(q: BacklogItem, chips: QueueChip[]): string | undefined {
+  if (q.hold) return q.hold.reason
+  const waits = chips.find((c) => c.kind === 'depends')
+  return waits && (waits.title ?? waits.label)
+}
+
+const dispatchQuest = (q: BacklogItem, force = false) => op('Dispatch', () => api().backlogDispatch(q.id, force))
+const dropQuest = (q: BacklogItem) => op('Drop', () => api().backlogUpdate(q.id, { state: 'dropped' }))
+
+/** Dispatch and Drop on a standalone quest's card; a plan step has neither (they belong to its plan). */
+function QueueActions({ q, chips }: { q: BacklogItem; chips: QueueChip[] }) {
+  if (q.planId) return null
+  const block = dispatchBlock(q, chips)
+  return (
+    <div className="qk-foot">
+      <span className="qk-actions">
+        <button className="btn sm volt" disabled={!!block} title={block} onClick={(e) => { e.stopPropagation(); void dispatchQuest(q) }}>
+          <Play size={11} /> Dispatch
+        </button>
+        <button className="btn sm ghost" onClick={(e) => { e.stopPropagation(); void dropQuest(q) }}>
+          <X size={11} /> Drop
+        </button>
+      </span>
+    </div>
   )
 }
 
@@ -258,6 +251,7 @@ function QueueTicket({ q, chips, onOpen }: { q: BacklogItem; chips: QueueChip[];
       )}
       {q.hold?.reaction ? <div className="quest-hold"><DislikeMarker /></div>
         : held && <div className="quest-hold"><Hand size={11} /> {trunc(q.hold!.reason, 120)}</div>}
+      <QueueActions q={q} chips={chips} />
     </div>
   )
 }
@@ -350,12 +344,9 @@ function FlightTicket({ c, events, onOpen }: { c: FlightCard; events?: StatusEve
             Unit →
           </button>
         )}
-        {failed && q && (
+        {failed && q && !q.planId && (
           <span className="qk-actions">
-            <button className="btn sm amber" onClick={(e) => { e.stopPropagation(); void op('Re-queue', () => api().backlogUpdate(q.id, { state: 'queued' })) }}>
-              <RotateCcw size={11} /> Re-queue
-            </button>
-            <button className="btn sm ghost" onClick={(e) => { e.stopPropagation(); void op('Drop', () => api().backlogUpdate(q.id, { state: 'dropped' })) }}>
+            <button className="btn sm ghost" onClick={(e) => { e.stopPropagation(); void dropQuest(q) }}>
               <X size={11} /> Drop
             </button>
           </span>
@@ -404,26 +395,23 @@ function DoneTicket({ d, onOpen }: { d: DoneEntry; onOpen: () => void }) {
 
 // ------------------------------------------------------------------ details
 
+/**
+ * Read-only apart from Drop, Dispatch and Priority on a standalone quest (a plan step's belong to its plan);
+ * the player asks Genio in the chat for any other change.
+ */
 function QuestDetails({ item, chips, onClose }: { item: BacklogItem; chips: QueueChip[]; onClose: () => void }) {
   const all = useStore((s) => s.snap.backlog)
-  const [title, setTitle] = useState(item.title)
-  const [notes, setNotes] = useState(item.notes)
-  const [priority, setPriority] = useState<Priority>(item.priority)
-  const [kind, setKind] = useState<BacklogKind>(item.kind === 'program' ? 'choice' : item.kind)
+  const task = useStore((s) => (item.taskId ? s.snap.tasks.find((t) => t.id === item.taskId) : undefined))
   const [confirmEarly, setConfirmEarly] = useState(false)
   // a quest that waits on unlanded work starts only on an explicit second click
   const waitsOn = chips.find((c) => c.kind === 'depends')
   const dup = item.duplicateOf ? all.find((b) => b.id === item.duplicateOf) : undefined
   const closed = item.state === 'done' || item.state === 'dropped'
+  const controls = !item.planId && !closed
   // the hold and duplicate boxes below already say what their chips would
   const why = chips.filter((c) => !(item.hold && (c.kind === 'waiting' || c.kind === 'later')) && !(dup && c.kind === 'duplicate'))
-
-  const save = async (): Promise<void> => {
-    const r = await op('Quest', () =>
-      api().backlogUpdate(item.id, { title: title.trim() || item.title, notes, priority, kind })
-    )
-    if (r) onClose()
-  }
+  const outcomeUrl = item.outcome && /^https:\/\//.test(item.outcome) ? item.outcome : undefined
+  const prUrl = task?.pr?.url
 
   return (
     <Modal
@@ -431,34 +419,39 @@ function QuestDetails({ item, chips, onClose }: { item: BacklogItem; chips: Queu
       title={item.title}
       onClose={onClose}
       width={680}
-      footer={
+      footer={(controls || task || prUrl || outcomeUrl) && (
         <>
-          {!closed && (
-            <button className="btn ghost" onClick={() => void op('Drop', () => api().backlogUpdate(item.id, { state: 'dropped' })).then((r) => r && onClose())}>
+          {controls && (
+            <button className="btn ghost" onClick={() => void dropQuest(item).then((r) => r && onClose())}>
               <X size={13} /> Drop
             </button>
           )}
-          {closed && (
-            <button className="btn ghost" onClick={() => void op('Re-queue', () => api().backlogUpdate(item.id, { state: 'queued' })).then((r) => r && onClose())}>
-              <RotateCcw size={13} /> Re-queue
+          {prUrl ? (
+            <button className="link-btn" onClick={() => void api().openExternal(prUrl)}>
+              <ExternalLink size={11} /> PR{task?.pr?.number ? ` #${task.pr.number}` : ''}
+            </button>
+          ) : outcomeUrl && (
+            <button className="link-btn" onClick={() => void api().openExternal(outcomeUrl)}>
+              <ExternalLink size={11} /> link
             </button>
           )}
           <span style={{ flex: 1 }} />
-          {(item.state === 'queued' || item.state === 'blocked') && !item.hold && (waitsOn && !confirmEarly ? (
+          {task && (
+            <button className="link-btn" onClick={() => { onClose(); focusTask(task.id) }}>
+              Unit →
+            </button>
+          )}
+          {controls && (item.state === 'queued' || item.state === 'blocked') && !item.hold && (waitsOn && !confirmEarly ? (
             <button className="btn ghost" onClick={() => setConfirmEarly(true)}>
               <Play size={13} /> Dispatch anyway…
             </button>
           ) : (
-            <button className="btn volt"
-              onClick={() => void op('Dispatch', () => api().backlogDispatch(item.id, Boolean(waitsOn))).then((r) => r?.ok && onClose())}>
+            <button className="btn volt" onClick={() => void dispatchQuest(item, Boolean(waitsOn)).then((r) => r?.ok && onClose())}>
               <Play size={13} /> {waitsOn ? 'Start before it lands' : 'Dispatch'}
             </button>
           ))}
-          <button className="btn solid" onClick={() => void save()}>
-            Save
-          </button>
         </>
-      }
+      )}
     >
       {(item.hold || dup || why.length > 0) && !closed && (
         <div className="qk-why">
@@ -470,9 +463,6 @@ function QuestDetails({ item, chips, onClose }: { item: BacklogItem; chips: Queu
                 <div>{item.hold.reason}</div>
                 {item.answer && <div className="mute">Your words: “{item.answer}”</div>}
               </div>
-              <button className="btn amber" onClick={() => void op('Ready', () => api().backlogRelease(item.id))}>
-                <Check size={13} /> Clear wait
-              </button>
             </div>
           )}
           {dup && (
@@ -481,9 +471,6 @@ function QuestDetails({ item, chips, onClose }: { item: BacklogItem; chips: Queu
                 <div className="label amber-text">Possible duplicate</div>
                 <div>Same title as “{dup.title}” ({dup.state}).</div>
               </div>
-              <button className="btn amber" onClick={() => void op('Duplicate', () => api().backlogUpdate(item.id, { duplicateOf: '' }))}>
-                <Check size={13} /> Not a duplicate
-              </button>
             </div>
           )}
         </div>
@@ -495,29 +482,36 @@ function QuestDetails({ item, chips, onClose }: { item: BacklogItem; chips: Queu
         </div>
       )}
       <div className="form-grid">
-        <Field label="Title" wide>
-          <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
-        </Field>
         <Field label="Kind">
-          <select className="select" value={kind} onChange={(e) => setKind(e.target.value as BacklogKind)}>
-            <option value="ship">Build</option>
-            <option value="scout">Recon</option>
-            <option value="choice">Choice</option>
-          </select>
+          <TicketMeta q={item} task={task} />
         </Field>
         <Field label="Priority">
-          <select className="select" value={priority} onChange={(e) => setPriority(e.target.value as Priority)}>
-            {PRIORITIES.map((p) => (
-              <option key={p} value={p}>
-                {PRIORITY_LABEL[p]}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Notes" wide>
-          <textarea className="textarea" rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} />
+          {controls ? (
+            <select className="select" value={item.priority}
+              onChange={(e) => void op('Priority', () => api().backlogUpdate(item.id, { priority: e.target.value as Priority }))}>
+              {PRIORITIES.map((p) => (
+                <option key={p} value={p}>
+                  {PRIORITY_LABEL[p]}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className={cx('prio-label', `p-${item.priority}`)}>{PRIORITY_LABEL[item.priority]}</span>
+          )}
         </Field>
       </div>
+      {item.notes.trim() && (
+        <div className="qk-summary">
+          <div className="label">Notes</div>
+          <p className="dim">{item.notes}</p>
+        </div>
+      )}
+      {item.outcome && !outcomeUrl && (
+        <div className="qk-summary">
+          <div className="label">Outcome</div>
+          <p className="dim">{item.outcome}</p>
+        </div>
+      )}
     </Modal>
   )
 }

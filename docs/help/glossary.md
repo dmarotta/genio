@@ -223,9 +223,11 @@ Source: [VOCABULARY.md](../VOCABULARY.md), [project-startup.md](../project-start
 ## Quest log
 
 The list of quests in dispatch order (priority, then rank, then age): Queued (including quests waiting for you or
-"Queued until reset" by quota protection), in flight, and the Done column with completed history. Drag a queued quest
-to reorder it or change its priority; click one to edit its title, kind, priority and notes, or to drop or dispatch
-it. Ask Genio in the chat to make a quest wait for another, set a start date or change its labels.
+"Queued until reset" by quota protection), in flight, and the Done column with completed history. Ask Genio in the
+chat to add a quest or change one (title, kind, notes, waits, start date, labels). A quest on its own has Dispatch and
+Drop on its card and in its details, and its priority changes by dragging it to another band or in its details;
+Dispatch is greyed while the quest waits for you or for another quest. A plan's quests have none of these: they
+follow their plan. Click a quest to read its details.
 Where: Quests (Ctrl+3).
 Source: [VOCABULARY.md](../VOCABULARY.md), [squad-display.md](../squad-display.md)
 

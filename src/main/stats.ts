@@ -115,7 +115,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'inventory-index', feature: 'inventory-index', name: 'Loot Catalog', description: "Index a project's assets for the first time." },
   { id: 'assets-10', feature: 'assets', name: 'Asset Combo', description: 'Generate 10 assets.' },
   { id: 'assets-50', feature: 'assets', name: 'Asset Factory', description: 'Generate 50 assets.' },
-  { id: 'quest-first', feature: 'quests', name: 'Side Quest', description: 'Add a quest.' },
+  { id: 'quest-first', feature: 'quests', name: 'Side Quest', description: 'Ask Genio to add a quest.' },
   { id: 'world-first', feature: 'worlds', name: 'New Game', description: 'Register a project.' },
   { id: 'project-setup', feature: 'setup', name: 'Character Creation', description: 'Finish setting up a new project with Genio.' },
   // The card and its switch share this feature: only successful use after a tip earns it (main/tips.ts).

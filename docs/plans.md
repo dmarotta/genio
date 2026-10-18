@@ -98,6 +98,8 @@ tsconfigs and lockfiles.
 
 In the Quest log a plan's quests sit in one group under the plan's chip and its
 progress ("plan · 1/3 merged"). The chip opens the steps with Pause plan and
-Cancel plan; unit pages and tickets carry no plan chip.
+Cancel plan; unit pages and tickets carry no plan chip. A step's card and
+details have no Dispatch, Drop or priority control: those belong to the plan
+(plans have no priority of their own yet).
 
 Achievements: Battle Plan (`plan-first`, a plan filed), Hold Everything (`plan-control`, Pause or Cancel from the plan chip's popover in the Quest log) and According to Plan (`plan-done`, every step merged).

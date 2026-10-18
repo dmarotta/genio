@@ -609,8 +609,6 @@ button.hud-stat:hover { border-color: var(--line); color: var(--text); }
 .g-log summary { cursor: pointer; margin-bottom: 8px; }
 
 /* ---------- quests ---------- */
-.quest-add { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 16px; }
-.quest-add .input.bare { flex: 1; }
 .kanban { display: grid; grid-template-columns: repeat(4, minmax(220px, 1fr)); gap: 16px; align-items: start; min-height: 0; }
 .kan-col { display: flex; flex-direction: column; min-width: 0; }
 .kan-head { display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 8px; border-bottom: 2px solid var(--c, var(--line-strong)); }
@@ -1172,7 +1170,6 @@ ul.loadout-why li { margin: 1px 0; }
 .qk-band.drop-end:not(.empty) { border-bottom: 2px solid var(--neon); }
 .qk-drag { cursor: grab; }
 .qk-drag.dragging { opacity: 0.4; }
-.qk-drag.drop-before { box-shadow: 0 -3px 0 0 var(--neon); }
 .qk-why { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
 .qk-summary { margin-bottom: 14px; }
 .qk-summary p { margin: 6px 0 0; font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -1205,8 +1202,6 @@ ul.loadout-why li { margin: 1px 0; }
 }
 @media (max-width: 900px) {
   .kanban.qk { grid-template-columns: minmax(0, 1fr); }
-  .quest-add { flex-wrap: wrap; }
-  .quest-add .input.bare { flex-basis: 100%; }
 }
 
 /* ---------- small windows (down to WINDOW_MIN, 480x360, in src/shared/window.ts) ----------

@@ -104,6 +104,11 @@ On main now:
 - **The Character Sheet's playstyle title picker** (2026-10-18). Gone: the title drop-down with its
   "Follow playstyle" option, the equip action and the Title earned toast. The title is
   now the level's own, with one muted line for the next one; there is nothing to choose.
+- **The Quest log's editors** (2026-10-18): the New quest bar with its kind drop-down and Add
+  button, the details' Title, Kind and Notes fields and Save, Re-queue, Clear wait, Not a
+  duplicate, Drop, Dispatch and priority on plan steps, and reordering inside a band. The chat
+  adds and changes quests; a standalone quest keeps Dispatch, Drop and priority (band drag or
+  its details).
 
 Also removed or being removed from the unit pages, described generally because they have not
 all reached main yet:
