@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Focus, Maximize2, Minimize2, Pause, Play } from 'lucide-react'
 import type { InventoryInfo } from '@shared/inventory'
+import { formatDuration } from '@shared/duration'
 import { DEFAULT_VIEWER_SETTINGS, MODEL_PREVIEW_TIMEOUT_MS, VIEWER_APP_URL, formatLength, readViewerMessage, type ModelFailure, type ModelLoaded, type ModelPlayback, type ToViewer, type ViewerSettings } from '@shared/model-viewer'
 import { api, errText } from '../store'
 import { cx } from '../lib/format'
@@ -65,7 +66,7 @@ export function ModelViewer({ world, info, active = true }: { world: string; inf
       setFailure(error)
     }
     // Covers IPC/grant, chunk startup and ready handshake as well as parsing and textures.
-    const timer = setTimeout(() => fail({ title: `${FAILED.timeout} after ${MODEL_PREVIEW_TIMEOUT_MS / 1000} s`, reason: `Loading stopped while ${phase}. Retry the preview or open the file in your 3D app.` }), MODEL_PREVIEW_TIMEOUT_MS)
+    const timer = setTimeout(() => fail({ title: `${FAILED.timeout} after ${formatDuration(MODEL_PREVIEW_TIMEOUT_MS)}`, reason: `Loading stopped while ${phase}. Retry the preview or open the file in your 3D app.` }), MODEL_PREVIEW_TIMEOUT_MS)
     cancel.current = () => fail({ title: 'Preview cancelled', reason: `Loading was cancelled while ${phase}.` })
     const open = (): void => {
       if (!alive || !ready.current || !url || sent) return

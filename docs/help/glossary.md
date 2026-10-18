@@ -153,6 +153,7 @@ Source: [plans.md](../plans.md)
 The workers: autonomous coding agents (Claude Code, Codex and others), each in its own terminal and its own isolated
 copy of the project. Genio deploys and steers them; they never talk to you directly. Squad and the Squad list beside
 the chat show the active units only; finished ones are in the Quest log's Done column.
+The Squad rail and unit page show running time with seconds ("1h 8m 3s"); the clock freezes when the unit is ready or finished.
 Where: Squad (Ctrl+2); click one for its page.
 Source: [ARCHITECTURE.md](../ARCHITECTURE.md), [squad-display.md](../squad-display.md)
 

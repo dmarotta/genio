@@ -41,8 +41,8 @@ describe('plan estimate', () => {
   })
 
   it('formats the announcement line', () => {
-    expect(formatEstimate(estimatePlan([{ key: 'a' }, { key: 'b', after: ['a'] }, { key: 'c', after: ['b'] }], []))).toBe('About 1-2.5 h, 3 units (~1.5 unit-hours), main chat ~$1.50-2.10')
-    expect(formatEstimate(estimatePlan([{ key: 'a' }], []))).toBe('About 20-45 min, 1 unit (~0.5 unit-hours), main chat ~$0.50-0.70')
+    expect(formatEstimate(estimatePlan([{ key: 'a' }, { key: 'b', after: ['a'] }, { key: 'c', after: ['b'] }], []))).toBe('About 1h 0m-2h 30m, 3 units (~1.5 unit-hours), main chat ~$1.50-2.10')
+    expect(formatEstimate(estimatePlan([{ key: 'a' }], []))).toBe('About 20m-45m, 1 unit (~0.5 unit-hours), main chat ~$0.50-0.70')
   })
 })
 

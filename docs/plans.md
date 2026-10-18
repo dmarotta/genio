@@ -79,7 +79,7 @@ descriptions repeat what matters at the point of use.
 - **Main chat cost**: the chat's spend divided by the units it has run (at least
   5), ±15% per step. Without that it uses $0.50-0.70 per unit.
 
-With no history, a serial plan of three Builds is announced as: `About 1-2.5 h,
+With no history, a serial plan of three Builds is announced as: `About 1h 0m-2h 30m,
 3 units (~1.5 unit-hours), main chat ~$1.50-2.10`.
 
 ## Rebase hints

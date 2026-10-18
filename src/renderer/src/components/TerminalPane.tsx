@@ -1,7 +1,8 @@
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { ChevronDown, RotateCcw, SquareTerminal, X } from 'lucide-react'
 import type { TerminalInfo } from '@shared/types'
-import { MAIN_CWD, formatDuration, type PaneCwd } from '@shared/terminal-pane'
+import { MAIN_CWD, type PaneCwd } from '@shared/terminal-pane'
+import { formatDuration } from '@shared/duration'
 import { PROJECT_WINDOW, api, errText, getState, setState, useStore } from '../store'
 import { cx } from '../lib/format'
 import {

@@ -116,7 +116,7 @@ describe('Inventory 3D preview (app side of the sandboxed frame)', () => {
     await fromFrame({ type: 'ready' })
     await act(async () => { await vi.advanceTimersByTimeAsync(MODEL_PREVIEW_TIMEOUT_MS + 10) })
     expect(frame()).toBeNull()
-    expect(text()).toContain(`Preview stopped after ${MODEL_PREVIEW_TIMEOUT_MS / 1000} s`)
+    expect(text()).toContain(`Preview stopped after ${MODEL_PREVIEW_TIMEOUT_MS / 1000}s`)
   })
 
   it('never loads a model over the size cap and shows its size and the limit', async () => {

@@ -60,9 +60,9 @@ describe('Modeller live view (app side of the sandboxed frame)', () => {
 
   it('shows the running step as a live status, and a failed attempt without technical detail', async () => {
     await render(state({ running: { id: 's002', n: 2, caption: 'Deck of planks', startedAt: Date.now() - 12_000 } }))
-    expect(host.querySelector('[role="status"]')!.textContent).toBe('Step 2 · Deck of planks…12 s')
+    expect(host.querySelector('[role="status"]')!.textContent).toBe('Step 2 · Deck of planks…12s')
     await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
-    expect(text()).toContain('15 s')
+    expect(text()).toContain('15s')
     await render(state({ failure: { id: 's002', n: 2, caption: 'Deck of planks', kind: 'error' } }))
     expect(host.querySelector('[role="status"]')!.className).toContain('warn')
     expect(host.querySelector('[role="status"]')!.textContent).toBe('Step 2 failed · Deck of planks')
@@ -152,26 +152,26 @@ describe('Modeller live view (app side of the sandboxed frame)', () => {
     const renderWith = async (live: ModellerLive | null, activity: typeof working | null) => { await act(async () => root.render(React.createElement(ModellerView, { live, activity }))) }
     // before the unit started a model, and before its first step: its status line and the time since it started
     await renderWith(null, working)
-    expect(caption()).toBe('Planning the mech: legs, torso, arms6 min 38 s')
+    expect(caption()).toBe('Planning the mech: legs, torso, arms6m 38s')
     await renderWith(state({ steps: [] }), { status: '', since: Date.now() - 5000 })
-    expect(caption()).toBe('Working5 s')
+    expect(caption()).toBe('Working5s')
     // the first script exists: its caption
     await renderWith(state({ steps: [], next: { caption: 'Blocking out the main mass', at: Date.now() } }), working)
-    expect(caption()).toBe('Next: Blocking out the main mass6 min 38 s')
+    expect(caption()).toBe('Next: Blocking out the main mass6m 38s')
     // between steps: the last caption and the time since it landed
     const landed = { ...step(1, 'Blocking out the main mass'), at: Date.now() - 34_000 }
     await renderWith(state({ steps: [landed] }), working)
-    expect(caption()).toBe('Step 1 · Blocking out the main massworking on the next step· 34 s')
+    expect(caption()).toBe('Step 1 · Blocking out the main massworking on the next step· 34s')
     await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
-    expect(caption()).toContain('working on the next step· 36 s')
+    expect(caption()).toContain('working on the next step· 36s')
     // its script appears: the next caption, before Blender runs it
     await renderWith(state({ steps: [landed], next: { caption: 'Adding the legs', at: Date.now() } }), working)
-    expect(caption()).toBe('Step 1 · Blocking out the main massnext: Adding the legs· 36 s')
+    expect(caption()).toBe('Step 1 · Blocking out the main massnext: Adding the legs· 36s')
     // the new step runs, then lands
     await renderWith(state({ steps: [landed], running: { id: 's002', n: 2, caption: 'Adding the legs', startedAt: Date.now() - 1000 } }), working)
-    expect(caption()).toBe('Step 2 · Adding the legs…1 s')
+    expect(caption()).toBe('Step 2 · Adding the legs…1s')
     await renderWith(state({ steps: [landed, { ...step(2, 'Adding the legs'), at: Date.now() }] }), working)
-    expect(caption()).toBe('Step 2 · Adding the legsworking on the next step· 0 s')
+    expect(caption()).toBe('Step 2 · Adding the legsworking on the next step· 0s')
     // a unit that is not working shows no activity
     await renderWith(state({ steps: [landed] }), null)
     expect(caption()).toBe('Step 1 · Blocking out the main mass')
@@ -198,7 +198,7 @@ describe('Modeller live view (app side of the sandboxed frame)', () => {
     }
     await renderWith(null, working)
     await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
-    expect(status()!.textContent).toBe('Planning the tower7 s')
+    expect(status()!.textContent).toBe('Planning the tower7s')
     // ready (no activity), failed, and no live data: no indicator
     await renderWith(state({ steps: [landed] }), null)
     expect(live()).toBeNull()

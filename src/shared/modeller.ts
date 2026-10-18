@@ -1,3 +1,5 @@
+import { formatDuration } from './duration'
+
 /** The Modeller's live view: what main reads from a unit's step data for the canvas and its status line. */
 export interface ModellerStep {
   id: string
@@ -42,12 +44,6 @@ export interface ModellerActivity {
   since: number
 }
 
-/** "42 s", "6 min 38 s", "1 h 5 min": the live view's clocks. */
-export function elapsed(ms: number): string {
-  const s = Math.max(0, Math.round(ms / 1000))
-  return s < 60 ? `${s} s` : s < 3600 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${Math.floor(s / 3600)} h ${Math.floor(s / 60) % 60} min`
-}
-
 /**
  * The live view's caption: the running step, a failed attempt, or the head step; with the unit's
  * activity while it works and no step runs. Before the first step that is its latest status line (or
@@ -57,15 +53,15 @@ export function elapsed(ms: number): string {
 export function modellerCaption(live: ModellerLive | null, activity: ModellerActivity | null | undefined, now: number):
   { text: string; side: string; clock: string; tone: 'run' | 'warn' | 'idle' } | null {
   const run = live?.running, failed = live?.failure, head = live?.steps.at(-1), next = live?.next
-  if (run) return { text: `Step ${run.n} · ${run.caption}…`, side: '', clock: elapsed(now - run.startedAt), tone: 'run' }
+  if (run) return { text: `Step ${run.n} · ${run.caption}…`, side: '', clock: formatDuration(now - run.startedAt), tone: 'run' }
   if (failed) return { text: `Step ${failed.n} failed · ${failed.caption}`, side: '', clock: '', tone: 'warn' }
   if (head) {
     const text = `Step ${head.n} · ${head.caption}`
     if (!activity) return { text, side: '', clock: '', tone: 'idle' }
-    return { text, side: next ? `next: ${next.caption}` : 'working on the next step', clock: head.at ? elapsed(now - head.at) : '', tone: 'idle' }
+    return { text, side: next ? `next: ${next.caption}` : 'working on the next step', clock: head.at ? formatDuration(now - head.at) : '', tone: 'idle' }
   }
   if (!activity) return null
-  return { text: next ? `Next: ${next.caption}` : activity.status || 'Working', side: '', clock: elapsed(now - activity.since), tone: 'idle' }
+  return { text: next ? `Next: ${next.caption}` : activity.status || 'Working', side: '', clock: formatDuration(now - activity.since), tone: 'idle' }
 }
 
 /** Where a Modeller commits a model's build scripts and manifest: also the path it claims for that model. */

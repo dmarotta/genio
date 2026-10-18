@@ -1,5 +1,6 @@
 import type { Task, TaskOutcome, TaskState, TerminalInfo } from './types'
 import { resumedAfterReady } from './unit-activity'
+import { formatDuration } from './duration'
 
 export type SquadState = 'WORKING' | 'READY TO MERGE' | 'DONE'
 export type SquadTone = 'blue' | 'violet' | 'orange' | 'magenta' | 'volt' | 'alert' | 'amber'
@@ -69,13 +70,6 @@ export function finishedAt(task: Task): string {
   return task.finishedAt ?? task.landedAt ?? task.cleanedAt ?? task.updatedAt
 }
 
-const minutes = (ms: number): string => {
-  const m = Math.floor(Math.max(0, ms) / 60_000)
-  if (m < 1) return '<1 min'
-  if (m < 60) return `${m} min`
-  return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min`
-}
-
 /** How long the unit has run: live while WORKING, stopped once it is ready or finished. */
 function unitRunMs(task: Task, terminal: TerminalInfo | undefined, now: number): { ms: number; working: boolean } {
   const start = Date.parse(task.createdAt) || now
@@ -85,18 +79,15 @@ function unitRunMs(task: Task, terminal: TerminalInfo | undefined, now: number):
   return { ms: end - start, working: false }
 }
 
-/** "working 23 min" while active; the clock stops when the unit is ready or finished: "took 54 min". */
+/** "working 23m 4s" while active; "took 54m 10s" once ready or finished. */
 export function unitClock(task: Task, terminal?: TerminalInfo, now = Date.now()): string {
   const run = unitRunMs(task, terminal, now)
-  return `${run.working ? 'working' : 'took'} ${minutes(run.ms)}`
+  return `${run.working ? 'working' : 'took'} ${formatDuration(run.ms)}`
 }
 
-/** The Squad rail's short form of the same clock: "<1m", "12m", "1h 05m". */
+/** The Squad rail's clock, without the unit page's working/took prefix. */
 export function unitClockShort(task: Task, terminal?: TerminalInfo, now = Date.now()): string {
-  const m = Math.floor(Math.max(0, unitRunMs(task, terminal, now).ms) / 60_000)
-  if (m < 1) return '<1m'
-  if (m < 60) return `${m}m`
-  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`
+  return formatDuration(unitRunMs(task, terminal, now).ms)
 }
 
 /** Squad list: the active units in their given order; finished ones live in the Quest log's Done column. */

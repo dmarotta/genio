@@ -294,7 +294,7 @@ describe('the terminal pane', () => {
     const tabs = [...host.querySelectorAll('.term-pane-tab')].map((t) => t.textContent?.trim())
     expect(tabs).toEqual(['Terminal', '! npm test1'])
     expect(host.querySelector('.term-pane-view.on .term-mock')?.getAttribute('data-id')).toBe('run-1')
-    expect(host.querySelector('.term-pane-view.on .term-pane-run')?.textContent).toContain('exit 1 · 2.5 s · run by you')
+    expect(host.querySelector('.term-pane-view.on .term-pane-run')?.textContent).toContain('exit 1 · 2s · run by you')
     await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Close terminal"]')!.click())
     expect(api.paneClose).toHaveBeenCalledWith(WKSP)
     expect(getState()).toMatchObject({ paneOpen: false, paneTab: undefined })

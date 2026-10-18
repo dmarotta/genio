@@ -314,7 +314,7 @@ describe('estimate and rebase hints', () => {
   it('announces time and cost once and reports what is left as steps merge', async () => {
     const { plan, announcement } = await createPlan([step('core'), step('ui', ['core']), step('docs', ['ui'])])
     expect(plan.estimate).toMatchObject({ units: 3, elapsedMinutes: [60, 135], samples: 0 })
-    expect(announcement).toContain('About 1-2.5 h, 3 units (~1.5 unit-hours), main chat ~$1.50-2.10. 1 step started now')
+    expect(announcement).toContain('About 1h 0m-2h 30m, 3 units (~1.5 unit-hours), main chat ~$1.50-2.10. 1 step started now')
     await land('core', plan.id)
     expect(hc.plans.view(plan.id)).toMatchObject({ estimate: { units: 3 }, left: { units: 2, elapsedMinutes: [40, 90] } })
     // a step change recomputes the estimate

@@ -49,7 +49,7 @@ it('a row is the title, the kind, the state and how long the unit has run: no pr
     expect(row.textContent).not.toMatch(/world/)
     expect(row.getAttribute('title')).toBeNull()
     // the same clock as the unit page, short: live while working, stopped at the ready time
-    expect([...host.querySelectorAll('.roster-right .mono')].map(n => n.textContent)).toEqual(['1h 12m', '1h 12m', '1h 00m'])
+    expect([...host.querySelectorAll('.roster-right .mono')].map(n => n.textContent)).toEqual(['1h 12m 30s', '1h 12m 30s', '1h 0m 0s'])
   } finally { vi.useRealTimers() }
 })
 
@@ -58,6 +58,23 @@ it('says so in one line when no unit is deployed', async () => {
   await act(async () => root.render(React.createElement(Roster)))
   expect(host.querySelector('.side-empty')?.textContent).toBe('No units deployed.')
   expect(host.querySelector('button')).toBeNull()
+})
+
+it('ticks seconds in every working row and freezes each clock at its ready time', async () => {
+  vi.useFakeTimers({ now: new Date('2026-10-13T10:08:03Z') })
+  const clocks = (): (string | null)[] => [...host.querySelectorAll('.roster-right .mono')].map(n => n.textContent)
+  try {
+    await act(async () => root.render(React.createElement(Roster)))
+    expect(clocks()).toEqual(['1h 8m 3s', '1h 8m 3s', '1h 0m 0s'])
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(clocks()).toEqual(['1h 8m 4s', '1h 8m 4s', '1h 0m 0s'])
+    await act(async () => handleEvent({ type: 'task', task: task('Build', { state: 'ready', readyAt: new Date().toISOString() }) }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    expect(clocks()).toEqual(['1h 8m 4s', '1h 8m 6s', '1h 0m 0s'])
+  } finally {
+    await act(async () => root.render(null))
+    vi.useRealTimers()
+  }
 })
 
 it('turns a stale ready label into WORKING on resumed work, never on idle CLI output', async () => {

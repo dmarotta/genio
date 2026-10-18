@@ -3,6 +3,7 @@ import { Hand, ThumbsDown, X } from 'lucide-react'
 import { cx } from '../lib/format'
 import { toneVar, type Tone } from '../lib/vocab'
 import { Dialog } from './Layer'
+export { useNow } from '../lib/use-now'
 
 export function Chip({ tone, children, title, pulse }: { tone?: Tone; children: ReactNode; title?: string; pulse?: boolean }) {
   return (
@@ -177,15 +178,6 @@ export function Confirm({
       {body ? <div className="confirm-body">{body}</div> : null}
     </Modal>
   )
-}
-
-export function useNow(intervalMs = 1000): number {
-  const [now, setNow] = useState(Date.now())
-  useEffect(() => {
-    const t = window.setInterval(() => setNow(Date.now()), intervalMs)
-    return () => window.clearInterval(t)
-  }, [intervalMs])
-  return now
 }
 
 /** Text input that commits on blur / Enter (for settings). */

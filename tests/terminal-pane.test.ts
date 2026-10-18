@@ -79,7 +79,7 @@ describe('result output and context bounds', () => {
   })
 
   it('a run that could not start says why', () => {
-    expect(shellSummary(run({ exitCode: undefined, error: 'pwsh did not start' }))).toBe('! git status · could not run: pwsh did not start · 1.2 s · run by you')
+    expect(shellSummary(run({ exitCode: undefined, error: 'pwsh did not start' }))).toBe('! git status · could not run: pwsh did not start · 1s · run by you')
     expect(shellContextBlock([run({ exitCode: undefined, error: 'no shell', output: '' })])).toContain('could not run: no shell')
   })
 })

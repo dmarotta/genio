@@ -3,7 +3,7 @@
 Squad rows, cards and details show WORKING, READY TO MERGE or DONE. A finished
 unit's card and page badge name how it ended instead (FAILED, MERGED, EXITED
 ABNORMALLY or DONE, `squadBadge`), so a failed unit never reads as a red DONE;
-their clock stops when the unit is ready or finished ("took 54 min"). The unit
+their clock stops when the unit is ready or finished ("took 54m 10s"). The unit
 page also says when the agent is simply not running: NOT RUNNING (detached),
 RECALLED, STOPPED (a clean exit without a final status) or WAITING (paused).
 Internal lifecycle states and capacity rules are unchanged. Completed units
@@ -14,12 +14,18 @@ Quest log's Done column. Neither the rail nor the page shows a unit count.
 
 A rail row is the unit's title, its kind, its state (with the yellow "needs
 you" mark when it waits on the player) and, small and muted under the state, how
-long the unit has run ("12m", "1h 05m"); a click opens its page. That time is
-the unit page's clock in short form (`unitClockShort`, same start and stop as
+long the unit has run ("42s", "8m 3s", "1h 8m 3s"); a click opens its page. That time is
+the unit page's clock without its prefix (`unitClockShort`, same start and stop as
 `unitClock`): it ticks while the unit works and stops when it is ready. There
 is no project, plan step, model thumbnail or tooltip, and no list of finished
 units. With no unit deployed the rail says "No units deployed." and the Squad
 page the same line under its Deploy button.
+
+Existing duration displays use `src/shared/duration.ts`: full hours, minutes and
+seconds by default, without padded numbers or leading zero units, keeping inner
+zeros ("1h 0m 5s"). Coarse history can request the largest two units ("1d 1h");
+plan estimates omit seconds. Live clocks share one one-second renderer ticker;
+slower age and decision consumers keep their own update cadence on that ticker.
 
 A Squad card shows the kind, the title, the state chip ("needs you" and "paused
 by your dislike" when they apply), the live terminal (a Modeller's latest
@@ -128,7 +134,7 @@ or the unit works between steps, an orange dot beside it breathes with a soft
 ring (a still dot with reduced motion); it is gone once the unit is ready,
 stopped or its step failed. While the unit works and no step runs, it says what the unit is doing:
 before the first step, its latest status line and the time since it started;
-between steps, the last step's caption with "working on the next step · N s";
+between steps, the last step's caption with "working on the next step · 34s";
 as soon as the next step's script exists under `.genio/modeller/<model>/`, its
 caption ("next: …"); `lib.py` there, the unit's helpers that run before every step,
 is never taken for a step. A step Blender runs shows "Step N · caption…" and its

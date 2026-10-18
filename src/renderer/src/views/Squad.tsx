@@ -98,7 +98,7 @@ function rank(t: Task): number {
 }
 
 function UnitCard({ t, term }: { t: Task; term?: TerminalInfo }) {
-  const now = useNow(1000)
+  const now = useNow(30_000)
   const pending = useStore(s => s.snap.decisions.some(d => d.taskId === t.id && pendingDecision(d, now)))
   const tone = squadTone(t, term)
   const badge = squadBadge(t, term)

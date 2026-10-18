@@ -1,4 +1,5 @@
 import type { ShellRun } from './types'
+import { formatDuration } from './duration'
 
 /**
  * The player's terminal pane and the chat composer's '!' shell mode. The pane is the player's own
@@ -53,13 +54,6 @@ export function plainTerminalText(text: string): string {
   while (lines.length && !lines[lines.length - 1]) lines.pop()
   while (lines.length && !lines[0]) lines.shift()
   return lines.join('\n')
-}
-
-export function formatDuration(ms: number): string {
-  if (ms < 1000) return `${Math.max(0, Math.round(ms))} ms`
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`
-  const s = Math.round(ms / 1000)
-  return `${Math.floor(s / 60)} min ${s % 60} s`
 }
 
 /** One line for the transcript (copy, search) under the result block. */

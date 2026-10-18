@@ -6,6 +6,7 @@
  * cost per unit. Thin history falls back to Genio's measured defaults.
  */
 import type { PlanEstimate, Task, TaskCategory, TaskKind } from './types'
+import { formatDuration } from './duration'
 
 export interface EstimateStep {
   key: string
@@ -87,15 +88,14 @@ export function estimatePlan(steps: EstimateStep[], history: Task[], opts: { wor
 }
 
 function minutesRange([lo, hi]: [number, number]): string {
-  if (hi < 90) {
-    const r = (n: number): number => Math.max(5, Math.round(n / 5) * 5)
-    return r(lo) === r(hi) ? `${r(lo)} min` : `${r(lo)}-${r(hi)} min`
-  }
-  const h = (n: number): string => String(Math.max(0.5, Math.round(n / 30) / 2))
-  return h(lo) === h(hi) ? `${h(lo)} h` : `${h(lo)}-${h(hi)} h`
+  // Keep the estimate's existing rounding, with the same units as every other duration.
+  const rounded = (n: number): number => hi < 90 ? Math.max(5, Math.round(n / 5) * 5) : Math.max(30, Math.round(n / 30) * 30)
+  const format = (n: number): string => formatDuration(rounded(n) * 60_000, { largestTwoUnits: true, precision: 'minutes' })
+  const low = format(lo), high = format(hi)
+  return low === high ? low : `${low}-${high}`
 }
 
-/** "About 1-2.5 h, 3 units (~1.5 unit-hours), main chat ~$1.50-2.10" */
+/** "About 1h 0m-2h 30m, 3 units (~1.5 unit-hours), main chat ~$1.50-2.10" */
 export function formatEstimate(e: PlanEstimate): string {
   const unitHours = Math.max(0.5, Math.round(((e.unitMinutes[0] + e.unitMinutes[1]) / 2) / 30) / 2)
   const usd = (n: number): string => n.toFixed(2)

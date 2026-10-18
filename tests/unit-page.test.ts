@@ -88,7 +88,7 @@ describe('unit page header and primary action', () => {
     expect(host.textContent).not.toMatch(/Playtest|Gauntlet/)
     expect(calls.has('validateTask')).toBe(false)
     expect(badge().textContent).toBe('WORKING')
-    expect(host.querySelector('.detail-clock')?.textContent).toBe('working 1 h 00 min')
+    expect(host.querySelector('.detail-clock')?.textContent).toBe('working 1h 0m 0s')
     expect(primary()).toEqual(['More'])
     const term = host.querySelector('.detail-term .term-mock')!
     expect([term.getAttribute('data-passive'), term.getAttribute('data-interactive'), term.getAttribute('data-autofocus')]).toEqual(['true', 'true', 'false'])
@@ -107,7 +107,7 @@ describe('unit page header and primary action', () => {
   it('a ready Offline Build: Merge into main, the clock stopped, no Respawn, no rating before the merge', async () => {
     await open(unit({ state: 'ready', readyAt: '2026-10-13T11:54:00Z' }))
     expect(badge().textContent).toBe('READY TO MERGE')
-    expect(host.querySelector('.detail-clock')?.textContent).toBe('took 54 min')
+    expect(host.querySelector('.detail-clock')?.textContent).toBe('took 54m 0s')
     expect(host.querySelector('.uh-since')).toBeNull()
     expect(primary()).toEqual(['Merge into main', 'More'])
     expect((await menu()).map((i) => i.label)).toEqual(['Open folder', 'Despawn…'])
@@ -135,7 +135,7 @@ describe('unit page header and primary action', () => {
     expect(badge().textContent).toBe('FAILED')
     expect(badge().className).toContain('alert')
     expect(host.querySelector('.uh-line')?.textContent).toBe('Stopped: usage limit reached')
-    expect(host.querySelector('.detail-clock')?.textContent).toBe('took 20 min')
+    expect(host.querySelector('.detail-clock')?.textContent).toBe('took 20m 0s')
     expect(primary()).toEqual(['verdict', 'Respawn', 'More'])
     await click(button('Respawn'))
     expect(calls.get('controlTask')).toHaveBeenCalledWith('u1', 'relaunch')
@@ -153,7 +153,7 @@ describe('unit page header and primary action', () => {
   it('a merged, despawned Build: MERGED, no primary action, no More menu and no ping box', async () => {
     await open(unit({ state: 'cleaned', landedAt: '2026-10-13T11:40:00Z', finishedAt: '2026-10-13T11:40:00Z', cleanedAt: '2026-10-13T11:41:00Z', landedCommit: '8f2c1e9a4b7d03' }))
     expect(badge().textContent).toBe('MERGED')
-    expect(host.querySelector('.detail-clock')?.textContent).toBe('took 40 min')
+    expect(host.querySelector('.detail-clock')?.textContent).toBe('took 40m 0s')
     expect(primary()).toEqual(['verdict'])
     expect(host.querySelector('.unit-ping')).toBeNull()
   })
@@ -526,7 +526,7 @@ describe('Modeller unit before its first step', () => {
     const canvas = host.querySelector('.detail-body .detail-canvas')!
     expect(canvas.querySelector('iframe')!.getAttribute('title')).toBe('Live 3D view')
     // what the unit is doing, and for how long, instead of a silent empty scene
-    expect(canvas.querySelector('[role="status"]')!.textContent).toMatch(/^Planning the tower: legs, deck, roof\d+ (s|min \d+ s|h \d+ min)$/)
+    expect(canvas.querySelector('[role="status"]')!.textContent).toBe('Planning the tower: legs, deck, roof1h 0m 0s')
     expect(canvas.textContent).not.toMatch(/Waiting|loading|step/i)
     expect(host.querySelector('.detail-body > .detail-term .term-mock')).toBeNull()
     expect([...host.querySelectorAll('.detail-switch [role="tab"]')].map((b) => b.textContent!.trim())).toEqual(['Model', 'Steps', 'Terminal', 'Changes', 'Timeline', 'Brief'])
