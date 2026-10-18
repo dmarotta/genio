@@ -1,7 +1,7 @@
 import { ThisProjectSettings, type ProjectPageId } from './ProjectSettings'
 import { PlayerInstanceSettings } from './PlayerInstanceSettings'
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
-import { ChevronDown, ChevronUp, Copy, Download, KeyRound, LogIn, LogOut, Plus, RefreshCw, Search, Trash, Wrench, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Copy, Download, KeyRound, LogIn, LogOut, Plus, RefreshCw, Search, Square, Trash, Volume2, Wrench, X } from 'lucide-react'
 import type { DispatchRule, EventSource, HarnessAdapter, PoolCandidate, Project, Settings, TaskCategory, ToolStatus, UpdateInfo } from '@shared/types'
 import { CATEGORIES } from '@shared/dispatch'
 import { MAX_UNITS_AT_ONCE } from '@shared/unit-capacity'
@@ -21,7 +21,7 @@ import { Mailbox } from '../components/Mailbox'
 import { EFFORTS } from '../lib/vocab'
 import { cx, usd } from '../lib/format'
 import { playSfx } from '../lib/sfx'
-import { windowsVoiceLabel, windowsVoices } from '../lib/voice'
+import { speakSample, stopSpeaking, windowsVoiceLabel, windowsVoices } from '../lib/voice'
 import { NaturalVoiceConsent } from '../components/NaturalVoiceConsent'
 import { useScreenContext } from '../lib/screen-context'
 import { settingAnchor, searchSettings, type SettingsHit } from '@shared/settings-index'
@@ -601,6 +601,16 @@ function ReplyVoiceRow({ value }: { value: Settings['replyVoice'] }) {
       {windows.map((n) => <option key={n} value={windowsVoice(n)}>{windowsVoiceLabel(n)}</option>)}
     </>
   )
+  // The sample speaks with the voice shown; it stops when that changes and when the page closes.
+  const [testing, setTesting] = useState(false)
+  const sample = useRef(false)
+  useEffect(() => () => { if (sample.current) stopSpeaking() }, [shown])
+  const test = (): void => {
+    if (sample.current) { stopSpeaking(); return }
+    sample.current = true
+    setTesting(true)
+    speakSample(shown, () => { sample.current = false; setTesting(false) })
+  }
   return (
     <>
       <Row label="Voice">
@@ -612,6 +622,9 @@ function ReplyVoiceRow({ value }: { value: Settings['replyVoice'] }) {
             </>
           ) : windowsOptions}
         </select>
+        <button type="button" className="btn sm ghost icon" aria-label="Test voice" aria-pressed={testing} onClick={test}>
+          {testing ? <Square size={14} /> : <Volume2 size={14} />}
+        </button>
         {status && !ready && (
           <button ref={button} type="button" className={cx('btn sm voice-download', downloading && 'loading')} disabled={downloading}
             style={{ '--progress': status.total ? status.received / status.total : 0 } as CSSProperties} onClick={() => setConsent(true)}>

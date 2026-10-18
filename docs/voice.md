@@ -68,6 +68,7 @@ settings are **Read replies aloud** and the **Voice** under it.
     same consent panel as the chat's offer (about 329 MB, Download or Not now); during the download the button fills
     with the progress and is disabled. A failure shows one line under the row and the button is usable again; once the
     voice is ready the button goes and the natural voices join the list.
+- A small speaker button (**Test voice**, icon only) sits right beside the drop-down. It speaks one fixed sentence ("This is how I will sound when I read my replies.") with the voice the drop-down shows, through the same path as replies (so the Windows fallback applies while the natural voice is missing) and changes no setting. While it plays the button shows a stop square; a second click, a new choice in the drop-down (the new voice is not played) or leaving the page stops it.
 - The choice is saved in the settings (`replyVoice`): a Kokoro speaker id, `windows` for the Windows default, or
   `windows:<name>` for one Windows voice. The default is `af` (voice 0), so nothing changes for anyone who never touches
   it. A natural voice speaks with the Windows default until the natural voice is installed (the drop-down shows

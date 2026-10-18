@@ -222,6 +222,37 @@ describe('ReplyVoice', () => {
     expect(h.sources[0].buffer!.duration).toBeCloseTo(0.65, 3)
   })
 
+  it('calls onDone once when the natural speech has played out, or when stop() cuts it short', async () => {
+    const h = harness('ready')
+    let done = 0
+    const speaking = h.voice.speak(S1, undefined, () => done++)
+    await tick()
+    h.calls[0].resolve(audio())
+    await speaking
+    expect(h.sources).toHaveLength(1)
+    expect(done).toBe(0)
+    h.sources[0].onended?.()
+    expect(done).toBe(1)
+    const again = h.voice.speak(S1, undefined, () => done++)
+    await tick()
+    h.calls[1].resolve(audio())
+    await again
+    h.voice.stop()
+    h.voice.stop()
+    expect(done).toBe(2)
+  })
+
+  it('passes onDone to the Windows voice and calls it when that speech ends', async () => {
+    const h = harness('missing')
+    let done = 0
+    let ended: (() => void) | undefined
+    ;(h.voice as unknown as { deps: ReplyVoiceDeps }).deps.system = (_t, _n, onEnd) => { ended = onEnd }
+    await h.voice.speak('Hello there.', undefined, () => done++)
+    expect(done).toBe(0)
+    ended!()
+    expect(done).toBe(1)
+  })
+
   it('a newer reply replaces the one being spoken', async () => {
     const h = harness('ready')
     const first = h.voice.speak(`${S1} ${S2}`)

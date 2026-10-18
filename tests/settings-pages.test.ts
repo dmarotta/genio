@@ -62,6 +62,7 @@ import type { Settings } from '../src/shared/types'
 import { Systems, requestSystemsSection, startPage, visiblePages } from '../src/renderer/src/views/Systems'
 import { isSettingsShortcut, listKey, openSettings, readLastPage } from '../src/renderer/src/lib/settings-nav'
 import { go, saveSettings } from '../src/renderer/src/store'
+import { VOICE_SAMPLE } from '../src/renderer/src/lib/voice'
 
 // Main-process code is outside the web typecheck, so its defaults load untyped by path. They never
 // need the Claude SDK that the usage probe imports lazily.
@@ -455,6 +456,73 @@ describe('search index', () => {
       await act(async () => downloadButton()!.click())
       await act(async () => [...document.querySelectorAll('[aria-label="Natural voice"] button')].find((b) => b.textContent === 'Not now')!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
       expect(f.calls).toContain('voiceOutputDecline')
+    })
+
+    describe('Test voice', () => {
+      const spoken: { text: string; voice?: { name: string } }[] = []
+      const cancel = vi.fn()
+      const testButton = () => host.querySelector<HTMLButtonElement>('button[aria-label="Test voice"]')
+      const click = () => act(async () => { testButton()!.dispatchEvent(new MouseEvent('click', { bubbles: true })); await new Promise((r) => setTimeout(r, 0)) })
+      beforeEach(() => {
+        spoken.length = 0
+        cancel.mockClear()
+        class Utterance { voice?: { name: string }; onend?: () => void; onerror?: () => void; constructor(public text: string) {} }
+        vi.stubGlobal('SpeechSynthesisUtterance', Utterance)
+        const voices = [DAVID, ZIRA].map((name) => ({ name, lang: 'en-US', localService: true, default: false, voiceURI: name }))
+        vi.stubGlobal('speechSynthesis', { getVoices: () => voices, addEventListener: () => undefined, removeEventListener: () => undefined, cancel, speak: (u: { text: string; voice?: { name: string } }) => spoken.push(u) })
+      })
+
+      it('is an icon-only button next to the drop-down', async () => {
+        await remount({ voice: true })
+        expect(testButton()!.textContent).toBe('')
+        expect(testButton()!.previousElementSibling).toBe(voiceSelect())
+        await remount({ voice: false })
+        expect(testButton()).toBeNull()
+      })
+
+      it('speaks the sample with the shown voice through the reply path, changing no setting', async () => {
+        await remount({ voice: true, replyVoice: `windows:${DAVID}` })
+        vi.mocked(saveSettings).mockClear()
+        await click()
+        expect(spoken.map((u) => [u.text, u.voice?.name])).toEqual([[VOICE_SAMPLE, DAVID]])
+        expect(testButton()!.getAttribute('aria-pressed')).toBe('true')
+        expect(saveSettings).not.toHaveBeenCalled()
+      })
+
+      it('falls back to the Windows default while the natural voice is not installed', async () => {
+        await remount({ voice: true })
+        await click()
+        expect(spoken).toHaveLength(1)
+        expect(spoken[0].text).toBe(VOICE_SAMPLE)
+      })
+
+      it('stops on a second click, and is idle again when the sentence ends', async () => {
+        await remount({ voice: true, replyVoice: `windows:${DAVID}` })
+        await click()
+        cancel.mockClear()
+        await click()
+        expect(cancel).toHaveBeenCalled()
+        expect(testButton()!.getAttribute('aria-pressed')).toBe('false')
+        await click()
+        await act(async () => (spoken[1] as unknown as { onend: () => void }).onend())
+        expect(testButton()!.getAttribute('aria-pressed')).toBe('false')
+      })
+
+      it('stops when the selection changes, without playing the new voice, and when the page closes', async () => {
+        await remount({ voice: true, replyVoice: `windows:${DAVID}` })
+        await click()
+        cancel.mockClear()
+        f.settings = { ...defaultSettings(), voice: true, replyVoice: `windows:${ZIRA}` }
+        await act(async () => root.render(React.createElement(Systems)))
+        expect(cancel).toHaveBeenCalled()
+        expect(spoken).toHaveLength(1)
+        expect(testButton()!.getAttribute('aria-pressed')).toBe('false')
+        await click()
+        cancel.mockClear()
+        await act(async () => root.unmount())
+        expect(cancel).toHaveBeenCalled()
+        root = createRoot(host)
+      })
     })
 
     it('adds the natural voices once installed, with no download, and saves the choice; hidden with Read replies aloud off', async () => {

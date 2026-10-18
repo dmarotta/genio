@@ -422,7 +422,7 @@ While it is on, the Voice drop-down under the toggle picks who speaks: Default o
 on this PC and, once the natural voice is downloaded, its 11 voices (Default, Bella, Nicole, Sarah, Sky, Adam, Michael,
 and the British Emma, Isabella, George and Lewis). While the natural voice is missing, Download natural voice sits next
 to it. A natural voice speaks with Windows' default voice until it is downloaded; a Windows voice removed from the PC
-speaks as Default. A new choice applies from the next spoken reply. Pressing the mic, Esc in the chat box, or sending
+speaks as Default. The speaker button beside the drop-down (Test voice) plays one sample sentence in the voice shown, the way replies will sound; click it again to stop. A new choice applies from the next spoken reply. Pressing the mic, Esc in the chat box, or sending
 any message (typed or spoken, a steer or a ! command) stops it at once; the next reply is read as usual. The Bot never
 speaks.
 Where: Settings → General → Read replies aloud (off by default), and Voice under it.

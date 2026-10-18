@@ -180,10 +180,10 @@ export function pickSystemVoice(voices: SpeechSynthesisVoice[], name?: string): 
 }
 
 /** The Windows voice (speechSynthesis): the chosen Windows voice, and the fallback whenever the natural voice is missing, declined or fails. */
-function systemSpeak(clean: string, name?: string): void {
+function systemSpeak(clean: string, name?: string, onEnd?: () => void): void {
   try {
     const synth = window.speechSynthesis
-    if (!synth) return
+    if (!synth) { onEnd?.(); return }
     synth.cancel()
     const ticket = ++pending
     void voicesReady(synth).then((voices) => {
@@ -194,10 +194,11 @@ function systemSpeak(clean: string, name?: string): void {
       if (pick) u.voice = pick
       u.rate = 1.05
       u.pitch = 0.95
+      if (onEnd) { u.onend = onEnd; u.onerror = onEnd }
       synth.speak(u)
     })
   } catch {
-    /* no speech */
+    onEnd?.()
   }
 }
 
@@ -216,8 +217,8 @@ export interface ReplyVoiceDeps {
   synth(text: string): Promise<{ rate: number; pcm: Float32Array }>
   cancel(): void
   context(): Pick<AudioContext, 'currentTime' | 'destination' | 'createBuffer' | 'createBufferSource'> & { resume?: () => Promise<void> }
-  /** Speak with the Windows voice: `name` is the chosen one, none the default. */
-  system(text: string, name?: string): void
+  /** Speak with the Windows voice: `name` is the chosen one, none the default; `onEnd` when it has finished. */
+  system(text: string, name?: string, onEnd?: () => void): void
   systemStop(): void
   /** Offer the natural voice download (once per session); true when a chat box showed the offer. */
   offer(status: { received: number; total: number }): boolean
@@ -237,29 +238,47 @@ export class ReplyVoice {
   private sources = new Set<AudioBufferSourceNode>()
   /** When the last queued buffer ends, in the context's time. */
   private end = 0
+  /** Called once when the current speech has finished or was stopped. */
+  private done?: () => void
+  /** The ticket whose last buffer is queued: the speech is over when the queue empties. */
+  private draining = -1
 
   constructor(private readonly deps: ReplyVoiceDeps) {}
 
+  private finish(): void {
+    const done = this.done
+    this.done = undefined
+    done?.()
+  }
+
+  /** Over when this ticket's speech is still the current one and nothing is left queued. */
+  private finishIfDrained(ticket: number): void {
+    if (ticket === this.ticket && this.draining === ticket && !this.sources.size) this.finish()
+  }
+
   /**
    * `voice` is the saved reply voice: a Windows voice always speaks with that voice (the Kokoro speaker is main's). A
-   * natural voice uses the Windows default until the natural voice is installed.
+   * natural voice uses the Windows default until the natural voice is installed. `onDone` is called once when the
+   * speech has finished or has been stopped.
    */
-  async speak(text: string, voice?: string): Promise<void> {
+  async speak(text: string, voice?: string, onDone?: () => void): Promise<void> {
     const clean = speakable(text)
-    if (!clean) return
+    if (!clean) { onDone?.(); return }
     this.stop()
+    this.done = onDone
+    const ticket = this.ticket
+    const ended = (): void => { if (ticket === this.ticket) this.finish() }
     const windows = windowsVoiceName(voice)
     if (windows !== undefined) {
-      this.deps.system(clean, windows || undefined)
+      this.deps.system(clean, windows || undefined, ended)
       return
     }
-    const ticket = this.ticket
     let status: Awaited<ReturnType<ReplyVoiceDeps['status']>> | undefined
     try { status = await this.deps.status() } catch { status = undefined }
     if (ticket !== this.ticket) return
     if (status?.state !== 'ready') {
       if (status?.state === 'missing' && !status.declined && !this.offered) this.offered = this.deps.offer(status)
-      this.deps.system(clean)
+      this.deps.system(clean, undefined, ended)
       return
     }
     const parts = chunks(clean)
@@ -283,15 +302,17 @@ export class ReplyVoice {
         try { this.deps.cancel() } catch { /* no main */ }
         const rest = parts.slice(i).join(' ')
         const wait = this.ctx ? Math.max(0, this.end - this.ctx.currentTime) : 0
-        setTimeout(() => { if (ticket === this.ticket) this.deps.system(rest) }, wait * 1000)
+        setTimeout(() => { if (ticket === this.ticket) this.deps.system(rest, undefined, ended) }, wait * 1000)
         return
       }
       if (ticket !== this.ticket) return
-      this.play(audio)
+      this.play(audio, () => this.finishIfDrained(ticket))
     }
+    this.draining = ticket
+    this.finishIfDrained(ticket)
   }
 
-  private play(audio: { rate: number; pcm: Float32Array }): void {
+  private play(audio: { rate: number; pcm: Float32Array }, onEnded: () => void): void {
     const pcm = trimSilence(audio.pcm, audio.rate)
     if (!pcm.length) return
     const ctx = (this.ctx ??= this.deps.context())
@@ -302,7 +323,7 @@ export class ReplyVoice {
     source.buffer = buffer
     source.connect(ctx.destination)
     const at = Math.max(ctx.currentTime + 0.02, this.end)
-    source.onended = () => this.sources.delete(source)
+    source.onended = () => { this.sources.delete(source); onEnded() }
     source.start(at)
     this.end = at + buffer.duration
     this.sources.add(source)
@@ -318,6 +339,7 @@ export class ReplyVoice {
     this.end = 0
     try { this.deps.cancel() } catch { /* no main */ }
     this.deps.systemStop()
+    this.finish()
   }
 }
 
@@ -346,12 +368,20 @@ function voice(): ReplyVoice {
   }))
 }
 
-export function speak(text: string, replyVoice?: string): void {
+export function speak(text: string, replyVoice?: string, onDone?: () => void): void {
   try {
-    void voice().speak(text, replyVoice).catch(() => undefined)
+    void voice().speak(text, replyVoice, onDone).catch(() => undefined)
   } catch {
-    /* no speech */
+    onDone?.()
   }
+}
+
+/** What "Test voice" in Settings says. */
+export const VOICE_SAMPLE = 'This is how I will sound when I read my replies.'
+
+/** The test sentence through the reply path, in `replyVoice` (what the drop-down shows); `onDone` when it ends or is stopped. */
+export function speakSample(replyVoice: string, onDone: () => void): void {
+  speak(VOICE_SAMPLE, replyVoice, onDone)
 }
 
 /** Stop Genio talking: the mic button, Esc in the chat box, and any message the player sends to the chat. */
