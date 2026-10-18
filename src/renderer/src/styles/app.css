@@ -1178,12 +1178,14 @@ ul.loadout-why li { margin: 1px 0; }
 .qk-why { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
 .qk-summary { margin-bottom: 14px; }
 .qk-summary p { margin: 6px 0 0; font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+
 /* ---------- plans: the plan card's dialog lists its steps ---------- */
 .plan-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
 .plan-step { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; align-items: baseline; gap: 6px; padding: 2px 4px; }
 .plan-mark { text-align: center; font-weight: 700; }
 .plan-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-st { font-size: 11.5px; white-space: nowrap; }
+
 @media (max-width: 1280px) {
   .kanban.qk { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 }
