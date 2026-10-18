@@ -23,6 +23,7 @@ import { defaultSettings } from '../src/main/settings'
 import * as git from '../src/main/git'
 import { CODEX_UNIT_MODEL, CLAUDE_UNIT_MODEL } from '../src/shared/unit-model-policy'
 import { OPUS } from '../src/shared/usage-mode'
+import { QuotaDeferredError } from '../src/main/quota-deferred'
 
 let root: string, home: Home, ctx: AppCtx, task: Task
 let terminal: { id: string; alive: boolean } | undefined
@@ -60,6 +61,98 @@ beforeEach(() => {
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); fs.rmSync(root, { recursive: true, force: true }); handlers.clear() })
 
 describe('non-destructive lifecycle recovery', () => {
+  it('persists a pinned quota-deferred relaunch and resumes it after account refresh without another manual action', async () => {
+    vi.mocked(ctx.dispatch.reserve).mockRejectedValueOnce(new QuotaDeferredError('deferred: Claude Code is held by quota protection'))
+    expect(await ctx.main.crew.control(task.id, 'relaunch', 'Continue the pinned task', true)).toMatchObject({ ok: false })
+    expect(ctx.main.crew.hasQuotaDeferred()).toBe(true)
+    expect(ctx.terminals.create).not.toHaveBeenCalled()
+    // Recreate the service: pending intent survives an app restart, including manual allowance and note.
+    ctx.main.crew = createCrewService(() => ctx, home)
+    await ctx.main.crew.retryQuotaDeferred()
+    expect(ctx.main.crew.get(task.id)).toMatchObject({ state: 'working', relaunches: 2, automaticRelaunches: 0 })
+    expect(ctx.main.crew.hasQuotaDeferred()).toBe(false)
+    expect(fs.readFileSync(home.briefFile(task.id), 'utf8')).toContain('Continue the pinned task')
+    await ctx.main.crew.retryQuotaDeferred()
+    expect(ctx.terminals.create).toHaveBeenCalledOnce()
+  })
+
+  it('cancels a deferred relaunch when the unit is explicitly recalled', async () => {
+    vi.mocked(ctx.dispatch.reserve).mockRejectedValueOnce(new QuotaDeferredError('deferred: quota protection'))
+    await ctx.main.crew.control(task.id, 'relaunch', undefined, true)
+    await ctx.main.crew.control(task.id, 'exit')
+    await ctx.main.crew.retryQuotaDeferred()
+    expect(ctx.main.crew.hasQuotaDeferred()).toBe(false)
+    expect(ctx.terminals.create).not.toHaveBeenCalled()
+  })
+
+  it('keeps a deferred relaunch while its project is closed and honours a later player hold', async () => {
+    let open = false
+    ctx.main.crew = createCrewService(() => ctx, home, () => open)
+    vi.mocked(ctx.dispatch.reserve).mockRejectedValueOnce(new QuotaDeferredError('deferred: quota protection'))
+    await ctx.main.crew.control(task.id, 'relaunch', undefined, true)
+    await ctx.main.crew.retryQuotaDeferred()
+    expect(ctx.main.crew.hasQuotaDeferred()).toBe(true)
+    expect(ctx.terminals.create).not.toHaveBeenCalled()
+    open = true
+    ctx.main.crew.update(task.id, { dislikePause: { message: 'stop', wksp: 'main', at: new Date().toISOString(), prevState: 'exited', interrupted: false } })
+    await ctx.main.crew.retryQuotaDeferred()
+    expect(ctx.main.crew.hasQuotaDeferred()).toBe(false)
+    expect(ctx.terminals.create).not.toHaveBeenCalled()
+  })
+
+  it('persists the complete deploy request on quota deferral and retries through the normal spawn gate', async () => {
+    const { createBacklogService } = await import('../src/main/backlog')
+    ctx.main.backlog = createBacklogService(() => ctx, home)
+    ctx.projects.get = () => ({ name: 'world', path: root }) as any
+    ctx.projects.resolvePosture = () => ({ mode: 'local-only', yolo: false, branchPrefix: 'genio/' })
+    const request = { kind: 'ship' as const, title: 'Fix quota retry', project: 'world', intent: 'Fix quota retry', spec: 'Keep this complete spec', harness: 'claude', model: 'sonnet', effort: 'high' }
+    vi.mocked(ctx.dispatch.reserve).mockRejectedValueOnce(new QuotaDeferredError('deferred: quota protection'))
+    await expect(ctx.main.crew.spawn(request)).rejects.toBeInstanceOf(QuotaDeferredError)
+    expect(ctx.main.crew.hasQuotaDeferred()).toBe(true)
+    const quest = ctx.main.backlog.list()[0]
+    expect(quest.state).toBe('queued')
+    // Use a spy at the regular spawn boundary, after all retry eligibility checks.
+    ctx.main.backlog.dispatchable = () => [quest]
+    const spawn = vi.spyOn(ctx.main.crew, 'spawn').mockResolvedValue(task)
+    await ctx.main.crew.retryQuotaDeferred()
+    expect(spawn).toHaveBeenCalledExactlyOnceWith({ ...request, backlogId: quest.id, attachments: undefined })
+    expect(ctx.main.crew.hasQuotaDeferred()).toBe(false)
+  })
+
+  it('retries quota deferral after relaunch preparation without consuming the automatic allowance', async () => {
+    ctx.main.crew.update(task.id, { relaunches: 0, automaticRelaunches: 0 })
+    let checks = 0
+    vi.mocked(ctx.dispatch.reserve).mockResolvedValueOnce({ loadout: {} as any, listed: vi.fn(), release, check: async () => {
+      if (++checks === 2) throw new QuotaDeferredError('deferred: quota protection')
+    } })
+    expect(await ctx.main.crew.control(task.id, 'relaunch')).toMatchObject({ ok: false })
+    expect(ctx.main.crew.get(task.id)).toMatchObject({ state: 'paused', automaticRelaunches: 0 })
+    expect(ctx.main.crew.hasQuotaDeferred()).toBe(true)
+    await ctx.main.crew.retryQuotaDeferred()
+    expect(ctx.main.crew.get(task.id)).toMatchObject({ state: 'working', automaticRelaunches: 1, relaunches: 1 })
+    expect(ctx.main.crew.hasQuotaDeferred()).toBe(false)
+  })
+
+  it('keeps an already-prepared deployment on a last-moment quota hold and awards spawn only after recovery', async () => {
+    modellerWorld()
+    let blocked = true
+    ctx.stats = { award: vi.fn() } as any
+    ctx.dispatch.reserve = vi.fn(async () => ({ loadout: { harness: 'test', reasons: [] } as any, listed: vi.fn(), release,
+      check: async () => { if (blocked) throw new QuotaDeferredError('deferred: quota protection') } }))
+    await expect(ctx.main.crew.spawn({ kind: 'ship', project: 'world', title: 'Wait for fresh usage', intent: 'Wait for fresh usage' })).rejects.toBeInstanceOf(QuotaDeferredError)
+    const prepared = ctx.main.crew.list().find(t => t.id !== task.id)!
+    expect(prepared.state).toBe('paused')
+    expect(ctx.main.backlog.markInFlight).toHaveBeenCalledWith('quest', prepared.id)
+    expect(ctx.stats.award).not.toHaveBeenCalled()
+    fs.mkdirSync(prepared.worktree, { recursive: true })
+    await ctx.main.crew.retryQuotaDeferred() // still held: keep the original deployment's achievement intent
+    blocked = false
+    await ctx.main.crew.retryQuotaDeferred()
+    expect(ctx.main.crew.get(prepared.id)?.state).toBe('working')
+    expect(ctx.stats.award).toHaveBeenCalledExactlyOnceWith('spawn', prepared.id)
+    expect(ctx.main.crew.hasQuotaDeferred()).toBe(false)
+    expect(ctx.terminals.create).toHaveBeenCalledOnce()
+  })
   it.each(['preparation', 'deferred-before-listing', 'deferred-after-listing', 'terminal'] as const)('real dispatch releases a ready-unit relaunch slot after %s failure', async failure => {
     const adapter = ctx.settings.harness('test')!
     const settings = { ...defaultSettings(), harnesses: [adapter] }

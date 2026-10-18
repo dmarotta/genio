@@ -67,7 +67,6 @@ import { createFalService } from './fal-service'
 import { createUthanaService } from './uthana-service'
 import { createDispatchService } from './dispatch'
 import { startSignInWatch, stopSignInWatch } from './sign-in-watch'
-import { usageReport } from './usage'
 import { retryPendingArchives } from './codex-archive'
 import { createInventoryService } from './inventory'
 import { createThumbnailDecoder } from './inventory-thumbnails'
@@ -111,7 +110,7 @@ export function makeHomeCtx(home: Home, ally?: Ally): HomeCtx {
   home.ensure()
   const hc: HomeCtx = {
     home,
-    crew: createCrewService(getCtx, home),
+    crew: createCrewService(getCtx, home, project => !!openProjects.get(getCtx())?.has(project)),
     backlog: createBacklogService(getCtx, home),
     decisions: createDecisionService(getCtx, home),
     wakes: createWakeService(getCtx, home),
@@ -293,8 +292,6 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
 
 /** Start supervision and agents for every home (after the window exists). */
 export async function startApp(ctx: AppCtx): Promise<void> {
-  // Begin a no-prompt account refresh before supervision/dispatch decisions.
-  void usageReport(ctx).then(report => ctx.dispatch.noteUsage(report)).catch(() => undefined)
   // The startup self-check: Claude and Codex (Genio's own Codex home) signed in or not, once, then on change.
   startSignInWatch()
   ctx.inbox.configure()
@@ -324,9 +321,12 @@ export async function startApp(ctx: AppCtx): Promise<void> {
   for (const h of ctx.homes.values()) {
     if (h.home.isMain || ctx.allies.list().find(a => a.name === h.home.name)?.projects.some(p => openProjects.get(ctx)?.has(p))) h.supervisor.start()
   }
+  // Own the account refresh lifecycle here, after persisted task reconciliation.
+  ctx.dispatch.start()
 }
 
 export async function stopApp(ctx: AppCtx): Promise<void> {
+  ctx.dispatch.stop()
   stopEngineChoices()
   stopSignInWatch()
   agentGeneration(ctx).stop()

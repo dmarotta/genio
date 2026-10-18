@@ -1,5 +1,5 @@
 /**
- * Codex plan usage, read on demand. Session logs only carry a rate-limit
+ * Codex plan usage, read by background refreshes and launch preflights. Session logs only carry a rate-limit
  * snapshot while Codex is running, so an idle machine has no evidence under
  * the 10-minute quota TTL. This asks the signed-in Codex app-server directly
  * (account/rateLimits/read): no thread, no model prompt, no credentials read.
@@ -9,11 +9,11 @@ import { spawnCodexChat, type CodexRpc, type CodexWireEvents } from './codex-cha
 import { CodexNeedsSignIn, codexEnv, codexSignedOut } from './codex-home'
 import type { CodexSnapshot, CodexWindow } from './usage'
 import { readJson, writeJsonAtomic } from './util'
+import { USAGE_PROBE_INTERVAL, usageRetryDelay } from './usage-refresh'
 
-const PROBE_TTL = 60_000
 const PROBE_TIMEOUT = 25_000
 export const CODEX_PROBE_SOURCE = 'Codex app-server account/rateLimits/read (account plan, used percent)'
-const probes = new Map<string, { at: number; error?: string; pending?: Promise<void> }>()
+const probes = new Map<string, { retryAt: number; failures: number; error?: string; pending?: Promise<void> }>()
 
 /** A reason that is safe to show: never provider text, which can carry account data. */
 export class CodexUsageError extends Error {}
@@ -92,13 +92,13 @@ export async function probeCodexRateLimits(wire?: (events: CodexWireEvents) => C
 }
 
 /** Single-flight per data dir; a failed refresh keeps old evidence on its original observation clock. */
-export async function refreshCodexPlanUsage(data: string, force = false, probe: () => Promise<unknown> = probeCodexRateLimits): Promise<void> {
+export async function refreshCodexPlanUsage(data: string, _force = false, probe: () => Promise<unknown> = probeCodexRateLimits): Promise<void> {
   // Not signed in (checked): nothing to read and nothing to report, no probe and no error.
   if (codexSignedOut()) { probes.delete(data); return }
   const prior = probes.get(data)
   if (prior?.pending) return prior.pending
-  if (!force && prior && Date.now() - prior.at < PROBE_TTL) return
-  const state: { at: number; error?: string; pending?: Promise<void> } = { at: Date.now() }
+  if (prior && Date.now() < prior.retryAt) return
+  const state: { retryAt: number; failures: number; error?: string; pending?: Promise<void> } = { retryAt: 0, failures: prior?.failures ?? 0 }
   probes.set(data, state)
   state.pending = (async () => {
     try {
@@ -106,10 +106,17 @@ export async function refreshCodexPlanUsage(data: string, force = false, probe: 
       const at = new Date().toISOString()
       // A successful account snapshot replaces every bucket of the previous one.
       writeJsonAtomic(codexLimitsFile(data), parseCodexRateLimits(value, at))
+      state.failures = 0
     } catch (error) {
       // Needs sign-in is the Accounts row's to say, not a usage error.
       state.error = error instanceof CodexNeedsSignIn ? undefined : error instanceof CodexUsageError ? error.message : 'Codex rate-limit read failed'
-    } finally { state.pending = undefined }
+      // No account endpoint was contacted: a later sign-in must be readable immediately.
+      if (error instanceof CodexNeedsSignIn) probes.delete(data)
+      state.failures++
+    } finally {
+      state.retryAt = Date.now() + (state.failures ? usageRetryDelay(state.failures) : USAGE_PROBE_INTERVAL)
+      state.pending = undefined
+    }
   })()
   return state.pending
 }

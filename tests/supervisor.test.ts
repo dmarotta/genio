@@ -30,6 +30,26 @@ beforeEach(() => {
 })
 afterEach(() => { vi.restoreAllMocks(); fs.rmSync(root, { recursive: true, force: true }) })
 
+it('re-evaluates queued quests and plan releases on quota recovery before the next heartbeat', async () => {
+  vi.useFakeTimers()
+  const drain = vi.fn(async () => [])
+  let held = true
+  Object.assign(ctx.main, { backlog: { list: () => [], dispatchable: () => held ? [] : [{ id: 'q', kind: 'ship', title: 'Resume queued work', project: 'world' }] },
+    decisions: { list: () => [] }, plans: { drain } })
+  ctx.settings.get = () => ({ usageMode: 'balanced', autoDispatchQueued: true }) as any
+  const supervisor = createSupervisor(() => ctx, home)
+  try {
+    supervisor.start()
+    await vi.advanceTimersByTimeAsync(2_001)
+    expect(ctx.main.wakes.pending().some(w => w.lines.some(line => line.includes('quest q ready')))).toBe(false)
+    drain.mockClear()
+    held = false
+    supervisor.poke(true)
+    expect(drain).toHaveBeenCalledOnce()
+    expect(ctx.main.wakes.pending().some(w => w.lines.some(line => line.includes('quest q ready')))).toBe(true)
+  } finally { supervisor.stop(); vi.useRealTimers() }
+})
+
 describe('durable unit status supervision', () => {
   it.each([
     ['done: ready in branch genio/unit', 'ready', 'ship'],

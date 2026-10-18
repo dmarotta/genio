@@ -30,6 +30,7 @@ import { readJson } from './util'
 import { claudeProbeError } from './claude-usage-probe'
 import { codexSignedOut } from './codex-home'
 import { settingsPath } from '@shared/settings-pages'
+import { usageRefreshLoop } from './usage-refresh'
 
 const USAGE_TTL = 5 * 60_000
 const LOGIN_TTL = 30 * 60_000
@@ -49,6 +50,9 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
   /** launches per world that are reserved but not yet listed as tasks (they count against the caps) */
   const launching = new Set<{ project: string }>()
   let lastReport: UsageReport | undefined
+  let lastPolicy = ''
+  let watching = false
+  const unreadable = new Set<string>()
 
   const dataDir = (): string => getCtx().main.home.data
   const scorecard = (): Scorecard => (card ??= createScorecard(scorecardFile(dataDir())))
@@ -67,11 +71,13 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
       const file = readClaudeLimits(dataDir())
       const stored = claudeLimits(file)
       claudeReadError = claudeProbeError(dataDir())
-      if (file) quota.claude = stored?.windows ?? []
+      if (file && !unreadable.has('claude') && !claudeReadError) quota.claude = stored?.windows ?? []
+      if (unreadable.has('claude') || claudeReadError) quota.claude = []
       return stored
     } catch (error) {
       claudeReadError = `Could not read Claude usage: ${(error as Error).message}`
-      return undefined // retained history expires on its original observation clock
+      quota.claude = []
+      return undefined
     }
   }
 
@@ -79,7 +85,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
     readClaude()
     const plans = planStatuses(quota)
     // A durable chat rejection (even one without a reported window) holds Claude like a rejected window.
-    if (new SessionQuotaPolicy(dataDir()).unitBlocked() && plans.claude.level !== 'out') {
+    if (!unreadable.has('claude') && !claudeReadError && new SessionQuotaPolicy(dataDir()).unitBlocked() && plans.claude.level !== 'out') {
       const reset = new SessionQuotaPolicy(dataDir()).limitState().resetsAt
       plans.claude = { plan: 'claude', level: 'out', known: true, rejected: true, window: 'chat rejection', resetsAt: reset ? new Date(reset).toISOString() : undefined }
     }
@@ -161,13 +167,25 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
 
   const unavailable = (id: string, own?: string, replacing?: Task): boolean => {
     const ctx = getCtx()
-    return (id !== own && reservations.has(id)) || (id === 'claude' && new SessionQuotaPolicy(dataDir()).unitBlocked()) ||
+    return (id !== own && reservations.has(id)) || (id === 'claude' && !unreadable.has(id) && !claudeReadError && new SessionQuotaPolicy(dataDir()).unitBlocked()) ||
       // Fresh 70%+: at most one unit on that plan
       (isPlan(id) && planStatus(id, quota[id]).level !== 'ok' && [...ctx.homes.values()].some((h) =>
         h.crew.list().some((t) => !(replacing && t.id === replacing.id && t.wksp === replacing.wksp) && t.harness === id && holdsCapacity(t, alive(t)))))
   }
 
+  const watcher = usageRefreshLoop(async () => {
+    const report = await usageReport(getCtx())
+    if (!watching) return true
+    svc.noteUsage(report)
+    // Retried operations still pass through normal caps, pins, dependencies and permissions.
+    for (const h of homes()) void h.crew.retryQuotaDeferred().catch(() => undefined)
+    return !report.tools.some(t => t.error)
+  }, () => queued().length > 0 || homes().some(h => h.crew.hasQuotaDeferred() || h.wakes.pending().length > 0) ||
+    Object.values(plansNow()).some(p => p.level !== 'ok'))
+
   const svc: DispatchService = {
+    start() { watching = true; watcher.start() },
+    stop() { watching = false; watcher.stop() },
     signals(project, opts = {}) {
       refresh()
       const ctx = getCtx()
@@ -301,19 +319,22 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
 
     noteUsage(r: UsageReport) {
       const observed = quotaFromUsage(r)
-      // A scan error/missing bucket is not provider evidence of recovery.
-      for (const [tool, windows] of Object.entries(observed)) {
-        const merged = new Map((quota[tool] ?? []).map((w) => [w.label, w]))
-        for (const w of windows) {
-          const old = merged.get(w.label)
-          if (!old || (w.observedAt ?? '') >= (old.observedAt ?? '')) merged.set(w.label, w)
-        }
-        quota[tool] = [...merged.values()]
+      // Keep diagnostic history in the meter, but unavailable sources cannot hold work.
+      for (const t of r.tools) {
+        if (t.error) { unreadable.add(t.tool); quota[t.tool] = [] }
+        else unreadable.delete(t.tool)
       }
+      for (const t of r.tools) quota[t.tool] = unreadable.has(t.tool) ? [] : observed[t.tool] ?? []
       quotaAt = Date.now()
       const prev = lastReport
       lastReport = { ...r, tools: r.tools.map((t) => (t.limits.length || !prev ? t : { ...t, limits: prev.tools.find((x) => x.tool === t.tool)?.limits ?? [] })) }
       transitions()
+      // A Settings scan also re-evaluates supervision; the background loop does not need a window.
+      const policy = Object.values(plansNow()).map(p => `${p.level}:${p.known}`).join('|')
+      if (policy !== lastPolicy) {
+        lastPolicy = policy
+        for (const h of homes()) h.supervisor?.poke(true)
+      }
     },
 
     noteLogins(list: AccountStatus[]) {

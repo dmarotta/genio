@@ -73,12 +73,15 @@ it('rechecks provider evidence immediately before terminal creation and releases
   fallback.release()
 })
 
-it('does not erase hot evidence when a later scan fails or omits the bucket', async () => {
+it('fails open with the existing quiet warning when a source fails, including fresh hot evidence', async () => {
   const svc = service()
   scan.report.tools[0].limits[0].windows[0].usedPercent = 97
   await expect(svc.reserve(input)).rejects.toThrow(/deferred/)
   scan.report = { tools: [{ tool: 'claude', limits: [], error: 'locked transcript' }] } as unknown as UsageReport
-  await expect(svc.reserve(input)).rejects.toThrow(/deferred/)
+  recordClaudeRateLimit(claudeLimitsFile(dir), { status: 'rejected', rateLimitType: 'five_hour' })
+  const reservation = await svc.reserve(input)
+  expect(reservation.loadout.reasons.filter(r => /Claude.*quota unverified/.test(r))).toHaveLength(1)
+  reservation.release()
 })
 
 it('allows dispatch with a warning after a failed refresh and TTL expiry, including a persisted 97% restart', async () => {

@@ -34,6 +34,7 @@ const SUPPORTING_TOOLS = [
 const UNIT_KINDS: Record<string, string> = { ship: 'ship', scout: 'scout' }
 const UNIT_FLAGS: Record<string, string> = { modeller: 'modeller', generator: 'generator' }
 // SpawnRequest yes/no options that do not make a different kind of unit.
+// Background quota refresh and retries maintain deploy: no additional tool, unit flag, Settings page or feature tag.
 const SPAWN_OPTIONS = ['yolo', 'force']
 
 // Every Settings page: the achievement earned there, or 'none: <why>' (a page of preferences is no feat).

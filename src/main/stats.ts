@@ -425,6 +425,7 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
       const task = findTask(taskId)
       switch (event) {
         case 'spawn': {
+          // Quota-deferred deployments award this event only after an actual launch, like ordinary deployments.
           if (task?.harness === 'opencode') svc.unlock('cheap-unit')
           if (task?.explored || task?.loadout?.some((r) => r.includes('down-ranked:'))) svc.unlock('smart-pick')
           const live = liveUnits()

@@ -29,6 +29,7 @@ import {
 import type { SettingsService } from './services'
 import { blockedWindow, explorationSafe, type QuotaWindow } from './quota-policy'
 import { globalMode } from './usage-policy'
+import { QuotaDeferredError } from './quota-deferred'
 import { approvalModel, unitModel } from '@shared/unit-model-policy'
 import { settingsPath } from '@shared/settings-pages'
 export type { QuotaWindow } from './quota-policy'
@@ -271,7 +272,7 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
 
   if (harness) {
     if (harness === 'codex' && env.loggedOut?.(harness)) throw new Error(`${nameOf(harness)} is not signed in: sign in Genio's Codex in ${settingsPath('accounts')}, or pick another tool.`)
-    if (quotaBlocked(harness)) throw new Error(`deferred: ${nameOf(harness)} is held by quota protection. Wait for fresh evidence before resuming this pinned task.`)
+    if (quotaBlocked(harness)) throw new QuotaDeferredError(`deferred: ${nameOf(harness)} is held by quota protection. Wait for fresh evidence before resuming this pinned task.`)
     reasons.push(`${nameOf(harness)}: your pick`)
   } else {
     // ---- explicit dispatch rules
@@ -362,7 +363,10 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
 
     if (!harness) {
       harness = s.defaultHarness || 'claude'
-      if (!usable(harness)) throw new Error('deferred: no eligible unit plan is available; the quest stays queued.')
+      if (!usable(harness)) {
+        const Deferred = installed(harness) && quotaBlocked(harness) ? QuotaDeferredError : Error
+        throw new Deferred('deferred: no eligible unit plan is available; the quest stays queued.')
+      }
       source = 'default'
       reasons.push(`${nameOf(harness)}: default unit tool${ranked.length || !s.dispatchRules.length ? '' : ' (no rule matched)'}`)
     }

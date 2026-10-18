@@ -31,15 +31,18 @@ keep the existing unsent behavior and can be sent again.
 CLI clock times use the named timezone (local time if omitted). Already-past
 clocks are never rolled forward to tomorrow. Explicit today/tomorrow, month/date,
 ISO timestamps and SDK epoch seconds are supported. Expired quota percentages
-become unknown in the account view. Old hot evidence remains protective for
-units until a fresh observation confirms recovery; a reset timestamp alone does
-not authorize an automatic retry swarm.
+become unknown in the account view. Unit protection expires after ten minutes
+or the window's reset, whichever comes first. Account usage refreshes before
+launch decisions, and ordinary dispatch fails open if the source is unavailable;
+actual chat rejection backoff remains separate.
 
 Status-only SDK events do not refresh the age of a retained utilization number.
-The meter shows stale percentages as unknown and labels protective holds as old
-reports. Reading Usage refreshes local evidence, not the live Claude account;
-missing reports are unknown, while corrupt/unreadable reports and failed UI
-refreshes show errors. No percentage is invented from a reset or a read failure.
+The meter shows stale percentages as unknown. The main process reads the live
+Claude `/usage` and Codex rate-limit sources on startup and every two minutes
+while work or a hold waits, with error backoff to at most 30 minutes. Reading
+Usage shares those probes and their one-minute minimum interval; it is never
+required to release a quota hold. Missing reports are unknown, and source errors
+retain their safe reason. No percentage is invented from a reset or read failure.
 
 Claude initialization has a 30-second deadline, cleared by the SDK init event.
 A timeout closes the query, reports an error with bounded stderr diagnostics and

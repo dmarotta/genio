@@ -14,7 +14,31 @@ serializes selection and claims a provider launch reservation across all homes;
 launch refreshes the account report again just before terminal creation, and releases the
 reservation on success or failure. Previews may use cached signals; actual launches
 cannot rely on the five-minute preview cache. No quota is estimated from dollars
-or token counts. Missing/failed scans preserve fresh protection only until its original observation expires; a scan never renews the evidence clock.
+or token counts. An unavailable usage source fails open for units and queued
+quests with the existing quiet quota-unverified warning, even if diagnostic
+history still contains a hot reading. A scan never renews the evidence clock.
+
+The main process refreshes account usage at startup and every **two minutes**
+while any quota hold, queued quest, deferred launch/relaunch or pending wake
+exists. No Settings page or renderer subscription is needed. Failed refreshes
+back off at 2, 4, 8, 16 and at most 30 minutes; success restores the two-minute
+interval. Each source is single-flight, has a one-minute minimum interval even
+for launch preflights, and enforces its own error backoff across all callers.
+Every reservation and final launch check reads account usage before deciding
+whether to defer, subject to those source limits. Evidence older than **ten
+minutes**, or past its own five-hour/weekly reset, cannot hold work.
+
+Previously the dispatcher had only startup and demand-driven scans: opening
+Usage & limits refreshed the Claude Code `/usage` and Codex
+`account/rateLimits/read` snapshots. A queued quest could be filtered out before
+the launch preflight ran, leaving no independent refresh or prompt retry.
+Account refresh now re-evaluates supervision immediately when protection changes,
+without waiting for the backed-off heartbeat. Plans drain through their normal
+gates; other queued quests follow the existing automatic-dispatch setting.
+Already-requested quota-deferred deployments and pinned relaunches are persisted
+and retried automatically, preserving the request, pins and relaunch allowance.
+They still respect project closure, player holds, dependencies, capacity and
+per-launch model approval. Recalling a unit cancels its pending relaunch.
 
 Each reported window retains observedAt and changedAt independently. Repeated
 Claude events carrying a number refresh its observation time even when the percentage is unchanged. Status-only events do not renew that number; a changed reset discards the old percentage.
@@ -81,7 +105,8 @@ prompt. The CLI handles its own authentication and its account usage endpoint;
 Genio does not read credentials or call a private OAuth endpoint. Refresh starts
 on application startup, runs on meter/usage scans (one-minute probe cache), and
 is checked before unit reservation and immediately before launch, with a forced
-refresh whenever Claude protection could hold the launch. Probes are
+refresh attempt whenever Claude protection could hold the launch, respecting
+the one-minute source minimum and error backoff above. Probes are
 single-flight and close after success, error or a 25-second deadline. An older
 CLI without this experimental control reports a visible refresh failure; expired
 evidence remains unknown and permits ordinary dispatch.

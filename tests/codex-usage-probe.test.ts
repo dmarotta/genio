@@ -95,7 +95,7 @@ describe('Codex plan usage probe', () => {
 })
 
 describe('Codex plan usage refresh', () => {
-  it('stores a fresh snapshot, single-flight, and re-reads only after the probe TTL or when forced', async () => {
+  it('stores a fresh snapshot, single-flight, and never exceeds the probe interval even when forced', async () => {
     const probe = vi.fn(async () => response(25))
     await Promise.all([refreshCodexPlanUsage(dir, false, probe), refreshCodexPlanUsage(dir, false, probe)])
     expect(probe).toHaveBeenCalledOnce()
@@ -103,8 +103,11 @@ describe('Codex plan usage refresh', () => {
     await refreshCodexPlanUsage(dir, false, probe)
     expect(probe).toHaveBeenCalledOnce()
     await refreshCodexPlanUsage(dir, true, probe)
+    expect(probe).toHaveBeenCalledOnce()
+    vi.setSystemTime(now + 60_000)
+    await refreshCodexPlanUsage(dir, true, probe)
     expect(probe).toHaveBeenCalledTimes(2)
-    vi.setSystemTime(now + 60_001)
+    vi.setSystemTime(now + 120_000)
     await refreshCodexPlanUsage(dir, false, probe)
     expect(probe).toHaveBeenCalledTimes(3)
     expect(codexProbeError(dir)).toBeUndefined()
@@ -141,7 +144,27 @@ describe('Codex plan usage refresh', () => {
     expect(meterRows({ tools: [{ tool: 'codex', limits: limits(), error: codexProbeError(dir) }] })[1].summary)
       .toMatchObject({ state: 'error', usedPercent: undefined, error: 'Codex rate-limit read timed out', windowLabel: 'weekly' })
     await refreshCodexPlanUsage(dir, true, async () => response(3))
+    expect(codexProbeError(dir)).toBeDefined()
+    vi.setSystemTime(Date.now() + 240_000)
+    await refreshCodexPlanUsage(dir, true, async () => response(3))
     expect(codexProbeError(dir)).toBeUndefined()
+  })
+
+  it('backs off source errors across timer, preview and forced preflight callers', async () => {
+    const probe = vi.fn(async () => { throw new Error('unavailable') })
+    await refreshCodexPlanUsage(dir, false, probe)
+    vi.setSystemTime(now + 60_000)
+    await refreshCodexPlanUsage(dir, true, probe)
+    expect(probe).toHaveBeenCalledOnce()
+    vi.setSystemTime(now + 120_000)
+    await refreshCodexPlanUsage(dir, true, probe)
+    expect(probe).toHaveBeenCalledTimes(2)
+    vi.setSystemTime(now + 240_000)
+    await refreshCodexPlanUsage(dir, false, probe)
+    expect(probe).toHaveBeenCalledTimes(2)
+    vi.setSystemTime(now + 360_000)
+    await refreshCodexPlanUsage(dir, false, probe)
+    expect(probe).toHaveBeenCalledTimes(3)
   })
 
   it('reports a missing plan as an explicit state, never a bare unknown', () => {

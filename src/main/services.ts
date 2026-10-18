@@ -279,6 +279,9 @@ export interface UthanaService {
 
 /** Smart dispatch: live picker signals, the scorecard, verdicts and the learning loop. */
 export interface DispatchService {
+  /** Background account evidence refresh, owned by the application lifecycle. */
+  start(): void
+  stop(): void
   /** what the picker knows beyond settings for a deploy in this world; preview never rolls exploration */
   signals(project: string, opts?: { preview?: boolean }): Omit<PickEnv, 'available'>
   /** Serialized selection + caps + provider slot. A respawn reuses a slot only while its target is live. */
@@ -326,6 +329,8 @@ export interface PermissionBroker {
 // ---------------------------------------------------------------- per home
 
 export interface CrewService {
+  hasQuotaDeferred(): boolean
+  retryQuotaDeferred(): Promise<void>
   list(): Task[]
   get(id: string): Task | undefined
   update(id: string, patch: Partial<Task>): Task | undefined
@@ -457,7 +462,7 @@ export interface SupervisorService {
   start(): void
   stop(): void
   /** run one supervision pass now */
-  poke(): void
+  poke(reconsiderDispatch?: boolean): void
   /** Replay unread status into durable batches without delivering a model turn. */
   replayStatus(project: string): void
   /** mark that a task's terminal produced output (liveness) */

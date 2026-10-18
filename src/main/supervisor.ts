@@ -808,7 +808,13 @@ export function createSupervisor(getCtx: () => AppCtx, home: Home): SupervisorSe
       unsub = undefined
     },
 
-    poke() {
+    poke(reconsiderDispatch = false) {
+      if (reconsiderDispatch) {
+        // Refresh recovery must not wait for a heartbeat backed off to two hours.
+        if (!timer) return
+        nextTickAt = Date.now()
+        lastDispatchSig = ''
+      }
       void pass()
     },
 

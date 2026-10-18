@@ -268,6 +268,11 @@ Source: [usage-protection.md](../usage-protection.md), [plans.md](../plans.md), 
 Automatic protection of your plans, from the latest reported usage: at 70% a plan runs at most one unit with lower
 effort; at 85% it gets no new automatic units; at 95% or a rejection, low-priority queued quests (or all, if no plan
 has headroom) wait until the reset. Running work is never stopped, and pinned picks are held rather than switched.
+Usage refreshes in the background at startup and every two minutes while work or a hold waits; opening Settings
+is unnecessary. Errors back off to at most 30 minutes. Readings older than ten minutes or past their own reset
+cannot hold work; an unavailable source allows ordinary dispatch with quota unverified. When headroom returns,
+deferred deployments and pinned relaunches retry themselves through the usual permissions and limits. Queued
+plans resume automatically; other queued quests still follow the automatic-dispatch setting.
 Where: Settings → Usage & limits (the plan meter, and a line per plan while protection is acting).
 Source: [usage-protection.md](../usage-protection.md), [chat-limits.md](../chat-limits.md)
 

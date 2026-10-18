@@ -23,6 +23,7 @@ import { codexLaunch, codexUnitFolders, genioCodexHome, isCodexUnitFolder, setCo
 import { foldOpenDecisions, formatStatusLine, parseStatusLine, parseStatusLog } from './status'
 import { createGauntlet } from './gauntlet'
 import { relaunchPolicy } from './relaunch-policy'
+import { QuotaDeferredError, QuotaDeferredQueue } from './quota-deferred'
 import { approvalModel, unitModel, UNIT_MODEL_APPROVAL_REASON } from '@shared/unit-model-policy'
 import { modeLabel } from '@shared/vocab'
 import { DONE_STATES, squadOutcome } from '@shared/squad-display'
@@ -74,7 +75,8 @@ function sleep(ms: number): Promise<void> {
 /** TUI output as whitespace-free lower-case text: cursor-positioned text loses its spaces anyway. */
 const squashTui = (x: string): string => stripAnsi(x).replace(/\s+/g, '').toLowerCase()
 
-export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService {
+export function createCrewService(getCtx: () => AppCtx, home: Home, canRetry: (project: string) => boolean = () => true): CrewService {
+  const quotaDeferred = new QuotaDeferredQueue(home.data)
   let tasks: Task[] = readJson<Task[]>(home.tasksFile, [])
   // Preserve a legacy ready signal before restart bookkeeping updates timestamps.
   let readyMigrated = false
@@ -684,6 +686,33 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
   }
 
   const svc: CrewService = {
+    hasQuotaDeferred: () => quotaDeferred.has(),
+    async retryQuotaDeferred() {
+      await quotaDeferred.drain(async entry => {
+        if (entry.kind === 'spawn') {
+          const q = hc().backlog.get(entry.request.backlogId)
+          if (!q || q.state !== 'queued' || q.hold) return true
+          if (!canRetry(entry.request.project)) return false
+          // Includes plan pauses, dates, dependencies and capacity. Do not bypass any gate.
+          if (!hc().backlog.dispatchable().some(q => q.id === entry.request.backlogId)) return false
+          try { await svc.spawn(entry.request); return true }
+          catch (error) { return !(error instanceof QuotaDeferredError) && !/^deferred:/.test((error as Error).message) }
+        }
+        const t = get(entry.id)
+        if (!t || !['exited', 'detached', 'failed', 'paused', 'stale', 'blocked', 'ready', 'working'].includes(t.state) || t.dislikePause) return true
+        if (!canRetry(t.project)) return false
+        if (['done', 'dropped'].includes(svc.questState(t) ?? '')) return true
+        if (t.backlogId) {
+          const q = hc().backlog.get(t.backlogId)
+          if (q?.hold) return true
+          const plan = hc().plans?.stepOf(t.backlogId)?.plan
+          if (plan && plan.state !== 'active') return false
+        }
+        const result = await svc.control(entry.id, 'relaunch', entry.note, entry.manual)
+        if (result.ok && entry.initial) safe(() => getCtx().stats.award('spawn', entry.id))
+        return result.ok || !/^deferred:/.test(result.message)
+      })
+    },
     list: () => tasks.map(withLive),
     get: (id) => {
       const t = get(id)
@@ -787,6 +816,9 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         reservation = await ctx.dispatch.reserve(pickInput)
       } catch (e) {
         launching.delete(backlogId!)
+        // WorkPlan retries belong to plans.drain(), which records step releases and uses the latest spec.
+        if (e instanceof QuotaDeferredError && !quest?.planId) quotaDeferred.put(`quest:${backlogId}`, { kind: 'spawn', request: { ...req, attachments: undefined, backlogId: backlogId! } })
+        else quotaDeferred.remove(`quest:${backlogId}`)
         throw e
       }
       const loadout = reservation.loadout
@@ -908,10 +940,17 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           const term = await launch(task, { resume: false, prompt: kickoffPrompt(briefPath), check: reservation.check })
           update(id, { terminalId: term.id, state: 'working', stateReason: posture.warning ?? 'deployed' })
         } catch (e) {
-          update(id, { state: 'failed', stateReason: (e as Error).message })
+          if (e instanceof QuotaDeferredError) {
+            // Keep the prepared copy and plan step; quota deferral is not a failed mission.
+            backlog.markInFlight(backlogId!, id)
+            update(id, { state: 'paused', stateReason: e.message })
+            quotaDeferred.put(`unit:${id}`, { kind: 'relaunch', id, manual: false, initial: true })
+            quotaDeferred.remove(`quest:${backlogId}`)
+          } else update(id, { state: 'failed', stateReason: (e as Error).message })
           throw e
         }
         safe(() => backlog.markInFlight(backlogId!, id))
+        quotaDeferred.remove(`quest:${backlogId}`)
         ledger('task.dispatched', task, { kind: task.kind, project: task.project, harness, model: task.model ?? 'default', effort: task.effort ?? 'default', category: loadout.category, loadout: loadout.source, rule: loadout.ruleId, explored: loadout.explored, mode: task.mode, yolo: task.yolo })
         safe(() => ctx.stats.award('spawn', id))
         if (references.length) bus.publish({ type: 'feature-used', feature: 'unit-references', id })
@@ -1013,6 +1052,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
         const adapter = ctx.settings.harness(t.harness)
         const terms = ctx.terminals
         if (action === 'interrupt') {
+          quotaDeferred.remove(`unit:${id}`)
           if (!terminalAlive(t)) return { ok: false, message: `${id} is not running.` }
           terms.write(t.terminalId!, adapter?.interrupt ?? '\x1b')
           return { ok: true, message: `Interrupted ${id}.` }
@@ -1025,6 +1065,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           if (terms.get(tid)?.alive) terms.kill(tid)
         }
         if (action === 'exit') {
+          quotaDeferred.remove(`unit:${id}`)
           const was = t.state
           await recall()
           // a recalled unit is no longer held by a dislike: it is stopped
@@ -1045,6 +1086,7 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
           reservation = await ctx.dispatch.reserve({ kind: t.kind, project: t.project, title: t.title, intent: '',
             harness: t.harness, model: t.model, effort: t.effort }, { respawn: { id, wksp: home.name } })
         } catch (e) {
+          if (e instanceof QuotaDeferredError) quotaDeferred.put(`unit:${id}`, { kind: 'relaunch', id, note, manual })
           return { ok: false, message: (e as Error).message }
         }
         try {
@@ -1071,11 +1113,18 @@ export function createCrewService(getCtx: () => AppCtx, home: Home): CrewService
               dislikePause: undefined
             })
             ledger('task.relaunched', t, { relaunches: t.relaunches + 1 })
+            quotaDeferred.remove(`unit:${id}`)
             return {
               ok: true,
               message: `Respawned ${id}.`
             }
           } catch (e) {
+            if (e instanceof QuotaDeferredError) {
+              quotaDeferred.put(`unit:${id}`, { kind: 'relaunch', id, note, manual })
+              if (restarting.has(id)) update(id, { state: 'paused', stateReason: e.message, automaticRelaunches: t.automaticRelaunches,
+                terminalId: terminalAlive(t) ? t.terminalId : undefined })
+              return { ok: false, message: e.message }
+            }
             if (!restarting.has(id)) return { ok: false, message: (e as Error).message }
             update(id, { state: terminalAlive(t) ? t.state : 'failed', stateReason: (e as Error).message,
               terminalId: terminalAlive(t) ? t.terminalId : undefined })

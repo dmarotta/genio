@@ -2,11 +2,11 @@ import type { Query } from '@anthropic-ai/claude-agent-sdk'
 import { claudeLimitsFile, type ClaudeLimitsFile } from './usage'
 import { claudeEnv } from './claude-home'
 import { readJson, writeJsonAtomic } from './util'
+import { USAGE_PROBE_INTERVAL, usageRetryDelay } from './usage-refresh'
 
-const PROBE_TTL = 60_000
 const PROBE_TIMEOUT = 25_000
 const SOURCE = 'Claude Code /usage (account plan, used percent)'
-const probes = new Map<string, { at: number; error?: string; pending?: Promise<void> }>()
+const probes = new Map<string, { retryAt: number; failures: number; error?: string; pending?: Promise<void> }>()
 
 /** Parse only plan windows. Session/context/token counters are never plan percentages. */
 export function parseClaudePlanUsage(value: unknown, at: string): ClaudeLimitsFile {
@@ -68,11 +68,12 @@ export async function probeClaudePlanUsage(cwd: string, executable?: string): Pr
 }
 
 /** Single-flight per account home; failed refreshes never renew evidence timestamps. */
-export async function refreshClaudePlanUsage(data: string, cwd: string, executable?: string, force = false): Promise<void> {
+export async function refreshClaudePlanUsage(data: string, cwd: string, executable?: string, _force = false): Promise<void> {
   const prior = probes.get(data)
   if (prior?.pending) return prior.pending
-  if (!force && prior && Date.now() - prior.at < PROBE_TTL) return
-  const state: { at: number; error?: string; pending?: Promise<void> } = { at: Date.now() }
+  // Even launch preflights respect the source minimum interval and failure backoff.
+  if (prior && Date.now() < prior.retryAt) return
+  const state: { retryAt: number; failures: number; error?: string; pending?: Promise<void> } = { retryAt: 0, failures: prior?.failures ?? 0 }
   probes.set(data, state)
   state.pending = (async () => {
     try {
@@ -86,10 +87,15 @@ export async function refreshClaudePlanUsage(data: string, cwd: string, executab
           w.changedAt = old.changedAt ?? old.updatedAt
       }
       writeJsonAtomic(claudeLimitsFile(data), next)
+      state.failures = 0
     } catch {
       // Provider errors can contain sensitive data. Show a bounded, credential-free reason.
       state.error = 'Claude /usage refresh failed; current usage may be unknown. Retrying automatically.'
-    } finally { state.pending = undefined }
+      state.failures++
+    } finally {
+      state.retryAt = Date.now() + (state.failures ? usageRetryDelay(state.failures) : USAGE_PROBE_INTERVAL)
+      state.pending = undefined
+    }
   })()
   return state.pending
 }
