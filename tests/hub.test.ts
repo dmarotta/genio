@@ -7,7 +7,7 @@ import { getState, setState } from '../src/renderer/src/store'
 import type { Project } from '../src/shared/types'
 
 let root: Root, host: HTMLDivElement
-const open = vi.fn(), pick = vi.fn(), add = vi.fn(), sync = vi.fn(), remove = vi.fn()
+const open = vi.fn(), pick = vi.fn(), add = vi.fn(), remove = vi.fn()
 const project = (name: string): Project => ({ name, path: `C:/${name}`, addedAt: '2026-10-13', engine: 'godot',
   defaultBranch: 'main', mode: 'local-only', yolo: false, branchPrefix: 'genio/', forge: 'none', commands: {}, managed: false })
 // Screens load on first use; load them up front so renders are synchronous.
@@ -19,7 +19,7 @@ beforeEach(() => {
   open.mockResolvedValue(undefined)
   pick.mockResolvedValue('C:/picked')
   add.mockResolvedValue(project('added'))
-  Object.assign(window, { genio: { api: { projectOpen: open, pickDirectory: pick, projectAdd: add, projectSync: sync, projectRemove: remove, projectMetadata: async () => ({}) } } })
+  Object.assign(window, { genio: { api: { projectOpen: open, pickDirectory: pick, projectAdd: add, projectRemove: remove, projectMetadata: async () => ({}) } } })
   const state = getState()
   setState({ booted: true, connected: true, view: 'worlds', settings: { ...state.settings, fx: false, firstRunDone: false, harnesses: [] } as typeof state.settings,
     snap: { ...state.snap, projects: [project('alpha'), project('beta')] }, toasts: [] })
@@ -35,7 +35,7 @@ async function click(text: string) {
 
 it('shows only project selection even on first run and ignores work shortcuts', async () => {
   await render()
-  expect([...host.querySelectorAll('button')].map(b => b.textContent)).toEqual(['File', ' Settings', ' Open folder…', ' Add project', ' Sync all', 'alphaC:/alpha', '', 'betaC:/beta', ''])
+  expect([...host.querySelectorAll('button')].map(b => b.textContent)).toEqual(['File', ' Settings', ' Open folder…', ' Clone', 'alphaC:/alpha', '', 'betaC:/beta', ''])
   await act(async () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))
     window.dispatchEvent(new KeyboardEvent('keydown', { key: '2', ctrlKey: true }))
@@ -130,20 +130,22 @@ it('has no New project: an empty folder is opened like any other', async () => {
   await render()
   expect(host.textContent).toContain('No recent projects. Open a folder, even an empty one.')
 })
-it('adds a repository from the Hub and opens the registered project', async () => {
-  await render(); await click('Add project')
+it('clones from the Hub with only a repository URL and opens the registered project', async () => {
+  await render(); await click('Clone')
   const source = document.querySelector('.modal input') as HTMLInputElement
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(source, 'owner/repository')
     source.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  const confirm = [...document.querySelectorAll('.modal button')].find(button => button.textContent?.includes('Add project')) as HTMLButtonElement
+  expect(document.querySelectorAll('.modal input')).toHaveLength(1)
+  expect([...document.querySelectorAll('.modal-foot button')].map(b => b.textContent?.trim())).toEqual(['Cancel', 'Clone'])
+  const confirm = [...document.querySelectorAll('.modal-foot button')].find(button => button.textContent?.trim() === 'Clone') as HTMLButtonElement
   await act(async () => confirm.click())
-  expect(add).toHaveBeenCalledWith(expect.objectContaining({ source: 'owner/repository', mode: undefined }))
+  expect(add).toHaveBeenCalledWith({ source: 'owner/repository' })
   expect(open).toHaveBeenCalledWith('C:/added')
 })
 
-it('preserves project search and sync-all in the Hub', async () => {
+it('keeps project search in the Hub', async () => {
   await render()
   const search = host.querySelector('input[aria-label="Search projects"]') as HTMLInputElement
   await act(async () => {
@@ -156,8 +158,6 @@ it('preserves project search and sync-all in the Hub', async () => {
     search.dispatchEvent(new Event('input', { bubbles: true }))
   })
   expect([...host.querySelectorAll('.hub-project strong')].map(node => node.textContent)).toEqual(['alpha', 'beta'])
-  await click('Sync all')
-  expect(sync).toHaveBeenCalledWith()
 })
 
 it('keeps failed opens out of recents and leaves the selection usable', async () => {
@@ -177,7 +177,7 @@ it('shows no choices, counts or history from any project, even with choices pend
     { id: 'answered', key: 'k', project: 'beta', wksp: 'beta', question: 'Old choice?', answer: 'Yes', resolvedAt: now, options: [], source: 'genio', urgency: 'normal', createdAt: now }
   ] } })
   await render()
-  expect([...host.querySelectorAll('button')].map(b => b.textContent)).toEqual(['File', ' Settings', ' Open folder…', ' Add project', ' Sync all', 'alphaC:/alpha', '', 'betaC:/beta', ''])
+  expect([...host.querySelectorAll('button')].map(b => b.textContent)).toEqual(['File', ' Settings', ' Open folder…', ' Clone', 'alphaC:/alpha', '', 'betaC:/beta', ''])
   expect(document.querySelector('.answers-float, .answer-card, .chip')).toBeNull()
   expect(document.body.textContent).not.toMatch(/Which route\?|Old choice\?|waiting|Pending answers/)
   await act(async () => setState({ snap: { ...state.snap, decisions: [] }, answerHistory: undefined }))

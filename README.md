@@ -134,8 +134,8 @@ remain supported. Conflicting aliases are rejected before scoped calls run.
 Bundled unit CLI flags such as `--world` keep their existing spelling.
 
 Launching Genio without arguments opens a minimal project-selection Hub. Recent
-projects, **Open folder**, **New project** and **Add project** select a project. Search
-by name, folder or engine, sort the list, or sync registered projects from the Hub. Waiting choice
+projects, **Open folder** and **Clone** select a project. Search
+by name, folder or engine, or sort the list. Waiting choice
 counts and answer history remain available from the Hub.
 Selecting a project opens its own window on its main chat. Recent selections are
 remembered on this device; work controls and first-run setup live inside the

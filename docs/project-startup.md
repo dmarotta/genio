@@ -1,13 +1,13 @@
 # Project opening and automatic greeting
 
 The Hub owns project selection and nothing else: it shows the project list (with
-Open folder, Add project, Sync all and Settings) and no project's
+Open folder, Clone and Settings) and no project's
 work, choices or presence.
 
 **Sign-in gate.** A project opens only once Claude or Codex is signed in (Claude's
 login, or Genio's own Codex home; an API-key Codex login does not count). While
-neither is, the Hub still lists the projects, but opening, Open folder and Add
-project are disabled, and one bordered box under the title says "Sign in with
+neither is, the Hub still lists the projects, but opening, Open folder and Clone
+are disabled, and one bordered box under the title says "Sign in with
 Claude or Codex to open a project." with **Sign in with Claude** and **Sign in with
 Codex**. They run the same flows as Settings → Accounts & keys (Claude's own login;
 "Sign in Genio's Codex (same account)"), in a terminal shown in the box. The sign-in

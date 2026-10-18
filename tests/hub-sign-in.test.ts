@@ -2,7 +2,7 @@
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-vi.mock('../src/renderer/src/views/ProjectSettings', () => ({ AddProject: () => null, RemoveProject: () => null }))
+vi.mock('../src/renderer/src/views/ProjectSettings', () => ({ CloneProject: () => null, RemoveProject: () => null }))
 vi.mock('../src/renderer/src/components/Terminal', () => ({ TerminalView: () => React.createElement('div', { className: 'terminal-marker' }) }))
 import { Hub } from '../src/renderer/src/views/Hub'
 import { handleEvent, setState } from '../src/renderer/src/store'
@@ -43,7 +43,7 @@ describe('the launcher sign-in gate', () => {
     expect(row().textContent).toContain('Zebra')
     expect(row().disabled).toBe(true)
     expect(button('Open folder').disabled).toBe(true)
-    expect(button('Add project').disabled).toBe(true)
+    expect(button('Clone').disabled).toBe(true)
     expect(host.textContent).toContain('Sign in with Claude or Codex to open a project.')
   })
 

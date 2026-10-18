@@ -166,17 +166,13 @@ function EngineDetected({ p }: { p: Project }) {
   )
 }
 
-export function AddProject({ onClose, onAdded }: { onClose: () => void; onAdded?: (p: Project) => Promise<void> }) {
+/** The Hub's Clone dialog: a repository URL (or owner/repo) and nothing else; name and delivery are inferred. */
+export function CloneProject({ onClose, onAdded }: { onClose: () => void; onAdded?: (p: Project) => Promise<void> }) {
   const [source, setSource] = useState('')
-  const [name, setName] = useState('')
-  const [inPlace, setInPlace] = useState(true)
-  const [mode, setMode] = useState<ProjectMode | ''>('')
   const [busy, setBusy] = useState(false)
-  const isLocal = /^[a-zA-Z]:[\\/]|^[\\/]|^\./.test(source.trim())
   return (
     <Modal
-      kicker="Load project"
-      title="Add a project"
+      title="Clone a repository"
       onClose={onClose}
       footer={
         <>
@@ -189,7 +185,7 @@ export function AddProject({ onClose, onAdded }: { onClose: () => void; onAdded?
             onClick={async () => {
               setBusy(true)
               try {
-                const p = await api().projectAdd({ source: source.trim(), name: name.trim() || undefined, inPlace: isLocal && inPlace, mode: mode || undefined })
+                const p = await api().projectAdd({ source: source.trim() })
                 toast('success', 'Project loaded', `${p.name} · ${ENGINE_LABEL[p.engine]}`)
                 onClose()
                 await onAdded?.(p)
@@ -200,46 +196,12 @@ export function AddProject({ onClose, onAdded }: { onClose: () => void; onAdded?
               }
             }}
           >
-            {busy ? 'Loading…' : 'Add project'}
+            {busy ? 'Cloning…' : 'Clone'}
           </button>
         </>
       }
     >
-      <div className="form-grid">
-        <Field label="Source" hint="Git URL, owner/repo, or a local folder" wide>
-          <div className="row">
-            <input className="input mono" autoFocus value={source} placeholder="https://github.com/you/game" onChange={(e) => setSource(e.target.value)} />
-            <button
-              className="btn icon"
-              title="Pick folder"
-              onClick={async () => {
-                const d = await api().pickDirectory()
-                if (d) setSource(d)
-              }}
-            >
-              <FolderOpen size={16} />
-            </button>
-          </div>
-        </Field>
-        <Field label="Name (optional)">
-          <input className="input" value={name} placeholder="derived from source" onChange={(e) => setName(e.target.value)} />
-        </Field>
-        <Field label="Delivery">
-          <select className="select" value={mode} onChange={(e) => setMode(e.target.value as ProjectMode | '')}>
-            <option value="">Auto (follows the remote: GitHub → Standard, otherwise Offline)</option>
-            {PROJECT_MODES.map((m) => (
-              <option key={m} value={m}>
-                {MODE_LABEL[m]}
-              </option>
-            ))}
-          </select>
-        </Field>
-        {isLocal && (
-          <Field label="Local folder" wide>
-            <Toggle checked={inPlace} onChange={setInPlace} label="Use in place (Genio reads it and builds in isolated copies; never edits it directly)" />
-          </Field>
-        )}
-      </div>
+      <input className="input mono" aria-label="Repository URL" autoFocus value={source} placeholder="https://github.com/you/game or owner/repo" onChange={(e) => setSource(e.target.value)} />
     </Modal>
   )
 }

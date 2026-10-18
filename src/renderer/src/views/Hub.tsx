@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { FolderOpen, LogIn, Plus, RefreshCw, Trash } from 'lucide-react'
+import { FolderOpen, LogIn, Plus, Trash } from 'lucide-react'
 import { api, op, useStore } from '../store'
-import { AddProject, RemoveProject } from './ProjectSettings'
+import { CloneProject, RemoveProject } from './ProjectSettings'
 import { AccountSession } from '../components/AccountSession'
 import { worldList } from '../lib/worlds'
 import { byRecent, readRecent, rememberRecent } from '../lib/recent'
@@ -23,7 +23,6 @@ export function Hub() {
   const [adding, setAdding] = useState(false)
   const [removing, setRemoving] = useState<Project | null>(null)
   const [opening, setOpening] = useState(false)
-  const [syncing, setSyncing] = useState(false)
   const [query, setQuery] = useState('')
   const [metadata, setMetadata] = useState<Record<string, WorldMetadata>>({})
   useEffect(() => {
@@ -80,12 +79,7 @@ export function Hub() {
           const folder = await api().pickDirectory()
           if (folder) await openProject(folder)
         })}><FolderOpen size={16} /> Open folder…</button>
-        <button className="btn" disabled={!canOpen} onClick={() => setAdding(true)}><Plus size={16} /> Add project</button>
-        <button className="btn ghost" disabled={!available || syncing || !projects.some(project => project.gitRepo !== false)} onClick={async () => {
-          setSyncing(true)
-          await op('Sync all projects', () => api().projectSync())
-          setSyncing(false)
-        }}><RefreshCw size={16} /> Sync all</button>
+        <button className="btn" disabled={!canOpen} onClick={() => setAdding(true)}><Plus size={16} /> Clone</button>
       </div>
       <div className="hub-actions">
         <input className="input" aria-label="Search projects" placeholder="Search projects" value={query} onChange={event => setQuery(event.target.value)} />
@@ -105,7 +99,7 @@ export function Hub() {
             </div>
           )}</div> : <p className="mute">{query ? `No projects match "${query}".` : "No recent projects. Open a folder, even an empty one."}</p>}
       </section>
-      {adding && <AddProject onClose={() => setAdding(false)} onAdded={p => openProject(p.path)} />}
+      {adding && <CloneProject onClose={() => setAdding(false)} onAdded={p => openProject(p.path)} />}
       {removing && <RemoveProject p={removing} onClose={() => setRemoving(null)} />}
     </div>
   </div>

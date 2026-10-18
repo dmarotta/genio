@@ -496,9 +496,9 @@ Source: [unit-generator.md](../unit-generator.md)
 ## Hub
 
 The window for opening a project, shown when Genio starts with no project. It lists your projects (most recently
-opened first) with Open folder, Add project, Sync all and Settings, and nothing else: no choices, units or chat.
+opened first) with Open folder, Clone and Settings, and nothing else: no choices, units or chat.
 There is no New project: make or pick any folder in Open folder (it can make a new one) and Genio sets it up (see
-Project setup). Click a project to open it; the Hub closes once the project window is up. Choices from closed
+Project setup). Open folder registers a folder in place; Clone takes only a repository URL (or owner/repo), clones it where Genio keeps clones and registers it. Click a project to open it; the Hub closes once the project window is up. Choices from closed
 projects come as desktop notifications and wait in that project's window. Genio needs Claude or Codex: while neither is
 signed in, the Hub still lists your projects but opens none and shows **Sign in with Claude** and **Sign in with Codex**
 (the same sign-ins as Accounts & keys); as soon as one works, projects open, no restart needed.

@@ -138,6 +138,7 @@ all reached main yet:
   tokens and model pins, the Accounts page's usage tables, ids and status dots, the data folder path, the mail compose
   box and unread badge, the dispatch scorecard and learning log, and knobs nobody needs (branch prefix, inbox port,
   activity log, alarm and digest timings, memory size limit, Claude Code path, harness editors, asset folders).
+- The Hub's Sync all button, and the Add project dialog's name, delivery, in-place toggle and folder picker (Add project is now Clone, with a repository URL only).
 
 The pattern in all of them: information about how Genio works, shown to someone who only wants
 to know how their work is going and what to do next.
