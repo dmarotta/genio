@@ -375,7 +375,7 @@ Source: [ARCHITECTURE.md](../ARCHITECTURE.md)
 ## Play
 
 The screen where you play a Unity project inside Genio, from its own private copy and hidden editor. One toolbar
-(Unity button, ▶, Pause, Step, Scene, Resolution, Game sound), one status line with one progress bar while
+(Unity button, ▶, Pause, Step, Scene, Resolution, Game sound), one status line that names each step (Checking memory, Copying the project, Copying the Library, Syncing changes, Starting Unity with its phase, Starting Play, Stopping) with how long it has run once past 10 seconds (amber after 90 seconds), and one always-spinning progress bar while
 starting, centered in the game area until the game shows, and the live game. Pick what to play (main, your worktrees, a unit's copy) with the source chip.
 Where: Play in the rail (Ctrl+0), Unity projects only.
 Source: [play.md](../play.md), [player-instance.md](../player-instance.md)

@@ -21,7 +21,7 @@ import { textureApi, type TextureApi } from './shared-texture'
 import { biggestConsumers, closePlayerRoot, opensRoot, playerSystem, playerTree, sameProcess, type PlayerProcess, type PlayerSystem } from './player-process'
 import { repoTop, sameFolder } from './git'
 import { leaseSource, onSourceRemoved, type SourceLease } from './source-leases'
-import { StartLog, validDurations, type StartDurations } from './player-start'
+import { StartLog } from './player-start'
 import { notePlayed } from './project-setup'
 
 const GiB = 2 ** 30
@@ -37,8 +37,6 @@ const PROBE_QUIET_MS = 30000
 interface Instance extends PlayerInstanceStatus {
   /** sampled: this session has recorded a steady working set, so later samples raise it instead of replacing it. */
   owner: { pid: number; created: string }; launch?: EditorLaunch; tracked: PlayerProcess[]; sampled?: boolean
-  /** The last complete start's phase durations, kept in player.json: the next start's bar weights. */
-  startDurations?: StartDurations
 }
 /** A Genio slot editor no unit holds; closing it loses no work. */
 export interface IdleEditor { label: string; close(): Promise<unknown> }
@@ -182,6 +180,8 @@ export class PlayerInstanceService {
   private quiet = new Map<string, number>()
   /** Projects whose Unity is starting: their editor.log, read for the phase. */
   private startLogs = new Map<string, StartLog>()
+  /** Projects whose memory check is running, with when it began. */
+  private checking = new Map<string, number>()
   private launches: Promise<unknown> = Promise.resolve()
   /** Each running editor's graphics choice at launch: on Direct3D 11 for the fast path, and the project rule then. */
   private graphics = new Map<string, { d3d11: boolean; rule: boolean }>()
@@ -258,17 +258,11 @@ export class PlayerInstanceService {
     const temp = `${file}.tmp`; fs.writeFileSync(temp, JSON.stringify(i, null, 2)); fs.renameSync(temp, file)
   }
   private state(i: Instance, state: Instance['state'], message?: string) {
-    i.state = state; i.message = message
+    i.state = state; i.message = message; i.since = this.system.now()
     if (state !== 'starting') this.endStart(i)
     this.save(i); this.quietStart(i)
   }
-  /** The start is over: one that reached "Loading completed" leaves its phase durations for the next start's bar. */
-  private endStart(i: Instance) {
-    const log = this.startLogs.get(i.project)
-    if (!log) return
-    this.startLogs.delete(i.project)
-    if (log.phases.complete) i.startDurations = log.phases.durations(this.system.now())
-  }
+  private endStart(i: Instance) { this.startLogs.delete(i.project) }
   /**
    * Quiet start: while this Play prepares, starts Unity or enters Play, its marker holds back Genio's heavy
    * background copies; ready, playing, stopped or failed releases them. A marker problem never stops a Play.
@@ -304,8 +298,6 @@ export class PlayerInstanceService {
       try {
         const previous = JSON.parse(fs.readFileSync(this.file(project), 'utf8'))
         for (const key of ['peakWorkingSet', 'steadyWorkingSet'] as const) if (previous.project === project && Number.isFinite(previous[key]) && previous[key] > 0) i[key] = previous[key]
-        const durations = previous.project === project ? validDurations(previous.startDurations) : undefined
-        if (durations) i.startDurations = durations
       } catch { /* first session */ }
       this.instances.set(project, i)
     }
@@ -347,9 +339,10 @@ export class PlayerInstanceService {
   status(world: string): PlayerInstanceStatus {
     const { project } = this.project(world), i = this.instances.get(project)
     if (!i) return { state: 'idle', project, copy: this.copies.status(project) }
-    const { owner: _owner, launch, tracked: _tracked, sampled: _sampled, startDurations, ...visible } = i
+    const { owner: _owner, launch, tracked: _tracked, sampled: _sampled, ...visible } = i
     const log = i.state === 'starting' ? this.startLogs.get(project) : undefined
-    return { ...visible, ...(launch ? { pid: launch.pid, created: launch.created, desktop: launch.desktop } : {}), ...(log ? { start: log.status(this.system.now(), startDurations) } : {}),
+    const checkingSince = this.checking.get(project)
+    return { ...visible, ...(checkingSince !== undefined ? { checking: true, since: checkingSince } : {}), ...(launch ? { pid: launch.pid, created: launch.created, desktop: launch.desktop } : {}), ...(log ? { start: log.status() } : {}),
       capabilities: { input: this.supportsInput(i) }, copy: this.copies.status(project) }
   }
   private supportsInput(i: Instance) {
@@ -604,7 +597,10 @@ export class PlayerInstanceService {
       let suspended = false, lease: SourceLease | undefined
       try {
         // A cold start is admitted before the copy, so a refusal never follows a minute of copying.
-        if (!i.launch) await this.admit(i, options.startAnyway === true)
+        if (!i.launch) {
+          this.checking.set(project, this.system.now())
+          try { await this.admit(i, options.startAnyway === true) } finally { this.checking.delete(project) }
+        }
         check()
         // A cold start on a copy kept from an earlier session (Warm Start), not one made now.
         const kept = !i.launch && this.copies.status(project)?.state === 'ready'

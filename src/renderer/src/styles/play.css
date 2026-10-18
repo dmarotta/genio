@@ -49,6 +49,9 @@
 .play-link:hover, .play-link:focus-visible { text-decoration: underline; }
 .play-link:disabled { cursor: default; text-decoration: none; }
 
+.play-elapsed { flex: none; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.play-elapsed.slow { color: var(--amber); opacity: 0.85; }
+.play-status-note { margin: -8px 0 0; max-width: 100%; text-align: center; font-size: 13px; color: var(--text-dim); }
 .play-progress-track { display: block; width: 320px; max-width: 100%; height: 8px; border-radius: 4px; background: var(--surface-3); overflow: hidden; }
 .play-progress-track span { display: block; height: 100%; border-radius: 4px; background: var(--volt); transition: width 0.6s var(--ease); }
 .play-progress-track span.indeterminate { width: 30% !important; animation: play-slide 1.4s linear infinite; }

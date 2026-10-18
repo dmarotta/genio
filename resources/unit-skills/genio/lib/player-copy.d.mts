@@ -45,7 +45,7 @@ export interface PlayerCopyRecord {
   library?: { version?: string; at: number }
   deletion?: PlayerDeletion
   /** A running sync. */
-  progress?: MirrorProgress & { startedAt: number; source?: SourceInfo }
+  progress?: MirrorProgress & { startedAt: number; /** When the current phase began. */ phaseAt: number; source?: SourceInfo }
 }
 export interface LibraryReport { version?: string; stashed?: string; restored?: string; seed?: SeedReport; deferred?: string }
 export interface PlayerSyncReport extends MirrorReport { source: SourceInfo; library?: LibraryReport }

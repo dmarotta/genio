@@ -228,7 +228,7 @@ export class PlayerCopies {
       const relay = () => controller.abort()
       options.signal?.addEventListener('abort', relay)
       if (options.signal?.aborted) controller.abort()
-      const progress = { phase: 'scanning', startedAt: Date.now() }
+      const progress = { phase: 'scanning', startedAt: Date.now(), phaseAt: Date.now() }
       this.syncs.set(k, { controller, progress })
       const started = Date.now()
       rec.state = 'syncing'; this.write(k, rec)
@@ -241,7 +241,7 @@ export class PlayerCopies {
         const mainLibrary = path.join(rec.project, rec.engineRoot, 'Library')
         const seeding = !fs.existsSync(path.join(rec.root, 'Library')) && fs.existsSync(mainLibrary) && unityVersionOf(path.join(rec.project, rec.engineRoot)) === scanVersion(scan)
         const extraBytes = seeding ? (await treeStats(mainLibrary, { library: true, rejectLinks: false })).bytes : 0
-        const onProgress = p => { Object.assign(progress, p); options.onProgress?.({ ...progress }) }
+        const onProgress = p => { if (p.phase !== progress.phase) progress.phaseAt = Date.now(); Object.assign(progress, p); options.onProgress?.({ ...progress }) }
         const report = await applyMirror(scan, rec.root, path.join(rec.dir, MANIFEST), { signal: controller.signal, onProgress, beforeApply: options.beforeApply, io: this.io, statfs: this.statfs, extraBytes, exclude: options.exclude, env: this.env })
         onProgress({ phase: 'library', ...(extraBytes ? { bytes: { done: 0, total: extraBytes } } : {}) })
         report.library = await this.prepareLibrary(rec, controller.signal)

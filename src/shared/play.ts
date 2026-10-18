@@ -68,16 +68,20 @@ export interface PlayerInstanceStatus {
   copy?: import('../../resources/unit-skills/genio/lib/player-copy.mjs').PlayerCopyRecord
   /** The chosen source vanished (a unit merged and removed, a deleted branch); see sourceGoneText. */
   sourceGone?: PlayerSourceGone
-  /** While Unity starts: the phase read from its editor.log, and the bar when real counts back it. */
+  /** While Unity starts: the phase read from its editor.log. */
   start?: PlayerStartStatus
+  /** The memory check before a cold start is running (state is still the one before). */
+  checking?: boolean
+  /** When the current step began (epoch ms); a copy's own phase has its own in copy.progress.phaseAt. */
+  since?: number
   /** Windows: the copy's longest path is near or over 260 characters, checked before each Unity start (path-length.mjs). */
   pathWarning?: string
 }
 /** A Unity start's phases, in the order they happen; see docs/player-instance.md. */
 export const PLAYER_START_PHASES = ['opening', 'packages', 'compiling', 'loading', 'importing', 'scene'] as const
 export type PlayerStartPhase = typeof PLAYER_START_PHASES[number]
-/** bar: 0–100, only when the project's last start left phase durations; absent means indeterminate. */
-export interface PlayerStartStatus { phase: PlayerStartPhase; bar?: number }
+/** since: when the phase began (epoch ms). */
+export interface PlayerStartStatus { phase: PlayerStartPhase; since: number }
 /**
  * A Play source that vanished. when: 'loading' stopped a copy or sync before it changed anything (the copy keeps
  * the previous sync); 'running' came after the copy, so Unity and Play went on; 'fallback' found it gone at the

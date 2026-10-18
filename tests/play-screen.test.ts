@@ -30,6 +30,7 @@ const SCENES: PlayerScene[] = [
 ]
 const copy = (extra: object = {}) => ({ version: 1, key: 'k', id: 'c1', project: 'C:/games/game', engineRoot: '', dir: 'D:/copy', root: 'D:/copy/p', state: 'ready', createdAt: NOW, idleMs: 600000, ...extra })
 const synced = { lastSync: { at: NOW, complete: true, elapsedMs: 1200, files: { source: 9, unchanged: 0, added: 1, updated: 30, restored: 0, deleted: 0, unityMadeDeleted: 0, unityMadeKept: 0 }, bytes: { copied: 12 * 2 ** 20, deleted: 0 }, source: { kind: 'checkout', path: 'C:/games/game', branch: 'main', head: 'b'.repeat(40) } } }
+const copyAt = (phase: 'scanning' | 'deleting' | 'copying' | 'library', phaseAt = NOW) => copy({ state: 'syncing', progress: { phase, startedAt: NOW - 60_000, phaseAt, bytes: { done: 3, total: 4 } } }) as never
 const copying = (done: number, total: number) => copy({ state: 'syncing', progress: { phase: 'copying', startedAt: NOW - 60_000, bytes: { done, total }, files: { done: 1200, total: 5000 } } }) as never
 let status: PlayerInstanceStatus
 let root: Root, host: HTMLDivElement
@@ -102,12 +103,12 @@ describe('Play screen', () => {
     expect(select('Play source').value).toBe('unit:t1')
   })
 
-  it('shows Preparing with an indeterminate bar the moment Start Unity is pressed', async () => {
+  it('shows Checking memory with an indeterminate bar the moment Start Unity is pressed', async () => {
     let finish!: (s: PlayerInstanceStatus) => void
     api.playerInstanceStartUnity.mockImplementationOnce(() => new Promise<PlayerInstanceStatus>(r => { finish = r }))
     await mount()
     await click('Start Unity')
-    expect(statusLine()).toBe('Preparing')
+    expect(statusLine()).toBe('Checking memory')
     expect(bar()?.hasAttribute('aria-valuenow')).toBe(false)
     expect(bar()?.querySelector('.indeterminate')).not.toBeNull()
     status = { state: 'ready', project: 'C:/games/game', pid: 7, source: { path: 'C:/games/game' } }
@@ -116,16 +117,27 @@ describe('Play screen', () => {
     expect(bar()).toBeNull()
   })
 
-  it('shows one overall percentage while preparing the copy, with Cancel on the Unity button', async () => {
+  it('names the copy step with an indeterminate bar, never a percentage, with Cancel on the Unity button', async () => {
     status = { state: 'copying', project: 'C:/games/game', copy: copying(4 * 2 ** 30, 16 * 2 ** 30) }
     await mount()
-    expect(statusLine()).toBe('Preparing')
-    expect(bar()?.getAttribute('aria-valuenow')).toBe('25')
+    expect(statusLine()).toBe('Copying the project')
+    expect(bar()?.hasAttribute('aria-valuenow')).toBe(false)
+    expect(bar()?.querySelector('.indeterminate')).not.toBeNull()
     expect(host.querySelectorAll('[role=progressbar]')).toHaveLength(1)
     expect(text()).not.toMatch(/GB|files|min left/)
     expect(button('Enter Play').disabled).toBe(true)
     await click('Cancel')
     expect(api.playerInstanceStopUnity).toHaveBeenCalledWith('game')
+  })
+
+  it('puts the path warning on its own line under the step while Unity starts', async () => {
+    const pathWarning = 'Paths in com.a reach 262 characters, over Windows\' 260 limit.'
+    status = { state: 'starting', project: 'C:/games/game', pid: 3, pathWarning, start: { phase: 'compiling', since: Date.now() - 95_000 } }
+    await mount()
+    expect(host.querySelector('.play-status-line')?.textContent).toBe('Starting Unity · compiling scripts· 1m 35s')
+    expect(host.querySelector('.play-elapsed.slow')).not.toBeNull()
+    expect(host.querySelector('.play-status-note')?.textContent).toBe(pathWarning)
+    expect(bar()).not.toBeNull()
   })
 
   it('says Ready with no idle countdown, stops Unity and changes the scene', async () => {
@@ -150,16 +162,16 @@ describe('Play screen', () => {
     expect(facts()).toContainEqual({ label: 'Unity log', value: 'Loading packages · Compiling scripts' })
   })
 
-  it('adds the start phase to Starting Unity, with a determinate bar only when main sends one', async () => {
-    status = { state: 'starting', project: 'C:/games/game', pid: 7, copy: copy() as never, startup: 'Begin MonoManager ReloadAssembly', start: { phase: 'compiling' } }
+  it('adds the start phase to Starting Unity, with an indeterminate bar even when main sends a bar', async () => {
+    status = { state: 'starting', project: 'C:/games/game', pid: 7, copy: copy() as never, startup: 'Begin MonoManager ReloadAssembly', start: { phase: 'compiling', since: Date.now() } }
     await mount()
     expect(statusLine()).toBe('Starting Unity · compiling scripts')
     expect(bar()?.querySelector('.indeterminate')).not.toBeNull()
     expect(bar()?.hasAttribute('aria-valuenow')).toBe(false)
-    status = { ...status, start: { phase: 'loading', bar: 42 } }
+    status = { ...status, start: { phase: 'loading', since: Date.now(), bar: 42 } as never }
     await settle(3000)
     expect(statusLine()).toBe('Starting Unity · loading scripts')
-    expect(bar()?.getAttribute('aria-valuenow')).toBe('42')
+    expect(bar()?.hasAttribute('aria-valuenow')).toBe(false)
     expect(bar()?.getAttribute('aria-label')).toBe('Starting Unity · loading scripts')
     expect(host.querySelectorAll('[role=progressbar]')).toHaveLength(1)
     expect(text()).not.toMatch(/Begin MonoManager|left|%|\d+ ?s\b/)
@@ -325,7 +337,7 @@ describe('Play screen', () => {
       { state: 'idle', project: 'p' },
       { state: 'copying', project: 'p', copy: copying(1, 4) },
       { state: 'starting', project: 'p', pid: 3, startup: 'Importing' },
-      ...(['opening', 'packages', 'compiling', 'loading', 'importing', 'scene'] as const).map((phase, n): PlayerInstanceStatus => ({ state: 'starting', project: 'p', pid: 3, start: { phase, ...(n % 2 ? { bar: n * 15 } : {}) } })),
+      ...(['opening', 'packages', 'compiling', 'loading', 'importing', 'scene'] as const).map((phase, n): PlayerInstanceStatus => ({ state: 'starting', project: 'p', pid: 3, start: { phase, since: n } })),
       { state: 'ready', project: 'p', pid: 3, source: { path: 'C:/games/game' }, deadline: NOW + 60_000, copy: copy(synced) as never },
       { state: 'error', project: 'p', message: 'Play hit an unexpected problem: boom.' }
     ]
@@ -345,8 +357,8 @@ describe('Play screen', () => {
   it('centers the line and bar in the game area while the game is off, and drops them the moment it shows', async () => {
     const cases: [PlayerInstanceStatus, string, boolean][] = [
       [{ state: 'idle', project: 'p' }, 'Stopped', false],
-      [{ state: 'copying', project: 'p', copy: copying(1, 4) }, 'Preparing', true],
-      [{ state: 'starting', project: 'p', pid: 3, start: { phase: 'packages' } }, 'Starting Unity · unpacking packages', true],
+      [{ state: 'copying', project: 'p', copy: copying(1, 4) }, 'Copying the project', true],
+      [{ state: 'starting', project: 'p', pid: 3, start: { phase: 'packages', since: NOW } }, 'Starting Unity · unpacking packages', true],
       [{ state: 'ready', project: 'p', pid: 3, source: { path: 'C:/games/game' } }, 'Ready', false],
       [{ state: 'error', project: 'p', message: 'boom' }, 'Play failed.Try again', false]
     ]
@@ -583,8 +595,8 @@ describe('playLine: one status line and one progress bar per state', () => {
   it('maps every instance state to a plain word or one short problem sentence', () => {
     const table: [PlayerState, string, string, unknown, string | undefined][] = [
       ['idle', 'Stopped', 'off', undefined, undefined],
-      ['copying', 'Preparing', 'work', 'indeterminate', undefined],
-      ['syncing', 'Preparing', 'work', 'indeterminate', undefined],
+      ['copying', 'Copying the project', 'work', 'indeterminate', undefined],
+      ['syncing', 'Syncing changes', 'work', 'indeterminate', undefined],
       ['starting', 'Starting Unity', 'work', 'indeterminate', undefined],
       ['entering-play', 'Starting Play', 'work', 'indeterminate', undefined],
       ['ready', 'Ready', 'ready', undefined, undefined],
@@ -607,36 +619,58 @@ describe('playLine: one status line and one progress bar per state', () => {
     expect(playLine({})).toEqual({ text: 'Loading', kind: 'off' })
   })
 
-  it('drives the bar by the copy\'s overall percentage, else indeterminate', () => {
-    expect(playLine({ status: at('copying', { copy: copying(3, 4) }) }).bar).toBe(75)
-    expect(playLine({ status: at('syncing', { copy: copying(0, 0) }) }).bar).toBe('indeterminate')
+  it('names each copy step, the memory check and Syncing changes, and the bar is always indeterminate', () => {
+    expect(playLine({ status: at('idle', { checking: true }) })).toEqual({ text: 'Checking memory', kind: 'work', bar: 'indeterminate' })
+    for (const p of ['scanning', 'deleting', 'copying'] as const) {
+      expect(playLine({ status: at('copying', { copy: copyAt(p) }) }), p).toEqual({ text: 'Copying the project', kind: 'work', bar: 'indeterminate' })
+    }
+    expect(playLine({ status: at('copying', { copy: copyAt('library') }) })).toEqual({ text: 'Copying the Library', kind: 'work', bar: 'indeterminate' })
+    expect(playLine({ status: at('copying') })).toEqual({ text: 'Copying the project', kind: 'work', bar: 'indeterminate' })
+    // Bytes known or not, never a percentage.
+    expect(playLine({ status: at('syncing', { copy: copying(3, 4) }) })).toEqual({ text: 'Syncing changes', kind: 'work', bar: 'indeterminate' })
+    expect(playLine({ status: at('syncing', { copy: copyAt('library') }) }).text).toBe('Syncing changes')
   })
 
-  it('names each Unity start phase after Starting Unity and takes the bar from main, else indeterminate', () => {
+  it('names each Unity start phase after Starting Unity, with an indeterminate bar', () => {
     const steps = { opening: 'opening', packages: 'unpacking packages', compiling: 'compiling scripts', loading: 'loading scripts', importing: 'importing', scene: 'opening scene' } as const
     for (const [phase, step] of Object.entries(steps)) {
-      expect(playLine({ status: at('starting', { start: { phase: phase as keyof typeof steps } }) })).toEqual({ text: `Starting Unity · ${step}`, kind: 'work', bar: 'indeterminate' })
+      expect(playLine({ status: at('starting', { start: { phase: phase as keyof typeof steps, since: NOW } }), now: NOW }), phase).toEqual({ text: `Starting Unity · ${step}`, kind: 'work', bar: 'indeterminate' })
     }
-    expect(playLine({ status: at('starting', { start: { phase: 'compiling', bar: 0 } }) }).bar).toBe(0)
-    expect(playLine({ status: at('starting', { start: { phase: 'scene', bar: 97 } }) }).bar).toBe(97)
+    expect(playLine({ status: at('starting') })).toEqual({ text: 'Starting Unity', kind: 'work', bar: 'indeterminate' })
     // Only Starting Unity carries a step: a stale phase never leaks into another state.
-    expect(playLine({ status: at('entering-play', { start: { phase: 'scene', bar: 97 } }) })).toEqual({ text: 'Starting Play', kind: 'work', bar: 'indeterminate' })
-    expect(playLine({ status: at('ready', { start: { phase: 'scene' } }) })).toEqual({ text: 'Ready', kind: 'ready' })
+    expect(playLine({ status: at('entering-play', { start: { phase: 'scene', since: NOW } }) })).toEqual({ text: 'Starting Play', kind: 'work', bar: 'indeterminate' })
+    expect(playLine({ status: at('ready', { start: { phase: 'scene', since: NOW } }) })).toEqual({ text: 'Ready', kind: 'ready' })
   })
 
-  it('says a path too long for Unity while Unity starts and after a failed or crashed start, nowhere else', () => {
+  it('shows how long a step has run once past 10 s, in the problem tone past 90 s, and restarts it with the phase', () => {
+    const step = (state: PlayerState, extra: Partial<PlayerInstanceStatus>, ago: number) => playLine({ status: at(state, extra), now: NOW + ago })
+    expect(step('syncing', { since: NOW }, 9_999).elapsed).toBeUndefined()
+    expect(step('syncing', { since: NOW }, 10_000)).toEqual({ text: 'Syncing changes', kind: 'work', bar: 'indeterminate', elapsed: '10s' })
+    expect(step('copying', { copy: copyAt('library'), since: NOW - 500_000 }, 80_000))
+      .toEqual({ text: 'Copying the Library', kind: 'work', bar: 'indeterminate', elapsed: '1m 20s' })
+    expect(step('starting', { start: { phase: 'compiling', since: NOW } }, 90_000)).toMatchObject({ text: 'Starting Unity · compiling scripts', elapsed: '1m 30s' })
+    expect(step('starting', { start: { phase: 'compiling', since: NOW } }, 90_000).slow).toBeUndefined()
+    expect(step('starting', { start: { phase: 'compiling', since: NOW } }, 91_000)).toMatchObject({ elapsed: '1m 31s', slow: true })
+    // A new phase starts the count again.
+    expect(step('starting', { start: { phase: 'importing', since: NOW + 85_000 } }, 91_000)).not.toHaveProperty('elapsed')
+    expect(step('idle', { checking: true, since: NOW }, 12_000)).toMatchObject({ text: 'Checking memory', elapsed: '12s' })
+    expect(step('entering-play', { since: NOW }, 30_000)).toMatchObject({ text: 'Starting Play', elapsed: '30s' })
+    expect(step('exiting-play', { since: NOW }, 30_000)).toEqual({ text: 'Stopping', kind: 'work', elapsed: '30s' })
+  })
+
+  it('says a path too long for Unity on a second line under the step while Unity starts, and instead of the sentence after a failed or crashed start', () => {
     const pathWarning = "Paths in com.unity.visualscripting reach 262 characters, over Windows' 260 limit, so Unity may fail to load them. Remove that package or shorten the Unity folder name."
-    expect(playLine({ status: at('starting', { pathWarning, start: { phase: 'packages', bar: 40 } }) })).toEqual({ text: pathWarning, kind: 'work', bar: 40 })
+    expect(playLine({ status: at('starting', { pathWarning, start: { phase: 'packages', since: NOW } }), now: NOW })).toEqual({ text: 'Starting Unity · unpacking packages', kind: 'work', bar: 'indeterminate', note: pathWarning })
     expect(playLine({ status: at('error', { pathWarning }) })).toEqual({ text: pathWarning, kind: 'problem', action: 'retry' })
     expect(playLine({ status: at('crashed', { pathWarning }) })).toEqual({ text: pathWarning, kind: 'problem' })
     expect(playLine({ status: at('ready', { pathWarning }) })).toEqual({ text: 'Ready', kind: 'ready' })
     expect(playLine({ status: at('playing', { pathWarning }) })).toEqual({ text: 'Playing', kind: 'live' })
     expect(playLine({ status: at('compile-errors', { pathWarning }) }).text).toBe('The game has compile errors.')
   })
-
-  it('answers a press at once: Preparing, Starting Play or Stopping while the call runs', () => {
-    expect(playLine({ status: at('idle'), busy: 'start' })).toEqual({ text: 'Preparing', kind: 'work', bar: 'indeterminate' })
-    expect(playLine({ status: at('crashed'), busy: 'enter' })).toEqual({ text: 'Preparing', kind: 'work', bar: 'indeterminate' })
+  it('answers a press at once: Checking memory, Starting Play or Stopping while the call runs', () => {
+    expect(playLine({ status: at('idle'), busy: 'start' })).toEqual({ text: 'Checking memory', kind: 'work', bar: 'indeterminate' })
+    expect(playLine({ status: at('crashed'), busy: 'enter' })).toEqual({ text: 'Checking memory', kind: 'work', bar: 'indeterminate' })
+    expect(playLine({ status: at('playing', { pid: 4 }), busy: 'restart' })).toEqual({ text: 'Syncing changes', kind: 'work', bar: 'indeterminate' })
     expect(playLine({ status: at('ready'), busy: 'enter' })).toEqual({ text: 'Starting Play', kind: 'work', bar: 'indeterminate' })
     expect(playLine({ status: at('playing'), busy: 'exit' })).toEqual({ text: 'Stopping', kind: 'work' })
     expect(playLine({ status: at('playing'), busy: 'pause' })).toEqual({ text: 'Playing', kind: 'live' })

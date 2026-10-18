@@ -146,11 +146,11 @@ it('a failed or refused start releases the hold, so nothing waits on it', async 
   expect(await waiting).toMatchObject({ deferred: true, resumed: 'quiet' })
   expect(playStarts(data)).toEqual([])
 })
-it('shows the start phase from Unity\'s log, asks Pipeline only once loading completed, and fills the next start\'s bar', async () => {
+it('shows the start phase from Unity\'s log, asks Pipeline only once loading completed, and stamps each phase', async () => {
   svc = service({ readyMs: 10 * 60000 })
   const root = projects.get('A')!.path, logFile = path.join(copies.dir, copies.keyOf(root), 'editor.log')
   const excerpt = (name: string) => fs.readFileSync(path.join(__dirname, 'fixtures/play-start', name), 'utf8').split(/\r?\n/)
-  let pending: string[] = [], seen: { phase: string; bar?: number }[] = [], early = 0, hold = 0
+  let pending: string[] = [], seen: { phase: string; since: number }[] = [], early = 0, hold = 0
   // Each phase takes a while after its first line; UPM's resolve, silent in the log, the longest.
   const feed = (n: number) => {
     if (hold && hold--) return
@@ -177,28 +177,23 @@ it('shows the start phase from Unity\'s log, asks Pipeline only once loading com
   onCommand = command => { if (command === 'editor_status' && !fs.readFileSync(logFile, 'utf8').includes('[Project] Loading completed')) early++ }
   const phases = () => seen.map(s => s.phase).filter((p, n, all) => p !== all[n - 1])
 
-  // First start: no PackageCache in the copy, no start on record, so the bar stays indeterminate.
+  // First start: no PackageCache in the copy, so unpacking shows.
   pending = excerpt('cold-editor.txt')
   expect((await svc.startUnity('A', { path: root })).state).toBe('ready')
   expect(phases()).toEqual(['opening', 'packages', 'compiling', 'loading', 'importing', 'scene'])
-  expect(seen.every(s => s.bar === undefined)).toBe(true)
+  expect(seen.every(s => !('bar' in s) && Number.isFinite(s.since))).toBe(true)
+  expect(seen.map(s => s.since)).toEqual([...seen.map(s => s.since)].sort((a, b) => a - b))
   expect(early).toBe(0); expect(events).toContain('editor_status')
   expect(svc.status('A').start).toBeUndefined()
-  const record = JSON.parse(fs.readFileSync(path.join(copies.dir, copies.keyOf(root), 'player.json'), 'utf8'))
-  expect(Object.keys(record.startDurations)).toEqual(['opening', 'packages', 'compiling', 'loading', 'importing', 'scene'])
-  expect(svc.status('A')).not.toHaveProperty('startDurations')
+  expect(JSON.parse(fs.readFileSync(path.join(copies.dir, copies.keyOf(root), 'player.json'), 'utf8'))).not.toHaveProperty('startDurations')
 
-  // The next session's second start of the kept copy, PackageCache in place: the last start weights a determinate bar
-  // that only grows.
+  // The next session's second start of the kept copy, PackageCache in place: no unpacking.
   await svc.stopUnity('A')
   write(path.join(svc.status('A').copy!.root, 'Library/PackageCache/com.unity.inputsystem/package.json'), '{}')
   await svc.shutdown(); svc = service({ readyMs: 10 * 60000 })
   pending = excerpt('warm-editor.txt'); seen = []
   expect((await svc.startUnity('A', { path: root })).state).toBe('ready')
   expect(phases()).toEqual(['opening', 'compiling', 'loading', 'importing', 'scene'])
-  const bars = seen.map(s => s.bar!)
-  expect(bars.every(b => Number.isInteger(b) && b >= 0 && b <= 99)).toBe(true)
-  expect(bars).toEqual([...bars].sort((a, b) => a - b)); expect(bars.at(-1)).toBeGreaterThan(bars[0])
   expect(early).toBe(0)
   // The last session's log moved aside, so it never reads as an instant start.
   expect(fs.readFileSync(`${logFile}.prev`, 'utf8')).toContain('Loading completed in 355.907 seconds')

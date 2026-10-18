@@ -6,6 +6,7 @@ import { PROJECT_WINDOW, api, errText, useStore } from '../store'
 import { onPlaySourceRequest, takePlaySource } from '../lib/play-nav'
 import { cx } from '../lib/format'
 import { useScreenContext } from '../lib/screen-context'
+import { useNow } from '../lib/use-now'
 import { ACTION_LABEL, DEFAULT_RESOLUTION, RESOLUTIONS, SOURCE_GROUPS, WORKING, chipText, playLine, sourceText, type PlayLine, type PlayLineAction } from '../lib/play-screen'
 import { openSettings } from '../lib/settings-nav'
 import { PlayLive } from './PlayLive'
@@ -237,7 +238,8 @@ function PlayScreen({ world }: { world: string }) {
   const working = !!busy || (!!state && WORKING.has(state))
   // The game view shows the game: the status line leaves the area, unless a problem needs saying.
   const live = playing && !streamEnded
-  const line =playLine({ status, busy, error, missing, streamEnded: !!streamEnded })
+  const now = useNow(1000)
+  const line = playLine({ status, busy, error, missing, streamEnded: !!streamEnded, now })
   const lastError = [...logs].reverse().find(l => /error|exception|assert/i.test(l.level ?? ''))
   const grouped = useMemo(() => SOURCE_GROUPS.map(g => ({ ...g, options: (sources ?? []).filter(o => o.group === g.group) })).filter(g => g.options.length), [sources])
   const act = (action: PlayLineAction): void => {
@@ -357,11 +359,11 @@ function StatusLine({ line, detail, over, onAction, actionOff }: { line: PlayLin
     <p className="play-status-line">
       <span className={cx('play-dot', line.kind)} aria-hidden />
       <span className="play-status-text">{line.text}</span>
+      {line.elapsed && <span className={cx('play-elapsed', line.slow && 'slow')}>· {line.elapsed}</span>}
       {line.action && <button className="play-link" disabled={actionOff(line.action)} onClick={() => onAction(line.action!)}>{ACTION_LABEL[line.action]}</button>}
     </p>
-    {line.bar !== undefined && <span className="play-progress-track" role="progressbar" aria-label={line.text} aria-valuemin={0} aria-valuemax={100} aria-valuenow={line.bar === 'indeterminate' ? undefined : line.bar}>
-      <span style={{ width: `${line.bar === 'indeterminate' ? 100 : line.bar}%` }} className={cx(line.bar === 'indeterminate' && 'indeterminate')} />
-    </span>}
+    {line.note && <p className="play-status-note">{line.note}</p>}
+    {line.bar && <span className="play-progress-track" role="progressbar" aria-label={line.text}><span className="indeterminate" /></span>}
   </div>
 }
 

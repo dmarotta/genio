@@ -1,3 +1,4 @@
+import { formatDuration } from '@shared/duration'
 import type { PlayerInstanceStatus, PlayerSourceOption, PlayerStartPhase, PlayerState } from '@shared/play'
 
 /** The one action a problem may offer on the status line. */
@@ -7,14 +8,18 @@ export const ACTION_LABEL: Record<PlayLineAction, string> = {
 }
 
 /**
- * Everything the Play screen says about the instance: one plain line, an alert tone for a problem, the progress bar
- * (a 0–100 percentage, or indeterminate) only while Genio prepares the copy or starts Unity or Play, and at most one
- * action. kind colours the dot.
+ * Everything the Play screen says about the instance: one plain line naming the step, an alert tone for a problem, the
+ * indeterminate progress bar (never a percentage) only while Genio prepares the copy or starts Unity or Play, and at
+ * most one action. kind colours the dot. elapsed: how long the step has run, once past 10 s; slow: past 90 s, shown in
+ * the problem tone. note: a second muted line under the step (the path warning).
  */
 export interface PlayLine {
   text: string
   kind: 'off' | 'work' | 'ready' | 'live' | 'problem'
-  bar?: number | 'indeterminate'
+  bar?: 'indeterminate'
+  elapsed?: string
+  slow?: boolean
+  note?: string
   action?: PlayLineAction
 }
 
@@ -46,6 +51,8 @@ export interface PlayLineInput {
   missing?: boolean
   /** The live view closed while Unity still plays. */
   streamEnded?: boolean
+  /** The shared ticker's time, for the elapsed time of a step. */
+  now?: number
 }
 
 /** The step shown after "Starting Unity", from the phase main reads in Unity's log. */
@@ -53,25 +60,40 @@ export const START_STEP: Record<PlayerStartPhase, string> = {
   opening: 'opening', packages: 'unpacking packages', compiling: 'compiling scripts', loading: 'loading scripts', importing: 'importing', scene: 'opening scene'
 }
 
-/** The copy's overall percentage, when it reports bytes. */
-function percent(status: PlayerInstanceStatus): number | 'indeterminate' {
-  const bytes = status.copy?.progress?.bytes
-  return bytes?.total ? Math.min(100, Math.round((bytes.done / bytes.total) * 100)) : 'indeterminate'
+/** A step shows how long it has run after this, and in the problem tone after the second. */
+export const ELAPSED_AFTER_MS = 10_000
+export const SLOW_AFTER_MS = 90_000
+
+/** A working line: the step, its elapsed time once past 10 s, and the bar (always indeterminate, never a percentage). */
+function working(text: string, since: number | undefined, now: number, bar = true, note?: string): PlayLine {
+  const ms = since === undefined ? 0 : now - since
+  return {
+    text, kind: 'work', ...(bar ? { bar: 'indeterminate' as const } : {}),
+    ...(ms >= ELAPSED_AFTER_MS ? { elapsed: formatDuration(ms), ...(ms > SLOW_AFTER_MS ? { slow: true } : {}) } : {}),
+    ...(note ? { note } : {})
+  }
 }
 
-/** The status line and bar for the whole screen: a call in flight, then the instance, then local problems. */
-export function playLine({ status, busy, error, missing, streamEnded }: PlayLineInput): PlayLine {
+/** The status line and bar for the whole screen: a call in flight, then the instance, then local problems. `now` is the shared ticker's time. */
+export function playLine({ status, busy, error, missing, streamEnded, now = Date.now() }: PlayLineInput): PlayLine {
   const state = status?.state
   if (!status) return { text: 'Loading', kind: 'off' }
-  if (state === 'copying' || state === 'syncing') return { text: 'Preparing', kind: 'work', bar: percent(status) }
+  if (status.checking) return working('Checking memory', status.since, now)
+  if (state === 'copying') {
+    const progress = status.copy?.progress
+    return working(progress?.phase === 'library' ? 'Copying the Library' : 'Copying the project', progress?.phaseAt ?? status.since, now)
+  }
+  if (state === 'syncing') return working('Syncing changes', status.copy?.progress?.phaseAt ?? status.since, now)
   if (state === 'starting') {
     const start = status.start
-    return { text: status.pathWarning ?? (start ? `Starting Unity · ${START_STEP[start.phase]}` : 'Starting Unity'), kind: 'work', bar: start?.bar ?? 'indeterminate' }
+    return working(start ? `Starting Unity · ${START_STEP[start.phase]}` : 'Starting Unity', start?.since ?? status.since, now, true, status.pathWarning)
   }
-  if (state === 'entering-play') return { text: 'Starting Play', kind: 'work', bar: 'indeterminate' }
-  if (state === 'exiting-play' || state === 'shutting-down' || (busy && STOPS.has(busy))) return { text: 'Stopping', kind: 'work' }
+  if (state === 'entering-play') return working('Starting Play', status.since, now)
+  if (state === 'exiting-play' || state === 'shutting-down') return working('Stopping', status.since, now, false)
+  if (busy && STOPS.has(busy)) return working('Stopping', undefined, now, false)
   if (busy && (STARTS.has(busy) || (ENTERS.has(busy) && state !== 'playing' && state !== 'paused'))) {
-    return state === 'ready' && ENTERS.has(busy) ? { text: 'Starting Play', kind: 'work', bar: 'indeterminate' } : { text: 'Preparing', kind: 'work', bar: 'indeterminate' }
+    // The call is in flight before the instance reports a step: a running editor syncs, a cold start checks memory first.
+    return working(state === 'ready' && ENTERS.has(busy) ? 'Starting Play' : status.pid ? 'Syncing changes' : 'Checking memory', undefined, now)
   }
   const problem = state && PROBLEM[state]
   // A path too long for Unity explains a failed or crashed start better than the general sentence.
