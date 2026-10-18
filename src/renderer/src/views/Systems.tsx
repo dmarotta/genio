@@ -614,26 +614,30 @@ function ReplyVoiceRow({ value }: { value: Settings['replyVoice'] }) {
   return (
     <>
       <Row label="Voice">
-        <select className="select" aria-label="Voice" value={shown} onChange={(e) => set({ replyVoice: e.target.value as Settings['replyVoice'] })}>
-          {ready ? (
-            <>
-              <optgroup label="Natural voices">{NATURAL_VOICES.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}</optgroup>
-              <optgroup label="Windows voices">{windowsOptions}</optgroup>
-            </>
-          ) : windowsOptions}
-        </select>
-        <button type="button" className="btn sm ghost icon" aria-label="Test voice" aria-pressed={testing} onClick={test}>
-          {testing ? <Square size={14} /> : <Volume2 size={14} />}
-        </button>
-        {status && !ready && (
-          <button ref={button} type="button" className={cx('btn sm voice-download', downloading && 'loading')} disabled={downloading}
-            style={{ '--progress': status.total ? status.received / status.total : 0 } as CSSProperties} onClick={() => setConsent(true)}>
-            Download natural voice
-          </button>
-        )}
-        {consent && status && !ready && (
-          <NaturalVoiceConsent anchor={button} total={status.total} onDownload={() => void download()} onClose={() => setConsent(false)} />
-        )}
+        <div className="voice-ctl">
+          <div className="voice-pick">
+            <select className="select" aria-label="Voice" value={shown} onChange={(e) => set({ replyVoice: e.target.value as Settings['replyVoice'] })}>
+              {ready ? (
+                <>
+                  <optgroup label="Natural voices">{NATURAL_VOICES.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}</optgroup>
+                  <optgroup label="Windows voices">{windowsOptions}</optgroup>
+                </>
+              ) : windowsOptions}
+            </select>
+            <button type="button" className="btn ghost icon" aria-label="Test voice" aria-pressed={testing} onClick={test}>
+              {testing ? <Square size={14} /> : <Volume2 size={14} />}
+            </button>
+          </div>
+          {status && !ready && (
+            <button ref={button} type="button" className={cx('btn sm voice-download', downloading && 'loading')} disabled={downloading}
+              style={{ '--progress': status.total ? status.received / status.total : 0 } as CSSProperties} onClick={() => setConsent(true)}>
+              Download natural voice
+            </button>
+          )}
+          {consent && status && !ready && (
+            <NaturalVoiceConsent anchor={button} total={status.total} onDownload={() => void download()} onClose={() => setConsent(false)} />
+          )}
+        </div>
       </Row>
       {error && <p role="alert">{error}</p>}
     </>

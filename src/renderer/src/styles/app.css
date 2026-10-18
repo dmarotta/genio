@@ -356,6 +356,11 @@ button.hud-stat:hover { border-color: var(--line); color: var(--text); }
   -webkit-mask: radial-gradient(circle, transparent 62%, #000 64%); mask: radial-gradient(circle, transparent 62%, #000 64%); }
 /* Settings' Download natural voice fills with the download's progress. */
 .voice-download.loading { background: linear-gradient(90deg, rgba(0, 229, 255, 0.25) calc(var(--progress, 0) * 100%), transparent 0); }
+/* The Voice drop-down, its Test voice button and the download share one line; when short of room the button wraps with the drop-down, never alone. */
+.voice-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.voice-pick { display: flex; align-items: center; gap: 8px; flex: 1 1 200px; min-width: 0; max-width: 360px; }
+.voice-pick > .select { flex: 1; width: auto; min-width: 0; height: 34px; padding-top: 0; padding-bottom: 0; text-overflow: ellipsis; }
+.voice-pick > .btn { flex: none; }
 .voice-consent { max-width: 300px; padding: 12px; font-size: 13px; }
 .voice-consent p { margin: 0 0 10px; }
 .voice-consent-actions { display: flex; justify-content: flex-end; gap: 8px; }
