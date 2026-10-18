@@ -31,6 +31,7 @@ import { claudeProbeError } from './claude-usage-probe'
 import { codexSignedOut } from './codex-home'
 import { settingsPath } from '@shared/settings-pages'
 import { usageRefreshLoop } from './usage-refresh'
+import { QuotaDeferredQueue } from './quota-deferred'
 
 const USAGE_TTL = 5 * 60_000
 const LOGIN_TTL = 30 * 60_000
@@ -46,15 +47,17 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
   let refreshing = false
   let card: Scorecard | undefined
   let launchQueue: Promise<unknown> = Promise.resolve()
-  const reservations = new Set<string>()
+  const reservations = new Set<{ harness: string }>()
   /** launches per world that are reserved but not yet listed as tasks (they count against the caps) */
   const launching = new Set<{ project: string }>()
   let lastReport: UsageReport | undefined
   let lastPolicy = ''
   let watching = false
+  let offSettings: (() => void) | undefined
   const unreadable = new Set<string>()
 
   const dataDir = (): string => getCtx().main.home.data
+  const protection = (): boolean => getCtx().settings.get().quotaProtection !== false
   const scorecard = (): Scorecard => (card ??= createScorecard(scorecardFile(dataDir())))
   const homes = (): HomeCtx[] => [...getCtx().homes.values()]
   const alive = (t: Task): boolean => !!t.terminalId && !!getCtx().terminals.get(t.terminalId)?.alive
@@ -105,11 +108,11 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
   const queued = (): BacklogItem[] =>
     homes().flatMap((h) => h.backlog.list()).filter((i) => (i.kind === 'ship' || i.kind === 'scout') && i.state === 'queued')
 
-  /** One notice per policy transition (toast + Settings → Usage & limits, with cause and evidence age). */
+  /** Keep transition history for diagnostics; active protection is shown quietly in chat. */
   const transitions = (): void => {
     try {
       const low = queued().filter((i) => i.priority === 'low').length
-      for (const n of new PolicyNotices(dataDir()).observe(automaticPlans(), low)) bus.toast(n.to === 'ok' ? 'info' : 'warn', n.text, n.details)
+      if (protection()) new PolicyNotices(dataDir()).observe(automaticPlans(), low)
     } catch {
       /* notices are advisory */
     }
@@ -165,9 +168,10 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
     return values.length ? Math.max(...values) : undefined
   }
 
-  const unavailable = (id: string, own?: string, replacing?: Task): boolean => {
+  const unavailable = (id: string, own?: { harness: string }, replacing?: Task): boolean => {
+    if (!protection()) return false
     const ctx = getCtx()
-    return (id !== own && reservations.has(id)) || (id === 'claude' && !unreadable.has(id) && !claudeReadError && new SessionQuotaPolicy(dataDir()).unitBlocked()) ||
+    return [...reservations].some(r => r !== own && r.harness === id) || (id === 'claude' && !unreadable.has(id) && !claudeReadError && new SessionQuotaPolicy(dataDir()).unitBlocked()) ||
       // Fresh 70%+: at most one unit on that plan
       (isPlan(id) && planStatus(id, quota[id]).level !== 'ok' && [...ctx.homes.values()].some((h) =>
         h.crew.list().some((t) => !(replacing && t.id === replacing.id && t.wksp === replacing.wksp) && t.harness === id && holdsCapacity(t, alive(t)))))
@@ -184,8 +188,21 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
     Object.values(plansNow()).some(p => p.level !== 'ok'))
 
   const svc: DispatchService = {
-    start() { watching = true; watcher.start() },
-    stop() { watching = false; watcher.stop() },
+    start() {
+      if (watching) return
+      watching = true
+      let enabled = protection()
+      offSettings = bus.onEvent(event => {
+        if (event.type !== 'settings' || (event.settings.quotaProtection !== false) === enabled) return
+        enabled = event.settings.quotaProtection !== false
+        for (const h of homes()) {
+          h.supervisor?.poke(true)
+          if (!enabled) void h.crew.retryQuotaDeferred().catch(() => undefined)
+        }
+      })
+      watcher.start()
+    },
+    stop() { watching = false; watcher.stop(); offSettings?.(); offSettings = undefined },
     signals(project, opts = {}) {
       refresh()
       const ctx = getCtx()
@@ -223,7 +240,8 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
         const signals = { ...svc.signals(input.project), unavailable: (id: string) => unavailable(id, undefined, replacing) }
         const loadout = resolveLoadout(input, getCtx().settings, signals)
         const primary = loadout.explored ? resolveLoadout(input, getCtx().settings, { ...signals, preview: true }).harness : undefined
-        reservations.add(loadout.harness)
+        const reservation = { harness: loadout.harness }
+        reservations.add(reservation)
         let released = false
         const launch = { project: input.project }
         if (!occupies) {
@@ -242,14 +260,14 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
             if (released) throw new Error('Launch reservation was already released.')
             const plans = plansNow()
             svc.noteUsage(await usageReport(getCtx(), { forceClaude: plans.claude.level !== 'ok', forceCodex: plans.codex.level !== 'ok' }))
-            const env = { ...svc.signals(input.project), unavailable: (id: string) => unavailable(id, loadout.harness, replacing) }
+            const env = { ...svc.signals(input.project), unavailable: (id: string) => unavailable(id, reservation, replacing) }
             resolveLoadout({ ...input, harness: loadout.harness }, getCtx().settings, env)
-            if (loadout.explored) {
+            if (loadout.explored && protection()) {
               if (!explorationSafe(env.quota?.[primary!]) || !explorationSafe(env.quota?.[loadout.harness]))
                 throw new Error('deferred: exploration no longer has fresh headroom on both plans.')
             }
           },
-          release() { if (!released) { released = true; reservations.delete(loadout.harness); listed() } }
+          release() { if (!released) { released = true; reservations.delete(reservation); listed() } }
         }
       })
       launchQueue = result.catch(() => undefined)
@@ -265,6 +283,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
     },
 
     quotaWait(item) {
+      if (!protection()) return undefined
       if (item.kind !== 'ship' && item.kind !== 'scout') return undefined
       return quotaWait(item.priority, automaticPlans())
     },
@@ -272,7 +291,7 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
     reportWords(project, harness) {
       const ctx = getCtx()
       const world = ctx.projects.get(project)
-      return reconWords(worldUsage(ctx.settings.get(), world).mode, isPlan(harness) ? plansNow()[harness] : undefined)
+      return reconWords(worldUsage(ctx.settings.get(), world).mode, protection() && isPlan(harness) ? plansNow()[harness] : undefined)
     },
 
     view(): UsagePolicyView {
@@ -282,6 +301,27 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
       const claude = readClaude()
       transitions()
       const plans = plansNow()
+      // Use the same durable queue that retries launches, including after a restart.
+      const heldLaunches: UsagePolicyView['heldLaunches'] = []
+      const pendingQuests = new Set(queued().filter(q => !q.hold).map(q => q.id))
+      if (protection()) for (const h of homes()) {
+        if (!h.home?.data) continue
+        for (const entry of new QuotaDeferredQueue(h.home.data).list()) {
+          const launch = entry.kind === 'spawn' ? entry.request : h.crew.get(entry.id)
+          const plan = launch?.harness
+          if (launch && plan && isPlan(plan) && plans[plan].level !== 'ok')
+            heldLaunches.push({ project: launch.project, title: launch.title, plan })
+        }
+        // Plan steps retry through plans.drain(), rather than the standalone launch queue.
+        for (const work of h.plans?.list() ?? []) if (work.state === 'active') {
+          for (const step of work.steps) {
+            const plan = step.harness
+            if (plan && isPlan(plan) && plans[plan].level !== 'ok' && pendingQuests.has(step.questId) &&
+              /quota protection/i.test(step.lastAttempt?.message ?? ''))
+              heldLaunches.push({ project: work.world, title: step.title, plan })
+          }
+        }
+      }
       const mode = globalMode(s)
       const codex = lastReport?.tools.find((t) => t.tool === 'codex')
       const meterReport = {
@@ -299,7 +339,9 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
       return {
         generatedAt: new Date().toISOString(),
         mode,
-        chat: resolveChat(mode, { model: s.wkspModel, effort: s.wkspEffort }, plans.claude),
+        quotaProtection: protection(),
+        heldLaunches,
+        chat: resolveChat(mode, { model: s.wkspModel, effort: s.wkspEffort }, protection() ? plans.claude : undefined),
         bot: { model: s.botModel?.trim() || SONNET, pinned: Boolean(s.botModel?.trim()) },
         units: { defaultHarness: s.defaultHarness, model: s.defaultWorkerModel || undefined, effort: s.defaultWorkerEffort || undefined },
         unitCap: svc.capacity().cap,

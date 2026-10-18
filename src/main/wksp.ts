@@ -172,7 +172,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     const server = sdk.createSdkMcpServer({ name: 'genio', version: '1.0.0', tools: toolDefs, alwaysLoad: true })
     const worlds = ctx.projects.list().filter(p => liveAlly()?.projects.includes(p.name)).map((p) => p.path)
     const { model, effort } = config ?? claudeConfig()
-    const usage = role === 'bot' ? '' : `\n\n${chatUsageLine(globalMode(s), claudeStatus(ctx.main.home.data))}`
+    const usage = role === 'bot' ? '' : `\n\n${chatUsageLine(globalMode(s), claudeStatus(ctx.main.home.data, Date.now(), s.quotaProtection !== false))}`
     const opts: Options = {
       // Load only the bounded rules. Skills, charter and versioned memory are tools.
       systemPrompt: { type: 'preset', preset: 'claude_code', append: customContract({ gamertag: gamertag(), base: name, isAlly: !home.isMain }, role === 'bot', usage) },
@@ -285,7 +285,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
 
   // ---------------------------------------------------------- sessions
 
-  const quotaPolicy = (): SessionQuotaPolicy => new SessionQuotaPolicy(getCtx().main.home.data)
+  const quotaPolicy = (): SessionQuotaPolicy => new SessionQuotaPolicy(getCtx().main.home.data, settings().quotaProtection !== false)
   const quotaHold = (provider: ChatProvider, item: TurnItem): WkspInfo['limit'] =>
     provider === 'claude' && !quotaPolicy().canStartTurn(item.kind, Date.now(), false) ? quotaPolicy().limitState() : undefined
   const costs = new SessionCostLedger(path.join(home.data, 'usage', 'session-costs.json'))

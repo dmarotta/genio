@@ -253,7 +253,7 @@ describe('authority and unchanged deterministic handlers', () => {
     expect(await call(b, 'read_task_file', { task: 'unit', which: 'report', appendix: '../private.md' })).toMatchObject({ isError: true })
     expect((await call(b, 'skill_read', { name: 'assets', reference: 'references/placement.md' })).content[0].text).toContain('Skill directory:')
     expect(await call(b, 'skill_read', { name: 'assets', reference: '../fal/SKILL.md' })).toMatchObject({ isError: true })
-    const settings = { usageMode: 'balanced', unitsAtOnce: 8, sound: true, inboxToken: 'private-token', webhookUrl: 'private-url' }
+    const settings = { usageMode: 'balanced', unitsAtOnce: 8, quotaProtection: true, sound: true, inboxToken: 'private-token', webhookUrl: 'private-url' }
     ctx.settings.get = () => settings as any
     ctx.settings.save = vi.fn(patch => Object.assign(settings, patch) as any)
     const read = await call(b, 'settings_read')
@@ -277,6 +277,9 @@ describe('authority and unchanged deterministic handlers', () => {
       expect(await call(b, 'settings_update', { patch: { unitsAtOnce } })).toMatchObject({ isError: true })
     }
     expect(settings.unitsAtOnce).toBe(3)
+    expect(await call(b, 'settings_update', { patch: { quotaProtection: false } })).not.toHaveProperty('isError')
+    expect(settings.quotaProtection).toBe(false)
+    expect(JSON.parse((await call(b, 'settings_read')).content[0].text)).toMatchObject({ quotaProtection: false })
     expect(await call(b, 'settings_update', { patch: { chatShellMode: 'all' } })).toMatchObject({ isError: true })
   })
 

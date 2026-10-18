@@ -21,7 +21,7 @@ export function useUsagePolicyState(): { view: UsagePolicyView | null; error?: s
   useEffect(() => {
     let live = true
     const load = (): void => {
-      void api().usagePolicy().then((v) => { if (live) { setView(v); setError(undefined) } }).catch(() => {
+      void Promise.resolve().then(() => api().usagePolicy?.()).then((v) => { if (live && v) { setView(v); setError(undefined) } }).catch(() => {
         if (live) { setView(null); setError('Could not refresh usage. Current plan remaining is unknown; retrying automatically.') }
       })
     }

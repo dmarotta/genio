@@ -1,5 +1,12 @@
 # Claude chat limits
 
+Quota protection can be turned off in Settings → Usage & limits beside the plan
+meter, or by asking the project chat to change it. This releases percentage-based
+optional-work holds and restores the Usage mode's chat choices. Actual provider
+rejections retain the limit line, queued turns and retry backoff described below.
+The separate protection warning is one quiet chat notice, with Settings opening
+the switch and dismissal lasting until a worse level. See [Usage protection](usage-protection.md).
+
 The provider queue defers unsubmitted quota-held turns before starting a driver.
 A stale high percentage may hold automatic startup/wake work, but does not occupy
 the foreground slot: an explicit message still reaches the foreground quota gate,

@@ -108,7 +108,7 @@ export function createDesignChatService(getCtx: () => AppCtx, home: Home, ally?:
     const world = projects()[0]
     return (world && getCtx().projects.get(world)?.path) || home.root
   }
-  const quotaPolicy = (): SessionQuotaPolicy => new SessionQuotaPolicy(getCtx().main.home.data)
+  const quotaPolicy = (): SessionQuotaPolicy => new SessionQuotaPolicy(getCtx().main.home.data, settings().quotaProtection !== false)
   const costs = new SessionCostLedger(path.join(home.data, 'usage', 'session-costs.json'))
   // plan limits are per account: every chat records into the main base
   const rateLimit = (rl: ClaudeRateLimitInfo): void => {
@@ -149,7 +149,7 @@ export function createDesignChatService(getCtx: () => AppCtx, home: Home, ally?:
     messages: rt.thread.load().filter(m => m.id !== excludeMessageId),
     projects: getCtx().projects.list().filter(p => projects().includes(p.name)), tasks: [], decisions: [], permissions: 'ask'
   })
-  const usage = (): string => chatUsageLine(globalMode(settings()), claudeStatus(getCtx().main.home.data))
+  const usage = (): string => chatUsageLine(globalMode(settings()), claudeStatus(getCtx().main.home.data, Date.now(), settings().quotaProtection !== false))
 
   // ---------------------------------------------------------- drivers
 

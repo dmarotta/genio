@@ -390,6 +390,8 @@ export interface WorldUsage {
 export interface UsagePolicyView {
   generatedAt: string
   mode: UsageMode
+  quotaProtection: boolean
+  heldLaunches: { project: string; title: string; plan: PlanId }[]
   chat: ChatChoice
   bot: { model: string; pinned: boolean }
   units: { defaultHarness: string; model?: string; effort?: string }

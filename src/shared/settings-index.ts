@@ -77,6 +77,7 @@ const ROWS: Partial<Record<SettingsPageId, RowSpec[]>> = {
     ["If you don't respond", ['Alarm', 'Run a command']]
   ],
   usage: [
+    ['Quota protection', ['Automatic saving', 'Auto saving', 'Protection']],
     ['Usage mode', ['Save', 'Balanced', 'Max'], 'settings-usage-mode'],
     ['Units at once', ['Concurrent units', 'Parallel units', 'Global unit limit']],
     ['Allow paid OpenRouter spend', ['Paid spend on cheap models', 'OpenRouter spend', 'Cheap models']]

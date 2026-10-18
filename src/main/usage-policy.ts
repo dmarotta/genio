@@ -22,6 +22,7 @@ export { holdsCapacity } from '@shared/unit-capacity'
  * model/effort the player picked stays as written and shows as Pinned.
  */
 export function migrateUsageSettings(saved: Partial<Settings>): Partial<Settings> {
+  if (typeof saved.quotaProtection !== 'boolean') saved = { ...saved, quotaProtection: true }
   const hadMode = isUsageMode(saved.usageMode)
   const mode = hadMode ? saved.usageMode! : saved.costDial ? DIAL_MODE[saved.costDial] ?? DEFAULT_USAGE_MODE : DEFAULT_USAGE_MODE
   // These are migration values only: changing a mode never changes concurrency again.
@@ -43,14 +44,15 @@ export function worldUsage(s: Pick<Settings, 'usageMode'>, p?: Pick<Project, 'na
 
 export const globalMode = (s: Pick<Settings, 'usageMode'>): UsageMode => (isUsageMode(s.usageMode) ? s.usageMode : DEFAULT_USAGE_MODE)
 
-export function claudeStatus(dataDir: string, now = Date.now()): PlanStatus {
+export function claudeStatus(dataDir: string, now = Date.now(), protection = true): PlanStatus {
+  if (!protection) return planStatus('claude', undefined, now)
   try { return planStatus('claude', claudeLimits(readClaudeLimits(dataDir), now)?.windows, now) }
   catch { return planStatus('claude', undefined, now) } // The meter exposes the read failure; chat must remain usable.
 }
 
 /** The settings the chat sessions read, with Auto values resolved by the mode and Claude protection. */
 export function chatSettings(s: Settings, dataDir: string): Settings {
-  const claude = claudeStatus(dataDir)
+  const claude = claudeStatus(dataDir, Date.now(), s.quotaProtection !== false)
   const chat = resolveChat(globalMode(s), { model: s.wkspModel, effort: s.wkspEffort }, claude)
   // The Bot runs Sonnet / low unless pinned.
   return { ...s, wkspModel: chat.model, wkspEffort: chat.effort, botModel: s.botModel?.trim() || SONNET }

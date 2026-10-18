@@ -80,6 +80,19 @@ describe('97% explored Recon regression', () => {
 })
 
 describe('durable session policy', () => {
+  it('turning protection off releases percentage holds but keeps rejection backoff and retry rules', () => {
+    recordClaudeRateLimit(claudeLimitsFile(dir), { status: 'allowed_warning', rateLimitType: 'five_hour', utilization: 0.97 })
+    expect(new SessionQuotaPolicy(dir).canStartTurn('system')).toBe(false)
+    const off = new SessionQuotaPolicy(dir, false)
+    expect(off.canStartTurn('system')).toBe(true)
+    const rejectedAt = Date.now() + 1
+    off.observe({ status: 'rejected', rateLimitType: 'five_hour', resetsAt: (rejectedAt + 60_000) / 1000 }, rejectedAt)
+    expect(off.canStartTurn('system', rejectedAt)).toBe(false)
+    expect(off.canStartTurn('player', rejectedAt)).toBe(false)
+    expect(off.canStartTurn('player', rejectedAt + 60_000)).toBe(true)
+    expect(off.canStartTurn('player', rejectedAt + 60_001)).toBe(false)
+  })
+
   it('blocks all session kinds across restarts, then allows only one foreground probe after reset', () => {
     const policy = new SessionQuotaPolicy(dir)
     policy.observe({ status: 'rejected', rateLimitType: 'five_hour', resetsAt: (now + 60_000) / 1000 }, now)

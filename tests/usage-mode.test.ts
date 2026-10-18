@@ -3,16 +3,18 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UsageReport, UsageWindow } from '../src/shared/api'
-import type { BacklogItem, LoadoutInput, Settings, Task, TaskCategory } from '../src/shared/types'
+import type { BacklogItem, LoadoutInput, Settings, Task, TaskCategory, WorkPlan } from '../src/shared/types'
 import { CATEGORY_IDS, CHEAP_MODELS } from '../src/shared/dispatch'
 import { CODEX_UNIT_MODEL } from '../src/shared/unit-model-policy'
 import {
   MODE_PRESETS, OPUS, SONNET, USAGE_MODES, meterRows, modeSummary, planStatus, presetRows, quotaWait, resolveChat, type PlanStatus, type UsageMode
 } from '../src/shared/usage-mode'
 import { unitCaps } from '../src/shared/unit-capacity'
-import { defaultSettings } from '../src/main/settings'
+import { createSettingsService, defaultSettings } from '../src/main/settings'
 import { createBacklogService } from '../src/main/backlog'
 import { Home } from '../src/main/home'
+import { bus } from '../src/main/bus'
+import { QuotaDeferredQueue } from '../src/main/quota-deferred'
 import { pickLoadout, type PickEnv } from '../src/main/loadout'
 import { PolicyNotices, chatSettings, heartbeatFor, migrateUsageSettings, routineDelay, worldUsage } from '../src/main/usage-policy'
 import { ACHIEVEMENTS } from '../src/main/stats'
@@ -98,6 +100,26 @@ describe('every preset x category', () => {
 })
 
 describe('pinned overrides', () => {
+  it('persists default-on migration without a prompt and retains an explicit opt-out across restart', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-protection-settings-'))
+    const events: string[] = []
+    const off = bus.onEvent(ev => { if (ev.type === 'feature-used') events.push(ev.feature) })
+    try {
+      const home = new Home(dir)
+      fs.mkdirSync(home.config, { recursive: true })
+      fs.writeFileSync(home.settingsFile, JSON.stringify({ usageMode: 'balanced', inboxToken: 'fixture' }))
+      const svc = createSettingsService(home)
+      expect(svc.get().quotaProtection).toBe(true)
+      expect(JSON.parse(fs.readFileSync(home.settingsFile, 'utf8')).quotaProtection).toBe(true)
+      expect(events).toEqual([])
+      svc.save({ quotaProtection: true })
+      expect(events).toEqual([])
+      svc.save({ quotaProtection: false })
+      expect(events).toEqual(['quota-protection'])
+      expect(createSettingsService(home).get().quotaProtection).toBe(false)
+    } finally { off(); fs.rmSync(dir, { recursive: true, force: true }) }
+  })
+
   it('migrates explicit picks as Pinned and only the old shipped chat default to Auto', () => {
     const old = { wkspModel: 'claude-sonnet-5-5', wkspEffort: 'high', costDial: 'balanced', defaultWorkerModel: 'opus', explorationRate: 0.2 } as Partial<Settings>
     expect(migrateUsageSettings(old)).toMatchObject({ usageMode: 'balanced', wkspModel: 'claude-sonnet-5-5', wkspEffort: 'high', defaultWorkerModel: 'opus' })
@@ -105,7 +127,9 @@ describe('pinned overrides', () => {
     expect(migrateUsageSettings({ wkspModel: '', wkspEffort: 'low' }).wkspEffort).toBe('low')
     expect(migrateUsageSettings({ costDial: 'quality' }).usageMode).toBe('max')
     expect(migrateUsageSettings({ costDial: 'cost' }).usageMode).toBe('save')
-    const done = { usageMode: 'save', unitsAtOnce: 4, wkspEffort: 'high' } as Partial<Settings>
+    expect(defaultSettings().quotaProtection).toBe(true)
+    expect(migrateUsageSettings({ usageMode: 'save' }).quotaProtection).toBe(true)
+    const done = { usageMode: 'save', unitsAtOnce: 4, wkspEffort: 'high', quotaProtection: false } as Partial<Settings>
     expect(migrateUsageSettings(done)).toBe(done)
   })
 
@@ -200,6 +224,7 @@ describe('stale, unknown and rejected quota combinations', () => {
       expect(chatSettings(settings({ usageMode: 'max' }), dir)).toMatchObject({ wkspModel: OPUS, wkspEffort: 'high', botModel: SONNET })
       recordClaudeRateLimit(claudeLimitsFile(dir), { status: 'allowed_warning', rateLimitType: 'five_hour', utilization: 0.9 })
       expect(chatSettings(settings({ usageMode: 'max' }), dir)).toMatchObject({ wkspModel: SONNET, wkspEffort: 'low' })
+      expect(chatSettings(settings({ usageMode: 'max', quotaProtection: false }), dir)).toMatchObject({ wkspModel: OPUS, wkspEffort: 'high' })
       expect(chatSettings(settings({ usageMode: 'max', wkspModel: OPUS, wkspEffort: 'high', botModel: 'claude-haiku-5-5' }), dir)).toMatchObject({ wkspModel: OPUS, wkspEffort: 'high', botModel: 'claude-haiku-5-5' })
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
@@ -283,15 +308,15 @@ describe('concurrent unit cap across worlds', () => {
   function service(mode: UsageMode, tasks: Task[] = [], worlds: Record<string, { capacity?: number; usageMode?: UsageMode }> = {}, backlog: BacklogItem[] = [], overrides: Partial<Settings> = {}) {
     const s = settings({ ...migrateUsageSettings({ usageMode: mode }), ...overrides })
     const homes = new Map([
-      ['main', { crew: { list: () => tasks.filter((t) => !t.wksp), get: (id: string) => tasks.find(t => t.id === id && !t.wksp) }, backlog: { list: () => backlog } }],
-      ['ally', { crew: { list: () => tasks.filter((t) => t.wksp === 'ally'), get: (id: string) => tasks.find(t => t.id === id && t.wksp === 'ally') }, backlog: { list: () => [] } }]
+      ['main', { home: { data: dir }, plans: { list: vi.fn(() => [] as WorkPlan[]) }, supervisor: { poke: vi.fn() }, wakes: { pending: () => [] }, crew: { retryQuotaDeferred: vi.fn(async () => {}), hasQuotaDeferred: () => false, list: () => tasks.filter((t) => !t.wksp), get: (id: string) => tasks.find(t => t.id === id && !t.wksp) }, backlog: { list: () => backlog } }],
+      ['ally', { home: { data: path.join(dir, 'ally') }, plans: { list: vi.fn(() => [] as WorkPlan[]) }, supervisor: { poke: vi.fn() }, wakes: { pending: () => [] }, crew: { retryQuotaDeferred: vi.fn(async () => {}), hasQuotaDeferred: () => false, list: () => tasks.filter((t) => t.wksp === 'ally'), get: (id: string) => tasks.find(t => t.id === id && t.wksp === 'ally') }, backlog: { list: () => [] } }]
     ])
     const ctx = {
       settings: { get: () => s, availableHarnesses: () => s.harnesses.filter((h) => ['claude', 'codex'].includes(h.id)) },
       projects: { get: (name: string) => (worlds[name] ? { name, ...worlds[name] } : { name }), list: () => Object.keys(worlds).map((name) => ({ name, ...worlds[name] })) },
       main: { home: { data: dir } }, homes, terminals: { get: (id: string) => id === 'live' ? { alive: true } : undefined }
     } as unknown as AppCtx
-    return Object.assign(createDispatchService(() => ctx), { settings: s })
+    return Object.assign(createDispatchService(() => ctx), { settings: s, homes })
   }
   const ship = (project: string): LoadoutInput => ({ kind: 'ship', project, title: 'Add docs', intent: 'Add docs', category: 'docs' })
 
@@ -355,6 +380,82 @@ describe('concurrent unit cap across worlds', () => {
     const next = await svc.reserve({ ...ship('e'), harness: 'claude' })
     expect(svc.capacity().used).toBe(4)
     next.release()
+  })
+
+  it('disables holds for pinned launches, concurrent launches and queued quests without hiding the meter', async () => {
+    for (const tool of scan.report.tools) tool.limits[0].windows = [fresh(97)]
+    recordClaudeRateLimit(claudeLimitsFile(dir), { status: 'rejected', rateLimitType: 'five_hour' })
+    const quest = { id: 'q', kind: 'ship', state: 'queued', priority: 'low' } as BacklogItem
+    const svc = service('max', [task('running')], {}, [quest], { quotaProtection: false })
+    const first = await svc.reserve({ ...ship('a'), harness: 'codex', model: 'pinned-model', effort: 'high' })
+    const second = await svc.reserve({ ...ship('b'), harness: 'codex' })
+    const claude = await svc.reserve({ ...ship('c'), harness: 'claude' })
+    await first.check()
+    await second.check()
+    await claude.check()
+    expect(first.loadout).toMatchObject({ model: 'pinned-model', effort: 'high' })
+    expect(svc.quotaWait(quest)).toBeUndefined()
+    expect(svc.view()).toMatchObject({ quotaProtection: false, waiting: [], heldLaunches: [], chat: { model: OPUS, effort: 'high' } })
+    expect(svc.view().meter[0].headline?.state).toBe('limit')
+    expect(svc.reportWords('a', 'claude')).toBe(MODE_PRESETS.max.reconWords)
+    first.release(); second.release(); claude.release()
+  })
+
+  it('reads held pin names from the durable retry queue and removes them on recovery, cancellation or switch-off', async () => {
+    scan.report.tools.find(t => t.tool === 'codex')!.limits[0].windows = [fresh(90)]
+    const svc = service('balanced')
+    await expect(svc.reserve({ ...ship('a'), title: 'Build the castle', harness: 'codex' })).rejects.toThrow(/held/)
+    const queue = new QuotaDeferredQueue(dir)
+    queue.put('quest:castle', { kind: 'spawn', request: { ...ship('a'), title: 'Build the castle', harness: 'codex', backlogId: 'castle' } })
+    const restarted = service('balanced')
+    restarted.noteUsage(scan.report)
+    expect(restarted.view().heldLaunches).toEqual([{ project: 'a', title: 'Build the castle', plan: 'codex' }])
+    restarted.settings.quotaProtection = false
+    expect(restarted.view().heldLaunches).toEqual([])
+    const pinned = { ...task('a'), title: 'Fix the door' }
+    queue.put(`unit:${pinned.id}`, { kind: 'relaunch', id: pinned.id, manual: true })
+    const resumed = service('balanced', [pinned])
+    resumed.noteUsage(scan.report)
+    expect(resumed.view().heldLaunches.map(launch => launch.title)).toEqual(['Build the castle', 'Fix the door'])
+    queue.remove(`unit:${pinned.id}`)
+    queue.remove('quest:castle')
+    expect(svc.view().heldLaunches).toEqual([])
+    queue.put('quest:castle', { kind: 'spawn', request: { ...ship('a'), title: 'Build the castle', harness: 'codex', backlogId: 'castle' } })
+    const recovery = structuredClone(scan.report)
+    recovery.tools.find(t => t.tool === 'codex')!.limits[0].windows = [fresh(20, { observedAt: new Date(Date.now() + 1).toISOString() })]
+    svc.noteUsage(recovery)
+    expect(svc.view().heldLaunches).toEqual([])
+  })
+
+  it('also names pinned plan steps, whose retries belong to the plan rather than the standalone queue', () => {
+    scan.report.tools.find(t => t.tool === 'codex')!.limits[0].windows = [fresh(90)]
+    const quest = { id: 'step-quest', kind: 'ship', state: 'queued' } as BacklogItem
+    const svc = service('balanced', [], {}, [quest])
+    const work = { world: 'a', state: 'active', steps: [{ questId: quest.id, title: 'Build the bridge', harness: 'codex', lastAttempt: { message: 'waiting for quota: held by quota protection' } }] } as WorkPlan
+    svc.homes.get('main')!.plans.list.mockReturnValue([work])
+    svc.noteUsage(scan.report)
+    expect(svc.view().heldLaunches).toEqual([{ project: 'a', title: 'Build the bridge', plan: 'codex' }])
+    quest.hold = { reason: 'Later', since: '' }
+    expect(svc.view().heldLaunches).toEqual([])
+  })
+
+  it('retries held launches immediately when protection is disabled and cleans up its settings listener', async () => {
+    const svc = service('balanced')
+    svc.start()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const home = svc.homes.get('main')!
+    home.crew.retryQuotaDeferred.mockClear()
+    home.supervisor.poke.mockClear()
+    try {
+      svc.settings.quotaProtection = false
+      bus.publish({ type: 'settings', settings: svc.settings })
+      expect(home.crew.retryQuotaDeferred).toHaveBeenCalledOnce()
+      expect(home.supervisor.poke).toHaveBeenCalledWith(true)
+      svc.stop()
+      svc.settings.quotaProtection = true
+      bus.publish({ type: 'settings', settings: svc.settings })
+      expect(home.supervisor.poke).toHaveBeenCalledOnce()
+    } finally { svc.stop() }
   })
 
   it('protects a warm plan across project bases and selects the other plan', async () => {

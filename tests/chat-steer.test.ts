@@ -481,7 +481,7 @@ describe("the player's '!' shell output", () => {
   it('posts a result block run by the player, and Genio reads the output, labelled, with the next message only', async () => {
     const c = chat()
     const block = c.svc.shellRan(run)
-    expect(block).toMatchObject({ role: 'system', shell: run, text: '! npm test · exit 1 · 2.3 s · run by you' })
+    expect(block).toMatchObject({ role: 'system', shell: run, text: '! npm test · exit 1 · 2s · run by you' })
     expect(c.view().log.at(-1)).toMatchObject({ id: block.id, shell: run })
     // no model turn for the run itself
     await flush()

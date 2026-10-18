@@ -491,7 +491,7 @@ function Usage({ s }: { s: Settings }) {
   const mode: UsageMode = s.usageMode ?? 'balanced'
   const [hover, setHover] = useState<UsageMode | null>(null)
   const pins = pinnedOverrides(s, view)
-  const acting = view?.plans.filter((p) => p.level !== 'ok') ?? []
+  const acting = s.quotaProtection !== false ? view?.plans.filter((p) => p.level !== 'ok') ?? [] : []
   return (
     <>
       <SettingsTitle page="usage" />
@@ -535,7 +535,7 @@ function Usage({ s }: { s: Settings }) {
           ))}
         </div>
       )}
-      {view && view.waiting.length > 0 && (
+      {s.quotaProtection !== false && view && view.waiting.length > 0 && (
         <div className="amber-text" style={{ marginTop: 8 }}>
           {view.waiting.length} queued quest{view.waiting.length === 1 ? '' : 's'} wait{view.waiting.length === 1 ? 's' : ''} for a plan reset (see Quests).
         </div>
@@ -543,6 +543,9 @@ function Usage({ s }: { s: Settings }) {
 
       <div className="label" style={{ margin: '18px 0 6px' }}>Plan remaining</div>
       <PlanMeter view={view} error={usageError} />
+      <Row label="Quota protection" hint="Slow automatic work as plans fill up; provider limits always apply.">
+        <Toggle ariaLabel="Quota protection" checked={s.quotaProtection !== false} onChange={(v) => set({ quotaProtection: v })} />
+      </Row>
 
       <Row label="Allow paid OpenRouter spend">
         <Toggle checked={!!s.cheapSpendAllowed} onChange={(v) => set({ cheapSpendAllowed: v })} />

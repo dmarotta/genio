@@ -179,7 +179,9 @@ const statFor = (stats: ScoreRow[] | undefined, scope: string, c: { harness: str
   stats?.find((r) => r.scope === scope && r.harness === c.harness && (r.model ?? '') === (c.model ?? ''))
 
 export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: PickEnv | ((h: HarnessAdapter) => boolean)): Loadout {
-  const env: PickEnv = typeof envOrAvailable === 'function' ? { available: envOrAvailable } : envOrAvailable
+  const supplied: PickEnv = typeof envOrAvailable === 'function' ? { available: envOrAvailable } : envOrAvailable
+  const protection = s.quotaProtection !== false
+  const env = protection ? supplied : { ...supplied, quota: undefined, unavailable: undefined }
   const reasons: string[] = []
   const enabled = s.harnesses.filter((h) => h.enabled)
   const byId = (id: string): HarnessAdapter | undefined => enabled.find((h) => h.id === id)
@@ -231,7 +233,7 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
 
   if (!explicitHarness) reasons.push(`usage: ${modeName}`)
   for (const id of ['claude', 'codex'] as const) {
-    if (installed(id) && !plans[id].known) reasons.push(`warning: ${nameOf(id)} quota unverified (missing or expired report); ordinary dispatch allowed, exploration off`)
+    if (protection && installed(id) && !plans[id].known) reasons.push(`warning: ${nameOf(id)} quota unverified (missing or expired report); ordinary dispatch allowed, exploration off`)
   }
 
   /** Walk an ordered list: the first usable candidate wins; say why earlier ones were passed over. */
@@ -329,7 +331,7 @@ export function pickLoadout(input: LoadoutInput, s: Settings, envOrAvailable: Pi
       const pick = walk(ordered, label)
       if (pick) {
         let chosen = pick
-        const eligible = ordered.filter((o) => usable(o.c.harness) && explorationSafe(env.quota?.[o.c.harness]) && (!o.c.cheap || env.cheap?.allowed))
+        const eligible = ordered.filter((o) => usable(o.c.harness) && (!protection || explorationSafe(env.quota?.[o.c.harness])) && (!o.c.cheap || env.cheap?.allowed))
         const rate = Math.max(0, Math.min(1, preset.exploration))
         const canExplore = rate > 0 && eligible.includes(pick) && eligible.length >= 2 && !explicitModel && !explicitEffort && input.priority !== 'critical'
         if (canExplore && env.preview) {

@@ -38,7 +38,7 @@ describe('live achievement outcomes', () => {
   it.each([
     ['character-sheet', 'character-sheet-open'], ['screenshot', 'screenshot'], ['world_push', 'push-first'],
     ['rate_task', 'rating-first'], ['account-login', 'account-login'], ['yolo-chat', 'yolo-chat'],
-    ['quest_add', 'quest-first'], ['world_add', 'world-first'], ['memory_write', 'lore-first'], ['inventory-index', 'inventory-index']
+    ['quota-protection', 'quota-protection'], ['quest_add', 'quest-first'], ['world_add', 'world-first'], ['memory_write', 'lore-first'], ['inventory-index', 'inventory-index']
   ])('unlocks %s on its feature outcome', (feature, id) => {
     const svc = createStatsService(() => ctx)
     publish({ type: 'feature-used', feature })

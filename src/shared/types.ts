@@ -903,6 +903,8 @@ export interface Settings {
   usageMode: UsageMode
   /** Maximum concurrent units across all projects and bases, independently of Usage mode (1-32). */
   unitsAtOnce: number
+  /** Default on: reduce automatic work as reported plan usage rises. Provider limits still apply when off. */
+  quotaProtection: boolean
   /** explicit allowance for paid OpenRouter spend on cheap candidates; a mode never grants it */
   cheapSpendAllowed: boolean
   /** reorder candidates automatically when the scorecard evidence is clear */

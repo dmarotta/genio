@@ -26,6 +26,7 @@ import { openSettings } from '../lib/settings-nav'
 import { settingsPath } from '@shared/settings-pages'
 import { useVoiceInput } from '../components/MicButton'
 import { stopSpeaking } from '../lib/voice'
+import { QuotaProtectionNotice } from '../components/QuotaProtectionNotice'
 
 
 export function Comms() {
@@ -101,6 +102,7 @@ export function ChatPanel({ wksp, conversation, context, surface = 'screen', act
 
   return (
     <div className="chat-panel">
+      {!conversation && <QuotaProtectionNotice project={PROJECT_WINDOW ?? wksp} />}
       {(['genio', 'bot'] as const).map(role => {
         const limit = role === 'bot' ? info?.botLimit : info?.limit
         if (!limit) return null

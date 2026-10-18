@@ -19,7 +19,7 @@ export const isQuotaError = (text: string): boolean => isClaudeLimit(text) || /r
 /** Account-wide, durable gate shared by main chat, allies and Bot. No provider calls. */
 export class SessionQuotaPolicy {
   private readonly file: string
-  constructor(private readonly data: string) { this.file = path.join(data, 'usage', 'claude-backoff.json') }
+  constructor(private readonly data: string, private readonly protection = true) { this.file = path.join(data, 'usage', 'claude-backoff.json') }
 
   private read(): BackoffState {
     const state = readJson<BackoffState>(this.file, { rejections: {}, notices: {} })
@@ -87,7 +87,7 @@ export class SessionQuotaPolicy {
       if (claim) { state.probeAt = now; state.probeOwner = owner; writeJsonAtomic(this.file, state) }
       return true
     }
-    if (!player) {
+    if (!player && this.protection) {
       let windows: UsageWindow[]
       try { windows = claudeLimits(readClaudeLimits(this.data), now)?.windows ?? [] } catch { windows = [] }
       if (windows.some((w) => (w.usedPercent ?? 0) >= 95)) return false

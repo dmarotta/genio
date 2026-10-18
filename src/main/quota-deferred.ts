@@ -14,6 +14,7 @@ export class QuotaDeferredQueue {
   private busy = false
   constructor(data: string) { this.file = path.join(data, 'usage', 'quota-deferred.json') }
   private entries(): Record<string, QuotaDeferred> { return readJson(this.file, {}) }
+  list(): QuotaDeferred[] { return Object.values(this.entries()) }
   has(): boolean { return Object.keys(this.entries()).length > 0 }
   put(key: string, entry: QuotaDeferred): void {
     const entries = this.entries()

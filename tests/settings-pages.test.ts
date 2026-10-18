@@ -28,7 +28,7 @@ const f = vi.hoisted(() => {
     voiceOutputStatus: async () => ({ state: f.voiceState, declined: false, received: 0, total: 1 })
   }
   const api = new Proxy({}, { get: (_, key: string) => (...args: unknown[]) => { calls.push(key); return (known[key] ?? (async () => ({})))(...args) } })
-  return { calls, api, projects: [] as Project[], window: 'Zebra' as string, settings: undefined as unknown, voiceState: 'missing' as string }
+  return { calls, api, projects: [] as Project[], window: 'Zebra' as string, settings: undefined as unknown, usage: null as import('../src/shared/usage-mode').UsagePolicyView | null, voiceState: 'missing' as string }
 })
 vi.mock('../src/renderer/src/store', () => ({
   get PROJECT_WINDOW() { return f.window },
@@ -43,7 +43,7 @@ vi.mock('../src/renderer/src/store', () => ({
 }))
 vi.mock('../src/renderer/src/components/Terminal', () => ({ TerminalView: () => null }))
 vi.mock('../src/renderer/src/components/Memory', () => ({ Memory: () => React.createElement('h2', { className: 'sys-title' }, 'Memory') }))
-vi.mock('../src/renderer/src/components/PlanMeter', () => ({ PlanMeter: () => React.createElement('div', { className: 'plan-meter-marker' }), useUsagePolicyState: () => ({ view: null, error: '' }) }))
+vi.mock('../src/renderer/src/components/PlanMeter', () => ({ PlanMeter: () => React.createElement('div', { className: 'plan-meter-marker' }), useUsagePolicyState: () => ({ view: f.usage, error: '' }) }))
 vi.mock('../src/renderer/src/components/ModelPicker', () => ({ ModelPicker: () => null, useModelCatalogue: () => ({ routes: [] }) }))
 
 import { SETTINGS_ALIASES, SETTINGS_PAGES, resolveSettingsPage, settingsPage, settingsPath } from '../src/shared/settings-pages'
@@ -72,6 +72,7 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 beforeEach(() => {
   f.calls.length = 0
   f.settings = defaultSettings()
+  f.usage = null
   f.projects = [project('Zebra', 'unity')]
   f.window = 'Zebra'
   f.voiceState = 'missing'
@@ -354,7 +355,7 @@ describe('search index', () => {
         if (el.querySelector('.sys-row-hint, .field-hint')) hinted.push(el.querySelector('.sys-row-title, .label')?.textContent ?? '')
       }
     }
-    expect(hinted).toEqual(['Max units at once', 'OpenRouter models', 'Read replies aloud'])
+    expect(hinted).toEqual(['Max units at once', 'OpenRouter models', 'Read replies aloud', 'Quota protection'])
   })
 
   it('shows the Voice drop-down under Read replies aloud only once the natural voice is downloaded, and saves the choice', async () => {
@@ -515,4 +516,23 @@ describe('keyboard and memory', () => {
     expect(isSettingsShortcut({ key: ',', ctrlKey: true, metaKey: false, altKey: false, shiftKey: false })).toBe(true)
     expect(isSettingsShortcut({ key: ',', ctrlKey: false, metaKey: false, altKey: false, shiftKey: false })).toBe(false)
   })
+})
+
+
+it('links to the default-on protection switch and saves disabling it', async () => {
+  f.usage = { plans: [{ plan: 'claude', level: 'hot', known: true, percent: 90 }], waiting: [], worlds: [], cheap: { allowed: false, why: '' } } as unknown as import('../src/shared/usage-mode').UsagePolicyView
+  await mount()
+  await open('usage', settingAnchor('Quota protection'))
+  const row = host.querySelector('#setting-quota-protection')!
+  expect(document.activeElement).toBe(row)
+  const toggle = row.querySelector<HTMLInputElement>('input[aria-label="Quota protection"]')!
+  expect(toggle.checked).toBe(true)
+  expect(host.querySelector('.usage-levels')).not.toBeNull()
+  await act(() => toggle.click())
+  expect(saveSettings).toHaveBeenCalledWith({ quotaProtection: false })
+  f.settings = { ...defaultSettings(), quotaProtection: false }
+  await act(() => root.render(React.createElement(Systems)))
+  expect(host.querySelector('.usage-levels')).toBeNull()
+  expect(host.querySelector('.plan-meter-marker')).not.toBeNull()
+  expect(searchSettings('auto saving').some(hit => hit.anchor === 'setting-quota-protection')).toBe(true)
 })

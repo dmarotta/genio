@@ -97,6 +97,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'account-login', feature: 'systems', name: 'Signed In', description: `Log in from ${settingsPath('accounts')}.` },
   { id: 'units-at-once', feature: 'units-at-once', name: 'Set the Pace', description: `Change Units at once in ${settingsPath('usage')}.` },
   { id: 'usage-mode', feature: 'systems', name: 'Gear Shift', description: `Switch the Usage mode between Save, Balanced and Max in ${settingsPath('usage')}.` },
+  { id: 'quota-protection', feature: 'quota-protection', name: 'Your Pace', description: 'Change Quota protection to choose when Genio saves plan usage.' },
   { id: 'cheap-unit', feature: 'deploy', name: 'Budget Build', description: 'Deploy an OpenCode unit.' },
   { id: 'unit-references', feature: 'unit-references', name: 'Reference Material', description: 'Start a unit with something to work from: a pasted image, a file or a note you gave Genio.' },
   { id: 'agent-asset-first', feature: 'agent_generation', name: 'Made to Order', description: 'Generate your first asset through Genio.' },
@@ -511,6 +512,7 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
   bus.onEvent((ev) => {
     if (ev.type === 'feature-used') {
       const ids: Record<string, string> = {
+        'quota-protection': 'quota-protection',
         'character-sheet': 'character-sheet-open',
         'play-fullscreen': 'play-fullscreen',
         'model-picker': 'model-picker', 'model-switch': 'model-switch', screenshot: 'screenshot', world_push: 'push-first',

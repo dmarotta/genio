@@ -81,7 +81,9 @@ the contract tells the chat to use it first for questions about Genio itself. Th
 ships with the app (`docs/**`), `scripts/check-help.mjs` fails the build when a listed
 doc is missing, and units get the folder as `GENIO_HELP_DOCS`.
 `settings_read`/`settings_update` expose only supported non-secret preferences;
-advanced/security/account configuration remains in Settings. Bot cannot change them.
+including `quotaProtection` (default on; the player can ask to disable automatic
+quota saving). Provider rejection backoff still applies when it is off.
+Advanced/security/account configuration remains in Settings. Bot cannot change them.
 
 Recon reports default to the Usage-mode word target (800 words when unspecified)
 and 6,000 characters, with evidence in linked separate appendices. Explicitly

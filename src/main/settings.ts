@@ -66,6 +66,7 @@ export function defaultSettings(): Settings {
     explorationRate: 0,
     usageMode: DEFAULT_USAGE_MODE,
     unitsAtOnce: DEFAULT_UNITS_AT_ONCE,
+    quotaProtection: true,
     cheapSpendAllowed: false,
     autoReorder: true,
     eventSources: [],
@@ -89,8 +90,10 @@ export function createSettingsService(home: Home): SettingsService {
       if (patch.categoryPools) next.categoryPools = mergeCategoryPools(patch.categoryPools)
       const enteredYolo = current.chatShellMode !== 'all' && next.chatShellMode === 'all'
       const changedUnitsAtOnce = next.unitsAtOnce !== current.unitsAtOnce
+      const changedProtection = current.quotaProtection !== next.quotaProtection
       writeJson(home.settingsFile, next)
       current = next
+      if (changedProtection) bus.publish({ type: 'feature-used', feature: 'quota-protection' })
       if (changedUnitsAtOnce) bus.publish({ type: 'feature-used', feature: 'units-at-once' })
       if (enteredYolo) bus.publish({ type: 'feature-used', feature: 'yolo-chat' })
       bus.publish({ type: 'settings', settings: current })

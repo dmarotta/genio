@@ -228,12 +228,32 @@ the mode (Quality → Max, Cost → Save).
   quests and, when no plan has headroom, all queued quests stay queued until
   reset ("Queued until reset" in Quests). Running work is never stopped.
 
-A one-line notice (a toast) is emitted only when a plan's level
-changes; its details give the cause and evidence age. Levels persist in
-`data/usage/policy-state.json`, so restarts do not repeat notices.
+**Quota protection** is on by default, including for existing settings. Turn it off
+with the single switch beside the plan meter in Settings → Usage & limits. Off means
+units, pinned picks, exploration, queued quests, chat effort and optional system
+work follow the Usage mode without percentage-based saving or quota holds. The
+independent Units at once setting and project caps still apply. Real
+provider rejections still show the existing chat limit line and keep their retry
+backoff; turning protection off cannot remove a provider's own limit.
+
+While protection acts at 70% or above (or after a rejection), the project chat and
+floating Genio panel show one quiet line in the existing chat notice area. It
+names each affected plan and what is being limited, including the titles of held
+pinned launches in this project, read from the same persistent retry queue. Turning
+protection off retries those launches immediately through their normal checks. Its **Settings** action opens Usage & limits at
+the Quota protection switch. The dismiss icon hides the current levels in both
+chat surfaces, including remounts and restarts; only a worse level
+returns. The line clears when evidence expires, protection recovers or the switch
+is off. It is never repeated per message and produces no toast or popup.
+
+The switch's one-line description explains automatic saving and provider limits.
+The chat's `settings_read` and `settings_update` expose `quotaProtection` as a
+boolean; the chat can change it on the player's request through its existing
+approval policy. A successful change earns **Your Pace** once.
 
 **Plan meter.** One component (Settings › Usage & limits; nothing shows it at all times): a Claude
 row and a Codex row, never summed, each reported window with what is left, reset
 time, source and observation age. Expired or missing observations read "unknown",
-never "100% left"; missing standard windows read "not reported". While a plan is at
+never "100% left"; missing standard windows read "not reported". While Quota protection is on and a plan is at
 70% or more, Usage & limits also shows one line for it with what protection is doing.
+With the switch off the plan meter remains, without a protection line.
