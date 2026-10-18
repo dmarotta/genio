@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import React, { act } from 'react'
+import fs from 'node:fs'
+import path from 'node:path'
 import { createRoot, type Root } from 'react-dom/client'
 import type { Project } from '../src/shared/types'
 import { worldList, worldPath } from '../src/renderer/src/lib/worlds'
@@ -27,6 +29,16 @@ async function click(text: string) {
   expect(button, text).toBeTruthy()
   await act(async () => button!.click())
 }
+const picker = () => host.querySelector<HTMLButtonElement>('[aria-label="Delivery"] button[aria-haspopup="listbox"]')!
+const rows = () => [...document.querySelectorAll<HTMLButtonElement>('[role="listbox"] [role="option"]')]
+const description = () => host.querySelector('[aria-label="Delivery"] .picker-desc')?.textContent
+async function openPicker() { if (picker().getAttribute('aria-expanded') !== 'true') await act(async () => picker().click()) }
+async function pick(name: string) {
+  await openPicker()
+  const row = rows().find((r) => r.textContent === name)
+  expect(row, name).toBeTruthy()
+  await act(async () => row!.click())
+}
 afterEach(async () => { if (root) await act(async () => root!.unmount()); root = undefined; document.body.innerHTML = ''; vi.clearAllMocks() })
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 describe('Project settings and registry helpers', () => {
@@ -40,9 +52,9 @@ describe('Project settings and registry helpers', () => {
     expect(host.textContent).not.toContain('C:/games/Other')
     expect(host.textContent).not.toContain('Settings saved with Zebra.')
     const select = (label: string) => [...host.querySelectorAll('label.field')].find(field => field.querySelector('.label')?.textContent === label)!.querySelector('select')!
-    await act(async () => { select('Delivery').value = 'direct-PR'; select('Delivery').dispatchEvent(new Event('change', { bubbles: true })) })
+    await pick('Standard')
     expect(fixture.update).toHaveBeenLastCalledWith('Zebra', { mode: 'direct-PR' })
-    await act(async () => { select('Delivery').value = 'auto'; select('Delivery').dispatchEvent(new Event('change', { bubbles: true })) })
+    await pick('Auto · Offline')
     expect(fixture.update).toHaveBeenLastCalledWith('Zebra', { modeSource: 'auto' })
     await act(async () => requestSystemsSection('project'))
     expect(host.querySelector('.sys-link.on')?.textContent).toBe('General')
@@ -140,6 +152,53 @@ describe('Project settings and registry helpers', () => {
     expect(buttons()).not.toContain('Push')
     await act(async () => host.querySelector<HTMLInputElement>('.toggle input')!.click())
     expect(document.body.textContent).toContain('Merge finished work automatically in Zebra?')
+  })
+  it('lists delivery modes by name only and describes the chosen or focused one below', async () => {
+    await mount('project-delivery')
+    expect(picker().textContent).toBe('Offline▾')
+    expect(description()).toBe('The unit leaves a clean local branch. After your approval (or Auto-loot) Genio fast-forwards it into your main branch on this computer. Nothing is pushed.')
+    expect(picker().getAttribute('aria-describedby')).toBe(host.querySelector('.picker-desc')!.id)
+    await openPicker()
+    expect(rows().map((r) => r.textContent)).toEqual(['Auto · Offline', 'Hardcore', 'Hardcore (prod)', 'Standard', 'Offline'])
+    expect(rows().filter((r) => r.getAttribute('aria-disabled') === 'true')).toHaveLength(0)
+    expect(document.activeElement?.textContent).toBe('Offline')
+    await act(async () => rows()[1].focus())
+    expect(description()).toContain('the Gauntlet runs: rebase check, lint, build and test, an AI review and fix rounds')
+    await act(async () => rows()[2].dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(description()).toBe('Hardcore for product work, Standard for internal tooling. Mixed or uncertain work counts as product.')
+    await act(async () => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })) })
+    expect(description()).toBe('The unit pushes its branch and opens a pull request itself. You (or Auto-loot) merge it once its checks are green.')
+    await act(async () => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+    expect(rows()).toHaveLength(0)
+    expect(document.activeElement).toBe(picker())
+    expect(description()).toContain('Nothing is pushed.')
+    expect(fixture.update).not.toHaveBeenCalled()
+  })
+  it('greys out modes that need a remote, says why, and never picks them by click or keyboard', async () => {
+    fixture.projects = [{ ...project('Zebra'), remote: undefined, modeSource: 'manual' }]
+    host = document.createElement('div'); document.body.append(host); root = createRoot(host)
+    await act(async () => root!.render(React.createElement(ThisProjectSettings, { page: 'project-delivery' })))
+    await openPicker()
+    const off = rows().filter((r) => r.getAttribute('aria-disabled') === 'true').map((r) => r.textContent)
+    expect(off).toEqual(['Hardcore', 'Hardcore (prod)', 'Standard'])
+    const css = fs.readFileSync(path.join(__dirname, '../src/renderer/src/components/Picker.css'), 'utf8')
+    expect(css).toMatch(/\.picker-row\[aria-disabled='true'\] \{ color: var\(--text-mute\); cursor: not-allowed; \}/)
+    const standard = rows().find((r) => r.textContent === 'Standard')!
+    await act(async () => standard.focus())
+    expect(description()).toBe('Zebra has no remote, so a PR cannot be opened: use Offline mode or add a remote.')
+    await act(async () => standard.click())
+    await act(async () => { standard.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); standard.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true })) })
+    expect(fixture.update).not.toHaveBeenCalled()
+    expect(rows()).toHaveLength(5)
+    await act(async () => rows().find((r) => r.textContent === 'Auto · Offline')!.click())
+    expect(fixture.update).toHaveBeenLastCalledWith('Zebra', { modeSource: 'auto' })
+  })
+  it('shows the picker off with the existing reason when the folder is not a git repo', async () => {
+    fixture.projects = [{ ...project('Zebra'), gitRepo: false }]
+    host = document.createElement('div'); document.body.append(host); root = createRoot(host)
+    await act(async () => root!.render(React.createElement(ThisProjectSettings, { page: 'project-delivery' })))
+    expect(picker().disabled).toBe(true)
+    expect(description()).toBe('Needs a git repo')
   })
   it('shows Commands on General, without the Playtest-only run row, and keeps a stored run command', async () => {
     await mount('project')

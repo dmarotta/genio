@@ -10,6 +10,7 @@ import { SettingsTitle } from '../components/SettingsTitle'
 import { USAGE_MODES, USAGE_MODE_LABEL, type UsageMode } from '@shared/usage-mode'
 import { PROJECT_WINDOW, api, errText, op, toast, useStore } from '../store'
 import { CommitInput, Confirm, Field, Modal, Toggle } from '../components/ui'
+import { Picker, type PickerOption } from '../components/Picker'
 import { ENGINE_LABEL, MODE_LABEL, PROJECT_MODES } from '../lib/vocab'
 import { detectedView, effectiveEngine, proposalLine } from '@shared/engine'
 import { supportsUnitySlots } from '@shared/play'
@@ -20,12 +21,12 @@ export type ProjectPageId = Extract<SettingsPageId, 'project' | 'project-deliver
 /** Commands units and checks run, with an example each. The run command (Playtest only) is no longer shown; a stored one is kept as is. */
 const COMMANDS: [keyof ProjectCommands, string][] = [['setup', 'npm ci'], ['build', 'dotnet build'], ['test', 'npm test'], ['lint', 'eslint .']]
 
-/** Delivery choices keep the game name first, then say what it does. */
-const DELIVERY_OPTION: Record<ProjectMode, string> = {
-  'no-mistakes': 'Hardcore: full checks and review, then a PR',
-  'direct-PR': 'Standard: the unit opens a PR itself',
-  'local-only': 'Offline: a local branch, merged on your word',
-  'no-mistakes-prod-only': 'Hardcore (prod): Hardcore for product work, Standard for tooling'
+/** How each delivery mode works, shown below the picker (wording from ARCHITECTURE.md and the glossary). */
+const DELIVERY_DESCRIPTION: Record<ProjectMode, string> = {
+  'no-mistakes': 'The unit commits, then the Gauntlet runs: rebase check, lint, build and test, an AI review and fix rounds with the unit. Then Genio pushes, opens the PR and waits for CI.',
+  'direct-PR': 'The unit pushes its branch and opens a pull request itself. You (or Auto-loot) merge it once its checks are green.',
+  'local-only': 'The unit leaves a clean local branch. After your approval (or Auto-loot) Genio fast-forwards it into your main branch on this computer. Nothing is pushed.',
+  'no-mistakes-prod-only': 'Hardcore for product work, Standard for internal tooling. Mixed or uncertain work counts as product.'
 }
 
 const projectUpdate =(p: Project, patch: Partial<Project>): void => { void op('Project', () => api().projectUpdate(p.name, patch)) }
@@ -89,23 +90,24 @@ function ProjectDelivery({ p }: { p: Project }) {
   const [confirmYolo, setConfirmYolo] = useState(false)
   const update = (patch: Partial<Project>): void => projectUpdate(p, patch)
   const noRepo = p.gitRepo === false
+  const options: PickerOption<ProjectMode | 'auto'>[] = [
+    { value: 'auto', label: `Auto · ${MODE_LABEL[p.mode]}`, description: `Follows the remote: GitHub → Standard, otherwise Offline. ${DELIVERY_DESCRIPTION[p.mode]}` },
+    ...PROJECT_MODES.map((m) => ({ value: m, label: MODE_LABEL[m], description: DELIVERY_DESCRIPTION[m],
+      unavailable: m !== 'local-only' && !p.remote ? `${p.name} has no remote, so a PR cannot be opened: use Offline mode or add a remote.` : undefined }))
+  ]
   return <>
     <div className="world-controls">
-      <Field label="Delivery" id={settingAnchor('Delivery')} hint={noRepo ? 'Needs a git repo' : undefined}>
-        <select
-          className="select"
+      <div className="field" id={settingAnchor('Delivery')} tabIndex={-1} role="group" aria-label="Delivery">
+        <span className="label">Delivery</span>
+        <Picker
+          label="Delivery"
           disabled={noRepo}
+          hint={noRepo ? 'Needs a git repo' : undefined}
           value={modeSourceOf(p) === 'auto' ? 'auto' : p.mode}
-          onChange={(e) => update(e.target.value === 'auto' ? { modeSource: 'auto' } : { mode: e.target.value as ProjectMode })}
-        >
-          <option value="auto">Auto · {MODE_LABEL[p.mode]} (follows the remote)</option>
-          {PROJECT_MODES.map((m) => (
-            <option key={m} value={m} disabled={m !== 'local-only' && !p.remote}>
-              {DELIVERY_OPTION[m]}
-            </option>
-          ))}
-        </select>
-      </Field>
+          options={options}
+          onChange={(v) => update(v === 'auto' ? { modeSource: 'auto' } : { mode: v })}
+        />
+      </div>
       <Field label="Merge finished work automatically" id={settingAnchor('Merge finished work automatically')}>
         <Toggle
           checked={p.yolo}

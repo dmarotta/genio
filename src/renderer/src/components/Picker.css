@@ -1,0 +1,14 @@
+/* The closed picker reads like a .select: the chosen name, then the caret at the far edge. */
+.picker { display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left; font: inherit; cursor: pointer; }
+.picker:disabled { color: var(--text-mute); cursor: not-allowed; }
+.picker-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Rows share the trigger's 9px 12px padding, so the names line up with the closed value. */
+.picker-list { display: flex; flex-direction: column; gap: 2px; padding: 6px; box-sizing: border-box; max-width: calc(100vw - 16px);
+  background: var(--surface-3); border: 1px solid var(--line-strong); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); }
+.picker-row { padding: 9px 12px; text-align: left; background: none; border: 1px solid transparent; color: var(--text); font: inherit; font-size: 13px; cursor: pointer; outline: none; white-space: nowrap; }
+.picker-row.on { background: var(--neon-soft); border-color: var(--line-strong); }
+.picker-row[aria-selected='true'] { color: var(--neon); }
+.picker-row[aria-disabled='true'] { color: var(--text-mute); cursor: not-allowed; }
+.picker-row[aria-disabled='true'].on { background: rgba(255, 255, 255, 0.03); border-color: var(--line); }
+.picker-wrap { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.picker-desc { max-width: 60ch; overflow-wrap: anywhere; }

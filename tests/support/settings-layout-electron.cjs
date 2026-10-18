@@ -72,6 +72,28 @@ app.whenReady().then(async () => {
       await save(`short-${label.toLowerCase().replace(/\W+/g, '-')}-${size.name}`)
     }
 
+    // The fixture has no remote: the PR modes are grey, and hovering one says why below the picker.
+    await open('project', 'Delivery')
+    await js(`document.querySelector('[aria-label="Delivery"] button[aria-haspopup="listbox"]').click()`)
+    await until(`!!document.querySelector('[role="listbox"] [role="option"]')`, 'Delivery list')
+    const at = await js(`(() => { const r = [...document.querySelectorAll('[role="option"]')].find(o => o.textContent === 'Standard').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) } })()`)
+    // A hidden window handles input only as it paints: move in from outside the row, a frame after each move.
+    for (const point of [{ x: at.x, y: at.y - 200 }, at]) { win.webContents.sendInputEvent({ type: 'mouseMove', ...point }); await shot() }
+    await until(`document.querySelector('.picker-desc')?.textContent.includes('has no remote')`, 'reason on hover')
+    const p = await js(`(() => {
+      const rows = [...document.querySelectorAll('[role="option"]')], list = document.querySelector('[role="listbox"]'), desc = document.querySelector('.picker-desc')
+      const inView = r => r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight
+      const look = o => { const s = getComputedStyle(o); return { color: s.color, cursor: s.cursor, pad: [s.paddingTop, s.paddingLeft].map(parseFloat) } }
+      const off = rows.filter(o => o.getAttribute('aria-disabled') === 'true').map(look), on = rows.filter(o => o.getAttribute('aria-disabled') !== 'true').map(look)
+      return { names: rows.map(o => o.textContent), off, on, listInView: inView(list.getBoundingClientRect()), descInView: desc.getBoundingClientRect().right <= innerWidth,
+        descShown: (r => document.elementFromPoint(r.left + 4, r.top + r.height / 2) === desc)(desc.getBoundingClientRect()) }
+    })()`)
+    check(`${size.name} Delivery picker`, p.names.join('|') === 'Auto · Offline|Hardcore|Hardcore (prod)|Standard|Offline' && p.off.length === 3 && p.on.length === 2 &&
+      p.off.every(o => o.cursor === 'not-allowed' && o.color !== p.on[0].color) && [...p.off, ...p.on].every(o => o.pad[0] >= 8 && o.pad[1] >= 12) && p.listInView && p.descInView && (p.descShown || size.height < 640), p)
+    await save(`delivery-picker-${size.name}`)
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+    await until(`!document.querySelector('[role="listbox"]')`, 'Esc closes the Delivery list')
+
     await open('project', 'Delivery')
     await js(`[...document.querySelectorAll('label.field')].find(f => f.querySelector('.label')?.textContent === 'Merge finished work automatically').querySelector('input').click()`)
     await until(`!!document.querySelector('[role="dialog"]')`, 'Auto-loot confirm')

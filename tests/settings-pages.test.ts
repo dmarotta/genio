@@ -358,7 +358,7 @@ describe('search index', () => {
     expect(SETTINGS_PAGES.every((p) => SETTINGS_INDEX.filter((e) => !e.anchor && e.page === p.id).length === 1)).toBe(true)
   })
 
-  it('shows a helper line only where it says what the control cannot: the unit cap, what OpenRouter sends and where the voice runs', async () => {
+  it('shows a helper line only where it says what the control cannot: the unit cap, what OpenRouter sends, how the delivery mode works and where the voice runs', async () => {
     f.settings = { ...defaultSettings(), eventSources: [{ id: 't', name: 'Nightly', command: 'git log -1', intervalSec: 3600, trigger: 'match', enabled: true }],
       dispatchRules: [{ id: 'r', match: 'shader', kind: 'any', candidates: [{ harness: 'claude', spendPriority: 0 }] }] }
     await mount()
@@ -369,7 +369,7 @@ describe('search index', () => {
         if (el.querySelector('.sys-row-hint, .field-hint')) hinted.push(el.querySelector('.sys-row-title, .label')?.textContent ?? '')
       }
     }
-    expect(hinted).toEqual(['Max units at once', 'OpenRouter models', 'Read replies aloud', 'Quota protection'])
+    expect(hinted).toEqual(['Max units at once', 'OpenRouter models', 'Delivery', 'Read replies aloud', 'Quota protection'])
   })
 
   describe('the Voice drop-down under Read replies aloud', () => {
