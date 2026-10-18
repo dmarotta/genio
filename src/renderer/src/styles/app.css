@@ -743,24 +743,18 @@ body:has(.answers-float .answer-card) .toasts { right: calc(min(380px, 100vw - 2
 .stats-card { padding: 22px; display: flex; align-items: center; gap: 28px; }
 .stats-card .stat-tiles { flex: 1; min-width: 0; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); }
 .level-big { display: flex; align-items: center; gap: 20px; flex: 0 0 352px; }
-/* playstyle title: one line beside the level, with its evidence under the XP */
+/* level title: one line beside the level, the next title under it */
 .lv-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 22px; }
-.ps-title {
+.lv-title {
   --c: var(--neon);
-  position: relative; display: inline-flex; align-items: center; gap: 6px; min-width: 0; height: 22px; padding: 0 8px;
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0; height: 22px; padding: 0 8px;
   font-family: var(--font-display); font-size: 13px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; white-space: nowrap;
   color: var(--c); border: 1px solid color-mix(in srgb, var(--c) 40%, transparent); background: color-mix(in srgb, var(--c) 8%, transparent);
   clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
-  transition: background 0.15s var(--ease), border-color 0.15s;
 }
-.ps-title.ps-scout { --c: var(--violet); }
-.ps-title.ps-adventurer { --c: var(--text-dim); }
-.ps-name { overflow: hidden; text-overflow: ellipsis; }
-.ps-caret { opacity: 0.7; flex: none; }
-.ps-title.equip { cursor: pointer; }
-.ps-title.equip:hover, .ps-title.equip:focus-within { background: color-mix(in srgb, var(--c) 16%, transparent); border-color: var(--c); text-shadow: 0 0 8px var(--c); }
-.ps-title select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: 0; padding: 0; }
-.ps-title select option { background: var(--surface-2); color: var(--text); text-transform: none; letter-spacing: normal; }
+.lv-title svg { flex: none; }
+.lv-title-name { overflow: hidden; text-overflow: ellipsis; }
+.lv-next { margin-top: 4px; font-size: 12px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* landings heatmap */
 .landings { flex: 0 0 auto; align-self: stretch; display: flex; flex-direction: column; justify-content: center; gap: 6px; padding-left: 24px; border-left: 1px solid var(--line); }
 .landings-head { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; }

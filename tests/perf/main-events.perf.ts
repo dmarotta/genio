@@ -56,7 +56,6 @@ function buildCtx(seed: SeededBase): AppCtx {
   const projectHome = new Home(seed.projectHome, seed.wksp, mainHome); projectHome.ensure()
   const projects = JSON.parse(fs.readFileSync(path.join(seed.mainHome, 'data', 'projects.json'), 'utf8'))
   const allies = JSON.parse(fs.readFileSync(path.join(seed.mainHome, 'data', 'allies.json'), 'utf8'))
-  const outcomes = JSON.parse(fs.readFileSync(path.join(seed.mainHome, 'data', 'dispatch', 'scorecard.json'), 'utf8'))
   const terminals = new Map<string, { id: string; alive: boolean; lastOutputAt?: number; cwd: string; taskId?: string; title: string; kind: string; cols: number; rows: number }>()
   const ctx = {
     appRoot: seed.root, homes: new Map<string, HomeCtx>(),
@@ -70,7 +69,7 @@ function buildCtx(seed: SeededBase): AppCtx {
     allies: { list: () => [...allies] },
     away: { state: () => ({ mode: 'online', held: [], returnSummaryPending: false }) },
     inbox: { list: () => [] },
-    dispatch: { outcomes: () => [...outcomes], pendingUnits: () => [], record: () => undefined, capacity: () => ({ cap: 4, used: 1 }), quotaWait: () => undefined },
+    dispatch: { pendingUnits: () => [], record: () => undefined, capacity: () => ({ cap: 4, used: 1 }), quotaWait: () => undefined },
     notifier: { sfx: () => undefined, notify: () => undefined }, ledger: { record: () => undefined },
     permissions: { pending: () => [] }
   } as unknown as AppCtx

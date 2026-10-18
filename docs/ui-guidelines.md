@@ -101,6 +101,9 @@ On main now:
   weight, editor hints and saved toast; the Lore title that repeated the list; the Modeller's clay and turntable
   toggles and step parts; the project name and "uncommitted" line on generation cards; and the first-run screen's
   step labels, tagline, explanations and project-loaded toast.
+- **The Character Sheet's playstyle title picker** (2026-10-18). Gone: the title drop-down with its
+  "Follow playstyle" option, the equip action and the Title earned toast. The title is
+  now the level's own, with one muted line for the next one; there is nothing to choose.
 
 Also removed or being removed from the unit pages, described generally because they have not
 all reached main yet:

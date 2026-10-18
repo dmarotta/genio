@@ -971,29 +971,10 @@ export interface FleetStats {
   xpNext: number
   streakDays: number
   achievements: Achievement[]
-  playstyle: PlaystyleView
   /** 8 local-calendar weeks, Monday first, oldest first (src/main/landings.ts) */
   landings: LandingDay[]
   /** pinned achievement ids, in pin order (at most three, all unlocked) */
   pins: string[]
-}
-
-/** Playstyle families, from the category of recent landed missions (src/shared/playstyle.ts). */
-export type PlaystyleId = 'builder' | 'scout' | 'artificer' | 'warden'
-export type PlaystyleTitleId = PlaystyleId | 'adventurer'
-
-export interface PlaystyleView {
-  /** what the last landed missions say right now */
-  current: PlaystyleTitleId
-  /** the title on the sheet: the equipped one, else the current one */
-  shown: PlaystyleTitleId
-  equipped?: PlaystyleId
-  /** the evidence behind `current`, with counts */
-  why: string
-  samples: number
-  counts: Record<PlaystyleId, number>
-  /** titles ever earned stay available to equip */
-  earned: { id: PlaystyleId; at: string }[]
 }
 
 export interface LandingDay {

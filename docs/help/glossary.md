@@ -355,6 +355,15 @@ sheet but never unlock again.
 Where: Character Sheet in the rail (Ctrl+5).
 Source: [ARCHITECTURE.md](../ARCHITECTURE.md)
 
+## Level titles
+
+Every level up to 40 has its own title, from Recruit through ranks like Operator Mk I, Mk II and Mk III to Living
+Legend; past level 40 the last title stays. You do not pick it: the sheet always shows your level's title, with one
+quiet line naming the next title and the level it comes at. XP comes from real outcomes (deploys, recons, merges,
+answered choices). The old playstyle titles (Builder, Scout, Artificer, Warden, Adventurer) are gone.
+Where: Character Sheet in the rail (Ctrl+5), beside your level.
+Source: [ARCHITECTURE.md](../ARCHITECTURE.md)
+
 ## Play
 
 The screen where you play a Unity project inside Genio, from its own private copy and hidden editor. One toolbar

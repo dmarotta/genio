@@ -3,10 +3,9 @@
  * every award is triggered by an actual event (deploy, loot, merge, ...).
  * Persisted in the main base's data/stats.json.
  */
-import type { Achievement, FleetStats, PlaystyleId, PlaystyleView, Task } from '@shared/types'
+import type { Achievement, FleetStats, Task } from '@shared/types'
 import type { OpResult } from '@shared/api'
-import type { OutcomeRecord } from '@shared/dispatch'
-import { PLAYSTYLES, classifyPlaystyle, isPlaystyleId, titleName } from '@shared/playstyle'
+import { levelTitle } from '@shared/level-titles'
 import { bus } from './bus'
 import { landedDaysInWeek, landingWindow, loadLandingLog, observeDay, recordLanding, type LandingLog } from './landings'
 import type { AppCtx, StatsService } from './services'
@@ -144,8 +143,10 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { feature: 'squad', id: 'janitor', name: 'Janitor', description: 'Despawn 25 units cleanly.' },
   { feature: 'systems', id: 'big-spender', name: 'Big Spender', description: 'Spend $50 of model time in total.' },
   { feature: 'squad', id: 'hardcore-hero', name: 'Hardcore Hero', description: 'Finish 10 Hardcore builds through the Gauntlet checks.' },
-  { feature: 'status', id: 'title-earned', name: 'Found Your Style', description: 'Earn a playstyle title from your landed missions.' },
-  { feature: 'status', id: 'title-equip', name: 'Dress the Part', description: 'Equip an earned playstyle title.' },
+  // Retired with the playstyle titles: the title now follows the level. Earned dates stay.
+  { feature: 'status', id: 'title-earned', name: 'Found Your Style', description: 'Earn a playstyle title from your landed missions.', retired: true },
+  { feature: 'status', id: 'title-equip', name: 'Dress the Part', description: 'Equip an earned playstyle title.', retired: true },
+  { feature: 'status', id: 'rank-up', name: 'Rank Up', description: 'Level up to a new title.' },
   { feature: 'status', id: 'trophy-pin', name: 'Trophy Case', description: 'Pin an achievement to your Character Sheet.' },
   { feature: 'status', id: 'busy-week', name: 'Busy Week', description: 'Record landings on 5 different days in one week.' }
 ]
@@ -169,11 +170,9 @@ interface StatsFile {
   assetIds: Record<string, true>
   awarded: Record<string, string[]>
   landings: LandingLog
-  /** playstyle titles ever earned -> when */
-  titles: Partial<Record<PlaystyleId, string>>
   /** player preferences for the sheet */
-  equippedTitle?: PlaystyleId
   pins: string[]
+  // Older files also hold `titles` and `equippedTitle` from the retired playstyle titles: kept as is, never read.
 }
 
 const LIVE_STATES = new Set<Task['state']>(['spawning', 'working', 'paused', 'blocked', 'needs-decision', 'validating', 'stale'])
@@ -199,7 +198,6 @@ function fresh(): StatsFile {
     assetIds: {},
     awarded: {},
     landings: loadLandingLog(undefined),
-    titles: {},
     pins: []
   }
 }
@@ -224,9 +222,7 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
       pruneAssetIds(data)
       data.activeDays = Array.isArray(data.activeDays) ? data.activeDays : []
       data.landings = loadLandingLog(raw.landings)
-      data.titles = data.titles && typeof data.titles === 'object' ? data.titles : {}
       data.pins = Array.isArray(data.pins) ? [...new Set(data.pins.filter((id) => typeof id === 'string' && data!.achievements[id]))].slice(0, MAX_PINS) : []
-      if (!isPlaystyleId(data.equippedTitle) || !data.titles[data.equippedTitle]) delete data.equippedTitle
     }
     rollDay(data)
     // Genio is running today: a quiet day reads as zero landings, not unknown.
@@ -280,14 +276,16 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
   function addXp(d: StatsFile, amount: number): void {
     d.totalXp += amount
     d.xp += amount
-    let leveled = false
+    const before = d.level
     while (d.xp >= xpForLevel(d.level)) {
       d.xp -= xpForLevel(d.level)
       d.level++
-      leveled = true
     }
-    if (leveled) {
-      bus.toast('success', `LEVEL UP // LV ${d.level}`, 'Your squad grows stronger.')
+    if (d.level > before) {
+      const title = levelTitle(d.level)
+      const ranked = title !== levelTitle(before)
+      bus.toast('success', `LEVEL UP // LV ${d.level}`, ranked ? `New title: ${title}.` : 'Your squad grows stronger.')
+      if (ranked) svc.unlock('rank-up')
       try {
         getCtx().notifier.sfx('levelup')
       } catch {
@@ -317,39 +315,6 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
     }
   }
 
-  /** Scorecard outcomes, oldest first; none when dispatch is not wired. */
-  function outcomes(): OutcomeRecord[] {
-    try {
-      return getCtx().dispatch.outcomes()
-    } catch {
-      return []
-    }
-  }
-
-  function playstyle(d: StatsFile): PlaystyleView {
-    const reading = classifyPlaystyle(outcomes())
-    const earned = PLAYSTYLES.flatMap((p) => (d.titles[p.id] ? [{ id: p.id, at: d.titles[p.id] as string }] : []))
-    return {
-      current: reading.title,
-      shown: d.equippedTitle ?? reading.title,
-      ...(d.equippedTitle ? { equipped: d.equippedTitle } : {}),
-      why: reading.why,
-      samples: reading.samples,
-      counts: reading.counts,
-      earned
-    }
-  }
-
-  /** Keep a title the recent landings earn; earned titles are never taken away. */
-  function earnTitle(d: StatsFile): boolean {
-    const { title } = classifyPlaystyle(outcomes())
-    if (title === 'adventurer' || d.titles[title]) return false
-    d.titles[title] = nowIso()
-    bus.toast('success', `TITLE EARNED // ${titleName(title).toUpperCase()}`, 'Equip it on your Character Sheet.')
-    svc.unlock('title-earned')
-    return true
-  }
-
   function land(d: StatsFile, kind: 'build' | 'recon', taskId?: string): void {
     if (!recordLanding(d.landings, kind, { taskId, questId: findTask(taskId)?.backlogId })) return
     if (landedDaysInWeek(d.landings) >= 5) svc.unlock('busy-week')
@@ -376,7 +341,6 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
         xpNext: xpForLevel(d.level),
         streakDays: streak(d),
         achievements: ACHIEVEMENTS.flatMap((a) => (d.achievements[a.id] ? [{ ...a, unlockedAt: d.achievements[a.id] }] : a.retired ? [] : [a])),
-        playstyle: playstyle(d),
         landings: landingWindow(d.landings),
         pins: d.pins.filter((id) => d.achievements[id])
       }
@@ -399,20 +363,6 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
       svc.unlock('trophy-pin')
       save()
       return { ok: true, message: `Pinned ${def.name}.` }
-    },
-
-    equipTitle(id): OpResult {
-      const d = load()
-      if (id === null) {
-        delete d.equippedTitle
-        save()
-        return { ok: true, message: 'Title follows your playstyle.' }
-      }
-      if (!isPlaystyleId(id) || !d.titles[id]) return { ok: false, message: `${titleName(id)} has not been earned yet.` }
-      d.equippedTitle = id
-      svc.unlock('title-equip')
-      save()
-      return { ok: true, message: `Equipped ${titleName(id)}.` }
     },
 
     award(event, taskId) {
@@ -442,7 +392,6 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
           svc.unlock('recon-first')
           if (d.scoutsTotal >= 10) svc.unlock('recon-expert')
           land(d, 'recon', taskId)
-          earnTitle(d)
           break
         case 'ship':
           // a ready branch or open PR earns XP; the Shipped tiles wait for the merge
@@ -462,7 +411,6 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
           if (h >= 0 && h < 5) svc.unlock('night-owl')
           if (d.mergesToday >= 5) svc.unlock('combo-x5')
           land(d, 'build', taskId)
-          earnTitle(d)
           break
         }
         case 'decision':
@@ -522,8 +470,6 @@ export function createStatsService(getCtx: () => AppCtx): StatsService {
         plan_create: 'plan-first', 'plan-done': 'plan-done', 'shell-command': 'shell-command', 'unit-references': 'unit-references'
       }
       if (ids[ev.feature]) svc.unlock(ids[ev.feature])
-      // titles earned by history from before this build show up on the next visit
-      if (ev.feature === 'character-sheet' && earnTitle(load())) save()
       if (ev.feature === 'unit-image' && ev.id) asset('unit-image', ev.id, ev.count)
       if (ev.feature === 'chat-image' && ev.id) asset('chat-image', ev.id, ev.count)
     } else if (ev.type === 'chat') {

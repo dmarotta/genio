@@ -396,8 +396,6 @@ export function createDispatchService(getCtx: () => AppCtx): DispatchService {
       return { rows: scoreTable(scorecard().list()), recent, log: readLearning(dataDir()) }
     },
 
-    outcomes: () => scorecard().list(),
-
     learn() {
       // The scorecard never changes a model by itself: it only proposes a change to the player's own rows and rules.
       const ctx = getCtx()

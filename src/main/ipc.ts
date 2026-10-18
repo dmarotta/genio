@@ -258,7 +258,6 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
       if (feature === 'screenshot' || feature === 'model-picker' || feature === 'character-sheet' || feature === 'play-fullscreen') bus.publish({ type: 'feature-used', feature })
     },
     trophyPin: (id, pinned) => ctx().stats.pin(String(id), pinned === true),
-    titleEquip: (id) => ctx().stats.equipTitle(id ?? null),
     snapshot: () => ctx().snapshot(),
     homePath: () => ctx().main.home.root,
     getSettings: () => ctx().settings.get(),

@@ -122,6 +122,19 @@ when a feature tag points at nothing live; when source unlocks an unknown or
 retired id; and when a live achievement has no unlock. Keeping them current is
 a repo rule in `AGENTS.md` at the repository root.
 
+## Levels and titles
+
+XP and levels live in `src/main/stats.ts` (`xpForLevel` is the curve). Each
+level has one title from the single list in `src/shared/level-titles.ts`: a
+distinct title for every level up to `TITLE_CAP` (40), with repeated families
+numbered Mk I, Mk II, Mk III; past the cap the last title stays. The player
+never chooses it: the Character Sheet shows the current level's title and one
+muted line with the next title and its level (none at the cap). The level-up
+toast names the new title, and the first new title unlocks Rank Up
+(`rank-up`). The playstyle titles they replace are gone; the `titles` and
+`equippedTitle` fields older `stats.json` files hold are kept but never read,
+and their achievements (`title-earned`, `title-equip`) are retired.
+
 ## Process layout
 
 ```

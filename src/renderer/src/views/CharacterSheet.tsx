@@ -1,9 +1,9 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { layerRoot } from '../components/Layer'
-import { ChevronDown, Compass, Flame, Hammer, Lock, Palette, Pin, Shield, Swords, Trophy, type LucideIcon } from 'lucide-react'
-import type { Achievement, LandingDay, PlaystyleId, PlaystyleTitleId, PlaystyleView } from '@shared/types'
-import { titleName } from '@shared/playstyle'
+import { Award, Crown, Flame, Lock, Medal, Pin, Shield, Trophy, type LucideIcon } from 'lucide-react'
+import type { Achievement, LandingDay } from '@shared/types'
+import { levelTitle, nextTitle } from '@shared/level-titles'
 import { api, errText, toast, useStore } from '../store'
 import { ViewHeader } from '../components/ui'
 import { cx, dateShort } from '../lib/format'
@@ -24,9 +24,10 @@ export function CharacterSheet() {
   const pins = stats.pins ?? []
   const pinned = pins.map((id) => stats.achievements.find((a) => a.id === id)).filter((a): a is Achievement => Boolean(a?.unlockedAt))
   const ordered = [...pinned, ...stats.achievements.filter((a) => !pinned.includes(a))]
+  const next = nextTitle(stats.level)
   useScreenContext('status', { facts: [
     { label: 'Level', value: `${stats.level} · ${stats.xp}/${stats.xpNext} XP · ${stats.streakDays}-day streak` },
-    { label: 'Playstyle', value: `${titleName(stats.playstyle.shown)}${stats.playstyle.why ? ` · ${stats.playstyle.why}` : ''}` },
+    { label: 'Title', value: `${levelTitle(stats.level)}${next ? ` · next: ${next.title} at level ${next.level}` : ''}` },
     { label: 'Achievements', value: `${unlocked} of ${counted.length} unlocked${pinned.length ? ` · pinned: ${pinned.map((a) => a.name).join(', ')}` : ''}` }
   ] })
 
@@ -42,7 +43,7 @@ export function CharacterSheet() {
             </svg>
             <div className="lv-num num">{stats.level}</div>
           </div>
-          <Playstyle p={stats.playstyle} pct={pct} xp={`${stats.xp} / ${stats.xpNext} XP`} />
+          <LevelMeta level={stats.level} pct={pct} xp={`${stats.xp} / ${stats.xpNext} XP`} />
         </div>
         <div className="stat-tiles">
           <Tile label="Shipped total" value={stats.shippedTotal} tone="neon" />
@@ -66,42 +67,23 @@ export function CharacterSheet() {
   )
 }
 
-const TITLE_ICON: Record<PlaystyleTitleId, LucideIcon> = { builder: Hammer, scout: Compass, artificer: Palette, warden: Shield, adventurer: Swords }
+/** One rank icon per band of the title ladder. */
+const rankIcon = (level: number): LucideIcon => (level < 12 ? Shield : level < 21 ? Medal : level < 33 ? Award : Crown)
 
-/** Level meta: "Level" with the playstyle title on one line, then XP. */
-function Playstyle({ p, pct, xp }: { p: PlaystyleView; pct: number; xp: string }) {
-  const Icon = TITLE_ICON[p.shown] ?? Swords
-  const face = (
-    <>
-      <Icon size={13} aria-hidden />
-      <span className="ps-name">{titleName(p.shown)}</span>
-    </>
-  )
-  const equip = (value: string): void => {
-    const id = (value || null) as PlaystyleId | null
-    void api().titleEquip(id)
-      .then((r) => { if (!r.ok) toast('warn', 'Title not equipped', r.message) })
-      .catch((e) => toast('error', 'Title not equipped', errText(e)))
-  }
+/** Level meta: "Level" with the level's title on one line, the next title, then XP. */
+function LevelMeta({ level, pct, xp }: { level: number; pct: number; xp: string }) {
+  const Icon = rankIcon(level)
+  const next = nextTitle(level)
   return (
     <div className="lv-meta">
       <div className="lv-line">
         <span className="label">Level</span>
-        {p.earned.length ? (
-          <span className={cx('ps-title', 'equip', `ps-${p.shown}`)}>
-            {face}
-            <ChevronDown size={12} aria-hidden className="ps-caret" />
-            <select aria-label="Playstyle title" value={p.equipped ?? ''} onChange={(e) => equip(e.target.value)}>
-              <option value="">Follow playstyle ({titleName(p.current)})</option>
-              {p.earned.map((t) => (
-                <option key={t.id} value={t.id}>{titleName(t.id)}</option>
-              ))}
-            </select>
-          </span>
-        ) : (
-          <span className={cx('ps-title', `ps-${p.shown}`)}>{face}</span>
-        )}
+        <span className="lv-title">
+          <Icon size={13} aria-hidden />
+          <span className="lv-title-name">{levelTitle(level)}</span>
+        </span>
       </div>
+      {next && <div className="lv-next mute">Next: {next.title} at level {next.level}</div>}
       <div className="bar" style={{ ['--c' as string]: 'var(--volt)', marginTop: 8 }}>
         <i style={{ width: `${pct}%` }} />
       </div>

@@ -3,7 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bus } from '../src/main/bus'
-import { ASSET_IDS_KEEP, createStatsService } from '../src/main/stats'
+import { ASSET_IDS_KEEP, createStatsService, xpForLevel } from '../src/main/stats'
+import { TITLE_CAP } from '../src/shared/level-titles'
 import type { AppCtx } from '../src/main/services'
 import type { GenioEvent, Task } from '../src/shared/types'
 
@@ -193,36 +194,49 @@ describe('trophy pins', () => {
   })
 })
 
-describe('playstyle titles', () => {
-  let records: { kind: string; category: string; landed: boolean }[]
-  beforeEach(() => {
-    records = []
-    Object.assign(ctx, { dispatch: { outcomes: () => records } })
-  })
-  it('earns a title from landings, keeps it after play changes and lets the player equip it', () => {
+describe('level titles', () => {
+  const statsFile = (): string => path.join(dir, 'stats.json')
+  const toasts = (): string[] => {
+    const seen: string[] = []
+    bus.onEvent((e) => { if (e.type === 'toast') seen.push(`${e.title} | ${e.body}`) })
+    return seen
+  }
+  it('names the new title in the level-up toast and unlocks Rank Up', () => {
+    fs.writeFileSync(statsFile(), JSON.stringify({ level: 1, xp: xpForLevel(1) - 5 }))
     const svc = createStatsService(() => ctx)
-    records = Array.from({ length: 5 }, () => ({ kind: 'ship', category: 'tests', landed: true }))
-    task = { id: 't', kind: 'ship', state: 'merged', createdAt: '2020-01-01T00:00:00Z' } as Task
-    svc.award('merge', 't')
-    expect(svc.get().playstyle).toMatchObject({ current: 'warden', shown: 'warden', samples: 5 })
-    expect(svc.get().playstyle.earned.map((e) => e.id)).toEqual(['warden'])
-    expect(svc.get().achievements.find((a) => a.id === 'title-earned')?.unlockedAt).toBeTruthy()
-
-    records = Array.from({ length: 20 }, () => ({ kind: 'scout', category: 'recon-design', landed: true }))
-    expect(svc.equipTitle('scout')).toMatchObject({ ok: false })
-    expect(svc.equipTitle('warden').ok).toBe(true)
-    bus.removeAllListeners('event')
-    const again = createStatsService(() => ctx).get().playstyle
-    expect(again).toMatchObject({ current: 'scout', shown: 'warden', equipped: 'warden' })
-    expect(again.earned.map((e) => e.id)).toEqual(['warden'])
+    const seen = toasts()
+    svc.award('spawn')
+    expect(svc.get().level).toBe(2)
+    expect(seen).toEqual(['LEVEL UP // LV 2 | New title: Rookie.'])
+    expect(svc.get().achievements.find((a) => a.id === 'rank-up')?.unlockedAt).toBeTruthy()
   })
-  it('stays Adventurer without enough evidence and picks up older history on a sheet visit', () => {
+  it('keeps the last title past the cap, with no Rank Up', () => {
+    fs.writeFileSync(statsFile(), JSON.stringify({ level: TITLE_CAP, xp: xpForLevel(TITLE_CAP) - 5 }))
     const svc = createStatsService(() => ctx)
-    expect(svc.get().playstyle).toMatchObject({ current: 'adventurer', shown: 'adventurer', earned: [] })
-    records = Array.from({ length: 6 }, () => ({ kind: 'ship', category: 'art', landed: true }))
-    publish({ type: 'feature-used', feature: 'character-sheet' })
-    expect(svc.get().playstyle.earned.map((e) => e.id)).toEqual(['artificer'])
-    expect(svc.equipTitle(null).ok).toBe(true)
-    expect(svc.get().playstyle.shown).toBe('artificer')
+    const seen = toasts()
+    svc.award('spawn')
+    expect(svc.get().level).toBe(TITLE_CAP + 1)
+    expect(seen).toEqual([`LEVEL UP // LV ${TITLE_CAP + 1} | Your squad grows stronger.`])
+    expect(svc.get().achievements.find((a) => a.id === 'rank-up')?.unlockedAt).toBeUndefined()
+  })
+  it('reads old stats with playstyle titles, keeps them on disk and never unlocks the retired title trophies', () => {
+    const old = {
+      level: 13, xp: 12421, totalXp: 90000,
+      achievements: { 'title-earned': '2026-10-10', 'first-blood': '2026-09-02' },
+      titles: { warden: '2026-10-10', builder: '2026-10-11' }, equippedTitle: 'warden', pins: ['title-earned']
+    }
+    fs.writeFileSync(statsFile(), JSON.stringify(old))
+    const svc = createStatsService(() => ctx)
+    const s = svc.get()
+    expect(s).toMatchObject({ level: 13, xp: 12421, xpNext: xpForLevel(13), pins: ['title-earned'] })
+    expect(s).not.toHaveProperty('playstyle')
+    expect(s.achievements.find((a) => a.id === 'title-earned')).toMatchObject({ unlockedAt: '2026-10-10', retired: true })
+    expect(s.achievements.some((a) => a.id === 'title-equip')).toBe(false)
+    expect(svc.unlock('title-earned')).toBeUndefined()
+    expect(svc.unlock('title-equip')).toBeUndefined()
+    svc.award('spawn')
+    const disk = JSON.parse(fs.readFileSync(statsFile(), 'utf8'))
+    expect(disk).toMatchObject({ titles: old.titles, equippedTitle: 'warden', achievements: old.achievements })
+    expect(disk.achievements['title-equip']).toBeUndefined()
   })
 })

@@ -5,10 +5,10 @@ import { createRoot, type Root } from 'react-dom/client'
 import type { BacklogItem, FleetStats, LandingDay, Task } from '../src/shared/types'
 import { getState, handleEvent, setState } from '../src/renderer/src/store'
 import { CharacterSheet } from '../src/renderer/src/views/CharacterSheet'
+import { TITLE_CAP } from '../src/shared/level-titles'
 
 const featureUsed = vi.fn().mockResolvedValue(undefined)
 const trophyPin = vi.fn().mockResolvedValue({ ok: true, message: '' })
-const titleEquip = vi.fn().mockResolvedValue({ ok: true, message: '' })
 let root: Root
 let host: HTMLDivElement
 const initial = getState()
@@ -18,7 +18,7 @@ const quest = (id: string, patch: Partial<BacklogItem> = {}): BacklogItem => ({
 })
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
-  Object.assign(window, { genio: { api: { featureUsed, trophyPin, titleEquip } } })
+  Object.assign(window, { genio: { api: { featureUsed, trophyPin } } })
   setState({ ...initial, snap: { ...initial.snap, stats: {
     ...initial.snap.stats, level: 3, xp: 40, xpNext: 100, shippedToday: 1, shippedTotal: 5,
     scoutsTotal: 2, streakDays: 7, costTodayUsd: 1.25,
@@ -78,28 +78,23 @@ const withStats = (patch: Partial<FleetStats>): void => {
   setState({ snap: { ...s.snap, stats: { ...s.snap.stats, ...patch } } })
 }
 
-it('shows the playstyle title on the level line, without its evidence, and equips earned titles', async () => {
-  withStats({ playstyle: {
-    current: 'warden', shown: 'warden', why: '13 of last 20 landings were fixes, tests, reviews or CI (65%)', samples: 20,
-    counts: { builder: 4, scout: 3, artificer: 0, warden: 13 }, earned: [{ id: 'builder', at: '2026-10-01' }, { id: 'warden', at: '2026-10-12' }]
-  } })
+it("shows the level's title on the level line and one quiet line for the next title, with nothing to choose", async () => {
+  withStats({ level: 13, xp: 12421, xpNext: 12761 })
   await mount(CharacterSheet)
-  const line = host.querySelector('.lv-line')!
-  expect(line.textContent).toContain('Level')
-  expect(line.textContent).toContain('Warden')
-  const select = line.querySelector('select')!
-  expect(select.getAttribute('aria-label')).toBe('Playstyle title')
-  expect(host.textContent).not.toContain('13 of last 20 landings')
-  expect([...select.options].map((o) => o.value)).toEqual(['', 'builder', 'warden'])
-  expect([...select.options].map((o) => o.textContent)).not.toContainEqual(expect.stringMatching(/earned/))
-  await act(async () => { select.value = 'builder'; select.dispatchEvent(new Event('change', { bubbles: true })) })
-  expect(titleEquip).toHaveBeenCalledWith('builder')
+  const meta = host.querySelector('.lv-meta')!
+  expect(meta.querySelector('.lv-line')?.textContent).toBe('LevelAce Mk II')
+  expect(meta.querySelector('.lv-next')?.textContent).toBe('Next: Ace Mk III at level 14')
+  expect(host.querySelectorAll('.lv-next')).toHaveLength(1)
+  expect(host.querySelector('.stats-card')?.querySelectorAll('select, button')).toHaveLength(0)
+  expect(host.textContent).not.toMatch(/playstyle|equip/i)
+  expect(host.textContent).toContain('12421 / 12761 XP')
 })
 
-it('shows an Adventurer without a picker until a title is earned', async () => {
+it('shows no teaser at the last title, which stays past it', async () => {
+  withStats({ level: TITLE_CAP + 3 })
   await mount(CharacterSheet)
-  expect(host.querySelector('.lv-line')?.textContent).toContain('Adventurer')
-  expect(host.querySelector('.lv-line select')).toBeNull()
+  expect(host.querySelector('.lv-line')?.textContent).toContain('Living Legend')
+  expect(host.querySelector('.lv-next')).toBeNull()
 })
 
 it('draws 8 weeks of landings in the stats row with unknown days and keyboard tooltips', async () => {

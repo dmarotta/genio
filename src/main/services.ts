@@ -12,7 +12,7 @@ import type {
   AwayMode, AwayEntry, AwayState, BacklogItem, StatusReport, ChatMessage, ShellRun, Decision, FleetSnapshot,
   FleetStats, HarnessAdapter, InboxNote, LedgerRecord, WkspInfo, PermissionRequest, Project, Ally,
   Settings, StatusEvent, Task, TerminalInfo, ToolStatus, UpdateInfo, Wake, WakeKind, Achievement,
-  DeliveryMode, SfxName, NotifyTarget, Verdict, TaskCounters, PlaystyleId, ReactionKind
+  DeliveryMode, SfxName, NotifyTarget, Verdict, TaskCounters, ReactionKind
 } from '@shared/types'
 import type {
   OpResult, ProjectAddRequest, ProjectInitRequest, AllyCreateRequest, SpawnRequest, TaskFile, MemoryFile,
@@ -163,8 +163,6 @@ export interface StatsService {
   unlock(id: string): Achievement | undefined
   /** pin or unpin an unlocked achievement at the front of the grid (at most three) */
   pin(id: string, pinned: boolean): OpResult
-  /** equip an earned playstyle title; null follows the current playstyle */
-  equipTitle(id: PlaystyleId | null): OpResult
 }
 
 export interface StatusReportService {
@@ -311,8 +309,6 @@ export interface DispatchService {
   /** the player's verdict on a unit */
   rate(taskId: string, verdict: Verdict, note?: string): OpResult
   scores(): DispatchScoresView
-  /** every scorecard outcome, oldest first (the Character Sheet playstyle) */
-  outcomes(): import('@shared/dispatch').OutcomeRecord[]
   /** reorder on clear evidence, propose rule/table changes as choices */
   learn(): void
   /** a choice was answered: apply an accepted dispatch proposal */

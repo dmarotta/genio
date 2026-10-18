@@ -7,7 +7,7 @@ import type { AllyControlsPatch, SendNowResult, UnqueuedChat } from './chat'
 import type {
   AwayMode, AwayState, BacklogItem, StatusReport, ChatMessage, DeliveryMode, Engine, FleetSnapshot,
   GenioEvent, LedgerRecord, Priority, Project, ProjectCommands, Ally, Settings, Task, TaskKind,
-  TerminalInfo, ToolStatus, UpdateInfo, Wake, Forge, Decision, InboxNote, ProjectMode, Loadout, LoadoutInput, TaskCategory, Verdict, PlaystyleId,
+  TerminalInfo, ToolStatus, UpdateInfo, Wake, Forge, Decision, InboxNote, ProjectMode, Loadout, LoadoutInput, TaskCategory, Verdict,
   ReactionKind, DesignChatInfo
 } from './types'
 import type { DispatchScoresView } from './dispatch'
@@ -623,8 +623,6 @@ export interface GenioApi {
   featureUsed(feature: 'screenshot' | 'model-picker' | 'character-sheet' | 'play-fullscreen'): Promise<void>
   /** Character Sheet: pin an unlocked achievement to the front of the grid (three at most) */
   trophyPin(id: string, pinned: boolean): Promise<OpResult>
-  /** Character Sheet: equip an earned playstyle title; null follows the current playstyle */
-  titleEquip(id: PlaystyleId | null): Promise<OpResult>
   snapshot(): Promise<FleetSnapshot>
   homePath(): Promise<string>
   getSettings(): Promise<Settings>
@@ -820,7 +818,6 @@ export const API_METHODS = [
   'voiceStatus', 'voiceInstall', 'voiceTranscribe', 'voiceOutputStatus', 'voiceOutputInstall', 'voiceOutputDecline', 'voiceSynth', 'voiceSynthCancel',
   'featureUsed',
   'trophyPin',
-  'titleEquip',
   'snapshot',
   'homePath',
   'getSettings',

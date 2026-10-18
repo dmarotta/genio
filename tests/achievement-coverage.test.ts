@@ -100,7 +100,9 @@ const RETIRED: Record<string, string> = {
   'modeller-rewind': 'the Modeller Steps tab lost Revert to N and Branch from N: the player steers in words, the unit runs the kernel itself',
   'reaction-like': 'the chat lost its like button: telling Genio it is on the right path does the same',
   'reaction-dislike': 'the chat lost its dislike button: telling Genio to stop and what is wrong does the same',
-  'smart-pick': 'Genio no longer picks a unit tool by itself to explore or to save quota: whatever the player set runs, else the one default model'
+  'smart-pick': 'Genio no longer picks a unit tool by itself to explore or to save quota: whatever the player set runs, else the one default model',
+  'title-earned': 'playstyle titles became level titles: each level has its own title, so there is nothing to earn apart from levelling up (Rank Up)',
+  'title-equip': 'playstyle titles became level titles: the title always follows the level, with nothing to choose or equip'
 }
 // Un-retired by the new Play screen (Step and the resolution dropdown by the minimal one): same ids, so earned dates carry over.
 const UNRETIRED = ['play-stream', 'play-input', 'play-fullscreen', 'play-step', 'play-resolution']
@@ -160,6 +162,8 @@ describe('achievement feature coverage', () => {
     expect(navItems().find((v) => v.label === 'Character Sheet')?.id).toBe('status')
     expect(ACHIEVEMENTS.find((a) => a.id === 'on-a-roll')?.feature).toBe('status')
     expect(ACHIEVEMENTS.find((a) => a.id === 'character-sheet-open')?.feature).toBe('status')
+    expect(ACHIEVEMENTS.find((a) => a.id === 'rank-up')?.feature).toBe('status')
+    expect(STATS).toMatch(/function addXp[\s\S]*?svc\.unlock\('rank-up'\)/)
     expect(navItems().some((v) => v.label === 'Status')).toBe(false)
   })
   it('keeps recent finished Squad rows under existing completion achievements', () => {
