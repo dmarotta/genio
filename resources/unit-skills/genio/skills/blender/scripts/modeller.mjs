@@ -247,11 +247,20 @@ export function planThreads(plan, threads) {
   return scripts.some((f) => BAKES.test(fs.readFileSync(f, 'utf8'))) ? os.availableParallelism() : undefined
 }
 
-/** One Blender for the whole plan; its plan.json goes into the first step's folder. */
+/**
+ * One Blender for the whole plan; its plan.json goes into the first step's folder. The step runner
+ * opens the base snapshot itself, so the receipt times its load (and the live modifiers it evaluates).
+ */
 function runPlan(m, dir, plan, base, { timeout, threads, runner, signal }) {
   const planFile = path.join(plan.steps[0].out, 'plan.json')
-  fs.writeFileSync(planFile, JSON.stringify(plan, null, 1))
-  return runBlender({ blender: m.blender.path, prefix: runner?.prefix ?? [], script: STEP_SCRIPT, blend: base.blend, args: [planFile], threads: planThreads(plan, threads), timeout, signal, scratch: path.join(dir, 'logs') })
+  fs.writeFileSync(planFile, JSON.stringify({ base: base.blend, ...plan }, null, 1))
+  return runBlender({ blender: m.blender.path, prefix: runner?.prefix ?? [], script: STEP_SCRIPT, args: [planFile], threads: planThreads(plan, threads), timeout, signal, scratch: path.join(dir, 'logs') })
+}
+
+/** A step's pair results for the next step's incremental checks (genio_step `pairs`), or null. */
+function pairsOf(receipt) {
+  const pairs = receipt?.checks?.pairs
+  return pairs ? { ...pairs, pierces: receipt.checks.pierces ?? [] } : null
 }
 
 function failureKind(run, receipt) {
@@ -320,8 +329,11 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
   const base = baseFor(m, dir, parent0)
   const plan = { replay: base.replay, steps: [], checks: m.checks, sheet_size: 512 }
   // The text review's "Changes" line compares the first step with its parent's parts (none: no parent;
-  // null: unknown, so no line), each later one with the step before it.
-  const previous = parent0 ? readJson(path.join(dir, 'steps', parent0, 'receipt.json'))?.parts ?? null : []
+  // null: unknown, so no line), each later one with the step before it; the checks examine only the
+  // pairs with a part changed since then.
+  const parentReceipt = parent0 ? readJson(path.join(dir, 'steps', parent0, 'receipt.json')) : null
+  const previous = parent0 ? parentReceipt?.parts ?? null : []
+  const pairs = pairsOf(parentReceipt)
   const staged = items.map((it, k) => {
     const n = m.next + k, id = stepId(n), staging = path.join(dir, 'steps', `.pending-${id}`)
     fs.rmSync(staging, { recursive: true, force: true })
@@ -330,7 +342,7 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
     // The lib.py as it is now: a later edit never changes what this step ran with.
     if (it.lib) fs.copyFileSync(it.lib, path.join(staging, 'lib.py'))
     const sheet = everySheet || k === items.length - 1
-    plan.steps.push({ out: staging, script: path.join(staging, 'script.py'), lib: it.lib && path.join(staging, 'lib.py'), outputs: ['blend', 'glb', ...(sheet ? ['sheet'] : [])], step: { id, n, name: it.name, model: m.model }, ...(k === 0 ? { previous } : {}) })
+    plan.steps.push({ out: staging, script: path.join(staging, 'script.py'), lib: it.lib && path.join(staging, 'lib.py'), outputs: ['blend', 'glb', ...(sheet ? ['sheet'] : [])], step: { id, n, name: it.name, model: m.model }, ...(k === 0 ? { previous, pairs } : {}) })
     return { ...it, id, n, staging }
   })
 
@@ -396,7 +408,7 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
   // published, with a warning; the next step replays its script when its snapshot is missing.
   const complete = (stopped) => {
     const k = completed, s = staged[k], entry = entries[k], final = path.join(dir, 'steps', s.id)
-    const receipt = marks[k].done ?? { ...readJson(path.join(final, 'receipt.json')), warnings: [`Blender stopped (${stopped}) after this step reached the live view: ${fs.existsSync(path.join(s.staging, 'model.blend')) ? 'it has no review sheet.' : 'it has no snapshot or review sheet; the next step replays its script.'}`] }
+    const receipt = marks[k].done ?? { ...readJson(path.join(final, 'receipt.json')), warnings: [`Blender stopped (${stopped}) after this step reached the live view: ${fs.existsSync(path.join(s.staging, 'model.blend')) ? 'it has no text review or review sheet; its snapshot is kept.' : 'it has no snapshot or review sheet; the next step replays its script.'}`] }
     for (const f of ['model.blend', 'sheet.png', 'view.png']) if (fs.existsSync(path.join(s.staging, f))) renameRetry(path.join(s.staging, f), path.join(final, f))
     fs.rmSync(s.staging, { recursive: true, force: true })
     const has = (f) => fs.existsSync(path.join(final, f))
@@ -551,33 +563,49 @@ function verifySnapshot(m, dir, id) {
   return { head: id, snapshot: intact ? file : null, intact }
 }
 
-/** Make sure a step has its .blend (rebuilding a pruned one by replay) and return its path. */
+/**
+ * Make sure a step has its .blend (rebuilding a pruned one by replay) and return its path: where an
+ * export starts. A step whose checks were incremental (pairs of unchanged parts kept their parent's
+ * results) also gets one check of every pair, in the same Blender: its `review` and `warnings` come
+ * back and stay in the step's receipt as `full_check`. A step checked in full returns its own.
+ */
 export async function materialize({ dataDir = modellerDataDir(), model, step: ref, timeout = STEP_TIMEOUT * 4, threads, runner } = {}) {
   const dir = modelDir(dataDir, model)
   return withLock(dir, async () => {
     const m = readManifest(dir)
     const s = ref ? resolveStep(m, ref) : byId(m, m.branches[m.branch].head)
     if (!s) throw new Error('This branch has no steps yet.')
-    if (s.files.blend && fs.existsSync(path.join(dir, s.files.blend))) return { ok: true, id: s.id, blend: path.join(dir, s.files.blend), replayed: 0 }
+    const receiptFile = path.join(dir, 'steps', s.id, 'receipt.json')
+    const r = readJson(receiptFile)
+    const check = r?.checks?.pairs?.full === false && !r.full_check
+    const reviewed = (x) => x ? { review: x.review ?? [], warnings: x.warnings ?? [] } : {}
+    const own = r?.checks?.pairs?.full ? r : r?.full_check
+    const kept = Boolean(s.files.blend && fs.existsSync(path.join(dir, s.files.blend)))
+    if (kept && !check) return { ok: true, id: s.id, blend: path.join(dir, s.files.blend), replayed: 0, ...reviewed(own) }
     checkPin(m)
-    const base = baseFor(m, dir, s.parent)
+    const base = kept ? { blend: path.join(dir, s.files.blend), replay: [] } : baseFor(m, dir, s.parent)
     const staging = path.join(dir, 'steps', `.rebuild-${s.id}`)
     fs.rmSync(staging, { recursive: true, force: true })
     fs.mkdirSync(staging, { recursive: true })
-    const plan = { replay: [...base.replay, replayOf(dir, s)], steps: [{ out: staging, script: null, outputs: ['blend'], step: { id: s.id, n: s.n, name: s.name, model: m.model } }], checks: m.checks }
+    const previous = s.parent ? readJson(path.join(dir, 'steps', s.parent, 'receipt.json'))?.parts ?? null : []
+    const item = { out: staging, script: null, outputs: [...(kept ? [] : ['blend']), ...(check ? ['check'] : [])], step: { id: s.id, n: s.n, name: s.name, model: m.model }, ...(check ? { full: true, previous } : {}) }
+    const plan = { replay: kept ? [] : [...base.replay, replayOf(dir, s)], steps: [item], checks: m.checks }
     const run = await runPlan(m, dir, plan, base, { timeout, threads, runner })
     const receipt = readJson(path.join(staging, 'receipt.json'))
     if (run.timedOut || run.code !== 0 || !receipt?.ok) {
       fs.rmSync(staging, { recursive: true, force: true })
-      throw new Error(`Rebuilding ${s.id} failed (${failureKind(run, receipt)}): ${receipt?.error ?? run.tail.slice(-800)}`)
+      throw new Error(`${kept ? 'Checking' : 'Rebuilding'} ${s.id} failed (${failureKind(run, receipt)}): ${receipt?.error ?? run.tail.slice(-800)}`)
     }
     const blend = path.join(dir, 'steps', s.id, 'model.blend')
-    fs.renameSync(path.join(staging, 'model.blend'), blend)
+    if (!kept) {
+      fs.renameSync(path.join(staging, 'model.blend'), blend)
+      s.files.blend = `steps/${s.id}/model.blend`
+      s.blend_sha256 = sha256(blend)
+      writeManifest(dir, m)
+    }
     fs.rmSync(staging, { recursive: true, force: true })
-    s.files.blend = `steps/${s.id}/model.blend`
-    s.blend_sha256 = sha256(blend)
-    writeManifest(dir, m)
-    return { ok: true, id: s.id, blend, replayed: plan.replay.length }
+    if (check) fs.writeFileSync(receiptFile, JSON.stringify({ ...r, full_check: reviewed(receipt) }, null, 1))
+    return { ok: true, id: s.id, blend, replayed: plan.replay.length, ...reviewed(check ? receipt : own) }
   })
 }
 

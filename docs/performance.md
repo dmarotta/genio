@@ -481,3 +481,48 @@ Guards: `tests/modeller.test.ts` (the list cache, the bytecode environment, the
 warm-up marker, and the real-Blender builds with their exact counts),
 `tests/crew-lifecycle.test.ts` (a Build gets the copy, a Modeller does not) and
 `tests/worktree-deps.test.ts` (the Modeller's brief lines).
+
+## Modeller high-poly steps (2026-10-18)
+
+The Recon on faster Modeller units replayed a high-poly starship's five steps
+(105k triangles) and the same with a level-1 Subdivision on every part (423k).
+At 423k a step ran past the 60 s watchdog, was stopped after it landed and
+before its snapshot, and the next step replayed it. Bench: the same replay
+through the CLI, one Blender per step as a unit runs it, then a one-part change,
+two planted coplanar plates and another one-part change. Blender 4.2.1, 16
+logical CPUs. Other units' Blenders loaded the machine during the "before" run
+and the first "after" run, so single numbers can be off by up to 2x. The
+trends are far larger.
+
+| Step | Before: checks, sheet, step | After: checks, sheet, step |
+|---|---|---|
+| s005 at 105k, one part added | 2,133 ms, 714 ms, 4.0 s | 210 to 315 ms, 629 to 902 ms, 1.6 to 2.4 s |
+| One part moved at 423k, live Subdivision | 35,219 ms, 24,046 ms, 65.9 s (past 60 s: measured with `--timeout 400`) | 992 to 1,091 ms, 713 to 781 ms, 8.4 to 10.4 s |
+| The same with the parts frozen | not possible (no `p.freeze`) | 907 ms, 694 ms, 3.1 s |
+| The step adding the Subdivision (every pair checked) | 39,450 ms, 24,693 ms, 71.5 s | 2,286 ms, 708 ms, 10.1 s |
+
+What changed (`genio_step.py`, `genio_review.py`, `genio_bpy.py`, `genio_parts.py`):
+
+| Change | Measure | Before → after |
+|---|---|---|
+| The sheet renders the shipped meshes (`modifiers_baked`) instead of letting each of its 4 renders evaluate live modifiers again | Sheet at 423k, live Subdivision | 24.0 s → 0.71 s |
+| The snapshot is saved right after the export, before the checks and the sheet | A step stopped during them | lost its snapshot (the next step replayed it) → keeps it |
+| Incremental checks: only pairs with a part whose shipped geometry changed (exact hash of vertices, triangles and edges); the other pairs keep the parent's results. Every pair every 10th step, when the model's size changes, and in `materialize` | Checks at 423k, one part changed | 35.2 s → 1.0 s |
+| Z-fighting: faces paired through sorted plane offsets (an exact pre-filter: a window per face instead of every face of the other part) and the coverage test vectorised; a work budget, with a warning when it stops early | Z-fighting of every pair at 423k | 4.6 s with the window alone → 1.2 s |
+| `validate()` counts edges, winding and shells with numpy instead of bmesh loops; reports identical on 11 test meshes (inward, open, two shells with one inward, one reversed face, loose and degenerate geometry, a flat closed shell, one far from the origin) and both starship snapshots | `validate()` at 423k | 511 → 393 ms here (1.7 s in the Recon, under load) |
+| Part records build their BVH, pulled-in points and edges only when a pair needs them | One part changed at 423k | only the parts near it are built |
+| The step runner opens the snapshot itself (`load` in the receipt's timings): live modifiers are evaluated while a snapshot loads, which the receipts never showed | Load at 423k | 5.3 to 6.9 s with live Subdivision, 42 ms frozen |
+| `p.freeze(*parts)` applies modifiers for good, to the bit (the frozen part's geometry hash is unchanged); a warning names the parts when loading and evaluating live modifiers takes 2 s or more | Step after, 423k | 8.4 s → 3.1 s |
+
+Reviews were identical to the old kernel's on all nine bench steps (live and
+frozen). The planted coplanar pair is found when planted and still reported on
+the next step, where neither plate changed. The only new line is the
+live-modifier warning on the step that added Subdivision.
+
+Left alone: the bake (11 s at 2048 px at any density, by the Recon) and
+the Blender start. A full check of every pair at 423k now takes 2.3 s.
+
+Guards: `tests/modeller.test.ts` (the real-Blender reviews with their exact
+lines through incremental checks; an incremental review equal to the full
+check `materialize` runs; a frozen part with nothing changed; the snapshot
+saved before the checks, and kept when Blender stops after it).

@@ -73,11 +73,13 @@ def shipped_meshes(objects, *, apply_modifiers=True):
 
 
 @contextlib.contextmanager
-def modifiers_baked(objects, *, apply_modifiers=True):
+def modifiers_baked(objects, *, apply_modifiers=True, shipped=None):
     """Temporarily swap each baked mesh into its object and switch off the applied
     modifiers, so exporters and renders see exactly the shipped geometry. The scene
-    is restored afterwards, including mesh names."""
-    with shipped_meshes(objects, apply_modifiers=apply_modifiers) as shipped:
+    is restored afterwards, including mesh names. `shipped` reuses meshes from an
+    open shipped_meshes() instead of evaluating the modifiers again."""
+    own = shipped_meshes(objects, apply_modifiers=apply_modifiers) if shipped is None else contextlib.nullcontext(shipped)
+    with own as shipped:
         swapped = [(o, o.data, mesh) for o, mesh in shipped.items() if mesh is not o.data]
         names = {source: source.name for _, source, _ in swapped}
         toggled = []
@@ -200,22 +202,94 @@ def validate(path=None, *, collection='Export', apply_modifiers=True):
         return _validate(shipped, apply_modifiers)
 
 
+def _ints(items, attr, n, width=1):
+    out = numpy.empty(n * width, dtype=numpy.int32)
+    items.foreach_get(attr, out)
+    return out.reshape(-1, width) if width > 1 else out
+
+
+def _shells(n, a, b):
+    """Connected components of n nodes joined by the pairs (a[i], b[i]): per node, the smallest
+    node of its component (hooking and pointer jumping, numpy only)."""
+    label = numpy.arange(n)
+    while True:
+        la, lb = label[a], label[b]
+        apart = la != lb
+        if not apart.any():
+            return label
+        numpy.minimum.at(label, numpy.maximum(la[apart], lb[apart]), numpy.minimum(la[apart], lb[apart]))
+        while True:
+            up = label[label]
+            if numpy.array_equal(up, label):
+                break
+            label = up
+
+
+def _flipped_bmesh(mesh):
+    """Faces that recalculated outward winding turns around, by bmesh (the slow, general way)."""
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bm.normal_update()
+    before = {f: f.normal.copy() for f in bm.faces}
+    bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
+    flipped = sum(before[f].dot(f.normal) < -0.5 for f in bm.faces)
+    bm.free()
+    return flipped
+
+
+def _topology(mesh):
+    """The validation's edge and face counts for one mesh, from its arrays (numpy): the same counts
+    bmesh gave, without a Python loop per element (1.7 s of loops at 423k triangles)."""
+    nv, ne, nf, nl = len(mesh.vertices), len(mesh.edges), len(mesh.polygons), len(mesh.loops)
+    ev = _ints(mesh.edges, 'vertices', ne, 2)
+    lv, le = _ints(mesh.loops, 'vertex_index', nl), _ints(mesh.loops, 'edge_index', nl)
+    total = _ints(mesh.polygons, 'loop_total', nf)
+    area = numpy.empty(nf, dtype=numpy.float32)
+    mesh.polygons.foreach_get('area', area)
+    faces = numpy.bincount(le, minlength=ne)
+    # The two loops of each manifold edge; they run the same way along it when winding is inconsistent.
+    two = numpy.nonzero(faces == 2)[0]
+    at = (numpy.cumsum(faces) - faces)[two]
+    order = numpy.argsort(le, kind='stable')
+    first, second = order[at], order[at + 1]
+    non_manifold = int((faces != 2).sum())
+    inconsistent = int((lv[first] == lv[second]).sum())
+    # Compare against consistent outward winding. For open surfaces outward is ambiguous, so report
+    # only inconsistent adjacency there. A closed, consistent shell is outward when its volume is
+    # positive, so it flips whole or not at all; anything else asks bmesh.
+    flipped = None
+    if not non_manifold and inconsistent:
+        flipped = _flipped_bmesh(mesh)
+    elif not non_manifold:
+        poly = numpy.repeat(numpy.arange(nf), total)
+        shell = _shells(nf, poly[first], poly[second])
+        tri = _ints(mesh.loop_triangles, 'vertices', len(mesh.loop_triangles), 3)
+        tri_poly = _ints(mesh.loop_triangles, 'polygon_index', len(mesh.loop_triangles))
+        co = numpy.empty(nv * 3, dtype=numpy.float64)
+        mesh.vertices.foreach_get('co', co)
+        co = co.reshape(-1, 3)
+        if nv:
+            co -= co.mean(axis=0)  # less cancellation far from the origin
+        six = numpy.einsum('ij,ij->i', co[tri[:, 0]], numpy.cross(co[tri[:, 1]], co[tri[:, 2]]))
+        volume = numpy.bincount(shell[tri_poly], weights=six, minlength=nf)
+        scale = numpy.bincount(shell[tri_poly], weights=numpy.abs(six), minlength=nf)
+        roots = numpy.unique(shell)
+        if numpy.any(numpy.abs(volume[roots]) <= 1e-9 * scale[roots] + 1e-30):
+            flipped = _flipped_bmesh(mesh)
+        else:
+            flipped = int(((volume < 0)[shell] & (area > 0)).sum())
+    return {'non_manifold_edges': non_manifold, 'inconsistent_winding_edges': inconsistent, 'flipped_faces': flipped,
+            'loose_vertices': int((numpy.bincount(ev.ravel(), minlength=nv) == 0).sum()),
+            'loose_edges': int((faces == 0).sum()), 'ngons': int((total > 4).sum()),
+            'degenerate_faces': int((area < 1e-12).sum())}
+
+
 def _validate(shipped, apply_modifiers):
     lo, hi = _bounds(shipped)
     reports = []
     for obj, mesh in shipped.items():
         mesh.calc_loop_triangles()
         obj.data.calc_loop_triangles()
-        bm = bmesh.new()
-        bm.from_mesh(mesh)
-        bm.normal_update()
-        non_manifold = sum(not e.is_manifold for e in bm.edges)
-        inconsistent = sum(e.is_manifold and not e.is_contiguous for e in bm.edges)
-        # Compare against consistent outward winding. For open surfaces outward
-        # is ambiguous, so report only inconsistent adjacency there.
-        before = {f: f.normal.copy() for f in bm.faces}
-        bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
-        flipped = sum(before[f].dot(f.normal) < -0.5 for f in bm.faces) if non_manifold == 0 else None
         origin = obj.matrix_world.translation
         obj_lo = _bounds({obj: mesh})[0] if mesh.vertices else origin
         report = {
@@ -228,14 +302,9 @@ def _validate(shipped, apply_modifiers):
             'negative_determinant': obj.matrix_world.determinant() < 0,
             'origin': list(origin), 'origin_ground_distance': origin.z - obj_lo.z,
             'origin_at_ground': abs(origin.z - obj_lo.z) < 1e-4,
-            'non_manifold_edges': non_manifold, 'inconsistent_winding_edges': inconsistent,
-            'flipped_faces': flipped, 'loose_vertices': sum(not v.link_edges for v in bm.verts),
-            'loose_edges': sum(not e.link_faces for e in bm.edges),
-            'ngons': sum(len(f.verts) > 4 for f in bm.faces),
-            'degenerate_faces': sum(f.calc_area() < 1e-12 for f in bm.faces),
         }
+        report.update(_topology(mesh))
         reports.append(report)
-        bm.free()
     return {'schema': 'genio.blender-validation.v2', 'coordinate_system': 'Blender world Z-up',
         'bounds': {'min': list(lo), 'max': list(hi)}, 'dimensions': list(hi - lo),
         'ground_z': lo.z, 'unit_scale_meters': bpy.context.scene.unit_settings.scale_length,

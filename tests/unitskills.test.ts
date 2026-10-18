@@ -188,7 +188,10 @@ describe('brief tools section', () => {
     // The API card replaces reading the Python sources.
     expect(b).toContain(MODELLER_API_CARD)
     expect(b).toMatch(/never read `genio_step\.py`, `genio_parts\.py` or `modeller\.mjs`/)
-    expect(MODELLER_API_CARD.length).toBeLessThan(2800)
+    // High-poly work: freeze finished parts, Subdivision only on low-poly cages
+    expect(MODELLER_API_CARD).toMatch(/`p\.freeze\(\*parts\)` applies them for good/)
+    expect(MODELLER_API_CARD).toMatch(/High-poly: build density directly, or `p\.subsurf` only low-poly cages; freeze each finished part/)
+    expect(MODELLER_API_CARD.length).toBeLessThan(3000)
     expect(renderBrief({ ...base, tools: unitToolsBrief(plugin) })).not.toContain('# Modeller')
   })
 

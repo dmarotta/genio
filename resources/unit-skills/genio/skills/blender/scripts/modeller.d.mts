@@ -81,7 +81,11 @@ export function referenceReview(refDir?: string): { line: string; images: string
 export function step(o: Common & { script: string; name?: string; amend?: boolean; timeout?: number; threads?: number; runner?: Runner; references?: string }): Promise<StepDone | StepFailed>
 export function batchScripts(args: string | string[]): BatchScript[]
 export function batch(o: Common & { scripts: string | (string | BatchScript)[]; everySheet?: boolean; timeout?: number; threads?: number; runner?: Runner; gapMs?: number; references?: string }): Promise<BatchDone>
-export function materialize(o: Common & { step?: string; timeout?: number; threads?: number; runner?: Runner }): Promise<{ ok: true; id: string; blend: string; replayed: number }>
+/**
+ * The step's .blend, rebuilt by replay when pruned. `review` and `warnings`: the step's check of every pair (run here once
+ * when its own checks were incremental); absent for a receipt without pair results.
+ */
+export function materialize(o: Common & { step?: string; timeout?: number; threads?: number; runner?: Runner }): Promise<{ ok: true; id: string; blend: string; replayed: number; review?: string[]; warnings?: string[] }>
 export function revert(o: Common & { to: string | number }): Promise<Summary & { reverted: string | null }>
 export function branch(o: Common & { name: string; from?: string }): Promise<Summary>
 export function switchBranch(o: Common & { name: string }): Promise<Summary>

@@ -160,7 +160,7 @@ export function openRouterEnv(harnessId: string, worldAllows: boolean, key: stri
 }
 
 /**
- * The Modeller helper API in about 2 KB, so a unit starts without reading the Python sources.
+ * The Modeller helper API in under 3 KB, so a unit starts without reading the Python sources.
  * The blender SKILL.md carries the same lines (a test keeps them in step).
  */
 export const MODELLER_API_CARD = [
@@ -172,7 +172,8 @@ export const MODELLER_API_CARD = [
   '- A part made again under the same name replaces the old one, so a script can run twice. Part helpers return the object and take `mat=` and `col=`; `rot` is Euler radians.',
   '- Parts: `p.box(name, (sx, sy, sz), loc, rot, mat, bevel=0.0)` centred on loc; `p.cylinder(name, radius, depth, loc, rot, mat, radius_top=None)` along local Z; `p.sphere(name, radius, loc, mat, subdiv=2)`; `p.beam(name, a, b, thickness, mat)`; `p.prism(name, [(x, y), ...], depth, loc, rot, mat)` outline extruded along local Z; `p.lathe(name, [(radius, z), ...], segments, loc, rot, mat)`; `p.loft(name, [[(x, y, z), ...], ...], closed=True)` through sections of equal count (one point: a tip); `p.jitter(ob, amount, seed)`.',
   '- Materials: `p.material(name, \'#rrggbb\', rough=0.8, metal=0.0, emission=0.0)`, one per name, reused.',
-  '- Modifiers, named so adding one again replaces it: `p.bevel(ob, width)`, `p.array(ob, count, (dx, dy, dz))`, `p.mirror(ob)`, `p.solidify(ob, thickness)`, `p.subsurf(ob, levels)`, `p.boolean_cut(ob, cutter)` (the cutter never ships).',
+  '- Modifiers, named so adding one again replaces it: `p.bevel(ob, width)`, `p.array(ob, count, (dx, dy, dz))`, `p.mirror(ob)`, `p.solidify(ob, thickness)`, `p.subsurf(ob, levels)`, `p.boolean_cut(ob, cutter)` (the cutter never ships); `p.freeze(*parts)` applies them for good.',
+  '- High-poly: build density directly, or `p.subsurf` only low-poly cages; freeze each finished part (every step evaluates live modifiers again); bake once, at the end.',
   '- Placing: `p.join(name, parts)`; `p.drop(ob, on=None)` onto the ground or the part `on`; `p.mirror_pair(ob)` (`Arm L` makes `Arm R`); `p.ring(ob, count, center, axis=\'Z\')` copies round an axis, from the first in place.',
   '- Structure: `p.collection(\'Legs\')` (a group inside `Export`, passed as `col=`), `p.parent(child, parent)`, `p.part(name)`, `p.remove(*names)`, `p.ground()`, `p.center()`, `p.origin_to_base(ob)`, `p.apply_scale(ob)`.',
   '- Paint: `p.uv_atlas()` once, `p.camo(mat, \'red\'|\'woodland\'|\'desert\'|\'digital\')`, `p.weathering(mat, wear=0.8, dirt=1.0)`, then `p.bake_maps(size=1024)`.',

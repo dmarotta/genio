@@ -1,28 +1,40 @@
 """Modeller steps inside one headless Blender. modeller.mjs runs this; agents do not.
 
 The only argument after `--` is a plan JSON written by modeller.mjs:
+  base      the snapshot to open first, or null (an empty scene)
   replay    step scripts to re-run first (rebuilding a pruned snapshot), each
               {script, lib} (or a bare script path)
   steps     one or more steps, run back to back in this session, each with
               out       staging folder for this step's files
-              script    the step script, or null to only rebuild a snapshot
+              script    the step script, or null to only rebuild a snapshot (or check it)
               lib       the model's lib.py as this step runs with it, or null
-              outputs   any of blend, glb, sheet
+              outputs   any of blend, glb, sheet, check (check: review a step without a script)
               step      id, n, name, model (for the receipt)
               previous  first step only: its parent's receipt parts for the text review's
                         changes ([] with no parent; null or absent: unknown, no Changes line)
+              pairs     first step only: its parent's pair results (receipt checks.pairs, with
+                        its checks.pierces as pierces), or null: the checks then examine every pair
+              full      examine every pair whatever the parent's results (an export's check)
   checks    budget (triangles), size ([x, y, z] metres) and symmetry ('x', 'y'), all optional
 
 Per step: step script, modifier-applied GLB, then <out>/landed.json (the
-kernel publishes the step to the live view from it at once), then checks and
-the text review (genio_review.py), compressed .blend and the 2x2 Workbench
-review sheet with part labels (its camera never reaches a snapshot). A sheet that fails is a warning: the step stays published. Each
-step's receipt goes to <out>/receipt.json (atomically, last) and stdout as one
-`@@GENIO_STEP` line. The first failure stops the run.
+kernel publishes the step to the live view from it at once), then the compressed
+.blend (so a step stopped later still has its snapshot), the checks and the text
+review (genio_review.py) and the 2x2 Workbench review sheet with part labels (its
+camera never reaches a snapshot). The checks and the sheet share one copy of the
+shipped meshes, and the sheet renders that copy instead of evaluating live modifiers
+again. A sheet that fails is a warning: the step stays published. Each step's receipt goes to <out>/receipt.json (atomically,
+last) and stdout as one `@@GENIO_STEP` line. The first failure stops the run.
+
+The checks are incremental: a pair of parts is examined only when one of them changed since
+the parent step (by an exact hash of its shipped geometry); the others keep the parent's
+results. Every FULL_EVERY-th step, an export's check (`full`), a changed model size or a
+parent without results examine every pair.
 Exit codes: 0 done, 3 a step script raised, 4 a replayed script raised.
 """
 import ast
 import contextlib
+import hashlib
 import io
 import json
 import math
@@ -43,6 +55,8 @@ import genio_review
 
 RAY_BUDGET = 200000
 LABELS_SHOWN = 10
+FULL_EVERY = 10  # steps between checks of every pair (incremental checks in between)
+MODIFIER_WARN_MS = 2000  # loading and evaluating live modifiers above this: suggest p.freeze()
 
 
 class StepError(Exception):
@@ -98,14 +112,17 @@ def _crossing(a, b, tol, budget):
     b, and how far that edge sticks out of b on its shorter side (a post through a roof sticks
     out; a leg standing in a footing barely does)."""
     tree, best = b['tree'], (0.0, 0.0)
-    lo, hi = b['box']
-    for i, j in a['edges']:
+    pts, edges = a['pts'], a['edges']
+    if not len(edges):
+        return best
+    # Only edges reaching into b's box (+ tol) can cross it: picked at once, in edge order.
+    pa, pb = pts[edges[:, 0]], pts[edges[:, 1]]
+    lo, hi = numpy.array(b['box'][0]) - tol, numpy.array(b['box'][1]) + tol
+    near = numpy.all((numpy.maximum(pa, pb) >= lo) & (numpy.minimum(pa, pb) <= hi), axis=1)
+    for i, j in edges[near].tolist():
         if budget[0] <= 0:
             break
-        pa, pb = a['pts'][i], a['pts'][j]
-        if any(max(pa[k], pb[k]) < lo[k] - tol or min(pa[k], pb[k]) > hi[k] + tol for k in range(3)):
-            continue
-        start, end = Vector(pa), Vector(pb)
+        start, end = Vector(pts[i]), Vector(pts[j])
         length = (end - start).length
         if length < 3 * tol:
             continue
@@ -130,11 +147,38 @@ def _crossing(a, b, tol, budget):
     return best
 
 
+class _Part(dict):
+    """A part record whose costly fields ('tree', 'pts', 'edges') are built on first use, from arrays
+    copied while the mesh existed: an incremental check needs them only near a changed part."""
+
+    def __init__(self, fields, lazy):
+        super().__init__(fields)
+        self._lazy = lazy
+
+    def __missing__(self, key):
+        if key not in self._lazy:
+            raise KeyError(key)
+        self[key] = value = self._lazy.pop(key)()
+        return value
+
+
+def _polygons(loops, totals):
+    flat, ends = loops.tolist(), numpy.cumsum(totals).tolist()
+    return [flat[s:e] for s, e in zip([0] + ends[:-1], ends)]
+
+
+def _pulled(pts, normals, matrix, shrink):
+    normals = normals.reshape(-1, 3) @ numpy.array(matrix.to_3x3().inverted().transposed()).T
+    normals /= numpy.maximum(numpy.linalg.norm(normals, axis=1), 1e-12)[:, None]
+    return pts - normals * shrink
+
+
 def _parts(meshes, shrink, open_names=()):
     """Per part: a BVH of its surface, and its edges pulled `shrink` metres inwards along the
     vertex normals. Rays run along the pulled-in edges, so parts that merely rest on each other
     (coplanar faces) do not count as crossing. The text review also uses the world vertices,
-    triangles and whether the part is closed."""
+    triangles and whether the part is closed; 'hash' is an exact digest of the shipped geometry in
+    place (vertices, triangles, edges), which tells the incremental checks what changed."""
     out = []
     for ob, mesh in meshes.items():
         if not len(mesh.polygons):
@@ -142,33 +186,40 @@ def _parts(meshes, shrink, open_names=()):
         pts = p.world_vertices(ob, mesh)
         normals = numpy.empty(len(mesh.vertices) * 3, dtype=numpy.float64)
         mesh.vertices.foreach_get('normal', normals)
-        normals = normals.reshape(-1, 3) @ numpy.array(ob.matrix_world.to_3x3().inverted().transposed()).T
-        normals /= numpy.maximum(numpy.linalg.norm(normals, axis=1), 1e-12)[:, None]
-        polys = [tuple(pl.vertices) for pl in mesh.polygons]
+        loops = genio_bpy._ints(mesh.loops, 'vertex_index', len(mesh.loops))
+        totals = genio_bpy._ints(mesh.polygons, 'loop_total', len(mesh.polygons))
+        edges = genio_bpy._ints(mesh.edges, 'vertices', len(mesh.edges), 2)
         mesh.calc_loop_triangles()
-        tris = numpy.empty(len(mesh.loop_triangles) * 3, dtype=numpy.int32)
-        mesh.loop_triangles.foreach_get('vertices', tris)
-        out.append({'name': ob.name, 'ob': ob, 'world': pts, 'tris': tris.reshape(-1, 3), 'closed': ob.name not in open_names,
-                    'pts': (pts - normals * shrink).tolist(), 'edges': [tuple(e.vertices) for e in mesh.edges],
-                    'tree': BVHTree.FromPolygons(pts.tolist(), polys, epsilon=0.0),
-                    'box': (pts.min(axis=0).tolist(), pts.max(axis=0).tolist())})
+        tris = genio_bpy._ints(mesh.loop_triangles, 'vertices', len(mesh.loop_triangles), 3)
+        digest = hashlib.blake2b(digest_size=8)
+        for a in (pts, tris, edges):
+            digest.update(numpy.ascontiguousarray(a).tobytes())
+        out.append(_Part({'name': ob.name, 'ob': ob, 'world': pts, 'tris': tris, 'closed': ob.name not in open_names,
+                          'box': (pts.min(axis=0).tolist(), pts.max(axis=0).tolist()), 'hash': digest.hexdigest()}, {
+            'pts': lambda pts=pts, normals=normals, matrix=ob.matrix_world.copy(): _pulled(pts, normals, matrix, shrink),
+            'edges': lambda edges=edges: edges,
+            'tree': lambda pts=pts, loops=loops, totals=totals: BVHTree.FromPolygons(pts.tolist(), _polygons(loops, totals), epsilon=0.0)}))
     return out
 
 
-def pierces(parts, tol):
+def pierces(parts, tol, test=None, known=()):
     """Pairs where an edge of one part goes in and out of another, deepest first. Crossing
     timbers and joints are often intended; a post sticking through a roof is the kind of bug
-    this catches."""
-    budget, found = [RAY_BUDGET], []
+    this catches. Only pairs `test(name, name)` accepts are examined (all without it); `known`
+    adds the others' results as stored."""
+    budget, order = [RAY_BUDGET], {x['name']: i for i, x in enumerate(parts)}
+    found = [{**f, 'a': f['b'], 'b': f['a']} if order[f['a']] > order[f['b']] else dict(f) for f in known]
     for x in range(len(parts)):
         for y in range(x + 1, len(parts)):
             a, b = parts[x], parts[y]
+            if test is not None and not test(a['name'], b['name']):
+                continue
             if not _boxes_touch(a['box'], b['box'], tol) or not a['tree'].overlap(b['tree']):
                 continue
             depth, protrudes = max(_crossing(a, b, tol, budget), _crossing(b, a, tol, budget))
             if depth > tol:
                 found.append({'a': a['name'], 'b': b['name'], 'depth': round(depth, 4), 'protrudes': round(protrudes, 4)})
-    found.sort(key=lambda f: -f['depth'])
+    found.sort(key=lambda f: (-f['depth'], order[f['a']], order[f['b']]))
     return found, budget[0] <= 0
 
 
@@ -182,14 +233,22 @@ def _names(items):
     return ', '.join(items[:6]) + (f' and {len(items) - 6} more' if len(items) > 6 else '')
 
 
-def inspect_model(checks, previous=None):
+def inspect_model(checks, previous=None, known=None, full=False, shipped=None):
     """Advisory checks on the shipped (evaluated) meshes, built on genio_bpy.validate(), plus the
     Modeller's own: budget, ground, centring, size and parts passing through each other, then the
-    text review against the `previous` step's part table. Nothing here blocks a step."""
+    text review against the `previous` step's part table. Nothing here blocks a step. `known` is the
+    previous step's pair results (see the module notes; None or `full`: every pair is examined);
+    `shipped` an open p.evaluated() of the parts, reused. out['pairs'] is this step's, to store, and
+    out['known'] what the next step of the same run gets as its `known`."""
     objects = p.export_objects()
+    with contextlib.nullcontext(shipped) if shipped is not None else p.evaluated(objects) as shipped:
+        return _inspect(checks, previous, known, full, objects, shipped)
+
+
+def _inspect(checks, previous, known, full, objects, shipped):
     warn, out = [], {}
     try:
-        report = genio_bpy.validate()
+        report = genio_bpy._validate(shipped, True)
     except ValueError:  # no mesh vertices in Export
         out['stats'] = {'triangles': 0, 'vertices': 0, 'objects': 0, 'parts': []}
         warn.append('The Export collection has no meshes yet: nothing ships.')
@@ -236,20 +295,38 @@ def inspect_model(checks, previous=None):
     kept = [m['name'] for m in meshes if m['unapplied_modifiers']]
     if kept:
         warn.append(f'Shape keys keep these parts from shipping their modifiers: {_names(kept)}.')
-    with p.evaluated(objects) as shipped:
-        parts = _parts(shipped, 2 * tol, {x['name'] for x in open_parts})
-    found, truncated = pierces(parts, tol)
+    parts = _parts(shipped, 2 * tol, {x['name'] for x in open_parts})
+    # Incremental: pairs of unchanged parts keep the parent's results, valid while the model's size
+    # (and so every tolerance) is the same.
+    hashes, scale = {x['name']: x['hash'] for x in parts}, round(size, 6)
+    usable = not full and known is not None and known.get('size') == scale and isinstance(known.get('hashes'), dict)
+    changed = sorted(n for n, h in hashes.items() if known['hashes'].get(n) != h) if usable else None
+    fresh = set(changed or ())
+    test = (lambda a, b: a in fresh or b in fresh) if usable else None
+    carry = (lambda a, b: a in hashes and b in hashes and a not in fresh and b not in fresh) if usable else (lambda a, b: False)
+    known = known if usable else {}
+    found, truncated = pierces(parts, tol, test, [f for f in known.get('pierces', []) if carry(f['a'], f['b'])])
+    stopped = known.get('stopped', {})
+    truncated_carried = truncated or bool(stopped.get('pierces'))
     out['pierces'] = found
-    out['pierce_check_truncated'] = truncated
+    out['pierce_check_truncated'] = truncated_carried
     # The text review: deep pass-throughs are its "Deep overlap" line, never a warning as well.
-    out['review'], out['labels'], out['part_table'] = genio_review.review(
+    carried = {k: [x for x in known.get(k, []) if carry(x[0], x[1])] for k in ('contacts', 'sunk', 'z_fighting')}
+    out['review'], out['labels'], out['part_table'], pairs, z_stopped = genio_review.review(
         parts, previous=previous, size=size, tol=tol, ground_z=lo.z, pierced=notable_pierces(found, size),
-        axis=checks.get('symmetry'), other_side=p._other_side)
+        axis=checks.get('symmetry'), other_side=p._other_side, test=test, known=carried)
+    z_stopped = z_stopped or bool(stopped.get('z_fighting'))
+    out['z_fighting_check_truncated'] = z_stopped
+    out['pairs'] = {'full': not usable, 'changed': changed, 'size': scale, 'hashes': hashes,
+                    'stopped': {'pierces': truncated_carried, 'z_fighting': z_stopped}, **pairs}
+    out['known'] = {**out['pairs'], 'pierces': found}
     # A label points at the part's surface nearest its box centre.
     labelled = {n for n, _ in out['labels'][:LABELS_SHOWN]}
     out['anchors'] = {x['name']: list(x['tree'].find_nearest((Vector(x['box'][0]) + Vector(x['box'][1])) / 2)[0]) for x in parts if x['name'] in labelled}
-    if truncated:
+    if truncated_carried:
         warn.append('The pass-through check stopped early on this many parts; its list is incomplete.')
+    if z_stopped:
+        warn.append('The z-fighting check stopped early on this many faces; its list is incomplete.')
     flipped = [m['name'] for m in meshes if m['negative_determinant']]
     uneven = [o.name for o in objects if o.type == 'MESH' and any(m.type in ('BEVEL', 'SOLIDIFY') for m in o.modifiers)
               and max(o.scale) - min(o.scale) > 1e-4]
@@ -519,9 +596,10 @@ def has_meshes():
     return any(o.type == 'MESH' and len(o.data.vertices) for o in p.export_objects())
 
 
-def run_step(item, plan, replay, first, last, previous):
+def run_step(item, plan, replay, first, last, previous, known=None):
     """One step of the plan on the scene as the previous one left it, reviewed against the `previous`
-    step's part table. Returns the exit code and this step's part table."""
+    step's part table and pair results (`known`). Returns the exit code, this step's part table and
+    its pair results for the next step."""
     out, outputs, script = item['out'], set(item.get('outputs', [])), item.get('script')
     os.makedirs(out, exist_ok=True)
     t, mark = {}, time.perf_counter()
@@ -534,16 +612,20 @@ def run_step(item, plan, replay, first, last, previous):
         t[key] = round((now - mark) * 1000, 1)
         mark = now
 
-    table = None
+    table = pairs = None
 
     def finish(code):
         receipt['timings_ms'] = t
         write_receipt(out, receipt)
-        return code, table
+        return code, table, pairs
 
     try:
         if first:
-            if not bpy.data.filepath:
+            if plan.get('base'):
+                # Opening the snapshot evaluates its live modifiers: timed apart, it is what every step pays for them.
+                bpy.ops.wm.open_mainfile(filepath=plan['base'])
+                lap('load')
+            elif not bpy.data.filepath:
                 bpy.ops.wm.read_factory_settings(use_empty=True)
             p.collection(p.EXPORT)
             lap('setup')
@@ -565,6 +647,12 @@ def run_step(item, plan, replay, first, last, previous):
         if script and e.kind == 'error':
             receipt['caption'] = caption_of(open(script, encoding='utf8').read())
         return finish(3 if e.kind == 'error' else 4)
+    check = bool(script) or 'check' in outputs
+    if check:
+        # What the script added or changed is evaluated here, once (a script that removed objects
+        # itself also leaves stale view layer slots until this sync).
+        bpy.context.view_layer.update()
+        lap('evaluate')
     if script and 'glb' in outputs and has_meshes():
         # The web preset under genio_bpy's modifier rule: what the live view shows is what ships.
         with selection_kept():
@@ -572,37 +660,52 @@ def run_step(item, plan, replay, first, last, previous):
         lap('export')
         # The player sees the step now; snapshot, checks and sheet follow and the receipt completes it.
         write_json(out, 'landed.json', {'ok': True, 'stage': 'glb', **item.get('step', {}), 'caption': receipt.get('caption'), 'timings_ms': dict(t)})
-    warn = []
-    if script:
-        if not receipt.get('caption'):
-            warn.append('Start the step script with a docstring: its first line is the caption the player sees.')
-        checks, found = inspect_model(plan.get('checks') or {}, previous)
-        warn += found
-        stats = checks.pop('stats')
-        labels, anchors, table = checks.pop('labels', []), checks.pop('anchors', {}), checks.pop('part_table', {})
-        for part in stats['parts']:
-            if part['name'] in table:
-                part['box'] = table[part['name']]['box']
-        receipt.update(triangles=stats['triangles'], vertices=stats['vertices'], objects=stats['objects'],
-                       parts=stats['parts'], review=checks.pop('review', []), checks=checks)
-        if stats['objects']:
-            receipt['bounds'] = {'min': [round(v, 4) for v in stats['min']], 'max': [round(v, 4) for v in stats['max']],
-                                 'dimensions': [round(v, 4) for v in stats['dimensions']]}
-        lap('checks')
     blend = os.path.join(out, 'model.blend')
     if 'blend' in outputs:
+        # Before the checks and the sheet: a step stopped during them keeps its snapshot, so the next
+        # step need not replay it.
         save_blend(blend)
         lap('save')
-    if 'sheet' in outputs and receipt.get('objects', 0) > 0:
-        try:
-            render_sheet(out, plan.get('sheet_size', 512), stats, [(n, anchors[n], bad) for n, bad in labels if n in anchors])
-        except Exception as e:  # noqa: BLE001 - the step is published already; the sheet is the agent's eyes only
-            warn.append(f'The review sheet failed ({type(e).__name__}: {e}); the step is published without it.')
-        lap('sheet')
-        if not last:
-            # The review camera and render settings must not reach the next step: reopen the snapshot.
-            bpy.ops.wm.open_mainfile(filepath=blend)
-            lap('reload')
+    warn, drawn = [], False
+    if check:
+        meshes = [o for o in p.export_objects() if o.type == 'MESH']
+        with p.evaluated(meshes) as shipped:
+            if script and not receipt.get('caption'):
+                warn.append('Start the step script with a docstring: its first line is the caption the player sees.')
+            number = item.get('step', {}).get('n') or 0
+            full = bool(item.get('full')) or (number > 0 and number % FULL_EVERY == 0)
+            checks, found = inspect_model(plan.get('checks') or {}, previous, known, full, shipped)
+            warn += found
+            stats = checks.pop('stats')
+            labels, anchors, table = checks.pop('labels', []), checks.pop('anchors', {}), checks.pop('part_table', {})
+            pairs = checks.pop('known', None)
+            for part in stats['parts']:
+                if part['name'] in table:
+                    part['box'] = table[part['name']]['box']
+            receipt.update(triangles=stats['triangles'], vertices=stats['vertices'], objects=stats['objects'],
+                           parts=stats['parts'], review=checks.pop('review', []), checks=checks)
+            if stats['objects']:
+                receipt['bounds'] = {'min': [round(v, 4) for v in stats['min']], 'max': [round(v, 4) for v in stats['max']],
+                                     'dimensions': [round(v, 4) for v in stats['dimensions']]}
+            live = [o.name for o in meshes if genio_bpy._bakes_modifiers(o)]
+            if live and t.get('load', 0) + t.get('evaluate', 0) >= MODIFIER_WARN_MS:
+                tris = {x['name']: x['triangles'] for x in stats['parts']}
+                live.sort(key=lambda name: -tris.get(name, 0))
+                warn.append(f'Live modifiers on {_names(live)} cost seconds on every step, which loads and evaluates them again: p.freeze() each part once it is final.')
+            lap('checks')
+            if 'sheet' in outputs and receipt.get('objects', 0) > 0:
+                drawn = True
+                try:
+                    # The shipped meshes swapped in: no render evaluates live modifiers again (24 s to 0.7 s at 423k).
+                    with genio_bpy.modifiers_baked(meshes, shipped=shipped):
+                        render_sheet(out, plan.get('sheet_size', 512), stats, [(n, anchors[n], bad) for n, bad in labels if n in anchors])
+                except Exception as e:  # noqa: BLE001 - the step is published already; the sheet is the agent's eyes only
+                    warn.append(f'The review sheet failed ({type(e).__name__}: {e}); the step is published without it.')
+                lap('sheet')
+    if drawn and not last:
+        # The review camera and render settings must not reach the next step: reopen the snapshot.
+        bpy.ops.wm.open_mainfile(filepath=blend)
+        lap('reload')
     receipt['warnings'] = warn + receipt['api_warnings']
     receipt['ok'] = True
     return finish(0)
@@ -613,9 +716,11 @@ def main():
     steps = plan['steps']
     # The first step compares with its parent's receipt (None: no parent); each later one with the step before it.
     previous = None if not steps or steps[0].get('previous') is None else {x['name']: x for x in steps[0]['previous']}
+    known = steps[0].get('pairs') if steps else None
     for i, item in enumerate(steps):
-        code, table = run_step(item, plan, plan.get('replay', []), i == 0, i == len(steps) - 1, previous)
+        code, table, pairs = run_step(item, plan, plan.get('replay', []), i == 0, i == len(steps) - 1, previous, known)
         previous = table if table is not None else previous
+        known = pairs if pairs is not None else known
         if code:
             sys.exit(code)
 

@@ -312,6 +312,26 @@ def boolean_cut(ob, cutter, name='Cut'):
     return mod
 
 
+def freeze(*parts):
+    """Apply finished parts' modifiers for good (Subdivision, Bevel, Boolean, Mirror, Array...): each
+    part keeps exactly the shape it ships, and later steps stop evaluating its modifiers again (every
+    step is a fresh Blender, and a .blend keeps no modifier results). Parts or names; none: every part
+    in Export. Armature modifiers stay; a part with shape keys keeps its stack (it ships without it).
+    Returns the parts it froze."""
+    obs = list(dict.fromkeys(_get(o) for o in parts)) if parts else export_objects()
+    live = [o for o in obs if genio_bpy._bakes_modifiers(o)]
+    baked = genio_bpy._evaluated_meshes(live)
+    for ob in live:
+        old = ob.data
+        for m in [m for m in ob.modifiers if m.type != 'ARMATURE' and m.show_viewport]:
+            ob.modifiers.remove(m)
+        ob.data = baked[ob]
+        if old.users == 0:
+            bpy.data.meshes.remove(old)
+        ob.data.name = ob.name
+    return live
+
+
 def part(name):
     """An existing part by name; a clear error names the parts that do exist."""
     ob = bpy.data.objects.get(name)

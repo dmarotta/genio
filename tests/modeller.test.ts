@@ -482,6 +482,32 @@ describe('Modeller kernel with a fake Blender', { timeout: 60000 }, () => {
     const fix = done(await step(script('s05_rail_fix.py', 'Fixing the rail', '# remove: Rail', '# part: Better rail')))
     expect(fix).toMatchObject({ id: 's005', parent: 's004' })
     expect(manifest().branches.main.head).toBe('s005')
+    // Blender stops during the checks: the snapshot is saved before them, so the next step need not replay
+    const slow = done(await step(script('s06_dome.py', 'Dome', '# part: Dome', '# fake: crash-after-blend')))
+    expect(slow).toMatchObject({ id: 's006', sheet: null, blend: path.join(dataDir, 'tower', 'steps', 's006', 'model.blend') })
+    expect(slow.warnings).toEqual([expect.stringMatching(/Blender stopped \(exit code 3\).*no text review or review sheet; its snapshot is kept/)])
+    const spire = done(await step(script('s07_spire.py', 'Spire', '# part: Spire')))
+    expect(JSON.parse(fs.readFileSync(spire.receipt, 'utf8'))).toMatchObject({ replayed: 0, base: slow.blend })
+  })
+
+  it('hands each step its parent\'s pair results, and runs one check of every pair before an export', async () => {
+    await fakeModel()
+    const receipt = (s: StepDone) => JSON.parse(fs.readFileSync(s.receipt, 'utf8'))
+    const top = done(await step(script('s01_top.py', 'Top', '# part: Top')))
+    // no parent: every pair is examined
+    expect(receipt(top)).toMatchObject({ pairs: null, checks: { pairs: { full: true } } })
+    const lamp = done(await step(script('s02_lamp.py', 'Lamp', '# part: Lamp', '# review: Changes: 1 added (Lamp)')))
+    // the parent's pair results, with its pass-through pairs, so only pairs with a changed part are examined
+    expect(receipt(lamp)).toMatchObject({ pairs: { full: true, contacts: [], pierces: [] }, checks: { pairs: { full: false } } })
+    // the export's starting point: one check of every pair, kept in the receipt, run once
+    const checked = await kernel.materialize({ dataDir, model: 'tower', runner: fake })
+    expect(checked).toMatchObject({ id: 's002', replayed: 0, review: ['Full check: Top, Lamp'], warnings: [] })
+    expect(receipt(lamp)).toMatchObject({ review: ['Changes: 1 added (Lamp)'], full_check: { review: ['Full check: Top, Lamp'], warnings: [] } })
+    const logs = fs.readdirSync(path.join(dataDir, 'tower', 'logs')).length
+    expect(await kernel.materialize({ dataDir, model: 'tower', runner: fake })).toMatchObject({ review: ['Full check: Top, Lamp'] })
+    expect(fs.readdirSync(path.join(dataDir, 'tower', 'logs'))).toHaveLength(logs)
+    // a step checked in full already returns its own review
+    expect(await kernel.materialize({ dataDir, model: 'tower', step: 's001', runner: fake })).toMatchObject({ id: 's001', replayed: 0, review: [], warnings: [] })
   })
 
   it('lists a warning at the step that brings it, counts the ones still standing and keeps them all in the receipt', async () => {
@@ -956,6 +982,43 @@ describe.skipIf(!blender)(`Modeller with Blender ${blender?.version.join('.') ??
     const sheet = pngPixels(flawed.sheet!)
     expect(sheet.flat().filter(orange).length).toBeGreaterThan(400)
     expect(pngPixels(flawed.sheet!.replace(/sheet\.png$/, 'view.png')).flat().filter(orange)).toEqual([])
+  }, 300000)
+
+  it('checks only pairs with a changed part, as a full check would, and freezes finished parts exactly', async () => {
+    await cmd('init', 'desk', '--target', 'web', '--symmetry', 'x')
+    const defects = path.join(fixtures, 'defects')
+    const receipt = (s: StepDone) => JSON.parse(fs.readFileSync(s.receipt, 'utf8'))
+    await cmd('step', 'desk', path.join(defects, 's01_table.py'))
+    const flawed: StepDone = await cmd('step', 'desk', path.join(defects, 's02_defects.py'))
+    // the lamp raised the model: a new size changes every tolerance, so every pair was examined
+    expect(receipt(flawed).checks.pairs).toMatchObject({ full: true, changed: null })
+    const write = (name: string, ...lines: string[]) => {
+      fs.writeFileSync(path.join(src, name), lines.join('\n'))
+      return path.join(src, name)
+    }
+    // one part moves: only its pairs are examined; the floating lamp and the sunk block carry over
+    const slid: StepDone = await cmd('step', 'desk', write('s03_decal.py', '"""Sliding the decal back"""', "p.part('Decal').location.y -= 0.05"))
+    expect(slid.review).toEqual(['Changes: 1 moved (Decal)', flawed.review[1], flawed.review[2], 'Z-fighting: Decal / Top (0.09 m² at 0, -0.25, 1)', flawed.review[4]])
+    const checks = receipt(slid).checks
+    expect(checks.pairs).toMatchObject({ full: false, changed: ['Decal'], stopped: { pierces: false, z_fighting: false } })
+    expect(checks.pairs.z_fighting.map((z: string[]) => z.slice(0, 2))).toEqual([['Top', 'Decal']])
+    // the snapshot is saved before the checks and the sheet
+    const order = Object.keys(receipt(slid).timings_ms)
+    expect(order.indexOf('save')).toBeLessThan(order.indexOf('checks'))
+    expect(pngSize(slid.sheet!)).toEqual([1024, 1024])
+    // the export's check of every pair says the same
+    expect(await cmd('materialize', 'desk')).toMatchObject({ ok: true, id: slid.id, review: slid.review })
+    // freezing keeps the shipped shape to the bit: nothing changed, every pair carries over
+    const round: StepDone = await cmd('step', 'desk', write('s04_block.py', '"""Rounding the block"""', "p.subsurf(p.part('Block'), 1)"))
+    expect(round.review[0]).toBe('Changes: 1 changed (Block)')
+    const frozen: StepDone = await cmd('step', 'desk', write('s05_freeze.py', '"""Freezing the block"""',
+      "assert [o.name for o in p.freeze('Block')] == ['Block'] and not p.part('Block').modifiers",
+      'assert p.freeze() == []'))
+    expect(frozen).toMatchObject({ ok: true, triangles: round.triangles })
+    expect(frozen.review).toEqual(['Changes: none', ...round.review.slice(1)])
+    expect(receipt(frozen).checks.pairs).toMatchObject({ full: false, changed: [] })
+    const block = (s: StepDone) => receipt(s).parts.find((x: { name: string }) => x.name === 'Block')
+    expect(block(frozen).base_triangles).toBe(block(round).triangles)
   }, 300000)
 
   it('joins, drops, mirrors, rings and lofts parts', async () => {

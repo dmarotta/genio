@@ -1,6 +1,6 @@
 // A stand-in for blender.exe that speaks genio_step.py's plan protocol, for tests without Blender.
-// The runner calls: node fake-blender.mjs -b ... [snapshot.blend] --python genio_step.py -- plan.json
-// (plan.steps runs back to back in this one process, as in Blender).
+// The runner calls: node fake-blender.mjs -b ... --python genio_step.py -- plan.json
+// (plan.base is the snapshot to open; plan.steps runs back to back in this one process, as in Blender).
 // A "snapshot" is the zstd magic plus JSON {parts, scripts}. Step scripts drive it with comments:
 //   # part: <name>     add a part        # remove: <name>   drop a part
 //   # warn: <text>     the step's checks report this warning
@@ -11,6 +11,7 @@
 //                          step before writing the sheet; the receipt says sheet_after_publish
 //   # fake: sheet-error    the sheet fails: a warning, no sheet, the step stays ok
 //   # fake: crash-after-glb  exit 3 right after landed.json (no snapshot, sheet or receipt)
+//   # fake: crash-after-blend  exit 3 right after the snapshot (no review, sheet or receipt)
 //   # use: <helper>    a NameError unless the step's lib.py has `# def: <helper>`
 // A step's lib.py (plan step `lib`, replay `{script, lib}`) runs first: its `# def:` lines define
 // helpers for that one script, `# fake: error` raises in the lib, and the snapshot's `scripts` list
@@ -18,7 +19,10 @@
 // As genio_step.py, a step with parts writes landed.json right after its GLB, then the rest.
 // A `p.bake_maps(` call lists one bake in the receipt, as genio_parts does; receipts carry the
 // --threads Blender was started with, and the first step's receipt the parent parts the kernel
-// passed for its review (`previous`).
+// passed for its review (`previous`) and its parent's pair results (`pairs`).
+// Pair results: a step whose plan item brings its parent's is checked incrementally (receipt
+// checks.pairs.full false), any other in full; a `check` output without a script (an export's full
+// check) reviews the snapshot as `Full check: <parts>`.
 // genio_warm.py only writes its marker (the argument after `--`), as the warm-up does when done.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -30,8 +34,8 @@ if (path.basename(argv[argv.indexOf('--python') + 1]) === 'genio_warm.py') {
   fs.writeFileSync(argv[argv.indexOf('--') + 1], 'fake')
   process.exit(0)
 }
-const blend = argv.slice(0, argv.indexOf('--python')).find((a) => a.endsWith('.blend'))
 const plan = JSON.parse(fs.readFileSync(argv[argv.indexOf('--') + 1], 'utf8'))
+const blend = plan.base
 const state = blend ? JSON.parse(fs.readFileSync(blend).subarray(4).toString('utf8')) : { parts: [], scripts: [] }
 const threads = Number(argv[argv.indexOf('--threads') + 1])
 const captionOf = (code) => code.match(/^"""(.*?)(?:"""|$)/m)?.[1]?.trim() || null
@@ -106,6 +110,7 @@ async function main() {
       if (code.includes('# fake: crash-after-glb')) process.exit(3)
     }
     if (outputs.has('blend')) fs.writeFileSync(out('model.blend'), Buffer.concat([MAGIC, Buffer.from(JSON.stringify(state))]))
+    if (code.includes('# fake: crash-after-blend')) process.exit(3)
     if (item.script) {
       const warnings = caption ? [] : ['Start the step script with a docstring: its first line is the caption the player sees.']
       for (const m of code.matchAll(/^# warn: (.+)$/gm)) warnings.push(m[1].trim())
@@ -116,8 +121,10 @@ async function main() {
       Object.assign(receipt, {
         caption, triangles: state.parts.length * 12, vertices: state.parts.length * 8, objects: state.parts.length,
         parts: state.parts.map((name) => ({ name, triangles: 12 })), bounds: { min: [0, 0, 0], max: [1, 1, 1], dimensions: [1, 1, 1] },
-        warnings, review, ...(i === 0 ? { previous: item.previous } : {})
+        warnings, review, checks: { pierces: [], pairs: { full: !(i === 0 ? item.pairs : true), contacts: [] } }, ...(i === 0 ? { previous: item.previous, pairs: item.pairs } : {})
       })
+    } else if (outputs.has('check')) {
+      Object.assign(receipt, { review: [`Full check: ${state.parts.join(', ')}`], warnings: [], checks: { pierces: [], pairs: { full: item.full === true, contacts: [] } } })
     }
     receipt.ok = true
     writeReceipt()

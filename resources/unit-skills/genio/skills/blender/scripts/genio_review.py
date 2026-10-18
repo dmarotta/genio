@@ -10,6 +10,11 @@ Each line appears only when it has something to say, in this order:
                 centre parts off centre
 It works on the shipped geometry from the same Blender run, renders nothing, is deterministic and
 is information only, never a gate.
+
+Incremental: with `test`, only pairs of parts it accepts (those with a changed part) are examined;
+every other pair takes its result from `known`, the previous step's pairs (contacts, deep overlaps,
+z-fighting), so the cost follows what changed rather than the model's size. The lines are the same
+as a full review's.
 """
 import numpy
 from mathutils import Vector
@@ -21,6 +26,9 @@ DEEP_SHARE = 1 / 3  # of the smaller part's volume inside the other
 DEEP = 0.03  # of the model's size: how thick the overlap must be every way (the pass-through check's depth)
 PLANE = 2e-4  # of the model's size: faces closer than this to one plane can z-fight
 GRID = 8  # points per axis when measuring an overlap's volume
+Z_BUDGET = 60_000_000  # z-fighting work per step: face pairs compared plus points tested against triangles
+Z_CHUNK = 500_000  # face pairs compared at once
+Z_TESTS = 20_000  # face pairs whose sample points are tested at once
 
 
 def _list(names, shown=NAMES_SHOWN):
@@ -114,11 +122,17 @@ def _touch(a, b, tol):
     return False
 
 
-def contacts(parts, tol):
-    """Which parts touch: {index: set of indices}."""
+def contacts(parts, tol, test=None, known=()):
+    """Which parts touch: {index: set of indices}. Only pairs `test(name, name)` accepts are examined
+    (all without it); `known` adds pairs of indices already known to touch."""
     adj = {i: set() for i in range(len(parts))}
+    for i, j in known:
+        adj[i].add(j)
+        adj[j].add(i)
     for i in range(len(parts)):
         for j in range(i + 1, len(parts)):
+            if test is not None and not test(parts[i]['name'], parts[j]['name']):
+                continue
             if _boxes_near(parts[i]['box'], parts[j]['box'], tol) and _touch(parts[i], parts[j], tol):
                 adj[i].add(j)
                 adj[j].add(i)
@@ -171,22 +185,39 @@ def _volume(part):
     return abs(float(numpy.einsum('ij,ij->i', a, numpy.cross(b, c)).sum()) / 6)
 
 
-def deep_overlaps(parts, adj, pierced, size):
+def _sunk_text(a, b, share, va, vb):
+    small, other = (a, b) if va <= vb else (b, a)
+    text = f'{small} hidden inside {other}' if share >= 0.97 else f'{small} / {other} ({round(min(share, 1) * 100)} % of {small} inside)'
+    return (-share, text, small, other)
+
+
+def deep_overlaps(parts, adj, pierced, size, test=None, known=()):
     """`Deep overlap: ...`: the pass-through check's notable pairs (deep in and out again), plus
     closed parts sunk with a third or more of the smaller one's volume inside the other, by an
     overlap at least 3 % of the model thick every way. Joints, crossings, thin slabs laid into
-    each other and posts standing in a socket stay quiet. Returns (items, names)."""
+    each other and posts standing in a socket stay quiet. Only pairs `test` accepts are measured;
+    `known` gives the others' sunk pairs as stored. Returns (items, names, the sunk pairs to store:
+    [a, b, share, volume of a, volume of b], a first in part order)."""
     items, names, said = [], [], set()
     for f in pierced:
         x, y = sorted((f['a'], f['b']))
         items.append(f"{x} / {y} ({_m(f['depth'])} m inside, {_m(f['protrudes'])} m out)")
         said.add(frozenset((f['a'], f['b'])))
         names += [f['a'], f['b']]
-    sunk = []
+    sunk, store = [], []
+    order = {x['name']: i for i, x in enumerate(parts)}
+    for a, b, share, va, vb in known:
+        if order[a] > order[b]:
+            a, b, va, vb = b, a, vb, va
+        if frozenset((a, b)) not in said:
+            sunk.append(_sunk_text(a, b, share, va, vb))
+            store.append([a, b, share, va, vb])
     for i in sorted(adj):
         for j in sorted(adj[i]):
             a, b = parts[i], parts[j]
             if j < i or frozenset((a['name'], b['name'])) in said or not (a['closed'] and b['closed']):
+                continue
+            if test is not None and not test(a['name'], b['name']):
                 continue
             va, vb = _volume(a), _volume(b)
             small, other = (a, b) if va <= vb else (b, a)
@@ -201,15 +232,14 @@ def deep_overlaps(parts, adj, pierced, size):
             grid = grid[_inside(other, grid)] if len(grid) else grid
             if not len(grid) or numpy.any(grid.max(axis=0) - grid.min(axis=0) + (hi - lo) / GRID < DEEP * size):
                 continue
-            share = len(grid) * numpy.prod(hi - lo) / GRID ** 3 / vs
+            share = float(len(grid) * numpy.prod(hi - lo) / GRID ** 3 / vs)
             if share >= DEEP_SHARE:
-                text = f"{small['name']} hidden inside {other['name']}" if share >= 0.97 else \
-                    f"{small['name']} / {other['name']} ({round(min(share, 1) * 100)} % of {small['name']} inside)"
-                sunk.append((-share, text, small['name'], other['name']))
+                sunk.append(_sunk_text(a['name'], b['name'], share, va, vb))
+                store.append([a['name'], b['name'], share, va, vb])
     for _, text, x, y in sorted(sunk):
         items.append(text)
         names += [x, y]
-    return items, names
+    return items, names, store
 
 
 # Barycentric points spread over a triangle's interior: centres of its 16 sub-triangles at level 4.
@@ -217,80 +247,134 @@ _BARY = numpy.array([((i + 1 / 3) / 4, (j + 1 / 3) / 4) for i in range(4) for j 
                     + [((i + 2 / 3) / 4, (j + 2 / 3) / 4) for i in range(3) for j in range(3 - i)])
 
 
-def _covered(pts, tris):
-    """Which points lie inside any of the triangles (all in about one plane)."""
+def _inside_tris(pts, tris):
+    """For each triangle k, which of its points pts[k] (k, n, 3) lie inside it (all in about one
+    plane): (k, n) booleans. Degenerate triangles contain nothing."""
     v0, e1, e2 = tris[:, 0], tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0]
-    d = pts[None] - v0[:, None]
+    d = pts - v0[:, None]
     d11, d12, d22 = (e1 * e1).sum(1), (e1 * e2).sum(1), (e2 * e2).sum(1)
     den = d11 * d22 - d12 * d12
     keep = den > 1e-18
-    if not keep.any():
-        return numpy.zeros(len(pts), dtype=bool)
-    d, e1, e2, d11, d12, d22, den = d[keep], e1[keep], e2[keep], d11[keep], d12[keep], d22[keep], den[keep]
+    den = numpy.where(keep, den, 1.0)
     p1, p2 = (d * e1[:, None]).sum(2), (d * e2[:, None]).sum(2)
     u = (d22[:, None] * p1 - d12[:, None] * p2) / den[:, None]
     v = (d11[:, None] * p2 - d12[:, None] * p1) / den[:, None]
-    return ((u >= -1e-6) & (v >= -1e-6) & (u + v <= 1 + 1e-6)).any(axis=0)
+    return (u >= -1e-6) & (v >= -1e-6) & (u + v <= 1 + 1e-6) & keep[:, None]
+
+
+def _part_faces(part):
+    """All of a part's triangles, once per part: corners (m, 3, 3), unit normals, plane offsets and
+    per-triangle boxes. Degenerate triangles are left out."""
+    if 'faces' not in part:
+        tri = part['world'][part['tris']]
+        n = numpy.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+        area = numpy.linalg.norm(n, axis=1)
+        keep = area > 1e-12
+        tri, n, area = tri[keep], n[keep], area[keep]
+        n = n / area[:, None]
+        part['faces'] = tri, n, numpy.einsum('ij,ij->i', n, tri[:, 0]), tri.min(axis=1), tri.max(axis=1)
+    return part['faces']
 
 
 def _faces(part, box, tol):
     """The part's triangles that reach into a box: corners (m, 3, 3), unit normals and plane offsets."""
-    tri = part['world'][part['tris']]
-    if not len(tri):
-        return tri, None, None
+    tri, n, d, tlo, thi = _part_faces(part)
     lo, hi = numpy.array(box[0]) - tol, numpy.array(box[1]) + tol
-    tri = tri[numpy.all((tri.max(axis=1) >= lo) & (tri.min(axis=1) <= hi), axis=1)]
-    n = numpy.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
-    area = numpy.linalg.norm(n, axis=1)
-    tri, n, area = tri[area > 1e-12], n[area > 1e-12], area[area > 1e-12]
-    n = n / area[:, None]
-    return tri, n, numpy.einsum('ij,ij->i', n, tri[:, 0])
+    keep = numpy.all((thi >= lo) & (tlo <= hi), axis=1)
+    return tri[keep], n[keep], d[keep]
 
 
-def _shared_area(ta, na, da, tb, nb, db, tol):
+def _shared_area(ta, na, da, tb, nb, db, tol, budget):
     """Area of a's triangles covered by same-facing triangles of b in the same plane, its centre and
-    the mean area of a's triangles that were sampled (the smaller, the finer the estimate)."""
+    the mean area of a's triangles that were sampled (the smaller, the finer the estimate).
+    Only faces of b whose plane offset is within `tol` of a face's can share its plane: b's offsets
+    are sorted once, so each face of a meets a window of them instead of every face of b. `budget`
+    ([work left]) runs down with the face pairs compared and the points tested; at 0 it stops."""
     area, centre, tested = 0.0, numpy.zeros(3), []
-    for start in range(0, len(ta), 256):
-        same = (na[start:start + 256] @ nb.T > 0.999) & (numpy.abs(da[start:start + 256, None] - db[None]) < tol)
-        for k in numpy.nonzero(same.any(axis=1))[0]:
-            t = ta[start + k]
-            pts = t[0] + _BARY[:, :1] * (t[1] - t[0]) + _BARY[:, 1:] * (t[2] - t[0])
-            hit = _covered(pts, tb[same[k]])
-            tested.append(numpy.linalg.norm(numpy.cross(t[1] - t[0], t[2] - t[0])) / 2)
+    order = numpy.argsort(db, kind='stable')
+    wide = tol * (1 + 1e-9) + 1e-12  # a little wider than the exact test below, never narrower
+    lo = numpy.searchsorted(db[order], da - wide, 'left')
+    count = numpy.searchsorted(db[order], da + wide, 'right') - lo
+    ends = numpy.cumsum(count)
+    start = 0
+    while start < len(ta) and budget[0] > 0:
+        base = int(ends[start - 1]) if start else 0
+        stop = max(start + 1, int(numpy.searchsorted(ends, base + Z_CHUNK, 'right')))
+        n, per = int(ends[stop - 1]) - base, count[start:stop]
+        budget[0] -= n
+        ia = numpy.repeat(numpy.arange(start, stop), per)
+        ib = order[numpy.arange(n) - numpy.repeat(ends[start:stop] - per - base, per) + numpy.repeat(lo[start:stop], per)]
+        same = (numpy.einsum('ij,ij->i', na[ia], nb[ib]) > 0.999) & (numpy.abs(da[ia] - db[ib]) < tol)
+        ia, ib = ia[same], ib[same]
+        start = stop
+        if not len(ia):
+            continue
+        # Each face's sample points against its candidates of b, every pair at once; a point is
+        # covered when any of them contains it.
+        faces, firsts = numpy.unique(ia, return_index=True)
+        t = ta[faces]
+        pts = t[:, 0][:, None] + _BARY[None, :, :1] * (t[:, 1] - t[:, 0])[:, None] + _BARY[None, :, 1:] * (t[:, 2] - t[:, 0])[:, None]
+        at = numpy.repeat(numpy.arange(len(faces)), numpy.diff(numpy.append(firsts, len(ia))))
+        inside = numpy.concatenate([_inside_tris(pts[at[s:s + Z_TESTS]], tb[ib[s:s + Z_TESTS]]) for s in range(0, len(ia), Z_TESTS)])
+        hits = numpy.logical_or.reduceat(inside, firsts, axis=0)
+        budget[0] -= len(_BARY) * len(ia)
+        cross = numpy.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
+        for k, hit in enumerate(hits):
+            tested.append(numpy.linalg.norm(cross[k]) / 2)
             if hit.any():
                 a = tested[-1] * hit.mean()
                 area += a
-                centre += pts[hit].mean(axis=0) * a
+                centre += pts[k][hit].mean(axis=0) * a
     return area, (centre / area if area else centre), (sum(tested) / len(tested) if tested else 0.0)
 
 
-def z_fighting(parts, tol, size):
+def _side(result):
+    area, centre, mean = result
+    return [float(area), [float(v) for v in centre], float(mean)]
+
+
+def z_fighting(parts, tol, size, test=None, known=(), budget=None):
     """`Z-fighting: ...`: same-facing faces of two parts in one plane (normals within 2.6 degrees,
     planes closer than 0.02 % of the model) that overlap by more than a small patch. Faces that
-    meet back to back (a box resting on another) face opposite ways and stay quiet. Returns (items, names)."""
+    meet back to back (a box resting on another) face opposite ways and stay quiet. Only pairs
+    `test` accepts are measured; `known` gives the others as stored. The work stops at `budget`
+    ([work left], Z_BUDGET by default). Returns (items, names, the pairs to store: [a, b, a's side,
+    b's side], a first in part order, each side [area, centre, mean triangle area], and whether the
+    check stopped early)."""
     least, plane = max(1e-6, (0.01 * size) ** 2), max(1e-4, PLANE * size)
-    found = []
+    budget = [Z_BUDGET] if budget is None else budget
+    order = {x['name']: i for i, x in enumerate(parts)}
+    found, store = [], []
+
+    def add(a, b, ab, ba):
+        # Sampled from the side with the smaller triangles, unless only the other side saw it.
+        fine, coarse = (ab, ba) if ab[2] <= ba[2] else (ba, ab)
+        area, centre, _ = fine if fine[0] > 0 else coarse
+        if max(ab[0], ba[0]) > least:
+            store.append([a, b, _side(ab), _side(ba)])
+        if area > least:
+            found.append((-area, *sorted((a, b)), area, centre))
+
+    for a, b, ab, ba in known:
+        if order[a] > order[b]:
+            a, b, ab, ba = b, a, ba, ab
+        add(a, b, ab, ba)
     for i in range(len(parts)):
         for j in range(i + 1, len(parts)):
             a, b = parts[i], parts[j]
-            if not _boxes_near(a['box'], b['box'], tol):
+            if test is not None and not test(a['name'], b['name']):
+                continue
+            if budget[0] <= 0 or not _boxes_near(a['box'], b['box'], tol):
                 continue
             box = (numpy.maximum(a['box'][0], b['box'][0]), numpy.minimum(a['box'][1], b['box'][1]))
             ta, na, da = _faces(a, box, plane)
             tb, nb, db = _faces(b, box, plane)
             if not len(ta) or not len(tb):
                 continue
-            # Sampled from the side with the smaller triangles, unless only the other side saw it.
-            ab = _shared_area(ta, na, da, tb, nb, db, plane)
-            ba = _shared_area(tb, nb, db, ta, na, da, plane)
-            fine, coarse = (ab, ba) if ab[2] <= ba[2] else (ba, ab)
-            area, centre, _ = fine if fine[0] > 0 else coarse
-            if area > least:
-                found.append((-area, *sorted((a['name'], b['name'])), area, centre))
+            add(a['name'], b['name'], _shared_area(ta, na, da, tb, nb, db, plane, budget), _shared_area(tb, nb, db, ta, na, da, plane, budget))
     found.sort(key=lambda f: (f[0], f[1], f[2]))
     items = [f"{x} / {y} ({area:.2g} m² at {', '.join(_m(v) for v in c)})" for _, x, y, area, c in found]
-    return items, [n for f in found for n in f[1:3]]
+    return items, [n for f in found for n in f[1:3]], store, budget[0] <= 0
 
 
 def _frame_box(part, frame):
@@ -355,20 +439,28 @@ def symmetry(parts, axis, size, tol, other_side):
     return items, names
 
 
-def review(parts, *, previous, size, tol, ground_z, pierced, axis, other_side):
+def review(parts, *, previous, size, tol, ground_z, pierced, axis, other_side, test=None, known=None):
     """The step's text review. `parts` are genio_step._parts records (name, ob, world vertices,
     triangles, BVH tree, box, closed); `pierced` the pass-through check's notable pairs; `previous`
-    the previous step's part table ({} for the first step; None when unknown: no Changes line). Returns (lines, the parts worth a label on the sheet as
-    (name, flagged by a defect line), this step's part table)."""
+    the previous step's part table ({} for the first step; None when unknown: no Changes line).
+    `test(name, name)` picks the pairs to examine (None: all) and `known` carries the others'
+    results, as stored: {'contacts': [[a, b]], 'sunk': [...], 'z_fighting': [...]}. Returns (lines,
+    the parts worth a label on the sheet as (name, flagged by a defect line), this step's part
+    table, this step's pair results to store, whether the z-fighting check stopped early)."""
     table = part_table(parts)
     line, changed = changes(table, previous, tol) if previous is not None else (None, [])
     lines, flagged = [line] if line else [], []
-    adj = contacts(parts, tol)
+    known = known or {}
+    order = {x['name']: i for i, x in enumerate(parts)}
+    adj = contacts(parts, tol, test, [(order[a], order[b]) for a, b in known.get('contacts', [])])
+    sunk_items, sunk_names, sunk = deep_overlaps(parts, adj, pierced, size, test, known.get('sunk', []))
+    z_items, z_names, z_store, z_stopped = z_fighting(parts, tol, size, test, known.get('z_fighting', []))
     for title, (items, names) in (('Floating', floating(parts, adj, ground_z, tol)),
-                                  ('Deep overlap', deep_overlaps(parts, adj, pierced, size)),
-                                  ('Z-fighting', z_fighting(parts, tol, size)),
+                                  ('Deep overlap', (sunk_items, sunk_names)),
+                                  ('Z-fighting', (z_items, z_names)),
                                   ('Symmetry', symmetry(parts, axis, size, tol, other_side))):
         if items:
             lines.append(f'{title}: {_items(items)}')
             flagged += [n for k, n in enumerate(names) if n not in flagged and n not in names[:k]]
-    return lines, [(n, True) for n in flagged] + [(n, False) for n in changed if n not in flagged], table
+    pairs = {'contacts': sorted([parts[i]['name'], parts[j]['name']] for i in adj for j in adj[i] if i < j), 'sunk': sunk, 'z_fighting': z_store}
+    return lines, [(n, True) for n in flagged] + [(n, False) for n in changed if n not in flagged], table, pairs, z_stopped
