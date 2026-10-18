@@ -59,7 +59,7 @@ const DESIGN_NOTES_WRITE =
   'An existing note needs since = the version you last read; a note changed since then is refused. 16 KB per note, 64 KB for the folder.'
 import { listNotes, readNote, writeNote } from './design-notes'
 import { CATEGORY_IDS } from '@shared/dispatch'
-import { REPLY_VOICE_IDS } from '@shared/reply-voice'
+import { isReplyVoice } from '@shared/reply-voice'
 import { playService } from './play'
 import { formatStatusLine } from './status'
 import { settingsPath } from '@shared/settings-pages'
@@ -405,14 +405,14 @@ export function createToolRegistry(
     return ok(found)
   })
   const preferenceShape = { unitsAtOnce: z.number().int().min(1).max(MAX_UNITS_AT_ONCE).optional(), usageMode: z.enum(['save', 'balanced', 'max']).optional(), quotaProtection: z.boolean().optional(), sound: z.boolean().optional(),
-    soundVolume: z.number().min(0).max(1).optional(), voice: z.boolean().optional(), replyVoice: z.enum(REPLY_VOICE_IDS).optional(), calm: z.boolean().optional(),
+    soundVolume: z.number().min(0).max(1).optional(), voice: z.boolean().optional(), replyVoice: z.string().refine(isReplyVoice, 'a natural voice id (af, af_bella, ...), windows, or windows:<Windows voice name>').optional(), calm: z.boolean().optional(),
     fx: z.boolean().optional(), desktopNotifications: z.boolean().optional() }
   const preferences = () => {
     const s = getCtx().settings.get()
     return { usageMode: s.usageMode, unitsAtOnce: s.unitsAtOnce, quotaProtection: s.quotaProtection !== false, sound: s.sound, soundVolume: s.soundVolume, voice: s.voice, replyVoice: s.replyVoice,
       calm: s.calm, fx: s.fx, desktopNotifications: s.desktopNotifications }
   }
-  t('settings_read', `Read supported chat/app preferences without secrets or large configuration skills. Where the player sees them: usageMode and unitsAtOnce (Units at once, 1-32, independent of mode), and quotaProtection (default on; off disables automatic quota saving, while provider limits still apply) in ${settingsPath('usage')}; calm is Clean chat, fx is Scanlines and grid, voice is Read replies aloud and replyVoice the voice under it (shown once the natural voice is downloaded), all in ${settingsPath('general')}; sound, soundVolume and desktopNotifications in ${settingsPath('notifications')}. Advanced models, accounts and security settings are elsewhere in Settings, e.g. ${settingsPath('accounts')} or ${settingsPath('dispatch')}.`, {}, () => ok(json(preferences())))
+  t('settings_read', `Read supported chat/app preferences without secrets or large configuration skills. Where the player sees them: usageMode and unitsAtOnce (Units at once, 1-32, independent of mode), and quotaProtection (default on; off disables automatic quota saving, while provider limits still apply) in ${settingsPath('usage')}; calm is Clean chat, fx is Scanlines and grid, voice is Read replies aloud and replyVoice the voice under it (a natural voice id such as af or bf_emma, windows for the Windows default, or windows:<name> for one Windows voice), all in ${settingsPath('general')}; sound, soundVolume and desktopNotifications in ${settingsPath('notifications')}. Advanced models, accounts and security settings are elsewhere in Settings, e.g. ${settingsPath('accounts')} or ${settingsPath('dispatch')}.`, {}, () => ok(json(preferences())))
   t('settings_update', 'Change only these named preferences when the player wants it; the approval mode decides whether the player is asked first. Does not change permissions, accounts or spending allowances.', {
     patch: z.strictObject(preferenceShape)
   }, async ({ patch }) => {

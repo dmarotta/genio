@@ -24,10 +24,21 @@ const f = vi.hoisted(() => {
     uthanaWorld: async () => ({ folder: 'Assets/Animations', config: {} }),
     projectMetadata: async () => ({}),
     projectPushStatus: async () => ({ ahead: 0, behind: 0 }),
-    voiceOutputStatus: async () => ({ state: f.voiceState, declined: false, received: 0, total: 1 })
+    voiceOutputStatus: async () => ({ state: f.voiceState, declined: false, received: 0, total: 328_520_409 }),
+    // Like main: progress events, then the end; a failure publishes its reason and rejects.
+    voiceOutputInstall: async () => {
+      f.emit({ type: 'voice-output-install', state: 'downloading', received: 164_260_204, total: 328_520_409 })
+      await new Promise<void>((resolve) => { f.finishInstall = resolve })
+      f.emit({ type: 'voice-output-install', state: 'missing', received: 0, total: 328_520_409, error: 'offline' })
+      throw new Error('offline')
+    }
   }
   const api = new Proxy({}, { get: (_, key: string) => (...args: unknown[]) => { calls.push(key); return (known[key] ?? (async () => ({})))(...args) } })
-  return { calls, api, projects: [] as Project[], window: 'Zebra' as string, settings: undefined as unknown, usage: null as import('../src/shared/usage-mode').UsagePolicyView | null, voiceState: 'missing' as string }
+  const listeners = new Set<(e: unknown) => void>()
+  return {
+    calls, api, projects: [] as Project[], window: 'Zebra' as string, settings: undefined as unknown, usage: null as import('../src/shared/usage-mode').UsagePolicyView | null, voiceState: 'missing' as string,
+    listeners, emit: (e: unknown) => { for (const fn of listeners) fn(e) }, finishInstall: () => undefined as void
+  }
 })
 vi.mock('../src/renderer/src/store', () => ({
   get PROJECT_WINDOW() { return f.window },
@@ -150,7 +161,7 @@ describe('page registry', () => {
       'Allow cheap third-party models': 'OpenRouter models', 'Allow OpenRouter models for low-stakes work': 'OpenRouter models', 'Claude permission posture': 'Claude unit permissions',
       'Auto-dispatch queued quests': 'Start queued quests automatically', 'Strip AI commit trailers': 'Remove AI co-author lines',
       'Co-authored by Genio': 'Credit Genio as co-author', 'Visual FX': 'Scanlines and grid',
-      Voice: 'Read replies aloud', 'Sound effects': 'Sounds', 'Webhook URL': 'Send away alerts to',
+      Voice: 'Read replies aloud', 'Download natural voice': 'Read replies aloud', 'Sound effects': 'Sounds', 'Webhook URL': 'Send away alerts to',
       'Webhook kind': 'Send away alerts to', Alarm: "If you don't respond", 'Paid spend on cheap models': 'Allow paid OpenRouter spend',
       'Mail HTTP intake': 'Accept notes from scripts and your phone', 'Maximum slots': 'Slots', 'Unity slots for units': 'Slots',
       'Quit after idle': 'Your Play editor', 'Maximum player editors': 'Your Play editor', 'Check for patch': 'Updates',
@@ -361,33 +372,88 @@ describe('search index', () => {
     expect(hinted).toEqual(['Max units at once', 'OpenRouter models', 'Read replies aloud', 'Quota protection'])
   })
 
-  it('shows the Voice drop-down under Read replies aloud only once the natural voice is downloaded, and saves the choice', async () => {
+  describe('the Voice drop-down under Read replies aloud', () => {
+    const DAVID = 'Microsoft David Desktop - English (United States)'
+    const ZIRA = 'Microsoft Zira Desktop - English (United States)'
     const voiceSelect = () => host.querySelector<HTMLSelectElement>('select[aria-label="Voice"]')
-    f.settings = { ...defaultSettings(), voice: true }
-    await mount()
-    await open('general')
-    expect(voiceSelect()).toBeNull()
-    await act(async () => root.unmount())
-    root = createRoot(host)
-    f.voiceState = 'ready'
-    await mount()
-    await open('general')
-    const select = voiceSelect()!
-    expect(select.value).toBe('af')
-    expect([...select.options].map((o) => o.text)).toEqual(['Default', 'Bella', 'Nicole', 'Sarah', 'Sky', 'Adam', 'Michael', 'Emma (British)', 'Isabella (British)', 'George (British)', 'Lewis (British)', 'Windows voice'])
-    const rows = [...host.querySelectorAll('.sys-row-title')].map((e) => e.textContent)
-    expect(rows[rows.indexOf('Read replies aloud') + 1]).toBe('Voice')
-    vi.mocked(saveSettings).mockClear()
-    await act(async () => { select.value = 'bf_emma'; select.dispatchEvent(new Event('change', { bubbles: true })) })
-    expect(saveSettings).toHaveBeenLastCalledWith({ replyVoice: 'bf_emma' })
-    await act(async () => root.unmount())
-    root = createRoot(host)
-    f.settings = { ...defaultSettings(), voice: false }
-    await mount()
-    await open('general')
-    expect(voiceSelect()).toBeNull()
-  })
+    const options = () => [...voiceSelect()!.options].map((o) => o.text)
+    const groups = () => [...voiceSelect()!.querySelectorAll('optgroup')].map((g) => g.label)
+    const downloadButton = () => [...host.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Download natural voice')
+    const choose = (value: string) => act(async () => { const s = voiceSelect()!; s.value = value; s.dispatchEvent(new Event('change', { bubbles: true })) })
+    beforeEach(() => {
+      const voices = [DAVID, ZIRA, 'Microsoft Aria Online (Natural) - English (United States)']
+        .map((name) => ({ name, lang: 'en-US', localService: !name.includes('Online'), default: false, voiceURI: name }))
+      vi.stubGlobal('speechSynthesis', { getVoices: () => voices, addEventListener: () => undefined, removeEventListener: () => undefined })
+      vi.stubGlobal('genio', { on: (fn: (e: unknown) => void) => { f.listeners.add(fn); return () => f.listeners.delete(fn) } })
+    })
+    const remount = async (settings: Partial<Settings>) => {
+      await act(async () => root.unmount())
+      root = createRoot(host)
+      f.settings = { ...defaultSettings(), ...settings }
+      await mount()
+      await open('general')
+    }
 
+    it('lists the Windows voices of this PC and the natural voice download while the natural voice is missing', async () => {
+      await remount({ voice: true })
+      const rows = [...host.querySelectorAll('.sys-row-title')].map((e) => e.textContent)
+      expect(rows[rows.indexOf('Read replies aloud') + 1]).toBe('Voice')
+      // The saved natural voice speaks with the Windows default until it is installed.
+      expect(voiceSelect()!.value).toBe('windows')
+      expect(options()).toEqual(['Default', 'David - English (United States)', 'Zira - English (United States)'])
+      expect(groups()).toEqual([])
+      expect(downloadButton()).toBeDefined()
+      vi.mocked(saveSettings).mockClear()
+      await choose(`windows:${ZIRA}`)
+      expect(saveSettings).toHaveBeenLastCalledWith({ replyVoice: `windows:${ZIRA}` })
+    })
+
+    it('shows a saved Windows voice, and Default once that voice is gone from this PC', async () => {
+      await remount({ voice: true, replyVoice: `windows:${DAVID}` })
+      expect(voiceSelect()!.value).toBe(`windows:${DAVID}`)
+      await remount({ voice: true, replyVoice: 'windows:Microsoft Hazel Desktop - English (Great Britain)' })
+      expect(voiceSelect()!.value).toBe('windows')
+    })
+
+    it('downloads the natural voice only after the same consent as the chat offer, with progress and the failure line', async () => {
+      await remount({ voice: true })
+      f.calls.length = 0
+      await act(async () => downloadButton()!.click())
+      const dialog = document.querySelector('[role="dialog"][aria-label="Natural voice"]')!
+      expect(dialog.textContent).toContain('329 MB')
+      expect(f.calls).not.toContain('voiceOutputInstall')
+      await act(async () => [...dialog.querySelectorAll('button')].find((b) => b.textContent === 'Download')!.click())
+      await settle()
+      expect(f.calls).toContain('voiceOutputInstall')
+      expect(document.querySelector('[aria-label="Natural voice"]')).toBeNull()
+      expect(downloadButton()!.disabled).toBe(true)
+      expect(downloadButton()!.classList.contains('loading')).toBe(true)
+      expect(Number(downloadButton()!.style.getPropertyValue('--progress'))).toBeCloseTo(0.5)
+      await act(async () => f.finishInstall())
+      await settle()
+      expect(host.querySelector('[role="alert"]')?.textContent).toBe('Natural voice download failed: offline')
+      expect(downloadButton()!.disabled).toBe(false)
+      // Not now declines like the chat offer.
+      await act(async () => downloadButton()!.click())
+      await act(async () => [...document.querySelectorAll('[aria-label="Natural voice"] button')].find((b) => b.textContent === 'Not now')!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+      expect(f.calls).toContain('voiceOutputDecline')
+    })
+
+    it('adds the natural voices once installed, with no download, and saves the choice; hidden with Read replies aloud off', async () => {
+      f.voiceState = 'ready'
+      await remount({ voice: true })
+      expect(voiceSelect()!.value).toBe('af')
+      expect(groups()).toEqual(['Natural voices', 'Windows voices'])
+      expect(options()).toEqual(['Default', 'Bella', 'Nicole', 'Sarah', 'Sky', 'Adam', 'Michael', 'Emma (British)', 'Isabella (British)', 'George (British)', 'Lewis (British)',
+        'Default', 'David - English (United States)', 'Zira - English (United States)'])
+      expect(downloadButton()).toBeUndefined()
+      vi.mocked(saveSettings).mockClear()
+      await choose('bf_emma')
+      expect(saveSettings).toHaveBeenLastCalledWith({ replyVoice: 'bf_emma' })
+      await remount({ voice: false })
+      expect(voiceSelect()).toBeNull()
+    })
+  })
   it('shows the alarm as a choice plus a command box, saving the same stored string', async () => {
     f.settings = { ...defaultSettings(), alarm: 'command:notify.cmd' }
     await mount()

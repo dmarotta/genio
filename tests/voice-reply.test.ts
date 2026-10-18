@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ReplyVoice, SPEAK_LIMIT, chunks, sentences, speakable, trimSilence, type ReplyVoiceDeps } from '../src/renderer/src/lib/voice'
+import { ReplyVoice, SPEAK_LIMIT, chunks, pickSystemVoice, sentences, speakable, systemVoices, trimSilence, windowsVoiceLabel, type ReplyVoiceDeps } from '../src/renderer/src/lib/voice'
 
 // The natural voice's player with a fake AudioContext and fake main calls: no audio device, no helper.
 class FakeSource {
@@ -31,7 +31,7 @@ function harness(state: 'missing' | 'downloading' | 'ready', declined = false) {
     synth: (text) => new Promise((resolve, reject) => calls.push({ text, resolve, reject })),
     cancel: () => { cancels++ },
     context: () => ctx as unknown as ReturnType<ReplyVoiceDeps['context']>,
-    system: (text) => system.push(text),
+    system: (text, name) => system.push(name ? `${name}: ${text}` : text),
     systemStop: () => undefined,
     offer: (s) => { offers.push(s.total); return true }
   }
@@ -135,6 +135,17 @@ describe('ReplyVoice', () => {
     expect(kokoro.system).toEqual([])
   })
 
+  it('speaks with the chosen Windows voice by name, and a natural voice with the Windows default until it is installed', async () => {
+    const h = harness('ready')
+    await h.voice.speak('Hello.', 'windows:Microsoft Zira Desktop - English (United States)')
+    expect(h.system).toEqual(['Microsoft Zira Desktop - English (United States): Hello.'])
+    expect(h.calls).toEqual([])
+    const missing = harness('missing', true)
+    await missing.voice.speak('Hello.', 'bf_emma')
+    expect(missing.system).toEqual(['Hello.'])
+    expect(missing.calls).toEqual([])
+  })
+
   it('never offers after Not now, nor during the download', async () => {
     for (const h of [harness('missing', true), harness('downloading')]) {
       await h.voice.speak('Hello.')
@@ -226,5 +237,26 @@ describe('ReplyVoice', () => {
     await Promise.all([first, second])
     expect(h.sources.length).toBe(2)
     expect(h.sources[1].stopped).toBe(false)
+  })
+})
+
+describe('Windows voices', () => {
+  const voice = (name: string, lang: string, localService = true) => ({ name, lang, localService, default: false, voiceURI: name }) as SpeechSynthesisVoice
+  const david = voice('Microsoft David Desktop - English (United States)', 'en-US')
+  const zira = voice('Microsoft Zira Desktop - English (United States)', 'en-US')
+  const elsa = voice('Microsoft Elsa - Italian (Italy)', 'it-IT')
+  const online = voice('Microsoft Aria Online (Natural) - English (United States)', 'en-US', false)
+
+  it('lists only the voices installed on this PC, once each, under plain names', () => {
+    expect(systemVoices([elsa, david, online, zira, david]).map((v) => v.name)).toEqual([elsa.name, david.name, zira.name])
+    expect([david, elsa].map((v) => windowsVoiceLabel(v.name))).toEqual(['David - English (United States)', 'Elsa - Italian (Italy)'])
+  })
+
+  it('speaks with the chosen voice while it is installed, else with the default', () => {
+    expect(pickSystemVoice([elsa, david, zira], zira.name)).toBe(zira)
+    expect(pickSystemVoice([elsa, david, zira], elsa.name)).toBe(elsa)
+    // The saved voice was removed from Windows: the default (an English voice of this PC).
+    expect(pickSystemVoice([elsa, david], zira.name)).toBe(david)
+    expect(pickSystemVoice([elsa, david])).toBe(david)
   })
 })

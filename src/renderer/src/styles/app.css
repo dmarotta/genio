@@ -354,6 +354,8 @@ button.hud-stat:hover { border-color: var(--line); color: var(--text); }
 .composer-mic.loading::after { content: ''; position: absolute; inset: -2px; border-radius: 50%; pointer-events: none;
   background: conic-gradient(var(--neon) calc(var(--progress, 0) * 360deg), transparent 0);
   -webkit-mask: radial-gradient(circle, transparent 62%, #000 64%); mask: radial-gradient(circle, transparent 62%, #000 64%); }
+/* Settings' Download natural voice fills with the download's progress. */
+.voice-download.loading { background: linear-gradient(90deg, rgba(0, 229, 255, 0.25) calc(var(--progress, 0) * 100%), transparent 0); }
 .voice-consent { max-width: 300px; padding: 12px; font-size: 13px; }
 .voice-consent p { margin: 0 0 10px; }
 .voice-consent-actions { display: flex; justify-content: flex-end; gap: 8px; }

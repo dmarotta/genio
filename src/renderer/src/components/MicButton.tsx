@@ -6,6 +6,7 @@ import { cx } from '../lib/format'
 import { MicBlockedError, record, type Recording } from '../lib/mic'
 import { onVoiceOffer, stopSpeaking } from '../lib/voice'
 import { Popover } from './Layer'
+import { NaturalVoiceConsent } from './NaturalVoiceConsent'
 import { useChatDocument } from './ChatDocument'
 
 const BLOCKED = "Windows blocks the microphone: allow microphone access in Windows' privacy settings."
@@ -105,11 +106,6 @@ export function useVoiceInput({ box, insert }: { box: RefObject<HTMLElement | nu
       naturalMine.current = false
       setNatural(null)
     }
-  }
-
-  const declineVoice = (): void => {
-    setOffer(null)
-    void api().voiceOutputDecline().catch(() => undefined)
   }
 
   const finish = async (): Promise<void> => {
@@ -220,14 +216,7 @@ export function useVoiceInput({ box, insert }: { box: RefObject<HTMLElement | nu
       </Popover>
     )}
     {offer && !consent && (
-      <Popover anchor={button} placement="bottom-end" className="voice-consent panel" onClose={() => setOffer(null)} role="dialog" aria-label="Natural voice">
-        <p>Read replies in a natural voice? It runs on this PC and needs a one-time {Math.round(offer.total / 1e6)} MB download.
-          Until then, Windows' voice reads them.</p>
-        <div className="voice-consent-actions">
-          <button type="button" className="btn ghost sm" onClick={declineVoice}>Not now</button>
-          <button type="button" className="btn solid sm" onClick={() => void acceptVoice()}>Download</button>
-        </div>
-      </Popover>
+      <NaturalVoiceConsent anchor={button} total={offer.total} onDownload={() => void acceptVoice()} onClose={() => setOffer(null)} />
     )}
   </>
   return { button: node, error, listening: phase === 'listening', stop, clearError: () => setError('') }

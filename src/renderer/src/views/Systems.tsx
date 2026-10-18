@@ -1,6 +1,6 @@
 import { ThisProjectSettings, type ProjectPageId } from './ProjectSettings'
 import { PlayerInstanceSettings } from './PlayerInstanceSettings'
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { ChevronDown, ChevronUp, Copy, Download, KeyRound, Lock, LockOpen, LogIn, LogOut, Plus, RefreshCw, Search, Trash, Wrench, X } from 'lucide-react'
 import type { CategoryPool, DispatchRule, EventSource, HarnessAdapter, PoolCandidate, Project, Settings, ToolStatus, UpdateInfo } from '@shared/types'
 import { CATEGORIES, categoryLabel, defaultCategoryPools } from '@shared/dispatch'
@@ -9,9 +9,9 @@ import { USAGE_MODES, USAGE_MODE_LABEL, modeSummary, pctText, planLabel, type Us
 import { SETTINGS_GROUP_LABEL, SETTINGS_PAGES, settingsPage, type SettingsPage, type SettingsPageId } from '@shared/settings-pages'
 import { effectiveEngine } from '@shared/engine'
 import { supportsUnitySlots } from '@shared/play'
-import { REPLY_VOICES } from '@shared/reply-voice'
+import { NATURAL_VOICES, WINDOWS_VOICE, windowsVoice, windowsVoiceName } from '@shared/reply-voice'
 import { PlanMeter, useUsagePolicyState } from '../components/PlanMeter'
-import { accountActions, GENIO_CODEX, type AccountStatus, type ApiKeyStatus, type ExplorerStatus, type FalSpend } from '@shared/api'
+import { accountActions, GENIO_CODEX, type AccountStatus, type ApiKeyStatus, type ExplorerStatus, type FalSpend, type VoiceOutputStatus } from '@shared/api'
 import { PROJECT_WINDOW, api, errText, op, saveSettings, toast, useStore } from '../store'
 import { CommitInput, Confirm, Field, Toggle, ViewHeader } from '../components/ui'
 import { SettingsTitle } from '../components/SettingsTitle'
@@ -21,6 +21,8 @@ import { Mailbox } from '../components/Mailbox'
 import { EFFORTS } from '../lib/vocab'
 import { cx, usd } from '../lib/format'
 import { playSfx } from '../lib/sfx'
+import { windowsVoiceLabel, windowsVoices } from '../lib/voice'
+import { NaturalVoiceConsent } from '../components/NaturalVoiceConsent'
 import { useScreenContext } from '../lib/screen-context'
 import { settingAnchor, searchSettings, type SettingsHit } from '@shared/settings-index'
 import { joinArgs, splitArgs, type McpServerInput, type McpServerView } from '@shared/mcp'
@@ -598,22 +600,76 @@ function pinnedOverrides(s: Settings, view: UsagePolicyView | null): Pin[] {
   return out
 }
 
-/** The voice that reads replies, under Read replies aloud: shown only once the natural voice is downloaded. */
+/**
+ * The voice that reads replies, under Read replies aloud: the natural voices once downloaded and the Windows voices of
+ * this PC. While the natural voice is missing, its download sits next to it, through the same consent as the chat's offer.
+ */
 function ReplyVoiceRow({ value }: { value: Settings['replyVoice'] }) {
-  const [installed, setInstalled] = useState(false)
+  const [status, setStatus] = useState<Pick<VoiceOutputStatus, 'state' | 'received' | 'total'> | null>(null)
+  const [windows, setWindows] = useState<string[]>([])
+  const [consent, setConsent] = useState(false)
+  const [error, setError] = useState('')
+  const button = useRef<HTMLButtonElement>(null)
+  // A download started here shows its failure here (one started at the mic shows it under that chat box).
+  const mine = useRef(false)
   useEffect(() => {
     let alive = true
-    void api().voiceOutputStatus().then((st) => { if (alive) setInstalled(st.state === 'ready') }).catch(() => undefined)
-    const off = window.genio?.on?.((e) => { if (e.type === 'voice-output-install') setInstalled(e.state === 'ready') })
+    void api().voiceOutputStatus().then((st) => { if (alive) setStatus(st) }).catch(() => undefined)
+    void windowsVoices().then((names) => { if (alive) setWindows(names) })
+    const off = window.genio?.on?.((e) => {
+      if (e.type !== 'voice-output-install') return
+      setStatus(e)
+      if (e.error && mine.current) setError(`Natural voice download failed: ${e.error}`)
+    })
     return () => { alive = false; off?.() }
   }, [])
-  if (!installed) return null
+  const download = async (): Promise<void> => {
+    setConsent(false)
+    setError('')
+    setStatus((st) => st && { ...st, state: 'downloading' })
+    mine.current = true
+    try {
+      setStatus(await api().voiceOutputInstall())
+    } catch {
+      /* the 'voice-output-install' event carries the reason */
+    } finally {
+      mine.current = false
+    }
+  }
+  const ready = status?.state === 'ready'
+  const downloading = status?.state === 'downloading'
+  // A natural voice speaks with the Windows default until it is installed; a Windows voice that is gone, with the default.
+  const name = windowsVoiceName(value)
+  const shown = name === undefined ? (ready ? value : WINDOWS_VOICE) : windows.includes(name) ? value : WINDOWS_VOICE
+  const windowsOptions = (
+    <>
+      <option value={WINDOWS_VOICE}>Default</option>
+      {windows.map((n) => <option key={n} value={windowsVoice(n)}>{windowsVoiceLabel(n)}</option>)}
+    </>
+  )
   return (
-    <Row label="Voice">
-      <select className="select" aria-label="Voice" value={value} onChange={(e) => set({ replyVoice: e.target.value as Settings['replyVoice'] })}>
-        {REPLY_VOICES.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
-      </select>
-    </Row>
+    <>
+      <Row label="Voice">
+        <select className="select" aria-label="Voice" value={shown} onChange={(e) => set({ replyVoice: e.target.value as Settings['replyVoice'] })}>
+          {ready ? (
+            <>
+              <optgroup label="Natural voices">{NATURAL_VOICES.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}</optgroup>
+              <optgroup label="Windows voices">{windowsOptions}</optgroup>
+            </>
+          ) : windowsOptions}
+        </select>
+        {status && !ready && (
+          <button ref={button} type="button" className={cx('btn sm voice-download', downloading && 'loading')} disabled={downloading}
+            style={{ '--progress': status.total ? status.received / status.total : 0 } as CSSProperties} onClick={() => setConsent(true)}>
+            Download natural voice
+          </button>
+        )}
+        {consent && status && !ready && (
+          <NaturalVoiceConsent anchor={button} total={status.total} onDownload={() => void download()} onClose={() => setConsent(false)} />
+        )}
+      </Row>
+      {error && <p role="alert">{error}</p>}
+    </>
   )
 }
 

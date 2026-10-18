@@ -1,7 +1,7 @@
 # Voice
 
 Talk to Genio's chat and hear its replies, all on this PC: nothing is sent anywhere and nothing costs money. The only
-settings are **Read replies aloud** and, once the natural voice is downloaded, the **Voice** under it.
+settings are **Read replies aloud** and the **Voice** under it.
 
 ## Voice input (push to talk)
 
@@ -55,12 +55,25 @@ settings are **Read replies aloud** and, once the natural voice is downloaded, t
 - **Settings → General → Read replies aloud** (off by default). Genio speaks the last text of each successful chat
   turn, in the windows that show that chat (never twice, never in the Hub). Speech starts at the end of the turn. An
   event turn with nothing to report ends silent and is never spoken.
-- **Settings → General → Voice**, directly under the toggle, picks who speaks. It is shown only while Read replies
-  aloud is on and the natural voice is downloaded, with nothing else around it. It lists the 11 Kokoro voices under
-  plain names (Default for `af`, then Bella, Nicole, Sarah, Sky, Adam, Michael, Emma (British), Isabella (British),
-  George (British), Lewis (British)) and last **Windows voice**, which always speaks with the Windows voice. The default
-  is Default (voice 0), so nothing changes for anyone who never touches it. The choice is saved in the settings
-  (`replyVoice`) and applies from the next spoken sentence; Genio's chat can change it too (`settings_update`).
+- **Settings → General → Voice**, directly under the toggle, picks who speaks. It is shown whenever Read replies
+  aloud is on. It lists:
+  - once the natural voice is downloaded, under **Natural voices**, the 11 Kokoro voices under plain names (Default
+    for `af`, then Bella, Nicole, Sarah, Sky, Adam, Michael, Emma (British), Isabella (British), George (British),
+    Lewis (British));
+  - the **Windows voices** installed on this PC (`speechSynthesis.getVoices()`, only the local ones, never the online
+    ones), first **Default** (the Windows voice Genio has always picked: an English voice of this PC), then each voice
+    under its plain name ("Microsoft David Desktop - English (United States)" shows as "David - English (United
+    States)"). The two groups are titled only while both are listed.
+  - While the natural voice is missing, a **Download natural voice** button sits next to the drop-down. It opens the
+    same consent panel as the chat's offer (about 329 MB, Download or Not now); during the download the button fills
+    with the progress and is disabled. A failure shows one line under the row and the button is usable again; once the
+    voice is ready the button goes and the natural voices join the list.
+- The choice is saved in the settings (`replyVoice`): a Kokoro speaker id, `windows` for the Windows default, or
+  `windows:<name>` for one Windows voice. The default is `af` (voice 0), so nothing changes for anyone who never touches
+  it. A natural voice speaks with the Windows default until the natural voice is installed (the drop-down shows
+  Default meanwhile); a saved Windows voice that is no longer on this PC speaks, and shows, as Default. A Windows voice
+  is used for the whole reply, never the natural voice. A new choice applies from the next spoken reply; Genio's chat
+  can change it too (`settings_update`).
 - What is spoken: code blocks become "code block omitted", tables are skipped, URLs become "link", file paths become
   "path", and a long reply is cut at a sentence end near 600 characters.
 - **Pressing the mic, Esc in the chat box, or sending a message stops it at once.** Any message actually sent to that
@@ -76,6 +89,8 @@ settings are **Read replies aloud** and, once the natural voice is downloaded, t
   Download and Not now. That reply, and every reply until the voice is ready, uses the Windows voice.
   - **Not now** is remembered: replies keep the Windows voice and the panel stays away. Turning Read replies aloud off
     and on again brings the offer back on the next reply.
+  - The same panel opens from **Download natural voice** next to Settings → General → Voice, at any time while the
+    voice is missing (its Not now is remembered the same way). There is no other way to start the download.
   - The download is separate from the speech model's, with its own consent. The mic button shows its progress ring
     and stays usable; a failure shows one line under that chat box.
 - **What is downloaded** (pinned URLs with pinned SHA-256; resumable; verified before use; a bad hash deletes the file):
@@ -121,7 +136,7 @@ settings are **Read replies aloud** and, once the natural voice is downloaded, t
   still pending in Genio's main process fails, including the one asked for ahead; a chunk the helper is already making
   is dropped when it arrives. A message sent from any window of that chat stops it in every window that shows the chat
   (main sends them a `speak-stop` event).
-- **The Windows voice stays the fallback**: whenever it is the chosen voice, or the natural voice is missing, declined, still downloading, or
+- **The Windows voice stays the fallback**: whenever a Windows voice is the chosen voice (that one, else the default), or the natural voice is missing, declined, still downloading, or
   fails (for the rest of that reply).
 
 ### License check (espeak-ng)

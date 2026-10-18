@@ -10,7 +10,7 @@ import {
 } from '../src/main/voice-output'
 import { routeProjectEvent } from '../src/main/project-windows'
 import type { FleetSnapshot } from '../src/shared/types'
-import { DEFAULT_REPLY_VOICE, REPLY_VOICES, speakerId } from '../src/shared/reply-voice'
+import { DEFAULT_REPLY_VOICE, NATURAL_VOICES, isReplyVoice, speakerId, windowsVoice, windowsVoiceName } from '../src/shared/reply-voice'
 import { defaultSettings } from '../src/main/settings'
 
 // No real model or download: the real helper script driven by a fake addon (tests/fixtures/fake-kokoro-addon.cjs),
@@ -226,10 +226,23 @@ describe('the reply voice', () => {
   it('defaults to Kokoro voice 0 (af) and maps each of the 11 voices to its speaker id', () => {
     expect(defaultSettings().replyVoice).toBe(DEFAULT_REPLY_VOICE)
     expect(speakerId(defaultSettings().replyVoice)).toBe(0)
-    expect(REPLY_VOICES.map((v) => v.id)).toEqual(['af', 'af_bella', 'af_nicole', 'af_sarah', 'af_sky', 'am_adam', 'am_michael', 'bf_emma', 'bf_isabella', 'bm_george', 'bm_lewis', 'windows'])
-    expect(REPLY_VOICES.map((v) => speakerId(v.id))).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0])
+    expect(NATURAL_VOICES.map((v) => v.id)).toEqual(['af', 'af_bella', 'af_nicole', 'af_sarah', 'af_sky', 'am_adam', 'am_michael', 'bf_emma', 'bf_isabella', 'bm_george', 'bm_lewis'])
+    expect(NATURAL_VOICES.map((v) => speakerId(v.id))).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    expect(speakerId('windows')).toBe(0)
+    expect(speakerId('windows:Microsoft David Desktop - English (United States)')).toBe(0)
     expect(speakerId('no-such-voice')).toBe(0)
     expect(speakerId(undefined)).toBe(0)
+  })
+
+  it('saves a Windows voice by name, with windows alone for the Windows default', () => {
+    const david = 'Microsoft David Desktop - English (United States)'
+    expect(windowsVoice(david)).toBe(`windows:${david}`)
+    expect(windowsVoice()).toBe('windows')
+    expect(windowsVoiceName(windowsVoice(david))).toBe(david)
+    expect(windowsVoiceName('windows')).toBe('')
+    expect(windowsVoiceName('bf_emma')).toBeUndefined()
+    expect(['af', 'bm_lewis', 'windows', windowsVoice(david)].every((v) => isReplyVoice(v))).toBe(true)
+    expect(['', 'windows:', 'no-such-voice', undefined].some((v) => isReplyVoice(v))).toBe(false)
   })
 
   it('sends the saved choice with every sentence, so a new choice applies from the next one without a restart', async () => {

@@ -1,6 +1,6 @@
 /** Text-to-speech for Genio replies ("Read replies aloud"; the voice relay analogue). docs/voice.md */
 import type { GenioApi } from '@shared/api'
-import { WINDOWS_VOICE } from '@shared/reply-voice'
+import { windowsVoiceName } from '@shared/reply-voice'
 
 /** About how much of a reply is read: cut at a sentence end near here. */
 export const SPEAK_LIMIT = 600
@@ -153,8 +153,34 @@ function voicesReady(synth: SpeechSynthesis): Promise<SpeechSynthesisVoice[]> {
   })
 }
 
-/** The Windows voice (speechSynthesis): the fallback whenever the natural voice is missing, declined or fails. */
-function systemSpeak(clean: string): void {
+/** The voices installed on this PC (not the browser's online ones), by name. */
+export function systemVoices(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice[] {
+  return voices.filter((v, i) => v.localService && voices.findIndex((w) => w.name === v.name) === i)
+}
+
+/** The Windows voices for the Voice drop-down, once Chromium has listed them. */
+export async function windowsVoices(): Promise<string[]> {
+  try {
+    const synth = window.speechSynthesis
+    return synth ? systemVoices(await voicesReady(synth)).map((v) => v.name) : []
+  } catch {
+    return []
+  }
+}
+
+/** A Windows voice as the drop-down shows it: "Microsoft David Desktop - English (United States)" is "David - English (United States)". */
+export function windowsVoiceLabel(name: string): string {
+  return name.replace(/^Microsoft\s+/i, '').replace(/\s+Desktop\b/i, '').trim() || name
+}
+
+/** The Windows voice that speaks: the named one while it is installed, else the default (an English voice of this PC). */
+export function pickSystemVoice(voices: SpeechSynthesisVoice[], name?: string): SpeechSynthesisVoice | undefined {
+  return (name ? systemVoices(voices).find((v) => v.name === name) : undefined) ??
+    voices.find((v) => /en-(US|GB)/i.test(v.lang) && /natural|neural|aria|guy|jenny/i.test(v.name)) ?? voices.find((v) => /^en/i.test(v.lang))
+}
+
+/** The Windows voice (speechSynthesis): the chosen Windows voice, and the fallback whenever the natural voice is missing, declined or fails. */
+function systemSpeak(clean: string, name?: string): void {
   try {
     const synth = window.speechSynthesis
     if (!synth) return
@@ -164,7 +190,7 @@ function systemSpeak(clean: string): void {
       // The mic, Esc or a newer reply came first.
       if (ticket !== pending) return
       const u = new SpeechSynthesisUtterance(clean)
-      const pick = voices.find((v) => /en-(US|GB)/i.test(v.lang) && /natural|neural|aria|guy|jenny/i.test(v.name)) ?? voices.find((v) => /^en/i.test(v.lang))
+      const pick = pickSystemVoice(voices, name)
       if (pick) u.voice = pick
       u.rate = 1.05
       u.pitch = 0.95
@@ -190,7 +216,8 @@ export interface ReplyVoiceDeps {
   synth(text: string): Promise<{ rate: number; pcm: Float32Array }>
   cancel(): void
   context(): Pick<AudioContext, 'currentTime' | 'destination' | 'createBuffer' | 'createBufferSource'> & { resume?: () => Promise<void> }
-  system(text: string): void
+  /** Speak with the Windows voice: `name` is the chosen one, none the default. */
+  system(text: string, name?: string): void
   systemStop(): void
   /** Offer the natural voice download (once per session); true when a chat box showed the offer. */
   offer(status: { received: number; total: number }): boolean
@@ -213,13 +240,17 @@ export class ReplyVoice {
 
   constructor(private readonly deps: ReplyVoiceDeps) {}
 
-  /** `voice` is the saved reply voice: 'windows' always speaks with the Windows voice (the Kokoro speaker is main's). */
+  /**
+   * `voice` is the saved reply voice: a Windows voice always speaks with that voice (the Kokoro speaker is main's). A
+   * natural voice uses the Windows default until the natural voice is installed.
+   */
   async speak(text: string, voice?: string): Promise<void> {
     const clean = speakable(text)
     if (!clean) return
     this.stop()
-    if (voice === WINDOWS_VOICE) {
-      this.deps.system(clean)
+    const windows = windowsVoiceName(voice)
+    if (windows !== undefined) {
+      this.deps.system(clean, windows || undefined)
       return
     }
     const ticket = this.ticket

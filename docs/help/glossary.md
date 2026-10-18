@@ -392,10 +392,13 @@ Source: [voice.md](../voice.md)
 
 Genio speaks the end of each chat reply when the turn ends: code, tables, links and file paths are skipped and a long
 reply is cut at a sentence end. It uses the natural voice once you have downloaded it, otherwise Windows' voice.
-Once the natural voice is downloaded, the Voice drop-down under the toggle picks who speaks: one of its 11 voices
-(Default, Bella, Nicole, Sarah, Sky, Adam, Michael, and the British Emma, Isabella, George and Lewis) or Windows voice.
-A new choice applies from the next spoken sentence. Pressing the mic, Esc in the chat box, or sending any message
-(typed or spoken, a steer or a ! command) stops it at once; the next reply is read as usual. The Bot never speaks.
+While it is on, the Voice drop-down under the toggle picks who speaks: Default or one of the Windows voices installed
+on this PC and, once the natural voice is downloaded, its 11 voices (Default, Bella, Nicole, Sarah, Sky, Adam, Michael,
+and the British Emma, Isabella, George and Lewis). While the natural voice is missing, Download natural voice sits next
+to it. A natural voice speaks with Windows' default voice until it is downloaded; a Windows voice removed from the PC
+speaks as Default. A new choice applies from the next spoken reply. Pressing the mic, Esc in the chat box, or sending
+any message (typed or spoken, a steer or a ! command) stops it at once; the next reply is read as usual. The Bot never
+speaks.
 Where: Settings → General → Read replies aloud (off by default), and Voice under it.
 Source: [voice.md](../voice.md)
 
@@ -403,10 +406,12 @@ Source: [voice.md](../voice.md)
 
 Kokoro, a natural-sounding voice for Read replies aloud that runs on this PC. The first reply read aloud offers it at
 the mic button: a one-time download of about 329 MB (Download or Not now). Not now keeps Windows' voice until you turn
-Read replies aloud off and on again. Replies are spoken a few sentences at a time, the next made while one plays, with
-a short pause at each full stop; Windows' voice takes over if it fails.
+Read replies aloud off and on again. You can also download it any time with Download natural voice next to Settings →
+General → Voice (the same Download or Not now; the button fills with the progress). Replies are spoken a few
+sentences at a time, the next made while one plays, with a short pause at each full stop; Windows' voice takes over if it fails.
 It speaks with its Default voice unless you choose another in Settings → General → Voice. To remove it, quit Genio and delete the voice\kokoro folder in Genio's data folder.
-Where: the panel at the mic button, the first time a reply is read aloud; its voice in Settings → General → Voice.
+Where: the panel at the mic button, the first time a reply is read aloud, or Download natural voice in Settings →
+General → Voice; its voice in Settings → General → Voice.
 Source: [voice.md](../voice.md)
 
 ## Inventory
