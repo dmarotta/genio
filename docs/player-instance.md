@@ -6,7 +6,7 @@ The final quest decisions supersede the Recon's earlier cap: the global player l
 
 ## Play and Stop
 
-`PlayerInstanceService.play()` mirrors a checkout's current files (including uncommitted and untracked files) or a git ref using `PlayerCopies`. It embeds `resources/unity/com.genio.play` **only in the marked player copy**, copying changed package bytes without churning timestamps on repeated Plays. The source checkout, unit worktrees and Toolbox are untouched.
+`PlayerInstanceService.play()` mirrors a checkout's current files (including uncommitted and untracked files) or a git ref using `PlayerCopies`. It embeds `resources/unity/com.genio.play` **only in the marked player copy**, copying changed package bytes without churning timestamps on repeated Plays. The source checkout, unit worktrees and the player's own editors and tools are untouched.
 
 For a warm editor, Play closes the previous stream, stops Play Mode, waits for the stopped state, calls `genio_sync_begin` (`DisallowAutoRefresh`), mirrors, reapplies the package, and calls `genio_sync_end` (`AllowAutoRefresh` and `Refresh`). The mirror's `beforeApply` hook closes the editor **before writing** source changes under Packages or ProjectSettings. A version change switches the Library stash while the editor is gone. Restarts and regular quits keep the same copy. Failed or cancelled hot mirrors attempt to resume auto-refresh.
 

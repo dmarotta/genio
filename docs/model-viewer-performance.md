@@ -67,7 +67,7 @@ node scripts/model-viewer-benchmark.mjs <scratch>/after <scratch>/manifest.json
 
 The optional revision is read with `git show`; no checkout or source-project copy occurs. The harness uses plain viewer TypeScript, not the React app. It emits `results.json` (phase probes/messages), `summary.json`, `requests.json` (protocol setup/status) and `console.json`. Its profile and child home directories stay under the output folder, which is rejected if it lies inside any source project. The viewer's own CSP and sandbox remain enabled.
 
-This run's manifests, profiles and raw traces live under the unit scratch directory `C:/Users/alice/.genio/wksps/genio/data/fix-inventory-model-viewer-gets-stuck-or-8eb3/`, in `before-measured/` and `after-measured/`. Exact source paths are retained in those manifests rather than embedding private project roots in reusable code.
+This run's manifests, profiles and raw traces live under the unit scratch directory `<Genio home>/wksps/genio/data/fix-inventory-model-viewer-gets-stuck-or-8eb3/`, in `before-measured/` and `after-measured/`. Exact source paths are retained in those manifests rather than embedding private project roots in reusable code.
 
 ## Regression checks
 

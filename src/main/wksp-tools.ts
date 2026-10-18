@@ -348,7 +348,7 @@ export function createToolRegistry(
     await play(world).act(world, action)
     return ok('Play action completed')
   })
-  t('play_slot_recover', 'Recover a shared Play slot a unit reported stuck, or one whose editor outlived its lease: closes only that slot\'s recorded Unity editor and child processes (graceful quit, then forced stop), never the main editor or Toolbox, and frees the slot. Refuses slots leased by a live unit. Never stop Unity processes any other way.', {
+  t('play_slot_recover', 'Recover a shared Play slot a unit reported stuck, or one whose editor outlived its lease: closes only that slot\'s recorded Unity editor and child processes (graceful quit, then forced stop), never the main editor or the player\'s own editors and tools, and frees the slot. Refuses slots leased by a live unit. Never stop Unity processes any other way.', {
     world: z.string(), slot: z.number().int().min(1).max(8)
   }, async ({ world, slot }) => {
     await play(world).closeSlotEditor(world, slot, 'genio')

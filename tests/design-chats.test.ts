@@ -69,7 +69,7 @@ beforeEach(() => {
     wksp: { post: vi.fn(), history: () => [] } }
   const mainHc = { ...hc, home: main }
   ctx = { appRoot: process.cwd(), main: mainHc, homes: new Map([['main', mainHc], ['game', hc]]), home: (n: string) => n === 'main' ? mainHc : hc,
-    settings: { get: () => ({ wkspModel: 'codex:OpenAI:gpt-test', wkspEffort: 'high', chatShellMode: 'all', gamertag: 'Dani' }) },
+    settings: { get: () => ({ wkspModel: 'codex:OpenAI:gpt-test', wkspEffort: 'high', chatShellMode: 'all', gamertag: 'Alex' }) },
     permissions: { ask: vi.fn(async () => true) }, away: { state: () => ({ mode: 'online' }), capture: vi.fn() },
     allies: { list: () => [{ name: 'game', projects: ['game'] }] },
     projects: { list: () => [{ name: 'game', path: root, mode: 'local-only' }], get: (name: string) => name === 'game' ? { name, path: root, engine: 'web' } : undefined },
@@ -209,7 +209,7 @@ describe('design chats', () => {
     const pd = peerFor('rewind time')
     expect(pd).not.toBe(events)
     complete(pd, 'Rewind is great for puzzles.')
-    complete(events, 'All clear, Dani.')
+    complete(events, 'All clear, Alex.')
     expect(hc.wakes.pending()).toEqual([])
     project.deliverWakes()
     await new Promise(r => setTimeout(r, 50))
@@ -231,13 +231,13 @@ describe('design chats', () => {
     await vi.waitFor(() => expect(peers[0] && turns(peers[0])).toHaveLength(1))
     peers[0].events.notification('item/started', { threadId: 'session-1', item: { id: 'empty', type: 'agentMessage', text: '' } })
     peers[0].events.notification('item/completed', { threadId: 'session-1', item: { id: 'empty', type: 'agentMessage', text: '' } })
-    complete(0, 'All clear, Dani.')
+    complete(0, 'All clear, Alex.')
     const rows = () => design.history(a.id).filter(m => !m.text.startsWith('Provider changed'))
-    await vi.waitFor(() => expect(rows().map(m => [m.role, m.text])).toEqual([['player', 'Anything else to decide?'], ['genio', 'All clear, Dani.']]))
+    await vi.waitFor(() => expect(rows().map(m => [m.role, m.text])).toEqual([['player', 'Anything else to decide?'], ['genio', 'All clear, Alex.']]))
     // one Genio bubble (its streamed and final versions share an id); the empty message never reached the screen
     const drawn = seen.filter(ev => ev.type === 'design-chat' && ev.message.role === 'genio').map(ev => (ev as { message: ChatMessage }).message)
     expect(new Set(drawn.map(m => m.id)).size).toBe(1)
-    expect(drawn.every(m => m.text === 'All clear, Dani.')).toBe(true)
+    expect(drawn.every(m => m.text === 'All clear, Alex.')).toBe(true)
   })
 
   it('hands off within its own chat only on a provider switch', async () => {
@@ -291,7 +291,7 @@ describe('design chats', () => {
     await vi.waitFor(() => expect(options).toBeDefined())
     expect(typeof options.systemPrompt).toBe('string')
     expect(options.systemPrompt).toContain('# Lore chat')
-    expect(options.systemPrompt).toContain('Dani')
+    expect(options.systemPrompt).toContain('Alex')
     expect(options.model).toBe('claude-test')
     expect(options.tools).toEqual(DESIGN_NATIVE)
     expect(options.disallowedTools).toEqual(expect.arrayContaining(['Bash', 'PowerShell', 'Write', 'Edit', 'Agent']))
@@ -304,7 +304,7 @@ describe('design chats', () => {
 
 describe('designContract', () => {
   it('makes a thinking partner that starts no work, within its own budget', () => {
-    const text = designContract({ gamertag: 'Dani', project: 'game' }, 'Usage mode: Balanced.')
+    const text = designContract({ gamertag: 'Alex', project: 'game' }, 'Usage mode: Balanced.')
     expect(text.length).toBeLessThanOrEqual(DESIGN_CONTRACT_BUDGET)
     expect(text).toContain('You are not Genio')
     expect(text).toContain('ask Genio')

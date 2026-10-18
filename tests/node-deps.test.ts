@@ -146,7 +146,7 @@ describe('PreToolUse rules', () => {
   const tool = (command: string, name = 'PowerShell') => depsToolReason({ hook_event_name: 'PreToolUse', tool_name: name, tool_input: { command }, cwd: worktree }, { worktree, main })
 
   it.each([
-    'New-Item -ItemType Junction -Path node_modules -Target C:\\Users\\alice\\git\\genio\\node_modules',
+    'New-Item -ItemType Junction -Path node_modules -Target C:\\Users\\player\\git\\genio\\node_modules',
     'New-Item -Path node_modules -ItemType SymbolicLink -Value ..\\main\\node_modules',
     'cmd /c mklink /J node_modules C:\\main\\node_modules',
     'ln -s ../main/node_modules node_modules',

@@ -24,7 +24,7 @@ beforeEach(() => {
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
   Object.defineProperties(host, { clientWidth: { value: 1200 }, clientHeight: { value: 700 } })
   const ally: Ally = { name: PROJECT, projects: [PROJECT], scope: `All work in ${PROJECT}`, charter: '', home: '/fixture', createdAt: '2026-10-14' }
-  setState({ ...initial, view: 'inventory', chatLoaded: { [PROJECT]: true }, settings: { gamertag: 'Dani' } as never,
+  setState({ ...initial, view: 'inventory', chatLoaded: { [PROJECT]: true }, settings: { gamertag: 'Alex' } as never,
     snap: { ...initial.snap, allies: [ally], wksps: [{ name: PROJECT, displayName: PROJECT, activity: 'thinking', costUsd: 0, turns: 0, queued: 0 }] },
     chats: { [PROJECT]: [{ id: 'reply', wksp: PROJECT, role: 'genio', text: 'Ready to build.', ts: '2026-10-14T12:00:00Z' }] } })
   publishScreenContext('inventory', { world: PROJECT })

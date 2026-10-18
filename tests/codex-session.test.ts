@@ -28,8 +28,8 @@ it('finds the unit session even when another unit was active more recently', asy
 })
 
 it('normalizes Windows separators, casing and trailing separators', async () => {
-  session('own', 'C:\\Users\\alice\\worktrees\\unit-a')
-  expect(await discoverCodexSession('c:/users/alice/worktrees/unit-a/', home)).toBe('own')
+  session('own', 'C:\\Users\\Player\\worktrees\\unit-a')
+  expect(await discoverCodexSession('c:/users/player/worktrees/unit-a/', home)).toBe('own')
 })
 
 it('discovers the newest matching session but keeps a verified remembered session', async () => {

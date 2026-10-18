@@ -253,7 +253,7 @@ export function unitToolsBrief(pluginDir: string, helpDocs?: string, approvedUsd
   return (
     `${capabilitiesBrief()}\n` +
     help +
-    `- Unity (Unity projects only): read \`${unity}/SKILL.md\`. Compile, test, import, build, play, send editor commands and read the console only with \`node "${unity}/scripts/genio-unity.mjs" <verb>\` (also in GENIO_UNITY). It targets only your own copy or your leased Play slot. Never start Unity.exe, Unity Hub or the \`unity\` CLI yourself, never control the main editor and never touch Toolbox.\n` +
+    `- Unity (Unity projects only): read \`${unity}/SKILL.md\`. Compile, test, import, build, play, send editor commands and read the console only with \`node "${unity}/scripts/genio-unity.mjs" <verb>\` (also in GENIO_UNITY). It targets only your own copy or your leased Play slot. Never start Unity.exe, Unity Hub or the \`unity\` CLI yourself, never control the main editor and never touch the player's own editors and tools.\n` +
     `- Assets: read \`${assets}/SKILL.md\` first for provider routing and project-type placement. Use asset_locate / the shared suggestLocation helper.\n` +
     `${spendRulesBrief(approvedUsd)}\n` +
     `- Uthana (character motions, rigged characters): read \`${uthana}/SKILL.md\` and use \`node "${uthana}/scripts/uthana.mjs"\` with --world <your worktree root>, like the FAL helper. Its motions and auto-rigged uploads are paid calls under your spend grant. The key, when the player set one, is only in your UTHANA_API_KEY environment variable: never print or write it.\n` +

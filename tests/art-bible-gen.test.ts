@@ -89,7 +89,7 @@ describe('the art_bible chat tool helpers', () => {
 })
 
 it('gives the chat one Art Bible line within the contract budget', () => {
-  const contract = customContract({ gamertag: 'Dani', base: 'main', isAlly: false })
+  const contract = customContract({ gamertag: 'Alex', base: 'main', isAlly: false })
   const line = contract.split('\n').find((l) => l.startsWith('- Art Bible:'))
   expect(line).toBeDefined()
   expect(line!.length).toBeLessThan(200)

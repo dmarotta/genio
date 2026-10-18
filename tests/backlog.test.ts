@@ -195,14 +195,14 @@ describe('kanban quest log', () => {
     const rows: BacklogItem[] = [
       { id: 'prog', title: 'Folder-first workspace', kind: 'program', notes: 'the plan notes', state: 'queued', priority: 'normal', dependsOn: [], tags: ['workspace'], createdAt: ts, updatedAt: ts },
       { id: 'step', title: 'Step 1', project: 'world', kind: 'ship', notes: '', state: 'queued', priority: 'normal', dependsOn: ['prog'], tags: [], createdAt: ts, updatedAt: ts },
-      { id: 'held', title: 'Held one', kind: 'ship', notes: '', state: 'held', priority: 'high', dependsOn: [], tags: [], hold: { reason: 'ask Dani', since: ts }, answer: 'exact words', createdAt: ts, updatedAt: ts }
+      { id: 'held', title: 'Held one', kind: 'ship', notes: '', state: 'held', priority: 'high', dependsOn: [], tags: [], hold: { reason: 'ask Alex', since: ts }, answer: 'exact words', createdAt: ts, updatedAt: ts }
     ]
     fs.writeFileSync(home.backlogFile, JSON.stringify(rows))
     const ctx = makeCtx()
     const migrated = createBacklogService(() => ctx, home)
     expect(migrated.list().map((q) => q.id)).toEqual(['step', 'held'])
     expect(migrated.get('step')).toMatchObject({ dependsOn: [], tags: ['workspace'] })
-    expect(migrated.get('held')).toMatchObject({ state: 'queued', hold: { reason: 'ask Dani' }, answer: 'exact words' })
+    expect(migrated.get('held')).toMatchObject({ state: 'queued', hold: { reason: 'ask Alex' }, answer: 'exact words' })
     expect(migrated.dispatchable().map((q) => q.id)).toEqual(['step'])
     const archive = fs.readFileSync(path.join(home.data, 'done-archive.md'), 'utf8')
     expect(archive).toContain('prog - Folder-first workspace')

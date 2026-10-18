@@ -18,7 +18,7 @@ const f = vi.hoisted(() => {
       inboxAck: vi.fn()
     },
     state: {
-      settings: { memoryBudgetTokens: 100, gamertag: 'Dani', inboxServer: false, inboxPort: 7777, inboxToken: '', ledger: false, eventSources: [] },
+      settings: { memoryBudgetTokens: 100, gamertag: 'Alex', inboxServer: false, inboxPort: 7777, inboxToken: '', ledger: false, eventSources: [] },
       snap: { inbox: [{ id: 'n1', ts: '2026-10-13T10:00:00Z', from: 'phone', text: 'add a pause menu' }], projects: [] }
     }
   }

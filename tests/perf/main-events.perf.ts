@@ -60,7 +60,7 @@ function buildCtx(seed: SeededBase): AppCtx {
   const terminals = new Map<string, { id: string; alive: boolean; lastOutputAt?: number; cwd: string; taskId?: string; title: string; kind: string; cols: number; rows: number }>()
   const ctx = {
     appRoot: seed.root, homes: new Map<string, HomeCtx>(),
-    settings: { get: () => ({ gamertag: 'Dani', ledger: false, pollSeconds: 15, usageMode: 'balanced', sound: true, desktopNotifications: false, harnesses: [] }), harness: () => undefined, availableHarnesses: () => [] },
+    settings: { get: () => ({ gamertag: 'Alex', ledger: false, pollSeconds: 15, usageMode: 'balanced', sound: true, desktopNotifications: false, harnesses: [] }), harness: () => undefined, availableHarnesses: () => [] },
     terminals: {
       get: (id: string) => { const t = terminals.get(id); return t ? { ...t } : undefined }, list: () => [...terminals.values()].map((t) => ({ ...t })),
       lastOutputAt: (id: string) => terminals.get(id)?.lastOutputAt, onAnyData: (fn: (id: string, data: string) => void) => { f.terminalData = fn; return () => undefined },

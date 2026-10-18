@@ -75,7 +75,7 @@ const { createWkspService } = await import('../src/main/wksp')
 const { bus } = await import('../src/main/bus')
 const { createWakeService } = await import('../src/main/wakes')
 
-const NOOP = 'All clear, Dani.'
+const NOOP = 'All clear, Alex.'
 let dir: string
 let cleanup: (() => void)[] = []
 beforeEach(() => {
@@ -89,7 +89,7 @@ afterEach(() => {
 })
 
 const ctx = {
-  settings: { get: () => ({ gamertag: 'Dani', voice: true, chatShellMode: 'ask', wkspModel: '', wkspEffort: '', botModel: '' }) },
+  settings: { get: () => ({ gamertag: 'Alex', voice: true, chatShellMode: 'ask', wkspModel: '', wkspEffort: '', botModel: '' }) },
   allies: { list: () => [] },
   projects: { list: () => [] },
   memory: { read: () => '' },
@@ -132,7 +132,7 @@ function chat(name: string, beforeStart?: (home: InstanceType<typeof Home>) => v
 
 describe('an event turn with nothing for the player', () => {
   it.each([
-    ['the sentence', NOOP], ['lower case, no stop', 'all clear, dani'], ['quoted', `"${NOOP}"`], ['emphasised', `**${NOOP}**`],
+    ['the sentence', NOOP], ['lower case, no stop', 'all clear, alex'], ['quoted', `"${NOOP}"`], ['emphasised', `**${NOOP}**`],
     ['the Bot form', 'All clear.'], ['a trailing newline', `${NOOP}\n`], ['the CLI placeholder', '(no content)']
   ])('leaves no bubble, row, sound or voice: %s', async (_, text) => {
     const c = chat('noop')
@@ -200,7 +200,7 @@ describe('an event turn with nothing for the player', () => {
     const c = chat('prefix')
     const q = await c.eventTurn()
     const text = `${NOOP} Unit 3 is ready: https://example.com/pr/3`
-    q.say('a1', ['All clear', ', Dani.', ' Unit 3', ' is ready: https://example.com/pr/3'])
+    q.say('a1', ['All clear', ', Alex.', ' Unit 3', ' is ready: https://example.com/pr/3'])
     q.finishTurn()
     await vi.waitFor(() => expect(c.rows().map(m => m.text)).toEqual([text]))
     expect(c.drawn().filter(ev => ev.type === 'chat-delta').map(ev => (ev as { text: string }).text).join('')).toBe(text)
@@ -229,7 +229,7 @@ describe('an event turn with nothing for the player', () => {
   it('never sends the sentence to notifications, even through the Bot\'s escalation tool', async () => {
     const c = chat('escalate')
     await c.eventTurn()
-    for (const text of [NOOP, 'All clear.', '"all clear, dani!"', '(no content)']) fake.hooks.escalate!(text, 'info')
+    for (const text of [NOOP, 'All clear.', '"all clear, alex!"', '(no content)']) fake.hooks.escalate!(text, 'info')
     expect(ctx.notifier.notify).not.toHaveBeenCalled()
     expect(c.rows()).toEqual([])
     fake.hooks.escalate!('Unit 3 is ready: https://example.com/pr/3', 'ready')
@@ -253,7 +253,7 @@ describe('a log written before event turns went quiet', () => {
     const row = (id: string, role: string, text: string, n: number) => JSON.stringify({ id, wksp: 'legacy', role, text, ts: at(n) })
     const c = chat('legacy', home => fs.writeFileSync(home.chatFile, [
       row('p1', 'player', 'anything new?', 1), row('g1', 'genio', NOOP, 2),
-      row('g2', 'genio', NOOP, 3), row('s1', 'system', NOOP, 4), row('g3', 'genio', 'all clear, dani!', 5),
+      row('g2', 'genio', NOOP, 3), row('s1', 'system', NOOP, 4), row('g3', 'genio', 'all clear, alex!', 5),
       row('g4', 'genio', 'Unit 3 is ready: https://example.com/pr/3', 6),
       row('p2', 'player', NOOP, 7), row('g5', 'genio', 'Done.', 8), row('g6', 'genio', NOOP, 9)
     ].join('\n') + '\n'))

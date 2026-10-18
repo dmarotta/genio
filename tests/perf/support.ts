@@ -127,7 +127,7 @@ export function seedBase(root: string): SeededBase {
   for (const d of dirs) fs.mkdirSync(path.join(root, d), { recursive: true })
   const tasks = syntheticTasks(root)
   const write = (p: string, v: unknown): void => { fs.writeFileSync(path.join(root, p), JSON.stringify(v, null, 2)) }
-  write('config/settings.json', { gamertag: 'Dani', firstRunDone: true, usageMode: 'balanced', ledger: true, pollSeconds: 15 })
+  write('config/settings.json', { gamertag: 'Alex', firstRunDone: true, usageMode: 'balanced', ledger: true, pollSeconds: 15 })
   write('data/projects.json', [{ name: project, path: path.join(root, 'projects', project), gitRepo: true, defaultBranch: 'main', mode: 'local-only', modeSource: 'auto', yolo: false, branchPrefix: 'genio/', forge: 'none', engine: 'other', engineRoot: '', engineSource: 'auto', commands: {}, managed: false, addedAt: ISO(20_000) }])
   write('data/allies.json', [{ name: wksp, scope: `All work in ${project}`, charter: '', projects: [project], home: projectHome, createdAt: ISO(20_000) }])
   write('data/stats.json', syntheticStats())

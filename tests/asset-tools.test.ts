@@ -87,13 +87,16 @@ it('uses engine fallbacks, configuration, local case style and source-art format
   expect(conventionsOf({ assets, kind: 'image' })[0].style).toBe('PascalCase')
 })
 
-// Optional read-only layout checks: no LFS pull, index cache or world writes.
-for (const [worldRoot, engineRoot, kind, hint, expected] of [
-  ['C:/Users/alice/git/founders-of-avalon', 'FoundersOfAvalonUnity', 'audio', 'road', /FoundersOfAvalonUnity\/Assets\/.*Audio/i],
-  ['C:/Users/alice/git/High House Games/lands-of-old', '', 'audio', 'sfx', /Game Assets\/Audio/i]
+// Read-only layout checks against tracked files in the temporary fixture.
+for (const [engineRoot, kind, hint, expected] of [
+  ['Nested', 'audio', 'road', /Nested\/Assets\/.*Audio/i],
+  ['', 'audio', 'sfx', /Game Assets\/Audio/i]
 ] as const) {
-  it.skipIf(!fs.existsSync(worldRoot))(`measures the real layout read-only: ${worldRoot}`, () => {
-    const paths = execFileSync('git', ['ls-files', '-z'], { cwd: worldRoot, encoding: 'utf8', windowsHide: true, maxBuffer: 16 * 1024 * 1024 }).split('\0')
+  it(`measures the tracked layout read-only: ${engineRoot || 'root'}`, () => {
+    write('Game Assets/Audio/SFX/hit.wav', 'sound')
+    execFileSync('git', ['add', '.'], { cwd: root, windowsHide: true })
+    const assetRoot = engineRoot ? `${engineRoot}/Assets` : 'Game Assets'
+    const paths = execFileSync('git', ['ls-files', '-z', '--', assetRoot], { cwd: root, encoding: 'utf8', windowsHide: true, maxBuffer: 16 * 1024 * 1024 }).split('\0')
     const assets = paths.filter(p => assetKind(p)).map(p => ({ path: p, folder: path.posix.dirname(p), kind: assetKind(p)!, vendor: vendorPath(p) }))
     const result = suggestLocation({ assets, engine: 'unity', engineRoot, kind, hint, name: 'door creak' })
     expect(result.suggestions[0].path).toMatch(expected)

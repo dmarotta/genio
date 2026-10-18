@@ -102,7 +102,7 @@ afterEach(() => {
 })
 
 const ctx = {
-  settings: { get: () => ({ gamertag: 'Dani', chatShellMode: 'ask', wkspModel: '', wkspEffort: '', botModel: '' }) },
+  settings: { get: () => ({ gamertag: 'Alex', chatShellMode: 'ask', wkspModel: '', wkspEffort: '', botModel: '' }) },
   allies: { list: () => [] },
   projects: { list: () => [] },
   memory: { read: () => '' },
@@ -143,7 +143,7 @@ describe('steering the visible turn', () => {
     await received(2)
     expect(q().interrupts).toBe(1)
     expect(q().received[1]).toContain('stop, use stone not wood')
-    expect(q().received[1]).toContain('Your previous turn was interrupted by Dani')
+    expect(q().received[1]).toContain('Your previous turn was interrupted by Alex')
     expect(c.view().queued.map(m => m.text)).toEqual(['then the moat', 'and a bridge'])
     // the interrupted turn stays in the transcript, followed by the note; no error is shown
     const log = c.view().log.map(m => [m.role, m.text])
@@ -175,7 +175,7 @@ describe('steering the visible turn', () => {
     // the interrupted message carries what the turn had started; the note and the next turn's context name it
     expect(c.svc.history().find(m => m.id === 'm-a1')?.actions).toEqual({ units: ['castle-unit'] })
     expect(c.svc.history().find(m => m.role === 'system')?.text).toBe('Interrupted by your message. It had started: units castle-unit.')
-    expect(q().received[1]).toMatch(/^\[GENIO NOTE\] Your previous turn was interrupted by Dani; it had started: units castle-unit; verify state \(unit_state, quests\) before continuing\.\n\nwait, not that one$/)
+    expect(q().received[1]).toMatch(/^\[GENIO NOTE\] Your previous turn was interrupted by Alex; it had started: units castle-unit; verify state \(unit_state, quests\) before continuing\.\n\nwait, not that one$/)
     // tools run normally again in the steering turn
     expect(await q().options.canUseTool!('mcp__genio__file_quest', {})).toMatchObject({ behavior: 'allow' })
     q().finishTurn()
@@ -252,7 +252,7 @@ describe('steering the visible turn', () => {
     const c = chat()
     await c.svc.send('check on the unit')
     await received(1)
-    q().startTool('a1', 'tool-1', 'PowerShell', { command: "Start-Sleep 75; $d='C:\\Users\\dani\\data'; Get-ChildItem $d -Recurse -File | Select-Object -ExpandProperty FullName" })
+    q().startTool('a1', 'tool-1', 'PowerShell', { command: "Start-Sleep 75; $d='C:\\Users\\alex\\data'; Get-ChildItem $d -Recurse -File | Select-Object -ExpandProperty FullName" })
     await flush()
     await c.svc.send('now it does')
     const x = c.svc.history().find(m => m.text === 'now it does')!

@@ -36,7 +36,7 @@ afterEach(async () => { await act(async () => root.unmount()); host.remove(); se
 afterAll(() => report())
 
 function seed(messages: ChatMessage[], activity: WkspInfo['activity'] = 'thinking'): void {
-  setState({ ...initial, chats: { [WKSP]: messages }, chatLoaded: { [WKSP]: true }, settings: { gamertag: 'Dani', calm: false } as never,
+  setState({ ...initial, chats: { [WKSP]: messages }, chatLoaded: { [WKSP]: true }, settings: { gamertag: 'Alex', calm: false } as never,
     snap: { ...initial.snap, wksps: [{ name: WKSP, displayName: 'Genio', activity, costUsd: 0, turns: 0, queued: 0 }] } })
 }
 const render = (): Promise<void> => act(async () => { root.render(React.createElement(Profiler, { id: 'chat', onRender }, React.createElement(ChatPanel, { wksp: WKSP }))) })

@@ -32,7 +32,7 @@ import { createWkspService } from '../src/main/wksp'
 import type { AppCtx } from '../src/main/services'
 import { createWakeService } from '../src/main/wakes'
 
-const NOOP = 'All clear, Dani.'
+const NOOP = 'All clear, Alex.'
 const cleanup: (() => Promise<void>)[] = []
 afterEach(async () => { for (const close of cleanup.splice(0)) await close(); peers.length = 0 })
 
@@ -43,7 +43,7 @@ function setup(mode = 'online', wakes?: unknown) {
   const state = { mode }
   const stats = { unlock: vi.fn(), addCost: vi.fn() }
   const ctx = { appRoot: process.cwd(), main: hc, home: () => hc, homes: new Map([['main', hc]]),
-    settings: { get: () => ({ gamertag: 'Dani', voice: true, wkspModel: 'codex:OpenAI:gpt-test', wkspEffort: 'high', chatShellMode: 'ask' }) },
+    settings: { get: () => ({ gamertag: 'Alex', voice: true, wkspModel: 'codex:OpenAI:gpt-test', wkspEffort: 'high', chatShellMode: 'ask' }) },
     away: { state: () => state, capture: vi.fn() }, allies: { list: () => [] }, projects: { list: () => [] },
     stats, inventory: { thumbnail: vi.fn() }, memory: { read: () => '' }, permissions: { ask: vi.fn(async () => true) }
   } as unknown as AppCtx
@@ -70,9 +70,9 @@ const finish = (i: number) => note(i, 'turn/completed', { turn: { id: 'turn', st
 it('Codex: an event turn that ends with the sentence, an empty message or nothing leaves no bubble, and the batch is still acknowledged', async () => {
   const c = setup()
   for (const [n, say] of [
-    (i: number) => speak(i, 'r', NOOP, ['All', ' clear', ', Dani.']),
+    (i: number) => speak(i, 'r', NOOP, ['All', ' clear', ', Alex.']),
     (i: number) => speak(i, 'r', ''),
-    (i: number) => speak(i, 'r', '"all clear, dani!"'),
+    (i: number) => speak(i, 'r', '"all clear, alex!"'),
     () => undefined
   ].entries()) {
     c.wakes.enqueue({ kind: 'signal', reason: `unit ${n} finished`, routine: false })
@@ -95,7 +95,7 @@ it('Codex: a real reply on an event turn is shown with sound and voice; a messag
   c.wakes.enqueue({ kind: 'signal', reason: 'unit ready', routine: false })
   c.service.deliverWakes()
   await vi.waitFor(() => expect(turns(0)).toHaveLength(1))
-  speak(0, 'r1', `${NOOP} Unit 3 is ready.`, ['All clear', ', Dani.', ' Unit 3 is ready.'])
+  speak(0, 'r1', `${NOOP} Unit 3 is ready.`, ['All clear', ', Alex.', ' Unit 3 is ready.'])
   speak(0, 'r2', 'Done.')
   finish(0)
   await vi.waitFor(() => expect(c.rows().map(m => m.text)).toEqual([`${NOOP} Unit 3 is ready.`, 'Done.']))

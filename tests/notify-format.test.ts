@@ -3,7 +3,7 @@ import { BODY_MAX, TITLE_MAX, capWords, cleanNotifyText, formatNotification } fr
 
 describe('formatNotification', () => {
   it('names the outcome and the world in the title', () => {
-    expect(formatNotification({ kind: 'ready', text: 'PR ready: https://github.com/dani/genio/pull/42 — notifications use the Genio icon' })).toEqual({
+    expect(formatNotification({ kind: 'ready', text: 'PR ready: https://github.com/alex/genio/pull/42 — notifications use the Genio icon' })).toEqual({
       title: 'PR ready · genio',
       body: 'Notifications use the Genio icon'
     })
@@ -28,21 +28,21 @@ describe('formatNotification', () => {
   })
 
   it('falls back to a short pointer when nothing is left', () => {
-    expect(formatNotification({ kind: 'info', text: 'C:\\Users\\dani\\x.log' }).body).toBe('Open Genio for details.')
+    expect(formatNotification({ kind: 'info', text: 'C:\\Users\\alex\\x.log' }).body).toBe('Open Genio for details.')
   })
 })
 
 describe('cleanNotifyText', () => {
   it('strips ids, paths and urls', () => {
     const s = cleanNotifyText(
-      'Your move (desktop-notifications-genio-icon-and-sho-ff92): merge C:/Users/alice/.genio/worktrees/x into src/main/notifier.ts? see https://example.com/a commit 5bf4b47 run 3f2c9a1e-1111-4222-8333-444455556666'
+      'Your move (desktop-notifications-genio-icon-and-sho-ff92): merge C:/Users/player/.genio/worktrees/x into src/main/notifier.ts? see https://example.com/a commit 5bf4b47 run 3f2c9a1e-1111-4222-8333-444455556666'
     )
     expect(s).not.toMatch(/ff92|C:\/|notifier\.ts|https?:|5bf4b47|3f2c9a1e/)
     expect(s.startsWith('Merge')).toBe(true)
   })
 
   it('strips posix paths and status tags but keeps words with slashes', () => {
-    const s = cleanNotifyText('blocked [key=gpu]: and/or check /home/dani/.genio/state/x.status first')
+    const s = cleanNotifyText('blocked [key=gpu]: and/or check /home/alex/.genio/state/x.status first')
     expect(s).not.toMatch(/\/home|key=|\.status/)
     expect(s).toContain('and/or')
   })

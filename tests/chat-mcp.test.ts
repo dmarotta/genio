@@ -177,10 +177,10 @@ describe('the chat policy for player MCP tools', () => {
 
   it('goes to the player prompt in Ask mode and runs on their yes', async () => {
     const asked: string[] = []
-    const policy = (yes: boolean, mode: 'ask' | 'all' = 'ask') => ({ role: 'genio' as const, chat: 'alpha-base', shellMode: () => mode, player: 'Dani',
+    const policy = (yes: boolean, mode: 'ask' | 'all' = 'ask') => ({ role: 'genio' as const, chat: 'alpha-base', shellMode: () => mode, player: 'Alex',
       permissions: { ask: async (r: { tool: string }) => { asked.push(r.tool); return yes } } as never })
     expect(await enforceTool(policy(true), { runtime: 'claude', name: 'mcp__github__list_workflow_runs', input: {} })).toEqual({ behavior: 'allow' })
-    expect(await enforceTool(policy(false), { runtime: 'claude', name: 'mcp__github__list_workflow_runs', input: {} })).toEqual({ behavior: 'deny', message: 'Dani declined mcp__github__list_workflow_runs.' })
+    expect(await enforceTool(policy(false), { runtime: 'claude', name: 'mcp__github__list_workflow_runs', input: {} })).toEqual({ behavior: 'deny', message: 'Alex declined mcp__github__list_workflow_runs.' })
     expect(await enforceTool(policy(false, 'all'), { runtime: 'claude', name: 'mcp__github__list_workflow_runs', input: {} })).toEqual({ behavior: 'allow' })
     expect(asked).toEqual(['mcp__github__list_workflow_runs', 'mcp__github__list_workflow_runs'])
   })

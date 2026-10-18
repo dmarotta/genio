@@ -38,7 +38,7 @@ beforeEach(() => {
   record.mockReset()
   ctx = { appRoot: path.join(root, 'no-bundle'), main, home: (name: string) => name === 'main' ? main : hc,
     homes: new Map([['main', main], ['world', hc]]),
-    settings: { get: () => ({ usageMode: 'save', gamertag: 'Dani' }), harness: () => undefined },
+    settings: { get: () => ({ usageMode: 'save', gamertag: 'Alex' }), harness: () => undefined },
     allies: { list: () => [{ name: 'world', projects: ['world'], scope: 'world', home: home.root }] },
     projects: { get: () => ({ name: 'world', path: root, gitRepo: true }), list: () => [] },
     terminals: { get: () => undefined, lastOutputAt: () => undefined, kill: vi.fn() },
@@ -155,7 +155,7 @@ describe('dislike grace period', () => {
     const tools = createToolRegistry(() => ctx, home, 'genio')
     const tool = (name: string) => tools.find(t => t.name === name)!
     const merge = vi.spyOn(hc.crew, 'merge')
-    expect((await tool('merge').invoke({ task: 'u3', player_words: 'merge it' })).content[0]).toMatchObject({ text: expect.stringContaining('Dani denied it: Merge u3') })
+    expect((await tool('merge').invoke({ task: 'u3', player_words: 'merge it' })).content[0]).toMatchObject({ text: expect.stringContaining('Alex denied it: Merge u3') })
     expect(ask).toHaveBeenLastCalledWith(expect.objectContaining({ tool: 'merge', input: expect.stringContaining('Your dislike paused it') }))
     expect(merge).not.toHaveBeenCalled()
     expect((await tool('control').invoke({ task: 'u1', action: 'relaunch' })).isError).toBe(true)

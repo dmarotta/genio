@@ -60,7 +60,7 @@ beforeEach(() => {
   for (const f of Object.values(api)) f.mockClear()
   api.designChats.mockResolvedValue([])
   api.designNotes.mockResolvedValue([])
-  setState({ ...initial, designChats: undefined, designOpen: undefined, chats: {}, chatLoaded: {}, view: 'design', settings: { gamertag: 'Dani' } as never })
+  setState({ ...initial, designChats: undefined, designOpen: undefined, chats: {}, chatLoaded: {}, view: 'design', settings: { gamertag: 'Alex' } as never })
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
 })
 afterEach(async () => {

@@ -29,7 +29,7 @@ beforeEach(() => {
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
   counters.markdown = 0
   const messages = Array.from({ length: 100 }, (_, i) => (i % 3 === 0 ? player(i) : genio(i)))
-  setState({ ...initial, chats: { [WKSP]: messages }, chatLoaded: { [WKSP]: true }, settings: { gamertag: 'Dani', calm: false } as never,
+  setState({ ...initial, chats: { [WKSP]: messages }, chatLoaded: { [WKSP]: true }, settings: { gamertag: 'Alex', calm: false } as never,
     snap: { ...initial.snap, wksps: [{ name: WKSP, displayName: 'Genio', activity: 'thinking', costUsd: 0, turns: 0, queued: 0 }] } })
 })
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); setState(initial) })

@@ -53,7 +53,7 @@ beforeEach(() => {
     wksp: { history: () => chat, say: vi.fn() }
   }
   ctx = { appRoot: process.cwd(), main: hc, homes: new Map([['main', hc]]), home: () => hc,
-    settings: { get: () => ({ chatShellMode: mode, gamertag: 'Dani' }), save: saved }, permissions: { ask },
+    settings: { get: () => ({ chatShellMode: mode, gamertag: 'Alex' }), save: saved }, permissions: { ask },
     allies: { list: () => [] }, away: { state: () => ({ mode: 'online' }) },
     projects: { ...projects, list: () => [{ name: 'game' }], get: (name: string) => (name === 'game' ? { name, path: path.join(root, 'game'), yolo: false } : undefined) },
     forge: { view: vi.fn() }, ledger: { record: vi.fn() }, stats: { unlock: vi.fn() }
@@ -105,7 +105,7 @@ describe('every formerly guarded chat action follows the approval mode', () => {
         if (asks) {
           const denied = await tool(c.tool).invoke(args)
           expect(denied.isError, JSON.stringify(denied)).toBe(true)
-          expect(denied.content[0]).toMatchObject({ text: expect.stringContaining('Dani denied it') })
+          expect(denied.content[0]).toMatchObject({ text: expect.stringContaining('Alex denied it') })
           expect(ask).toHaveBeenCalledTimes(1)
           expect(ask).toHaveBeenCalledWith(expect.objectContaining({ wksp: home.name, tool: c.tool,
             input: typeof c.line === 'string' ? c.line : expect.stringMatching(c.line) }))

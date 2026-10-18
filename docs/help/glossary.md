@@ -323,7 +323,8 @@ unit gets every skill, whatever its kind (Recon, Build, Modeller, Generator) or 
 only its mission rules differ. Each skill needs only its own prerequisite: Blender a local Blender, Unity a Unity
 project, FAL and Uthana their key. Paid calls still need your approval. Genio prefers to hand project work,
 generation included, to units. A unit never pushes to or merges your main branch, never talks to you directly, and
-never edits outside its copy.
+never edits outside its copy. Unity work targets only its own copy or a leased slot; your own editors and tools stay
+untouched.
 Where: nothing to set; the unit's full instructions (its brief file) stay with the unit.
 Source: [unit-worktrees.md](../unit-worktrees.md), [unity-enforcement.md](../unity-enforcement.md)
 

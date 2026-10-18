@@ -22,7 +22,7 @@ beforeEach(() => {
   engine = 'unity'; tasks = []
   fs.mkdirSync(repo); git(repo, 'init', '-q', '-b', 'main')
   fs.writeFileSync(path.join(repo, 'a.txt'), 'a'); git(repo, 'add', '.'); git(repo, 'commit', '-qm', 'initial')
-  git(repo, 'branch', 'develop'); git(repo, 'branch', 'dani/tutorial')
+  git(repo, 'branch', 'develop'); git(repo, 'branch', 'alex/tutorial')
   git(repo, 'worktree', 'add', '-q', '-b', 'feat/fog', path.join(scratch, 'game-fog'))
   git(repo, 'worktree', 'add', '-q', '-b', 'genio/lairs-ai', path.join(scratch, 'unit-lairs'))
   // A Genio slot copy registered as a worktree is never a source.
@@ -44,7 +44,7 @@ it('lists main, worktrees, units by name and branches without a checkout', async
     ['unit', 'Lairs AI', 'genio/lairs-ai']
   ])
   // Same commit date: their order is git's; only the set matters here.
-  expect(sources.slice(3).map(s => [s.group, s.label]).sort()).toEqual([['branch', 'dani/tutorial'], ['branch', 'develop']])
+  expect(sources.slice(3).map(s => [s.group, s.label]).sort()).toEqual([['branch', 'alex/tutorial'], ['branch', 'develop']])
   const main = sources.find(s => s.group === 'main')!, unit = sources.find(s => s.group === 'unit')!, branch = sources.find(s => s.id === 'branch:develop')!
   expect(main).toMatchObject({ dirty: 0, source: { path: path.resolve(repo) } })
   expect(main.head).toMatch(/^[0-9a-f]{40}$/)

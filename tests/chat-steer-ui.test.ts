@@ -21,7 +21,7 @@ const queued: ChatMessage = { id: 'q1', wksp: WKSP, role: 'player', text: 'then 
 
 function show(info: Partial<WkspInfo>, messages: ChatMessage[] = [queued]): void {
   const ally: Ally = { name: WKSP, projects: [WKSP], scope: '', charter: '', home: '/fixture', createdAt: '2026-10-16' }
-  setState({ ...initial, view: 'inventory', chatLoaded: { [WKSP]: true }, settings: { gamertag: 'Dani' } as never,
+  setState({ ...initial, view: 'inventory', chatLoaded: { [WKSP]: true }, settings: { gamertag: 'Alex' } as never,
     snap: { ...initial.snap, allies: [ally], wksps: [{ name: WKSP, displayName: 'Genio', activity: 'thinking', costUsd: 0, turns: 0, queued: 1, ...info }] },
     chats: { [WKSP]: messages } })
 }

@@ -3,7 +3,7 @@ import type { ChatMessage } from './types'
 /**
  * Replies the player must never see: what an event turn says when nothing needs them. The contract tells
  * Genio to end such a turn with no text at all; a model can still answer with the old sentence ("All clear,
- * Dani.") or the placeholder the Claude CLI writes for an empty message. The check is exact: the whole reply
+ * Alex.") or the placeholder the Claude CLI writes for an empty message. The check is exact: the whole reply
  * must be one of these, whatever its case, quotes, emphasis or closing punctuation, so a real message that
  * merely starts with "All clear" is shown.
  */
@@ -45,7 +45,7 @@ export function couldBecomeQuietReply(prefix: string, names: readonly string[] =
 /**
  * A chat log written before event turns stopped recording their no-op replies: those rows (a Genio or system
  * message that is only the sentence, with no tools or reaction) are dropped, and so is an empty Genio message.
- * A sentence that directly follows a player message is kept: asked "anything new?", "All clear, Dani." is the answer.
+ * A sentence that directly follows a player message is kept: asked "anything new?", "All clear, Alex." is the answer.
  */
 export function withoutQuietReplies(list: readonly ChatMessage[], names: readonly string[] = []): ChatMessage[] {
   return list.filter((m, i) => {

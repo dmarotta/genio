@@ -156,7 +156,7 @@ describe('the design_notes tool', () => {
       wksp: { history: () => [] }, design: { history: (id: string) => (id === 'd-00000001' ? said : []) } }
     const mainHc = { ...hc, home: main, design: undefined }
     ctx = { appRoot: process.cwd(), main: mainHc, homes: new Map([['main', mainHc], ['game', hc]]), home: (n: string) => (n === 'main' ? mainHc : hc),
-      settings: { get: () => ({ chatShellMode: 'all', gamertag: 'Dani' }) }, permissions: { ask: vi.fn(async () => true) },
+      settings: { get: () => ({ chatShellMode: 'all', gamertag: 'Alex' }) }, permissions: { ask: vi.fn(async () => true) },
       allies: { list: () => [{ name: 'game', projects: ['game'] }] },
       projects: { list: () => [{ name: 'game', path: project }], get: (n: string) => (n === 'game' ? { name: n, path: project } : undefined) },
       stats } as unknown as AppCtx
@@ -225,14 +225,14 @@ describe('notes in the prompts', () => {
       const line = contract.split('\n').find(l => l.startsWith('- Lore notes'))
       expect(line).toContain('never authorization')
       expect(line!.length).toBeLessThan(160)
-      const intake = procedureText('intake', { gamertag: 'Dani', base: 'game', isAlly })
+      const intake = procedureText('intake', { gamertag: 'Alex', base: 'game', isAlly })
       expect(intake).toContain('**Lore notes.**')
       expect(intake).toContain('You never write notes')
     }
   })
 
   it('teaches the design chat the note format, its two sections and when to write', () => {
-    const text = designContract({ gamertag: 'Dani', project: 'game' }, chatUsageLine('max'))
+    const text = designContract({ gamertag: 'Alex', project: 'game' }, chatUsageLine('max'))
     expect(text.length).toBeLessThanOrEqual(DESIGN_CONTRACT_BUDGET)
     expect(text).toContain('## Open questions')
     expect(text).toContain('## Decided')

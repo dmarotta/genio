@@ -96,7 +96,7 @@ beforeEach(() => {
     const top = !el || el === this ? 0 : rows(el).indexOf(this) * height - el.scrollTop
     return { top, bottom: top + height, left: 0, right: 0, width: 0, height, x: 0, y: top, toJSON: () => ({}) } as DOMRect
   })
-  setState({ ...initial, chats: { [WKSP]: transcript(300) }, chatLoaded: { [WKSP]: true }, settings: { gamertag: 'Dani', calm: false } as never,
+  setState({ ...initial, chats: { [WKSP]: transcript(300) }, chatLoaded: { [WKSP]: true }, settings: { gamertag: 'Alex', calm: false } as never,
     snap: { ...initial.snap, wksps: [{ name: WKSP, displayName: 'Genio', activity: 'idle', costUsd: 0, turns: 0, queued: 0 }] } })
 })
 afterEach(async () => {

@@ -38,7 +38,7 @@ beforeAll(() => {
   fs.mkdirSync(path.join(codexHome, 'sessions'), { recursive: true })
   const base = path.join(root, 'base')
   fs.mkdirSync(path.join(base, 'data', 'usage'), { recursive: true })
-  const project = path.join(claudeHome, 'projects', 'C--Users-dani--genio-worktrees-genio-unit')
+  const project = path.join(claudeHome, 'projects', 'C--Users-alex--genio-worktrees-genio-unit')
   fs.mkdirSync(project, { recursive: true })
   for (let k = 0; k < FILES; k++) {
     const file = path.join(project, `session-${k}.jsonl`)

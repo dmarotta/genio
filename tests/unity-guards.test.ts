@@ -166,9 +166,9 @@ describe('process watch (fake process snapshots only)', () => {
     expect(killed).toEqual([20])
   })
 
-  it('stops only a proven unit editor on main/foreign targets, never player editors or Toolbox', async () => {
+  it('stops only a proven unit editor on main/foreign targets, never the player\'s own editors and tools', async () => {
     snapshot.push(editor(20, 10, path.join(c.play.world, 'Game')), editor(21, 1, path.join(c.play.world, 'Game')),
-      p(22, 1, 'Toolbox.exe'), editor(23, 10, path.join(c.worktree, 'Game')), editor(24, 10, path.join(tmp, 'foreign')),
+      p(22, 1, 'OtherTool.exe'), editor(23, 10, path.join(c.worktree, 'Game')), editor(24, 10, path.join(tmp, 'foreign')),
       p(25, 10, `"${c.cli}" test`), editor(26, 10), p(27, 10, '"C:/WindowsApps/UnityCLI/unity.exe" run copy'))
     await watch().poll([root], notify)
     expect(killed).toEqual([20, 24, 26])

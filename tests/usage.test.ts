@@ -131,7 +131,7 @@ describe('parseClaudeUsageLine', () => {
   })
 
   it('maps a cwd to its project folder', () => {
-    expect(claudeProjectDir('C:\\Users\\alice\\.genio')).toBe('C--Users-danie--genio')
+    expect(claudeProjectDir('C:\\Users\\player\\.genio')).toBe('C--Users-player--genio')
   })
 })
 

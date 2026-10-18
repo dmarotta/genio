@@ -91,7 +91,7 @@ afterEach(() => {
 })
 
 const ctx = {
-  settings: { get: () => ({ gamertag: 'Dani', chatShellMode: 'ask', wkspModel: '', wkspEffort: '', botModel: '' }) },
+  settings: { get: () => ({ gamertag: 'Alex', chatShellMode: 'ask', wkspModel: '', wkspEffort: '', botModel: '' }) },
   allies: { list: () => [] },
   projects: { list: () => [] },
   memory: { read: () => '' },
@@ -702,13 +702,13 @@ describe('automatic project opening turn', () => {
       await flush()
       expect(fake.queries).toHaveLength(1)
       expect(fake.queries[0].received[0]).toContain('[GENIO PROJECT OPEN]')
-      expect(fake.queries[0].received[0]).toContain('Greet Dani')
+      expect(fake.queries[0].received[0]).toContain('Greet Alex')
       expect(fake.queries[0].received[0]).toContain('Running (0)')
       expect(c.svc.history().filter(m => m.role === 'player')).toEqual([])
-      fake.queries[0].emit({ type: 'assistant', message: { id: 'hello', content: [{ type: 'text', text: 'Hi Dani, this project is ready for your first task.' }] } })
+      fake.queries[0].emit({ type: 'assistant', message: { id: 'hello', content: [{ type: 'text', text: 'Hi Alex, this project is ready for your first task.' }] } })
       fake.queries[0].finishTurn()
       await flush()
-      expect(c.svc.history().find(m => m.text.includes('Hi Dani, this project is ready'))?.role).toBe('genio')
+      expect(c.svc.history().find(m => m.text.includes('Hi Alex, this project is ready'))?.role).toBe('genio')
       expect(ctx.stats.unlock).toHaveBeenCalledWith('project-welcome')
       await vi.advanceTimersByTimeAsync(7100)
       await flush()

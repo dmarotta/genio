@@ -33,7 +33,7 @@ let root: Root, host: HTMLDivElement, previous: typeof window.genio
 
 function chatState(messages: ChatMessage[] = []): void {
   const ally: Ally = { name: WKSP, projects: [WKSP], scope: '', charter: '', home: '/fixture', createdAt: '2026-10-16' }
-  setState({ ...initial, view: 'comms', chatLoaded: { [WKSP]: true }, settings: { gamertag: 'Dani' } as never,
+  setState({ ...initial, view: 'comms', chatLoaded: { [WKSP]: true }, settings: { gamertag: 'Alex' } as never,
     snap: { ...initial.snap, allies: [ally], wksps: [{ name: WKSP, displayName: 'Genio', activity: 'idle', costUsd: 0, turns: 0, queued: 0 }] },
     chats: { [WKSP]: messages } })
 }

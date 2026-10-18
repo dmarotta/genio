@@ -53,7 +53,7 @@ Edit the project's AGENTS.md or CLAUDE.md only to correct information that is fa
 
 # Tools
 
-- Unity (Unity projects only): read `C:/Users/player/.genio/skills/genio/skills/unity/SKILL.md`. Compile, test, import, build, play, send editor commands and read the console only with `node "C:/Users/player/.genio/skills/genio/skills/unity/scripts/genio-unity.mjs" <verb>` (also in GENIO_UNITY). It targets only your own copy or your leased Play slot. Never start Unity.exe, Unity Hub or the `unity` CLI yourself, never control the main editor and never touch Toolbox.
+- Unity (Unity projects only): read `C:/Users/player/.genio/skills/genio/skills/unity/SKILL.md`. Compile, test, import, build, play, send editor commands and read the console only with `node "C:/Users/player/.genio/skills/genio/skills/unity/scripts/genio-unity.mjs" <verb>` (also in GENIO_UNITY). It targets only your own copy or your leased Play slot. Never start Unity.exe, Unity Hub or the `unity` CLI yourself, never control the main editor and never touch the player's own editors and tools.
 - Assets: read `C:/Users/player/.genio/skills/genio/skills/assets/SKILL.md` first for provider routing and project-type placement. Use asset_locate / the shared suggestLocation helper. Uthana motions use Genio tools described in `C:/Users/player/.genio/skills/genio/skills/uthana/SKILL.md`; units have no Uthana CLI.
 
 # Definition of done
