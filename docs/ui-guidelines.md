@@ -108,7 +108,8 @@ On main now:
   button, the details' Title, Kind and Notes fields and Save, Re-queue, Clear wait, Not a
   duplicate, Drop, Dispatch and priority on plan steps, and reordering inside a band. The chat
   adds and changes quests; a standalone quest keeps Dispatch, Drop and priority (band drag or
-  its details).
+  its details). A plan's steps are not cards: the plan is one card with the same three controls
+  (the plan chip, its popover and Pause plan are gone), and its dialog lists the steps read-only.
 
 Also removed or being removed from the unit pages, described generally because they have not
 all reached main yet:

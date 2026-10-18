@@ -11,7 +11,7 @@ import { createPlanService, type PlanStepInput } from '../src/main/plans'
 import { bus } from '../src/main/bus'
 import { projectSnapshot, routeProjectEvent } from '../src/main/project-windows'
 import {
-  planGroups, planStepOf, planSummary, planView, stepStateText, stepTone
+  planCanDispatch, planColumn, planProgress, planView, stepStateText, stepTone
 } from '../src/shared/work-plan'
 import { queueChips } from '../src/shared/quest-board'
 import type { AppCtx, CrewService, HomeCtx } from '../src/main/services'
@@ -86,7 +86,7 @@ async function createPlan(): Promise<WorkPlan> {
   return plan
 }
 
-describe('plan popover controls', () => {
+describe('plan card controls', () => {
   it('Pause plan stops releases without opening a choice, tells the main chat once and reaches the windows', async () => {
     const plan = await createPlan()
     events = []
@@ -123,33 +123,37 @@ describe('plan popover controls', () => {
     expect(r.plan.state).toBe('cancelled')
     expect(hc.decisions.get(choice.id)?.resolvedAt).toBeTruthy()
     expect(plan.steps.slice(1).map((s) => hc.backlog.get(s.questId)?.state)).toEqual(['dropped', 'dropped'])
-    expect(hc.wakes.recent(0).some((w) => /The player cancelled plan "New Play"/.test(w.reason))).toBe(true)
+    expect(hc.wakes.recent(0).some((w) => /The player dropped plan "New Play"/.test(w.reason))).toBe(true)
   })
 })
 
 describe('step chips (shared selector)', () => {
-  it('summarises the plan and words each step', async () => {
+  it('words each step and the card\'s progress line', async () => {
     const plan = await createPlan()
     const v = planView(hc.plans.get(plan.id)!, hc.backlog.list(), tasks)
-    expect(planSummary(v)).toBe('plan · 0/3 merged')
-    expect(planSummary({ ...v, state: 'done', merged: 3 })).toBe('plan · 3/3 merged · complete')
-    expect(planSummary({ ...v, state: 'paused' })).toBe('plan · 0/3 merged · paused')
+    expect(planProgress(v)).toBe('0/3 merged · step 1 Step copy')
+    expect(planProgress({ ...v, state: 'done', merged: 3 })).toBe('3/3 merged')
     expect(v.steps.map((s) => stepStateText(s, v.steps))).toEqual(['working', 'waits on step 1', 'waits on step 2'])
     expect(v.steps.map((s) => stepTone(s))).toEqual(['blue', 'mute', 'mute'])
     expect(stepStateText({ state: 'merged', kind: 'scout', waitsOn: [] }, [])).toBe('delivered')
     expect(stepTone({ state: 'discarded', kind: 'ship' })).toBe('alert')
   })
 
-  it('gathers a plan\'s quests under one group where its first card stood, in step order', async () => {
+  it('a plan is one card: in flight while a step runs, queued when paused, done when it ends', async () => {
     const plan = await createPlan()
-    const [a, b, c] = plan.steps.map((s) => hc.backlog.get(s.questId)!)
-    const other = hc.backlog.add({ title: 'Unrelated', project: 'world', kind: 'ship', notes: '' })
-    const blocks = planGroups([other, c, a, b], (q) => planStepOf([plan], q.id))
-    expect(blocks).toHaveLength(2)
-    expect('item' in blocks[0] && blocks[0].item.id).toBe(other.id)
-    expect('plan' in blocks[1] && blocks[1].items.map((q) => q.id)).toEqual([a.id, b.id, c.id])
+    const view = (): ReturnType<typeof planView> => planView(hc.plans.get(plan.id)!, hc.backlog.list(), tasks)
+    expect(planColumn(view())).toBe('in-flight')
+    expect(planCanDispatch(view())).toBe(false)
+    hc.crew.update(tasks[0].id, { state: 'merged', landedAt: new Date().toISOString(), landedCommit: 'abc123' })
+    await hc.plans.idle()
+    await hc.plans.update(plan.id, { op: 'pause', by: 'player' })
+    hc.crew.update(tasks[1].id, { state: 'merged', landedAt: new Date().toISOString(), landedCommit: 'abd123' })
+    expect(planColumn(view())).toBe('queued')
+    expect(planCanDispatch(view())).toBe(true)
+    await hc.plans.update(plan.id, { op: 'cancel', by: 'player' })
+    expect(planColumn(view())).toBe('done')
+    expect(planCanDispatch(view())).toBe(false)
   })
-
   it('a queued step waits on "step N" and shows its paused plan', async () => {
     const plan = await createPlan()
     const second = hc.backlog.get(plan.steps[1].questId)!
@@ -159,6 +163,52 @@ describe('step chips (shared selector)', () => {
     const paused = (await hc.plans.update(plan.id, { op: 'pause', by: 'player' })).plan
     const chips = queueChips(second, { ...base, plans: [paused] })
     expect(chips[0]).toMatchObject({ kind: 'plan', label: 'plan paused', title: 'paused by the player', tone: 'amber' })
+  })
+})
+
+describe('plan priority and Dispatch', () => {
+  it('defaults to normal, is inherited by every step quest and follows a change', async () => {
+    const plan = await createPlan()
+    expect(plan.priority).toBe('normal')
+    const quests = (): string[] => plan.steps.map((s) => hc.backlog.get(s.questId)!.priority)
+    expect(quests()).toEqual(['normal', 'normal', 'normal'])
+    const r = await hc.plans.update(plan.id, { op: 'settings', priority: 'high' })
+    expect(r.plan.priority).toBe('high')
+    expect(quests()).toEqual(['high', 'high', 'high'])
+    await expect(hc.plans.update(plan.id, { op: 'settings', priority: 'urgent' as never })).rejects.toThrow(/priority is low/)
+    const { plan: critical } = await hc.plans.create({ world: 'world', title: 'Hot fix', intent: 'fix it fast', priority: 'critical', start: false, steps: [step('a')] })
+    expect(hc.backlog.get(critical.steps[0].questId)!.priority).toBe('critical')
+    expect(hc.plans.view(critical.id)?.priority).toBe('critical')
+  })
+
+  it('a saved plan without a priority loads as normal', async () => {
+    const plan = await createPlan()
+    const file = path.join(home.data, 'plans.json')
+    const saved = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<WorkPlan>[]
+    delete saved[0].priority
+    fs.writeFileSync(file, JSON.stringify(saved))
+    const fresh = createPlanService(() => ctx, home)
+    expect(fresh.get(plan.id)?.priority).toBe('normal')
+  })
+
+  it('a critical plan releases its step before a normal plan\'s', async () => {
+    const { plan: slow } = await hc.plans.create({ world: 'world', title: 'Slow plan', intent: 'later', start: false, steps: [step('s')] })
+    const { plan: fast } = await hc.plans.create({ world: 'world', title: 'Fast plan', intent: 'now', priority: 'critical', start: false, steps: [step('f')] })
+    // both resumes are queued before the first drain runs
+    await Promise.all([hc.plans.update(slow.id, { op: 'resume' }), hc.plans.update(fast.id, { op: 'resume' })])
+    await hc.plans.idle()
+    expect(tasks.map((t) => t.backlogId)).toEqual([fast.steps[0].questId, slow.steps[0].questId])
+  })
+
+  it('Dispatch resumes a paused plan and starts its ready steps even with auto-advance off', async () => {
+    const { plan } = await hc.plans.create({ world: 'world', title: 'Held plan', intent: 'start on my word', start: false, autoAdvance: false, steps: [step('a'), step('b', ['a'])] })
+    expect(tasks).toHaveLength(0)
+    const r = await hc.plans.update(plan.id, { op: 'dispatch' })
+    await hc.plans.idle()
+    expect(r.plan.state).toBe('active')
+    expect(r.plan.autoAdvance).toBe(true)
+    expect(tasks).toHaveLength(1)
+    expect(hc.wakes.recent(0).some((w) => /The player dispatched plan "Held plan"/.test(w.reason))).toBe(true)
   })
 })
 

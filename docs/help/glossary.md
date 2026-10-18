@@ -230,8 +230,10 @@ The list of quests in dispatch order (priority, then rank, then age): Queued (in
 "Queued until reset" by quota protection), in flight, and the Done column with completed history. Ask Genio in the
 chat to add a quest or change one (title, kind, notes, waits, start date, labels). A quest on its own has Dispatch and
 Drop on its card and in its details, and its priority changes by dragging it to another band or in its details;
-Dispatch is greyed while the quest waits for you or for another quest. A plan's quests have none of these: they
-follow their plan. Click a quest to read its details.
+Dispatch is greyed while the quest waits for you or for another quest. A plan is one card with a plan mark, its
+progress and its current step; its steps are not cards. The plan card has Dispatch (start or resume), Drop (cancels
+the plan after one confirmation; running units keep running) and a Priority that every step inherits (by dragging
+the card to another band or in its dialog). The dialog lists the steps read-only. Click a card to read its details.
 Where: Quests (Ctrl+3).
 Source: [VOCABULARY.md](../VOCABULARY.md), [squad-display.md](../squad-display.md)
 

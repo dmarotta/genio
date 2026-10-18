@@ -47,7 +47,7 @@ descriptions repeat what matters at the point of use.
   and the announcement.
 - `plan_update`: the only way to change steps (`edit_step`, `add_step`,
   `remove_step`, `reorder`) or the plan (`pause`, `resume`, `cancel`,
-  `settings`). Steps that have started keep their brief. Every step change
+  `settings`, including the plan's `priority`). Steps that have started keep their brief. Every step change
   recomputes the estimate.
 - `plan_status`: the derived view: step states, the steps next to start,
   blockers, landed commits, the estimate, and `left` (what remains for the steps
@@ -96,10 +96,28 @@ glob (`*`, `**`, `?`). Always-hot files never trigger a hint, because most
 concurrent pairs touch them: `types.ts`, `api.ts`, `ipc.ts`, `app.css`,
 tsconfigs and lockfiles.
 
-In the Quest log a plan's quests sit in one group under the plan's chip and its
-progress ("plan · 1/3 merged"). The chip opens the steps with Pause plan and
-Cancel plan; unit pages and tickets carry no plan chip. A step's card and
-details have no Dispatch, Drop or priority control: those belong to the plan
-(plans have no priority of their own yet).
+## The Quest log card
 
-Achievements: Battle Plan (`plan-first`, a plan filed), Hold Everything (`plan-control`, Pause or Cancel from the plan chip's popover in the Quest log) and According to Plan (`plan-done`, every step merged).
+A plan is one card on the Quest log board; its step quests are not cards. The card
+has a plan mark, its progress and its current step ("1/3 merged · step 2 Door sounds"),
+and sits in Queued (paused, or nothing started yet), In flight (a step has a unit,
+or is blocked) or Done (finished or dropped). It carries the controls of a
+standalone quest, now at plan level, on the card and in its dialog:
+
+- **Dispatch** starts or resumes the plan (the `dispatch` op, used by the card; the
+  chat resumes with `resume`): a paused plan resumes, and a plan whose steps only
+  start when deployed gets auto-advance on. It shows only when the plan has
+  something to start.
+- **Drop** cancels the plan (op `cancel`) after one plain confirmation: the button
+  turns into "Drop the plan" and a second click does it. Steps not started are
+  dropped; running units keep running; nothing that landed is undone.
+- **Priority** (`low`, `normal`, `high`, `critical`; default `normal`) is the plan's,
+  and every step quest inherits it, so the dispatcher orders plan steps against other
+  quests and other plans by it. Plans saved before it existed load as normal. Drag the
+  card to another band, or use the dialog. Chat: `plan_create` `priority`,
+  `plan_update` `settings` with `priority`; `plan_status` shows it.
+
+The dialog lists the steps read-only with their states. Unit pages and tickets carry
+no plan chip.
+
+Achievements: Battle Plan (`plan-first`, a plan filed), Hold Everything (`plan-control`, Dispatch or Drop from a plan's card in the Quest log) and According to Plan (`plan-done`, every step merged).

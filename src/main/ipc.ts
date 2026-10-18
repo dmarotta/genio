@@ -465,9 +465,13 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
       const hc = planHome(id)
       const plan = hc.plans.get(id)!
       if (action === 'pause' && plan.state !== 'active') return { ok: false, message: `This plan is already ${plan.state}.` }
-      if (action === 'cancel' && (plan.state === 'cancelled' || plan.state === 'done')) return { ok: false, message: `This plan is already ${plan.state}.` }
-      const r = await hc.plans.update(id, action === 'pause' ? { op: 'pause', by: 'player' } : { op: 'cancel', by: 'player' })
+      if (action !== 'pause' && (plan.state === 'cancelled' || plan.state === 'done')) return { ok: false, message: `This plan is already ${plan.state}.` }
+      const r = await hc.plans.update(id, action === 'pause' ? { op: 'pause', by: 'player' } : action === 'dispatch' ? { op: 'dispatch' } : { op: 'cancel', by: 'player' })
       unlockQuietly('plan-control')
+      return { ok: true, message: r.message.charAt(0).toUpperCase() + r.message.slice(1) }
+    },
+    planPriority: async (id, priority) => {
+      const r = await planHome(id).plans.update(id, { op: 'settings', priority })
       return { ok: true, message: r.message.charAt(0).toUpperCase() + r.message.slice(1) }
     },
 
@@ -671,7 +675,7 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
             await ctx().home(binding.wksp).wksp.send(dispatchMessage(backlogHome(quest.id), quest, Boolean(args[1])), 'system')
             return { ok: true, message: 'Sent to project chat.' }
           }
-          if (method === 'planControl' && planHome(String(args[0])).plans.get(String(args[0]))?.world !== binding.project) {
+          if ((method === 'planControl' || method === 'planPriority') && planHome(String(args[0])).plans.get(String(args[0]))?.world !== binding.project) {
             throw new Error('Plan is outside this project.')
           }
           if (method === 'backlogReorder') {

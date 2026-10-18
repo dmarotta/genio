@@ -126,7 +126,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { feature: 'modeller', id: 'modeller-rewind', name: 'Take Two', description: "Revert or branch a Modeller's model from its unit page.", retired: true },
   { feature: 'generator', id: 'generator-first', name: 'Production Line', description: 'Merge a Generator build: a unit that runs asset generation jobs.' },
   { feature: 'plans', id: 'plan-first', name: 'Battle Plan', description: 'Have Genio file a plan: one job split into steps for several units.' },
-  { feature: 'plans', id: 'plan-control', name: 'Hold Everything', description: "Pause or cancel a plan from its chip in the Quest log." },
+  { feature: 'plans', id: 'plan-control', name: 'Hold Everything', description: "Dispatch or drop a plan from its card in the Quest log." },
   { feature: 'plans', id: 'plan-done', name: 'According to Plan', description: 'Merge every step of a plan.' },
   // The rail's recent finished rows share the existing Squad feature: completion earns the
   // Recon/merge achievements below; showing or reopening a record is no new achievement.

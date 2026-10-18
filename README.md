@@ -28,8 +28,8 @@ work: a pull request, a ready local branch or a written report.
 - **Build and Recon.** A Build delivers a change; a Recon investigates and delivers a report.
 - **Modeller.** A unit that builds a 3D model live in Blender, step by step, which you can watch and steer.
 - **Generator.** A unit that runs asset generation jobs for images, sounds, textures and more, and places the results.
-- **Plans and the Quest log.** Work that needs several units in order becomes a plan. The Quest log queues work with
-  priorities, dependencies and holds.
+- **Plans and the Quest log.** Work that needs several units in order becomes a plan. A plan is one card on the Quest
+  log with its own priority; the Quest log queues work with priorities, dependencies and holds.
 - **Delivery modes.** Offline leaves a clean local branch, Standard opens a pull request, Hardcore also runs lint,
   build, tests, an AI review and CI before the work is ready. Auto-loot can merge finished, green work for you.
 - **Quota protection and usage modes.** Genio slows down new units as your Claude and Codex plans fill up, and Save,

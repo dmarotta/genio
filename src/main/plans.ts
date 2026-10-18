@@ -14,11 +14,11 @@
  * Named WorkPlan because PlanId/PlanStatus already mean provider quota plans.
  */
 import path from 'node:path'
-import type { BacklogItem, Decision, PlanEstimate, PlanStep, Task, TaskCategory, TaskKind, WorkPlan } from '@shared/types'
+import type { BacklogItem, Decision, PlanEstimate, PlanStep, Priority, Task, TaskCategory, TaskKind, WorkPlan } from '@shared/types'
 import type { SpawnRequest } from '@shared/api'
 import { planStepOf, planView, stepGraphProblems, stepTask, topoOrder, workLanded, type PlanView } from '@shared/work-plan'
 import { estimatePlan, formatEstimate } from '@shared/plan-estimate'
-import { unitDiscarded, unitFinished } from '@shared/quest-board'
+import { PRIORITY_RANK, unitDiscarded, unitFinished } from '@shared/quest-board'
 import * as git from './git'
 import { hintOverlap } from './plan-hints'
 import { bus } from './bus'
@@ -54,6 +54,8 @@ export interface PlanCreateInput {
   goal?: string
   autoAdvance?: boolean
   maxParallel?: number
+  /** the plan's place in the queue, inherited by every step (default normal) */
+  priority?: Priority
   /** release the steps that are ready now (default); false files the plan paused until it is resumed */
   start?: boolean
   steps: PlanStepInput[]
@@ -74,11 +76,13 @@ export type PlanUpdateOp =
   | { op: 'add_step'; step: PlanStepInput }
   | { op: 'remove_step'; step: string }
   | { op: 'reorder'; order: string[] }
-  /** by: 'player' when the player used the plan popover (the main chat hears of it) */
+  /** by: 'player' when the player used the plan card (the main chat hears of it) */
   | { op: 'pause'; reason?: string; by?: 'player' }
   | { op: 'resume' }
   | { op: 'cancel'; by?: 'player' }
-  | { op: 'settings'; autoAdvance?: boolean; maxParallel?: number }
+  | { op: 'settings'; autoAdvance?: boolean; maxParallel?: number; priority?: Priority }
+  /** the player's Dispatch on the plan card: resume a paused plan, or start the steps that are ready now */
+  | { op: 'dispatch' }
 
 export interface PlanUpdateResult {
   plan: WorkPlan
@@ -90,6 +94,7 @@ export type PlanStatusView = PlanView & { estimate?: PlanEstimate; left?: PlanEs
 
 export const PLAN_MAX_STEPS = 20
 export const PLAN_MAX_PARALLEL = 3
+const isPriority = (v: unknown): v is Priority => typeof v === 'string' && v in PRIORITY_RANK
 export const PAUSE_OPTIONS = ['Resume the plan', 'Edit the step first', 'Cancel the plan'] as const
 /** A release that failed for another reason than capacity or quota waits this long before the drain retries it. */
 const RETRY_MS = 5 * 60_000
@@ -118,10 +123,13 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
     if (!plans) {
       const raw = readJson<WorkPlan[]>(file, [])
       plans = Array.isArray(raw) ? raw.filter((p) => p && typeof p.id === 'string' && Array.isArray(p.steps)) : []
-      for (const p of plans) for (const s of p.steps) {
-        s.after = Array.isArray(s.after) ? s.after : []
-        s.files = Array.isArray(s.files) ? s.files : []
-        s.taskIds = Array.isArray(s.taskIds) ? s.taskIds : []
+      for (const p of plans) {
+        if (!isPriority(p.priority)) p.priority = 'normal'
+        for (const s of p.steps) {
+          s.after = Array.isArray(s.after) ? s.after : []
+          s.files = Array.isArray(s.files) ? s.files : []
+          s.taskIds = Array.isArray(s.taskIds) ? s.taskIds : []
+        }
       }
     }
     return plans
@@ -136,7 +144,7 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
     publish()
   }
 
-  /** Every home's plans to the windows: the step chips and the quest log plan groups. */
+  /** Every home's plans to the windows: the step chips and the quest log plan cards. */
   function publish(): void {
     let all: WorkPlan[] = load()
     try {
@@ -417,7 +425,7 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
     const attempted = new Set<string>()
     const order = (q: BacklogItem): [number, number] => {
       const f = planStepOf(load(), q.id)!
-      return [load().indexOf(f.plan), f.step.index]
+      return [PRIORITY_RANK[f.plan.priority] * 1000 + load().indexOf(f.plan), f.step.index]
     }
     for (;;) {
       const now = Date.now()
@@ -478,7 +486,7 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
 
   function fileQuest(p: WorkPlan, s: Omit<PlanStep, 'questId'>, deps: string[], attachments?: ResolvedAttachment[]): string {
     const id = hc().backlog.add({
-      title: s.title, project: p.world, kind: s.kind, notes: questNotes(p, { ...s, questId: '' }), summary: s.summary, dependsOn: deps,
+      title: s.title, project: p.world, kind: s.kind, priority: p.priority, notes: questNotes(p, { ...s, questId: '' }), summary: s.summary, dependsOn: deps,
       tags: [`plan:${slugify(p.title, 24)}`], planId: p.id, planStep: s.key
     }).id
     // filed with the quest, before any step can start: the step's unit gets them whenever it is released
@@ -492,11 +500,20 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
     return state === 'in-flight' || state === 'ready' || state === 'merged' ? state : undefined
   }
 
-  /** The player paused or cancelled from the plan popover: the main chat hears it once and does not undo it. */
-  function playerActed(p: WorkPlan, message: string): void {
-    wake(`The player ${p.state === 'cancelled' ? 'cancelled' : 'paused'} plan "${p.title}" from the plan popover: ${message}`, [
-      p.state === 'cancelled' ? 'Do not restart its steps unless the player asks.' : 'Resume it with plan_update only when the player asks.'
+  /** The player dropped, paused or dispatched the plan from its card: the main chat hears it once and does not undo it. */
+  function playerActed(p: WorkPlan, what: 'dropped' | 'paused' | 'dispatched', message: string): void {
+    wake(`The player ${what} plan "${p.title}" from its Quest log card: ${message}`, [
+      what === 'dropped' ? 'Do not restart its steps unless the player asks.' : what === 'paused' ? 'Resume it with plan_update only when the player asks.' : 'Leave it running.'
     ], true)
+  }
+
+  /** The plan's priority is every step quest's: a step not finished yet follows the plan into its new band. */
+  function setPriority(p: WorkPlan, priority: Priority): void {
+    p.priority = priority
+    for (const s of p.steps) {
+      const q = safe(() => hc().backlog.get(s.questId))
+      if (q && q.state !== 'done' && q.state !== 'dropped' && q.priority !== priority) safe(() => hc().backlog.update(s.questId, { priority }))
+    }
   }
 
   function resolvePauseChoice(p: WorkPlan, answer: string): void {
@@ -583,7 +600,7 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
         const p: WorkPlan = {
           id: `plan-${slugify(title, 24)}-${rid(2)}`, world, title, intent: input.intent.trim(), goal: input.goal?.trim() || undefined,
           state: input.start === false ? 'paused' : 'active', autoAdvance: input.autoAdvance ?? true, maxParallel,
-          steps: [], createdAt: ts, updatedAt: ts,
+          priority: isPriority(input.priority) ? input.priority : 'normal', steps: [], createdAt: ts, updatedAt: ts,
           ...(input.start === false ? { pause: { reason: 'not started yet: plan_update resume starts it', at: ts } } : {})
         }
         const order = topoOrder(steps)!
@@ -622,20 +639,38 @@ export function createPlanService(getCtx: () => AppCtx, home: Home): PlanService
             p.pause = { reason: op.reason?.trim() || (op.by === 'player' ? 'paused by the player' : 'paused by Genio'), at: nowIso() }
             message = 'plan paused: no new step starts until it resumes; running units keep running'
             ledger('plan.paused', p, { reason: p.pause.reason, by: op.by })
-            if (op.by === 'player') playerActed(p, message)
+            if (op.by === 'player') playerActed(p, 'paused', message)
             break
           }
           case 'resume':
             return { plan: p, message: resume(p) }
+          case 'dispatch': {
+            if (p.state !== 'active' && p.state !== 'paused') throw new Error(`plan ${p.id} is ${p.state}`)
+            // Dispatch is the player's own start: it also lifts a plan whose steps only start when deployed
+            p.autoAdvance = true
+            message = p.state === 'paused' ? resume(p) : 'plan dispatched: its next steps start now'
+            if (p.state === 'active') {
+              p.updatedAt = nowIso()
+              save()
+              scheduleDrain()
+            }
+            ledger('plan.dispatched', p)
+            playerActed(p, 'dispatched', message)
+            return { plan: p, message }
+          }
           case 'cancel': {
             message = cancel(p)
-            if (op.by === 'player') playerActed(p, message)
+            if (op.by === 'player') playerActed(p, 'dropped', message)
             return { plan: p, message }
           }
           case 'settings': {
             if (op.autoAdvance !== undefined) p.autoAdvance = op.autoAdvance
             if (op.maxParallel !== undefined) p.maxParallel = Math.max(1, Math.min(PLAN_MAX_PARALLEL, Math.round(op.maxParallel)))
-            message = `auto-advance ${p.autoAdvance ? 'on' : 'off'}, at most ${p.maxParallel} step${p.maxParallel > 1 ? 's' : ''} at once`
+            if (op.priority !== undefined) {
+              if (!isPriority(op.priority)) throw new Error('priority is low, normal, high or critical')
+              setPriority(p, op.priority)
+            }
+            message = `priority ${p.priority}, auto-advance ${p.autoAdvance ? 'on' : 'off'}, at most ${p.maxParallel} step${p.maxParallel > 1 ? 's' : ''} at once`
             break
           }
           case 'edit_step': {

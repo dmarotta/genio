@@ -425,6 +425,8 @@ export interface WorkPlan {
   autoAdvance: boolean
   /** plan steps working at once */
   maxParallel: number
+  /** the plan's place in the queue: every step quest inherits it (plans saved before it existed load as normal) */
+  priority: Priority
   steps: PlanStep[]
   createdAt: string
   updatedAt: string
@@ -946,7 +948,7 @@ export interface FleetSnapshot {
   pendingUnits?: string[]
   tasks: Task[]
   backlog: BacklogItem[]
-  /** WorkPlans (data/plans.json): the step chips and the quest log plan groups */
+  /** WorkPlans (data/plans.json): the quest log plan cards */
   plans?: WorkPlan[]
   decisions: Decision[]
   projects: Project[]

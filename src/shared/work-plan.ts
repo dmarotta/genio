@@ -3,7 +3,7 @@
  * step's state derived from its quest and unit (never from what an agent says
  * it did), and the plan view that plan_status returns and the step chips render.
  */
-import type { BacklogItem, PlanStep, Task, TaskKind, WorkPlan } from './types'
+import type { BacklogItem, PlanStep, Priority, Task, TaskKind, WorkPlan } from './types'
 import { unitDiscarded, unitFinished } from './quest-board'
 
 /** waiting: a prerequisite has not merged · queued: free to start · ready: waits for its merge. */
@@ -110,6 +110,9 @@ export interface PlanView {
   state: WorkPlan['state']
   autoAdvance: boolean
   maxParallel: number
+  priority: Priority
+  /** when the plan last changed; a finished plan's date on the board */
+  endedAt: string
   total: number
   merged: number
   steps: PlanStepView[]
@@ -155,6 +158,7 @@ export function planView(plan: WorkPlan, backlog: BacklogItem[], tasks: Task[]):
   }
   return {
     id: plan.id, title: plan.title, world: plan.world, state: plan.state, autoAdvance: plan.autoAdvance, maxParallel: plan.maxParallel,
+    priority: plan.priority ?? 'normal', endedAt: plan.doneAt ?? plan.updatedAt,
     total: views.length, merged: views.filter((v) => v.state === 'merged').length, steps: views,
     next: views.filter((v) => v.state === 'queued').map((v) => v.key),
     running: views.filter((v) => v.state === 'in-flight').map((v) => v.key),
@@ -171,14 +175,34 @@ export function planStepOf(plans: WorkPlan[], questId: string): { plan: WorkPlan
   return undefined
 }
 
-// ---------------------------------------------------------------- plan chip
+// ---------------------------------------------------------------- plan card
 
-/** The quest log group header: "plan · 1/3 merged", plus why it does not move on by itself. */
-export function planSummary(v: Pick<PlanView, 'state' | 'merged' | 'total'>): string {
-  const base = `plan · ${v.merged}/${v.total} merged`
-  return v.state === 'active' ? base : `${base} · ${v.state === 'done' ? 'complete' : v.state}`
+export type PlanColumn = 'queued' | 'in-flight' | 'done'
+
+/** The Quest log column a plan's one card sits in: In flight while a unit has a step, Done once it ended, else Queued. */
+export function planColumn(v: Pick<PlanView, 'state' | 'steps'>): PlanColumn {
+  if (v.state === 'done' || v.state === 'cancelled') return 'done'
+  return v.steps.some((s) => s.state === 'in-flight' || s.state === 'ready' || s.state === 'blocked') ? 'in-flight' : 'queued'
 }
 
+/** The step the card names: the one at work (or stuck), else the one that starts next. */
+export function currentStep(v: Pick<PlanView, 'steps'>): PlanStepView | undefined {
+  return v.steps.find((s) => s.state === 'blocked') ?? v.steps.find((s) => s.state === 'in-flight' || s.state === 'ready') ??
+    v.steps.find((s) => s.state === 'queued') ?? v.steps.find((s) => s.state === 'waiting')
+}
+
+/** The card's one progress line: "1/3 merged · step 2 Door sounds". */
+export function planProgress(v: Pick<PlanView, 'merged' | 'total' | 'steps' | 'state'>): string {
+  const base = `${v.merged}/${v.total} merged`
+  const cur = v.state === 'active' || v.state === 'paused' ? currentStep(v) : undefined
+  return cur ? `${base} · step ${cur.index} ${cur.title}` : base
+}
+
+/** Dispatch starts a plan that is paused, or whose steps wait to be started; a plan with a step at work needs no button. */
+export function planCanDispatch(v: Pick<PlanView, 'state' | 'steps' | 'autoAdvance'>): boolean {
+  if (v.state === 'paused') return true
+  return v.state === 'active' && planColumn(v) === 'queued' && (!v.autoAdvance || v.steps.some((s) => s.state === 'queued'))
+}
 /** One step's state in words: "merged", "working", "waits on step 2". */
 export function stepStateText(v: Pick<PlanStepView, 'state' | 'waitsOn' | 'kind'>, steps: Pick<PlanStepView, 'key' | 'index'>[]): string {
   switch (v.state) {
@@ -193,33 +217,6 @@ export function stepStateText(v: Pick<PlanStepView, 'state' | 'waitsOn' | 'kind'
       return `waits on step ${idx.join(', ')}`
     }
   }
-}
-
-/**
- * A quest log column with each plan's steps gathered under one header, where the
- * plan's first card stood; steps keep plan order, other cards keep theirs.
- */
-export function planGroups<T>(items: T[], planOf: (item: T) => { plan: WorkPlan; step: PlanStep } | undefined): ({ plan: WorkPlan; items: T[] } | { item: T })[] {
-  const out: ({ plan: WorkPlan; items: T[] } | { item: T })[] = []
-  const groups = new Map<string, { plan: WorkPlan; items: T[] }>()
-  const index = new Map<T, number>()
-  for (const item of items) {
-    const found = planOf(item)
-    if (!found) {
-      out.push({ item })
-      continue
-    }
-    index.set(item, found.step.index)
-    const g = groups.get(found.plan.id)
-    if (g) g.items.push(item)
-    else {
-      const next = { plan: found.plan, items: [item] }
-      groups.set(found.plan.id, next)
-      out.push(next)
-    }
-  }
-  for (const g of groups.values()) g.items.sort((a, b) => index.get(a)! - index.get(b)!)
-  return out
 }
 
 /** The Squad's colors for a step: green landed or ready, blue/purple at work, red discarded, yellow blocked. */

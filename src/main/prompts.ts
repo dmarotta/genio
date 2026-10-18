@@ -112,6 +112,7 @@ ${o.isAlly ? '' : '- Route by the nature of the work against each Ally scope (al
   - Order lives only in each step's after, never in prose: a step waits for the merge of its own prerequisites, never for unrelated steps.
   - Write each step complete: a full spec, a one-line acceptance check, and the files it shares with other steps (Genio pings a working step to rebase when a landing touches them).
   - Post the plan's announcement once: steps, order, time and cost. When ${who} already asked for the work, start it and carry on without asking; otherwise file it with start=false and ask.
+  - A plan is one card on the Quest log with one priority (plan_create priority, plan_update settings) that its steps inherit; its Drop and Dispatch act on the whole plan.
   - Merges keep their approval: Genio starts the next step only after a merge. A failed or discarded step pauses the plan: tell ${who} in one line and offer resume, edit or cancel (plan_update).
 - For one-off operational work, take the simplest direct path. Don't build wrappers, control planes or automation unless the direct path hits a concrete, repeated blocker.
 

@@ -1,8 +1,8 @@
-import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type DragEvent } from 'react'
 import { Box, Clock, Copy, ExternalLink, Hand, Link2, Pause, Play, Radar, Rocket, Sparkles, X } from 'lucide-react'
 import type { BacklogItem, PlanStep, Priority, StatusEvent, Task, WorkPlan } from '@shared/types'
-import { planGroups, planStepOf, planSummary } from '@shared/work-plan'
-import { PlanChip, usePlanView } from '../components/PlanChip'
+import { planColumn, planStepOf, type PlanView } from '@shared/work-plan'
+import { PRIORITY_LABEL, PlanCard, PlanDetails, usePlanViews } from '../components/PlanCard'
 import { PRIORITIES } from '@shared/api'
 import {
   buildBoard, queueChips, reorderQueue, visibleBands, type DoneEntry, type FlightCard, type QueueChip
@@ -18,7 +18,6 @@ import { useScreenContext } from '../lib/screen-context'
 const DONE_PAGE = 12
 const DONE_MORE = 25
 
-const PRIORITY_LABEL: Record<Priority, string> = { critical: 'Critical', high: 'High', normal: 'Normal', low: 'Low' }
 const KIND_NAME: Record<string, string> = { ship: 'Build', scout: 'Recon', choice: 'Choice' }
 
 /** Squad tones as colors; blue is the Squad's working-Build color. */
@@ -36,9 +35,23 @@ export function Quests() {
   const policy = useUsagePolicy()
   const now = useNow(30_000)
   const [openId, setOpenId] = useState<string | null>(null)
+  const [openPlanId, setOpenPlanId] = useState<string | null>(null)
   const [doneShown, setDoneShown] = useState(DONE_PAGE)
 
-  const board = useMemo(() => buildBoard({ backlog: items, tasks, terminals, decisions, now }), [items, tasks, terminals, decisions, now])
+  const planViews = usePlanViews()
+  const built = useMemo(() => buildBoard({ backlog: items, tasks, terminals, decisions, now }), [items, tasks, terminals, decisions, now])
+  // a plan is one card: its step quests (and their finished entries) are not cards of their own
+  const board = useMemo(() => ({
+    queued: built.queued.filter((q) => !questPlan(plans, q)),
+    inFlight: built.inFlight.filter((c) => !(c.quest && questPlan(plans, c.quest))),
+    done: built.done.filter((d) => !(d.quest && questPlan(plans, d.quest)))
+  }), [built, plans])
+  const queuedPlans = planViews.filter((v) => planColumn(v) === 'queued')
+  const flightPlans = planViews.filter((v) => planColumn(v) === 'in-flight')
+  const doneList = useMemo(() => [
+    ...board.done.map((d) => ({ key: d.key, at: d.at, d })),
+    ...planViews.filter((v) => planColumn(v) === 'done').map((v) => ({ key: `plan-${v.id}`, at: v.endedAt, v }))
+  ].sort((a, b) => b.at.localeCompare(a.at) || a.key.localeCompare(b.key)), [board.done, planViews])
   const waits = useMemo(() => new Map((policy?.waiting ?? []).map((w) => [w.id, w.wait])), [policy])
   const worldCaps = useMemo(() => {
     const caps: Record<string, number | undefined> = {}
@@ -62,11 +75,13 @@ export function Quests() {
     else if (t) focusTask(t.id)
   }
   const openQuest = openId ? items.find((b) => b.id === openId) : undefined
-  const total = board.queued.length + board.inFlight.length
+  const openPlan = openPlanId ? planViews.find((v) => v.id === openPlanId) : undefined
+  const total = board.queued.length + board.inFlight.length + queuedPlans.length + flightPlans.length
   const columnOf = (q: BacklogItem): string =>
     board.queued.includes(q) ? 'Queued' : board.inFlight.some((c) => c.quest === q) ? 'In flight' : 'Done'
   useScreenContext('quests', { facts: [
-    { label: 'Board', value: `${board.queued.length} queued · ${board.inFlight.length} in flight · ${board.done.length} done` },
+    { label: 'Board', value: `${board.queued.length + queuedPlans.length} queued · ${board.inFlight.length + flightPlans.length} in flight · ${doneList.length} done` },
+    openPlan && { label: 'Plan', value: `${openPlan.title} [${openPlan.id}] · ${planColumn(openPlan)} · ${openPlan.priority} · ${openPlan.merged}/${openPlan.total} merged` },
     openQuest && { label: 'Quest', value: `${openQuest.title} [${openQuest.id}] · ${columnOf(openQuest)} · ${openQuest.priority} · ${openQuest.kind}` }
   ] })
 
@@ -80,26 +95,21 @@ export function Quests() {
         }
       />
 
-      {total === 0 && board.done.length === 0 ? (
+      {total === 0 && doneList.length === 0 ? (
         <Empty title="No quests yet. Ask Genio to add one." />
       ) : (
         <div className="kanban qk">
-          <QueuedColumn queue={board.queued} plans={plans} chipsFor={chipsFor} onOpen={(q) => open(q)} />
+          <QueuedColumn queue={board.queued} plans={plans} planCards={queuedPlans} chipsFor={chipsFor} onOpen={(q) => open(q)} onOpenPlan={setOpenPlanId} />
           <section className="kan-col col-in-flight">
             <header className="kan-head">
               <span className="label">In flight</span>
             </header>
             <div className="kan-list">
-              {board.inFlight.length === 0 && <div className="qk-empty mute">No units on the field.</div>}
-              {planGroups(board.inFlight, (c) => (c.quest ? questPlan(plans, c.quest) : undefined)).map((b) => 'item' in b ? (
-                <FlightTicket key={b.item.key} c={b.item} events={b.item.task ? statusByTask[b.item.task.id] : undefined} onOpen={() => open(b.item.quest, b.item.task)} />
-              ) : (
-                <PlanGroup key={`plan-${b.plan.id}`} plan={b.plan}>
-                  {b.items.map((c) => (
-                    <FlightTicket key={c.key} c={c} events={c.task ? statusByTask[c.task.id] : undefined} onOpen={() => open(c.quest, c.task)} />
-                  ))}
-                </PlanGroup>
+              {board.inFlight.length + flightPlans.length === 0 && <div className="qk-empty mute">No units on the field.</div>}
+              {board.inFlight.map((c) => (
+                <FlightTicket key={c.key} c={c} events={c.task ? statusByTask[c.task.id] : undefined} onOpen={() => open(c.quest, c.task)} />
               ))}
+              {flightPlans.map((v) => <PlanCard key={`plan-${v.id}`} v={v} onOpen={() => setOpenPlanId(v.id)} />)}
             </div>
           </section>
           <section className="kan-col col-done">
@@ -107,11 +117,13 @@ export function Quests() {
               <span className="label">Done</span>
             </header>
             <div className="kan-list">
-              {board.done.length === 0 && <div className="qk-empty mute">Nothing finished yet.</div>}
-              {board.done.slice(0, doneShown).map((d) => (
-                <DoneTicket key={d.key} d={d} onOpen={() => open(d.quest, d.task)} />
+              {doneList.length === 0 && <div className="qk-empty mute">Nothing finished yet.</div>}
+              {doneList.slice(0, doneShown).map((e) => 'd' in e ? (
+                <DoneTicket key={e.key} d={e.d} onOpen={() => open(e.d.quest, e.d.task)} />
+              ) : (
+                <PlanCard key={e.key} v={e.v} onOpen={() => setOpenPlanId(e.v.id)} />
               ))}
-              {board.done.length > doneShown && (
+              {doneList.length > doneShown && (
                 <button className="btn ghost sm qk-more" onClick={() => setDoneShown((n) => n + DONE_MORE)}>
                   Show more
                 </button>
@@ -121,17 +133,18 @@ export function Quests() {
         </div>
       )}
       {openQuest && <QuestDetails item={openQuest} chips={chipsFor(openQuest)} onClose={() => setOpenId(null)} />}
+      {openPlan && <PlanDetails planId={openPlan.id} onClose={() => setOpenPlanId(null)} />}
     </div>
   )
 }
 
 // ------------------------------------------------------------------ queued
 
-export function QueuedColumn({ queue: all, plans, chipsFor, onOpen }: {
-  queue: BacklogItem[]; plans?: WorkPlan[]; chipsFor: (q: BacklogItem) => QueueChip[]; onOpen: (q: BacklogItem) => void
+export function QueuedColumn({ queue: all, plans, planCards = [], chipsFor, onOpen, onOpenPlan }: {
+  queue: BacklogItem[]; plans?: WorkPlan[]; planCards?: PlanView[]; chipsFor: (q: BacklogItem) => QueueChip[]
+  onOpen: (q: BacklogItem) => void; onOpenPlan?: (id: string) => void
 }) {
-  // a plan's steps start in plan order, not by priority: they sit in their plan's group above the bands
-  const groups = planGroups(all, (q) => questPlan(plans, q)).filter((b) => 'plan' in b)
+  // a plan is one card in its priority band; its steps are not cards
   const queue = all.filter((q) => !questPlan(plans, q))
   const [drag, setDrag] = useState<string | null>(null)
   const [over, setOver] = useState<Priority | null>(null)
@@ -150,8 +163,13 @@ export function QueuedColumn({ queue: all, plans, chipsFor, onOpen }: {
   }
   // dragging a standalone quest to another band changes its priority; it joins the end of that band
   const drop = (band: Priority): void => {
+    const plan = planCards.find((v) => `plan:${v.id}` === drag)
     const q = queue.find((x) => x.id === drag)
     end()
+    if (plan) {
+      if (plan.priority !== band) void op('Priority', () => api().planPriority(plan.id, band))
+      return
+    }
     if (!q || q.priority === band) return
     const patches = reorderQueue(queue, q.id, band)
     if (patches.length) void op('Priority', () => api().backlogReorder(patches))
@@ -168,25 +186,32 @@ export function QueuedColumn({ queue: all, plans, chipsFor, onOpen }: {
         <span className="label">Queued</span>
       </header>
       <div className="kan-list">
-        {all.length === 0 && <div className="qk-empty mute">Nothing queued</div>}
-        {groups.map((g) => 'plan' in g && (
-          <PlanGroup key={`plan-${g.plan.id}`} plan={g.plan}>
-            {g.items.map((q) => <QueueTicket key={q.id} q={q} chips={chipsFor(q)} onOpen={() => onOpen(q)} />)}
-          </PlanGroup>
-        ))}
-        {visibleBands(queue, !!drag).map((band) => {
+        {queue.length + planCards.length === 0 && <div className="qk-empty mute">Nothing queued</div>}
+        {visibleBands([...queue, ...planCards], !!drag).map((band) => {
           const list = queue.filter((q) => q.priority === band)
+          const planList = planCards.filter((v) => v.priority === band)
           return (
             <div
               key={band}
-              className={cx('qk-band', `p-${band}`, !list.length && 'vacant', over === band && 'drop-end')}
+              className={cx('qk-band', `p-${band}`, !list.length && !planList.length && 'vacant', over === band && 'drop-end')}
               onDragOver={allow(band)}
               onDrop={(e) => { e.preventDefault(); drop(band) }}
             >
               <div className="qk-band-head">
                 <span className={cx('prio-label', `p-${band}`)}>{PRIORITY_LABEL[band]}</span>
-                {!list.length && <span className="qk-drop mute">Drop here</span>}
+                {!list.length && !planList.length && <span className="qk-drop mute">Drop here</span>}
               </div>
+              {planList.map((v) => (
+                <div
+                  key={v.id}
+                  draggable
+                  className={cx('qk-drag', drag === `plan:${v.id}` && 'dragging')}
+                  onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', `plan:${v.id}`); start(`plan:${v.id}`) }}
+                  onDragEnd={end}
+                >
+                  <PlanCard v={v} onOpen={() => onOpenPlan?.(v.id)} />
+                </div>
+              ))}
               {list.map((q) => (
                 <div
                   key={q.id}
@@ -267,7 +292,7 @@ function ReasonChip({ c }: { c: QueueChip }) {
 }
 
 
-/** The kind chip: a plan step sits in its plan's group, and the project is the window's own. */
+/** The kind chip; the project is the window's own. */
 function TicketMeta({ q, task }: { q?: BacklogItem; task?: Task }) {
   const kind = q?.kind ?? task?.kind ?? 'ship'
   return (
@@ -289,20 +314,6 @@ function TicketMeta({ q, task }: { q?: BacklogItem; task?: Task }) {
 /** The plan a quest is a step of, while the plan is known to this window. */
 function questPlan(plans: WorkPlan[] | undefined, q: BacklogItem): { plan: WorkPlan; step: PlanStep } | undefined {
   return q.planId && plans?.length ? planStepOf(plans, q.id) : undefined
-}
-
-/** A plan's steps in one column, under "New Play · plan · 1/3 merged". The title opens the plan popover. */
-function PlanGroup({ plan, children }: { plan: WorkPlan; children: ReactNode }) {
-  const v = usePlanView(plan.id)
-  return (
-    <div className="qk-plan">
-      <div className="qk-plan-head">
-        <PlanChip plan={plan} />
-        {v && <span className="mute">{planSummary(v)}</span>}
-      </div>
-      {children}
-    </div>
-  )
 }
 
 // ------------------------------------------------------------------ in flight

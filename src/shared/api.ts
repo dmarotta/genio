@@ -748,8 +748,10 @@ export interface GenioApi {
   backlogRemove(id: string): Promise<void>
   /** persist a manual queue order: each quest's priority band and rank within it */
   backlogReorder(patches: { id: string; priority: Priority; rank: number }[]): Promise<BacklogItem[]>
-  /** The plan popover: pause stops releasing new steps; cancel also drops the steps not started. Running units keep running. */
-  planControl(id: string, action: 'pause' | 'cancel'): Promise<OpResult>
+  /** The plan card: dispatch starts or resumes the plan; cancel (Drop) also drops the steps not started. Running units keep running. */
+  planControl(id: string, action: 'pause' | 'cancel' | 'dispatch'): Promise<OpResult>
+  /** The plan's priority, which every step inherits. */
+  planPriority(id: string, priority: Priority): Promise<OpResult>
 
   // ---- decisions
   answerDecision(id: string, answer: string): Promise<OpResult>
@@ -897,6 +899,7 @@ export const API_METHODS = [
   'backlogRemove',
   'backlogReorder',
   'planControl',
+  'planPriority',
   'answerDecision',
   'applyRecommendations',
   'deferDecision',

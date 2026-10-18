@@ -814,6 +814,7 @@ export function createToolRegistry(
       goal: z.string().optional().describe('One or two lines on what the whole plan achieves.'),
       auto_advance: z.boolean().default(true).describe('Start each next step by itself when its prerequisites merge (default). false: steps start only when deployed.'),
       max_parallel: z.number().int().min(1).max(3).default(2).describe('Steps of this plan working at once (default 2; 3 only for steps that share nothing).'),
+      priority: z.enum(['low', 'normal', 'high', 'critical']).default('normal').describe('The plan\'s place in the queue; every step inherits it.'),
       start: z.boolean().default(true).describe('true when the player already asked for the work: the first steps start now. false files the plan paused until plan_update resume (a plan the player has not asked for yet).'),
       steps: z.array(planStep).min(1).max(20)
     },
@@ -827,7 +828,7 @@ export function createToolRegistry(
         return { ...stepInput(s), attachments: att.items }
       })
       const r = await hc().plans.create({
-        world: a.world, title: a.title, intent: a.intent, goal: a.goal, autoAdvance: a.auto_advance, maxParallel: a.max_parallel,
+        world: a.world, title: a.title, intent: a.intent, goal: a.goal, autoAdvance: a.auto_advance, maxParallel: a.max_parallel, priority: a.priority,
         start: role === 'bot' ? false : a.start, steps
       })
       for (const s of r.plan.steps) did('quests', s.questId)
@@ -846,7 +847,7 @@ export function createToolRegistry(
 
   t(
     'plan_update',
-    'The only way to change a plan\'s steps (never rewrite step quests with quest_update). op: edit_step (step + patch; only a step not started yet), add_step (new_step), remove_step (step; not started yet; the steps after it inherit its prerequisites), reorder (order = every step key, prerequisites first), pause (no new step starts; running units keep running), resume (after a discarded or failed step: queues it again and carries on), cancel (drops the steps not started; nothing landed is undone), settings (auto_advance, max_parallel).',
+    'The only way to change a plan\'s steps (never rewrite step quests with quest_update). op: edit_step (step + patch; only a step not started yet), add_step (new_step), remove_step (step; not started yet; the steps after it inherit its prerequisites), reorder (order = every step key, prerequisites first), pause (no new step starts; running units keep running), resume (after a discarded or failed step: queues it again and carries on), cancel (drops the steps not started; nothing landed is undone), settings (auto_advance, max_parallel, priority: the steps inherit it).',
     {
       plan_id: z.string(),
       op: z.enum(['edit_step', 'add_step', 'remove_step', 'reorder', 'pause', 'resume', 'cancel', 'settings']),
@@ -856,7 +857,8 @@ export function createToolRegistry(
       order: z.array(z.string()).optional().describe('reorder: every step key, prerequisites first.'),
       reason: z.string().optional().describe('pause: why, in one line.'),
       auto_advance: z.boolean().optional(),
-      max_parallel: z.number().int().min(1).max(3).optional()
+      max_parallel: z.number().int().min(1).max(3).optional(),
+      priority: z.enum(['low', 'normal', 'high', 'critical']).optional().describe('settings: the plan\'s priority.')
     },
     async (a) => {
       if (role === 'bot' && a.op !== 'pause') return fail('plan changes wait for the player; the Bot may only pause a plan')
@@ -875,7 +877,7 @@ export function createToolRegistry(
             : a.op === 'remove_step' ? { op: 'remove_step', step: need(a.step, 'step') }
               : a.op === 'reorder' ? { op: 'reorder', order: need(a.order, 'order') }
                 : a.op === 'pause' ? { op: 'pause', reason: a.reason }
-                  : a.op === 'settings' ? { op: 'settings', autoAdvance: a.auto_advance, maxParallel: a.max_parallel }
+                  : a.op === 'settings' ? { op: 'settings', autoAdvance: a.auto_advance, maxParallel: a.max_parallel, priority: a.priority }
                     : { op: a.op }
       const r = await owner.plans.update(a.plan_id, op)
       return ok(`${r.message}${attachmentsReport(att.items.length, att.rejected)}\n${json(owner.plans.view(a.plan_id))}`)
@@ -884,7 +886,7 @@ export function createToolRegistry(
 
   t(
     'plan_status',
-    'Plans and their steps: each step\'s state (waiting, queued, in-flight, ready, merged, blocked, discarded) derived from its quest and unit, the steps Genio starts next, what blocks the plan, the landed commits, and the estimate (time and main chat cost; left = what remains for the steps not merged). plan_id for one plan; otherwise every active or paused plan (include_done adds finished and cancelled ones).',
+    'Plans and their steps: each step\'s state (waiting, queued, in-flight, ready, merged, blocked, discarded) derived from its quest and unit, the plan\'s priority, the steps Genio starts next, what blocks the plan, the landed commits, and the estimate (time and main chat cost; left = what remains for the steps not merged). plan_id for one plan; otherwise every active or paused plan (include_done adds finished and cancelled ones).',
     { plan_id: z.string().optional(), include_done: z.boolean().default(false) },
     async ({ plan_id, include_done }) => {
       if (plan_id) return ok(json(planHome(plan_id).plans.view(plan_id)))
