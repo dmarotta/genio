@@ -19,7 +19,10 @@
 // As genio_step.py, a step with parts writes landed.json right after its GLB, then the rest.
 // A `p.bake_maps(` call lists one bake in the receipt, as genio_parts does; receipts carry the
 // --threads Blender was started with, and the first step's receipt the parent parts the kernel
-// passed for its review (`previous`) and its parent's pair results (`pairs`).
+// passed for its review (`previous`), its parent's pair results (`pairs`) and what its parent's
+// review printed (`seen`). Each receipt's review_seen holds its own review lines as items, and
+// its review_full the same lines; timings_ms has fixed export, checks and sheet times (and the
+// first step's `start` from the plan's `spawned`).
 // Pair results: a step whose plan item brings its parent's is checked incrementally (receipt
 // checks.pairs.full false), any other in full; a `check` output without a script (an export's full
 // check) reviews the snapshot as `Full check: <parts>`.
@@ -93,6 +96,7 @@ async function published(item) {
 async function main() {
   for (const [i, item] of plan.steps.entries()) {
     receipt = { schema: 'genio.modeller-step.v1', ok: false, ...item.step, blender: 'fake', api_warnings: [], replayed: plan.replay.length, base: blend ?? null, batch_index: i, threads }
+    receipt.timings_ms = { ...(i === 0 && plan.spawned ? { start: Date.now() - plan.spawned } : {}), script: 1 }
     out = (name) => path.join(item.out, name)
     fs.mkdirSync(item.out, { recursive: true })
     if (i === 0) for (const r of plan.replay) apply(r.script ?? r, 'replay', r.lib)
@@ -105,7 +109,8 @@ async function main() {
     const caption = item.script ? captionOf(code) : null
     if (item.script && outputs.has('glb') && state.parts.length) {
       fs.writeFileSync(out('model.glb'), JSON.stringify(state.parts))
-      fs.writeFileSync(out('landed.json.tmp'), JSON.stringify({ ok: true, stage: 'glb', ...item.step, caption }))
+      receipt.timings_ms.export = 2
+      fs.writeFileSync(out('landed.json.tmp'), JSON.stringify({ ok: true, stage: 'glb', ...item.step, caption, timings_ms: receipt.timings_ms }))
       fs.renameSync(out('landed.json.tmp'), out('landed.json'))
       if (code.includes('# fake: crash-after-glb')) process.exit(3)
     }
@@ -118,10 +123,12 @@ async function main() {
       if (code.includes('# fake: wait-publish')) receipt.sheet_after_publish = await published(item)
       if (outputs.has('sheet') && code.includes('# fake: sheet-error')) warnings.push('The review sheet failed (RuntimeError: fake sheet failure); the step is published without it.')
       else if (outputs.has('sheet')) { fs.writeFileSync(out('sheet.png'), PNG); fs.writeFileSync(out('view.png'), PNG) }
+      Object.assign(receipt.timings_ms, { checks: 3, sheet: outputs.has('sheet') ? 4 : 0 })
       Object.assign(receipt, {
         caption, triangles: state.parts.length * 12, vertices: state.parts.length * 8, objects: state.parts.length,
         parts: state.parts.map((name) => ({ name, triangles: 12 })), bounds: { min: [0, 0, 0], max: [1, 1, 1], dimensions: [1, 1, 1] },
-        warnings, review, checks: { pierces: [], pairs: { full: !(i === 0 ? item.pairs : true), contacts: [] } }, ...(i === 0 ? { previous: item.previous, pairs: item.pairs } : {})
+        warnings, review, review_full: review, review_seen: { Fake: Object.fromEntries(review.map((l) => [l, []])) }, review_new: { Fake: review.length }, review_known: { Fake: 0 },
+        checks: { pierces: [], pairs: { full: !(i === 0 ? item.pairs : true), contacts: [] } }, ...(i === 0 ? { previous: item.previous, pairs: item.pairs, seen: item.seen } : {})
       })
     } else if (outputs.has('check')) {
       Object.assign(receipt, { review: [`Full check: ${state.parts.join(', ')}`], warnings: [], checks: { pierces: [], pairs: { full: item.full === true, contacts: [] } } })

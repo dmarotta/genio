@@ -90,11 +90,13 @@ export function readModellerLive(dataDir: string, base: () => string, worktree?:
     parts: Number(s.objects) || 0, ms: Number(s.ms) || 0, at: Date.parse(s.t ?? '') || 0, glb: url(s.files?.glb), view: url(s.files?.view)
   }))
   // The head step's advisory checks, as genio_step.py wrote them into its receipt: its warnings, then
-  // the text review's defect lines (floating parts, deep overlaps, z-fighting, symmetry), not its changes.
+  // the text review's defect lines (floating parts, deep overlaps, z-fighting, symmetry...), not its
+  // changes. The full review names every item; the agent's own counts the ones it read before.
   const headReceipt = line.at(-1)?.files?.receipt
-  const receipt = typeof headReceipt === 'string' && /^steps\/s\d+\/receipt\.json$/.test(headReceipt) ? readJson(path.join(folder, ...headReceipt.split('/'))) as { warnings?: unknown; review?: unknown } | undefined : undefined
+  const receipt = typeof headReceipt === 'string' && /^steps\/s\d+\/receipt\.json$/.test(headReceipt) ? readJson(path.join(folder, ...headReceipt.split('/'))) as { warnings?: unknown; review?: unknown; review_full?: unknown } | undefined : undefined
   const strings = (v: unknown): string[] => Array.isArray(v) ? v.filter((w): w is string => typeof w === 'string') : []
-  const checks = [...strings(receipt?.warnings), ...strings(receipt?.review).filter((r) => !r.startsWith('Changes:'))].slice(0, 20)
+  const review = Array.isArray(receipt?.review_full) ? receipt.review_full : receipt?.review
+  const checks = [...strings(receipt?.warnings), ...strings(review).filter((r) => !r.startsWith('Changes:'))].slice(0, 20)
 
   let running: ModellerLive['running'] = null
   const lock = Number((() => { try { return fs.readFileSync(path.join(folder, '.lock'), 'utf8') } catch { return '' } })())

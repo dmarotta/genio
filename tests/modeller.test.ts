@@ -20,7 +20,8 @@ const fake = { prefix: [path.join(fixtures, 'fake-blender.mjs')] }
 delete process.env.GENIO_REFERENCES
 const ZSTD = Buffer.from([0x28, 0xb5, 0x2f, 0xfd])
 const root = fs.mkdtempSync(path.join(process.env.GENIO_BLENDER_TEST_SCRATCH ?? os.tmpdir(), 'genio-modeller-test-'))
-afterAll(() => fs.rmSync(root, { recursive: true, force: true }))
+// Dense test models leave megabytes of snapshots and GLBs: a loaded machine needs more than the default 10 s.
+afterAll(() => fs.rmSync(root, { recursive: true, force: true }), 60000)
 
 let dataDir = ''
 let src = ''
@@ -94,11 +95,12 @@ describe('Modeller kernel with a fake Blender', { timeout: 60000 }, () => {
     const receipt = (s: StepDone) => JSON.parse(fs.readFileSync(s.receipt, 'utf8'))
     const first = done(await step(script('s01_top.py', 'Top', '# part: Top', '# review: Changes: 1 added (Top)')))
     expect(first.review).toEqual(['Changes: 1 added (Top)'])
-    // no parent: every part is new
-    expect(receipt(first).previous).toEqual([])
+    // no parent: every part is new, and the review has printed nothing before
+    expect(receipt(first)).toMatchObject({ previous: [], seen: null })
     const lamp = done(await step(script('s02_lamp.py', 'Lamp', '# part: Lamp', '# review: Changes: 1 added (Lamp)', '# review: Floating: Lamp (0.32 m from Top)')))
     expect(lamp.review).toEqual(['Changes: 1 added (Lamp)', 'Floating: Lamp (0.32 m from Top)'])
-    expect(receipt(lamp)).toMatchObject({ review: lamp.review, previous: [{ name: 'Top', triangles: 12 }] })
+    // what the parent's review printed: its items are counts while they stand
+    expect(receipt(lamp)).toMatchObject({ review: lamp.review, previous: [{ name: 'Top', triangles: 12 }], seen: receipt(first).review_seen })
     // a batch: its first step compares with the head, later ones with the step before (inside Blender)
     const b = await kernel.batch({ dataDir, model: 'tower', runner: fake, gapMs: 0, scripts: [
       script('s03_a.py', 'A', '# part: A', '# review: Changes: 1 added (A)'), script('s04_b.py', 'B', '# part: B', '# review: Changes: 1 added (B)')
@@ -109,6 +111,7 @@ describe('Modeller kernel with a fake Blender', { timeout: 60000 }, () => {
     // an amend compares with the replaced step's parent
     done(await step(script('s05_c.py', 'C', '# part: C'), { amend: true }))
     expect(stored(manifest().branches.main.head!).previous.map((x: { name: string }) => x.name)).toEqual(['Top', 'Lamp', 'A'])
+    expect(stored(manifest().branches.main.head!).seen).toEqual(stored(b.steps[0].id).review_seen)
   })
 
   it('runs a multi-step sequence: snapshots, GLBs, sheets, receipts and a manifest outside the worktree', async () => {
@@ -524,6 +527,9 @@ describe('Modeller kernel with a fake Blender', { timeout: 60000 }, () => {
     expect(manifest().steps[1].warnings).toBe(2)
     // the player's live view still lists every check of the head step
     expect(readModellerLive(dataDir, () => '')!.checks).toEqual([pass, size])
+    // and every review item, also those the agent now reads as a count
+    fs.writeFileSync(same.receipt, JSON.stringify({ ...receipt(same), review: ['Changes: none', 'Floating: 1 known'], review_full: ['Changes: none', 'Floating: Lamp (0.32 m from Top)'] }))
+    expect(readModellerLive(dataDir, () => '')!.checks).toEqual([pass, size, 'Floating: Lamp (0.32 m from Top)'])
     // a changed warning is new; one that went away is simply gone
     const grown = size.replace('0.48', '0.90')
     const changed = done(await step(script('s03_tower.py', 'Tower', '# part: Tower', `# warn: ${grown}`)))
@@ -541,6 +547,78 @@ describe('Modeller kernel with a fake Blender', { timeout: 60000 }, () => {
     ] })
     expect(b.steps.map((s) => [s.warnings, s.known_warnings])).toEqual([[[size], 1], [[], 2]])
     expect(b).toMatchObject({ warnings: [], known_warnings: 2 })
+  })
+
+  it('measures each run in its receipt: the agent\'s time before it, script and lib bytes, amends, reruns and split phases', async () => {
+    await fakeModel()
+    const receipt = (s: StepDone) => JSON.parse(fs.readFileSync(s.receipt, 'utf8'))
+    await new Promise((r) => setTimeout(r, 150))
+    const legsFile = script('s01_legs.py', 'Legs', '# part: Legs')
+    const legs = done(await step(legsFile))
+    const first = receipt(legs)
+    // the agent's time since init returned (writing the first script), beside Blender's own phases
+    expect(first.agent_ms).toBeGreaterThanOrEqual(140)
+    expect(first).toMatchObject({ script_bytes: fs.statSync(legsFile).size, lib_bytes: 0, lib_changed: false, amend: false, rerun_of: null, warnings_new: 0 })
+    expect(first.phases_ms).toEqual({ think: first.agent_ms, blender: first.wall_ms, export: 2, checks: 3, sheet: 4 })
+    expect(first.timings_ms.start).toBeGreaterThanOrEqual(0)
+    // a lib appears (changed), and the same step again is a rerun of it
+    fs.writeFileSync(path.join(src, 'lib.py'), '"""Helpers"""\n# def: crate\n')
+    const again = done(await step(script('s01_legs.py', 'Legs again', '# part: Legs'), { amend: true }))
+    expect(receipt(again)).toMatchObject({ lib_bytes: fs.statSync(path.join(src, 'lib.py')).size, lib_changed: true, amend: true, rerun_of: { id: legs.id } })
+    expect(receipt(done(await step(script('s02_deck.py', 'Deck', '# part: Deck'))))).toMatchObject({ lib_changed: false, amend: false, rerun_of: null })
+    // a failed run is measured in the manifest, and its fixed script is a rerun of it
+    failed(await step(script('s03_roof.py', 'Roof', '# fake: error')))
+    expect(manifest().failures.at(-1)).toMatchObject({ id: 's004', amend: false, rerun_of: null, lib_changed: false, script_bytes: expect.any(Number), agent_ms: expect.any(Number) })
+    expect(receipt(done(await step(script('s03_roof.py', 'Roof', '# part: Roof'))))).toMatchObject({ id: 's004', rerun_of: { id: 's004', failed: 'error' } })
+    // a batch's later steps follow the first with no agent time
+    const b = await kernel.batch({ dataDir, model: 'tower', runner: fake, gapMs: 0, scripts: [script('s04_a.py', 'A', '# part: A'), script('s05_b.py', 'B', '# part: B')] })
+    const stored = (id: string) => JSON.parse(fs.readFileSync(path.join(dataDir, 'tower', 'steps', id, 'receipt.json'), 'utf8'))
+    expect(b.steps.map((s) => stored(s.id).agent_ms)).toEqual([expect.any(Number), 0])
+    expect(stored(b.steps[0].id).agent_gap).toBeUndefined()
+    // past ten minutes the agent's time is a gap (a respawn, a wait for the player)
+    const m = manifest()
+    m.returned_at = new Date(Date.now() - kernel.AGENT_GAP_MS - 60000).toISOString()
+    fs.writeFileSync(path.join(dataDir, 'tower', 'manifest.json'), JSON.stringify(m))
+    const late = receipt(done(await step(script('s06_c.py', 'C', '# part: C'))))
+    expect(late).toMatchObject({ agent_gap: true })
+    expect(late.agent_ms).toBeGreaterThan(kernel.AGENT_GAP_MS)
+    // Blender stopped after the export: killed after landing, with the timings it had
+    const killed = receipt(done(await step(script('s07_dome.py', 'Dome', '# part: Dome', '# fake: crash-after-glb'))))
+    expect(killed).toMatchObject({ killed_after_landing: 'exit code 3', phases_ms: { export: 2, checks: 0, sheet: 0 } })
+  })
+
+  it('sums up a model\'s run: steps, runs, amends, failures, agent and Blender time, phases, sizes and open review lines', async () => {
+    await fakeModel()
+    const files = [script('s01_legs.py', 'Legs', '# part: Legs', '# review: Floating: Legs'), script('s02_deck.py', 'Deck', '# part: Deck')]
+    for (const f of files) done(await step(f))
+    done(await step(script('s02_deck.py', 'Deck', '# part: Deck', '# review: Z-fighting: Deck / Legs'), { amend: true }))
+    failed(await step(script('s03_roof.py', 'Roof', '# fake: error')))
+    done(await step(script('s03_roof.py', 'Roof', '# part: Roof', '# review: Changes: 1 added (Roof)', '# review: Floating: Roof')))
+    const r = await kernel.report({ dataDir, model: 'tower' })
+    expect(r).toMatchObject({ ok: true, model: 'tower', head: 's004', steps: 3, runs: 5, amends: 1, reruns: 2, failures: { error: 1 }, killed: 0, agent_gaps: 0, triangles: 36, budget: null })
+    expect(r.timeline.map((x) => [x.id, x.outcome])).toEqual([['s001', 'step'], ['s002', 'replaced'], ['s003', 'step'], ['s004', 'error'], ['s004', 'step']])
+    expect(r.agent_ms).toMatchObject({ n: 5 })
+    expect(r.blender_ms.n).toBe(5)
+    expect(r.blender_ms.median).toBeLessThanOrEqual(r.blender_ms.p90!)
+    // the four landed steps' phases (the failure's receipt has its script only), and their review items
+    expect(r.blender_phases_ms).toMatchObject({ export: 8, checks: 12, sheet: 16, script: 5 })
+    expect(r.review.new).toEqual({ Fake: 4 })
+    // the head's open review lines, its changes left out
+    expect(r.open_review).toEqual(['Floating: Roof'])
+    const bytes = r.timeline.reduce((n, x) => n + x.script_bytes, 0)
+    expect(r.script_kb).toBe(Math.round(bytes / 102.4) / 10)
+    expect(r.first_step_s).toBeGreaterThanOrEqual(0)
+    expect(r.wall_s).toBeGreaterThanOrEqual(r.first_step_s!)
+    // a receipt from before the measures: its script's size still counts
+    const old = path.join(dataDir, 'tower', 'steps', 's001', 'receipt.json')
+    const before = JSON.parse(fs.readFileSync(old, 'utf8'))
+    delete before.script_bytes
+    delete before.agent_ms
+    fs.writeFileSync(old, JSON.stringify(before))
+    expect((await kernel.report({ dataDir, model: 'tower' })).timeline[0]).toMatchObject({ script_bytes: fs.statSync(files[0]).size, agent_ms: null })
+    // and through the CLI
+    const out = await run(process.execPath, [cli, 'report', 'tower', '--data', dataDir], { cwd: src })
+    expect(JSON.parse(out.stdout)).toMatchObject({ ok: true, steps: 3, runs: 5 })
   })
 
   it('starts Blender on every core for a step or replay that bakes, and reports its bakes', async () => {
@@ -964,17 +1042,19 @@ describe.skipIf(!blender)(`Modeller with Blender ${blender?.version.join('.') ??
       'Floating: Lamp (0.32 m from Top)',
       'Deep overlap: Block / Top (40 % of Block inside)',
       'Z-fighting: Decal / Top (0.09 m² at 0, -0.2, 1)',
-      'Symmetry: Handle L has no Handle R; no mirror twin in x: Lamp'
+      'Symmetry: Handle L has no Handle R; no mirror twin in x: Lamp',
+      'Materials: none on Block, Decal, Handle L, Lamp'
     ])
     expect(flawed.review.join('\n').length).toBeLessThan(300)
     // information only: the step landed, and nothing of the review is repeated as a warning
     expect(flawed.ok).toBe(true)
     expect(flawed.warnings.join('\n')).not.toMatch(/Lamp|Block|Handle/)
     expect(fixed.review).toEqual(['Changes: 4 removed (Block, Decal, Handle L, Lamp)'])
-    expect(moved.review).toEqual(['Changes: 1 moved (Leg front L)', 'Symmetry: Leg front R is 0.05 m off the mirror of Leg front L'])
-    // the receipt keeps the review and each part's box for the next step's comparison
+    // the leg was made again without its wood
+    expect(moved.review).toEqual(['Changes: 1 moved (Leg front L)', 'Symmetry: Leg front R is 0.05 m off the mirror of Leg front L', 'Materials: none on Leg front L'])
+    // the receipt keeps the review, in full too (nothing was known yet), and each part's box for the next step's comparison
     const receipt = JSON.parse(fs.readFileSync(flawed.receipt, 'utf8'))
-    expect(receipt.review).toEqual(flawed.review)
+    expect(receipt).toMatchObject({ review: flawed.review, review_full: flawed.review, review_new: { Floating: 1, 'Deep overlap': 1, 'Z-fighting': 1, Symmetry: 2, Materials: 1 } })
     expect(receipt.parts.find((x: { name: string }) => x.name === 'Block').box).toEqual([[-0.1, 0.15, 0.92], [0.1, 0.35, 1.12]])
 
     // the sheet labels the flagged parts (orange) beside the model; view.png, the live view's, stays clean
@@ -996,9 +1076,12 @@ describe.skipIf(!blender)(`Modeller with Blender ${blender?.version.join('.') ??
       fs.writeFileSync(path.join(src, name), lines.join('\n'))
       return path.join(src, name)
     }
-    // one part moves: only its pairs are examined; the floating lamp and the sunk block carry over
+    // one part moves: only its pairs are examined; the floating lamp and the sunk block carry over,
+    // and every item the last review printed is a count, but the z-fighting that moved
     const slid: StepDone = await cmd('step', 'desk', write('s03_decal.py', '"""Sliding the decal back"""', "p.part('Decal').location.y -= 0.05"))
-    expect(slid.review).toEqual(['Changes: 1 moved (Decal)', flawed.review[1], flawed.review[2], 'Z-fighting: Decal / Top (0.09 m² at 0, -0.25, 1)', flawed.review[4]])
+    const zf = 'Z-fighting: Decal / Top (0.09 m² at 0, -0.25, 1)'
+    expect(slid.review).toEqual(['Changes: 1 moved (Decal)', 'Floating: 1 known', 'Deep overlap: 1 known', zf, 'Symmetry: 2 known', 'Materials: 1 known'])
+    expect(receipt(slid).review_full).toEqual(['Changes: 1 moved (Decal)', flawed.review[1], flawed.review[2], zf, ...flawed.review.slice(4)])
     const checks = receipt(slid).checks
     expect(checks.pairs).toMatchObject({ full: false, changed: ['Decal'], stopped: { pierces: false, z_fighting: false } })
     expect(checks.pairs.z_fighting.map((z: string[]) => z.slice(0, 2))).toEqual([['Top', 'Decal']])
@@ -1006,8 +1089,8 @@ describe.skipIf(!blender)(`Modeller with Blender ${blender?.version.join('.') ??
     const order = Object.keys(receipt(slid).timings_ms)
     expect(order.indexOf('save')).toBeLessThan(order.indexOf('checks'))
     expect(pngSize(slid.sheet!)).toEqual([1024, 1024])
-    // the export's check of every pair says the same
-    expect(await cmd('materialize', 'desk')).toMatchObject({ ok: true, id: slid.id, review: slid.review })
+    // the export's check of every pair says the same, every item in full
+    expect(await cmd('materialize', 'desk')).toMatchObject({ ok: true, id: slid.id, review: receipt(slid).review_full })
     // freezing keeps the shipped shape to the bit: nothing changed, every pair carries over
     const round: StepDone = await cmd('step', 'desk', write('s04_block.py', '"""Rounding the block"""', "p.subsurf(p.part('Block'), 1)"))
     expect(round.review[0]).toBe('Changes: 1 changed (Block)')
@@ -1015,10 +1098,85 @@ describe.skipIf(!blender)(`Modeller with Blender ${blender?.version.join('.') ??
       "assert [o.name for o in p.freeze('Block')] == ['Block'] and not p.part('Block').modifiers",
       'assert p.freeze() == []'))
     expect(frozen).toMatchObject({ ok: true, triangles: round.triangles })
-    expect(frozen.review).toEqual(['Changes: none', ...round.review.slice(1)])
+    expect(receipt(frozen).review_full).toEqual(['Changes: none', ...receipt(round).review_full.slice(1)])
+    expect(frozen.review.slice(1).every((l) => / \d+ known$/.test(l))).toBe(true)
     expect(receipt(frozen).checks.pairs).toMatchObject({ full: false, changed: [] })
     const block = (s: StepDone) => receipt(s).parts.find((x: { name: string }) => x.name === 'Block')
     expect(block(frozen).base_triangles).toBe(block(round).triangles)
+  }, 300000)
+
+  it('says each review item once, then counts it; p.intended silences an overlap; size, triangles, materials and bake lines', async () => {
+    await cmd('init', 'boat', '--target', 'web', '--size', '2x6x2', '--budget', '30000')
+    const receipt = (s: StepDone) => JSON.parse(fs.readFileSync(s.receipt, 'utf8'))
+    const write = (name: string, ...lines: string[]) => {
+      fs.writeFileSync(path.join(src, name), lines.join('\n'))
+      return path.join(src, name)
+    }
+    const hull: StepDone = await cmd('step', 'boat', write('s01_hull.py', '"""A hull with a keel sunk into it"""',
+      "wood = p.material('Wood', '#8a5a33')",
+      "p.box('Hull', (2, 4, 1), loc=(0, 0, 1), mat=wood)",
+      "p.box('Keel', (0.2, 3, 1.2), loc=(0, 0, 0.6), mat=wood)"))
+    const keel = 'Deep overlap: Keel / Hull (58 % of Keel inside)'
+    expect(hull.review).toEqual(['Changes: 2 added (Hull, Keel)', keel, 'Size: 4 m long (brief 6 m, 67 %); 1.5 m tall (brief 2 m, 75 %)'])
+    // the keel line once, then a count beside a new item; a changed size again; a dense part, a part
+    // without a material, two woods alike
+    const mast: StepDone = await cmd('step', 'boat', write('s02_mast.py', '"""A mast with a flag and a brass ball"""',
+      "mast = p.cylinder('Mast', 0.08, 2.5, loc=(0, 0, 2.75), mat=p.material('Mast wood', '#8a5a33'))",
+      "p.box('Flag', (0.02, 0.6, 0.4), loc=(0, 0.35, 3.7))",
+      "p.sphere('Ball', 0.15, loc=(0, 0, 4.1), subdiv=6, mat=p.material('Brass', '#c8a040', metal=1.0))"))
+    expect(mast.review).toEqual([
+      'Changes: 3 added (Ball, Flag, Mast)',
+      'Deep overlap: Flag / Mast (0.4 m inside, 0.09 m out); 1 known',
+      'Size: 4.25 m tall (brief 2 m, 212 %); 1 known',
+      'Triangles: 21k of 30k; Ball 20k (100 %)',
+      'Materials: none on Flag; Mast wood and Wood look the same'
+    ])
+    expect(receipt(mast)).toMatchObject({ review_new: { 'Deep overlap': 1, Size: 1, Triangles: 2, Materials: 2 }, review_known: { 'Deep overlap': 1, Size: 1 } })
+    expect(receipt(mast).review_full.slice(1, 3)).toEqual([
+      'Deep overlap: Flag / Mast (0.4 m inside, 0.09 m out); Keel / Hull (58 % of Keel inside)',
+      'Size: 4 m long (brief 6 m, 67 %); 4.25 m tall (brief 2 m, 212 %)'
+    ])
+    // the keel is meant to sit in the hull: its line goes for good, while the rest stands as counts
+    const meant: StepDone = await cmd('step', 'boat', write('s03_meant.py', '"""The keel sits in the hull on purpose; the flag gets the wood"""',
+      "assert p.intended('Hull', 'Keel') == [('Hull', 'Keel')]",
+      "p.part('Flag').data.materials.append(bpy.data.materials['Wood'])"))
+    expect(meant.review).toEqual(['Changes: none', 'Deep overlap: 1 known', 'Size: 2 known', 'Triangles: 2 known', 'Materials: 1 known'])
+    expect(receipt(meant).review_full[1]).toBe('Deep overlap: Flag / Mast (0.4 m inside, 0.09 m out)')
+    // paint that is not baked yet, and parts without UVs for the bake (the woods no longer look alike)
+    const paint: StepDone = await cmd('step', 'boat', write('s04_paint.py', '"""Camo on the wood, not baked yet"""', "p.camo('Wood', 'woodland')"))
+    expect(paint.review).toEqual(['Changes: none', 'Deep overlap: 1 known', 'Size: 2 known', 'Triangles: 2 known', 'Bake: paint on Wood ships only after p.bake_maps; no UVs on Ball, Flag, Hull, Keel and 1 more (p.uv_atlas)'])
+    // the export's check of every pair keeps the intended pair out too
+    const full = await cmd('materialize', 'boat')
+    expect(full.review.join('\n')).not.toMatch(/Keel \/ Hull/)
+    expect(full.review).toEqual(receipt(paint).review_full)
+  }, 300000)
+
+  it('adds close-ups of the changed parts to a dense model\'s sheet', async () => {
+    await cmd('init', 'orb', '--target', 'web')
+    const write = (name: string, ...lines: string[]) => {
+      fs.writeFileSync(path.join(src, name), lines.join('\n'))
+      return path.join(src, name)
+    }
+    const planet: StepDone = await cmd('step', 'orb', write('s01_planet.py', '"""A dense planet"""', "p.sphere('Planet', 5, loc=(0, 0, 5), subdiv=7, mat=p.material('Rock', '#808080'))"))
+    expect(planet.triangles).toBe(81920)
+    // every part is new: the sheet's four views show them all
+    expect(pngSize(planet.sheet!)).toEqual([1024, 1024])
+    const beacon: StepDone = await cmd('step', 'orb', write('s02_beacon.py', '"""A red beacon on its front"""', "p.box('Beacon', (0.6, 0.6, 0.6), loc=(0, -5.1, 5), mat=p.material('Red', '#ff1010'))"))
+    expect(pngSize(beacon.sheet!)).toEqual([1536, 1024])
+    expect(JSON.parse(fs.readFileSync(beacon.receipt, 'utf8')).closeup).toEqual(['Beacon'])
+    // the third column: two close-ups, each filled by the beacon far more than the whole-model views are
+    const px = pngPixels(beacon.sheet!)
+    const red = (c: number[]) => c[0] > 120 && c[1] < 0.5 * c[0] && c[2] < 0.5 * c[0]
+    const share = (row: number, col: number) => {
+      let n = 0
+      for (let r = 0; r < 512; r++) for (let c = 0; c < 512; c++) if (red(px[row * 512 + r][col * 512 + c])) n++
+      return n / 512 / 512
+    }
+    expect(share(0, 2)).toBeGreaterThan(0.05)
+    expect(share(1, 2)).toBeGreaterThan(0.05)
+    expect(share(0, 0)).toBeLessThan(0.01)
+    // view.png, the live view's, stays the 3/4 view alone
+    expect(pngSize(beacon.sheet!.replace(/sheet\.png$/, 'view.png'))).toEqual([512, 512])
   }, 300000)
 
   it('joins, drops, mirrors, rings and lofts parts', async () => {

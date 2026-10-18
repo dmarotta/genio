@@ -10,8 +10,12 @@
  *   steps/<id>/model.glb     modifier-applied GLB, what the live view loads
  *   steps/<id>/sheet.png     2x2 Workbench review sheet (3/4, front, side, top); a batch's last step only
  *   steps/<id>/view.png      the 3/4 view alone, 512 px (with the sheet)
- *   steps/<id>/receipt.json  caption, counts, bounds, text review, advisory checks, timings
+ *   steps/<id>/receipt.json  caption, counts, bounds, text review, advisory checks, timings, and the
+ *                            step's measures: agent_ms (the agent's time since the kernel returned the
+ *                            run before), script and lib bytes, amend and rerun, split phases
  *   failed/<id>-<kind>-<t>/  scripts that raised, crashed or hung, with receipts
+ *
+ * `report <model>` sums a model's run up from these, for recons and benchmarks.
  *
  * Each step runs on its parent's snapshot and writes into a staging folder. Its
  * GLB moves to steps/<id> and the step becomes the head as soon as Blender has
@@ -49,6 +53,8 @@ export const PUBLISH_GAP_MS = 600
 const POLL_MS = 50
 const SESSION_WARN_MB = 300
 const FAILURES_KEPT = 50
+/** An agent_ms past this is a gap (a respawn, a wait for the player), left out of the report's sums. */
+export const AGENT_GAP_MS = 10 * 60 * 1000
 const WHO = { tool: 'Modeller', cli: 'modeller.mjs', thing: 'model', key: 'model' }
 
 /** Where models live: GENIO_MODELLER_DATA, else next to the unit's Blender scratch, else temp. */
@@ -152,6 +158,8 @@ export async function init({ dataDir = modellerDataDir(), model, blender, target
     if (budget != null) m.checks.budget = Number(budget) || null
     if (size != null) m.checks.size = parseSize(size)
     if (symmetry != null) m.checks.symmetry = symmetry === 'none' ? null : symmetry
+    // The first step's agent_ms runs from here: the agent writes its lib and first script now.
+    m.returned_at = now()
     writeManifest(dir, m)
     const marker = warmMarker(m.blender)
     if (marker && !fs.existsSync(marker)) startWarm(dataDir, model, env)
@@ -253,7 +261,8 @@ export function planThreads(plan, threads) {
  */
 function runPlan(m, dir, plan, base, { timeout, threads, runner, signal }) {
   const planFile = path.join(plan.steps[0].out, 'plan.json')
-  fs.writeFileSync(planFile, JSON.stringify({ base: base.blend, ...plan }, null, 1))
+  // `spawned`: the step runner times Blender's start and imports from it.
+  fs.writeFileSync(planFile, JSON.stringify({ spawned: Date.now(), base: base.blend, ...plan }, null, 1))
   return runBlender({ blender: m.blender.path, prefix: runner?.prefix ?? [], script: STEP_SCRIPT, args: [planFile], threads: planThreads(plan, threads), timeout, signal, scratch: path.join(dir, 'logs') })
 }
 
@@ -318,6 +327,8 @@ export function batchScripts(args) {
  */
 async function runSteps(dir, m, scripts, { amend = false, everySheet = false, timeout = STEP_TIMEOUT, threads, runner, gapMs = PUBLISH_GAP_MS }) {
   checkPin(m)
+  // The agent's time for this run: since the kernel returned the run before it (or init).
+  const agentMs = m.returned_at ? Math.max(0, Date.now() - Date.parse(m.returned_at)) : null
   const items = scripts.map((it) => {
     const source = path.resolve(it.script)
     if (!fs.statSync(source, { throwIfNoEntry: false })?.isFile()) throw new Error(`No step script at ${source}`)
@@ -330,10 +341,15 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
   const plan = { replay: base.replay, steps: [], checks: m.checks, sheet_size: 512 }
   // The text review's "Changes" line compares the first step with its parent's parts (none: no parent;
   // null: unknown, so no line), each later one with the step before it; the checks examine only the
-  // pairs with a part changed since then.
+  // pairs with a part changed since then, and an item the parent's review printed is a count (`seen`;
+  // none: every item is printed).
   const parentReceipt = parent0 ? readJson(path.join(dir, 'steps', parent0, 'receipt.json')) : null
   const previous = parent0 ? parentReceipt?.parts ?? null : []
   const pairs = pairsOf(parentReceipt)
+  const seen = parentReceipt?.review_seen ?? null
+  const parentLib = parent0 && byId(m, parent0)?.files.lib
+  let libBefore = parentLib && fs.existsSync(path.join(dir, parentLib)) ? sha256(path.join(dir, parentLib)) : null
+  const last = m.last_run
   const staged = items.map((it, k) => {
     const n = m.next + k, id = stepId(n), staging = path.join(dir, 'steps', `.pending-${id}`)
     fs.rmSync(staging, { recursive: true, force: true })
@@ -342,8 +358,17 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
     // The lib.py as it is now: a later edit never changes what this step ran with.
     if (it.lib) fs.copyFileSync(it.lib, path.join(staging, 'lib.py'))
     const sheet = everySheet || k === items.length - 1
-    plan.steps.push({ out: staging, script: path.join(staging, 'script.py'), lib: it.lib && path.join(staging, 'lib.py'), outputs: ['blend', 'glb', ...(sheet ? ['sheet'] : [])], step: { id, n, name: it.name, model: m.model }, ...(k === 0 ? { previous, pairs } : {}) })
-    return { ...it, id, n, staging }
+    plan.steps.push({ out: staging, script: path.join(staging, 'script.py'), lib: it.lib && path.join(staging, 'lib.py'), outputs: ['blend', 'glb', ...(sheet ? ['sheet'] : [])], step: { id, n, name: it.name, model: m.model }, ...(k === 0 ? { previous, pairs, seen } : {}) })
+    // The step's measures for its receipt: a batch's later steps follow the first with no agent time.
+    const lib = it.lib ? sha256(path.join(staging, 'lib.py')) : null
+    const measure = {
+      agent_ms: k === 0 ? agentMs : 0, ...(k === 0 && agentMs > AGENT_GAP_MS ? { agent_gap: true } : {}),
+      script_bytes: fs.statSync(path.join(staging, 'script.py')).size, lib_bytes: it.lib ? fs.statSync(path.join(staging, 'lib.py')).size : 0,
+      lib_changed: lib !== libBefore, amend: amend && k === 0,
+      rerun_of: k === 0 && last?.name === it.name ? { id: last.id, ...(last.failed ? { failed: last.failed } : {}) } : null
+    }
+    libBefore = lib
+    return { ...it, id, n, staging, measure }
   })
 
   const started = Date.now()
@@ -409,6 +434,8 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
   const complete = (stopped) => {
     const k = completed, s = staged[k], entry = entries[k], final = path.join(dir, 'steps', s.id)
     const receipt = marks[k].done ?? { ...readJson(path.join(final, 'receipt.json')), warnings: [`Blender stopped (${stopped}) after this step reached the live view: ${fs.existsSync(path.join(s.staging, 'model.blend')) ? 'it has no text review or review sheet; its snapshot is kept.' : 'it has no snapshot or review sheet; the next step replays its script.'}`] }
+    // A step stopped after landing keeps the timings Blender had by then.
+    receipt.timings_ms ??= readJson(path.join(s.staging, 'landed.json'))?.timings_ms ?? {}
     for (const f of ['model.blend', 'sheet.png', 'view.png']) if (fs.existsSync(path.join(s.staging, f))) renameRetry(path.join(s.staging, f), path.join(final, f))
     fs.rmSync(s.staging, { recursive: true, force: true })
     const has = (f) => fs.existsSync(path.join(final, f))
@@ -424,7 +451,13 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
     entry.warnings = receipt.warnings.length
     const { fresh, known } = newWarnings(dir, entry.parent, receipt.warnings)
     const abs = absFiles(entry.files)
-    Object.assign(receipt, { id: s.id, parent: entry.parent, branch: m.branch, t: entry.t, wall_ms: ms, files: abs })
+    const times = receipt.timings_ms
+    Object.assign(receipt, {
+      id: s.id, parent: entry.parent, branch: m.branch, t: entry.t, wall_ms: ms, files: abs, ...s.measure,
+      // think is the agent's time before the step, blender the step's own; export, checks and sheet are parts of it.
+      phases_ms: { think: s.measure.agent_ms, blender: ms, export: times.export ?? 0, checks: times.checks ?? 0, sheet: times.sheet ?? 0 },
+      warnings_new: fresh.length, ...(stopped ? { killed_after_landing: stopped } : {})
+    })
     delete receipt.stage
     fs.writeFileSync(path.join(final, 'receipt.json'), JSON.stringify(receipt, null, 1))
     writeManifest(dir, m)
@@ -471,7 +504,12 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
     const r = readJson(p.receipt)
     if (r) fs.writeFileSync(p.receipt, JSON.stringify({ ...r, log: run.log }, null, 1))
   }
-  if (published.length === staged.length) return { published, failure: null, notRun: [] }
+  // The next run's agent_ms starts now; the same step name again is a rerun of this one.
+  if (published.length === staged.length) {
+    Object.assign(m, { returned_at: now(), last_run: { id: staged.at(-1).id, name: staged.at(-1).name } })
+    writeManifest(dir, m)
+    return { published, failure: null, notRun: [] }
+  }
 
   // The first step without a good receipt failed; the ones after it never ran.
   const s = staged[published.length]
@@ -487,8 +525,9 @@ async function runSteps(dir, m, scripts, { amend = false, everySheet = false, ti
   const recovered = verifySnapshot(m, dir, parent)
   const error = receipt?.error ?? run.tail.split(/\r?\n/).filter(Boolean).slice(-8).join('\n')
   const ms = Math.round(Date.now() - prevAt)
-  m.failures.push({ id: s.id, name: s.name, kind, parent, branch: m.branch, t: now(), ms, log: run.log, error, dir: rel(dir, failDir) })
+  m.failures.push({ id: s.id, name: s.name, kind, parent, branch: m.branch, t: now(), ms, log: run.log, error, dir: rel(dir, failDir), ...s.measure })
   m.failures = m.failures.slice(-FAILURES_KEPT)
+  Object.assign(m, { returned_at: now(), last_run: { id: s.id, name: s.name, failed: kind } })
   writeManifest(dir, m)
   return {
     published, notRun: notRun.map((x) => ({ name: x.name, script: x.source })),
@@ -578,7 +617,8 @@ export async function materialize({ dataDir = modellerDataDir(), model, step: re
     const receiptFile = path.join(dir, 'steps', s.id, 'receipt.json')
     const r = readJson(receiptFile)
     const check = r?.checks?.pairs?.full === false && !r.full_check
-    const reviewed = (x) => x ? { review: x.review ?? [], warnings: x.warnings ?? [] } : {}
+    // Every item in full: a step's own review counts the items it printed before.
+    const reviewed = (x) => x ? { review: x.review_full ?? x.review ?? [], warnings: x.warnings ?? [] } : {}
     const own = r?.checks?.pairs?.full ? r : r?.full_check
     const kept = Boolean(s.files.blend && fs.existsSync(path.join(dir, s.files.blend)))
     if (kept && !check) return { ok: true, id: s.id, blend: path.join(dir, s.files.blend), replayed: 0, ...reviewed(own) }
@@ -647,6 +687,78 @@ export async function status({ dataDir = modellerDataDir(), model } = {}) {
   return { ok: true, ...summary(dir, readManifest(dir)) }
 }
 
+/** Count, median, 90th percentile (nearest rank) and sum of some milliseconds. */
+function spread(values) {
+  const s = values.filter(Number.isFinite).sort((a, b) => a - b)
+  const rank = (q) => s.length ? Math.round(s[Math.max(0, Math.ceil(q * s.length) - 1)]) : null
+  return { n: s.length, median: rank(0.5), p90: rank(0.9), sum: Math.round(s.reduce((a, b) => a + b, 0)) }
+}
+
+/** Per key, the sum over records of their numbers (`{export: 180}` and `{export: 200}` make `{export: 380}`). */
+function sums(records) {
+  const out = {}
+  for (const r of records) for (const [k, v] of Object.entries(r ?? {})) if (Number.isFinite(v)) out[k] = Math.round((out[k] ?? 0) + v)
+  return out
+}
+
+const sizeOf = (file) => fs.statSync(file, { throwIfNoEntry: false })?.size ?? 0
+const seconds = (ms) => ms == null ? null : Math.round(ms / 100) / 10
+
+/**
+ * A model's run summed up, for recons and benchmarks (no UI): wall time from init and to the first
+ * step, steps, runs, amends, reruns and failures, the agent's time between runs (agent_ms, gaps left
+ * out) and Blender's per run (median, 90th percentile, sum), Blender's phases and checks, script and
+ * lib sizes, triangles against the budget, the review's new and known items, the head's open review
+ * lines and killed steps. Receipts from before the measures existed give what they have.
+ */
+export async function report({ dataDir = modellerDataDir(), model } = {}) {
+  const dir = modelDir(dataDir, model)
+  const m = readManifest(dir)
+  const onLine = new Set(line(m).map((s) => s.id))
+  const runs = [
+    ...m.steps.map((s) => {
+      const receiptFile = path.join(dir, s.files.receipt)
+      const r = readJson(receiptFile) ?? {}
+      const killed = r.killed_after_landing ?? (r.warnings ?? []).find((w) => /^Blender stopped \(/.test(w)) ?? null
+      return {
+        id: s.id, name: s.name, t: s.t, end: fs.statSync(receiptFile, { throwIfNoEntry: false })?.mtimeMs ?? Date.parse(s.t), landed: true,
+        outcome: s.superseded_by ? 'replaced' : onLine.has(s.id) ? 'step' : 'other branch', receipt: r, ms: s.ms,
+        agent_ms: r.agent_ms ?? null, agent_gap: Boolean(r.agent_gap), script_bytes: r.script_bytes ?? sizeOf(path.join(dir, s.files.script)),
+        lib_changed: r.lib_changed ?? null, rerun: Boolean(r.rerun_of), killed: Boolean(killed)
+      }
+    }),
+    ...m.failures.map((f) => ({
+      id: f.id, name: f.name, t: f.t, end: Date.parse(f.t), landed: false, outcome: f.kind, receipt: readJson(path.join(dir, f.dir, 'receipt.json')) ?? {}, ms: f.ms ?? null,
+      agent_ms: f.agent_ms ?? null, agent_gap: Boolean(f.agent_gap), script_bytes: f.script_bytes ?? sizeOf(path.join(dir, f.dir, 'script.py')),
+      lib_changed: f.lib_changed ?? null, rerun: Boolean(f.rerun_of), killed: false
+    }))
+  ].sort((a, b) => Date.parse(a.t) - Date.parse(b.t))
+  const head = byId(m, m.branches[m.branch].head)
+  const headReceipt = head ? readJson(path.join(dir, head.files.receipt)) ?? {} : {}
+  const landed = runs.filter((r) => r.landed)
+  const counted = runs.filter((r) => r.agent_ms != null && !r.agent_gap)
+  const kinds = {}
+  for (const f of m.failures) kinds[f.kind] = (kinds[f.kind] ?? 0) + 1
+  const end = runs.length ? Math.max(...runs.map((r) => r.end)) : null
+  return {
+    ok: true, model: m.model, blender: m.blender.version, branch: m.branch, head: head?.id ?? null,
+    wall_s: end == null ? null : seconds(end - Date.parse(m.created)),
+    first_step_s: m.steps.length ? seconds(Date.parse(m.steps[0].t) - Date.parse(m.created)) : null,
+    steps: onLine.size, runs: runs.length, amends: m.history.filter((h) => h.op === 'amend').length,
+    reruns: runs.filter((r) => r.rerun).length, failures: kinds, killed: runs.filter((r) => r.killed).length,
+    agent_ms: spread(counted.map((r) => r.agent_ms)), agent_gaps: runs.filter((r) => r.agent_gap).length,
+    blender_ms: spread(runs.map((r) => r.ms)),
+    blender_phases_ms: sums(runs.map((r) => r.receipt.timings_ms)), checks_ms: sums(runs.map((r) => r.receipt.checks_ms)),
+    script_kb: Math.round(runs.reduce((n, r) => n + r.script_bytes, 0) / 102.4) / 10,
+    lib_kb: head?.files.lib ? Math.round(sizeOf(path.join(dir, head.files.lib)) / 102.4) / 10 : 0,
+    lib_changes: runs.filter((r) => r.lib_changed).length,
+    triangles: head?.triangles ?? 0, budget: m.checks.budget ?? null,
+    review: { new: sums(landed.map((r) => r.receipt.review_new)), known: sums(landed.map((r) => r.receipt.review_known)) },
+    open_review: (headReceipt.review_full ?? headReceipt.review ?? []).filter((l) => !l.startsWith('Changes:')),
+    timeline: runs.map((r) => ({ id: r.id, name: r.name, outcome: r.outcome, agent_ms: r.agent_ms, ms: r.ms, script_bytes: r.script_bytes, triangles: r.receipt.triangles ?? null }))
+  }
+}
+
 const USAGE = `Usage: modeller.mjs <command> <model> [args] [--data <dir>]
   init <model> [--target unity|godot|web] [--budget <triangles>] [--size <x>x<y>x<z>] [--symmetry x|y|none] [--blender 4.2|5.2|<path>] [--repin]
   step <model> <script.py> [--name <name>] [--amend] [--timeout <seconds>]
@@ -656,7 +768,8 @@ const USAGE = `Usage: modeller.mjs <command> <model> [args] [--data <dir>]
   switch <model> <branch>
   keep <model> <step> [--off]
   materialize <model> [<step>]
-  status <model>`
+  status <model>
+  report <model>`
 
 function parseArgs(argv) {
   const pos = [], opt = {}
@@ -696,6 +809,7 @@ async function main() {
     case 'keep': result = await keep({ ...common, step: arg, on: !opt.off }); break
     case 'materialize': result = await materialize({ ...common, step: arg, threads }); break
     case 'status': result = await status(common); break
+    case 'report': result = await report(common); break
     // Started by init in the background; not for agents.
     case 'warm': result = await warm(common); break
     default: throw new Error(USAGE)

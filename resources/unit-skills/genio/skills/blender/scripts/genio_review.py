@@ -8,14 +8,27 @@ Each line appears only when it has something to say, in this order:
   Z-fighting    same-facing faces of two parts in one plane, overlapping
   Symmetry      L/R twins missing or off; with a declared axis, parts without a mirror twin and
                 centre parts off centre
+  Size          an axis more than 5 % off the brief's size (init --size), in metres and per cent
+  Triangles     past half the budget, or one part holding much of a dense model, by part
+  Materials     parts without a material, and materials that look the same
+  Bake          paint that ships only once baked, and parts without UVs where a bake needs them
 It works on the shipped geometry from the same Blender run, renders nothing, is deterministic and
 is information only, never a gate.
+
+Known items: a defect line names each item (a pair, a part, a group) the first time it is printed,
+and again only when its numbers change; while it stands as printed it is a count, `3 known`. `seen`
+is what the parent step printed, by line and item; a review without it prints every item (the full
+review, which the receipt keeps as well). Pairs marked with p.intended() never appear in the Deep
+overlap and Z-fighting lines.
 
 Incremental: with `test`, only pairs of parts it accepts (those with a changed part) are examined;
 every other pair takes its result from `known`, the previous step's pairs (contacts, deep overlaps,
 z-fighting), so the cost follows what changed rather than the model's size. The lines are the same
 as a full review's.
 """
+import contextlib
+import time
+
 import numpy
 from mathutils import Vector
 
@@ -29,6 +42,12 @@ GRID = 8  # points per axis when measuring an overlap's volume
 Z_BUDGET = 60_000_000  # z-fighting work per step: face pairs compared plus points tested against triangles
 Z_CHUNK = 500_000  # face pairs compared at once
 Z_TESTS = 20_000  # face pairs whose sample points are tested at once
+KNOWN = 0.01  # of the model's size: how far a known item's lengths and places may drift and stay known
+SIZE_OFF = 0.05  # of the brief's size per axis: the Size line
+DENSE = 20_000  # triangles: a model this dense gets the Triangles line for one part holding much of it
+DENSE_SHARE = 0.4  # of all triangles in one part
+PART_SHARE = 0.2  # of all triangles: parts named in the Triangles line
+AXES = (('wide', 0), ('long', 1), ('tall', 2))
 
 
 def _list(names, shown=NAMES_SHOWN):
@@ -41,6 +60,22 @@ def _items(items):
 
 def _m(v):
     return f'{v:.2f}'.rstrip('0').rstrip('.') if abs(v) >= 0.005 else '0'
+
+
+def _item(key, text, names=(), nums=(), tols=()):
+    """One thing a defect line says: `key` names it exactly (kind and parts), `nums` are its measures
+    and `tols` how far each may move before it is news again."""
+    return {'k': key, 't': text, 'names': list(names), 'v': [float(v) for v in nums], 'tol': [float(t) for t in tols]}
+
+
+def _drift(v, size):
+    """How far a length may move and stay the same item: 1 % of the model, or 5 % of the length."""
+    return max(KNOWN * size, 0.05 * abs(v))
+
+
+def _known(item, before):
+    """Whether an item stands as it was printed: the same key, every measure within its tolerance."""
+    return before is not None and len(before) == len(item['v']) and all(abs(a - b) <= t for a, b, t in zip(item['v'], before, item['tol']))
 
 
 def part_table(parts):
@@ -139,16 +174,16 @@ def contacts(parts, tol, test=None, known=()):
     return adj
 
 
-def floating(parts, adj, ground_z, tol):
+def floating(parts, adj, ground_z, tol, size):
     """`Floating: ...`: groups of parts with no chain of contacts down to a part on the ground (the
-    model's lowest point), each with its gap to the nearest other part. Returns (items, names)."""
+    model's lowest point), each with its gap to the nearest other part. Returns the items."""
     seen = {i for i, x in enumerate(parts) if x['box'][0][2] <= ground_z + tol}
     stack = list(seen)
     while stack:
         for j in adj[stack.pop()] - seen:
             seen.add(j)
             stack.append(j)
-    items, names, done = [], [], set(seen)
+    items, done = [], set(seen)
     for i in sorted(range(len(parts)), key=lambda k: parts[k]['name']):
         if i in done:
             continue
@@ -168,9 +203,9 @@ def floating(parts, adj, ground_z, tol):
                 if d is not None and (near is None or d < near[0]):
                     near = (d, parts[o]['name'])
         where = f' ({_m(near[0])} m from {near[1]})' if near else ''
-        items.append(' + '.join(members[:3]) + (f' + {len(members) - 3} more' if len(members) > 3 else '') + where)
-        names += members
-    return items, names
+        text = ' + '.join(members[:3]) + (f' + {len(members) - 3} more' if len(members) > 3 else '') + where
+        items.append(_item('|'.join(members), text, members, (near[0],) if near else (), (_drift(near[0], size),) if near else ()))
+    return items
 
 
 def _box_gap(a, b):
@@ -185,10 +220,10 @@ def _volume(part):
     return abs(float(numpy.einsum('ij,ij->i', a, numpy.cross(b, c)).sum()) / 6)
 
 
-def _sunk_text(a, b, share, va, vb):
+def _sunk_item(a, b, share, va, vb):
     small, other = (a, b) if va <= vb else (b, a)
     text = f'{small} hidden inside {other}' if share >= 0.97 else f'{small} / {other} ({round(min(share, 1) * 100)} % of {small} inside)'
-    return (-share, text, small, other)
+    return (-share, text, _item('sunk:' + '|'.join(sorted((a, b))), text, (small, other), (min(share, 1) * 100,), (5,)))
 
 
 def deep_overlaps(parts, adj, pierced, size, test=None, known=()):
@@ -196,21 +231,21 @@ def deep_overlaps(parts, adj, pierced, size, test=None, known=()):
     closed parts sunk with a third or more of the smaller one's volume inside the other, by an
     overlap at least 3 % of the model thick every way. Joints, crossings, thin slabs laid into
     each other and posts standing in a socket stay quiet. Only pairs `test` accepts are measured;
-    `known` gives the others' sunk pairs as stored. Returns (items, names, the sunk pairs to store:
+    `known` gives the others' sunk pairs as stored. Returns (items, the sunk pairs to store:
     [a, b, share, volume of a, volume of b], a first in part order)."""
-    items, names, said = [], [], set()
+    items, said = [], set()
     for f in pierced:
         x, y = sorted((f['a'], f['b']))
-        items.append(f"{x} / {y} ({_m(f['depth'])} m inside, {_m(f['protrudes'])} m out)")
+        items.append(_item(f'pierce:{x}|{y}', f"{x} / {y} ({_m(f['depth'])} m inside, {_m(f['protrudes'])} m out)", (x, y),
+                           (f['depth'], f['protrudes']), (_drift(f['depth'], size), _drift(f['protrudes'], size))))
         said.add(frozenset((f['a'], f['b'])))
-        names += [f['a'], f['b']]
     sunk, store = [], []
     order = {x['name']: i for i, x in enumerate(parts)}
     for a, b, share, va, vb in known:
         if order[a] > order[b]:
             a, b, va, vb = b, a, vb, va
         if frozenset((a, b)) not in said:
-            sunk.append(_sunk_text(a, b, share, va, vb))
+            sunk.append(_sunk_item(a, b, share, va, vb))
             store.append([a, b, share, va, vb])
     for i in sorted(adj):
         for j in sorted(adj[i]):
@@ -234,12 +269,10 @@ def deep_overlaps(parts, adj, pierced, size, test=None, known=()):
                 continue
             share = float(len(grid) * numpy.prod(hi - lo) / GRID ** 3 / vs)
             if share >= DEEP_SHARE:
-                sunk.append(_sunk_text(a['name'], b['name'], share, va, vb))
+                sunk.append(_sunk_item(a['name'], b['name'], share, va, vb))
                 store.append([a['name'], b['name'], share, va, vb])
-    for _, text, x, y in sorted(sunk):
-        items.append(text)
-        names += [x, y]
-    return items, names, store
+    items += [item for _, _, item in sorted(sunk, key=lambda s: s[:2])]
+    return items, store
 
 
 # Barycentric points spread over a triangle's interior: centres of its 16 sub-triangles at level 4.
@@ -338,8 +371,8 @@ def z_fighting(parts, tol, size, test=None, known=(), budget=None):
     planes closer than 0.02 % of the model) that overlap by more than a small patch. Faces that
     meet back to back (a box resting on another) face opposite ways and stay quiet. Only pairs
     `test` accepts are measured; `known` gives the others as stored. The work stops at `budget`
-    ([work left], Z_BUDGET by default). Returns (items, names, the pairs to store: [a, b, a's side,
-    b's side], a first in part order, each side [area, centre, mean triangle area], and whether the
+    ([work left], Z_BUDGET by default). Returns (items, the pairs to store: [a, b, a's side, b's
+    side], a first in part order, each side [area, centre, mean triangle area], and whether the
     check stopped early)."""
     least, plane = max(1e-6, (0.01 * size) ** 2), max(1e-4, PLANE * size)
     budget = [Z_BUDGET] if budget is None else budget
@@ -373,8 +406,10 @@ def z_fighting(parts, tol, size, test=None, known=(), budget=None):
                 continue
             add(a['name'], b['name'], _shared_area(ta, na, da, tb, nb, db, plane, budget), _shared_area(tb, nb, db, ta, na, da, plane, budget))
     found.sort(key=lambda f: (f[0], f[1], f[2]))
-    items = [f"{x} / {y} ({area:.2g} m² at {', '.join(_m(v) for v in c)})" for _, x, y, area, c in found]
-    return items, [n for f in found for n in f[1:3]], store, budget[0] <= 0
+    near = KNOWN * size
+    items = [_item(f'z:{x}|{y}', f"{x} / {y} ({area:.2g} m² at {', '.join(_m(v) for v in c)})", (x, y), (area, *c),
+                   (max(least, 0.25 * area), near, near, near)) for _, x, y, area, c in found]
+    return items, store, budget[0] <= 0
 
 
 def _frame_box(part, frame):
@@ -391,10 +426,10 @@ def _mirror_box(box, k):
 def symmetry(parts, axis, size, tol, other_side):
     """`Symmetry: ...`: an L/R part whose twin is missing, or not its mirror across x = 0 (across
     their parent's x = 0 when they share one); with a declared axis ('x' or 'y'), also parts on one
-    side with no mirror twin and parts across the centre whose box is off centre. Returns (items, names)."""
+    side with no mirror twin and parts across the centre whose box is off centre. Returns the items."""
     tol = max(2 * tol, 0.01 * size)
     by_name = {x['name']: x for x in parts}
-    items, names, paired = [], [], set()
+    items, paired = [], set()
     for x in sorted(parts, key=lambda q: q['name']):
         twin_name = other_side(x['name'])
         if not twin_name:
@@ -402,8 +437,7 @@ def symmetry(parts, axis, size, tol, other_side):
         paired.add(x['name'])
         twin = by_name.get(twin_name)
         if twin is None:
-            items.append(f"{x['name']} has no {twin_name}")
-            names.append(x['name'])
+            items.append(_item(f"missing:{x['name']}", f"{x['name']} has no {twin_name}", (x['name'],)))
             continue
         if x['name'] > twin_name:
             continue
@@ -413,8 +447,7 @@ def symmetry(parts, axis, size, tol, other_side):
         tlo, thi = _frame_box(twin, frame)
         off = float(max(numpy.abs(lo - tlo).max(), numpy.abs(hi - thi).max()))
         if off > tol:
-            items.append(f"{twin_name} is {_m(off)} m off the mirror of {x['name']}")
-            names += [x['name'], twin_name]
+            items.append(_item(f"off:{x['name']}|{twin_name}", f"{twin_name} is {_m(off)} m off the mirror of {x['name']}", (x['name'], twin_name), (off,), (_drift(off, size),)))
     if axis in ('x', 'y'):
         k = 'xy'.index(axis)
         boxes = {x['name']: (numpy.array(x['box'][0]), numpy.array(x['box'][1])) for x in parts}
@@ -426,41 +459,181 @@ def symmetry(parts, axis, size, tol, other_side):
             if lo[k] < -tol and hi[k] > tol:
                 c = (lo[k] + hi[k]) / 2
                 if abs(c) > tol:
-                    skew.append(f"{x['name']} {_m(abs(c))} m off centre")
-                    names.append(x['name'])
+                    skew.append(_item(f"skew:{x['name']}", f"{x['name']} {_m(abs(c))} m off centre", (x['name'],), (abs(c),), (_drift(c, size),)))
             elif max(abs(lo[k]), abs(hi[k])) > tol:
                 mlo, mhi = _mirror_box((lo, hi), k)
                 if not any(n != x['name'] and max(numpy.abs(mlo - b[0]).max(), numpy.abs(mhi - b[1]).max()) <= tol for n, b in boxes.items()):
                     lonely.append(x['name'])
-                    names.append(x['name'])
         if lonely:
-            items.append(f'no mirror twin in {axis}: {_list(lonely, 4)}')
+            items.append(_item('lonely:' + '|'.join(lonely), f'no mirror twin in {axis}: {_list(lonely, 4)}', lonely))
         items += skew
-    return items, names
+    return items
 
 
-def review(parts, *, previous, size, tol, ground_z, pierced, axis, other_side, test=None, known=None):
+def size_check(dims, expected):
+    """`Size: ...`: each axis of the model more than SIZE_OFF away from the brief's size (init --size;
+    0 for an axis that does not matter), with the share it reaches. Returns the items."""
+    items = []
+    for word, i in AXES:
+        want = expected[i] if expected else 0
+        if want and abs(dims[i] - want) > SIZE_OFF * want:
+            items.append(_item(f'size:{word}', f'{_m(dims[i])} m {word} (brief {_m(want)} m, {round(100 * dims[i] / want)} %)', (), (dims[i],), (KNOWN * want,)))
+    return items
+
+
+def _tris(n):
+    return f'{n / 1000:.1f}k'.replace('.0k', 'k') if 1000 <= n < 10_000 else f'{round(n / 1000)}k' if n >= 10_000 else str(n)
+
+
+def triangles(parts, budget):
+    """`Triangles: ...`: past half the budget (init --budget), or one part holding DENSE_SHARE of a
+    model of DENSE triangles or more: the total, then the (at most two) parts holding PART_SHARE or
+    more of it. Returns the items."""
+    counts = sorted(((len(x['tris']), x['name']) for x in parts), key=lambda c: (-c[0], c[1]))
+    total = sum(n for n, _ in counts)
+    if not total or not ((budget and total > budget / 2) or (total >= DENSE and counts[0][0] >= DENSE_SHARE * total)):
+        return []
+    said = f'{_tris(total)} of {_tris(budget)}' + (' (over the budget)' if total > budget else '') if budget else f'{_tris(total)} in all'
+    items = [_item('total', said, (), (total,), (0.1 * total,))]
+    for n, name in counts[:ITEMS_SHOWN - 1]:
+        if n >= PART_SHARE * total:
+            items.append(_item(f'part:{name}', f'{name} {_tris(n)} ({round(100 * n / total)} %)', (name,), (n,), (0.1 * n,)))
+    return items
+
+
+def _input(bsdf, name):
+    socket = bsdf.inputs.get(name)
+    if socket is None:
+        return None
+    if socket.is_linked:
+        return 'linked'
+    try:
+        return tuple(round(float(v), 3) for v in socket.default_value)
+    except TypeError:
+        return round(float(socket.default_value), 3)
+
+
+def _look(mat):
+    """What a material looks like, to find two that look the same; None for a node graph other than
+    Genio's paint presets (that comparison would be a guess)."""
+    tree = mat.node_tree
+    if tree is None:
+        return ('plain', tuple(round(c, 3) for c in mat.diffuse_color), round(mat.roughness, 3), round(mat.metallic, 3))
+    bsdf = next((n for n in tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+    extra = sorted(n.bl_idname for n in tree.nodes if n.type not in ('BSDF_PRINCIPLED', 'OUTPUT_MATERIAL'))
+    paint = mat.get('genio_paint')
+    if bsdf is None or (extra and paint is None):
+        return None
+    glow = _input(bsdf, 'Emission Strength')
+    look = [_input(bsdf, k) for k in ('Base Color', 'Roughness', 'Metallic', 'Alpha', 'Transmission Weight')]
+    return ('bsdf', *look, glow, _input(bsdf, 'Emission Color') if glow else None, str(paint), tuple(extra))
+
+
+def materials(parts):
+    """`Materials: ...`: parts without a material (or with an empty slot), then groups of materials
+    on shipped parts that look the same (colour, roughness, metallic, emission, paint presets).
+    Returns the items."""
+    bare = sorted(x['name'] for x in parts if not x['ob'].material_slots or any(s.material is None for s in x['ob'].material_slots))
+    items = [_item('none:' + '|'.join(bare), f'none on {_list(bare, 4)}', bare)] if bare else []
+    used = sorted({s.material for x in parts for s in x['ob'].material_slots if s.material is not None}, key=lambda m: m.name)
+    groups = {}
+    for mat in used:
+        look = _look(mat)
+        if look is not None:
+            groups.setdefault(look, []).append(mat.name)
+    for names in sorted(g for g in groups.values() if len(g) > 1):
+        items.append(_item('same:' + '|'.join(names), f"{', '.join(names[:-1])} and {names[-1]} look the same"))
+    return items
+
+
+def _unbaked(mat):
+    """Paint that ships only once baked: the Principled BSDF's colour, roughness or metallic fed by
+    nodes, and no image texture (the glTF and FBX exporters ship neither noise nor presets)."""
+    tree = mat.node_tree
+    if tree is None or any(n.type == 'TEX_IMAGE' for n in tree.nodes):
+        return False
+    return any(n.type == 'BSDF_PRINCIPLED' and any(n.inputs[k].is_linked for k in ('Base Color', 'Roughness', 'Metallic') if k in n.inputs) for n in tree.nodes)
+
+
+def _textured(mat):
+    return mat.node_tree is not None and any(n.type == 'TEX_IMAGE' and n.image for n in mat.node_tree.nodes)
+
+
+def bake(parts):
+    """`Bake: ...`: materials whose paint is not baked yet, and parts without UVs when they need them
+    (paint to bake, or image textures on the model, as after a bake). Returns the items."""
+    mats = {s.material for x in parts for s in x['ob'].material_slots if s.material is not None}
+    painted = sorted(m.name for m in mats if _unbaked(m))
+    items = [_item('paint:' + '|'.join(painted), f'paint on {_list(painted, 4)} ships only after p.bake_maps')] if painted else []
+    flat = sorted(x['name'] for x in parts if not x['ob'].data.uv_layers)
+    if flat and (painted or any(_textured(m) for m in mats)):
+        items.append(_item('uv:' + '|'.join(flat), f'no UVs on {_list(flat, 4)} (p.uv_atlas)', flat))
+    return items
+
+
+@contextlib.contextmanager
+def _timed(clock, key):
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        clock[key] = round(clock.get(key, 0) + (time.perf_counter() - start) * 1000, 1)
+
+
+def review(parts, *, previous, size, tol, ground_z, pierced, axis, other_side, test=None, known=None, seen=None,
+           intended=(), dims=None, expected=None, budget=None, clock=None):
     """The step's text review. `parts` are genio_step._parts records (name, ob, world vertices,
     triangles, BVH tree, box, closed); `pierced` the pass-through check's notable pairs; `previous`
     the previous step's part table ({} for the first step; None when unknown: no Changes line).
     `test(name, name)` picks the pairs to examine (None: all) and `known` carries the others'
-    results, as stored: {'contacts': [[a, b]], 'sunk': [...], 'z_fighting': [...]}. Returns (lines,
-    the parts worth a label on the sheet as (name, flagged by a defect line), this step's part
-    table, this step's pair results to store, whether the z-fighting check stopped early)."""
+    results, as stored: {'contacts': [[a, b]], 'sunk': [...], 'z_fighting': [...]}. `seen` is what
+    the previous step printed ({line: {item key: measures}}; None: print every item), `intended`
+    the pairs (frozensets of names) left out of the Deep overlap and Z-fighting lines; `dims`,
+    `expected` and `budget` feed the Size and Triangles lines. `clock` gets milliseconds per check.
+    Returns {lines: as the agent reads them, full: every item printed, labels: the parts worth a
+    label on the sheet as (name, flagged by a new item), table: this step's part table, pairs: this
+    step's pair results to store, z_stopped, seen: what this review printed, counts: {line: [new,
+    known]}, changed: the parts added, moved or changed}."""
+    clock = {} if clock is None else clock
     table = part_table(parts)
     line, changed = changes(table, previous, tol) if previous is not None else (None, [])
-    lines, flagged = [line] if line else [], []
     known = known or {}
     order = {x['name']: i for i, x in enumerate(parts)}
-    adj = contacts(parts, tol, test, [(order[a], order[b]) for a, b in known.get('contacts', [])])
-    sunk_items, sunk_names, sunk = deep_overlaps(parts, adj, pierced, size, test, known.get('sunk', []))
-    z_items, z_names, z_store, z_stopped = z_fighting(parts, tol, size, test, known.get('z_fighting', []))
-    for title, (items, names) in (('Floating', floating(parts, adj, ground_z, tol)),
-                                  ('Deep overlap', (sunk_items, sunk_names)),
-                                  ('Z-fighting', (z_items, z_names)),
-                                  ('Symmetry', symmetry(parts, axis, size, tol, other_side))):
-        if items:
-            lines.append(f'{title}: {_items(items)}')
-            flagged += [n for k, n in enumerate(names) if n not in flagged and n not in names[:k]]
+    with _timed(clock, 'contacts'):
+        adj = contacts(parts, tol, test, [(order[a], order[b]) for a, b in known.get('contacts', [])])
+    with _timed(clock, 'floating'):
+        float_items = floating(parts, adj, ground_z, tol, size)
+    with _timed(clock, 'deep_overlap'):
+        sunk_items, sunk = deep_overlaps(parts, adj, pierced, size, test, known.get('sunk', []))
+    with _timed(clock, 'z_fighting'):
+        z_items, z_store, z_stopped = z_fighting(parts, tol, size, test, known.get('z_fighting', []))
+    with _timed(clock, 'symmetry'):
+        sym_items = symmetry(parts, axis, size, tol, other_side)
+    with _timed(clock, 'size'):
+        size_items = size_check(dims, expected) if dims is not None else []
+        tri_items = triangles(parts, budget)
+    with _timed(clock, 'materials'):
+        mat_items, bake_items = materials(parts), bake(parts)
+    meant = lambda items: [x for x in items if frozenset(x['names']) not in intended]  # noqa: E731
+    lines, full, flagged, printed, counts = [line] if line else [], [line] if line else [], [], {}, {}
+    for title, items in (('Floating', float_items), ('Deep overlap', meant(sunk_items)), ('Z-fighting', meant(z_items)),
+                         ('Symmetry', sym_items), ('Size', size_items), ('Triangles', tri_items),
+                         ('Materials', mat_items), ('Bake', bake_items)):
+        if not items:
+            continue
+        before = None if seen is None else seen.get(title, {})
+        stand = [before is not None and _known(x, before.get(x['k'])) for x in items]
+        fresh = [x for x, s in zip(items, stand) if not s]
+        full.append(f"{title}: {_items([x['t'] for x in items])}")
+        said = _items([x['t'] for x in fresh]) if fresh else ''
+        if any(stand):
+            said = f'{said}; {sum(stand)} known' if said else f'{sum(stand)} known'
+        lines.append(f'{title}: {said}')
+        # Known items keep the measures they were printed with; new ones count as printed only when shown.
+        printed[title] = {**{x['k']: before[x['k']] for x, s in zip(items, stand) if s}, **{x['k']: x['v'] for x in fresh[:ITEMS_SHOWN]}}
+        counts[title] = [len(fresh), sum(stand)]
+        names = [n for x in fresh for n in x['names']]
+        flagged += [n for k, n in enumerate(names) if n not in flagged and n not in names[:k]]
     pairs = {'contacts': sorted([parts[i]['name'], parts[j]['name']] for i in adj for j in adj[i] if i < j), 'sunk': sunk, 'z_fighting': z_store}
-    return lines, [(n, True) for n in flagged] + [(n, False) for n in changed if n not in flagged], table, pairs, z_stopped
+    return {'lines': lines, 'full': full, 'labels': [(n, True) for n in flagged] + [(n, False) for n in changed if n not in flagged],
+            'table': table, 'pairs': pairs, 'z_stopped': z_stopped, 'seen': printed, 'counts': counts, 'changed': changed}

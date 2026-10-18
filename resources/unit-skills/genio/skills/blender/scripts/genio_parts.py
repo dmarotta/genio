@@ -356,6 +356,30 @@ def parent(child, parent_ob):
     return child
 
 
+_INTENDED = 'genio_intended'  # scene property: the pairs of parts meant to overlap, as JSON
+
+
+def intended(*parts):
+    """Mark parts as meant to overlap or share faces (a keel through the hull, a decal on a panel):
+    the text review leaves every pair among them out of its Deep overlap and Z-fighting lines. Parts
+    or names, two or more. The scene keeps the marks, so later steps and replays have them. Returns
+    every marked pair."""
+    names = list(dict.fromkeys(_get(o).name for o in parts))
+    if len(names) < 2:
+        raise ValueError('intended needs two or more parts')
+    pairs = set(intended_pairs()) | {tuple(sorted((a, b))) for i, a in enumerate(names) for b in names[i + 1:]}
+    bpy.context.scene[_INTENDED] = json.dumps(sorted(pairs))
+    return sorted(pairs)
+
+
+def intended_pairs():
+    """The pairs p.intended() marked, as sorted (name, name) tuples."""
+    try:
+        return [tuple(x) for x in json.loads(bpy.context.scene.get(_INTENDED, '[]'))]
+    except (TypeError, ValueError):
+        return []
+
+
 def _get(ob):
     return part(ob) if isinstance(ob, str) else ob
 

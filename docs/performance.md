@@ -526,3 +526,49 @@ Guards: `tests/modeller.test.ts` (the real-Blender reviews with their exact
 lines through incremental checks; an incremental review equal to the full
 check `materialize` runs; a frozen part with nothing changed; the snapshot
 saved before the checks, and kept when Blender stops after it).
+
+## Modeller review and measurement (2026-10-18)
+
+The Recon on faster Modeller units found that agents fix every new Z-fighting
+or Floating line in one or two re-runs, but ignore a line that stands: the ship
+rerun's intended `Hull / Keel` overlap led its Deep overlap line on 20 of 20
+runs. Think and write time existed only in transcripts, and a high-poly agent
+wrote its own close-up render (11.8 s, plus writing it) because a 512 px cell
+of a 25 m ship cannot show 1 cm seams.
+
+What changed (`genio_review.py`, `genio_step.py`, `genio_parts.py`, `modeller.mjs`):
+
+| Change | Where |
+|---|---|
+| Each review item (a pair, a part, a group) is named the first time a line shows it and when its numbers move; while it stands it is a count (`3 known`). The receipt's `review_full`, `materialize` and the Modeller report keep every item | the parent's `review_seen`, passed in the plan |
+| `p.intended(a, b, ...)`: pairs meant to overlap leave the Deep overlap and Z-fighting lines, kept in the scene | `genio_parts.py` |
+| New lines: `Size` by axis (5 % off the brief, was a 25 % warning), `Triangles` per part (past half the budget, or one part holding 40 % of a dense model; was an over-budget warning), `Materials` (none, or two that look the same), `Bake` (paint not baked yet, parts without UVs) | `genio_review.py` |
+| Per run in the receipt: `agent_ms` (since the kernel returned the run before or `init`; past 10 minutes an `agent_gap`), `script_bytes`, `lib_bytes`, `lib_changed`, `amend`, `rerun_of`, `phases_ms` (think, Blender, export, checks, sheet), Blender's `start` (process to plan loaded), `checks_ms` per check, `review_new` and `review_known` per line, `warnings_new`, `killed_after_landing` | `modeller.mjs`, `genio_step.py` |
+| `modeller.mjs report <model>`: wall time, first step, steps, runs, amends, reruns, failures, agent and Blender time (median, 90th percentile, sum), phases, checks, script and lib KB, triangles against the budget, new and known review items, open review lines, killed steps | `modeller.mjs` |
+| On a model of 50,000 triangles or more, the sheet gets a third column: two close-ups of the step's changed parts (when they span less than half the model), from the two of 16 directions whose rays see most of them, with what stands in front clipped away | `genio_step.py` |
+| `dirBytes` no longer fails when a batch's Blender renames `model.blend@` while the kernel sums the model's folder (a race the batch tests hit once) | `step-kernel.mjs` |
+
+Replays through the CLI, one Blender per run as a unit runs them, back to back
+(so `agent_ms` is about 0.1 s here), Blender 4.2.1, a loaded machine:
+
+| Replay | Review | `report` |
+|---|---|---|
+| Ship rerun: 13 scripts, 20 runs with 7 amends, 4,950 triangles | `Hull / Keel` on 1 run (was 20), then `1 known` to `6 known`; defect lines 3,863 → 2,410 characters over the 20 runs. Items the old `and N more` hid now surface once the first ones are known (`Bulwark L / Hull`, `Upper wale L / Hull`) | 38.3 s wall, 20 runs, 7 amends and reruns, Blender median 1,349 ms (90th 1,734), sheet 15.1 s of the 33.4 s Blender total, checks 1.5 s |
+| Starship: 5 steps, 105k triangles, `--size 13x30x7.5`, budget 400k | Size line (80 %, 85 %) on s001, again only where an axis moved (s002, s004), else `2 known`; Triangles line from s002 (one part holding half); close-ups on s004 (Engineering hull) and s005 (Neck, seen from below the saucer on both sides) | 10.3 s wall, Blender median 1,576 ms, sheet 3.5 s, checks 1.2 s |
+
+The close-ups' cost, on the starship's s004 snapshot in one Blender: choosing
+the two directions 57 ms cold (Blender builds its ray trees), 5 ms after; the
+sheet 459 to 554 ms with them against 381 to 437 ms without. In whole steps
+(four interleaved rounds, a loaded machine) the sheet's median was 826 against
+822 ms at s005 and 1,086 against 688 ms at s004. The new review lines cost 13 ms
+over the ship's 20 runs.
+
+Left alone: think versus write inside `agent_ms` stays a transcript analysis;
+Genio's respawn and player-wait marks are not read, only the 10-minute gap.
+
+Guards: `tests/modeller.test.ts` (the measures in each receipt, reruns after an
+amend and a failure, a batch's later steps, the agent gap and a step killed
+after landing; `report` from the API and the CLI, old receipts included; the
+real-Blender review printing an item once and then a count, `p.intended`, the
+Size, Triangles, Materials and Bake lines, `materialize` returning every item;
+the close-up column on an 82k-triangle model).

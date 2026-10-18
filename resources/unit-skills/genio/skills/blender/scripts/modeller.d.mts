@@ -4,8 +4,18 @@ export const SCHEMA: 'genio.modeller.v1'
 export const KEEP_SNAPSHOTS: number
 export const STEP_TIMEOUT: number
 export const PUBLISH_GAP_MS: number
+/** An agent_ms past this is a gap (a respawn, a wait for the player), left out of the report's sums. */
+export const AGENT_GAP_MS: number
 
 export interface PinnedBlender { path: string; version: string; size: number; mtimeMs: number }
+/** A run's measures, in its receipt (and a failure's manifest entry). */
+export interface RunMeasures {
+  /** The agent's time since the kernel returned the run before (or init); 0 for a batch's later steps, null without a mark. */
+  agent_ms: number | null; agent_gap?: boolean
+  script_bytes: number; lib_bytes: number; lib_changed: boolean; amend: boolean
+  /** The run before had the same step name: its id, and its failure kind when it failed. */
+  rerun_of: { id: string; failed?: string } | null
+}
 export interface StepFiles { script: string; lib?: string | null; blend: string | null; glb: string | null; sheet: string | null; view: string | null; receipt: string }
 export interface StepEntry {
   id: string; n: number; parent: string | null; branch: string; name: string; caption: string; t: string; ms: number
@@ -16,8 +26,23 @@ export interface Manifest {
   schema: 'genio.modeller.v1'; model: string; created: string; updated: string; blender: PinnedBlender
   target: 'unity' | 'godot' | 'web' | null; checks: { budget: number | null; size: number[] | null; symmetry?: 'x' | 'y' | null }
   branch: string; branches: Record<string, { head: string | null; from: string | null }>; next: number
-  steps: StepEntry[]; failures: { id: string; name: string; kind: string; parent: string | null; branch: string; t: string; error: string; dir: string }[]
+  steps: StepEntry[]; failures: ({ id: string; name: string; kind: string; parent: string | null; branch: string; t: string; ms?: number; error: string; dir: string } & Partial<RunMeasures>)[]
   history: Record<string, unknown>[]
+  /** When the kernel last returned a run (or init): the next run's agent_ms starts here. */
+  returned_at?: string
+  last_run?: { id: string; name: string; failed?: string }
+}
+interface Spread { n: number; median: number | null; p90: number | null; sum: number }
+/** `report <model>`: a model's run summed up, for recons and benchmarks. */
+export interface Report {
+  ok: true; model: string; blender: string; branch: string; head: string | null
+  wall_s: number | null; first_step_s: number | null; steps: number; runs: number; amends: number; reruns: number
+  failures: Record<string, number>; killed: number
+  agent_ms: Spread; agent_gaps: number; blender_ms: Spread
+  blender_phases_ms: Record<string, number>; checks_ms: Record<string, number>
+  script_kb: number; lib_kb: number; lib_changes: number; triangles: number; budget: number | null
+  review: { new: Record<string, number>; known: Record<string, number> }; open_review: string[]
+  timeline: { id: string; name: string; outcome: string; agent_ms: number | null; ms: number | null; script_bytes: number; triangles: number | null }[]
 }
 export interface Summary {
   ok: true; model: string; dir: string; blender: string; target: string | null; checks: Manifest['checks']
@@ -31,8 +56,10 @@ export interface StepDone {
   ok: true; model: string; id: string; n: number; name: string; caption: string; branch: string; parent: string | null
   triangles: number; vertices: number; objects: number; bounds: { min: number[]; max: number[]; dimensions: number[] } | null
   /**
-   * The text review, a few short lines: what changed since the parent step, then only the defect
-   * lines that have something to say (Floating, Deep overlap, Z-fighting, Symmetry).
+   * The text review, a few short lines: what changed since the parent step, then only the lines that
+   * have something to say (Floating, Deep overlap, Z-fighting, Symmetry, Size, Triangles, Materials,
+   * Bake). An item the parent step printed is a count (`2 known`) while it stands; the receipt's
+   * `review_full` names every item.
    */
   review: string[]
   /** Warnings new since the parent step; `known_warnings` counts the unchanged rest, all in the receipt. */
@@ -91,3 +118,4 @@ export function branch(o: Common & { name: string; from?: string }): Promise<Sum
 export function switchBranch(o: Common & { name: string }): Promise<Summary>
 export function keep(o: Common & { step: string; on?: boolean }): Promise<Summary>
 export function status(o: Common): Promise<Summary>
+export function report(o: Common): Promise<Report>

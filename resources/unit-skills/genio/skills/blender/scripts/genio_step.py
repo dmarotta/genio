@@ -1,6 +1,7 @@
 """Modeller steps inside one headless Blender. modeller.mjs runs this; agents do not.
 
 The only argument after `--` is a plan JSON written by modeller.mjs:
+  spawned   when the kernel started Blender (epoch ms), for the first step's `start` timing
   base      the snapshot to open first, or null (an empty scene)
   replay    step scripts to re-run first (rebuilding a pruned snapshot), each
               {script, lib} (or a bare script path)
@@ -14,6 +15,8 @@ The only argument after `--` is a plan JSON written by modeller.mjs:
                         changes ([] with no parent; null or absent: unknown, no Changes line)
               pairs     first step only: its parent's pair results (receipt checks.pairs, with
                         its checks.pierces as pierces), or null: the checks then examine every pair
+              seen      first step only: what its parent's review printed (receipt review_seen),
+                        or null: the review prints every item
               full      examine every pair whatever the parent's results (an export's check)
   checks    budget (triangles), size ([x, y, z] metres) and symmetry ('x', 'y'), all optional
 
@@ -21,7 +24,8 @@ Per step: step script, modifier-applied GLB, then <out>/landed.json (the
 kernel publishes the step to the live view from it at once), then the compressed
 .blend (so a step stopped later still has its snapshot), the checks and the text
 review (genio_review.py) and the 2x2 Workbench review sheet with part labels (its
-camera never reaches a snapshot). The checks and the sheet share one copy of the
+camera never reaches a snapshot); a dense model's sheet gets a third column, two
+close-ups of the step's changed parts. The checks and the sheet share one copy of the
 shipped meshes, and the sheet renders that copy instead of evaluating live modifiers
 again. A sheet that fails is a warning: the step stays published. Each step's receipt goes to <out>/receipt.json (atomically,
 last) and stdout as one `@@GENIO_STEP` line. The first failure stops the run.
@@ -57,6 +61,8 @@ RAY_BUDGET = 200000
 LABELS_SHOWN = 10
 FULL_EVERY = 10  # steps between checks of every pair (incremental checks in between)
 MODIFIER_WARN_MS = 2000  # loading and evaluating live modifiers above this: suggest p.freeze()
+CLOSEUP_TRIANGLES = 50_000  # a model this dense gets close-ups of the step's changed parts on its sheet
+CLOSEUP_SHARE = 0.5  # of the model's diagonal: changed parts spanning more need no close-up
 
 
 class StepError(Exception):
@@ -233,26 +239,35 @@ def _names(items):
     return ', '.join(items[:6]) + (f' and {len(items) - 6} more' if len(items) > 6 else '')
 
 
-def inspect_model(checks, previous=None, known=None, full=False, shipped=None):
+def inspect_model(checks, previous=None, known=None, full=False, shipped=None, seen=None):
     """Advisory checks on the shipped (evaluated) meshes, built on genio_bpy.validate(), plus the
     Modeller's own: budget, ground, centring, size and parts passing through each other, then the
-    text review against the `previous` step's part table. Nothing here blocks a step. `known` is the
-    previous step's pair results (see the module notes; None or `full`: every pair is examined);
-    `shipped` an open p.evaluated() of the parts, reused. out['pairs'] is this step's, to store, and
-    out['known'] what the next step of the same run gets as its `known`."""
+    text review against the `previous` step's part table and what it printed (`seen`). Nothing here
+    blocks a step. `known` is the previous step's pair results (see the module notes; None or
+    `full`: every pair is examined); `shipped` an open p.evaluated() of the parts, reused.
+    out['pairs'] is this step's, to store, out['known'] what the next step of the same run gets as
+    its `known`, and out['clock'] the milliseconds of each check."""
     objects = p.export_objects()
     with contextlib.nullcontext(shipped) if shipped is not None else p.evaluated(objects) as shipped:
-        return _inspect(checks, previous, known, full, objects, shipped)
+        return _inspect(checks, previous, known, full, objects, shipped, seen)
 
 
-def _inspect(checks, previous, known, full, objects, shipped):
-    warn, out = [], {}
+def _inspect(checks, previous, known, full, objects, shipped, seen):
+    warn, clock, mark = [], {}, [time.perf_counter()]
+    out = {'clock': clock}
+
+    def lap(key):
+        now = time.perf_counter()
+        clock[key] = round(clock.get(key, 0) + (now - mark[0]) * 1000, 1)
+        mark[0] = now
+
     try:
         report = genio_bpy._validate(shipped, True)
     except ValueError:  # no mesh vertices in Export
         out['stats'] = {'triangles': 0, 'vertices': 0, 'objects': 0, 'parts': []}
         warn.append('The Export collection has no meshes yet: nothing ships.')
         return out, warn
+    lap('validate')
     meshes = report['meshes']
     stats = out['stats'] = {
         'triangles': report['triangles'], 'vertices': report['vertices'], 'objects': report['mesh_count'],
@@ -261,10 +276,9 @@ def _inspect(checks, previous, known, full, objects, shipped):
     lo, hi, dims = Vector(stats['min']), Vector(stats['max']), Vector(stats['dimensions'])
     size = max(dims) or 1.0
     tol = max(1e-4, 1e-3 * size)
+    # Over the budget and off the brief's size are the review's Triangles and Size lines.
     budget = checks.get('budget')
     out['budget'] = {'triangles': stats['triangles'], 'limit': budget, 'over': bool(budget and stats['triangles'] > budget)}
-    if out['budget']['over']:
-        warn.append(f"{stats['triangles']} triangles is over the budget of {budget}.")
     ground_tol = max(0.005, 0.002 * dims.z)
     out['ground'] = {'min_z': round(lo.z, 4), 'ok': abs(lo.z) <= ground_tol}
     if not out['ground']['ok']:
@@ -280,11 +294,7 @@ def _inspect(checks, previous, known, full, objects, shipped):
         warn.append(f'The model is {size:.4g} m across: check units (1 Blender unit is 1 metre).')
     expected = checks.get('size')
     if expected:
-        off = [i for i in range(3) if expected[i] and abs(dims[i] - expected[i]) > 0.25 * expected[i]]
-        out['size']['ok'] = not off
-        if off:
-            axes = ', '.join(f"{'xyz'[i]} {dims[i]:.2f} m (expected {expected[i]:.2f})" for i in off)
-            warn.append(f'Size differs from the expected size: {axes}.')
+        out['size']['ok'] = not any(expected[i] and abs(dims[i] - expected[i]) > genio_review.SIZE_OFF * expected[i] for i in range(3))
     open_parts = [{k: m[k] for k in ('name', 'non_manifold_edges', 'loose_vertices')} for m in meshes if m['non_manifold_edges'] or m['loose_vertices']]
     out['non_manifold'] = open_parts
     if open_parts:
@@ -296,6 +306,7 @@ def _inspect(checks, previous, known, full, objects, shipped):
     if kept:
         warn.append(f'Shape keys keep these parts from shipping their modifiers: {_names(kept)}.')
     parts = _parts(shipped, 2 * tol, {x['name'] for x in open_parts})
+    lap('parts')
     # Incremental: pairs of unchanged parts keep the parent's results, valid while the model's size
     # (and so every tolerance) is the same.
     hashes, scale = {x['name']: x['hash'] for x in parts}, round(size, 6)
@@ -306,16 +317,22 @@ def _inspect(checks, previous, known, full, objects, shipped):
     carry = (lambda a, b: a in hashes and b in hashes and a not in fresh and b not in fresh) if usable else (lambda a, b: False)
     known = known if usable else {}
     found, truncated = pierces(parts, tol, test, [f for f in known.get('pierces', []) if carry(f['a'], f['b'])])
+    lap('pierces')
     stopped = known.get('stopped', {})
     truncated_carried = truncated or bool(stopped.get('pierces'))
     out['pierces'] = found
     out['pierce_check_truncated'] = truncated_carried
     # The text review: deep pass-throughs are its "Deep overlap" line, never a warning as well.
     carried = {k: [x for x in known.get(k, []) if carry(x[0], x[1])] for k in ('contacts', 'sunk', 'z_fighting')}
-    out['review'], out['labels'], out['part_table'], pairs, z_stopped = genio_review.review(
+    r = genio_review.review(
         parts, previous=previous, size=size, tol=tol, ground_z=lo.z, pierced=notable_pierces(found, size),
-        axis=checks.get('symmetry'), other_side=p._other_side, test=test, known=carried)
-    z_stopped = z_stopped or bool(stopped.get('z_fighting'))
+        axis=checks.get('symmetry'), other_side=p._other_side, test=test, known=carried, seen=seen,
+        intended={frozenset(x) for x in p.intended_pairs()}, dims=list(dims), expected=expected, budget=budget, clock=clock)
+    mark[0] = time.perf_counter()
+    out['review'], out['review_full'], out['labels'], out['part_table'] = r['lines'], r['full'], r['labels'], r['table']
+    out['review_seen'], out['review_counts'], out['changed'] = r['seen'], r['counts'], r['changed']
+    pairs = r['pairs']
+    z_stopped = r['z_stopped'] or bool(stopped.get('z_fighting'))
     out['z_fighting_check_truncated'] = z_stopped
     out['pairs'] = {'full': not usable, 'changed': changed, 'size': scale, 'hashes': hashes,
                     'stopped': {'pierces': truncated_carried, 'z_fighting': z_stopped}, **pairs}
@@ -323,6 +340,7 @@ def _inspect(checks, previous, known, full, objects, shipped):
     # A label points at the part's surface nearest its box centre.
     labelled = {n for n, _ in out['labels'][:LABELS_SHOWN]}
     out['anchors'] = {x['name']: list(x['tree'].find_nearest((Vector(x['box'][0]) + Vector(x['box'][1])) / 2)[0]) for x in parts if x['name'] in labelled}
+    lap('labels')
     if truncated_carried:
         warn.append('The pass-through check stopped early on this many parts; its list is incomplete.')
     if z_stopped:
@@ -475,7 +493,63 @@ def draw_labels(img, labels, project):
         draw_text(img, x + 3, y + 3, text, colour)
 
 
-def render_sheet(out_dir, size, stats, labels=()):
+CLOSEUP_POINTS = 48  # points on the changed parts whose visibility picks the close-ups' directions
+
+
+def _in_sight(scene, depsgraph, eye, clip, point, targets, shipped):
+    """Whether a ray from the camera at `eye` (from its clipping distance on) first meets a shipped
+    part among `targets` on its way to `point`; other objects (cutters) are passed through."""
+    v = point - eye
+    far = v.length
+    v.normalize()
+    origin, left = eye + v * clip, far - clip + 1e-4 * far
+    for _ in range(8):
+        if left <= 0:
+            return True
+        hit, loc, _, _, ob, _ = scene.ray_cast(depsgraph, origin, v, distance=left)
+        if not hit or ob.name in targets:
+            return True
+        if ob.name in shipped:
+            return False
+        left -= (loc - origin).length + 1e-5 * far
+        origin = loc + v * 1e-5 * far
+    return False
+
+
+def closeup_views(scene, half_angle, centre, radius, focus):
+    """Two close-ups of the step's changed parts (`focus`: their names and (min, max) box), as
+    VIEWS plus (centre, radius) of what each frames: perspective, from the two directions (of 8
+    around and 2 heights, at least 60 degrees apart) that see most of the parts past the others.
+    Whatever stands between such a camera and the parts' surroundings is clipped away."""
+    flo, fhi = Vector(focus['box'][0]), Vector(focus['box'][1])
+    at = (flo + fhi) / 2
+    reach = max((fhi - flo).length / 2, 0.01 * radius, 1e-3)
+    distance = reach / math.sin(half_angle) * 1.05
+    clip = max(distance - 1.5 * reach, distance * 0.01)
+    targets = set(focus['parts'])
+    shipped = {o.name for o in p.export_objects()}
+    pts = numpy.vstack([p.world_vertices(o, o.data) for o in p.export_objects() if o.name in targets and o.type == 'MESH'] or [numpy.zeros((0, 3))])
+    pts = [Vector(q) for q in pts[::max(1, len(pts) // CLOSEUP_POINTS)][:CLOSEUP_POINTS]] or [at]
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    # From the parts' side of the model first, so ties keep the camera outside it.
+    out = Vector((at.x - centre.x, at.y - centre.y, 0.0))
+    start = math.atan2(out.y, out.x) if out.length >= 0.1 * radius else math.atan2(-1.25, 1.0)
+    found = []
+    for k in (0, 1, -1, 2, -2, 3, -3, 4):
+        for lift in (0.47, -0.36):
+            turn = start + k * math.pi / 4
+            d = Vector((math.cos(turn), math.sin(turn), lift)).normalized()
+            seen = sum(_in_sight(scene, depsgraph, at + d * distance, clip, q, targets, shipped) for q in pts)
+            found.append((-seen, len(found), d))
+    found.sort(key=lambda f: f[:2])
+    first = found[0][2]
+    second = next((d for _, _, d in found[1:] if first.angle(d) >= math.radians(60)), found[1][2])
+    return [(name, tuple(d), (0.0, 0.0, 1.0), True, (at, reach)) for name, d in (('closeup', first), ('closeup_2', second))]
+
+
+def render_sheet(out_dir, size, stats, labels=(), focus=None):
+    """The 2x2 review sheet (VIEWS) in out_dir/sheet.png, and view.png; with `focus` (the step's
+    changed parts: names and box) a third column holds two close-ups of them (closeup_views)."""
     scene = bpy.context.scene
     lo, hi = Vector(stats['min']), Vector(stats['max'])
     centre, dims = (lo + hi) / 2, hi - lo
@@ -506,12 +580,18 @@ def render_sheet(out_dir, size, stats, labels=()):
     scene.camera = cam
     cam.data.clip_start, cam.data.clip_end = max(radius * 0.001, 1e-4), radius * 40
     spans = {'view': None, 'front': (dims.x, dims.z), 'side': (dims.y, dims.z), 'top': (dims.x, dims.y)}
+    cam.data.lens = 50
+    views = [(*v, (centre, radius)) for v in VIEWS] + (closeup_views(scene, cam.data.angle / 2, centre, radius, focus) if focus else [])
     files, bases = [], []
-    for name, direction, up, persp in VIEWS:
+    for name, direction, up, persp, (at, reach) in views:
         right, up, d = camera_basis(direction, up)
+        cam.data.clip_start = max(radius * 0.001, 1e-4)
         if persp:
             cam.data.type, cam.data.lens = 'PERSP', 50
-            distance = radius / math.sin(cam.data.angle / 2) * 1.05
+            distance = reach / math.sin(cam.data.angle / 2) * 1.05
+            if reach < radius:
+                # A close-up: whatever stands between the camera and the parts is clipped away.
+                cam.data.clip_start = max(distance - 1.5 * reach, distance * 0.01)
             # Metres across the image at a point's depth (a square image: one angle both ways).
             width = (lambda tan, d: lambda rel: -rel.dot(d) * 2 * tan)(math.tan(cam.data.angle / 2), d)
         else:
@@ -519,7 +599,7 @@ def render_sheet(out_dir, size, stats, labels=()):
             cam.data.ortho_scale = max(max(spans[name]) * 1.15, 0.01)
             distance = radius * 4
             width = (lambda ortho: lambda rel: ortho)(cam.data.ortho_scale)
-        eye = centre + d * distance
+        eye = at + d * distance
 
         def project(point, eye=eye, right=right, up=up, width=width):
             rel = Vector(point) - eye
@@ -532,9 +612,10 @@ def render_sheet(out_dir, size, stats, labels=()):
         scene.render.filepath = os.path.join(out_dir, f'{name}.png')
         bpy.ops.render.render(write_still=True)
         files.append(scene.render.filepath)
-    full = size * 2
-    sheet = numpy.zeros((full, full, 4), dtype=numpy.float32)
-    corners = [(size, 0), (size, size), (0, 0), (0, size)]  # (row, col) of each cell's lower-left; rows run bottom-up
+    cols = 3 if focus else 2
+    sheet = numpy.zeros((size * 2, size * cols, 4), dtype=numpy.float32)
+    # (row, col) of each cell's lower-left; rows run bottom-up. The close-ups make the third column.
+    corners = [(size, 0), (size, size), (0, 0), (0, size), (size, 2 * size), (0, 2 * size)]
     for path, (row, col), (right, up, project) in zip(files, corners, bases):
         img = bpy.data.images.load(path)
         px = numpy.empty(size * size * 4, dtype=numpy.float32)
@@ -546,9 +627,10 @@ def render_sheet(out_dir, size, stats, labels=()):
         sheet[row:row + size, col:col + size] = cell
         bpy.data.images.remove(img)
     sheet[size - 1:size + 1, :, :3] = 0.12
-    sheet[:, size - 1:size + 1, :3] = 0.12
+    for k in range(1, cols):
+        sheet[:, k * size - 1:k * size + 1, :3] = 0.12
     sheet[..., 3] = 1.0
-    img = bpy.data.images.new('Genio review sheet', full, full, alpha=False)
+    img = bpy.data.images.new('Genio review sheet', size * cols, size * 2, alpha=False)
     img.pixels.foreach_set(sheet.ravel())
     img.filepath_raw = os.path.join(out_dir, 'sheet.png')
     img.file_format = 'PNG'
@@ -596,13 +678,28 @@ def has_meshes():
     return any(o.type == 'MESH' and len(o.data.vertices) for o in p.export_objects())
 
 
-def run_step(item, plan, replay, first, last, previous, known=None):
+def closeup_focus(stats, table, changed):
+    """The step's changed parts for the sheet's close-ups ({'parts': names, 'box': (min, max)}): on a
+    model of CLOSEUP_TRIANGLES or more, when they span less than CLOSEUP_SHARE of it; else None."""
+    parts = [n for n in changed if n in table]
+    if stats['triangles'] < CLOSEUP_TRIANGLES or not parts:
+        return None
+    lo, hi = numpy.min([table[n]['box'][0] for n in parts], axis=0), numpy.max([table[n]['box'][1] for n in parts], axis=0)
+    if numpy.linalg.norm(hi - lo) >= CLOSEUP_SHARE * numpy.linalg.norm(stats['dimensions']):
+        return None
+    return {'parts': parts, 'box': (lo.tolist(), hi.tolist())}
+
+
+def run_step(item, plan, replay, first, last, previous, known=None, seen=None, started=None):
     """One step of the plan on the scene as the previous one left it, reviewed against the `previous`
-    step's part table and pair results (`known`). Returns the exit code, this step's part table and
-    its pair results for the next step."""
+    step's part table, pair results (`known`) and printed review items (`seen`). `started` is
+    Blender's start in ms (the first step's `start` timing). Returns the exit code, this step's part
+    table, its pair results and its printed review items for the next step."""
     out, outputs, script = item['out'], set(item.get('outputs', [])), item.get('script')
     os.makedirs(out, exist_ok=True)
     t, mark = {}, time.perf_counter()
+    if started is not None:
+        t['start'] = started
     receipt = {'schema': 'genio.modeller-step.v1', 'ok': False, **item.get('step', {}),
                'blender': '.'.join(map(str, bpy.app.version)), 'api_warnings': []}
 
@@ -612,12 +709,12 @@ def run_step(item, plan, replay, first, last, previous, known=None):
         t[key] = round((now - mark) * 1000, 1)
         mark = now
 
-    table = pairs = None
+    table = pairs = printed = None
 
     def finish(code):
         receipt['timings_ms'] = t
         write_receipt(out, receipt)
-        return code, table, pairs
+        return code, table, pairs, printed
 
     try:
         if first:
@@ -674,16 +771,21 @@ def run_step(item, plan, replay, first, last, previous, known=None):
                 warn.append('Start the step script with a docstring: its first line is the caption the player sees.')
             number = item.get('step', {}).get('n') or 0
             full = bool(item.get('full')) or (number > 0 and number % FULL_EVERY == 0)
-            checks, found = inspect_model(plan.get('checks') or {}, previous, known, full, shipped)
+            checks, found = inspect_model(plan.get('checks') or {}, previous, known, full, shipped, seen)
             warn += found
             stats = checks.pop('stats')
             labels, anchors, table = checks.pop('labels', []), checks.pop('anchors', {}), checks.pop('part_table', {})
-            pairs = checks.pop('known', None)
+            pairs, printed, counts = checks.pop('known', None), checks.pop('review_seen', None), checks.pop('review_counts', {})
+            changed = checks.pop('changed', [])
             for part in stats['parts']:
                 if part['name'] in table:
                     part['box'] = table[part['name']]['box']
-            receipt.update(triangles=stats['triangles'], vertices=stats['vertices'], objects=stats['objects'],
-                           parts=stats['parts'], review=checks.pop('review', []), checks=checks)
+            review = checks.pop('review', [])
+            # `review` as the agent reads it (known items as counts), `review_full` with every item.
+            receipt.update(triangles=stats['triangles'], vertices=stats['vertices'], objects=stats['objects'], parts=stats['parts'],
+                           review=review, review_full=checks.pop('review_full', review), review_seen=printed,
+                           review_new={k: v[0] for k, v in counts.items()}, review_known={k: v[1] for k, v in counts.items()},
+                           changed_parts=changed, checks_ms=checks.pop('clock', {}), checks=checks)
             if stats['objects']:
                 receipt['bounds'] = {'min': [round(v, 4) for v in stats['min']], 'max': [round(v, 4) for v in stats['max']],
                                      'dimensions': [round(v, 4) for v in stats['dimensions']]}
@@ -695,10 +797,13 @@ def run_step(item, plan, replay, first, last, previous, known=None):
             lap('checks')
             if 'sheet' in outputs and receipt.get('objects', 0) > 0:
                 drawn = True
+                focus = closeup_focus(stats, table, changed)
+                if focus:
+                    receipt['closeup'] = focus['parts'][:20]
                 try:
                     # The shipped meshes swapped in: no render evaluates live modifiers again (24 s to 0.7 s at 423k).
                     with genio_bpy.modifiers_baked(meshes, shipped=shipped):
-                        render_sheet(out, plan.get('sheet_size', 512), stats, [(n, anchors[n], bad) for n, bad in labels if n in anchors])
+                        render_sheet(out, plan.get('sheet_size', 512), stats, [(n, anchors[n], bad) for n, bad in labels if n in anchors], focus)
                 except Exception as e:  # noqa: BLE001 - the step is published already; the sheet is the agent's eyes only
                     warn.append(f'The review sheet failed ({type(e).__name__}: {e}); the step is published without it.')
                 lap('sheet')
@@ -712,15 +817,21 @@ def run_step(item, plan, replay, first, last, previous, known=None):
 
 
 def main():
+    entered = time.time() * 1000
     plan = json.load(open(sys.argv[sys.argv.index('--') + 1], encoding='utf8'))
     steps = plan['steps']
+    # Blender's start and the imports, up to here: the first step's `start`.
+    started = round(max(0.0, entered - plan['spawned']), 1) if plan.get('spawned') else None
     # The first step compares with its parent's receipt (None: no parent); each later one with the step before it.
     previous = None if not steps or steps[0].get('previous') is None else {x['name']: x for x in steps[0]['previous']}
     known = steps[0].get('pairs') if steps else None
+    seen = steps[0].get('seen') if steps else None
     for i, item in enumerate(steps):
-        code, table, pairs = run_step(item, plan, plan.get('replay', []), i == 0, i == len(steps) - 1, previous, known)
+        code, table, pairs, printed = run_step(item, plan, plan.get('replay', []), i == 0, i == len(steps) - 1, previous, known, seen,
+                                               started if i == 0 else None)
         previous = table if table is not None else previous
         known = pairs if pairs is not None else known
+        seen = printed if printed is not None else seen
         if code:
             sys.exit(code)
 

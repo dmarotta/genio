@@ -103,11 +103,14 @@ export function resolveStep(m, ref) {
   return s
 }
 
+/** Bytes under a folder. Files that go while it counts (a batch's Blender saves `model.blend@`, then renames it) count as none. */
 export function dirBytes(dir) {
   let total = 0
-  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+  let entries
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return 0 }
+  for (const e of entries) {
     const p = path.join(dir, e.name)
-    total += e.isDirectory() ? dirBytes(p) : fs.statSync(p).size
+    total += e.isDirectory() ? dirBytes(p) : fs.statSync(p, { throwIfNoEntry: false })?.size ?? 0
   }
   return total
 }
