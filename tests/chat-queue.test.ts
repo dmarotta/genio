@@ -104,7 +104,7 @@ const ctx = {
 
 /** An ally chat base with its own session, plus the message list a renderer would build from its events. */
 function chat(name: string) {
-  const root = path.join(dir, 'wksps', name)
+  const root = path.join(dir, 'workspaces', name)
   const home = new Home(root, name, new Home(dir))
   ctx.main.home.data = path.join(dir, 'data')
   const svc = createWkspService(() => ctx as never, home)
@@ -764,7 +764,7 @@ describe('automatic project opening turn', () => {
 
 it('keeps the service display identity Genio while retaining a non-genio project base key', async () => {
   const name = 'founders-of-avalon'
-  const home = new Home(path.join(dir, 'wksps', name), name, new Home(dir))
+  const home = new Home(path.join(dir, 'workspaces', name), name, new Home(dir))
   const ally = { name, projects: [name], scope: `All work in ${name}`, charter: '', home: home.root, createdAt: '2026-10-14' }
   ctx.main.home.data = path.join(dir, 'data')
   const svc = createWkspService(() => ctx as never, home, ally)

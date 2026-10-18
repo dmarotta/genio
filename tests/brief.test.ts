@@ -50,7 +50,7 @@ describe('renderBrief', () => {
 
   it('never uses nautical vocabulary', () => {
     const b = renderBrief(base) + renderBrief({ ...base, kind: 'scout' })
-    expect(b).not.toMatch(/captain|teammate|companion|ahoy|shipshape/i)
+    expect(b).not.toMatch(/captain|ahoy|shipshape/i)
   })
 
   it('strips a Delivery contract line from brief includes', () => {

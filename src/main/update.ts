@@ -6,7 +6,7 @@ import type { AppCtx, UpdateService } from './services'
 import { runShell } from './util'
 
 /**
- * /patch (companion /updatecompanion): guarded, fast-forward-only self update
+ * /patch: guarded, fast-forward-only self update
  * of the Genio checkout, then restart every Genio session and relaunch.
  * Never touches worlds.
  */

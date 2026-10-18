@@ -34,7 +34,7 @@ const norm = p => path.resolve(p).replaceAll('\\', '/').toLowerCase()
 
 function liveTaskIds() {
   const ids = new Set()
-  const homes = [source, ...fs.readdirSync(path.join(source, 'wksps'), { withFileTypes: true }).filter(d => d.isDirectory()).map(d => path.join(source, 'wksps', d.name))]
+  const homes = [source, ...fs.readdirSync(path.join(source, 'workspaces'), { withFileTypes: true }).filter(d => d.isDirectory()).map(d => path.join(source, 'workspaces', d.name))]
   for (const home of homes) {
     try { for (const t of JSON.parse(fs.readFileSync(path.join(home, 'state', 'tasks.json'), 'utf8'))) if (t.state !== 'cleaned') ids.add(t.id) } catch { /* no tasks */ }
   }

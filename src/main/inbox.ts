@@ -1,5 +1,5 @@
 /**
- * Mail (companion captain inbox, bin/fm-inbox.sh): notes the player sends from
+ * Mail: notes the player sends from
  * elsewhere — another device, a script, a phone shortcut. Each note raises a
  * `check` event for Genio; Genio can publish a durable reply per note.
  *

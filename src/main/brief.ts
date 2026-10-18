@@ -1,5 +1,5 @@
 /**
- * Unit briefs (companion bin/fm-brief.sh + fm-dod-lib.sh). The brief is a
+ * Unit briefs. The brief is a
  * safety contract: isolation assertion, status protocol, ping inbox and a
  * per-mode definition of done.
  */

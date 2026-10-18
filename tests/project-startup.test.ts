@@ -23,7 +23,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-project-start-'))
   const mainHome = new Home(root); mainHome.ensure()
-  home = new Home(path.join(root, 'wksps', 'world'), 'world', mainHome); home.ensure()
+  home = new Home(path.join(root, 'workspaces', 'world'), 'world', mainHome); home.ensure()
   cap = 2; terminals = new Map(); extra = []
   hc = { home, wksp: { prepareProjectOpen: vi.fn(), wakeProject: vi.fn(), deliverWakes: vi.fn(), stop: vi.fn() } } as unknown as HomeCtx
   const main = { home: mainHome, wksp: { deliverWakes: vi.fn() } } as unknown as HomeCtx

@@ -1,5 +1,5 @@
 /**
- * Replay log (companion fleet ledger, docs/fleet-ledger.md): an opt-in,
+ * Replay log: an opt-in,
  * append-only JSONL activity record that outside tools can follow.
  * Delivery is at-least-once; records are never rewritten.
  */
@@ -39,7 +39,7 @@ export function createLedgerService(getCtx: () => AppCtx): LedgerService {
   }
 }
 
-/** Keep free text bounded (companion caps status text at 2000 chars). */
+/** Keep free text bounded (status text is capped at 2000 chars). */
 function capData(data: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(data)) {

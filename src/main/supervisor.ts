@@ -1,5 +1,5 @@
 /**
- * Overwatch (companion bin/fm-watch.sh): zero-token supervision of one base.
+ * Overwatch: zero-token supervision of one base.
  *
  * A deterministic poll loop that reads unit status files, terminal liveness,
  * steering-inbox acknowledgements, PR state and player-defined triggers, and

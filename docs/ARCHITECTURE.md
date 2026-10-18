@@ -1,9 +1,7 @@
 # Genio architecture
 
-Genio is an Electron reimplementation of [companion](https://github.com/example-org/companion)
-for game development. Companion is an "agent distro" that runs inside a terminal
-harness and drives tmux; Genio turns the same operating model into a desktop app.
-Vocabulary is gaming, not nautical: see [VOCABULARY.md](VOCABULARY.md).
+Genio is an Electron desktop app for game development: one companion that leads a
+squad of autonomous coding agents. Vocabulary is gaming, not nautical: see [VOCABULARY.md](VOCABULARY.md).
 
 - **One companion.** The Player talks only to Genio. Genio is a Claude Agent SDK
   session running in the main process with an in-process MCP toolbelt
@@ -27,37 +25,37 @@ Vocabulary is gaming, not nautical: see [VOCABULARY.md](VOCABULARY.md).
   historical PRs. Dispatch owns each pending launch reservation until listing
   or release and publishes pending counts to the Hub and scoped project windows.
 
-## Concept map (companion → Genio)
+## Modules
 
-| companion | Genio module | UI |
+| Feature | Genio module | UI |
 |---|---|---|
-| main agent session | `wksp.ts` Agent SDK session (main base) | COMMS |
-| teammate in a tmux window | `crew.ts` task + `terminals.ts` PTY | SQUAD |
-| ship / scout task | `kind: 'ship' \| 'scout'` | BUILD / RECON mission |
-| treehouse worktree | `git worktree add` under `worktrees/<world>/<id>`, or `<drive>/.genio/<key>/worktrees/<world>/<id>` for a project on a Dev Drive (`placeWorktree`) | — |
-| `state/<id>.status` verbs | same grammar, parsed by `status.ts` | timeline |
-| `ag-send` steering inbox | `state/<id>.inbox/NNN.msg` + typed doorbell | PING |
-| `fm-control` interrupt/exit/relaunch | `crew.control()` | INTERRUPT / RECALL / RESPAWN |
-| `fm-watch` wakes | `supervisor.ts` (overwatch) + durable `wakes.ts` | KILLFEED |
-| backlog + holds | `backlog.ts` | QUEST LOG |
-| keyed decisions / captain holds | `decisions.ts` + quests waiting for the player | Pending answers / QUEST LOG |
-| project registry, modes, +yolo | `projects.ts` | PROJECTS |
-| no-mistakes pipeline | `gauntlet.ts` | GAUNTLET |
-| `fm-pr-merge` / `fm-merge-local` / `fm-teardown` | `crew.merge()` / `crew.cleanup()` | MERGE / DESPAWN |
-| `/bearings` | `statusreport.ts` | Agent status report (`status_report`) |
-| `/ahoy` | recap + one-at-a-time choices | RECAP (/recap) |
-| `/afk`, `/quiet`, away daemon, wedge alarm | `away.ts` + the Bot session | presence ONLINE / DND / AFK |
-| `/stow` | `memory.ts` + save prompt | LORE (/save) |
-| `/updatecompanion` | `update.ts` | SYSTEMS (/patch) |
-| subsidiarys | `allies.ts`, `wksps/<name>/` bases | ALLIES |
-| dispatch profiles | `settings.dispatchRules` | SYSTEMS |
-| harness adapters | `settings.harnesses` | SYSTEMS |
-| captain inbox | `inbox.ts` + token-protected local HTTP intake | MAIL |
-| fleet ledger | `ledger.ts` | Replay log |
-| process-event sources | `settings.eventSources` | SYSTEMS › Triggers |
-| calm mode | `settings.calm` | Clean chat |
-| seatbelt | `canUseTool` policy in `wksp.ts` and `clearAction` in `chat-tool-policy.ts`: the approval mode alone decides ([chat-authority.md](chat-authority.md)) | permission prompt |
-| voice relay | text-to-speech of Genio replies (`voice.ts`: the opt-in Kokoro voice through `voice-output.ts` and its helper process, else the Windows voice) and push-to-talk voice input with a local Whisper model (`voice-input.ts`, [voice.md](voice.md)) | Read replies aloud toggle, mic button / F8 |
+| Genio's chat | `wksp.ts` Agent SDK session (main base) | COMMS |
+| A unit | `crew.ts` task + `terminals.ts` PTY | SQUAD |
+| Build / Recon missions | `kind: 'ship' \| 'scout'` | BUILD / RECON mission |
+| Unit worktrees | `git worktree add` under `worktrees/<project>/<id>`, or `<drive>/.genio/<key>/worktrees/<project>/<id>` for a project on a Dev Drive (`placeWorktree`) | none |
+| Status lines | `state/<id>.status` verbs, parsed by `status.ts` | timeline |
+| Steering a unit | `state/<id>.inbox/NNN.msg` + typed doorbell | PING |
+| Interrupt / exit / relaunch | `crew.control()` | INTERRUPT / RECALL / RESPAWN |
+| Wakes | `supervisor.ts` (overwatch) + durable `wakes.ts` | KILLFEED |
+| Backlog and holds | `backlog.ts` | QUEST LOG |
+| Open choices | `decisions.ts` + quests waiting for the player | Pending answers / QUEST LOG |
+| Project registry and modes | `projects.ts` | PROJECTS |
+| Validation pipeline | `gauntlet.ts` | GAUNTLET |
+| Merge and teardown | `crew.merge()` / `crew.cleanup()` | MERGE / DESPAWN |
+| Status report | `statusreport.ts` | Agent status report (`status_report`) |
+| Recap | recap + one-at-a-time choices | RECAP (/recap) |
+| Presence and the away daemon | `away.ts` + the Bot session | ONLINE / DND / AFK |
+| Memory | `memory.ts` + save prompt | LORE (/save) |
+| Self-update | `update.ts` | SYSTEMS (/patch) |
+| Allies | `allies.ts`, `workspaces/<name>/` bases | ALLIES |
+| Dispatch profiles | `settings.dispatchRules` | SYSTEMS |
+| Harness adapters | `settings.harnesses` | SYSTEMS |
+| Mail | `inbox.ts` + token-protected local HTTP intake | MAIL |
+| Replay log | `ledger.ts` | Replay log |
+| Process-event sources | `settings.eventSources` | SYSTEMS › Triggers |
+| Clean chat | `settings.calm` | Clean chat |
+| Tool approval | `canUseTool` policy in `wksp.ts` and `clearAction` in `chat-tool-policy.ts`: the approval mode alone decides ([chat-authority.md](chat-authority.md)) | permission prompt |
+| Voice | text-to-speech of Genio replies (`voice.ts`: the opt-in Kokoro voice through `voice-output.ts` and its helper process, else the Windows voice) and push-to-talk voice input with a local Whisper model (`voice-input.ts`, [voice.md](voice.md)) | Read replies aloud toggle, mic button / F8 |
 
 Game-dev additions: engine detection (Godot, Unity, Unreal, Bevy, LÖVE,
 GameMaker, Defold, MonoGame, web), engine-aware command presets, shared Unity
@@ -155,7 +153,7 @@ batched separately on `genio:term-data`. The Hub receives fleet events only:
 chat, chat deltas, generation progress and terminal output go to the owning
 project window alone. See [performance.md](performance.md).
 
-## Status protocol (companion grammar)
+## Status protocol
 
 Units append one line per actionable event to their status file:
 

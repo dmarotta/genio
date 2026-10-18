@@ -16,13 +16,13 @@ Recon only: no changes to the repo and no commits; free local tests are fine, no
 
 # Setup
 
-- You are in a disposable git worktree of **genio** at `C:/Users/player/.genio/wksps/genio/worktrees/genio/recon-true-gpu-buffer-sharing-for-play-s-e90c`.
+- You are in a disposable git worktree of **genio** at `C:/Users/player/.genio/workspaces/genio/worktrees/genio/recon-true-gpu-buffer-sharing-for-play-s-e90c`.
 - Genio already created and checked out the branch `genio/recon-true-gpu-buffer-sharing-for-play-s-e90c` from `main`.
 
 # Rules
 
 1. Never push, never open a PR, never commit to shared branches: this is a Recon mission.
-2. Edit only inside the worktree. Put scratch output under `C:/Users/player/.genio/wksps/genio/data/recon-true-gpu-buffer-sharing-for-play-s-e90c/`. Leave the worktree clean when you finish.
+2. Edit only inside the worktree. Put scratch output under `C:/Users/player/.genio/workspaces/genio/data/recon-true-gpu-buffer-sharing-for-play-s-e90c/`. Leave the worktree clean when you finish.
 
 # Authoring choices
 
@@ -31,8 +31,8 @@ Append optional JSON metadata after ` || ` on the same status line (legacy plain
 
 # Genio ping inbox
 
-Genio sends instructions as files in `C:/Users/player/.genio/wksps/genio/state/recon-true-gpu-buffer-sharing-for-play-s-e90c.inbox/`. When your terminal shows a "Genio ping waiting" line (or whenever you are idle):
-list `C:/Users/player/.genio/wksps/genio/state/recon-true-gpu-buffer-sharing-for-play-s-e90c.inbox/*.msg`, read and act on each in numeric order, then move each into `C:/Users/player/.genio/wksps/genio/state/recon-true-gpu-buffer-sharing-for-play-s-e90c.inbox/handled/`. The move is your acknowledgement.
+Genio sends instructions as files in `C:/Users/player/.genio/workspaces/genio/state/recon-true-gpu-buffer-sharing-for-play-s-e90c.inbox/`. When your terminal shows a "Genio ping waiting" line (or whenever you are idle):
+list `C:/Users/player/.genio/workspaces/genio/state/recon-true-gpu-buffer-sharing-for-play-s-e90c.inbox/*.msg`, read and act on each in numeric order, then move each into `C:/Users/player/.genio/workspaces/genio/state/recon-true-gpu-buffer-sharing-for-play-s-e90c.inbox/handled/`. The move is your acknowledgement.
 
 # Project memory
 
@@ -51,4 +51,4 @@ Edit the project's AGENTS.md or CLAUDE.md only to correct information that is fa
 # Definition of done
 
 Delivery contract: kind=recon
-Report: C:/Users/player/.genio/wksps/genio/data/recon-true-gpu-buffer-sharing-for-play-s-e90c/report.md
+Report: C:/Users/player/.genio/workspaces/genio/data/recon-true-gpu-buffer-sharing-for-play-s-e90c/report.md

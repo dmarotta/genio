@@ -1,5 +1,5 @@
 /**
- * Status protocol (companion bin/fm-classify-lib.sh). Units append one line per
+ * Status protocol. Units append one line per
  * actionable event:  `<verb> [key=<slug>] [at=<epoch>] [corr=<16hex>]: <note>`
  */
 import type { StatusEvent, StatusKind } from '@shared/types'

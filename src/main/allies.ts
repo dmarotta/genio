@@ -1,6 +1,6 @@
 /**
- * Allies (companion subsidiarys): persistent allied Genios, each running from
- * an isolated base under <main>/wksps/<name> with its own state, quest log,
+ * Allies: persistent allied Genios, each running from
+ * an isolated base under <main>/workspaces/<name> with its own state, quest log,
  * worktrees and Genio session. Idle by default; main Genio routes in-scope
  * work to them and they report back through the parent channel (main-base
  * 'check' events). The player can also talk to an ally directly in its chat tab;
@@ -13,6 +13,7 @@ import { bus } from './bus'
 import { makeHomeCtx } from './ctx'
 import { Home } from './home'
 import { allyCharterFile } from './prompts'
+import { modernPath } from './workspaces-migration'
 import type { AlliesService, AppCtx } from './services'
 import { nowIso, rid, readJson, writeJson, writeText } from './util'
 
@@ -25,7 +26,7 @@ export function createAlliesService(getCtx: () => AppCtx): AlliesService {
   let cache: Ally[] | undefined
   const load = (): Ally[] => {
     if (!cache) {
-      cache = readJson<Ally[]>(reg(), [])
+      cache = readJson<Ally[]>(reg(), []).map((a) => ({ ...a, home: modernPath(path.resolve(reg(), '..', '..'), a.home) }))
     }
     return cache
   }

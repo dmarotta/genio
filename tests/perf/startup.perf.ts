@@ -31,7 +31,7 @@ describe('startup over a realistic Base', () => {
     const t0 = performance.now()
     ctx = createApp(process.cwd(), base.root)
     note('createApp()', performance.now() - t0, 'ms')
-    note('Base data bytes read at startup', ['data/stats.json', 'data/projects.json', 'data/allies.json', 'config/settings.json', `wksps/${base.wksp}/state/tasks.json`, `wksps/${base.wksp}/data/backlog.json`, `wksps/${base.wksp}/data/decisions.json`]
+    note('Base data bytes read at startup', ['data/stats.json', 'data/projects.json', 'data/allies.json', 'config/settings.json', `workspaces/${base.wksp}/state/tasks.json`, `workspaces/${base.wksp}/data/backlog.json`, `workspaces/${base.wksp}/data/decisions.json`]
       .reduce((n, p) => n + (fs.existsSync(path.join(base.root, p)) ? fs.statSync(path.join(base.root, p)).size : 0), 0), 'bytes')
   })
 

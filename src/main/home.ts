@@ -4,7 +4,7 @@ import { ensureDir, exists, writeText } from './util'
 import { assertMounted, volumeHome, volumePlacement, type CloneOptions } from '../../resources/unit-skills/genio/skills/play/scripts/clone.mjs'
 
 /**
- * Base layout (companion's AG_HOME). Everything that matters lives
+ * Base layout. Everything that matters lives
  * on disk here so a restart is a non-event.
  *
  *   config/            local operating choices (settings.json; main home only)
@@ -32,7 +32,7 @@ import { assertMounted, volumeHome, volumePlacement, type CloneOptions } from '.
  *   projects/          clones (read-only to Genio itself)
  *   worktrees/         one isolated worktree per task (see placeWorktree)
  *   claude-home/      Genio's own Claude Code config folder (main only; claude-home.ts)
- *   wksps/<name>/      isolated ally bases (same layout)
+ *   workspaces/<name>/ isolated ally bases (same layout)
  */
 export class Home {
   readonly name: string
@@ -55,7 +55,7 @@ export class Home {
   get state(): string { return path.join(this.root, 'state') }
   get projects(): string { return path.join(this.root, 'projects') }
   get worktrees(): string { return path.join(this.root, 'worktrees') }
-  get wksps(): string { return path.join(this.root, 'wksps') }
+  get wksps(): string { return path.join(this.root, 'workspaces') }
 
   get settingsFile(): string { return path.join(this.config, 'settings.json') }
   get projectsFile(): string { return path.join(this.data, 'projects.json') }

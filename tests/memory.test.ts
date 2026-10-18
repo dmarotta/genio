@@ -59,7 +59,7 @@ describe('memory service', () => {
 
   it('detects inherited shared-profile edits and resets evicted versions', () => {
     const main = tmpHome(), mem = createMemoryService(noCtx)
-    const ally = new Home(path.join(main.root, 'wksps', 'art'), 'art', main)
+    const ally = new Home(path.join(main.root, 'workspaces', 'art'), 'art', main)
     ally.ensure()
     const old = mem.readVersion('player-shared', undefined, ally)
     mem.write('player-shared', 'new shared preference', main)
@@ -88,7 +88,7 @@ describe('memory service', () => {
 
   it('refuses ally writes to player-shared', () => {
     const main = tmpHome()
-    const ally = new Home(path.join(main.root, 'wksps', 'art'), 'art', main)
+    const ally = new Home(path.join(main.root, 'workspaces', 'art'), 'art', main)
     ally.ensure()
     const mem = createMemoryService(noCtx)
     expect(() => mem.write('player-shared', 'x', ally)).toThrow(/main base/)

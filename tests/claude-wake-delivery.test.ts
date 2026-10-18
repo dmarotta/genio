@@ -35,7 +35,7 @@ afterEach(async () => {
 
 function setup() {
   const main = new Home(dir); main.ensure()
-  const home = new Home(path.join(dir, 'wksps', 'genio'), 'genio', main); home.ensure()
+  const home = new Home(path.join(dir, 'workspaces', 'genio'), 'genio', main); home.ensure()
   const ctx = { appRoot: process.cwd(), settings: { get: () => defaultSettings() },
     main: { home: main }, away: { state: () => ({ mode: 'online' }) },
     allies: { list: () => [{ name: 'genio', projects: [] }] }, projects: { list: () => [] }, stats: { unlock: vi.fn(), addCost: vi.fn() },

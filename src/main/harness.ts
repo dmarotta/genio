@@ -1,6 +1,6 @@
 /**
  * Harness adapters: how each unit CLI is launched, interrupted, recalled and
- * resumed (companion .agents/skills/harness-adapters + bin/fm-spawn.sh launch_template).
+ * resumed (launch templates per harness).
  *
  * Arg templates support tokens:
  *   {model} {effort} {prompt} {cwd} {settings} {sessionId}   simple substitution

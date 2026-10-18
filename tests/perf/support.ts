@@ -43,7 +43,7 @@ export function syntheticTask(i: number, root: string, state: Task['state'] = 'c
   return {
     id, kind: i % 5 === 0 ? 'scout' : 'ship', title: `${word(i)} ${word(i + 1)} step ${i}: make the ${word(i + 2)} ${word(i + 4)} work`, project, wksp: project,
     backlogId: `${word(i)}-${i}-q`, mode: 'local-only', yolo: false, branchPrefix: 'genio/', baseBranch: 'main', branch: `genio/${id}`,
-    worktree: path.join(root, 'wksps', project, 'worktrees', project, id), briefPath: path.join(root, 'wksps', project, 'data', id, 'brief.md'),
+    worktree: path.join(root, 'workspaces', project, 'worktrees', project, id), briefPath: path.join(root, 'workspaces', project, 'data', id, 'brief.md'),
     harness: i % 3 ? 'claude' : 'codex', model: i % 3 ? 'claude-opus-5-5' : 'gpt-5-codex', effort: 'high',
     loadout: ['category Feature: given at deploy', 'warning: Codex CLI quota unverified (missing or expired report); ordinary dispatch allowed, exploration off', 'Claude Code: your pick', 'model: your pick', 'effort high: your pick'],
     category: 'feature', loadoutSource: 'player', counters: { pings: i % 3, lagging: 0, stopped: i % 2, fixRounds: 0 }, usageAtStart: 3,
@@ -104,12 +104,12 @@ export function seedBase(root: string): SeededBase {
   const real = process.env.GENIO_PERF_BASE
   const project = 'genio'
   const wksp = 'genio'
-  const projectHome = path.join(root, 'wksps', wksp)
+  const projectHome = path.join(root, 'workspaces', wksp)
   if (real) {
     fs.cpSync(real, root, { recursive: true, filter: (src: string) => !/[\\/](worktrees|projects|node_modules|inventory|chat-images|validation-node_modules|play-pools|claude-home|codex-home|skills)([\\/]|$)/.test(src) && !/[\\/]data[\\/][^\\/]+-[0-9a-f]{4}[\\/]/.test(src) })
     const alliesFile = path.join(root, 'data', 'allies.json')
     const allies = JSON.parse(fs.readFileSync(alliesFile, 'utf8')) as { name: string; home: string }[]
-    for (const a of allies) a.home = path.join(root, 'wksps', a.name)
+    for (const a of allies) a.home = path.join(root, 'workspaces', a.name)
     fs.writeFileSync(alliesFile, JSON.stringify(allies, null, 2))
     // A copied player's harness must never override the worker's sandbox homes.
     const settingsFile = path.join(root, 'config', 'settings.json')
@@ -123,7 +123,7 @@ export function seedBase(root: string): SeededBase {
     fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2))
     return { root, mainHome: root, projectHome, wksp, project }
   }
-  const dirs = ['config', 'data', 'data/dispatch', 'state', path.join('wksps', wksp, 'data'), path.join('wksps', wksp, 'state'), path.join('wksps', wksp, 'config')]
+  const dirs = ['config', 'data', 'data/dispatch', 'state', path.join('workspaces', wksp, 'data'), path.join('workspaces', wksp, 'state'), path.join('workspaces', wksp, 'config')]
   for (const d of dirs) fs.mkdirSync(path.join(root, d), { recursive: true })
   const tasks = syntheticTasks(root)
   const write = (p: string, v: unknown): void => { fs.writeFileSync(path.join(root, p), JSON.stringify(v, null, 2)) }
@@ -135,13 +135,13 @@ export function seedBase(root: string): SeededBase {
   write('data/decisions.json', [])
   write('data/backlog.json', [])
   write('state/tasks.json', [])
-  write(`wksps/${wksp}/state/tasks.json`, tasks)
-  write(`wksps/${wksp}/data/backlog.json`, syntheticBacklog(tasks))
-  write(`wksps/${wksp}/data/decisions.json`, syntheticDecisions(tasks))
+  write(`workspaces/${wksp}/state/tasks.json`, tasks)
+  write(`workspaces/${wksp}/data/backlog.json`, syntheticBacklog(tasks))
+  write(`workspaces/${wksp}/data/decisions.json`, syntheticDecisions(tasks))
   fs.writeFileSync(path.join(projectHome, 'data', 'chat.jsonl'), syntheticMessages(wksp).map((m) => JSON.stringify(m)).join('\n') + '\n')
   const wakes = syntheticWakes(wksp)
   fs.writeFileSync(path.join(projectHome, 'state', 'wakes.jsonl'), wakes.map((w) => JSON.stringify(w)).join('\n') + '\n')
-  write(`wksps/${wksp}/state/wakes.ack`, { through: wakes.length, at: ISO(1), events: {} })
+  write(`workspaces/${wksp}/state/wakes.ack`, { through: wakes.length, at: ISO(1), events: {} })
   for (const t of tasks) {
     fs.mkdirSync(path.dirname(t.briefPath), { recursive: true })
     fs.writeFileSync(t.briefPath, '# Mission\n')

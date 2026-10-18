@@ -1,5 +1,5 @@
 /**
- * Durable event queue (companion state/.wake-queue + fm-wake-drain.sh).
+ * Durable event queue.
  *
  * Every actionable overwatch event is appended to state/wakes.jsonl with a
  * monotonically increasing seq. Genio drains the queue at the start of a

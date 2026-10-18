@@ -1,6 +1,5 @@
 /**
- * Worlds (project registry). companion data/projects.md + project-management
- * skill + bin/fm-project-mode.sh, as JSON with engine awareness.
+ * Worlds (project registry), as JSON with engine awareness.
  */
 import fs from 'node:fs'
 import path from 'node:path'

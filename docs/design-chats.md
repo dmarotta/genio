@@ -47,7 +47,7 @@ the usual error toast.
 | Lore notes | `.genio/design/<name>.md` in the project, next to the Art Bible |
 | The note versions a chat was shown (for `since`) | `<base>/data/design-note-versions.json` |
 
-`<base>` is the project's base (its Genio home under `wksps/`). The main base, which only holds the archived
+`<base>` is the project's base (its Genio home under `workspaces/`). The main base, which only holds the archived
 chat, has no Lore chats. Transcripts are Genio's private data: they are never written into the project, so
 they are never committed.
 

@@ -18,7 +18,7 @@ export interface MemoryRead {
 export const memoryVersion = (text: string): string => createHash('sha256').update(text).digest('hex')
 
 /**
- * Memory (companion /stow, Genio /save). Three human-editable files:
+ * Memory (/save). Three human-editable files:
  *   player.md         Player Profile (base-local)
  *   player-shared.md  inherited by allies (main base only; read-only to allies)
  *   lore.md           curated squad knowledge

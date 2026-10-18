@@ -1,6 +1,6 @@
 import type { InventoryContextReceipt } from './inventory-context'
 // Shared data model for Genio main process and renderer.
-// Concepts mirror companion (see docs/VOCABULARY.md): the Player talks to one
+// Concepts (see docs/VOCABULARY.md): the Player talks to one
 // companion (Genio) which deploys a Squad of units, each in an isolated git
 // worktree, supervised to completion.
 
@@ -298,7 +298,7 @@ export interface DislikePause {
   interrupted: boolean
 }
 
-/** companion status verbs: `<verb> [key=k] [at=epoch]: note` appended to state/<id>.status */
+/** Status verbs: `<verb> [key=k] [at=epoch]: note` appended to state/<id>.status */
 export type StatusKind =
   | 'working' | 'needs-decision' | 'blocked' | 'paused' | 'done' | 'failed' | 'note' | 'resolved' | 'player-held'
   | 'unknown'
@@ -633,7 +633,7 @@ export interface DesignChatInfo {
   turns: number
 }
 
-/** An Ally (companion ally): an allied Genio with its own base and charter. */
+/** An Ally: an allied Genio with its own base and charter. */
 export interface Ally {
   name: string
   scope: string
@@ -671,7 +671,7 @@ export interface AwayEntry {
   target?: NotifyTarget
 }
 
-/** Mail: notes the player sends from elsewhere (companion captain inbox) */
+/** Mail: notes the player sends from elsewhere */
 export interface InboxNote {
   id: string
   ts: string
@@ -682,7 +682,7 @@ export interface InboxNote {
   repliedAt?: string
 }
 
-/** Opt-in fleet ledger (companion docs/fleet-ledger.md), at-least-once delivery. */
+/** Opt-in fleet ledger, at-least-once delivery. */
 export interface LedgerRecord {
   v: 1
   ts: string
@@ -832,7 +832,7 @@ export interface Settings {
   defaultHarness: string
   defaultWorkerModel: string
   defaultWorkerEffort: string
-  /** claude unit permission posture: bypass = --dangerously-skip-permissions (companion default) */
+  /** claude unit permission posture: bypass = --dangerously-skip-permissions (the default) */
   claudePermissionMode: 'bypass' | 'auto' | 'acceptEdits'
   /** Genio chat shell approvals: ask = only read-only commands run unprompted; auto-shell = every Bash/PowerShell command runs; all = YOLO, nothing asks */
   chatShellMode: 'ask' | 'auto-shell' | 'all'
@@ -877,9 +877,9 @@ export interface Settings {
   inboxPort: number
   inboxToken: string
   ledger: boolean
-  /** startup memory budget in estimated tokens (companion default 7500) */
+  /** startup memory budget in estimated tokens (default 7500) */
   memoryBudgetTokens: number
-  /** extra text appended to every unit brief (companion config/brief-include.md) */
+  /** extra text appended to every unit brief */
   briefInclude: string
   /** strip AI co-author trailers from unit commits */
   stripAiTrailers: boolean
@@ -928,7 +928,7 @@ export interface StatusLine {
   tone?: 'neon' | 'volt' | 'amber' | 'alert' | 'violet'
 }
 
-/** /status (companion /bearings): exactly four sections, always rendered, in this order:
+/** /status: exactly four sections, always rendered, in this order:
  *  Your Move, Loot, In Progress, Up Next. */
 export interface StatusReport {
   generatedAt: string

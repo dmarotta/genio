@@ -1,7 +1,7 @@
 /**
- * The Squad: unit lifecycle for one base (companion fm-spawn, ag-send,
- * fm-control, fm-teardown, fm-pr-merge, fm-merge-local, fm-promote,
- * fm-crew-state, fm-fleet-view).
+ * The Squad: unit lifecycle for one base (deploy, steer, control, teardown,
+ * PR merge, local merge, promote,
+ * state and fleet view).
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -50,6 +50,7 @@ import { copyReferences, questReferencesDir, readReferences, referencesBriefLine
 import {
   appendJsonl, appendLine, ensureDir, exists, fwd, nowIso, readJson, readText, rid, slugify, stripAnsi, truncate, writeJson, writeText
 } from './util'
+import { legacyPath, modernPath } from './workspaces-migration'
 import { checkDeployBudget, fmtUsd, grantAtDeploy, grantedUsd, grantEnv, grantsFor, spendChoice, writeUnitGrant } from './spend-grants'
 
 /** States with an expected live process. */
@@ -77,7 +78,8 @@ const squashTui = (x: string): string => stripAnsi(x).replace(/\s+/g, '').toLowe
 
 export function createCrewService(getCtx: () => AppCtx, home: Home, canRetry: (project: string) => boolean = () => true): CrewService {
   const quotaDeferred = new QuotaDeferredQueue(home.data)
-  let tasks: Task[] = readJson<Task[]>(home.tasksFile, [])
+  // A record that still names the old workspaces folder is read through its new location.
+  let tasks: Task[] = readJson<Task[]>(home.tasksFile, []).map(t => ({ ...t, worktree: modernPath(home.root, t.worktree), briefPath: modernPath(home.root, t.briefPath), reportPath: modernPath(home.root, t.reportPath), storageRoot: modernPath(home.root, t.storageRoot) }))
   // Preserve a legacy ready signal before restart bookkeeping updates timestamps.
   let readyMigrated = false
   for (const task of tasks) {
@@ -469,7 +471,9 @@ export function createCrewService(getCtx: () => AppCtx, home: Home, canRetry: (p
     const trustFolders = isCodex ? codexUnitFolders(t.worktree, project?.path) : []
     // Only Genio's own home: the player's Codex config is never edited.
     if (isCodex && codex?.isolated) setCodexTrust(codex.codexHome, trustFolders, true)
-    let sessionId = opts.resume && isCodex ? await discoverCodexSession(t.worktree, codexHome, t.codexSessionId) : undefined
+    let sessionId = opts.resume && isCodex
+      ? await discoverCodexSession(t.worktree, codexHome, t.codexSessionId) ?? await discoverCodexSession(legacyPath(getCtx().main.home.root, t.worktree), codexHome, t.codexSessionId)
+      : undefined
     // Codex refuses to resume an archived thread; one it will not restore starts fresh instead.
     if (sessionId && !(await unarchiveCodexThread(sessionId, { dataDir: mainHome.data, codexHome, task: t.id, cwd: t.worktree }))) sessionId = undefined
     if (isCodex) update(t.id, { codexHome, ...(opts.resume ? { codexSessionId: sessionId } : {}) })

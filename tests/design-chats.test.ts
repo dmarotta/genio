@@ -61,7 +61,7 @@ const stops: (() => Promise<void> | void)[] = []
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-design-'))
   const main = new Home(root); main.ensure()
-  home = new Home(path.join(root, 'wksps', 'game'), 'game', main); home.ensure()
+  home = new Home(path.join(root, 'workspaces', 'game'), 'game', main); home.ensure()
   stats.unlock.mockReset(); stats.addCost.mockReset()
   hc = { home, crew: { list: () => [], get: () => undefined, merge: vi.fn(), spawn: vi.fn() }, decisions: { list: () => [], get: () => undefined },
     backlog: { list: () => [], get: () => undefined }, plans: { list: () => [], get: () => undefined },

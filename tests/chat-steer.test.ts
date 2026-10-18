@@ -115,7 +115,7 @@ const ctx = {
 }
 
 function chat(name = 'art') {
-  const home = new Home(path.join(dir, 'wksps', name), name, new Home(dir))
+  const home = new Home(path.join(dir, 'workspaces', name), name, new Home(dir))
   ctx.main.home.data = path.join(dir, 'data')
   const svc = createWkspService(() => ctx as never, home)
   let shown: ChatMessage[] = []

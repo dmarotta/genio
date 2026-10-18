@@ -1,6 +1,5 @@
 /**
- * The Gauntlet: Genio's Hardcore validation pipeline (companion delegates this
- * to the external no-mistakes tool). Deterministic steps, one AI review:
+ * The Gauntlet: Genio's Hardcore validation pipeline. Deterministic steps, one AI review:
  *
  *   sync → setup/lint/build/test (world commands) → review → push → PR
  *

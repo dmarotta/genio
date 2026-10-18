@@ -23,7 +23,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date('2026-05-01T10:00:00Z'))
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-follow-through-'))
   const mainHome = new Home(root); mainHome.ensure()
-  home = new Home(path.join(root, 'wksps', 'world'), 'world', mainHome); home.ensure()
+  home = new Home(path.join(root, 'workspaces', 'world'), 'world', mainHome); home.ensure()
   say = vi.fn()
   hc = { home, wksp: { prepareProjectOpen: vi.fn(), wakeProject: vi.fn(), deliverWakes: vi.fn(), stop: vi.fn(), say,
     info: () => ({ queued: 0, activity: 'idle' }) } } as unknown as HomeCtx

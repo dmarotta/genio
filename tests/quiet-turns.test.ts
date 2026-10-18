@@ -103,7 +103,7 @@ const ctx = {
 
 /** A project chat base with its own session, the wake queue it reads, and what a renderer would have received. */
 function chat(name: string, beforeStart?: (home: InstanceType<typeof Home>) => void) {
-  const root = path.join(dir, 'wksps', name)
+  const root = path.join(dir, 'workspaces', name)
   const home = new Home(root, name, new Home(dir))
   home.ensure()
   beforeStart?.(home)

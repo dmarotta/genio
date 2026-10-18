@@ -1,5 +1,5 @@
 /**
- * Quest Log (companion backlog contract, AGENTS.md §10 + fm-captain-hold.sh).
+ * Quest Log.
  *
  * The durable queue of work items. It tracks work, never agents, but a quest
  * follows its unit: landed or finished units close their in-flight quest. A
@@ -11,7 +11,7 @@
  * a duplicate, and the world has capacity.
  *
  * Storage: data/backlog.json (authoritative) + data/backlog.md (human mirror,
- * companion row format) + data/done-archive.md (append-only older loot).
+ * row format) + data/done-archive.md (append-only older loot).
  */
 import fs from 'node:fs'
 import path from 'node:path'

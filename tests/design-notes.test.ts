@@ -150,7 +150,7 @@ describe('the design_notes tool', () => {
     said.length = 0
     stats.unlock.mockReset()
     main = new Home(path.join(tmp, 'genio')); main.ensure()
-    home = new Home(path.join(tmp, 'genio', 'wksps', 'game'), 'game', main); home.ensure()
+    home = new Home(path.join(tmp, 'genio', 'workspaces', 'game'), 'game', main); home.ensure()
     const empty = { list: () => [], get: () => undefined }
     hc = { home, crew: empty, decisions: { list: () => [], get: () => undefined }, backlog: empty, plans: empty,
       wksp: { history: () => [] }, design: { history: (id: string) => (id === 'd-00000001' ? said : []) } }

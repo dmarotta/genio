@@ -1,5 +1,5 @@
 /**
- * Forge adapter: GitHub via `gh` (companion fm-pr-merge / fm-pr-check guards),
+ * Forge adapter: GitHub via `gh` (PR merge and check guards),
  * GitLab via `glab` best effort.
  */
 import fs from 'node:fs'

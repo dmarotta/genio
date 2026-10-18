@@ -1,5 +1,5 @@
 /**
- * Presence: ONLINE / DND / AFK (companion /quiet and /afk + away daemon +
+ * Presence: ONLINE / DND / AFK (away daemon +
  * wedge alarm).
  *
  * - DND: routine events are handled off-screen by the Bot; player-relevant

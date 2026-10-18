@@ -32,7 +32,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date('2026-05-01T10:00:00Z'))
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-reactions-'))
   const mainHome = new Home(root); mainHome.ensure()
-  home = new Home(path.join(root, 'wksps', 'world'), 'world', mainHome); home.ensure()
+  home = new Home(path.join(root, 'workspaces', 'world'), 'world', mainHome); home.ensure()
   hc = { home } as unknown as HomeCtx
   const main = { home: mainHome, wksp: { deliverWakes: vi.fn(), say: vi.fn() } } as unknown as HomeCtx
   record.mockReset()

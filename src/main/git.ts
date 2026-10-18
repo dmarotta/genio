@@ -215,7 +215,7 @@ export function unlandedDetail(v: Pick<LandedVerdict, 'files' | 'commits'>, max 
 }
 
 /**
- * Landed-work test (companion bin/fm-teardown.sh). Uncommitted changes are never
+ * Landed-work test. Uncommitted changes are never
  * landed. Committed work counts as landed when its HEAD is reachable from any
  * remote-tracking branch, or it is contained in base (ancestor), or every commit
  * is patch-equivalent to base (`git cherry`, squash merges), or its PR is

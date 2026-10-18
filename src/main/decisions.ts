@@ -1,6 +1,6 @@
 /**
- * Your Move: open choices waiting on the player (companion keyed
- * needs-decision / blocked records + captain holds).
+ * Your Move: open choices waiting on the player (keyed
+ * needs-decision / blocked records + holds).
  *
  * A unit's `needs-decision [key=k]` / `blocked [key=k]` opens one choice per
  * (task, key); answering it pings the unit with the player's words and closes

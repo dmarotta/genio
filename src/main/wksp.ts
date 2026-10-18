@@ -14,7 +14,7 @@ import { claudeLaunch } from './claude-home'
 import { codexLaunch } from './codex-home'
 import { settingsPath } from '@shared/settings-pages'
 /**
- * Genio agent sessions (companion's primary harness session, in-process).
+ * Genio agent sessions (the primary harness session, in-process).
  *
  * Each base has one WkspService. It owns:
  *   - the Genio session: a Claude Agent SDK query() in streaming-input mode,
@@ -638,7 +638,7 @@ export function createWkspService(getCtx: () => AppCtx, home: Home, ally?: Ally,
     const m: ChatMessage = shown ? { ...loadHistory().find((x) => x.id === shown.m.id)! } : inboundMessage(name, trimmed, origin)
     // only real conversation needs a handoff; messages still waiting (this one included) and '!' result blocks are not part of it
     let prompt = !genio.sessionId && loadHistory().some((x) => !x.queue && !x.shell) ?`${handoffContext()}\n\nCurrent request:\n${trimmed}` : trimmed
-    // companion: the first ordinary player message after AFK ends it with a return brief
+    // the first ordinary player message after AFK ends it with a return brief
     if (origin === 'player' && ctx.away.state().mode === 'afk') {
       const brief = ctx.away.takeReturnBrief()
       await ctx.away.set('online')

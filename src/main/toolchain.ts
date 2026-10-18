@@ -1,6 +1,6 @@
 /**
  * Systems check: which CLIs exist on this machine, and consent-gated installs
- * (companion "detects and offers to install supported missing tools after you approve").
+ * (it detects supported missing tools and offers to install them after you approve).
  */
 import { Worker } from 'node:worker_threads'
 import { pathToFileURL } from 'node:url'

@@ -12,7 +12,7 @@ afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursiv
 it('imports the legacy conversation and images once without altering its archive or existing project messages', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-project-chat-')); roots.push(root)
   const source = new Home(root); source.ensure()
-  const target = new Home(path.join(root, 'wksps', 'genio'), 'genio', source); target.ensure()
+  const target = new Home(path.join(root, 'workspaces', 'genio'), 'genio', source); target.ensure()
   const old = [{ id: 'old', wksp: 'main', role: 'player', text: 'draft sent', queue: 'queued', ts: '2026-01-01' },
     { id: 'shared', wksp: 'main', role: 'genio', text: 'old reply', ts: '2026-01-02' }]
   fs.writeFileSync(source.chatFile, old.map(m => JSON.stringify(m)).join('\n'))

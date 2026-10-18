@@ -1,6 +1,5 @@
 /**
- * Terminal manager: one real PTY per unit / playtest / login session / terminal pane (companion's
- * tmux windows). Keeps an ANSI scrollback ring so the GUI can re-attach at any time.
+ * Terminal manager: one real PTY per unit / playtest / login session / terminal pane. Keeps an ANSI scrollback ring so the GUI can re-attach at any time.
  */
 import path from 'node:path'
 import * as pty from 'node-pty'

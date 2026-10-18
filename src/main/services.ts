@@ -6,7 +6,7 @@ import type { InventoryContext } from '@shared/inventory-context'
  * can be built and tested independently.
  *
  * Global services live once on AppCtx. Home-scoped services exist per home:
- * the main home ('main') and one per local second unit.
+ * the main home ('main') and one per local ally.
  */
 import type {
   AwayMode, AwayEntry, AwayState, BacklogItem, StatusReport, ChatMessage, ShellRun, Decision, FleetSnapshot,
@@ -204,9 +204,9 @@ export interface AlliesService {
   retire(name: string): Promise<OpResult>
   /** save an ally's own chat controls; the ally's session picks them up between turns */
   update(name: string, patch: AllyControlsPatch): Ally
-  /** route a request from the main wksp to a second unit (marked, correlated) */
+  /** route a request from the main wksp to an ally (marked, correlated) */
   route(name: string, request: string): Promise<OpResult>
-  /** a second unit reports to its parent channel (main home wakes) */
+  /** an ally reports to its parent channel (main home wakes) */
   reportToParent(from: string, verb: string, note: string, corr?: string): void
 }
 
@@ -344,7 +344,7 @@ export interface CrewService {
   /** run the no-mistakes validation pipeline (review → fixes → checks → push → PR → CI) */
   validate(id: string): Promise<OpResult>
   readFile(id: string, which: TaskFile): Promise<string>
-  /** one-line current state, companion fm-crew-state style */
+  /** one-line current state */
   crewState(id: string): Promise<string>
   /** structured fleet view text for the wksp */
   fleetView(): Promise<string>
@@ -385,7 +385,7 @@ export interface BacklogService {
   dispatchable(project?: string, exclude?: ReadonlySet<string>): BacklogItem[]
   /** dependency quest ids of this quest that are not done (missing ones included) */
   unresolved(id: string): string[]
-  /** hold bucket per companion: blocked → dated → aged(14d) → live */
+  /** hold bucket: blocked → dated → aged(14d) → live */
   bucket(item: BacklogItem): 'blocked' | 'dated' | 'aged' | 'live' | 'none'
   markInFlight(id: string, taskId: string): void
   markDone(id: string, outcome?: string): void

@@ -8,7 +8,7 @@ import { createAlliesService } from '../src/main/allies'
 import { decideTool, inboundMessage, sendPlayerChat, sessionConfig } from '../src/main/wksp'
 
 const ally = (name: string, extra: Partial<Ally> = {}): Ally => ({
-  name, scope: `scope of ${name}`, charter: '', projects: [], home: `/wksps/${name}`, createdAt: '2026-10-01T00:00:00.000Z', ...extra
+  name, scope: `scope of ${name}`, charter: '', projects: [], home: `/workspaces/${name}`, createdAt: '2026-10-01T00:00:00.000Z', ...extra
 })
 
 const settings = (extra: Partial<Settings> = {}) => ({ chatShellMode: 'ask' as const, wkspModel: 'claude-opus-5-5', wkspEffort: 'high', botModel: '', ...extra })

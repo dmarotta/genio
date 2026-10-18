@@ -12,7 +12,7 @@ starting unity step is taking ages -- we really need to figure it out damn; I su
 
 ## Genio spec
 
-Implement build 1 of the Play start speed Recon at C:\Users\player\.genio\wksps\genio\data\recon-why-starting-unity-for-play-takes-7171\ (report.md, appendix-a, appendix-c). Player decisions: KEEP each project's Play copy between sessions; delete a copy not played for 24 hours (a daily cleanup, not 7 days) or when the copy volume's free space is low (least recently played first); never delete a copy that is running or in use. Do this: set keepCopyWhenEditorQuits true (player-copy.mjs ~21 and ~293-301); stop deleting the copy in close() on these paths in player-instance.ts: idle timeout (~714, ~560), Genio exit (~782), editor crash (~697), the orphan sweep (~246), copies past their deadline (~719-722) and closing the project window (quit(), ~594-598) (line numbers are from the Recon and may have moved; re-check). Only an explicit Delete copy still deletes. Add the cleanup: runs at Genio start and then hourly; deletes copies whose lastPlayedAt (player-copy.mjs ~281) is older than 24 h; when free space on the copy's volume is low (choose a sensible threshold, for example under 15 GB or under 10 percent) it also deletes least recently played copies until there is room; it skips any copy with a launch, an operation, a sync or live editor PIDs (player-copy.mjs ~355-372). The idle-shutdown behavior of the running editor itself stays as it is. Keep the existing one-status-line Play screen unchanged (the status build comes later). Update docs/play.md and docs/player-instance.md. Tests: copy kept after idle quit, crash and exit; 24 h cleanup deletes, a recent copy stays, a running copy stays, low-disk order, explicit delete still works. Run typecheck and tests with GIT_CONFIG_* env vars removed; run the full suite in the FOREGROUND with a long timeout, never in the background and never end a turn while it runs (the terminal stalls on the 'Autocompact' dialog); commit real code with a clean worktree and confirm with git diff that the change is in the commit. If the dialog shows, choose 'Keep auto (1m tokens)'.
+Implement build 1 of the Play start speed Recon at C:\Users\player\.genio\workspaces\genio\data\recon-why-starting-unity-for-play-takes-7171\ (report.md, appendix-a, appendix-c). Player decisions: KEEP each project's Play copy between sessions; delete a copy not played for 24 hours (a daily cleanup, not 7 days) or when the copy volume's free space is low (least recently played first); never delete a copy that is running or in use. Do this: set keepCopyWhenEditorQuits true (player-copy.mjs ~21 and ~293-301); stop deleting the copy in close() on these paths in player-instance.ts: idle timeout (~714, ~560), Genio exit (~782), editor crash (~697), the orphan sweep (~246), copies past their deadline (~719-722) and closing the project window (quit(), ~594-598) (line numbers are from the Recon and may have moved; re-check). Only an explicit Delete copy still deletes. Add the cleanup: runs at Genio start and then hourly; deletes copies whose lastPlayedAt (player-copy.mjs ~281) is older than 24 h; when free space on the copy's volume is low (choose a sensible threshold, for example under 15 GB or under 10 percent) it also deletes least recently played copies until there is room; it skips any copy with a launch, an operation, a sync or live editor PIDs (player-copy.mjs ~355-372). The idle-shutdown behavior of the running editor itself stays as it is. Keep the existing one-status-line Play screen unchanged (the status build comes later). Update docs/play.md and docs/player-instance.md. Tests: copy kept after idle quit, crash and exit; 24 h cleanup deletes, a recent copy stays, a running copy stays, low-disk order, explicit delete still works. Run typecheck and tests with GIT_CONFIG_* env vars removed; run the full suite in the FOREGROUND with a long timeout, never in the background and never end a turn while it runs (the terminal stalls on the 'Autocompact' dialog); commit real code with a clean worktree and confirm with git diff that the change is in the commit. If the dialog shows, choose 'Keep auto (1m tokens)'.
 
 ## Plan context
 
@@ -24,13 +24,13 @@ Files this step is expected to touch, shared with other steps: src/main/player-i
 
 # Setup
 
-- You are in a disposable git worktree of **genio** at `C:/Users/player/.genio/wksps/genio/worktrees/genio/play-keep-the-play-copy-between-sessions-c01c`.
+- You are in a disposable git worktree of **genio** at `C:/Users/player/.genio/workspaces/genio/worktrees/genio/play-keep-the-play-copy-between-sessions-c01c`.
 - Genio already created and checked out the branch `genio/play-keep-the-play-copy-between-sessions-c01c` from `main`.
 
 # Rules
 
 1. Never push. Never merge. Never touch the default branch.
-2. Edit only inside the worktree. Put scratch output under `C:/Users/player/.genio/wksps/genio/data/play-keep-the-play-copy-between-sessions-c01c/`. Leave the worktree clean when you finish.
+2. Edit only inside the worktree. Put scratch output under `C:/Users/player/.genio/workspaces/genio/data/play-keep-the-play-copy-between-sessions-c01c/`. Leave the worktree clean when you finish.
 
 # Authoring choices
 
@@ -39,8 +39,8 @@ Append optional JSON metadata after ` || ` on the same status line (legacy plain
 
 # Genio ping inbox
 
-Genio sends instructions as files in `C:/Users/player/.genio/wksps/genio/state/play-keep-the-play-copy-between-sessions-c01c.inbox/`. When your terminal shows a "Genio ping waiting" line (or whenever you are idle):
-list `C:/Users/player/.genio/wksps/genio/state/play-keep-the-play-copy-between-sessions-c01c.inbox/*.msg`, read and act on each in numeric order, then move each into `C:/Users/player/.genio/wksps/genio/state/play-keep-the-play-copy-between-sessions-c01c.inbox/handled/`. The move is your acknowledgement.
+Genio sends instructions as files in `C:/Users/player/.genio/workspaces/genio/state/play-keep-the-play-copy-between-sessions-c01c.inbox/`. When your terminal shows a "Genio ping waiting" line (or whenever you are idle):
+list `C:/Users/player/.genio/workspaces/genio/state/play-keep-the-play-copy-between-sessions-c01c.inbox/*.msg`, read and act on each in numeric order, then move each into `C:/Users/player/.genio/workspaces/genio/state/play-keep-the-play-copy-between-sessions-c01c.inbox/handled/`. The move is your acknowledgement.
 
 # Project memory
 

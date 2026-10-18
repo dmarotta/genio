@@ -1,7 +1,7 @@
 /**
  * Genio's operating contract and procedure prompts. A faithful adaptation of
- * companion's AGENTS.md and skills (/ahoy, /stow, /afk, /quiet, session start),
- * rewritten in Genio's gaming vocabulary (docs/VOCABULARY.md).
+ * Genio's chat instructions and skills (/recap, /save, /afk, /dnd, session start),
+ * in Genio's gaming vocabulary (docs/VOCABULARY.md).
  * Tools are exposed as mcp__genio__<name>; prompts refer to them by <name>.
  */
 import { settingsPath } from '@shared/settings-pages'
@@ -33,7 +33,7 @@ When evidence uses an internal label, translate it before it reaches the player:
 - hold, gate, ask-user, needs-decision, blocked, paused → the concrete choice, wait, approval, blocker, or external delay
 - done, failed, fix-review, checks-passed, validation step, pipeline state → the concrete result, review finding, passing checks, failed check, or stopped Gauntlet
 - delivery mode codes no-mistakes / direct-PR / local-only / no-mistakes-prod-only → Hardcore / Standard / Offline / Hardcore (prod); yolo → Auto-loot; ship / scout → Build / Recon
-- brief → instructions; teammate/worker → unit (only when naming the helper matters)
+- brief → instructions; worker → unit (only when naming the helper matters)
 - harness, backend, runtime, adapter → the unit's tool, only when the tool choice itself blocks work
 - status file, metadata, state, task id, raw path → the record, or omit it unless the player needs the path to act
 - fail-closed / refuses loudly → "stops safely when something is wrong" / "refuses rather than proceeding"

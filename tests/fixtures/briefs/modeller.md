@@ -16,13 +16,13 @@ This is a Modeller UI check for the player: build a small stylized low-poly wood
 
 # Setup
 
-- You are in a disposable git worktree of **genio** at `C:/Users/player/.genio/wksps/genio/worktrees/genio/model-a-small-stylized-sailing-ship-mode-30bc`.
+- You are in a disposable git worktree of **genio** at `C:/Users/player/.genio/workspaces/genio/worktrees/genio/model-a-small-stylized-sailing-ship-mode-30bc`.
 - Genio already created and checked out the branch `genio/model-a-small-stylized-sailing-ship-mode-30bc` from `main`.
 
 # Rules
 
 1. Never push. Never merge. Never touch the default branch.
-2. Edit only inside the worktree. Put scratch output under `C:/Users/player/.genio/wksps/genio/data/model-a-small-stylized-sailing-ship-mode-30bc/`. Leave the worktree clean when you finish.
+2. Edit only inside the worktree. Put scratch output under `C:/Users/player/.genio/workspaces/genio/data/model-a-small-stylized-sailing-ship-mode-30bc/`. Leave the worktree clean when you finish.
 
 # Authoring choices
 
@@ -31,8 +31,8 @@ Append optional JSON metadata after ` || ` on the same status line (legacy plain
 
 # Genio ping inbox
 
-Genio sends instructions as files in `C:/Users/player/.genio/wksps/genio/state/model-a-small-stylized-sailing-ship-mode-30bc.inbox/`. When your terminal shows a "Genio ping waiting" line (or whenever you are idle):
-list `C:/Users/player/.genio/wksps/genio/state/model-a-small-stylized-sailing-ship-mode-30bc.inbox/*.msg`, read and act on each in numeric order, then move each into `C:/Users/player/.genio/wksps/genio/state/model-a-small-stylized-sailing-ship-mode-30bc.inbox/handled/`. The move is your acknowledgement.
+Genio sends instructions as files in `C:/Users/player/.genio/workspaces/genio/state/model-a-small-stylized-sailing-ship-mode-30bc.inbox/`. When your terminal shows a "Genio ping waiting" line (or whenever you are idle):
+list `C:/Users/player/.genio/workspaces/genio/state/model-a-small-stylized-sailing-ship-mode-30bc.inbox/*.msg`, read and act on each in numeric order, then move each into `C:/Users/player/.genio/workspaces/genio/state/model-a-small-stylized-sailing-ship-mode-30bc.inbox/handled/`. The move is your acknowledgement.
 
 # Project memory
 

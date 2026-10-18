@@ -675,7 +675,7 @@ export interface GenioApi {
   uthanaWorld(world: string | null): Promise<UthanaWorldState>
   uthanaWorldConfig(world: string | null, config: UthanaWorldConfig): Promise<UthanaWorldState>
 
-  // ---- bridge (chat with Genio / second units)
+  // ---- bridge (chat with Genio / allies)
   // The chat calls take an optional design chat id (`conversation`): absent, they address the project chat.
   approveGeneration(wksp: string, run: string): Promise<import('./generation').GenerationCard>
   chatHistory(wksp: string, limit?: number, conversation?: string): Promise<ChatMessage[]>
@@ -788,7 +788,7 @@ export interface GenioApi {
   ledgerTail(n: number): Promise<LedgerRecord[]>
   wakes(n: number): Promise<Wake[]>
 
-  // ---- second units
+  // ---- allies
   allyCreate(req: AllyCreateRequest): Promise<Ally>
   allyRetire(name: string): Promise<OpResult>
   /** save an ally chat's own approval mode / model / effort ('' = follow the main chat) */

@@ -75,6 +75,7 @@ import { modelViewer } from './model-viewer'
 import { allyNameForWorld, worldAllyRequest, inheritMainHistory } from './project-chat'
 import { reconcileProjectOpen } from './project-startup'
 import { migrateProjectData } from './project-data-migration'
+import { migrateWorkspaces } from './workspaces-migration'
 import { surfaceEngineAmbiguity } from './engine-facts'
 import { bus } from './bus'
 
@@ -193,6 +194,7 @@ export function createApp(appRoot: string, homeRoot = defaultHomeRoot()): AppCtx
   scrubInheritedSessionEnv()
   const mainHome = new Home(homeRoot, 'main')
   mainHome.ensure()
+  migrateWorkspaces(mainHome.root)
   migrateProjectData(mainHome)
   const homes = new Map<string, HomeCtx>()
 
