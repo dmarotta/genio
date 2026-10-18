@@ -10,6 +10,7 @@ import { sourceMissing, unityVersionOf } from '../../resources/unit-skills/genio
 import { checkCopyPath } from '../../resources/unit-skills/genio/lib/unity-seed.mjs'
 import { longPathWarning } from '../../resources/unit-skills/genio/lib/path-length.mjs'
 import { clearPlayStarting, markPlayStarting } from '../../resources/unit-skills/genio/lib/quiet-start.mjs'
+import { clearPlayLive, markPlayLive, PRIORITY, setProcessPriority } from '../../resources/unit-skills/genio/lib/play-live.mjs'
 import { editorHolders, editorSeatsDir } from '../../resources/unit-skills/genio/lib/unity-editors.mjs'
 import { poolDirectory } from '../../resources/unit-skills/genio/skills/play/scripts/pool.mjs'
 import { playerCopyService } from './player-copy'
@@ -23,6 +24,7 @@ import { repoTop, sameFolder } from './git'
 import { leaseSource, onSourceRemoved, type SourceLease } from './source-leases'
 import { StartLog } from './player-start'
 import { notePlayed } from './project-setup'
+import { StreamLog } from './play-stream-log'
 
 const GiB = 2 ** 30
 /** First-run estimate until a session teaches the project's steady working set, and the RAM kept back on top. */
@@ -31,7 +33,9 @@ const FIRST_RUN_ESTIMATE = 6 * GiB, RESERVE = GiB
 const REFUSED: readonly string[] = ['low-memory', 'missing-editor', 'limit-reached']
 /** Preparing the copy, starting Unity or entering Play: Genio's heavy background copies wait (quiet-start.mjs). */
 const QUIET: readonly string[] = ['copying', 'syncing', 'starting', 'entering-play']
-const QUIT = 'UnityEditor.EditorApplication.delayCall += () => UnityEditor.EditorApplication.Exit(0); return true;'
+/** A Play is live: the hidden editor gets the CPU first, and Genio's own background work (unit shells, copies) runs below normal (play-live.mjs). */
+const LIVE: readonly string[] = ['entering-play', 'playing', 'paused']
+const QUIT ='UnityEditor.EditorApplication.delayCall += () => UnityEditor.EditorApplication.Exit(0); return true;'
 /** A start whose editor.log has gone quiet this long asks Pipeline in the background, at most this often (a long unpack, or a Unity that words its log differently). */
 const PROBE_QUIET_MS = 30000
 interface Instance extends PlayerInstanceStatus {
@@ -51,6 +55,10 @@ async function idleSlotEditors(ctx: AppCtx): Promise<IdleEditor[]> {
   }
   return out
 }
+/** A pid liveness check that starts nothing (signal 0 only asks the OS); EPERM means it exists. */
+function processAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM' }
+}
 const gb = (bytes: number) => (bytes / GiB).toFixed(1)
 /** Regular closes retain the copy; a restart inside a sync must not acquire the copy's lock again. */
 type CopyAfterClose = 'delete' | 'keep' | 'restart'
@@ -68,6 +76,12 @@ export interface PlayerInstanceOptions {
   runtime?: (root: string, pid: () => number | undefined, gpu?: RuntimeGpu) => PlayerRuntime
   /** Electron's shared textures (the fast path); the real adapter by default. */
   textures?: TextureApi
+  /** The stream log (play-stream.log in Genio's data folder by default). */
+  streamLog?: StreamLog
+  /** os.setPriority by default; only the editor Genio launched is ever raised. */
+  setPriority?: (pid: number, priority: number) => void
+  /** Whether a process is alive (process.kill(pid, 0), which starts nothing): the light check while playing. */
+  alive?: (pid: number) => boolean
   ownerCreated?: () => Promise<string>; readyMs?: number; graceMs?: number; forceMs?: number
   /** The platform the path-length check runs for (Windows only); process.platform by default. */
   platform?: string
@@ -79,6 +93,7 @@ export interface RuntimeGpu {
   playing(): boolean
   textures?: TextureApi
   fellBack?(reason: GpuFallback): void
+  log?: StreamLog
 }
 function runtime(root: string, pid: () => number | undefined, gpu?: RuntimeGpu): PlayerRuntime {
   const adapter = new UnityAdapter(root, async () => {}, pid)
@@ -90,7 +105,7 @@ function runtime(root: string, pid: () => number | undefined, gpu?: RuntimeGpu):
     const api = gpu?.textures ?? textureApi()
     if (!gpu?.fast() || fallback || !api.available) return new PlayStream()
     return new PlayStream({ api, devices: await api.gpus(), width, height, playing: gpu.playing, onFallback: (reason, detail) => {
-      fallback ??= reason; gpu.fellBack?.(reason)
+      fallback ??= reason; gpu.fellBack?.(reason); gpu.log?.fallback(reason, detail)
       console.log(`[play-stream] JPEG frames from now on: ${reason}${detail ? ` (${detail})` : ''}`)
     } })
   }
@@ -98,7 +113,8 @@ function runtime(root: string, pid: () => number | undefined, gpu?: RuntimeGpu):
     const credentials = await next.listen()
     const fast = next.gpuActive
     await adapter.request('genio_set_resolution', { width, height }); await adapter.request('genio_stream_start', { ...credentials, width, height, ...(fast ? { genioPid: process.pid } : {}) })
-    console.log(`[play-stream] ${width}x${height}: ${fast ? 'GPU shared textures, JPEG as the fallback' : 'JPEG frames'}`)
+    gpu?.log?.begin(fast ? 'gpu' : 'jpeg', width, height)
+    console.log(`[play-stream] ${width}x${height}:${fast ? 'GPU shared textures, JPEG as the fallback' : 'JPEG frames'}`)
   }
   const wire = (next: PlayStream, onFrame: (f: Buffer | TextureFrame) => void) => { next.onFrame = onFrame; next.onTexture = onFrame }
   return {
@@ -106,7 +122,7 @@ function runtime(root: string, pid: () => number | undefined, gpu?: RuntimeGpu):
     async stream(width, height, onFrame, onDisconnect, onAudio) {
       stream?.close(); stream = undefined
       const next = stream = await open(width, height)
-      sink = onFrame; wire(next, onFrame); next.onAudio = onAudio; next.onDisconnect = onDisconnect
+      sink = onFrame; wire(next, onFrame); next.onAudio = onAudio; next.onDisconnect = () => { gpu?.log?.end(); onDisconnect() }
       try { await connect(next, width, height) }
       catch (e) { next.close(); if (stream === next) stream = undefined; throw e }
     },
@@ -126,7 +142,7 @@ function runtime(root: string, pid: () => number | undefined, gpu?: RuntimeGpu):
         throw e
       }
     },
-    stopStream() { stream?.close(); stream = undefined },
+    stopStream() { stream?.close(); stream = undefined; gpu?.log?.end() },
     input(input) { if (!stream && input.type === 'release') return; if (!stream) throw new Error('Start the player stream first'); stream.input(input) }
   }
 }
@@ -191,6 +207,11 @@ export class PlayerInstanceService {
   private cleanupTimer?: ReturnType<typeof setInterval>
   private cleanupRun?: Promise<unknown>
   private polling = false
+  /** Projects whose Play is live, and the stream log. */
+  private liveProjects = new Set<string>()
+  private streamLog: StreamLog
+  /** Whether each project's input handler allows streamed input, read once per copy (it is asked up to 30 times a second). */
+  private inputs = new Map<string, { root: string; value: boolean }>()
   private exiting = false
   private startup?: Promise<void>
   private system: PlayerSystem
@@ -203,6 +224,7 @@ export class PlayerInstanceService {
     this.copies = options.copies ?? playerCopyService(ctx).copies
     this.system = options.system ?? playerSystem
     this.desktop = options.desktop ?? createDesktopApi(this.data)
+    this.streamLog = options.streamLog ?? new StreamLog(path.join(this.data, 'play-stream.log'))
     this.settings = { idleMinutes: 10, maxEditors: 2 }
     try { this.settings = this.validate(JSON.parse(fs.readFileSync(this.settingsFile(), 'utf8'))) } catch { /* defaults */ }
     // Genio removed a unit's worktree: an instance playing from it notes that at once (a running sync has its lease).
@@ -260,7 +282,22 @@ export class PlayerInstanceService {
   private state(i: Instance, state: Instance['state'], message?: string) {
     i.state = state; i.message = message; i.since = this.system.now()
     if (state !== 'starting') this.endStart(i)
-    this.save(i); this.quietStart(i)
+    // The copy is rewritten by a sync, and a new start reads it afresh.
+    if (['copying', 'syncing', 'starting'].includes(state)) this.inputs.delete(i.project)
+    this.save(i); this.quietStart(i); this.liveMarker(i)
+  }
+  /**
+   * While this Play is live (entering Play, playing or paused) its marker tells Genio's other processes to run their
+   * heavy work below normal, and the units' shells drop to below normal too; both end with the Play.
+   */
+  private liveMarker(i: Instance) {
+    try {
+      const was = this.liveProjects.size > 0
+      if (LIVE.includes(i.state) && !this.exiting) {
+        if (!this.liveProjects.has(i.project)) { this.liveProjects.add(i.project); markPlayLive(this.data, this.copies.keyOf(i.project), { project: i.project }) }
+      } else if (this.liveProjects.delete(i.project)) clearPlayLive(this.data, this.copies.keyOf(i.project))
+      if (was !== this.liveProjects.size > 0) this.ctx.terminals?.background?.(this.liveProjects.size > 0)
+    } catch (e) { console.error('[player-instance] live marker', e) }
   }
   private endStart(i: Instance) { this.startLogs.delete(i.project) }
   /**
@@ -279,7 +316,7 @@ export class PlayerInstanceService {
   private local(i: Instance) {
     let r = this.runtimes.get(i.project)
     if (!r) {
-      r = (this.options.runtime ?? runtime)(i.root!, () => i.launch?.pid, { fast: () => this.graphics.get(i.project)?.d3d11 === true, playing: () => i.state === 'playing', textures: this.options.textures,
+      r = (this.options.runtime ?? runtime)(i.root!, () => i.launch?.pid, { fast: () => this.graphics.get(i.project)?.d3d11 === true, playing: () => i.state === 'playing', textures: this.options.textures, log: this.streamLog,
         fellBack: reason => { if (MACHINE_FALLBACKS.includes(reason)) this.noFastPath ??= reason } })
       this.runtimes.set(i.project, r)
     }
@@ -346,7 +383,12 @@ export class PlayerInstanceService {
       capabilities: { input: this.supportsInput(i) }, copy: this.copies.status(project) }
   }
   private supportsInput(i: Instance) {
-    try { return !/activeInputHandler:\s*0\b/.test(fs.readFileSync(path.join(i.root!, 'ProjectSettings/ProjectSettings.asset'), 'utf8')) } catch { return false }
+    const known = this.inputs.get(i.project)
+    if (known && known.root === i.root) return known.value
+    let value = false
+    try { value = !/activeInputHandler:\s*0\b/.test(fs.readFileSync(path.join(i.root!, 'ProjectSettings/ProjectSettings.asset'), 'utf8')) } catch { return false }
+    this.inputs.set(i.project, { root: i.root!, value })
+    return value
   }
   /** False when the source can no longer be read (a unit's worktree merged and removed, a deleted branch). */
   async sourceAvailable(world: string, source: PlayerCopySource): Promise<boolean> {
@@ -477,6 +519,8 @@ export class PlayerInstanceService {
       }
       this.save(i)
       if (!launched.created) throw new Error('The player editor creation time could not be verified')
+      // The editor Genio just launched, and nothing else, gets the CPU ahead of background work; it exits with the session, so nothing is restored.
+      try { (this.options.setPriority ?? setProcessPriority)(launched.pid, PRIORITY.aboveNormal) } catch { /* best effort */ }
       this.runtimes.delete(i.project)
     })
     this.launches = next.catch(() => {}); await next
@@ -829,9 +873,19 @@ export class PlayerInstanceService {
     this.polling = true
     try {
       // Nothing launched: nothing to check, and a process listing starts two PowerShells (every 5 s from boot).
-      if (![...this.instances.values()].some(i => i.launch && !this.operations.has(i.project))) return
+      // A game that is playing gets none of it: the process listing (two PowerShells), the desktop watch and the file writes
+      // below can block the main thread for seconds, and it carries every frame. Its light check is a pid liveness call,
+      // which starts nothing, and Unity's own play state over Pipeline (a socket, no blocking); an editor that is gone,
+      // or a pid that cannot be checked, takes the full pass. A Stop made in Unity also ends the stream, and with it Play.
+      const alive = this.options.alive ?? processAlive
+      const playing = [...this.instances.values()].filter(i => i.launch && i.state === 'playing' && !this.operations.has(i.project) && alive(i.launch.pid))
+      for (const i of playing) {
+        try { await this.serial(i.project, async () => { if (i.launch && i.state === 'playing') await this.syncPlayMode(i) }) } catch (e) { this.fault(i, e) }
+      }
+      const due = [...this.instances.values()].filter(i => i.launch && !this.operations.has(i.project) && !playing.includes(i))
+      if (!due.length) return
       const procs = await this.system.list()
-      for (const i of this.instances.values()) {
+      for (const i of due) {
         if (!i.launch || this.operations.has(i.project)) continue
         // The periodic validity check: a source removed outside Genio's cleanup (or a deleted branch) shows too.
         if (i.source && !i.sourceGone && await sourceMissing(i.project, i.source)) { i.sourceGone = this.gone(i.source, 'running'); this.save(i) }
@@ -848,19 +902,20 @@ export class PlayerInstanceService {
           if (workingSet > 0 && ['playing', 'paused', 'ready'].includes(i.state)) { i.steadyWorkingSet = i.sampled ? Math.max(i.steadyWorkingSet ?? 0, workingSet) : workingSet; i.sampled = true }
           const watched = await inspectDesktop(this.desktop, i.launch, { now: this.system.now() })
           if (watched.blocked) { this.local(i).stopStream(); i.dialog = watched.blocked; this.state(i, 'stuck-dialog', watched.blocked.message); if (i.stoppedAt === undefined) await this.idle(i) }
-          else if (i.state === 'playing' || i.state === 'paused') {
-            // A pause or stop made in Unity itself shows here.
-            try {
-              const { playMode } = await this.local(i).request<{ playMode?: string }>('editor_status')
-              if ((playMode === 'playing' || playMode === 'paused') && playMode !== i.state) this.state(i, playMode)
-              else if (playMode === 'stopped') { this.local(i).stopStream(); this.state(i, 'ready'); await this.idle(i) }
-            } catch { /* Busy or reloading; the next poll asks again. */ }
-          }
+          else if (i.state === 'playing' || i.state === 'paused') await this.syncPlayMode(i)
           if (i.deadline !== undefined && i.deadline <= this.system.now()) await this.close(i, 'idle timeout')
           else this.save(i)
         }) } catch (e) { this.fault(i, e) }
       }
     } finally { this.polling = false }
+  }
+  /** A pause or stop made in Unity itself shows here. */
+  private async syncPlayMode(i: Instance) {
+    try {
+      const { playMode } = await this.local(i).request<{ playMode?: string }>('editor_status')
+      if ((playMode === 'playing' || playMode === 'paused') && playMode !== i.state) this.state(i, playMode)
+      else if (playMode === 'stopped') { this.local(i).stopStream(); this.state(i, 'ready'); await this.idle(i) }
+    } catch { /* Busy or reloading; the next poll asks again. */ }
   }
   async machine(world: string): Promise<PlayerMachineStatus> {
     this.project(world)
@@ -912,7 +967,7 @@ export class PlayerInstanceService {
   /** Cancel starts and maintenance now; close editors in parallel, keeping their copies. */
   async shutdown() {
     this.exiting = true; clearInterval(this.timer); clearInterval(this.cleanupTimer); this.unlisten()
-    for (const i of this.instances.values()) this.quietStart(i)
+    for (const i of this.instances.values()) { this.quietStart(i); this.liveMarker(i) }
     for (const i of this.instances.values()) { this.cancel(i.project); this.runtimes.get(i.project)?.stopStream() }
     await Promise.allSettled([...this.instances.values()].map(i => this.serial(i.project, () => this.close(i, 'Genio exit'))))
   }

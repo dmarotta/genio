@@ -6,6 +6,7 @@ import * as pty from 'node-pty'
 import type { TerminalInfo } from '@shared/types'
 import { createActivityMeter, type ActivityMeter } from '@shared/unit-activity'
 import type { AppCtx, CreateTerminalOpts, TerminalService } from './services'
+import { PRIORITY, playIsLive, setProcessPriority } from '../../resources/unit-skills/genio/lib/play-live.mjs'
 import { bus } from './bus'
 import { rid, stripAnsi, which } from './util'
 
@@ -29,6 +30,8 @@ interface Term {
   /** a unit's sustained work-like output (idle chrome excluded) */
   meter?: ActivityMeter
   workPublishedAt?: number
+  /** this shell's priority was lowered for a live Play (and is restored when it ends) */
+  lowered?: boolean
   dataFns: Set<(d: string) => void>
   exitFns: Set<(code: number) => void>
 }
@@ -123,7 +126,18 @@ export function createTerminalService(getCtx: () => AppCtx): TerminalService {
     }
   }
 
+  const liveNow = (): boolean => { try { return playIsLive(getCtx().main.home.data) } catch { return false } }
+  /** Only a unit's shell this service started: its pid is the one node-pty returned. Best effort, never throws. */
+  const lower = (t: Term, low: boolean): void => {
+    if (!t.proc || (low ? t.lowered : !t.lowered)) return
+    if (setProcessPriority(t.proc.pid, low ? PRIORITY.belowNormal : PRIORITY.normal)) t.lowered = low
+  }
+
   const svc: TerminalService = {
+    background(low) {
+      for (const t of terms.values()) if (t.info.kind === 'worker') lower(t, low)
+    },
+
     create(opts: CreateTerminalOpts): TerminalInfo {
       const id = `${opts.kind}-${rid(4)}`
       const cols = opts.cols ?? 120
@@ -164,6 +178,8 @@ export function createTerminalService(getCtx: () => AppCtx): TerminalService {
           ...(process.platform === 'win32' ? { useConpty: true } : {})
         } as pty.IPtyForkOptions)
         t.proc = proc
+        // A unit started while a Play is live runs below normal until the Play ends (its children inherit the class).
+        if (opts.kind === 'worker' && liveNow()) lower(t, true)
         t.info.pid = proc.pid
         t.info.processStartedAt = processStartedAt
         t.info.processSpawnedAt = Date.now()

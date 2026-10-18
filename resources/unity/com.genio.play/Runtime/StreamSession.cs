@@ -33,6 +33,7 @@ namespace Genio.Play
         bool step;
         string latestInput;
         bool oldBackground;
+        int oldTargetFrameRate, oldVSync;
         float inputAt;
         int width, height;
 
@@ -51,6 +52,10 @@ namespace Genio.Play
             current.width = width; current.height = height; current.genioPid = genioPid;
             current.oldBackground = Application.runInBackground;
             Application.runInBackground = true;
+            // The stream carries 60 pictures a second: hold the editor to that instead of rendering unthrottled (uneven steps, a busy GPU).
+            current.oldTargetFrameRate = Application.targetFrameRate; current.oldVSync = QualitySettings.vSyncCount;
+            QualitySettings.vSyncCount = 0;
+            Application.targetFrameRate = CappedFrameRate(current.oldTargetFrameRate);
             current.cancel = new CancellationTokenSource();
             current.socket = new ClientWebSocket();
             current.socket.Options.SetRequestHeader("Authorization", "Bearer " + token);
@@ -59,6 +64,9 @@ namespace Genio.Play
             StartAudio?.Invoke(current);
             return "Connecting";
         }
+
+        /// The frame rate held while streaming: 60, unless the project asks for less (a cap of 1-59 stays, 0 means none and a higher cap is cut to 60).
+        public static int CappedFrameRate(int projectTarget) => projectTarget > 0 && projectTarget < 60 ? projectTarget : 60;
 
         [CliCommand("genio_stream_stop", "Disconnect Genio and release virtual input", MainThreadRequired = true)]
         public static string StopStream()
@@ -209,6 +217,7 @@ namespace Genio.Play
             if (target != null) { Destroy(target); target = null; }
             if (screen != null) { Destroy(screen); screen = null; }
             ReleaseInput?.Invoke(); Application.runInBackground = oldBackground;
+            Application.targetFrameRate = oldTargetFrameRate; QualitySettings.vSyncCount = oldVSync;
             cancel = null;
             if (current == this) current = null;
         }

@@ -11,6 +11,7 @@ import { PlayerCopies, PLAYER_COPY_CLEANUP_INTERVAL_MS, PLAYER_COPY_MAX_AGE_MS }
 import type { DesktopApi, DesktopWindow } from '../resources/unit-skills/genio/lib/hidden-desktop.mjs'
 import { sourceLeases, sourceRemoved, yieldSource } from '../src/main/source-leases'
 import { playStarts, waitForQuiet } from '../resources/unit-skills/genio/lib/quiet-start.mjs'
+import { PRIORITY, livePlays } from '../resources/unit-skills/genio/lib/play-live.mjs'
 
 // Real mirrors in disposable repositories; every process, desktop and Pipeline action is fake.
 // Real git and file copies are slow under a loaded full-suite run.
@@ -27,6 +28,10 @@ let commit: number | undefined, usage: MemoryProcess[], slots: { label: string; 
 let beforeLaunch: (() => void) | undefined, onCommand: ((command: string) => void) | undefined
 /** The fast-path hooks the service gave the last runtime it made. */
 let runtimeGpu: RuntimeGpu | undefined
+/** Every priority the service set (pid, class); the real os.setPriority is never reached from a test. */
+let priorities: [number, number][], background: boolean[]
+/** The liveness check the poll uses for a playing editor: false (the full pass) unless a test says otherwise. */
+let isAlive: (pid: number) => boolean
 const GiB = 2 ** 30
 const services: PlayerInstanceService[] = []
 function project(name: string) {
@@ -40,7 +45,7 @@ function project(name: string) {
   projects.set(name, { path: root, engine: 'unity' }); return root
 }
 function service(extra: Partial<PlayerInstanceOptions> = {}) {
-  const r = new PlayerInstanceService(ctx, { copies, system, desktop, ownerCreated: async () => '100', executable: () => { beforeLaunch?.(); return installed ? 'FakeUnity.exe' : undefined }, graceMs: 500, forceMs: 500, readyMs: 2000, idleSlots: async () => slots,
+  const r = new PlayerInstanceService(ctx, { copies, system, desktop, ownerCreated: async () => '100', executable: () => { beforeLaunch?.(); return installed ? 'FakeUnity.exe' : undefined }, graceMs: 500, forceMs: 500, readyMs: 2000, idleSlots: async () => slots, setPriority: (pid, priority) => { priorities.push([pid, priority]) }, alive: pid => isAlive(pid),
     runtime: (root, _pid, gpu) => (runtimeGpu = gpu, {
       async request(command: string, parameters?: object) {
         events.push(command)
@@ -86,7 +91,8 @@ beforeEach(() => {
     }), windows: async () => dialogs, close: vi.fn(async () => false), click: vi.fn(async () => true), screenshot: async (_d, file) => { write(file, 'fake-png'); return file }
   }
   copies = new PlayerCopies(data, { env, statfs: async () => ({ bavail: 100n * BigInt(GiB), bsize: 1n, blocks: 200n * BigInt(GiB) }), system: { alive: pid => pid === process.pid || processes.some(p => p.pid === pid), created: async pid => pid === process.pid ? '100' : processes.find(p => p.pid === pid)?.created ?? '' } })
-  ctx = { appRoot: process.cwd(), main: { home: { data } }, projects: { get: (name: string) => projects.get(name) }, stats: { unlock: vi.fn() } } as unknown as AppCtx
+  priorities = []; background = []; isAlive = () => false
+  ctx = { appRoot: process.cwd(), main: { home: { data } }, terminals: { background: (low: boolean) => { background.push(low) } }, projects: { get: (name: string) => projects.get(name) }, stats: { unlock: vi.fn() } } as unknown as AppCtx
   project('A'); svc = service()
 })
 afterEach(async () => {
@@ -799,4 +805,47 @@ describe('the GPU stream\'s editor', () => {
     expect(commands()).toHaveLength(2); expect(commands()[1]).not.toContain('-force-d3d11')
     expect(runtimeGpu?.fast()).toBe(false)
   })
+})
+it('raises only the editor Genio launched to above normal priority, once, and restores nothing', async () => {
+  const first = await svc.play('A', source())
+  expect(priorities).toEqual([[first.pid, PRIORITY.aboveNormal]])
+  await svc.stop('A'); await svc.play('A', source())
+  expect(priorities).toHaveLength(1)
+})
+it('marks a Play live from entering Play to its end and drops the units\' shells meanwhile', async () => {
+  let seen: number[] = []
+  onCommand = command => { if (command === 'editor_play') seen = [livePlays(data).length, background.length] }
+  await svc.play('A', source())
+  expect(seen).toEqual([1, 1]); expect(livePlays(data)).toHaveLength(1); expect(background).toEqual([true])
+  await svc.stop('A')
+  expect(livePlays(data)).toHaveLength(0); expect(background).toEqual([true, false])
+})
+it('does not list processes, watch the desktop or write files for a playing editor that is alive', async () => {
+  const first = await svc.play('A', source())
+  const record = path.join(copies.dir, copies.keyOf(projects.get('A')!.path), 'player.json'), before = fs.statSync(record).mtimeMs
+  const alive = vi.fn(() => true); isAlive = alive
+  const list = vi.spyOn(system, 'list'), windows = vi.spyOn(desktop, 'windows')
+  await new Promise(r => setTimeout(r, 20)); await svc.poll()
+  expect(alive).toHaveBeenCalledWith(first.pid)
+  expect(list).not.toHaveBeenCalled(); expect(windows).not.toHaveBeenCalled(); expect(fs.statSync(record).mtimeMs).toBe(before)
+  expect(svc.status('A').state).toBe('playing')
+})
+it('still notices a Stop made in Unity and an editor that is gone while playing', async () => {
+  const root = (await svc.play('A', source())).root!
+  isAlive = () => true
+  const list = vi.spyOn(system, 'list')
+  modes.set(root, 'stopped'); await svc.poll()
+  expect(svc.status('A').state).toBe('ready'); expect(list).not.toHaveBeenCalled()
+  await svc.play('A', source())
+  isAlive = () => false; processes = []; await svc.poll()
+  expect(svc.status('A').state).toBe('crashed')
+})
+it('reads whether the project takes streamed input once per copy', async () => {
+  const first = await svc.play('A', source())
+  expect(svc.status('A').capabilities?.input).toBe(true)
+  write(path.join(first.root!, 'ProjectSettings/ProjectSettings.asset'), 'activeInputHandler: 0\n')
+  expect(svc.status('A').capabilities?.input).toBe(true)
+  write(path.join(source().path, 'ProjectSettings/ProjectSettings.asset'), 'activeInputHandler: 0\n')
+  await svc.stop('A'); await svc.play('A', source())
+  expect(svc.status('A').capabilities?.input).toBe(false)
 })

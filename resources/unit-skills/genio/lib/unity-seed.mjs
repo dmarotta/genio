@@ -5,6 +5,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { seedTree } from '../skills/play/scripts/clone.mjs'
 import { missingSubmodules } from './git-submodules.mjs'
+import { lowWhileLive } from './play-live.mjs'
 const exec = promisify(execFile)
 // PackageCache is seeded: UPM resolves from it without the network. Withheld, a copy without registry access (or with a
 // slow one) sits in Package Manager until Unity gives up after 60 seconds and quits.
@@ -76,7 +77,9 @@ export async function cloneOrCopyLibrary(source, dest, options = {}) {
  * A 16-thread robocopy of a whole tree that never copies junctions or symlinks (/XJ). Robocopy uses codes
  * 0–7 for success; 8 and above (and launch errors) are failures.
  */
-export async function robocopyTree(source, dest, { run = exec, excludeDirs = [], excludeFiles = [], label = 'robocopy' } = {}) {
+export async function robocopyTree(source, dest, { run: runner = exec, data, excludeDirs = [], excludeFiles = [], label = 'robocopy' } = {}) {
+  // While a Play is live the copy runs at below-normal priority, so it does not take the CPU from the editor (play-live.mjs).
+  const run = lowWhileLive(data, runner)
   const args = [source, dest, '/E', '/MT:16', '/XJ', '/R:1', '/W:1', '/COPY:DAT', '/DCOPY:DAT', '/NP', '/NFL', '/NDL', '/NJH', '/NJS',
     ...excludeDirs.length ? ['/XD', ...excludeDirs] : [], ...excludeFiles.length ? ['/XF', ...excludeFiles] : []]
   try { await run('robocopy.exe', args, { windowsHide: true, maxBuffer: 4 * 1024 * 1024 }) }
@@ -86,12 +89,12 @@ export async function robocopyTree(source, dest, { run = exec, excludeDirs = [],
   return 'robocopy'
 }
 
-export async function copyLibrary(source, dest, { platform = process.platform, run = exec } = {}) {
+export async function copyLibrary(source, dest, { platform = process.platform, run = exec, data } = {}) {
   if (platform !== 'win32') {
     await fs.promises.cp(source, dest, { recursive: true, filter: async p => !excluded(path.basename(p), (await fs.promises.lstat(p)).isDirectory()) })
     return 'fs.cp'
   }
-  return robocopyTree(source, dest, { run, excludeDirs: SKIP_DIRS, excludeFiles: ['EditorInstance.json', '*-lock'], label: 'Library robocopy' })
+  return robocopyTree(source, dest, { run, data, excludeDirs: SKIP_DIRS, excludeFiles: ['EditorInstance.json', '*-lock'], label: 'Library robocopy' })
 }
 
 /**

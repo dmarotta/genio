@@ -23,6 +23,17 @@ describe('com.genio.play GPU stream', () => {
     expect(session).toContain('StartAudio?.Invoke(current);')
     expect(session).toContain('EncodeArrayToJPG(pixels, GraphicsFormat.R8G8B8A8_UNorm, (uint)width, (uint)height, 0, 75)')
   })
+  it('holds the editor to 60 fps while a session runs, keeps a lower project cap, and restores both settings at its end', () => {
+    const session = read('Runtime/StreamSession.cs')
+    expect(session).toContain('public static int CappedFrameRate(int projectTarget) => projectTarget > 0 && projectTarget < 60 ? projectTarget : 60;')
+    expect(session).toContain('current.oldTargetFrameRate = Application.targetFrameRate; current.oldVSync = QualitySettings.vSyncCount;')
+    expect(session).toContain('QualitySettings.vSyncCount = 0;')
+    expect(session).toContain('Application.targetFrameRate = CappedFrameRate(current.oldTargetFrameRate);')
+    expect(session).toContain('Application.targetFrameRate = oldTargetFrameRate; QualitySettings.vSyncCount = oldVSync;')
+    // The same rule as the C#: 0 (none) and anything above 60 become 60; 1-59 stays.
+    const cap = (n: number) => n > 0 && n < 60 ? n : 60
+    expect([0, -1, 30, 59, 60, 144].map(cap)).toEqual([60, 60, 30, 59, 60, 60])
+  })
   it('writes the messages main parses: GR v2 with a 40-byte header, GF v1 of 32 bytes, GX v1 of 4', () => {
     const frames = read('Runtime/GpuFrames.cs')
     expect(frames).toContain("m[0] = (byte)'G'; m[1] = (byte)'R'; m[2] = 2; m[3] = Slots;")

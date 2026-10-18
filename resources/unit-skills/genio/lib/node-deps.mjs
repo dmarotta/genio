@@ -10,6 +10,7 @@ import { spawn } from 'node:child_process'
 import { pluginFile } from './resource-path.mjs'
 import { seedTree } from '../skills/play/scripts/clone.mjs'
 import { robocopyTree } from './unity-seed.mjs'
+import { PRIORITY, playIsLive, setProcessPriority } from './play-live.mjs'
 
 export const DEPS_RULE = "node_modules in a unit worktree is private to it: never link, junction or move it, and never touch the main checkout's."
 export const LOCKFILES = ['package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml', 'yarn.lock']
@@ -275,16 +276,18 @@ export async function copyNodeModules(source, dest, { platform = process.platfor
     return { method: 'fs.cp' }
   }
   let copied
-  const clone = await seedTree(source, dest, { data, system, fallback: async () => { copied = await robocopyTree(source, dest, { run, label: 'node_modules robocopy' }) } })
+  const clone = await seedTree(source, dest, { data, system, fallback: async () => { copied = await robocopyTree(source, dest, { run, data, label: 'node_modules robocopy' }) } })
   return { method: clone.method === 'clone' ? `clone:${clone.via}` : copied ?? 'clone-refused-copy', reason: clone.reason }
 }
 
 /** `npm ci --prefer-offline` in dir only, through the platform shell (npm is a .cmd on Windows). */
-export function npmCi(dir, { timeoutMs = 20 * 60_000 } = {}) {
+export function npmCi(dir, { timeoutMs = 20 * 60_000, data } = {}) {
   return new Promise(resolve => {
     const line = 'npm ci --prefer-offline --no-audit --no-fund'
     const win = process.platform === 'win32'
     const child = spawn(win ? 'cmd.exe' : '/bin/sh', win ? ['/d', '/s', '/c', line] : ['-c', line], { cwd: dir, windowsHide: true, env: { ...process.env, npm_config_yes: 'false' } })
+    // While a Play is live the install runs at below-normal priority (play-live.mjs); its children inherit it.
+    try { if (data && playIsLive(data)) setProcessPriority(child.pid, PRIORITY.belowNormal) } catch { /* best effort */ }
     let tail = ''
     const keep = d => { tail = (tail + d.toString('utf8')).slice(-4000) }
     child.stdout.on('data', keep); child.stderr.on('data', keep)
@@ -338,7 +341,7 @@ export async function setupNodeModules(worktree, main, options = {}) {
     return done({ state: 'skipped', reason: own ? `${own.file} needs its own package manager: install in the worktree yourself` : 'no lockfile: run npm install in the worktree yourself',
       ...copyFailure && { copyFailure }, ...repaired && { repaired: repaired.path } })
   }
-  const result = await (options.install ?? npmCi)(worktree)
+  const result = await (options.install ?? npmCi)(worktree, { data: options.data })
   if (result.code !== 0) return done({ state: 'failed', method: 'npm ci', reason: `npm ci exited ${result.code}: ${String(result.output ?? '').trim().slice(-600)}`, ...copyFailure && { copyFailure } })
   return done({ state: 'ready', method: 'npm ci', ...copyFailure && { copyFailure }, ...repaired && { repaired: repaired.path } })
 }

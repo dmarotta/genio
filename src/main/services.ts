@@ -116,6 +116,11 @@ export interface TerminalService {
   onExit(id: string, fn: (code: number) => void): () => void
   /** every terminal's output (index.ts batches this to the renderer on 'genio:term-data') */
   onAnyData(fn: (id: string, data: string) => void): () => void
+  /**
+   * A Play is live (true) or over (false): the shells of units run at below-normal priority meanwhile, and at normal
+   * again after. Only the shells this service started for units; never a pane, a login or any other process.
+   */
+  background?(low: boolean): void
 }
 
 export interface AwayService {

@@ -397,7 +397,9 @@ How the live game reaches Play on Windows: when the project and the computer all
 editor on DirectX 11 and shows each frame straight from the graphics card, at up to 60 fps and about 2 ms behind the
 game. A project that needs DirectX 12, a laptop with two graphics chips, or any problem with the shared frames uses the
 JPEG stream instead (up to 30 fps), without stopping the game. Automatic, with no setting; the first Play on DirectX 11
-compiles the project's shaders once, while Unity starts. Genio's log names the path in use.
+compiles the project's shaders once, while Unity starts. While a Play is live Genio holds Unity to 60 fps, gives the hidden
+editor priority and runs its own background work (unit shells, file copies) at lower priority; nothing is shown. Genio's
+data folder keeps a small `play-stream.log` naming the path in use, any fallback reason and the longest stall.
 Where: Play, automatically.
 Source: [play.md](../play.md), [play-gpu-stream.md](../play-gpu-stream.md), [player-instance.md](../player-instance.md)
 

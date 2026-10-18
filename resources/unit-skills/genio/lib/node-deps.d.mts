@@ -16,7 +16,7 @@ export interface SetupOptions {
   data?: string
   system?: Partial<CloneSystem>
   copy?: (source: string, dest: string, options: SetupOptions) => Promise<{ method: string }>
-  install?: (dir: string) => Promise<{ code: number; output?: string }>
+  install?: (dir: string, options?: { data?: string }) => Promise<{ code: number; output?: string }>
   progress?: (r: { state: 'installing'; method: string; waiting?: string }) => void
   /** Quiet start: waited on before the copy or npm ci; onWait runs when a Play start makes it wait. */
   quiet?: (onWait?: () => void) => Promise<QuietWait>
@@ -37,5 +37,5 @@ export interface GenioInstallReport extends InstallCheck { linked: WorktreeLink[
 export function genioWorktreeRoots(homeRoot: string): string[]
 export function genioInstallReport(appRoot: string, homeRoot?: string): GenioInstallReport
 export function copyNodeModules(source: string, dest: string, options?: SetupOptions): Promise<{ method: string; reason?: string }>
-export function npmCi(dir: string, options?: { timeoutMs?: number }): Promise<{ code: number; output: string }>
+export function npmCi(dir: string, options?: { timeoutMs?: number; data?: string }): Promise<{ code: number; output: string }>
 export function setupNodeModules(worktree: string, main: string, options?: SetupOptions): Promise<DepsReport>

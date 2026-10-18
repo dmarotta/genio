@@ -219,13 +219,13 @@ describe('private node_modules setup', () => {
     const copy = vi.fn()
     fs.writeFileSync(path.join(worktree, 'package-lock.json'), '{"lockfileVersion":3,"changed":true}')
     expect(await setupNodeModules(worktree, main, { install, copy })).toMatchObject({ state: 'ready', method: 'npm ci' })
-    expect(install).toHaveBeenCalledWith(worktree)
+    expect(install).toHaveBeenCalledWith(worktree, { data: undefined })
     expect(copy).not.toHaveBeenCalled()
     fs.writeFileSync(path.join(worktree, 'package-lock.json'), fs.readFileSync(path.join(main, 'package-lock.json')))
     fs.rmSync(path.join(main, 'node_modules', '.bin'), { recursive: true })
     install.mockClear()
     expect(await setupNodeModules(worktree, main, { install, copy })).toMatchObject({ state: 'ready', method: 'npm ci', copyFailure: expect.stringContaining('.bin') })
-    expect(install).toHaveBeenCalledWith(worktree)
+    expect(install).toHaveBeenCalledWith(worktree, { data: undefined })
   })
 
   it('skips a worktree without package.json and keeps an existing real node_modules', async () => {

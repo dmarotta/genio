@@ -377,6 +377,19 @@ The D3D shared texture was then built as Play's fast path, with the JPEG stream 
 
 "Before" is the JPEG stream as it ships (and as it still runs for projects that need Direct3D 12): readback, encode at quality 75, 30 fps cadence, one frame in flight. "After" draws twice the frames for about the same Electron CPU, and takes the 1080p encode off the editor.
 
+#### Play streaming under load (2026-10-18)
+
+A Recon ("why Play streams worse now") measured Genio's own Play pipeline end to end on a throwaway copy of a real project (13 runs, one machine). Nothing in the stream path had regressed: quiet, Play streams 60 fps, p99 24 ms on the GPU path. It broke beside other work, which is what the evening was (a `node_modules` copy, `typecheck` and a full `vitest` ran during the Play):
+
+| Window (stream fps / interval p99 / new picture per refresh) | before | measured with the fix |
+|---|---|---|
+| quiet | 60-63 / 21-25 ms / 90-98% | step jitter 3.1-4.4 → 0.5 ms with the 60 fps hold; GPU 60 → 40%, 186 → 103 W, 83 → 72 °C |
+| `vitest run` beside Play | 44-47 / 50 ms / 69-73% | 53 fps with units' shells below normal |
+| 16 busy processes | 34-39 / 85-88 ms / 49-52% | 63-65 fps with a below-normal load or an above-normal editor |
+| 16-thread copy burst | stalls of 1.6, 1.8, 2.7, 4.2, 9.8 and 27 s | 0.34-0.38 s with no poll while playing |
+
+Causes: CPU saturation starved the hidden editor (it needs about 1.4 cores and got 0.7-0.8); the 5 s `poll()` (two PowerShell spawns, a desktop watch, file writes) blocked the main thread, which carries every frame, for seconds when the disk was busy; the editor rendered uncapped. The fixes are in [player-instance.md](player-instance.md#live-play-priorities-and-a-quiet-main-thread). The table's right column is from the Recon's experiments with the same changes; the committed code was checked by unit tests (priority helpers over a fake process list, the poll skipped while playing, the cap rule, the log).
+
 ### Left alone, and why
 
 - **The unit page still spends about 5 s of renderer CPU in the tour.** xterm's
