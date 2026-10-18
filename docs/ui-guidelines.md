@@ -72,6 +72,10 @@ are 2026-10-17 unless a commit says otherwise.
 
 On main now:
 
+- **The past-session cleanup controls in Settings > System**: Preview, Hide and Undo,
+  their confirmations and progress display. New work uses Genio's provider homes;
+  legacy sessions and Claude's fallback are documented in [codex-sessions.md](codex-sessions.md).
+
 - **Chat expense labels** in the title bar and on messages (`2012b04`, "Remove chat expense
   labels from title bar and messages"). The player did not need a running cost beside every
   reply to chat well.

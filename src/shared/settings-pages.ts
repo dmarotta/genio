@@ -42,7 +42,7 @@ export const SETTINGS_PAGES: SettingsPage[] = [
   { id: 'units', label: 'Units', group: 'genio', synonyms: ['Genio', 'Brief additions'] },
   { id: 'play', label: 'Unity & Play', group: 'genio', unity: true, synonyms: ['Your Play instance'] },
   { id: 'inbox', label: 'Inbox & automation', group: 'genio', synonyms: ['Mail & replay', 'Mail', 'Triggers'] },
-  { id: 'system', label: 'System', group: 'genio', synonyms: ['Loadout', 'Explorer', 'Patch', 'Maintenance', 'Housekeeping'] },
+  { id: 'system', label: 'System', group: 'genio', synonyms: ['Loadout', 'Explorer', 'Patch'] },
   { id: 'dispatch', label: 'Model routing', group: 'advanced', term: 'Dispatch', synonyms: ['Dispatch'] },
   { id: 'harnesses', label: 'Agent tools', group: 'advanced', term: 'Harnesses', synonyms: ['Harnesses'] }
 ]
@@ -58,7 +58,6 @@ export const SETTINGS_PARTS: Record<string, { label: string; term?: string }> = 
   'settings-tools': { label: 'Installed tools', term: 'Loadout' },
   'settings-explorer': { label: 'Windows integration' },
   'settings-updates': { label: 'Updates', term: 'Patch' },
-  'settings-maintenance': { label: "Genio's past sessions" },
   'settings-api-keys': { label: 'API keys' }
 }
 
@@ -80,7 +79,6 @@ export const SETTINGS_ALIASES: Record<string, { page: SettingsPageId; anchor?: s
   toolchain: { page: 'system', anchor: 'settings-tools' },
   explorer: { page: 'system', anchor: 'settings-explorer' },
   patch: { page: 'system', anchor: 'settings-updates' },
-  maintenance: { page: 'system', anchor: 'settings-maintenance' },
   'project-commands': { page: 'project', anchor: 'settings-commands' },
   gauntlet: { page: 'project-delivery' },
   overwatch: { page: 'units' }
@@ -95,8 +93,7 @@ export const SETTINGS_ANCHOR_PAGES: Record<string, SettingsPageId> = {
   'settings-triggers': 'inbox',
   'settings-tools': 'system',
   'settings-explorer': 'system',
-  'settings-updates': 'system',
-  'settings-maintenance': 'system'
+  'settings-updates': 'system'
 }
 
 export const isSettingsPageId = (id: string): id is SettingsPageId => SETTINGS_PAGES.some((p) => p.id === id)

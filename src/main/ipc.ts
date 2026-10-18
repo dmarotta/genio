@@ -37,7 +37,6 @@ import { clearSecret, secretStatus, setSecret } from './secrets'
 import { mcpServerViews, removeMcpServer, saveMcpServer } from './mcp-servers'
 import { checkMcpSignIn, mcpSignIn, mcpSignOut } from './mcp-signin'
 import { usageReport } from './usage'
-import { sessionCleanupPreview, sessionCleanupProgress, sessionCleanupRun, sessionCleanupUndo } from './session-migration'
 import type { AppCtx, HomeCtx } from './services'
 import type { DesignChatService } from './design-chats'
 import { ownsDecision } from '@shared/decisions'
@@ -358,12 +357,6 @@ export function registerIpc(getCtx: () => AppCtx, windows?: IpcWindows): void {
       mcpSignOut(String(id), ctx().main.home.data)
       return mcpServerViews(ctx().main.home.data)
     },
-    // Housekeeping runs only from these Settings clicks, never automatically.
-    sessionCleanupPreview: () => sessionCleanupPreview(ctx()),
-    sessionCleanupRun: (keys) => sessionCleanupRun(ctx(), Array.isArray(keys) ? keys.map(String) : []),
-    sessionCleanupProgress: () => sessionCleanupProgress(),
-    sessionCleanupUndo: () => sessionCleanupUndo(ctx()),
-
     // Per-world generation settings; generation itself is driven by agent tools.
     falWorld: (world) => ctx().fal.world(world),
     falWorldConfig: (world, config) => ctx().fal.saveWorldConfig(world, config),

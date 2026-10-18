@@ -39,7 +39,7 @@ const PAGE_WORDS: Partial<Record<SettingsPageId, string[]>> = {
   units: ['Permissions', 'Quests'],
   play: ['Play editor', 'Unity'],
   inbox: ['Notes', 'Phone'],
-  system: ['Updates', 'Installed tools', 'Install', 'Windows', 'Past sessions', 'Codex app', 'Claude app'],
+  system: ['Updates', 'Installed tools', 'Install', 'Windows'],
   dispatch: ['Category table', 'Rules'],
   harnesses: ['CLI', 'Claude Code']
 }
@@ -101,8 +101,7 @@ const ROWS: Partial<Record<SettingsPageId, RowSpec[]>> = {
     ['Installed tools', ['Loadout', 'Toolchain', 'Rescan'], 'settings-tools'],
     ['Windows integration', ['Explorer', 'Context menu'], 'settings-explorer'],
     ['Open with Genio', ['Explorer menu']],
-    ['Updates', ['Patch', 'Check for updates', 'Update and restart', 'Check for patch', 'Apply patch'], 'settings-updates'],
-    ["Genio's past sessions", ["Hide Genio's past sessions from the Codex and Claude apps", 'Housekeeping', 'Maintenance', 'Archive sessions', 'Undo'], 'settings-maintenance']
+    ['Updates', ['Patch', 'Check for updates', 'Update and restart', 'Check for patch', 'Apply patch'], 'settings-updates']
   ],
   dispatch: [['Learn the order automatically', ['Auto reorder', 'Learning']]],
   harnesses: [

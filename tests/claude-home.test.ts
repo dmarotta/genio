@@ -169,7 +169,7 @@ describe('resume', () => {
     transcript(player, cwd, 'old-chat')
     expect(await claudeLaunch({ cwd })).toMatchObject({ env: {}, isolated: false, configFile: path.join(player, '.claude.json') })
     expect((await claudeLaunch({ sessionId: 'old-chat' })).env).toEqual({})
-    // once the conversation is in Genio's home (build 3 moves it there), it resumes there
+    // Once the conversation is in Genio's home, it resumes there.
     transcript(genio, cwd, 'old-chat')
     expect((await claudeLaunch({ cwd })).isolated).toBe(true)
     expect((await claudeLaunch({ sessionId: 'old-chat' })).isolated).toBe(true)

@@ -486,7 +486,7 @@ Source: [project-setup.md](../project-setup.md)
 
 Settings has three groups. This project: General (with the build and test commands), Delivery, Asset generation,
 Unity slots. All projects: General (with notifications and away alerts), Usage & limits, Accounts & keys, Memory,
-Units, Unity & Play, Inbox & automation, System (with hiding Genio's past sessions from the Codex and Claude apps).
+Units, Unity & Play, Inbox & automation, System.
 Advanced: Model routing (Dispatch), Agent tools (Harnesses). To remove a project from Genio, use the bin icon beside
 it in the Hub's project list, or ask Genio. It only takes the project off the list and keeps your folder; for a clone
 Genio made you can choose to delete the clone too.

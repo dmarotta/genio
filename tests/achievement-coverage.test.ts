@@ -54,12 +54,12 @@ const SETTINGS_PAGE_ACHIEVEMENTS: Record<string, string> = {
   dispatch: 'none: advanced tuning',
   harnesses: 'mcp-call'
 }
-// Settings pages removed by the UI trim (2026-10-17), and why; no achievement was earned on any of them.
-// Their ids still open a page through SETTINGS_ALIASES in src/shared/settings-pages.ts.
+// Retired Settings pages and why; no achievement was earned on any of them.
+// Their ids still open a page through SETTINGS_ALIASES in src/shared/settings-pages.ts, unless the feature was removed.
 const RETIRED_SETTINGS_PAGES: Record<string, string> = {
   'project-commands': 'merged into This project › General',
   notifications: 'merged into All projects › General',
-  maintenance: 'merged into System',
+  maintenance: 'session cleanup removed; new sessions use isolated provider homes and no achievement was earned here',
   gauntlet: 'its review model and fix rounds are fixed defaults now',
   overwatch: 'its polling and lag timings are fixed defaults now'
 }
@@ -218,7 +218,8 @@ describe('achievement feature coverage', () => {
     }
     for (const id of Object.keys(RETIRED_SETTINGS_PAGES)) {
       expect(SETTINGS_PAGES.some((p) => p.id === id), `${id} is retired`).toBe(false)
-      expect(SETTINGS_ALIASES[id], `${id} still opens a page`).toBeDefined()
+      if (id === 'maintenance') expect(SETTINGS_ALIASES[id], 'removed cleanup has no destination').toBeUndefined()
+      else expect(SETTINGS_ALIASES[id], `${id} still opens a page`).toBeDefined()
     }
   })
   it('points every feature tag at something live, or retires it', () => {

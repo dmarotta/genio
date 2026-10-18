@@ -15,7 +15,6 @@ const f = vi.hoisted(() => {
     toolchain: async () => [],
     explorerStatus: async () => ({ available: true, installed: false, present: false }),
     checkUpdate: async () => ({ isGitCheckout: true, branch: 'main', behind: 0, ahead: 0, dirty: false, canFastForward: true, incoming: [] }),
-    sessionCleanupProgress: async () => ({ running: false }),
     dispatchScores: async () => null,
     playerInstanceStatus: async () => ({ state: 'idle', project: 'Zebra' }),
     playerInstanceMachine: async () => ({ settings: { idleMinutes: 10, maxEditors: 2 }, playerEditors: 0, unitEditors: 0, batchEditors: 0, totalEditors: 0, workingSetBytes: 0, freeBytes: 0, totalBytes: 0 }),
@@ -63,7 +62,7 @@ const project = (name: string, engine: Project['engine']): Project => ({ name, p
 const OLD_IDS: Record<string, string> = {
   project: 'project', profile: 'general', genio: 'units', units: 'units', overwatch: 'units', gauntlet: 'project-delivery', comms: 'general', alerts: 'general',
   notifications: 'general', mail: 'inbox', memory: 'memory', harnesses: 'harnesses', dispatch: 'dispatch', triggers: 'inbox', toolchain: 'system', accounts: 'accounts',
-  patch: 'system', usage: 'usage', explorer: 'system', maintenance: 'system', 'project-commands': 'project'
+  patch: 'system', usage: 'usage', explorer: 'system', 'project-commands': 'project'
 }
 
 let root: Root
@@ -118,7 +117,6 @@ describe('page registry', () => {
     expect(resolveSettingsPage('project', 'unity-slots')).toEqual({ page: 'project-unity', anchor: 'unity-slots' })
     expect(resolveSettingsPage('patch')).toEqual({ page: 'system', anchor: 'settings-updates' })
     expect(resolveSettingsPage('project-commands')).toEqual({ page: 'project', anchor: 'settings-commands' })
-    expect(resolveSettingsPage('maintenance')).toEqual({ page: 'system', anchor: 'settings-maintenance' })
     expect(resolveSettingsPage('no-such-page').page).toBe('general')
   })
 
@@ -126,7 +124,7 @@ describe('page registry', () => {
     expect(['harnesses', 'dispatch'].map((id) => { const p = settingsPage(id as never); return `${p.label} (${p.term})` }))
       .toEqual(['Agent tools (Harnesses)', 'Model routing (Dispatch)'])
     const findable = SETTINGS_PAGES.flatMap((p) => [p.label, ...(p.synonyms ?? [])])
-    for (const old of ['Gauntlet', 'Triggers', 'Loadout', 'Patch', 'Harnesses', 'Mail & replay', 'Comms & FX', 'Auto-loot', 'Clean HUD', 'Housekeeping', 'Notifications', 'Maintenance', 'Commands']) expect(findable, old).toContain(old)
+    for (const old of ['Gauntlet', 'Triggers', 'Loadout', 'Patch', 'Harnesses', 'Mail & replay', 'Comms & FX', 'Auto-loot', 'Clean HUD', 'Notifications', 'Commands']) expect(findable, old).toContain(old)
   })
 
   it('names Settings paths in one place for the main process', () => {
@@ -156,7 +154,7 @@ describe('page registry', () => {
       'Webhook kind': 'Send away alerts to', Alarm: "If you don't respond", 'Paid spend on cheap models': 'Allow paid OpenRouter spend',
       'Mail HTTP intake': 'Accept notes from scripts and your phone', 'Maximum slots': 'Slots', 'Unity slots for units': 'Slots',
       'Quit after idle': 'Your Play editor', 'Maximum player editors': 'Your Play editor', 'Check for patch': 'Updates',
-      Housekeeping: "Genio's past sessions", 'Build command': 'Commands'
+      'Build command': 'Commands'
     }
     for (const [old, now] of Object.entries(renamed)) {
       const row = SETTINGS_INDEX.find((e) => e.label === now)
@@ -252,9 +250,11 @@ describe('Settings navigation', () => {
     expect(host.textContent).not.toContain('Add custom')
     await open('dispatch')
     expect(host.textContent).not.toContain('Scorecard')
-    await open('maintenance')
+    await open('system')
     expect(active()).toBe('System')
-    expect(host.textContent).toContain('Hide them from the Codex and Claude apps')
+    expect(host.textContent).not.toContain('Hide them from the Codex and Claude apps')
+    expect(host.textContent).not.toContain("Genio's past sessions")
+    expect(f.calls.some(call => call.startsWith('sessionCleanup'))).toBe(false)
   })
 
   it('moves the Play editor settings off the project page and checks for updates only on a click', async () => {
@@ -264,7 +264,7 @@ describe('Settings navigation', () => {
     await open('play')
     expect(host.querySelector('[aria-label="Close your Play editor after (minutes)"]')).not.toBeNull()
     await open('system')
-    expect([...host.querySelectorAll('.sys-subtitle')].map((h) => h.textContent)).toEqual(['Installed tools', 'Windows integration', 'Updates', "Genio's past sessions"])
+    expect([...host.querySelectorAll('.sys-subtitle')].map((h) => h.textContent)).toEqual(['Installed tools', 'Windows integration', 'Updates'])
     expect(host.textContent).not.toContain('C:/genio-base')
     expect(f.calls).not.toContain('checkUpdate')
     await act(async () => [...host.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes('Check for updates'))!.click())
@@ -308,14 +308,17 @@ describe('search index', () => {
   it('finds every old page name and game term on its new page', () => {
     const old: Record<string, string> = {
       Gauntlet: 'project-delivery', Harnesses: 'harnesses', Dispatch: 'dispatch', Loadout: 'system', Patch: 'system', Explorer: 'system', Triggers: 'inbox',
-      'Mail & replay': 'inbox', 'Comms & FX': 'general', Profile: 'general', Alerts: 'general', 'Auto-loot': 'project-delivery', 'Clean HUD': 'general', Housekeeping: 'system',
-      'Your Play instance': 'play', Generation: 'project-assets', Notifications: 'general', Maintenance: 'system'
+      'Mail & replay': 'inbox', 'Comms & FX': 'general', Profile: 'general', Alerts: 'general', 'Auto-loot': 'project-delivery', 'Clean HUD': 'general',
+      'Your Play instance': 'play', Generation: 'project-assets', Notifications: 'general'
     }
     for (const [name, page] of Object.entries(old)) expect(searchSettings(name)[0]?.page, name).toBe(page)
     expect(searchSettings('dispatch')[0]).toMatchObject({ label: 'Model routing', scope: 'Advanced' })
     expect(searchSettings('loadout').map((h) => h.label)).toEqual(expect.arrayContaining(['System', 'Installed tools']))
     expect(searchSettings('auto-loot')[1]).toMatchObject({ label: 'Merge finished work automatically', anchor: settingAnchor('Merge finished work automatically'), scope: 'This project' })
     expect(searchSettings('overwatch')).toEqual([])
+    for (const removed of ["Genio's past sessions", 'Past sessions', 'Housekeeping', 'Maintenance', 'Archive sessions', 'Codex app', 'Claude app']) {
+      expect(searchSettings(removed), removed).toEqual([])
+    }
     expect(searchSettings('Genio').map((h) => h.page)).toContain('units')
   })
 

@@ -11,10 +11,7 @@ import { effectiveEngine } from '@shared/engine'
 import { supportsUnitySlots } from '@shared/play'
 import { REPLY_VOICES } from '@shared/reply-voice'
 import { PlanMeter, useUsagePolicyState } from '../components/PlanMeter'
-import {
-  accountActions, GENIO_CODEX, type AccountStatus, type ApiKeyStatus, type ExplorerStatus, type FalSpend, type SessionCleanupPreview, type SessionCleanupProgress,
-  type SessionCleanupResult
-} from '@shared/api'
+import { accountActions, GENIO_CODEX, type AccountStatus, type ApiKeyStatus, type ExplorerStatus, type FalSpend } from '@shared/api'
 import { PROJECT_WINDOW, api, errText, op, saveSettings, toast, useStore } from '../store'
 import { CommitInput, Confirm, Field, Toggle, ViewHeader } from '../components/ui'
 import { SettingsTitle } from '../components/SettingsTitle'
@@ -438,7 +435,7 @@ function UnityAndPlay() {
   )
 }
 
-/** Genio › System: tools on this PC, Windows integration, updates and Genio's past sessions in the Codex and Claude apps. */
+/** Genio › System: tools on this PC, Windows integration and updates. */
 function SystemPage() {
   return (
     <>
@@ -446,7 +443,6 @@ function SystemPage() {
       <Toolchain />
       <ExplorerIntegration />
       <Patch />
-      <Housekeeping />
     </>
   )
 }
@@ -1290,122 +1286,13 @@ function Accounts() {
           tone="amber"
           confirmLabel={logout.logoutLabel ?? 'Log out'}
           body={logout.tool === GENIO_CODEX
-            ? "Signs out only Genio's own Codex home; your own Codex login is untouched. Codex units and chats go back to your normal Codex home, where they can show in your Codex app."
+            ? "Signs out only Genio's own Codex home; your own Codex login is untouched. Codex units and chats need you to sign in again."
             : `Runs ${logout.tool}'s own logout. Units using ${logout.label} will need you to log in again.`}
           onConfirm={() => start(logout, 'logout')}
           onClose={() => setLogout(null)}
         />
       )}
     </>
-  )
-}
-
-/** System › Genio's past sessions (once Advanced › Maintenance): hide them from the player's Codex and Claude apps, on a click, with Undo. */
-function Housekeeping() {
-  const [preview, setPreview] = useState<SessionCleanupPreview | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [progress, setProgress] = useState<SessionCleanupProgress | null>(null)
-  const [result, setResult] = useState<SessionCleanupResult | null>(null)
-  const [confirm, setConfirm] = useState<'hide' | 'undo' | null>(null)
-  const load = async (): Promise<void> => {
-    setLoading(true)
-    try { setPreview(await api().sessionCleanupPreview()) }
-    catch (e) { toast('error', 'Could not look for past sessions', errText(e)) }
-    finally { setLoading(false) }
-  }
-  useEffect(() => {
-    void api().sessionCleanupProgress().then(p => { if (p.running) setProgress(p) }).catch(() => undefined)
-  }, [])
-  useEffect(() => {
-    if (!progress?.running) return
-    const timer = setInterval(() => void api().sessionCleanupProgress().then(setProgress).catch(() => undefined), 400)
-    return () => clearInterval(timer)
-  }, [progress?.running])
-  const go = async (action: 'hide' | 'undo'): Promise<void> => {
-    setResult(null)
-    setProgress({ running: true, action, step: 'Starting', done: 0, total: 0 })
-    try {
-      const keys = [...(preview?.codex ?? []), ...(preview?.claude ?? [])].map((i) => i.key)
-      const r = action === 'hide' ? await api().sessionCleanupRun(keys) : await api().sessionCleanupUndo()
-      setResult(r)
-    } catch (e) {
-      toast('error', action === 'hide' ? 'Could not hide past sessions' : 'Could not restore past sessions', errText(e))
-    } finally {
-      setProgress(null)
-      await load()
-    }
-  }
-  const count = (preview?.codex.length ?? 0) + (preview?.claude.length ?? 0)
-  const running = !!progress?.running
-  return (
-    <Part id="settings-maintenance" title="Genio's past sessions">
-      <Row label="Hide them from the Codex and Claude apps">
-        <button className="btn sm" disabled={loading || running} onClick={() => void load()}>
-          {preview ? <RefreshCw size={12} /> : null} {preview ? 'Look again' : 'Preview'}
-        </button>
-      </Row>
-      {loading && (
-        <div className="bar indeterminate">
-          <i />
-        </div>
-      )}
-      {preview && !running && (
-        <div className="mute" style={{ margin: '4px 0 8px' }}>
-          {count
-            ? `${preview.codex.length} Codex thread${preview.codex.length === 1 ? '' : 's'} to archive · ${preview.claude.length} Claude folder${preview.claude.length === 1 ? '' : 's'} to move`
-            : 'Nothing of Genio\'s left in your Codex or Claude apps.'}
-          {preview.skipped.length > 0 && ` · ${preview.skipped.length} left alone (running now)`}
-        </div>
-      )}
-      {running && progress && (
-        <div style={{ margin: '4px 0 8px' }}>
-          <div className="mute">{progress.step}{progress.total ? ` · ${progress.done}/${progress.total}` : ''}</div>
-          <div className={cx('bar', !progress.total && 'indeterminate')}>
-            <i style={progress.total ? { width: `${Math.round((progress.done / progress.total) * 100)}%` } : undefined} />
-          </div>
-        </div>
-      )}
-      {preview && !running && (
-        <div className="row" style={{ gap: 8, margin: '4px 0 8px' }}>
-          <button className="btn sm" disabled={!count} onClick={() => setConfirm('hide')}>
-            Hide {count} session{count === 1 ? '' : 's'}
-          </button>
-          <button className="btn sm ghost" disabled={!preview.undoable} onClick={() => setConfirm('undo')}>
-            Undo
-          </button>
-        </div>
-      )}
-      {result && !running && !result.ok && (
-        <div className="amber-text" style={{ margin: '4px 0 8px' }}>
-          {result.message}
-          {result.skipped.length > 0 && (
-            <ul className="mute" style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 12 }}>
-              {result.skipped.slice(0, 20).map((s, n) => <li key={n}>{s.label}: {s.reason}</li>)}
-            </ul>
-          )}
-        </div>
-      )}
-      {confirm === 'hide' && preview && (
-        <Confirm
-          title="Hide Genio's past sessions?"
-          tone="amber"
-          confirmLabel={`Hide ${count}`}
-          body={`Codex archives ${preview.codex.length} thread${preview.codex.length === 1 ? '' : 's'} (one first, as a check; the rest only if it leaves the Codex app). ${preview.claude.length} Claude folder${preview.claude.length === 1 ? '' : 's'} move into Genio's own Claude folder. Nothing is deleted, and Undo restores all of it.`}
-          onConfirm={() => void go('hide')}
-          onClose={() => setConfirm(null)}
-        />
-      )}
-      {confirm === 'undo' && preview && (
-        <Confirm
-          title="Put Genio's past sessions back?"
-          tone="amber"
-          confirmLabel="Undo"
-          body={`Unarchives the Codex threads and moves the Claude folders back to your Claude folder (${preview.undoable} item${preview.undoable === 1 ? '' : 's'}). They show in your Codex and Claude apps again.`}
-          onConfirm={() => void go('undo')}
-          onClose={() => setConfirm(null)}
-        />
-      )}
-    </Part>
   )
 }
 
