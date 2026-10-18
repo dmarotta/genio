@@ -78,7 +78,10 @@ it('styles the cards as a fixed overlay that cannot size the screen, never scrol
   // the docked column and its reflowing rules are gone
   expect(css).not.toMatch(/(\.app-body|\.stage|\.stage-shell)[^{]*answers/)
   expect(css).not.toMatch(/(^|[\s,}])\.answers[\s{,:]/)
-  expect(css).not.toMatch(/\.answer[^{]*\{[^}]*overflow(-[xy])?:\s*(auto|scroll)/)
+  // the stack scrolls only while the quota warning shrinks the area it floats in, so its cards stay reachable
+  const quotaScroll = 'body:has([data-quota-protection]) .answer-stack { overflow-y: auto; }'
+  expect(css).toContain(quotaScroll)
+  expect(css.replace(quotaScroll, '')).not.toMatch(/\.answer[^{]*\{[^}]*overflow(-[xy])?:\s*(auto|scroll)/)
   // above the Genio panel (30) and usage popups (60), below modals (200) and toasts (400)
   const z = Number(/\.answers-float \{[^}]*z-index: (\d+)/.exec(css)![1])
   expect(z).toBeGreaterThan(60)

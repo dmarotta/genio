@@ -7,7 +7,8 @@ Contributor rules (tests, UI guidelines, keeping docs and achievements current) 
 
 ## Requirements
 
-- Node.js 20+ and Git.
+- Node.js 24 (the suite is run on 24.18) and Git. `package.json` allows `^22.22.2 || ^24.15.0`, the range the
+  test tooling (Vitest 5, jsdom 30) supports; Node 22 is within it but not run here, and Node 20 is not supported.
 - Claude Code (`claude`) and/or Codex (`codex`) installed and signed in. Genio itself talks to Claude through the
   Claude Agent SDK, and Claude Code is the default unit runtime.
 - GitHub CLI (`gh`), signed in, for the modes that open pull requests. **Settings** can install missing tools after
@@ -23,6 +24,11 @@ npm start          # run the production bundle
 npm test           # unit tests
 npm run typecheck
 ```
+
+Electron's binary is not fetched by `npm install`: it downloads on first use, so the first `npm test` or
+`npm run test:e2e` needs the network. The test setup downloads it once before any test starts; to do it by hand,
+run `node node_modules/electron/install.js`. The e2e setup also optimises the renderer's Vite dependencies once, so
+parallel e2e files do not race over `node_modules/.vite`.
 
 npm 11 blocks dependency install scripts by default. This repo allow-lists the ones it needs (`electron`, `esbuild`,
 `node-pty`) in `package.json`.

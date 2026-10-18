@@ -14,7 +14,7 @@ const assistant = (i: number, cwd: string, session = 'sess-1'): string => JSON.s
   message: { id: `msg_${i}`, role: 'assistant', content: [{ type: 'text', text: 'ok' }], usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 100 * i, output_tokens: i } } })
 const codexMeta = (cwd: string): string => JSON.stringify({ timestamp: '2026-10-12T19:36:30.542Z', type: 'session_meta', payload: { id: 'cx-1', cwd } })
 const codexTokens = (i: number, input: number, output: number): string => JSON.stringify({ timestamp: new Date(Date.now() - 1000 + i).toISOString(), type: 'event_msg',
-  payload: { type: 'token_count', info: { total_token_usage: { input_tokens: input, cached_input_tokens: 0, output_tokens: output } }, rate_limits: { limit_id: 'codex', plan_type: 'pro', primary: { used_percent: 10 + i, window_minutes: 10080, resets_at: 1792312471 } } } })
+  payload: { type: 'token_count', info: { total_token_usage: { input_tokens: input, cached_input_tokens: 0, output_tokens: output } }, rate_limits: { limit_id: 'codex', plan_type: 'pro', primary: { used_percent: 10 + i, window_minutes: 10080, resets_at: Math.floor(Date.now() / 1000) + 7 * 86400 } } } })
 
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'genio-usage-scan-'))

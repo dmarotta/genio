@@ -573,7 +573,7 @@ describe('Modeller landing', () => {
     expect(brief).toContain('## References')
     expect(brief).toContain('- `sketch.png` (image): the silhouette to match')
     expect(brief).toContain('- `size.md` (text)')
-    expect(brief).toContain("Modeller: every step's review names the references")
+    expect(brief).toContain("Every step's review names the other references")
     expect(ctx.terminals.create).toHaveBeenCalledWith(expect.objectContaining({ env: expect.objectContaining({ GENIO_REFERENCES: refs.replace(/\\/g, '/') }) }))
     expect(events).toContainEqual({ type: 'feature-used', feature: 'unit-references', id: t.id })
     // a unit without attachments gets neither the section nor the variable

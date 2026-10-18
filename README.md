@@ -88,6 +88,8 @@ npm start
   merges green work.
 - Genio uses its own isolated Claude and Codex homes and never reads or changes your own logins.
 - Paid generation always needs your approval, and a monthly cap is a hard stop.
+- By default a Claude unit runs commands inside its own isolated copy without asking for each one; you can change
+  that in Settings, and merging your work (unless you turn on Auto-loot) and paid generation still need your approval.
 - The approval mode decides what Genio may do on your machine without asking.
 
 ## Documentation
