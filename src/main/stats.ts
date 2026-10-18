@@ -97,6 +97,7 @@ export const ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
   { id: 'account-login', feature: 'systems', name: 'Signed In', description: `Log in from ${settingsPath('accounts')}.` },
   { id: 'units-at-once', feature: 'units-at-once', name: 'Set the Pace', description: `Change Units at once in ${settingsPath('usage')}.` },
   { id: 'usage-mode', feature: 'systems', name: 'Gear Shift', description: `Switch the Usage mode between Save, Balanced and Max in ${settingsPath('usage')}.` },
+  // The amber chat warning presents this existing feature; viewing or dismissing it earns no achievement.
   { id: 'quota-protection', feature: 'quota-protection', name: 'Your Pace', description: 'Change Quota protection to choose when Genio saves plan usage.' },
   { id: 'cheap-unit', feature: 'deploy', name: 'Budget Build', description: 'Deploy an OpenCode unit.' },
   { id: 'unit-references', feature: 'unit-references', name: 'Reference Material', description: 'Start a unit with something to work from: a pasted image, a file or a note you gave Genio.' },

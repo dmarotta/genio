@@ -1,0 +1,31 @@
+<!doctype html><html><body><div id="root"></div><script type="module">
+import React from 'react'
+import { createRoot } from 'react-dom/client'
+import { Comms } from '/src/renderer/src/views/Comms.tsx'
+import { GenioPanel } from '/src/renderer/src/components/GenioPanel.tsx'
+import { Answers } from '/src/renderer/src/components/Answers.tsx'
+import { Toasts } from '/src/renderer/src/components/Overlays.tsx'
+import { TipCard } from '/src/renderer/src/components/TipCard.tsx'
+import { getState, setState, useStore } from '/src/renderer/src/store.ts'
+import '/src/renderer/src/styles/theme.css'
+import '/src/renderer/src/styles/app.css'
+import '/src/renderer/src/styles/terminal-pane.css'
+
+window.genio = { on: () => () => {}, api: { usagePolicy: async () => ({ quotaProtection: true,
+  plans: [{ plan: 'claude', level: 'warm', known: true }], heldLaunches: [] }) } }
+localStorage.setItem('genio.panel.fixture', JSON.stringify({ x: 60, y: 10, width: 1100, height: 600, collapsed: false }))
+setState({ booted: true, connected: true, chats: { genio: [] }, chatLoaded: { genio: true },
+  settings: { gamertag: 'Test', calm: false, fx: false, quotaProtection: true },
+  snap: { ...getState().snap, wksps: [{ name: 'genio', displayName: 'Genio', activity: 'idle' }] } })
+window.fixture = { getState, setState }
+function Fixture() {
+  const view = useStore(s => s.view)
+  const el = React.createElement
+  return el('div', { className: 'app' },
+    el('header', { className: 'titlebar' }, 'Genio'),
+    el('div', { className: 'app-body' }, el('div', { className: 'stage-column' }, el('div', { className: 'stage-shell' },
+      el('main', { className: 'stage' }, view === 'comms' ? el(Comms) : null), el(GenioPanel), el(TipCard)))),
+    el(Answers), el(Toasts))
+}
+createRoot(document.getElementById('root')).render(React.createElement(Fixture))
+</script></body></html>

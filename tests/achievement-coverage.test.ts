@@ -67,6 +67,7 @@ const RETIRED_SETTINGS_PAGES: Record<string, string> = {
 // Feature tags that are neither a Rail view, a tool, a unit kind nor a flag: each names the source that proves it is still live.
 const OTHER_FEATURES: Record<string, [file: string, needle: string]> = {
   'units-at-once': ['src/main/settings.ts', "feature: 'units-at-once'"],
+  // The boxed chat warning and its existing Settings/dismiss actions add no feature tag or achievement.
   'quota-protection': ['src/main/settings.ts', "feature: 'quota-protection'"],
   tips: ['src/renderer/src/components/TipCard.tsx', 'sendAskGenio'],
   setup: ['src/main/project-setup.ts', 'applySetupAction'],

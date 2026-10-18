@@ -184,7 +184,7 @@ button.hud-stat:hover { border-color: var(--line); color: var(--text); }
 .tab-badge { margin-left: 6px; color: var(--amber); }
 
 /* ---------- toasts ---------- */
-.toasts { position: fixed; top: calc(var(--hud) + 14px); right: 18px; z-index: 400; display: flex; flex-direction: column; gap: 8px; width: min(340px, calc(100vw - 36px)); pointer-events: none; }
+.toasts { position: fixed; top: max(calc(var(--hud) + 14px), var(--quota-notice-bottom, 0px)); right: 18px; z-index: 400; display: flex; flex-direction: column; gap: 8px; width: min(340px, calc(100vw - 36px)); pointer-events: none; }
 .toast {
   pointer-events: auto; cursor: pointer; padding: 11px 14px 12px; background: var(--surface-3);
   border-left: 3px solid var(--c, var(--neon)); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
@@ -634,12 +634,13 @@ button.hud-stat:hover { border-color: var(--line); color: var(--text); }
    Overlaid at the right edge below the title bar, outside the layout: nothing underneath moves.
    Above the rail, the Genio panel and usage popups; below modals, toasts and the achievement banner. */
 .answers-float {
-  position: fixed; top: calc(var(--hud) + 10px); right: 12px; z-index: 100;
-  width: min(380px, calc(100vw - 24px)); max-height: calc(100vh - var(--hud) - 20px);
+  position: fixed; top: max(calc(var(--hud) + 10px), var(--quota-notice-bottom, 0px)); right: 12px; z-index: 100;
+  width: min(380px, calc(100vw - 24px)); max-height: calc(100vh - max(calc(var(--hud) + 10px), var(--quota-notice-bottom, 0px)) - 10px);
   display: flex; flex-direction: column; gap: 8px; pointer-events: none;
 }
 .answers-float > *, .answer-stack > * { pointer-events: auto; }
 .answer-stack { position: relative; display: flex; flex-direction: column; gap: 8px; min-height: 0; pointer-events: none; }
+body:has([data-quota-protection]) .answer-stack { overflow-y: auto; }
 .answer-card { max-width: none; flex: none; background: var(--surface-3); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55); }
 .answer-card .choice-meta { flex-wrap: wrap; white-space: normal; }
 .answer-card .choice-q, .answer-card .option-text { overflow-wrap: anywhere; }
@@ -673,7 +674,7 @@ body:has(.answers-float .answer-card) .toasts { right: calc(min(380px, 100vw - 2
 .answers-row .choice-q { font-size: 13px; overflow-wrap: anywhere; }
 /* Short windows: compact cards shrink to one line and the open card answers on a single row. */
 @media (max-height: 520px) {
-  .answers-float { top: calc(var(--hud) + 6px); right: 8px; gap: 6px; width: min(360px, calc(100vw - 16px)); max-height: calc(100vh - var(--hud) - 12px); }
+  .answers-float { top: max(calc(var(--hud) + 6px), var(--quota-notice-bottom, 0px)); right: 8px; gap: 6px; width: min(360px, calc(100vw - 16px)); max-height: calc(100vh - max(calc(var(--hud) + 6px), var(--quota-notice-bottom, 0px)) - 6px); }
   .answer-stack { gap: 6px; }
   .answer-card { padding: 6px 10px; gap: 5px; }
   .answer-card .choice-meta { flex-wrap: nowrap; overflow: hidden; line-height: 16px; }
@@ -1078,6 +1079,22 @@ ul.loadout-why li { margin: 1px 0; }
 
 .chat-limit { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 12px; }
 .chat-limit > span { flex: 1; min-width: 180px; }
+/* One warning at the top centre of either chat host; it reserves space above the log. */
+.chat-limit.quota-protection {
+  flex: none; align-self: center; width: fit-content; max-width: calc(100% - 24px); margin: 12px 12px 0;
+  padding: 10px 12px; border: 1px solid var(--amber); border-radius: 8px;
+  background: var(--amber-soft); color: var(--text); font-size: 14px; line-height: 1.5;
+  flex-wrap: nowrap;
+}
+.quota-protection > svg, .quota-protection > button { flex: none; }
+.chat-limit.quota-protection > span { min-width: 0; overflow-wrap: anywhere; }
+@container chat-panel (max-width: 520px) {
+  .chat-limit.quota-protection { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 8px; padding: 8px 10px; margin: 8px 8px 0; max-width: calc(100% - 16px); }
+  .quota-protection > svg { align-self: start; }
+  .quota-protection > span { grid-column: 2; }
+  .quota-protection > .btn.amber { grid-column: 2; justify-self: start; }
+  .quota-protection > .btn.icon { grid-column: 3; grid-row: 1; align-self: start; }
+}
 
 /* ---------- usage mode & shared plan meter ---------- */
 .usage-mode-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }

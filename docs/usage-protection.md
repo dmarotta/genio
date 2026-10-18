@@ -237,13 +237,16 @@ provider rejections still show the existing chat limit line and keep their retry
 backoff; turning protection off cannot remove a provider's own limit.
 
 While protection acts at 70% or above (or after a rejection), the project chat and
-floating Genio panel show one quiet line in the existing chat notice area. It
+floating Genio panel show one amber bordered, subtly tinted warning box at the
+top centre of the chat, below the title bar and above its content. It uses the
+existing warning glyph and readable text, with one line that wraps in narrow
+windows; choice cards, feature tips and toasts stay clear of it. It
 names each affected plan and what is being limited, including the titles of held
 pinned launches in this project, read from the same persistent retry queue. Turning
 protection off retries those launches immediately through their normal checks. Its **Settings** action opens Usage & limits at
 the Quota protection switch. The dismiss icon hides the current levels in both
 chat surfaces, including remounts and restarts; only a worse level
-returns. The line clears when evidence expires, protection recovers or the switch
+returns. The box clears when evidence expires, protection recovers or the switch
 is off. It is never repeated per message and produces no toast or popup.
 
 The switch's one-line description explains automatic saving and provider limits.

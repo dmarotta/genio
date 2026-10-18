@@ -1,11 +1,12 @@
 import path from 'node:path'
+import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { spawn } from 'node:child_process'
 import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
 import { assertChildHomes } from './isolated-homes.mjs'
 
-const fixture = String.raw`<!doctype html><html><body><div id="root"></div><script type="module">
+const fixture = process.argv[4] ? readFileSync(process.argv[4], 'utf8') : String.raw`<!doctype html><html><body><div id="root"></div><script type="module">
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { Comms } from '/src/renderer/src/views/Comms.tsx'

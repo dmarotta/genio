@@ -33,9 +33,9 @@ beforeEach(() => {
   localStorage.clear(); vi.clearAllMocks(); takePendingSection()
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
 })
-afterEach(async () => { await act(() => root.unmount()); host.remove() })
+afterEach(async () => { await act(() => root.unmount()); host.remove(); vi.restoreAllMocks() })
 
-it('shows one quiet notice in both chat surfaces only while protection acts, including both plans and held pins', async () => {
+it('shows one boxed warning above the content in both chat surfaces only while protection acts, including both plans and held pins', async () => {
   await render(true)
   expect(notices()).toHaveLength(0)
   f.view = view(plan('ok')); await render(true)
@@ -45,8 +45,12 @@ it('shows one quiet notice in both chat surfaces only while protection acts, inc
   await render(true)
   expect(notices()).toHaveLength(2)
   for (const notice of notices()) {
-    expect(notice.className).toBe('chat-limit')
-    expect(notice.textContent).toContain('Claude is at 70%+ used')
+    expect(notice.className).toBe('chat-limit quota-protection')
+    expect(notice.parentElement?.firstElementChild).toBe(notice)
+    expect(notice.closest('.chat-viewport')).toBeNull()
+    expect(notice.querySelector('svg[aria-hidden="true"]')).not.toBeNull()
+    expect(notice.querySelector('.btn.amber')?.textContent).toBe('Settings')
+    expect(notice.textContent).toContain('Claude is at 70%+ used, so Genio runs one Claude unit at a time with lower automatic effort.')
     expect(notice.textContent).toContain('Codex is at 85%+ used: no new automatic units.')
     expect(notice.textContent).toContain('Build the castle')
     expect(notice.textContent).not.toContain('Other work')
@@ -54,6 +58,21 @@ it('shows one quiet notice in both chat surfaces only while protection acts, inc
   }
   f.view = view(plan('ok')); await render(true)
   expect(notices()).toHaveLength(0)
+})
+
+it('reserves clearance for choice cards and toasts as the warning resizes or moves, and releases it when protection stops', async () => {
+  let bottom = 140
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    return (this.hasAttribute('data-quota-protection') ? { width: 400, height: 80, bottom } : { width: 0, height: 0, bottom: 0 }) as DOMRect
+  })
+  f.view = view(plan('warm')); await render()
+  const clearance = () => document.documentElement.style.getPropertyValue('--quota-notice-bottom')
+  expect(clearance()).toBe('150px')
+  bottom = 190
+  window.dispatchEvent(new Event('resize'))
+  expect(clearance()).toBe('200px')
+  f.view = view(plan('ok')); await render()
+  expect(clearance()).toBe('')
 })
 
 it('shares dismissal across surfaces and remounts, returning only when a plan worsens', async () => {

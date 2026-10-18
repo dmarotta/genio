@@ -49,8 +49,8 @@ body.fx-off .term-pane { transition: none; }
 .term-pane-run.bad { color: var(--alert); }
 
 /* The floating cards and toasts stay above the pane, never over it. */
-body .answers-float { max-height: calc(100vh - var(--hud) - 20px - var(--term-pane-h, 0px)); }
-@media (max-height: 520px) { body .answers-float { max-height: calc(100vh - var(--hud) - 12px - var(--term-pane-h, 0px)); } }
+body .answers-float { max-height: calc(100vh - max(calc(var(--hud) + 10px), var(--quota-notice-bottom, 0px)) - 10px - var(--term-pane-h, 0px)); }
+@media (max-height: 520px) { body .answers-float { max-height: calc(100vh - max(calc(var(--hud) + 6px), var(--quota-notice-bottom, 0px)) - 6px - var(--term-pane-h, 0px)); } }
 @media (max-width: 780px) { html body:has(.answers-float .answer-card) .toasts { bottom: calc(18px + var(--term-pane-h, 0px)); } }
 
 .hud-stat.on { color: var(--neon); border-color: var(--line-strong); }

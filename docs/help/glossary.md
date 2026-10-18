@@ -278,8 +278,9 @@ deferred deployments and pinned relaunches retry themselves through the usual pe
 plans resume automatically; other queued quests still follow the automatic-dispatch setting.
 On by default. Turn it off with **Quota protection** beside the plan meter in Settings → Usage & limits;
 work then follows the Usage mode alone, while actual provider limits and retry backoff still apply.
-The project chat and floating Genio panel show one quiet line while protection acts, naming affected plans and
-held pinned launches. **Settings** jumps straight to the switch. Dismiss it for the current level; it returns only
+The project chat and floating Genio panel show one amber warning box at the top centre of the chat, below its
+title bar and above the content, naming affected plans and held pinned launches. Text wraps in narrow windows;
+choice cards, tips and toasts stay clear. **Settings** jumps straight to the switch. Dismiss it for the current level; it returns only
 if protection worsens, and clears when protection stops acting or is off.
 Where: the project chat and floating Genio panel; Settings → Usage & limits → Quota protection.
 Source: [usage-protection.md](../usage-protection.md), [chat-limits.md](../chat-limits.md)

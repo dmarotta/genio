@@ -41,7 +41,7 @@ function ActiveTipCard({ tip }: { tip: NonNullable<State['tip']> }) {
       const gap = window.innerWidth <= 780 ? 8 : 16
       const left = bounds.left + gap
       let bottom = bounds.bottom - gap
-      const blockers = [...document.querySelectorAll('.answers-float, .toasts')]
+      const blockers = [...document.querySelectorAll('.answers-float, .toasts, [data-quota-protection]')]
         .map(n => n.getBoundingClientRect()).filter(b => b.width && b.height)
         .sort((a, b) => b.bottom - a.bottom)
       for (const b of blockers) {
@@ -54,7 +54,7 @@ function ActiveTipCard({ tip }: { tip: NonNullable<State['tip']> }) {
     const resize = new ResizeObserver(schedule)
     const observe = (): void => {
       resize.disconnect()
-      for (const n of [shell, el, ...document.querySelectorAll('.answers-float, .toasts')]) resize.observe(n)
+      for (const n of [shell, el, ...document.querySelectorAll('.answers-float, .toasts, [data-quota-protection]')]) resize.observe(n)
       fit()
       schedule()
     }
